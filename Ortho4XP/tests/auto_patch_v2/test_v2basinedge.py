@@ -123,9 +123,13 @@ def test_the_rim_is_never_widened_outside_the_shells_footprint(wide_apron_pit):
     per basin.  The old ``_rim`` k-loop widened by 2.0 m at LEMD —
     28,971 m² of rim over a 27,557 m² region — and nothing does that now.
 
-    This pit's authored shell is ZERO thick, so its whole band is the
-    yield: ``ring_floor_m`` 0.7071 m, snapped to the identity lattice by
-    ``basin_geometry._snap_ring`` (0.5 m out on each side here)."""
+    This pit's authored shell is ZERO thick.  Until §47 (3) was AMENDED
+    (RULINGS 2026-10-10h (2), lane basins526) its whole band was the
+    yield — ``ring_floor_m`` 0.7071 m outside the outline; now a shell
+    with no wall face keeps its rim ON the outline and takes the band
+    INSIDE it (``bank_bands``), the yield remaining only for a well too
+    narrow to hold it.  Either way the rim never leaves the plate ⊕ F,
+    and the reading is NAMED."""
     _a, cl3, basins, _bs = wide_apron_pit
     wall = next(c for c in cl3.cells if c.ref == basins[0].wall_ref)
     rim, plate = Polygon(wall.ring), _plate_footprint()
@@ -134,8 +138,10 @@ def test_the_rim_is_never_widened_outside_the_shells_footprint(wide_apron_pit):
     allowed = plate.buffer(F + 1e-6, join_style="mitre", mitre_limit=2.0)
     assert allowed.contains(rim)
     assert rim.area <= allowed.area + 1e-6
-    # ...and the yield is NAMED, never silent
-    assert any("rim_yield" in n for n in _bs.rim_yields), _bs.rim_yields
+    # ...and the reading is NAMED, never silent: the band inside (§47 (3)
+    # amended) or the outward yield (the degenerate well)
+    assert (any("band" in n for n in _bs.bank_bands)
+            or any("rim_yield" in n for n in _bs.rim_yields)), (_bs.bank_bands, _bs.rim_yields)
 
 
 def test_the_standoff_comes_out_of_the_floor(wide_apron_pit, law):

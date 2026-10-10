@@ -50,3 +50,33 @@ Lane branch `claude/basins526`, base main `f5f11c81f`. Reference: `/tmp/harness/
   rim vertex TOL_DEG along the outward bisector (one site; `basin_ring.arc_anchor` reads it).
 * Other airports (base = `git archive f5f11c81f`, arm = this tree, full `obj8_split_report
   --json`): KCLT 573 bodies, HECA 3,039 bodies — 0 changed (class, anchor, components).
+
+## Step 2 — what landed (branch `claude/basins526`)
+
+| commit | fix | rule in one sentence | twin |
+|---|---|---|---|
+| e99636db3 | G (§47 (3) AMENDED) | a pit shell with no wall face (shell < `min_solid_thickness_m`) keeps its rim ON the object's outline and takes the `max(t, F)` band INSIDE it, under the banks; a well whose floor inside keeps under `[basin] bank_band_plate_min` (0.5) of its plate keeps the outward yield, named DEGENERATE | `test_basins526.py` (bowl with an outlet; 1.6 m well) |
+| 9e075489e | B2 #527 | the basin rim anchor is the nearest rim vertex pushed `model.placement.TOL_DEG` (the writer's pinned round-trip tolerance) along the ring's outward bisector — one site `anchor_rule.rim_anchor_point`, read by `_basin_rim_anchor` and `basin_ring.arc_anchor` | `test_basins526.py` (B2), `test_v2objsplit` rim twin amended |
+| 952171199 + 83f51b834 | B1 #526 | a component belongs to the ring its centroid is in; a component whose centroid is in no ring belongs to the ring more than half its feet stand in (plurality) — ONE function `anchor_rule.ring_of_part` at the three sites; feet-first REFUTED on the closing build (feet on the rim ring of a sump whose plate reaches the outline) | `test_basins526.py` (B1) |
+| 952171199 + e137608f3 | B3 #528 | §14a (2)'s floor-member test is asked only of a group with feet; a piece carried by a BASIN body keeps that carrier in `contents_seat` (the basin's zero is the rim, its unit datum the floor — the §16a (2) exemption, counted `contents_seat_kept_basin_rider`) | `test_basins526.py` (B3) |
+
+Per-pit, othh513 frame → closing build frame (`obj8_split_report --units-with "Dewatering Drainage" --dsf-dump`):
+
+| body | before | after |
+|---|---|---|
+| `Drainage_06_000` b0 (the L trench shell) | `skirted`, low-side foot z −0.74, y0 −2.51 → rim 2.68 m under grade | `basin` on `basin_wall:0@1052`, z 3.96, y0 0 → rim at grade |
+| `Drainage_06_000` b1, `Drainage_06_001` b0/b1/b2 | basin rim VERTICES (3.733 / 3.810 as written) | rim vertex + TOL_DEG outward, surface 3.96 |
+| `Dewatering_02_LOD0_002` b1..b10, `_001` b1/b2 (the fittings) | 12 bodies `footless_own_ground` z −9.68 (13.64 m low) | 2 bodies carried by the shell, z 3.96 y0 0, authored +3.18 kept |
+| 22 authored rows (13 pit, 9 wall) | kept as authored | kept as authored (22) |
+
+Closing build `basins526_OTHH`: rc 0, patch clock 532.1 s (bar 660), wall 727.9 s, body 87f9d2f94d71
+(main eb7565539e36), rebake plan 4eaa5364f8a0 (15 authored seats identical; only the `plate_stations`
+of the two plain-row pit members differ — they follow the moved rims). Movers vs othh513 by 11-dp
+identity: runway/taxi 0; apron 2 nodes (4.31 m, ON the pit rings: the floor→rim role swap of G);
+structure_rim 27 (the basin rings themselves, max 13.64); groundside_pavement 133 ≤ 0.05 m;
+service_road 3 ≤ 0.02 m. The per-pit ring table is in design spec §47 (3) AMENDED.
+Frame registered (`frames.py list OTHH`, lane basins526).
+
+Suites: non-Qt `-n auto` 9,230 passed / 1 failed → `test_v2basinedge` rim twin amended for §47 (3)
+(9 passed); Qt `-n0` 311 passed; the four named files 204 passed; `tools/ratchets.py` duplicate +
+layer PASS; size WARN anchor_rule.py 1024 → 1111 (+87, this lane).

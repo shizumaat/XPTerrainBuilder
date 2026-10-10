@@ -7,6 +7,59 @@ bases `b0` / `kb0` and weld63's `w1` / `kw1` symlinked — controls shared, not 
 
 ## RESUME HERE
 
-* Step 1 running: `chain1.sh` = `v1` (HECA, head b57214e32, `--null-change`, census), `kv1` (KCLT, head, `--null-change`,
-  census), `x1` (HECA 44f9955b = W + B′ + P before the cloud commits), `kx1` (KCLT 44f9955b), `s1` (HECA 23ad159e = S + T).
-* Then `acc.sh <arm> <ICAO> <base>` and `cencmp.py`, the table below, sites, SPJC / CYXY / OTHH, the closing build.
+* HEAD 75cdfb3e (pushed). Arms done in `<scratch>/weldverify/`: `v1` / `kv1` (b57214e3 = PR #504 + main), `x1` / `kx1`
+  (44f9955b, W + B′ + P before the cloud commits), `s1` (23ad159e). RUNNING: `chain2.sh` = `v2` / `kv2` at 63341a37
+  (the strip-claim fix), `--null-change`, census. THEN: `acc.sh v2 HECA b0`, `acc.sh kv2 KCLT kb0`, `cen2.py`, the sites,
+  SPJC / CYXY / OTHH single replays (bases at ded211fb not yet taken), the closing build `weldverify_HECA`, suites, ratchets.
+* Second frozen tree `.claude/worktrees/weldverifyfrz` (44f9955b) for read drivers; `weld63frz` runs the chain.
+
+## Step 1 — `v1` (HECA) / `kv1` (KCLT) at b57214e3, before any fix here
+
+| read | HECA `b0` → `w1` (weld63) → `v1` | KCLT `kb0` → `kw1` → `kv1` |
+|---|---|---|
+| TOUCH-OFF runs / m | 15 / 565 → 8 / 68 → **3 / 0** | 8 / 62 → 1 / 0 → 3 / 4 (`building26` \| `pol50#1` 3.5 m −1.82: a strip part) |
+| GAPPED | 2 / 66 → 5 / 86 → 5 / 86 | 3 / 24 → 4 / 24 → 4 / 24 |
+| ENGINE | 18 / 156 → 22 / 302 → 22 / 311 | 2 / 0 → 0 → 0 |
+| `hard_conflict` gs / pad / taxi | 254 / 104 / 64 → 266 / 124 / 70 → **349 / 19 / 2** | 277 / 33 / 50 → 267 / 53 / 48 → **303 / 33 / 0** |
+| airside nodes removed / added (solve-owned) | 9 / 2 → **5 / 163** | 6 / 3 → **31 / 30** |
+| airside movers > 0.02 (runway / strip / taxi / apron), worst | 0 / 14 / 20 / 98, 0.14 → **11 / 67 / 76 / 43, 0.10** | 0 / 4 / 5 / 6, 0.45 → 4 / 6 / 5 / 31, 0.45 |
+| structure frame | 0 of 245 → 0 of 245 | 0 of 363 → 0 of 363 |
+| `--null-change` | 9/0/0.119, 8/0/0.091, 8/0/0.091 → 3/0/0.092, **76/4/0.343, 98/4/0.343 MISSED** | — → 2/0/0.117, 0, 0 |
+| CRITICAL motion / visual | 3 / 1,962 → 3 / 1,973 → 3 / **2,015** | 0 / 1,996 → … → 0 / 2,036 |
+| adjudicated airside | 12,022 → 12,043 (`x1`) → 12,122 | 2,971 → 3,031 |
+| `road_cross_section` | 501 → 617 → 559 | 769 → 898 → 809 |
+
+`x1` (W + B′ + P, 44f9955b) reads the same as `w1` on every line at HECA: B′ changes nothing measurable there.
+
+### The node miss is a ZONE-CLAIM HAIRLINE, not the weld (attributed by intervention, fixed 63341a37)
+
+`v1`'s 163 added airside nodes are RUNWAY nodes of 05C/23C (121 `runway|runway`, 14 `junction|runway`, 11 `runway|stub`, …),
+1.6 km from the nearest pad. Chain: cloudweldfix (3) adds 27 rim-strip cells (HECA 1,531 → 1,558) → `planar/zones.zone_regions`
+unions every cell into its claim → the union re-nodes and leaves a new band part `adjacent_ground:runway:4:zone1#5`,
+**1.31 m², 3,378 m of ring (1,689 m × 0.8 mm)** beside 05C/23C, over the 1 m² floor → its ring's 60 m chord stations
+land on the runway edge. The same class, the same hairline, as spec §59's gap apron (the comment in `zones.py`).
+Reads: `<scratch>/weldverify/{lines_drv,reg_drv,zone_drv}.py` on trees 44f9955b (3 thin parts) and b57214e3 (4: the new one).
+FIX (63341a37): the strip carries `pad_touch.STRIP_KEY`; `zones._unclaimed` leaves it out of the claim exactly as a gap
+apron (cut out of a band it reaches). After it the head reads the 3 thin parts of the base. Twins in `test_pad_touch`.
+NOT DONE, measured: a WIDTH floor on zone parts (drop a part nowhere wider than the 0.5 m identity grid) would be the
+general cure for the class but drops 3 parts at HECA, 137 of 606 at KCLT, 4 at SPJC, 2 at CYXY — real narrow bands, not
+only float slivers; not landed (a law question: is a band under 0.5 m wide a band?).
+
+### Step 2 — the census reclassification of cloud commit (2)
+
+`hard_conflict` rows of the two `SIDE_RANKED_HEADS` standing on a groundside vertex now carry tier `groundside`, and
+`check_grade` sides them groundside: HECA `v1` 159 `pavement_max_grade ceiling` + 10 `road_max_grade pavement fallback`
+= **169 rows** (KCLT 113 + 11 = **124**) that the old ranking would have reported in the taxi tier (airside). Census
+`hard_conflict` airside / groundside: HECA 168 / 254 → 21 / 349, KCLT 83 / 277 → 33 / 303. The family is REPORT rows; the
+adjudicated-airside figure above moves for other families (`within_shape` airside +355 at HECA `v1`, the hairline's nodes).
+
+### RULINGS 2026-10-10a (2) at HECA `building12` (30.11524973490, 31.40942194421) — what holds the pad
+
+Nothing holds it. weld63's `--why-at` on the one-pad probe `ph` (`<scratch>/weld63/ph/why12.txt`): the vertex binds on 18
+rows of its OWN plane (`pads`), chained through the shared `route3` vertex → `road_cross_section` → `road_within_shape`
+→ the apron contact v8305 at 92.24, 40 m off; no airside contact of the pad, no datum, no hold, no object seat.
+On `v1` the pad stands at **94.42–95.52 (median 95.05)** — DEM 104–106 — and `route3` shares its rim at 94.4–94.9:
+10a (2) (a) is what the engine does today (the pad MOVED to where the road grades inside its caps). The spec's "104 with
+a 29 % road" never existed on this tree (weld63 notes D1). LP twins added (75cdfb3e, `test_ceiling_side_rank`): (i) a
+landside pad + welded road tied to a fixed lower contact → 0 relaxed rows; (ii) the same pad held by an apron vertex →
+the relaxed rows are `road_cross_section` / `ramp ceiling` / the fallback cap, tier groundside; the pad's plane holds.

@@ -112,3 +112,91 @@ sw8_OTHH`; lane pads65 recorded the mover when it landed (`docs/briefs/pads65-no
 
 VERDICT: lawful, no fix. The structure bar of 0 is met for every value a structure states; the three nodes are the
 pad's own, changed by the ruled collar deletion (07b (4) / 07c (6)).
+
+## Item 3 — HECA `building36` | `dsf:objpav366` 30.11685, 31.38175: ATTRIBUTED BY INTERVENTION, FIXED (9cb3819d1)
+
+SITE NUMBERS (replay pair on `frames/pads67/HECA.pkl --from classify --gap-free --emit`: `h0` = control tree
+`padfixctl` at c1a26f166, `h1` = the fix; `h0` reproduces sw11's record exactly):
+
+| | main sw10 | merged (sw11 = `h0`) | fix `h1` |
+|---|---|---|---|
+| `building36` record | held, datum 63.319, tilt 0.0, welded 13 | RESIDUAL, datum 63.544, tilt 0.321, released 13 of 13 (worst 0.281) | **held, datum 63.267, tilt 0.002, welded 13, released 0** |
+| the pad's 13 emitted vertices | 63.32 all | 63.26 × 11, **63.51 and 63.54** at the road weld | 63.26–63.27 all |
+| §5a stage 2 at the site | — | 2 `frontage_hold` relaxed 0.245 / 0.250 m (tier pad) against 1 `pavement_max_grade ceiling` | 0 pad rows; the road's own rows relaxed (`road_cross_section` 16, ceiling 11, tier groundside) |
+| HECA §5a stage 2 (final) | — | 302: gs 269, pad 32, taxi 1 | 299: gs 270, **pad 28**, taxi 1 |
+| hold verdicts | held 32 | held 37, residual 2 | **held 38, residual 1** |
+
+PARENT: `claude/weldverify` (the touch-weld). `frames/pass2/HECA_auto.patch.osm` and `pads67/sw8_HECA` read held
+63.306 / 14 vertices; `weldverify_HECA.osm` reads residual 63.543 / 15 vertices.
+
+MECHANISM. The pad was never released by the airside: its 10 airside rim vertices and 3 near-miss contacts stand at
+the pad's level in both arms. What moved is ONE CORNER of the pad — the vertex the touch-weld shares with the rim strip
+`dsf:objpav366#2` and the road `small_roads:-3884` (30.11669816, 31.38145248) and its neighbour 0.5 m away — which the
+record reads as "the datum" (`pad36.py`: with the weld EVERY vertex of the pad is a weld, 10 airside + 5 groundside, and
+`model.platform.datum_vertices` takes a groundside weld as the datum column), so all 13 contacts read "off the datum".
+The corner was lifted because the §5a LP relaxed the PAD's two hold rows instead of the ROAD's cap:
+`solve.feasibility.row_tiers` ranked a `pavement_max_grade ceiling` row groundside only when one of its vertices was
+touched by NO airside pavement. The road's ceiling between the pad's corner (roles building + service_road) and the
+apron contact 4.0 m on (`dsf:objpav114` + the road, 63.75) has two "airside-touched" vertices, kept the TAXI rank and
+outranked the pad tier — 09j (1) / 10a (2) (b) inverted at exactly the place the weld creates.
+
+FIX (general, one derivation site): a two-vertex side-ranked row whose vertices share pavement faces, NONE of them
+airside, ranks in the groundside tier — it is that road's or lot's own cap between two welds. Twins in
+`tests/auto_patch_v2/test_ceiling_side_rank.py` (rank; and the LP: the pad's plane holds, the road's ceiling relaxes
+0.3 m) — both fail on c1a26f166.
+
+WHAT THE FIX MOVED (`airside_value_delta h0 h1`, 0.02 m): row-side 2 nodes (the pad's corner −0.27 / −0.25 m), 6
+`service_road` nodes ≤ 0.28 m (`dsf:objpav366#2` 4, `small_roads:-3884` 2); solve-owned airside 0; runway 0;
+structure 0.
+
+THE ROAD'S RESIDUAL CLIMB IS THE MAP, not a row that should have yielded elsewhere. `small_roads:-3884` lies along
+the edge of apron `dsf:objpav114` — its end vertices ARE that apron's (63.75 at 30.11666659, 31.38147325; 64.06 at
+30.11685612, 31.38183117) and it stands at 63.86–64.03 between them — 3–4 m outside the pad's SE rim, which junction
+`dsf:objpav365` and the same apron's far corner hold at 63.26 (10 airside rim vertices). Two senior airside levels
+0.5–0.8 m apart, 3–4 m apart in plan (main: 63.32 vs 63.80–64.11, the same 0.5–0.8 m, read then as a TOUCH-OFF step
+of 0.72 m). The weld puts the whole difference across the 0.95 m rim strip (knife line tied to the rim at 63.26–63.29,
+the road's own edge at 63.86–64.0): the census's 15 `mid_edge_step` `service_road|service_road` rows of 0.51–0.68 m
+over 0.65–0.98 m. They stand after the fix (the road did not move); 10a (2) (b) is what the surface does there.
+
+## Item 4 — HECA `mid_edge_step` +9 CRITICAL visual: what it is
+
+16 new rows, 13 gone (`<scratch>/padsweep/m/HECA_{base,arm}.rows.json`). 15 of the 16 new are item 3's site
+(`service_road|service_road`, ways −11662 | −11663, 0.51–0.68 m). The 13 gone: 7 `apron|building` (the collar's rim
+rows, to 1.54 m) and 6 groundside.
+
+The 16th, 4.69 m `groundside_pavement|groundside_pavement` at 30.11594978, 31.40754772 (ways −12145 | −12016):
+the wall of a DECLARED GAP TERRACE between two late-stage parts of one gap piece — `gap:0/s5` (sidecar `gap_pieces`
+kind `step`) against `gap:0/s0/lot` (kind `lot`), whose edges run 0.5 m apart between `building10` (103.2) and
+`building26` (90.2). `osmnear.py` on the two patches, the node pairs along the seam: main 97.46 | 95.09 (2.37 m),
+98.87 | 93.43 (5.44 m); merged 98.78 | 94.72 (4.06 m), 100.88 | 93.06 (7.82 m). The step part was re-cut (4,312 m² on
+main, with `s9` / `s15` beside it → 6,660 m² merged) and the lot fell ~0.37 m with `building26` (90.56 → 90.20). The
+wall is on main too; `terrace_actual_step` groundside went 29 → 15 in the same build — the one row is the stretch of
+the wall where a vertex of the step part faces the lot's edge mid-span with no declared joint point beside it (joint
+points within 45 m: 222 → 202). Groundside, a terrace wall (09f), reported under a different family: not a new step.
+
+## Item 5 — `hairline_pair` against the parents' expectation: every count is a sum of recorded pairs
+
+The parents' "+30 / +43 / +122" are weldverify's figures against ITS base (the collar-less tree), not against main.
+main → merged also crosses the collar deletion (PR #480, the common ancestor), whose own pair is `pads67-notes.md`
+(main → sw8):
+
+| | collar deletion (main → sw8) | R-D (seat2 notes) | R-E (reverify m → c2) | weld strips (weldverify) | sum | observed sw10 → sw11 |
+|---|---|---|---|---|---|---|
+| HECA | 1,851 → 1,896 (+45) | +7 | +7 | +30 | +89 | +91 (main itself 1,851 → 1,853 between the two sweeps) |
+| KCLT | 1,969 → 1,993 (+24) | 0 | 0 (CRITICAL visual 1,996 = 1,996) | +43 | +67 | **+67** |
+| OTHH | 2,040 → 1,923 (**−117**) | 0 | 0 (byte-identical) | +122 | +5 | +4 |
+
+So: the surplus over the weld's own count at HECA and KCLT is the collar deletion's (the pads' simplified outlines'
+own sub-spacing pairs), in both parents. The OTHH "drop" is not a drop of the weld's rows: the +122 is real (merged
+CRITICAL visual 2,054 = weldverify's `ov6` 2,054 exactly) and the collar deletion had removed 117 collar hairlines
+first.
+
+## Item 6 — KCLT families rising airside on the merged head, one line each
+
+| family | which change (the recorded pair) | read |
+|---|---|---|
+| `taxi_box` +3 (13 new / 8 gone; worst 0.70 m at 35.22399174, −80.9375963) | pass2's linear-solve fix (pass2 census m / c2 / f: 224 / 224 / **227**; weldverify 224 → 223) — the worst two are R-E's junction below read by the box family | DEFECT-class rows (an airside junction over its cap), pass2's found-not-fixed; not minted by the merge |
+| `transverse` +4 (6 new, 0.49–0.70 m over 25 m, all on junction way −10177 at 35.2240, −80.9376) | R-E (reverify m → c2: 4 → 8; weldverify 4 = 4): the junction sinks 0.30–0.47 m against a runway-side edge that does not move | DEFECT (a junction 2.8 % across), R-E's, not fixed here |
+| `pad_airside_renode` +6 (7 new / 1 gone, magnitude 0) | the collar deletion (sidecar key: main 47, `pads67/sw8` 53, pass2 53, merged 53) | REPORT rows (where the pad cut re-noded an airside ring); lawful |
+| `pad_airside_weld` +2 (0.64 m over 92 m at 35.21610606, −80.92907988; 0.16; 0.14) | the common ancestor (weldverify's base `kb0` 7 = `kv6` 7 = merged 7; main 5) — neither parent | DEFECT of item 7 (ii)'s class: a pad with no vertex of its own on an apron sheet is not one level |
+| `strip_arc` +1 (0.39 m over 40 m at 35.22118171, −80.93695414) | R-E (reverify m → c2: 11 → 12; weldverify 11 = 11): one graded-strip vertex 224.65 → 224.71 against 225.10 unmoved | lawful movement, a row at its threshold (CRITICAL `strip_arc` 4 = 4) |

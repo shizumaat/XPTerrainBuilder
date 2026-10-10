@@ -111,3 +111,18 @@ recorded table equals the measured one.
 - `Providers/Switzerland/capabilities_CH_ZH.xml` and `capabilities_CH_VS.xml`
   are named by no shipped `.lay`.
 - `Licence/copyright.txt` is non-ASCII and has no reader in src.
+
+## Measured (d299d7ddd)
+
+- twins `tests/test_text_files_encoding.py`: 19; with the named suites
+  (provider self-check, windows_text_io, console_encoding, v1_retired,
+  no_airport_specific_code, newline_pinned, overlay_7z): 244 passed
+- full non-Qt split: 9258 passed, 19 skipped, 1 xfailed, 1 xpassed, 1 failed
+  (`test_newline_pinned`: `**kwargs` at the overlay `open` hid the mode
+  from that gate — spelled literally in d299d7ddd, green)
+- Qt `-n0`: 311 passed
+- `tools/ratchets.py`: exit 0 (size warnings: `O4_Imagery_Utils` +24,
+  `O4_Airport_Elevation_Insets` +5 here, `O4_Mesh_Utils` +3,
+  `O4_Settings_Model` +3, `O4_Vector_Map` +2)
+- CYXY harness build `CYXY_20261010T111625`: body_sha `5280c1eefe96`
+  (the expected one), artifact ledger `edcfdc2a2a85`

@@ -1758,12 +1758,17 @@ component's PLAN CENTROID. A concave shell's centroid leaves its own ring: the
 283 × 179 m L-shaped trench shell (`Drainage_06_000` comp 1, 4,858 m², base y −2.51,
 all four feet inside `basin_wall:0`) had its centroid 19 m outside the L, read
 `skirted`, and the generic rule seated it at its low-side foot on the trench floor —
-rim 2.68 m under grade. RULED: a component with feet belongs to the ring MORE THAN HALF
-of its feet stand inside, the plurality ring among those; a component with no feet is
-read by its centroid as before. Not "any foot" (a thing standing beside a pit with one
-foot over the ring edge is not the pit) and not footprint containment (the ring is the
-shell's own outer face snapped to the lattice, so the footprint straddles it by
-construction). ONE implementation, `anchor_rule.ring_of_part`, at the three sites that
+rim 2.68 m under grade. RULED: a component whose centroid stands in a ring belongs to it as
+before; a component whose centroid stands in NO ring belongs to the ring MORE THAN HALF of
+its feet stand inside, the plurality ring among those. Not "any foot" (a thing standing
+beside a pit with one foot over the ring edge is not the pit) and not footprint
+containment (the ring is the shell's own outer face snapped to the lattice, so the
+footprint straddles it by construction). THE ORDER IS MEASURED: feet-first was tried and
+REFUTED on the closing build — with §47 (3) amended the rim ring hugs the outline, a sump
+whose plate reaches the outline has its feet ON the ring (ray casting reads half of them
+outside), and four basin bodies of `Drainage_06_001` fell to `plate_only` on the trench
+floor with their centroids squarely inside their rings. The centroid is exact for every
+convex shell; the feet decide only where it says nothing. ONE implementation, `anchor_rule.ring_of_part`, at the three sites that
 asked the question separately (`placement_body._raw_bodies`, `_whole_body` through
 `placement_cut._rim_of`, and `_basin_rim_anchor`). The `base_y < 0` guard of §14 (2)
 (LEMD's `Terminal4sBlue-LEMD35`) is untouched.

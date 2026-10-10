@@ -174,11 +174,16 @@ def test_a_concave_shell_is_read_by_its_feet_not_its_centroid():
     assert _ar.ring_of_part([ring], 0.1, 0.5, ()) is ring
 
 
-def test_a_body_whose_feet_mostly_stand_outside_is_not_a_member():
+def test_the_centroid_decides_first_and_the_feet_only_where_it_says_nothing():
+    """MEASURED ORDER (the closing build): a sump whose plate reaches the
+    outline has its feet ON the rim ring, half read outside — the centroid
+    inside the ring must still class it; feet decide only for a centroid
+    in no ring, and then need a strict majority inside."""
     ring = _ar.RimRing("basin_wall:0", _l_ring())
     inside = (0.25, 0.25)
     feet = ((0.25, 0.25, 0.0), (2.0, 2.0, 0.0), (3.0, 3.0, 0.0))
-    assert _ar.ring_of_part([ring], *inside, feet) is None
+    assert _ar.ring_of_part([ring], *inside, feet) is ring
+    assert _ar.ring_of_part([ring], 5.0, 5.0, feet) is None
     feet = ((0.25, 0.25, 0.0), (0.3, 0.3, 0.0), (3.0, 3.0, 0.0))
     assert _ar.ring_of_part([ring], 5.0, 5.0, feet) is ring
 

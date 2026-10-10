@@ -477,19 +477,29 @@ def rim_of(rims: _t.Sequence[RimRing], lat: float, lon: float) -> RimRing | None
 def ring_of_part(rims: _t.Sequence[RimRing], lat: float, lon: float,
                  feet: _t.Sequence[tuple[float, float, float]] = ()) -> RimRing | None:
     """§14 (2) AMENDED (issue #526; spec §14 (2) (a)): THE RING A COMPONENT
-    STANDS IN, read where it STANDS — its ground feet.
+    STANDS IN — by its plan centroid, else by its FEET.
 
-    A component with feet belongs to the ring more than half of ALL its
-    feet stand inside (the plurality ring among them); the plan centroid
-    decides only for a component with no feet.  The centroid alone was
-    the witness, and a CONCAVE shell's centroid leaves its own ring: the
-    283 x 179 m L-shaped trench shell at the owner's OTHH site had its
-    centroid 19 m outside ``basin_wall:0`` with all four feet inside it,
-    read ``skirted`` and was seated on the trench floor 2.68 m under
-    grade.  ONE implementation for the class (``placement_body``), the
-    floor-member read and the rim anchor (``_basin_rim_anchor``)."""
-    if not feet:
-        return rim_of(rims, lat, lon)
+    The centroid was the only witness, and a CONCAVE shell's centroid
+    leaves its own ring: the 283 x 179 m L-shaped trench shell at the
+    owner's OTHH site had its centroid 19 m outside ``basin_wall:0`` with
+    all four feet inside it, read ``skirted`` and was seated on the
+    trench floor 2.68 m under grade.  A component whose centroid stands
+    in NO ring is therefore read where it stands — the ring more than
+    half of ALL its feet stand inside (the plurality ring among them).
+
+    THE ORDER IS MEASURED, NOT A PREFERENCE: feet-first was tried and
+    REFUTED on the closing build (lane basins526).  With §47 (3) amended
+    the rim ring hugs the object's outline, and a sump whose plate
+    reaches that outline has its feet ON the ring — ray casting reads
+    half of them outside — so four basin bodies of one drain fell to
+    ``plate_only`` on the trench floor while their centroids stood
+    squarely inside their rings.  The centroid is exact for every convex
+    shell; the feet decide only where it says nothing.  ONE
+    implementation for the class (``placement_body``), the floor-member
+    read and the rim anchor (``_basin_rim_anchor``)."""
+    r = rim_of(rims, lat, lon)
+    if r is not None or not feet:
+        return r
     hits: dict[str, list] = {}
     n_in = 0
     for f in feet:

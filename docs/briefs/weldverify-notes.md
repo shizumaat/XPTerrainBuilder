@@ -7,16 +7,52 @@ bases `b0` / `kb0` and weld63's `w1` / `kw1` symlinked — controls shared, not 
 
 ## RESUME HERE (lane complete; nothing running)
 
-* HEAD = this commit on `claude/weldverify` (code 1e6ab88d). Suites at 1e6ab88d: non-Qt 9,199 passed / 19 skipped / 1 xfailed /
-  1 xpassed; Qt 311; the four named files 204; ratchets PASS (WARN `classify/roles.py` 1,444 → 1,504).
-* CLOSING BUILD `weldverify_HECA` (rc 0, 545 s, body `ed4130615781…`): its census equals replay `v3` on EVERY family
-  (adjudicated airside 11,861, CRITICAL 3 / 1,992, `hard_conflict` 340 / 19 / 2, edge classes TOUCH-OFF 3 / 49, GAPPED 5 / 86).
-  Frames registered: `frames/weldverify/HECA.graded.json`, `frames/weldverify/weldverify_HECA.osm` (+ sidecar).
-* OTHH (`ov` vs `ob0`): solve-owned airside 0 movers, nodes 5 removed / 4 added (apron | service_road contacts); STRUCTURE frame
-  0 of 2,546 moved, 0 nodes; held 18 / plateaus 7 / platforms 16 / cluster pads 33 equal; no hard conflict either side;
-  76 touching / 0 held / 1 gapped; CRITICAL visual 1,932 → 2,054, all `hairline_pair` (+122 unmeshable); cells 944 → 907.
-* OPEN for the master / spec author: THE STRIP'S LIP and the `hairline_pair` rise are both cloud commit (3)'s strip
-  (see below) — keep the strip (airside nodes 0 / 2) or clip whole as W did (9 / 2 nodes, 132 movers ≤ 0.14 m, no lip)?
+* HEAD = this commit on `claude/weldverify` (code ea519891). Suites at ea519891: non-Qt 9,200 passed / 19 skipped / 1 xfailed /
+  1 xpassed; Qt 311; the four named files 204; ratchets PASS (WARN `classify/roles.py` 1,444 → 1,504, `constraints/pads.py`
+  1,061 → 1,180).
+* The closing build `weldverify_HECA` is of 1e6ab88d (before the strip tie); NOT re-run at ea519891 — replay `v6` is its measure.
+
+## THE STRIP IS PART OF THE WELD (master's ruling from 09j / 08c (4) / 09d (1)) — `v6` HECA, `kv6` KCLT, `ov6` OTHH at ea519891
+
+`constraints/pads.rim_strip_ties`: every vertex of a groundside value face that shares a rigid face's rim (outer ring or a
+HOLE), stands off the rim and within the knife (+ grid) of the pad it touches, is tied to its nearest rim vertex in
+`pad_slope_ceiling` (the pad's hard 1 % tilt, pad tier) and joins `pad_welded_vertices` (B′ withdraws the ramp target /
+ceiling / join pin there). An airside vertex is never tied; a mapped-road ribbon and a late piece are not read. HECA 155 ties.
+Two identification bugs on the way (c2df3b49 whole-face test, 704d091c one-ref / outer-ring rim): a strip part runs past
+the pad's end, a pad is several faces, and a strip that runs round a pad piece carries that rim as a hole.
+
+CORRECTION of "THE STRIP'S LIP" below: `lip.py` read the rim on the face's OUTER ring only. Read with holes and against the
+nearest rim vertex, the 1e6ab88d lips were `building59` | `objpav7` 0.52 m (4 of 5), `building12` | `route3` 0.15 m (12 of 12,
+not 0.78), `building207` | `objpav405` 0.11 (21 of 35) — 70 vertices > 0.05 m in 20 pairs; KCLT 14 in 7 (`building46` |
+`pol28` 0.55); W whole-clip 11 in 9 (≤ 0.11) / 4 in 4 (0.30).
+
+| read | HECA base → 1e6ab88d → ea519891 | KCLT | OTHH |
+|---|---|---|---|
+| knife-line vertices > 0.05 m off the rim | — → 70 in 20 pairs → **4 in 3**, all mapped-road ribbons (`small_roads:-18809` 0.10, `-20325` 0.07, `-20639` 0.06: the engine's own ribbon class, not strips) | 14 in 7 → **0** | 0 → 0 |
+| TOUCH-OFF runs / m | 15 / 565 → 3 / 49 → 3 / 49 | 8 / 62 → 1 / 0 → **0 / 0** | 0 |
+| airside nodes removed / added | 0 / 2 → 0 / 2 | 2 / 2 → 2 / 2 | 5 / 4 |
+| airside movers runway / strip / taxi / apron, worst | 0 / 4 / 10 / 39, 0.05 (unchanged) | 0 / 4 / 5 / 31, 0.45 (unchanged) | 0 |
+| structure frame | 0 of 245 | 0 of 363 | 0 of 2,546 (held 18, plateaus 7 equal) |
+| `hard_conflict` gs / pad / taxi | 340 / 19 / 2 → 358 / 19 / 2 | 370 / 33 / 0 → 351 / 33 / 0 | none |
+| `--null-change` | 5/0/0.249, 8/0/0.137, 8/0/0.137 | 5/0/0.139, 0, 0 | — |
+| CRITICAL visual | 1,962 → 1,992 → **2,008** | 1,996 → 2,038 → 2,038 | 1,932 → 2,054 → 2,054 |
+| `hairline_pair` vs base | +30 → +30 | +43 → +43 | +122 → +122 |
+
+THE ONE 10a (2) (b) SITE: HECA `building36` | `dsf:objpav366` at 30.11685, 31.38175. The pad is held by airside (2
+`frontage_hold` rows; its plane at 63.26); the road is welded to the apron a few metres on. The knife line now stands at
+63.26–63.29 and the road climbs 63.26 → 63.65 → 63.96 in 3 m, its own rows relaxed (`road_cross_section` 15 ≤ 0.59 m,
+`pavement_max_grade ceiling` 10 ≤ 0.55 m, tier groundside) against the pad's ceiling. The census reads it as 18 new step rows
+(`mid_edge_step` +13 CRITICAL visual, `vertex_to_edge_step` +3), all `service_road|service_road` 0.51–0.68 m over 0.65–0.98 m,
+all here: the whole CRITICAL visual rise 1,992 → 2,008. No exemption exists for it (10a (2) (b) names none in the census).
+
+HAIRLINE READ (`hair.py` on `--rows-json`, HECA base → 1e6ab88d): 96 rows added, 66 dropped, net +30; a coplanar strip
+changes none of them (the family is a PLAN-distance read; +30 / +43 / +122 identical before and after the tie). Of the 96
+added, 73 stand within 2 m of a pad rim: `ring` rows `building|groundside_pavement` 17, `building|service_road` 15,
+`service_road|service_road` 11, and `short` rows (a segment under the 0.5 m spacing) `service_road|service_road` 10,
+`groundside_pavement|groundside_pavement` 7 — the strips' own geometry (their ends, and rim vertices a grid cell off the
+knife line), not the zone band (0 `graded_strip` rows). Distances 0.097 / 0.496 / 0.499 m (min / median / max): one
+identity-grid cell, not millimetres. A mesh gets constrained edges 0.35–0.5 m apart there: a few sub-metre triangles per
+strip end, coplanar now, no sliver explosion (the family's alarm class is the 0.01–0.06 mm pair).
 
 ## FINAL — head 1e6ab88d (`v3` HECA vs `b0`, `kv3` KCLT vs `kb0`; base ded211fb; each tree's own census)
 

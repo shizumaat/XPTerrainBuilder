@@ -19898,3 +19898,230 @@ Q-B — THE ROAD CLIMBS TO THE LANDSIDE PAD'S DATUM. A pad with no airside front
 | 6 | closing build: HECA ONCE (`build_airport.py`), the master's seven-airport sweep | — | — | runway 0, apron 0, pad conflicts ≤ 15, CRITICAL by family ≤ seat2_HECA, lots / roads over cap ≤ seat2_HECA | 15 min + census |
 
 **(12) WHAT STAYS UNPROVEN (listed, never ratified).** (i) Rule W itself — the weld has no replay knob (the planar map is captured); `q1` proves only that the ROW form fails and the clip + weld is the next arm. (ii) Q-B's road: the ramp length and whether `route3`'s descent meets the apron inside the LP's feasible set (a hard pad plane against a hard road cross-section and the airside contact) — read on the step-3 capture; an infeasible pair there is the owner's next question, not a relaxation. (iii) The hard-tier order pad > groundside road under a shared column at every airport — the sweep. (iv) The 7 apron movers of `q1` (0.28 m): not attributed (the lane's budget); step 1's gate. (v) SPJC / CYXY / OTHH / KASE / NLWF touch censuses beyond the three read. (vi) `p1`'s leader-order lag as a general improvement of the unsettled stage-2 lag (845 → 764 rows at HECA) — measured once, not a lever here, not proposed.
+
+## §64 THE COMMON-LEVEL GROUP — A LANDSIDE FOOTPRINT UNIT'S PADS AND THE GROUND BETWEEN THEM ARE ONE FLAT PAD AT ONE LEVEL (owner sim read of 1.0.387, issue #549; #519 the same site; Fable `level549` 2026-10-10, DESIGN ONLY — every claim probed on the registered KCLT capture `frames/valley2/KCLT.pkl` and the sweep frames sw11 / sw12_HECA / basins526_OTHH / apron523_KASE; notes `docs/briefs/level549-notes.md`, summary `docs/briefs/level549-summary.md`, probes `<scratch>/level549/p1..p11`, intervention `arm_group.py`; frames registered under lane `level549`)
+
+**Owner (#549):** "The 3 parking garages appear to have been designed by the pack
+author to be seated at the same elevation, along with all the small buildings in
+between. Can we find a rule to identify this and simply grade the whole area under
+and between them flat so everything sits correctly there?"
+
+**The answer in one paragraph.** The premise is TRUE in the data, and the engine
+already derives the group — on BOTH sides of the pipeline, by one law — and then
+takes it apart. The garages are not objects of their own: they are bodies of the
+terminal's twenty object files, placed by plain `OBJECT` rows at ONE anchor, every
+grounded body authored at `y = 0.000 ± 0.034` — one rigid level by construction,
+the terminal's own ground. The object stage's §16g footprint unit
+(`fu:31:2809@cluster_pad`, 14 bodies) seats the hourly deck, the two smaller garages
+and the small buildings between them at ONE zero; the design surface's cluster
+`cluster:unit:31#1117` is the SAME group. But the cluster's outline falls into
+PIECES (the bodies that chain the garages are leaves and thin slabs whose rings the
+pad outline drops, and the 0.5 m closing does not bridge the 10 m gaps), each piece
+is its own pad and its own plane (§16g (10) (5), `geom/cluster_outline` rule 2,
+`cluster_pad._split_blocks`), and the pieces then seat independently: the hourly
+deck's piece at 223.21 m by a soft term that is not its own ground (its rim DEM is
+218.0–219.3), the two small pieces at their own DEM datum (218.1 / 219.0), and raw
+ground between. The rule is therefore the smallest narrowing of what exists: for a
+LANDSIDE unit — no piece fronts airside, none carries a fixed level — the pieces of
+one cluster stay ONE plane group, the pad covers the whole unit (the grounded
+leaves included, closed over the gaps the unit chained across), and the level is
+the law's own for a pad touching nothing: the §9b DEM datum (10a (2), §63 Rule S).
+Probed by intervention on the KCLT capture (arm G): the three pads go to
+218.4–218.9 m, the hourly deck's 3.9–5.2 m bank becomes −0.8…+0.6 m, airside movers
+0 of 14,894, status optimal, and the 14 bodies' one zero follows the pad.
+
+### §64 (1) ATTRIBUTION — the group as the pack states it and as the engine builds it today
+
+Frames: the owner's 1.0.387 surface (`XPTerrainBuilderData/tmp/auto_patch_v2/+35-081/KCLT/KCLT.graded.json`, 2026-10-10 12:24 — pads named as the owner read them), plan `sw11_KCLT.v2/KCLT.rebake.json` (v13), placement plan `Patches/+30-090/+35-081/o4_v2_placement_KCLT.json`, DEM off `frames/valley2/KCLT.pkl`, the pristine DSF dump `Airport_mod_cache/<pack>/+35-081.dsf.anchor_bak.7bf41307.text`.
+
+**(a) The pack.** Twenty files `Terminals/paredes_1..12`, `techos_1/2`, `suelos_interiores`, `vidrios_*` at ONE anchor 35.221229591, −80.943372339, heading 355.847 (plan `unit:31`), and a nineteen-file twin set `Terminals/-paredes_*` at 35.221137083, −80.943364710 (`unit:30`). Every row is plain `OBJECT` (on-ground); the pack has 0 `OBJECT_MSL`, and none of its 2,368 `OBJECT_AGL` rows is one of these. So the author's level for every body is "the terrain at the anchor + authored y", and the terrain at the anchors is the DEM's 220.15 / 219.92 m — a DEM level, not a constant.
+
+**(b) The authored bases** (plan parts; grounded = has feet; walled = height ≥ 2.5 m and area ≥ 20 m²):
+
+| pad (owner's name) | what stands on it | walled bodies | authored base `y` min / median / max |
+|---|---|---|---|
+| `building88` hourly deck, 22,027 m² | `paredes_10` comp 737 — ONE body of 70,405 m² summed face area, h 10.93; `paredes_12` 1,539 m² ×2, 1,178, 1,119 … | 135 | −0.034 / **0.000** / 5.998 (upper floors) |
+| `building90` 1,356 m² | `paredes_10` comp 604 2,347 m², `paredes_12` 1,539 / 1,119 m² … | 39 | −0.034 / **0.000** / 5.998 |
+| `building86` 908 + 125 m² | `paredes_10` comp 603 2,349 m², `paredes_12` 1,540 / 776 m² | 3 | **0.000** |
+| `building92` 5,018 m² | `paredes_10` comp 973 4,084 m², h 6.82 | 1 | **0.000** |
+| `building84` terminal north, 14,774 m² | `Paredes_7` 624 / 299 m² at 0.000; `paredes_8/12` floors at 5.2–6.6 | 33 | 0.000 / 1.000 / 6.573 |
+| `building75` terminal, 67,441 m² | the unit's 209 grounded bodies | — | −0.80 (a door well) / 0.00 / 0.30 |
+
+Spread of the grounded bases across the three garages, the small buildings and the terminal: **0.000 ± 0.034 m** (one footed body at 0.357). The owner's premise is TRUE: one authored level, rigid by construction, and it is the terminal's ground.
+
+**(c) The surface today and the DEM under it:**
+
+| pad | level | DEM under the rim | fronts | rim z − DEM |
+|---|---|---|---|---|
+| `building75` | 222.44 (held, `pav14` plateau) | 214.2–224.2 | A | — |
+| `building84` | 222.70 | 222.39–224.11 | A (`pav14#plateau:building84`) | −1.41 … +0.53 |
+| `building85` | 222.87 | 222.09–223.34 | A (`pav118#plateau`) | — |
+| `building92` | 223.67 | 222.29–228.85 (a hillside) | A (`pav14#plateau:building92`, faces 37–138 m) | −5.18 … +1.38 (11/19 over 1 m) — the "pit beside a bank" |
+| **`building88`** | **223.21** | **217.99–219.32** | **nothing** | **+3.89 … +5.22 (28/28)** — the 5.2 m bank |
+| `building90` | 218.99 (rim 218.98–219.43) | 218.07–222.06 | nothing | −3.07 … +1.12 (17/52) — the hole |
+| `building86` | 218.11 / 218.18 | 218.07–218.39 | nothing | −0.28 … +0.35 |
+| the ground BETWEEN 86 / 88 / 90 (hull minus pads, 2.42 ha) | raw DEM | 218.03 / median 218.23 / 219.22 | — | — |
+
+`building92` is HELD: its `--why-at` (35.2266894, −80.9425445) binds `pad_frontage_level` and `platform_plane` against `apron#204/#252` (the plateau) — 10a (2) (b): it keeps that seat; it is `fu:31:3056`, a unit of its own, and is outside this section.
+
+**(d) What holds `building88` at 223.21** (`v2_solve_replay --why-from <base>.solved.pkl --why-at 35.2242287,-80.9428688`, base = `frames/valley2/KCLT.pkl --from classify`): v17133 z 223.21, DEM 218.05; the only binding rows are its own `pads` flat rows (cap 0 × 119.6 m); **"chain trace: no terminal reached — the objective holds it."** No hard row holds it, and it is NOT the terminal's plane: `plane_groups` lists the three garages as THREE entries of ONE cluster — `cluster:unit:31#1117/0` (`building86`, 2 faces), `/2` (`building88`), `/4` (`building90`) — pieces of one cluster pad, each priced as its own plane (`_split_blocks`, §16g (10) (5)). Removing those three entries (arm G, §64 (5)) lets the deck fall to 218.52–218.57 — so the per-piece entry carries the 223.21 through a SOFT term. Which term is UNPROVEN (§64 (7) (i)): the §9b per-group DEM mean is the candidate (the entry's 29 "rim vertices" were found NOT to be vertices of face 1009's ring — an index-space mismatch the arm exposed), §20 fronting is excluded (the nearest apron face across bare ground is 180 m, the reach is 50 m), `pad_relief` targets offsets not levels. `building90` (`--why-at 35.2256079,-80.9459114`): v17199 z 218.99 "FREE, above its DEM, held by bending alone" — its own §9b datum (rim DEM 218.07–222.06).
+
+**(e) How the object stage seats the group today** (placement plan): `§16g unit fu:31:2809@cluster_pad of 4 member(s) on pad building88 at 223.21` for all 14 bodies, INCLUDING those standing over `building90`, `building86` and the raw ground — recorded there as `own ground −4.58 … −5.03 m` (`ground_off` 3.15–5.13 for 10 of the 14). These ARE the owner's floating bodies: 6.27 m at 35.224182, −80.945786 = `paredes_10` b3 (own ground −4.79); 5.56 m = b5 (−4.58); 5.76 m = b8 (−4.95). The glass files (`vidrios_*`, kept whole: "anim") ride the anchor row on `building75` (222.44) and float the same way; the toll plaza (`techos_1` b3 / b4: "surface at the body's zero" / "low-side foot, terrain spread 5.37 m") is lane `kclt546`'s whole-file case (#519). Window census (`seat_feet_census --graded`, 112 measured bodies north of the terminal, per split body against its own anchor): 23 over 0.5 m, 3 over 1 m, 1 over 3 m, worst 5.07 m.
+
+**(f) The defect, named.** The design cluster `unit:31#1117` IS the object unit `fu:31:2809` — one law, as `planar/cluster.py` promises. What takes it apart is downstream: the cluster PAD is minted from walled bodies' rings only (leaves / thin dropped: `leaf_dropped` 2,854, `thin_dropped` 33 at KCLT), closed at `touch_m` 0.5 m, so a group whose members are chained through small grounded bodies 10 m apart comes out in PIECES; each piece is a pad and a plane of its own; and the pieces then seat by different terms. One unit, one zero, three pads at three levels, raw ground between: the garage group is the witness of that gap.
+
+### §64 (2) THE WITNESS — probed, with its population at seven airports
+
+Candidates tested against data (`p6`, `p8`, `p8b`, `p10`; graded + rebake plan + capture DEM per airport; placement plans where the owner's app has built one):
+
+| candidate | what it selects | KCLT | HECA | OTHH | KASE / SPJC / CYXY / NLWF | verdict |
+|---|---|---|---|---|---|---|
+| W1 bodies of ONE anchor family at ONE authored base (rigid by construction) | every big pack: `unit:3` (8 `Charlotte_Airport_00N_ALB` files, one anchor, 239 walled bodies at y 0.00, **66 pads over 22.5 m of relief**), `unit:31` (13 pads, spread 5.56) | `unit:41`: **72 pads over 44.9 m** at y −0.06 | `unit:80`: 25 pads, flat | KASE 1 unit / SPJC 1 / none | **REFUTED as a level witness**: the LSGG class (memory note) is the norm; §16c / §16g re-cut such families per body on relief by standing law and the owner accepted it (HECA, 10c). Equal authored base says "rigid", not "one site". |
+| W1′ `OBJECT_MSL` rows at equal MSL | — | — | — | — | **ABSENT**: 0 MSL rows at KCLT; the plans' `msl` count is 0 at every sweep airport. |
+| W2 one family at the modal base, chained in PLAN at gap ≤ D (grounded bodies) | D = 10: {86, 88, 90} forms (spread 5.10 m, DEM relief 4.07, hull 4.9 ha); the terminal joins at D = 25 | `unit:41`: 10–20 chains per D, spreads 0.7–7.4 m over relief 1–8 m (rows of small landside buildings on the slope); `unit:43` `building4` + 20 landings (spread 9.76) | inert (flat site, every chain within 0.6 m) | none | **OVER-FIRES at HECA**; D is a tuned number (05e). |
+| W3 = W2 minus pads that front airside or carry a fixed level | the same {86, 88, 90} at D = 10 (0 held pads in the chain); otherwise only hangar rows already within 0.8–0.9 m and the FuelFarm tanks (6 pads within 0.33 m) | still 10+ chains per D with spreads 1–4.5 m and 0 held pads | inert | none | the exclusion is RIGHT (it is 10a (2)); the distance is still a number. |
+| **W4 THE §16g FOOTPRINT UNIT / §30 (4) CLUSTER itself** (`unit_of` in the placement plan; a unit whose bodies stand `ground_off` > 0.5 m off the unit's one zero) | 41 units with ≥ 2 bodies; 14 with a body > 0.5 m off; **ONE > 2 m: `fu:31:2809` (14 bodies, 10 over 2 m, worst 5.13 m)** | 129 / 21 over 2 m: `fu:40:120` (T3, 216 bodies, worst 10.5, viaduct landings — Rule L), `fu:42:1233` 27 bodies 4.53, `fu:42:944@ground` 24 bodies 4.04, … | 42 / 18 over 2 m (viaducts `fu:80:6827` 9.1, pits) | KASE 22 / 17 (two-body `@ground` pairs on the mountainside, 3–11 m); SPJC 1 / 0 | **THE WITNESS.** The owner's own law (13bo), derived once per build, already shared by both sides; it names exactly where the one-zero seat and the surface disagree. No new number: `footprint_touch_m` 0.5 and `cluster_pad_min_m2` 5,000 are the existing law values. |
+
+**The witness, stated.** A COMMON-LEVEL GROUP is a §30 (4) cluster (= §16g unit)
+(a) that is LANDSIDE — no piece of its pad fronts airside (§20 / §63 Rule S: no
+shared vertex with an apron / taxiway / strip face, none within `pad_frontage_m`,
+none within `pad_fronting_reach_m` across bare ground) and no piece carries a fixed
+level (§63 Rule L: a held platform datum, a landing, a seam or strip pin) — and (b)
+whose pad is in MORE THAN ONE PIECE (`still_in_pieces` > 0 for it) or whose bodies
+stand off the pad on bare ground. A one-piece landside cluster is already one level
+and one pad; a cluster with an airside-held piece is §30 (4) / 10a (2) (b) as it
+stands. The witness does not fire on a hangar row (each hangar touches nothing: its
+own unit), on a terminal pier (fronts airside), on a cargo shed on a sloping apron
+(fronts airside), on HECA's T3 (landings, Rule L), nor on HECA's slope rows unless
+two buildings physically touch — and where they do, §16g (1) already says they are
+one unit.
+
+### §64 (3) THE RULE — the smallest narrowing of what exists
+
+**(a) ONE PLANE FOR THE PIECES OF A LANDSIDE CLUSTER.** §16g (10) (5) ("each
+piece is its own cluster") and `cluster_pad._split_blocks` are NARROWED: the
+pieces of a cluster that is a common-level group stay ONE `plane_groups` entry
+(rims concatenated, `cluster_pairs` cross-links between the pieces as any
+cluster's faces), one hard 1 % ceiling, one level fit. A cluster with an
+airside-held piece keeps today's per-piece split (a touching body at a different
+authored floor stays a different building, 14x — that rule concerned airside-fronting
+clusters and stands there).
+
+**(b) ONE PAD OVER THE UNIT'S FOOTPRINT ("under and between").** The cluster pad
+of a common-level group is minted from EVERY member body's plan footprint —
+walled bodies AND the grounded thin / leaf bodies (`|base_y − unit base| ≤
+floor_split_m` with feet: a plaza slab, a canopy, a walkway) — closed at the
+touch tolerance as rule 2 already does, light wells under `outline_hole_min_m2`
+filled. The grounded leaves are exactly the bodies the unit chained across, so the
+closing then bridges what the chain bridged; §16g (10) (4)'s thin-body rule (an
+ELEVATED plate must not link two walled bodies — HECA T3's 15.73 m plates) is kept
+by the base test. Where the chain crossed bare ground between leaves (a gap the
+0.5 m closing still leaves), the pieces remain pieces of ONE plane under (a) and the
+ground between meets the pad's level by the mesh (at KCLT the between is within
+0.8 m of the level: DEM 218.03–219.22 against 218.4). No new polygon class.
+
+**(c) ONE LEVEL, by the law that exists, ranked.** (i) An airside-held piece
+(10a (2) (b), 09i): the group is §30 (4) and takes its plane — not this section.
+(ii) No airside: the group's §9b DEM datum — ONE per-body mean over the whole
+group's rim (the median of the DEM under its feet), a priced preference as §63
+Rule S / 10a (2) (a) make it, the plane free to tilt within the pad's 1 % where the
+ground asks. Not "the level of a touching road or lot": 09j (1) — a pad is senior;
+a touching road or lot WELDS to the pad (09d (1), §63 Rule W) and grades inside its
+own cap away from it. Not "the authored common level" as an absolute: the pack
+states none (`OBJECT` rows; the author's level is the terrain, (1) (a)). Not
+"minimise cut and fill": the DEM median IS that minimiser for a flat plane within
+the pad tilt, and it is the law's datum already. At KCLT: 218.4–218.9 (arm G).
+
+**(d) THE EDGE** is 09d (1): a bare edge meets raw DEM with whatever bank the
+mesh gives (at KCLT after the move: ≤ 0.8 m round the hourly deck, −3.6 m on
+`building90`'s uphill rim — §64 (5)); a touching road or lot welds (09j (2),
+§63 Rule W) and grades inside its cap; a gapped road is free. No skirt.
+
+**(e) THE OBJECTS** are seated as today: §16g (2) one zero per unit = the plane
+of the emitted pad most of the unit's contacts stand on — now the ONE pad — each
+body keeping its authored offset ("authored to the cut", object spec §18). No
+object-stage change: the datum rule already reads the pad; what changes is the pad.
+
+**(f) COMPOSITION with #519 / lane `kclt546`.** The toll plaza and the glass
+walls are bodies of files the object stage keeps whole or seats alone (anim / the
+whole-file exclusion); they are not members of `fu:31:2809` and this section does
+not seat them. When `kclt546` lets them be re-cut, they join the unit by the same
+footprint chain and stand on the same pad at the same level — composition by
+construction; either merge order, with a re-read.
+
+**(g) Relation to existing classes.** ONE CLUSTER PAD (`cluster_pads`,
+`plane_groups`, `cluster_pairs`, the §9b datum, the pad edge law) with (a) the
+piece split narrowed and (b) the grounded leaves in its outline. No new role,
+ref class, register, or law value; one sidecar field (`level_source`).
+
+### §64 (4) THE CONSUMER TABLE (CLAUDE.md "consumer census before cross-cutting geometry law") — every pass that reads pads / clusters / platforms / object seats
+
+| # | consumer | reads today | under §64 |
+|---|---|---|---|
+| C1 | `geom/cluster_outline.cluster_outlines` rule 2 (`still_in_pieces`, `leaf_dropped`, `thin_dropped`) ← `classify/evidence._cluster_pads` | walled rings only; pieces each a pad `<cid>/<k>` | (b): grounded leaves of a landside cluster enter the union before the close; piece ids unchanged for what stays apart |
+| C2 | `constraints/cluster_pad.plane_groups` / `_split_blocks` / `cluster_pairs` | one entry per piece (`block_of` on `/k`… — NOTE: `BLOCK_SEP` is `/b`; the per-piece split comes through `_pad_groups` enumerating each piece face as its own group, and `_plane_groups` unions only faces one cluster SHARES) | (a): the pieces of a landside cluster are unioned into one entry; airside-fronting clusters unchanged |
+| C3 | `constraints/pads.pad_flats`, `pad_slope_ceiling`, `pad_frontage_level`, `pad_datum_withdrawn` (§9b) | per entry | unchanged code; a landside group fronts nothing → keeps its datum |
+| C4 | `solve/design_ground` §9b per-body DEM mean | per entry's own vertices | unchanged; ONE mean over the group — step 2 VERIFIES the rim index space (§64 (1) (d)'s mismatch) |
+| C5 | `constraints/cluster_pad.cluster_offsets` / `TOUCHING_STEPS` (§16g (10) declared steps between touching clusters) | per cluster | unchanged: one cluster, no step inside it |
+| C6 | `planar/platform.platform_split` / `model/platform.HELD` (unit pads that FRONT airside) | held flat at the frontage datum | untouched: a common-level group fronts nothing and is never HELD |
+| C7 | `planar/pad_terrace`, `pad_cut`, `pad_sliver`, `weld` | the pad polygon(s) | read the wider pad as any pad; the airside clip is a no-op (no airside contact by definition) |
+| C8 | `constraints/pad_fronting` (§20 across bare ground ≤ 50 m) | per entry | a group within reach of an apron FRONTS it and is (c) (i); at KCLT the nearest apron face is 180 m |
+| C9 | `constraints/pad_frontage_gs` §28, `weld_floor`, `road_ramp` (§62 / §63 welds), `pad_relief` | groundside cells touching a pad; feet on the pad | unchanged; the group's rim is one pad's rim; relief targets read the one level |
+| C10 | `emit/bank`, `emit/within_shape`, `verify/pads` (`pad_flat`) | pad rims | unchanged (09d (1)); `pad_flat` rows +2 at KCLT (arm G: 66 → 68) |
+| C11 | `airport/footprint_unit.bind_footprint_units` (§16g (2) datum) | "the pad most contacts stand on" | unchanged; it finds ONE pad under the whole unit |
+| C12 | `airport/rebake_plan`, `placement_plan.build_splits`, the split writer, `seat_feet_census`, `obj8_split_report` | the unit zero | unchanged; `ground_off` for the group falls to the pad's residual |
+| C13 | `pipeline/publication` (`cluster_pads`, `platforms[]`), `check_grade` `pad_*` families, `tools/pad_level_report`, `pad_edge_read`, `pack_stage_profile`, `pad_gap_diff` | the pad set by ref | the group's pad is one `building` ref per piece as today; `pad_cluster_mismatch` reads the same outline (pass `outline=`) |
+| C14 | `airport/partition_cache`, `topology_cache`, `rebake_screen` keys | the cluster relation | the key gains the outline change — every plan rebuilds once (meant) |
+| C15 | `tests/test_no_airport_specific_code.py` | — | nothing named: unit, bar and touch are law values |
+| C16 | Swift `SceneryKit` | JSONL names | untouched |
+
+### §64 (5) THE PROBE — arm G on the KCLT capture (`<scratch>/level549/arm_group.py`: the three pieces' `plane_groups` entries withdrawn and replaced by one entry — in effect the pieces released from their per-piece seat; everything else the base replay of `frames/valley2/KCLT.pkl --from classify --emit --verify`; = rule (a) + (c) without the minted between (b))
+
+| read | BASE (owner's 1.0.387 / base replay) | ARM G | bar / reading |
+|---|---|---|---|
+| `building88` level | 223.21 flat | **218.52–218.57** | the DEM datum (rim DEM 218.0–219.3) |
+| `building88` rim z − DEM | +3.89 … +5.22, 28/28 over 1 m | **−0.80 … +0.56, 0/28 over 1 m** | the 5.2 m bank is gone |
+| `building90` level / rim z − DEM | 218.98–219.43 / −3.07 … +1.12 (17/52) | 218.41–218.89 / −3.63 … +0.54 (14/52) | the uphill rim is a 3.6 m cut: a garage on sloping ground, (6) (i) |
+| `building86` level / rim z − DEM | 218.11–218.45 / −0.28 … +0.35 | 218.40–218.78 / +0.03 … +0.68 | one level with the other two within 0.5 m |
+| spread of the three pads | 5.10 m | **0.48 m** (218.41–218.89) | one level (no single plane was imposed by this arm; (a) will make it one) |
+| the ground between (2.42 ha) | raw DEM 218.03 / 218.23 / 219.22 | unchanged (not minted by this arm) | within 0.8 m of the group level — step 3's change at KCLT is ≤ 0.8 m |
+| airside movers vs base (> 0.02 m) | — | **0 of 14,894** | bar 0: met |
+| solve | optimal, 56,910 rows, 1,218 rounds | optimal, 57,326 rows, 1,228 rounds | — |
+| `verify` by family | within_shape 3,256 … pad_flat 66, defects {} | identical except pad_flat 68, defects {} | no new defect family |
+| hard relaxed (`--why` LP) | 309 (groundside 276, pad 33) | 309 (276 / 33) | unchanged |
+| the 14 bodies' one zero (§16g (2): the pad most contacts stand on = `building88`) | 223.21; `ground_off` 0.00 ×2, 0.08, 0.36, 3.15, 3.82, 4.09, 4.20, 4.48, 4.58, 4.91, 4.99, 5.03, 5.13 | 218.55 (dry: the plan's own numbers less 4.66) → the 10 off-pad bodies at **−1.51 … +0.47**, the 4 on the deck at 0 | floats over 0.5 m: 10 → 1 (the one on the uphill side of `building90`, in the cut); worst 5.13 → 1.51 m. DRY — the plan was not rebuilt (the object stage is outside the replay) |
+| `seat_feet_census --graded` window (per split body vs ITS OWN anchor, not the unit zero) | 112 measured: 23 over 0.5 m, 3 over 1 m, worst 5.07 | 19 over 0.5 m, 3 over 1 m, worst 5.05 | the three > 1 m are long bodies spanning the roadway (`paredes_12` b1 span 327 m, `paredes_10` b16) — the per-body drape class, not the group's level; `kclt546`'s field |
+| the same arm elsewhere | — | the witness fires nowhere else among the seven on the design side (KCLT's only multi-piece landside cluster with a body > 2 m off is `#1117`); nearest misses: KCLT `unit:58` FuelFarm (6 pieces within 0.33 m — the rule changes nothing), HECA `fu:42:944@ground` (24 bodies, worst 4.04 m — its pieces/fronting NOT read, (7) (ii)) | — |
+
+**Edge cases, read at KCLT.** (i) A garage on sloping ground: `building90`'s
+north rim stands against ground rising to 222.06 — at the group level the cut
+there is 3.6 m (a bare edge, 09d (1): accepted, no skirt) and one body on that side
+stands 1.5 m in the cut; the hourly deck's bank falls from 3.9–5.2 m to ≤ 0.8 m.
+The pad's 1 % tilt (over 300 m: 3 m) is the lawful relief for such a site and is
+the solve's to take. (ii) Groups spanning the airport boundary: the unit is bounded
+by the pack's bodies and the pad by its footprint; a body outside the frame is
+outside the plan already (`outside_pack` 0 here). (iii) Multi-storey decks whose
+ramps reach other levels: the ramps are bodies with `base_y` above the unit base —
+not grounded leaves, not pad; the deck's plan footprint is flat and so is its pad.
+(iv) A group containing a body held by airside: (c) (i) — §30 (4) as today (KCLT
+`building92` with the plateau; HECA `fu:40:120` with its landings, Rule L).
+
+### §64 (6) IMPLEMENTATION — green sub-steps, each its own commit, replay-gated; the airport ONCE at the end
+
+| step | change | where (one derivation site) | twin | gate | wall |
+|---|---|---|---|---|---|
+| 1 the witness + one plane (a) | `cluster_pad._plane_groups`: the pieces of one cluster whose faces front no airside and carry no fixed level (`pad_has_fixed_level`, §63 Rule L) are ONE entry; `cluster_pairs` links them | `constraints/cluster_pad.py` | `test_v2clusterpad`: a 3-piece landside cluster is one entry at one level; a cluster with one piece welded to apron keeps three entries | KCLT replay: `building86/88/90` within 0.3 m of each other and of arm G's 218.4–218.9; airside movers 0; `hard_conflict` ≤ base; HECA / OTHH / KASE replays: entry count and every held datum unchanged except the clusters the witness names (listed in the report) | 3 h |
+| 2 the datum, VERIFIED | the §9b mean over the group's own rim — read `_pad_groups`' rim ids against the face rings (the arm's 0-of-29 finding); fix the index space if it is wrong; `pad_datum_withdrawn` already keeps the datum for a non-fronting group | `constraints/pads.py`, `solve/design_ground` | the datum twin re-read; a rim id test | `--why-at building88` shows the §9b row binding, nothing else | 1–3 h |
+| 3 the minted between (b) | `geom/cluster_outline` rule 2: grounded leaves of a landside cluster join the union before the close | `geom/cluster_outline.py` (+ `_cluster_pads` passes the base filter) | a 3-body unit with a 0.3 m plaza slab between two garages is ONE piece; an elevated slab (`base_y` 15 m) links nothing (the HECA T3 twin) | new capture on the step-3 tree; KCLT: `#1117` pieces 3 → ≤ 2, 0 pad vertices more than 0.8 m off the DEM between; pad count 38 ± 2; pad tier `hard_conflict` ≤ base | 6 h |
+| 4 records + instruments | `cluster_pads` record carries `level_source` (`held` / `dem_datum`) and `pieces`; `pad_edge_read` classes the group's bare rim B | `pipeline/publication`, `tools/pad_edge_read.py` | one record per cluster | — | 2 h |
+| 5 closing | KCLT ONCE (`build_airport.py KCLT`); the master's sweep | — | — | the plan's `ground_off` for `fu:31:2809`: > 0.5 m 10 → ≤ 1, worst ≤ 1.6; runway 0; airside movers 0; HECA / OTHH / KASE adjudicated ≤ sweep | 15 min + census |
+
+### §64 (7) WHAT STAYS UNPROVEN (listed, never ratified)
+
+(i) WHICH soft term holds piece `/2` at 223.21 today — the arm proves the per-piece entry carries it and the hard set does not; the §9b mean over a mis-indexed rim is the candidate (the entry's 29 rim ids are not face 1009's ring); step 2 reads it with the row in hand. (ii) The population under step 1 at HECA / OTHH / KASE on the DESIGN side: `p10` reads the object units off the plans (HECA 21 units with a body > 2 m off its zero, KASE 17 two-body `@ground` pairs on the mountainside), but "landside AND in pieces" is read only at KCLT; step 1's replays name them — a KASE pair on an 11 m slope made one plane is the first case to read (right by 13bo, or the owner's question). (iii) Step 3's minted between has no replay knob (the outline is captured); at KCLT it changes ≤ 0.8 m of surface; at another airport the between may hold real relief. (iv) Nothing authored spans terminal ↔ deck at any height (probed: the only spanning body is a 1,341 m² ground slab terminal ↔ `building92`, both at ~223), so the garages dropping 4.7 m breaks no authored link — a sim read confirms. (v) Timing: one union per landside cluster at classify — under 0.6 s expected, measured at step 3. (vi) The dry `ground_off` arithmetic in (5): the plan was not rebuilt; the closing build reads it.
+
+### §64 (8) OWNER QUESTIONS (yes / no; a recommendation only where intent is open)
+
+**Q1 — THE LEVEL.** The group touches no airside. Take the GROUND's level (the DEM datum under the three garages, 218.4–218.9 m: the deck's 5 m bank and the hole go, the ground between is already there, the garages stand ~4 m BELOW the terminal's 222.7 across the 10–25 m roadway gap that the DEM itself has) — or the TERMINAL's level (the authored rigid tie read as an absolute: 222.4–223.2 m, 4.6–5.2 m of fill under ~5 ha, every garage edge a 4–5 m bank to the real ground)? **Recommend the GROUND (YES).** It is the law as written (10a (2) "if it's not touching anything else, the pad should move"; §63 Rule S; 09d (1)); the pack states no absolute (`OBJECT` rows); nothing authored spans the gap at any height; and the fill alternative is the owner's own 09d complaint ("a 5.2 m bank along 618 m") made permanent. NO means the rigid family's level is an authored absolute — then it is the held sibling's 222.44, and the same reading binds KCLT `unit:3`'s 66 pads and HECA `unit:41`'s 72 to one level each (W1), which the owner has already ruled the other way (HECA is not flat).
+
+**Q2 — THE BETWEEN.** Grade the ground between the garages to the group's level (step 3 — the owner's "under and between"), or leave it raw DEM with the pads at one level (steps 1–2)? At KCLT the two differ by ≤ 0.8 m. **Recommend YES to step 3**, landed after steps 1–2 are read in the sim: it is §30 (4)'s "footprint union" read literally and removes the un-minted ground a road or lot could later dive through.

@@ -70,3 +70,15 @@ its DEM, held by bending alone" = its own §9b DEM datum (its rim DEM 218.07–2
   (17/52); building86 -0.28..+0.35; the ground BETWEEN the three (hull minus pads, 2.42 ha) DEM 218.03 / 218.23 /
   219.22 — flat, at the garages' own ground. Base floats in the window (seat_feet_census --graded, 112 measured
   bodies): 23 over 0.5 m, 3 over 1 m, 1 over 3 m, worst 5.07 m (`paredes_12 b1` at 35.224214,-80.943764).
+
+## Step 3–4 — the mechanism corrected, the arm
+* `plane_groups` (arm G's base listing): the three garages are THREE entries of ONE cluster `cluster:unit:31#1117/0`
+  (building86, 2 faces, 27 rim), `/2` (building88, 29 rim), `/4` (building90, 52 rim) — PIECES of one cluster pad
+  (`geom/cluster_outline` rule 2: closed at touch_m 0.5, "a cluster still in pieces … each piece stands as its own
+  pad", §16g (10) (5)). So the design cluster = the object unit; the pieces are priced apart. The entry's 29 rim ids
+  are NOT vertices of face 1009's ring (index-space mismatch; §64 (7) (i)).
+* ARM G (`arm_group.py`, the three entries withdrawn; replay --from classify --emit --verify): building88 223.21 ->
+  218.52–218.57 (rim z-DEM -0.80..+0.56), building90 218.41–218.89 (-3.63..+0.54), building86 218.40–218.78;
+  airside movers 0 / 14,894; optimal; verify identical but pad_flat 66 -> 68; relaxed 309 = 309.
+  Dry unit-zero arithmetic: fu:31:2809 ground_off 3.15–5.13 -> -1.51..+0.47. seat_feet window 23 -> 19 over 0.5 m.
+* Spec §64 appended to design-surface-spec.md; summary docs/briefs/level549-summary.md.

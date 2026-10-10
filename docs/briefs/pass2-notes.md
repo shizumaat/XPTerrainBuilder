@@ -124,7 +124,7 @@ HECA:
    98.60 → 98.79 | 95.38 → 95.17.
 2. `strip_seam_tear` graded_strip|graded_strip 30.13110296, 31.39802377 — 2.56 m over 4.0 m (15 rows, one seam between
    strip ways −10870 | −11127; no cap, a step family): 64.04 → 64.80 | 62.06 → 62.24 — one strip follows the taxiway
-   up 0.76 m, the other 0.18 m; the seam stood 1.98 m in m (under the family's line) and stands 2.56 m.
+   up 0.76 m, the other 0.18 m; the same two vertices stood 1.98 m apart in m (not a row there) and stand 2.56 m.
 3. `airside_no_step` junction|stub 30.13858425, 31.40696635 — 1.35 m over 65 m (3.05 %): 62.52 → 62.58 | 63.82 → 63.93.
 4. `airside_no_step` cross_connector|cross_connector 30.12139524, 31.41177461 — 1.09 m over 27 m (2.57 %): 89.43 = |
    90.69 → 90.52.
@@ -152,3 +152,36 @@ edge that does not move):
    225.94 → 225.54.
 5. `strip_arc` graded_strip 35.22118171, −80.93695414 — 0.39 m over 40 m: 225.10 = | 224.65 → 224.71.
 6. `airside_no_step` junction|junction 35.22407287, −80.93770888 — 0.36 m over 23 m: 225.21 → 224.91 | 224.96 → 224.55.
+
+## Step 3 — A and B are ONE mechanism: the linear solve's precision floor under the QP (attributed by intervention)
+
+HECA, same instrument (`A_lv1a`): pass 1 0/0/0.0001, pass 2 **164/0/0.1071** (= the full replay's), and with the twin's
+interval derived from the ARM's pass-1a levels the 164 stand (interval rows 5,097 = 5,097, 0 Band differs) — the
+1a → 1b derivation is REFUTED at HECA too. (Pass 3 read 263/0/0.178 in this pair against the replay's 13/0/0.154: the
+same junction cells, the other sign — pass 3 lands them anywhere.)
+
+WHO MOVES (`rows1b.py`, KCLT pass 1b, the 47 movers): 38 of the 47 columns carry NO level row — only relational rows:
+`bend` 186, `free_membrane` 59, `taxi_xsec` 35 (and one body-mean datum). The `pav2` junction / graded-strip cells at
+35.2087, −80.9500 are one flat block (every vertex 213.082) tied by `taxi_xsec` rows to its chain; every one-sided row on
+them is SLACK (1,555 hard and 1,7xx soft rows, 43 active). They are §61's own rows doing what §61 built them to do; in
+pass 1a the same columns are stable. So the columns are not unnamed — the SOLVE does not resolve them:
+
+| arm (KCLT pass-1b pair) | warm-up QP exit (arm / twin) | \|g\| at the QP exits | pass 1a | pass 1b |
+|---|---|---|---|---|
+| base | `round_cap` 400 / 400, F 260888.464 / .673 | 4.9 – 5.5 (pass 1a 0.17) | 0/0/0.004 | 47/0/0.185 |
+| rounds 4000 | `no_descent` 435 / 445, F 260888.326 / .350 | 4.6 – 5.5 | 0/0/0.004 | 41/0/0.263 |
+| rounds 4000 + backoff ladder 12 → 40 (λ to 1e22) | identical to the row above | same | 0/0/0.004 | 41/0/0.263 |
+| **the linear solve REFINED twice against A itself** (corrected semi-normal equations: `x += N⁻¹ Aᵀ(b − A x)` on the same LU) | `round_cap` 400 / `optimal` 380, F 260889.33 / 260887.91 | **4e-5 – 1e-4** (pass 1a 0.002 – 0.007) | 0/0/0.016 | **0/0/0.0007** |
+
+MECHANISM: `solve/linear._linear_solve` (method `normal`) factorises the normal matrix AᵀA, whose condition number is
+the SQUARE of A's; with hard rows at 3e5 beside bending / membrane / cross-section rows at ≤ 1.0 the factorised solve
+returns each proximal step with stiff-direction error worth a gradient norm of ~5 — far above the gradient the weak
+(1.0) relational blocks produce. `design_qp.solve_one_sided` then finds no damped step that descends (`no_descent`, or
+`optimal` on a sub-tolerance gain) and stops wherever it stands; the weak blocks keep whatever level the path gave them.
+The spec already met this floor (§61 (2): "pass 1b … exits at the linear solve's floor (`no_descent`, |g| 4.6)") and
+out-priced it with 1.0; the pads57–67 hold stack (the pass-1b rows main does not have) and R-E put more columns under
+it. NOT the round cap, NOT the backoff ladder, NOT the pass-1a derivation, NOT a missing row.
+
+What the refinement costs the SURFACE (KCLT pass 1b, refined arm vs unrefined arm): 688 stage-1 vertices over 0.02 m,
+6 over 0.1 m, 4 over 0.3 m, worst 0.558 m (the unrefined answer was that far from its own optimum there; the null twin
+noise was 47 ≤ 0.185). HECA and the row probes: step 4.

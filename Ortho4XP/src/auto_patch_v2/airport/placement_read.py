@@ -12,6 +12,7 @@ NO LAW CONSTANT LIVES HERE.
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import json
 import typing as _t
 
@@ -41,6 +42,25 @@ def read_plan(path: str) -> tuple[RebakePlan, tuple[tuple[int, int], ...]]:
     if int(d.get("version", 0)) > PLAN_VERSION:
         d = dict(d, version=PLAN_VERSION)
     return RebakePlan.from_dict(d), abut
+
+
+def plan_units_with(plan: RebakePlan, abut: tuple[tuple[int, int], ...],
+                    substr: str) -> tuple[RebakePlan, tuple[tuple[int, int], ...]]:
+    """THE PARTIAL PLAN (lane basins526, 2026-10-10): ``plan`` trimmed to
+    the units holding a member whose resource contains ``substr``, its
+    contact and abutment edges trimmed to the parts those units keep.
+    A dry read of ONE unit's body formation or anchors then costs
+    seconds, not the whole pack's plan stage.  Every plan-wide count and
+    census read off the result is of the subset only — the caller says
+    so.  No shipped path calls this."""
+    units = tuple(u for u in plan.units
+                  if any(substr in m.resource for m in u.members))
+    pids = {p.pid for u in units for m in u.members for p in m.parts}
+    keep = lambda e: e[0] in pids and e[1] in pids  # noqa: E731
+    return (_dc.replace(plan, units=units,
+                        contacts=tuple(e for e in plan.contacts if keep(e)),
+                        abutments=tuple(e for e in plan.abutments if keep(e))),
+            tuple(e for e in abut if keep(e)))
 
 
 #: The graded roles §6's class rule reads: the emitted object PADS and the

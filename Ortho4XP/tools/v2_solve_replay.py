@@ -2607,6 +2607,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         from auto_patch_v2.pipeline.authored_seats import seat_lines, seat_records
         seats = seat_records(pm, law)
         result["authored_seats"] = [seats[k] for k in sorted(seats)]
+        # the basin records exactly as the build's report publishes them
+        # (``pipeline/build``: rim ``ring``, object ``region``, notes) —
+        # the per-pit read a structure change is measured on
+        result["basins"] = [_dc.asdict(b) for b in pm.basins]
         for ln in seat_lines(seats.values(), pad=f"[{icao}] "):
             print(ln)
     if null_change is not None and late_from is None:

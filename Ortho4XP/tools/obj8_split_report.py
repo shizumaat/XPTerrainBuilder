@@ -1303,6 +1303,14 @@ def _main() -> int:
                     "plane to the roof test once the planar stage composes it")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
+    ap.add_argument("--units-with", metavar="SUBSTR",
+                    help="PARTIAL PLAN (lane basins526, 2026-10-10): keep only "
+                    "the plan units holding a member whose resource contains "
+                    "SUBSTR before the plan stage runs — seconds instead of "
+                    "the whole pack's ten minutes when iterating one unit's "
+                    "body formation or anchors. The plan-wide counts and the "
+                    "census are then PARTIAL and say so; cross-unit contacts "
+                    "to dropped units are dropped with them")
     a = ap.parse_args()
 
     if a.torn_seams:
@@ -1335,6 +1343,11 @@ def _main() -> int:
     if not a.graded:
         ap.error("--graded is required")
     plan, abut = PP.read_plan(a.plan)
+    if a.units_with:
+        plan, abut = PP.plan_units_with(plan, abut, a.units_with)
+        print(f"PARTIAL PLAN: --units-with {a.units_with!r} kept "
+              f"{len(plan.units)} unit(s) — every plan-wide count below is "
+              f"of this subset only")
     bp_rep = None
     if a.base_profile:
         # §1 (4) / §7 step 3: the PLAN's own published read.  Nothing is

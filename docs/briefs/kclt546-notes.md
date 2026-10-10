@@ -26,3 +26,51 @@ the apron's own surface, no level of its own.
   KASE 1 (a gap ring, other class); CYXY / NLWF / SPJC 0.
 - Purpose: none as faces of their own. They add ring vertices inside the plateau (levels
   the plateau's own), nothing else.
+- FIX (branch): `rerole_plateau_scraps` unions a scrap whose WHOLE boundary runs along ONE
+  plateau face into that face (the hole closes); a scrap a structure also borders, or two
+  plateau faces share, keeps its face as before. Counter `pad_scraps_merged`. Twin
+  `tests/auto_patch_v2/test_pad_scrap_rerole.py` (6). DEVIATION from spec §56 (10) R-F's
+  "zero geometry change / no vertex leaves the arrangement": needs the spec author's
+  ratification (the vertices of an enclosed scrap's ring DO leave).
+
+## Finding 2 (#547) — "a large section of terminal is floating": ATTRIBUTED; scout mechanism REFUTED at these two sites, CONFIRMED at the #519 toll plaza
+
+Both sites stand on / beside pad `building81` (Concourse; 12,388 m2), 36.6 m of apron
+`pav14` away from pad `building75` (main terminal). Owner's mesh (his tile, written
+2026-10-10 12:27; pack DSF 2530c826, same body file names as the `tunnel522_KCLT` plan):
+site A 35.2224352,-80.9472186 = 221.75 m; site B 35.2203395,-80.9466805 = 221.75 m
+(plateau 221.60 at the nearest body anchor); file anchor 35.2212296,-80.9433723 = 222.44 m.
+
+- Objects (plan `tunnel522_KCLT.v2/KCLT.rebake.json`, `obj8_split_report --rows-near`):
+  site A `Terminals/paredes_5_charlotte.obj` body b0 [building] (19 feet), `paredes_4` b0
+  (232 feet), `paredes_2` b0 (87 feet); site B `paredes_1` b1 (20 feet, worst foot 1.14 m),
+  `paredes_2` b0. All are members of ONE object unit `fu:6:960@cluster_pad` (42 members,
+  116 bodies). Each is RE-SEATED (cut into its own body file, written as an `OBJECT` row at
+  its own anchor) with `y_zero -0.69` (site B -0.84): "§16g unit … on pad building75 at
+  222.44 (own ground -0.69 m)". Authored base y = 0.00 at every one.
+- Mechanism: `footprint_unit.plan_unit_datums` gives a unit ONE zero — the level of the
+  pad most of its footprint stands on (building75, 222.44). The terrain gives each pad of
+  that unit the level of the apron it stands in (09i): building75 222.44, building81
+  221.75, building84 222.70. So every body of the unit standing on building81 is written
+  0.69 m above its own pad: 4 bodies / 354 feet at +0.69, 2 / 28 at +0.84; 3 bodies / 242
+  feet 0.46 m LOW on the other side.
+- Before the pads merge (`sw10_KCLT`): building75 221.02, building81 220.62 -> +0.40 m at
+  the same bodies (under the 0.5 m visual bar). `sw11_KCLT` = `tunnel522_KCLT`: +0.69.
+- INTERVENTION (scratch `planarm.py`: the build's own screen through
+  `rebake_screen.build_plan`; base arm byte-identical to the build's plan; arm = `excluded`
+  emptied, so `paredes_11` / `paredes_6` are planned like any member): the bodies at sites
+  A and B are UNCHANGED (`y_zero -0.69`, same unit, same zero). The whole-file skip is not
+  what floats these two sites. Within 60 m of either site the two skipped files have no
+  ground-contact component at all (only roof parts at y >= 12 m).
+- The skipped files (`dsf:obj6216 paredes_11`, `dsf:obj6209 paredes_6`, both authored
+  `OBJECT` rows at the file anchor): `paredes_11` has 387 ground-contact components riding
+  222.44 — over the owner's mesh 200 float > 1 m, 81 are sunk > 1 m, 48 within 0.3 m.
+  Toll plaza 35.2235078,-80.9427104: mesh 217.92, components +4.46 .. +4.90 m (confirmed).
+  In the no-exclusion arm the plaza's components become bodies of their own on their own
+  ground (b14 / b32 / b33 / b34 / b35). So the scout's mechanism IS the toll plaza's (#519).
+- NOT FIXED. (1) Sites A / B: an intent question (below). (2) Per-component exclusion for
+  the toll plaza: not a one-site change — a component dropped from the plan is an ORPHAN
+  the writer hands to the nearest body or seats on its own ground
+  (`placement_orphan`), i.e. it would be re-seated; keeping only the well's frame on the
+  authored row needs a body class "kept at the authored row's seat" in the plan and the
+  writer (object-placement spec §18 territory).

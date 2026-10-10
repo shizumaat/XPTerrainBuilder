@@ -51,6 +51,34 @@ LOW_RANK_MODES: tuple[str, ...] = ("bordered", "woodbury", "dense")
 DEFAULT_LOW_RANK = "bordered"
 
 
+def _normal_back(M: sp.csc_matrix, U: sp.csr_matrix | None, low_rank: str):
+    """``back(r, rc) -> (M + UᵀU)⁻¹ (r + Uᵀ rc)`` on ONE factorisation of the
+    (floored) normal matrix ``M``: the low-rank datum term by ``low_rank``
+    (:data:`LOW_RANK_MODES`; ``U is None``: no such term)."""
+    n = M.shape[0]
+    if U is None:
+        lu = splu(M)
+        return lambda r, rc=None: np.asarray(lu.solve(r), float)
+    k = int(U.shape[0])
+    if low_rank == "bordered":
+        # the border carries ``rc`` itself: eliminating y = U x − rc gives
+        # (M + UᵀU) x = r + Uᵀ rc.  ONE sparse solve of the augmented system
+        # whose Schur complement onto the border is Woodbury's k × k system
+        lu = splu(sp.bmat([[M, U.T], [U, -sp.identity(k, format="csc")]],
+                          format="csc"))
+        return lambda r, rc: np.asarray(
+            lu.solve(np.concatenate([r, rc]))[:n], float)
+    # the identity applied explicitly: k back-solves against LU(M)
+    lu = splu(M)
+    Y = lu.solve(np.asarray(U.T.toarray(), float))              # M⁻¹ Uᵀ
+    S = np.eye(k) + np.asarray(U @ Y, float)                    # I + U M⁻¹ Uᵀ
+
+    def back(r: np.ndarray, rc: np.ndarray) -> np.ndarray:
+        y = lu.solve(r + np.asarray(U.T @ rc).ravel())
+        return np.asarray(y - Y @ np.linalg.solve(S, U @ y), float)
+    return back
+
+
 def _linear_solve(A: sp.csr_matrix, b: np.ndarray, x0: np.ndarray | None,
                   method: str, tol: float, maxiter: int,
                   U: sp.csr_matrix | None = None, c: np.ndarray | None = None,
@@ -81,23 +109,27 @@ def _linear_solve(A: sp.csr_matrix, b: np.ndarray, x0: np.ndarray | None,
         # column the active set left with only a bending row
         eps = 1e-12 * max(1.0, float(abs(N.diagonal()).max()))
         M = (N + eps * sp.identity(N.shape[0], format="csc")).tocsc()
-        if not k:
-            return np.asarray(splu(M).solve(rhs), float)
-        if low_rank == "bordered":
-            # the border carries ``c`` itself: eliminating y = U x − c gives
-            # (M + UᵀU) x = Aᵀb + Uᵀc, so ``rhs`` stays Aᵀb here
-            # ONE sparse solve of the augmented system whose Schur
-            # complement onto the border is Woodbury's k × k dense system
-            K = sp.bmat([[M, U.T], [U, -sp.identity(k, format="csc")]],
-                        format="csc")
-            sol = splu(K).solve(np.concatenate([rhs, np.asarray(c, float)]))
-            return np.asarray(sol[:N.shape[0]], float)
-        # the identity applied explicitly: k back-solves against LU(M)
-        lu = splu(M)
-        x0_ = lu.solve(rhs + np.asarray(U.T @ np.asarray(c, float)).ravel())
-        Y = lu.solve(np.asarray(U.T.toarray(), float))          # M⁻¹ Uᵀ
-        S = np.eye(k) + np.asarray(U @ Y, float)                # I + U M⁻¹ Uᵀ
-        return np.asarray(x0_ - Y @ np.linalg.solve(S, U @ x0_), float)
+        back = _normal_back(M, U if k else None, low_rank)
+        cc = None if not k else np.asarray(c, float)
+
+        def toward(x: np.ndarray) -> np.ndarray:
+            """The step from ``x`` to the minimiser, its residual taken on
+            ``A`` itself — the floor then pulls the STEP to zero, never
+            the answer."""
+            return back(At @ (b - A @ x), None if cc is None else cc - U @ x)
+        # THE FLOOR IS CENTRED ON THE WARM START (lane ``pass2``,
+        # ``docs/briefs/pass2-notes.md`` step 4): ``(N + eps I) x = Aᵀb`` minimises ``‖Ax − b‖² + eps‖x‖²``
+        # — a spring to z = 0 on every column, and ``eps`` follows the
+        # STIFFEST row (KCLT: max diag 1.1e8, eps 1.1e-4), so a column
+        # priced at 1.0 or less was held to sea level nearly as hard as to
+        # its neighbours and the QP stopped where that spring balanced the
+        # descent (|g| = 2·eps·‖z‖).  Solved as an increment from ``x0`` the
+        # same floor damps the step and leaves the optimum alone.
+        if x0 is not None:
+            x0 = np.asarray(x0, float)
+            return x0 + toward(x0)
+        x = back(rhs, cc)                # the cold start: no iterate yet —
+        return x + toward(x)             # one refinement lifts the spring
     if k:
         rhs = rhs + np.asarray(U.T @ np.asarray(c, float)).ravel()
     diag = N.diagonal().copy()

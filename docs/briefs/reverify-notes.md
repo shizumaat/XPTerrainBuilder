@@ -128,3 +128,36 @@ in m and is 3.5–3.6 m under R-E (the sheet sinks 0.21, the neighbour rises 0.1
 | movers vs m: taxi / apron ≤ 60 m / apron > 60 m / pad | — | 60 (worst −0.07) / 244 (−1.43 at −12.03021614, −77.10670351) / 70 (+0.21) / 11 (+0.16) |
 | adjudicated airside | 714 | 723 (`pad_airside_weld` 4 → 5, `within_shape` 2,243 → 2,245) |
 | CRITICAL motion / visual | 0 / 502 | 0 / 502 |
+
+Taxi movers vs m by distance to a pad rim (n: movers > 0.02 / > 0.1 / > 0.3 / worst) — HECA c2: < 30 m 139: 87 / 87 / 2 /
++0.39; 30–60 247: 112 / 96 / 15 / +0.60; 60–200 2,194: 918 / 719 / 172 / −0.83; 200–500 4,549: 1,804 / 999 / 309 / −0.82;
+> 500 2,342: 101 / 20 / 2 / +0.32. KCLT kc2: < 30 m 195: 27 / 3 / 1 / +0.74; 30–60 185: 52 / 10 / 4 / +1.30; 60–200
+1,666: 343 / 186 / 127 / +1.34; 200–500 2,023: 352 / 118 / 62 / +1.06; > 500 1,120: 34 / 6 / 0 / −0.14.
+
+## Step 3 — OTHH (`om` = m tree, `oc2` = this tree; 18:27–18:59)
+
+The emitted patch is BYTE-IDENTICAL (sha 9cb768342ff3… both arms; R-E adds 16,941 diffs, 494,890 → 511,831, none binding:
+every held pad already stands at 3.96 on its sheet). `--null-change` 0/0/0.000 every pass in both. `airside_value_delta`
+frames: row-side 22,407 nodes 0 moved; solve-owned 10,466 0 moved; STRUCTURE 2,546 nodes (rims, walls, ramps, trenches,
+basins) 0 moved. 15 held datums 0 moved (11 on 3 shared sheets `pav10` / `pav29` / `pav32`, all 3.96). Runway 0 of 1,867.
+Census 164 = 164, CRITICAL 0 / 1,932 = 0 / 1,932. `hard_conflict` {} = {}.
+
+## Verdict against the bars (R-E + C2, this tree d4330dea = a4c2b6d9 + main 469d18ea)
+
+| bar | HECA | KCLT | SPJC | OTHH |
+|---|---|---|---|---|
+| null-change ≤ 20 at 0.02, 0 over 0.3, every pass | **MISSED** pass 2: 164 / 0 / 0.107 (pass 1 0/0 — C2 works) | **MISSED** pass 1b 47 / 0 / 0.185, stage 2 90 (m misses too: 18 / 4 / 0.538) | met | met |
+| rim steps AIR-TOUCH 0 | 0 (from 21) | 0 (from 3) | 0 (from 1) | 0 |
+| datum = apron on its rim | 0 off | 0 off | 0 off | 0 off |
+| runway (10a: ≤ 0.5 m and gentle) | worst +0.14; 7 sites over 0.1 pp / 30 m (peak 0.29 pp), no step | 0 | 0 | 0 |
+| taxi tier ± 3 | 64 = 64 | 50 → 49 | 7 = 7 | — |
+| pad `hard_conflict` | 104 → 68 | 33 → 34 | 1 = 1 | — |
+| adjudicated airside not rising | 12,022 → 12,041 | 2,971 → 3,067 | 714 → 723 | = |
+| CRITICAL not rising | **motion 3 → 4, visual 1,962 → 1,982** | = | = | = |
+
+C2 as landed is NOT broken on the real path: it does exactly what the PR says (pass 1a 0 movers at HECA and KCLT, was
+13/1/0.914 and 17/0/0.143) and moves no pad, datum or runway. No engine code changed by this lane.
+
+Instruments: `docs/briefs/reverify-scratch/` (`pair.sh`, `noC2.py` control driver, `rw.py` runway shape read, `datum.py`,
+`taxi_hist.py`, `cen.sh`, `chain2.sh`, `cmp_air.py` = seatspec's `cmp_arm.py` + the AIR rows). Frames registered (lane
+reverify): the four c2 patches.

@@ -14,7 +14,7 @@ Merged head for every build below: `c1a26f166` = `claude/pass2` 46c1e433c + `cla
   `tests/auto_patch_v2/test_v2linear.py::test_a_null_space_column_keeps_its_warm_start` (8 pass).
 - Suites on the merged head: non-Qt split 9,215 passed / 19 skipped / 1 xfailed / 1 xpassed / 1 FAILED
   (`tests/test_auto_patch_freshness.py::test_lazy_inputs_skipped_when_patch_current` — passes alone, 106/106
-  `-n0`; a load flake under `-n auto`, see the closing re-run); Qt 311 passed; the four named suites 204 passed;
+  `-n0`; a load flake under `-n auto`: the closing re-run on the idle machine is 9,217 passed / 19 skipped / 1 xfailed / 1 xpassed, 0 failed); Qt 311 passed; the four named suites 204 passed;
   `tools/ratchets.py` PASS (size WARN lines are both parents' own).
 
 ## 2. Sweep `sw11_<ICAO>` vs main's `sw10_<ICAO>`
@@ -343,3 +343,110 @@ replay reads and are NOT evidence; OTHH ran alone but for the first ~30 s — 54
   contacts released, tilt 0.32, rim 63.26..63.54); `objpav366#2` (the rim strip) welds at 0.00;
   `small_roads:-3884` stands 0.70 m off the rim (main 0.72). `mid_edge_step` service_road rows here: 0.67 m x4
   new; `pad_frontage_infeasible` 0.281 m at 30.11721238, 31.38159758.
+
+## 3. Attribution on HECA
+
+### (a) `building99` 30.12201985, 31.41904101 — a pad that is not one level
+
+FACTS (sw10 main -> sw11 merged; `noown.py` on the graded surfaces; `rows_at.py` = the replay's own constraint set
+on `frames/pads67/HECA.pkl`, no solve):
+
+- `building99` is ONE pad — one face (`face:450`), 9 vertices, registered `HELD` as a §20 CONFORMING pad
+  (`planar/platform.py`, 30y (1) "every building") — not two pads of a cluster and not a relaxed plane.
+- EVERY one of its 9 vertices is a hole-rim vertex of apron sheet `dsf:objpav402`: the pad has NO vertex of its
+  own. `model/platform.datum_vertices` gives such a pad no datum column ("A pad with no such vertex of its own
+  has no datum column and is not held"), so it has no hold row, no `platform plane` row and no platform record.
+- The rows on its vertex (v12240): the pad's own `structures.building_pad flat` (cap 0, 8 rows) and
+  `pad_slope_max ceiling` (1 %, 8 rows), and the apron's `ring edge` (1.5 %, 7), `preferred tier` (7),
+  `pavement_max_grade ceiling` (3), `airside_no_step §1.2` (3). The pad's rows are stage-2 rows over vertices
+  stage 1 has already fixed (they are all apron vertices): constants — violated ones are what `hard_conflict`
+  lists under tier `pad`. NO ROW IN THE STAGE THAT OWNS THE VERTICES SAYS THE PAD IS FLAT.
+- It is NOT new with R-E: on main the same pad has 1.11 m of relief (102.37..103.48 over its 92 m length,
+  1.2 % — under the 1.5 % `within_shape` cap, so no census row). R-E's cross-ring rows seat each long side of the
+  hole against the sheet beside it; the two sides, 21 m apart across the pad (no apron chord crosses a hole),
+  now differ 1.05 m = 4.99 %.
+- The class is general and on main: pads with no own vertex — HECA 17 (16 with relief > 0.05 m, to 1.42 m at
+  `building150`), KCLT 21 (20 with relief, to 1.68 m at `building68`); sw11: HECA 21 / 19, KCLT 24 / 21.
+
+INTERVENTION (`padsweep-scratch/arm_rimdatum.py`; a replay PAIR on this tree, `frames/pads67/HECA.pkl`,
+`--from classify --gap-free --workers 1 --emit`): the one variable — a HELD pad whose vertices are ALL welds
+takes one of them as its datum column, so the existing hold rows put its rim on one level in stage 1.
+
+| | control | arm |
+|---|---|---|
+| pads taking a rim datum | 0 | 16 |
+| `building99` relief / record | 1.05 m / none | **0.02 m / held, datum 93.397** |
+| no-own-vertex pads with relief > 0.05 m | 19 of 21 | 5 of 21 (`building12` 1.16 landside, `building36` 0.28 residual, `building204` 0.08, `building150` 0.06, `building23` 0.09) |
+| stage-1 hard set | no LP | LP 8.2 s, 2 rows relaxed (pad) |
+| stage-2 §5a relaxed | 316 (gs 283, pad 32, taxi 1) | 324 (gs 288, pad 35, taxi 1) |
+| solve | 366 s optimal | 360 s optimal |
+| solve-owned airside moved > 0.02 m (arm vs control) | — | 2,879: apron 981 <= 1.72 m, taxi 1,249 <= 0.96, strip 649 <= 0.95; runway 0; structure 0 |
+
+VERDICT: the cause is the missing datum column, proven by the pair. It is NOT fixed here: the sentence that
+excludes these pads is the spec's own (§56 (3) / flat-pad spec v2 §4, with a measured reason — a rim datum made
+two §20 pads' ceilings an infeasible stage-1 set; the arm relaxes 2 pad rows in stage 1), the arm moves 2,879
+airside vertices up to 1.72 m at HECA and re-opens the seven bodies just swept. QUESTION (yes / no): "Is a pad
+whose every vertex is welded to apron held flat at one level like every other held pad, the apron along its
+whole rim taking that level?" RECOMMENDATION: YES — it is 30y (1) / 30f-r read literally, the mechanism exists
+(the hold rows), and the arm shows it converging at no solve cost; land it as its own change with its own sweep.
+
+A SECOND, DIFFERENT class seen at KCLT and in HECA's record (NOT attributed by intervention): a HELD block's own
+flat rows (`platform plane`, pad tier) relaxed by the §5a LP against pavement ceilings — KCLT 16 + 15 rows on
+`building12` / `building49/b0` / `/b1` / `building46` / `building79`, worst 0.34 m; HECA `building100`
+(`tilt_pct` 93.4, one plane row relaxed 0.46 m). Present in BOTH parents' replays, absent on main: it came with
+the collar deletion / R-D, not with the merge.
+
+### (b) `strip_seam_tear` 30.13110296, 31.39802377
+
+- WHAT THE SEAM IS: the outer edge of `adjacent_ground:taxi:default:zone1#7` — a zone-1 piece 2.5-3.2 m wide and
+  ~20 m long lying along the edge of APRON sheet `dsf:objpav115` — where it meets `zone2#10`. Its ring is 20
+  vertices: 12 are the apron's own edge vertices, 8 are shared with `zone2#10` only. The census pairs an apron-edge
+  vertex of the one way with a seam vertex of the other, 2.5-4 m apart.
+- WHY IT TORE BEFORE (main: 23 rows, worst 2.47 m — every `strip_seam_tear` row of HECA is this seam): the 8 outer
+  vertices carry NO ROW AT ALL in the constraint set (`rows_at.py`: v20657 / v20656, zero rows). The zone law's
+  corridor (`constraints/zones.zone_bands`) is measured from the ring edges of RUNWAY-family and TAXI-family
+  faces only (`_pavement_edges`; `precedence.toml [taxi_family]` has no `apron`), and within 45 m of the seam
+  there is no taxi-family edge but two vertices of `cross_connector dsf:objpav115` — the piece borders an apron.
+  So the seam vertices sit where the objective's DEM pull leaves them (61.70..62.19) while the apron edge 3 m
+  away stands at 64.0..64.2. Row-level read, not an intervention (why the vertex is bandless — outside every
+  corridor, or `own_law` — was not separated).
+- WHY IT GREW: the apron edge rose, the seam did not follow. sw10 -> sw11 at the six pairs nearest the site: apron
+  edge 64.04 -> 64.76 (+0.72), seam 62.06 -> 62.24 (+0.18); drop across the sliver median 1.85 -> 2.38 m, worst
+  2.46 -> 3.12 m; rows 23 -> 37, worst 2.47 -> 3.13 m. The sheet is one of R-E's (it carries `building204` as a
+  hole): pass2's own pair read 1.98 -> 2.56 m with R-E as the one variable; the merged head adds the rest.
+- QUESTION (yes / no): "Does adjacent ground beside an APRON edge take its level from that edge, as it does beside
+  a taxiway?" RECOMMENDATION: yes (03i "takes its level from what it touches"); one derivation site
+  (`_pavement_edges`), its own change and sweep.
+
+## 4. Found, not fixed
+
+1. KCLT: one tunnel-wall rim + ramp moved 1.41-1.43 m (11 structure nodes, 35.22182657, -80.94183645).
+2. OTHH: one `structure_rim:tunnel_wall` node 0.04 m (25.26473780, 51.61171830) and one `basin_wall` rim node
+   re-sited — the structure bar is 0.
+3. `hairline_pair` rises more than the strips' expected count: HECA +91 (expected +30), KCLT +67 (+43), SPJC +16,
+   CYXY +2; OTHH +4 (expected +122).
+4. HECA CRITICAL visual without `hairline_pair` 60 -> 88 (`strip_seam_tear` +14 = 3 b, `mid_edge_step` +9 —
+   16 new / 13 gone, a 4.69 m `groundside_pavement` row at 30.11594978, 31.40754772 and the four 0.67 m
+   `service_road` rows at `building36` — `vertex_to_edge_step` +3, `adjacent_ground_step` +2).
+5. HECA #507: the wall step 3.22 -> 3.62 m (`terrace_actual_step` apron|apron, CRITICAL motion +1) — pass2's
+   found-not-fixed 1 / 2, unchanged by the merge.
+6. HECA `building36`: held -> RESIDUAL (13 of 13 contacts released, `pad_frontage_infeasible` 0.281 m).
+7. HECA rebake plan sha changed (1956d753 -> 75018e80); OTHH / KCLT / SPJC / KASE / NLWF identical.
+8. KCLT `round_cap` x3 (pass2's found-not-fixed 6, as briefed: reported, not fixed).
+9. `tests/test_auto_patch_freshness.py::test_lazy_inputs_skipped_when_patch_current` failed once under
+   `-n auto` on the merged head and passes alone (106 / 106).
+10. The landside pad `building12` is not one level (rim 93.60..94.74) — it has no own vertex either, but its rim is
+    lot / road, not apron: outside 3 a's arm.
+
+## 5. Null-change lines (replay of `frames/pads67/<ICAO>.pkl` on the merged head; bar 20 at 0.02 m, 0 over 0.3 m)
+
+```
+[HECA] NULL-CHANGE pass1 0/0/0.013 pass2 5/0/0.127 pass3 5/0/0.166 stage2 6/0/0.166 (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; promoted 2387=2388, lp relaxed 316=316)
+[KCLT] NULL-CHANGE pass1a 0/0/0.001 pass1b 0/0/0.000 stage2 0/0/0.000 (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; promoted 161=161, lp relaxed 309=309)
+[OTHH] NULL-CHANGE pass1a 0/0/0.000 pass1b 0/0/0.000 stage2 0/0/0.000 (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; promoted 0=0, lp relaxed 0=0)
+[CYXY] NULL-CHANGE pass1a 0/0/0.003 pass1b 7/0/0.078 stage2 10/0/0.078 (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; promoted 0=0, lp relaxed 4=4)
+[KASE] NULL-CHANGE pass1a 0/0/0.000 pass1b 0/0/0.000 stage2 0/0/0.000 (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; promoted 63=63, lp relaxed 1=1)
+[NLWF] NULL-CHANGE pass1a 0/0/0.000 pass1b 0/0/0.000 stage2 0/0/0.000 (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; promoted 0=0, lp relaxed 8=8)
+[SPJC] NULL-CHANGE pass1a 1/0/0.020 pass1b 0/0/0.006 stage2 0/0/0.006 (movers > 0.02 / > 0.3 / worst m; bar 20 / 0; promoted 58=58, lp relaxed 9=9)
+```
+All seven MET (HECA and OTHH on the `--gap-free` base; worst HECA 6 movers / 0.166 m).

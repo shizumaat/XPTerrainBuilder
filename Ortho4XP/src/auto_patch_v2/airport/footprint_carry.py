@@ -28,6 +28,7 @@ import dataclasses as _dc
 import math as _math
 import typing as _t
 
+from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 from .placement_contact import m_per_deg_exact
 
@@ -235,6 +236,19 @@ def contents_seat(over: _t.Sequence[tuple], pids: _t.AbstractSet[int],
                 counts[CONTENTS_SEAT + "_kept_deck_rider"] = \
                     counts.get(CONTENTS_SEAT + "_kept_deck_rider", 0) + 1
             return on_deck, None
+    # ISSUE #528: a piece carried by a BASIN body keeps it.  A basin's
+    # zero IS the rim (§14 (2)) while its unit's datum is the median
+    # ground under its contacts — the pit FLOOR — so the reroute read the
+    # pit's own shell as "13.64 m off its datum" and put the 8-12 cm
+    # fittings authored 3.2-5.0 m over the rim on the floor.  The same
+    # exemption §16a (2) gives the basin as a carrier (``placement_
+    # carrier._ok``): the offset is the basin law working.
+    on_basin = [t for t in over if getattr(t[0], "body_class", "") == _ar.BASIN]
+    if on_basin:
+        if counts is not None:
+            counts[CONTENTS_SEAT + "_kept_basin_rider"] = \
+                counts.get(CONTENTS_SEAT + "_kept_basin_rider", 0) + 1
+        return on_basin, None
     uc = unit_by_pid(pids, plan_wide, index)
     if uc is None:
         return list(over), None

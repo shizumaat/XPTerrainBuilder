@@ -226,3 +226,29 @@ def test_the_basin_anchor_is_the_nearest_vertex_pushed_outward():
     assert a.lat < lat0 and a.lon < lon0           # outward from vertex 0
 
 
+# ── B3 (#528): the pit's contents ride the pit ────────────────────────────
+
+class _Cand:
+    def __init__(self, cls, z, y0=0.0, res="x.obj"):
+        self.body_class = cls
+        self.anchor = _ar.Anchor(cls, 0.0, 0.0, y0, "", z)
+        self.resource = res
+
+
+def test_a_piece_carried_by_a_basin_keeps_it():
+    """`contents_seat` rerouted the pit's own fittings to the unit's
+    datum — the median ground under the shell's contacts, the pit FLOOR
+    — because the basin's zero (the rim, §14 (2)) read 13.64 m off it."""
+    basin = _Cand(_ar.BASIN, 3.96)
+    plan_wide = {7: ("fu:0:2", 0, 0, 0)}
+    index = {"fu:0:2": (None, (), -9.68, "ground", "ground")}
+    counts: dict = {}
+    over, uc = _fc.contents_seat([(basin, "rests on it")], {7}, None, plan_wide,
+                                 index, tol_m=0.3, counts=counts)
+    assert uc is None and over and over[0][0] is basin
+    assert counts.get(_fc.CONTENTS_SEAT + "_kept_basin_rider") == 1
+    # a non-basin carrier off the unit's datum is still rerouted
+    other = _Cand(_ar.OTHER, 3.96)
+    over2, uc2 = _fc.contents_seat([(other, "rests on it")], {7}, None, plan_wide,
+                                   index, tol_m=0.3, counts={})
+    assert over2 == [] and uc2 is not None

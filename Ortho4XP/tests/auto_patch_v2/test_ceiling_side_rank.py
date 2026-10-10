@@ -144,3 +144,22 @@ def test_a_pad_airside_holds_stays_and_the_road_takes_the_grade(law):
     assert set(rep.by_head) <= {XSEC, RAMP, FALLBACK}, rep.by_head
     assert rep.by_tier == {"groundside": rep.relaxed}
     assert sum(c["s_m"] for c in rep.conflicts) == pytest.approx(4.0, abs=1e-6)
+
+
+def test_a_roads_own_cap_stays_senior_to_its_ramp_ceiling(law):
+    """A groundside ceiling left the taxi tier to rank under the pads; it
+    is still senior to the road's ramp ceiling and cross-section (HECA
+    ``dsf:objpav405``, lane weldverify: priced equal, the road went 5.9 m
+    over its cap with no pad near it).  A road vertex its ramp ceiling
+    wants 3 m under what the cap allows from a fixed contact: the RAMP
+    row relaxes, the cap holds."""
+    roles = {0: ("service_road", "apron"), 1: ("service_road",)}
+    rows = [(APRON, {0: 1.0}, 0.0), (APRON, {0: -1.0}, 0.0),         # v0 = 0
+            (FALLBACK, {0: 1.0, 1: -1.0}, 0.5),                     # v1 >= -0.5
+            (RAMP, {1: 1.0}, -3.5)]                                 # v1 <= -3.5
+    one, A, b, pl = _problem(rows, roles)
+    _demote, rep = F.check_hard_set(pl, law, one, np.arange(len(one)), A, b, stage="1")
+    assert rep.status == "optimal" and rep.by_head == {RAMP: 1}, rep.by_head
+    heads = [h for h, _t, _r in rows]
+    tiers = F.row_tiers(pl, law, one, np.arange(len(rows)), heads)
+    assert list(F.cap_seniority(law, heads, tiers)) == [0.0, 0.0, 0.5, 0.0]

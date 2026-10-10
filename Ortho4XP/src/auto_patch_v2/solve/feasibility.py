@@ -49,7 +49,8 @@ from ..model.planar import PlanarMap
 from .design_report import row_metre_scale
 from .design_roles import ruling_head
 
-__all__ = ["ConflictReport", "tier_of", "row_tiers", "SIDE_RANKED_HEADS",
+__all__ = ["ConflictReport", "tier_of", "row_tiers", "cap_seniority",
+           "SIDE_RANKED_HEADS",
            "check_hard_set", "canonical_rank",
            "HARD_CONFLICT", "publish", "publish_stages", "demote_conflicts",
            "apron_hard_rows", "source_face", "published",
@@ -191,6 +192,30 @@ def row_tiers(planar: PlanarMap, law: Law, one: list, rows: np.ndarray,
     return out
 
 
+def cap_seniority(law: Law, heads: _t.Sequence[str], tiers: np.ndarray
+                  ) -> np.ndarray:
+    """THE PRICE EXPONENT EACH ROW ADDS TO ITS TIER'S (0 or one HALF tier).
+    A :data:`SIDE_RANKED_HEADS` row that :func:`row_tiers` ranked in
+    :data:`GROUNDSIDE_TIER` is a lot's or a road's own GRADE CAP.  It left
+    the taxi tier so that it never outranks a pad (09j (1)); it did not
+    thereby become the equal of the rows it has always been senior to — the
+    road's ramp ceiling, its cross-section, the gap rows (``[design]
+    hard_conflict_ranks``: the taxi tier above the groundside tier).
+    Priced equal, the LP split a ramp's misfit between the two and let the
+    ROAD exceed its cap with no pad near it (measured HECA, lane
+    weldverify, ``dsf:objpav405`` at 30.1390670, 31.4100643: ramp ceiling
+    5.63 m relaxed -> 4.62 m with the cap relaxed 2.28 m; census
+    ``pavement_over_road_cap`` standing rows 4 -> 19, worst 5.90 m over
+    55.8 m).  Half a tier (``sqrt(hard_conflict_tier_ratio)``) keeps it
+    under every pad row and over its own tier's rows, with no tier added
+    to the ladder (the LP's cost range is the ladder's length)."""
+    d = design_law(law)
+    gs = list(d.hard_conflict_tiers).index(GROUNDSIDE_TIER)
+    side_ranked = frozenset(SIDE_RANKED_HEADS)
+    return np.array([0.5 if (h in side_ranked and int(t) == gs) else 0.0
+                     for h, t in zip(heads, tiers)], dtype=float)
+
+
 def _site(planar: PlanarMap, terms: _t.Sequence[tuple[int, float]]) -> list[float]:
     keys = [planar.vertices[int(v)].key for v, _c in terms
             if int(v) in planar.vertices]
@@ -275,7 +300,8 @@ def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
     # EVERY hard row elastic (§5a (a)), priced by its tier: the runway's
     # relaxation costs ``ratio`` times the taxi's, and so on down — a
     # runway row that still carries slack over ``hard_tol_m`` is a STOP
-    cost = ratio ** (n_t - 1 - t_row).astype(float)
+    cost = ratio ** ((n_t - 1 - t_row).astype(float)
+                     + cap_seniority(law, heads, t_row))
     duals: list = []
     tie: dict = {}
     t0 = time.perf_counter()

@@ -261,3 +261,25 @@ WALL (single runs, weldverify on the machine): KCLT solve 116.8 → 114.9 s (sta
 HECA solve 355.7 → 357.5 s (stage 1 298.3 → 291.4). No measurable cost: the increment solve is one back-solve, as before.
 QP exits: KCLT stage 2's first (warm-up) QP now ends `round_cap` at 400 rounds (c2: `no_descent`), the five after it
 `optimal`; stage 1's warm-up `round_cap` as in c2. HECA: no `round_cap`.
+
+CENSUS under the fix (harness census, all three patches censused on this tree), m / c2 / **f**:
+
+| | HECA | KCLT |
+|---|---|---|
+| adjudicated airside | 12,022 / 12,041 / **12,037** | 2,971 / 3,067 / **3,051** |
+| `within_shape` | 44,300 / 44,377 / 44,353 | 9,413 / 9,600 / 9,538 |
+| `transverse` | 353 / 379 / 379 | 4 / 8 / 8 |
+| `taxi_box` | 2,460 / 2,452 / 2,454 | 224 / 224 / 227 |
+| `strip_transverse` | 261 / 251 / 247 | 18 / 17 / 17 |
+| `airside_no_step` | 4,047 / 4,038 / 4,036 | 479 / 475 / 475 |
+| `strip_longitudinal` | 7 = 7 = 7 | 10 / 10 / 11 |
+| `hard_conflict` (census, airside) | 168 / 132 / 135 | 83 / 83 / 82 |
+| `hard_conflict` tiers gs / pad / taxi (sidecar) | c2 259 / 68 / 64 → f 259 / 71 / 64 | kc2 288 / 34 / 49 → kf 288 / 33 / 49 |
+| `strip_seam_tear`, `adjacent_ground_step`, `pad_frontage_infeasible`, `terrace_actual_step` | as c2 (37, 8, 4, 1) | as c2 |
+| `vertex_to_edge_step` (airside) | 3 / 2 / **1** | — |
+| CRITICAL motion | 3 / 4 / **3** | 4 = 4 = 4 |
+| CRITICAL visual | 1,962 / 1,982 / 1,982 | 1,996 = 1,996 = 1,996 |
+
+HECA's CRITICAL motion falls back to 3: the `vertex_to_edge_step` apron|junction row at 30.10900813, 31.40395756 (0.5225 m
+in c2 — #495's site, the row 09h accepted at 0.519 m) is not a row under the fix. The terrace row of C-2 stands.
+Rising under the fix: HECA `taxi_box` +2, pad-tier `hard_conflict` +3; KCLT `taxi_box` +3, `strip_longitudinal` +1.

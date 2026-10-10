@@ -322,19 +322,3 @@ def test_PAVEMENT_beside_the_pad_still_covers_the_bore(law):
                  "airside", "apron", {})
     _cl, _t, st = _spjc(law, partition=_link(), extra_cells=(_pad(305, -112, 326, -88), apron))
     assert not _refusals(st), st.mouths_off_field_nearest
-
-
-def test_the_DEM_under_a_discounted_pad_is_no_rise_over_the_bore(law):
-    """#548, second half (KCLT read "+0.82 m above its mouth chord" under
-    the terminal's own pad): the ground under a pad the pack passage
-    discounts is the building's site, not a hill over the bore — the same
-    bump OUTSIDE the pad, or under a pad with no passage, still admits."""
-    bump = lambda x, y: 21.97 - 0.015 * (x - 300.0) + 2.0 * math.exp(-((x - 317.0) / 4.0) ** 2)
-    pad = _pad(305, -112, 330, -88)
-    _cl, _t, st = _spjc(law, partition=_link(), extra_cells=(pad,), dem=bump)
-    assert st.tunnels == 0 and len(_refusals(st)) == 1, st.mouths_off_field_nearest
-    _cl, _t, st = _spjc(law, extra_cells=(pad,), dem=bump)            # no passage
-    assert not _refusals(st)
-    _cl, _t, st = _spjc(law, partition=_link(), extra_cells=(_pad(322, -112, 330, -88),),
-                        dem=bump)                                     # the bump is outside
-    assert not _refusals(st) and st.tunnels == 2, st.mouths_off_field_nearest

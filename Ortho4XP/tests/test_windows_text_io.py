@@ -66,3 +66,83 @@ def test_suite_text_io_names_encoding_and_newline():
                 for line, what in _offences(tree)]
     assert not bad, ("text I/O that is cp1252/CRLF on Windows (#92):\n  "
                      + "\n  ".join(bad[:40]))
+
+
+# -- the engine (#539) ---------------------------------------------------
+#
+# The same scan over src and the two entry files, as a RATCHET: the
+# count of text opens that name no encoding may fall, never rise.  It
+# started at 134 (2026-10-10); every read of a file that ships with the
+# app or that a user or a third party supplies was named then.  What is
+# recorded below is files the engine writes and reads back itself: JSON
+# written by json.dump (ASCII on disk, ensure_ascii is never
+# turned off in src) and numeric mesh text.  A NEW text open names its
+# encoding -- O4_Text_Files says which one.
+
+ENGINE = TESTS.parent
+ENGINE_SOURCES = ("src", "Ortho4XP.py", "Ortho4XP_Qt.py")
+NOT_SHIPPED = "src/Unused/"
+
+RECORDED_UNNAMED = {
+    "Ortho4XP_Qt.py": 1,
+    "src/O4_Airport_Elevation_Insets.py": 18,
+    "src/O4_Bathymetry_Band.py": 3,
+    "src/O4_Coral_Atlas.py": 2,
+    "src/O4_Elevation_Level.py": 5,
+    "src/O4_LERC_Decode.py": 1,
+    "src/O4_Mask_Utils.py": 4,
+    "src/O4_Mesh_Utils.py": 17,
+    "src/O4_OSM_Extracts.py": 3,
+    "src/O4_Parallel_Utils.py": 1,
+    "src/O4_Qt_GUI.py": 4,
+    "src/O4_Tile_Utils.py": 2,
+    "src/O4_Vector_Utils.py": 2,
+    "src/auto_patch/engine_v2.py": 1,
+    "src/auto_patch/mesh_sampler.py": 1,
+    "src/auto_patch/object_rebake.py": 3,
+    "src/auto_patch/post_mesh.py": 1,
+    "src/auto_patch_v2/airport/dem.py": 1,
+    "src/auto_patch_v2/airport/dem_production.py": 1,
+    "src/elevation_access/strategies/arcgis_feature_tiles.py": 4,
+    "src/elevation_access/strategies/coordinate_named_url_list.py": 2,
+    "src/elevation_access/strategies/geojson_tile_index.py": 2,
+    "src/elevation_access/strategies/las_tile_index.py": 2,
+    "src/elevation_access/strategies/os_grid_bucket.py": 2,
+    "src/elevation_access/strategies/static_stac.py": 3,
+    "src/elevation_access/strategies/tile_grid_http.py": 2,
+    "src/elevation_access/strategies/xyz_archive_drop.py": 2,
+    "src/o4_engine/tile_time_model.py": 3,
+}
+
+
+def _engine_offences():
+    found = {}
+    for root in ENGINE_SOURCES:
+        root = ENGINE / root
+        for path in sorted(root.rglob("*.py")) if root.is_dir() else [root]:
+            name = path.relative_to(ENGINE).as_posix()
+            if name.startswith(NOT_SHIPPED):
+                continue
+            count = sum(1 for _ in _offences(
+                ast.parse(path.read_text(encoding="utf-8"), str(path))))
+            if count:
+                found[name] = count
+    return found
+
+
+def test_engine_text_io_without_an_encoding_never_grows():
+    found = _engine_offences()
+    grown = ["%s: %d, recorded %d" % (name, count,
+                                       RECORDED_UNNAMED.get(name, 0))
+             for (name, count) in sorted(found.items())
+             if count > RECORDED_UNNAMED.get(name, 0)]
+    assert not grown, (
+        "a text open/read_text/write_text that names no encoding= (or a "
+        "text write with no newline=) is the ANSI code page on Windows "
+        "(#539); name it -- see src/O4_Text_Files.py:\n  "
+        + "\n  ".join(grown))
+
+
+def test_the_recorded_count_is_the_measured_one():
+    # A fall is recorded in the same commit, so the next rise is caught.
+    assert _engine_offences() == RECORDED_UNNAMED

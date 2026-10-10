@@ -11,6 +11,7 @@ import numpy
 from shapely import geometry, ops
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Text_Files as TEXT
 from O4_Version import version as O4XP_VERSION
 
 # Default overpass_server_choice if not in config
@@ -31,7 +32,8 @@ def _load_overpass_servers() -> dict:
     """Create dictionary from overpass_servers.txt."""
     servers = {}
     try:
-        with open(FNAMES.resource_path("overpass_servers.txt"), "r") as f:
+        with TEXT.open_supplied(
+                FNAMES.resource_path("overpass_servers.txt")) as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):

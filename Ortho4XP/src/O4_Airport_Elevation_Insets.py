@@ -169,6 +169,7 @@ from elevation_access.warp import inset_valid_fraction
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Text_Files as TEXT
 import O4_File_Lock as O4_File_Lock
 import O4_Geo_Utils as GEO
 import O4_DEM_Utils as DEM
@@ -437,7 +438,7 @@ def _parse_resolution_ladder(value, provider_code="?"):
 
 
 #: ``.elv`` files are UTF-8; a byte-order mark an editor added is dropped.
-ELV_ENCODING = "utf-8-sig"
+ELV_ENCODING = TEXT.SHIPPED_ENCODING
 
 
 def provider_registry_selfcheck(providers_directory=None):
@@ -461,7 +462,8 @@ def provider_registry_selfcheck(providers_directory=None):
     finally:
         elevation_providers_dict = in_force
     files = sorted(file_name[:-4] for file_name in os.listdir(directory)
-                   if file_name.endswith(".elv"))
+                   if file_name.endswith(".elv")
+                   and not file_name.startswith("."))
     absent = [code for code in files if code not in parsed]
     dangling = sorted(set(
         "%s>%s" % (code, rung["provider"])
@@ -511,6 +513,8 @@ def initialize_elevation_providers_dict(providers_directory=None):
         return result
     for file_name in sorted(os.listdir(directory)):
         if "." not in file_name or file_name.split(".")[-1] != "elv":
+            continue
+        if file_name.startswith("."):       # a swap file, a resource fork
             continue
         provider_code = file_name.split(".")[0]
         definition = {"code": provider_code}

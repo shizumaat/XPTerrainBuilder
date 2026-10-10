@@ -9,6 +9,7 @@ import O4_Cfg_Vars as CFG
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
+import O4_Text_Files as TEXT
 import O4_OSM_Utils as OSM
 import O4_Overlay_Utils as OVL
 import O4_Tile_Utils as TILE
@@ -109,7 +110,7 @@ RETIRED_CFG_KEYS = tuple(retired_cfg_keys)
 ################################################################################
 # Update from Global Ortho4XP.cfg
 try:
-    f = open(global_cfg_file, "r")
+    f = TEXT.open_supplied(global_cfg_file, legacy_ansi=True)
     for line in f.readlines():
         line = line.strip()
         if not line:
@@ -142,7 +143,8 @@ try:
 except FileNotFoundError:
     # Create a new global config file using default values
     os.makedirs(os.path.dirname(global_cfg_file), exist_ok=True)
-    with open(global_cfg_file, "w", newline="\n") as file:
+    with open(global_cfg_file, "w", encoding=TEXT.WRITE_ENCODING,
+              newline="\n") as file:
         for var, value in cfg_global_tile_vars.items():
             # Remove global_ prefix from cfg_global_tile_vars since that's not
             # how they are stored in the global config file
@@ -299,7 +301,7 @@ class Tile:
         :returns: 1 on success, 0 when the file could not be read
         """
         try:
-            f = open(config_file, "r")
+            f = TEXT.open_supplied(config_file, legacy_ansi=True)
             for line in f.readlines():
                 line = line.strip()
                 if not line:

@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Iterator, Optional
 
 import O4_File_Names as FNAMES
+import O4_Text_Files as TEXT
 
 
 @dataclass
@@ -99,7 +100,7 @@ def _parse_cfg(
     high_zl_airports = ""
     cover_zl: Optional[int] = None
     try:
-        with open(cfg_path, "r") as f:
+        with TEXT.open_supplied(cfg_path, legacy_ansi=True) as f:
             for line in f.readlines():
                 if line[:15] == "default_website":
                     provider = _unquote(line.strip().split("=", 1)[1].strip())

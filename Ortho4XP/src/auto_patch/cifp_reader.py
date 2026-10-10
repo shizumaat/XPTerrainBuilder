@@ -108,7 +108,7 @@ def parse_cifp_file(filepath: str) -> dict[str, CifpRunway]:
     """
     runways: dict[str, CifpRunway] = {}
     try:
-        with open(filepath, "r", errors="replace") as f:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 if not line.startswith("RWY:"):

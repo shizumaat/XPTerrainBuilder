@@ -23,6 +23,7 @@ import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
 import O4_OSM_Utils as OSM
 import O4_Sea_Nodata_Fill as SEA_FILL
+import O4_Text_Files as TEXT
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
 from O4_Parallel_Utils import parallel_execute
@@ -240,19 +241,28 @@ def extent_mask_image_path(extent_code):
 
 
 ################################################################################
+def _is_registry_file(file_name, extension):
+    """Is ``file_name`` a registry definition with this extension?  A
+    dotfile is not: an editor's swap file or a macOS ``._NAME.lay``
+    resource fork beside the real file is no provider (issue #539)."""
+    return (
+        not file_name.startswith(".")
+        and "." in file_name
+        and file_name.split(".")[-1] == extension
+    )
+
+
 def initialize_extents_dict():
     for dir_name in os.listdir(FNAMES.Extent_dir):
         if not os.path.isdir(os.path.join(FNAMES.Extent_dir, dir_name)):
             continue
         for file_name in os.listdir(os.path.join(FNAMES.Extent_dir, dir_name)):
-            if "." not in file_name or file_name.split(".")[-1] != "ext":
+            if not _is_registry_file(file_name, "ext"):
                 continue
             extent_code = file_name.split(".")[0]
             extent = {}
-            f = open(
-                os.path.join(FNAMES.Extent_dir, dir_name, file_name),
-                "r",
-                encoding="utf-8",
+            f = TEXT.open_supplied(
+                os.path.join(FNAMES.Extent_dir, dir_name, file_name)
             )
             valid_extent = True
             for line in f.readlines():
@@ -322,10 +332,10 @@ def initialize_extents_dict():
 ################################################################################
 def initialize_color_filters_dict():
     for file_name in os.listdir(FNAMES.Filter_dir):
-        if "." not in file_name or file_name.split(".")[-1] != "flt":
+        if not _is_registry_file(file_name, "flt"):
             continue
         color_code = file_name.split(".")[0]
-        f = open(os.path.join(FNAMES.Filter_dir, file_name), "r")
+        f = TEXT.open_supplied(os.path.join(FNAMES.Filter_dir, file_name))
         valid_color_filters = True
         color_filters = []
         for line in f.readlines():
@@ -361,13 +371,24 @@ def initialize_providers_dict():
         for file_name in os.listdir(
             os.path.join(FNAMES.Provider_dir, dir_name)
         ):
-            if "." not in file_name or file_name.split(".")[-1] != "lay":
+            if not _is_registry_file(file_name, "lay"):
                 continue
             provider_code = file_name.split(".")[0]
             provider = {}
-            f = open(
-                os.path.join(FNAMES.Provider_dir, dir_name, file_name), "r"
-            )
+            try:
+                f = TEXT.open_supplied(
+                    os.path.join(FNAMES.Provider_dir, dir_name, file_name)
+                )
+            except OSError as error:
+                # One unreadable file is one provider gone, by name --
+                # never the end of the whole registry (issue #539).
+                UI.vprint(
+                    0,
+                    "   WARNING: could not read provider file",
+                    os.path.join(dir_name, file_name),
+                    "(%s) - skipping it." % type(error).__name__,
+                )
+                continue
             valid_provider = True
             for line in f.readlines():
                 line = line.strip()
@@ -562,10 +583,11 @@ def initialize_providers_dict():
                                 "capabilities.xml",
                             )
                         )
-                    except:
+                    except Exception as error:
                         print(
                             "Error in reading capabilities for provider",
-                            provider_code,
+                            os.path.join(dir_name, file_name),
+                            "(%s)" % type(error).__name__,
                         )
                         valid_provider = False
                 if valid_provider:
@@ -660,12 +682,12 @@ def initialize_providers_dict():
 ################################################################################
 def initialize_combined_providers_dict():
     for file_name in os.listdir(FNAMES.Provider_dir):
-        if "." not in file_name or file_name.split(".")[-1] != "comb":
+        if not _is_registry_file(file_name, "comb"):
             continue
         provider_code = file_name.split(".")[0]
         try:
             comb_list = []
-            f = open(os.path.join(FNAMES.Provider_dir, file_name), "r")
+            f = TEXT.open_supplied(os.path.join(FNAMES.Provider_dir, file_name))
             for line in f.readlines():
                 if "#" in line:
                     line = line.split("#")[0]
@@ -755,9 +777,11 @@ def initialize_combined_providers_dict():
                     provider_code,
                     "did not contained valid providers, skipped.",
                 )
-        except:
+        except Exception as error:
             print(
-                "Error reading definition of combined provider", provider_code
+                "Error reading definition of combined provider",
+                file_name,
+                "(%s)" % type(error).__name__,
             )
 
 
@@ -958,7 +982,7 @@ def initialize_local_combined_providers_dict(tile):
 
 ################################################################################
 def read_tilematrixsets(file_name):
-    f = open(file_name, "r")
+    f = TEXT.open_supplied(file_name)
 
     def xml_decode(line):
         field = line.split("<")[1].split(">")[0]
@@ -2478,7 +2502,7 @@ def read_color_field(tile):
     import json
 
     try:
-        with open(color_field_path(tile), "r") as handle:
+        with open(color_field_path(tile), "r", encoding="utf-8") as handle:
             record = json.load(handle)
         fields = {}
         for grid in record["grids"]:
@@ -2601,7 +2625,7 @@ def solve_color_field(tile):
         path = color_field_path(tile)
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         temporary = path + ".tmp"
-        with open(temporary, "w", newline="\n") as handle:
+        with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
             json.dump(
                 _color_field_record(tile, fields, seam_table, statistics),
                 handle,

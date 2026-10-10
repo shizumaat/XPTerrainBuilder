@@ -243,7 +243,7 @@ def _pack_content(ents: _t.Sequence[tuple[str, int, float, str]],
         if _norm(os.path.join(pack_root, rel)) in read:
             continue
         try:
-            with open(src, "r", errors="replace") as fh:
+            with open(src, "r", encoding="utf-8", errors="replace") as fh:
                 if CUT_MARK in fh.read(4096):
                     minted.add(rel)
         except OSError:

@@ -1014,7 +1014,7 @@ def verify_roundtrip(dsf_path: str, expected_text: str, tool: str,
         fd, tmp = tempfile.mkstemp(suffix=".verify.text")
         os.close(fd)
     dump(dsf_path, tmp, tool)
-    with open(tmp, "r", errors="replace") as fh:
+    with open(tmp, "r", encoding="utf-8", errors="replace") as fh:
         actual = fh.read()
     if text_out is None:
         os.unlink(tmp)
@@ -1060,7 +1060,7 @@ def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
         try:
             if not os.path.isfile(path):
                 continue
-            with open(path, "r", errors="replace") as fh:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 if CUT_MARK not in fh.read(4096):
                     continue
             os.remove(path)

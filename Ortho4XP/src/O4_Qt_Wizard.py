@@ -8,6 +8,7 @@ airport indexing.
 
 import os
 import sys
+import O4_Text_Files as TEXT
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -47,7 +48,7 @@ def detect_xplane_installs():
     for fname in ("x-plane_install_12.txt", "x-plane_install_11.txt"):
         path = os.path.join(pref_dir, fname) if pref_dir else ""
         try:
-            with open(path, "r", errors="replace") as f:
+            with TEXT.open_supplied(path, legacy_ansi=True) as f:
                 for line in f:
                     line = line.strip()
                     if line:

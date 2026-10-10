@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 import O4_Cfg_Vars
 import O4_File_Names as FNAMES
+import O4_Text_Files as TEXT
 
 
 @dataclass(frozen=True)
@@ -282,7 +283,9 @@ def _parse_cfg(path: str, strip_quotes: bool = True) -> dict:
     result: dict = {}
     if not os.path.isfile(path):
         return result
-    with open(path, "r") as f:
+    # UTF-8; a cfg an older build wrote in this machine's ANSI code page
+    # still reads back (issue #539).
+    with TEXT.open_supplied(path, legacy_ansi=True) as f:
         for line in f:
             line = line.strip()
             if not line or line[0] == "#":
@@ -321,7 +324,7 @@ def _write_atomic_with_backup(path: str, data: dict,
     if directory and not os.path.isdir(directory):
         os.makedirs(directory, exist_ok=True)
     tmp = path + ".tmp"
-    with open(tmp, "w", newline="\n") as f:
+    with open(tmp, "w", encoding=TEXT.WRITE_ENCODING, newline="\n") as f:
         for key, value in data.items():
             f.write(key + "=" + str(value) + "\n")
     if os.path.isfile(path) and not (keep_existing_backup

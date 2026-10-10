@@ -302,7 +302,7 @@ def load_object_file(path: str) -> ObjectGeometry:
     currently_hard = ""  # "" | "hard" | "hard_deck"
     draped_layer_group: tuple[str, int] | None = None
 
-    with open(path, errors="replace") as handle:
+    with open(path, encoding="utf-8", errors="replace") as handle:
         for line_index, line in enumerate(handle):
             tokens = line.split()
             if not tokens:

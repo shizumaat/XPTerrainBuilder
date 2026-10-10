@@ -112,3 +112,87 @@ and `members`) is SETTLED like a split row — never converted, never given a
 §16g (5) elevation, never a rider. `airport/authored_seat.kept_ids` /
 `kept_rows` (`pipeline/authored_seats.kept_ids` now delegates). Count
 `authored_rows_kept` in the plan's provenance.
+
+### Intervention (offline, on the 1.0.385 plan)
+
+`tools/obj8_split_report.py /tmp/harness/sw11_OTHH.v2/OTHH.rebake.json
+--graded …/OTHH.graded.json --dsf-dump …/+25+051.dsf.anchor_bak.4229c95f.text`
+on the lane tree (the report now prints the row half through the writer's
+own `dump_rows`): **22 rows keep the author's seat, all 22 "kept as
+authored"** (13 pit rows 36156–36168, 9 wall rows 36223–36231; the two
+`tunnel1` rows no longer take an `OBJECT_MSL`). As built the same plan
+converted 20 of them and MSL-seated 2. The author's rows on the owner's
+mesh are the "author's row" columns above: rims −0.01 / −0.14 m, crests
++1.58 … +2.59 m.
+
+(The guard flagged a shared-repo side effect on that run: 12
+`Airport_mod_cache/NLWF-…` paths and 2 `Masks/-20-180/-15-179` — the
+owner's app building NLWF at the same time, not this read-only tool.)
+
+## FINDING B — #514's other half: the south-end pits the engine RE-SEATS (plain rows, no lift)
+
+`Drainage_06` (rows 11323/11324) and `Dewatering_02` (11325/11326) are
+plain `OBJECT` rows: §18 gives them no record ("a plain placement … seats
+as its law always did"), so they are split and re-anchored. With the
+AUTHOR's rows on the 1.0.385 mesh they would be exact (anchor on flat
+ground beside the pit: rim +0.01 / 0.00). As built:
+
+| body | class / anchor rule | as built: rim vs grade | note |
+|---|---|---|---|
+| `Drainage_06_000__b0` (the 283 × 179 m L-shaped trench shell, basin:0) | `skirted` / "low-side foot" on the trench floor | **−2.68** (bottom 0.92 m under the −0.74 floor) | B1 |
+| `Drainage_06_000__b1`, `06_001__b1`, `__b2` (basin:7) | `basin` / rim vertex `basin_wall:7@1065` | **−0.15** | B2 |
+| `Dewatering_02_LOD0_001__b0`, `_002__b0` (basin:6) | `basin` / rim vertex `basin_wall:6@1063` | **−0.23** | B2 |
+| `Drainage_06_001__b0` (basin:0), `__b3` (basin:9) | `basin` / rim vertex | 0.00 | |
+| `Dewatering_02_LOD0_002__b1…b10`, `_001__b1/b2` (8–12 cm fittings authored +3.2 … +5.0 over the rim) | `plate_only` / `other`, "footless_own_ground" | **−13.64** (on the pit floor) | B3, same anchors and file hashes in the 1.0.383 DSF |
+
+**B1 — a concave shell's centroid is outside its own ring.**
+`placement_cut._rim_of` / `anchor_rule.rim_of` ask whether the body's
+LOWEST COMPONENT stands inside an emitted basin ring by that component's
+PLAN CENTROID (`Part.lat/lon`). The trench shell's centroid
+(25.25354708, 51.62568384) is 19 m OUTSIDE its L-shaped ring
+`basin_wall:0`, so the body is not `basin`, falls to `skirted`, and the
+generic rule anchors it at its low-side foot on the trench floor (−0.74).
+INTERVENTION (scratch `b1_intervention.diff`, not landed: the ring is the
+centroid's, else the one MOST of the component's own feet stand in; three
+call sites — `placement_body.py:178`, `:512`, `anchor_rule.py:996`):
+`Drainage_06_000__b0` becomes `basin`, anchored `basin rim
+(basin_wall:0@1052)`, y_zero 0, surface 3.96 → rim at grade. Side effect
+seen in the same run: `Drainage_06_001` forms 3 bodies instead of 4 (the
+basin:9 body merges), so it is body-formation law (§14 / §14a), not a
+one-line fix. The 1.0.383 DSF also anchored this body inside the trench
+floor (25.253837167, 51.624824998): standing, not a regression. NOT FIXED.
+
+**B2 — a rim-vertex anchor falls onto the wall face in the DSF.** The
+basin rule anchors a body ON a rim-ring vertex (surface 3.96). The DSF
+stores coordinates on a 0.03125°/65535 pool grid (5.3 cm N–S, 4.8 cm E–W);
+the written row lands up to a quantum off, and INSIDE the ring the mesh is
+the wall band (4.7 m or 13.6 m of fall in 0.707 m). Measured on the owner's
+mesh: plan anchor 25.25207633841, 51.6246568 → 3.960; written row
+25.252076181, 51.624656672 → **3.733**; plan 25.25375087599, 51.62468183911
+→ 3.960; written 25.253750858, 51.624681468 → **3.810**. Two other rim
+anchors quantised outward and read 3.960. Standing since the basin-rim
+anchor exists (same rows in the 1.0.383 DSF). NOT FIXED — candidate rule:
+the rim anchor point is taken one DSF quantum or more OUTSIDE the ring.
+
+**B3 — fittings over a covered pit seat on the pit floor.** Standing
+(identical rows on 1.0.383); 8–12 cm objects, 13.6 m under their authored
+place. NOT FIXED.
+
+### "The basin seems a bit too big … a visible gap" — which rule sizes the cut
+
+Every pit here but basin:9 reads `shell 0.00 m thick` (the drain objects
+have SLOPED BANKS, not a vertical wall: floor plate 66–782 m² inside a
+467–3,824 m² outline, so `shell_thickness_m` finds no wall face). §47 (3)
+then says the shell is thinner than the lattice floor 0.7071 m, the FLOOR
+ring stays on the object's outer face and the RIM YIELDS OUTWARD by
+`rim_yield` 0.707 m. So in plan the cut is the object's outline + 0.71 m on
+every side, and that 0.71 m is the mesh wall band falling from grade to the
+floor: a slot 0.71 m wide and 4.3 m (13.6 m) deep all round the object. The
+floor is `solid_min − floor_clearance_m 0.5` (plate −3.816 → terrain
+−4.316 under the rim: −0.35 MSL; Drainage_06 plate −4.201 → −0.74;
+Dewatering −13.142 → −9.68). basin:9 (`Drainage_06_001` b3, a walled sump,
+shell 0.78 m) has no yield: its rim is its outer face. Same rule, same
+numbers in sw6, sw10 and sw11 — it is the §47 design, and the fix of
+finding A does not change it: with the author's rows back the rims stand
+at grade INSIDE a cut 0.71 m wider than the object. INTENT QUESTION for the
+owner (see the report).

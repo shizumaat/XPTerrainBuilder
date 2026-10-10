@@ -8,7 +8,7 @@ import O4_Console_Encoding as CONSOLE
 # DSFTool's text is the DSF's own bytes -- UTF-8 by specification.  Lines
 # are copied through to the file DSFTool reads back, so a byte that is not
 # UTF-8 must survive the round trip, and must never end the step (#539).
-DSF_TEXT = {"encoding": "utf-8", "errors": "surrogateescape"}
+DSF_TEXT_ERRORS = "surrogateescape"
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
@@ -150,7 +150,8 @@ def build_overlay(lat, lon):
             FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt"
         ),
         "r",
-        **DSF_TEXT,
+        encoding="utf-8",
+        errors=DSF_TEXT_ERRORS,
     )
     g = open(
         os.path.join(
@@ -158,8 +159,9 @@ def build_overlay(lat, lon):
             FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.txt",
         ),
         "w",
+        encoding="utf-8",
+        errors=DSF_TEXT_ERRORS,
         newline="\n",
-        **DSF_TEXT,
     )
     line = f.readline()
     g.write("PROPERTY sim/overlay 1\n")

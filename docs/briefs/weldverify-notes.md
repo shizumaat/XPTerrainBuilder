@@ -5,13 +5,18 @@ b8c8e988 + `origin/main` 469d18ea0 (merge b57214e32; main since the base adds tw
 Scratch `<scratch>/weldverify/` (`.progress`, `pair.sh` / `acc.sh` / `cmp.py` / `cencmp.py` copied from `<scratch>/weld63/`,
 bases `b0` / `kb0` and weld63's `w1` / `kw1` symlinked — controls shared, not rebuilt). Frozen replay tree `weld63frz`.
 
-## RESUME HERE
+## RESUME HERE (lane complete; nothing running)
 
-* HEAD 1e6ab88d + notes (pushed). Suites at 1e6ab88d: non-Qt 9,199 passed / 19 skipped / 1 xfailed / 1 xpassed; Qt 311 passed;
-  the four named files 204 passed; ratchets PASS (size WARN `classify/roles.py` 1,444 → 1,504, this branch's whole diff).
-* Arms done: `v3` / `kv3` (final head), `sv` / `cv` (SPJC / CYXY vs `sb0` / `cb0`). RUNNING: `ov` (OTHH vs `ob0`).
-  THEN: `acc.sh ov OTHH ob0`, the OTHH structure read, the closing build `weldverify_HECA` + `frames.py register`.
-* OPEN, NOT FIXED (a design question, see "THE STRIP'S LIP"): cloud (3)'s strip concentrates a pad|road misfit into 0.95 m.
+* HEAD = this commit on `claude/weldverify` (code 1e6ab88d). Suites at 1e6ab88d: non-Qt 9,199 passed / 19 skipped / 1 xfailed /
+  1 xpassed; Qt 311; the four named files 204; ratchets PASS (WARN `classify/roles.py` 1,444 → 1,504).
+* CLOSING BUILD `weldverify_HECA` (rc 0, 545 s, body `ed4130615781…`): its census equals replay `v3` on EVERY family
+  (adjudicated airside 11,861, CRITICAL 3 / 1,992, `hard_conflict` 340 / 19 / 2, edge classes TOUCH-OFF 3 / 49, GAPPED 5 / 86).
+  Frames registered: `frames/weldverify/HECA.graded.json`, `frames/weldverify/weldverify_HECA.osm` (+ sidecar).
+* OTHH (`ov` vs `ob0`): solve-owned airside 0 movers, nodes 5 removed / 4 added (apron | service_road contacts); STRUCTURE frame
+  0 of 2,546 moved, 0 nodes; held 18 / plateaus 7 / platforms 16 / cluster pads 33 equal; no hard conflict either side;
+  76 touching / 0 held / 1 gapped; CRITICAL visual 1,932 → 2,054, all `hairline_pair` (+122 unmeshable); cells 944 → 907.
+* OPEN for the master / spec author: THE STRIP'S LIP and the `hairline_pair` rise are both cloud commit (3)'s strip
+  (see below) — keep the strip (airside nodes 0 / 2) or clip whole as W did (9 / 2 nodes, 132 movers ≤ 0.14 m, no lip)?
 
 ## FINAL — head 1e6ab88d (`v3` HECA vs `b0`, `kv3` KCLT vs `kb0`; base ded211fb; each tree's own census)
 

@@ -8,6 +8,7 @@ LINE BETWEEN THE TWO MOUTH GROUNDS.
 """
 from __future__ import annotations
 
+import math
 import types
 
 import pytest
@@ -92,7 +93,7 @@ SPJC_TAGS = {"highway": "secondary", "lanes": "3", "tunnel": "yes"}
 
 
 def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (335.0, -100.0)),
-          tags=SPJC_TAGS, partition=None, extra_cells=()):
+          tags=SPJC_TAGS, partition=None, extra_cells=(), dem=None):
     """SPJC -5724's shape: a 35 m ``secondary`` bore on a plane falling
     0.53 m, the nearest classified cell off it, inside a fence."""
     frame = Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11)
@@ -109,7 +110,7 @@ def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (33
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     airport = Airport("ZZZZ", "Synthetic", frame, 22.0, (rw,), (), (), {}, (),
                       (), fences, (), ways, (), (), pack,
-                      _Dem(lambda x, y: 21.97 - 0.015 * (x - 300.0)),
+                      _Dem(dem or (lambda x, y: 21.97 - 0.015 * (x - 300.0))),
                       law.ruleset_key, partition=partition)
     cells = [Cell(0, "runway", "16/34", _rect(-22, -600, 22, 600), (), 4, "E",
                   "airside", "runway", {}),
@@ -233,3 +234,49 @@ def test_the_pack_building_reads_its_RING_not_its_plan_box(law):
                                frame=Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11))
     hit = _PackBuildings(ap, law).at((335.0, -100.0))
     assert hit is not None and hit[0] == "Garage.obj" and hit[2] == pytest.approx(6.5)
+
+
+# ── #522: (d) does not stand under an ELEVATED pack part alone ──────────
+
+#: a roof sheet 3.4 m up, drawn 0.5 m beside the mapped line and spanning
+#: the bore's length — KCLT -11194's terminal link
+LINK = _ll_ring(300, -99.5, 335, -85)
+
+
+def _link(*more):
+    return _partition(("dsf:obj7", "Terminals/link.obj", "", (_part(3.4, 0.0, LINK),) + more))
+
+
+def test_a_fenced_bore_under_an_ELEVATED_pack_part_alone_is_REFUSED(law):
+    """Owner RULINGS 2026-10-10i (1), issue #522: no cover, no crossing,
+    no rise, no layer — and an elevated pack part with clear space beneath
+    over the carriageway.  The tag is the road's passage under it."""
+    _cl, tunnels, st = _spjc(law, partition=_link())
+    assert st.tunnels == 0 and not tunnels
+    named = _refusals(st)
+    assert len(named) == 1, st.mouths_off_field_nearest
+    assert "-5724 PASSES UNDER AN ELEVATED PACK PART AT GRADE" in named[0]
+    assert "Terminals/link.obj (unit:24)" in named[0] and "3.4 m of clear space" in named[0]
+
+
+def test_the_same_bore_under_a_CLASSIFIED_CELL_or_a_GROUND_RISE_is_built(law):
+    """(c)'s witnesses run first and are untouched: the same bore, the
+    same elevated part, under classified cover or under a hill."""
+    apron = Cell(2, "apron", "pav50", _rect(310, -110, 325, -90), (), None, None,
+                 "airside", "apron", {})
+    _cl, _t, st = _spjc(law, partition=_link(), extra_cells=(apron,))
+    assert not _refusals(st), st.mouths_off_field_nearest
+    hill = lambda x, y: 21.97 - 0.015 * (x - 300.0) + 2.0 * math.exp(-((x - 317.0) / 8.0) ** 2)
+    _cl, _t, st = _spjc(law, partition=_link(), dem=hill)
+    assert not _refusals(st) and st.tunnels == 2, st.mouths_off_field_nearest
+
+
+def test_a_pack_part_AT_GRADE_over_the_line_is_cover_and_d_stands(law):
+    """An at-grade pack part over the bore's line is cover (the ruling's
+    own list); a part at grade BESIDE the carriageway line is not."""
+    over = _part(0.0, 6.0, _ll_ring(310, -110, 325, -90))      # holds neither end
+    _cl, _t, st = _spjc(law, partition=_link(over))
+    assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
+    beside = _part(0.0, 6.0, _ll_ring(310, -99.5, 325, -90))
+    _cl, _t, st = _spjc(law, partition=_link(beside))
+    assert st.tunnels == 0 and len(_refusals(st)) == 1

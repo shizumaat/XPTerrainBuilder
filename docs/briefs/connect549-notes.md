@@ -28,3 +28,24 @@ Scratch `<scratchpad>/connect549/` (c1..c5). Branch `claude/connect549` off main
   precedent (floor plates between buildings) — a connector rule MUST exclude plates: KCLT's walkways are 4.5–9.5 m
   wide, HECA's linking plates 69–148 m: a natural gap [9.5, 69] m. OTHH: unit components all within 0.06 m (flat).
   SPJC 1 unit, CYXY 0, KASE 0.
+
+## Step 2 — the repair site and arm A (branch baf681d99, merged with origin/claude/kclt546 a143765ba -> 6b34588af)
+* Site: `constraints/cluster_pad._plane_groups` read each outline PIECE `<cid>/<k>` of one cluster as its own plane
+  (§16g (10) (5)); 09-11i says the welded group takes ONE pad across its footprint union. Fix: pieces of one cluster
+  are re-united into one plane entry unless a piece is pinned (fronts airside — `pads.pad_fronts_airside` — or is a
+  HELD block). Twin `tests/auto_patch_v2/test_connect549.py` (4 tests); the four covering files 62 passed.
+* ARM A (KCLT valley2 capture, --from classify --emit --verify): the three garages are now ONE plane — but at
+  **223.0–223.4 m**, not their ground: building86 222.99–223.37 (rim z-DEM +4.6..+5.3), building88 223.09–223.14
+  (+3.8..+5.1), building90 222.99–223.45 (+0.9..+5.1). Airside movers vs base 0 / 14,894; the terminal pads
+  unchanged (building75 222.44, 84 222.70, 92 223.67). So the soft term that held piece /2 at 223.21 now holds the
+  merged group there; it is NOT the §9b DEM datum (the group's rim DEM means 218.2–219.5) and NOT a HELD block
+  (the capture's 73 HELD refs do not include the garages). Attribution arm A2 (`--solved-out` + `--why-at`
+  building86 / building88) running. Until it is named, the fix is NOT the owner's outcome for the outer garages
+  ("seated lower"): STOP point if A2 does not name it.
+* #547 (kclt546 Finding 2): c3 COMPONENT 0 of unit:31 = {building75 (541 bodies), building81 (89), building83 (3)}
+  joined by 829 elevated parts — the terminal's road decks (`paredes_8` comp 23: 106 x 312 m, base 6.93, h 1.07;
+  comp 115 52 x 263 m; `suelos_interiores` comp 1 48 x 301 m base 7.8) = class (A) connectors. Connected, and BOTH
+  pieces are held by airside at different levels (222.44 / 221.75, 36.6 m of apron between): the 09-11i
+  "infeasible -> long-span exception" / 08-27 split case — the group keeps its two held levels with the 0.69 m
+  step AT the link, and the object side must seat per piece (`plan_unit_datums` one-zero is the site). Not
+  implemented here (design in §64 (3) (e)).

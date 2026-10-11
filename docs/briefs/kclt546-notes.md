@@ -138,3 +138,30 @@ site A 35.2224352,-80.9472186 = 221.75 m; site B 35.2203395,-80.9466805 = 221.75
   HECA re-roled 3 / merged 3 (0.4 m2); OTHH re-roled 7 / merged 3; SPJC re-roled 1 /
   merged 0; KASE, CYXY, NLWF 0 / 0. So the bodies of KCLT, HECA and OTHH change; SPJC,
   KASE, CYXY, NLWF do not. No object plan changes (no object-stage code touched).
+
+## Closing build `kclt546_KCLT` (harness, 67854fb2 code = main 66bc72f92 + the #546 fix)
+
+rc 0; body 0615e9d9f888 (1.0.387's `tunnel522_KCLT` f1b26887fcc3); ways 1727 -> 1694; 109
+plateau-ring vertices removed, 0 added. Owner site 35.2202043,-80.946664: no way within
+15 m, the point inside the one plateau face `pav14#plateau:building81`. Vs `tunnel522_KCLT`:
+movers > 0.01 m 96, worst 0.03 m — runway 0, taxi family 28 (0.03), apron 37 (0.02),
+strip 7 (0.01), other 24 (0.01); structure frame 299 nodes, 0 moved. Pads unchanged
+(building75 222.44, building81 221.75, building84 222.70), so #547 and #548 read exactly as
+on 1.0.387. Frame: `frames/kclt546/kclt546_KCLT.osm`.
+
+Suites on the branch: non-Qt 9282 passed / 19 skipped / 1 xfailed / 1 xpassed; Qt and the
+four named files: see the lane report. Ratchets PASS (duplicates, layers).
+
+## Questions for the owner (one each)
+
+- #547: "The concourse (pad at 221.75 m) and the main terminal (pad at 222.44 m) are one
+  object unit and are written on one level, so the concourse stands 0.69 m above its own
+  pad. May each part of a building be set on the pad it stands on — the concourse comes
+  down 0.69 m, and a 0.69 m step appears where its link meets the main terminal?"
+  Recommended: yes.
+- #548: "The service road mapped as a tunnel under the terminal runs at ground level
+  under the pack's road deck (6 m of clear space, nothing in the pack at grade over it).
+  May the engine refuse a mapped tunnel wherever the pack shows the road passing under an
+  elevated part with clear space beneath and nothing at grade — even where the ground model
+  reads a small rise (here 0.55-0.82 m) — unless the map itself says the tunnel is below
+  ground (a negative layer)?" Recommended: yes.

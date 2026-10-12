@@ -9,13 +9,20 @@ at grade) and cut 35 pits.  The witness that separates it from the ten
 real pits is the OBJECT'S OWN PROPORTION: a pit is deeper than it is tall
 (Drainage 0.06 m over a 3.8–4.2 m floor, Dewatering 5.35 over 13.14),
 a thing standing on the ground is taller than its foundation is deep
-(every jetway 9.0 m over 4.3).  No new law number: height against depth.
+(every jetway 9.0 m over 4.3) — AND its deepest plate is ROOFED by its
+own solids (`basement_cover_min` of it, the 2026-09-06c fraction read on
+the plate: the jetway rooms 0.97–0.99, the Drainage sumps' gratings 1.00,
+the Dewatering bowls 0.02–0.56).  Both together; no new law number.
 
 * an open pit (nothing above its rim) is cut;
-* the same pit with a building standing on it (one object, taller than
-  the pit is deep) is refused, named `standing`;
+* the same pit with a building standing on it (one object, roofed, taller
+  than the pit is deep) is refused, named `standing`;
+* a roofed sump with nothing tall above it (a grating at grade) stays a
+  pit — roofed but not taller than deep;
 * a pit under ANOTHER object's canopy stays a pit — the witness is read
-  per object, never across placements.
+  per object, never across placements;
+* a tower on an open pit's rim and a box over half a pit are the
+  2026-09-06c/f twins (`test_v2lemd3` / `test_v2lemd4`): open plate, pit.
 """
 from __future__ import annotations
 
@@ -66,6 +73,11 @@ def objs(tmp_path_factory, law):
         # a building 9 m tall standing over a pit 5 m deep (the jetway's
         # proportion: 9.0 over 4.3)
         "tower": _tower_on_pit(d / "tower.obj", HX, HZ, 2.0 * dd, 9.0),
+        # OTHH's Drainage pair: an open bowl (the _000 object) with a deeper
+        # sump under a grating flush with the ground inside it (the _001)
+        "bowl": _box_obj(d / "bowl.obj", hx=HX, hz=HZ, depth=1.2 * dd),
+        "grated": _box_obj(d / "grated.obj", hx=HX / 3, hz=HZ / 3, depth=2.0 * dd, top=0.05,
+                           lid=True),
         # a thin canopy 8 m up over the whole pit footprint — ANOTHER object
         "canopy": _box_obj(d / "canopy.obj", hx=HX + 2, hz=HZ + 2, depth=-7.0,
                            top=8.0, floor=True, lid=True),
@@ -112,10 +124,21 @@ def test_a_building_standing_on_its_own_basement_is_not_a_pit(objs, law):
     objects, rep, basins, stats, members = _read(objs, law, ["tower"])
     assert basins == []
     assert list(rep.standing) == ["objects/tower.obj"]
-    n, top, depth = rep.standing["objects/tower.obj"]
+    n, top, depth, roofed = rep.standing["objects/tower.obj"]
     assert n == 1 and top == pytest.approx(9.0, abs=0.3) and depth == pytest.approx(-5.0, abs=0.3)
+    assert roofed >= law.tables.structures.basin.basement_cover_min
     assert members == frozenset()
     assert any("standing on the ground" in r for r in stats.refused), stats.refused
+
+
+def test_a_roofed_sump_with_nothing_above_it_stays_a_pit(objs, law):
+    """OTHH's Drainage pits: a sump under a grating flush with the ground
+    over 100 % of its 3.8 m plate, inside an open bowl — roofed, but
+    0.06 m tall: not standing on anything; the pit is cut to the sump."""
+    objects, rep, basins, stats, members = _read(objs, law, ["bowl", "grated"])
+    assert rep.standing == {} and len(basins) == 1, stats.refused
+    assert basins[0].floor_z == pytest.approx(objects[1].solid_min_z)
+    assert members == frozenset({"dsf:obj0", "dsf:obj1"})
 
 
 def test_a_pit_under_another_objects_canopy_stays_a_pit(objs, law):

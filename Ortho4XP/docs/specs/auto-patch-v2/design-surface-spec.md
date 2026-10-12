@@ -16142,23 +16142,34 @@ Drainage sumps carry a grating at +0.06 over 100 % of their plate (they are real
 author lifted); (b) the AUTHOR'S LIFT — REFUTED alone: Drainage 06 and Dewatering 02 are
 plain rows and real pits (#514); (c) cover by the pack above the band (`covered_fraction`,
 today diagnostic at `max_covered_fraction` 0.5) separates 34 of 35 (one Type8 well at 0.26);
-(d) **DEPTH AGAINST HEIGHT separates all: pits 0.01–0.41, wells 2.09–2.17 — a gap of ×5 with
-no number in it but 1.** RULED (spec author): a pit is deeper than it is tall. A placement
-whose solid top stands higher above the ground than its deepest floor plate lies below it is
-STANDING ON THE GROUND; its below-grade geometry is its foundation, footing or basement, and
-every witness of the placement is refused — named in `ObjReport.standing` with both numbers
-and printed with the basin refusals ("a thing standing on the ground … never an open pit").
-The witness is read per OBJECT: a pit under ANOTHER object's canopy stays a pit (its own top
-is its rim; the canopy is 04i's cover, reported), and a building WELDED to its pit's rim is
-already rule 1's `through_grade`. It fires at the read (rule 1), so the classify-time
-membership (`basin_member_ids`, 10ax (2)) and the re-seat plan's below-grade skip read the
-same answer: a standing object is not a basin member, its room is skipped as below-grade
-geometry, and it seats on its ground-contact feet like any building. The 04i rule-4 BASEMENT
-test (own cover ≥ 0.9) remains the second line, for an object shorter than its basement is
-deep.
+(d) **DEPTH AGAINST HEIGHT separates the two OTHH populations: pits 0.01–0.41, wells
+2.09–2.17 — a gap of ×5 with no number in it but 1** — and alone it REFUSED two owner-ruled
+twins (lane resume, 2026-10-12: `test_v2lemd4` 2026-09-06f's 8 m tower on a 5 m pit's rim,
+`test_v2lemd3` 2026-09-06c's 8 m box over HALF a 5 m pit — both pits by ruling, both taller
+than deep). What those keep and the jetway lacks is an OPEN PLATE: (e) **THE ROOF OVER THE
+OBJECT'S OWN PLATE** (`roof_probe.py`: the share of the deepest near-horizontal plate lying
+under the same object's solids above it) — jetway rooms 0.97–0.99, the `whole` basement twin
+1.00, the Drainage sumps 1.00 (their grating), the Dewatering bowls 0.02–0.56, the `half` twin
+0.47, the tower twins 0.01. Neither reading alone separates (the grating's sump is roofed; the
+tower is tall); together they do. RULED (spec author): **a thing standing on the ground is a
+placement whose deepest floor plate is ROOFED by its own solids — `basement_cover_min` of the
+plate, the 2026-09-06c basement fraction read on the plate — AND whose solid top stands higher
+above the ground than that plate lies below it.** Its roofed room is its foundation, footing
+or basement; every witness of the placement is refused — named in `ObjReport.standing` with
+the three numbers (top, depth, roofed share; `airport/obj8_roof.roofed_fraction`, memoised per
+resource and component) and printed with the basin refusals ("a thing standing on the ground
+… never an open pit"). No new law number. The witness is read per OBJECT: a pit under ANOTHER
+object's canopy stays a pit (its own top is its rim; the canopy is 04i's cover, reported), a
+building WELDED to its pit's rim is already rule 1's `through_grade`, a roofed sump with
+nothing tall above it (the grating) and a tall thing beside an open plate (the tower, the half
+box) stay pits. It fires at the read (rule 1), so the classify-time membership
+(`basin_member_ids`, 10ax (2)) and the re-seat plan's below-grade skip read the same answer:
+a standing object is not a basin member, its room is skipped as below-grade geometry, and it
+seats on its ground-contact feet like any building. The 04i rule-4 BASEMENT test (own cover of
+the REGION ≥ 0.9) remains the second line, for an object shorter than its basement is deep.
 
 **MEASURED** — see §47 (8) MEASURED below (filled by the lane from the OTHH replay and the
-closing build `wells551_OTHH`).
+closing build).
 
 ## §48 THE INTERIOR OBJECT CLASS — AN INTERIOR IS NEVER READ AND NEVER LOADED; IT RIDES ITS CLUSTER (owner RULINGS 2026-09-17n; Fable 2026-09-17; scout `interiors`, RULINGS 17o) — lane `v2interiors`, after `v2doorwellperf`
 

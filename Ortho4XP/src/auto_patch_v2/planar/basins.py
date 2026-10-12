@@ -250,12 +250,13 @@ def _no_floor_refusals(rep: obj8.ObjReport | None, bl) -> list[str]:
                    f"ground is a building on the pack's plane or a structure standing in a pit, "
                    f"never the pit itself (04i rule 1: a pit's rim tops out at grade; "
                    f"2026-09-06f: a smaller protrusion is cover)")
-    for path, (n, top, depth) in sorted(rep.standing.items(), key=lambda kv: -kv[1][1]):
+    for path, (n, top, depth, roofed) in sorted(rep.standing.items(), key=lambda kv: -kv[1][1]):
         out.append(f"{os.path.basename(path)} x{n}: its deepest floor plate lies {-depth:.2f} m "
-                   f"under the local ground but the object's solid top stands {top:.2f} m above "
-                   f"it — a thing standing on the ground, whose below-grade geometry is its "
-                   f"foundation / footing / basement, never an open pit (§47 (8), issue #551: "
-                   f"a pit is deeper than it is tall)")
+                   f"under the local ground, {roofed:.0%} of it under the object's own solids, "
+                   f"and the object's solid top stands {top:.2f} m above the ground — a thing "
+                   f"standing on the ground, whose roofed room below grade is its foundation / "
+                   f"footing / basement, never an open pit (§47 (8), issue #551: a pit is open "
+                   f"to the sky or deeper than it is tall)")
     for path, (n, drop, depth, authored) in sorted(rep.datum_relief.items(),
                                                    key=lambda kv: -kv[1][1]):
         out.append(f"{os.path.basename(path)} x{n}: its floor reads {-depth:.2f} m under the local "

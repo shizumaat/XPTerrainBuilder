@@ -94,3 +94,92 @@ def test_a_piece_fronting_airside_is_pinned_and_the_rest_stay_apart(law):
     groups = [q for q in plane_groups(pm, law, airport) if set(q[3]) & want]
     assert len(groups) == 2, groups
     assert all(len(q[3]) == 1 for q in groups)
+
+
+# ── 10n (3): THE OBJECT CUT AT A PAD LEVEL (#547) ─────────────────────────
+
+def _pad(ref, x0, x1, z):
+    import types
+    ring = ((0.0, x0), (0.0, x1), (1.0, x1), (1.0, x0))
+    return types.SimpleNamespace(ref=ref, ring=ring, z=(z,) * 4)
+
+
+def _part(pid, lat, lon):
+    import types
+    return types.SimpleNamespace(pid=pid, lat=lat, lon=lon, feet=((lat, lon, 0.0),),
+                                 box=(lat, lon, lat, lon), line=False)
+
+
+def _terminal(contacts=()):
+    """Three members: A on pad ``t75`` (222.44), B on ``t81`` (221.75), C
+    on no pad north of both; A's parts welded, B's parts welded."""
+    import dataclasses
+    import types
+
+    @dataclasses.dataclass(frozen=True)
+    class _Plan:
+        units: tuple
+        contacts: tuple
+        abutments: tuple = ()
+
+    def member(res, *parts):
+        return types.SimpleNamespace(resource=res, parts=parts)
+    a = member("a.obj", _part(0, 0.5, 0.1), _part(1, 0.5, 0.3))
+    b = member("b.obj", _part(2, 0.5, 0.7), _part(3, 0.5, 0.9))
+    c = member("c.obj", _part(4, 1.5, 0.45))
+    plan = _Plan(units=(types.SimpleNamespace(members=(a, b, c)),),
+                 contacts=((0, 1), (2, 3)) + tuple(contacts))
+    from auto_patch_v2.airport.footprint_unit import PlanUnit
+    un = PlanUnit(id="fu:6", bodies=((0, 0, 0), (0, 1, 0), (0, 2, 0)),
+                  pids=frozenset(range(5)), members=("a.obj", "b.obj", "c.obj"),
+                  boxes=(), area_m2=0.0)
+    return plan, un
+
+
+def test_a_unit_on_two_pads_a_step_apart_is_one_unit_per_level():
+    """#547: the concourse pad stands 0.69 m under the terminal's; the
+    unit is cut per level (the LOWER level is ``/p0``) so each body takes
+    the pad it stands on; the body on no pad joins the level its WELDED
+    parts stand on, and with no weld the level nearest its feet."""
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    pads = [_pad("t75", 0.0, 0.5, 222.44), _pad("t81", 0.5, 1.0, 221.75)]
+    plan, un = _terminal(((4, 2), (4, 3)))
+    counts: dict = {}
+    out = pbs.split_units([un], plan, pads, counts, level_tol_m=0.3)
+    assert {u.id: u.bodies for u in out} == {
+        "fu:6/p0": ((0, 1, 0), (0, 2, 0)), "fu:6/p1": ((0, 0, 0),)}
+    assert counts["pad_level_units_split"] == 1
+    assert counts["pad_level_bodies_welded"] == 1
+    plan, un = _terminal()
+    counts = {}
+    out = pbs.split_units([un], plan, pads, counts, level_tol_m=0.3)
+    assert {u.id: u.bodies for u in out}["fu:6/p1"] == ((0, 0, 0), (0, 2, 0))
+    assert counts["pad_level_bodies_nearest"] == 1
+
+
+def test_pads_within_the_tolerance_are_one_level_and_zero_disarms():
+    """``building75`` (222.44) and ``building84`` (222.70) are 0.26 m
+    apart: under ``split_tol_m`` 0.3 they are ONE level and the unit is
+    not cut; ``level_tol_m`` 0 disarms the cut whatever the step."""
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    plan, un = _terminal()
+    near = [_pad("t75", 0.0, 0.5, 222.44), _pad("t84", 0.5, 1.0, 222.70)]
+    assert [u.id for u in pbs.split_units([un], plan, near, {}, level_tol_m=0.3)] == ["fu:6"]
+    far = [_pad("t75", 0.0, 0.5, 222.44), _pad("t81", 0.5, 1.0, 221.75)]
+    assert [u.id for u in pbs.split_units([un], plan, far, {}, level_tol_m=0.0)] == ["fu:6"]
+    assert pbs.level_groups({"a": 10.0, "b": 10.2, "c": 10.5, "d": 11.0}, 0.3) == \
+        {"a": 0, "b": 0, "c": 1, "d": 2}
+
+
+def test_block_pads_are_not_level_pads_and_a_level_id_keeps_the_block_tail():
+    """A platform's BLOCKS are the block cut's (flat-pad spec §3 C16),
+    never the level cut's: ``level_pad_rings`` leaves them out, so a unit
+    on blocks alone is not cut by level.  The level cut runs FIRST, so a
+    block id written after it (``<id>/p<k>/b<k>``) still carries the
+    ``/b<k>`` tail ``seat_unit`` parses."""
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    pads = [_pad("t81", 0.5, 1.0, 221.75),
+            _pad("t/b0", 0.0, 0.2, 222.44), _pad("t/b1", 0.2, 0.5, 225.00)]
+    assert [r[0] for r in pbs.level_pad_rings(pads)] == ["t81"]
+    assert pbs._block_id("fu:6/p1/b1") == ("fu:6/p1", 1)
+    assert pbs._block_id("fu:6/p1") is None

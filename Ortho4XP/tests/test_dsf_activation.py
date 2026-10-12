@@ -7,7 +7,9 @@ refusal (``PermissionError``, ``FileNotFoundError``, a full disk) and pin:
 
 * the step returns 0 and the tile's ``BuildDone`` names the cause with the
   catalogue's copy (``O4_Tile_Failures.code_for_activation``);
-* the state left behind, and that the next build repairs it unaided;
+* the state left behind — the PREVIOUS scenery file active again (#598:
+  it steps aside at the activation, not when the encoder starts) — and
+  that the next build repairs it unaided;
 * a Stop inside the encoder never activates its truncated file;
 * the overlay's install is staged, so a refusal keeps the previous overlay.
 
@@ -120,7 +122,7 @@ def test_a_refused_activation_has_its_own_copy():
 def test_a_refused_move_is_named_and_leaves_a_repairable_state(
         tmp_path, monkeypatch, error, code):
     dsf = _dsf_path(str(tmp_path))
-    _write(dsf + ".bak", b"previous")       # build_dsf moved it aside
+    _write(dsf, b"previous")
     _write(dsf + ".tmp", b"finished")
     UI.engine_session = recorder = _Recorder()
     _refuse_replace(monkeypatch, error)
@@ -128,10 +130,24 @@ def test_a_refused_move_is_named_and_leaves_a_repairable_state(
     assert TILE.activate_dsf(dsf) is False
 
     assert recorder.named == [code]
-    # no scenery file: X-Plane flies default scenery on the tile
+    # the previous scenery file is put back: the tile stays loadable
+    assert _read(dsf) == b"previous"
+    assert _read(dsf + ".tmp") == b"finished"
+    assert not os.path.exists(dsf + ".bak")
+
+
+def test_a_refused_move_with_no_previous_file_leaves_none(tmp_path,
+                                                          monkeypatch):
+    dsf = _dsf_path(str(tmp_path))
+    _write(dsf + ".tmp", b"finished")
+    UI.engine_session = recorder = _Recorder()
+    _refuse_replace(monkeypatch, REFUSALS[0][0])
+
+    assert TILE.activate_dsf(dsf) is False
+
+    assert recorder.named == ["scenery_file_locked"]
     assert not os.path.exists(dsf)
     assert _read(dsf + ".tmp") == b"finished"
-    assert _read(dsf + ".bak") == b"previous"
 
 
 def test_a_move_that_works_activates(tmp_path):
@@ -144,6 +160,18 @@ def test_a_move_that_works_activates(tmp_path):
     assert recorder.named == []
     assert _read(dsf) == b"finished"
     assert not os.path.exists(dsf + ".tmp")
+    assert not os.path.exists(dsf + ".bak")
+
+
+def test_the_previous_file_steps_aside_at_the_activation(tmp_path):
+    dsf = _dsf_path(str(tmp_path))
+    _write(dsf, b"previous")
+    _write(dsf + ".tmp", b"finished")
+
+    assert TILE.activate_dsf(dsf) is True
+
+    assert _read(dsf) == b"finished"
+    assert _read(dsf + ".bak") == b"previous"
 
 
 # ---------------------------------------------------------------------------
@@ -188,9 +216,7 @@ def _stub_step(tmp_path, monkeypatch, encoder):
 
 
 def _encode(dsf):
-    """What ``build_dsf`` leaves: the previous file aside, a whole .tmp."""
-    if os.path.exists(dsf):
-        REAL_REPLACE(dsf, dsf + ".bak")
+    """What ``build_dsf`` leaves: a whole .tmp beside the previous file."""
     _write(dsf + ".tmp", b"finished")
     return 1
 
@@ -206,7 +232,7 @@ def test_the_step_fails_then_the_next_build_repairs_it(tmp_path,
         _refuse_replace(refusing, REFUSALS[0][0])
         assert TILE.build_tile(tile) == 0          # was 1: "built"
     assert recorder.named == ["scenery_file_locked"]
-    assert not os.path.exists(dsf)
+    assert _read(dsf) == b"previous"               # still the active one
     assert UI.is_working is False
 
     # the next build, nothing done by hand in between
@@ -218,7 +244,6 @@ def test_the_step_fails_then_the_next_build_repairs_it(tmp_path,
 
 def test_a_stop_inside_the_encoder_activates_nothing(tmp_path, monkeypatch):
     def stopped(dsf):
-        REAL_REPLACE(dsf, dsf + ".bak")
         _write(dsf + ".tmp", b"trunc")
         UI.red_flag = True
         return 0
@@ -231,28 +256,26 @@ def test_a_stop_inside_the_encoder_activates_nothing(tmp_path, monkeypatch):
     assert TILE.build_tile(tile) == 0
 
     assert recorder.named == []                    # a cancel names nothing
-    assert not os.path.exists(dsf)                 # NOT the truncated file
-    assert _read(dsf + ".bak") == b"previous"
+    assert _read(dsf) == b"previous"               # NOT the truncated file
+    assert not os.path.exists(dsf + ".bak")
 
 
 def test_a_refused_move_aside_is_the_same_failure(tmp_path, monkeypatch):
-    """``build_dsf`` moves the previous file to ``.bak`` first — where a
-    running X-Plane's hold is met — and marks the refusal; the step's guard
-    then names it by that mark, not by the exception's class."""
-    def refused(dsf):
-        error = PermissionError(errno.EACCES, "Access is denied")
-        error.failure_code = FAIL.code_for_activation(error)
-        raise error
-
-    tile = _stub_step(tmp_path, monkeypatch, refused)
+    """The previous file steps aside to ``.bak`` at the activation — where
+    a running X-Plane's hold is met.  Refused, nothing has moved."""
+    tile = _stub_step(tmp_path, monkeypatch, _encode)
     dsf = _dsf_path(tile.build_dir)
     _write(dsf, b"previous")
     UI.engine_session = recorder = _Recorder()
+    _refuse_replace(monkeypatch,
+                    PermissionError(errno.EACCES, "Access is denied"),
+                    suffix=".dsf")
 
     assert TILE.build_tile(tile) == 0
 
     assert recorder.named == ["scenery_file_locked"]
     assert _read(dsf) == b"previous"               # untouched, still active
+    assert _read(dsf + ".tmp") == b"finished"
 
 
 # ---------------------------------------------------------------------------

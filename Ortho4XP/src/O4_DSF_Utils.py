@@ -16,11 +16,10 @@ import O4_DEM_Utils as DEM
 import O4_Default_Terrain_Map as DEFTER
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
-import O4_Held_File as HELD
 import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
 import O4_Overlay_Utils as OVL
-import O4_Tile_Failures as FAILURES
+import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
 quad_init_level = 3
@@ -339,8 +338,9 @@ def create_terrain_file(
     the inland shore feather (mask floored at the ``ratio_water`` grey)
     then softens shorelines exactly like the masked sea overlay."""
 
-    if not os.path.exists(os.path.join(tile.build_dir, "terrain")):
-        os.makedirs(os.path.join(tile.build_dir, "terrain"))
+    # A build in progress writes beside the live folder (#598).
+    terrain_dir = STAGING.terrain_dir(tile)
+    os.makedirs(terrain_dir, exist_ok=True)
 
     suffix = "_water" if tri_type == 1 else "_sea" if tri_type == 2 else ""
     if is_overlay:
@@ -350,7 +350,7 @@ def create_terrain_file(
     if use_test_texture:
         texture_file_name = "test_texture.dds"
 
-    with open(os.path.join(tile.build_dir, "terrain", ter_file_name), "w",
+    with open(os.path.join(terrain_dir, ter_file_name), "w",
               encoding="utf-8", newline="\n") as f:
 
         f.write("A\n800\nTERRAIN\n\n")
@@ -1833,16 +1833,8 @@ def build_dsf(tile, download_queue):
         FNAMES.long_latlon(tile.lat, tile.lon) + ".dsf",
     )
     
-    if os.path.exists(dsf_file_name):
-        # The previous generation steps aside.  A refusal here is the same
-        # failure as a refused activation (#585): on Windows a running
-        # X-Plane holds THIS file, so this is where it is usually met.
-        try:
-            HELD.retrying_a_held_file(
-                lambda: os.replace(dsf_file_name, dsf_file_name + ".bak"))
-        except OSError as exc:
-            exc.failure_code = FAILURES.code_for_activation(exc)
-            raise
+    # The previous generation stays where X-Plane reads it until this build
+    # COMPLETES (#598): ``O4_Tile_Utils.activate_dsf`` moves it aside.
 
     # Note: present code should always choose the first branch.
     if bPROP == b"":

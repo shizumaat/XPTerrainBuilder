@@ -3,11 +3,13 @@
 ## RESUME HERE
 
 * Branch `claude/tilecont564` (PR #573). Round 1 (12a) done at `fafbd9695`.
-* ROUND 2 (RULINGS 2026-10-12d, "restore the original pack"): merged origin/main `012ac5899`;
-  took `origin/claude/failmsg562`'s `O4_Unpatched_Airports.py` + its twin (file checkout, not a
-  branch merge — PR #573 stays this lane's diff). Census below ("Round 2"). NEXT: implement
-  `dsf_write.write_pack(drop=)`, `auto_patch_v2/airport/unpatched_pack.py`, the hook at the top of
-  `engine_v2.rebake_after_mesh`, `O4_Unpatched_Airports.note_pack`, twins, full non-Qt suite.
+* ROUND 2 (RULINGS 2026-10-12d, "restore the original pack") DONE: merged origin/main
+  `012ac5899`; took `origin/claude/failmsg562`'s `O4_Unpatched_Airports.py` + its twin (file
+  checkout, not a branch merge — PR #573 stays this lane's diff; a trial merge with failmsg562 is
+  clean). Code: `dsf_write.write_pack(drop=)`, `auto_patch_v2/airport/unpatched_pack.py`,
+  `engine_v2.restore_unpatched_packs` (first act of `rebake_after_mesh`),
+  `O4_Unpatched_Airports.note_pack`; twin `tests/auto_patch_v2/test_unpatched_pack.py`.
+  LEFT: the full non-Qt suite at the final head, then the report.
 
 ## What fails today, and where
 

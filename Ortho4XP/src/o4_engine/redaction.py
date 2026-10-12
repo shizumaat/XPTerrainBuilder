@@ -119,7 +119,9 @@ def _root_pattern(path: str) -> Optional[re.Pattern]:
     """A declared root, matched with either separator (and without regard
     to case when it is a drive-letter path)."""
     parts = [p for p in re.split(_SEP, path.strip()) if p]
-    if not parts:
+    # A bare drive ("E:\\") is no root: everything on it, a home folder
+    # included, would be kept.  Its folders are read by ROOT_MARKERS.
+    if not parts or (len(parts) == 1 and re.fullmatch(r"[A-Za-z]:", parts[0])):
         return None
     lead = ""
     stripped = path.strip()

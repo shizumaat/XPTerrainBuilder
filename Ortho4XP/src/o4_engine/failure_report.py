@@ -44,6 +44,7 @@ from urllib.parse import quote
 
 import O4_File_Names as FNAMES
 import O4_Version
+from O4_Engine_Stderr_Log import engine_stderr_log_path
 
 from . import events
 from .redaction import KEPT, RULES, Redactor
@@ -440,10 +441,6 @@ def _read_log(path: str) -> List[str]:
     return data.decode("utf-8", errors="replace").splitlines()
 
 
-def _default_log_path() -> str:
-    return FNAMES.data_path(os.path.join("logs", "engine-stderr.log"))
-
-
 def failure_report(lat: Optional[int] = None, lon: Optional[int] = None,
                    failures: Optional[Sequence[Mapping]] = None,
                    airports: Optional[Sequence[str]] = None,
@@ -488,7 +485,7 @@ def failure_report(lat: Optional[int] = None, lon: Optional[int] = None,
         frozen=bool(getattr(sys, "frozen", False)),
         app_version=app_version, app_name=app_name,
         os_text=platform.platform(),
-        log_lines=_read_log(log_path or _default_log_path()),
+        log_lines=_read_log(log_path or engine_stderr_log_path()),
         redactor=Redactor.for_this_machine(roots))
     saved = write_report_file(report, save_path) if save_path else ""
     return {"title": report.title, "report": report.text,

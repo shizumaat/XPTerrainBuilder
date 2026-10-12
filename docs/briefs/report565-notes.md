@@ -3,6 +3,9 @@
 ## RESUME HERE
 
 State 2026-10-12: engine half BUILT and twinned on `claude/report565`.
+Tests: 40 twins (test_redaction 29, test_failure_report 11); full non-Qt suite
+9318 passed / 3 failed on the first commit, all three mine and fixed in the second
+(console pin in the tool; a duplicate of `engine_stderr_log_path`, now imported).
 Left for the master: the two buttons (mac + Qt), the protocol bump in
 `events.py`, the Swift client method. Nothing else is open in this lane.
 

@@ -81,6 +81,13 @@ def test_windows_root_matches_either_separator_and_any_case():
         "wrote <data>/Tiles/zOrtho4XP_+45-123/x.dsf"
 
 
+def test_a_bare_drive_is_never_a_root():
+    redactor = Redactor(roots={"data": ["E:\\"]})
+    out = redactor.line(r"E:\Users\zelda\Tax 2026\x.txt and "
+                        r"E:\Tiles\zOrtho4XP_+45-123\a.dsf")
+    assert out == r"<path>/x.txt and <data>/Tiles\zOrtho4XP_+45-123\a.dsf"
+
+
 def test_a_home_outside_the_usual_places_is_declared():
     redactor = Redactor(home="/data/people/zelda")
     out = redactor.line("cfg /data/people/zelda/o4.cfg (zelda's)")

@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         todo = todo[:args.limit]
     failed = 0
     with tempfile.TemporaryDirectory(prefix="dsftool_census_") as work, \
-            open(args.out, "a", encoding="utf-8") as fh, \
+            open(args.out, "a", encoding="utf-8", newline="\n") as fh, \
             _cf.ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         rows = pool.map(lambda p: dump_one(args.tool, p, work,
                                            keep_dir=args.keep_text), todo)

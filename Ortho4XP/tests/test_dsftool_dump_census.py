@@ -24,7 +24,7 @@ def _dsftool(monkeypatch):
     def run(argv, **_kwargs):
         with open(argv[2], "rb") as handle:
             crash = handle.read() == b"crash"
-        with open(argv[3], "w", encoding="utf-8") as handle:
+        with open(argv[3], "w", encoding="utf-8", newline="") as handle:
             handle.write("" if crash else "DSF2TEXT\n")
         return subprocess.CompletedProcess(argv, -11 if crash else 0, b"",
                                            b"" if crash else b"Converted\n")

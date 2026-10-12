@@ -284,7 +284,7 @@ import Foundation
         let done = event(#"{"event":"BuildDone","lat":30,"lon":31,"ok":false,"error":"auto-patch failed for HECA (manifest): wrote no patch","seq":8,"ts":7.0}"#)
         #expect(done == .buildDone(lat: 30, lon: 31, ok: false,
                                    error: "auto-patch failed for HECA (manifest): wrote no patch",
-                                   failures: [], warnings: []))
+                                   failures: [], warnings: [], unpatchedAirports: []))
     }
 
     @Test func protocolScanBatchParsing() throws {

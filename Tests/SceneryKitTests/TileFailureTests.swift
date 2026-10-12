@@ -25,8 +25,10 @@ struct TileFailureTests {
             "warnings": [entry("airport_geometry",
                                what: "Tile +45-123 was built, but airport AAAA could not be processed.",
                                airports: ["AAAA"])],
+            "unpatched_airports": [entry("airport_geometry", what: "One.", airports: ["AAAA"])],
         ]
-        guard case .buildDone(let lat, let lon, let ok, _, let failures, let warnings)?
+        guard case .buildDone(let lat, let lon, let ok, _, let failures, let warnings,
+                              let unpatched)?
                 = O4Event.parse(object: object) else {
             Issue.record("BuildDone did not decode")
             return
@@ -40,6 +42,7 @@ struct TileFailureTests {
         #expect(failure.detail == "OSError: [Errno 28]")
         #expect(failure.logPath == "/tmp/Ortho4XP.log")
         #expect(warnings[0].airports == ["AAAA"])
+        #expect(unpatched.map(\.airports) == [["AAAA"]])
     }
 
     @Test func anOlderEngineDecodesToNoMessages() throws {
@@ -47,7 +50,7 @@ struct TileFailureTests {
                                      "ok": false, "error": "the mesh step failed"]
         #expect(O4Event.parse(object: object)
                 == .buildDone(lat: 1, lon: 2, ok: false, error: "the mesh step failed",
-                              failures: [], warnings: []))
+                              failures: [], warnings: [], unpatchedAirports: []))
         let failed: [String: Any] = ["event": "AutoPatchFailed", "airport": "AAAA",
                                      "stage": "build", "error": "x", "lat": 1, "lon": 2]
         #expect(O4Event.parse(object: failed)

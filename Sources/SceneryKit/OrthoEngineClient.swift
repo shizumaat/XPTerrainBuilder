@@ -270,9 +270,12 @@ public enum O4Event: Sendable, Equatable {
                          code: String)
     /// One tile finished. `failures` (protocol 1.10) say why it was NOT
     /// built; `warnings` name airports without a patch on a tile that was
-    /// built ("built with warnings"). `error` is the failures as one line.
+    /// built ("built with warnings"), folded per cause;
+    /// `unpatchedAirports` are the same airports one per entry. `error` is
+    /// the failures as one line.
     case buildDone(lat: Int, lon: Int, ok: Bool, error: String,
-                   failures: [O4TileFailure], warnings: [O4TileFailure])
+                   failures: [O4TileFailure], warnings: [O4TileFailure],
+                   unpatchedAirports: [O4TileFailure])
     case runEta(elapsedSeconds: Double, remainingSeconds: Double?, doneTiles: Int, totalTiles: Int)
     /// Per-tile clocks beside RunEta (protocol 1.3): each row is one
     /// tile's elapsed wall time and its OWN remaining-work estimate
@@ -380,7 +383,9 @@ public enum O4Event: Sendable, Equatable {
             return .buildDone(lat: int("lat"), lon: int("lon"),
                               ok: bool("ok"), error: string("error"),
                               failures: O4TileFailure.parseList(object["failures"]),
-                              warnings: O4TileFailure.parseList(object["warnings"]))
+                              warnings: O4TileFailure.parseList(object["warnings"]),
+                              unpatchedAirports: O4TileFailure.parseList(
+                                  object["unpatched_airports"]))
         case "RunEta":
             let remaining = (object["remaining_seconds"] as? NSNumber)?.doubleValue
             return .runEta(elapsedSeconds: double("elapsed_seconds"),

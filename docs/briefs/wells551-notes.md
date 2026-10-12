@@ -1,6 +1,21 @@
 # wells551 — no pit at the jetways (#551)
 
-## DONE (2026-10-12) — ready for the master: branch claude/wells551, head 45dfaf8f0 = merge of origin/main 946cc2f7c (#577)
+## DONE (2026-10-12) — ready for the master: branch claude/wells551, head b68c11e1a + notes = merge of origin/main cf3f752ac (#574/#578/#569/#582/#592/#593)
+
+OWNER RULING 2026-10-12h (2): §47 (8) RATIFIED reusing 0.9; SPJC torre_nueva.obj / OTHH PowerStation_Clutter_000.obj
+reading standing ACCEPTED.
+MERGE 2 b68c11e1a: only docs/frames.jsonl conflicted (union; 1,089 JSON lines all parse; the one duplicate is the
+pre-existing KCLT row). #578's needle drop lives in obj8_clip._bulk_polys; obj8_roof.roofed_fraction takes its OWN
+triangle path straight into _union_rings (area floor 1e-9 only), so #578 cannot change a roofed share and a float32
+needle could still add a 1e-4 m2 sliver to the roof union — a sibling of #581, NOT changed. Serial suite after the
+merge: 3375 passed, 3 skipped, 1 xfailed, 1 xpassed, 0 failed/errors (693 s). BUILD wells551d_OTHH (merged branch):
+rc 0, body e8770bd28b9a, plan 60a1ef0b730d (15 seats identical), verify {}; vs master's main reference sw15_OTHH
+(82e248ac8ea9, which now carries 49 basins / 54 ways — main's #574/#578 added 4 jetway basins): kept 10 byte-identical
+(the same basins 0-9), REMOVED 44, all jetways (Type4 x12, Type5 x9, Type6 x11, Type7 x14, Type8 x4, Type10 x2); owner
+sites 71/32 gone, none held; runway 0 moved; airside_value_delta sw15 -> wells551d: MOVED 0 in every frame (row-side
+21,734 common nodes, solve-owned 10,105, structure 1,060; A-only 901/406/1,587 = the removed rings); the ONE node > 0.01 m
+over all 32,676 common nodes is groundside_pavement gap:83 at 25.27352, 51.61408 (3.88 -> 3.74 m, a gap piece beside a
+removed ring). Registered frames/wells551/wells551d_OTHH.osm.
 
 MERGE 45dfaf8f0: only `docs/frames.jsonl` conflicted (union; 1,088 JSON lines, all parse; the one duplicate line is a KCLT row already duplicated on main). No source/test conflict; main brought footprint_seats / pad_block_seat / placement_plan / cluster_pad / pad_sliver / ribbons, none touching obj8 / basin_witness / partition_code. SERIAL suite after the merge: tests/auto_patch_v2 + test_no_airport_specific_code + test_harness = 3358 passed, 3 skipped, 1 xfailed, 1 xpassed, 0 failed, 0 errors (613 s); ratchets PASS. No OTHH rebuild (docs-only conflict). Owner rulings on the two questions: none yet.
 

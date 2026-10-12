@@ -397,6 +397,10 @@ def dsf_content_tag(dsf_path: str) -> str:
     return tag
 
 
+#: How long one ``DSFTool --dsf2text`` may run before it is stopped.
+_DSF2TEXT_TIMEOUT_S = 120.0
+
+
 def _default_pack_text_cache_path(cache_dir: str, dsf_path: str) -> str:
     """Filename for the text cache, keyed by the DSF's CONTENT
     (:func:`dsf_content_tag`).
@@ -412,7 +416,8 @@ def _default_pack_text_cache_path(cache_dir: str, dsf_path: str) -> str:
 
 
 def ensure_dsf_text_path(dsf_path: str,
-                         cache_dir: str | None = None) -> str | None:
+                         cache_dir: str | None = None, *,
+                         raise_on_failure: bool = False) -> str | None:
     """Return the path to the DSFTool ``--dsf2text`` output for a DSF,
     running the conversion only when the cached ``<dsf>.text`` is
     missing or stale.
@@ -434,6 +439,14 @@ def ensure_dsf_text_path(dsf_path: str,
     never thrown away while valid), removed when stale.  Only when no
     pack root resolves (a bare DSF outside any ``Earth nav data`` tree —
     probes, fixtures) does the dump still land next to the DSF.
+
+    The dump is written ATOMICALLY (``dsf_write.dump``, #560): a DSFTool
+    run that crashes, times out or is killed leaves nothing under the
+    dump's name, and an EMPTY dump already there (the litter of an older
+    engine) is re-derived, never served.  ``raise_on_failure=True`` is for
+    the callers that REQUIRE the dump (the pack refresh before a build):
+    a DSF that exists but cannot be dumped raises ``DsfToolError`` with
+    the real cause instead of answering ``None``.
     """
     if not dsf_path or not os.path.isfile(dsf_path):
         return None
@@ -444,10 +457,19 @@ def ensure_dsf_text_path(dsf_path: str,
 
     tool = _dsftool_path()
     if tool is None:
+        where = os.path.join(FNAMES.Utils_dir, platform.system().lower())
+        if raise_on_failure:
+            from auto_patch_v2.airport.dsf import content_keyed_dump
+            from auto_patch_v2.airport.dsf_write import DsfToolError
+            cached = cache_dir and content_keyed_dump(cache_dir, dsf_path)
+            if cached:
+                return cached
+            raise DsfToolError(
+                f"the DSFTool program is missing from {where}, so "
+                f"{dsf_path} cannot be converted to text")
         UI.vprint(1,
             "  [dsf-reader] WARN: DSFTool binary not found at "
-            f"{os.path.join(FNAMES.Utils_dir, platform.system().lower())}; "
-            "DSF data will not be loaded.")
+            f"{where}; DSF data will not be loaded.")
         return None
 
     text_path = None
@@ -535,50 +557,52 @@ def ensure_dsf_text_path(dsf_path: str,
         # the spawn, an armed guard sends the dump to the temp file this
         # call already falls back to, so no corpus write is attempted, no
         # refusal is recorded, and the reader still gets its text.
+        scratch = None
         if _external_write_refused(text_path):
-            import tempfile as _tempfile
-            handle = _tempfile.NamedTemporaryFile(
+            handle = tempfile.NamedTemporaryFile(
                 suffix=".dsf.text", delete=False)
-            text_path = handle.name
+            text_path = scratch = handle.name
             handle.close()
             cache_dir = os.path.dirname(text_path)
+        # ONE dsf2text implementation, atomic (#560): ``dsf_write.dump``
+        # has DSFTool write a ``.partial`` beside the dump and renames it
+        # only after a clean exit, so a crash never leaves an empty file
+        # under the dump's name.  Its launch keywords are LOAD-BEARING
+        # (RULINGS 2026-09-14bu: ``close_fds=False`` makes CPython take
+        # ``posix_spawn()``, never ``fork()`` — after GDAL has warped in
+        # this process a forked child segfaults in PROJ's atfork handler
+        # before ``exec``).
+        from auto_patch_v2.airport.dsf_write import DsfToolError, dump
         try:
-            os.makedirs(cache_dir, exist_ok=True)
-            # ``UI.external_tool_keyword_arguments()`` is LOAD-BEARING,
-            # not decoration (RULINGS 2026-09-14bu; the underlying
-            # diagnosis is 2026-07-16).  ``close_fds=False`` is what makes
-            # CPython take ``posix_spawn()`` instead of ``fork()`` +
-            # ``exec()``: once GDAL has warped anything in this process,
-            # PROJ's ``pthread_atfork`` child handler closes the
-            # ``proj.db`` sqlite handles in the forked child and
-            # segfaults in ``os_log`` BEFORE ``exec`` runs.  The child
-            # dies with SIGSEGV and Python reports it as "DSFTool died
-            # with SIGSEGV" — which is what a ``texture_mode =
-            # 'default_xplane'`` tile build hit on +25+051.dsf while the
-            # very same DSFTool converted the very same DSF fine from a
-            # shell.  Every other external-tool launch in the engine
-            # already passes these kwargs; this call was the last one
-            # that did not.
-            tool_kwargs = UI.external_tool_keyword_arguments()
-            # Some platforms don't allow writing into Custom Scenery;
-            # fall back to a temp file in /tmp if the cache write fails.
             try:
-                subprocess.run(
-                    [tool, "--dsf2text", dsf_path, text_path],
-                    check=True, capture_output=True, timeout=120,
-                    **tool_kwargs,
-                )
-            except (PermissionError, subprocess.CalledProcessError):
-                fallback = tempfile.NamedTemporaryFile(
+                os.makedirs(cache_dir, exist_ok=True)
+                dump(dsf_path, text_path, tool, timeout=_DSF2TEXT_TIMEOUT_S)
+            except (OSError, DsfToolError) as first:
+                # Some platforms do not allow writing where the cache
+                # lives, and DSFTool reports that as a plain failure: try
+                # once more into a temp file (the dump is derived data,
+                # identical anywhere).  Never after a timeout, never twice.
+                if scratch or getattr(first, "timed_out", False):
+                    raise
+                handle = tempfile.NamedTemporaryFile(
                     suffix=".dsf.text", delete=False)
-                text_path = fallback.name
-                fallback.close()
-                subprocess.run(
-                    [tool, "--dsf2text", dsf_path, text_path],
-                    check=True, capture_output=True, timeout=120,
-                    **tool_kwargs,
-                )
-        except (OSError, subprocess.SubprocessError) as exc:
+                text_path = scratch = handle.name
+                handle.close()
+                try:
+                    dump(dsf_path, text_path, tool,
+                         timeout=_DSF2TEXT_TIMEOUT_S)
+                except (OSError, DsfToolError):
+                    raise first from None
+        except (OSError, subprocess.SubprocessError, DsfToolError) as exc:
+            if scratch:
+                try:
+                    os.remove(scratch)
+                except OSError:
+                    pass
+            if raise_on_failure:
+                raise DsfToolError(
+                    f"{dsf_path} could not be converted to text: {exc}"
+                ) from exc
             UI.vprint(1,
                 f"  [dsf-reader] WARN: DSFTool failed on "
                 f"{os.path.basename(dsf_path)}: {exc}")

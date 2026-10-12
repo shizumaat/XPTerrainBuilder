@@ -329,6 +329,10 @@ _UNION_FUNCTIONS = {
     ("tunnel_objects.py", "_bore_ends_at"),
     ("tunnel_objects.py", "shell_corridor"),
     ("basin_witness.py", "ramp_decks"),
+    # #559: a resource's plan footprint is the union of its own triangles
+    # — LOCAL pack geometry, the class row 16 keeps a ladder for — and
+    # the bare union there aborted a tile.
+    ("skirt.py", "_plan_union"),
 }
 
 

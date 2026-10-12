@@ -44,6 +44,16 @@ engine's own modules and nothing else, and says what happened:
   (``pool.attached``: on one core it reads its own blocks, and a Windows
   block lives until its last handle closes).
 
+WHO a pid is (issue #570).  A pid is a NUMBER the system hands to the next
+process once its holder has ended — Windows at once — so "pid N is alive"
+long after N's holder was torn down says only that SOME process holds the
+number.  Every process this run starts is therefore stamped while it is
+known to be running (:func:`stamp`: its start time, its command, its role
+in the run), :func:`alive` is asked about THAT process (``born``), and a
+survivor is named by role and command (:func:`named`), never by a bare pid.
+A pid that now belongs to another process is said so (``recycled``) and is
+not an orphan; a process with no stamp is still judged by its pid alone.
+
 Every section is computed twice — by workers and on one core — and the two
 digests must be equal; ``--workers 1`` pins the whole run to one core, and
 its digest is the one a pooled run of the same binary must print.  The
@@ -54,6 +64,7 @@ after the process has exited).  Twin: ``tests/test_pool_selfcheck.py``.
 from __future__ import annotations
 
 import concurrent.futures as _cf
+import ctypes
 import hashlib
 import json
 import multiprocessing as _mp
@@ -64,7 +75,8 @@ import sys
 import time
 from types import SimpleNamespace as _NS
 
-__all__ = ["main", "run", "victim", "alive", "block_exists", "put_down", "budget_for",
+__all__ = ["main", "run", "victim", "alive", "identity", "stamp", "named", "recycled",
+           "block_exists", "put_down", "budget_for",
            "OK_LINE", "FAILED_LINE", "KILL_S"]
 
 #: the last stdout line of a run, by verdict
@@ -83,6 +95,8 @@ HOLD_S = 0.25
 VICTIM_S = 60.0
 VICTIM_READY_S = 120.0
 _TASKS = 48
+#: characters of a process's command line a stamp keeps
+COMMAND_CHARS = 160
 #: what every worker prints: characters cp1252 does not carry (#171, #125)
 CONSOLE_PROBE = "pool-selfcheck worker console: Δ ε ≥ → Suárez"
 
@@ -170,6 +184,7 @@ def _nested(task: tuple) -> dict:
                ram_gb=_pool.physical_ram_gb(), reserve_gb=_pool.PARENT_RESERVE_GB,
                allowance_gb=_pool.WORKER_ALLOWANCE_GB, pid=os.getpid(),
                daemon=bool(_mp.current_process().daemon))
+    stamp(got["procs"], [os.getpid()], "airport-pool child")
     return got
 
 
@@ -282,18 +297,22 @@ def _dem(rng) -> tuple:
 
 def _core(workers: int, work: str, say=print) -> dict:
     """Every section through pools of ``workers`` (1 = on one core).
-    ``{"digest", "sections", "pids", "blocks", "pools", "failures"}``."""
+    ``{"digest", "sections", "pids", "procs", "blocks", "pools", "failures"}``."""
     import numpy as np
     from auto_patch_v2.airport import pool as P
     from auto_patch_v2.airport import dem_shared as DS
 
     sections: dict = {}
     pids: set = set()
+    procs: dict = {}
     blocks: list = []
     pools: dict = {}
     failures: list = []
 
     def answers(name: str, pool, got: list, want_tasks: int) -> list:
+        # stamped HERE: the pool is open, so each pid is still its worker
+        stamp(procs, {pid for _v, pid in got if pid != os.getpid()} - pids,
+              f"worker of the {name!r} pool")
         pids.update(pid for _v, pid in got if pid != os.getpid())
         pools[name] = pool.report()
         say(f"{name}: {pool.line()}")
@@ -365,7 +384,7 @@ def _core(workers: int, work: str, say=print) -> dict:
         failures.append(f"teardown: this process still has shared block(s) open "
                         f"after their owner closed them: {P.attached()}")
     return {"digest": _sha(json.dumps(sections, sort_keys=True).encode()),
-            "sections": sections, "worker": theirs[0], "here": here, "pids": sorted(pids), "blocks": blocks,
+            "sections": sections, "worker": theirs[0], "here": here, "pids": sorted(pids), "procs": procs, "blocks": blocks,
             "pools": pools, "failures": failures}
 
 
@@ -412,12 +431,15 @@ def _victim_body(workers: int, out: str, above: dict | None = None) -> None:
         try:
             task = (sa.spec, xs, ys)
             answered = pool.try_map(_hold, [task] * (4 * workers), what="victim")
+            procs = stamp(stamp({}, pool.pids(), "worker of the victim's pool"),
+                          [os.getpid()], "the victim (the pool's parent)")
+            procs.update((above or {}).get("procs") or {})
             record = {"pid": os.getpid(), "pids": pool.pids(), "executable": sys.executable,
                       "answered": sorted(set(answered or [])), "pool": pool.report(),
                       "blocks": [v[0] for spec in (sa.spec, shared_dem.spec)
                                  for v in spec.values()],
                       "tracker": getattr(_rt._resource_tracker, "_pid", None)}
-            record.update(above or {})
+            record.update(above or {}, procs=procs)
             with open(out + ".part", "w", encoding="utf-8", newline="") as handle:
                 json.dump(record, handle)
             os.replace(out + ".part", out)
@@ -443,6 +465,8 @@ def victim(workers: int, out: str, chain: bool = False) -> None:
             initargs=(None, mgr.Queue(), 1))
         above = {"top": os.getpid(), "manager": mgr._process.pid,
                  "tracker": getattr(_rt._resource_tracker, "_pid", None)}
+        above["procs"] = stamp(stamp({}, [os.getpid()], "the engine above the victim"),
+                               [mgr._process.pid], "its progress Manager")
         fut = ex.submit(_victim_body, workers, out, above)
         done, pending = _cf.wait([fut], timeout=VICTIM_READY_S + VICTIM_S)
         _driver._teardown_pool(ex, [], {}, pending, deadline_s=10.0)
@@ -493,8 +517,10 @@ def _kill_arm(workers: int, work: str, say) -> tuple:
     proc.kill()
     proc.join(10.0)
     t0 = time.monotonic()
-    orphans, leaked = _linger(record["pids"], record["blocks"], KILL_S)
+    procs = record.get("procs") or {}
+    orphans, leaked = _linger(record["pids"], record["blocks"], KILL_S, procs)
     record.update(busy=len(busy), orphans=orphans, leaked_blocks=leaked,
+                  orphans_named=named(orphans, procs),
                   gone_s=round(time.monotonic() - t0, 2))
     failures = []
     if record["pool"]["fell_back"] or len(busy) < 2 or len(record["blocks"]) < 2:
@@ -503,7 +529,7 @@ def _kill_arm(workers: int, work: str, say) -> tuple:
                         f"alive, {len(record['blocks'])} block(s))")
     if orphans:
         failures.append(f"kill: worker(s) outlived their hard-killed parent by "
-                        f"{KILL_S:.0f} s: {orphans}")
+                        f"{KILL_S:.0f} s: {', '.join(record['orphans_named'])}")
     if leaked:
         failures.append(f"kill: shared-memory block(s) still openable {KILL_S:.0f} s "
                         f"after their owner was hard-killed: {leaked}")
@@ -516,28 +542,176 @@ def _kill_arm(workers: int, work: str, say) -> tuple:
 
 # ── the teardown, read from outside the pools ────────────────────────────
 
-def alive(pid: int) -> bool:
-    """Is process ``pid`` still running?"""
-    if sys.platform == "win32":
-        import ctypes
-        k32 = ctypes.windll.kernel32
-        k32.OpenProcess.restype = ctypes.c_void_p
-        k32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
-        k32.CloseHandle.argtypes = (ctypes.c_void_p,)
-        handle = k32.OpenProcess(0x00100000, False, int(pid))     # SYNCHRONIZE
-        if not handle:
-            return False
-        try:
-            return k32.WaitForSingleObject(handle, 0) == 0x102      # WAIT_TIMEOUT
-        finally:
-            k32.CloseHandle(handle)
+_K32: list = []
+
+
+def _kernel32():
+    """``kernel32`` under prototypes of our own (never the shared
+    ``ctypes.windll`` ones another module may have typed differently)."""
+    if _K32:
+        return _K32[0]
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = ctypes.c_void_p
+    k32.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
+    k32.WaitForSingleObject.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+    k32.WaitForSingleObject.restype = ctypes.c_uint32
+    k32.GetProcessTimes.argtypes = (ctypes.c_void_p,) * 5
+    k32.QueryFullProcessImageNameW.argtypes = (
+        ctypes.c_void_p, ctypes.c_uint32, ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_uint32))
+    k32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    _K32.append(k32)
+    return k32
+
+
+def _windows_identity(pid: int) -> tuple | None:
+    """``(creation time, image path)`` of the RUNNING process ``pid``."""
+    k32 = _kernel32()
+    # SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, else SYNCHRONIZE alone
+    # (a process that may be waited for but not asked who it is)
+    handle = k32.OpenProcess(0x00101000, False, int(pid)) or \
+        k32.OpenProcess(0x00100000, False, int(pid))
+    if not handle:
+        return None
+    try:
+        if k32.WaitForSingleObject(handle, 0) != 0x102:        # not WAIT_TIMEOUT
+            return None
+        times = [ctypes.c_uint64() for _ in range(4)]          # four FILETIMEs
+        born = times[0].value if k32.GetProcessTimes(
+            handle, *[ctypes.byref(t) for t in times]) else None
+        size = ctypes.c_uint32(32768)
+        path = ctypes.create_unicode_buffer(size.value)
+        image = path.value if k32.QueryFullProcessImageNameW(
+            handle, 0, path, ctypes.byref(size)) else ""
+        return born or None, image
+    finally:
+        k32.CloseHandle(handle)
+
+
+class _ProcBsdInfo(ctypes.Structure):
+    """macOS ``struct proc_bsdinfo`` (``<sys/proc_info.h>``, 136 bytes)."""
+    _fields_ = ([(name, ctypes.c_uint32) for name in (
+        "flags", "status", "xstatus", "pid", "ppid", "uid", "gid", "ruid", "rgid",
+        "svuid", "svgid", "rfu_1")] + [("comm", ctypes.c_char * 16),
+                                       ("name", ctypes.c_char * 32)] +
+                [(name, ctypes.c_uint32) for name in (
+                    "nfiles", "pgid", "pjobc", "e_tdev", "e_tpgid")] +
+                [("nice", ctypes.c_int32), ("start_tvsec", ctypes.c_uint64),
+                 ("start_tvusec", ctypes.c_uint64)])
+
+
+_LIBPROC: list = []
+
+
+def _darwin_identity(pid: int) -> tuple | None:
+    """``(start time in µs, executable path)`` from ``libproc`` — the
+    kernel's own record, and no child process to ask it (``ps`` would be a
+    fork from a process that owns pools)."""
+    if not _LIBPROC:
+        _LIBPROC.append(ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True))
+    lib, info = _LIBPROC[0], _ProcBsdInfo()
+    got = lib.proc_pidinfo(ctypes.c_int(int(pid)), ctypes.c_int(3),    # PROC_PIDTBSDINFO
+                           ctypes.c_uint64(0), ctypes.byref(info),
+                           ctypes.c_int(ctypes.sizeof(info)))
+    if got != ctypes.sizeof(info):
+        return None, ""                    # running, but not ours to ask about
+    path = ctypes.create_string_buffer(4096)
+    lib.proc_pidpath(ctypes.c_int(int(pid)), path, ctypes.c_uint32(len(path)))
+    return (info.start_tvsec * 1_000_000 + info.start_tvusec,
+            path.value.decode("utf-8", "replace") or info.name.decode("utf-8", "replace"))
+
+
+def _posix_identity(pid: int) -> tuple | None:
+    """``(start time, command)`` of process ``pid``: ``/proc`` on Linux (the
+    start in clock ticks since boot), ``libproc`` on macOS; elsewhere a
+    running process is ``(None, "")`` — the pid alone decides there."""
     try:
         os.kill(int(pid), 0)
     except ProcessLookupError:
-        return False
+        return None
     except PermissionError:
-        return True
-    return True
+        pass
+    try:
+        if sys.platform == "darwin":
+            return _darwin_identity(pid)
+        with open(f"/proc/{int(pid)}/stat", encoding="utf-8", errors="replace") as handle:
+            born = int(handle.read().rsplit(")", 1)[1].split()[19])
+        with open(f"/proc/{int(pid)}/cmdline", "rb") as handle:
+            command = handle.read().replace(b"\0", b" ").decode("utf-8", "replace")
+        return born, command.strip()
+    except (FileNotFoundError, ProcessLookupError):
+        try:                               # no /proc here — or it has just ended
+            os.kill(int(pid), 0)
+        except ProcessLookupError:
+            return None
+        except PermissionError:
+            pass
+        return None, ""
+    except (OSError, ValueError, IndexError, AttributeError):
+        return None, ""
+
+
+def identity(pid: int) -> tuple | None:
+    """``(born, command)`` of the process that holds ``pid`` NOW, ``None``
+    when none is running.  ``born`` is its start time as the system keeps
+    it (equal on every read of the same process; ``None`` where it cannot
+    be asked), ``command`` its command line — the image path on Windows."""
+    return _windows_identity(pid) if sys.platform == "win32" else _posix_identity(pid)
+
+
+def alive(pid: int, born=None) -> bool:
+    """Is process ``pid`` still running?  With ``born`` (:func:`identity`'s,
+    read while it was known to run): is THAT process still running — a pid
+    held by a process born at another time is somebody else (module doc).
+    Where either start time is unknown the pid alone decides."""
+    now = identity(pid)
+    if now is None:
+        return False
+    return born is None or now[0] is None or now[0] == born
+
+
+def stamp(procs: dict, pids, role: str) -> dict:
+    """Record in ``procs`` — ``{str(pid): [born, command, role]}``, the
+    shape a record's ``procs`` carries — who each of ``pids`` is NOW.  Call
+    it while they are known to be running.  Returns ``procs``."""
+    for pid in pids:
+        now = identity(pid)
+        if now is not None:
+            procs[str(pid)] = [now[0], now[1][:COMMAND_CHARS], role]
+    return procs
+
+
+def _born(procs, pid):
+    row = (procs or {}).get(str(pid))
+    return row[0] if row else None
+
+
+def named(pids, procs) -> list:
+    """Each of ``pids`` as ``pid N (role; command)`` from its stamp — what
+    a failure says about a survivor.  One with no stamp is named by what
+    holds the number now."""
+    out = []
+    for pid in pids:
+        row = (procs or {}).get(str(pid))
+        if row:
+            out.append(f"pid {pid} ({row[2]}; {row[1] or 'command unknown'})")
+        else:
+            now = identity(pid)
+            out.append(f"pid {pid} (not stamped by this run; now "
+                       f"{(now[1][:COMMAND_CHARS] if now else '') or 'command unknown'})")
+    return out
+
+
+def recycled(pids, procs) -> list:
+    """The ``pids`` whose number is now held by ANOTHER process than the
+    one stamped: ``pid N (role) is now <command>`` each."""
+    out = []
+    for pid in pids:
+        born, now = _born(procs, pid), identity(pid)
+        if born is not None and now is not None and now[0] not in (None, born):
+            out.append(f"pid {pid} ({procs[str(pid)][2]}) is now "
+                       f"{now[1][:COMMAND_CHARS] or 'another process'}")
+    return out
 
 
 def block_exists(name: str) -> bool:
@@ -554,12 +728,14 @@ def block_exists(name: str) -> bool:
     return True
 
 
-def _linger(pids, blocks, wait_s: float = LINGER_S) -> tuple:
+def _linger(pids, blocks, wait_s: float = LINGER_S, procs=None) -> tuple:
     """``(pids still alive, blocks still openable)`` once both are empty or
-    ``wait_s`` has passed."""
+    ``wait_s`` has passed.  A pid stamped in ``procs`` is alive while the
+    process stamped is (:func:`alive`)."""
     end = time.monotonic() + wait_s
     while True:
-        left, there = [p for p in pids if alive(p)], [b for b in blocks if block_exists(b)]
+        left = [p for p in pids if alive(p, _born(procs, p))]
+        there = [b for b in blocks if block_exists(b)]
         if not (left or there) or time.monotonic() > end:
             return left, there
         time.sleep(0.25)
@@ -578,6 +754,7 @@ def run(workers: int, work: str, say=print) -> dict:
         failures.append(f"equality: pooled {record['sections']} != one core "
                         f"{serial['sections']}")
     nested, pids, blocks = [], set(record["pids"]), list(record["blocks"])
+    procs = dict(record["procs"])
     try:
         nested = _nested_arm(workers, work)
     except Exception as e:
@@ -585,6 +762,9 @@ def run(workers: int, work: str, say=print) -> dict:
     for r in nested:
         pids.update([r["pid"], *r["pids"]])
         blocks += r["blocks"]
+        procs.update({k: [born, command, role if int(k) == r["pid"] else
+                          f"{role} under airport-pool child {r['pid']}"]
+                      for k, (born, command, role) in r["procs"].items()})
         want = budget_for(r)
         ram = "?" if r["ram_gb"] is None else f"{r['ram_gb']:.0f}"
         say(f"nested: airport-pool child {r['pid']} share {r['share']}, budget "
@@ -608,9 +788,14 @@ def run(workers: int, work: str, say=print) -> dict:
     if workers > 1:                        # one core has no worker to orphan
         killed, said = _kill_arm(workers, work, say)
         failures += said
-    orphans, leaked = _linger(sorted(pids), blocks)
+    orphans, leaked = _linger(sorted(pids), blocks, procs=procs)
+    reused = recycled(sorted(pids), procs)
+    if reused:                             # said, never failed: not ours
+        say(f"teardown: {len(reused)} pid(s) of this run were handed to other "
+            f"processes: {'; '.join(reused)}")
     if orphans:
-        failures.append(f"teardown: process(es) still alive: {orphans}")
+        failures.append(f"teardown: process(es) still alive: "
+                        f"{', '.join(named(orphans, procs))}")
     if leaked:
         failures.append(f"teardown: shared-memory block(s) not unlinked: {leaked}")
     return {"ok": not failures, "failures": failures, "workers": workers,
@@ -619,6 +804,7 @@ def run(workers: int, work: str, say=print) -> dict:
             "executable": sys.executable, "pid": os.getpid(),
             "digest": record["digest"], "sections": record["sections"],
             "pools": record["pools"], "pids": sorted(pids), "blocks": blocks,
+            "procs": procs, "orphans_named": named(orphans, procs), "recycled": reused,
             "worker": record["worker"], "here": record["here"],
             "nested": [{k: r[k] for k in ("pid", "budget", "bound", "share", "cpu",
                                           "ram_gb", "reserve_gb", "allowance_gb",

@@ -438,15 +438,20 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     if (dump_path is None and inputs.mod_cache_root
             and os.path.isfile(pack_dsf)):
         rep.dsf_dump_stale = True
+        # THE REAL CONDITION, in plain words (#560).  This said "the pack
+        # DSF is newer than every cached text dump" for every cause — on
+        # 2026-10-11 for a 0-byte dump of an UNCHANGED file.  A DSFTool
+        # failure is raised earlier, by the refresh itself
+        # (``engine_v2.fresh_pack_dump``); what reaches here is a dump
+        # nobody made, an empty one, or dumps of another version.
+        cache_dir = _dsf.mod_cache_dir(inputs.mod_cache_root, sel.name)
         raise RuntimeError(
-            f"{icao}: the pack DSF {pack_dsf} is newer than every cached text "
-            f"dump under {_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name)} "
-            f"(no fresh {os.path.basename(pack_dsf)}.<sha256[:8]>.text there — "
-            "the dump is named for THIS file, RULINGS 2026-09-11m) "
-            "— the pack's objects would be read from a stale dump (OTHH's tunnel "
-            "walls, 2026-09-04). Refresh it explicitly: build_airport.py "
-            "--refresh-data airport_mod_cache (the app's driver refreshes it "
-            "before the build).")
+            f"{icao}: the scenery pack file {pack_dsf} cannot be read: "
+            f"{_dsf.missing_dump_reason(cache_dir, pack_dsf)}. The pack's "
+            "objects are never read from a dump of another version of the "
+            "file (RULINGS 2026-09-11m). The app makes this dump before "
+            "each build and re-makes an empty one; with the harness, run "
+            "build_airport.py --refresh-data airport_mod_cache.")
     n_fac = n_obj = n_pol = n_agp = n_lot = 0
     dsf_pavements: list[Pavement] = []
     pol_sheets: list[Pavement] = []

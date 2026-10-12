@@ -19,7 +19,7 @@ import typing as _t
 if _t.TYPE_CHECKING:  # annotations only — obj8 imports this module
     from .obj8 import Component
 
-__all__ = ["_clip", "_union_rings", "_split_at_plane", "_bulk_polys",
+__all__ = ["_clip", "_union_rings", "_split_at_plane", "_edge_on", "_bulk_polys",
            "_clip_component", "_clip_both"]
 
 def _clip(corners, plane_y: float, below: bool) -> list[tuple[float, float]] | None:
@@ -113,13 +113,42 @@ def _split_at_plane(v: np.ndarray, comp: Component, plane_y: float, below: bool
     return t[n_in == 3], t[(n_in > 0) & (n_in < 3)]
 
 
+def _edge_on(pts: np.ndarray) -> np.ndarray:
+    """Which plan triangles (``(n, 3, 2)`` authored ``(x, z)``) are a face
+    seen EDGE-ON: their plan WIDTH — the altitude on the longest edge —
+    is at or below the resolution of their own coordinates.
+
+    OBJ8 vertices are SINGLE PRECISION (the files print float32 values),
+    so a wall authored vertical can stand off its own plan line by one
+    float32 step: at 200 m from the object's origin that is 15 um, and a
+    10 m wall is then a 10 m x 15 um needle of 1e-4 m2.  AREA cannot tell
+    that needle from a small real plate — it passes any area floor a real
+    face passes — and it is no area: it is the rounding of a line.  The
+    width can, and the bound is no tuned number: it is ``np.spacing`` of
+    the triangle's largest coordinate AS A float32, the step below which
+    the file cannot say which side of the line a vertex lies on.
+
+    #559: thousands of such needles through one exact overlay are what
+    GEOS refuses (``Ring edge missing``) — every operand valid, every
+    area above the floor.  They are dropped HERE, where a triangle
+    becomes a plan polygon, so no consumer meets them."""
+    e = pts - np.roll(pts, 1, axis=1)
+    longest = np.hypot(e[:, :, 0], e[:, :, 1]).max(axis=1)
+    a, b = pts[:, 1] - pts[:, 0], pts[:, 2] - pts[:, 0]
+    twice_area = np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0])
+    reach = np.abs(pts).reshape(-1, 6).max(axis=1)
+    step = np.spacing(reach.astype(np.float32)).astype(float)
+    return twice_area <= step * longest
+
+
 def _bulk_polys(v: np.ndarray, tris: np.ndarray) -> list:
-    """The plan polygons of ``tris`` (authored ``(x, z)``) in bulk."""
+    """The plan polygons of ``tris`` (authored ``(x, z)``) in bulk: the
+    valid ones with area, less the faces seen edge-on (:func:`_edge_on`)."""
     if tris.shape[0] == 0:
         return []
     pts = v[tris][:, :, [0, 2]]
     polys = shapely.polygons(pts)
-    keep = shapely.is_valid(polys) & (shapely.area(polys) > 1e-9)
+    keep = shapely.is_valid(polys) & (shapely.area(polys) > 1e-9) & ~_edge_on(pts)
     return [p for p, k in zip(polys, keep.tolist()) if k]
 
 

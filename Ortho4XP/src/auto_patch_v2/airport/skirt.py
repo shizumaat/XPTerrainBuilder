@@ -77,13 +77,14 @@ _NO_GEOMETRY = SkirtReading(False, None, 0.0, 0.0, 0.0, 0.0, False,
 
 
 def _plan_union(v, tris_list: _t.Sequence) -> Polygon | None:
-    """The plan union of triangles, or ``None``."""
+    """The plan union of triangles, or ``None`` — pack geometry, so the
+    union is §51 Law B's (``frame_entry.union``: it cannot abort a tile)."""
     polys: list = []
     for tris in tris_list:
         polys.extend(_bulk_polys(v, tris))
     if not polys:
         return None
-    u = unary_union(polys)
+    u = _fe.union(polys, "skirt._plan_union")
     if not u.is_valid:
         u = shapely.make_valid(u)
     if u.is_empty:

@@ -56,7 +56,9 @@ The contract a caller relies on:
   added to this process's, so the report reads the same count wherever the
   union ran.
 * **every wait is bounded**: the result wait by ``stall_s``, the teardown by
-  :data:`TEARDOWN_S` (then ``terminate``, then ``kill``).  Whether a worker
+  :data:`TEARDOWN_S` (then ``terminate``, then ``kill``, :data:`SIGNAL_S`
+  each for all the workers together; a worker that outlives both is named
+  on a ``[pool] teardown:`` line — bounded AND accounted for).  Whether a worker
   has exited is read off its SENTINEL (:func:`exited`), never off a
   ``waitpid`` the executor's own thread races for.
 * **a worker never outlives its parent** (:func:`exit_with_parent`, in every
@@ -106,7 +108,7 @@ __all__ = ["WorkPool", "Pending", "SharedArrays", "attach", "budget", "budget_bo
            "physical_ram_gb", "PARENT_RESERVE_GB", "WORKER_ALLOWANCE_GB", "configure",
            "set_share", "share", "share_object", "shared_object", "spec_key", "detach",
            "attached", "exit_with_parent", "exited",
-           "TICK_S", "TEARDOWN_S", "STALL_S", "REAP_S"]
+           "TICK_S", "TEARDOWN_S", "SIGNAL_S", "STALL_S", "REAP_S"]
 
 #: seconds between wake-ups of a result wait (the heartbeat's grain)
 TICK_S = 1.0
@@ -119,8 +121,10 @@ RECORD_S = 0.25
 #: processes whose exit status was taken behind their ``Process`` object
 _TAKEN: dict = {}
 
-#: seconds a closing pool may take before its workers are terminated
+#: seconds a closing pool may take before its workers are terminated, and
+#: seconds they then get — together — after the terminate and after the kill
 TEARDOWN_S = 5.0
+SIGNAL_S = 2.0
 #: seconds without ONE completed task before a map is declared stalled
 STALL_S = 900.0
 #: ``ProcessPoolExecutor`` refuses more workers than this on Windows
@@ -245,6 +249,21 @@ def exited(proc, timeout: float = 0.0) -> bool:
     if gone:
         _reap(proc)
     return gone
+
+
+def _still_running(procs, wait_s: float) -> list:
+    """Those of ``procs`` that have not exited once ``wait_s`` — ONE
+    deadline for all of them — has passed.  A stand-in that cannot be
+    asked counts as gone (nothing here may signal it)."""
+    end = time.monotonic() + wait_s
+    left = []
+    for p in procs:
+        try:
+            if not exited(p, end - time.monotonic()):
+                left.append(p)
+        except Exception:
+            pass
+    return left
 
 
 def _reap(proc) -> None:
@@ -455,7 +474,12 @@ class WorkPool:
     def close(self) -> None:
         """Release the workers within :data:`TEARDOWN_S` (never an
         unbounded join).  Only a worker whose sentinel says it is still
-        running is terminated (:func:`exited`)."""
+        running is terminated (:func:`exited`) — all of them at once, then
+        waited for TOGETHER for :data:`SIGNAL_S` (a terminate is a request
+        the system carries out when it can: ``TerminateProcess`` returns
+        before the process is gone), then killed and waited for again.  The
+        close takes ``TEARDOWN_S + 2 * SIGNAL_S`` at most, whatever the
+        worker count, and a worker still running after it is NAMED."""
         ex, self._ex = self._ex, None
         if ex is None:
             return
@@ -464,17 +488,18 @@ class WorkPool:
             ex.shutdown(wait=False, cancel_futures=True)
         except Exception:
             pass
-        deadline = time.monotonic() + TEARDOWN_S
-        for step in ("join", "terminate", "kill"):
-            for p in procs:
+        left = _still_running(procs, TEARDOWN_S)
+        for step in ("terminate", "kill"):
+            for p in left:
                 try:
-                    if step == "join":
-                        exited(p, deadline - time.monotonic())
-                    elif not exited(p):
-                        getattr(p, step)()
-                        exited(p, 1.0)
+                    getattr(p, step)()
                 except Exception:
                     pass
+            left = _still_running(left, SIGNAL_S) if left else left
+        if left:                           # bounded AND accounted for (#570)
+            self._out(f"[pool] teardown: worker pid(s) {[p.pid for p in left]} still "
+                      f"running {SIGNAL_S:.0f} s after terminate and again after "
+                      f"kill — abandoned")
 
     # ── the map ──────────────────────────────────────────────────────────
     def try_map(self, fn: _t.Callable, tasks: _t.Sequence, *,

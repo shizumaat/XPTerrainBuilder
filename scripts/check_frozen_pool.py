@@ -78,6 +78,13 @@ def selfcheck_argv(binary, engine_python=None):
     return [binary, "--pool-selfcheck"]
 
 
+def _who(record):
+    """A record's orphans by role and command where it named them (#570),
+    else the bare pids an older bundle wrote."""
+    named = record.get("orphans_named")
+    return ", ".join(named) if named else record.get("orphans")
+
+
 def _pools_ok(pools, where, failures, want=SECTIONS):
     for name in want:
         row = (pools or {}).get(name)
@@ -152,11 +159,10 @@ def verdict(pooled, serial, text="", frozen=True, budget_for=None):
     elif kill.get("orphans") or kill.get("leaked_blocks"):
         failures.append("kill: after the bundle hard-killed a pool's parent: "
                         "orphans %s, blocks still openable %s"
-                        % (kill.get("orphans"), kill.get("leaked_blocks")))
+                        % (_who(kill), kill.get("leaked_blocks")))
     if pooled.get("orphans") or pooled.get("leaked_blocks"):
         failures.append("the bundle's own teardown read: orphans %s, leaked "
-                        "blocks %s" % (pooled.get("orphans"),
-                                       pooled.get("leaked_blocks")))
+                        "blocks %s" % (_who(pooled), pooled.get("leaked_blocks")))
     if not serial:
         failures.append("the one-core arm wrote no record")
     else:
@@ -259,7 +265,8 @@ def kill_verdict(record, alive, strays, leaked, wait_s):
                         % {k: record.get(k) for k in ("pool", "pids", "blocks", "manager")})
     if alive:
         failures.append("KILL ARM ORPHAN: process(es) still alive %.0f s after "
-                        "their engine was hard-killed: %s" % (wait_s, alive))
+                        "their engine was hard-killed: %s"
+                        % (wait_s, ", ".join(str(p) for p in alive)))
     if strays:
         failures.append("KILL ARM ORPHAN: process(es) of the bundle's image "
                         "still running: %s" % strays)
@@ -293,6 +300,9 @@ def _kill_arm(binary, probe, work, log_dir, deadline, engine_python, data_root,
             with open(out_json, "r", encoding="utf-8") as handle:
                 record = json.load(handle)
         busy = [p for p in (record or {}).get("pids", []) if probe.alive(p)]
+        # who each pid IS, read while it runs (#570: a pid is reused)
+        procs = probe.stamp(dict((record or {}).get("procs") or {}), [child.pid],
+                            "the engine (--victim --chain)")
         child.kill()                           # SIGKILL / TerminateProcess
         child.wait(timeout=30)
     killed = time.time()
@@ -305,14 +315,15 @@ def _kill_arm(binary, probe, work, log_dir, deadline, engine_python, data_root,
     image = binary if binary.lower().endswith(".py") else \
         (record or {}).get("executable") or binary
     while True:
-        alive = sorted(p for p in pids if probe.alive(p))
+        alive = sorted(p for p in pids if probe.alive(p, (procs.get(str(p)) or [None])[0]))
         strays = [row for row in _image_processes(image) if row[0] not in before]
         leaked = [b for b in blocks if probe.block_exists(b)]
         if not (alive or strays or leaked) or time.time() > killed + probe.KILL_S:
             break
         time.sleep(0.25)
     waited = time.time() - killed
-    failures = kill_verdict(record, alive, strays, leaked, probe.KILL_S)
+    failures = kill_verdict(record, probe.named(alive, procs), strays, leaked,
+                            probe.KILL_S)
     probe.put_down(alive + [row[0] for row in strays], leaked)
     return failures, (
         "   kill arm: engine pid %s hard-killed mid-map (Manager, 1 airport "
@@ -339,7 +350,7 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
         serial, text_s, wall_s, note_s = _arm(
             binary, 1, work, log_dir, "onecore", deadline, engine_python, data_root)
         for line in text_p.splitlines():
-            if "[pool]" in line or line.startswith(("nested:", "worker:", "kill:",
+            if "[pool]" in line or line.startswith(("nested:", "worker:", "kill:", "teardown:",
                                                     "POOL SELFCHECK", "FAILED")):
                 print("   | " + line)
         failures = verdict(pooled, serial, text_p + text_s, frozen=frozen,
@@ -349,18 +360,21 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
         if "serial (budget 1)" not in text_s and serial:
             failures.append("the one-core arm did not say `serial (budget 1)`")
         # ---- (e) from OUTSIDE, after both processes have exited ----------
-        pids, blocks = set(), set()
+        pids, blocks, procs = set(), set(), {}
         for record in (pooled, serial):
             if record:
                 pids.update([record.get("pid")] + list(record.get("pids") or []))
                 blocks.update(record.get("blocks") or [])
+                procs.update(record.get("procs") or {})
         pids.discard(None)
         # the image a worker really is (an AppImage's AppRun is a launcher)
         image = (pooled or {}).get("executable") if frozen else binary
         image = image or binary
         end = time.time() + LINGER_S
         while True:
-            alive = sorted(p for p in pids if probe.alive(p))
+            # THE process each pid was (#570), not whoever holds the number now
+            alive = sorted(p for p in pids
+                           if probe.alive(p, (procs.get(str(p)) or [None])[0]))
             strays = [row for row in _image_processes(image) if row[0] not in before]
             if not (alive or strays) or time.time() > end:
                 break
@@ -368,7 +382,8 @@ def run_pool(binary, repo_root, log_dir, deadline=300, keep=False,
         leaked = sorted(b for b in blocks if probe.block_exists(b))
         if alive:
             failures.append("ORPHAN: process(es) the run started are still "
-                            "alive after it exited: %s" % alive)
+                            "alive after it exited: %s"
+                            % ", ".join(probe.named(alive, procs)))
         if strays:
             failures.append("ORPHAN: process(es) of the bundle's image are "
                             "still running: %s" % strays)

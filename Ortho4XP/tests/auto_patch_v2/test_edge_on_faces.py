@@ -89,14 +89,22 @@ def _needle_soup() -> np.ndarray:
     return np.load(_NEEDLES)["xz_1e8"] / 1e8
 
 
-def test_the_refusing_soup_is_all_valid_triangles_with_area():
+def test_the_soup_is_all_valid_triangles_with_area():
     """What the area floor let through: every operand valid, every area
-    above ``1e-9`` — and the exact overlay refuses the union."""
+    above ``1e-9``.  Whether the exact overlay then REFUSES the union is
+    the platform's: shapely 2.1.2's macOS arm64 wheel (GEOS 3.13.1) raises
+    ``Ring edge missing``; the same shapely on Linux and Windows x86_64
+    returns.  Either is lawful here — a refusal must be GEOS's own, and an
+    answer must be the fixed-precision union's area."""
     polys = shapely.polygons(_needle_soup())
     assert shapely.is_valid(polys).all()
     assert (shapely.area(polys) > 1e-9).all()
-    with pytest.raises(GEOSException):
-        unary_union(polys.tolist())
+    try:
+        u = unary_union(polys.tolist())
+    except GEOSException:
+        return
+    whole = shapely.union_all(polys, grid_size=1e-6)
+    assert u.area == pytest.approx(whole.area, abs=1e-4)
 
 
 def test_the_soup_unions_exactly_without_its_edge_on_faces():

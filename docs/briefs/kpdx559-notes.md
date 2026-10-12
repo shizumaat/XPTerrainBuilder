@@ -5,11 +5,24 @@
   suite green (9289 passed, 19 skipped, 1 xfailed, 1 xpassed — the xpass is
   on unmodified main too). `tools/ratchets.py`: duplicate + layer PASS.
 - Capture registered: `frames.py list KPDX` (copied into the data repo).
-- ONLY THING LEFT: the ONE harness build of KPDX, which the harness REFUSES
-  until the master authorises `--refresh-data rings` and `--refresh-data dem`
-  for +45-123 (see "Harness build"). Then:
-  `venv/bin/python tools/harness/build_airport.py KPDX --tile 45 -123` and
-  `tools/harness/census.py` on its patch.
+- Closing harness build DONE by the master (see "Harness closing build").
+  Nothing left on this lane; PR #578 twin made platform-true.
+
+## Platform finding (PR #578 CI, 2026-10-12)
+- The raw needle soup REFUSES only on macOS arm64. CI installs the same
+  `shapely==2.1.2` wheel family on all three OSes (macosx_11_0_arm64,
+  manylinux2014_x86_64, win x86_64); the fixture's bare `unary_union`
+  raised on macos-15 and RETURNED on ubuntu-22.04 and windows-latest. The CI
+  log does not print `shapely.geos_version` (local mac: 3.13.1), so whether
+  the wheels carry different GEOS builds or the same GEOS behaves differently
+  per architecture is NOT established. #559 as the owner saw it may be
+  mac-arm64-only; the edge-on rule holds on every platform regardless.
+- The twin now asserts the invariant everywhere and the refusal conditionally.
+
+## Harness closing build (run by the master after refreshing the corpus)
+- KPDX: body c976010a3b6c, 287 s, solve optimal, verify defects none;
+  census law-true 3052, adjudicated 684 (the same totals as the lane's
+  replay-emitted patch).
 
 ## Reproduction
 - `build_airport.py KPDX --tile 45 -123` and `build_airport.py KPDX` both

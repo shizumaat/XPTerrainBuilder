@@ -41,9 +41,12 @@ AIRPORT_FAILED_LINE = ("*** Tile {tile}: airport {airport} could not be "
 
 
 def _entries(event) -> list:
-    """``(is_warning, entry)`` for every message of one ``BuildDone``."""
+    """``(is_warning, entry)`` for every message of one ``BuildDone``:
+    its failures, then warnings, then notes (stand-in elevation, RULINGS
+    2026-10-12e — shown under the warnings)."""
     return ([(False, f) for f in getattr(event, "failures", None) or []]
-            + [(True, w) for w in getattr(event, "warnings", None) or []])
+            + [(True, w) for w in getattr(event, "warnings", None) or []]
+            + [("note", n) for n in getattr(event, "notes", None) or []])
 
 
 def console_lines(event) -> list:
@@ -51,7 +54,8 @@ def console_lines(event) -> list:
     its technical detail, indented."""
     lines = []
     for is_warning, entry in _entries(event):
-        lines.append(("Warning: " if is_warning else "*** ")
+        lines.append(("Note: " if is_warning == "note" else
+                      "Warning: " if is_warning else "*** ")
                      + entry.get("what", ""))
         lines.append("    " + entry.get("why", ""))
         lines.append("    " + entry.get("remedy", ""))
@@ -64,7 +68,8 @@ def report_phrase(event) -> str:
     """The end-of-run report's reason for one tile: why it failed, or
     ``"with warnings"`` for a tile built without an airport patch."""
     if getattr(event, "ok", False):
-        return "with warnings" if getattr(event, "warnings", None) else ""
+        return "with warnings" if (getattr(event, "warnings", None)
+                                   or getattr(event, "notes", None)) else ""
     failures = getattr(event, "failures", None) or []
     if not failures:
         return getattr(event, "error", "") or ""
@@ -79,7 +84,7 @@ def box_texts(events) -> tuple:
         return None
     failed = sum(1 for event in events if not getattr(event, "ok", False))
     warned = sum(1 for event in events if getattr(event, "ok", False)
-                 and getattr(event, "warnings", None))
+                 and _entries(event))
     parts = []
     if failed:
         parts.append("%d tile%s not built"

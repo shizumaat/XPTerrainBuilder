@@ -70,7 +70,7 @@ elevation_access_hidden = sorted(
 if len(elevation_access_hidden) < 30:
     raise SystemExit(
         f"ERROR: expected the elevation_access package under src/ "
-        f"(26 strategy modules + the shared ones), found "
+        f"(27 strategy modules + the shared ones), found "
         f"{len(elevation_access_hidden)} module(s).")
 v2_law_datas = (
     [(f, os.path.join("auto_patch_v2", "law"))

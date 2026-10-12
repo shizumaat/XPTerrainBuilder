@@ -273,9 +273,11 @@ public enum O4Event: Sendable, Equatable {
     /// built ("built with warnings"), folded per cause;
     /// `unpatchedAirports` are the same airports one per entry. `error` is
     /// the failures as one line.
+    /// `notes` are info-level entries of a built tile (stand-in
+    /// elevation, owner RULINGS 2026-10-12e), shown under the warnings.
     case buildDone(lat: Int, lon: Int, ok: Bool, error: String,
                    failures: [O4TileFailure], warnings: [O4TileFailure],
-                   unpatchedAirports: [O4TileFailure])
+                   unpatchedAirports: [O4TileFailure], notes: [O4TileFailure])
     case runEta(elapsedSeconds: Double, remainingSeconds: Double?, doneTiles: Int, totalTiles: Int)
     /// Per-tile clocks beside RunEta (protocol 1.3): each row is one
     /// tile's elapsed wall time and its OWN remaining-work estimate
@@ -385,7 +387,8 @@ public enum O4Event: Sendable, Equatable {
                               failures: O4TileFailure.parseList(object["failures"]),
                               warnings: O4TileFailure.parseList(object["warnings"]),
                               unpatchedAirports: O4TileFailure.parseList(
-                                  object["unpatched_airports"]))
+                                  object["unpatched_airports"]),
+                              notes: O4TileFailure.parseList(object["notes"]))
         case "RunEta":
             let remaining = (object["remaining_seconds"] as? NSNumber)?.doubleValue
             return .runEta(elapsedSeconds: double("elapsed_seconds"),

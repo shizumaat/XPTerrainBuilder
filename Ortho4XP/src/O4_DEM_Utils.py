@@ -379,6 +379,10 @@ class DEM:
         # True once ``enable_baked_query`` has re-pointed the query path at
         # the baked working raster (see that method).
         self.baked_query_active = False
+        # Base cells this load read from a FALLBACK source because the
+        # configured one could not be reached (#561): one record per cell,
+        # ``{"cell", "code", "path"}``.  Empty in every ordinary build.
+        self.base_substitutions = []
         if ";" in source:
             self.alt = self.alt_composite
             self.alt_vec = self.alt_vec_composite
@@ -458,6 +462,7 @@ class DEM:
                     self.lon,
                     info_only,
                     prefer_coarse=prefer_coarse,
+                    substitutions=self.base_substitutions,
                 )
             else:
                 if ensure_elevation(
@@ -476,12 +481,13 @@ class DEM:
                         self.nxdem,
                         self.nydem,
                         self.alt_dem,
-                    ) = read_elevation_from_file(
-                        FNAMES.elevation_data(short_source, self.lat, self.lon),
+                    ) = read_base_cell(
+                        short_source,
                         self.lat,
                         self.lon,
                         info_only,
                         3601,
+                        substitutions=self.base_substitutions,
                     )
                 else:
                     (
@@ -964,11 +970,37 @@ def _ensure_cell_elevation(source, lat, lon, lat0, lon0, verbose,
         else:
             role = ("a NEIGHBOUR of tile %+03d%+04d, whose elevation "
                     "border band it supplies" % (lat, lon))
-        raise ElevationDownloadRefused(
-            "elevation cell %s (%s): %s" % (cell, role, error)) from error
+        named = ElevationDownloadRefused(
+            "elevation cell %s (%s): %s" % (cell, role, error))
+        # the cause the refusal named for itself (a proxy's refusal,
+        # O4_Tile_Failures) survives the re-wording
+        if getattr(error, "failure_code", None):
+            named.failure_code = error.failure_code
+        raise named from error
 
 
-def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
+def read_base_cell(source, lat, lon, info_only, base_if_error,
+                   substitutions=None):
+    """:func:`read_elevation_from_file` for one base cell of a legacy
+    source keyword: the configured source's file, or -- where that source
+    could not be reached -- the fallback's, tied to its configured
+    neighbours (``elevation_access.base_fallback``, #561).  Each
+    substituted cell is appended to ``substitutions``."""
+    # Imported lazily, like every reference to the provider pipeline in
+    # this module: both import THIS module at module level.  The pipeline
+    # imports ``base_fallback`` statically, so the frozen engine has it.
+    import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+    from elevation_access import base_fallback
+
+    if not ELEVATION_PROVIDERS.elevation_providers_dict:
+        ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
+    return base_fallback.read_base_cell(
+        source, lat, lon, ELEVATION_PROVIDERS.elevation_providers_dict,
+        info_only, base_if_error, substitutions=substitutions)
+
+
+def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False,
+                          substitutions=None):
     if source in ("View", "SRTM"):
         base = 3601
         overlap = 1
@@ -1010,12 +1042,13 @@ def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
             source, lat, lon, lat0, (lon0 + 180) % 360 - 180, verbose,
             prefer_coarse,
         ):
-            tmparray = read_elevation_from_file(
-                FNAMES.elevation_data(source, lat0, (lon0 + 180) % 360 - 180),
+            tmparray = read_base_cell(
+                source,
                 lat0,
                 (lon0 + 180) % 360 - 180,
                 info_only,
                 base,
+                substitutions=substitutions,
             )[-1]
         else:
             tmparray = numpy.zeros((base, base), dtype=numpy.float32)
@@ -1275,6 +1308,18 @@ class ElevationDownloadRefused(RuntimeError):
     """
 
 
+class ElevationTransportRefused(ElevationDownloadRefused):
+    """The transport half of :class:`ElevationDownloadRefused`, and only
+    that: every attempt died without a usable answer (no connection, a
+    timeout, a 5xx).  The source may be perfectly fine tomorrow, so this
+    is the ONE refusal the base-tile fallback may cover with another
+    source (``elevation_access.base_fallback``, issue #561).  A host that
+    refused this client, a redirect loop and a land cell the source does
+    not hold stay plain :class:`ElevationDownloadRefused`: they are
+    defects to see, never outages to route around.
+    """
+
+
 #: Attempts :func:`http_request` makes before it gives up.  Named so a
 #: twin can shorten the loop instead of waiting out the 2+4+8+16+32 s
 #: exponential back-off.
@@ -1376,6 +1421,7 @@ def http_request(url, source, verbose=False):
     s = requests.Session()
     tentative = 0
     last_failure = None
+    last_error = None
     while True:
         # Cancellation: the user pressed Stop.  Abort before spending
         # another request on this source and match http_request's
@@ -1424,6 +1470,7 @@ def http_request(url, source, verbose=False):
                     % (source, url, r.status_code))
             else:
                 last_failure = "status %d" % r.status_code
+                last_error = None
                 if verbose:
                     UI.vprint(
                         2, "    Server answered", r.status_code,
@@ -1438,18 +1485,26 @@ def http_request(url, source, verbose=False):
             raise
         except Exception as e:
             last_failure = "%s: %s" % (type(e).__name__, e)
+            last_error = e
             # ALWAYS printed (it used to need verbose): the transport
             # error is the one line that says WHY the elevation is missing.
             UI.vprint(1, "    ", source, "download failed:", last_failure)
         tentative += 1
         if tentative >= HTTP_REQUEST_ATTEMPT_CAP:
             if last_failure is not None and not UI.red_flag:
-                raise ElevationDownloadRefused(
+                refusal = ElevationTransportRefused(
                     "the %s elevation download of %s failed %d times on "
                     "the transport (last: %s) -- REFUSING to build this "
                     "tile on an all-zero elevation raster; check the "
                     "network / TLS (antivirus or proxy HTTPS inspection) "
                     "and rebuild" % (source, url, tentative, last_failure))
+                # A PROXY refused it (the user's side, not the server's):
+                # named by the exception's class, never its text.
+                if last_error is not None and any(
+                        k.__name__ == "ProxyError"
+                        for k in type(last_error).__mro__):
+                    refusal.failure_code = "proxy_refused"
+                raise refusal
             return 0
         # Cancellation before the exponential back-off sleep: Stop must
         # not be blocked for up to 2**tentative seconds waiting to retry

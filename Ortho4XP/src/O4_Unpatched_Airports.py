@@ -29,6 +29,8 @@ __all__ = [
     "STALE_SUFFIX", "STRICT_ENV", "UNPATCHED_SIDECAR", "PATCH_FAMILY",
     "airport_patch_family",
     "set_aside_unbuilt", "strict", "may_continue", "record", "read",
+    "PACK_RESTORE_KEY", "note_pack",
+    "record_substitutions", "read_substitutions",
     "warn",
 ]
 
@@ -50,6 +52,10 @@ STRICT_ENV = "O4_AUTO_PATCH_STRICT"
 #: it always describes the mesh on disk.  A FILE because the app emits the
 #: tile's final ``BuildDone`` from a different process than step 1.
 UNPATCHED_SIDECAR = "o4_unpatched_airports.json"
+
+#: Key of an unpatched record: why the airport's PACK could not be put
+#: back to its original (absent when it was, or was never rewritten).
+PACK_RESTORE_KEY = "pack_restore"
 
 #: The whole-tile failure record's airport name (``stage == "config"``:
 #: auto-patch is on and no CIFP directory resolves).  Not one airport's
@@ -139,16 +145,95 @@ def record(tile, failures) -> list:
                   **{k: rec[k] for k in ("code", "params") if rec.get(k)}}
                  for rec in failures or ()]
     tile.auto_patch_unpatched = unpatched
+    _write_sidecar(tile, unpatched)
+    return unpatched
+
+
+def _write_sidecar(tile, unpatched: list) -> None:
+    build_dir = getattr(tile, "build_dir", None)
+    if not build_dir:
+        return
+    try:
+        os.makedirs(build_dir, exist_ok=True)
+        _write_key(build_dir, "unpatched", unpatched)
+    except OSError:
+        pass
+
+
+def _read_all(build_dir: str) -> dict:
+    try:
+        with open(_sidecar_path(build_dir), encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _write_key(build_dir: str, key: str, value) -> None:
+    """Rewrite ONE key of the sidecar, keeping the others (the same file
+    carries the tile's other closing facts)."""
+    data = _read_all(build_dir)
+    data[key] = value
+    with open(_sidecar_path(build_dir), "w", encoding="utf-8",
+              newline="\n") as handle:
+        json.dump(data, handle)
+
+
+#: Sidecar key of the base-elevation cells read from a FALLBACK source
+#: (owner RULINGS 2026-10-12e, ``elevation_access.base_fallback``).
+SUBSTITUTIONS_KEY = "elevation_substituted"
+
+
+def record_substitutions(tile, rows) -> list:
+    """Publish the base cells this tile's DEM read from a fallback source
+    — the same two ways as :func:`record`, for the same reason (the tile's
+    final ``BuildDone`` comes from another process).  Called by every
+    production DEM load, with an empty list when none.  Never fatal."""
+    rows = [dict(row) for row in rows or () if isinstance(row, dict)]
+    tile.elevation_substitutions = rows
     build_dir = getattr(tile, "build_dir", None)
     if build_dir:
         try:
             os.makedirs(build_dir, exist_ok=True)
-            with open(_sidecar_path(build_dir), "w", encoding="utf-8",
-                      newline="\n") as handle:
-                json.dump({"unpatched": unpatched}, handle)
+            _write_key(build_dir, SUBSTITUTIONS_KEY, rows)
         except OSError:
             pass
-    return unpatched
+    return rows
+
+
+def read_substitutions(tile) -> list:
+    """The substituted cells of the tile on disk (see :func:`read`)."""
+    own = getattr(tile, "elevation_substitutions", None)
+    if own is not None:
+        return list(own)
+    try:
+        return list(_read_all(tile.build_dir).get(SUBSTITUTIONS_KEY) or [])
+    except (AttributeError, TypeError):
+        return []
+
+
+def note_pack(tile, icao: str, text: str, pack: str = "",
+              reason: str = "") -> None:
+    """Add to ``icao``'s record what could NOT be done about its pack.
+
+    Owner RULINGS 2026-10-12d: an airport left without a patch gets its
+    original pack back, and a restore that cannot be proven is NAMED,
+    never skipped silently — the pack may still be seated for the graded
+    ground this tile no longer has.  The object stage (which runs after
+    the mesh, usually in another process) calls this; the sentence lands
+    under :data:`PACK_RESTORE_KEY` in the sidecar the final step reads."""
+    unpatched = read(tile)
+    for rec in unpatched:
+        if rec.get("icao") == icao:
+            earlier = rec.get(PACK_RESTORE_KEY)
+            rec[PACK_RESTORE_KEY] = (earlier + " " + text) if earlier else text
+            # the pieces a front-end message is worded from (#562)
+            if pack:
+                rec[PACK_RESTORE_KEY + "_pack"] = pack
+            if reason:
+                rec[PACK_RESTORE_KEY + "_reason"] = reason
+    tile.auto_patch_unpatched = unpatched
+    _write_sidecar(tile, unpatched)
 
 
 def read(tile) -> list:

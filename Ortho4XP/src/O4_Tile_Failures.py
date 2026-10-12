@@ -41,7 +41,8 @@ __all__ = [
     "CATALOGUE", "EXCEPTION_CODES", "STAGE_CODES", "REMEDIES", "UNMAPPED",
     "UNMAPPED_AIRPORT", "UNMAPPED_STEP", "code_for_exception",
     "code_for_activation", "params_for_exception", "record_fields", "code_for_stage", "record", "fold", "headline",
-    "render", "from_unpatched", "closing_lines",
+    "render", "from_unpatched", "from_substitutions", "closing_lines",
+    "is_proxy_refusal",
 ]
 
 
@@ -64,6 +65,10 @@ REMEDIES = {
     "pack": "Update, repair or disable that scenery pack, then build the "
             "tile again.",
     "report": "{Report}.",
+    # the per-pack control both apps show in "Modified airports"
+    "restore_pack": "Use Revert to default for that scenery pack (under "
+                    "Modified airports), or reinstall it.",
+    "rebuild_later": "Build the tile again later to replace it.",
     "memory": "Close other apps to free memory, then build the tile again.",
     "permissions": "Check that the app is allowed to write to the X-Plane "
                    "folder and its own data folder, then build the tile "
@@ -132,6 +137,19 @@ CATALOGUE = {
     "pack_object_failed": Entry(
         "{airports} could not be graded.",
         "{pack} contains an object the app could not process.", "report"),
+    # an unpatched airport whose pack could not be put back (RULINGS
+    # 2026-10-12d; ``O4_Unpatched_Airports.PACK_RESTORE_KEY``)
+    "pack_restore_unproven": Entry(
+        "objects at {airports} may float or sink.",
+        "An earlier build moved the objects of {pack} onto graded ground, "
+        "and they could not be put back: {reason}", "restore_pack"),
+    # a NOTE, not a failure: a base cell read from a fallback source
+    # (RULINGS 2026-10-12e; ``elevation_access.base_fallback``)
+    "elevation_substituted": Entry(
+        "with stand-in elevation for {cells}.",
+        "{source} did not answer, so {fallback} was used. It includes "
+        "trees and buildings, so the ground there may read a few metres "
+        "high.", "rebuild_later"),
     "pack_write_failed": Entry(
         "objects for {airports} could not be updated.",
         "The app could not safely rewrite the file of {pack}.", "pack"),
@@ -374,7 +392,14 @@ def code_for_stage(stage: str, code: Optional[str] = None) -> str:
     return STAGE_CODES.get(str(stage or ""), UNMAPPED_AIRPORT)
 
 
-def record(code: str, detail: str = "", airport: str = "",
+def is_proxy_refusal(exc: BaseException) -> bool:
+    """Whether ``exc`` says a PROXY refused the connection — by class
+    (``ProxyError`` anywhere on the MRO) or by its own ``failure_code``."""
+    return (getattr(exc, "failure_code", None) == "proxy_refused"
+            or any(k.__name__ == "ProxyError" for k in type(exc).__mro__))
+
+
+def record(code: str, detail: str = "", airport: str = "", cell: str = "",
            **params) -> dict:
     """One raw failure, before folding.  An unknown ``code`` becomes the
     generic one — the headline is never whatever string arrived.
@@ -387,6 +412,7 @@ def record(code: str, detail: str = "", airport: str = "",
     airport = "" if airport in ("*", "?") else str(airport or "")
     return {"code": code, "detail": str(detail or ""), "airport": airport,
             "scope": scope, "named": str(airport or ""),
+            "cell": str(cell or ""),
             "params": {str(k): str(v) for k, v in params.items()
                        if v not in (None, "")}}
 
@@ -417,24 +443,38 @@ UNPATCHED = ("An airport without a patch is left on ungraded terrain; the "
              "next build of this tile tries it again.")
 
 
+def _cells_phrase(cells: list) -> str:
+    if len(cells) <= 1:
+        return "cell " + (cells[0] if cells else "?")
+    return "cells %s and %s" % (", ".join(cells[:-1]), cells[-1])
+
+
 def _describe(code: str, tile: str, airports: list, params: dict,
               details: list, built: bool, log_path: str,
-              report_button: bool) -> dict:
+              report_button: bool, cells: list, note: bool) -> dict:
     entry = CATALOGUE[code]
     pack = params.get("pack")
     words = {
         "airports": _airports_phrase(airports),
+        "cells": _cells_phrase(cells),
+        "reason": params.get("reason") or "the cause was not recorded.",
+        "source": params.get("source") or "the elevation source",
+        "fallback": params.get("fallback") or "another source",
         "pack": ("the scenery pack “%s”" % pack) if pack
                 else "a scenery pack on this tile",
         "step": params.get("step") or "build",
     }
     why = entry.why.format(**words)
     why = why[:1].upper() + why[1:]
-    lead = "Tile %s was built, but " if built else "Tile %s was not built: "
+    lead = ("Tile %s was built " if note else "Tile %s was built, but "
+            if built else "Tile %s was not built: ")
+    # the unpatched sentence belongs to the airport's own warning only
+    unpatched = built and not note and code != "pack_restore_unproven"
     return {
         "code": code,
         "what": lead % tile + entry.what.format(**words),
-        "why": (why + " " + UNPATCHED) if built else why,
+        "why": (why + " " + UNPATCHED) if unpatched else why,
+        "cells": list(cells),
         "remedy": _remedy(entry.remedy, report_button, log_path),
         "airports": list(airports),
         "detail": "\n".join(details),
@@ -451,7 +491,8 @@ def _remedy(key: str, report_button: bool, log_path: str) -> str:
 
 
 def fold(records: Iterable[dict], tile: str, built: bool = False,
-         log_path: str = "", report_button: bool = False) -> list:
+         log_path: str = "", report_button: bool = False,
+         note: bool = False) -> list:
     """The tile's failures, one per CAUSE: records with the same code and
     parameters fold into one message listing their airports (six airports
     refused for one stale file are one message, not six).  First-seen
@@ -463,7 +504,10 @@ def fold(records: Iterable[dict], tile: str, built: bool = False,
     groups: dict = {}
     for rec in records:
         key = (rec["code"], tuple(sorted(rec.get("params", {}).items())))
-        group = groups.setdefault(key, {"airports": [], "details": []})
+        group = groups.setdefault(key, {"airports": [], "details": [],
+                                        "cells": []})
+        if rec.get("cell") and rec["cell"] not in group["cells"]:
+            group["cells"].append(rec["cell"])
         airport = rec.get("airport")
         if airport and airport not in group["airports"]:
             group["airports"].append(airport)
@@ -476,7 +520,8 @@ def fold(records: Iterable[dict], tile: str, built: bool = False,
             if line not in group["details"]:
                 group["details"].append(line)
     return [_describe(code, tile, group["airports"], dict(params),
-                      group["details"], built, log_path, report_button)
+                      group["details"], built, log_path, report_button,
+                      group["cells"], note)
             for (code, params), group in groups.items()]
 
 
@@ -497,21 +542,54 @@ def from_unpatched(rows: Iterable[dict]) -> list:
     """Raw records from ``O4_Unpatched_Airports.read(tile)`` rows
     (``{"icao", "stage", "error"}`` plus ``code`` / ``params`` when the
     worker named the cause) — the airports a built tile has no patch for."""
-    return [dict(record(code_for_stage(row.get("stage"), row.get("code")),
-                        "(%s) %s" % (row.get("stage") or "?",
-                                     row.get("error") or ""),
-                        airport=row.get("icao") or "?",
-                        **(row.get("params") or {})),
-                 stage=str(row.get("stage") or "?"))
-            for row in rows or ()]
+    out = []
+    for row in rows or ():
+        params = row.get("params") or {}
+        out.append(dict(
+            record(code_for_stage(row.get("stage"), row.get("code")),
+                   "(%s) %s" % (row.get("stage") or "?",
+                                row.get("error") or ""),
+                   airport=row.get("icao") or "?", **params),
+            stage=str(row.get("stage") or "?")))
+        # RULINGS 2026-10-12d: the airport's pack could not be put back —
+        # a second message for the same airport (``secondary``: it is not
+        # another unpatched airport).
+        restore = row.get("pack_restore")
+        if restore:
+            # the bare cause when the object stage recorded one, else its
+            # whole sentence; exactly one full stop either way
+            reason = str(row.get("pack_restore_reason") or restore)
+            reason = reason.strip().rstrip(". ") + "."
+            pack = row.get("pack_restore_pack") or params.get("pack")
+            out.append(dict(
+                record("pack_restore_unproven", str(restore),
+                       airport=row.get("icao") or "?", reason=reason,
+                       **({"pack": pack} if pack else {})),
+                secondary=True))
+    return out
 
 
-def closing_lines(warnings: list) -> list:
-    """The tile's closing account of its warnings, for the engine log: the
-    last thing a built-with-warnings tile prints (master ruling, #564)."""
+def from_substitutions(rows: Iterable[dict]) -> list:
+    """Raw NOTE records from the tile's base-elevation substitutions
+    (``{"cell", "code", "path"}`` plus ``source`` / ``fallback`` labels):
+    one per cell, folded per (source, fallback) pair."""
+    return [record("elevation_substituted",
+                   "%s: source %s read from %s (%s)" % (
+                       row.get("cell"), row.get("keyword") or "?",
+                       row.get("code"), row.get("path")),
+                   cell=str(row.get("cell") or "?"),
+                   source=row.get("source") or "",
+                   fallback=row.get("fallback") or row.get("code") or "")
+            for row in rows or () if isinstance(row, dict)]
+
+
+def closing_lines(warnings: list, notes: Iterable[dict] = ()) -> list:
+    """The tile's closing account of its warnings and notes, for the
+    engine log: the last thing such a tile prints (master ruling, #564)."""
     lines = []
-    for warning in warnings:
-        lines.append("WARNING: " + warning["what"])
-        lines.append("   " + warning["why"])
-        lines.append("   " + warning["remedy"])
+    for (label, entries) in (("WARNING: ", warnings), ("NOTE: ", notes)):
+        for entry in entries:
+            lines.append(label + entry["what"])
+            lines.append("   " + entry["why"])
+            lines.append("   " + entry["remedy"])
     return lines

@@ -31,6 +31,7 @@ EXPECTED_STRATEGIES: Dict[str, str] = {
     "coordinate_named_url_list": "CoordinateNamedUrlListStrategy",
     "coral_atlas_library": "CoralAtlasLibraryStrategy",
     "cwcb_lidar_api": "CwcbLidarApiStrategy",
+    "degree_cog_base_tile": "DegreeCogBaseTileStrategy",
     "degree_named_cog": "DegreeNamedCogStrategy",
     "direct_cog": "DirectCogStrategy",
     "geojson_tile_index": "GeojsonTileIndexStrategy",

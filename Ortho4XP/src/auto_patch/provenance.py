@@ -894,7 +894,8 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
       (``DEM.load_data`` prefers it over the configured provider, so its
       arrival changes the DEM),
       and the tile's elevation settings — level, smoothing, inset and grid
-      knobs — plus the app-level base elevation source.  This facet is
+      knobs — plus the app-level base elevation source, and each base cell
+      this load took from a fallback source (#561).  This facet is
       TILE-WIDE on purpose even though the patch is one airport's: the inset
       set drives ``densify_tile_dem_for_insets``, which resets the working
       grid posting for the whole tile, so an inset arriving anywhere on it
@@ -947,6 +948,18 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
             # now says "ICAO".
             value = normalize_mode(value, name)
         spec_parts.append(f"cfg:{name}={value!r}")
+    # Base cells read from a FALLBACK source because the configured one could
+    # not be reached (#561, ``elevation_access.base_fallback``).  One line per
+    # substituted cell and NONE in an ordinary build, so every existing stamp
+    # is unchanged; a patch solved beside a substituted cell reads stale once
+    # the configured source is back, and is rebuilt on the real base.
+    for record in sorted(
+            (r for r in (getattr(dem, "base_substitutions", None) or ())
+             if isinstance(r, dict)),
+            key=lambda r: str(r.get("cell"))):
+        spec_parts.append("base_fallback:%s=%s|%s" % (
+            record.get("cell"), record.get("code"),
+            _identity(record.get("path"))))
     try:
         # The app-level base source is a per-tile setting only in effect when
         # ``custom_dem`` is empty; the config registry assigns it onto

@@ -26,9 +26,11 @@ struct TileFailureTests {
                                what: "Tile +45-123 was built, but airport AAAA could not be processed.",
                                airports: ["AAAA"])],
             "unpatched_airports": [entry("airport_geometry", what: "One.", airports: ["AAAA"])],
+            "notes": [entry("elevation_substituted",
+                            what: "Tile +45-123 was built with stand-in elevation for cell +45-124.")],
         ]
         guard case .buildDone(let lat, let lon, let ok, _, let failures, let warnings,
-                              let unpatched)?
+                              let unpatched, let notes)?
                 = O4Event.parse(object: object) else {
             Issue.record("BuildDone did not decode")
             return
@@ -43,6 +45,8 @@ struct TileFailureTests {
         #expect(failure.logPath == "/tmp/Ortho4XP.log")
         #expect(warnings[0].airports == ["AAAA"])
         #expect(unpatched.map(\.airports) == [["AAAA"]])
+        #expect(notes.map(\.code) == ["elevation_substituted"])
+        #expect(notes[0].consoleLines(isWarning: false, isNote: true)[0].hasPrefix("Note: Tile"))
     }
 
     @Test func anOlderEngineDecodesToNoMessages() throws {
@@ -50,7 +54,8 @@ struct TileFailureTests {
                                      "ok": false, "error": "the mesh step failed"]
         #expect(O4Event.parse(object: object)
                 == .buildDone(lat: 1, lon: 2, ok: false, error: "the mesh step failed",
-                              failures: [], warnings: [], unpatchedAirports: []))
+                              failures: [], warnings: [], unpatchedAirports: [],
+                              notes: []))
         let failed: [String: Any] = ["event": "AutoPatchFailed", "airport": "AAAA",
                                      "stage": "build", "error": "x", "lat": 1, "lon": 2]
         #expect(O4Event.parse(object: failed)
@@ -157,6 +162,11 @@ struct RunIssueLogTests {
             tileKey: "+11+021", built: true, failures: [],
             warnings: [O4TileFailure(code: "w", what: "W", why: "", remedy: "")]))
         #expect(log.warnedCount == 1)
+        // a tile with only a NOTE (stand-in elevation) is in the sheet too
+        log.add(O4TileIssues(
+            tileKey: "+12+022", built: true, failures: [], warnings: [],
+            notes: [O4TileFailure(code: "n", what: "N", why: "", remedy: "")]))
+        #expect(log.warnedCount == 2)
         let thirdReport = log.finish()
         let third = try #require(thirdReport)
         #expect(third.id != first.id)               // a new sheet, not the old one

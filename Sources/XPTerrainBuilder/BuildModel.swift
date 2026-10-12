@@ -732,7 +732,7 @@ final class BuildModel: ObservableObject {
                     + "\(stage) stage — \(error)"
                 : O4TileFailureCopy.airportFailedLine(tile: coord.key, airport: airport))
         case .buildDone(let lat, let lon, let ok, let error, let failures, let warnings,
-                        let unpatched):
+                        let unpatched, let notes):
             let coord = TileCoord(lat: lat, lon: lon)
             // #562 / #564: the engine's own words — what, why, what to do —
             // on the console now and in the run's one report at the end.
@@ -742,17 +742,20 @@ final class BuildModel: ObservableObject {
             for warning in warnings {
                 warning.consoleLines(isWarning: true).forEach { console.append($0) }
             }
+            for note in notes {
+                note.consoleLines(isWarning: false, isNote: true).forEach { console.append($0) }
+            }
             runIssueLog.add(O4TileIssues(
                 tileKey: coord.key, lat: lat, lon: lon, built: ok,
-                failures: failures, warnings: warnings))
+                failures: failures, warnings: warnings, notes: notes))
             if ok {
                 let airports = unpatched.flatMap(\.airports)
-                console.append(warnings.isEmpty
+                console.append(warnings.isEmpty && notes.isEmpty
                     ? "Tile \(coord.key) finished."
                     : "Tile \(coord.key) finished with warnings"
                         + (airports.isEmpty ? "."
                            : " — no airport patch for \(airports.joined(separator: ", "))."))
-                if !warnings.isEmpty, var row = activity.tiles[coord] {
+                if !(warnings.isEmpty && notes.isEmpty), var row = activity.tiles[coord] {
                     row.label = O4TileFailureCopy.builtWithWarnings
                     activity.tiles[coord] = row
                 }

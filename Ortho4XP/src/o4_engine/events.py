@@ -271,6 +271,10 @@ class BuildDone(EngineEvent):
     failures: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
     unpatched_airports: list = field(default_factory=list)
+    # Info-level entries of the same shape (plus ``cells``) for a tile
+    # that WAS built: code ``elevation_substituted`` — a base cell read
+    # from a fallback source (owner RULINGS 2026-10-12e).
+    notes: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)

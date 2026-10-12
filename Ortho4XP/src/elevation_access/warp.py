@@ -99,6 +99,7 @@ def warp_vsicurl_sources_to_geotiff(
     vertical_unit=None,
     provider_code=None,
     failure_reasons=None,
+    output_size=None,
 ):
     """Mosaic + warp remote rasters to an EPSG:4326 float32 GeoTIFF window.
 
@@ -143,6 +144,11 @@ def warp_vsicurl_sources_to_geotiff(
     reason is appended to it, so a caller that knows its inputs were
     LISTED products can record the warp failure as ``unavailable`` with
     its reason instead of a no-coverage answer (#157).
+
+    ``output_size`` (``(columns, rows)``, optional) fixes the output GRID
+    instead of deriving it from ``target_resolution_m``: a whole base
+    tile must land on exactly the posts its readers expect (#561), which
+    a resolution in metres cannot express.  ``None`` changes nothing.
     """
     if not has_gdal:
         return False
@@ -178,8 +184,10 @@ def warp_vsicurl_sources_to_geotiff(
         # too high that way, ellipsoidal instead of orthometric.
         options=["-novshift"],
         outputBounds=(west, south, east, north),
-        xRes=x_resolution_deg,
-        yRes=y_resolution_deg,
+        xRes=None if output_size else x_resolution_deg,
+        yRes=None if output_size else y_resolution_deg,
+        width=output_size[0] if output_size else 0,
+        height=output_size[1] if output_size else 0,
         resampleAlg="bilinear",
         dstNodata=-32768.0,
         # TILED so the grid decision's windowed probe reads decode a few

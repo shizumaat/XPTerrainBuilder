@@ -51,6 +51,7 @@ at every anchor.  No planar product, no solved surface, no environment.
 from __future__ import annotations
 
 import dataclasses as _dc
+import functools
 import os
 import typing as _t
 
@@ -342,6 +343,27 @@ class _LoadGeom:
     deck_family_ids: frozenset[str]
 
 
+def _names_its_object(build):
+    """An exception out of one member's build says WHICH pack and object
+    (issue #562; the #559 crash named neither — its coordinate was in the
+    object's own frame).  Two attributes ``O4_Tile_Failures`` reads; the
+    exception, its class and its text pass through untouched."""
+    @functools.wraps(build)
+    def named(o, cache, law, sc, deck_family_ids, pack_root, *args, **kwargs):
+        try:
+            return build(o, cache, law, sc, deck_family_ids, pack_root,
+                         *args, **kwargs)
+        except Exception as exc:
+            if getattr(exc, "failure_code", None) is None:
+                exc.failure_code = "pack_object_failed"
+                exc.failure_params = {
+                    "pack": os.path.basename(str(pack_root).rstrip("/\\")),
+                    "context": f"object {o.path}"}
+            raise
+    return named
+
+
+@_names_its_object
 def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                   sc: Screen, deck_family_ids: _t.Collection[str], pack_root: str,
                   counts: dict[str, int], skipped: dict[str, str],

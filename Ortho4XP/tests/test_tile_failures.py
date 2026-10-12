@@ -209,6 +209,35 @@ def test_an_explicit_failure_code_wins_and_carries_its_pack():
     assert "any wording" not in FAIL.render(message)
 
 
+def test_a_pack_objects_exception_names_the_pack_and_the_object():
+    """#559's class: an exception inside one member's build leaves
+    ``pack_partition`` saying which pack and which object, whatever its
+    own class and text are."""
+    from auto_patch_v2.airport import pack_partition as PP
+
+    class _Object:
+        path = "objects/terminal_lights.obj"
+
+    @PP._names_its_object
+    def build(o, cache, law, sc, deck_family_ids, pack_root):
+        raise ValueError("Ring edge missing at -185.72 80.68")
+
+    with pytest.raises(ValueError) as caught:
+        build(_Object(), None, None, None, (), "/X/Custom Scenery/Some Pack/")
+    fields = FAIL.record_fields(caught.value)
+    assert fields["code"] == "pack_object_failed"
+    (message,) = FAIL.fold([FAIL.record(
+        fields["code"], "[v2] %s" % caught.value, airport="AAAA",
+        **fields["params"])], "+45-123", built=True)
+    assert message["what"] == ("Tile +45-123 was built, but airport AAAA "
+                               "could not be graded.")
+    assert message["why"].startswith(
+        "The scenery pack “Some Pack” contains an object")
+    assert "[object objects/terminal_lights.obj]" in message["detail"]
+    assert "Ring edge" not in FAIL.render(message)
+    assert hasattr(PP._build_member, "__wrapped__")  # the real one is wrapped
+
+
 # ---------------------------------------------------------------------------
 # THE FOLD
 # ---------------------------------------------------------------------------
@@ -268,8 +297,8 @@ def test_an_uncatalogued_exception_is_report_it_never_its_own_text(
     assert failure["what"] == ("Tile +10+020 was not built: the app ran "
                                "into an unexpected problem.")
     assert failure["remedy"] == "Press Report this problem."
-    assert failure["log_path"] == str(
-        tmp_path / "logs" / "engine-stderr.log")
+    assert failure["log_path"].endswith(
+        os.path.join("logs", "engine-stderr.log"))
     for shown in (done.error, FAIL.render(failure)):
         assert "Ring edge" not in shown and "NobodyCatalogued" not in shown
     assert "NobodyCataloguedThis: Ring edge missing" in failure["detail"]

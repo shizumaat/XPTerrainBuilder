@@ -122,6 +122,10 @@ CATALOGUE = {
         "scenery for {airports} could not be read.",
         "The file from {pack} for this tile could not be converted.",
         "report"),
+    # an exception inside ONE pack object's build (pack_partition)
+    "pack_object_failed": Entry(
+        "{airports} could not be graded.",
+        "{pack} contains an object the app could not process.", "report"),
     "pack_write_failed": Entry(
         "objects for {airports} could not be updated.",
         "The app could not safely rewrite the file of {pack}.", "pack"),
@@ -415,6 +419,9 @@ def fold(records: Iterable[dict], tile: str, built: bool = False,
         if airport and airport not in group["airports"]:
             group["airports"].append(airport)
         detail = rec.get("detail")
+        context = rec.get("params", {}).get("context")
+        if detail and context:
+            detail = "%s [%s]" % (detail, context)
         if detail:
             line = "%s: %s" % (airport, detail) if airport else detail
             if line not in group["details"]:

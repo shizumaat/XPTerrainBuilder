@@ -1,6 +1,8 @@
 # wells551 — no pit at the jetways (#551)
 
-## DONE (2026-10-12) — ready for the master: branch claude/wells551, head = the notes commit after 64d02c7f1
+## DONE (2026-10-12) — ready for the master: branch claude/wells551, head 45dfaf8f0 = merge of origin/main 946cc2f7c (#577)
+
+MERGE 45dfaf8f0: only `docs/frames.jsonl` conflicted (union; 1,088 JSON lines, all parse; the one duplicate line is a KCLT row already duplicated on main). No source/test conflict; main brought footprint_seats / pad_block_seat / placement_plan / cluster_pad / pad_sliver / ribbons, none touching obj8 / basin_witness / partition_code. SERIAL suite after the merge: tests/auto_patch_v2 + test_no_airport_specific_code + test_harness = 3358 passed, 3 skipped, 1 xfailed, 1 xpassed, 0 failed, 0 errors (613 s); ratchets PASS. No OTHH rebuild (docs-only conflict). Owner rulings on the two questions: none yet.
 
 CLOSING BUILD `wells551c_OTHH` (64d02c7f1; control basins526_OTHH 87f9d2f94d71): rc 0, body b97085d24064,
 45 -> 10 basins, 10 kept byte-identical, 0 movers / 32,704 common nodes, runway 0; rebake plan 60a1ef0b730d:

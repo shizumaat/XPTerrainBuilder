@@ -1,10 +1,15 @@
 # kpdx559 — lane notes (issue #559)
 
 ## RESUME HERE
-- Branch `claude/kpdx559`. Fix + twins committed. Offline closing evidence
-  taken (capture + replay). REMAINING: full non-Qt suite, `tools/ratchets.py`,
-  and the ONE harness build of KPDX — which the harness REFUSES today because
-  the shared corpus frame for +45-123 is not current (see "Harness build").
+- Branch `claude/kpdx559`. Fix + twins committed and pushed. Full non-Qt
+  suite green (9289 passed, 19 skipped, 1 xfailed, 1 xpassed — the xpass is
+  on unmodified main too). `tools/ratchets.py`: duplicate + layer PASS.
+- Capture registered: `frames.py list KPDX` (copied into the data repo).
+- ONLY THING LEFT: the ONE harness build of KPDX, which the harness REFUSES
+  until the master authorises `--refresh-data rings` and `--refresh-data dem`
+  for +45-123 (see "Harness build"). Then:
+  `venv/bin/python tools/harness/build_airport.py KPDX --tile 45 -123` and
+  `tools/harness/census.py` on its patch.
 
 ## Reproduction
 - `build_airport.py KPDX --tile 45 -123` and `build_airport.py KPDX` both
@@ -62,9 +67,29 @@ frame (x, z), not the airport's.
   rung fell. `--replay --emit --verify`: rc 0, patch emitted (786 ways,
   12,073 nodes), verify DEFECT families all zero.
 
+- `tools/harness/census.py` on the REPLAY-emitted patch (not a harness
+  build; degraded DEM frame — no elevation quoted): ruleset faa, LAW-TRUE
+  TOTAL 3052 (within 3052, cross 0, steps 0), ADJUDICATED 684 (airside 586,
+  groundside 98) verdict FAIL; COCKPIT critical motion 0, critical visual 754
+  (worst 4.582 m, channel_floor_at_declaration, tunnel_trench); drainage_minimum
+  1808, hairline_pair 426, channel_floor_at_declaration 414, within_shape 254.
+  KPDX has never built, so there is no control to compare with.
+
 ## Harness build
 - NOT RUN: refused as above. Needs the master to authorise
   `--refresh-data rings` and `--refresh-data dem` for +45-123.
 
 ## Found, not fixed
-- see final report.
+- KPDX pack partition 269 s (capture 868 s): far over the 60 s airport budget.
+- KPDX first census is a FAIL (numbers above): tunnel_ramp within_shape rows to
+  9.47 m / 11.7 % against a 10 % cap, tunnel_trench channel floor 4.58 m off.
+- Sibling triangle->plan-polygon sites keep the area-only floor and were NOT
+  changed: `below_zero.py:134`, `sunken_roads.py:189`, `wall_geometry._plan_polys`,
+  `object_cut._plan_polys`, `basin_witness.py:196`.
+- Bare unions of LOCAL pack triangles remain in `obj8_clip._clip_component`,
+  `_clip_both` and `skirt.below_zero_reading` (`unary_union(below)`).
+- The OBJ8 reader parses 8-dp decimal text to float64; at the float32 values
+  the file means, this union does not refuse. Not changed (55 importers,
+  every golden moves).
+- The app-side message names the coordinate as if airport-local; it is in
+  the object's frame and names no resource (lane failmsg562's surface).

@@ -101,8 +101,15 @@ def build_done(lat, lon, ok, records):
     if ok:
         # A tile-scoped cause on a tile that WAS built is an error a step
         # printed and then recovered from: not a warning.
-        return BuildDone(lat=lat, lon=lon, ok=True, warnings=FAIL.fold(
-            unpatched, tile, built=True, log_path=log_path))
+        return BuildDone(
+            lat=lat, lon=lon, ok=True,
+            warnings=FAIL.fold(unpatched, tile, built=True,
+                               log_path=log_path),
+            # The same airports as plain data, the shape lane tilecont564
+            # asked for (#564): one row per airport, unfolded.
+            unpatched_airports=[
+                {"airport": r["named"], "code": r["code"],
+                 "error": r["detail"]} for r in unpatched])
     failures = FAIL.fold(
         ending or unpatched or [FAIL.record(FAIL.UNMAPPED_STEP)],
         tile, log_path=log_path)

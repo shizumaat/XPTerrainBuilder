@@ -256,7 +256,9 @@ class BuildDone(EngineEvent):
     entries for AIRPORTS WITHOUT A PATCH: with ``ok`` true and
     ``warnings`` non-empty the tile was BUILT WITH WARNINGS — each named
     airport stands on ungraded terrain — which a front end shows distinct
-    from a clean success.
+    from a clean success.  ``unpatched_airports`` is the same set as plain
+    rows, one ``{"airport", "code", "error"}`` per airport, for a consumer
+    that counts rather than displays (the release check, a sweep).
     """
 
     lat: int = 0
@@ -265,6 +267,7 @@ class BuildDone(EngineEvent):
     error: str = ""
     failures: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    unpatched_airports: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)

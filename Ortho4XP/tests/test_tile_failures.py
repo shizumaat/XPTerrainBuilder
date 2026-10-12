@@ -188,6 +188,12 @@ def test_code_comes_from_the_class_not_the_message():
         "no_permission"
     assert FAIL.code_for_exception(MemoryError()) == "out_of_memory"
 
+    class DsfToolError(RuntimeError):       # lane dump560's class, by NAME
+        timed_out = False
+
+    assert FAIL.code_for_exception(DsfToolError("crashed (SIGSEGV)")) == \
+        "pack_dump_failed"
+
 
 def test_an_explicit_failure_code_wins_and_carries_its_pack():
     """What a sibling lane does to name a refusal: two attributes."""
@@ -345,6 +351,9 @@ def test_a_built_tile_names_its_unpatched_airports_as_warnings(
                                "could not be processed.")
     assert warning["why"].endswith(FAIL.UNPATCHED)
     assert "TopologyException" in warning["detail"]
+    assert done.unpatched_airports == [{
+        "airport": "AAAA", "code": "airport_geometry",
+        "error": "(build) [v2] TopologyException: x"}]
     run_done = [e for e in events if isinstance(e, EV.RunDone)][-1]
     assert (run_done.done_count, run_done.error_count) == (1, 0)
 

@@ -115,10 +115,13 @@ CATALOGUE = {
         "scenery for {airports} could not be read.",
         "The app could not make a readable copy of the file from {pack} "
         "for this tile.", "pack"),
+    # X-Plane's own converter failed on the pack's file (lane dump560's
+    # ``DsfToolError``; a crash on a stock file is a bug, #568): retrying
+    # does not help, so this one is "report it".
     "pack_dump_failed": Entry(
         "scenery for {airports} could not be read.",
         "The file from {pack} for this tile could not be converted.",
-        "pack"),
+        "report"),
     "pack_write_failed": Entry(
         "objects for {airports} could not be updated.",
         "The app could not safely rewrite the file of {pack}.", "pack"),
@@ -186,6 +189,10 @@ CATALOGUE = {
         "something it needs could not be downloaded.",
         "The internet connection failed or the server did not answer.",
         "network"),
+    # A refusal that KNOWS a proxy answered sets failure_code to this.
+    "proxy_refused": Entry(
+        "something it needs could not be downloaded.",
+        "Your proxy or VPN refused the connection.", "network"),
     "disk_full": Entry(
         "the disk is full.",
         "There was no room left to write the tile's files.", "disk"),
@@ -224,6 +231,7 @@ EXCEPTION_CODES = {
     "PlanarError": "airport_geometry",
     # elevation
     "ElevationDownloadRefused": "elevation_download_failed",
+    "ElevationTransportRefused": "elevation_download_failed",
     "ProviderUnavailable": "elevation_download_failed",
     "TransientFetchError": "elevation_download_failed",
     "AltFrameRefused": "elevation_cache_bad",
@@ -238,6 +246,7 @@ EXCEPTION_CODES = {
     "UnsealedInterpAltSeed": "mesh_refused",
     # scenery packs
     "PackDumpStale": "pack_dump_stale",
+    "DsfToolError": "pack_dump_failed",
     "BackupUnproven": "pack_write_failed",
     "StaleScreen": "pack_write_failed",
     "ColdPartition": "pack_write_failed",
@@ -257,6 +266,7 @@ EXCEPTION_CODES = {
     "MemoryError": "out_of_memory",
     "FileNotFoundError": "file_missing",
     "PermissionError": "no_permission",
+    "ProxyError": "proxy_refused",
     "ConnectionError": "network_unavailable",
     "TimeoutError": "network_unavailable",
     "RequestException": "network_unavailable",
@@ -342,7 +352,7 @@ def record(code: str, detail: str = "", airport: str = "",
         code = UNMAPPED_AIRPORT if airport else UNMAPPED
     airport = "" if airport in ("*", "?") else str(airport or "")
     return {"code": code, "detail": str(detail or ""), "airport": airport,
-            "scope": scope,
+            "scope": scope, "named": str(airport or ""),
             "params": {str(k): str(v) for k, v in params.items()
                        if v not in (None, "")}}
 

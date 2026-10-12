@@ -836,6 +836,7 @@ class ParallelBuildRun:
         self._tile_final_elapsed: dict = {}   # tile -> seconds
         # #564: warnings of a tile's finished steps, held for its terminal.
         self._tile_warnings: dict = {}
+        self._tile_unpatched: dict = {}
         # tile -> summed dispatched-step seconds, for the per-tile
         # "completed in" console line (a worker child sees one step at a
         # time, so only the parent can total the tile).
@@ -1604,13 +1605,17 @@ class ParallelBuildRun:
             with self._lock:
                 carried = self._tile_warnings.setdefault(tile, [])
                 carried.extend(event.warnings)
+                rows = self._tile_unpatched.setdefault(tile, [])
+                rows.extend(event.unpatched_airports)
             if event.ok and not last_step:
                 # Intermediate step completion: a scheduling signal, not
                 # a tile terminal — swallowed (spec §3.8).
                 return
             with self._lock:
                 self._tile_warnings.pop(tile, None)
-            event = dataclasses.replace(event, warnings=list(carried))
+                self._tile_unpatched.pop(tile, None)
+            event = dataclasses.replace(event, warnings=list(carried),
+                                        unpatched_airports=list(rows))
             with self._lock:
                 if event.ok:
                     self._done += 1
@@ -1820,9 +1825,9 @@ class ParallelBuildRun:
                 lat, lon, False,
                 [FAIL.record("worker_died",
                              "build worker exited unexpectedly")])
-            self._session._emit(dataclasses.replace(
-                done_event,
-                warnings=self._tile_warnings.pop(crashed_tile, [])))
+            self._tile_warnings.pop(crashed_tile, None)
+            self._tile_unpatched.pop(crashed_tile, None)
+            self._session._emit(done_event)
             print("Build worker for", _short_latlon(crashed_tile),
                   "exited unexpectedly; its tile is marked failed.")
         if respawn:

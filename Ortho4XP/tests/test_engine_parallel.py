@@ -247,6 +247,31 @@ def test_crashing_worker_synthesizes_failure(stub_worker, tmp_path):
             run_done.cancelled) == (1, 1, False)
 
 
+def test_a_steps_warnings_ride_on_the_tiles_terminal_build_done(
+        stub_worker, tmp_path):
+    """#564: the vector step's airport-without-a-patch warning is on an
+    INTERMEDIATE BuildDone the parent swallows — it must reach the tile's
+    terminal BuildDone (a later step's, from another process) and label
+    the row, and must not leak onto another tile."""
+    session = EngineSession()
+    collector = Collector(session)
+    assert _start_parallel(session, [(67, 20), (10, 20)], slots=2) is True
+    run_done = collector.wait_run_done()
+
+    (done,) = [e for e in collector.tile_events(67, 20)
+               if isinstance(e, EV.BuildDone)]
+    assert done.ok is True
+    assert [w["airports"] for w in done.warnings] == [["AAAA"]]
+    assert [r["airport"] for r in done.unpatched_airports] == ["AAAA"]
+    states = [e for e in collector.tile_events(67, 20)
+              if isinstance(e, EV.TileState) and e.state == "done"]
+    assert [e.label for e in states] == ["built with warnings"]
+    (clean,) = [e for e in collector.tile_events(10, 20)
+                if isinstance(e, EV.BuildDone)]
+    assert clean.warnings == [] and clean.unpatched_airports == []
+    assert (run_done.done_count, run_done.error_count) == (2, 0)
+
+
 def test_cancel_queued_tile_never_starts(stub_worker, tmp_path):
     """cancel_tile on a QUEUED tile (3 tiles, slots=2, third queued behind
     two sleepers): the third emits TileState 'stopped', NEVER a

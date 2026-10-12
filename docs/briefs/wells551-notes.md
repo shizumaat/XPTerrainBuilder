@@ -2,27 +2,35 @@
 
 ## RESUME HERE (2026-10-12, resumed lane; main merged at 1ff5a912a, docs only)
 
-DONE: witness landed 7a8356d44 (unchanged since). Replay pair on `pads67/OTHH.pkl` (`--from planar
---emit`; base = basins526's `g_planar` replay under main's code, arm = this branch): basin WAYS 49 -> 10
-(45 -> 10 basins; the 4 extra ways are `#1` split parts of basins 15/32/48/63). The 10 kept basins are
-BYTE-IDENTICAL (ring node lat/lon + alt), 39 removed, every removed one a jetway (Type4 x9, Type5 x7,
-Type6 x11, Type7 x14, Type8 x4, Type10 x2 memberships). Node movers > 0.01 m over the 32,713 common
-nodes: 0; runway nodes 1,867: 0 moved, 0 missing. Only-base nodes 1,491 (the removed rings: tunnel_trench
-412, apron 376, building 81, untagged 1,107); only-arm 82 (apron faces re-knit where a ring left). Ways by
-role: tunnel_trench 49 -> 10, apron 152 -> 151, building 183 -> 179, untagged 221 -> 186. The 15 authored
-seats (6 pit rims basin:1/2/3/4/5/8 + 9 tunnel crests, #525) identical; #448/#451 drainage basins 1/2/3/5/8
-kept identical. Owner sites: 25.263167,51.6135647 was INSIDE basin:71 and 25.2637538,51.6131875 inside
-basin:32 — both gone; 25.2631354,51.6134952 lies 1.7 m from basin:68's centroid and 25.2630678,51.6118374
-~4 m from basin:17's (the point is beside the ring) — both gone; no arm basin holds any of the four.
-Other sweep airports by their pads67 captures (`witness_probe.py`): HECA 3 EGCC_Jetway_metal_03 placements
-refused standing (top 10.81 / plate -4.30), witnesses after 0 — HECA builds 0 basins before and after
-(sw8/sw12 frames: 0 basin ways); KCLT 0 standing, 0 witnesses, 0 basins; CYXY/KASE/NLWF 0; SPJC 1
-(torre_nueva.obj, a 62 m tower over a 4.7 m plate; witnesses after 0; sw8_SPJC has no basin). Suites:
-test_wells551 + test_m4b + test_no_airport_specific_code 22 passed; ratchets PASS (dupes, layers).
-Scripts: scratchpad `w551/basin_table.py` (table + movers + sites), `w551/witness_probe.py`.
-IN FLIGHT: closing harness build `wells551b_OTHH` (--patch-only; a dead-session `wells551_OTHH` stem in
-/tmp/harness blocked the first tag) and the v2 suite. NEXT: census A/B vs basins526_OTHH, body hash,
-register the frame, final report.
+WITNESS REVISED 82eafb1b8 (+ 64d02c7f1 code key): the v2 suite on the first witness (height against depth
+alone) FAILED two owner-ruled twins — `test_v2lemd4::test_a_tower_in_the_pit_is_cover_not_the_rim`
+(2026-09-06f: 8 m tower on a 5 m pit's rim = pit) and `test_v2lemd3::test_a_partly_covered_region_is_a_
+pit_the_pad_yields_inside` (2026-09-06c: 8 m box over HALF a 5 m pit = covered pit) — both taller than deep.
+The separator they keep and the jetway lacks is an OPEN PLATE (`w551/roof_probe.py`, roof over the object's
+own deepest plate): jetway rooms 0.97–0.99, the `whole` twin 1.00, Drainage gratings 1.00, Dewatering
+0.02–0.56, `half` 0.47, towers 0.01. The witness is now BOTH: plate roofed by its own solids >=
+basement_cover_min (0.9, the 09-06c fraction read on the plate; `airport/obj8_roof.roofed_fraction`,
+memoised per (resource, component) in `ResourceCache.roof_memo`) AND top above ground > plate depth.
+`ObjReport.standing[path] = (n, top, depth, roofed)`; `ReadLaw.basement_cover_min`; the lemd3 `whole` twin
+reads the earlier refusal (like m4b); new twin: bowl + grated sump (OTHH's Drainage pair) stays a pit.
+Replay pair (base = basins526 `g_planar`, arm = `w551/arm2`): basin WAYS 49 -> 10 (45 -> 10 basins; the 4
+extra ways are `#1` split parts of 15/32/48/63), the 10 kept BYTE-IDENTICAL, 39 removed all jetways
+(Type4 x9, Type5 x7, Type6 x11, Type7 x14, Type8 x4, Type10 x2 memberships); movers > 0.01 m over 32,713
+common nodes 0; runway 1,867 nodes 0 moved / 0 missing; only-base 1,491 (the removed rings), only-arm 82
+(apron re-knit). 15 authored seats identical (6 rims basin:1/2/3/4/5/8 + 9 tunnel crests, #525); #448/#451
+basins 1/2/3/5/8 identical. Arm1 (first witness) vs arm2: same node set, 0 movers, node NUMBERING differs
+only. Owner sites: 25.263167,51.6135647 inside basin:71 and 25.2637538,51.6131875 inside basin:32 — gone;
+25.2631354,51.6134952 (1.7 m off basin:68) and 25.2630678,51.6118374 (~4 m off basin:17) — gone; no arm
+basin holds any. Other airports (`witness_probe.py` on pads67 captures, revised): OTHH 124 standing in 7
+resources (Type4/5/6/7/8/10 roofed 1.00 + PowerStation_Clutter_000 x1 9.29 over 2.55 roofed 1.00;
+Type6_Tall x6 no longer standing — roofed < 0.9 in the engine's read — they witnessed under main too and
+formed no basin); HECA 0 standing, 3 EGCC_Jetway witnesses as under main, 0 basins before/after (sw8/sw12);
+SPJC torre_nueva x1 standing (62 m over 4.7, roofed 1.00; sw8_SPJC has no basin: 0 -> 0); KCLT 0/0.
+Suites: v2 + harness + no-airport-code + v1_retired: 3355 passed 1 failed (the code key, fixed 64d02c7f1)
+18 errors under xdist that PASS serially (load); ratchets PASS. IN FLIGHT: closing build `wells551c_OTHH`
+(the partition code key changed: cold partition). NEXT: census A/B vs basins526_OTHH, body, register,
+spec §47 (8) MEASURED, final report.
+
 
 ### Basin table (base = basins526_OTHH build / g_planar replay, both 45; arm = replay, 10)
 | base id | source objects | floor_z | floor alt | ring nodes | centroid lat, lon | verdict | arm id |

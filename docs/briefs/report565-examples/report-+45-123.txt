@@ -1,0 +1,388 @@
+XPTerrainBuilder failure report (format 1)
+
+Redacted on the user's machine before anything was sent:
+  - your home folder and user name (shown as <home> and <user>)
+  - every path outside the scenery and data folders, reduced to its file name (shown as <path>/name)
+  - proxy addresses (<proxy>)
+  - passwords, tokens and keys (<redacted>)
+  - e-mail addresses (<email>)
+Kept on purpose, because they are the diagnosis: scenery pack names, airport names, tile names and coordinates.
+The issue tracker is public. Read the report before you send it.
+
+== Summary ==
+Tile: +45-123
+Airports without a patch: KPDX
+Engine: 1.50.1834 (source), protocol 1.9
+App: 1.0.387
+System: macOS-27.0-arm64-arm-64bit-Mach-O
+Generated: 2026-10-12T16:55:16Z
+
+== What failed ==
+Failure 1: [unclassified] (no message)
+  Airports: KPDX
+  Detail: stage build: [v2] TopologyException: Ring edge missing at -185.7206345310361 80.687997329625674
+
+== Provenance (patches this run wrote) ==
+[provenance] KHIO patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+[provenance] KSPB patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+[provenance] KTTD patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+[provenance] KUAO patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+[provenance] KVUO patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+
+== Engine log for tile +45-123: last 354 of 354 lines, run of 2026-10-12T01:43:38Z ==
+=== engine run 2026-10-12T01:43:38Z === app 1.0.387 | engine 1.50.1834 | 2 tiles: +45-123 +47-123
+=== queued into this run 2026-10-12T01:47:34Z === 1 tile: +45-123
+   Legacy config value True for airport_elevation_insets read as ICAO.
+Step 1 : Building vector data for tile +45-123 :
+-> Dealing with airports
+    * Recycling OSM data from <data>/OSM_data/+40-130/+45-123/+45-123_airports.osm.bz2
+   KHIO   Hillsboro Airport                                            3 runways, lat= 45.54, lon= -122.95
+   KPDX   Portland International Airport                               3 runways, lat= 45.58, lon= -122.60
+   KSPB   Scappoose Industrial Airpark                                 1 runway , lat= 45.77, lon= -122.86
+   KTTD   Portland-Troutdale Airport                                   1 runway , lat= 45.55, lon= -122.40
+   KUAO   Aurora State Airport                                         1 runway , lat= 45.25, lon= -122.77
+   KVUO   Pearson Field                                                1 runway , lat= 45.62, lon= -122.66
+   ****   Aeroacres Airport                                            boundary , lat= 45.32, lon= -122.60
+   ****   Beaver Oaks Airport                                          1 runway , lat= 45.32, lon= -122.36
+   ****   Becker Field                                                 1 runway , lat= 45.85, lon= -122.54
+   ****   Brush Prairie Aerodrome                                      1 runway , lat= 45.72, lon= -122.54
+   ****   Cedars North Airpark                                         1 runway , lat= 45.76, lon= -122.52
+   ****   Cider Run Airport                                            1 runway , lat= 45.34, lon= -122.41
+   ****   Country Squire Airpark                                       1 runway , lat= 45.35, lon= -122.27
+   ****   Daybreak Airport                                             1 runway , lat= 45.83, lon= -122.64
+   ****   Dietz Airpark                                                boundary , lat= 45.26, lon= -122.65
+   ****   Eagle Nest Ranch Airstrip                                    1 runway , lat= 45.36, lon= -122.35
+   ****   Evergreen North-South Airpark                                1 runway , lat= 45.63, lon= -122.53
+   ****   Fairways Airfield                                            boundary , lat= 45.32, lon= -122.55
+   ****   Fly For Fun Airport                                          1 runway , lat= 45.69, lon= -122.52
+   ****   Goheen Airport                                               2 runways, lat= 45.83, lon= -122.58
+   ****   Green Mountain Airport                                       1 runway , lat= 45.66, lon= -122.47
+   ****   Grove Field                                                  1 runway , lat= 45.63, lon= -122.41
+   ****   Harchenko Industrial Airport                                 1 runway , lat= 45.08, lon= -122.93
+   ****   Krueger Airport                                              1 runway , lat= 45.44, lon= -122.32
+   ****   La Center View-Air Airport                                   1 runway , lat= 45.89, lon= -122.59
+   ****   Lehman Field                                                 1 runway , lat= 45.49, lon= -122.23
+   ****   Lenhardt AirHaven Airpark                                    2 runways, lat= 45.18, lon= -122.74
+   ****   Lewis River Golf Course Airport                              1 runway , lat= 45.93, lon= -122.66
+   ****   Mc Gee Airport                                               1 runway , lat= 45.24, lon= -122.86
+   ****   McClellan Field                                              1 runway , lat= 45.89, lon= -122.55
+   ****   McKinnon Airpark                                             1 runway , lat= 45.43, lon= -122.24
+   ****   Mount Saint Helen's Aero Ranch Airport                       1 runway , lat= 45.99, lon= -122.38
+   ****   Mulino State Airport                                         1 runway , lat= 45.22, lon= -122.59
+   ****   Parkside Airpark                                             1 runway , lat= 45.82, lon= -122.55
+   ****   Pleasant Farm Airport                                        1 runway , lat= 45.56, lon= -122.26
+   ****   Sandy River Airport                                          1 runway , lat= 45.40, lon= -122.23
+   ****   Schmidt Airport                                              1 runway , lat= 45.45, lon= -122.32
+   ****   Sky River Ranch Airport                                      1 runway , lat= 45.63, lon= -122.19
+   ****   Skydive Oregon Airport                                       1 runway , lat= 45.15, lon= -122.62
+   ****   Skyhill Airport                                              1 runway , lat= 45.29, lon= -122.45
+   ****   Sportsman Airpark                                            1 runway , lat= 45.30, lon= -122.95
+   ****   Stark's Twin Oaks Airpark                                    1 runway , lat= 45.43, lon= -122.94
+   ****   Valley View Airport                                          1 runway , lat= 45.31, lon= -122.32
+   ****   Walter Sutton's Private Strip                                1 runway , lat= 45.93, lon= -122.41
+   ****   Woodland State Airport                                       1 runway , lat= 45.90, lon= -122.74
+   ****   ****                                                         1 runway , lat= 45.31, lon= -122.90
+   ****   ****                                                         1 runway , lat= 45.91, lon= -122.50
+   ****   ****                                                         1 runway , lat= 45.44, lon= -122.32
+   ****   ****                                                         1 runway , lat= 45.45, lon= -122.25
+  [pav-builder] KHIO: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KHIO Portland Hillsboro/Earth nav data/apt.dat
+  [pav-builder] KPDX: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KPDX (Flightbeam)/Earth nav data/apt.dat
+  [pav-builder] KSPB: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KTTD: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KUAO: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KVUO: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KVUO Pearson Airfield/Earth nav data/apt.dat
+   Loading elevation data and smoothing it over airports.
+   INFO: airport elevation insets skipped 4 unnamed airport(s) (no code to cache under).
+    Fetching elevation inset for KPDX from USGS3DEP
+    ...still fetching KPDX from USGS3DEP (2+ minutes; a stalled transfer aborts automatically and is retried on the next run)
+   [inset] KPDX_usgs3dep.tif: border-aware mosaic - 8 source(s) across 2 project(s), valid 59.6 %
+   [inset] KPDX_usgs3dep.tif: resolution ladder rung 1/8 '1 meter' (1 m): valid 59.61 % but airport cover 69.00 % (< 80.00 %) - kept; asking the same-resolution rungs for the whole airport
+   [inset] KPDX OREGONDOGAMI exportImage: 10241 x 7225 px in 13 chunk(s), <= 296 MB
+   [inset] KPDX OREGONDOGAMI chunk 1/13 (10241 x 556 px) done (5 MB in 9 s, 0.57 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 2/13 (10241 x 556 px) done (4 MB in 6 s, 0.67 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 3/13 (10241 x 556 px) done (3 MB in 6 s, 0.50 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 4/13 (10241 x 556 px) done (3 MB in 5 s, 0.66 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 5/13 (10241 x 556 px) done (4 MB in 8 s, 0.53 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 6/13 (10241 x 556 px) done (4 MB in 9 s, 0.52 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 7/13 (10241 x 556 px) done (5 MB in 8 s, 0.57 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 8/13 (10241 x 556 px) done (5 MB in 7 s, 0.67 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 9/13 (10241 x 556 px) done (5 MB in 7 s, 0.67 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 10/13 (10241 x 556 px) done (5 MB in 8 s, 0.65 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 11/13 (10241 x 556 px) done (5 MB in 10 s, 0.52 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 12/13 (10241 x 556 px) done (5 MB in 14 s, 0.36 MB/s)
+   [inset] KPDX OREGONDOGAMI chunk 13/13 (10241 x 553 px) done (5 MB in 13 s, 0.39 MB/s)
+   [inset] KPDX_usgs3dep.tif: resolution ladder rung 2/8 'OREGONDOGAMI' (1 m): valid 100.00 % (>= 5.00 %) - DELIVERED
+   Airport inset index CHANGED, rewriting it: KPDX: capabilities, probes, probes_for
+   [inset] cell_00_00_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 20 source(s) across 9 project(s), valid 100.0 %
+   [inset] cell_00_01_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 12 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_00_02_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 12 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_00_03_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 12 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_00_04_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 12 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_00_05_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 12 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_00_06_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 12 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_00_07_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 12 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_00_08_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 12 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_00_09_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 25 source(s) across 11 project(s), valid 100.0 %
+   [inset] cell_01_00_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 11 source(s) across 9 project(s), valid 100.0 %
+   [inset] cell_01_01_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_01_02_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_01_03_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_01_04_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_01_05_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_01_06_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_01_07_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_01_08_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_01_09_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 14 source(s) across 10 project(s), valid 100.0 %
+   [inset] cell_02_00_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 11 source(s) across 9 project(s), valid 100.0 %
+   [inset] cell_02_01_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_02_02_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_02_03_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_02_04_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_02_05_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_02_06_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_02_07_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_02_08_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_02_09_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 14 source(s) across 10 project(s), valid 100.0 %
+   [inset] cell_03_00_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 11 source(s) across 9 project(s), valid 100.0 %
+   [inset] cell_03_01_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_03_02_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_03_03_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_03_04_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_03_05_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_03_06_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_03_07_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_03_08_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_03_09_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 14 source(s) across 10 project(s), valid 100.0 %
+   [inset] cell_04_01_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_04_02_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_04_03_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_04_04_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   WARNING: TNM discovery request failed: HTTPSConnectionPool(host='tnmaccess.nationalmap.gov', port=443): Read timed out. (read timeout=30) - transient, NOT recorded as no-coverage.
+   [inset] cell_04_06_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_04_07_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_04_08_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_05_03_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_05_04_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_05_05_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_05_06_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_05_07_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_06_03_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_06_04_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_06_05_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_06_06_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_06_07_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_07_03_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_07_04_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_07_05_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_07_06_usgs3dep_1-3-arc-second_10.31m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_07_07_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_08_04_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_08_05_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] cell_08_06_usgs3dep_1-3-arc-second_30.92m.tif: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   Approach elevation rings: 65 cell(s) fetched for +45-123
+    * Min altitude: 32.528656 , Max altitude: 149.24794 , Mean: 104.84729
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: -32768.0 , Max altitude: 96.325775 , Mean: -363.1725
+    * Min altitude: -32768.0 , Max altitude: 183.33339 , Mean: -576.91974
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: 227.66028 , Max altitude: 413.85587 , Mean: 329.0617
+    * Min altitude: -32768.0 , Max altitude: 101.535385 , Mean: -1788.8563
+    * Min altitude: -32768.0 , Max altitude: 130.51285 , Mean: -10885.544
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32767.998
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: 37.799248 , Max altitude: 191.67653 , Mean: 128.84386
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: -32768.0 , Max altitude: 100.92957 , Mean: -17607.697
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: 42.09791 , Max altitude: 78.874405 , Mean: 55.13543
+    * Min altitude: 38.683495 , Max altitude: 72.165016 , Mean: 58.621742
+    * Min altitude: 1.1063102 , Max altitude: 95.43441 , Mean: 20.90726
+    * Min altitude: 1.4458728 , Max altitude: 93.542076 , Mean: 14.873134
+    * Min altitude: 3.410069 , Max altitude: 193.23157 , Mean: 25.734163
+    * Min altitude: -32768.0 , Max altitude: 63.20105 , Mean: -20999.986
+    * Min altitude: -32768.0 , Max altitude: 21.48531 , Mean: -17925.45
+    * Min altitude: 152.93063 , Max altitude: 248.72505 , Mean: 188.43019
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: 86.91013 , Max altitude: 438.71878 , Mean: 292.27847
+    * Min altitude: 28.008133 , Max altitude: 81.45579 , Mean: 46.054073
+    * Min altitude: -32768.0 , Max altitude: 270.11218 , Mean: -12979.247
+    * Min altitude: -32768.0 , Max altitude: 161.13777 , Mean: -23017.936
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: 69.68455 , Max altitude: 363.22003 , Mean: 203.90117
+    * Min altitude: 72.298706 , Max altitude: 587.7635 , Mean: 223.316
+    * Min altitude: -32768.0 , Max altitude: 101.50427 , Mean: -32764.97
+    * Min altitude: -32768.0 , Max altitude: 108.78518 , Mean: -19357.465
+    * Min altitude: -32768.0 , Max altitude: 301.81924 , Mean: -3523.781
+    * Min altitude: 104.27747 , Max altitude: 399.56305 , Mean: 261.33487
+    * Min altitude: 39.0 , Max altitude: 252.1095 , Mean: 191.2795
+    * Min altitude: -32768.0 , Max altitude: 524.348 , Mean: -8778.056
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32767.998
+    * Min altitude: -32768.0 , Max altitude: 256.1358 , Mean: -24317.559
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32768.0
+    * Min altitude: 32.0 , Max altitude: 88.40569 , Mean: 48.626446
+    * Min altitude: 110.786385 , Max altitude: 335.41153 , Mean: 205.91545
+    * Min altitude: -32768.0 , Max altitude: 286.85086 , Mean: -32446.168
+    * Min altitude: -32768.0 , Max altitude: -32768.0 , Mean: -32767.998
+    * Min altitude: 0.0 , Max altitude: 1589.0 , Mean: 309.80756
+   Airport elevation insets: working grid densified to 1/3 arc-second (worst actionable ideal-bake error 0.981 m).
+   Approach ring baked: ring2 at 30.92 m from 65 cell(s), feather 900.0 m.
+   Approach ring baked: ring1 at 10.31 m from 40 cell(s), feather 300.0 m.
+   Airport KPDX : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) KVUO_usgs3dep.tif cover only 45 % of KVUO (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport KVUO : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 45%).
+   Airport Aeroacres Airport : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Fairways Airfield : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) Skyhill Airport_usgs3dep.tif cover only 26 % of Skyhill Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Skyhill Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 26%).
+   WARNING: airport elevation inset(s) Cider Run Airport_usgs3dep.tif cover only 0 % of Cider Run Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Cider Run Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Eagle Nest Ranch Airstrip_usgs3dep.tif cover only 0 % of Eagle Nest Ranch Airstrip (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Eagle Nest Ranch Airstrip : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport (np.float64(-122.25369501363639), np.float64(45.449383004545446)) : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 45%).
+   Airport (np.float64(-122.32003237), np.float64(45.443196189999995)) : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport Krueger Airport : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) Beaver Oaks Airport_usgs3dep.tif cover only 0 % of Beaver Oaks Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Beaver Oaks Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Skydive Oregon Airport_usgs3dep.tif cover only 0 % of Skydive Oregon Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Skydive Oregon Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Dietz Airpark_usgs3dep.tif cover only 67 % of Dietz Airpark (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Dietz Airpark : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 67%).
+   Airport Harchenko Industrial Airport : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) Green Mountain Airport_usgs3dep.tif cover only 0 % of Green Mountain Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Green Mountain Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Woodland State Airport_usgs3dep.tif cover only 0 % of Woodland State Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Woodland State Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Evergreen North-South Airpark_usgs3dep.tif cover only 0 % of Evergreen North-South Airpark (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Evergreen North-South Airpark : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Sportsman Airpark_usgs3dep.tif cover only 0 % of Sportsman Airpark (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Sportsman Airpark : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Parkside Airpark_usgs3dep.tif cover only 46 % of Parkside Airpark (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Parkside Airpark : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 46%).
+   Airport Lenhardt AirHaven Airpark : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport Mount Saint Helen's Aero Ranch Airport : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) La Center View-Air Airport_usgs3dep.tif cover only 0 % of La Center View-Air Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport La Center View-Air Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Grove Field_usgs3dep.tif cover only 0 % of Grove Field (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Grove Field : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Fly For Fun Airport_usgs3dep.tif cover only 0 % of Fly For Fun Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Fly For Fun Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Cedars North Airpark : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 98%).
+   Airport Sandy River Airport : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) Mulino State Airport_usgs3dep.tif cover only 0 % of Mulino State Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Mulino State Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KHIO : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) Goheen Airport_usgs3dep.tif cover only 46 % of Goheen Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Goheen Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 46%).
+   Airport KSPB : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport KTTD : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) KUAO_usgs3dep.tif cover only 36 % of KUAO (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport KUAO : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 36%).
+   Airport Country Squire Airpark : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport Stark's Twin Oaks Airpark : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Valley View Airport : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport Lehman Field : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport McKinnon Airpark : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   WARNING: airport elevation inset(s) Walter Sutton's Private Strip_usgs3dep.tif cover only 0 % of Walter Sutton's Private Strip (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Walter Sutton's Private Strip : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) McClellan Field_usgs3dep.tif cover only 0 % of McClellan Field (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport McClellan Field : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   WARNING: airport elevation inset(s) Lewis River Golf Course Airport_usgs3dep.tif cover only 60 % of Lewis River Golf Course Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Lewis River Golf Course Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 60%).
+   Airport Brush Prairie Aerodrome : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 99%).
+   WARNING: airport elevation inset(s) Mc Gee Airport_usgs3dep.tif cover only 30 % of Mc Gee Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Mc Gee Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 30%).
+   Airport Schmidt Airport : smoothing radius 23 pixel(s) (source pixel 30.0 m, inset coverage 100%).
+   Airport Pleasant Farm Airport : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 89%).
+   WARNING: airport elevation inset(s) Sky River Ranch Airport_usgs3dep.tif cover only 73 % of Sky River Ranch Airport (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Sky River Ranch Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 73%).
+   WARNING: airport elevation inset(s) Becker Field_usgs3dep.tif cover only 0 % of Becker Field (threshold 80 %) - the airport ground outside them is graded on the BASE elevation source, not on the inset.
+   Airport Becker Field : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Daybreak Airport : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 94%).
+   Airport (-122.9010165, 45.3124218) : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport (np.float64(-122.49838009999999), np.float64(45.9137318)) : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   [inset] Beaver Oaks Airport_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x54y502 OR_PortlandMetro_B24; USGS 1 Meter 10 x54y503 OR_PortlandMetro_B24.
+   [inset] Becker Field_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x53y508 WA_FEMAHQ_2018_D18.
+   [inset] Cider Run Airport_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x54y502 OR_PortlandMetro_B24; USGS 1 Meter 10 x54y503 OR_PortlandMetro_B24.
+   [inset] Eagle Nest Ranch Airstrip_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x54y503 OR_PortlandMetro_B24.
+   [inset] Evergreen North-South Airpark_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x53y506 OR_PortlandMetro_B24.
+   [inset] Fly For Fun Airport_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x53y506 OR_PortlandMetro_B24.
+   [inset] Green Mountain Airport_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x53y506 OR_PortlandMetro_B24.
+   [inset] Grove Field_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x54y506 WA_FEMAHQ_2018_D18.
+   [inset] La Center View-Air Airport_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x52y509 WA_CentralWildfire_D22; USGS 1 Meter 10 x53y509 WA_CentralWildfire_D22.
+   WARNING: elevation inset Lehman Field_copernicusglo30.tif differs from the base DEM by a median 11.49 m over the feather ring (>10 m; check vertical datum).
+   [inset] McClellan Field_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x53y509 WA_CentralWildfire_D22.
+   [inset] Mulino State Airport_usgs3dep.tif holds 0.01 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x53y501 OR_PortlandMetro_B24.
+   [inset] Skydive Oregon Airport_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x53y501 OR_PortlandMetro_B24.
+   [inset] Sportsman Airpark_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x50y502 OR_PortlandMetro_B24.
+   [inset] Walter Sutton's Private Strip_usgs3dep.tif holds 0.98 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x54y509 WA_CentralWildfire_D22.
+   [inset] Woodland State Airport_usgs3dep.tif holds 0.00 % valid pixels (< 5.00 %) - NO INSET: it is not baked and carries no coverage; the build proceeds on the base DEM. Source project(s): USGS 1 Meter 10 x52y509 WA_CentralWildfire_D22.
+  [pav-builder] KHIO: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KHIO Portland Hillsboro/Earth nav data/apt.dat
+  [flat-site] KHIO: lidar_credible — Z0 61.82 m (CIFP spread 3.05 m over 6 threshold(s)) | DEM lidar[inset] relief 6.63 m vs floor ? m, slope 0.044 %, sea-excluded 0 % | DEM−Z0 0.64 m | pack no_data
+  [pav-builder] KPDX: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KPDX (Flightbeam)/Earth nav data/apt.dat
+  [flat-site] KPDX: lidar_credible — Z0 7.87 m (CIFP spread 2.74 m over 6 threshold(s)) | DEM lidar[inset] relief 6.45 m vs floor ? m, slope 0.059 %, sea-excluded 0 % | DEM−Z0 1.11 m | pack no_data
+  [pav-builder] KTTD: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [flat-site] KTTD: lidar_credible — Z0 10.06 m (CIFP spread 3.05 m over 2 threshold(s)) | DEM lidar[inset] relief 5.34 m vs floor ? m, slope 0.325 %, sea-excluded 0 % | DEM−Z0 0.33 m | pack no_data
+  [pav-builder] KUAO: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [flat-site] KUAO: lidar_credible — Z0 60.35 m (CIFP spread 1.22 m over 2 threshold(s)) | DEM lidar[inset] relief 3.23 m vs floor ? m, slope 0.109 %, sea-excluded 0 % | DEM−Z0 0.72 m | pack no_data
+  [pav-builder] KVUO: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KVUO Pearson Airfield/Earth nav data/apt.dat
+  [flat-site] KVUO: lidar_credible — Z0 7.92 m (CIFP spread 1.83 m over 2 threshold(s)) | DEM lidar[inset] relief 19.56 m vs floor ? m, slope 1.991 %, sea-excluded 0 % | DEM−Z0 1.39 m | pack no_data
+   Auto-patch: engine v2 (the law-compliant solver; v1 retired 2026-09-13)
+   Auto-patch: building 6 airports (KHIO, KPDX, KSPB, KTTD, KUAO, KVUO) in parallel across 6 workers.
+   Auto-patch: KHIO [0/100] Loading airport, pack & production DEM
+   Auto-patch: KPDX [0/100] Loading airport, pack & production DEM
+   Auto-patch: KSPB [0/100] Loading airport, pack & production DEM
+   Auto-patch: KTTD [0/100] Loading airport, pack & production DEM
+   Auto-patch: KHIO [7/100] Partitioning the pack
+   Auto-patch: KHIO [21/100] Classifying & reading structures (door wells, wall corridors, at-grade)
+   Auto-patch: KUAO [0/100] Loading airport, pack & production DEM
+   Auto-patch: KVUO [0/100] Loading airport, pack & production DEM
+   Auto-patch: KPDX [7/100] Partitioning the pack
+   Auto-patch: KSPB [7/100] Partitioning the pack
+   Auto-patch: KSPB [21/100] Classifying & reading structures (door wells, wall corridors, at-grade)
+   Auto-patch: KSPB [39/100] Building the planar map
+   Auto-patch: KHIO [39/100] Building the planar map
+   Auto-patch: KTTD [7/100] Partitioning the pack
+   Auto-patch: KTTD [21/100] Classifying & reading structures (door wells, wall corridors, at-grade)
+   Auto-patch: KSPB [49/100] Generating the law constraints
+   Auto-patch: KHIO [49/100] Generating the law constraints
+   Auto-patch: KSPB [69/100] Solving the surface (HiGHS LP)
+   Auto-patch: KUAO [7/100] Partitioning the pack
+   Auto-patch: KUAO [21/100] Classifying & reading structures (door wells, wall corridors, at-grade)
+   Auto-patch: KTTD [39/100] Building the planar map
+   Auto-patch: KVUO [7/100] Partitioning the pack
+   Auto-patch: KVUO [21/100] Classifying & reading structures (door wells, wall corridors, at-grade)
+   Auto-patch: KUAO [39/100] Building the planar map
+   Auto-patch: KTTD [49/100] Generating the law constraints
+   Auto-patch: KSPB [82/100] Emitting the patch & verifying
+   Auto-patch: KVUO [39/100] Building the planar map
+   Auto-patch: KHIO [69/100] Solving the surface (HiGHS LP)
+   Auto-patch: KVUO [49/100] Generating the law constraints
+   Auto-patch: KTTD [69/100] Solving the surface (HiGHS LP)
+   Auto-patch: KUAO [49/100] Generating the law constraints
+   Auto-patch: KVUO [69/100] Solving the surface (HiGHS LP)
+   Auto-patch: KUAO [69/100] Solving the surface (HiGHS LP)
+   Auto-patch: KVUO [82/100] Emitting the patch & verifying
+   Auto-patch: KTTD [82/100] Emitting the patch & verifying
+   Auto-patch: KHIO [82/100] Emitting the patch & verifying
+   Auto-patch: KUAO [82/100] Emitting the patch & verifying
+  [provenance] KHIO patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+   [v2]   [pool] workers 3 (bound: share): 0 task(s) answered by workers in 0.0 s
+   Auto-patch: KHIO took 27.4s (verify 0.0s)
+   Auto-patch: Pavement builder FAILED for KPDX ( build ): [v2] TopologyException: Ring edge missing at -185.7206345310361 80.687997329625674
+  [provenance] KSPB patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+   [v2]   [pool] workers 3 (bound: share): 0 task(s) answered by workers in 0.0 s
+   Auto-patch: KSPB took 11.4s (verify 0.0s)
+  [provenance] KTTD patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+   [v2]   [pool] workers 3 (bound: share): 0 task(s) answered by workers in 0.0 s
+   Auto-patch: KTTD took 20.2s (verify 0.0s)
+  [provenance] KUAO patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+   [v2]   [pool] workers 3 (bound: share): 0 task(s) answered by workers in 0.0 s
+   Auto-patch: KUAO took 27.2s (verify 0.0s)
+  [provenance] KVUO patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N45W123] insets=Aeroacres Airport:USGS3DEP,Brush Prairie Aerodrome:USGS3DEP,Cedars North Airpark:USGS3DEP,Country Squire Airpark:COPERNICUSGLO30,Daybreak Airport:USGS3DEP,Dietz Airpark:USGS3DEP,Fairways Airfield:USGS3DEP,Goheen Airport:USGS3DEP,Harchenko Industrial Airport:COPERNICUSGLO30,KHIO:USGS3DEP,KPDX:OREGONDOGAMI,KSPB:OREGONDOGAMI,KTTD:OREGONDOGAMI,KUAO:USGS3DEP,KVUO:USGS3DEP,Krueger Airport:COPERNICUSGLO30,Lehman Field:COPERNICUSGLO30,Lenhardt AirHaven Airpark:COPERNICUSGLO30,Lewis River Golf Course Airport:USGS3DEP,Mc Gee Airport:USGS3DEP,McKinnon Airpark:COPERNICUSGLO30,Mount Saint Helen's Aero Ranch Airport:USGS3DEP,Parkside Airpark:USGS3DEP,Pleasant Farm Airport:USGS3DEP,Sandy River Airport:COPERNICUSGLO30,Schmidt Airport:COPERNICUSGLO30,Sky River Ranch Airport:USGS3DEP,Skyhill Airport:USGS3DEP,Stark's Twin Oaks Airpark:USGS3DEP,Valley View Airport:COPERNICUSGLO30
+   [v2]   [pool] workers 3 (bound: share): 0 task(s) answered by workers in 0.0 s
+   Auto-patch: KVUO took 14.4s (verify 0.0s)
+   Auto-patch: FAILED KPDX (build): [v2] TopologyException: Ring edge missing at -185.7206345310361 80.687997329625674
+ERROR: auto-patch FAILED for 1 airport(s) — KPDX (build): [v2] TopologyException: Ring edge missing at -185.7206345310361 80.687997329625674
+   The tile build is ABORTED — no mesh is built on a patch set this build did not write.

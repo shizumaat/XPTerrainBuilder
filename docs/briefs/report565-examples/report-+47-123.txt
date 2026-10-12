@@ -1,0 +1,257 @@
+XPTerrainBuilder failure report (format 1)
+
+Redacted on the user's machine before anything was sent:
+  - your home folder and user name (shown as <home> and <user>)
+  - every path outside the scenery and data folders, reduced to its file name (shown as <path>/name)
+  - proxy addresses (<proxy>)
+  - passwords, tokens and keys (<redacted>)
+  - e-mail addresses (<email>)
+Kept on purpose, because they are the diagnosis: scenery pack names, airport names, tile names and coordinates.
+The issue tracker is public. Read the report before you send it.
+
+== Summary ==
+Tile: +47-123
+Airports without a patch: KBFI, KGRF, KPAE, KPLU, KPWT, KTCM
+Engine: 1.50.1834 (source), protocol 1.9
+App: 1.0.387
+System: macOS-27.0-arm64-arm-64bit-Mach-O
+Generated: 2026-10-12T16:55:16Z
+
+== What failed ==
+Failure 1: [unclassified] (no message)
+  Airports: KBFI, KGRF, KPAE, KPLU, KPWT, KTCM
+  Detail: stage build: [v2] KBFI: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+
+== Provenance (patches this run wrote) ==
+[provenance] KRNT patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N47W123] insets=KBFI:USGS3DEP,KGRF:USGS3DEP,KPAE:USGS3DEP,KPLU:USGS3DEP,KPWT:USGS3DEP,KRNT:USGS3DEP,KSEA:USGS3DEP,KTCM:USGS3DEP,KTIW:USGS3DEP
+[provenance] KSEA patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N47W123] insets=KBFI:USGS3DEP,KGRF:USGS3DEP,KPAE:USGS3DEP,KPLU:USGS3DEP,KPWT:USGS3DEP,KRNT:USGS3DEP,KSEA:USGS3DEP,KTCM:USGS3DEP,KTIW:USGS3DEP
+[provenance] KTIW patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N47W123] insets=KBFI:USGS3DEP,KGRF:USGS3DEP,KPAE:USGS3DEP,KPLU:USGS3DEP,KPWT:USGS3DEP,KRNT:USGS3DEP,KSEA:USGS3DEP,KTCM:USGS3DEP,KTIW:USGS3DEP
+
+== Engine log for tile +47-123: last 225 of 225 lines, run of 2026-10-12T01:43:38Z ==
+=== engine run 2026-10-12T01:43:38Z === app 1.0.387 | engine 1.50.1834 | 2 tiles: +45-123 +47-123
+=== queued into this run 2026-10-12T02:41:32Z === 1 tile: +47-123
+   Legacy config value True for airport_elevation_insets read as ICAO.
+Step 1 : Building vector data for tile +47-123 :
+-> Dealing with airports
+    * Recycling OSM data from <data>/OSM_data/+40-130/+47-123/+47-123_airports.osm.bz2
+   KBFI   Boeing Field                                                 2 runways, lat= 47.53, lon= -122.31
+   KGRF   Gray Army Airfield                                           1 runway , lat= 47.08, lon= -122.58
+   KPAE   Seattle Paine Field International Airport                    2 runways, lat= 47.91, lon= -122.28
+   KPLU   Pierce County Airport                                        1 runway , lat= 47.10, lon= -122.29
+   KPWT   Bremerton National Airport                                   2 runways, lat= 47.49, lon= -122.77
+   KRNT   Renton Municipal Airport                                     1 runway , lat= 47.49, lon= -122.22
+   KSEA   Seattle-Tacoma International Airport                         3 runways, lat= 47.45, lon= -122.31
+   KTCM   McChord Field                                                1 runway , lat= 47.14, lon= -122.48
+   KTIW   Tacoma Narrows Airport                                       1 runway , lat= 47.27, lon= -122.58
+   KEH    Kenmore Air Harbor Seaplane Base                             boundary , lat= 47.76, lon= -122.26
+   ****   Albritton Airport                                            1 runway , lat= 47.22, lon= -122.13
+   ****   Apex Airpark                                                 1 runway , lat= 47.66, lon= -122.73
+   ****   Auburn Academy Airport                                       1 runway , lat= 47.28, lon= -122.15
+   ****   Auburn Municipal Airport                                     1 runway , lat= 47.33, lon= -122.23
+   ****   Bryan Airport                                                1 runway , lat= 47.21, lon= -122.09
+   ****   Burnett Landing Airport                                      1 runway , lat= 47.13, lon= -122.06
+   ****   Cawleys South Prairie Airport                                1 runway , lat= 47.15, lon= -122.09
+   ****   Crest Airfield                                               1 runway , lat= 47.34, lon= -122.10
+   ****   Enumclaw Airport                                             1 runway , lat= 47.20, lon= -122.02
+   ****   Evergreen Sky Ranch Airport                                  1 runway , lat= 47.27, lon= -122.07
+   ****   First Air Field                                              boundary , lat= 47.87, lon= -122.00
+   ****   Flying H Ranch Airport                                       1 runway , lat= 47.18, lon= -122.12
+   ****   Gower Field                                                  2 runways, lat= 47.11, lon= -122.82
+   ****   Harvey Field                                                 2 runways, lat= 47.90, lon= -122.10
+   ****   Howell Airport                                               1 runway , lat= 47.18, lon= -122.77
+   ****   Kapowsin Field                                               1 runway , lat= 47.00, lon= -122.23
+   ****   Kimshan Ranch Airport                                        1 runway , lat= 47.84, lon= -122.86
+   ****   Kyles Airport                                                1 runway , lat= 47.81, lon= -122.04
+   ****   Leisureland Airpark                                          1 runway , lat= 47.61, lon= -122.77
+   ****   Majerle Private Airstrip                                     1 runway , lat= 47.72, lon= -122.00
+   ****   Mirth Airport                                                2 runways, lat= 47.94, lon= -122.61
+   ****   Olympic Field                                                1 runway , lat= 48.00, lon= -122.90
+   ****   Port Orchard Airport                                         1 runway , lat= 47.43, lon= -122.66
+   ****   Rocky Bay Airport                                            1 runway , lat= 47.36, lon= -122.79
+   ****   Shady Acres Airport                                          1 runway , lat= 47.07, lon= -122.37
+   ****   Stacey's Airport                                             1 runway , lat= 47.98, lon= -122.77
+   ****   Vashon Municipal Airport                                     1 runway , lat= 47.46, lon= -122.48
+   ****   Vaughan Ranch Airfield                                       1 runway , lat= 47.46, lon= -122.57
+   ****   Washington National Guard Sinclair HGTS Heliport             boundary , lat= 47.55, lon= -122.68
+   ****   Wax Orchards Airport                                         1 runway , lat= 47.40, lon= -122.50
+   ****   ****                                                         1 runway , lat= 47.04, lon= -122.63
+   ****   ****                                                         1 runway , lat= 47.80, lon= -122.53
+  [pav-builder] KBFI: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KGRF: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KPAE: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KPLU: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KPWT: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KRNT: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KRNT Renton/Earth nav data/apt.dat
+  [pav-builder] KSEA: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KSEA Seattle Airports XP (DD)/Earth nav data/apt.dat
+  [pav-builder] KTCM: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [pav-builder] KTIW: apt.dat <xplane>/Custom Scenery/Orbx_A_KTIW_TacomaNarrows/Earth nav data/apt.dat
+   Loading elevation data and smoothing it over airports.
+   INFO: airport elevation insets skipped 2 unnamed airport(s) (no code to cache under).
+    Cached elevation inset for KGRF from USGS3DEP a finer ladder rung now lists new coverage (USGS_LPC_ARRA_WA_PIERCECO_2010_000255, USGS_LPC_ARRA_WA_PIERCECO_2010_000256, USGS_LPC_ARRA_WA_PIERCECO_2010_000257, USGS_LPC_ARRA_WA_PIERCECO_2010_000258, USGS_LPC_ARRA_WA_PIERCECO_2010_000259 (+49 more)) - refetching.
+    Fetching elevation inset for KGRF from USGS3DEP
+    Cached elevation inset for KTCM from USGS3DEP a finer ladder rung now lists new coverage (USGS_LPC_ARRA_WA_PIERCECO_2010_000230, USGS_LPC_ARRA_WA_PIERCECO_2010_000231, USGS_LPC_ARRA_WA_PIERCECO_2010_000232, USGS_LPC_ARRA_WA_PIERCECO_2010_000233, USGS_LPC_ARRA_WA_PIERCECO_2010_000234 (+24 more)) - refetching.
+    Fetching elevation inset for KTCM from USGS3DEP
+   [inset] KGRF_usgs3dep.tif.refetch: resolution ladder rung 1/6 '1 meter' (1 m): valid 13.41 % but airport cover 0.00 % (< 80.00 %) - kept; asking the same-resolution rungs for the whole airport
+   [inset] KGRF_usgs3dep.tif.refetch: resolution ladder rung 2/6 'Pitkin County 2016 lidar' (1 m): PITKIN1M's coverage does not reach the box (not asked) - trying the next rung
+   [inset] KGRF_usgs3dep.tif.refetch: resolution ladder rung 3/6 'USGS original product resolution' (1 m): airport cover 0.00 % (< 80.00 %) - trying the next rung
+   [inset] KGRF_usgs3dep.tif.refetch: resolution ladder rung 4/6 'USGS lidar point cloud' (1 m): USGSLPC could not be asked: USGSLPC: KGRF core needs 54 tiles / 26.1 GB, cap 40 / 3.0 GB (max_tiles_per_airport / max_bytes_per_airport in USGSLPC.elv) — SKIPPED, recorded unavailable, not no-coverage - trying the next rung
+    [inset] KGRF USGS3DEP: zipped product 1/2 581d2ec7e4b08da350d680cd - downloading whole (a zipped raster cannot be window-read)
+    ...still fetching KGRF from USGS3DEP (2+ minutes; a stalled transfer aborts automatically and is retried on the next run)
+    ...still fetching KTCM from USGS3DEP (2+ minutes; a stalled transfer aborts automatically and is retried on the next run)
+   [inset] KGRF USGS3DEP archive 1/2 581d2ec7e4b08da350d680cd 11 % (13/108 MB, 0.40 MB/s)
+   [inset] KGRF USGS3DEP archive 1/2 581d2ec7e4b08da350d680cd 26 % (28/108 MB, 0.46 MB/s)
+   [inset] KTCM_usgs3dep.tif.refetch: resolution ladder rung 1/6 '1 meter' (1 m): valid 73.02 % but airport cover 53.73 % (< 80.00 %) - kept; asking the same-resolution rungs for the whole airport
+   [inset] KTCM_usgs3dep.tif.refetch: resolution ladder rung 2/6 'Pitkin County 2016 lidar' (1 m): PITKIN1M's coverage does not reach the box (not asked) - trying the next rung
+   [inset] KGRF USGS3DEP archive 1/2 581d2ec7e4b08da350d680cd 36 % (39/108 MB, 0.42 MB/s)
+   [inset] KGRF USGS3DEP archive 1/2 581d2ec7e4b08da350d680cd 48 % (52/108 MB, 0.42 MB/s)
+   [inset] KGRF USGS3DEP archive 1/2 581d2ec7e4b08da350d680cd 62 % (67/108 MB, 0.43 MB/s)
+   [inset] KGRF USGS3DEP archive 1/2 581d2ec7e4b08da350d680cd 78 % (85/108 MB, 0.46 MB/s)
+   [inset] KGRF USGS3DEP archive 1/2 581d2ec7e4b08da350d680cd 95 % (103/108 MB, 0.48 MB/s)
+   [inset] KGRF USGS3DEP archive 1/2 581d2ec7e4b08da350d680cd done (108 MB in 223 s, 0.48 MB/s)
+    [inset] KGRF USGS3DEP: zipped product 2/2 581d2ec7e4b08da350d680d5 - downloading whole (a zipped raster cannot be window-read)
+   [inset] KGRF USGS3DEP archive 2/2 581d2ec7e4b08da350d680d5 24 % (21/86 MB, 0.68 MB/s)
+   [inset] KGRF USGS3DEP archive 2/2 581d2ec7e4b08da350d680d5 42 % (37/86 MB, 0.57 MB/s)
+   [inset] KGRF USGS3DEP archive 2/2 581d2ec7e4b08da350d680d5 61 % (52/86 MB, 0.56 MB/s)
+   [inset] KGRF USGS3DEP archive 2/2 581d2ec7e4b08da350d680d5 81 % (70/86 MB, 0.56 MB/s)
+   [inset] KGRF USGS3DEP archive 2/2 581d2ec7e4b08da350d680d5 98 % (85/86 MB, 0.55 MB/s)
+   [inset] KGRF USGS3DEP archive 2/2 581d2ec7e4b08da350d680d5 done (86 MB in 157 s, 0.55 MB/s)
+   [inset] KGRF_usgs3dep.tif.refetch: resolution ladder rung 5/6 '1/9 arc-second' (3 m): valid 14.34 % (>= 5.00 %) - FILL
+   [inset] KGRF_usgs3dep.tif.refetch.surround5: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] KGRF_usgs3dep.tif.refetch: resolution ladder rung 6/6 '1/3 arc-second' (10 m): valid 100.00 % (>= 5.00 %) - FILL
+   [inset] KTCM_usgs3dep.tif.refetch: resolution ladder rung 3/6 'USGS original product resolution' (1 m): airport cover 53.73 % (< 80.00 %) - trying the next rung
+   [inset] KTCM_usgs3dep.tif.refetch: resolution ladder rung 4/6 'USGS lidar point cloud' (1 m): USGSLPC could not be asked: USGSLPC: KTCM core needs 29 tiles / 11.0 GB, cap 40 / 3.0 GB (max_tiles_per_airport / max_bytes_per_airport in USGSLPC.elv) — SKIPPED, recorded unavailable, not no-coverage - trying the next rung
+    [inset] KTCM USGS3DEP: zipped product 1/3 581d2ec7e4b08da350d680c8 - downloading whole (a zipped raster cannot be window-read)
+   [inset] KTCM USGS3DEP archive 1/3 581d2ec7e4b08da350d680c8 72 % (125/173 MB, 4.05 MB/s)
+   [inset] KTCM USGS3DEP archive 1/3 581d2ec7e4b08da350d680c8 done (173 MB in 49 s, 3.52 MB/s)
+    [inset] KTCM USGS3DEP: zipped product 2/3 581d2ec7e4b08da350d680cd - downloading whole (a zipped raster cannot be window-read)
+   [inset] KTCM USGS3DEP archive 2/3 581d2ec7e4b08da350d680cd done (108 MB in 18 s, 6.00 MB/s)
+    [inset] KTCM USGS3DEP: zipped product 3/3 581d2ec7e4b08da350d680d5 - downloading whole (a zipped raster cannot be window-read)
+   [inset] KTCM USGS3DEP archive 3/3 581d2ec7e4b08da350d680d5 done (86 MB in 15 s, 5.63 MB/s)
+   [inset] KTCM_usgs3dep.tif.refetch: resolution ladder rung 5/6 '1/9 arc-second' (3 m): valid 93.05 % (>= 5.00 %) - FILL
+   [inset] KTCM_usgs3dep.tif.refetch.surround5: border-aware mosaic - 7 source(s) across 7 project(s), valid 100.0 %
+   [inset] KTCM_usgs3dep.tif.refetch: resolution ladder rung 6/6 '1/3 arc-second' (10 m): valid 100.00 % (>= 5.00 %) - FILL
+   Airport inset index CHANGED, rewriting it: KGRF: probes_for; KTCM: probes_for
+    * Min altitude: -3.9471536 , Max altitude: 149.41826 , Mean: 42.720123
+    * Min altitude: -32768.0 , Max altitude: 137.04726 , Mean: 81.42501
+    * Min altitude: -32768.0 , Max altitude: 194.74532 , Mean: -1409.689
+    * Min altitude: 130.00684 , Max altitude: 195.9773 , Mean: 160.83624
+    * Min altitude: 37.6948 , Max altitude: 167.5575 , Mean: 120.20328
+    * Min altitude: 1.7190753 , Max altitude: 149.64468 , Mean: 42.367508
+    * Min altitude: -0.5577851 , Max altitude: 156.43106 , Mean: 97.74589
+    * Min altitude: -32768.0 , Max altitude: 116.80475 , Mean: 90.71115
+    * Min altitude: -32768.0 , Max altitude: 106.57327 , Mean: -3457.9612
+    * Min altitude: 0.0 , Max altitude: 1339.0 , Mean: 97.62287
+   Airport elevation insets: working grid densified to 1/3 arc-second (worst actionable ideal-bake error 0.985 m).
+   Approach ring baked: ring2 at 30.92 m from 85 cell(s), feather 900.0 m.
+   Approach ring baked: ring1 at 10.31 m from 57 cell(s), feather 300.0 m.
+   Airport First Air Field : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KBFI : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Auburn Municipal Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Kapowsin Field : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport (np.float64(-122.52964024999999), np.float64(47.799669508333345)) : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Flying H Ranch Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Burnett Landing Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Port Orchard Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KGRF : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Washington National Guard Sinclair HGTS Heliport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KTCM : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Shady Acres Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KRNT : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Crest Airfield : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KPWT : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport KTIW : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 89%).
+   Airport Stacey's Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KPAE : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 95%).
+   Airport KPLU : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Enumclaw Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KEH : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Harvey Field : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport KSEA : smoothing radius 1 pixel(s) (source pixel 1.0 m, inset coverage 100%).
+   Airport Leisureland Airpark : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Evergreen Sky Ranch Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Auburn Academy Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Bryan Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Gower Field : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Cawleys South Prairie Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Apex Airpark : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Vashon Municipal Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Wax Orchards Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Vaughan Ranch Airfield : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Kimshan Ranch Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Howell Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Albritton Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Kyles Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Mirth Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Olympic Field : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Rocky Bay Airport : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport Majerle Private Airstrip : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+   Airport (np.float64(-122.62712525), np.float64(47.03598435)) : smoothing radius 24 pixel(s) (source pixel 30.9 m, inset coverage 0%).
+  [pav-builder] KBFI: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [flat-site] KBFI: lidar_credible — Z0 5.71 m (CIFP spread 1.52 m over 4 threshold(s)) | DEM lidar[inset] relief 11.45 m vs floor ? m, slope 0.649 %, sea-excluded 0 % | DEM−Z0 0.33 m | pack no_data
+  [pav-builder] KGRF: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [flat-site] KGRF: lidar_credible — Z0 89.76 m (CIFP spread 3.35 m over 2 threshold(s)) | DEM lidar[inset] relief 12.53 m vs floor ? m, slope 0.535 %, sea-excluded 0 % | DEM−Z0 3.04 m | pack no_data
+  [pav-builder] KPLU: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [flat-site] KPLU: lidar_credible — Z0 163.37 m (CIFP spread 0.61 m over 2 threshold(s)) | DEM lidar[inset] relief 16.00 m vs floor ? m, slope 0.391 %, sea-excluded 0 % | DEM−Z0 0.50 m | pack no_data
+  [pav-builder] KPWT: apt.dat <xplane>/Global Scenery/Global Airports/Earth nav data/apt.dat
+  [flat-site] KPWT: lidar_credible — Z0 135.03 m (CIFP spread 0.61 m over 2 threshold(s)) | DEM lidar[inset] relief 20.72 m vs floor ? m, slope 1.105 %, sea-excluded 0 % | DEM−Z0 4.74 m | pack no_data
+  [pav-builder] KRNT: apt.dat <xplane>/Custom Scenery/c_USA - 100_airport - KRNT Renton/Earth nav data/apt.dat
+  [flat-site] KRNT: lidar_credible — Z0 8.23 m (CIFP spread 1.83 m over 2 threshold(s)) | DEM lidar[inset] relief 18.95 m vs floor ? m, slope 0.708 %, sea-excluded 0 % | DEM−Z0 0.18 m | pack no_data
+  [pav-builder] KTIW: apt.dat <xplane>/Custom Scenery/Orbx_A_KTIW_TacomaNarrows/Earth nav data/apt.dat
+  [flat-site] KTIW: lidar_credible — Z0 89.46 m (CIFP spread 0.91 m over 2 threshold(s)) | DEM lidar[inset] relief 26.46 m vs floor ? m, slope 2.866 %, sea-excluded 0 % | DEM−Z0 1.56 m | pack no_data
+   Auto-patch: engine v2 (the law-compliant solver; v1 retired 2026-09-13)
+   Auto-patch: building 9 airports (KBFI, KGRF, KPAE, KPLU, KPWT, KRNT, KSEA, KTCM, KTIW) in parallel across 9 workers.
+   Auto-patch: KBFI [0/100] Loading airport, pack & production DEM
+   Auto-patch: KGRF [0/100] Loading airport, pack & production DEM
+   Auto-patch: KPAE [0/100] Loading airport, pack & production DEM
+   Auto-patch: KPLU [0/100] Loading airport, pack & production DEM
+   Auto-patch: KPWT [0/100] Loading airport, pack & production DEM
+   Auto-patch: KRNT [0/100] Loading airport, pack & production DEM
+   Auto-patch: KSEA [0/100] Loading airport, pack & production DEM
+   Auto-patch: KTCM [0/100] Loading airport, pack & production DEM
+   Auto-patch: KTIW [0/100] Loading airport, pack & production DEM
+   Auto-patch: KRNT [7/100] Partitioning the pack
+   Auto-patch: KRNT [21/100] Classifying & reading structures (door wells, wall corridors, at-grade)
+   Auto-patch: KSEA [7/100] Partitioning the pack
+   Auto-patch: KRNT [39/100] Building the planar map
+   Auto-patch: KTIW [7/100] Partitioning the pack
+   Auto-patch: KRNT [49/100] Generating the law constraints
+   Auto-patch: KTIW [21/100] Classifying & reading structures (door wells, wall corridors, at-grade)
+   Auto-patch: KSEA [21/100] Classifying & reading structures (door wells, wall corridors, at-grade)
+   Auto-patch: KRNT [69/100] Solving the surface (HiGHS LP)
+   Auto-patch: KTIW [39/100] Building the planar map
+   Auto-patch: KTIW [49/100] Generating the law constraints
+   Auto-patch: KTIW [69/100] Solving the surface (HiGHS LP)
+   Auto-patch: KRNT [82/100] Emitting the patch & verifying
+   Auto-patch: KTIW [82/100] Emitting the patch & verifying
+   Auto-patch: KSEA [39/100] Building the planar map
+   Auto-patch: KSEA [49/100] Generating the law constraints
+   Auto-patch: KSEA [69/100] Solving the surface (HiGHS LP)
+   Auto-patch: KSEA [69/100] Solving the surface (HiGHS LP) — still working: 1m00s in this step, 1m57s total — solving the surface
+   Auto-patch: KSEA [82/100] Emitting the patch & verifying
+   Auto-patch: Pavement builder FAILED for KBFI ( build ): [v2] KBFI: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: Pavement builder FAILED for KGRF ( build ): [v2] KGRF: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: Pavement builder FAILED for KPAE ( build ): [v2] KPAE: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: Pavement builder FAILED for KPLU ( build ): [v2] KPLU: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: Pavement builder FAILED for KPWT ( build ): [v2] KPWT: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+  [provenance] KRNT patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N47W123] insets=KBFI:USGS3DEP,KGRF:USGS3DEP,KPAE:USGS3DEP,KPLU:USGS3DEP,KPWT:USGS3DEP,KRNT:USGS3DEP,KSEA:USGS3DEP,KTCM:USGS3DEP,KTIW:USGS3DEP
+   [v2]   [pool] workers 1 (bound: memory): serial (budget 1)
+   Auto-patch: KRNT took 17.2s (verify 0.0s)
+  [provenance] KSEA patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N47W123] insets=KBFI:USGS3DEP,KGRF:USGS3DEP,KPAE:USGS3DEP,KPLU:USGS3DEP,KPWT:USGS3DEP,KRNT:USGS3DEP,KSEA:USGS3DEP,KTCM:USGS3DEP,KTIW:USGS3DEP
+   [v2]   [pool] workers 1 (bound: memory): serial (budget 1)
+   Auto-patch: KSEA: Building pad building13 at 47.44512, -122.30150 (47,029 m²): the apron cannot be welded to it along its whole frontage within the grade caps. The pad is seated flat at 118.10 m; 2 of 149 frontage contacts are released, the worst by 0.71 m at 47.44286, -122.30301; the unit reads one level, so it is not split into blocks. The apron keeps its caps; the pad's rim steps there; the building is not moved.
+   Auto-patch: KSEA: Building pad building7 at 47.44116, -122.30044 (61,261 m²): the apron cannot be welded to it along its whole frontage within the grade caps. The pad is seated flat at 115.38 m; 10 of 64 frontage contacts are released, the worst by 2.01 m at 47.44286, -122.30301; the unit reads one level, so it is not split into blocks. The apron keeps its caps; the pad's rim steps there; the building is not moved.
+   Auto-patch: KSEA: Building pad building8 at 47.43892, -122.30117 (9,722 m²): the apron cannot be welded to it along its whole frontage within the grade caps. The pad is seated flat at 113.49 m; 8 of 74 frontage contacts are released, the worst by 0.35 m at 47.43876, -122.30111; the unit reads one level, so it is not split into blocks. The apron keeps its caps; the pad's rim steps there; the building is not moved.
+   Auto-patch: KSEA: Building pad building9 at 47.43895, -122.29977 (1,818 m²): the apron cannot be welded to it along its whole frontage within the grade caps. The pad is seated flat at 113.86 m; 6 of 28 frontage contacts are released, the worst by 0.48 m at 47.43915, -122.29815; the unit reads one level, so it is not split into blocks. The apron keeps its caps; the pad's rim steps there; the building is not moved.
+   Auto-patch: KSEA took 162.6s (verify 0.0s)
+   Auto-patch: Pavement builder FAILED for KTCM ( build ): [v2] KTCM: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+  [provenance] KTIW patch: engine=v2 sha=absent version=1.50.1834 code=312205fa412410f7 law=0410d08c80e9 ruleset=faa solve=optimal dem=production[N47W123] insets=KBFI:USGS3DEP,KGRF:USGS3DEP,KPAE:USGS3DEP,KPLU:USGS3DEP,KPWT:USGS3DEP,KRNT:USGS3DEP,KSEA:USGS3DEP,KTCM:USGS3DEP,KTIW:USGS3DEP
+   [v2]   [pool] workers 1 (bound: memory): serial (budget 1)
+   Auto-patch: KTIW took 19.0s (verify 0.0s)
+   Auto-patch: FAILED KBFI (build): [v2] KBFI: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: FAILED KGRF (build): [v2] KGRF: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: FAILED KPAE (build): [v2] KPAE: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: FAILED KPLU (build): [v2] KPLU: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: FAILED KPWT (build): [v2] KPWT: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   Auto-patch: FAILED KTCM (build): [v2] KTCM: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+ERROR: auto-patch FAILED for 6 airport(s) — KBFI (build): [v2] KBFI: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).; KGRF (build): [v2] KGRF: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).; KPAE (build): [v2] KPAE: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).; KPLU (build): [v2] KPLU: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).; KPWT (build): [v2] KPWT: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).; KTCM (build): [v2] KTCM: the pack DSF <xplane>/Global Scenery/Global Airports/Earth nav data/+40-130/+47-123.dsf is newer than every cached text dump under <data>/Airport_mod_cache/Global Airports (no fresh +47-123.dsf.<sha256[:8]>.text there — the dump is named for THIS file, RULINGS 2026-09-11m) — the pack's objects would be read from a stale dump (OTHH's tunnel walls, 2026-09-04). Refresh it explicitly: build_airport.py --refresh-data airport_mod_cache (the app's driver refreshes it before the build).
+   The tile build is ABORTED — no mesh is built on a patch set this build did not write.

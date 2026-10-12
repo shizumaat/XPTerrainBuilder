@@ -66,6 +66,7 @@ import O4_Console_Encoding
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
 
+from . import failure_report
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
@@ -190,6 +191,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # and completes through PackMissingArt — DSFTool may not run on
         # THIS thread.
         "omit_missing_art": session.omit_missing_art,
+        # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
+        # for one tile, its prefilled new-issue URL and, with
+        # ``save_path``, the report file.  Synchronous — it reads the end
+        # of one log file — and no session state: a module function.
+        "failure_report": failure_report.failure_report,
     }
 
 

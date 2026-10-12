@@ -10,8 +10,8 @@ The Linux and Windows recipes have never run anywhere (no container tool
 on this Mac) — the master's first dispatch is their proof. Procedure for
 the master: `docs/DSFTOOL-VENDORING.md`.
 
-Scratch (lane-local): `<session scratchpad>/dsfbin587/` — `xptools/` (full
-clone), `proof/` (the script's own clone + build), `DSFTool.new` (the
+Scratch (lane-local): `<session scratchpad>/dsfbin587/` — `proof/` (the script's own clone and the built tool; the full clone and
+the Xcode build folders are deleted), `DSFTool.new` (the
 local candidate, universal), `*.jsonl` (census rows), `diff_*.json` /
 `census_diff_files.json` (which files differ), `diff_dumps.py`,
 `encode_ab2.py` (one-off A/B scripts). The four `--keep-text` folders

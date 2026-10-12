@@ -329,7 +329,7 @@ def _refuse_on_broken_proj() -> bool:
         "silently degraded tile.",
     )
     UI.lvprint(0, reason)
-    UI.exit_message_and_bottom_line("")
+    UI.exit_message_and_bottom_line("", code="app_component_broken")
     return True
 
 
@@ -355,7 +355,7 @@ def build_tile(tile):
         UI.lvprint(
             0, "ERROR: A mesh file must first be constructed for the tile!"
         )
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="earlier_step_missing")
         return 0
 
     timer = time.time()
@@ -368,13 +368,13 @@ def build_tile(tile):
             "select an imagery source in the interface, or fix "
             "default_website in the tile config." % (tile.default_website,),
         )
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="imagery_source_unknown")
         return 0
 
     tile.write_to_config()
 
     if not IMG.initialize_local_combined_providers_dict(tile):
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="imagery_source_unknown")
         return 0
 
     try:
@@ -412,7 +412,7 @@ def build_tile(tile):
     except Exception as e:
         UI.lvprint(0, "ERROR: Cannot create tile subdirectories.")
         UI.vprint(3, e)
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="output_folder_unwritable")
         return 0
 
     download_queue = queue.Queue()
@@ -438,6 +438,9 @@ def build_tile(tile):
         except Exception as exc:
             dsf_build_error.append(str(exc))
             UI.vprint(0, "ERROR during DSF construction:", str(exc))
+            # Named BEFORE the flag is raised: the session tells a step's
+            # own abort from the user's Stop by it (#562).
+            UI.tile_failure("scenery_file_failed", exc=exc)
             UI.red_flag = True
 
     build_dsf_thread = threading.Thread(target=_build_dsf_guarded)
@@ -530,7 +533,7 @@ def build_tile(tile):
         # fetch token is free from the outset.
         UI.imagery_downloads_done(tile.lat, tile.lon, 0, 0)
     if dsf_build_error:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)   # named in the guard
         return 0
     if (
         download_launched
@@ -543,7 +546,7 @@ def build_tile(tile):
             "ERROR: every texture download failed (imagery source '%s') — "
             "the new DSF was not activated." % (tile.default_website,),
         )
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="imagery_download_failed")
         return 0
     UI.vprint(1, " *Activating DSF file.")
     dsf_file_name = os.path.join(
@@ -605,15 +608,15 @@ def build_all(tile):
     UI.reset_total_elapsed()
     VMAP.build_poly_file(tile)
     if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     MESH.build_mesh(tile)
     if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     MASK.build_masks(tile)
     if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     build_tile(tile)
     tile_coords = FNAMES.short_latlon(tile.lat, tile.lon)
@@ -626,7 +629,7 @@ def build_all(tile):
         delete_incomplete_imgs(tile)
         build_tile(tile)
     if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     UI.is_working = 0
     UI.total_bottom_line(tile.lat, tile.lon)

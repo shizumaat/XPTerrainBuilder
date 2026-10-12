@@ -317,7 +317,7 @@ def three_airport_tile(tmp_path, monkeypatch):
 
     failed = []
     monkeypatch.setattr(DRIVER.UI, "auto_patch_failed",
-                        lambda icao, stage, error:
+                        lambda icao, stage, error, *_a, **_k:
                         failed.append((icao, stage, error)))
     monkeypatch.setattr(DRIVER.UI, "auto_patch_begin",
                         lambda icaos: failed.append(("BEGIN", icaos, None)))

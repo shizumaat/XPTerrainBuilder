@@ -87,7 +87,7 @@ def console(monkeypatch):
 def failed_events(monkeypatch):
     seen = []
     monkeypatch.setattr(UI, "auto_patch_failed",
-                        lambda icao, stage, error: seen.append((icao, stage, error)))
+                        lambda icao, stage, error, *_a, **_k: seen.append((icao, stage, error)))
     return seen
 
 

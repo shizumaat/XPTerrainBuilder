@@ -63,6 +63,7 @@ from collections import deque
 from typing import Optional
 
 import O4_Console_Encoding
+import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
 from . import events as EVENTS
@@ -70,7 +71,7 @@ from . import tile_time_model
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
-    _predict_step_seconds, plan_steps, prediction_features,
+    _predict_step_seconds, build_done, plan_steps, prediction_features,
     reweight_plan_by_seconds,
 )
 
@@ -833,6 +834,8 @@ class ParallelBuildRun:
         # start stamp + frozen final elapsed at the tile's terminal.
         self._tile_first_started: dict = {}   # tile -> wall time
         self._tile_final_elapsed: dict = {}   # tile -> seconds
+        # #564: warnings of a tile's finished steps, held for its terminal.
+        self._tile_warnings: dict = {}
         # tile -> summed dispatched-step seconds, for the per-tile
         # "completed in" console line (a worker child sees one step at a
         # time, so only the parent can total the tile).
@@ -1595,10 +1598,19 @@ class ParallelBuildRun:
         program = self._programs.get(tile, ())
         last_step = step_index >= len(program) - 1
         if event_name == "BuildDone":
+            # #564: a step's warnings (the vector step's airports without
+            # a patch) ride on the TILE's terminal BuildDone, which is a
+            # later step's — carried here across the swallowed ones.
+            with self._lock:
+                carried = self._tile_warnings.setdefault(tile, [])
+                carried.extend(event.warnings)
             if event.ok and not last_step:
                 # Intermediate step completion: a scheduling signal, not
                 # a tile terminal — swallowed (spec §3.8).
                 return
+            with self._lock:
+                self._tile_warnings.pop(tile, None)
+            event = dataclasses.replace(event, warnings=list(carried))
             with self._lock:
                 if event.ok:
                     self._done += 1
@@ -1801,9 +1813,13 @@ class ParallelBuildRun:
             lat, lon = crashed_tile
             self._session._emit(TileState(lat=lat, lon=lon, state="error",
                                           label="failed"))
-            self._session._emit(BuildDone(
-                lat=lat, lon=lon, ok=False,
-                error="build worker exited unexpectedly"))
+            done_event = build_done(
+                lat, lon, False,
+                [FAIL.record("worker_died",
+                             "build worker exited unexpectedly")])
+            self._session._emit(dataclasses.replace(
+                done_event,
+                warnings=self._tile_warnings.pop(crashed_tile, [])))
             print("Build worker for", _short_latlon(crashed_tile),
                   "exited unexpectedly; its tile is marked failed.")
         if respawn:

@@ -123,8 +123,13 @@ def _fail_build_tasks(failures: list) -> None:
     for failure in failures:
         UI.lvprint(0, "   Auto-patch: FAILED", failure["icao"],
                    "(" + failure["stage"] + "):", failure["error"])
+        # ``code`` / ``params`` (O4_Tile_Failures, #562): the cause the
+        # worker could name from the exception's class; the stage
+        # decides for a record that carries none.
         UI.auto_patch_failed(failure["icao"], failure["stage"],
-                             failure["error"])
+                             failure["error"],
+                             code=failure.get("code") or "",
+                             params=failure.get("params") or {})
     raise AutoPatchBuildFailure(failures)
 
 
@@ -147,6 +152,7 @@ def describe_auto_patch_failures(failures: list) -> str:
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Tile_Failures as _FAIL
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
 from .cifp_reader import (
@@ -926,6 +932,7 @@ def _build_write_verify_one(task: dict) -> dict:
     except Exception as _e:
         return {"icao": icao, "ok": False, "stage": "build",
                 "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
+                **_FAIL.record_fields(_e),
                 "traceback": _tb.format_exc()}
 
 
@@ -1303,7 +1310,10 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                     pass
             failures.append({"icao": icao, "stage": stage,
                              "error": str(r.get("error")
-                                          or "no further detail")})
+                                          or "no further detail"),
+                             # the cause the worker named, when it could
+                             **{k: r[k] for k in ("code", "params")
+                                if r.get(k)}})
             continue
         UI.vprint(1, "   Auto-patch: Generated", icao,
                   "(" + r["summary"] + ")")
@@ -1783,7 +1793,8 @@ def generate_auto_patches(tile, cifp_path: str,
             UI.lvprint(0, "   " + notice)
             _fail_build_tasks([
                 {"icao": task["icao"], "stage": "build",
-                 "error": STALE_ROAD_FEED_AIRPORT_ERROR}
+                 "error": STALE_ROAD_FEED_AIRPORT_ERROR,
+                 "code": "road_data_stale"}
                 for task in tasks])
         finally:
             # ``_fail_build_tasks`` always raises, and the caller's

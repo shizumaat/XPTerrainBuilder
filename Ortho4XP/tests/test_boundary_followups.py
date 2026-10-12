@@ -432,7 +432,7 @@ def test_skip_is_absent_from_tasks_and_the_manifest(tmp_path, monkeypatch):
                         lambda tile_latitude, tile_longitude: False)
     failed = []
     monkeypatch.setattr(UI, "auto_patch_failed",
-                        lambda icao, stage, error: failed.append(icao))
+                        lambda icao, stage, error, *_a, **_k: failed.append(icao))
     lines = []
     monkeypatch.setattr(UI, "lvprint", lambda level, *parts: lines.append(
         " ".join(str(p) for p in parts)))

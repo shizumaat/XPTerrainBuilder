@@ -54,7 +54,14 @@ from typing import Optional
 # pack whose DSF declares a definition that is not installed is one
 # X-Plane will not load; the engine names it and offers a DSF without the
 # missing definitions (owner RULINGS 2026-10-06c, issue #433).
-PROTOCOL_VERSION = "1.9"
+# 1.10 (2026-10-12, additive): BuildDone.failures, BuildDone.warnings and
+# AutoPatchFailed.code — a tile that was not built says, in the user's
+# words, what failed, why and what to do (``O4_Tile_Failures``, issue
+# #562); a tile BUILT without one of its airport patches names that
+# airport the same way in ``warnings`` (owner RULINGS 2026-10-12a, #564).
+# ``BuildDone.error`` stays, and is now that same plain sentence, so a
+# front end that reads only it shows no exception text either.
+PROTOCOL_VERSION = "1.10"
 
 
 @dataclass(frozen=True)
@@ -208,6 +215,10 @@ class AutoPatchFailed(EngineEvent):
     error: str = ""
     lat: int = 0
     lon: int = 0
+    # 1.10: the ``O4_Tile_Failures`` catalogue code.  Non-empty means the
+    # tile's ``BuildDone.failures`` will carry this airport in a message
+    # written for the user, and ``error`` is the technical detail only.
+    code: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,12 +243,28 @@ class ImageryDownloadsDone(EngineEvent):
 
 @dataclass(frozen=True)
 class BuildDone(EngineEvent):
-    """One tile finished (ok or not)."""
+    """One tile finished (ok or not).
+
+    ``failures`` (1.10, issue #562) is why a tile was NOT built, one entry
+    per cause: ``{"code", "what", "why", "remedy", "airports", "detail",
+    "log_path"}`` — three short sentences written for the user
+    (``O4_Tile_Failures``), the airports the cause covers, and the
+    technical ``detail`` (the original exception or console text) for the
+    log and a disclosure.  ``error`` is the same message as one plain line.
+
+    ``warnings`` (1.10, owner RULINGS 2026-10-12a, #564) has the same
+    entries for AIRPORTS WITHOUT A PATCH: with ``ok`` true and
+    ``warnings`` non-empty the tile was BUILT WITH WARNINGS — each named
+    airport stands on ungraded terrain — which a front end shows distinct
+    from a clean success.
+    """
 
     lat: int = 0
     lon: int = 0
     ok: bool = True
     error: str = ""
+    failures: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)

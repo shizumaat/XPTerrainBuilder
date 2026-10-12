@@ -1111,7 +1111,7 @@ def test_no_apt_dat_airport_is_skipped_not_fatal(
     import O4_UI_Utils as UI
     events = []
     monkeypatch.setattr(UI, "auto_patch_failed",
-                        lambda icao, stage, error: events.append(icao))
+                        lambda icao, stage, error, *_a, **_k: events.append(icao))
     lines = []
     monkeypatch.setattr(UI, "lvprint",
                         lambda level, *parts: lines.append(" ".join(

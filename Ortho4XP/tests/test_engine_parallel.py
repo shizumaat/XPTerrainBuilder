@@ -234,7 +234,8 @@ def test_crashing_worker_synthesizes_failure(stub_worker, tmp_path):
     crashed = collector.tile_events(62, 20)
     builds = [e for e in crashed if isinstance(e, EV.BuildDone)]
     assert len(builds) == 1 and builds[0].ok is False
-    assert "worker" in builds[0].error.lower()
+    assert builds[0].failures[0]["code"] == "worker_died"
+    assert "worker" in builds[0].failures[0]["detail"]
     assert any(isinstance(e, EV.TileState) and e.state == "error"
                for e in crashed)
 

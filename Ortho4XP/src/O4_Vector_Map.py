@@ -1256,7 +1256,7 @@ def _refuse_on_broken_proj() -> bool:
         "silently degraded tile.",
     )
     UI.lvprint(0, reason)
-    UI.exit_message_and_bottom_line("")
+    UI.exit_message_and_bottom_line("", code="app_component_broken")
     return True
 
 
@@ -1326,7 +1326,9 @@ def build_poly_file(tile):
             0,
             "   The tile build is ABORTED — no mesh is built on a patch "
             "set this build did not write.")
-        UI.exit_message_and_bottom_line("")
+        # The cause is already declared, airport by airport
+        # (``UI.auto_patch_failed``): nothing to add here.
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     UI.vprint(
         1, "   Number of edges at this point:", len(vector_map.dico_edges)

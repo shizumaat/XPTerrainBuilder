@@ -484,6 +484,7 @@ def extract_elevation_and_bathymetry_data(lat, lon):
             global_scenery_dsf,
             "absent. Global Scenery directory needs to be set in the config ",
             "window first.",
+            code="overlay_source_missing",
         )
         return (b"", b"")
     tmp_file = os.path.join(
@@ -497,6 +498,7 @@ def extract_elevation_and_bathymetry_data(lat, lon):
         UI.exit_message_and_bottom_line(
             "     ERROR: could not copy it. Disk full, write permissions,",
             " erased tmp dir ?",
+            code="output_folder_unwritable",
         )
         return (b"", b"")
 
@@ -513,7 +515,8 @@ def extract_elevation_and_bathymetry_data(lat, lon):
     # read filetype cookie
     dsfid = f.read(8).decode("ascii")
     if dsfid != "XPLNEDSF":
-        UI.exit_message_and_bottom_line("     ERROR: Corrupted DSF file.")
+        UI.exit_message_and_bottom_line("     ERROR: Corrupted DSF file.",
+                                        code="overlay_source_missing")
         os.remove(tmp_file)
         return (b"", b"")
     # skip format number

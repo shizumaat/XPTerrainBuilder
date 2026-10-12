@@ -155,7 +155,7 @@ def captured_events(monkeypatch):
     seen = []
     monkeypatch.setattr(
         UI, "auto_patch_failed",
-        lambda icao, stage, error: seen.append((icao, stage, error)))
+        lambda icao, stage, error, *_a, **_k: seen.append((icao, stage, error)))
     return seen
 
 
@@ -339,7 +339,7 @@ def test_failure_reaches_the_jsonl_protocol_and_builddone():
     emitted = []
     session = EngineSession.__new__(EngineSession)
     session._current_step = ((30, 31), "vector", 0.0, 1.0)
-    session._autopatch_failures = []
+    session._tile_failures = []
     session._emit = emitted.append
 
     session.autopatch_failed("HECA", "manifest", "wrote no patch")
@@ -355,10 +355,12 @@ def test_failure_reaches_the_jsonl_protocol_and_builddone():
     assert payload["stage"] == "manifest"
     assert payload["error"] == "wrote no patch"
 
-    text = session._take_autopatch_failure_text()
-    assert "HECA" in text and "manifest" in text
+    assert payload["code"] == "airport_no_result"
+
+    (record,) = session._take_tile_failures()
+    assert record["airport"] == "HECA" and "manifest" in record["detail"]
     # Drained: the next tile does not inherit this tile's failure.
-    assert session._take_autopatch_failure_text() is None
+    assert session._take_tile_failures() == []
 
 
 def test_swift_client_matches_the_event_name():

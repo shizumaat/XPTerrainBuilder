@@ -459,6 +459,9 @@ def hairline_preflight(poly_file, tile):
                   "1,232,247, VMMC 376,041.  Fix the derivation site, or set "
                   "O4_HAIRLINE_PREFLIGHT=report to build it anyway.\n"
                .format(len(bad), HAIRLINE_SPACING_M))
+    UI.tile_failure("mesh_refused",
+                    "the assembled .poly is unmeshable: %d finding(s)"
+                    % len(bad))
     return 0
 
 
@@ -2751,7 +2754,7 @@ def _refuse_on_broken_proj() -> bool:
         "silently degraded tile.",
     )
     UI.lvprint(0, reason)
-    UI.exit_message_and_bottom_line("")
+    UI.exit_message_and_bottom_line("", code="app_component_broken")
     return True
 
 
@@ -2779,10 +2782,12 @@ def build_mesh(tile):
     alt_file = FNAMES.alt_file(tile)
     weight_file = FNAMES.weight_file(tile)
     if not os.path.isfile(node_file):
-        UI.exit_message_and_bottom_line("\nERROR: Could not find ", node_file)
+        UI.exit_message_and_bottom_line("\nERROR: Could not find ", node_file,
+                                        code="earlier_step_missing")
         return 0
     if not tile.iterate and not os.path.isfile(poly_file):
-        UI.exit_message_and_bottom_line("\nERROR: Could not find ", poly_file)
+        UI.exit_message_and_bottom_line("\nERROR: Could not find ", poly_file,
+                                        code="earlier_step_missing")
         return 0
     if not tile.iterate:
         if not os.path.isfile(alt_file):
@@ -2790,6 +2795,7 @@ def build_mesh(tile):
                 "\nERROR: Could not find",
                 alt_file,
                 ". You must run Step 1 first.",
+                code="earlier_step_missing",
             )
             return 0
         try:
@@ -2825,6 +2831,7 @@ def build_mesh(tile):
                     "\nERROR: Cached raster elevation does not match the ",
                     "current custom DEM specs.\n       You must run Step 1 ",
                     "and Step 2 with the same elevation base.",
+                    code="elevation_source_unset",
                 )
                 return 0
         except Exception as e:
@@ -2832,6 +2839,7 @@ def build_mesh(tile):
             UI.exit_message_and_bottom_line(
                 "\nERROR: Could not determine the appropriate source. Please ",
                 "check your custom_dem entry.",
+                code="elevation_source_unset",
             )
             return 0
     else:
@@ -2886,6 +2894,7 @@ def build_mesh(tile):
             UI.exit_message_and_bottom_line(
                 "\nERROR: Could not determine the appropriate source. Please ",
                 "check your custom_dem entry.",
+                code="elevation_source_unset",
             )
             return 0
     try:
@@ -2893,7 +2902,8 @@ def build_mesh(tile):
         input_nodes = int(f.readline().split()[0])
         f.close()
     except:
-        UI.exit_message_and_bottom_line("\nERROR: In reading ", node_file)
+        UI.exit_message_and_bottom_line("\nERROR: In reading ", node_file,
+                                        code="earlier_step_missing")
         return 0
 
     timer = time.time()
@@ -3016,6 +3026,7 @@ def build_mesh(tile):
                 "will find in ",
                 str(tile.build_dir),
                 ".\n",
+                code="mesh_failed",
             )
             return 0
 
@@ -3077,12 +3088,14 @@ def sort_mesh(tile):
         return 0
     mesh_file = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
     if not os.path.isfile(mesh_file):
-        UI.exit_message_and_bottom_line("\nERROR: Could not find ", mesh_file)
+        UI.exit_message_and_bottom_line("\nERROR: Could not find ", mesh_file,
+                                        code="earlier_step_missing")
         return 0
     if not os.path.isfile(sort_mesh_cmd.strip()):
         UI.exit_message_and_bottom_line(
             "\nERROR: moulinette is not bundled in this build (upstream binary"
-            " has no license terms); mesh re-sort skipped."
+            " has no license terms); mesh re-sort skipped.",
+            code="app_component_broken",
         )
         return 0
     sort_mesh_cmd_list = [
@@ -3129,6 +3142,7 @@ def triangulate(name, path_to_Ortho4XP_dir):
     fingers_crossed.poll()
     if fingers_crossed.returncode:
         print("\nERROR: triangle crashed, check osm mask data.\n")
+        UI.tile_failure("mesh_failed", "triangle crashed")
         return 0
     return 1
 

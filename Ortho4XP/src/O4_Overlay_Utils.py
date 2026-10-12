@@ -95,6 +95,7 @@ def build_overlay(lat, lon):
             file_to_sniff,
             "absent. Recall that the overlay source directory needs to be set ",
             "in the config window first.",
+            code="overlay_source_missing",
         )
         return 0
     file_to_sniff_loc = os.path.join(
@@ -106,7 +107,8 @@ def build_overlay(lat, lon):
     except:
         UI.exit_message_and_bottom_line(
             "   ERROR: could not copy it. Disk full, write permissions, erased",
-            " tmp dir ?"
+            " tmp dir ?",
+            code="output_folder_unwritable",
         )
         return 0
     f = open(file_to_sniff_loc, "rb")
@@ -118,7 +120,8 @@ def build_overlay(lat, lon):
         if seven_zip is None:
             # REFUSE here, naming the package: the alternative was a
             # FileNotFoundError raised deep inside extraction.
-            UI.exit_message_and_bottom_line(UNZIP_MISSING_MESSAGE)
+            UI.exit_message_and_bottom_line(UNZIP_MISSING_MESSAGE,
+                                            code="overlay_tool_failed")
             return 0
         os.replace(file_to_sniff_loc, file_to_sniff_loc + ".7z")
         subprocess.run([seven_zip, "e", f"-o{FNAMES.Tmp_dir}", f"{file_to_sniff_loc}.7z"], **UI.external_tool_keyword_arguments())
@@ -142,7 +145,8 @@ def build_overlay(lat, lon):
         else:
             UI.vprint(1, "     " + CONSOLE.native_tool_text(line)[:-1])
     if fingers_crossed.returncode:
-        UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
+        UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.",
+                                        code="overlay_tool_failed")
         return 0
     UI.vprint(1, "-> Selecting overlays for copy/paste")
     f = open(
@@ -256,7 +260,8 @@ def build_overlay(lat, lon):
         except:
             UI.exit_message_and_bottom_line(
                 "   ERROR: could not create destination directory "
-                + str(dest_dir)
+                + str(dest_dir),
+                code="output_folder_unwritable",
             )
             return 0
     shutil.copy(

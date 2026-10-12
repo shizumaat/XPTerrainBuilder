@@ -35,6 +35,8 @@ import traceback
 import typing as _t
 import urllib.parse
 
+import O4_Tile_Failures as _FAIL
+
 #: THE engine name.  v1 is retired (owner RULINGS 2026-09-13au): there is
 #: no second value, no cfg key and no selector — this constant is the one
 #: spelling the freshness stamp, the provenance line and the harness frame
@@ -420,7 +422,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         res = build(icao, inputs, scratch, cfg, law, out=_out)
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "build", "engine": ENGINE_V2,
-                "error": f"[v2] {exc}",
+                "error": f"[v2] {exc}", **_FAIL.record_fields(exc),
                 "traceback": traceback.format_exc() + "\n--- v2 build log ---\n"
                 + "\n".join(log_lines)}
     finally:
@@ -509,6 +511,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "write", "engine": ENGINE_V2,
                 "error": f"[v2] {exc}", "auto_patch_file": task["auto_patch_file"],
+                **_FAIL.record_fields(exc),
                 "traceback": traceback.format_exc()}
     build_s = time.time() - t0
 

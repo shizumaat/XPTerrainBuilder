@@ -136,7 +136,7 @@ def auto_patch_progress(icao, done, total, label, status="run",
 
 
 ################################################################################
-def auto_patch_failed(icao, stage, error):
+def auto_patch_failed(icao, stage, error, code="", params=None):
     """One airport's auto-patch build FAILED — the tile build is doomed.
 
     Distinct from ``auto_patch_progress(status="fail")``, which is the
@@ -153,13 +153,36 @@ def auto_patch_failed(icao, stage, error):
     """
     if engine_session is not None:
         try:
-            engine_session.autopatch_failed(icao, stage, error)
+            engine_session.autopatch_failed(icao, stage, error, code=code,
+                                            params=params)
         except Exception:
             pass
         return
     if gui:
         try:
             gui.autopatch_failed(icao, stage, error)
+        except Exception:
+            pass
+
+
+################################################################################
+def tile_failure(code, *detail, exc=None, **params):
+    """This tile is NOT going to be built, and here is the cause (#562).
+
+    Called where a step prints its error and returns 0 — the cause was
+    console-only before, and the tile's ``BuildDone`` could say no more
+    than "the mesh step failed".  ``code`` is an ``O4_Tile_Failures``
+    catalogue key (a string literal: core modules never import the
+    engine package); ``detail`` is the technical text kept for the log;
+    ``exc`` lets the catalogue name the cause from the exception's class
+    instead, ``code`` then being the fallback.  No-op without an engine
+    session and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.tile_failure(
+                code, " ".join(str(part) for part in detail).strip(),
+                exc=exc, **params)
         except Exception:
             pass
 
@@ -263,8 +286,14 @@ def bug_report(*args):
 
 
 ################################################################################
-def exit_message_and_bottom_line(*args):
+def exit_message_and_bottom_line(*args, code=None, **params):
+    """End a step: print ``args`` (default "Process interrupted") and the
+    bottom rule.  An ERROR exit names its cause with ``code`` — an
+    ``O4_Tile_Failures`` catalogue key, handed with the message to
+    :func:`tile_failure` (issue #562); ``code=None`` is a cancel."""
     global is_working
+    if code:
+        tile_failure(code, *args, **params)
     if not args:
         args = ("Process interrupted",)
     if args[0]:

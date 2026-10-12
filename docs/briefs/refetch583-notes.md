@@ -23,3 +23,75 @@
   `.prefetchN.tif`, `.surroundN`, …) and GDAL writes them in C; the guard
   patches Python `open` / `os.*` only. The Python `os.remove` of each
   scratch file was then the first call it saw.
+  Count check against the lane's 74 files: KGRF 10 = `.refetch` +
+  `.refetch.rung2` + 8 USGSOPR sources; KTCM 64 = 2 + 62 sources. The six
+  blocked removes are three per airport (strategy `finally`, ladder
+  `finally`, fetch-loop cleanup).
+- REPRODUCED on tmp dirs only (scratchpad `refetch583/repro.py`, a fake
+  provider whose scratch is written by GDAL and removed in Python, a
+  `SharedRepoWriteGuard` over a tmp corpus). Base tree (`git archive` of
+  012ac5899): `fetch_calls=1`, three `KASE_fakescr.tif.refetch*` files in
+  the guarded cache, `blocked=[os.remove, os.remove]`. This branch:
+  `fetch_calls=0`, nothing written, `blocked=[spawn the airport inset
+  fetch writing KASE_fakescr.tif, open for writing index.json]`.
+
+## Step 2 — engine (commit 871d6cd48)
+
+- `src/elevation_access/fetch_scratch.py` (new): every inset fetch works
+  in a private folder under `<Tmp_dir>/inset_fetch` (`O4_INSET_SCRATCH_DIR`
+  overrides); only the finished raster is moved onto the cache
+  (`land`: rename, or copy + rename across volumes). The fetch loop
+  declares the cache path through `O4_External_Writes` before a byte is
+  asked for. `sweep_stale` removes scratch folders and — where the run
+  may write the cache — `<raster>.tif.<more>` siblings older than 24 h
+  (not `.aux.xml`, not `.lock`).
+- A failed re-fetch or a failed `refresh=True` fetch now leaves the cached
+  raster alone (it was fetched over and then deleted).
+- CAP-DECLINED RUNG: `ProviderUnavailable.declined_by_cap`
+  (`cap_exceeded_unavailable`, LAS `_check_caps`); the ladder records the
+  rung's `listing_ids` and `declined_under` (definition digest + engine
+  version + capabilities); `_stored_rung_listing` honours the listing only
+  under the same signature. Every other `unavailable` is still asked on
+  every build (13b). DEVIATION for the spec author: RULINGS 2026-09-30bv
+  reported (2) left this undecided.
+
+## Step 3 — harness (commit 7c5db4435)
+
+- `tools/harness/inset_preflight.py` (new) + `build_airport.
+  tile_inset_refetch_rows`: a `--tile` pre-flight asks the engine's
+  per-airport verdict and ladder re-check for every selected aerodrome.
+- `refresh_tile_dem` → `_complete_pending_insets`: the stale negatives
+  (any run) and the tile-wide pending re-fetches (a `--tile` run) go
+  through `warm_airport_insets(..., refresh=False)`; a surviving row
+  refuses.
+- Guard: `OWN_TEMPORARY_OPS` — `os.remove` / `os.unlink` of a
+  `*.tmp-<own pid>*` file created after the guard armed is allowed and
+  recorded in `blocked` (`UNSEEN_WRITE_VIA`), so the run still fails.
+
+## Step 4 — closing reads (2026-10-12)
+
+- `build_airport.py KBFI --tile 47 -123 --no-ledger` on this branch:
+  rc 1 at the PRE-FLIGHT in 22 s, nothing built, nothing written
+  (shared inset dir still 20 entries). It names THREE pending re-fetches:
+  KGRF [ladder], KTCM [ladder] and KPWT [stale] (cut for
+  …47.452948… , now requires …47.452928…: a re-cut nobody had seen).
+  Log: scratchpad `refetch583/kbfi_tile_preflight.log`.
+- Real-provider witness, lane-local (`fetch_airport_elevation_insets.py
+  --witness KGRF --elevation-data-dir <scratchpad>`), twice: run 1
+  fetched the ladder (USGSLPC declined by cap, 54 tiles / 26.1 GB) and
+  left only `KGRF_usgs3dep.tif/.json` + `index.json` in the inset dir;
+  the sidecar's rung 3 carries 54 `listing_ids` and `declined_under`.
+  Run 2: zero fetches, `recheck.result = unchanged` (rungs 2, 3 asked).
+  On the base tree that re-check is `new-listing` on every build.
+
+## App side
+
+- An interrupted app build DID leave litter and nothing removed it: four
+  `*_copernicusglo30.tif.refetch` files of 2026-09-18 are still in
+  `Elevation_data/+10-070/N17W063_airport_insets/` of the shared corpus
+  (TFFJ, TNCE, TKPN, TKPK). The next build removed a `.refetch` only if
+  it re-fetched that same inset. Now: no scratch is cut beside the cache,
+  and each inset pass sweeps what older engines left (24 h bound).
+- The app re-downloaded KGRF and KTCM on every build of +47-123
+  (engine-stderr.log lines 139/148 and 712/714). After one more
+  re-fetch (which records the listing) the re-check answers `unchanged`.

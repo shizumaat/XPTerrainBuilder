@@ -4,7 +4,12 @@
 
 * Branch `claude/tilecont564`, worktree `.claude/worktrees/tilecont564`, base `1ff5a912a`.
 * STEP 1 DONE: consumer census (below), design decided.
-* STEP 2 NEXT: implement (driver set-aside, tile policy module, harness strict env, twins).
+* STEP 2 DONE: `Ortho4XP/src/O4_Unpatched_Airports.py` (new), `auto_patch/driver.py`
+  (`_fail_build_tasks` sets aside, exception carries `stale_left`), `O4_Vector_Map.py`
+  (`include_airports` continues; `build_poly_file` still returns 0 for what is re-raised),
+  strict env in `tools/harness/build_airport.py` `redirect_engine_caches` and
+  `scripts/check_frozen_tile.py`, twin `tests/test_unpatched_airports.py` (12 tests).
+* STEP 3 NEXT: ratchets, full non-Qt suite, final report.
 
 ## What fails today, and where
 

@@ -526,11 +526,15 @@ def from_unpatched(rows: Iterable[dict]) -> list:
         # another unpatched airport).
         restore = row.get("pack_restore")
         if restore:
+            # the bare cause when the object stage recorded one, else its
+            # whole sentence; exactly one full stop either way
+            reason = str(row.get("pack_restore_reason") or restore)
+            reason = reason.strip().rstrip(". ") + "."
+            pack = row.get("pack_restore_pack") or params.get("pack")
             out.append(dict(
                 record("pack_restore_unproven", str(restore),
-                       airport=row.get("icao") or "?", reason=str(restore),
-                       **({"pack": params["pack"]} if params.get("pack")
-                          else {})),
+                       airport=row.get("icao") or "?", reason=reason,
+                       **({"pack": pack} if pack else {})),
                 secondary=True))
     return out
 
@@ -540,8 +544,9 @@ def from_substitutions(rows: Iterable[dict]) -> list:
     (``{"cell", "code", "path"}`` plus ``source`` / ``fallback`` labels):
     one per cell, folded per (source, fallback) pair."""
     return [record("elevation_substituted",
-                   "%s read from %s (%s)" % (row.get("cell"), row.get("code"),
-                                             row.get("path")),
+                   "%s: source %s read from %s (%s)" % (
+                       row.get("cell"), row.get("keyword") or "?",
+                       row.get("code"), row.get("path")),
                    cell=str(row.get("cell") or "?"),
                    source=row.get("source") or "",
                    fallback=row.get("fallback") or row.get("code") or "")

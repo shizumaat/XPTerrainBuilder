@@ -212,7 +212,8 @@ def read_substitutions(tile) -> list:
         return []
 
 
-def note_pack(tile, icao: str, text: str) -> None:
+def note_pack(tile, icao: str, text: str, pack: str = "",
+              reason: str = "") -> None:
     """Add to ``icao``'s record what could NOT be done about its pack.
 
     Owner RULINGS 2026-10-12d: an airport left without a patch gets its
@@ -226,6 +227,11 @@ def note_pack(tile, icao: str, text: str) -> None:
         if rec.get("icao") == icao:
             earlier = rec.get(PACK_RESTORE_KEY)
             rec[PACK_RESTORE_KEY] = (earlier + " " + text) if earlier else text
+            # the pieces a front-end message is worded from (#562)
+            if pack:
+                rec[PACK_RESTORE_KEY + "_pack"] = pack
+            if reason:
+                rec[PACK_RESTORE_KEY + "_reason"] = reason
     tile.auto_patch_unpatched = unpatched
     _write_sidecar(tile, unpatched)
 

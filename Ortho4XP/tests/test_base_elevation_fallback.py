@@ -347,7 +347,7 @@ def test_a_substituted_cell_is_read_tied_to_its_configured_neighbour(
         "cell": "+48-123", "code": "SPARE1",
         "path": _Fallback().tile_cache_path(world["SPARE1"], *CELL),
         # the names the tile's closing note shows (RULINGS 2026-10-12e)
-        "source": "View", "fallback": "Spare one"}]
+        "source": "View", "keyword": "View", "fallback": "Spare one"}]
     assert "tied to its south neighbour" in capsys.readouterr().out
 
 
@@ -596,3 +596,26 @@ def test_one_source_failing_another_way_keeps_the_ordinary_message(
     with pytest.raises(DEM.ElevationTransportRefused) as caught:
         _ensure()
     assert FAIL.code_for_exception(caught.value) == "elevation_download_failed"
+
+
+def test_the_note_names_the_providers_not_the_keyword(world, shipped):
+    """Master copy fix: the stand-in elevation note says
+    "Viewfinderpanoramas did not answer", never "View did not answer" —
+    the legacy keyword resolves to its provider's display name from the
+    SHIPPED definitions, and stays only in the technical detail."""
+    import O4_Tile_Failures as FAIL
+
+    assert base_fallback.configured_label("View", shipped) == \
+        "Viewfinderpanoramas"
+    assert base_fallback.configured_label("Nobody", shipped) == "Nobody"
+    glo30 = shipped["COPERNICUSGLO30BASE"]
+    row = {"cell": "+48-123", "code": glo30["code"], "path": "/x/y.tif",
+           "source": base_fallback.configured_label("View", shipped),
+           "keyword": "View",
+           "fallback": base_fallback.source_label(glo30)}
+    (note,) = FAIL.fold(FAIL.from_substitutions([row]), "+48-123",
+                        built=True, note=True)
+    assert note["why"].startswith(
+        "Viewfinderpanoramas did not answer, so Copernicus GLO-30 was used.")
+    assert "View " not in FAIL.render(note)
+    assert "source View" in note["detail"]

@@ -1478,7 +1478,9 @@ def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
                             f"ground and could not be put back to its "
                             f"original: {out.reason} Its objects may float or "
                             f"sink there.")
-                        UNPATCHED.note_pack(tile, icao, text)
+                        UNPATCHED.note_pack(
+                            tile, icao, text, pack=str(pack["pack_name"]),
+                            reason=str(out.reason))
                         UI.loud_warning(f"   {icao}: {text}")
                     elif out.state != _up.NONE:
                         kept = (f"; {', '.join(out.kept)} keep their placements"

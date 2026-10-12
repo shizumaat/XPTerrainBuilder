@@ -102,6 +102,18 @@ def fallback_definitions(providers):
         ranked, key=lambda entry: entry[:2])]
 
 
+def configured_label(source, providers):
+    """The display name of the provider a legacy ``source`` keyword stands
+    for (``"View"`` -> ``"Viewfinderpanoramas"``): what a message shows.
+    The keyword itself when no definition claims it."""
+    for code in sorted(providers or ()):
+        definition = providers[code]
+        if (isinstance(definition, dict)
+                and definition.get("legacy_keyword") == source):
+            return source_label(definition)
+    return str(source)
+
+
 def _strategy(definition):
     return ACCESS_STRATEGIES[definition["access_strategy"]]()
 
@@ -179,7 +191,8 @@ def read_base_cell(source, lat, lon, providers, info_only=False,
         # three keys only.
         substitutions.append({"cell": _cell_label(lat, lon),
                               "code": fallback["code"], "path": path,
-                              "source": str(source),
+                              "source": configured_label(source, providers),
+                              "keyword": str(source),
                               "fallback": source_label(fallback)})
     cell = result[-1]
     if info_only or cell is None:

@@ -534,7 +534,10 @@ def test_a_pack_that_could_not_be_put_back_is_a_second_message(
         {"icao": "AAAA", "stage": "verify", "error": "[v2] DEFECT",
          "params": {"pack": "Some Pack"}},
         {"icao": "BBBB", "stage": "solve", "error": "[v2] infeasible"}])
-    UNPATCHED.note_pack(tile, "AAAA", "its backup file is missing.")
+    UNPATCHED.note_pack(
+        tile, "AAAA", "The scenery pack Some Pack was changed … Its objects "
+        "may float or sink there.", pack="Some Pack",
+        reason="its backup file is missing.")
 
     install_stub_pipeline(monkeypatch)
     done = _done(run_build(EngineSession(), [(10, 20)], tmp_path,
@@ -550,6 +553,17 @@ def test_a_pack_that_could_not_be_put_back_is_a_second_message(
         "Pack” onto graded ground, and they could not be put back: its "
         "backup file is missing.")
     assert restore["remedy"] == FAIL.REMEDIES["restore_pack"]
+    # one full stop however the reason was punctuated, or not at all
+    for (reason, tail) in (("no backup..", "put back: no backup."),
+                           ("no backup", "put back: no backup."),
+                           ("", "may float or sink there.")):
+        (row,) = [r for r in FAIL.from_unpatched([{
+            "icao": "AAAA", "stage": "build", "error": "x",
+            "pack_restore": "Whole sentence. Its objects may float or "
+                            "sink there.",
+            "pack_restore_reason": reason}]) if r.get("secondary")]
+        why = FAIL.fold([row], "+1+002", built=True)[0]["why"]
+        assert why.endswith(tail) and ".." not in why, why
     # still TWO unpatched airports, not three
     assert [r["airports"] for r in done.unpatched_airports] == [
         ["AAAA"], ["BBBB"]]

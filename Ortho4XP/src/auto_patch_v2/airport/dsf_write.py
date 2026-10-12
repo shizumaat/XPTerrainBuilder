@@ -120,10 +120,13 @@ import json
 import os
 import re
 import shutil
+import signal
 import struct
 import subprocess
 import tempfile
+import time
 import typing as _t
+import uuid
 from bisect import bisect_left
 
 import O4_Console_Encoding as _console
@@ -143,7 +146,7 @@ __all__ = ["conversions_for_dump", "TOL_DEG", "TOL_HEADING_DEG", "TOL_ELEV_M",
            "edit_dump", "dump", "encode", "verify_roundtrip", "write_pack",
            "DSFTOOL_LINE_MAX", "text_properties", "replace_properties",
            "live_install_roots", "pristine_dsf_path", "written_body_files",
-           "BackupUnproven"]
+           "BackupUnproven", "DsfToolError"]
 
 
 def pristine_dsf_path(dsf_path: str) -> str:
@@ -527,7 +530,30 @@ def _extwrite():
 _DSFTOOL_WRITER_NAME = "DSFTool"
 
 
-def _run(args: list[str], *, writes: str | None = None) -> None:
+class DsfToolError(RuntimeError):
+    """DSFTool did not do what it was asked: it exited non-zero, was killed
+    by a signal (a crash), ran past its time limit, or wrote nothing.  The
+    message is the real cause in plain words (#560)."""
+
+    #: ``True`` when DSFTool was stopped at its time limit.
+    timed_out = False
+
+
+def _exit_in_words(returncode: int) -> str:
+    """``"crashed (SIGSEGV)"`` for a signal death, else ``"failed (exit N)"``."""
+    if returncode < 0:
+        try:
+            return f"crashed ({signal.Signals(-returncode).name})"
+        except ValueError:
+            return f"crashed (signal {-returncode})"
+    return f"failed (exit {returncode})"
+
+
+def _run(args: list[str], *, writes: str | None = None,
+         declares: str | None = None, timeout: float | None = None) -> None:
+    """Run DSFTool; ``writes`` is the path the child writes and ``declares``
+    the path an armed guard is asked about (default: ``writes`` — they
+    differ when the child writes a temp file beside its destination)."""
     # A SPAWN IS A WRITE DECLARATION (#159, RULINGS 2026-09-30bs).  DSFTool
     # rewrites the SERVING PACK under the owner's ``Custom Scenery`` (the
     # 2026-09-15av class: lane v2vmmcshore's tile build rewrote the live
@@ -537,26 +563,125 @@ def _run(args: list[str], *, writes: str | None = None) -> None:
     # is never started when an armed guard refuses it, and the refusal is
     # RECORDED, so swallowing it fails the run.
     if writes is not None:
-        _extwrite().declare_external_write(writes,
+        _extwrite().declare_external_write(declares or writes,
                                           writer=_DSFTOOL_WRITER_NAME)
     # DSFTool is a native tool: its messages (echoing the paths it was
     # given) are in the ANSI code page on Windows, UTF-8 elsewhere, and a
     # path in any other spelling must not turn its failure into a
     # UnicodeDecodeError (#419).  The launch keywords make it posix_spawn,
     # never fork (O4_UI_Utils.external_tool_keyword_arguments).
-    proc = subprocess.run(args, capture_output=True,
-                          **_console.native_tool_pipe(),
-                          **_ui.external_tool_keyword_arguments())
+    try:
+        proc = subprocess.run(args, capture_output=True, timeout=timeout,
+                              **_console.native_tool_pipe(),
+                              **_ui.external_tool_keyword_arguments())
+    except subprocess.TimeoutExpired:
+        error = DsfToolError(f"{' '.join(args[:2])} did not finish within "
+                             f"{timeout:g} s and was stopped")
+        error.timed_out = True
+        raise error from None
     if proc.returncode != 0:
-        raise RuntimeError(f"{' '.join(args[:2])} failed (rc {proc.returncode}): "
-                           f"{(proc.stderr or proc.stdout).strip()[:400]}")
+        said = (proc.stderr or proc.stdout).strip()[:400]
+        raise DsfToolError(f"{' '.join(args[:2])} {_exit_in_words(proc.returncode)}"
+                           + (f": {said}" if said else ""))
 
 
-def dump(dsf_path: str, text_out: str, tool: str) -> str:
-    """``DSFTool --dsf2text`` into ``text_out``; returns it."""
+#: A ``<dump>.<pid>.<token>.partial`` older than this is the litter of a
+#: process that was killed mid-dump; the next dump of that file removes it.
+_PARTIAL_DUMP_STALE_S = 3600.0
+
+
+def _remove_quietly(path: str) -> None:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+#: Waits between attempts to rename a finished dump onto its name when the
+#: rename is refused (about 2 s in all).
+_LAND_RETRY_WAITS_S = (0.05, 0.1, 0.2, 0.4, 0.6, 0.65)
+
+
+def _land_dump(partial: str, text_out: str, started: float) -> None:
+    """Rename the finished ``partial`` onto ``text_out``.
+
+    ON WINDOWS THE RENAME CAN BE REFUSED (``PermissionError``): another
+    worker is renaming its own dump of the same DSF onto the name at this
+    instant, or a reader has the old dump open (#560, PR #569 — six
+    workers dump one pack DSF at once).  If a whole dump has landed there
+    since this dump began (``started``), another writer won: it is the
+    same text, so ours is dropped and theirs is used.  Otherwise the
+    rename is tried again for about two seconds, then :class:`DsfToolError`
+    names the refusal.  The caller removes ``partial`` on every path.
+    """
+    refusal: OSError | None = None
+    for wait in (0.0,) + _LAND_RETRY_WAITS_S:
+        if wait:
+            time.sleep(wait)
+        try:
+            os.replace(partial, text_out)
+            return
+        except PermissionError as error:
+            refusal = error
+        try:
+            landed = os.stat(text_out)
+            # 2 s: the coarsest file-time step of a supported file system
+            if landed.st_size > 0 and landed.st_mtime >= started - 2.0:
+                return
+        except OSError:
+            pass
+    raise DsfToolError(
+        f"the finished text dump could not be moved onto {text_out}: "
+        f"{refusal} — another program has that file open") from refusal
+
+
+def _sweep_stale_partials(text_out: str) -> None:
+    """Remove the ``.partial`` files a KILLED dump of ``text_out`` left."""
+    folder, prefix = os.path.split(text_out)
+    try:
+        names = os.listdir(folder or ".")
+    except OSError:
+        return
+    for name in names:
+        if name.startswith(prefix + ".") and name.endswith(".partial"):
+            path = os.path.join(folder, name)
+            try:
+                if time.time() - os.path.getmtime(path) > _PARTIAL_DUMP_STALE_S:
+                    os.remove(path)
+            except OSError:
+                pass
+
+
+def dump(dsf_path: str, text_out: str, tool: str, *,
+         timeout: float | None = None) -> str:
+    """``DSFTool --dsf2text`` into ``text_out``; returns it.
+
+    ATOMIC (#560): DSFTool writes a ``.partial`` file BESIDE ``text_out``
+    and that file is renamed onto it only after DSFTool exited 0 and wrote
+    something.  DSFTool creates its output before it reads the DSF, so a
+    crash left a 0-byte file under the final name — measured 2026-10-11:
+    DSFTool 2.4.0-b1 dies with SIGSEGV on one stock Global Airports tile
+    and every build of that tile found the empty dump.  A failed, killed or
+    timed-out run now leaves NOTHING under ``text_out`` (an older good
+    dump there is untouched), and two processes dumping one DSF each
+    rename a complete file — the last one wins, both are whole.  The
+    ``.partial`` name ends in neither ``.text`` nor ``.dsf``, so no reader
+    globs it.  Raises :class:`DsfToolError` naming the real cause.
+    """
     if not tool or not os.path.isfile(tool):
-        raise RuntimeError(f"DSFTool binary required, got {tool!r}")
-    _run([tool, "--dsf2text", dsf_path, text_out], writes=text_out)
+        raise DsfToolError(f"DSFTool binary required, got {tool!r}")
+    _sweep_stale_partials(text_out)
+    started = time.time()
+    partial = f"{text_out}.{os.getpid()}.{uuid.uuid4().hex[:8]}.partial"
+    try:
+        _run([tool, "--dsf2text", dsf_path, partial], writes=partial,
+             declares=text_out, timeout=timeout)
+        if not os.path.isfile(partial) or os.path.getsize(partial) == 0:
+            raise DsfToolError(
+                f"{tool} --dsf2text exited 0 but wrote no text for {dsf_path}")
+        _land_dump(partial, text_out, started)
+    finally:
+        _remove_quietly(partial)
     return text_out
 
 

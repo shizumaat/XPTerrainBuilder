@@ -285,6 +285,28 @@ def test_the_harness_environment_is_strict():
             assert '["%s"] = "1"' % UNPATCHED.STRICT_ENV in handle.read(), path
 
 
+def test_the_family_names_are_their_writers_own():
+    """The set-aside spells the names itself (it must work when the v2
+    package cannot be imported); each is held against its writer."""
+    from auto_patch import engine_v2
+    from auto_patch_v2.airport import object_plan, rebake_screen
+    from auto_patch_v2.model.rebake import PLAN_FILENAME
+
+    patch = os.path.basename(_patch("", "{icao}"))
+    assert UNPATCHED.PATCH_FAMILY == (
+        patch, patch + ".axes.json", engine_v2.GRADED_SURFACE_FILENAME,
+        PLAN_FILENAME, rebake_screen.SCREEN_FILENAME,
+        object_plan.REFUSED_FILENAME)
+    # and none of them, set aside, matches a reader's pattern
+    for name in UNPATCHED.PATCH_FAMILY:
+        stale = name.format(icao="KBBB") + UNPATCHED.STALE_SUFFIX
+        assert stale[-10:] != ".patch.osm"
+        assert not stale.endswith(".patch.osm.axes.json")
+        assert not engine_v2._PLAN_NAME_RE.match(stale)
+        assert not object_plan.SCREEN_NAME_RE.match(stale)
+        assert not stale.endswith(".json")
+
+
 # ── 5: what still ends the tile ─────────────────────────────────────────
 
 

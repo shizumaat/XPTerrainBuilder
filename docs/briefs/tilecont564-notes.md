@@ -9,7 +9,10 @@
   (`include_airports` continues; `build_poly_file` still returns 0 for what is re-raised),
   strict env in `tools/harness/build_airport.py` `redirect_engine_caches` and
   `scripts/check_frozen_tile.py`, twin `tests/test_unpatched_airports.py` (12 tests).
-* STEP 3 NEXT: ratchets, full non-Qt suite, final report.
+* STEP 3 DONE: ratchets pass; full non-Qt suite run once (3 reds in
+  `test_auto_patch_engine_dispatch.py` — the set-aside imported `auto_patch_v2`, which those twins
+  stub out; fixed by spelling the family in `O4_Unpatched_Airports.PATCH_FAMILY`, held against the
+  writers' constants by a twin); affected files rerun green. Nothing left but the master's merge.
 
 ## What fails today, and where
 
@@ -84,5 +87,12 @@ not use the shared admission test (7).
 ## Field request for lane failmsg562 (not stubbed here)
 
 `BuildDone.unpatched_airports: list = []` — one `{"airport": str, "stage": str, "error": str}`
-per airport built without its patch. Empty = clean success. See the final report for the
-parallel-orchestrator caveat.
+per airport the tile was built without. Empty = clean success; non-empty with `ok=True` =
+success with warnings.
+
+Source for the session: `O4_Unpatched_Airports.read(tile)` (keys `icao` / `stage` / `error`).
+It returns this process's own record when it ran the vector step and otherwise reads
+`<tile.build_dir>/o4_unpatched_airports.json`. That matters: under `o4_engine/parallel.py` each
+step runs in its own child, the vector child's `BuildDone(ok=True)` is SWALLOWED as an
+intermediate (`_on_child_event`, "event.ok and not last_step"), and the tile's final `BuildDone`
+comes from the last step's child, whose session never saw the `AutoPatchFailed` events.

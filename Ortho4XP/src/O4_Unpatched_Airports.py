@@ -26,7 +26,8 @@ import json
 import os
 
 __all__ = [
-    "STALE_SUFFIX", "STRICT_ENV", "UNPATCHED_SIDECAR", "airport_patch_family",
+    "STALE_SUFFIX", "STRICT_ENV", "UNPATCHED_SIDECAR", "PATCH_FAMILY",
+    "airport_patch_family",
     "set_aside_unbuilt", "strict", "may_continue", "record", "read",
     "warn",
 ]
@@ -56,20 +57,28 @@ UNPATCHED_SIDECAR = "o4_unpatched_airports.json"
 WHOLE_TILE = "*"
 
 
-def airport_patch_family(patch_dir: str, icao: str) -> list:
-    """Every per-airport file placed beside the patch that a later stage
-    reads by name: the patch, its sidecar, the graded surface, and the
-    object stage's plan, screen and refusal marker."""
-    from auto_patch import engine_v2
-    from auto_patch_v2.airport import object_plan, rebake_screen
-    from auto_patch_v2.model.rebake import PLAN_FILENAME
+#: The per-airport files placed beside the patch that a later stage reads
+#: by name: the patch, its sidecar, the graded surface, and the object
+#: stage's plan, screen and refusal marker.  SPELLED HERE, not imported
+#: from their writers (``auto_patch.engine_v2``, ``auto_patch_v2.model.
+#: rebake``, ``auto_patch_v2.airport.rebake_screen`` / ``object_plan``): a
+#: failure of the v2 package to import is itself an airport failure, and
+#: naming it must not need that package.  ``tests/test_unpatched_airports
+#: .py`` holds each name against its writer's constant.
+PATCH_FAMILY = (
+    "{icao}_auto.patch.osm",
+    "{icao}_auto.patch.osm.axes.json",
+    "{icao}.graded.json",
+    "o4_v2_rebake_{icao}.json",
+    "o4_v2_rebake_{icao}.screen.json",
+    "o4_v2_rebake_{icao}.screen.refused",
+)
 
-    patch = os.path.join(patch_dir, "{}_auto.patch.osm".format(icao))
-    beside = (PLAN_FILENAME, rebake_screen.SCREEN_FILENAME,
-              object_plan.REFUSED_FILENAME)
-    return [patch, patch + ".axes.json",
-            engine_v2.graded_surface_path(patch_dir, icao)] + [
-        os.path.join(patch_dir, name.format(icao=icao)) for name in beside]
+
+def airport_patch_family(patch_dir: str, icao: str) -> list:
+    """The :data:`PATCH_FAMILY` paths of one airport in *patch_dir*."""
+    return [os.path.join(patch_dir, name.format(icao=icao))
+            for name in PATCH_FAMILY]
 
 
 def set_aside_unbuilt(patch_dir: str, icao: str) -> tuple:

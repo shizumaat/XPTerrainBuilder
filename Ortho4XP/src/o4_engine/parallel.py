@@ -1606,7 +1606,8 @@ class ParallelBuildRun:
             # them from the tile's unpatched-airports sidecar) close the
             # tile's log below, after "Tile … completed in".
             with self._lock:
-                self._tile_warnings[tile] = list(event.warnings)
+                self._tile_warnings[tile] = (list(event.warnings),
+                                             list(event.notes))
             with self._lock:
                 if event.ok:
                     self._done += 1
@@ -1729,7 +1730,7 @@ class ParallelBuildRun:
                                  self._tile_step_seconds.pop(
                                      child.tile, 0.0))))
                     for line in FAIL.closing_lines(
-                            self._tile_warnings.pop(child.tile, [])):
+                            *self._tile_warnings.pop(child.tile, ([], []))):
                         print(line)
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)

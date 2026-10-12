@@ -35,6 +35,7 @@ from urllib.parse import urlparse
 
 import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
+import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
 from elevation_access import base_seam
@@ -67,11 +68,14 @@ UNREACHABLE_MEMORY_S = 600.0
 # host (or source CODE when the strategy publishes no URL) ->
 # (time.monotonic() of the failure, the failure in words)
 _unreachable = {}
+# host -> whether that failure was a PROXY's refusal (O4_Tile_Failures).
+_proxied = {}
 
 
 def forget_unreachable_sources():
     """Drop the memory of failed hosts (a twin's reset)."""
     _unreachable.clear()
+    _proxied.clear()
 
 
 def source_label(definition):
@@ -170,8 +174,13 @@ def read_base_cell(source, lat, lon, providers, info_only=False,
     if fallback is None:
         return result
     if substitutions is not None:
+        # ``source`` / ``fallback`` are the names the tile's closing note
+        # shows (RULINGS 2026-10-12e); the fingerprint reads the first
+        # three keys only.
         substitutions.append({"cell": _cell_label(lat, lon),
-                              "code": fallback["code"], "path": path})
+                              "code": fallback["code"], "path": path,
+                              "source": str(source),
+                              "fallback": source_label(fallback)})
     cell = result[-1]
     if info_only or cell is None:
         return result
@@ -231,6 +240,7 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
         except DEM.ElevationTransportRefused as error:
             failure = str(error)
             _unreachable[host] = (time.monotonic(), failure)
+            _proxied[host] = FAIL.is_proxy_refusal(error)
     else:
         UI.vprint(
             1, "    ", source_label(definition), "did not answer earlier "
@@ -240,13 +250,17 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
         return 0
     if before_fallback is not None:
         before_fallback()
-    return _take_fallback(definition, lat, lon, failure, verbose, providers)
+    return _take_fallback(definition, lat, lon, failure, verbose, providers,
+                          _proxied.get(host, False))
 
 
 def _take_fallback(configured, lat, lon, configured_failure, verbose,
-                   providers):
+                   providers, configured_proxied=False):
     cell = _cell_label(lat, lon)
     failures = [(source_label(configured), configured_failure)]
+    # Whether EVERY source that was asked was refused by a proxy: the
+    # user's own proxy or VPN, not the servers (the refusal then says so).
+    proxied = [configured_proxied]
     for definition in fallback_definitions(providers):
         label = source_label(definition)
         strategy = _strategy(definition)
@@ -260,6 +274,7 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
             obtained = strategy.ensure_tile(definition, lat, lon, verbose)
         except Exception as error:
             failures.append((label, "%s: %s" % (type(error).__name__, error)))
+            proxied.append(FAIL.is_proxy_refusal(error))
             continue
         if obtained:
             UI.lvprint(
@@ -271,10 +286,13 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
                    source_label(configured), configured_failure))
             return 1
         failures.append((label, "has no data for this cell"))
-    raise DEM.ElevationTransportRefused(
+    refusal = DEM.ElevationTransportRefused(
         "elevation cell %s could not be fetched from any source -- "
         "REFUSING to build this tile on an all-zero elevation raster. %s "
         "Check the network connection (a proxy, or antivirus HTTPS "
         "inspection, can block every source at once) and build again."
         % (cell, " ".join("%s: %s." % (label, str(text).rstrip("."))
                           for (label, text) in failures)))
+    if all(proxied):
+        refusal.failure_code = "proxy_refused"
+    raise refusal

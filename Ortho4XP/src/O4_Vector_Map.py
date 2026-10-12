@@ -2101,6 +2101,12 @@ def compose_tile_dem_from_disk(tile, dico_airports, write_alt_file=True):
         info_only=False,
         elevation_level=getattr(tile, "elevation_level", "auto"),
     )
+    if write_alt_file:
+        # RULINGS 2026-10-12e: a base cell read from a fallback source is
+        # never silent — published for the tile's closing report (an
+        # empty list in every ordinary build).
+        UNPATCHED.record_substitutions(
+            tile, getattr(tile.dem, "base_substitutions", None))
     # Densify the working grid over inset tiles (spec Phase C1) BEFORE
     # smoothing and baking, so the finer posting carries the meter-class
     # airport relief through to the mesh. No-op (byte-identical) when no

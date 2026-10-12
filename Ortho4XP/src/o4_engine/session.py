@@ -79,7 +79,7 @@ STEP_FAILURE_NOUNS = {
 BUILT_WITH_WARNINGS = "built with warnings"
 
 
-def build_done(lat, lon, ok, records, app_driven=False):
+def build_done(lat, lon, ok, records, app_driven=False, notes=()):
     """A tile's ``BuildDone`` from its raw failure ``records``
     (``O4_Tile_Failures.record``), folded to one user message per cause
     (issue #562).  Shared with the parallel orchestrator's dead-worker
@@ -95,6 +95,9 @@ def build_done(lat, lon, ok, records, app_driven=False):
     ``app_driven`` (``EngineSession.app_driven``): an app is on the other
     end, so "report it" reads "Press Report this problem"; a shell or
     harness build is given the log's path instead.
+
+    ``notes`` are raw NOTE records of a built tile — it was built on
+    stand-in elevation for some cell (owner RULINGS 2026-10-12e).
     """
     tile = FNAMES.short_latlon(lat, lon)
     try:
@@ -105,6 +108,7 @@ def build_done(lat, lon, ok, records, app_driven=False):
         log_path = ""
     ending = [r for r in records if r.get("scope") != "airport"]
     unpatched = [r for r in records if r.get("scope") == "airport"]
+    airports = [r for r in unpatched if not r.get("secondary")]
     if ok:
         # A tile-scoped cause on a tile that WAS built is an error a step
         # printed and then recovered from: not a warning.
@@ -112,13 +116,15 @@ def build_done(lat, lon, ok, records, app_driven=False):
             lat=lat, lon=lon, ok=True,
             warnings=FAIL.fold(unpatched, tile, built=True,
                                log_path=log_path, report_button=app_driven),
+            notes=FAIL.fold(notes, tile, built=True, log_path=log_path,
+                            report_button=app_driven, note=True),
             # The same airports one by one (#564): each entry is a
             # message of its own plus its ``stage``, so it feeds
             # ``failure_report`` unchanged.
             unpatched_airports=[
                 dict(FAIL.fold([r], tile, built=True, log_path=log_path,
                                report_button=app_driven)[0],
-                     stage=r.get("stage", "")) for r in unpatched])
+                     stage=r.get("stage", "")) for r in airports])
     failures = FAIL.fold(
         ending or unpatched or [FAIL.record(FAIL.UNMAPPED_STEP)],
         tile, log_path=log_path, report_button=app_driven)
@@ -1208,15 +1214,21 @@ class EngineSession:
                     # a sidecar, because under the parallel orchestrator
                     # this step's process is not the one that ran it.
                     self._take_tile_failures()
-                    built = build_done(lat, lon, True, FAIL.from_unpatched(
-                        UNPATCHED.read(tile)), self.app_driven)
+                    built = build_done(
+                        lat, lon, True,
+                        FAIL.from_unpatched(UNPATCHED.read(tile)),
+                        self.app_driven,
+                        notes=FAIL.from_substitutions(
+                            UNPATCHED.read_substitutions(tile)))
                     self._emit(TileState(
                         lat=lat, lon=lon, state="done", percent=100.0,
-                        label=BUILT_WITH_WARNINGS if built.warnings else ""))
+                        label=(BUILT_WITH_WARNINGS
+                               if built.warnings or built.notes else "")))
                     if not self._stepwise_run:
                         # The LAST thing in the tile's log (a per-step
                         # child leaves it to the parent orchestrator).
-                        for line in FAIL.closing_lines(built.warnings):
+                        for line in FAIL.closing_lines(built.warnings,
+                                                       built.notes):
                             UI.lvprint(0, line)
                     self._emit(built)
                     _record_tile_build(

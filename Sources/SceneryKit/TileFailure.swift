@@ -64,8 +64,9 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
     public var message: String { [what, why, remedy].joined(separator: "\n") }
 
     /// The console block: the three sentences, then the technical detail.
-    public func consoleLines(isWarning: Bool) -> [String] {
-        var lines = [(isWarning ? "Warning: " : "*** ") + what, "    " + why, "    " + remedy]
+    public func consoleLines(isWarning: Bool, isNote: Bool = false) -> [String] {
+        let lead = isNote ? "Note: " : (isWarning ? "Warning: " : "*** ")
+        var lines = [lead + what, "    " + why, "    " + remedy]
         for line in detail.split(separator: "\n") {
             lines.append("      detail: " + line)
         }
@@ -81,9 +82,13 @@ public struct O4TileIssues: Sendable, Equatable {
     public let built: Bool
     public let failures: [O4TileFailure]
     public let warnings: [O4TileFailure]
+    /// Info-level entries (stand-in elevation), shown under the warnings.
+    public let notes: [O4TileFailure]
 
     public init(tileKey: String, lat: Int = 0, lon: Int = 0, built: Bool,
-                failures: [O4TileFailure], warnings: [O4TileFailure]) {
+                failures: [O4TileFailure], warnings: [O4TileFailure],
+                notes: [O4TileFailure] = []) {
+        self.notes = notes
         self.tileKey = tileKey
         self.lat = lat
         self.lon = lon
@@ -92,7 +97,7 @@ public struct O4TileIssues: Sendable, Equatable {
         self.warnings = warnings
     }
 
-    public var entries: [O4TileFailure] { failures + warnings }
+    public var entries: [O4TileFailure] { failures + warnings + notes }
 }
 
 /// The run's ONE report (a batch of twenty tiles must not raise twenty
@@ -148,7 +153,7 @@ public struct O4RunIssueLog: Sendable, Equatable {
 
     /// Tiles built with warnings so far in this run.
     public var warnedCount: Int {
-        tiles.filter { $0.built && !$0.warnings.isEmpty }.count
+        tiles.filter { $0.built && !$0.entries.isEmpty }.count
     }
 
     /// The run's report (nil when there is nothing to say); the log is

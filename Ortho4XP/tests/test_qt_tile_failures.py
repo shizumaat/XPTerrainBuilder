@@ -96,3 +96,18 @@ def test_the_button_copy_matches_the_mac_app():
     for text in (QTFAIL.REPORT_BUTTON, QTFAIL.SAVE_REPORT_BUTTON,
                  QTFAIL.REPORT_PREVIEW_TITLE, QTFAIL.OPEN_ISSUE_BUTTON):
         assert '"%s"' % text in source, text
+
+
+def test_notes_sit_under_the_warnings_and_count_as_built_with_warnings():
+    """Owner RULINGS 2026-10-12e: stand-in elevation is shown in the same
+    box, under the warnings; a tile with only a note is "with warnings"."""
+    noted = SESSION.build_done(47, -123, True, [], notes=[FAIL.record(
+        "elevation_substituted", "d", cell="+47-124", source="Source A",
+        fallback="Source B")])
+    lines = QTFAIL.console_lines(noted)
+    assert lines[0] == ("Note: Tile +47-123 was built with stand-in "
+                        "elevation for cell +47-124.")
+    assert QTFAIL.report_phrase(noted) == "with warnings"
+    (title, body, _detail) = QTFAIL.box_texts([_warned(), noted])
+    assert title == "2 built with warnings"
+    assert body.index("was built, but") < body.index("stand-in elevation")

@@ -970,8 +970,13 @@ def _ensure_cell_elevation(source, lat, lon, lat0, lon0, verbose,
         else:
             role = ("a NEIGHBOUR of tile %+03d%+04d, whose elevation "
                     "border band it supplies" % (lat, lon))
-        raise ElevationDownloadRefused(
-            "elevation cell %s (%s): %s" % (cell, role, error)) from error
+        named = ElevationDownloadRefused(
+            "elevation cell %s (%s): %s" % (cell, role, error))
+        # the cause the refusal named for itself (a proxy's refusal,
+        # O4_Tile_Failures) survives the re-wording
+        if getattr(error, "failure_code", None):
+            named.failure_code = error.failure_code
+        raise named from error
 
 
 def read_base_cell(source, lat, lon, info_only, base_if_error,
@@ -1416,6 +1421,7 @@ def http_request(url, source, verbose=False):
     s = requests.Session()
     tentative = 0
     last_failure = None
+    last_error = None
     while True:
         # Cancellation: the user pressed Stop.  Abort before spending
         # another request on this source and match http_request's
@@ -1464,6 +1470,7 @@ def http_request(url, source, verbose=False):
                     % (source, url, r.status_code))
             else:
                 last_failure = "status %d" % r.status_code
+                last_error = None
                 if verbose:
                     UI.vprint(
                         2, "    Server answered", r.status_code,
@@ -1478,18 +1485,26 @@ def http_request(url, source, verbose=False):
             raise
         except Exception as e:
             last_failure = "%s: %s" % (type(e).__name__, e)
+            last_error = e
             # ALWAYS printed (it used to need verbose): the transport
             # error is the one line that says WHY the elevation is missing.
             UI.vprint(1, "    ", source, "download failed:", last_failure)
         tentative += 1
         if tentative >= HTTP_REQUEST_ATTEMPT_CAP:
             if last_failure is not None and not UI.red_flag:
-                raise ElevationTransportRefused(
+                refusal = ElevationTransportRefused(
                     "the %s elevation download of %s failed %d times on "
                     "the transport (last: %s) -- REFUSING to build this "
                     "tile on an all-zero elevation raster; check the "
                     "network / TLS (antivirus or proxy HTTPS inspection) "
                     "and rebuild" % (source, url, tentative, last_failure))
+                # A PROXY refused it (the user's side, not the server's):
+                # named by the exception's class, never its text.
+                if last_error is not None and any(
+                        k.__name__ == "ProxyError"
+                        for k in type(last_error).__mro__):
+                    refusal.failure_code = "proxy_refused"
+                raise refusal
             return 0
         # Cancellation before the exponential back-off sleep: Stop must
         # not be blocked for up to 2**tentative seconds waiting to retry

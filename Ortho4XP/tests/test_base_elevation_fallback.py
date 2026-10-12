@@ -345,7 +345,9 @@ def test_a_substituted_cell_is_read_tied_to_its_configured_neighbour(
     assert cell[0, 0] == pytest.approx(200.0 - 90.0 / 5)
     assert substitutions == [{
         "cell": "+48-123", "code": "SPARE1",
-        "path": _Fallback().tile_cache_path(world["SPARE1"], *CELL)}]
+        "path": _Fallback().tile_cache_path(world["SPARE1"], *CELL),
+        # the names the tile's closing note shows (RULINGS 2026-10-12e)
+        "source": "View", "fallback": "Spare one"}]
     assert "tied to its south neighbour" in capsys.readouterr().out
 
 
@@ -525,3 +527,72 @@ def test_the_shared_warp_honours_a_fixed_output_grid(tmp_path):
     assert numpy.array_equal(
         cut.GetRasterBand(1).ReadAsArray(),
         numpy.arange(16, dtype=numpy.float32).reshape(4, 4))
+
+
+# ------------------------------------------------- a proxy's refusal (#562)
+class ProxyError(ConnectionError):
+    """Stands in for ``requests.exceptions.ProxyError``: the catalogue
+    reads the class NAME along the MRO, never the message."""
+
+
+def test_a_proxy_refusal_on_the_transport_is_named_by_its_class(monkeypatch):
+    import O4_Tile_Failures as FAIL
+
+    def _proxy():
+        raise ProxyError("Tunnel connection failed: 400 Bad Request")
+
+    monkeypatch.setattr(UI, "red_flag", False)
+    monkeypatch.setattr(DEM.requests, "Session", lambda: _Session(_proxy))
+    monkeypatch.setattr(DEM.time, "sleep", lambda seconds: None)
+    with pytest.raises(DEM.ElevationTransportRefused) as caught:
+        DEM.http_request("https://example.invalid/dem3/M10.zip", "View")
+    assert FAIL.code_for_exception(caught.value) == "proxy_refused"
+
+    def _timeout():
+        raise TimeoutError("Read timed out.")
+
+    monkeypatch.setattr(DEM.requests, "Session", lambda: _Session(_timeout))
+    with pytest.raises(DEM.ElevationTransportRefused) as caught:
+        DEM.http_request("https://example.invalid/dem3/M10.zip", "View")
+    assert FAIL.code_for_exception(caught.value) == "elevation_download_failed"
+
+
+def test_every_source_refused_by_a_proxy_says_so(world, monkeypatch):
+    """The all-sources-failed refusal is the user's proxy or VPN when the
+    configured source AND every fallback asked died on a ProxyError; one
+    source failing another way keeps the ordinary message."""
+    import O4_Tile_Failures as FAIL
+
+    def proxied_primary(self, definition, lat, lon, verbose=True):
+        refusal = DEM.ElevationTransportRefused(TRANSPORT_TEXT)
+        refusal.failure_code = "proxy_refused"      # as http_request sets it
+        raise refusal
+
+    def proxied_spare(self, definition, lat, lon, verbose=True):
+        raise ProxyError("Tunnel connection failed: 400 Bad Request")
+
+    monkeypatch.setattr(_Configured, "ensure_tile", proxied_primary)
+    monkeypatch.setattr(_Fallback, "ensure_tile", proxied_spare)
+    with pytest.raises(DEM.ElevationTransportRefused) as caught:
+        _ensure()
+    assert FAIL.code_for_exception(caught.value) == "proxy_refused"
+    (message,) = FAIL.fold([FAIL.record(
+        FAIL.code_for_exception(caught.value), str(caught.value))], "+48-123")
+    assert message["why"] == "Your proxy or VPN refused the connection."
+
+
+
+def test_one_source_failing_another_way_keeps_the_ordinary_message(
+        world, monkeypatch):
+    import O4_Tile_Failures as FAIL
+
+    def proxied_primary(self, definition, lat, lon, verbose=True):
+        refusal = DEM.ElevationTransportRefused(TRANSPORT_TEXT)
+        refusal.failure_code = "proxy_refused"
+        raise refusal
+
+    monkeypatch.setattr(_Configured, "ensure_tile", proxied_primary)
+    _Fallback.failing = {"SPARE1", "SPARE2"}        # RuntimeError, no proxy
+    with pytest.raises(DEM.ElevationTransportRefused) as caught:
+        _ensure()
+    assert FAIL.code_for_exception(caught.value) == "elevation_download_failed"

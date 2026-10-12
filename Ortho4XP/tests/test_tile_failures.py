@@ -518,6 +518,110 @@ def test_the_last_steps_process_reads_the_airports_from_the_sidecar(
         ["AAAA"], ["BBBB"], ["CCCC"]]
 
 
+def test_a_pack_that_could_not_be_put_back_is_a_second_message(
+        monkeypatch, tmp_path):
+    """Owner RULINGS 2026-10-12d: an unpatched airport gets its original
+    pack back; a restore that cannot be proven is NAMED — a second message
+    for that airport, from the ``pack_restore`` sentence the object stage
+    left in its record (``O4_Unpatched_Airports.note_pack``)."""
+    import O4_Unpatched_Airports as UNPATCHED
+
+    class _OtherProcessTile:
+        build_dir = str(tmp_path)
+
+    tile = _OtherProcessTile()
+    UNPATCHED.record(tile, [
+        {"icao": "AAAA", "stage": "verify", "error": "[v2] DEFECT",
+         "params": {"pack": "Some Pack"}},
+        {"icao": "BBBB", "stage": "solve", "error": "[v2] infeasible"}])
+    UNPATCHED.note_pack(tile, "AAAA", "its backup file is missing.")
+
+    install_stub_pipeline(monkeypatch)
+    done = _done(run_build(EngineSession(), [(10, 20)], tmp_path,
+                           do_vector=False), 10, 20)
+    assert [(w["code"], w["airports"]) for w in done.warnings] == [
+        ("airport_verify", ["AAAA"]), ("pack_restore_unproven", ["AAAA"]),
+        ("airport_solve", ["BBBB"])]
+    restore = done.warnings[1]
+    assert restore["what"] == ("Tile +10+020 was built, but objects at "
+                               "airport AAAA may float or sink.")
+    assert restore["why"] == (
+        "An earlier build moved the objects of the scenery pack “Some "
+        "Pack” onto graded ground, and they could not be put back: its "
+        "backup file is missing.")
+    assert restore["remedy"] == FAIL.REMEDIES["restore_pack"]
+    # still TWO unpatched airports, not three
+    assert [r["airports"] for r in done.unpatched_airports] == [
+        ["AAAA"], ["BBBB"]]
+
+
+def test_the_restore_remedy_names_the_control_both_apps_have():
+    """Neither app has a "Restore originals" control: the per-pack button
+    of the "Modified airports" row is "Revert to default" in both."""
+    remedy = FAIL.REMEDIES["restore_pack"]
+    assert "Revert to default" in remedy and "Modified airports" in remedy
+    root = os.path.join(SRC, "..", "..")
+    for path in (os.path.join(SRC, "O4_Qt_GUI.py"),
+                 os.path.join(root, "Sources", "XPTerrainBuilder",
+                              "BuildPane.swift")):
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as handle:
+            source = handle.read()
+        assert "Revert to default" in source, path
+        assert "Modified airports" in source, path
+
+
+def test_stand_in_elevation_is_a_note_from_the_sidecar(monkeypatch,
+                                                       tmp_path, capsys):
+    """Owner RULINGS 2026-10-12e: a base cell read from a fallback source
+    is never silent.  The DEM load published it beside the tile; the
+    session that ends the tile — another process under the parallel
+    orchestrator — reports it as a NOTE, folded per source pair, and the
+    tile reads "built with warnings"."""
+    import O4_Unpatched_Airports as UNPATCHED
+
+    class _DemProcessTile:
+        build_dir = str(tmp_path)
+
+    tile = _DemProcessTile()
+    UNPATCHED.record(tile, [])
+    UNPATCHED.record_substitutions(tile, [
+        {"cell": c, "code": "GLO30", "path": "/x/%s.tif" % c,
+         "source": "Viewfinder Panoramas", "fallback": "Copernicus GLO-30"}
+        for c in ("+45-123", "+45-124")])
+    # the airport record written afterwards keeps the substitutions
+    UNPATCHED.record(tile, [])
+    assert len(UNPATCHED.read_substitutions(_DemProcessTile())) == 2
+
+    install_stub_pipeline(monkeypatch)
+    events = run_build(EngineSession(), [(10, 20)], tmp_path,
+                       do_vector=False)
+    done = _done(events, 10, 20)
+    assert done.ok is True and done.warnings == [] and done.failures == []
+    (note,) = done.notes
+    assert note["code"] == "elevation_substituted"
+    assert note["cells"] == ["+45-123", "+45-124"]
+    assert note["what"] == ("Tile +10+020 was built with stand-in elevation "
+                            "for cells +45-123 and +45-124.")
+    assert note["why"] == (
+        "Viewfinder Panoramas did not answer, so Copernicus GLO-30 was "
+        "used. It includes trees and buildings, so the ground there may "
+        "read a few metres high.")
+    assert note["remedy"] == "Build the tile again later to replace it."
+    states = [e for e in _tile_events(events, 10, 20)
+              if isinstance(e, EV.TileState) and e.state == "done"]
+    assert [e.label for e in states] == [SESSION.BUILT_WITH_WARNINGS]
+    assert "NOTE: Tile +10+020 was built with stand-in" in \
+        capsys.readouterr().out
+
+    # an ordinary build restates an empty list: the note does not linger
+    UNPATCHED.record_substitutions(_DemProcessTile(), [])
+    again = _done(run_build(EngineSession(), [(10, 20)], tmp_path,
+                            do_vector=False), 10, 20)
+    assert again.notes == []
+
+
 def test_a_later_tile_failure_is_the_message_not_the_airport(monkeypatch,
                                                             tmp_path):
     def one_airport_fails(tile):
@@ -585,7 +689,8 @@ def test_the_new_fields_are_additive_and_survive_the_child_hop():
     payload = serialize_event(done)
     assert payload["event"] == "BuildDone"
     assert set(payload["failures"][0]) == {
-        "code", "what", "why", "remedy", "airports", "detail", "log_path"}
+        "code", "what", "why", "remedy", "airports", "detail", "log_path",
+        "cells"}
     # ...and goes back into the report command unchanged (#565)
     from o4_engine.failure_report import _normalise
     assert _normalise(payload["failures"])[0]["code"] == "disk_full"

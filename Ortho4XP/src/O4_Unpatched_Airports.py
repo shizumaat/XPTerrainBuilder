@@ -30,6 +30,7 @@ __all__ = [
     "airport_patch_family",
     "set_aside_unbuilt", "strict", "may_continue", "record", "read",
     "PACK_RESTORE_KEY", "note_pack",
+    "record_substitutions", "read_substitutions",
     "warn",
 ]
 
@@ -154,11 +155,61 @@ def _write_sidecar(tile, unpatched: list) -> None:
         return
     try:
         os.makedirs(build_dir, exist_ok=True)
-        with open(_sidecar_path(build_dir), "w", encoding="utf-8",
-                  newline="\n") as handle:
-            json.dump({"unpatched": unpatched}, handle)
+        _write_key(build_dir, "unpatched", unpatched)
     except OSError:
         pass
+
+
+def _read_all(build_dir: str) -> dict:
+    try:
+        with open(_sidecar_path(build_dir), encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _write_key(build_dir: str, key: str, value) -> None:
+    """Rewrite ONE key of the sidecar, keeping the others (the same file
+    carries the tile's other closing facts)."""
+    data = _read_all(build_dir)
+    data[key] = value
+    with open(_sidecar_path(build_dir), "w", encoding="utf-8",
+              newline="\n") as handle:
+        json.dump(data, handle)
+
+
+#: Sidecar key of the base-elevation cells read from a FALLBACK source
+#: (owner RULINGS 2026-10-12e, ``elevation_access.base_fallback``).
+SUBSTITUTIONS_KEY = "elevation_substituted"
+
+
+def record_substitutions(tile, rows) -> list:
+    """Publish the base cells this tile's DEM read from a fallback source
+    — the same two ways as :func:`record`, for the same reason (the tile's
+    final ``BuildDone`` comes from another process).  Called by every
+    production DEM load, with an empty list when none.  Never fatal."""
+    rows = [dict(row) for row in rows or () if isinstance(row, dict)]
+    tile.elevation_substitutions = rows
+    build_dir = getattr(tile, "build_dir", None)
+    if build_dir:
+        try:
+            os.makedirs(build_dir, exist_ok=True)
+            _write_key(build_dir, SUBSTITUTIONS_KEY, rows)
+        except OSError:
+            pass
+    return rows
+
+
+def read_substitutions(tile) -> list:
+    """The substituted cells of the tile on disk (see :func:`read`)."""
+    own = getattr(tile, "elevation_substitutions", None)
+    if own is not None:
+        return list(own)
+    try:
+        return list(_read_all(tile.build_dir).get(SUBSTITUTIONS_KEY) or [])
+    except (AttributeError, TypeError):
+        return []
 
 
 def note_pack(tile, icao: str, text: str) -> None:

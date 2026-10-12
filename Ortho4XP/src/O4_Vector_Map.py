@@ -19,6 +19,7 @@ import O4_Proj_Runtime as PROJRT
 import O4_Airport_Utils as APT
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
+import O4_Unpatched_Airports as UNPATCHED
 from auto_patch import driver as AUTOPATCH
 from auto_patch import selection as _SELECTION
 from auto_patch import osm_aeroway as OSMAERO
@@ -1311,16 +1312,18 @@ def build_poly_file(tile):
         (apt_array, apt_area, patches_area, graded_area) = include_airports(
             vector_map, tile)
     except AUTOPATCH.AutoPatchBuildFailure as auto_patch_failure:
-        # THE SILENT TILE-DEATH CLASS, CLOSED (H1; docs/POSTMORTEM-
-        # 20260831.md Task C).  An airport that did not produce its patch
-        # is FATAL to the tile: continuing would mesh whatever stale
-        # patch is on disk and finish with exit 0 — which is exactly what
-        # shipped Aug-29 geometry to the owner as the Aug-30 build.  The
-        # airport, stage and cause are already on the engine log and on
-        # the JSONL protocol (one ``AutoPatchFailed`` event each); step 1
-        # reports failure, so the session emits ``BuildDone(ok=False)``
-        # and every entry point that checks the step's return value
-        # exits nonzero.
+        # THE SILENT TILE-DEATH CLASS (H1; docs/POSTMORTEM-20260831.md
+        # Task C) — what is left of its tile abort after owner RULINGS
+        # 2026-10-12a.  ``include_airports`` builds the tile WITHOUT a
+        # failed airport; what reaches here is what must still stop it:
+        # strict mode (the harness and the release checks, ruling point
+        # 4), a whole-tile refusal (no CIFP directory), or a failed
+        # airport whose stale patch could not be set aside — continuing
+        # then would mesh a patch this build did not write.  The airport,
+        # stage and cause are already on the engine log and on the JSONL
+        # protocol; step 1 reports failure, so the session emits
+        # ``BuildDone(ok=False)`` and every entry point that checks the
+        # step's return value exits nonzero.
         UI.lvprint(0, "ERROR: " + str(auto_patch_failure))
         UI.lvprint(
             0,
@@ -2239,10 +2242,25 @@ def include_airports(vector_map, tile):
     patch never takes a sea seed.
     """
     UI.vprint(0, "-> Dealing with airports")
+    # every vector step restates which airports the tile is built without
+    UNPATCHED.record(tile, [])
     (airport_layer, dico_airports) = load_airports_and_prepare_dem(tile)
     if airport_layer is None:
         return (0, 0, geometry.Polygon(), geometry.Polygon())
-    run_auto_patch_generation(tile, airport_layer, dico_airports)
+    # A FAILED AIRPORT NO LONGER STOPS THE TILE (owner RULINGS 2026-10-12a).
+    # The driver has already named each failure and set its files aside,
+    # so ``include_patches`` below loads the patches THIS build wrote (and
+    # the current ones it reused) and nothing of a failed airport: that
+    # airport is absent from ``patches_list`` and takes the ordinary
+    # airport handling.  Strict mode, a whole-tile record and a stale file
+    # that could not be moved still stop the tile (``build_poly_file``).
+    try:
+        run_auto_patch_generation(tile, airport_layer, dico_airports)
+    except AUTOPATCH.AutoPatchBuildFailure as auto_patch_failure:
+        if not UNPATCHED.may_continue(auto_patch_failure):
+            raise
+        UNPATCHED.warn(
+            tile, UNPATCHED.record(tile, auto_patch_failure.failures))
     (patches_area, patches_list, graded_area) = include_patches(
         vector_map, tile)
     runway_taxiway_apron_area = APT.encode_runways_taxiways_and_aprons(

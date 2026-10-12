@@ -316,9 +316,12 @@ def test_stale_patch_left_on_disk_is_fatal(tmp_path, monkeypatch,
     (failure,) = raised.value.failures
     assert failure["stage"] == "manifest"
     assert "stale" in failure["error"]
-    # The stale file is still there — this pass refuses to CALL it the
-    # build's output, which is the whole point.
-    assert "Aug 29" in open(task["auto_patch_file"], encoding="utf-8").read()
+    # The stale file is not CALLED the build's output, and since owner
+    # RULINGS 2026-10-12a it is no longer under a name any reader loads:
+    # set aside, not deleted (``tests/test_unpatched_airports.py``).
+    assert not os.path.exists(task["auto_patch_file"])
+    with open(task["auto_patch_file"] + ".stale", encoding="utf-8") as handle:
+        assert "Aug 29" in handle.read()
 
 
 # ── 5. the protocol: the app hears about it ─────────────────────────────

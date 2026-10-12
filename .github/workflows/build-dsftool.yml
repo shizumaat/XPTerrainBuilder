@@ -1,0 +1,247 @@
+# Build the bundled DSFTool (Ortho4XP/Utils/<platform>/DSFTool[.exe]) for
+# macOS universal, Windows x64 and Linux x86_64 on GitHub-hosted runners
+# (issue #587, owner RULINGS 2026-10-12f).
+#
+# WHAT IS BUILT: X-Plane/xptools at c31ed76b5 (Scenery Tools 24-5, the
+# source of the stock DSFTool 2.4.0-b1) with upstream 9c1a06c7b and
+# a3725c8f5 cherry-picked — the --dsf2text crash on an overlay that sets a
+# 16-bit definition before its first pool select.  No tool release carries
+# the fix.  ONLY the DSFTool target is built.
+#
+# Every pin lives in ONE place: Ortho4XP/Utils/toolchains/
+# build_dsftool.sh (the three commit shas, the git TREE the patched source
+# must hash to, the msvc_libs commit, the macOS deployment target).  The
+# unix jobs run that script; the windows job runs its --source-only half
+# and builds upstream's own Visual Studio project.  A cherry-pick conflict
+# or a tree that is not the pinned one stops the job.
+#
+# Every binary is verified with Utils/toolchains/smoke_test_dsftool.py:
+# the pinned --version string, a plain overlay text -> DSF -> text, and
+# the trait file of #568 (SetDefinition16 before the first PoolSelect),
+# which the stock tool dies on.  The macOS x86_64 slice is tested on its
+# own under Rosetta: that slice is where an optimiser turned the sources'
+# end-iterator dereference into a crash (see build_dsftool.sh).
+#
+# Outputs (workflow artifacts):
+#   dsftool-macos-universal — ships as mac/DSFTool (arm64 + x86_64)
+#   dsftool-windows-x64     — ships as win/DSFTool.exe
+#   dsftool-linux-x86_64    — ships as lin/DSFTool
+#   dsftool-binaries        — the three in the Utils/ layout with
+#       SHA256SUMS and BUILDINFO.txt, as a tarball (artifacts as plain
+#       files lose the executable bit; the tar keeps it)
+#
+# This workflow NEVER commits.  Landing the binaries is a separate, manual
+# act: docs/DSFTOOL-VENDORING.md.
+
+name: Build DSFTool
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-dsftool-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (pinned sources, one universal xcodebuild)
+        run: sh Ortho4XP/Utils/toolchains/build_dsftool.sh "$RUNNER_TEMP/dsftool"
+
+      - name: Verify — universal, links only OS-provided dylibs
+        run: |
+          cp "$RUNNER_TEMP/dsftool/DSFTool" DSFTool
+          lipo -archs DSFTool
+          lipo -archs DSFTool | grep -q x86_64
+          lipo -archs DSFTool | grep -q arm64
+          otool -L DSFTool
+          ! otool -L DSFTool | grep -v -e '^DSFTool' -e '/usr/lib/' -e '/System/'
+
+      - name: Verify — native (arm64) slice
+        run: python3 Ortho4XP/Utils/toolchains/smoke_test_dsftool.py ./DSFTool
+
+      - name: Verify — x86_64 slice under Rosetta
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          lipo -thin x86_64 DSFTool -output "$RUNNER_TEMP/DSFTool.x86_64"
+          python3 Ortho4XP/Utils/toolchains/smoke_test_dsftool.py "$RUNNER_TEMP/DSFTool.x86_64"
+
+      - name: Identity
+        run: |
+          shasum -a 256 DSFTool | tee DSFTool.sha256
+          { xcodebuild -version; sw_vers; ./DSFTool --version; } | tee BUILDINFO-macos.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsftool-macos-universal
+          path: |
+            DSFTool
+            DSFTool.sha256
+            BUILDINFO-macos.txt
+          if-no-files-found: error
+
+  linux:
+    # The oldest glibc the frozen engine is built on (release.yml):
+    # a binary built here runs wherever the engine does.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build deps (zlib headers; gcc, g++ and make are on the image)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends zlib1g-dev
+
+      - name: Build (pinned sources, upstream make, DSFTool target only)
+        run: sh Ortho4XP/Utils/toolchains/build_dsftool.sh "$RUNNER_TEMP/dsftool"
+
+      - name: Verify — x86_64, dynamic only against libc/libm/libstdc++/libgcc_s/libz
+        run: |
+          cp "$RUNNER_TEMP/dsftool/DSFTool" DSFTool
+          file DSFTool
+          file DSFTool | grep -q 'x86-64'
+          ldd DSFTool
+          ! ldd DSFTool | grep '=>' | grep -v -E 'lib(c|m|stdc\+\+|gcc_s|z)\.so'
+          # the highest glibc symbol version it asks for, against the image's
+          NEED="$(objdump -T DSFTool | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
+          HAVE="GLIBC_$(ldd --version | head -1 | grep -o '[0-9.]*$')"
+          echo "needs up to $NEED; built on $HAVE"
+          [ "$(printf '%s\n%s\n' "$NEED" "$HAVE" | sort -V | tail -1)" = "$HAVE" ]
+
+      - name: Verify — smoke test
+        run: python3 Ortho4XP/Utils/toolchains/smoke_test_dsftool.py ./DSFTool
+
+      - name: Identity
+        run: |
+          sha256sum DSFTool | tee DSFTool.sha256
+          { gcc --version | head -1; ldd --version | head -1; ./DSFTool --version; } | tee BUILDINFO-linux.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsftool-linux-x86_64
+          path: |
+            DSFTool
+            DSFTool.sha256
+            BUILDINFO-linux.txt
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch pinned sources and apply the two commits
+        shell: bash
+        run: sh Ortho4XP/Utils/toolchains/build_dsftool.sh "$RUNNER_TEMP/dsftool" --source-only
+
+      - name: Fetch upstream's zlib (msvc_libs submodule at the recorded commit)
+        shell: bash
+        run: |
+          # Single source of truth for the pin: the build script.
+          eval "$(grep -E '^XPTOOLS_MSVC_LIBS_SHA=' Ortho4XP/Utils/toolchains/build_dsftool.sh)"
+          cd "$RUNNER_TEMP/dsftool/xptools"
+          git submodule update --init --depth 1 msvc_libs
+          GOT="$(git -C msvc_libs rev-parse HEAD)"
+          [ "$GOT" = "$XPTOOLS_MSVC_LIBS_SHA" ] || {
+            echo "FAIL: msvc_libs is at $GOT, expected $XPTOOLS_MSVC_LIBS_SHA" >&2; exit 1; }
+          ls -l msvc_libs/include/zlib.h msvc_libs/lib/zlibstat.lib
+          sha256sum msvc_libs/lib/zlibstat.lib
+
+      - name: Build (upstream's Visual Studio project, Release x64, static CRT)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          if (-not $msbuild) { throw "MSBuild not found" }
+          & $msbuild -version
+          # the project names toolset v142 (VS 2019); the runner carries v143
+          & $msbuild "$env:RUNNER_TEMP\dsftool\xptools\msvc\DSFTool\DSFTool.vcxproj" `
+              /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 /m /nologo
+          if ($LASTEXITCODE -ne 0) { throw "msbuild exited $LASTEXITCODE" }
+          Copy-Item "$env:RUNNER_TEMP\dsftool\xptools\msvc\DSFTool\Release\DSFTool.exe" DSFTool.exe
+          (& $msbuild -version | Select-Object -Last 1) | Out-File -Encoding ascii BUILDINFO-windows.txt
+
+      - name: Verify — imports only KERNEL32.dll (static CRT, static zlib)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -find 'VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe' | Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin not found" }
+          $deps = & $dumpbin /dependents DSFTool.exe | Where-Object { $_ -match '^\s+\S+\.dll\s*$' } | ForEach-Object { $_.Trim() }
+          $deps
+          $extra = $deps | Where-Object { $_ -ne 'KERNEL32.dll' }
+          if ($extra) { throw "unexpected DLL imports: $extra" }
+
+      - name: Verify — smoke test
+        shell: bash
+        run: python Ortho4XP/Utils/toolchains/smoke_test_dsftool.py ./DSFTool.exe
+
+      - name: Identity
+        shell: bash
+        run: |
+          sha256sum DSFTool.exe | tee DSFTool.exe.sha256
+          ./DSFTool.exe --version | tee -a BUILDINFO-windows.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsftool-windows-x64
+          path: |
+            DSFTool.exe
+            DSFTool.exe.sha256
+            BUILDINFO-windows.txt
+          if-no-files-found: error
+
+  bundle:
+    # Everything shippable, arranged in the Utils/ layout.  Tarred because
+    # artifact zips drop the executable bit.
+    needs: [macos, linux, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dsftool-macos-universal
+          path: dl/mac
+      - uses: actions/download-artifact@v4
+        with:
+          name: dsftool-linux-x86_64
+          path: dl/lin
+      - uses: actions/download-artifact@v4
+        with:
+          name: dsftool-windows-x64
+          path: dl/win
+
+      - name: Arrange Utils layout, re-check each sha256, tar
+        run: |
+          (cd dl/mac && sha256sum -c DSFTool.sha256)
+          (cd dl/lin && sha256sum -c DSFTool.sha256)
+          (cd dl/win && sha256sum -c DSFTool.exe.sha256)
+          mkdir -p out/Utils/mac out/Utils/lin out/Utils/win
+          cp dl/mac/DSFTool     out/Utils/mac/DSFTool
+          cp dl/lin/DSFTool     out/Utils/lin/DSFTool
+          cp dl/win/DSFTool.exe out/Utils/win/DSFTool.exe
+          chmod +x out/Utils/mac/DSFTool out/Utils/lin/DSFTool
+          cd out
+          sha256sum Utils/mac/DSFTool Utils/lin/DSFTool Utils/win/DSFTool.exe | tee SHA256SUMS
+          {
+            echo "run: $GITHUB_RUN_ID  repo sha: $GITHUB_SHA"
+            grep -E '^(XPTOOLS_[A-Z0-9_]+|MACOS_DEPLOYMENT_TARGET|NULL_SAFE_FLAG)=' \
+              ../Ortho4XP/Utils/toolchains/build_dsftool.sh
+            for p in mac lin win; do echo "--- $p"; cat ../dl/$p/BUILDINFO-*.txt; done
+          } | tee BUILDINFO.txt
+          tar -czvf ../dsftool-binaries.tar.gz Utils SHA256SUMS BUILDINFO.txt
+          echo "Land with docs/DSFTOOL-VENDORING.md (run id $GITHUB_RUN_ID)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsftool-binaries
+          path: dsftool-binaries.tar.gz
+          if-no-files-found: error

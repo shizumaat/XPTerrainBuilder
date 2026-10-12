@@ -1,0 +1,21 @@
+{
+  "_comment": "THE identity of the bundled DSFTool, one row per platform file. tests/test_dsftool_identity.py compares each file's sha256 with its row and the host tool's --version with 'version': a swapped binary fails there. Rewritten ONLY by the vendoring procedure in docs/DSFTOOL-VENDORING.md, in the same commit as the binaries.",
+  "release": "DSFTool 2.4.0-b1",
+  "build": "stock: Laminar Research's own build of X-Plane Scenery Tools 24-5 (xptools c31ed76b5), vendored with the Ortho4XP engine",
+  "patched": false,
+  "ci_run": null,
+  "binaries": {
+    "mac/DSFTool": {
+      "sha256": "4abaed055ff77b091d86f05cd684ddb881eb48d7399c3069cdaaba8d0d6704a8",
+      "version": "DSFTool 2.4.0-b1, Copyright 2024 Laminar Research.  Compiled on May  9 2024."
+    },
+    "lin/DSFTool": {
+      "sha256": "5645a3388b4a5089a381dd5a4e9022e05725d259237562f7b22c00d6bb36f7bd",
+      "version": "DSFTool 2.4.0-b1, Copyright 2024 Laminar Research.  Compiled on May  9 2024."
+    },
+    "win/DSFTool.exe": {
+      "sha256": "42cacb1f988000b9d49b193438f1c79baa96dc35d29ed5a371d423e0650ffbf4",
+      "version": "DSFTool 2.4.0-b1, Copyright 2024 Laminar Research.  Compiled on May  9 2024."
+    }
+  }
+}

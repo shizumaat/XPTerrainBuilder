@@ -25,6 +25,20 @@ differently (``pack_partition`` module docstring):
   its feet's nearest platform ring breaking a tie; a body with no strict
   majority straddles the boundary and is REPORTED (issue #126).
 
+THE SAME CUT AT A PAD LEVEL (owner RULINGS 2026-10-10n (3) "nothing
+floats: each body is seated to the pad it stands on", restating 2026-08-27;
+issue #547).  A §16g unit standing on two or more PADS whose planes the
+design surface set at DIFFERENT levels (more than ``[placement]
+split_tol_m`` apart — the materiality a seat is judged at) is split the
+same way, one unit per LEVEL (``<id>/p<k>``), by :func:`split_units`'s
+second pass: at KCLT the terminal unit ``fu:6:960`` stood on ``building75``
+(222.44), ``building84`` (222.70) and ``building81`` (221.75) and took ONE
+zero, so every body on the concourse pad was written 0.69 m above it.
+Pads within the tolerance of each other are one level; the bodies on no
+pad resolve by their welds and their feet exactly as the block cut's do.
+The contact graph is NOT severed at a level boundary: the step appears
+between the bodies the plan already has.
+
 The cut FILES come from the pristine backup exactly as every other split
 does (``obj8_split.split_obj8`` reads ``.anchor_bak`` — restore-before-
 read): nothing here reads or writes an object.  Pure reading; no law
@@ -67,11 +81,17 @@ def _platform_polys(pads: _t.Sequence[_ar.PadRing]) -> dict:
     ring published under the block ref: the block face itself (spec §56
     (3): there is no collar, the face's ring IS the block) and the strip
     ``placement_read._banks_as_platform`` folds under it."""
+    return _polys_of([((unit, k), ring) for unit, k, ring, _bx in block_rings(pads)])
+
+
+def _polys_of(rings: _t.Iterable[tuple]) -> dict:
+    """``{key: [polygons in local metres]}`` over ``(key, ring, ...)``
+    rows — every ring published under one key folded under it."""
     import math
     from shapely.geometry import Polygon
     by: dict = {}
-    for unit, k, ring, _bx in block_rings(pads):
-        by.setdefault((unit, k), []).append(ring)
+    for row in rings:
+        by.setdefault(row[0], []).append(row[1])
     out: dict = {}
     for key, rs in by.items():
         ky = 111_320.0
@@ -88,20 +108,84 @@ def _block_at(rings, la: float, lo: float) -> "tuple[str, int] | None":
     return None
 
 
+def _region_at(rings, la: float, lo: float):
+    """The key of the first ring of ``rings`` (``(key, ring, bbox)``)
+    holding ``(la, lo)``, else ``None``."""
+    for key, ring, (y0, x0, y1, x1) in rings:
+        if y0 <= la <= y1 and x0 <= lo <= x1 and _ar._inside(ring, la, lo):
+            return key
+    return None
+
+
+def _part_regions(plan: _t.Any, rings) -> dict:
+    """``part id -> region key`` for every part whose plan centroid stands
+    inside one of ``rings`` (``(key, ring, bbox)``); parts elsewhere are
+    absent."""
+    out: dict = {}
+    if not rings:
+        return out
+    for u in getattr(plan, "units", ()):
+        for m in u.members:
+            for p in m.parts:
+                key = _region_at(rings, float(p.lat), float(p.lon))
+                if key is not None:
+                    out[p.pid] = key
+    return out
+
+
 def part_blocks(plan: _t.Any, pads: _t.Sequence[_ar.PadRing]
                 ) -> dict[int, tuple[str, int]]:
     """``part id -> (unit, block)`` for every part whose plan centroid
     stands inside a block pad's ring; parts elsewhere are absent."""
-    rings = block_rings(pads)
-    if not rings:
-        return {}
-    out: dict[int, tuple[str, int]] = {}
-    for u in getattr(plan, "units", ()):
-        for m in u.members:
-            for p in m.parts:
-                b = _block_at(rings, float(p.lat), float(p.lon))
-                if b is not None:
-                    out[p.pid] = b
+    return _part_regions(plan, [((unit, k), ring, bx)
+                                for unit, k, ring, bx in block_rings(pads)])
+
+
+def level_pad_rings(pads: _t.Sequence[_ar.PadRing]
+                    ) -> list[tuple[str, tuple, tuple[float, float, float, float]]]:
+    """``(ref, ring, bbox)`` for every face of every PLAIN pad — one that
+    is no block of a platform and carries its plane's heights (``z``) —
+    the rings the pad-level cut (module docstring) reads a part's pad
+    off."""
+    out = []
+    for p in pads:
+        if block_of(p.ref) is not None or len(p.ring) < 3 or not p.z:
+            continue
+        la = [v[0] for v in p.ring]
+        lo = [v[1] for v in p.ring]
+        out.append((p.ref, tuple(p.ring), (min(la), min(lo), max(la), max(lo))))
+    return out
+
+
+def pad_levels(pads: _t.Sequence[_ar.PadRing], refs: _t.Iterable[str]
+               ) -> dict[str, float]:
+    """``ref -> the pad's own level`` — the MEDIAN over every face of the
+    ref (the one pad datum rule, owner RULINGS 2026-09-17t, the reading
+    ``plan_unit_datums`` seats on) for each of ``refs`` that has one."""
+    from .placement_family import _median
+    out: dict[str, float] = {}
+    for ref in refs:
+        p = _ar.fold_pad_ref(pads, ref)
+        if p is not None and p.z:
+            out[ref] = _median(list(p.z))
+    return out
+
+
+def level_groups(levels: _t.Mapping[str, float], tol_m: float
+                 ) -> dict[str, int]:
+    """``ref -> level group`` over ``levels``: the refs sorted by level,
+    a new group opened wherever the next level stands more than ``tol_m``
+    above the group's FIRST (lowest) one — so every pad of a group is
+    within the tolerance of the group's floor, and two pads farther apart
+    than it are never one seat.  Groups are numbered from the lowest."""
+    out: dict[str, int] = {}
+    k = -1
+    floor = None
+    for ref, z in sorted(levels.items(), key=lambda t: (t[1], t[0])):
+        if floor is None or z - floor > tol_m:
+            k += 1
+            floor = z
+        out[ref] = k
     return out
 
 
@@ -273,121 +357,188 @@ def neighbours(plan: _t.Any) -> dict[int, set[int]]:
 
 
 def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
-                counts: "dict | None" = None) -> list:
+                counts: "dict | None" = None, level_tol_m: float = 0.0) -> list:
     """Every §16g unit whose bodies stand on two or more blocks of ONE
     platform unit, split into one unit per block (module docstring); each
     is seated by ``plan_unit_datums``'s one pad rule, the median of its
     block's (flat) floor.  A per-block FOOT SHIFT (the block's median
     authored foot ``y`` less the unit's) was tried and REFUTED on the HECA
     dry run (lane ``flatpad111b``): T3 feet within 0.3 m 3,683 -> 2,405 and
-    the owner's site floor -0.25 -> -0.50 m."""
-    from .placement_family import bodies_of_plan, union_area_m2
+    the owner's site floor -0.25 -> -0.50 m.
+
+    FIRST, with ``level_tol_m > 0``, the PAD-LEVEL cut (owner RULINGS
+    2026-10-10n (3); #547): a unit on two or more plain pads whose levels
+    stand more than ``level_tol_m`` apart is one unit per level
+    (``<id>/p<k>``), the lowest level first.  It runs before the block cut
+    so a block id stays ``<...>/b<k>`` at the end, where
+    :func:`seat_unit` reads it.  0 disarms it."""
+    if level_tol_m > 0.0:
+        units = _split_by_level(units, plan, pads, counts, level_tol_m)
     of = part_blocks(plan, pads)
     if not of or not units:
         return units
-    bodies, _of_pid = bodies_of_plan(plan)
-    parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
     rings = block_rings(pads)
-    plat = _platform_polys(pads)
-    from shapely.geometry import Point as _Pt
-    ky = 111_320.0
-    kx = ky * _math.cos(_math.radians(rings[0][2][0][0])) if rings else ky
+    ref_lat = rings[0][2][0][0]
     out: list = []
-    n_split = n_near = n_weld = n_strad = 0
-    nbr = _neighbours(plan)
+    n_split = 0
     for un in units:
-        per_body: dict = {}
-        votes_all: dict = {}
-        for key in un.bodies:
-            votes: dict = {}
-            for q in bodies.get(key, ()):
-                b = of.get(q)
-                if b is not None:
-                    votes[b] = votes.get(b, 0) + 1
-                    votes_all[b] = votes_all.get(b, 0) + 1
-            per_body[key] = (max(votes.items(), key=lambda t: (t[1], t[0]))[0]
-                             if votes else None)
-        blocks = {b for b in votes_all}
-        units_of = {b[0] for b in blocks}
-        if len(blocks) < 2 or len(units_of) != 1:
+        per_body, regions = _bodies_regions(un, plan, of)
+        if len(regions) < 2 or len({b[0] for b in regions}) != 1:
             out.append(un)
             continue
-        # a body on no block of the unit joins the block holding the
-        # MAJORITY of its WELDED parts — the parts of OTHER bodies it is in
-        # ε-contact with (``plan.contacts``, already severed at the necks) —
-        # and only then the block whose PLATFORM RING stands nearest its own
-        # FEET (issue #126: SPJC ``xp11_010`` had its feet nearest b0 while
-        # every part it is welded to stands in b1, and was seated 2.87 m off
-        # them 65 m from the declared neck; spec-author RULINGS 2026-09-30u
-        # (iii) had replaced the centroid by the feet).  A body whose welded
-        # parts hold NO strict majority in one block STRADDLES the boundary
-        # (flat-pad spec §7's STOP class): it is seated by its feet among
-        # the tied blocks and REPORTED by name, never silently assigned.
-        direct = {k: b for k, b in per_body.items() if b is not None}
-        # a body resolved by its welds votes for the ringless bodies welded
-        # to IT (a chain of ringless facade bodies off one footed wall)
-        pending = [k for k, b in per_body.items() if b is None]
-        grew = True
-        while grew:
-            grew = False
-            for key in pending:
-                if key in direct:
-                    continue
-                welded = _welded_votes(bodies.get(key, ()), nbr, of, _of_pid,
-                                       direct, blocks)
-                win = _majority(welded)[0] if welded else None
-                if win is not None:
-                    per_body[key] = direct[key] = win
-                    n_weld += 1
-                    grew = True
+        n_split += 1
+        out.extend(_cut_unit(un, plan, of, per_body, regions,
+                             _platform_polys(pads), ref_lat, counts,
+                             lambda b: f"/b{b[1]}", "block"))
+    if counts is not None:
+        counts["block_units_split"] = n_split
+    return out
+
+
+def _split_by_level(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
+                    counts: "dict | None", tol_m: float) -> list:
+    """The pad-level cut of :func:`split_units`: the unit's bodies voted
+    onto the PLAIN pads under their parts, the pads grouped by level
+    (:func:`level_groups`), the unit cut per group."""
+    rings = level_pad_rings(pads)
+    of_ref = _part_regions(plan, rings)
+    if not of_ref or not units:
+        return units
+    polys_ref = _polys_of(rings)
+    out: list = []
+    n_split = 0
+    for un in units:
+        _pb, refs = _bodies_regions(un, plan, of_ref)
+        grp = level_groups(pad_levels(pads, refs), tol_m) if len(refs) > 1 else {}
+        if len(set(grp.values())) < 2:
+            out.append(un)
+            continue
+        of = {q: ("level", grp[r]) for q, r in of_ref.items() if r in grp}
+        per_body, regions = _bodies_regions(un, plan, of)
+        polys: dict = {}
+        for r, k in grp.items():
+            polys.setdefault(("level", k), []).extend(polys_ref.get(r, ()))
+        n_split += 1
+        out.extend(_cut_unit(un, plan, of, per_body, regions, polys,
+                             rings[0][1][0][0], counts,
+                             lambda b: f"/p{b[1]}", "pad_level"))
+    if counts is not None:
+        counts["pad_level_units_split"] = n_split
+    return out
+
+
+def _bodies_regions(un, plan: _t.Any, of: _t.Mapping[int, _t.Any]
+                    ) -> "tuple[dict, set]":
+    """``(body key -> the region most of its parts stand in or None, the
+    regions any part of the unit stands in)`` over ``of``
+    (``part id -> region``)."""
+    from .placement_family import bodies_of_plan
+    bodies, _ = bodies_of_plan(plan)
+    per_body: dict = {}
+    regions: set = set()
+    for key in un.bodies:
+        votes: dict = {}
+        for q in bodies.get(key, ()):
+            b = of.get(q)
+            if b is not None:
+                votes[b] = votes.get(b, 0) + 1
+        regions.update(votes)
+        per_body[key] = (max(votes.items(), key=lambda t: (t[1], t[0]))[0]
+                         if votes else None)
+    return per_body, regions
+
+
+def _cut_unit(un, plan: _t.Any, of: _t.Mapping[int, _t.Any], per_body: dict,
+              regions: set, polys: _t.Mapping, ref_lat: float,
+              counts: "dict | None", suffix, tag: str) -> list:
+    """ONE unit cut into one unit per region of ``regions`` (module
+    docstring), the bodies ``per_body`` left on no region resolved first
+    by their WELDS, then by their FEET.
+
+    A body on no region of the unit joins the region holding the MAJORITY
+    of its WELDED parts — the parts of OTHER bodies it is in ε-contact with
+    (``plan.contacts``, already severed at the necks for blocks) — and
+    only then the region whose RING stands nearest its own FEET (issue
+    #126: SPJC ``xp11_010`` had its feet nearest b0 while every part it is
+    welded to stands in b1, and was seated 2.87 m off them 65 m from the
+    declared neck; spec-author RULINGS 2026-09-30u (iii) had replaced the
+    centroid by the feet).  A body whose welded parts hold NO strict
+    majority in one region STRADDLES the boundary (flat-pad spec §7's STOP
+    class): it is seated by its feet among the tied regions and REPORTED
+    by name, never silently assigned.  ``counts`` keys carry ``tag``
+    (``block`` / ``pad_level``)."""
+    from shapely.geometry import Point as _Pt
+    from .placement_family import bodies_of_plan, union_area_m2
+    bodies, _of_pid = bodies_of_plan(plan)
+    parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
+    ky = 111_320.0
+    kx = ky * _math.cos(_math.radians(ref_lat))
+    nbr = _neighbours(plan)
+    n_near = n_weld = n_strad = 0
+    direct = {k: b for k, b in per_body.items() if b is not None}
+    # a body resolved by its welds votes for the ringless bodies welded
+    # to IT (a chain of ringless facade bodies off one footed wall)
+    pending = [k for k, b in per_body.items() if b is None]
+    grew = True
+    while grew:
+        grew = False
         for key in pending:
             if key in direct:
                 continue
-            pids = bodies.get(key, ())
-            welded = _welded_votes(pids, nbr, of, _of_pid, direct, blocks)
-            cand = blocks
-            if welded:
-                cand = _majority(welded)[1]
-                n_strad += 1
-                if counts is not None:
-                    res = plan.units[key[0]].members[key[1]].resource
-                    tag = f"{STRADDLE_KEY}{res}@{un.id}"
-                    counts[tag] = counts.get(tag, 0) + 1
-            pts = [(f[0], f[1]) for q in pids if q in parts
-                   for f in (getattr(parts[q], "feet", ()) or ())]
-            if not pts:
-                pts = [(parts[q].lat, parts[q].lon) for q in pids if q in parts]
-            if not pts:
+            welded = _welded_votes(bodies.get(key, ()), nbr, of, _of_pid,
+                                   direct, regions)
+            win = _majority(welded)[0] if welded else None
+            if win is not None:
+                per_body[key] = direct[key] = win
+                n_weld += 1
+                grew = True
+    for key in pending:
+        if key in direct:
+            continue
+        pids = bodies.get(key, ())
+        welded = _welded_votes(pids, nbr, of, _of_pid, direct, regions)
+        cand = regions
+        if welded:
+            cand = _majority(welded)[1]
+            n_strad += 1
+            if counts is not None:
+                res = plan.units[key[0]].members[key[1]].resource
+                tag_k = f"{STRADDLE_KEY}{res}@{un.id}"
+                counts[tag_k] = counts.get(tag_k, 0) + 1
+        pts = [(f[0], f[1]) for q in pids if q in parts
+               for f in (getattr(parts[q], "feet", ()) or ())]
+        if not pts:
+            pts = [(parts[q].lat, parts[q].lon) for q in pids if q in parts]
+        if not pts:
+            continue
+        best = None
+        for b, pg in polys.items():
+            if b not in cand or not pg:
                 continue
-            best = None
-            for (unit, k), polys in plat.items():
-                if (unit, k) not in cand:
-                    continue
-                d = min(g.distance(_Pt(lo * kx, la * ky)) for g in polys
-                        for la, lo in pts)
-                if best is None or d < best[0]:
-                    best = (d, (unit, k))
-            if best is not None:
-                per_body[key] = best[1]
-                n_near += 1
-        n_split += 1
-        for b in sorted(blocks, key=lambda t: t[1]):
-            keys = tuple(k for k in un.bodies if per_body.get(k) == b)
-            if not keys:
-                continue
-            pids = frozenset(q for k in keys for q in bodies.get(k, ()))
-            boxes = tuple(parts[q].box for q in sorted(pids)
-                          if q in parts and not getattr(parts[q], "line", False))
-            out.append(_dc.replace(
-                un, id=f"{un.id}/b{b[1]}", bodies=keys, pids=pids,
-                members=tuple(sorted({plan.units[k[0]].members[k[1]].resource
-                                      for k in keys})),
-                boxes=boxes or un.boxes,
-                area_m2=union_area_m2(boxes) if boxes else un.area_m2,
-                deck_pids=frozenset(un.deck_pids & pids)))
+            d = min(g.distance(_Pt(lo * kx, la * ky)) for g in pg
+                    for la, lo in pts)
+            if best is None or d < best[0]:
+                best = (d, b)
+        if best is not None:
+            per_body[key] = best[1]
+            n_near += 1
+    out: list = []
+    for b in sorted(regions, key=lambda t: t[1]):
+        keys = tuple(k for k in un.bodies if per_body.get(k) == b)
+        if not keys:
+            continue
+        pids = frozenset(q for k in keys for q in bodies.get(k, ()))
+        boxes = tuple(parts[q].box for q in sorted(pids)
+                      if q in parts and not getattr(parts[q], "line", False))
+        out.append(_dc.replace(
+            un, id=f"{un.id}{suffix(b)}", bodies=keys, pids=pids,
+            members=tuple(sorted({plan.units[k[0]].members[k[1]].resource
+                                  for k in keys})),
+            boxes=boxes or un.boxes,
+            area_m2=union_area_m2(boxes) if boxes else un.area_m2,
+            deck_pids=frozenset(un.deck_pids & pids)))
     if counts is not None:
-        counts["block_units_split"] = n_split
-        counts["block_bodies_nearest"] = n_near
-        counts["block_bodies_welded"] = n_weld
-        counts["block_bodies_straddle"] = n_strad
+        for name, n in (("bodies_nearest", n_near), ("bodies_welded", n_weld),
+                        ("bodies_straddle", n_strad)):
+            counts[f"{tag}_{name}"] = counts.get(f"{tag}_{name}", 0) + n
     return out

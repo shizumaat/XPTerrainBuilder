@@ -2,17 +2,12 @@
 
 ## RESUME HERE
 
-* Branch `claude/tilecont564`, worktree `.claude/worktrees/tilecont564`, base `1ff5a912a`.
-* STEP 1 DONE: consumer census (below), design decided.
-* STEP 2 DONE: `Ortho4XP/src/O4_Unpatched_Airports.py` (new), `auto_patch/driver.py`
-  (`_fail_build_tasks` sets aside, exception carries `stale_left`), `O4_Vector_Map.py`
-  (`include_airports` continues; `build_poly_file` still returns 0 for what is re-raised),
-  strict env in `tools/harness/build_airport.py` `redirect_engine_caches` and
-  `scripts/check_frozen_tile.py`, twin `tests/test_unpatched_airports.py` (12 tests).
-* STEP 3 DONE: ratchets pass; full non-Qt suite run once (3 reds in
-  `test_auto_patch_engine_dispatch.py` — the set-aside imported `auto_patch_v2`, which those twins
-  stub out; fixed by spelling the family in `O4_Unpatched_Airports.PATCH_FAMILY`, held against the
-  writers' constants by a twin); affected files rerun green. Nothing left but the master's merge.
+* Branch `claude/tilecont564` (PR #573). Round 1 (12a) done at `fafbd9695`.
+* ROUND 2 (RULINGS 2026-10-12d, "restore the original pack"): merged origin/main `012ac5899`;
+  took `origin/claude/failmsg562`'s `O4_Unpatched_Airports.py` + its twin (file checkout, not a
+  branch merge — PR #573 stays this lane's diff). Census below ("Round 2"). NEXT: implement
+  `dsf_write.write_pack(drop=)`, `auto_patch_v2/airport/unpatched_pack.py`, the hook at the top of
+  `engine_v2.rebake_after_mesh`, `O4_Unpatched_Airports.note_pack`, twins, full non-Qt suite.
 
 ## What fails today, and where
 
@@ -96,3 +91,49 @@ It returns this process's own record when it ran the vector step and otherwise r
 step runs in its own child, the vector child's `BuildDone(ok=True)` is SWALLOWED as an
 intermediate (`_on_child_event`, "event.ok and not last_step"), and the tile's final `BuildDone`
 comes from the last step's child, whose session never saw the `AutoPatchFailed` events.
+
+## Round 2 — RULINGS 2026-10-12d: the unpatched airport gets its original pack back
+
+### Census: what the engine writes into a pack for an airport, and what undoes it today
+
+| Pack file | Writer | Scope of one write | Backup / record | Existing undo |
+|---|---|---|---|---|
+| pack DSF `<tile>.dsf` | `dsf_write.write_pack` | ONE DSF; edits of EVERY recorded airport composed over the pristine dump (#25) | `<dsf>.anchor_bak` (pristine, kept once) + `o4_placement_provenance.json` → `dsfs[<dsf>].airports[<ICAO>]` = that airport's edit rows, bodies, dump sha | per PACK: `object_rebake.restore_detail` (UI "restore originals"): classify, copy backup over, remove bodies, drop entry. Per AIRPORT: none — the next write of a sibling RE-APPLIES the recorded row |
+| split bodies `__b<k>.obj` | `placement_write.write_files` | one airport (`airports[<ICAO>].body_files`) | `CUT_MARK` in the file | `dsf_write.remove_cut_files(written_body_files(pack, dsf, icao))`; orphan removal inside `write_pack` |
+| pack `.obj` (y rewritten) | v1 seat only, retired 2026-09-12 | pack | `<obj>.anchor_bak` + v1 sidecar | `placement_write.restore_pack_objects` at every v2 write; the UI restore |
+| art omission (#433) | `write_pack(omit=)` | DSF entry `omitted_art` | the same backup | a later write without `omit` |
+| DSF text dump (mod cache) | `dsf_reader.ensure_dsf_text_path` | DSF, keyed on its mtime | — | refuses itself when the DSF changes |
+
+Who reads the record / backup and must agree after a per-airport restore:
+`backup_state.classify_dsf` (OURS by `written_sha256`/stat), `dsf_write.pristine_dsf_path` (every
+reader's frame), `written_body_files`, `_sibling_plans` (re-applies recorded airports),
+`object_rebake.modified_packs` / `_v2_status` (the apps' "modified packs" list),
+`pack_art` (`omitted_art`).
+
+### What a rebake pass does to an unpatched airport's seating TODAY
+
+* Its plan files are set aside (round 1), so the pass has no plan for it and never visits its pack.
+* If ANOTHER airport on the tile is served by the same pack DSF and is written this pass,
+  `_sibling_plans` re-applies the unpatched airport's recorded edits — its old seating is
+  actively kept. So "restore then let the others re-apply" must REMOVE the recorded row.
+
+### Design
+
+* `dsf_write.write_pack(..., drop=())`: recorded airports NOT re-applied. Their rows fall out of
+  the record and their bodies take the existing orphan path. No second composer.
+* `auto_patch_v2/airport/unpatched_pack.py` `restore_airport(pack_root, dsf_path, icao, tool)`:
+  - airport not recorded for this DSF → no-op (never re-seated);
+  - no other recorded airport → the DSF's backup goes back over it, the bodies go, the entry is
+    dropped: the UI restore's own rule (`classify_dsf`: only an OURS file is overwritten), for
+    one DSF. No DSFTool needed;
+  - other airports recorded → one `write_pack` with an empty-ICAO plan and `drop=(icao,)`: the
+    DSF is rebuilt from the pristine dump with the others' recorded edits only (their seating
+    kept whether or not they are rewritten later in the pass);
+  - UNPROVEN / ORIGINAL_LOST, or the rewrite fails → nothing is written, the reason is returned.
+* Hook: the first thing `engine_v2.rebake_after_mesh` does after the user's stand-down gate,
+  BEFORE the plan glob (a tile whose every airport failed has no plan and returned early).
+  Packs are found from the engine's own records (`object_rebake.modified_packs(scenery, tile)`),
+  not from the set-aside plan. A disabled pack is not touched. The lane stand-down
+  (`O4_PACK_WRITES=measure_only`) and `DSF_OBJECT_REANCHOR` off write nothing and are NAMED.
+* Unprovable → `O4_Unpatched_Airports.note_pack(tile, icao, text)` adds `pack_restore` to that
+  airport's record (sidecar rewritten) and a `loud_warning` line.

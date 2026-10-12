@@ -51,3 +51,32 @@ def test_one_row_per_dsf_and_a_second_run_resumes(tmp_path, monkeypatch, capsys)
 
     assert census.main(argv) == 0
     assert "0 dumped now (2 already" in capsys.readouterr().out
+
+
+def test_two_tools_dumps_are_compared_by_row_class(tmp_path, capsys):
+    """``--diff-text`` (#587): what a replacement DSFTool changes."""
+    old, new = tmp_path / "old", tmp_path / "new"
+    old.mkdir()
+    new.mkdir()
+    body = "PROPERTY sim/overlay 1\nOBJECT_DEF a.obj\nOBJECT 0 1.0 2.0 3.0\n"
+    for folder, file_row, pools, heights in (
+            (old, "# file: /a/x.dsf", 16, "-82.0"), (new, "# file: /b/x.dsf", 12, "-22.0")):
+        (folder / "same.dsf.text").write_text(file_row + "\n" + body, encoding="utf-8")
+        (folder / "moved.dsf.text").write_text(
+            f"{file_row}\n# pool 64: # obj_pools found: {pools}\n"
+            f"HEIGHTS 0.03125 {heights}\n{body}", encoding="utf-8")
+    (old / "shorter.dsf.text").write_text(body, encoding="utf-8")
+    (new / "shorter.dsf.text").write_text(body + "OBJECT 0 4.0 5.0 6.0\n", encoding="utf-8")
+    (new / "crasher.dsf.text").write_text(body, encoding="utf-8")
+    report_path = tmp_path / "report.json"
+
+    assert census.main(["--diff-text", str(old), str(new),
+                        "--json", str(report_path)]) == 0
+
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert (report["identical"], report["differ"]) == (1, 2)
+    assert (report["only_old"], report["only_new"]) == ([], ["crasher.dsf.text"])
+    assert {k: (v["rows"], v["files"]) for k, v in report["classes"].items()} == {
+        "# pool": (1, ["moved.dsf.text"]), "HEIGHTS": (1, ["moved.dsf.text"]),
+        "LINE COUNT": (1, ["shorter.dsf.text"])}
+    assert "1 dumps identical, 2 differ; only in OLD 0, only in NEW 1" in capsys.readouterr().out

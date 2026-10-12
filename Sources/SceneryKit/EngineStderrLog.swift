@@ -44,6 +44,8 @@ public final class EngineStderrLog: @unchecked Sendable {
     private var pendingHeader: String?
     private let directory: URL
     private let url: URL
+    /// Where the current run's log is, for a "report it" remedy (#562).
+    public var fileURL: URL { url }
     private let maxBytes: Int
     private let keptRuns: Int
 

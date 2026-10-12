@@ -279,11 +279,12 @@ import Foundation
         #expect(failed == .autoPatchFailed(
             airport: "HECA", stage: "manifest",
             error: "build reported success but wrote no HECA_auto.patch.osm",
-            lat: 30, lon: 31))
+            lat: 30, lon: 31, code: ""))
         // The tile's own terminal event still follows, naming the airport.
         let done = event(#"{"event":"BuildDone","lat":30,"lon":31,"ok":false,"error":"auto-patch failed for HECA (manifest): wrote no patch","seq":8,"ts":7.0}"#)
         #expect(done == .buildDone(lat: 30, lon: 31, ok: false,
-                                   error: "auto-patch failed for HECA (manifest): wrote no patch"))
+                                   error: "auto-patch failed for HECA (manifest): wrote no patch",
+                                   failures: [], warnings: []))
     }
 
     @Test func protocolScanBatchParsing() throws {

@@ -721,23 +721,40 @@ final class BuildModel: ObservableObject {
                 percent: indeterminate ? previous : percent), to: coord)
         case .autoPatchBegin, .autoPatchProgress:
             break // folded into StepProgress labels by the session
-        case .autoPatchFailed(let airport, let stage, let error, let lat, let lon):
-            // H1: name the airport in the console the moment it dies. The
-            // tile's buildDone(ok: false) follows and repeats it, but the
-            // user watching the build sees it here first — the silent
-            // 2026-08-30 death showed nothing at all.
+        case .autoPatchFailed(let airport, let stage, let error, let lat, let lon, let code):
+            // H1: name the airport in the console the moment it dies — the
+            // silent 2026-08-30 death showed nothing at all. An engine that
+            // sends a `code` (protocol 1.10, #562) explains it in the user's
+            // words on the tile's buildDone; an older one has only this.
             let coord = TileCoord(lat: lat, lon: lon)
-            console.append(
-                "*** Tile \(coord.key): airport \(airport) failed at the "
-                + "\(stage) stage — \(error)")
-        case .buildDone(let lat, let lon, let ok, let error):
+            console.append(code.isEmpty
+                ? "*** Tile \(coord.key): airport \(airport) failed at the "
+                    + "\(stage) stage — \(error)"
+                : O4TileFailureCopy.airportFailedLine(tile: coord.key, airport: airport))
+        case .buildDone(let lat, let lon, let ok, let error, let failures, let warnings):
             let coord = TileCoord(lat: lat, lon: lon)
+            // #562 / #564: the engine's own words — what, why, what to do —
+            // on the console now and in the run's one report at the end.
+            for failure in failures {
+                failure.consoleLines(isWarning: false).forEach { console.append($0) }
+            }
+            for warning in warnings {
+                warning.consoleLines(isWarning: true).forEach { console.append($0) }
+            }
+            runTileIssues.append(O4TileIssues(
+                tileKey: coord.key, built: ok, failures: failures, warnings: warnings))
             if ok {
-                console.append("Tile \(coord.key) finished.")
+                console.append(warnings.isEmpty
+                    ? "Tile \(coord.key) finished."
+                    : "Tile \(coord.key) finished with warnings.")
+                if !warnings.isEmpty, var row = activity.tiles[coord] {
+                    row.label = O4TileFailureCopy.builtWithWarnings
+                    activity.tiles[coord] = row
+                }
                 selected.remove(coord)
                 refreshTileInfo(coord)
                 if linkTiles { installLink(coord, quiet: true) }
-            } else if !error.isEmpty {
+            } else if failures.isEmpty, !error.isEmpty {
                 console.append("*** Tile \(coord.key) failed: \(error)")
             }
         case .runEta(let elapsed, let remaining, let done, let total):
@@ -775,7 +792,12 @@ final class BuildModel: ObservableObject {
             isBuilding = false
             isStopping = false
             var parts = ["\(done) tile\(done == 1 ? "" : "s") built"]
+            let warned = runTileIssues.filter { $0.built && !$0.warnings.isEmpty }.count
+            if warned > 0 { parts.append("\(warned) with warnings") }
             if errors > 0 { parts.append("\(errors) failed") }
+            runIssuesCounter += 1
+            runIssues = O4RunIssues(id: runIssuesCounter, tiles: runTileIssues)
+            runTileIssues = []
             if cancelled { parts.append("stopped") }
             lastRunSummary = parts.joined(separator: ", ")
             console.append("=== Run complete: \(lastRunSummary!) ===")
@@ -1347,6 +1369,12 @@ final class BuildModel: ObservableObject {
     }
 
     // MARK: - Missing art (protocol 1.9, #433)
+
+    /// The finished run's failures and warnings to present, or nil: ONE
+    /// report per run (#562, #564), shown by `RunIssuesSheet`.
+    @Published var runIssues: O4RunIssues?
+    private var runTileIssues: [O4TileIssues] = []
+    private var runIssuesCounter = 0
 
     /// The "X-Plane will not load this pack" warning to present, or nil.
     @Published var packArtPrompt: O4PackMissingArt?

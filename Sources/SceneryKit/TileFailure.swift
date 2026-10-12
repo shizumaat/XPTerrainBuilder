@@ -53,6 +53,13 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
         }
     }
 
+    /// The entry as the engine sent it, to hand back to the
+    /// `failure_report` command unchanged (#565).
+    public var wireObject: [String: Any] {
+        ["code": code, "what": what, "why": why, "remedy": remedy,
+         "airports": airports, "detail": detail]
+    }
+
     /// The three sentences, one per line.
     public var message: String { [what, why, remedy].joined(separator: "\n") }
 
@@ -69,13 +76,17 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
 /// One tile's messages at the end of its build.
 public struct O4TileIssues: Sendable, Equatable {
     public let tileKey: String
+    public let lat: Int
+    public let lon: Int
     public let built: Bool
     public let failures: [O4TileFailure]
     public let warnings: [O4TileFailure]
 
-    public init(tileKey: String, built: Bool,
+    public init(tileKey: String, lat: Int = 0, lon: Int = 0, built: Bool,
                 failures: [O4TileFailure], warnings: [O4TileFailure]) {
         self.tileKey = tileKey
+        self.lat = lat
+        self.lon = lon
         self.built = built
         self.failures = failures
         self.warnings = warnings
@@ -130,4 +141,32 @@ public enum O4TileFailureCopy {
     }
 
     public static let builtWithWarnings = "built with warnings"
+
+    // The report buttons (#565), identical to the Qt window's.
+    public static let reportButton = "Report this problem"
+    public static let saveReportButton = "Save report file"
+    public static let reportPreviewTitle = "This is what the report says"
+    public static let reportPreviewNote =
+        "Nothing has been sent. Pressing the button below copies this text and "
+        + "opens a new GitHub issue in your browser, where you can read it again "
+        + "before posting."
+    public static let openIssueButton = "Copy and Open GitHub"
+}
+
+/// The engine's redacted report of one tile (`failure_report` command,
+/// protocol 1.10, issue #565).
+public struct O4FailureReport: Sendable, Equatable {
+    public let title: String
+    public let report: String
+    public let issueURL: String
+    public let fileName: String
+    public let savedPath: String
+
+    /// The command exists from protocol 1.10: an older engine answers
+    /// "unknown command", so the buttons are not offered to it.
+    public static func supported(protocolVersion: String) -> Bool {
+        let parts = protocolVersion.split(separator: ".").map { Int($0) ?? 0 }
+        guard parts.count >= 2 else { return false }
+        return (parts[0], parts[1]) >= (1, 10)
+    }
 }

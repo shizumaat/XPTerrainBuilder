@@ -96,3 +96,28 @@ struct TileFailureTests {
         #expect(issues.detail == "A.\nd1")
     }
 }
+
+/// The report buttons are offered only to an engine that has the
+/// `failure_report` command (protocol 1.10, issue #565).
+struct FailureReportSupportTests {
+    @Test func theButtonsNeedProtocolOneTen() throws {
+        #expect(O4FailureReport.supported(protocolVersion: "1.10"))
+        #expect(O4FailureReport.supported(protocolVersion: "1.11"))
+        #expect(O4FailureReport.supported(protocolVersion: "2.0"))
+        #expect(!O4FailureReport.supported(protocolVersion: "1.9"))
+        #expect(!O4FailureReport.supported(protocolVersion: "1.1"))
+        #expect(!O4FailureReport.supported(protocolVersion: ""))
+    }
+
+    @Test func anEntryGoesBackToTheEngineUnchanged() throws {
+        let entry: [String: Any] = [
+            "code": "disk_full", "what": "W", "why": "Y", "remedy": "R",
+            "airports": ["AAAA"], "detail": "d", "log_path": "/l"]
+        let failure = try #require(O4TileFailure.parseList([entry]).first)
+        let wire = failure.wireObject
+        for key in ["code", "what", "why", "remedy", "detail"] {
+            #expect(wire[key] as? String == entry[key] as? String)
+        }
+        #expect(wire["airports"] as? [String] == ["AAAA"])
+    }
+}

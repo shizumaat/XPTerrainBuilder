@@ -713,6 +713,37 @@ public final class OrthoEngineClient: @unchecked Sendable {
         }
     }
 
+    // MARK: - Failure report (protocol 1.10, issue #565)
+
+    /// One tile's redacted report (engine `o4_engine.failure_report`). The
+    /// command name and keys are STRING LITERALS matched against
+    /// `Ortho4XP/src/o4_engine/jsonl.py` / `failure_report.py`. A non-empty
+    /// `savePath` also writes the report file there. `nil` on any failure.
+    public func failureReport(
+        lat: Int, lon: Int, failures: [O4TileFailure], appVersion: String,
+        logPath: String, xplaneDir: String, savePath: String = "",
+        completion: @escaping @Sendable (O4FailureReport?) -> Void
+    ) {
+        send(command: "failure_report", arguments: [
+            "lat": lat, "lon": lon,
+            "failures": failures.map(\.wireObject),
+            "app_version": appVersion, "app_name": "mac",
+            "log_path": logPath, "xplane_dir": xplaneDir,
+            "save_path": savePath,
+        ]) { reply in
+            guard reply.ok, let result = reply.result?.objectValue else {
+                completion(nil)
+                return
+            }
+            completion(O4FailureReport(
+                title: result["title"]?.stringValue ?? "",
+                report: result["report"]?.stringValue ?? "",
+                issueURL: result["issue_url"]?.stringValue ?? "",
+                fileName: result["file_name"]?.stringValue ?? "",
+                savedPath: result["saved_path"]?.stringValue ?? ""))
+        }
+    }
+
     // MARK: - Boundary airports (protocol 1.8)
 
     /// Start the boundary-airport preflight for the tiles about to be

@@ -90,7 +90,9 @@ struct MapMainView: View {
         }
         // Tiles not built / built with warnings (protocol 1.10, #562, #564).
         .sheet(item: $buildModel.runIssues) { issues in
-            RunIssuesSheet(issues: issues) { buildModel.runIssues = nil }
+            RunIssuesSheet(issues: issues, buildModel: buildModel) {
+                buildModel.runIssues = nil
+            }
         }
         // A pack X-Plane will not load (protocol 1.9, #433): owner-fixed
         // copy; the primary button only when the art can be omitted.

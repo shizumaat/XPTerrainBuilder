@@ -3810,7 +3810,8 @@ class MainWindow(QMainWindow):
         print("\n".join([summary] + detail_lines))
         self._status(summary)
         (issue_events, self._run_issue_events) = (self._run_issue_events, [])
-        issues = QTFAIL.issues_box(issue_events, parent=self)
+        issues = QTFAIL.issues_box(issue_events, parent=self,
+                                   app_version=O4_Version.version)
         if issues is not None:
             # Kept alive (non-modal) the way the missing-art boxes are.
             self._pack_art_boxes.append(issues)

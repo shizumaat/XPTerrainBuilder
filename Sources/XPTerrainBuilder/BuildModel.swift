@@ -742,7 +742,8 @@ final class BuildModel: ObservableObject {
                 warning.consoleLines(isWarning: true).forEach { console.append($0) }
             }
             runTileIssues.append(O4TileIssues(
-                tileKey: coord.key, built: ok, failures: failures, warnings: warnings))
+                tileKey: coord.key, lat: lat, lon: lon, built: ok,
+                failures: failures, warnings: warnings))
             if ok {
                 console.append(warnings.isEmpty
                     ? "Tile \(coord.key) finished."
@@ -1375,6 +1376,28 @@ final class BuildModel: ObservableObject {
     @Published var runIssues: O4RunIssues?
     private var runTileIssues: [O4TileIssues] = []
     private var runIssuesCounter = 0
+
+    /// Whether the engine has the `failure_report` command (#565).
+    var canReportFailures: Bool {
+        O4FailureReport.supported(protocolVersion: protocolHello?.protocolVersion ?? "")
+    }
+
+    /// The engine's redacted report of one tile's failures and warnings;
+    /// a non-empty `savePath` also writes it there. Completes on the main
+    /// actor with nil when the engine cannot answer.
+    func failureReport(for tile: O4TileIssues, savePath: String = "",
+                       completion: @escaping @MainActor (O4FailureReport?) -> Void) {
+        guard let client else { completion(nil); return }
+        client.failureReport(
+            lat: tile.lat, lon: tile.lon, failures: tile.entries,
+            appVersion: AppVersion.current,
+            logPath: EngineStderrLog.shared.fileURL.path,
+            xplaneDir: UserDefaults.standard.string(forKey: PrefKeys.xplanePath) ?? "",
+            savePath: savePath
+        ) { report in
+            Task { @MainActor in completion(report) }
+        }
+    }
 
     /// The "X-Plane will not load this pack" warning to present, or nil.
     @Published var packArtPrompt: O4PackMissingArt?

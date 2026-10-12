@@ -26,8 +26,8 @@ def _warned():
 
 def test_the_module_imports_no_qt():
     source = open(QTFAIL.__file__, encoding="utf-8").read()
-    assert source.count("from PySide6") == 2          # both inside issues_box
-    assert source.index("def issues_box") < source.index("from PySide6")
+    assert "\nfrom PySide6" not in source and "\nimport PySide6" not in source
+    assert source.index("# --- Qt ---") < source.index("from PySide6")
 
 
 def test_console_block_is_what_why_remedy_then_detail():
@@ -66,3 +66,33 @@ def test_run_report_says_built_with_warnings():
         [(47, -123)], {(47, -123): (True, "with warnings", 60.0)},
         {(47, -123): ("done", "", 100)}, 61.0, stopped=False)
     assert summary == "Tile +47-123 finished in 1 m 00 s with warnings."
+
+
+def test_the_report_button_gets_the_engines_redacted_report(tmp_path,
+                                                            monkeypatch):
+    """#565: the in-process form of the ``failure_report`` command, fed the
+    BuildDone's own entries unchanged; "Save report file" writes it."""
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "data_path", lambda rel: str(tmp_path / rel))
+    result = QTFAIL.tile_report(_failed(), app_version="9.9")
+    assert "+45-123" in result["title"]
+    assert "elevation_download_failed" in result["report"]
+    assert result["issue_url"].startswith("https://github.com/")
+    assert result["saved_path"] == ""
+    target = tmp_path / "out" / result["file_name"]
+    target.parent.mkdir()
+    saved = QTFAIL.tile_report(_failed(), save_path=str(target))
+    assert saved["saved_path"] == str(target) and target.is_file()
+
+
+def test_the_button_copy_matches_the_mac_app():
+    swift = os.path.join(os.path.dirname(__file__), "..", "..", "Sources",
+                         "SceneryKit", "TileFailure.swift")
+    if not os.path.exists(swift):
+        import pytest
+        pytest.skip("Swift sources not present in this tree")
+    with open(swift, encoding="utf-8") as handle:
+        source = handle.read()
+    for text in (QTFAIL.REPORT_BUTTON, QTFAIL.SAVE_REPORT_BUTTON,
+                 QTFAIL.REPORT_PREVIEW_TITLE, QTFAIL.OPEN_ISSUE_BUTTON):
+        assert '"%s"' % text in source, text

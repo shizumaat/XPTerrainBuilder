@@ -538,3 +538,78 @@ def test_a_normal_close_still_joins_cleanly_and_terminates_nobody(monkeypatch):
     assert time.monotonic() - t0 < P.TEARDOWN_S
     assert sent == [] and said == [] and not pool.fell_back
     assert all(P.exited(p) for p in procs)
+
+
+# ── a close is bounded AND accounted for (issue #570) ────────────────────
+
+class _Worker:
+    """A stand-in worker with no sentinel (``exited`` then reads ``join`` +
+    ``is_alive``): it ends ``after[signal]`` seconds after that signal —
+    a terminate is a REQUEST (Windows: ``TerminateProcess`` returns before
+    the process is gone) — or never."""
+
+    def __init__(self, pid, **after):
+        self.pid, self._after, self._end, self.sent = pid, after, None, []
+
+    def _signal(self, name):
+        self.sent.append(name)
+        if name in self._after and self._end is None:
+            self._end = time.monotonic() + self._after[name]
+
+    def terminate(self):
+        self._signal("terminate")
+
+    def kill(self):
+        self._signal("kill")
+
+    def is_alive(self):
+        return self._end is None or time.monotonic() < self._end
+
+    def join(self, timeout=None):
+        end = time.monotonic() + (timeout or 0.0)
+        while self.is_alive() and time.monotonic() < end:
+            time.sleep(0.005)
+
+
+class _Executor:
+    def __init__(self, procs):
+        self._processes = {p.pid: p for p in procs}
+
+    def shutdown(self, **_kw):
+        pass
+
+
+def _close(monkeypatch, procs):
+    monkeypatch.setattr(P, "TEARDOWN_S", 0.2)
+    monkeypatch.setattr(P, "SIGNAL_S", 0.6)
+    said: list = []
+    pool = P.WorkPool(workers=2, out=said.append)
+    pool._ex = _Executor(procs)
+    t0 = time.monotonic()
+    pool.close()
+    return said, time.monotonic() - t0
+
+
+def test_a_close_waits_out_a_slow_terminate_and_names_only_what_outlives_the_kill(
+        monkeypatch):
+    slow = _Worker(11, terminate=0.3)          # dies 0.3 s AFTER terminate returned
+    deaf = _Worker(12, kill=0.3)               # ignores terminate, dies after the kill
+    stuck = _Worker(13)                        # outlives both
+    said, wall = _close(monkeypatch, [slow, deaf, stuck])
+    assert slow.sent == ["terminate"]          # waited for, not killed
+    assert deaf.sent == stuck.sent == ["terminate", "kill"]
+    assert not slow.is_alive() and not deaf.is_alive() and stuck.is_alive()
+    assert len(said) == 1 and said[0].startswith(
+        "[pool] teardown: worker pid(s) [13] still running"), said
+    assert wall < 0.2 + 2 * 0.6 + 0.5
+
+
+def test_a_close_is_bounded_by_the_deadlines_not_by_the_worker_count(monkeypatch):
+    """Forty stuck workers cost what one does: every wait is ONE deadline
+    for all of them (the old close gave each a second after each signal)."""
+    stuck = [_Worker(100 + k) for k in range(40)]
+    said, wall = _close(monkeypatch, stuck)
+    assert wall < 0.2 + 2 * 0.6 + 0.5, wall
+    assert all(w.sent == ["terminate", "kill"] for w in stuck)
+    assert said == [f"[pool] teardown: worker pid(s) {[w.pid for w in stuck]} still "
+                    f"running 1 s after terminate and again after kill — abandoned"]

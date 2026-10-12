@@ -16168,8 +16168,33 @@ a standing object is not a basin member, its room is skipped as below-grade geom
 seats on its ground-contact feet like any building. The 04i rule-4 BASEMENT test (own cover of
 the REGION ≥ 0.9) remains the second line, for an object shorter than its basement is deep.
 
-**MEASURED** — see §47 (8) MEASURED below (filled by the lane from the OTHH replay and the
-closing build).
+**MEASURED (lane `wells551`, 2026-10-12).** Replay pair on `frames/pads67/OTHH.pkl` (`--from
+planar --emit`; base = main's code, arm = the witness): basin ways 49 → 10 (45 → 10 basins; four
+ways are `#1` split parts), the 10 kept BYTE-IDENTICAL (ring node lat/lon + alt): basins 0, 7, 9
+(Drainage 06), 1, 2, 3, 5, 8 (Drainage 01–05, #448/#451), 4, 6 (Dewatering); 39 ways removed, every
+one a jetway (Type4 ×9, Type5 ×7, Type6 ×11, Type7 ×14, Type8 ×4, Type10 ×2 memberships); node movers
+> 0.01 m over 32,713 common nodes: 0; runway 1,867 nodes 0 moved. Owner sites: 25.263167, 51.6135647
+was inside `basin:71` and 25.2637538, 51.6131875 inside `basin:32`; 25.2631354, 51.6134952 lies 1.7 m
+off `basin:68`'s centroid and 25.2630678, 51.6118374 beside `basin:17` — all four gone, no arm basin
+holds any. Closing harness build `wells551c_OTHH` (claude/wells551 64d02c7f1; control
+`basins526_OTHH` 87f9d2f94d71): rc 0, body b97085d24064, 45 → 10 basins, the 10 kept byte-identical,
+0 movers over 32,704 common nodes, runway 0; rebake plan 60a1ef0b730d — the 15 authored seats (6 pit
+rims + 9 tunnel crests, #525) identical, plate_members 35 → 2 and units 190 → 97 (the 93 jetway
+members leave the plan: their rows stay authored); verify defects {} both. Census A/B
+(`census_rows_diff`): law-true 2230 → 1833, ADJUDICATED airside 167 → 167, critical motion 0 → 0;
+EXACT 1829, MOVED 0, GONE 401 (397 `hairline_pair` on the removed rings, out-of-scope
+above_degenerate_floor; 4 `terrace_actual_step` apron|tunnel_trench 4.8 m at 25.26131, 51.61173 —
+the Type5 well's walls at the owner's fourth site), NEW 4 `pad_airside_renode` at 0.000 m (the apron
+re-knit where rings left; the arrangement reads 38 pads, 13 apron faces cut, where the control read
+52 / 14). Other sweep airports by their `pads67` captures: HECA 0 standing (3 EGCC_Jetway_metal_03
+witnesses, roofed < 0.9, as under main; 0 basins before and after), KCLT 0, SPJC `torre_nueva.obj` ×1
+standing (62 m over a 4.7 m plate, roofed 1.00; no basin there before), OTHH also
+`OTHH_PowerStation_Clutter_000.obj` ×1 (9.29 over 2.55, roofed 1.00; no basin before —
+`OTHH_Jetway_Type6_Tall` ×6 read roofed < 0.9 in the engine and keep witnesses, as under main, and
+form no basin). Twins: `tests/auto_patch_v2/test_wells551.py` (open pit cut; roofed tower refused;
+bowl + grated sump stays a pit; pit under another object's canopy stays), `test_m4b` and
+`test_v2lemd3` basement twins read the earlier refusal, `test_v2lemd3` half box and `test_v2lemd4`
+tower unchanged.
 
 ## §48 THE INTERIOR OBJECT CLASS — AN INTERIOR IS NEVER READ AND NEVER LOADED; IT RIDES ITS CLUSTER (owner RULINGS 2026-09-17n; Fable 2026-09-17; scout `interiors`, RULINGS 17o) — lane `v2interiors`, after `v2doorwellperf`
 

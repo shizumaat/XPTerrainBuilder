@@ -1,5 +1,19 @@
 # wells551 — no pit at the jetways (#551)
 
+## DONE (2026-10-12) — ready for the master: branch claude/wells551, head = the notes commit after 64d02c7f1
+
+CLOSING BUILD `wells551c_OTHH` (64d02c7f1; control basins526_OTHH 87f9d2f94d71): rc 0, body b97085d24064,
+45 -> 10 basins, 10 kept byte-identical, 0 movers / 32,704 common nodes, runway 0; rebake plan 60a1ef0b730d:
+15 authored seats identical, plate_members 35 -> 2, units 190 -> 97 (the 93 jetway members leave the plan,
+rows authored); verify defects {} both. CENSUS A/B: law-true 2230 -> 1833, ADJUDICATED airside 167 -> 167,
+critical motion 0 -> 0; rows EXACT 1829 / MOVED 0 / GONE 401 (397 hairline_pair on the removed rings,
+out-of-scope; 4 terrace_actual_step apron|tunnel_trench 4.8 m at 25.26131,51.61173 = the Type5 well's
+walls) / NEW 4 pad_airside_renode at 0.000 m (apron re-knit; arrangement 38 pads / 13 faces cut vs 52 / 14).
+Patch clock 976.8 s NOT timed (cold partition 227 s after the code-key change; load 50-100). Frames registered
+(frames/wells551/). Artifact ledger not stored: external KGRF/KTCM deltas from another lane, not OTHH's input.
+Spec §47 (8) (d)/(e) + MEASURED written. Scripts: scratchpad w551/basin_table.py, roof_probe.py,
+witness_probe.py. Not done: no sim read; no HECA/KCLT builds (captures probed instead).
+
 ## RESUME HERE (2026-10-12, resumed lane; main merged at 1ff5a912a, docs only)
 
 WITNESS REVISED 82eafb1b8 (+ 64d02c7f1 code key): the v2 suite on the first witness (height against depth

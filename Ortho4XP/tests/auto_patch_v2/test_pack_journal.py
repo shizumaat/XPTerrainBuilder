@@ -44,7 +44,9 @@ def _bytes(root) -> dict:
         for name in names:
             path = os.path.join(folder, name)
             with open(path, "rb") as fh:
-                out[os.path.relpath(path, root)] = fh.read()
+                # ``/`` on every platform: the names below are literals
+                out[os.path.relpath(path, root).replace(os.sep, "/")] = (
+                    fh.read())
     return out
 
 
@@ -100,7 +102,8 @@ def test_a_stop_of_the_first_build_leaves_the_authored_pack(build):
     assert build.stop() == []
 
     after = _bytes(build.pack)
-    backup = os.path.relpath(str(build.dsf), str(build.pack)) + ".anchor_bak"
+    backup = os.path.relpath(str(build.dsf), str(build.pack)).replace(
+        os.sep, "/") + ".anchor_bak"
     assert after.pop(backup) == DUMP4.encode()     # the backup it made stays
     assert after == authored                       # no record, no body
 
@@ -207,3 +210,46 @@ def test_a_sibling_dsfs_record_entry_survives_the_restore(build):
     assert doc["dsfs"][build.dsf.name] == json.loads(before)["dsfs"][
         build.dsf.name]
     assert sorted(doc["dsfs"][build.dsf.name]["airports"]) == ["TNCM"]
+
+
+# ── the journal's names are the record's, on every platform ─────────────
+
+def test_the_journal_names_bodies_as_the_record_does(build):
+    build.stage(_tncm)
+    build.complete()
+    build.stage(_tncm, _tffg)
+
+    with open(os.path.join(build.journal, "journal.json"),
+              encoding="utf-8") as fh:
+        (entry,) = json.load(fh)["entries"]
+
+    assert [name for name, _copy in entry["bodies"]] == [
+        "objects/b__b0.obj", "objects/b__b1.obj"]
+    assert entry["minted"] == ["objects/b__b0.obj", "objects/b__b1.obj",
+                               "objects/d__b0.obj"]
+
+
+@pytest.mark.parametrize("flavour", ["ntpath", "posixpath"])
+def test_the_bodies_to_remove_are_compared_as_record_names(flavour):
+    """Run with Windows' path rules AND POSIX's on every machine: the
+    record spells a body ``objects/b__b0.obj`` whatever the platform, the
+    filesystem spells it with the platform's separator, and a body that
+    was there before the build must never be among those removed."""
+    import ntpath
+    import posixpath
+    rules = {"ntpath": ntpath, "posixpath": posixpath}[flavour]
+    root = "C:\\X-Plane\\Custom Scenery\\pack" if flavour == "ntpath" \
+        else "/x-plane/Custom Scenery/pack"
+    recorded = [rules.join(root, "objects", "b__b0.obj"),     # there before
+                rules.join(root, "objects", "sub", "e__b0.obj")]
+    assert PJ._rel(root, recorded[1], rules) == "objects/sub/e__b0.obj"
+
+    stale = PJ._stale_bodies(
+        root, recorded, minted=["objects/d__b0.obj", "objects/b__b1.obj"],
+        before=["objects/b__b0.obj", "objects/b__b1.obj"], _path=rules)
+
+    assert stale == [rules.join(root, "objects", "d__b0.obj"),
+                     rules.join(root, "objects", "sub", "e__b0.obj")]
+    # a journal written before this spelling was fixed (``\\`` names)
+    assert PJ._stale_bodies(root, [], ["objects\\b__b0.obj"],
+                            ["objects/b__b0.obj"], _path=rules) == []

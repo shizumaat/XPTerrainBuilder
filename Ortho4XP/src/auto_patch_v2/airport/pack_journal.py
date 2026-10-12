@@ -23,7 +23,10 @@ it is the bytes saved, or ``backup_state`` proves it is this app's own
 write (the UI restore's rule); anything else is left and NAMED.
 
 The journal lives under the tile's build directory:
-``pack_journal_<tile>/journal.json`` plus the copies.
+``pack_journal_<tile>/journal.json`` plus the copies.  A body file is
+named in it as the record names it — relative to the pack, with ``/`` —
+so the two lists compare as text on every platform; the platform's
+separator appears only where a file is opened.
 """
 from __future__ import annotations
 
@@ -98,6 +101,31 @@ def _write(journal: str, entries: list) -> None:
     os.replace(tmp, os.path.join(journal, _INDEX))
 
 
+def _rel(pack_root: str, path: str, _path=os.path) -> str:
+    """A file of the pack as the record spells it: pack-relative, ``/``."""
+    rel = _path.relpath(_path.abspath(path), _path.abspath(pack_root))
+    return rel.replace(_path.sep, "/")
+
+
+def _abs(pack_root: str, rel: str, _path=os.path) -> str:
+    """The file a pack-relative name is, for a filesystem call."""
+    return _path.join(pack_root, *rel.replace("\\", "/").split("/"))
+
+
+def _stale_bodies(pack_root: str, recorded: _t.Iterable[str],
+                  minted: _t.Iterable[str], before: _t.Iterable[str],
+                  _path=os.path) -> list:
+    """The body files to REMOVE when a stopped build is undone: the ones
+    its record names (``recorded``, absolute paths) or it was about to
+    write (``minted``, pack-relative) that were not there before the
+    build (``before``, pack-relative).  Compared as pack-relative ``/``
+    names; returned as paths for the platform."""
+    names = {_rel(pack_root, p, _path) for p in recorded} | {
+        str(m).replace("\\", "/") for m in minted}
+    kept = {str(b).replace("\\", "/") for b in before}
+    return [_abs(pack_root, name, _path) for name in sorted(names - kept)]
+
+
 def snapshot(pack_root: str, dsf_path: str,
              new_bodies: _t.Iterable[str] = ()) -> None:
     """Keep this pack DSF, its record and its split bodies as they are
@@ -113,7 +141,7 @@ def snapshot(pack_root: str, dsf_path: str,
         return
     dsf_path = os.path.abspath(dsf_path)
     entries = _read(journal)
-    new_bodies = [os.path.abspath(p) for p in new_bodies]
+    new_bodies = [_rel(pack_root, p) for p in new_bodies]
     for known in entries:
         if known.get("dsf") == dsf_path:
             if new_bodies:
@@ -134,7 +162,7 @@ def snapshot(pack_root: str, dsf_path: str,
     for k, body in enumerate(_dw.written_body_files(pack_root, dsf_path)):
         if os.path.isfile(body):
             shutil.copy2(body, os.path.join(journal, f"{n}.b{k}.obj"))
-            entry["bodies"].append([os.path.abspath(body), f"{n}.b{k}.obj"])
+            entry["bodies"].append([_rel(pack_root, body), f"{n}.b{k}.obj"])
     _write(journal, entries + [entry])
 
 
@@ -162,22 +190,23 @@ def _put_back(journal: str, entry: dict) -> str:
         if verdict.state not in (_bs.State.OURS, _bs.State.PRISTINE):
             return (f"{os.path.basename(dsf_path)} is no longer the file "
                     f"this build wrote.")
-    minted = set(_dw.written_body_files(pack_root, dsf_path)) | {
-        str(p) for p in entry.get("minted") or []}
-    before = set()
+    recorded = _dw.written_body_files(pack_root, dsf_path)
+    before = []
     # the bodies the previous DSF names FIRST, then the DSF, then the
     # bodies only the stopped build's DSF named: no moment at which the
     # DSF in place names a missing file
-    for body, copy in entry.get("bodies") or []:
+    for name, copy in entry.get("bodies") or []:
+        body = _abs(pack_root, name)
         os.makedirs(os.path.dirname(body), exist_ok=True)
         shutil.copyfile(os.path.join(journal, copy), body)
-        before.add(body)
+        before.append(name)
     if not same:
         # a NEW mtime on purpose: the readers' text dump of this DSF is
         # keyed on it and was refreshed for the stopped build's file
         shutil.copyfile(saved, dsf_path + ".o4tmp")
         os.replace(dsf_path + ".o4tmp", dsf_path)
-    _dw.remove_cut_files(sorted(minted - before))
+    _dw.remove_cut_files(_stale_bodies(
+        pack_root, recorded, entry.get("minted") or [], before))
     record = None
     if entry.get("record_copy"):
         with open(os.path.join(journal, entry["record_copy"]), "rb") as fh:

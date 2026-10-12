@@ -246,3 +246,75 @@ def test_a_lane_build_writes_nothing_and_says_so(seated, tile, monkeypatch):
     assert counts["unproven"] == 1 and counts["restored"] == 0
     assert _snapshot(seated.pack) == before
     assert "measure_only" in UNPATCHED.read(tile)[0][UNPATCHED.PACK_RESTORE_KEY]
+
+
+# ── 6: the art the user accepted to build without stays out (#433) ──────
+
+
+def _omission():
+    from auto_patch_v2.airport import pack_art as PA
+    # ``objects/d.obj`` is not installed; placement 3 uses it
+    return (PA.MissingDef("object", 3, "objects/d.obj", 1),)
+
+
+def _write_with_omission(world, make, tag):
+    plan, files = make(world.pack, world.dsf)
+    PW.apply_plan(plan, files, world.tool, patch_dir=world.patch,
+                  work_dir=str(world.tmp / tag), omit=_omission())
+
+
+def test_the_only_airports_restore_keeps_the_accepted_omission(seated):
+    _write_with_omission(seated, _tncm, "w1")
+    assert "objects/d.obj" not in seated.dsf.read_text(encoding="utf-8")
+
+    out = _restore(seated, "TNCM")
+
+    assert out.state == UP.RESTORED and out.kept == ()
+    text = seated.dsf.read_text(encoding="utf-8")
+    # the definition X-Plane cannot load, and the row that placed it, stay out
+    assert "objects/d.obj" not in text and "18.11" not in text
+    # every other placement is as authored, TNCM's two included
+    assert "OBJECT_MSL 0 -63.1 18.04 5.0 10.0\n" in text
+    assert "OBJECT_MSL 1 -63.11 18.041 6.0 20.0\n" in text
+    assert "OBJECT_MSL 2 -63.15 18.1 7.0 30.0\n" in text
+    assert _objs(seated.pack) == []
+    # the record still names the omission, and no airport
+    entry = _record_doc(seated.dsf)["dsfs"][DSF]
+    assert entry["airports"] == {}
+    assert entry["omitted_art"]["accepted"] is True
+    assert [d["path"] for d in entry["omitted_art"]["definitions"]] == [
+        "objects/d.obj"]
+    assert UP.seated_airports(str(seated.dsf)) == ()
+    assert _restore(seated, "TNCM").state == UP.NONE
+
+
+def test_the_recompose_keeps_the_accepted_omission(seated):
+    seated.write(_tffg, "w1")                 # TFFG seats placement 2 only
+    _write_with_omission(seated, _tncm, "w2")
+
+    out = _restore(seated, "TNCM")
+
+    assert out.state == UP.RECOMPOSED and out.kept == ("TFFG",)
+    text = seated.dsf.read_text(encoding="utf-8")
+    assert "OBJECT_DEF objects/d.obj\n" not in text
+    assert "OBJECT 2 -63.15 18.1 30.0\n" in text          # TFFG kept
+    assert "OBJECT_MSL 0 -63.1 18.04 5.0 10.0\n" in text  # TNCM as authored
+    entry = _record_doc(seated.dsf)["dsfs"][DSF]
+    assert set(entry["airports"]) == {"TFFG"}
+    assert entry["omitted_art"]["accepted"] is True
+
+
+def test_without_an_omission_the_restore_is_the_backup_byte_for_byte(seated):
+    seated.write(_tncm, "w1")
+    _restore(seated, "TNCM")
+    backup = seated.dsf.parent / (DSF + ".anchor_bak")
+    assert seated.dsf.read_bytes() == backup.read_bytes()
+    assert not (seated.dsf.parent / "o4_placement_provenance.json").exists()
+
+
+def test_an_omission_recorded_for_another_pristine_file_is_not_applied():
+    from auto_patch_v2.airport import pack_art as PA
+    entry = {"omitted_art": PA.record("aa", _omission(), {}, "t")}
+    assert PA.recorded(entry, "aa") == _omission()
+    assert PA.recorded(entry, "bb") == ()
+    assert PA.recorded({}, "aa") == () and PA.recorded(None, "aa") == ()

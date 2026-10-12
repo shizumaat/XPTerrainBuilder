@@ -53,7 +53,7 @@ from .obj8 import is_stock_library_resource, resolve_resource
 __all__ = ["MissingDef", "DEF_KINDS", "FIRST_PATHS", "declared_definitions",
            "missing_definitions", "omit_definitions", "can_omit",
            "decision_key", "kind_counts", "first_paths", "summary",
-           "log_line", "accepted", "record"]
+           "log_line", "accepted", "record", "recorded"]
 
 #: definition keyword -> the kind name the event and the record carry
 DEF_KINDS = {"OBJECT_DEF": "object", "POLYGON_DEF": "polygon",
@@ -295,6 +295,27 @@ def record(pristine_sha256: str, missing: _t.Sequence[MissingDef],
             "pristine_sha256": pristine_sha256,
             "counts": dict(counts),
             "definitions": [m.to_dict() for m in missing]}
+
+
+def recorded(entry: _t.Mapping[str, _t.Any] | None, pristine_sha256: str
+             ) -> tuple[MissingDef, ...]:
+    """The omission the user accepted for THIS pristine DSF, read back
+    from :func:`record`'s row — for a write that has no art check of its
+    own and must end with the same definitions left out (RULINGS
+    2026-10-12d: the restore of an unpatched airport's pack).  Empty when
+    none is recorded, when it was recorded against another pristine file,
+    or when the row no longer reads as what :func:`record` wrote."""
+    row = (entry or {}).get("omitted_art")
+    if not (isinstance(row, dict) and row.get("accepted") is True
+            and row.get("pristine_sha256") == pristine_sha256):
+        return ()
+    try:
+        missing = tuple(MissingDef(str(d["kind"]), int(d["index"]),
+                                   str(d["path"]), int(d.get("uses") or 0))
+                        for d in row.get("definitions") or ())
+    except (KeyError, TypeError, ValueError):
+        return ()
+    return missing if accepted(entry, pristine_sha256, missing) else ()
 
 
 def accepted(entry: _t.Mapping[str, _t.Any] | None, pristine_sha256: str,

@@ -15,10 +15,15 @@ did to a pack DSF is one row of the record beside it
   back over the DSF, the bodies its write minted go, the entry is
   dropped.  The UI restore's rule (``object_rebake.restore_detail``):
   only a file ``backup_state`` proves is OURS is overwritten;
+  When the record carries an art omission the user accepted (#433) the
+  bare copy would put back definitions X-Plane cannot load, so the DSF
+  is written from the pristine dump with that omission and no airport's
+  edits instead; the entry stays, naming the omission and no airport;
 * other airports are recorded too (one pack DSF can serve two airports,
   #25) — the DSF is written again from the pristine dump with THEIR
   recorded edits and without this airport's (``write_pack(drop=)``), so
-  their seating is kept whether or not they are written later.
+  their seating is kept whether or not they are written later; a
+  recorded omission is passed through the same write.
 
 A restore that cannot be proven writes nothing and says why.
 """
@@ -31,6 +36,8 @@ import shutil
 from ..model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
 from . import backup_state as _bs
 from . import dsf_write as _dw
+from . import pack_art as _pa
+from .file_hash import sha256_file
 
 __all__ = ["NONE", "RESTORED", "RECOMPOSED", "UNPROVEN", "Outcome",
            "seated_airports", "restore_airport"]
@@ -101,7 +108,14 @@ def restore_airport(pack_root: str, dsf_path: str, icao: str, tool: str, *,
         # file we cannot prove is ours never loses bytes
         return Outcome(NONE, dsf_path, seated)
     kept = tuple(a for a in seated if a != icao)
-    if not kept:
+    # THE ART THE USER ACCEPTED TO BUILD WITHOUT STAYS OUT (#433; master
+    # ruling on 12d): "as authored" is the placements and their seating,
+    # never definitions that are not installed — X-Plane refuses to load
+    # a DSF that declares them.
+    omit = _pa.recorded(
+        _bs.dsf_entry(_bs.read_record(dsf_path), name),
+        sha256_file(verdict.backup)) if verdict.backup else ()
+    if not kept and not omit:
         if verdict.state is State.OURS:
             shutil.copy2(verdict.backup, dsf_path)
             _bs.invalidate_memo()
@@ -114,6 +128,7 @@ def restore_airport(pack_root: str, dsf_path: str, icao: str, tool: str, *,
                          Provenance("", engine_version, "", {}))
     try:
         result = _dw.write_pack(pack_root, plan, tool, drop=(icao,),
+                                omit=omit,
                                 allow_live_install=allow_live_install,
                                 engine_version=engine_version,
                                 work_dir=work_dir)
@@ -121,5 +136,6 @@ def restore_airport(pack_root: str, dsf_path: str, icao: str, tool: str, *,
         return Outcome(UNPROVEN, dsf_path, seated, reason=(
             f"{name} could not be rebuilt without this airport's object "
             f"placements ({exc})"))
-    return Outcome(RECOMPOSED, dsf_path, tuple(result.composed_airports),
+    return Outcome(RECOMPOSED if result.composed_airports else RESTORED,
+                   dsf_path, tuple(result.composed_airports),
                    tuple(result.orphaned_bodies))

@@ -22,6 +22,16 @@
 * `TileState(state="done", label="built with warnings")` for such a tile.
 * Entries go back into `failure_report` unchanged (extra keys are ignored there).
 
+* `BuildDone.notes: list` (default `[]`) — info-level entries of a BUILT tile, same shape plus `cells`:
+  code `elevation_substituted` (RULINGS 2026-10-12e). Source: `DEM.base_substitutions`, published by
+  `O4_Unpatched_Airports.record_substitutions` at the production DEM load (`O4_Vector_Map.
+  compose_tile_dem_from_disk`) into the SAME sidecar as the unpatched airports (key
+  `elevation_substituted`; `_write_key` keeps the other keys), read back by `read_substitutions`.
+* A `pack_restore` sentence in an unpatched airport's record (RULINGS 2026-10-12d) becomes a second
+  warning for that airport, code `pack_restore_unproven`; it is not a second `unpatched_airports` entry.
+* The restore remedy names "Revert to default" under "Modified airports": neither app has a control
+  called "Restore originals".
+
 ## WHERE THE WARNINGS COME FROM (master ruling)
 
 `O4_Unpatched_Airports.read(tile)` at the tile's successful end (`session._build_worker`), through

@@ -267,9 +267,9 @@ def test_an_uncatalogued_exception_is_report_it_never_its_own_text(
     assert failure["code"] == FAIL.UNMAPPED
     assert failure["what"] == ("Tile +10+020 was not built: the app ran "
                                "into an unexpected problem.")
-    assert "Report it and attach the log" in failure["remedy"]
-    assert str(tmp_path / "Ortho4XP.log") in failure["remedy"]
-    assert failure["log_path"] == str(tmp_path / "Ortho4XP.log")
+    assert failure["remedy"] == "Press Report this problem."
+    assert failure["log_path"] == str(
+        tmp_path / "logs" / "engine-stderr.log")
     for shown in (done.error, FAIL.render(failure)):
         assert "Ring edge" not in shown and "NobodyCatalogued" not in shown
     assert "NobodyCataloguedThis: Ring edge missing" in failure["detail"]
@@ -335,12 +335,18 @@ def test_failed_airports_end_the_tile_folded_while_the_step_fails(
 
 
 def test_a_built_tile_names_its_unpatched_airports_as_warnings(
-        monkeypatch, tmp_path):
+        monkeypatch, tmp_path, capsys):
     """Owner RULINGS 2026-10-12a (#564): the vector step carries on, the
-    tile is built, and the airport without a patch is a WARNING."""
+    tile is built, and the airport without a patch is a WARNING — sourced
+    from ``O4_Unpatched_Airports``, repeated as the tile's closing lines."""
+    import O4_Unpatched_Airports as UNPATCHED
+
     def one_airport_fails(tile):
         UI.auto_patch_failed("AAAA", "build", "[v2] TopologyException: x",
                              code="airport_geometry")
+        UNPATCHED.record(tile, [{"icao": "AAAA", "stage": "build",
+                                 "error": "[v2] TopologyException: x",
+                                 "code": "airport_geometry"}])
 
     install_stub_pipeline(monkeypatch, hooks={"vector": one_airport_fails})
     events = run_build(EngineSession(), [(10, 20)], tmp_path)
@@ -351,11 +357,48 @@ def test_a_built_tile_names_its_unpatched_airports_as_warnings(
                                "could not be processed.")
     assert warning["why"].endswith(FAIL.UNPATCHED)
     assert "TopologyException" in warning["detail"]
-    assert done.unpatched_airports == [{
-        "airport": "AAAA", "code": "airport_geometry",
-        "error": "(build) [v2] TopologyException: x"}]
+    (row,) = done.unpatched_airports
+    assert (row["airports"], row["stage"], row["code"]) == (
+        ["AAAA"], "build", "airport_geometry")
+    assert set(warning) <= set(row)             # feeds failure_report as is
+    states = [e for e in _tile_events(events, 10, 20)
+              if isinstance(e, EV.TileState) and e.state == "done"]
+    assert [e.label for e in states] == [SESSION.BUILT_WITH_WARNINGS]
     run_done = [e for e in events if isinstance(e, EV.RunDone)][-1]
     assert (run_done.done_count, run_done.error_count) == (1, 0)
+    out = capsys.readouterr().out
+    closing = out[out.index("completed in"):]
+    assert "WARNING: Tile +10+020 was built, but airport AAAA" in closing
+
+
+def test_the_last_steps_process_reads_the_airports_from_the_sidecar(
+        monkeypatch, tmp_path):
+    """THE PARALLEL CASE: each step runs in its own child, so the session
+    that emits the tile's final BuildDone never saw the vector step's
+    failures.  It reads the sidecar the vector step left beside the tile —
+    two airports of one cause, folded, the cause named by its code."""
+    import O4_Unpatched_Airports as UNPATCHED
+
+    class _VectorProcessTile:               # another process's tile object
+        build_dir = str(tmp_path)
+
+    UNPATCHED.record(_VectorProcessTile(), [
+        {"icao": a, "stage": "build", "error": "[v2] dump",
+         "code": "pack_dump_failed", "params": {"pack": "Some Pack"}}
+        for a in ("AAAA", "BBBB")] + [
+        {"icao": "CCCC", "stage": "verify", "error": "[v2] DEFECT"}])
+
+    install_stub_pipeline(monkeypatch)
+    session = EngineSession()
+    events = run_build(session, [(10, 20)], tmp_path, do_vector=False)
+    assert session._tile_failures == []         # it was told nothing
+    done = _done(events, 10, 20)
+    assert done.ok is True
+    assert [(w["code"], w["airports"]) for w in done.warnings] == [
+        ("pack_dump_failed", ["AAAA", "BBBB"]), ("airport_verify", ["CCCC"])]
+    assert "“Some Pack”" in done.warnings[0]["why"]
+    assert [r["airports"] for r in done.unpatched_airports] == [
+        ["AAAA"], ["BBBB"], ["CCCC"]]
 
 
 def test_a_later_tile_failure_is_the_message_not_the_airport(monkeypatch,
@@ -426,6 +469,9 @@ def test_the_new_fields_are_additive_and_survive_the_child_hop():
     assert payload["event"] == "BuildDone"
     assert set(payload["failures"][0]) == {
         "code", "what", "why", "remedy", "airports", "detail", "log_path"}
+    # ...and goes back into the report command unchanged (#565)
+    from o4_engine.failure_report import _normalise
+    assert _normalise(payload["failures"])[0]["code"] == "disk_full"
     rebuilt = _rebuild_event(payload)
     assert rebuilt.failures == done.failures
     built = SESSION.build_done(10, 20, True, [

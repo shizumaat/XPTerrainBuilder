@@ -40,7 +40,7 @@ __all__ = [
     "CATALOGUE", "EXCEPTION_CODES", "STAGE_CODES", "REMEDIES", "UNMAPPED",
     "UNMAPPED_AIRPORT", "UNMAPPED_STEP", "code_for_exception",
     "params_for_exception", "record_fields", "code_for_stage", "record", "fold", "headline",
-    "render",
+    "render", "from_unpatched", "closing_lines",
 ]
 
 
@@ -56,19 +56,19 @@ class Entry(NamedTuple):
 # The fixed remedy set (the master rules the copy; census
 # docs/briefs/failmsg562-census.md).
 REMEDIES = {
-    "retry": "Build the tile again. If it fails again, report it and "
-             "attach the log{log}.",
+    "retry": "Build the tile again. If it fails again, press Report "
+             "this problem.",
     "network": "Check the internet connection, then build the tile again.",
     "later": "Try again later.",
     "disk": "Free some disk space, then build the tile again.",
     "pack": "Update, repair or disable that scenery pack, then build the "
             "tile again.",
-    "report": "Report it and attach the log{log}.",
+    "report": "Press Report this problem.",
     "settings": "Check the X-Plane folder and the sources chosen in "
                 "Settings, then build the tile again.",
     "all_steps": "Build the tile again with every step selected.",
-    "reinstall": "Update or reinstall the app. If it still fails, report "
-                 "it and attach the log{log}.",
+    "reinstall": "Update or reinstall the app. If it still fails, press "
+                 "Report this problem.",
 }
 
 UNMAPPED = "unexpected_error"          # an exception nobody catalogued
@@ -369,7 +369,8 @@ def _airports_phrase(airports: list) -> str:
     return "airports %s and %s" % (", ".join(named[:-1]), named[-1])
 
 
-UNPATCHED = "An airport without a patch is left on ungraded terrain."
+UNPATCHED = ("An airport without a patch is left on ungraded terrain; the "
+             "next build of this tile tries it again.")
 
 
 def _describe(code: str, tile: str, airports: list, params: dict,
@@ -389,8 +390,7 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "code": code,
         "what": lead % tile + entry.what.format(**words),
         "why": (why + " " + UNPATCHED) if built else why,
-        "remedy": REMEDIES[entry.remedy].replace(
-            "{log}", (" (%s)" % log_path) if log_path else ""),
+        "remedy": REMEDIES[entry.remedy],
         "airports": list(airports),
         "detail": "\n".join(details),
         "log_path": log_path,
@@ -404,8 +404,9 @@ def fold(records: Iterable[dict], tile: str, built: bool = False,
     refused for one stale file are one message, not six).  First-seen
     order; each entry is the wire dict of ``BuildDone.failures`` — or,
     with ``built``, of ``BuildDone.warnings``: the tile was built and the
-    airports named are the ones without a patch.  ``log_path`` is named
-    by every "report it" remedy."""
+    airports named are the ones without a patch.  ``log_path`` is the
+    log a report reads — the fallback where no "Report this problem"
+    button exists (a shell build)."""
     groups: dict = {}
     for rec in records:
         key = (rec["code"], tuple(sorted(rec.get("params", {}).items())))
@@ -434,3 +435,29 @@ def headline(failures: list) -> str:
     reads only that field) shows.  Never the exception text."""
     return " | ".join(" ".join((f["what"], f["why"], f["remedy"]))
                       for f in failures)
+
+
+def from_unpatched(rows: Iterable[dict]) -> list:
+    """Raw records from ``O4_Unpatched_Airports.read(tile)`` rows
+    (``{"icao", "stage", "error"}`` plus ``code`` / ``params`` when the
+    worker named the cause) — the airports a built tile has no patch for."""
+    return [dict(record(code_for_stage(row.get("stage"), row.get("code")),
+                        "(%s) %s" % (row.get("stage") or "?",
+                                     row.get("error") or ""),
+                        airport=row.get("icao") or "?",
+                        **(row.get("params") or {})),
+                 stage=str(row.get("stage") or "?"))
+            for row in rows or ()]
+
+
+def closing_lines(warnings: list) -> list:
+    """The tile's closing account of its warnings, for the engine log: the
+    last thing a built-with-warnings tile prints (master ruling, #564)."""
+    lines = []
+    for warning in warnings:
+        lines.append("WARNING: " + warning["what"])
+        lines.append("   " + warning["why"])
+        lines.append("   " + warning["remedy"]
+                     + (" (log: %s)" % warning["log_path"]
+                        if warning.get("log_path") else ""))
+    return lines

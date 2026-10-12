@@ -130,9 +130,13 @@ def record(tile, failures) -> list:
     sidecar for one that is not.  Called by every vector step, with an
     empty list when every patch was built.  Never fatal: a sidecar that
     cannot be written costs the report, not the tile."""
+    # ``code`` / ``params`` (O4_Tile_Failures, #562) ride along when the
+    # worker could name the cause: the final step's process words the
+    # warning from this record alone.
     unpatched = [{"icao": str(rec.get("icao") or "?"),
                   "stage": str(rec.get("stage") or "?"),
-                  "error": str(rec.get("error") or "")}
+                  "error": str(rec.get("error") or ""),
+                  **{k: rec[k] for k in ("code", "params") if rec.get(k)}}
                  for rec in failures or ()]
     tile.auto_patch_unpatched = unpatched
     build_dir = getattr(tile, "build_dir", None)

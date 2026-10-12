@@ -27,6 +27,7 @@ from typing import Callable, Optional
 
 import O4_File_Names as FNAMES
 import O4_Tile_Failures as FAIL
+import O4_Unpatched_Airports as UNPATCHED
 import O4_UI_Utils as UI
 
 from .events import (
@@ -93,7 +94,9 @@ def build_done(lat, lon, ok, records):
     """
     tile = FNAMES.short_latlon(lat, lon)
     try:
-        log_path = FNAMES.data_path("Ortho4XP.log")
+        # THE log a failure report reads (o4_engine.failure_report).
+        from O4_Engine_Stderr_Log import engine_stderr_log_path
+        log_path = engine_stderr_log_path()
     except Exception:                                    # pragma: no cover
         log_path = ""
     ending = [r for r in records if r.get("scope") != "airport"]
@@ -105,11 +108,12 @@ def build_done(lat, lon, ok, records):
             lat=lat, lon=lon, ok=True,
             warnings=FAIL.fold(unpatched, tile, built=True,
                                log_path=log_path),
-            # The same airports as plain data, the shape lane tilecont564
-            # asked for (#564): one row per airport, unfolded.
+            # The same airports one by one (#564): each entry is a
+            # message of its own plus its ``stage``, so it feeds
+            # ``failure_report`` unchanged.
             unpatched_airports=[
-                {"airport": r["named"], "code": r["code"],
-                 "error": r["detail"]} for r in unpatched])
+                dict(FAIL.fold([r], tile, built=True, log_path=log_path)[0],
+                     stage=r.get("stage", "")) for r in unpatched])
     failures = FAIL.fold(
         ending or unpatched or [FAIL.record(FAIL.UNMAPPED_STEP)],
         tile, log_path=log_path)
@@ -1189,15 +1193,22 @@ class EngineSession:
                                           self._take_tile_failures()))
                 else:
                     done += 1
+                    # #564: the airports this tile's MESH was built
+                    # without, from the record the vector step published —
+                    # a sidecar, because under the parallel orchestrator
+                    # this step's process is not the one that ran it.
+                    self._take_tile_failures()
+                    built = build_done(lat, lon, True, FAIL.from_unpatched(
+                        UNPATCHED.read(tile)))
                     self._emit(TileState(
                         lat=lat, lon=lon, state="done", percent=100.0,
-                        label=(BUILT_WITH_WARNINGS if any(
-                            r["scope"] == "airport"
-                            for r in self._tile_failures) else "")))
-                    # #564: an airport that lost its patch did not cost
-                    # the tile — it is named in the tile's warnings.
-                    self._emit(build_done(lat, lon, True,
-                                          self._take_tile_failures()))
+                        label=BUILT_WITH_WARNINGS if built.warnings else ""))
+                    if not self._stepwise_run:
+                        # The LAST thing in the tile's log (a per-step
+                        # child leaves it to the parent orchestrator).
+                        for line in FAIL.closing_lines(built.warnings):
+                            UI.lvprint(0, line)
+                    self._emit(built)
                     _record_tile_build(
                         lat, lon,
                         {"zoomlevel": zoomlevel, "provider": provider,

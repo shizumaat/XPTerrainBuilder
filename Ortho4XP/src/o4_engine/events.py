@@ -60,7 +60,10 @@ from typing import Optional
 # #562); a tile BUILT without one of its airport patches names that
 # airport the same way in ``warnings`` (owner RULINGS 2026-10-12a, #564).
 # ``BuildDone.error`` stays, and is now that same plain sentence, so a
-# front end that reads only it shows no exception text either.
+# front end that reads only it shows no exception text either.  The SAME
+# bump covers the ``failure_report`` command (``o4_engine.failure_report``,
+# issue #565): a front end offers "Report this problem" / "Save report
+# file" only to an engine at 1.10 or later.
 PROTOCOL_VERSION = "1.10"
 
 
@@ -256,8 +259,8 @@ class BuildDone(EngineEvent):
     entries for AIRPORTS WITHOUT A PATCH: with ``ok`` true and
     ``warnings`` non-empty the tile was BUILT WITH WARNINGS — each named
     airport stands on ungraded terrain — which a front end shows distinct
-    from a clean success.  ``unpatched_airports`` is the same set as plain
-    rows, one ``{"airport", "code", "error"}`` per airport, for a consumer
+    from a clean success.  ``unpatched_airports`` is the same set one
+    airport per entry — the same dict plus ``stage`` — for a consumer
     that counts rather than displays (the release check, a sweep).
     """
 

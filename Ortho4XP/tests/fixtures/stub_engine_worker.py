@@ -53,10 +53,10 @@ Tile-coordinate scripts (switch on ``lat``):
   prove the tail runs uncapped while the download phase stays capped
   (markers ``downloadend_``, ``convertstart_``/``convertend_``).  Every
   other step is the happy path.
-* ``lat == 67`` — an UNPATCHED-AIRPORT tile (#564): its ``vector`` step
-  ends ok with one ``BuildDone.warnings`` entry and one
-  ``unpatched_airports`` row; every other step is the happy path, so the
-  parent must carry them to the tile's terminal ``BuildDone``.
+* ``lat == 67`` — an UNPATCHED-AIRPORT tile (#564): EVERY step ends ok
+  with one ``BuildDone.warnings`` entry and one ``unpatched_airports``
+  row, as each real step's child reads them from the tile's sidecar; the
+  parent must deliver the terminal one, once.
 * anything else — the happy path: two ``StepProgress`` lines, then
   ``TileState`` done + ``BuildDone`` ok + ``RunDone``.
 
@@ -285,7 +285,7 @@ def _run_one_build(message):
         _auto_patch_tile(lat, lon, step_key)
     elif lat == 64 and step_key == "imagery":
         _imagery_tile(lat, lon, step_key)
-    elif lat == 67 and step_key == "vector":
+    elif lat == 67:
         _step(lat, lon, step_key, 0.0)
         _tile_state(lat, lon, "done", "built with warnings", 100.0)
         _emit({"event": "BuildDone", "lat": lat, "lon": lon, "ok": True,

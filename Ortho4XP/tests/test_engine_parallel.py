@@ -249,10 +249,10 @@ def test_crashing_worker_synthesizes_failure(stub_worker, tmp_path):
 
 def test_a_steps_warnings_ride_on_the_tiles_terminal_build_done(
         stub_worker, tmp_path):
-    """#564: the vector step's airport-without-a-patch warning is on an
-    INTERMEDIATE BuildDone the parent swallows — it must reach the tile's
-    terminal BuildDone (a later step's, from another process) and label
-    the row, and must not leak onto another tile."""
+    """#564: every step's child reports the tile's unpatched airports
+    (each reads the sidecar the vector step wrote); the parent swallows
+    the intermediate BuildDones and delivers the TERMINAL one — once,
+    with the row labelled, and nothing leaking onto another tile."""
     session = EngineSession()
     collector = Collector(session)
     assert _start_parallel(session, [(67, 20), (10, 20)], slots=2) is True

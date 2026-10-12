@@ -13,6 +13,8 @@ access_strategy=viewfinder_zip
 # and the download log/retry labels stay byte-identical to the historic
 # behaviour.
 legacy_keyword=View
+# The name log lines give this source.
+display_name=Viewfinderpanoramas
 
 download_url_template=https://viewfinderpanoramas.org/dem1/{archive_code}.zip
 

@@ -1,6 +1,6 @@
 """Whole base tiles: cache validity, coverage and the manual-drop message.
 
-Shared by the four base-tile strategies and the pipeline's base-tile
+Shared by the five base-tile strategies and the pipeline's base-tile
 selection.
 """
 

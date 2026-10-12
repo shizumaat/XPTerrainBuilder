@@ -65,6 +65,8 @@ def test_shipped_definitions_parse(shipped_registry):
         "USGSOPR",
         "HRDEM",
         "COPERNICUSGLO30",
+        "COPERNICUSGLO30BASE",
+        "COPERNICUSGLO90BASE",
         "VIEWFINDER1",
         "VIEWFINDER3",
         "NED1",

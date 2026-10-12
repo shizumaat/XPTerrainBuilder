@@ -46,13 +46,18 @@ WHAT A STRATEGY MAY USE (the shared modules beside this file)
 ``stac_assets``     picking the terrain asset of a STAC item
 ``las_tiles``       what the point-cloud strategies share
 ``base_tiles``      whole-tile cache validity and coverage
+``base_fallback``   the base-tile fallback rule: which source a base
+                    cell comes from when the configured one is down
+``base_seam``       tying a substituted base cell to its neighbours
 
 A strategy module imports from those and never from the pipeline.  It
-does not import another strategy either, with three standing exceptions:
+does not import another strategy either, with four standing exceptions:
 ``os_grid_bucket`` subclasses ``geojson_tile_index``;
 ``authenticated_token_search`` parses its answer with ``stac``'s search
 parser; ``las_tile_index`` asks ``cwcb_lidar_api`` for the tile list of
-an ``index_format=cwcb`` provider.
+an ``index_format=cwcb`` provider; ``degree_cog_base_tile`` names and
+probes its cells with ``degree_named_cog`` (one bucket grammar, read as
+insets by one and as whole base tiles by the other).
 
 THE RULE THAT MUST NOT BREAK: a failure that says nothing about
 coverage is RAISED, never returned as ``None``.  ``None`` is recorded as

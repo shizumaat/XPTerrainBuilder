@@ -379,6 +379,10 @@ class DEM:
         # True once ``enable_baked_query`` has re-pointed the query path at
         # the baked working raster (see that method).
         self.baked_query_active = False
+        # Base cells this load read from a FALLBACK source because the
+        # configured one could not be reached (#561): one record per cell,
+        # ``{"cell", "code", "path"}``.  Empty in every ordinary build.
+        self.base_substitutions = []
         if ";" in source:
             self.alt = self.alt_composite
             self.alt_vec = self.alt_vec_composite
@@ -458,6 +462,7 @@ class DEM:
                     self.lon,
                     info_only,
                     prefer_coarse=prefer_coarse,
+                    substitutions=self.base_substitutions,
                 )
             else:
                 if ensure_elevation(
@@ -476,12 +481,13 @@ class DEM:
                         self.nxdem,
                         self.nydem,
                         self.alt_dem,
-                    ) = read_elevation_from_file(
-                        FNAMES.elevation_data(short_source, self.lat, self.lon),
+                    ) = read_base_cell(
+                        short_source,
                         self.lat,
                         self.lon,
                         info_only,
                         3601,
+                        substitutions=self.base_substitutions,
                     )
                 else:
                     (
@@ -968,7 +974,28 @@ def _ensure_cell_elevation(source, lat, lon, lat0, lon0, verbose,
             "elevation cell %s (%s): %s" % (cell, role, error)) from error
 
 
-def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
+def read_base_cell(source, lat, lon, info_only, base_if_error,
+                   substitutions=None):
+    """:func:`read_elevation_from_file` for one base cell of a legacy
+    source keyword: the configured source's file, or -- where that source
+    could not be reached -- the fallback's, tied to its configured
+    neighbours (``elevation_access.base_fallback``, #561).  Each
+    substituted cell is appended to ``substitutions``."""
+    # Imported lazily, like every reference to the provider pipeline in
+    # this module: both import THIS module at module level.  The pipeline
+    # imports ``base_fallback`` statically, so the frozen engine has it.
+    import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+    from elevation_access import base_fallback
+
+    if not ELEVATION_PROVIDERS.elevation_providers_dict:
+        ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
+    return base_fallback.read_base_cell(
+        source, lat, lon, ELEVATION_PROVIDERS.elevation_providers_dict,
+        info_only, base_if_error, substitutions=substitutions)
+
+
+def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False,
+                          substitutions=None):
     if source in ("View", "SRTM"):
         base = 3601
         overlap = 1
@@ -1010,12 +1037,13 @@ def build_combined_raster(source, lat, lon, info_only, prefer_coarse=False):
             source, lat, lon, lat0, (lon0 + 180) % 360 - 180, verbose,
             prefer_coarse,
         ):
-            tmparray = read_elevation_from_file(
-                FNAMES.elevation_data(source, lat0, (lon0 + 180) % 360 - 180),
+            tmparray = read_base_cell(
+                source,
                 lat0,
                 (lon0 + 180) % 360 - 180,
                 info_only,
                 base,
+                substitutions=substitutions,
             )[-1]
         else:
             tmparray = numpy.zeros((base, base), dtype=numpy.float32)
@@ -1275,6 +1303,18 @@ class ElevationDownloadRefused(RuntimeError):
     """
 
 
+class ElevationTransportRefused(ElevationDownloadRefused):
+    """The transport half of :class:`ElevationDownloadRefused`, and only
+    that: every attempt died without a usable answer (no connection, a
+    timeout, a 5xx).  The source may be perfectly fine tomorrow, so this
+    is the ONE refusal the base-tile fallback may cover with another
+    source (``elevation_access.base_fallback``, issue #561).  A host that
+    refused this client, a redirect loop and a land cell the source does
+    not hold stay plain :class:`ElevationDownloadRefused`: they are
+    defects to see, never outages to route around.
+    """
+
+
 #: Attempts :func:`http_request` makes before it gives up.  Named so a
 #: twin can shorten the loop instead of waiting out the 2+4+8+16+32 s
 #: exponential back-off.
@@ -1444,7 +1484,7 @@ def http_request(url, source, verbose=False):
         tentative += 1
         if tentative >= HTTP_REQUEST_ATTEMPT_CAP:
             if last_failure is not None and not UI.red_flag:
-                raise ElevationDownloadRefused(
+                raise ElevationTransportRefused(
                     "the %s elevation download of %s failed %d times on "
                     "the transport (last: %s) -- REFUSING to build this "
                     "tile on an all-zero elevation raster; check the "

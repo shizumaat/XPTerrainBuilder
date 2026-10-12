@@ -96,7 +96,7 @@ def world(tmp_path, monkeypatch):
         tile=types.SimpleNamespace(lat=30, lon=31, auto_patch="All",
                                    dem=None, build_dir=str(build_dir)))
     monkeypatch.setattr(UI, "auto_patch_failed",
-                        lambda *record: seen.events.append(record))
+                        lambda *record, **_named: seen.events.append(record))
     monkeypatch.setattr(UI, "loud_warning",
                         lambda *words: seen.warnings.append(
                             " ".join(str(w) for w in words)))

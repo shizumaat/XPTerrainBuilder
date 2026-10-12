@@ -228,7 +228,12 @@ def test_an_authorised_airport_mod_cache_refresh_DERIVES_the_pack_dump(
     argv = [json.loads(line) for line in
             calls_log.read_text(encoding="utf-8").splitlines()]
     assert len(argv) == 1 and argv[0][0] == "--dsf2text", argv
-    assert argv[0][1] == str(dsf) and argv[0][2] == str(want), argv
+    # ... into a ``.partial`` BESIDE the dump, renamed onto it only after a
+    # clean exit (#560: a crash must leave no empty dump)
+    assert argv[0][1] == str(dsf), argv
+    assert argv[0][2].startswith(str(want) + ".") and argv[0][2].endswith(
+        ".partial"), argv
+    assert not os.path.exists(argv[0][2])
     # ...and the dump landed at the engine's own cache name
     assert want.is_file(), sorted(p.name for p in want.parent.glob("*"))
     assert summary["derived"] == str(want)

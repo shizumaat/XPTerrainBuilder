@@ -9,6 +9,7 @@ harness pattern ``tests/test_dsf_object_buildings.py`` uses), with
 ``dsf_reader._dsftool_path`` monkeypatched so no real binary is invoked.
 """
 import os
+import sys
 
 import pytest
 
@@ -286,15 +287,18 @@ def test_dsftool_launch_uses_external_tool_kwargs(tmp_path, monkeypatch):
 
     dsf = tmp_path / "+00+000.dsf"
     dsf.write_bytes(b"\x37\x7a\xbc\xaf\x27\x1c" + b"\x00" * 32)
-    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+    # any existing file: the launch is faked, the tool check is real
+    monkeypatch.setattr(D, "_dsftool_path", lambda: sys.executable)
 
     seen = []
 
     def fake_run(cmd, **kwargs):
         seen.append((cmd, kwargs))
-        # Materialise the output file the caller expects.
-        open(cmd[3], "w", encoding="utf-8", newline="").close()
-        return _sp.CompletedProcess(cmd, 0, b"", b"")
+        # Materialise the output file the caller expects (an EMPTY one
+        # is a failed dump since #560).
+        with open(cmd[3], "w", encoding="utf-8", newline="") as handle:
+            handle.write("A\n800\nDSF2TEXT\n")
+        return _sp.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(D.subprocess, "run", fake_run)
     out = D.ensure_dsf_text_path(str(dsf), cache_dir=str(tmp_path / "cache"))
@@ -315,16 +319,18 @@ def test_dsftool_fallback_launch_also_uses_external_tool_kwargs(
 
     dsf = tmp_path / "+00+000.dsf"
     dsf.write_bytes(b"not-really-a-dsf")
-    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+    # any existing file: the launch is faked, the tool check is real
+    monkeypatch.setattr(D, "_dsftool_path", lambda: sys.executable)
 
     calls = []
 
     def fake_run(cmd, **kwargs):
         calls.append((cmd, kwargs))
         if len(calls) == 1:
-            raise _sp.CalledProcessError(-11, cmd)
-        open(cmd[3], "w", encoding="utf-8", newline="").close()
-        return _sp.CompletedProcess(cmd, 0, b"", b"")
+            return _sp.CompletedProcess(cmd, 1, "", "cannot open output")
+        with open(cmd[3], "w", encoding="utf-8", newline="") as handle:
+            handle.write("A\n800\nDSF2TEXT\n")
+        return _sp.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(D.subprocess, "run", fake_run)
     out = D.ensure_dsf_text_path(str(dsf), cache_dir=str(tmp_path / "cache"))

@@ -122,6 +122,9 @@ def _broken(edit):
      "nested child 20: the pack pool FELL BACK"),
     (lambda p, s: p["nested"][0].update(pids=[]), "fewer than two workers of its own"),
     (lambda p, s: p.update(orphans=[13]), "orphans [13]"),
+    (lambda p, s: p.update(orphans=[13], orphans_named=["pid 13 (worker of the 'dem' "
+                                                        "pool; C:\\e\\Ortho4XP.exe)"]),
+     "pid 13 (worker of the 'dem' pool; C:\\e\\Ortho4XP.exe)"),
     (lambda p, s: p.pop("kill"), "did not hard-kill a pool over shared blocks"),
     (lambda p, s: p["kill"].update(pids=[61]), "did not hard-kill a pool"),
     (lambda p, s: p["kill"].update(orphans=[62]),
@@ -193,7 +196,9 @@ def test_a_hard_killed_parent_leaves_no_worker_and_no_block(tmp_path):
     assert record["busy"] == 2 and len(record["blocks"]) == 2
     assert record["orphans"] == [] and record["leaked_blocks"] == []
     assert record["gone_s"] < SC.KILL_S
-    assert not any(SC.alive(pid) for pid in record["pids"])
+    procs = record["procs"]                # who each pid WAS (#570)
+    assert set(procs) >= {str(pid) for pid in record["pids"]} | {str(record["pid"])}
+    assert not any(SC.alive(pid, procs[str(pid)][0]) for pid in record["pids"])
     assert not any(SC.block_exists(name) for name in record["blocks"])
     assert said and said[0].startswith("kill: parent")
 
@@ -233,10 +238,20 @@ def test_the_entry_runs_the_pool_from_source_and_the_gate_passes_it(tmp_path):
     assert record_of(logs, "pooled")["kill"]["orphans"] == []
     victim = record_of(logs, "victim")
     assert victim["manager"] and victim["top"] and len(victim["blocks"]) == 2
+    # THE process each pid was, never whoever holds the number now (#570)
     for pid in [victim["pid"], victim["top"], victim["manager"], *victim["pids"]]:
-        assert not SC.alive(pid), pid
+        assert str(pid) in victim["procs"], (pid, victim["procs"])
+        assert not SC.alive(pid, victim["procs"][str(pid)][0]), pid
     record = json.loads((logs / "pool-selfcheck-pooled.json").read_text(encoding="utf-8"))
     assert record["ok"] and len(record["nested"]) == 2
+    # every process the run started carries a stamp: start time, command, role
+    assert set(record["procs"]) == {str(pid) for pid in record["pids"]}
+    assert all(born is not None and role for born, _cmd, role in record["procs"].values())
+    roles = {role for _b, _c, role in record["procs"].values()}
+    assert "airport-pool child" in roles and "worker of the 'spawn' pool" in roles
+    assert any(role.startswith("worker of the 'spawn' pool under airport-pool child ")
+               for role in roles), roles
+    assert record["orphans_named"] == []
     assert all(row["tasks"] > 0 and not row["fell_back"]
                for row in record["pools"].values())
     serial = json.loads((logs / "pool-selfcheck-onecore.json").read_text(encoding="utf-8"))
@@ -284,3 +299,55 @@ def test_a_windows_pool_never_asks_for_more_than_the_executor_allows(monkeypatch
     assert P.WorkPool(workers=200).workers == P.WINDOWS_MAX_WORKERS == 61
     monkeypatch.setattr(sys, "platform", "linux")
     assert P.WorkPool(workers=200).workers == 200
+
+
+# ── WHO a pid is (issue #570) ────────────────────────────────────────────
+
+def test_a_pid_handed_to_another_process_is_not_this_runs_orphan():
+    """Run 38278241886 (windows-latest): ``teardown: process(es) still alive:
+    [3336]`` — 15 s after the pools closed AND again from outside, 14 s after
+    the engine had exited, with both hard-kill arms clean.  A pid is a number
+    the system hands on; the read asked "does anybody hold 3336".  Here the
+    recycling is INJECTED on every OS: a live process (this one) stands under
+    the stamp of another (a child) — the pid of a worker that is gone, held
+    by somebody born at another time."""
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        procs = SC.stamp({}, [child.pid], "worker of the 'spawn' pool")
+        born, command, role = procs[str(child.pid)]
+        assert born is not None and command, procs    # this OS can say who a pid is
+        assert SC.identity(child.pid)[0] == born == SC.identity(child.pid)[0]
+        here = SC.identity(os.getpid())
+        assert here is not None and here[0] not in (None, born)
+        # a survivor that IS the stamped process: alive, and named by role + command
+        assert SC.alive(child.pid) and SC.alive(child.pid, born)
+        assert SC._linger([child.pid], [], 0.0, procs) == ([child.pid], [])
+        assert SC.named([child.pid], procs) == [
+            f"pid {child.pid} (worker of the 'spawn' pool; {command})"]
+        assert SC.recycled([child.pid], procs) == []
+        # the same stamp under a pid somebody ELSE holds now
+        reused = {str(os.getpid()): [born, command, role]}
+        assert SC.alive(os.getpid())                       # the blind read: "alive"
+        assert not SC.alive(os.getpid(), born)             # …but not THAT process
+        assert SC._linger([os.getpid()], [], 0.0, reused) == ([], [])
+        said = SC.recycled([os.getpid()], reused)
+        assert len(said) == 1 and said[0].startswith(
+            f"pid {os.getpid()} (worker of the 'spawn' pool) is now "), said
+    finally:
+        child.kill()
+        child.wait()
+    assert SC.identity(child.pid) is None and not SC.alive(child.pid, born)
+    assert SC._linger([child.pid], [], 0.0, procs) == ([], [])
+
+
+def test_a_process_with_no_stamp_is_still_judged_by_its_pid():
+    """Never weaker than before: no stamp (an older record, a start time
+    the system would not give) leaves the pid alone to decide, and the
+    failure still says what holds it."""
+    assert SC.alive(os.getpid(), None)
+    assert SC._linger([os.getpid()], [], 0.0, {}) == ([os.getpid()], [])
+    assert SC._linger([os.getpid()], [], 0.0, {str(os.getpid()): [None, "", "x"]}) \
+        == ([os.getpid()], [])
+    said = SC.named([os.getpid()], {})
+    assert said[0].startswith(f"pid {os.getpid()} (not stamped by this run; now ")
+    assert "command unknown" not in said[0]

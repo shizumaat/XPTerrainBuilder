@@ -251,6 +251,35 @@ def test_a_node_that_is_already_hard_is_never_overridden(law):
     assert n2 == 2
 
 
+def test_a_vertex_of_a_runway_face_is_never_governed(law):
+    """THE RUNWAY IS SENIOR AT THE VERTEX, NOT ONLY AT THE FACE (#555).  A
+    taxi-family face in the corridor whose vertices are ALSO the vertices
+    of a runway face — a connector at the edge of a second runway that
+    crosses the extended centreline — pins none of them: the rect's value
+    is ~9 m under the ground, and a pin there is a pin on the runway's own
+    surface.  A crossing with vertices of its own beside it is untouched."""
+    ap = _airport(law)
+    pm = _map([_crossing(), _crossing(d0=440.0, d1=470.0, role="stub")])
+    own, shared = pm.faces[1], pm.faces[2]
+    other_runway = Face(3, "runway", "pav-other", shared.ring, (), 4, "E")
+    pm2 = PlanarMap("KCLT", pm.vertices, pm.edges,
+                    {**pm.faces, 3: other_runway}, {})
+    rows = eat.eat_pins(pm2, law, ap)
+    assert {r.v for r in rows} == set(pm.ring_vertices(own.ring))
+    assert eat.STATS["eat_pins"]["runway_vertices_excluded"] == 4
+    # the same map without the second runway pins both faces
+    assert len(eat.eat_pins(pm, law, ap)) == 8
+    assert eat.STATS["eat_pins"]["runway_vertices_excluded"] == 0
+    # and a rect made ONLY of runway vertices is no rect at all
+    alone = _map([_crossing(role="stub")])
+    alone = PlanarMap("KCLT", alone.vertices, alone.edges,
+                      {**alone.faces,
+                       2: Face(2, "runway", "pav-other", alone.faces[1].ring,
+                               (), 4, "E")}, {})
+    assert eat.eat_pins(alone, law, ap) == []
+    assert eat.STATS["eat_pins"]["rects_accepted"] == 0
+
+
 def test_the_generator_mints_pins_only(law):
     """The EAT states an ANCHOR, never a law edge (v1's reach-envelope
     blow-up): the ramps either side are the taxi family's own rows."""

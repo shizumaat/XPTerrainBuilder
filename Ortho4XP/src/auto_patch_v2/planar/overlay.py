@@ -176,6 +176,24 @@ def _node_coords(noded) -> list[tuple[float, float]]:
     return sorted(out)
 
 
+def _runway_ridges(airport: Airport, spacing: float
+                   ) -> list[tuple[str, LineString]]:
+    """Each runway's RIDGE — the ``runway_profile`` breakline source, end
+    to end across its overruns, stationed at ``spacing``."""
+    out: list[tuple[str, LineString]] = []
+    for rw in airport.runways:
+        a, b = rw.ends
+        (ax, ay), (bx, by) = a.xy, b.xy
+        L = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5
+        if L < 1.0:
+            continue
+        ux, uy = (bx - ax) / L, (by - ay) / L
+        p0 = (ax - ux * a.overrun_m, ay - uy * a.overrun_m)
+        p1 = (bx + ux * b.overrun_m, by + uy * b.overrun_m)
+        out.append((rw.id, LineString(stations([p0, p1], spacing))))
+    return out
+
+
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement."""
@@ -188,9 +206,15 @@ def build_arrangement(airport: Airport, classification: Classification,
     # CLAIMS its footprint from the zone at the face claim (a senior role):
     # the flush cut, no stand-off, no knife, no sliver of its own making.
     ribbon_cells = tuple(c for c in classification.cells if is_late_cell(c))
+    # the runway ridges, stationed — built BEFORE the weld because a ridge's
+    # END is a vertex the noding will put on the runway's end edge, and the
+    # weld must see it as one (``weld_cells`` ``nodes``, #556)
+    ridges = _runway_ridges(airport, law.tables.emit.chords.station_spacing_m)
+    ridge_ends = tuple(xy for _ref, line in ridges
+                       for xy in (line.coords[0], line.coords[-1]))
     cells, weld = weld_cells(tuple(c for c in classification.cells
-                                   if not is_late_cell(c)), law) \
-        if ribbon_cells else weld_cells(classification.cells, law)
+                                   if not is_late_cell(c)), law, ridge_ends) \
+        if ribbon_cells else weld_cells(classification.cells, law, ridge_ends)
     regions: list[Region] = []
     for c in cells:
         regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),
@@ -281,20 +305,9 @@ def build_arrangement(airport: Airport, classification: Classification,
 
     lines: list[LineString] = _ring_lines_of(base_regions)
 
-    sources: list[SourceLine] = []
-    spacing = law.tables.emit.chords.station_spacing_m
+    sources: list[SourceLine] = [SourceLine("runway_profile", ref, line)
+                                 for ref, line in ridges]
     cap_pav = law.tables.emit.chords.pavement_max_chord_m
-    for rw in airport.runways:
-        a, b = rw.ends
-        (ax, ay), (bx, by) = a.xy, b.xy
-        L = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5
-        if L < 1.0:
-            continue
-        ux, uy = (bx - ax) / L, (by - ay) / L
-        p0 = (ax - ux * a.overrun_m, ay - uy * a.overrun_m)
-        p1 = (bx + ux * b.overrun_m, by + uy * b.overrun_m)
-        sources.append(SourceLine("runway_profile", rw.id,
-                                  LineString(stations([p0, p1], spacing))))
     for cl in classification.cut_lines:
         if len(cl.points) >= 2:
             sources.append(SourceLine(cl.kind, cl.ref,

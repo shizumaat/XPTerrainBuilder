@@ -548,6 +548,10 @@ def _drive(binary, work, data_root, command, jsonl_log, stderr_log,
     environment = dict(os.environ)
     environment["ORTHO4XP_DATA_ROOT"] = data_root
     environment["PYTHONHASHSEED"] = "0"
+    # A release check FAILS on an airport failure (RULINGS 2026-10-12a
+    # (4)): strict mode keeps ``BuildDone ok=false`` for a tile the app
+    # would now build without that airport's patch.
+    environment["O4_AUTO_PATCH_STRICT"] = "1"
     # THE HOSTILE PROJ ENVIRONMENT, and why it is not unconditional.
     # A FROZEN bundle must find its own PROJ data whatever the shell says
     # (``O4_Proj_Runtime.scrub_proj_env`` drops PROJ_* precisely because

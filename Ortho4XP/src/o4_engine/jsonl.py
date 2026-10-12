@@ -66,6 +66,7 @@ import O4_Console_Encoding
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
 
+from . import failure_report
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
@@ -190,6 +191,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # and completes through PackMissingArt — DSFTool may not run on
         # THIS thread.
         "omit_missing_art": session.omit_missing_art,
+        # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
+        # for one tile, its prefilled new-issue URL and, with
+        # ``save_path``, the report file.  Synchronous — it reads the end
+        # of one log file — and no session state: a module function.
+        "failure_report": failure_report.failure_report,
     }
 
 
@@ -412,6 +418,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
     try:
         _initialize_pipeline_registries()
         session = EngineSession(version=_ortho4xp_version())
+        session.app_driven = True       # the peer of this pipe is an app
         if owns_process:
             _install_terminate_signal_handler(session)
             _start_parent_death_watchdog(session)

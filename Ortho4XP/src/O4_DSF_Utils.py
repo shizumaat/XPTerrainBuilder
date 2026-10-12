@@ -19,6 +19,7 @@ import O4_Geo_Utils as GEO
 import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
 import O4_Overlay_Utils as OVL
+import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
 quad_init_level = 3
@@ -337,8 +338,9 @@ def create_terrain_file(
     the inland shore feather (mask floored at the ``ratio_water`` grey)
     then softens shorelines exactly like the masked sea overlay."""
 
-    if not os.path.exists(os.path.join(tile.build_dir, "terrain")):
-        os.makedirs(os.path.join(tile.build_dir, "terrain"))
+    # A build in progress writes beside the live folder (#598).
+    terrain_dir = STAGING.terrain_dir(tile)
+    os.makedirs(terrain_dir, exist_ok=True)
 
     suffix = "_water" if tri_type == 1 else "_sea" if tri_type == 2 else ""
     if is_overlay:
@@ -348,7 +350,7 @@ def create_terrain_file(
     if use_test_texture:
         texture_file_name = "test_texture.dds"
 
-    with open(os.path.join(tile.build_dir, "terrain", ter_file_name), "w",
+    with open(os.path.join(terrain_dir, ter_file_name), "w",
               encoding="utf-8", newline="\n") as f:
 
         f.write("A\n800\nTERRAIN\n\n")
@@ -484,6 +486,7 @@ def extract_elevation_and_bathymetry_data(lat, lon):
             global_scenery_dsf,
             "absent. Global Scenery directory needs to be set in the config ",
             "window first.",
+            code="overlay_source_missing",
         )
         return (b"", b"")
     tmp_file = os.path.join(
@@ -497,6 +500,7 @@ def extract_elevation_and_bathymetry_data(lat, lon):
         UI.exit_message_and_bottom_line(
             "     ERROR: could not copy it. Disk full, write permissions,",
             " erased tmp dir ?",
+            code="output_folder_unwritable",
         )
         return (b"", b"")
 
@@ -513,7 +517,8 @@ def extract_elevation_and_bathymetry_data(lat, lon):
     # read filetype cookie
     dsfid = f.read(8).decode("ascii")
     if dsfid != "XPLNEDSF":
-        UI.exit_message_and_bottom_line("     ERROR: Corrupted DSF file.")
+        UI.exit_message_and_bottom_line("     ERROR: Corrupted DSF file.",
+                                        code="overlay_source_missing")
         os.remove(tmp_file)
         return (b"", b"")
     # skip format number
@@ -1828,8 +1833,8 @@ def build_dsf(tile, download_queue):
         FNAMES.long_latlon(tile.lat, tile.lon) + ".dsf",
     )
     
-    if os.path.exists(dsf_file_name):
-        os.replace(dsf_file_name, dsf_file_name + ".bak")
+    # The previous generation stays where X-Plane reads it until this build
+    # COMPLETES (#598): ``O4_Tile_Utils.activate_dsf`` moves it aside.
 
     # Note: present code should always choose the first branch.
     if bPROP == b"":

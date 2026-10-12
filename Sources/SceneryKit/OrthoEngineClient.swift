@@ -245,7 +245,11 @@ public enum O4Event: Sendable, Equatable {
     /// built: [lat, lon, info] triples; installed: [lat, lon] pairs.
     case scanBatch(built: [(lat: Int, lon: Int, info: O4JSON)], installed: [(lat: Int, lon: Int)])
     case scanDone(builtCount: Int, installedCount: Int)
-    case tileState(lat: Int, lon: Int, state: String, label: String, percent: Double)
+    /// `detail` (additive within protocol 1.10, #598): whole sentences for
+    /// a second line under the tile's row — for a stopped tile, what it is
+    /// left with. Empty from an older engine; shown verbatim.
+    case tileState(lat: Int, lon: Int, state: String, label: String, percent: Double,
+                   detail: String = "")
     case stepProgress(lat: Int, lon: Int, stepKey: String, label: String,
                       percent: Double, indeterminate: Bool)
     case autoPatchBegin(airports: [String], lat: Int, lon: Int)
@@ -261,8 +265,23 @@ public enum O4Event: Sendable, Equatable {
     /// Added for H1 (Ortho4XP/docs/POSTMORTEM-20260831.md Task C): before it
     /// a per-airport death reached only the engine console, the tile finished
     /// with exit 0 and the previous build's scenery flew.
-    case autoPatchFailed(airport: String, stage: String, error: String, lat: Int, lon: Int)
-    case buildDone(lat: Int, lon: Int, ok: Bool, error: String)
+    ///
+    /// `code` (protocol 1.10, #562) is the engine's failure class; `error`
+    /// is technical detail, and the user's message arrives on the tile's
+    /// `buildDone` (`failures`, or `warnings` when the tile is still built
+    /// — owner RULINGS 2026-10-12a, #564).
+    case autoPatchFailed(airport: String, stage: String, error: String, lat: Int, lon: Int,
+                         code: String)
+    /// One tile finished. `failures` (protocol 1.10) say why it was NOT
+    /// built; `warnings` name airports without a patch on a tile that was
+    /// built ("built with warnings"), folded per cause;
+    /// `unpatchedAirports` are the same airports one per entry. `error` is
+    /// the failures as one line.
+    /// `notes` are info-level entries of a built tile (stand-in
+    /// elevation, owner RULINGS 2026-10-12e), shown under the warnings.
+    case buildDone(lat: Int, lon: Int, ok: Bool, error: String,
+                   failures: [O4TileFailure], warnings: [O4TileFailure],
+                   unpatchedAirports: [O4TileFailure], notes: [O4TileFailure])
     case runEta(elapsedSeconds: Double, remainingSeconds: Double?, doneTiles: Int, totalTiles: Int)
     /// Per-tile clocks beside RunEta (protocol 1.3): each row is one
     /// tile's elapsed wall time and its OWN remaining-work estimate
@@ -342,7 +361,8 @@ public enum O4Event: Sendable, Equatable {
             return .scanDone(builtCount: int("built_count"), installedCount: int("installed_count"))
         case "TileState":
             return .tileState(lat: int("lat"), lon: int("lon"), state: string("state"),
-                              label: string("label"), percent: double("percent"))
+                              label: string("label"), percent: double("percent"),
+                              detail: string("detail"))
         case "StepProgress":
             return .stepProgress(lat: int("lat"), lon: int("lon"), stepKey: string("step_key"),
                                  label: string("label"), percent: double("percent"),
@@ -364,10 +384,16 @@ public enum O4Event: Sendable, Equatable {
         case "AutoPatchFailed":
             return .autoPatchFailed(airport: string("airport"), stage: string("stage"),
                                     error: string("error"),
-                                    lat: int("lat"), lon: int("lon"))
+                                    lat: int("lat"), lon: int("lon"),
+                                    code: string("code"))
         case "BuildDone":
             return .buildDone(lat: int("lat"), lon: int("lon"),
-                              ok: bool("ok"), error: string("error"))
+                              ok: bool("ok"), error: string("error"),
+                              failures: O4TileFailure.parseList(object["failures"]),
+                              warnings: O4TileFailure.parseList(object["warnings"]),
+                              unpatchedAirports: O4TileFailure.parseList(
+                                  object["unpatched_airports"]),
+                              notes: O4TileFailure.parseList(object["notes"]))
         case "RunEta":
             let remaining = (object["remaining_seconds"] as? NSNumber)?.doubleValue
             return .runEta(elapsedSeconds: double("elapsed_seconds"),
@@ -697,6 +723,37 @@ public final class OrthoEngineClient: @unchecked Sendable {
                 status: result["status"]?.stringValue ?? "none",
                 path: result["path"]?.stringValue ?? "",
                 count: result["count"]?.intValue ?? 0))
+        }
+    }
+
+    // MARK: - Failure report (protocol 1.10, issue #565)
+
+    /// One tile's redacted report (engine `o4_engine.failure_report`). The
+    /// command name and keys are STRING LITERALS matched against
+    /// `Ortho4XP/src/o4_engine/jsonl.py` / `failure_report.py`. A non-empty
+    /// `savePath` also writes the report file there. `nil` on any failure.
+    public func failureReport(
+        lat: Int, lon: Int, failures: [O4TileFailure], appVersion: String,
+        logPath: String, xplaneDir: String, savePath: String = "",
+        completion: @escaping @Sendable (O4FailureReport?) -> Void
+    ) {
+        send(command: "failure_report", arguments: [
+            "lat": lat, "lon": lon,
+            "failures": failures.map(\.wireObject),
+            "app_version": appVersion, "app_name": "mac",
+            "log_path": logPath, "xplane_dir": xplaneDir,
+            "save_path": savePath,
+        ]) { reply in
+            guard reply.ok, let result = reply.result?.objectValue else {
+                completion(nil)
+                return
+            }
+            completion(O4FailureReport(
+                title: result["title"]?.stringValue ?? "",
+                report: result["report"]?.stringValue ?? "",
+                issueURL: result["issue_url"]?.stringValue ?? "",
+                fileName: result["file_name"]?.stringValue ?? "",
+                savedPath: result["saved_path"]?.stringValue ?? ""))
         }
     }
 

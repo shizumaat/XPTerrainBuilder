@@ -3788,6 +3788,15 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
     else:
         os.environ["O4_PACK_WRITES"] = "measure_only"
 
+    # AN AIRPORT FAILURE STILL FAILS A HARNESS BUILD (owner RULINGS
+    # 2026-10-12a (4)).  The app now builds a tile WITHOUT a failed
+    # airport's patch and warns; to the project a missing patch is a
+    # defect, so every build through this entry — and the tile tools that
+    # share this function — runs the engine in STRICT mode, where step 1
+    # still returns 0 and ``run_tile_steps`` still stops.  The app sets
+    # nothing.  An env variable for the same reason as the line above.
+    os.environ["O4_AUTO_PATCH_STRICT"] = "1"
+
     # THE BELT.  ``build_patch``'s direct callers (oracle.py, who_wrote.py)
     # may already have imported the engine, and ``Default_dsf_cache_dir``
     # is computed at import; ``_apply_data_root`` recomputes it from the

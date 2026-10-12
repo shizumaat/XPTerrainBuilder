@@ -54,7 +54,18 @@ from typing import Optional
 # pack whose DSF declares a definition that is not installed is one
 # X-Plane will not load; the engine names it and offers a DSF without the
 # missing definitions (owner RULINGS 2026-10-06c, issue #433).
-PROTOCOL_VERSION = "1.9"
+# 1.10 (2026-10-12, additive): BuildDone.failures, BuildDone.warnings and
+# AutoPatchFailed.code — a tile that was not built says, in the user's
+# words, what failed, why and what to do (``O4_Tile_Failures``, issue
+# #562); a tile BUILT without one of its airport patches names that
+# airport the same way in ``warnings`` (owner RULINGS 2026-10-12a, #564).
+# ``BuildDone.error`` stays, and is now that same plain sentence, so a
+# front end that reads only it shows no exception text either.  The SAME
+# bump covers the ``failure_report`` command (``o4_engine.failure_report``,
+# issue #565): a front end offers "Report this problem" / "Save report
+# file" only to an engine at 1.10 or later.  Also within 1.10 (additive,
+# #598): ``TileState.detail`` — the second line of a stopped tile's row.
+PROTOCOL_VERSION = "1.10"
 
 
 @dataclass(frozen=True)
@@ -123,6 +134,10 @@ class TileState(EngineEvent):
 
     ``state``: "queued" | "active" | "indeterminate" | "done" | "error".
     ``label`` is the short human status ("failed", "stopped", "").
+    ``detail`` (additive within 1.10, #598) is one or more whole sentences
+    for a second line under the tile's row — for a stopped tile, what it
+    is left with (``O4_Stopped_Build``); empty otherwise.  A front end
+    shows it verbatim; an older one ignores it.
     """
 
     lat: int = 0
@@ -130,6 +145,7 @@ class TileState(EngineEvent):
     state: str = "queued"
     label: str = ""
     percent: float = 0.0
+    detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -208,6 +224,10 @@ class AutoPatchFailed(EngineEvent):
     error: str = ""
     lat: int = 0
     lon: int = 0
+    # 1.10: the ``O4_Tile_Failures`` catalogue code.  Non-empty means the
+    # tile's ``BuildDone.failures`` will carry this airport in a message
+    # written for the user, and ``error`` is the technical detail only.
+    code: str = ""
 
 
 @dataclass(frozen=True)
@@ -232,12 +252,35 @@ class ImageryDownloadsDone(EngineEvent):
 
 @dataclass(frozen=True)
 class BuildDone(EngineEvent):
-    """One tile finished (ok or not)."""
+    """One tile finished (ok or not).
+
+    ``failures`` (1.10, issue #562) is why a tile was NOT built, one entry
+    per cause: ``{"code", "what", "why", "remedy", "airports", "detail",
+    "log_path"}`` — three short sentences written for the user
+    (``O4_Tile_Failures``), the airports the cause covers, and the
+    technical ``detail`` (the original exception or console text) for the
+    log and a disclosure.  ``error`` is the same message as one plain line.
+
+    ``warnings`` (1.10, owner RULINGS 2026-10-12a, #564) has the same
+    entries for AIRPORTS WITHOUT A PATCH: with ``ok`` true and
+    ``warnings`` non-empty the tile was BUILT WITH WARNINGS — each named
+    airport stands on ungraded terrain — which a front end shows distinct
+    from a clean success.  ``unpatched_airports`` is the same set one
+    airport per entry — the same dict plus ``stage`` — for a consumer
+    that counts rather than displays (the release check, a sweep).
+    """
 
     lat: int = 0
     lon: int = 0
     ok: bool = True
     error: str = ""
+    failures: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+    unpatched_airports: list = field(default_factory=list)
+    # Info-level entries of the same shape (plus ``cells``) for a tile
+    # that WAS built: code ``elevation_substituted`` — a base cell read
+    # from a fallback source (owner RULINGS 2026-10-12e).
+    notes: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)

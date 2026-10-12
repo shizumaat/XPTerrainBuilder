@@ -10,6 +10,8 @@ import O4_Console_Encoding as CONSOLE
 # UTF-8 must survive the round trip, and must never end the step (#539).
 DSF_TEXT_ERRORS = "surrogateescape"
 import O4_File_Names as FNAMES
+import O4_Held_File as HELD
+import O4_Tile_Failures as FAILURES
 import O4_UI_Utils as UI
 
 # the following is meant to be modified directly by users who need it (in the 
@@ -66,6 +68,38 @@ def resolve_unzip_cmd():
 
 
 ################################################################################
+def install_overlay_dsf(converted, destination):
+    """Put the converted overlay DSF where X-Plane reads it; False — with
+    the tile's failure NAMED — when that is refused (#585).
+
+    Copied beside the destination, then moved over it in one step, so a
+    refusal (disk full, the old overlay held open by X-Plane) leaves the
+    PREVIOUS overlay untouched and loadable; the next build replaces it.
+    """
+    if not os.path.isfile(converted):
+        UI.exit_message_and_bottom_line(
+            "   ERROR: DSFTool did not produce the overlay DSF.",
+            code="overlay_tool_failed")
+        return False
+    staged = destination + ".tmp"
+    try:
+        shutil.copy(converted, staged)
+        HELD.retrying_a_held_file(lambda: os.replace(staged, destination))
+    except OSError as exc:
+        try:
+            os.remove(staged)
+        except OSError:
+            pass
+        exc.failure_code = FAILURES.code_for_activation(exc)
+        UI.tile_failure("scenery_file_not_activated", exc=exc)
+        UI.exit_message_and_bottom_line(
+            "   ERROR: could not copy the overlay DSF into place:", exc,
+            code=None)
+        return False
+    return True
+
+
+################################################################################
 def build_overlay(lat, lon):
     if UI.is_working:
         return 0
@@ -95,6 +129,7 @@ def build_overlay(lat, lon):
             file_to_sniff,
             "absent. Recall that the overlay source directory needs to be set ",
             "in the config window first.",
+            code="overlay_source_missing",
         )
         return 0
     file_to_sniff_loc = os.path.join(
@@ -106,7 +141,8 @@ def build_overlay(lat, lon):
     except:
         UI.exit_message_and_bottom_line(
             "   ERROR: could not copy it. Disk full, write permissions, erased",
-            " tmp dir ?"
+            " tmp dir ?",
+            code="output_folder_unwritable",
         )
         return 0
     f = open(file_to_sniff_loc, "rb")
@@ -118,7 +154,8 @@ def build_overlay(lat, lon):
         if seven_zip is None:
             # REFUSE here, naming the package: the alternative was a
             # FileNotFoundError raised deep inside extraction.
-            UI.exit_message_and_bottom_line(UNZIP_MISSING_MESSAGE)
+            UI.exit_message_and_bottom_line(UNZIP_MISSING_MESSAGE,
+                                            code="overlay_tool_failed")
             return 0
         os.replace(file_to_sniff_loc, file_to_sniff_loc + ".7z")
         subprocess.run([seven_zip, "e", f"-o{FNAMES.Tmp_dir}", f"{file_to_sniff_loc}.7z"], **UI.external_tool_keyword_arguments())
@@ -142,7 +179,8 @@ def build_overlay(lat, lon):
         else:
             UI.vprint(1, "     " + CONSOLE.native_tool_text(line)[:-1])
     if fingers_crossed.returncode:
-        UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.")
+        UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.",
+                                        code="overlay_tool_failed")
         return 0
     UI.vprint(1, "-> Selecting overlays for copy/paste")
     f = open(
@@ -256,16 +294,18 @@ def build_overlay(lat, lon):
         except:
             UI.exit_message_and_bottom_line(
                 "   ERROR: could not create destination directory "
-                + str(dest_dir)
+                + str(dest_dir),
+                code="output_folder_unwritable",
             )
             return 0
-    shutil.copy(
+    if not install_overlay_dsf(
         os.path.join(
             FNAMES.Tmp_dir,
             FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.dsf",
         ),
         os.path.join(dest_dir, FNAMES.short_latlon(lat, lon) + ".dsf"),
-    )
+    ):
+        return 0
     os.remove(
         os.path.join(
             FNAMES.Tmp_dir,

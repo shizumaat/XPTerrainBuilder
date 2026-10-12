@@ -128,11 +128,11 @@ def test_stopped_run_reports_unfinished_tiles():
 # The engine's failure explanation
 # ---------------------------------------------------------------------
 def test_failed_step_error_text_names_the_step():
-    assert (ENGINE_SESSION.failed_steps_error_text(["mesh"])
-            == "the mesh step failed (see the console log)")
-    assert (ENGINE_SESSION.failed_steps_error_text(["vector", "imagery"])
-            == "the vector data and imagery/DSF steps failed "
-               "(see the console log)")
+    done = ENGINE_SESSION.build_done(48, -6, False, [
+        ENGINE_SESSION.FAIL.record(
+            "step_failed", step=ENGINE_SESSION.STEP_FAILURE_NOUNS["mesh"])])
+    assert done.error.startswith(
+        "Tile +48-006 was not built: the mesh step failed.")
 
 
 # ---------------------------------------------------------------------

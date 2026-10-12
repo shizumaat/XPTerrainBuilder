@@ -63,6 +63,7 @@ from collections import deque
 from typing import Optional
 
 import O4_Console_Encoding
+import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
 from . import events as EVENTS
@@ -70,8 +71,8 @@ from . import tile_time_model
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
-    _predict_step_seconds, plan_steps, prediction_features,
-    reweight_plan_by_seconds,
+    _predict_step_seconds, build_done, plan_steps, prediction_features,
+    reweight_plan_by_seconds, stopped_tile_state,
 )
 
 
@@ -833,6 +834,8 @@ class ParallelBuildRun:
         # start stamp + frozen final elapsed at the tile's terminal.
         self._tile_first_started: dict = {}   # tile -> wall time
         self._tile_final_elapsed: dict = {}   # tile -> seconds
+        # #564: warnings of a tile's finished steps, held for its terminal.
+        self._tile_warnings: dict = {}
         # tile -> summed dispatched-step seconds, for the per-tile
         # "completed in" console line (a worker child sees one step at a
         # time, so only the parent can total the tile).
@@ -1420,6 +1423,13 @@ class ParallelBuildRun:
         return True
 
     # -- cancellation ----------------------------------------------------
+    def _stopped_state(self, tile):
+        """The stopped ``TileState`` of ``tile``, its scenery packs put
+        back first (#598) — for a tile no child is working on any more."""
+        build_dir = (self._tile_arguments.get(tile)
+                     or {}).get("custom_build_dir", "")
+        return stopped_tile_state(tile[0], tile[1], build_dir)
+
     def cancel_tile(self, tile):
         emit_stopped = False
         cancelling = None
@@ -1454,8 +1464,7 @@ class ParallelBuildRun:
             # flag must not hang the run.
             self._arm_cancel_escalation(cancelling)
         if emit_stopped:
-            self._session._emit(TileState(lat=tile[0], lon=tile[1],
-                                          state="queued", label="stopped"))
+            self._session._emit(self._stopped_state(tile))
             self._maybe_finish()
         return accepted
 
@@ -1477,8 +1486,7 @@ class ParallelBuildRun:
                     child.send({"cmd": "cancel"})
                     cancelling.append(child)
         for tile in drained + waiting:
-            self._session._emit(TileState(lat=tile[0], lon=tile[1],
-                                          state="queued", label="stopped"))
+            self._session._emit(self._stopped_state(tile))
         for child in cancelling:
             self._arm_cancel_escalation(child)
         self._maybe_finish()
@@ -1599,6 +1607,12 @@ class ParallelBuildRun:
                 # Intermediate step completion: a scheduling signal, not
                 # a tile terminal — swallowed (spec §3.8).
                 return
+            # #564: the terminal's warnings (the last step's child read
+            # them from the tile's unpatched-airports sidecar) close the
+            # tile's log below, after "Tile … completed in".
+            with self._lock:
+                self._tile_warnings[tile] = (list(event.warnings),
+                                             list(event.notes))
             with self._lock:
                 if event.ok:
                     self._done += 1
@@ -1720,6 +1734,9 @@ class ParallelBuildRun:
                              UI.nicer_timer(
                                  self._tile_step_seconds.pop(
                                      child.tile, 0.0))))
+                    for line in FAIL.closing_lines(
+                            *self._tile_warnings.pop(child.tile, ([], []))):
+                        print(line)
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)
                     child.tile = None
@@ -1793,17 +1810,20 @@ class ParallelBuildRun:
             self._dispatch_locked()
         if stopped_tile is not None:
             lat, lon = stopped_tile
-            self._session._emit(TileState(lat=lat, lon=lon, state="queued",
-                                          label="stopped"))
+            self._session._emit(self._stopped_state(stopped_tile))
             print("Build worker for", _short_latlon(stopped_tile),
                   "exited while being stopped; its tile is marked stopped.")
         if crashed_tile is not None:
             lat, lon = crashed_tile
             self._session._emit(TileState(lat=lat, lon=lon, state="error",
                                           label="failed"))
-            self._session._emit(BuildDone(
-                lat=lat, lon=lon, ok=False,
-                error="build worker exited unexpectedly"))
+            done_event = build_done(
+                lat, lon, False,
+                [FAIL.record("worker_died",
+                             "build worker exited unexpectedly")],
+                getattr(self._session, "app_driven", False))
+            self._tile_warnings.pop(crashed_tile, None)
+            self._session._emit(done_event)
             print("Build worker for", _short_latlon(crashed_tile),
                   "exited unexpectedly; its tile is marked failed.")
         if respawn:

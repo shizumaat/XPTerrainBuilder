@@ -150,7 +150,7 @@ def _refuse_on_broken_proj() -> bool:
         "silently degraded tile.",
     )
     UI.lvprint(0, reason)
-    UI.exit_message_and_bottom_line("")
+    UI.exit_message_and_bottom_line("", code="app_component_broken")
     return True
 
 
@@ -189,7 +189,7 @@ def build_masks(tile, for_imagery=False):
             FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon),
             "absent.",
         )
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="earlier_step_missing")
         return 0
     
     # Custom extent: fall back to regular masks when the named extent is
@@ -292,7 +292,8 @@ def build_masks(tile, for_imagery=False):
         except:
             UI.exit_message_and_bottom_line(
                 "\nERROR: Could not determine the appropriate elevation source.",
-                " Please check your custom_dem entry."
+                " Please check your custom_dem entry.",
+                code="elevation_source_unset",
             )
             return 0
 

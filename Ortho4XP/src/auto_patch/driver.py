@@ -43,8 +43,12 @@ class AutoPatchBuildFailure(RuntimeError):
     and exited 0.  The owner flew Aug-29 geometry believing it was the
     day's build.
 
-    A per-airport failure is therefore FATAL to the tile build,
-    ungated.  ``failures`` is the ordered list of
+    A per-airport failure is therefore never dropped: it is named, the
+    airport's files on disk are set aside, and this is raised.  Since
+    owner RULINGS 2026-10-12a the tile step builds the tile WITHOUT those
+    airports and warns (``O4_Unpatched_Airports``); it still stops in
+    strict mode, for the whole-tile ``config`` record, and when a stale
+    file could not be set aside.  ``failures`` is the ordered list of
     ``{"icao", "stage", "error"}`` records that caused it; ``stage`` is
     one of ``build`` / ``write`` / ``worker`` / ``missing`` /
     ``manifest`` / ``config``.
@@ -56,8 +60,11 @@ class AutoPatchBuildFailure(RuntimeError):
     DEM (beta plan §1 B2).
     """
 
-    def __init__(self, failures: list):
+    def __init__(self, failures: list, stale_left=()):
         self.failures = list(failures)
+        #: files of a failed airport that could NOT be set aside — while
+        #: any is left, the tile must not be built (RULINGS 2026-10-12a (2))
+        self.stale_left = list(stale_left)
         super().__init__(describe_auto_patch_failures(self.failures))
 
 
@@ -110,22 +117,40 @@ def stale_road_feed_notice(stale_feeds) -> str:
             ", ".join(files)))
 
 
-def _fail_build_tasks(failures: list) -> None:
+def _fail_build_tasks(failures: list, patch_dir: str) -> None:
     """NAME every failure on the engine log and on the JSONL protocol —
     one ``AutoPatchFailed`` event per airport, never a bare print (the
-    app's client matches the event name as a string literal) — then
-    raise the fatality.
+    app's client matches the event name as a string literal) — SET ASIDE
+    what each failed airport still has on disk, then raise.
 
     ONE spelling, shared by the per-airport build/manifest failures
-    ``_run_build_tasks`` collects and the whole-tile stale-road-feed
-    abort above, so both narrate identically.  Always raises.
+    ``_run_build_tasks`` collects and the stale-road-feed refusal, so
+    both narrate identically.  Always raises: whether the tile is built
+    WITHOUT these airports or stops is the tile step's decision
+    (``O4_Unpatched_Airports.may_continue``, owner RULINGS 2026-10-12a),
+    and the set-aside here is what makes continuing lawful — the stale
+    patch H1 saw meshed is no longer under a name any reader looks for.
     """
+    import O4_Unpatched_Airports as UNPATCHED
+
+    stale_left = []
     for failure in failures:
         UI.lvprint(0, "   Auto-patch: FAILED", failure["icao"],
                    "(" + failure["stage"] + "):", failure["error"])
+        # ``code`` / ``params`` (O4_Tile_Failures, #562): the cause the
+        # worker could name from the exception's class; the stage
+        # decides for a record that carries none.
         UI.auto_patch_failed(failure["icao"], failure["stage"],
-                             failure["error"])
-    raise AutoPatchBuildFailure(failures)
+                             failure["error"],
+                             code=failure.get("code") or "",
+                             params=failure.get("params") or {})
+        moved, left = UNPATCHED.set_aside_unbuilt(patch_dir, failure["icao"])
+        if moved:
+            UI.lvprint(0, "   Auto-patch:", failure["icao"],
+                       "— its earlier patch files are set aside ("
+                       + UNPATCHED.STALE_SUFFIX + "), not used by this build.")
+        stale_left.extend(left)
+    raise AutoPatchBuildFailure(failures, stale_left=stale_left)
 
 
 def describe_auto_patch_failures(failures: list) -> str:
@@ -147,6 +172,7 @@ def describe_auto_patch_failures(failures: list) -> str:
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
+import O4_Tile_Failures as _FAIL
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
 from .cifp_reader import (
@@ -926,6 +952,7 @@ def _build_write_verify_one(task: dict) -> dict:
     except Exception as _e:
         return {"icao": icao, "ok": False, "stage": "build",
                 "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
+                **_FAIL.record_fields(_e),
                 "traceback": _tb.format_exc()}
 
 
@@ -1303,7 +1330,10 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
                     pass
             failures.append({"icao": icao, "stage": stage,
                              "error": str(r.get("error")
-                                          or "no further detail")})
+                                          or "no further detail"),
+                             # the cause the worker named, when it could
+                             **{k: r[k] for k in ("code", "params")
+                                if r.get(k)}})
             continue
         UI.vprint(1, "   Auto-patch: Generated", icao,
                   "(" + r["summary"] + ")")
@@ -1397,7 +1427,7 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         # NAMED, on the engine log and on the JSONL protocol — one
         # ``AutoPatchFailed`` event per airport (never a bare print; the
         # app's client matches the event name as a string literal).
-        _fail_build_tasks(failures)
+        _fail_build_tasks(failures, os.path.dirname(verify_debug_path))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1763,7 +1793,7 @@ def generate_auto_patches(tile, cifp_path: str,
             "lane_width": getattr(tile, "lane_width", None),
         })
 
-    # ── STALE ROAD DATA ABORTS THE TILE ONCE, NOT ONCE PER AIRPORT ──────
+    # ── STALE ROAD DATA IS SAID ONCE FOR THE TILE, NOT ONCE PER AIRPORT ─
     # (issue #24).  Every airport still in ``tasks`` needs a rebuild, and
     # every rebuild reads the same 3x3 x 2-feed road square that is out
     # of date — so the cause is printed ONCE and each airport gets one
@@ -1771,8 +1801,8 @@ def generate_auto_patches(tile, cifp_path: str,
     # sidecar, before the airports-OSM prefetch (which downloads) and
     # before any worker starts: nothing is spent on a pass whose every
     # airport would die inside ``load_with_report`` on the same file.
-    # The tile still aborts (H1: a per-airport failure is fatal) and
-    # each airport still gets its ``AutoPatchFailed`` event.
+    # Each airport still gets its ``AutoPatchFailed`` event; the tile
+    # step then builds the tile without them (RULINGS 2026-10-12a).
     #
     # An ALL-CURRENT tile never reaches this: with no rebuild collected
     # there is no reader to refuse, so a stale feed nothing reads is not
@@ -1783,8 +1813,9 @@ def generate_auto_patches(tile, cifp_path: str,
             UI.lvprint(0, "   " + notice)
             _fail_build_tasks([
                 {"icao": task["icao"], "stage": "build",
-                 "error": STALE_ROAD_FEED_AIRPORT_ERROR}
-                for task in tasks])
+                 "error": STALE_ROAD_FEED_AIRPORT_ERROR,
+                 "code": "road_data_stale"}
+                for task in tasks], patch_dir)
         finally:
             # ``_fail_build_tasks`` always raises, and the caller's
             # verbosity is only restored by the ``finally`` around

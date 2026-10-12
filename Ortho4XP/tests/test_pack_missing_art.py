@@ -181,7 +181,7 @@ def test_the_offer_writes_and_reports(stage):
 # ── protocol 1.9 ────────────────────────────────────────────────────────
 
 def test_the_protocol_version_is_1_9():
-    assert EV.PROTOCOL_VERSION == "1.9"
+    assert tuple(int(p) for p in EV.PROTOCOL_VERSION.split(".")) >= (1, 9)
 
 
 def test_the_wire_name_and_fields_are_frozen():

@@ -26,6 +26,9 @@ from collections import deque
 from typing import Callable, Optional
 
 import O4_File_Names as FNAMES
+import O4_Stopped_Build as STOPPED
+import O4_Tile_Failures as FAIL
+import O4_Unpatched_Airports as UNPATCHED
 import O4_UI_Utils as UI
 
 from .events import (
@@ -73,13 +76,61 @@ STEP_FAILURE_NOUNS = {
 }
 
 
-def failed_steps_error_text(failed_step_keys):
-    """One sentence naming the step(s) whose build function reported
-    failure, for the tile's ``BuildDone.error``."""
-    nouns = [STEP_FAILURE_NOUNS.get(key, key) for key in failed_step_keys]
-    if len(nouns) == 1:
-        return "the %s step failed (see the console log)" % nouns[0]
-    return "the %s steps failed (see the console log)" % " and ".join(nouns)
+# The row label of a tile built without one of its airport patches (#564).
+BUILT_WITH_WARNINGS = "built with warnings"
+
+
+def build_done(lat, lon, ok, records, app_driven=False, notes=()):
+    """A tile's ``BuildDone`` from its raw failure ``records``
+    (``O4_Tile_Failures.record``), folded to one user message per cause
+    (issue #562).  Shared with the parallel orchestrator's dead-worker
+    path.
+
+    A BUILT tile (``ok``) turns its airport records into WARNINGS — an
+    airport without a patch (owner RULINGS 2026-10-12a, #564).  A tile
+    that was NOT built reports its tile-scoped records as ``failures``
+    (an unpatched airport on a tile that does not exist is no news: its
+    ``AutoPatchFailed`` line is already in the log); when airport records
+    are all there is, they are what ended the tile.
+
+    ``app_driven`` (``EngineSession.app_driven``): an app is on the other
+    end, so "report it" reads "Press Report this problem"; a shell or
+    harness build is given the log's path instead.
+
+    ``notes`` are raw NOTE records of a built tile — it was built on
+    stand-in elevation for some cell (owner RULINGS 2026-10-12e).
+    """
+    tile = FNAMES.short_latlon(lat, lon)
+    try:
+        # THE log a failure report reads (o4_engine.failure_report).
+        from O4_Engine_Stderr_Log import engine_stderr_log_path
+        log_path = engine_stderr_log_path()
+    except Exception:                                    # pragma: no cover
+        log_path = ""
+    ending = [r for r in records if r.get("scope") != "airport"]
+    unpatched = [r for r in records if r.get("scope") == "airport"]
+    airports = [r for r in unpatched if not r.get("secondary")]
+    if ok:
+        # A tile-scoped cause on a tile that WAS built is an error a step
+        # printed and then recovered from: not a warning.
+        return BuildDone(
+            lat=lat, lon=lon, ok=True,
+            warnings=FAIL.fold(unpatched, tile, built=True,
+                               log_path=log_path, report_button=app_driven),
+            notes=FAIL.fold(notes, tile, built=True, log_path=log_path,
+                            report_button=app_driven, note=True),
+            # The same airports one by one (#564): each entry is a
+            # message of its own plus its ``stage``, so it feeds
+            # ``failure_report`` unchanged.
+            unpatched_airports=[
+                dict(FAIL.fold([r], tile, built=True, log_path=log_path,
+                               report_button=app_driven)[0],
+                     stage=r.get("stage", "")) for r in airports])
+    failures = FAIL.fold(
+        ending or unpatched or [FAIL.record(FAIL.UNMAPPED_STEP)],
+        tile, log_path=log_path, report_button=app_driven)
+    return BuildDone(lat=lat, lon=lon, ok=False,
+                     error=FAIL.headline(failures), failures=failures)
 SCAN_FLUSH_SECONDS = 0.1     # scan streaming cadence (~10 Hz)
 ETA_EMIT_SECONDS = 1.0       # RunEta cadence
 RATE_MIN_SPAN_SECONDS = 3.0  # need this much window before trusting a rate
@@ -533,6 +584,20 @@ class _EtaTracker:
         return tuple(rows)
 
 
+def stopped_tile_state(lat, lon, custom_build_dir=""):
+    """The ``TileState`` of a tile whose build was STOPPED (#598): the
+    scenery packs the build rewrote are put back, and ``detail`` says what
+    the tile is left with (``O4_Stopped_Build.settle``).  ONE place for
+    the session and the parallel orchestrator; never raises."""
+    try:
+        detail = STOPPED.settle(
+            FNAMES.build_dir(lat, lon, custom_build_dir), lat, lon)
+    except Exception:
+        detail = ""
+    return TileState(lat=lat, lon=lon, state="queued", label="stopped",
+                     detail=detail)
+
+
 class EngineSession:
     """One engine, many views: commands in, typed events out."""
 
@@ -547,9 +612,14 @@ class EngineSession:
         self._current_step = None          # (tile, key, base, width)
         self._bar_values = {1: 0, 2: 0, 3: 0}
         self._autopatch_state = None
-        # H1: per-airport failure records for the tile currently building,
-        # drained into its BuildDone.error.
-        self._autopatch_failures: list = []
+        # The causes declared for the tile currently building (H1's
+        # per-airport records, the steps' named error exits): raw
+        # ``O4_Tile_Failures.record`` dicts, folded into its BuildDone.
+        self._tile_failures: list = []
+        # An APP is on the other end (the JSONL transport, the Qt window):
+        # it has the "Report this problem" button (#565).  False for a
+        # shell or harness build, whose remedy names the log instead.
+        self.app_driven = False
         self._eta: Optional[_EtaTracker] = None
         self._eta_last_emit = 0.0
         # Per-tile cancellation (docs/specs/parallel-tile-builds.md §3.4):
@@ -1040,13 +1110,12 @@ class EngineSession:
             (lat, lon) = tile_key
             if (lat, lon) in self._cancelled_tiles:
                 # Cancelled while queued: never started, reported stopped.
-                self._emit(TileState(lat=lat, lon=lon, state="queued",
-                                     label="stopped"))
+                self._emit(stopped_tile_state(lat, lon, custom_build_dir))
                 continue
             self._active_tile = (lat, lon)
             step_seconds = {}
             autopatch_airports = 0
-            self._autopatch_failures = []      # per-tile (H1)
+            self._tile_failures = []           # per-tile (H1, #562)
             try:
                 tile = CFG.Tile(lat, lon, custom_build_dir)
                 tile.read_from_config()
@@ -1085,12 +1154,25 @@ class EngineSession:
                     if UI.red_flag:
                         break
                     self._start_step((lat, lon), key, base, width)
+                    if key == "vector":
+                        # A build of this tile that was KILLED after it
+                        # rewrote scenery packs never put them back: do
+                        # it before this one reads a pack (#598).
+                        STOPPED.settle(tile.build_dir, lat, lon)
                     step_t0 = time.time()
                     result = step_fn[key](tile)
                     step_seconds[key] = time.time() - step_t0
                     if self._autopatch_state is not None:
                         autopatch_airports = self._autopatch_state["total"]
                     self._finish_step((lat, lon), key)
+                    if (result == 0 and UI.red_flag
+                            and self._failed_not_cancelled((lat, lon))):
+                        # The step raised the flag ITSELF to stop its own
+                        # threads after a failure it named (the DSF
+                        # thread's guard): a failed tile, not a stopped
+                        # one — reading it as a cancel ended the whole
+                        # run as "stopped" with no reason shown.
+                        UI.red_flag = False
                     if result == 0 and UI.red_flag:
                         break
                     if result == 0:
@@ -1106,8 +1188,8 @@ class EngineSession:
                 if UI.red_flag:
                     if self._eta:
                         self._eta.tile_terminal((lat, lon))
-                    self._emit(TileState(lat=lat, lon=lon, state="queued",
-                                         label="stopped"))
+                    self._emit(stopped_tile_state(lat, lon,
+                                                  custom_build_dir))
                     if (not self._cancel_all
                             and (lat, lon) in self._cancelled_tiles):
                         # Only THIS tile was cancelled (spec §3.4): clear
@@ -1128,19 +1210,46 @@ class EngineSession:
                         self._eta.tile_terminal((lat, lon))
                     self._emit(TileState(lat=lat, lon=lon, state="error",
                                          label="failed"))
-                    # H1: when the failure was a named per-airport
-                    # auto-patch death, say WHICH airport and why — the
-                    # generic step wording is what left the owner with no
-                    # signal at all on 2026-08-30.
-                    self._emit(BuildDone(
-                        lat=lat, lon=lon, ok=False,
-                        error=(self._take_autopatch_failure_text()
-                               or failed_steps_error_text(failed_step_keys))))
+                    # H1 + #562: the causes the step named (which
+                    # airport, which refusal) in the user's words; a step
+                    # that named none gets the generic "report it" entry
+                    # with its own name.
+                    # An airport record explains a failed VECTOR step
+                    # only: it is not why a later step gave up.
+                    named = [r for r in self._tile_failures
+                             if r["scope"] != "airport" or key == "vector"]
+                    if not named:
+                        self._tile_failures.extend(FAIL.record(
+                            FAIL.UNMAPPED_STEP,
+                            step=STEP_FAILURE_NOUNS.get(key, key))
+                            for key in failed_step_keys)
+                    self._emit(build_done(lat, lon, False,
+                                          self._take_tile_failures(),
+                                          self.app_driven))
                 else:
                     done += 1
-                    self._emit(TileState(lat=lat, lon=lon, state="done",
-                                         percent=100.0))
-                    self._emit(BuildDone(lat=lat, lon=lon, ok=True))
+                    # #564: the airports this tile's MESH was built
+                    # without, from the record the vector step published —
+                    # a sidecar, because under the parallel orchestrator
+                    # this step's process is not the one that ran it.
+                    self._take_tile_failures()
+                    built = build_done(
+                        lat, lon, True,
+                        FAIL.from_unpatched(UNPATCHED.read(tile)),
+                        self.app_driven,
+                        notes=FAIL.from_substitutions(
+                            UNPATCHED.read_substitutions(tile)))
+                    self._emit(TileState(
+                        lat=lat, lon=lon, state="done", percent=100.0,
+                        label=(BUILT_WITH_WARNINGS
+                               if built.warnings or built.notes else "")))
+                    if not self._stepwise_run:
+                        # The LAST thing in the tile's log (a per-step
+                        # child leaves it to the parent orchestrator).
+                        for line in FAIL.closing_lines(built.warnings,
+                                                       built.notes):
+                            UI.lvprint(0, line)
+                    self._emit(built)
                     _record_tile_build(
                         lat, lon,
                         {"zoomlevel": zoomlevel, "provider": provider,
@@ -1182,16 +1291,18 @@ class EngineSession:
                     self._eta.tile_terminal((lat, lon))
                 self._emit(TileState(lat=lat, lon=lon, state="error",
                                      label="failed"))
-                # The exception's own sentence rides on BuildDone: a
-                # REFUSAL (issue #121: a base elevation download that
-                # failed on the transport) names the source, the URL and
-                # the error, and that is what the app must show — not
-                # "see the console log", which the Qt app never persists.
-                self._emit(BuildDone(
-                    lat=lat, lon=lon, ok=False,
-                    error="crashed with an exception (see the console "
-                          "log): %s: %s" % (type(step_error).__name__,
-                                            step_error)))
+                # The exception's CLASS picks the user message (#562);
+                # its own sentence — a refusal names the source, the URL
+                # and the error (issue #121) — rides as the technical
+                # detail, never as the headline.  Causes a step named
+                # before it raised stay ahead of it.
+                self._tile_failures.append(FAIL.record(
+                    FAIL.code_for_exception(step_error),
+                    "%s: %s" % (type(step_error).__name__, step_error),
+                    **FAIL.params_for_exception(step_error)))
+                self._emit(build_done(lat, lon, False,
+                                      self._take_tile_failures(),
+                                      self.app_driven))
         cancelled = bool(UI.red_flag)
         if not run_completed:
             with self._work_queue_lock:
@@ -1347,22 +1458,41 @@ class EngineSession:
             lat=tile[0], lon=tile[1]))
         self._render_autopatch()
 
-    def autopatch_failed(self, airport, stage, error):
+    def autopatch_failed(self, airport, stage, error, code="", params=None):
         """One airport's build failed — emit the DIAGNOSIS and remember it.
 
         H1 (docs/POSTMORTEM-20260831.md Task C).  The tile step returns
-        failure right after this, so the record is read once by
-        :meth:`_take_autopatch_failure_text` to make the tile's
-        ``BuildDone.error`` name the airport instead of the generic
-        "the vector data step failed".
+        failure right after this, so the record is folded into the tile's
+        ``BuildDone.failures`` — the airport named, in the user's words
+        (#562) — instead of the generic "the vector data step failed".
+        ``code`` is the record's own catalogue code when the worker could
+        name the cause; the ``stage`` decides otherwise.
         """
-        record = {"airport": str(airport or "?"), "stage": str(stage or "?"),
-                  "error": str(error or "")}
-        self._autopatch_failures.append(record)
+        airport, stage = str(airport or "?"), str(stage or "?")
+        code = FAIL.code_for_stage(stage, code)
+        self._tile_failures.append(FAIL.record(
+            code, "(%s) %s" % (stage, error or ""), airport=airport,
+            **(params or {})))
         tile = self._current_step[0] if self._current_step else (0, 0)
         self._emit(AutoPatchFailed(
-            airport=record["airport"], stage=record["stage"],
-            error=record["error"], lat=tile[0], lon=tile[1]))
+            airport=airport, stage=stage, error=str(error or ""),
+            lat=tile[0], lon=tile[1], code=code))
+
+    def tile_failure(self, code, detail="", exc=None, **params):
+        """A step names why it is about to fail the tile (``UI.tile_failure``
+        hook, #562).  With ``exc`` the exception's class picks the code and
+        ``code`` is the fallback."""
+        if exc is not None:
+            code = FAIL.code_for_exception(exc, default=code)
+            params = {**FAIL.params_for_exception(exc), **params}
+            detail = ("%s %s: %s" % (detail, type(exc).__name__, exc)).strip()
+        self._tile_failures.append(FAIL.record(code, detail, **params))
+
+    def _failed_not_cancelled(self, tile):
+        """True when the red flag is the step's own (a failure it named),
+        not the user's Stop."""
+        return (bool(self._tile_failures) and not self._cancel_all
+                and tile not in self._cancelled_tiles)
 
     def pack_missing_art(self, **fields):
         """A pack X-Plane will not load (#433): the ``PackMissingArt``
@@ -1397,18 +1527,10 @@ class EngineSession:
         """Emit a warning-level build Log line (UI.loud_warning hook)."""
         self._emit(Log(level="warning", text=text))
 
-    def _take_autopatch_failure_text(self):
-        """The accumulated per-airport failure sentence, cleared as read.
-
-        ``None`` when no airport failed — the caller then falls back to
-        the step-level wording.
-        """
-        failures, self._autopatch_failures = self._autopatch_failures, []
-        if not failures:
-            return None
-        return "auto-patch failed for " + "; ".join(
-            "%s (%s): %s" % (f["airport"], f["stage"], f["error"])
-            for f in failures)
+    def _take_tile_failures(self):
+        """The tile's raw failure records, cleared as read."""
+        records, self._tile_failures = self._tile_failures, []
+        return records
 
     def _render_autopatch(self):
         if self._current_step is None:

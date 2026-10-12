@@ -71,10 +71,11 @@ def test_a_dead_airport_is_named_on_the_console(window, capsys):
         airport="HECA", stage="build", error="no runway data",
         lat=30, lon=31))
     text = capsys.readouterr().out
-    assert (
-        "*** Tile +30+031: airport HECA failed at the build stage "
-        "— no runway data" in text
-    )
+    # #562: the airport is named; the cause arrives in the user's words on
+    # the tile's BuildDone, never as the raw error here.
+    assert ("*** Tile +30+031: airport HECA could not be patched — "
+            "the tile's report will say why." in text)
+    assert "no runway data" not in text
 
 
 def test_the_wording_matches_the_mac_app(window):
@@ -85,14 +86,15 @@ def test_the_wording_matches_the_mac_app(window):
     """
     swift = os.path.join(
         os.path.dirname(__file__), "..", "..",
-        "Sources", "XPTerrainBuilder", "BuildModel.swift")
+        "Sources", "SceneryKit", "TileFailure.swift")
     if not os.path.exists(swift):
         pytest.skip("Swift sources not present in this tree")
     # utf-8 pinned: the Swift literal carries an em dash, and Windows' default
-    # cp1252 mangled it (CI run 35257552035, the only red on the first
-    # three-platform run of main).
+    # cp1252 mangled it (CI run 35257552035).
     with open(swift, encoding="utf-8") as handle:
         source = handle.read()
-    assert '"*** Tile \\(coord.key): airport \\(airport) failed at the "' \
-        in source
-    assert '+ "\\(stage) stage — \\(error)")' in source
+    import O4_Qt_Tile_Failures as QTFAIL
+    (head, tail) = QTFAIL.AIRPORT_FAILED_LINE.format(
+        tile="\\(tile)", airport="\\(airport)").split("— ")
+    assert '"%s— "' % head in source
+    assert '+ "%s"' % tail in source

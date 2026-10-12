@@ -109,6 +109,18 @@ class Inputs:
     pack_pristine: _t.Any = None
 
 
+class PackDumpStale(RuntimeError):
+    """The pack's tile DSF has no fresh text dump (refused below).  The
+    class and its two attributes are what ``O4_Tile_Failures`` reads to
+    give the user a message (issue #562) — the wording is free to change."""
+
+    failure_code = "pack_dump_stale"
+
+    def __init__(self, pack: str, message: str):
+        super().__init__(message)
+        self.failure_params = {"pack": pack}
+
+
 @_dc.dataclass
 class LoadReport:
     """What the loader saw and did NOT turn into a graded input."""
@@ -445,7 +457,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         # (``engine_v2.fresh_pack_dump``); what reaches here is a dump
         # nobody made, an empty one, or dumps of another version.
         cache_dir = _dsf.mod_cache_dir(inputs.mod_cache_root, sel.name)
-        raise RuntimeError(
+        raise PackDumpStale(
+            sel.name,
             f"{icao}: the scenery pack file {pack_dsf} cannot be read: "
             f"{_dsf.missing_dump_reason(cache_dir, pack_dsf)}. The pack's "
             "objects are never read from a dump of another version of the "

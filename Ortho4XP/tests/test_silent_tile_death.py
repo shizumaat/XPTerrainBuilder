@@ -155,7 +155,7 @@ def captured_events(monkeypatch):
     seen = []
     monkeypatch.setattr(
         UI, "auto_patch_failed",
-        lambda icao, stage, error: seen.append((icao, stage, error)))
+        lambda icao, stage, error, *_a, **_k: seen.append((icao, stage, error)))
     return seen
 
 
@@ -316,9 +316,12 @@ def test_stale_patch_left_on_disk_is_fatal(tmp_path, monkeypatch,
     (failure,) = raised.value.failures
     assert failure["stage"] == "manifest"
     assert "stale" in failure["error"]
-    # The stale file is still there — this pass refuses to CALL it the
-    # build's output, which is the whole point.
-    assert "Aug 29" in open(task["auto_patch_file"], encoding="utf-8").read()
+    # The stale file is not CALLED the build's output, and since owner
+    # RULINGS 2026-10-12a it is no longer under a name any reader loads:
+    # set aside, not deleted (``tests/test_unpatched_airports.py``).
+    assert not os.path.exists(task["auto_patch_file"])
+    with open(task["auto_patch_file"] + ".stale", encoding="utf-8") as handle:
+        assert "Aug 29" in handle.read()
 
 
 # ── 5. the protocol: the app hears about it ─────────────────────────────
@@ -339,7 +342,7 @@ def test_failure_reaches_the_jsonl_protocol_and_builddone():
     emitted = []
     session = EngineSession.__new__(EngineSession)
     session._current_step = ((30, 31), "vector", 0.0, 1.0)
-    session._autopatch_failures = []
+    session._tile_failures = []
     session._emit = emitted.append
 
     session.autopatch_failed("HECA", "manifest", "wrote no patch")
@@ -355,10 +358,12 @@ def test_failure_reaches_the_jsonl_protocol_and_builddone():
     assert payload["stage"] == "manifest"
     assert payload["error"] == "wrote no patch"
 
-    text = session._take_autopatch_failure_text()
-    assert "HECA" in text and "manifest" in text
+    assert payload["code"] == "airport_no_result"
+
+    (record,) = session._take_tile_failures()
+    assert record["airport"] == "HECA" and "manifest" in record["detail"]
     # Drained: the next tile does not inherit this tile's failure.
-    assert session._take_autopatch_failure_text() is None
+    assert session._take_tile_failures() == []
 
 
 def test_swift_client_matches_the_event_name():

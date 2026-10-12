@@ -234,7 +234,8 @@ def test_crashing_worker_synthesizes_failure(stub_worker, tmp_path):
     crashed = collector.tile_events(62, 20)
     builds = [e for e in crashed if isinstance(e, EV.BuildDone)]
     assert len(builds) == 1 and builds[0].ok is False
-    assert "worker" in builds[0].error.lower()
+    assert builds[0].failures[0]["code"] == "worker_died"
+    assert "worker" in builds[0].failures[0]["detail"]
     assert any(isinstance(e, EV.TileState) and e.state == "error"
                for e in crashed)
 
@@ -244,6 +245,31 @@ def test_crashing_worker_synthesizes_failure(stub_worker, tmp_path):
 
     assert (run_done.done_count, run_done.error_count,
             run_done.cancelled) == (1, 1, False)
+
+
+def test_a_steps_warnings_ride_on_the_tiles_terminal_build_done(
+        stub_worker, tmp_path):
+    """#564: every step's child reports the tile's unpatched airports
+    (each reads the sidecar the vector step wrote); the parent swallows
+    the intermediate BuildDones and delivers the TERMINAL one — once,
+    with the row labelled, and nothing leaking onto another tile."""
+    session = EngineSession()
+    collector = Collector(session)
+    assert _start_parallel(session, [(67, 20), (10, 20)], slots=2) is True
+    run_done = collector.wait_run_done()
+
+    (done,) = [e for e in collector.tile_events(67, 20)
+               if isinstance(e, EV.BuildDone)]
+    assert done.ok is True
+    assert [w["airports"] for w in done.warnings] == [["AAAA"]]
+    assert [r["airport"] for r in done.unpatched_airports] == ["AAAA"]
+    states = [e for e in collector.tile_events(67, 20)
+              if isinstance(e, EV.TileState) and e.state == "done"]
+    assert [e.label for e in states] == ["built with warnings"]
+    (clean,) = [e for e in collector.tile_events(10, 20)
+                if isinstance(e, EV.BuildDone)]
+    assert clean.warnings == [] and clean.unpatched_airports == []
+    assert (run_done.done_count, run_done.error_count) == (2, 0)
 
 
 def test_cancel_queued_tile_never_starts(stub_worker, tmp_path):

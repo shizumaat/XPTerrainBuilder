@@ -18,6 +18,9 @@ struct TileProgress: Equatable {
     var state: State
     var label: String
     var percent: Double
+    /// The engine's sentence for a stopped tile — what it is left with
+    /// (TileState.detail, #598). Shown under the row, verbatim.
+    var detail: String = ""
 }
 
 /// The build settings a tile's run was STARTED with, snapshotted per tile so
@@ -704,13 +707,14 @@ final class BuildModel: ObservableObject {
                     workingDir: base.path, customSceneryDir: customSceneryPath)
             }
             refreshConflictTiles()
-        case .tileState(let lat, let lon, let state, let label, let percent):
+        case .tileState(let lat, let lon, let state, let label, let percent, let detail):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued
             applyTileEvent(TileProgress(
                 state: state,
                 label: label.isEmpty ? state.rawValue : label,
-                percent: percent), to: coord)
+                percent: percent,
+                detail: detail), to: coord)
         case .stepProgress(let lat, let lon, _, let label, let percent, let indeterminate):
             let coord = TileCoord(lat: lat, lon: lon)
             let previous = activity.tiles[coord]?.percent ?? 0
@@ -721,23 +725,48 @@ final class BuildModel: ObservableObject {
                 percent: indeterminate ? previous : percent), to: coord)
         case .autoPatchBegin, .autoPatchProgress:
             break // folded into StepProgress labels by the session
-        case .autoPatchFailed(let airport, let stage, let error, let lat, let lon):
-            // H1: name the airport in the console the moment it dies. The
-            // tile's buildDone(ok: false) follows and repeats it, but the
-            // user watching the build sees it here first — the silent
-            // 2026-08-30 death showed nothing at all.
+        case .autoPatchFailed(let airport, let stage, let error, let lat, let lon, let code):
+            // H1: name the airport in the console the moment it dies — the
+            // silent 2026-08-30 death showed nothing at all. An engine that
+            // sends a `code` (protocol 1.10, #562) explains it in the user's
+            // words on the tile's buildDone; an older one has only this.
             let coord = TileCoord(lat: lat, lon: lon)
-            console.append(
-                "*** Tile \(coord.key): airport \(airport) failed at the "
-                + "\(stage) stage — \(error)")
-        case .buildDone(let lat, let lon, let ok, let error):
+            console.append(code.isEmpty
+                ? "*** Tile \(coord.key): airport \(airport) failed at the "
+                    + "\(stage) stage — \(error)"
+                : O4TileFailureCopy.airportFailedLine(tile: coord.key, airport: airport))
+        case .buildDone(let lat, let lon, let ok, let error, let failures, let warnings,
+                        let unpatched, let notes):
             let coord = TileCoord(lat: lat, lon: lon)
+            // #562 / #564: the engine's own words — what, why, what to do —
+            // on the console now and in the run's one report at the end.
+            for failure in failures {
+                failure.consoleLines(isWarning: false).forEach { console.append($0) }
+            }
+            for warning in warnings {
+                warning.consoleLines(isWarning: true).forEach { console.append($0) }
+            }
+            for note in notes {
+                note.consoleLines(isWarning: false, isNote: true).forEach { console.append($0) }
+            }
+            runIssueLog.add(O4TileIssues(
+                tileKey: coord.key, lat: lat, lon: lon, built: ok,
+                failures: failures, warnings: warnings, notes: notes))
             if ok {
-                console.append("Tile \(coord.key) finished.")
+                let airports = unpatched.flatMap(\.airports)
+                console.append(warnings.isEmpty && notes.isEmpty
+                    ? "Tile \(coord.key) finished."
+                    : "Tile \(coord.key) finished with warnings"
+                        + (airports.isEmpty ? "."
+                           : " — no airport patch for \(airports.joined(separator: ", "))."))
+                if !(warnings.isEmpty && notes.isEmpty), var row = activity.tiles[coord] {
+                    row.label = O4TileFailureCopy.builtWithWarnings
+                    activity.tiles[coord] = row
+                }
                 selected.remove(coord)
                 refreshTileInfo(coord)
                 if linkTiles { installLink(coord, quiet: true) }
-            } else if !error.isEmpty {
+            } else if failures.isEmpty, !error.isEmpty {
                 console.append("*** Tile \(coord.key) failed: \(error)")
             }
         case .runEta(let elapsed, let remaining, let done, let total):
@@ -775,7 +804,10 @@ final class BuildModel: ObservableObject {
             isBuilding = false
             isStopping = false
             var parts = ["\(done) tile\(done == 1 ? "" : "s") built"]
+            let warned = runIssueLog.warnedCount
+            if warned > 0 { parts.append("\(warned) with warnings") }
             if errors > 0 { parts.append("\(errors) failed") }
+            runIssues = runIssueLog.finish()
             if cancelled { parts.append("stopped") }
             lastRunSummary = parts.joined(separator: ", ")
             console.append("=== Run complete: \(lastRunSummary!) ===")
@@ -1301,6 +1333,9 @@ final class BuildModel: ObservableObject {
             activity.reset()
             isBuilding = true
             isStopping = false
+            // A previous run that died without RunDone leaves nothing in
+            // this run's report (#562).
+            runIssueLog.begin()
             // THE RUN BOUNDARY: the build request that opens a run starts a
             // fresh engine-stderr.log (twin: O4_Qt_GUI._start_run_now).
             EngineStderrLog.shared.startRun(
@@ -1347,6 +1382,33 @@ final class BuildModel: ObservableObject {
     }
 
     // MARK: - Missing art (protocol 1.9, #433)
+
+    /// The finished run's failures and warnings to present, or nil: ONE
+    /// report per run (#562, #564), shown by `RunIssuesSheet`.
+    @Published var runIssues: O4RunIssues?
+    private var runIssueLog = O4RunIssueLog()
+
+    /// Whether the engine has the `failure_report` command (#565).
+    var canReportFailures: Bool {
+        O4FailureReport.supported(protocolVersion: protocolHello?.protocolVersion ?? "")
+    }
+
+    /// The engine's redacted report of one tile's failures and warnings;
+    /// a non-empty `savePath` also writes it there. Completes on the main
+    /// actor with nil when the engine cannot answer.
+    func failureReport(for tile: O4TileIssues, savePath: String = "",
+                       completion: @escaping @MainActor (O4FailureReport?) -> Void) {
+        guard let client else { completion(nil); return }
+        client.failureReport(
+            lat: tile.lat, lon: tile.lon, failures: tile.entries,
+            appVersion: AppVersion.current,
+            logPath: EngineStderrLog.shared.fileURL.path,
+            xplaneDir: UserDefaults.standard.string(forKey: PrefKeys.xplanePath) ?? "",
+            savePath: savePath
+        ) { report in
+            Task { @MainActor in completion(report) }
+        }
+    }
 
     /// The "X-Plane will not load this pack" warning to present, or nil.
     @Published var packArtPrompt: O4PackMissingArt?
@@ -1745,7 +1807,15 @@ final class BuildModel: ObservableObject {
     /// already shows. nil = the event is stale, drop it.
     static func resolving(_ incoming: TileProgress,
                           over current: TileProgress?) -> TileProgress? {
-        if current?.state == .stopped, !mayOverwriteStopped(incoming.state) { return nil }
+        if let current, current.state == .stopped, !mayOverwriteStopped(incoming.state) {
+            // The engine's late "stopped" notice adds one thing to a row
+            // already stopped here: what the tile is left with (#598).
+            guard incoming.label == "stopped", !incoming.detail.isEmpty,
+                  incoming.detail != current.detail else { return nil }
+            var kept = current
+            kept.detail = incoming.detail
+            return kept
+        }
         return incoming
     }
 

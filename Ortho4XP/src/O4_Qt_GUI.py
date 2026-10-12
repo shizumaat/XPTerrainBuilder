@@ -86,6 +86,7 @@ import O4_Qt_Settings as QTSET
 import O4_Qt_Wizard as QTWIZ
 import O4_Qt_Boundary_Dialog as QTBOUND
 import O4_Qt_Pack_Art as QTART
+import O4_Qt_Tile_Failures as QTFAIL
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -435,6 +436,13 @@ def resolve_tile_state(incoming, current):
     return incoming
 
 
+def row_detail(state, label, detail):
+    """The second line of a tile's Activity row: the engine's sentence
+    for a STOPPED tile (``TileState.detail``, #598 — what the tile is
+    left with), shown only while the row reads stopped."""
+    return detail if (state == "stopped" or label == "stopped") else ""
+
+
 def enqueue_resume(tile, queue):
     """Ordered, deduped append to the pending-resume queue."""
     return list(queue) if tile in queue else list(queue) + [tile]
@@ -696,6 +704,7 @@ class MainWindow(QMainWindow):
         self._console_timer.timeout.connect(self._drain_console)
         self._console_timer.start()
         self._session = EngineSession()
+        self._session.app_driven = True     # this window has the buttons
         self._bridge = _EngineBridge()
         self._bridge.event.connect(self._on_engine_event)
         self._bridge.reanchor_ready.connect(self._on_reanchor_ready)
@@ -721,6 +730,8 @@ class MainWindow(QMainWindow):
         # and missing set) and the open boxes (kept alive: non-modal).
         self._pack_art_seen = set()
         self._pack_art_boxes = []
+        # #562: the run's BuildDone events that carry a failure or warning.
+        self._run_issue_events = []
         # Boundary-airport preflights in flight, by request id: each is
         # {"request_id", "tiles", "proceed", "timer"}.  A TABLE, not one
         # slot — the resume queue can have several batches waiting, and
@@ -1211,6 +1222,8 @@ class MainWindow(QMainWindow):
         self._panel_layout = pv
         self._panel_spacer_index = pv.count() - 1
         self._tile_rows = {}
+        # TileState.detail of a stopped tile (#598), by tile.
+        self._tile_details = {}
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_build_clock)
@@ -3301,6 +3314,8 @@ class MainWindow(QMainWindow):
         for bar, status, row, cancel, clock in self._tile_rows.values():
             row.deleteLater()
         self._tile_rows = {}
+        # TileState.detail of a stopped tile (#598), by tile.
+        self._tile_details = {}
         self._tile_clocks = {}
         self._eta_samples = []
         self._eta_unreliable = False
@@ -3313,6 +3328,7 @@ class MainWindow(QMainWindow):
         self._ntiles = len(todo)
         self._tile_started_at = {}
         self._tile_results = {}
+        self._run_issue_events = []
         self._build_t0 = time.time()
         self.progress_title.setText(
             "<b>Building %d tile%s</b>"
@@ -3330,6 +3346,10 @@ class MainWindow(QMainWindow):
         for tile in tiles:
             if tile in self._tile_rows:
                 bar, status, _row, cancel, clock = self._tile_rows[tile]
+                self._tile_details.pop(tile, None)
+                stale = _row.findChild(QLabel, "tile_detail")
+                if stale is not None:
+                    stale.setVisible(False)
                 bar.setValue(0)
                 status.setText("queued")
                 status.setStyleSheet("color: gray; font-size: 11px;")
@@ -3374,6 +3394,13 @@ class MainWindow(QMainWindow):
             bar.setTextVisible(False)
             bar.setFixedHeight(6)
             rl.addWidget(bar)
+            # What a STOPPED tile is left with (#598); hidden otherwise.
+            detail = QLabel("")
+            detail.setObjectName("tile_detail")
+            detail.setWordWrap(True)
+            detail.setStyleSheet("color: gray; font-size: 11px;")
+            detail.setVisible(False)
+            rl.addWidget(detail)
             self._rows_layout.insertWidget(
                 self._rows_layout.count() - 1, row
             )
@@ -3403,10 +3430,15 @@ class MainWindow(QMainWindow):
             (event.state, event.label, event.percent),
             self._progress_states.get(tile),
         )
+        if event.label == "stopped":
+            # What the engine's stop left the tile with (#598) — the one
+            # thing its late notice adds to a row already stopped here.
+            self._tile_details[tile] = getattr(event, "detail", "") or ""
         if resolved is None:
             # The row is locally stopped and this is not a terminal
             # outcome — including the engine's own late "stopped" notice,
             # which the row said minutes ago.
+            self._render_row_state(tile)
             return
         state, label, _pct = resolved
         if state == "done":
@@ -3475,9 +3507,14 @@ class MainWindow(QMainWindow):
         row = self._tile_rows.get(tile)
         if row is None:
             return
-        bar, status, _row, button, _clock = row
+        bar, status, row_widget, button, _clock = row
         state, label, pct = self._progress_states.get(
             tile, ("queued", "queued", 0))
+        detail = row_widget.findChild(QLabel, "tile_detail")
+        if detail is not None:
+            text = row_detail(state, label, self._tile_details.get(tile, ""))
+            detail.setText(text)
+            detail.setVisible(bool(text))
         color = "gray"
         if state == "done":
             bar.setValue(100)
@@ -3688,15 +3725,9 @@ class MainWindow(QMainWindow):
         showed a red row and nothing else, the same silence the
         2026-08-30 death had.
         """
-        print(
-            "*** Tile %s: airport %s failed at the %s stage — %s"
-            % (
-                FNAMES.short_latlon(event.lat, event.lon),
-                event.airport,
-                event.stage,
-                event.error,
-            )
-        )
+        print(QTFAIL.AIRPORT_FAILED_LINE.format(
+            tile=FNAMES.short_latlon(event.lat, event.lon),
+            airport=event.airport))
 
     def _on_pack_missing_art(self, event):
         """#433 (owner RULINGS 2026-10-06c): a pack X-Plane will not load.
@@ -3734,7 +3765,14 @@ class MainWindow(QMainWindow):
         tile = (event.lat, event.lon)
         started_at = self._tile_started_at.get(tile)
         seconds = (time.time() - started_at) if started_at else None
-        self._tile_results[tile] = (event.ok, event.error, seconds)
+        # #562 / #564: the engine's own words — what, why, what to do —
+        # on the console now, and in the run's one box at the end.
+        self._tile_results[tile] = (
+            event.ok, QTFAIL.report_phrase(event), seconds)
+        lines = QTFAIL.console_lines(event)
+        if lines:
+            print("\n".join(lines))
+            self._run_issue_events.append(event)
         if event.ok and self.chk_auto_install.isChecked():
             self._auto_install_tile(tile)
 
@@ -3804,6 +3842,16 @@ class MainWindow(QMainWindow):
         )
         print("\n".join([summary] + detail_lines))
         self._status(summary)
+        (issue_events, self._run_issue_events) = (self._run_issue_events, [])
+        issues = QTFAIL.issues_box(issue_events, parent=self,
+                                   app_version=O4_Version.version)
+        if issues is not None:
+            # Kept alive (non-modal) the way the missing-art boxes are.
+            self._pack_art_boxes.append(issues)
+            issues.finished.connect(
+                lambda _result, box=issues: box in self._pack_art_boxes
+                and self._pack_art_boxes.remove(box))
+            issues.show()
         self.progress_title.setText("<b>%s</b>" % summary)
         UI.is_working = False
         self._update_build_summary()
@@ -4125,7 +4173,9 @@ def _compose_run_report(tiles, tile_results, progress_states,
         (ok, error, seconds) = result
         duration = _fmt_duration(seconds) if seconds is not None else None
         if ok:
-            return (True, "built in %s" % duration if duration else "built")
+            # ``error`` on a built tile is "with warnings" (#564).
+            built = "built in %s" % duration if duration else "built"
+            return (True, "%s %s" % (built, error) if error else built)
         reason = error or "failed (see the console log)"
         if duration:
             return (False, "failed after %s — %s" % (duration, reason))
@@ -4136,14 +4186,16 @@ def _compose_run_report(tiles, tile_results, progress_states,
         name = FNAMES.short_latlon(*tile)
         result = tile_results.get(tile)
         if result is not None:
-            (ok, _error, seconds) = result
+            (ok, error, seconds) = result
             duration = (
                 _fmt_duration(seconds) if seconds is not None
                 else total_text)
             if ok:
+                tail = " %s." % error if error else "."
                 if duration:
-                    return ("Tile %s finished in %s." % (name, duration), [])
-                return ("Tile %s finished." % name, [])
+                    return ("Tile %s finished in %s%s"
+                            % (name, duration, tail), [])
+                return ("Tile %s finished%s" % (name, tail), [])
             (_ok, phrase) = _tile_outcome(tile)
             return ("Tile %s %s." % (name, phrase), [])
         return ("Tile %s was not built." % name, [])

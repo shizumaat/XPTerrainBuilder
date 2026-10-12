@@ -472,3 +472,95 @@ def test_a_finished_row_keeps_no_button(window):
     button = _stop_button(window, TILE)
     assert button.isEnabled() is False
     assert button.isHidden() is True
+
+
+# ---------------------------------------------------------------------------
+# #598 — a stopped row's second line: what the tile is left with
+# ---------------------------------------------------------------------------
+def _detail_label(window, tile):
+    from PySide6.QtWidgets import QLabel
+    return window._tile_rows[tile][2].findChild(QLabel, "tile_detail")
+
+
+def test_row_detail_shows_only_on_a_stopped_row():
+    assert GUI.row_detail("stopped", "stopped", "x") == "x"
+    assert GUI.row_detail("queued", "stopped", "x") == "x"   # engine-drained
+    assert GUI.row_detail("active", "imagery", "x") == ""
+    assert GUI.row_detail("done", "", "x") == ""
+
+
+def test_the_engines_late_notice_gives_a_stopped_row_its_second_line(window):
+    import O4_Stopped_Build as STOPPED
+    window._start_run([TILE], dict(SETTINGS))
+    window._on_step_progress(EV.StepProgress(
+        lat=TILE[0], lon=TILE[1], label="imagery", percent=42.0))
+    window._cancel_tile_clicked(TILE)
+    assert _detail_label(window, TILE).isHidden()   # nothing known yet
+
+    window._on_tile_state(EV.TileState(
+        lat=TILE[0], lon=TILE[1], state="queued", label="stopped",
+        detail=STOPPED.PREVIOUS_ACTIVE))
+
+    # the row itself is untouched (frozen where the stop caught it) …
+    assert window._progress_states[TILE] == ("stopped", "stopped", 42.0)
+    assert _status_label(window, TILE).text() == "stopped"
+    # … and says, verbatim, what the engine left the tile with
+    assert _detail_label(window, TILE).text() == STOPPED.PREVIOUS_ACTIVE
+    assert not _detail_label(window, TILE).isHidden()
+
+
+def test_a_tile_the_engine_drained_shows_the_line_too(window):
+    import O4_Stopped_Build as STOPPED
+    window._start_run([TILE], dict(SETTINGS))
+
+    window._on_tile_state(EV.TileState(
+        lat=TILE[0], lon=TILE[1], state="queued", label="stopped",
+        detail=STOPPED.NO_SCENERY))
+
+    assert _detail_label(window, TILE).text() == STOPPED.NO_SCENERY
+    assert not _detail_label(window, TILE).isHidden()
+
+
+def test_building_the_tile_again_clears_the_line(window):
+    window._start_run([TILE], dict(SETTINGS))
+    window._on_tile_state(EV.TileState(
+        lat=TILE[0], lon=TILE[1], state="queued", label="stopped",
+        detail="Stopped — the previous scenery is still active."))
+
+    window._add_progress_rows([TILE])
+    assert _detail_label(window, TILE).isHidden()
+    window._on_step_progress(EV.StepProgress(
+        lat=TILE[0], lon=TILE[1], label="vector", percent=1.0))
+
+    assert _detail_label(window, TILE).isHidden()
+    assert _detail_label(window, TILE).text() == ""
+
+
+def test_both_apps_show_the_engines_sentence_and_word_none_themselves():
+    """Copy parity (as #584): the sentence is the ENGINE's
+    (``O4_Stopped_Build``) and travels in ``TileState.detail``; the mac
+    app and the Qt window render it verbatim, so neither may carry a
+    wording of its own."""
+    import O4_Stopped_Build as STOPPED
+    root = os.path.join(os.path.dirname(__file__), "..", "..")
+    sources = {
+        "client": os.path.join(root, "Sources", "SceneryKit",
+                               "OrthoEngineClient.swift"),
+        "model": os.path.join(root, "Sources", "XPTerrainBuilder",
+                              "BuildModel.swift"),
+        "pane": os.path.join(root, "Sources", "XPTerrainBuilder",
+                             "BuildPane.swift"),
+        "qt": os.path.join(os.path.dirname(__file__), "..", "src",
+                           "O4_Qt_GUI.py"),
+    }
+    text = {}
+    for name, path in sources.items():
+        with open(path, encoding="utf-8") as handle:
+            text[name] = handle.read()
+    assert 'detail: string("detail")' in text["client"]
+    assert "Text(progress.detail)" in text["pane"]
+    assert "detail.setText(text)" in text["qt"]
+    for sentence in (STOPPED.PREVIOUS_ACTIVE, STOPPED.NO_SCENERY):
+        fragment = sentence.split("— ")[1]
+        for name in sources:
+            assert fragment not in text[name], (name, fragment)

@@ -36,8 +36,8 @@ from elevation_access.registry import EXPECTED_STRATEGIES  # noqa: E402
 EXPECTED_KEYS = EXPECTED_STRATEGIES
 
 #: The keys whose strategy supplies whole base tiles (``ensure_tile``).
-BASE_TILE_KEYS = {"hgt_archive_drop", "manual_download", "usgs_seamless",
-                  "viewfinder_zip"}
+BASE_TILE_KEYS = {"degree_cog_base_tile", "hgt_archive_drop",
+                  "manual_download", "usgs_seamless", "viewfinder_zip"}
 
 #: Signatures that differ from the protocol.  Reported, not papered over:
 #: ``ArcgisFeatureTileStrategy.discover`` takes an extra ``resolve`` flag
@@ -48,9 +48,10 @@ SIGNATURE_EXCEPTIONS = {
 }
 
 #: A strategy module importing another strategy module (the package
-#: docstring names these three; a fourth is a design question).
+#: docstring names these four; a fifth is a design question).
 CROSS_STRATEGY_IMPORTS = {
     ("authenticated_token_search", "stac"),
+    ("degree_cog_base_tile", "degree_named_cog"),
     ("las_tile_index", "cwcb_lidar_api"),
     ("os_grid_bucket", "geojson_tile_index"),
 }
@@ -191,10 +192,11 @@ def test_the_package_never_imports_the_pipeline_and_strategies_stay_apart():
 # ---------------------------------------------------------------------------
 # The binary counts its own registry (``--import-selfcheck``)
 # ---------------------------------------------------------------------------
-def test_the_pinned_set_is_the_26_recorded_at_main():
+def test_the_pinned_set_is_the_27_recorded():
     """The list itself lives in production code; its size and a spread of
     its entries are pinned here so an edit to it shows up in two diffs."""
-    assert len(EXPECTED_STRATEGIES) == 26
+    # 26 at main ``01662c75``; ``degree_cog_base_tile`` (#561) is the 27th.
+    assert len(EXPECTED_STRATEGIES) == 27
     assert EXPECTED_STRATEGIES["tnm_cog"] == "TnmCloudOptimizedGeoTiffStrategy"
     assert EXPECTED_STRATEGIES["las_tile_index"] == "LasTileIndexStrategy"
     assert EXPECTED_STRATEGIES["viewfinder_zip"] == "ViewfinderZipStrategy"
@@ -209,7 +211,7 @@ def test_the_selfcheck_counts_the_registry_from_the_engine_entry():
          "--import-selfcheck", "json"],
         capture_output=True, text=True, timeout=300, cwd=ENGINE_DIR)
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "elevation_access registry: ok 26 keys" in completed.stdout
+    assert "elevation_access registry: ok 27 keys" in completed.stdout
 
 
 def test_the_selfcheck_fails_and_names_a_strategy_that_did_not_register(
@@ -222,7 +224,7 @@ def test_the_selfcheck_fails_and_names_a_strategy_that_did_not_register(
         if key in EXPECTED_STRATEGIES and key != "wcs_kvp"})
     (ok, line) = registry.registry_selfcheck()
     assert not ok
-    assert line == ("elevation_access registry: FAIL 25 of 26 keys; "
+    assert line == ("elevation_access registry: FAIL 26 of 27 keys; "
                     "missing wcs_kvp")
     assert runtime.import_selfcheck_main(
         ["Ortho4XP", "--import-selfcheck", "json"]) == 1

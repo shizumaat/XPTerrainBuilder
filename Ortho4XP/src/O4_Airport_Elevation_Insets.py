@@ -133,6 +133,7 @@ import numpy
 import elevation_access  # noqa: F401  (registers the strategies)
 from elevation_access.gdal_support import gdal, ogr, osr, has_gdal
 from elevation_access.base import ProviderUnavailable, TransientFetchError
+from elevation_access import base_fallback as ea_base_fallback
 from elevation_access.base_tiles import (
     base_definition_covers_tile,
     cached_elevation_file_is_valid,
@@ -9430,8 +9431,15 @@ def ensure_base_tile(source, lat, lon, verbose=True, prefer_coarse=False):
     # ensure_tile is a no-op that recycles the cached tile when it is already
     # present, so a waiter that blocked until the first downloader finished
     # simply finds the file cached and returns without re-downloading.
+    # The strategy is asked through the fallback rule (#561): a download
+    # that died on the transport is covered by the ranked fallback
+    # sources, at their own cache paths; every other outcome is the
+    # strategy's own.
     with O4_File_Lock.hold_file_lock(lock_target):
-        return strategy_factory().ensure_tile(definition, lat, lon, verbose)
+        return ea_base_fallback.ensure_tile_or_fallback(
+            strategy_factory(), definition, lat, lon, verbose,
+            elevation_providers_dict,
+            before_fallback=_configure_gdal_http_guards)
 
 
 # =====================================================================

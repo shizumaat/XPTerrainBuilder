@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-import shutil
 import queue
 import threading
 from collections import defaultdict
@@ -13,6 +12,10 @@ import O4_Mesh_Utils as MESH
 import O4_Mask_Utils as MASK
 import O4_DSF_Utils as DSF
 import O4_Proj_Runtime as PROJRT
+import O4_Held_File as HELD
+import O4_Tile_Failures as FAILURES
+import O4_Tile_Staging as STAGING
+import O4_Stopped_Build as STOPPED
 from O4_Parallel_Utils import (
     effective_convert_slots,
     effective_download_slots,
@@ -329,7 +332,7 @@ def _refuse_on_broken_proj() -> bool:
         "silently degraded tile.",
     )
     UI.lvprint(0, reason)
-    UI.exit_message_and_bottom_line("")
+    UI.exit_message_and_bottom_line("", code="app_component_broken")
     return True
 
 
@@ -355,7 +358,7 @@ def build_tile(tile):
         UI.lvprint(
             0, "ERROR: A mesh file must first be constructed for the tile!"
         )
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="earlier_step_missing")
         return 0
 
     timer = time.time()
@@ -368,13 +371,13 @@ def build_tile(tile):
             "select an imagery source in the interface, or fix "
             "default_website in the tile config." % (tile.default_website,),
         )
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="imagery_source_unknown")
         return 0
 
     tile.write_to_config()
 
     if not IMG.initialize_local_combined_providers_dict(tile):
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="imagery_source_unknown")
         return 0
 
     try:
@@ -402,17 +405,14 @@ def build_tile(tile):
                     os.remove(os.path.join(tile.build_dir, "textures", f))
                 except:
                     pass
-        if not tile.grouped:
-            try:
-                shutil.rmtree(os.path.join(tile.build_dir, "terrain"))
-            except:
-                pass
-        if not os.path.isdir(os.path.join(tile.build_dir, "terrain")):
-            os.makedirs(os.path.join(tile.build_dir, "terrain"))
+        # The live ``terrain`` folder is what the scenery file still active
+        # points into: this build writes beside it and moves in when it
+        # completes (#598).  It used to be deleted here.
+        STAGING.begin(tile)
     except Exception as e:
         UI.lvprint(0, "ERROR: Cannot create tile subdirectories.")
         UI.vprint(3, e)
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="output_folder_unwritable")
         return 0
 
     download_queue = queue.Queue()
@@ -431,13 +431,19 @@ def build_tile(tile):
     # instead of dying silently and letting the activation step below report
     # a misleading rename error.
     dsf_build_error: list[str] = []
+    # ...and only a build_dsf that RETURNED 1 left a whole file to activate:
+    # a Stop inside the encoder returns 0 with a truncated ``.dsf.tmp``.
+    dsf_built: list[int] = []
 
     def _build_dsf_guarded() -> None:
         try:
-            DSF.build_dsf(tile, download_queue)
+            dsf_built.append(DSF.build_dsf(tile, download_queue))
         except Exception as exc:
             dsf_build_error.append(str(exc))
             UI.vprint(0, "ERROR during DSF construction:", str(exc))
+            # Named BEFORE the flag is raised: the session tells a step's
+            # own abort from the user's Stop by it (#562).
+            UI.tile_failure("scenery_file_failed", exc=exc)
             UI.red_flag = True
 
     build_dsf_thread = threading.Thread(target=_build_dsf_guarded)
@@ -530,11 +536,22 @@ def build_tile(tile):
         # fetch token is free from the outset.
         UI.imagery_downloads_done(tile.lat, tile.lon, 0, 0)
     if dsf_build_error:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)   # named in the guard
+        return 0
+    dsf_file_name = os.path.join(
+        tile.build_dir,
+        "Earth nav data",
+        FNAMES.long_latlon(tile.lat, tile.lon) + ".dsf",
+    )
+    if UI.red_flag or not any(dsf_built):
+        # A Stop — inside the encoder (its ``.dsf.tmp`` is truncated) or
+        # during the texture downloads (it is whole, the textures are not).
+        # Either way NOTHING is activated: activation is the last act of a
+        # COMPLETED build (owner ruling 2026-10-12h (3), #598).
+        _say_stopped(tile, dsf_file_name)
         return 0
     if (
         download_launched
-        and not UI.red_flag
         and download_stats.get("failed")
         and not download_stats.get("done")
     ):
@@ -543,20 +560,10 @@ def build_tile(tile):
             "ERROR: every texture download failed (imagery source '%s') — "
             "the new DSF was not activated." % (tile.default_website,),
         )
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code="imagery_download_failed")
         return 0
-    UI.vprint(1, " *Activating DSF file.")
-    dsf_file_name = os.path.join(
-        tile.build_dir,
-        "Earth nav data",
-        FNAMES.long_latlon(tile.lat, tile.lon) + ".dsf",
-    )
-    try:
-        os.replace(dsf_file_name + ".tmp", dsf_file_name)
-    except:
-        UI.vprint(0, "ERROR : could not rename DSF file, tile is not active.")
-    if UI.red_flag:
-        UI.exit_message_and_bottom_line()
+    if not activate_tile(tile, dsf_file_name):
+        UI.exit_message_and_bottom_line("", code=None)   # named there
         return 0
     if UI.cleaning_level > 1:
         try:
@@ -571,8 +578,8 @@ def build_tile(tile):
             os.remove(FNAMES.input_poly_file(tile))
         except:
             pass
-        # The previous DSF generation (renamed to .bak by build_dsf before
-        # the rewrite) is a rollback copy only; X-Plane never reads it.
+        # The previous DSF generation (moved to .bak by the activation) is
+        # a rollback copy only; X-Plane never reads it.
         try:
             os.remove(dsf_file_name + ".bak")
         except OSError:
@@ -592,11 +599,97 @@ def build_tile(tile):
         remove_dsftool_dump_leftovers(tile)
     _write_imagery_manifest(tile, download_stats, dico_conv_progress)
     warn_if_imagery_incomplete(tile)
+    # The build COMPLETED: the pack files its object stage rewrote stand.
+    STOPPED.complete(tile.build_dir, tile.lat, tile.lon)
     UI.timings_and_bottom_line(timer)
     UI.logprint(
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
     )
     return 1
+
+################################################################################
+def _say_stopped(tile, dsf_file_name):
+    """End a stopped step: put the scenery packs this build rewrote back
+    and say what the tile is left with.  A cancel, so no failure is named;
+    the line reaches both apps' logs as a warning."""
+    STOPPED.settle(tile.build_dir, tile.lat, tile.lon)
+    if os.path.isfile(dsf_file_name):
+        UI.loud_warning(
+            "Build stopped before it completed: the new scenery was not "
+            "activated. The scenery built before is still in place, "
+            "unchanged; build the tile again to finish — the textures "
+            "already downloaded are kept.")
+    else:
+        UI.loud_warning(
+            "Build stopped before it completed: this tile has no scenery "
+            "yet. Build the tile again to finish — the textures already "
+            "downloaded are kept.")
+    UI.exit_message_and_bottom_line()
+
+
+def activate_tile(tile, dsf_file_name):
+    """The LAST act of a completed build (#598): move its terrain files in,
+    activate its scenery file, then drop the terrain files it does not name.
+
+    In that order the scenery file X-Plane reads always has every terrain
+    file it names: before the swap the previous file's are all still there
+    (the install only adds), after it the new file's are.  False — the
+    failure NAMED — on a refusal, which leaves the previous scenery active.
+    """
+    try:
+        installed = STAGING.install(tile)
+    except OSError as exc:
+        UI.lvprint(0, "ERROR: could not move the new terrain files into "
+                      "place — the previous scenery stays active:", exc)
+        exc.failure_code = FAILURES.code_for_activation(exc)
+        UI.tile_failure("scenery_file_not_activated", exc=exc)
+        return False
+    if not activate_dsf(dsf_file_name):
+        return False
+    if not tile.grouped:
+        STAGING.prune(tile, installed)
+    return True
+
+
+def activate_dsf(dsf_file_name):
+    """Put the finished ``<dsf>.tmp`` where X-Plane reads it; False — with
+    the tile's failure NAMED — when a move is refused (#585).
+
+    The previous file steps aside to ``<dsf>.bak`` HERE, not when the
+    encoder starts (#598): until this call it is the tile's active scenery.
+    On Windows a running X-Plane holds it, so this is where that is met.
+
+    STATE LEFT BY A REFUSAL: the previous ``<dsf>`` active (never moved, or
+    put back from ``.bak``) and the finished ``<dsf>.tmp`` beside it.  The
+    next build rewrites ``.tmp`` and activates; nothing is done by hand.
+    Only when putting the previous file back is refused too is the tile
+    left with no ``<dsf>`` (X-Plane then flies its default scenery there).
+    """
+    UI.vprint(1, " *Activating DSF file.")
+    backup = dsf_file_name + ".bak"
+    moved_aside = False
+    try:
+        if os.path.exists(dsf_file_name):
+            HELD.retrying_a_held_file(
+                lambda: os.replace(dsf_file_name, backup))
+            moved_aside = True
+        HELD.retrying_a_held_file(
+            lambda: os.replace(dsf_file_name + ".tmp", dsf_file_name))
+    except OSError as exc:
+        if moved_aside:
+            try:
+                os.replace(backup, dsf_file_name)
+            except OSError:
+                pass
+        active = os.path.exists(dsf_file_name)
+        UI.lvprint(0, "ERROR: could not move the new DSF file into place — "
+                      + ("the previous scenery stays active:" if active
+                         else "the tile is NOT active:"), exc)
+        exc.failure_code = FAILURES.code_for_activation(exc)
+        UI.tile_failure("scenery_file_not_activated", exc=exc)
+        return False
+    return True
+
 
 ################################################################################
 def build_all(tile):
@@ -605,15 +698,15 @@ def build_all(tile):
     UI.reset_total_elapsed()
     VMAP.build_poly_file(tile)
     if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     MESH.build_mesh(tile)
     if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     MASK.build_masks(tile)
     if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     build_tile(tile)
     tile_coords = FNAMES.short_latlon(tile.lat, tile.lon)
@@ -626,7 +719,7 @@ def build_all(tile):
         delete_incomplete_imgs(tile)
         build_tile(tile)
     if UI.red_flag:
-        UI.exit_message_and_bottom_line("")
+        UI.exit_message_and_bottom_line("", code=None)
         return 0
     UI.is_working = 0
     UI.total_bottom_line(tile.lat, tile.lon)

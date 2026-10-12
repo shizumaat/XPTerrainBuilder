@@ -35,6 +35,8 @@ import traceback
 import typing as _t
 import urllib.parse
 
+import O4_Tile_Failures as _FAIL
+
 #: THE engine name.  v1 is retired (owner RULINGS 2026-09-13au): there is
 #: no second value, no cfg key and no selector — this constant is the one
 #: spelling the freshness stamp, the provenance line and the harness frame
@@ -258,6 +260,25 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         return None
 
 
+def _pack_dump_naming_its_pack(xplane_root: str, icao: str, lat: int,
+                               lon: int) -> str | None:
+    """:func:`fresh_pack_dump`, with the serving PACK'S NAME attached to
+    whatever exception leaves it (``failure_params``, issue #562): the
+    user's message then names the pack whatever class arrives."""
+    try:
+        return fresh_pack_dump(xplane_root, icao, lat, lon)
+    except Exception as exc:
+        if not getattr(exc, "failure_params", None):
+            try:
+                from auto_patch_v2.airport.pack import select_pack
+                sel = select_pack(xplane_root, icao)
+                if sel is not None:
+                    exc.failure_params = {"pack": sel.name}
+            except Exception:
+                pass
+        raise
+
+
 def _stamp_header(task: dict) -> dict[str, str]:
     """The ``<osm>`` root attributes the driver's freshness gate reads back
     (``layout.read_patch_source`` → ``_auto_patch_is_current``), rendered
@@ -405,7 +426,8 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             xplane_root=task["xp_root"], cifp_dir=task.get("cifp_path") or "",
             osm_root=FNAMES.OSM_dir, elevation_root=FNAMES.Elevation_dir,
             mod_cache_root=FNAMES.airport_mod_cache_root(),
-            dsf_dump_path=fresh_pack_dump(task["xp_root"], icao, lat, lon),
+            dsf_dump_path=_pack_dump_naming_its_pack(
+                task["xp_root"], icao, lat, lon),
             dem_frame="production", production_dem_tiles=seeds,
             core_hosted=True,
             road_grade_limit=task.get("road_grade_limit"),
@@ -439,7 +461,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
         res = build(icao, inputs, scratch, cfg, law, out=_out)
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "build", "engine": ENGINE_V2,
-                "error": f"[v2] {exc}",
+                "error": f"[v2] {exc}", **_FAIL.record_fields(exc),
                 "traceback": traceback.format_exc() + "\n--- v2 build log ---\n"
                 + "\n".join(log_lines)}
     finally:
@@ -528,6 +550,7 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "write", "engine": ENGINE_V2,
                 "error": f"[v2] {exc}", "auto_patch_file": task["auto_patch_file"],
+                **_FAIL.record_fields(exc),
                 "traceback": traceback.format_exc()}
     build_s = time.time() - t0
 
@@ -846,6 +869,9 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
     plan = PlacementPlan("", art.pack_name, pack_root, art.dsf_path,
                          art.dsf_path + BACKUP_SUFFIX,
                          Provenance("", _engine_version(), "", {}))
+    # #598: a no-op outside a build's object stage (the user's command)
+    from auto_patch_v2.airport import pack_journal as _pj
+    _pj.snapshot(pack_root, art.dsf_path)
     _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
                    allow_live_install=True, engine_version=_engine_version(),
                    omit=art.missing if art.omit else ())
@@ -1156,6 +1182,77 @@ def _engine_version() -> str:
         return ""
 
 
+def restore_stopped_build(build_dir: str, lat: int, lon: int) -> list:
+    """A BUILD THAT DID NOT COMPLETE PUTS THE SCENERY PACKS BACK (owner
+    decision 2026-10-12, #598): every pack file the object stage of that
+    build rewrote is as it was BEFORE the build — the seating that
+    matches the scenery still active, not the pristine pack.  Called
+    when a build is stopped, and before a tile's next build when the last
+    one was killed (``pack_journal``).
+
+    Returns one sentence per pack that could NOT be put back (also said
+    as a warning); silent and read-free when the build rewrote no pack.
+    Never raises."""
+    import O4_File_Names as FNAMES
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import pack_journal as _pj
+    unproven: list = []
+    try:
+        tile_name = FNAMES.short_latlon(lat, lon)
+        if not _pj.pending(build_dir, tile_name):
+            return unproven
+        done = _pj.replay(build_dir, tile_name, allow_live_install=True)
+        for out in done:
+            pack = os.path.basename(os.path.normpath(out.pack_root))
+            if out.state == _pj.UNPROVEN:
+                text = (f"The scenery pack {pack} was changed by the build "
+                        f"that did not finish and could not be put back as "
+                        f"it was: {out.reason} Its objects may float or "
+                        f"sink until the tile is built again.")
+                unproven.append(text)
+                UI.loud_warning("   " + text)
+            else:
+                UI.vprint(0, f"  [v2 rebake] pack {pack} "
+                             f"{os.path.basename(out.dsf_path)} is back as it "
+                             f"was before the build that did not finish")
+    except Exception as exc:
+        text = (f"The scenery packs changed by the build that did not finish "
+                f"could not be put back as they were ({exc}). Their objects "
+                f"may float or sink until the tile is built again.")
+        unproven.append(text)
+        UI.loud_warning("   " + text)
+        UI.vprint(2, traceback.format_exc())
+    return unproven
+
+
+def discard_pack_journal(build_dir: str, lat: int, lon: int) -> None:
+    """The build COMPLETED: its pack writes stand (#598)."""
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import pack_journal as _pj
+    _pj.discard(build_dir, FNAMES.short_latlon(lat, lon))
+
+
+def _pack_journalled(stage):
+    """The object stage of one tile's build, with the pack files it
+    rewrites kept as they were until the build completes (#598): a
+    journal an earlier build left is that build never completing — it is
+    put back first — and every pack write of ``stage`` is journalled."""
+    import functools
+
+    @functools.wraps(stage)
+    def journalled(tile) -> dict:
+        import O4_File_Names as FNAMES
+        from auto_patch_v2.airport import pack_journal as _pj
+        restore_stopped_build(tile.build_dir, tile.lat, tile.lon)
+        _pj.begin(tile.build_dir, FNAMES.short_latlon(tile.lat, tile.lon))
+        try:
+            return stage(tile)
+        finally:
+            _pj.end()
+    return journalled
+
+
+@_pack_journalled
 def rebake_after_mesh(tile) -> dict:
     """Run the PLACEMENT stage for every airport v2 patched on ``tile``
     against the mesh just built (see the section comment).  Never raises
@@ -1171,6 +1268,15 @@ def rebake_after_mesh(tile) -> dict:
                             object_anchor_worklist_path)
 
     counts = {"airports": 0, "airports_failed": 0, "packs_written": 0}
+    # RULINGS 2026-10-12d, BEFORE every gate and every early return below:
+    # an unpatched airport has no plan here (it was set aside with its
+    # patch), a tile whose every airport failed has no plan at all, and
+    # the placement loop would otherwise RE-APPLY the unpatched airport's
+    # recorded edits when it writes a sibling served by the same DSF.
+    # Silent and read-free when the tile has no unpatched airport.
+    restored = restore_unpatched_packs(tile)
+    if restored["restored"] or restored["recomposed"]:
+        counts["packs_restored"] = restored["restored"] + restored["recomposed"]
     # THE USER'S SWITCH IS A STAND-DOWN, NOT A MEASURE-ONLY ARM (owner
     # ruling RULINGS 2026-09-18a (3), BETA2 GEN-1; issue #42).  When the
     # user unchecks "Modify custom airports" the whole placement stage is
@@ -1384,5 +1490,101 @@ def rebake_after_mesh(tile) -> dict:
                          "(originals kept as .anchor_bak) — restart X-Plane, objects are cached")
     except Exception as exc:
         UI.vprint(1, f"  [v2 rebake] failed: {exc}")
+        UI.vprint(2, traceback.format_exc())
+    return counts
+
+
+def _pack_stand_down(tile) -> str:
+    """Why no pack file may be written by this build, or ``""`` — the
+    object stage's three switches, in one place for the unpatched-airport
+    restore (the placement loop below words its own lines)."""
+    from .config import DSF_OBJECT_REANCHOR
+    if not getattr(tile, "modify_custom_airports", True):
+        return '"Modify custom airports" is off'
+    if os.environ.get("O4_PACK_WRITES") == "measure_only":
+        return "this is a lane build (O4_PACK_WRITES=measure_only)"
+    if not DSF_OBJECT_REANCHOR:
+        return "DSF_OBJECT_REANCHOR is off"
+    return ""
+
+
+def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
+    """AN AIRPORT LEFT WITHOUT A PATCH GETS ITS ORIGINAL PACK BACK (owner
+    RULINGS 2026-10-12d).  For every airport this tile is built without
+    (``O4_Unpatched_Airports.read``), every pack DSF of this tile an
+    earlier build re-seated for it is restored
+    (``unpatched_pack.restore_airport``); a restore that cannot be done
+    or proven is NAMED on that airport's record and in the log.
+
+    The packs are found from the engine's own write records
+    (``object_rebake.modified_packs``) — the airport's plan was set aside
+    with its patch.  A disabled pack and a pack inside the base simulator
+    are never touched; an airport no record names is a no-op.  Returns
+    ``{"restored": n, "recomposed": n, "unproven": n}``.  Never raises."""
+    import O4_File_Names as FNAMES
+    import O4_Scenery_Packs as _SP
+    import O4_UI_Utils as UI
+    import O4_Unpatched_Airports as UNPATCHED
+    from auto_patch_v2.airport import unpatched_pack as _up
+    from . import dsf_reader as _DSFR
+    from . import object_rebake as _OR
+    from .post_mesh import _is_protected_scenery_root
+
+    counts = {_up.RESTORED: 0, _up.RECOMPOSED: 0, _up.UNPROVEN: 0}
+    try:
+        unpatched = [rec["icao"] for rec in UNPATCHED.read(tile)]
+        if not unpatched:
+            return counts
+        if scenery_dir is None:
+            import O4_Config_Utils as CFG
+            scenery_dir = getattr(CFG, "custom_scenery_dir", "") or ""
+        tile_name = FNAMES.short_latlon(tile.lat, tile.lon)
+        stand_down = _pack_stand_down(tile)
+        for pack in _OR.modified_packs(scenery_dir, tile_name):
+            pack_root = pack["pack_path"]
+            if _is_protected_scenery_root(pack_root) \
+                    or not _SP.pack_enabled(pack_root):
+                continue
+            for record_path in _OR._v2_record_paths(pack_root):
+                dsf_path = os.path.join(os.path.dirname(record_path),
+                                        tile_name + ".dsf")
+                for icao in sorted(set(unpatched)
+                                   & set(_up.seated_airports(dsf_path))):
+                    if stand_down:
+                        out = _up.Outcome(_up.UNPROVEN, dsf_path, reason=(
+                            "it was not restored because " + stand_down))
+                    else:
+                        try:
+                            out = _up.restore_airport(
+                                pack_root, dsf_path, icao,
+                                _DSFR._dsftool_path() or "DSFTool",
+                                allow_live_install=True,
+                                engine_version=_engine_version())
+                        except Exception as exc:
+                            out = _up.Outcome(_up.UNPROVEN, dsf_path,
+                                              reason=str(exc))
+                    counts[out.state] = counts.get(out.state, 0) + 1
+                    if out.state == _up.UNPROVEN:
+                        text = (
+                            f"The scenery pack {pack['pack_name']} was changed "
+                            f"by an earlier build for this airport's graded "
+                            f"ground and could not be put back to its "
+                            f"original: {out.reason} Its objects may float or "
+                            f"sink there.")
+                        UNPATCHED.note_pack(
+                            tile, icao, text, pack=str(pack["pack_name"]),
+                            reason=str(out.reason))
+                        UI.loud_warning(f"   {icao}: {text}")
+                    elif out.state != _up.NONE:
+                        kept = (f"; {', '.join(out.kept)} keep their placements"
+                                if out.kept else "")
+                        UI.vprint(0, f"  [v2 rebake] {icao}: left without a "
+                                     f"patch — pack {pack['pack_name']} "
+                                     f"{tile_name}.dsf is back to its original "
+                                     f"for this airport ("
+                                     f"{len(out.bodies_removed)} split "
+                                     f"bod(ies) removed{kept})")
+    except Exception as exc:
+        UI.vprint(1, f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
         UI.vprint(2, traceback.format_exc())
     return counts

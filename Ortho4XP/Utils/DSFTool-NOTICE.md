@@ -82,9 +82,13 @@ is its readable copy — update both together.
 
 | Path | Platform | Build | Notes |
 | --- | --- | --- | --- |
-| `mac/DSFTool` | macOS universal (arm64 + x86_64) | stock 24-5, compiled May 9 2024 | Laminar's build; links OS libz, libc++, Carbon |
-| `win/DSFTool.exe` | Windows x64 | stock 24-5, compiled May 9 2024 | Laminar's build; static CRT, imports KERNEL32.dll only |
-| `lin/DSFTool` | Linux x86_64 | stock 24-5, compiled May 9 2024 | Laminar's build (gcc 9.4, glibc >= 2.14); dynamic libz, libstdc++ |
+| `mac/DSFTool` | macOS universal (arm64 + x86_64) | patched (24-5 + the two commits), compiled Oct 12 2026, CI run 38296810739 | Xcode 16.4 on macOS 15.7; deployment target 12.0; links OS libz, libc++, Carbon; ad-hoc signed (the app build re-signs it) |
+| `win/DSFTool.exe` | Windows x64 | patched, compiled Oct 12 2026, CI run 38296810739 | MSBuild 18.10 (toolset v143); static CRT and upstream's static zlib 1.2.11, imports KERNEL32.dll only |
+| `lin/DSFTool` | Linux x86_64 | patched, compiled Oct 12 2026, CI run 38296810739 | gcc 11.4 on Ubuntu 22.04; needs glibc >= 2.34 (the stock build needed 2.14); dynamic libz, libstdc++, libm, libgcc_s |
 
-To replace them with the patched build: `docs/DSFTOOL-VENDORING.md` at the
+The stock files these replaced (Laminar's own build of 24-5, compiled May 9
+2024) had sha256 `4abaed05…` (mac), `42cacb1f…` (win), `5645a338…` (lin);
+they are in git history before the vendoring commit.
+
+To replace them with a later build: `docs/DSFTOOL-VENDORING.md` at the
 repository root.

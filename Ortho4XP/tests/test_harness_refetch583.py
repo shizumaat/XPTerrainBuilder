@@ -71,6 +71,8 @@ def _stub_tile(monkeypatch, build_mod, verdicts, ladder=None):
     import O4_Vector_Map as VMAP
 
     asked = []
+    monkeypatch.setattr(build_mod.IPF, "airports_layer_is_cached",
+                        lambda lat, lon: True)
     monkeypatch.setattr(CFG, "Tile", lambda lat, lon, _s:
                         types.SimpleNamespace(lat=lat, lon=lon,
                                               read_from_config=lambda: None))
@@ -94,8 +96,11 @@ def _stub_tile(monkeypatch, build_mod, verdicts, ladder=None):
     monkeypatch.setattr(build_mod, "apply_xplane_install_paths_for_preflight",
                         lambda: asked.append("paths") or {})
     monkeypatch.setattr(
-        build_mod, "_ladder_recheck_problem",
+        build_mod.IPF, "ladder_owed_problem",
         lambda _insets, lat, lon, icao, required: (ladder or {}).get(icao))
+    monkeypatch.setattr(
+        build_mod, "_ladder_recheck_problem",
+        lambda *a, **k: pytest.fail("a pre-flight asked a provider"))
     return asked
 
 
@@ -124,6 +129,14 @@ def test_a_tile_build_names_every_inset_its_pass_would_refetch(
     for key in ("airport_insets", "airports_layer"):
         assert build_mod.tile_inset_refetch_rows(
             dict(STATE, **{key: False}), 47, -123) == []
+    # ... and a state that CLAIMS a layer the disk does not have (the CI
+    # red of PR #594: the layer read became an overpass query)
+    import O4_OSM_Utils as OSM
+    monkeypatch.setattr(build_mod.IPF, "airports_layer_is_cached",
+                        lambda lat, lon: False)
+    monkeypatch.setattr(OSM, "OSM_queries_to_OSM_layer", lambda *a, **k:
+                        pytest.fail("the pre-flight queried overpass"))
+    assert build_mod.tile_inset_refetch_rows(STATE, 47, -123) == []
 
 
 def test_the_missing_artifact_list_carries_them_on_a_tile_build_only(
@@ -150,33 +163,91 @@ def test_the_missing_artifact_list_carries_them_on_a_tile_build_only(
     assert "--refresh-data dem" in str(refusal.value)
 
 
+def _no_network(monkeypatch):
+    """What ``tests/conftest.py`` enforces on a runner with no corpus."""
+    import socket
+
+    def _refuse(*a, **k):
+        raise RuntimeError("this test reached for the network")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _refuse)
+    monkeypatch.setattr(socket.socket, "connect", _refuse)
+
+
 @requires_gdal
-def test_the_tile_wide_verdict_is_the_engines_ladder_recheck_for_real(
+def test_the_tile_pre_flight_judges_the_ladder_from_disk_and_never_asks(
         build_mod, ipf, monkeypatch, two_providers):
-    """No stub between the harness and the engine: a rung that did not
-    answer makes the next build re-fetch, and the pre-flight says so; a
-    rung DECLINED BY A CAP under the same listing does not (#583)."""
+    """No stub between the harness and the engine, and NO QUERY: the
+    sidecar says which re-asked rungs recorded no listing.  A rung that
+    did not answer owes a re-check; a rung DECLINED BY A CAP recorded its
+    listing and owes none; a product published since is found by
+    ``--refresh-data dem``, which is the run that asks."""
     import O4_Airport_Elevation_Insets as INSETS
 
-    plan, _calls, chain, _other, _raise = two_providers
+    plan, calls, chain, other, _raise = two_providers
     monkeypatch.setattr(INSETS, "initialize_elevation_providers_dict",
                         lambda: INSETS.elevation_providers_dict)
     monkeypatch.setattr(ipf, "required_boxes",
                         lambda lat, lon, selected_only: {"KASE": BOX})
+    monkeypatch.setattr(ipf, "airports_layer_is_cached",
+                        lambda lat, lon: True)
     state = dict(STATE, tile_stem="N39W107")
+
+    def _rows():
+        calls["discover"].clear()
+        calls["fetch"].clear()
+        rows = build_mod.tile_inset_refetch_rows(state, 39, -107)
+        assert calls["discover"] == [] and calls["fetch"] == []
+        return rows
+
     plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
                  "FAKEPIT": {"transient": "index outage", "listing": ["T1"]},
                  "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
     INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
-    rows = build_mod.tile_inset_refetch_rows(state, 39, -107)
+    _no_network(monkeypatch)
+    rows = _rows()
     assert [(scope, artifact) for (scope, artifact, _why) in rows] == [
         ("dem", "Elevation_data/**/N39W107_airport_insets/KASE_*.tif "
                 "[ladder]")]
-    assert "T1" in rows[0][2] and "--refresh-data dem" in rows[0][2]
+    assert "RE-CHECK OWED" in rows[0][2] and "'county lidar'" in rows[0][2]
+    assert "--refresh-data dem" in rows[0][2]
+    # THE CAP CLASS: the listing is on record, nothing is owed ...
     plan["FAKEPIT"] = {"cap": "2 tiles", "listing": ["T1", "T2", "T3"]}
     INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
-    build_mod.LADDER_RECHECKS.clear()
-    assert build_mod.tile_inset_refetch_rows(state, 39, -107) == []
+    assert _rows() == []
+    # ... until the definition it was declined under moves (a raised cap)
+    other["max_tiles_per_airport"] = 64
+    assert [row[1] for row in _rows()] == [
+        "Elevation_data/**/N39W107_airport_insets/KASE_*.tif [ladder]"]
+    del other["max_tiles_per_airport"]
+    # A PRODUCT PUBLISHED SINCE: disk cannot know, the pre-flight does
+    # not ask -- the refresh's own (asking) verdict names it.
+    plan["FAKE3DEP:1"] = {"valid": 1.0, "listing": ["new2024"]}
+    assert _rows() == []
+    asked = build_mod._ladder_recheck_problem(INSETS, 39, -107, "KASE", BOX)
+    assert asked[0] == "ladder" and "new2024" in asked[1]
+    assert calls["discover"]
+
+
+@requires_gdal
+def test_a_rung_that_answered_nothing_new_owes_no_second_recheck(
+        two_providers):
+    """The engine's own stamp settles it: a rung that never answered is
+    asked once by the next pass, and ``recheck: unchanged`` is the
+    record that it was."""
+    import O4_Airport_Elevation_Insets as INSETS
+
+    plan, _calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"transient": "index outage", "listing": []},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert INSETS.ladder_recheck_owed(
+        39, -107, "KASE", "FAKE3DEP", BOX) == ["county lidar"]
+    plan["FAKEPIT"] = {"valid": None, "listing": []}     # it answers: nothing
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert INSETS.ladder_recheck_owed(
+        39, -107, "KASE", "FAKE3DEP", BOX) == []
 
 
 def _warm_tile_root(tmp_path, monkeypatch):

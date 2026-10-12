@@ -10,9 +10,10 @@ mid-build.  This module asks the same per-airport question for the whole
 tile, and lets ``--refresh-data dem`` complete exactly what it names.
 
 Every verdict is the ENGINE's own predicate, imported and never copied:
-``O4_Airport_Elevation_Insets.airport_inset_frame_problem`` and the
-build-time ladder re-check the caller passes in (``build_airport`` owns
-its per-run memo).  The airports are the engine's own selection
+``O4_Airport_Elevation_Insets.airport_inset_frame_problem`` and a ladder
+verdict the caller passes in -- :func:`ladder_owed_problem` (DISK ONLY,
+what a pre-flight reads) or ``build_airport``'s re-check, which ASKS the
+providers' indexes and so belongs to an authorised refresh.  The airports are the engine's own selection
 (``resolved_inset_mode`` / ``inset_keys``), as ``ensure_insets_for_tile``
 takes it.
 """
@@ -21,6 +22,8 @@ from __future__ import annotations
 __all__ = [
     "REFRESHABLE_KINDS",
     "airport_problem",
+    "airports_layer_is_cached",
+    "ladder_owed_problem",
     "required_boxes",
     "stale_negative_airports",
     "tile_pending_refetches",
@@ -30,6 +33,17 @@ __all__ = [
 #: ``empty`` is a declared state (the raster is read, found empty, and
 #: the airport grades on the base DEM): nothing is fetched for it.
 REFRESHABLE_KINDS = ("missing", "packs", "stale", "ladder")
+
+
+def airports_layer_is_cached(lat, lon) -> bool:
+    """Is the tile's airports layer ON DISK?  Asked of the file itself:
+    reading an absent layer is an overpass QUERY, and a pre-flight never
+    reaches the network (#583)."""
+    import os
+
+    import O4_File_Names as FNAMES
+
+    return os.path.isfile(FNAMES.osm_cached(lat, lon, "airports"))
 
 
 def required_boxes(lat, lon, *, selected_only: bool) -> dict:
@@ -69,6 +83,34 @@ def airport_problem(lat, lon, icao, required, ladder_problem):
     return ladder_problem(INSETS, lat, lon, icao, required)
 
 
+def ladder_owed_problem(INSETS, lat, lon, icao, required):
+    """THE LADDER RE-CHECK, FROM DISK ALONE: ``("ladder", text)`` when the
+    sidecar of ``icao``'s cached inset cannot answer the build-time
+    re-check (``INSETS.ladder_recheck_owed`` -- a re-asked rung recorded
+    no listing, so whatever it lists is new and the build re-runs the
+    ladder), else ``None``.
+
+    A PRE-FLIGHT NEVER REACHES THE NETWORK: with no network it would
+    refuse for the wrong reason, and a query is an act of
+    ``--refresh-data dem``.  A product published since the fetch is found
+    there, and by the build's own declared fetch, which the guard
+    refuses at the call."""
+    paths = INSETS.cached_inset_paths_for_icao(lat, lon, icao)
+    if not paths:
+        return None
+    code = INSETS._inset_provider_code_from_path(paths[0])
+    owed = INSETS.ladder_recheck_owed(lat, lon, icao, code, required)
+    if not owed:
+        return None
+    return ("ladder",
+            f"LADDER RE-CHECK OWED for airport elevation inset {paths[0]} "
+            f"— its record holds no listing for the resolution-ladder "
+            f"rung(s) {', '.join(repr(str(label)) for label in owed)} the "
+            f"build re-asks, so whatever they list today is NEW and the "
+            f"build would RE-FETCH the ladder (--refresh-data dem; "
+            f"--warm-insets {icao})")
+
+
 def tile_pending_refetches(state, lat, lon, *, ladder_problem,
                            prepare=None) -> list:
     """``[(airport key, kind, text)]`` -- every selected aerodrome of the
@@ -80,6 +122,8 @@ def tile_pending_refetches(state, lat, lon, *, ladder_problem,
     refused, by name, for the whole tile."""
     if not state["airport_insets"] or not state["airports_layer"]:
         return []
+    if not airports_layer_is_cached(lat, lon):
+        return []           # refused for the layer, by name, elsewhere
     try:
         if prepare is not None:
             prepare()

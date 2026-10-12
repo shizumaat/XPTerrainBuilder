@@ -3851,37 +3851,14 @@ def ladder_recheck_ids_text(ids, shown=5):
     return text
 
 
-def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
-                   record=False):
-    """THE BUILD-TIME LADDER RE-CHECK (owner RULINGS 2026-09-30aw (2)) --
-    the ONE stale-reason predicate for "a finer rung may exist now".
-
-    Runs only when ``icao``'s cached inset from ``provider_code`` was
-    delivered by a COARSER ladder rung (``ladder.delivered_rung > 0``),
-    or when the ladder recorded a rung that never answered (``transient``,
-    RULINGS 2026-09-30bl) or delivered a rung that only PARTLY covers the
-    airport (its same-resolution alternatives, #153).  For every finer
-    rung of the provider's CURRENT ladder -- plus those -- it asks that
-    rung's ``discover()`` ONLY -- one index query each, no download -- and
-    compares the listing with the rung's recorded ``listing_ids``:
-
-    * a NEW id           -> ``result: "new-listing"`` (the caller re-runs
-      the whole ladder; a product that lists but grids below the bake's
-      threshold leaves the delivered rung where it was);
-    * nothing new        -> ``"unchanged"`` (no download);
-    * discovery transient -> ``"transient"``: the cached inset stands
-      (RULINGS 2026-09-30t: an outage is no answer).
-
-    A rung whose own coverage box misses ``bounding_box`` is not asked.
-    Returns ``None`` when nothing applies (no sidecar, no ladder, rung 0
-    or no rung delivered), else ``{"rung", "rungs_checked", "checked",
-    "result", "new_source_ids"}``.  ``record=True`` (the fetch loop)
-    stamps it into the sidecar's ``ladder.recheck`` -- only when
-    ``result`` / ``new_source_ids`` differ from the stored block (a
-    date-only change is no change; a byte-identical sidecar is never
-    rewritten).  The harness frame check calls it with ``record=False``:
-    a read.
-    """
+def _ladder_recheck_rungs(lat, lon, icao, provider_code, bounding_box):
+    """WHICH rungs the build-time re-check re-asks for ``icao``'s cached
+    inset, read from DISK alone (the sidecar and the provider files):
+    ``None`` when no re-check applies, else ``(sidecar, meta, ladder,
+    labels, stored, finer)`` -- ``finer`` the ``(label, definition)``
+    rungs to ask, ``stored`` each rung's recorded attempt by label.
+    One selection for :func:`ladder_recheck` (which then ASKS them) and
+    :func:`ladder_recheck_owed` (which never does)."""
     sidecar = FNAMES.airport_inset_provenance(lat, lon, icao, provider_code)
     try:
         with open(sidecar, "r") as handle:
@@ -3962,6 +3939,76 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
         (label, rung_definition) for (label, rung_definition) in rungs
         if label in reask_labels
         and label not in [other for (other, _d) in finer]]
+    return (sidecar, meta, ladder, labels, stored, finer)
+
+
+def ladder_recheck_owed(lat, lon, icao, provider_code, bounding_box):
+    """The rungs whose re-check DISK STATE CANNOT ANSWER -- the labels of
+    the rungs the build would re-ask (:func:`_ladder_recheck_rungs`) that
+    recorded no listing to compare with: a rung that never answered, an
+    ``unavailable`` that is no cap, a cap-declined rung whose definition
+    or engine moved (:func:`_stored_rung_listing`).  Whatever such a rung
+    lists today is NEW, so the build re-runs the ladder.  ``[]`` when
+    every re-asked rung has a recorded listing, or the sidecar's own
+    ``recheck`` stamp says the last asking found nothing new (only a
+    product published since could change the answer, and only asking
+    finds that).
+
+    NO NETWORK: this is what a pre-flight may read (#583)."""
+    selection = _ladder_recheck_rungs(lat, lon, icao, provider_code,
+                                      bounding_box)
+    if selection is None:
+        return []
+    (_sidecar, _meta, ladder, _labels, stored, finer) = selection
+    recheck = ladder.get("recheck")
+    if isinstance(recheck, dict) and recheck.get("result") == "unchanged":
+        # The last asking is on record: those rungs listed nothing new.
+        return []
+    return [
+        label for (label, rung_definition) in finer
+        if _coverage_bbox_intersects(rung_definition, bounding_box)
+        and ACCESS_STRATEGIES.get(rung_definition.get("access_strategy"))
+        is not None
+        and _stored_rung_listing(stored.get(str(label)),
+                                 rung_definition) is None]
+
+
+def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
+                   record=False):
+    """THE BUILD-TIME LADDER RE-CHECK (owner RULINGS 2026-09-30aw (2)) --
+    the ONE stale-reason predicate for "a finer rung may exist now".
+
+    Runs only when ``icao``'s cached inset from ``provider_code`` was
+    delivered by a COARSER ladder rung (``ladder.delivered_rung > 0``),
+    or when the ladder recorded a rung that never answered (``transient``,
+    RULINGS 2026-09-30bl) or delivered a rung that only PARTLY covers the
+    airport (its same-resolution alternatives, #153).  For every finer
+    rung of the provider's CURRENT ladder -- plus those -- it asks that
+    rung's ``discover()`` ONLY -- one index query each, no download -- and
+    compares the listing with the rung's recorded ``listing_ids``:
+
+    * a NEW id           -> ``result: "new-listing"`` (the caller re-runs
+      the whole ladder; a product that lists but grids below the bake's
+      threshold leaves the delivered rung where it was);
+    * nothing new        -> ``"unchanged"`` (no download);
+    * discovery transient -> ``"transient"``: the cached inset stands
+      (RULINGS 2026-09-30t: an outage is no answer).
+
+    A rung whose own coverage box misses ``bounding_box`` is not asked.
+    Returns ``None`` when nothing applies (no sidecar, no ladder, rung 0
+    or no rung delivered), else ``{"rung", "rungs_checked", "checked",
+    "result", "new_source_ids"}``.  ``record=True`` (the fetch loop)
+    stamps it into the sidecar's ``ladder.recheck`` -- only when
+    ``result`` / ``new_source_ids`` differ from the stored block (a
+    date-only change is no change; a byte-identical sidecar is never
+    rewritten).  The harness frame check calls it with ``record=False``:
+    a read.
+    """
+    selection = _ladder_recheck_rungs(lat, lon, icao, provider_code,
+                                      bounding_box)
+    if selection is None:
+        return None
+    (sidecar, meta, ladder, labels, stored, finer) = selection
     new_ids = []
     checked = []
     transient = False

@@ -95,3 +95,30 @@
 - The app re-downloaded KGRF and KTCM on every build of +47-123
   (engine-stderr.log lines 139/148 and 712/714). After one more
   re-fetch (which records the listing) the re-check answers `unchanged`.
+
+## Step 5 — master correction (PR #594 red), 2026-10-12
+
+- CI red: `test_a_schema_stale_road_layer_refuses_and_names_osm_layers`
+  reached the network. Cause: the tile-wide check trusted
+  `state["airports_layer"]` (that test fakes it True) and read a layer
+  that is not on disk — `OSM_queries_to_OSM_layer` then QUERIES overpass.
+  The ladder discovery query in the same path was the second network
+  reach. Both are gone from the pre-flight:
+  - `inset_preflight.airports_layer_is_cached` asks the file itself;
+  - the ladder is judged from the sidecar alone
+    (`INSETS.ladder_recheck_owed`, new; `_ladder_recheck_rungs` is the one
+    rung selection it shares with `ladder_recheck`): a re-asked rung with
+    no recorded listing (never answered; `unavailable` that is no cap; a
+    cap-declined rung whose definition/engine/capabilities moved) owes a
+    re-check, unless the sidecar's `recheck` stamp says `unchanged`.
+  - The asking (`_ladder_recheck_problem`) runs only inside
+    `--refresh-data dem` (`_complete_pending_insets`).
+- NOT changed: the AIRPORT build's own pre-flight re-check
+  (`this_airports_inset_problem` → `_ladder_recheck_problem`, RULINGS
+  2026-09-30aw (2), `frame.json: ladder_recheck`) still asks the
+  providers' indexes for the one named airport. It is ratified spec
+  behaviour with its own twins; reported for a ruling.
+- `dsf_write._sweep_stale_partials` (now on main) is NOT folded with
+  `fetch_scratch.sweep_stale`: one matches `<dump>.*.partial` files of one
+  dump, the other whole folders and `<raster>.tif.<more>` siblings, and a
+  shared helper would be a third module for one `mtime` comparison.

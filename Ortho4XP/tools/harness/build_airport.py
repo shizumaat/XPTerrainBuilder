@@ -946,7 +946,8 @@ def tile_inset_refetch_rows(state, lat, lon) -> list:
     """THE TILE-WIDE INSET REFUSAL (#583), as ``(scope, artifact, why)``
     rows: every selected aerodrome of the tile whose inset a TILE build
     would fetch or re-fetch (:func:`inset_preflight.tile_pending_refetches`
-    -- the engine's own per-airport verdict and ladder re-check).
+    -- the engine's own per-airport verdict, and the ladder re-check as
+    far as DISK STATE answers it: no network, a pre-flight never asks).
 
     Measured 2026-10-12: ``KBFI --tile 47 -123`` named nothing, and the
     build re-fetched KGRF's and KTCM's insets (a ladder rung listing new
@@ -955,7 +956,7 @@ def tile_inset_refetch_rows(state, lat, lon) -> list:
              f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
              f"{key}_*.tif [{kind}]", text)
             for (key, kind, text) in IPF.tile_pending_refetches(
-                state, lat, lon, ladder_problem=_ladder_recheck_problem,
+                state, lat, lon, ladder_problem=IPF.ladder_owed_problem,
                 prepare=apply_xplane_install_paths_for_preflight)]
 
 
@@ -2595,10 +2596,14 @@ def _complete_pending_insets(root, lat, lon, prog, *, tile_wide) -> list:
         return []
     names = set(IPF.stale_negative_airports(lat, lon))
     if tile_wide:
+        # THE ASKING happens here, under the authorisation: what disk
+        # state owes, and what the providers' indexes list today.
         names.update(key for (key, _kind, _text) in
                      IPF.tile_pending_refetches(
                          state, lat, lon,
-                         ladder_problem=_ladder_recheck_problem,
+                         ladder_problem=lambda *args: (
+                             IPF.ladder_owed_problem(*args)
+                             or _ladder_recheck_problem(*args)),
                          prepare=apply_xplane_install_paths_for_preflight))
     if not names:
         return []

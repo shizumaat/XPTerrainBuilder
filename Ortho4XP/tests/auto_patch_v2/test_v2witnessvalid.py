@@ -125,6 +125,41 @@ def test_t2b_the_ladder_returns_when_the_exact_overlay_refuses():
     assert fe.rung_note() == ""
 
 
+# ── a footprint that needed the whole repair ladder still ENTERS ──────────
+_DEEP_REPAIR_WKB = _HERE / "fixtures" / "enter_deep_repair_578.wkb"
+
+
+def test_enter_unrolls_a_collection_however_deep():
+    """Every (repair, re-snap) round hands ``make_valid`` its own
+    collection and wraps it once more, so what reaches the polygon filter
+    is nested rounds + 2 deep.  The unroll is to the bottom: five levels
+    in, the polygon comes out (a fixed depth of 4 read it as nothing)."""
+    sq = Polygon([(0, 0), (4, 0), (4, 3), (0, 3)])
+    deep = sq
+    for _ in range(6):
+        deep = shapely.geometrycollections([deep, LineString([(9, 9), (10, 10)])])
+    for q in (Q, 0.0):
+        out = fe.enter([deep], [1, 0, 0, 1, 0, 0], q)[0]
+        assert out is not None and out.geom_type == "Polygon"
+        assert out.area == pytest.approx(12.0)
+
+
+def test_a_valid_footprint_never_enters_the_frame_as_nothing():
+    """The above-grade read of a 150,948-triangle jetway at one clip plane:
+    a VALID 43 m2 MultiPolygon of 25 parts.  Placed and snapped it takes
+    five repair rounds on the platform this was measured on, and ``enter``
+    returned ``None`` — the basin under it then read 0 % own cover and
+    was cut where it had been refused as a basement (96 %).  Whatever the
+    platform's rounds, the footprint enters with its area."""
+    pu = shapely.from_wkb(_DEEP_REPAIR_WKB.read_bytes())
+    assert pu.is_valid and pu.area == pytest.approx(43.1555, abs=1e-3)
+    mat = obj8.placement_affine((100.0, 200.0), 37.0)
+    out = fe.enter([pu], mat, Q)[0]
+    assert out is not None and out.is_valid
+    assert out.geom_type in ("Polygon", "MultiPolygon")
+    assert out.area == pytest.approx(pu.area, abs=0.02)
+
+
 # ── T3 ────────────────────────────────────────────────────────────────────
 def test_t3_a_footprint_that_repairs_to_nothing_is_not_a_witness():
     """``_witness`` returns ``None`` and the drop is NAMED — never silent

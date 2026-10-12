@@ -85,11 +85,6 @@ _SLIVER_FLOOR_M2 = 1e-9
 #: valid-but-off-grid result.  Measured: 2 is what real geometry needs.
 _MAX_REPAIR_ROUNDS = 4
 
-#: Nesting depth ``get_parts`` is unrolled to.  ``make_valid`` returns at
-#: most a GeometryCollection of Multi* parts, so 2 is enough; 4 is the
-#: paranoid bound and the loop asserts it terminated.
-_MAX_PART_DEPTH = 4
-
 #: Law B's fallback ladder, COUNTED per call site: ``site -> [grid rung,
 #: buffer rung]``.  Process-global because the unions are spread over
 #: ``airport/`` and ``planar/`` and no single report object is in scope
@@ -198,11 +193,17 @@ def enter(geoms: _t.Sequence, mat: _t.Sequence[float], q: float) -> np.ndarray:
         if bad.any():                     # off-grid, but VALID is the law here
             g[bad] = shapely.make_valid(g[bad])
 
+    # (d) UNROLLED UNTIL FLAT.  One ``make_valid`` returns at most a
+    # GeometryCollection of Multi* parts, but (c) hands ``make_valid`` its
+    # OWN collection each round and every round WRAPS it once more — a
+    # footprint that needed the full ladder is nested rounds + 2 deep.  A
+    # fixed depth left that collection standing, the polygon filter below
+    # read it as "no polygon", and a valid 43 m2 footprint entered the
+    # frame as NOTHING (lane kpdx578b).  Each pass strips one level and a
+    # collection is finitely deep, so the loop is total.
     parts = g
     src = np.arange(g.shape[0])
-    for _ in range(_MAX_PART_DEPTH):
-        if not (shapely.get_type_id(parts) >= 4).any():
-            break
+    while (shapely.get_type_id(parts) >= 4).any():
         parts, sub = shapely.get_parts(parts, return_index=True)
         src = src[sub]
     floor = q * q if q > 0.0 else _SLIVER_FLOOR_M2

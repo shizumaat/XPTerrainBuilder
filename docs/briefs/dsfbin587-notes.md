@@ -169,3 +169,41 @@ text-I/O twin (`test_windows_text_io.py`) was red on five `write_text()`
 sites of the `--diff-text` twin: fixed (`newline="\n"`), plus the tool's
 `--json` write. Full non-Qt suite once: 9334 passed, 19 skipped, 1 xfailed,
 1 xpassed.
+
+## Vendored 2026-10-12 — lane dsfvendor587, CI run 38296810739
+
+Branch `claude/dsfvendor587`, commit 8b1b7d64d: the three binaries, the
+identity file, the notice table and `Licence/copyright.txt` in one commit.
+
+* sha256 — mac `712c9d2c3491310d…`, lin `68c473e6feeb010e…`, win
+  `8072ce1ff2dbc02c…`; `SHA256SUMS` OK, and each equals the line its own
+  build job printed. `BUILDINFO.txt`: tree `6dc3a2dc…`, the three source
+  shas and the msvc_libs sha as pinned; Xcode 16.4 / gcc 11.4.0 (glibc
+  2.35) / MSBuild 18.10.
+* Job logs: every platform's smoke shows the version line `2.4.0-b1`, the
+  plain round trip and the trait file dumping, then `OK` (macOS twice: the
+  universal file and the thinned x86_64 slice under Rosetta). Windows:
+  0 warnings, imports KERNEL32.dll only. Linux: needs up to GLIBC_2.34
+  (the stock build needed 2.14); ONE link-time warning,
+  `-Wstringop-overflow` on `DSFTuple::insert` inlined into
+  `AddSegmentShapePoint` (`DSFPointPool.h:520`) — at that call the tuple
+  has 3 elements and the insert is at index 3, so the flagged `memmove`
+  is not executed; the line itself (`ptr + sizeof(double)`) is an upstream
+  bug on a path this call never takes. macOS: only deprecation warnings.
+* The Windows and Linux files cannot be executed on this Mac: their only
+  evidence is that smoke output. The smoke fixture has no road segment and
+  no polygon, so `--text2dsf` of a road network is not exercised on those
+  two platforms by anything yet.
+* This Mac, the CI binary, stock Global Airports (7,077): 0 crash on
+  either slice (stock: 8). `--diff-text` against the stock tool:
+  `7003 dumps identical, 66 differ; only in OLD 0, only in NEW 8`; classes
+  `# pool` 66 rows / 66 files, `HEIGHTS` 14 rows / 14 files; nothing else.
+* The retry stays and does not fire: `dsf_write.dump()` of
+  `Global Airports/+47-123.dsf` (trait present) with the new tool returned
+  the 3,653,662-byte dump on the first try, 0 calls of
+  `_dump_pool_selected`, `# file:` naming the pack's own DSF.
+* Closing test `build_airport.py KBFI`: REFUSED by the harness before the
+  build (5.4 s) — `Airport_mod_cache/Global Airports/+47-123.dsf.2f51dffe.text`
+  is missing from the shared corpus (deleted with the 0-byte dump, ruling
+  12g (3)); `--refresh-data airport_mod_cache` is the master's ledgered act.
+  Not run by this lane.

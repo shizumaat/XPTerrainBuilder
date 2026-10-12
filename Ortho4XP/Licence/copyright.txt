@@ -51,7 +51,11 @@ that are compatible with either MIT/X11 or GPL.
 
 The source code for these tools is all available at:
 
-http://dev.x-plane.com/cgit/cgit.cgi/xptools.git/
+https://github.com/X-Plane/xptools
+
+The bundled binaries are built from commit c31ed76b5 (Scenery Tools 24-5,
+DSFTool 2.4.0-b1) with upstream commits 9c1a06c7b and a3725c8f5 applied;
+the full notice, with the licence text, is in Utils/DSFTool-NOTICE.md.
 ------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------------

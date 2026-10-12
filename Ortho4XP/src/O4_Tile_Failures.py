@@ -129,6 +129,12 @@ CATALOGUE = {
         "scenery for {airports} could not be read.",
         "The file from {pack} for this tile could not be converted.",
         "report"),
+    # ...and when the converter was stopped at its time limit (the
+    # exception's ``timed_out``): a retry can succeed.
+    "pack_dump_timed_out": Entry(
+        "scenery for {airports} could not be read.",
+        "Converting the file from {pack} for this tile took too long.",
+        "retry"),
     # an exception inside ONE pack object's build (pack_partition)
     "pack_object_failed": Entry(
         "{airports} could not be graded.",
@@ -335,6 +341,11 @@ def code_for_exception(exc: BaseException, default: str = UNMAPPED) -> str:
     for klass in type(exc).__mro__:
         code = EXCEPTION_CODES.get(klass.__name__)
         if code:
+            # a converter stopped at its time limit may finish next time;
+            # one that crashed or failed will not (``DsfToolError``)
+            if code == "pack_dump_failed" and getattr(exc, "timed_out",
+                                                      False):
+                return "pack_dump_timed_out"
             return code
     return default
 

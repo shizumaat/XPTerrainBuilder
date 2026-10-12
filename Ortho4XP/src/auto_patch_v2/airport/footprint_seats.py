@@ -51,7 +51,8 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                     connector_span_m: float = 0.0,
                     chain_min_height_m: float = 0.0,
                     contents_min_fraction: float = 0.0,
-                    sheet_chain_min_fraction: float = 0.0
+                    sheet_chain_min_fraction: float = 0.0,
+                    level_tol_m: float = 0.0
                     ) -> "tuple[dict[int, tuple], list[tuple[float, float, float, float, float, str]]]":
     """§16g (1)/(2) PLAN-WIDE, as one call: ``(part id -> (unit id, zero,
     where, source, connector ends, the HIGH end's own seat), the units'
@@ -89,9 +90,11 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                                              cut=cut)
     # flat-pad spec §3 C16 (RULINGS 2026-09-30r): a unit standing on two
     # or more flat BLOCKS of one platform is one unit PER BLOCK, each
-    # seated on its own block's floor
+    # seated on its own block's floor; and (owner RULINGS 2026-10-10n (3),
+    # #547) a unit standing on PADS more than ``level_tol_m`` ([placement]
+    # split_tol_m) apart is one unit PER LEVEL, each seated on its own pad
     from .pad_block_seat import split_units as _split_blocks
-    units = _split_blocks(units, plan, pads, counts)
+    units = _split_blocks(units, plan, pads, counts, level_tol_m)
     counts["connector_verdict_stamped"] = int(stamped is not None)
     if stamped is not None:
         counts["connectors_solid"] = sum(1 for v in stamped if v.solid)

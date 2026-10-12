@@ -191,8 +191,21 @@ def test_code_comes_from_the_class_not_the_message():
     class DsfToolError(RuntimeError):       # lane dump560's class, by NAME
         timed_out = False
 
-    assert FAIL.code_for_exception(DsfToolError("crashed (SIGSEGV)")) == \
-        "pack_dump_failed"
+    crashed = DsfToolError("crashed (SIGSEGV)")
+    crashed.crashed = True
+    assert FAIL.code_for_exception(crashed) == "pack_dump_failed"
+    assert FAIL.CATALOGUE["pack_dump_failed"].remedy == "report"
+    # stopped at its time limit: the next build may get through
+    slow = DsfToolError("ran past its time limit")
+    slow.timed_out = True
+    assert FAIL.record_fields(slow)["code"] == "pack_dump_timed_out"
+    assert FAIL.CATALOGUE["pack_dump_timed_out"].remedy == "retry"
+    # the REAL class carries both attributes under these names
+    from auto_patch_v2.airport.dsf_write import DsfToolError as Real
+    assert Real.timed_out is False and Real.crashed is False
+    real = Real("x")
+    real.timed_out = True
+    assert FAIL.code_for_exception(real) == "pack_dump_timed_out"
 
 
 def test_an_explicit_failure_code_wins_and_carries_its_pack():

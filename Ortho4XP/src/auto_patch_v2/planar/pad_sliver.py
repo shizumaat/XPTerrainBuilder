@@ -398,13 +398,27 @@ def rerole_plateau_scraps(faces: list, law, counts: "dict | None" = None
     (owner RULINGS 2026-09-01g) and a structure keeps its own law, so the
     scrap stands on the pad's plane whichever of the two it is called: it
     takes the region of the plateau face it shares the longest run with —
-    one building face fewer, no vertex moved, no level changed.  A scrap
+    one building face fewer, no level changed.  A scrap
     any other face borders (open apron, another pad, ground), one no
     plateau borders, or one whose boundary is not covered is left as it is.
 
+    A SCRAP ONE PLATEAU FACE ENCLOSES IS NOT A FACE (issue #546, owner sim
+    read 2026-10-10: "tiny apron remnants nested inside other apron
+    shapes ... would serve no purpose").  A scrap whose WHOLE boundary runs
+    along ONE plateau face stands in a hole of that face; re-roled it is a
+    second face of the same region inside the first — a ring of apron
+    vertices in the middle of the plateau that no law reads (measured
+    KCLT: 35 of 36 re-roled scraps, 0.1-56 m2).  It is UNIONED into the
+    face that encloses it (the hole closes; ``overlay.merge_slivers``'
+    own reading of "one cell the noding cut twice", applied where the
+    region is assigned because that merge has already run).  A scrap a
+    structure face also borders, or one two plateau faces share, keeps a
+    face of its own exactly as before.
+
     ``faces`` is the arrangement's ``(polygon, region)`` list; the result
-    is the same list with the scraps' regions replaced (counted
-    ``pad_scraps_reroled`` / ``pad_scraps_reroled_m2``)."""
+    is that list with the scraps' regions replaced and the enclosed ones
+    dissolved (counted ``pad_scraps_reroled`` / ``pad_scraps_reroled_m2``,
+    of which ``pad_scraps_merged`` left no face)."""
     from shapely.strtree import STRtree
 
     from ..geom.cluster_outline import THIN_PIECE_WIDTH_M
@@ -421,14 +435,15 @@ def rerole_plateau_scraps(faces: list, law, counts: "dict | None" = None
             if r.role in rigid and plateau_block_of(r.ref) is None
             and biggest.get((r.role, pad_base_ref(r.ref)), k) != k
             and 2.0 * g.area < THIN_PIECE_WIDTH_M * g.length]
-    n, m2 = 0, 0.0
+    n, m2, merged = 0, 0.0, 0
+    enclosed: dict = {}
     if cand:
         tree = STRtree([g for g, _r in faces])
         out = list(faces)
         for k in cand:
             g, r = faces[k]
             base = pad_base_ref(r.ref)
-            best, run_best, covered, own = None, 0.0, 0.0, True
+            best, best_j, run_best, covered, own = None, -1, 0.0, 0.0, True
             for j in sorted(int(q) for q in tree.query(g, predicate="intersects")):
                 if j == k:
                     continue
@@ -444,15 +459,35 @@ def rerole_plateau_scraps(faces: list, law, counts: "dict | None" = None
                     own = False
                     break
                 if run > run_best:
-                    best, run_best = nr, run
+                    best, best_j, run_best = nr, j, run
             if (not own or best is None
                     or covered < g.length * (1.0 - _PAD_INSIDE_SLACK) - 1e-6):
                 continue
             out[k] = (g, best)
             n += 1
             m2 += g.area
-        faces = out
+            if run_best >= g.length * (1.0 - _PAD_INSIDE_SLACK) - 1e-6:
+                enclosed.setdefault(best_j, []).append(k)
+        faces = _close_enclosed(out, enclosed)
+        merged = len(out) - len(faces)
     if counts is not None:
         counts["pad_scraps_reroled"] = n
         counts["pad_scraps_reroled_m2"] = round(m2, 1)
+        counts["pad_scraps_merged"] = merged
     return faces
+
+
+def _close_enclosed(faces: list, enclosed: dict) -> list:
+    """Union every scrap of ``enclosed`` (``host index -> scrap indices``)
+    into its host face and drop it; a union that does not come out ONE
+    polygon leaves that scrap standing as a face."""
+    gone: set = set()
+    for j, ks in sorted(enclosed.items()):
+        host, region = faces[j]
+        for k in sorted(ks):
+            u = _flat_polys(shapely.make_valid(host.union(faces[k][0])))
+            if len(u) == 1:
+                host = u[0]
+                gone.add(k)
+        faces[j] = (host, region)
+    return [f for k, f in enumerate(faces) if k not in gone]

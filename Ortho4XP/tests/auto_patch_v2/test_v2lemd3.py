@@ -95,14 +95,20 @@ def test_a_partly_covered_region_is_a_pit_the_pad_yields_inside(basin_objs, law)
 
 
 def test_a_wholly_covered_region_is_a_basement_the_pad_governs(basin_objs, law):
-    """...and at/above the fraction it is a basement: refused naming the
-    pad, no cell cut."""
+    """...and at/above the fraction it is a basement: refused, no cell cut.
+    Since §47 (8) (issue #551, lane wells551) a plate ROOFED by its own
+    object under a solid top taller than the plate is deep is refused one
+    rule earlier, at the read, as a thing standing on the ground
+    (`ObjReport.standing`, the roofed share named); rule 4's own-cover
+    test over the region remains the second line."""
     cells = _basin_cells() + [Cell(4, "building", "padWhole", _rect(-30, -20, 30, 20), (),
                                    None, None, "airside", "pad", {})]
     cl, cl3, basins, bs, rep = _basins_of(basin_objs, law, [("whole", (0.0, 0.0), 0.0, 0.0)], cells)
     assert not basins
-    ref = [r for r in bs.refused if "BASEMENT" in r]
-    assert len(ref) == 1 and "padWhole" in ref[0] and "basement_cover_min" in ref[0]
+    assert list(rep.standing) == ["objects/whole.obj"]
+    n, top, depth, roofed = rep.standing["objects/whole.obj"]
+    assert n == 1 and roofed == pytest.approx(1.0) and top > -depth
+    assert len(bs.refused) == 1 and "standing on the ground" in bs.refused[0]
     assert cl3.cells == cl.cells
 
 

@@ -16107,6 +16107,95 @@ base max +1.4–1.7 m, amended +3.3 m because the band now covers the channel's 
 Twin: `tests/auto_patch_v2/test_basins526.py` (a bank-sided bowl with an outlet: rim on the
 outline, floor `F` inside, no slot; a 1.6 m well keeps the yield, named DEGENERATE).
 
+### §47 (8) — A THING STANDING ON THE GROUND IS NOT A PIT (owner OTHH read of 1.0.387, issue #551; Fable, lane `wells551`, 2026-10-10)
+
+Owner: "there's some incorrect tunnel shapes at OTHH. No tunnel/basin at these locations:
+25.2631354, 51.6134952; 25.263167, 51.6135647; 25.2637538, 51.6131875; 25.2630678,
+51.6118374. There's more all at the jetways, what evidence is causing them to be created?"
+
+**THE EVIDENCE.** Every `Jetway/OTHH_Jetway_Type4…Type10.obj` carries, under its rotunda, a
+SERVICE ROOM modelled in full: a floor plate at authored y −4.27…−4.31 (20–39 m² of
+horizontal faces at depth, 0.26–0.48 of the object's 41–76 m² footprint), a staircase
+descending to it (components 0.15 m apart from y +1.0 to −4.3), equipment and ducts — some
+1,300 welded components per object, the room's ceiling AT the apron (y ≈ 0). The DSF row is a
+plain `OBJECT` on the ground. Rule 1 of the basin admission (`airport/obj8._read_placement`,
+04i) reads per COMPONENT: a solid thicker than `min_solid_thickness_m` whose floor stands
+`admission_depth_m` 2.5 under the local ground and `authored_depth_min_m` 2.5 under its own
+datum, whose plate has |n_y| ≥ 0.7, and whose shell tops out within `contact_band_m` of the
+ground (`rim_reaches_grade`; `through_grade` refuses a component rising more than the band
+over more than 5 % of its face area). The room passes every test exactly as a pit does — its
+ceiling is at grade — and the rotunda standing on it, 9.0 m tall, is OTHER components the
+per-component read never sees. 35 of OTHH's 45 basins were these rooms (`basin_floor:68`,
+`:71`, `:32`, `:17` at the owner's four points), each cut 4.8 m deep to the room floor + 0.5 m.
+
+**THE TWO POPULATIONS (probe `<scratch>/wells551/pop_table.txt`; `lid_probe.py`, `comp_probe.py`):**
+
+| population | row | deepest plate (y) | object's solid top (y) | top / depth | cover by the pack above the band | what stands above the plate |
+|---|---|---|---|---|---|---|
+| Drainage 01–05 (basins 1, 2, 3, 5, 8) | `OBJECT_AGL` +4.30 (authored to the cut, §18, kept) | −3.82 | +0.06 | 0.01 | 0.00 | open air; a sump box with a grating at grade inside the open bowl |
+| Drainage 06 (basins 0, 7, the walled sump 9) | `OBJECT` | −4.20 | +0.06 | 0.01 | 0.00 | open air |
+| Dewatering 01 / 02 (basins 4, 6) | `OBJECT_AGL` +13.50 / `OBJECT` | −13.14 | +5.35 (the pump house, beside the bowl) | 0.41 | 0.02 | open air over the bowl |
+| Jetway Type4–8, 10 (35 basins) | `OBJECT` | −4.27…−4.31 | +9.01 / +9.34 (rotunda, tunnel) | 2.09–2.17 | 0.26–1.00 (own 0–89 %) | the rotunda and its floor: the room is closed, a basement |
+
+Candidates measured: (a) OPEN TOP by the object's own lid — REFUTED as a separator: the
+Drainage sumps carry a grating at +0.06 over 100 % of their plate (they are real pits the
+author lifted); (b) the AUTHOR'S LIFT — REFUTED alone: Drainage 06 and Dewatering 02 are
+plain rows and real pits (#514); (c) cover by the pack above the band (`covered_fraction`,
+today diagnostic at `max_covered_fraction` 0.5) separates 34 of 35 (one Type8 well at 0.26);
+(d) **DEPTH AGAINST HEIGHT separates the two OTHH populations: pits 0.01–0.41, wells
+2.09–2.17 — a gap of ×5 with no number in it but 1** — and alone it REFUSED two owner-ruled
+twins (lane resume, 2026-10-12: `test_v2lemd4` 2026-09-06f's 8 m tower on a 5 m pit's rim,
+`test_v2lemd3` 2026-09-06c's 8 m box over HALF a 5 m pit — both pits by ruling, both taller
+than deep). What those keep and the jetway lacks is an OPEN PLATE: (e) **THE ROOF OVER THE
+OBJECT'S OWN PLATE** (`roof_probe.py`: the share of the deepest near-horizontal plate lying
+under the same object's solids above it) — jetway rooms 0.97–0.99, the `whole` basement twin
+1.00, the Drainage sumps 1.00 (their grating), the Dewatering bowls 0.02–0.56, the `half` twin
+0.47, the tower twins 0.01. Neither reading alone separates (the grating's sump is roofed; the
+tower is tall); together they do. RULED (spec author): **a thing standing on the ground is a
+placement whose deepest floor plate is ROOFED by its own solids — `basement_cover_min` of the
+plate, the 2026-09-06c basement fraction read on the plate — AND whose solid top stands higher
+above the ground than that plate lies below it.** Its roofed room is its foundation, footing
+or basement; every witness of the placement is refused — named in `ObjReport.standing` with
+the three numbers (top, depth, roofed share; `airport/obj8_roof.roofed_fraction`, memoised per
+resource and component) and printed with the basin refusals ("a thing standing on the ground
+… never an open pit"). No new law number. The witness is read per OBJECT: a pit under ANOTHER
+object's canopy stays a pit (its own top is its rim; the canopy is 04i's cover, reported), a
+building WELDED to its pit's rim is already rule 1's `through_grade`, a roofed sump with
+nothing tall above it (the grating) and a tall thing beside an open plate (the tower, the half
+box) stay pits. It fires at the read (rule 1), so the classify-time membership
+(`basin_member_ids`, 10ax (2)) and the re-seat plan's below-grade skip read the same answer:
+a standing object is not a basin member, its room is skipped as below-grade geometry, and it
+seats on its ground-contact feet like any building. The 04i rule-4 BASEMENT test (own cover of
+the REGION ≥ 0.9) remains the second line, for an object shorter than its basement is deep.
+
+**MEASURED (lane `wells551`, 2026-10-12).** Replay pair on `frames/pads67/OTHH.pkl` (`--from
+planar --emit`; base = main's code, arm = the witness): basin ways 49 → 10 (45 → 10 basins; four
+ways are `#1` split parts), the 10 kept BYTE-IDENTICAL (ring node lat/lon + alt): basins 0, 7, 9
+(Drainage 06), 1, 2, 3, 5, 8 (Drainage 01–05, #448/#451), 4, 6 (Dewatering); 39 ways removed, every
+one a jetway (Type4 ×9, Type5 ×7, Type6 ×11, Type7 ×14, Type8 ×4, Type10 ×2 memberships); node movers
+> 0.01 m over 32,713 common nodes: 0; runway 1,867 nodes 0 moved. Owner sites: 25.263167, 51.6135647
+was inside `basin:71` and 25.2637538, 51.6131875 inside `basin:32`; 25.2631354, 51.6134952 lies 1.7 m
+off `basin:68`'s centroid and 25.2630678, 51.6118374 beside `basin:17` — all four gone, no arm basin
+holds any. Closing harness build `wells551c_OTHH` (claude/wells551 64d02c7f1; control
+`basins526_OTHH` 87f9d2f94d71): rc 0, body b97085d24064, 45 → 10 basins, the 10 kept byte-identical,
+0 movers over 32,704 common nodes, runway 0; rebake plan 60a1ef0b730d — the 15 authored seats (6 pit
+rims + 9 tunnel crests, #525) identical, plate_members 35 → 2 and units 190 → 97 (the 93 jetway
+members leave the plan: their rows stay authored); verify defects {} both. Census A/B
+(`census_rows_diff`): law-true 2230 → 1833, ADJUDICATED airside 167 → 167, critical motion 0 → 0;
+EXACT 1829, MOVED 0, GONE 401 (397 `hairline_pair` on the removed rings, out-of-scope
+above_degenerate_floor; 4 `terrace_actual_step` apron|tunnel_trench 4.8 m at 25.26131, 51.61173 —
+the Type5 well's walls at the owner's fourth site), NEW 4 `pad_airside_renode` at 0.000 m (the apron
+re-knit where rings left; the arrangement reads 38 pads, 13 apron faces cut, where the control read
+52 / 14). Other sweep airports by their `pads67` captures: HECA 0 standing (3 EGCC_Jetway_metal_03
+witnesses, roofed < 0.9, as under main; 0 basins before and after), KCLT 0, SPJC `torre_nueva.obj` ×1
+standing (62 m over a 4.7 m plate, roofed 1.00; no basin there before), OTHH also
+`OTHH_PowerStation_Clutter_000.obj` ×1 (9.29 over 2.55, roofed 1.00; no basin before —
+`OTHH_Jetway_Type6_Tall` ×6 read roofed < 0.9 in the engine and keep witnesses, as under main, and
+form no basin). Twins: `tests/auto_patch_v2/test_wells551.py` (open pit cut; roofed tower refused;
+bowl + grated sump stays a pit; pit under another object's canopy stays), `test_m4b` and
+`test_v2lemd3` basement twins read the earlier refusal, `test_v2lemd3` half box and `test_v2lemd4`
+tower unchanged.
+
 ## §48 THE INTERIOR OBJECT CLASS — AN INTERIOR IS NEVER READ AND NEVER LOADED; IT RIDES ITS CLUSTER (owner RULINGS 2026-09-17n; Fable 2026-09-17; scout `interiors`, RULINGS 17o) — lane `v2interiors`, after `v2doorwellperf`
 
 Owner: "We should be able to gain efficiency by identifying object interiors, as we should never

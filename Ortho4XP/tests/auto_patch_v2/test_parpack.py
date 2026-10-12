@@ -243,6 +243,7 @@ def _read(world, ahead=None):
         rim_reaches_grade=bl.rim_reaches_grade,
         rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction,
         authored_depth_min_m=bl.authored_depth_min_m,
+        basement_cover_min=bl.basement_cover_min,
         ahead=None if ahead is None else (lambda jobs, rl: ahead(cache, jobs, rl)))
     return objs, rep, cache
 

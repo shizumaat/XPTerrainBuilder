@@ -90,6 +90,7 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
                                          rim_protrusion_max_fraction=bl.rim_protrusion_max_fraction,
                                          authored_depth_min_m=bl.authored_depth_min_m,
                                          authored_rim_tol_m=bl.authored_rim_tol_m,
+                                         basement_cover_min=bl.basement_cover_min,
                                          ahead=lambda jobs, rl: _work.placements_ahead(
                                              pool, jobs, rl))
     # THE DECK SIGNATURE BY GEOMETRY (04k): un-flagged plates spanning a

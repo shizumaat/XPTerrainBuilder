@@ -348,6 +348,7 @@ from .obj8_clip import (_clip, _union_rings, _split_at_plane,  # noqa: E402
 from .obj8_grade import GradeStats, above_clip, both_clip  # noqa: E402
 from .obj8_grade import BaseProfile, base_profile as _base_profile  # noqa: E402
 from .obj8_grade import memo_union as _memo_union          # noqa: E402
+from .obj8_roof import roofed_fraction as _roofed_fraction  # noqa: E402
 from .obj8_grade import planes as _planes                  # noqa: E402
 
 class ResourceCache:
@@ -371,6 +372,9 @@ class ResourceCache:
         self.cover_memo: dict = {}
         #: the second level: one COMPONENT's clip at one plane
         self.clip_memo: dict = {}
+        #: §47 (8): the roof over a component's own floor plate, per
+        #: ``(resource, component)`` — a read of the resource alone
+        self.roof_memo: dict = {}
         self.grade = GradeStats()
         self._geom: dict[str, ObjGeometry | None] = {}
         self._comps: dict[str, list[Component]] = {}
@@ -707,6 +711,19 @@ class ObjReport:
     #: path -> (placements, deepest datum drop, deepest depth read,
     #: shallowest AUTHORED depth under the placement's own datum).
     datum_relief: dict[str, tuple[int, float, float, float]] = _dc.field(default_factory=dict)
+    #: A THING STANDING ON THE GROUND (issue #551; design spec §47 (8)): path
+    #: -> (placements, top above the ground, deepest plate below it, share
+    #: of that plate roofed by the object's own solids).  An object whose
+    #: deepest floor plate is ROOFED by its own solids (``basement_cover_min``
+    #: of it, the 2026-09-06c fraction) and whose solid top stands HIGHER
+    #: above the ground than that plate lies below it is standing on the
+    #: ground — the roofed room is its basement or service room, never an
+    #: open pit.  OTHH's jetways: 9.0 m of rotunda and tunnel over a 4.3 m
+    #: service room whose ceiling is the apron, read as 35 pits.  A roofed
+    #: room with nothing tall above (a sump under a grating) and a tall
+    #: thing beside an OPEN plate (a tower on a pit's rim, a box over half
+    #: of it — 2026-09-06c/f) stay pits.
+    standing: dict[str, tuple[int, float, float, float]] = _dc.field(default_factory=dict)
     #: The deck signature (04k; ``deck_signature.classify``): anchor
     #: families read, families whose plate spans a bridge way (decks),
     #: families with a plate and no spanning evidence (candidates), and
@@ -731,6 +748,9 @@ class ReadLaw:
     authored_depth_min_m: float
     #: §18 (5): the band a lift is read ground-seated within (0 = never)
     authored_rim_tol_m: float = 0.0
+    #: §47 (8): the share of its own floor plate an object must roof for
+    #: the plate to read as a ROOM under it (law ``basin.basement_cover_min``)
+    basement_cover_min: float = 1.0
 
 
 #: One placement to read: ``(id, def path, resolved path, xy, heading, agl,
@@ -828,6 +848,7 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
     mat = placement_affine(xy, heading)
     g = cache.geometry(phys)
     below = bbox = deck = smin_z = smin_d = top = None
+    smin_ci = -1
     witnesses: list[FloorWitness] = []
     buried_wits: list[FloorWitness] = []
     deep_comps: list[int] = []
@@ -911,7 +932,7 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                 if comp.min_y > plane_below:
                     continue
                 if smin_z is None or z_min < smin_z:
-                    smin_z, smin_d = z_min, depth
+                    smin_z, smin_d, smin_ci = z_min, depth, ci
                 w = _witness(g.vertices, comp, base, local, plane_below,
                              law.floor_plate_normal_y_min, mat, ci,
                              cache.input_quantum_m, rep.witness_degenerate, dpath)
@@ -937,6 +958,40 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                     w = _dc.replace(w, protrusion_fraction=frac, protrusion_top_m=top_above)
                     protruding = (frac, top_above)
                 witnesses.append(w)
+            # THE OBJECT STANDS ON THE GROUND (issue #551; spec §47 (8)):
+            # read over the WHOLE object, not one component.  A pit's
+            # shell tops out at grade (rule 1 above, per component); the
+            # jetway's service room does too — its ceiling IS the apron —
+            # while the rotunda and tunnel that stand on it rise 9 m,
+            # twice the room's depth.  Two readings together, neither
+            # alone: the deepest plate is ROOFED by the object's own
+            # solids (``basement_cover_min`` of it — a room, not a bowl;
+            # a sump under a grating is roofed too) AND the object's solid
+            # top stands higher above the ground than that plate lies
+            # below it (the grating's sump is 0.06 m over 3.8; the jetway
+            # 9.0 over 4.3).  Then the room is a FOUNDATION / basement and
+            # every witness of the placement is refused, named with the
+            # numbers.  A tower on an OPEN pit's rim and a box over HALF a
+            # pit (2026-09-06c/f) keep their open plate and stay pits.  No
+            # new law number: height against depth, and the basement
+            # fraction read on the plate.
+            standing = False
+            if witnesses:
+                comps = cache.components(phys)
+                obj_top = max((c.max_y for c in comps
+                               if c.max_y - c.min_y >= cache.thickness_m), default=0.0)
+                top_above_obj = base + obj_top - anchor_z
+                if top_above_obj > -smin_d:
+                    roofed = _roofed_fraction(g.vertices, comps, smin_ci, cache.thickness_m,
+                                              law.floor_plate_normal_y_min, cache.roof_memo,
+                                              (phys, smin_ci))
+                    if roofed >= law.basement_cover_min:
+                        n, t0, d0, r0 = rep.standing.get(dpath, (0, -math.inf, math.inf, 1.0))
+                        rep.standing[dpath] = (n + 1, max(t0, top_above_obj), min(d0, smin_d),
+                                               min(r0, roofed))
+                        witnesses = []
+                        smin_z = smin_d = None
+                        standing = True
             if witnesses:
                 below = _transformed([w.below for w in witnesses])
                 rep.below_grade_objects += 1
@@ -944,6 +999,8 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                     n, f0, t0 = rep.rim_protrusions.get(dpath, (0, 0.0, 0.0))
                     rep.rim_protrusions[dpath] = (n + 1, max(f0, protruding[0]),
                                                   max(t0, protruding[1]))
+            elif standing:
+                pass                    # named once, in ``rep.standing``
             elif through is not None:
                 n, t0, d0 = rep.through_grade.get(dpath, (0, -math.inf, math.inf))
                 rep.through_grade[dpath] = (n + 1, max(t0, through[0]), min(d0, through[1]))
@@ -1003,6 +1060,9 @@ def _absorb(rep: "ObjReport", sub: "ObjReport") -> None:
     for path, (n, d, z) in sub.no_floor.items():
         n0, d0, z0 = rep.no_floor.get(path, (0, math.inf, math.inf))
         rep.no_floor[path] = (n0 + n, min(d0, d), min(z0, z))
+    for path, (n, t, d, r) in sub.standing.items():
+        n0, t0, d0, r0 = rep.standing.get(path, (0, -math.inf, math.inf, 1.0))
+        rep.standing[path] = (n0 + n, max(t0, t), min(d0, d), min(r0, r))
 
 
 def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float | None, str]],
@@ -1014,6 +1074,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         rim_protrusion_max_fraction: float = 0.0,
                         authored_depth_min_m: float = 0.0,
                         authored_rim_tol_m: float = 0.0,
+                        basement_cover_min: float = 1.0,
                         ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
@@ -1048,7 +1109,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
     cache = cache or ResourceCache(thickness_m)
     law = ReadLaw(admission_depth_m, contact_band_m, shell_reaches_grade,
                   floor_plate_normal_y_min, rim_reaches_grade,
-                  rim_protrusion_max_fraction, authored_depth_min_m, authored_rim_tol_m)
+                  rim_protrusion_max_fraction, authored_depth_min_m, authored_rim_tol_m,
+                  basement_cover_min)
     rep = ObjReport(placements=len(placements))
     out: list = []
     jobs: list[tuple[int, PlacementJob]] = []

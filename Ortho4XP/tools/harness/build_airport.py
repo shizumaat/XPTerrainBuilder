@@ -271,6 +271,7 @@ import corpus_snapshot as CS                             # noqa: E402
 _SNAPSHOT_DIR = (CS.arm_snapshot_env(sys.argv[1:])
                  if __name__ == "__main__" else None)
 import artifact_ledger as AL                             # noqa: E402
+import inset_preflight as IPF                            # noqa: E402
 from shared_repo_guard import (                          # noqa: E402,F401
     DATA_REPO, HARNESS_STATE, LOCK_DIR, REFRESH_LEDGER, SHARED_DATA_DIRS,
     REFRESH_SCOPES, scope_of, scope_description, shared_repo_snapshot,
@@ -862,6 +863,10 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
                     "overpass QUERY, and without it the DEM prep has no "
                     "smoothing masks"))
     out.extend(unverified_inset_negatives(state, lat, lon))
+    if not icao:
+        # A TILE build's inset pass runs over EVERY selected aerodrome of
+        # the tile (#583): each one it would re-fetch is named here.
+        out.extend(tile_inset_refetch_rows(state, lat, lon))
     if inset_problem is not None and inset_problem[0] != "empty":
         # "empty" is a DECLARED state, not a missing artifact: the build
         # reads the raster, finds it empty, says so and grades on the
@@ -911,10 +916,6 @@ def this_airports_inset_problem(state, lat, lon, icao):
         # would run an overpass QUERY.
         return None
     try:
-        import O4_Airport_Elevation_Insets as INSETS
-        import O4_Config_Utils as CFG
-        import O4_OSM_Utils as OSM
-        import O4_Vector_Map as VMAP
         # THE PACK SCAN READS THE OWNER'S X-PLANE ROOT (2026-09-21, NLWF
         # #18-#20).  The predicate's pack-set arm
         # (``_sidecar_footprint_packs_mismatch``) lists the installed
@@ -929,24 +930,33 @@ def this_airports_inset_problem(state, lat, lon, icao):
         # same owner config the frame check validates against; a
         # machine without one keeps today's empty-root answer.
         apply_xplane_install_paths_for_preflight()
-        tile = CFG.Tile(lat, lon, "")
-        tile.read_from_config()
-        layer = OSM.OSM_layer()
-        OSM.OSM_queries_to_OSM_layer(VMAP.AIRPORTS_QUERIES, layer, lat, lon,
-                                     ["all"], cached_suffix="airports")
-        dico = VMAP.build_airports_dico(tile, layer)
-        boxes = INSETS._airport_bounding_boxes(tile, dico)
+        boxes = IPF.required_boxes(lat, lon, selected_only=False)
         required = next((box for key, box in boxes.items()
                          if str(key).upper() == str(icao).upper()), None)
         if required is None:
             return None     # no boundary for it: nothing is required
-        problem = INSETS.airport_inset_frame_problem(lat, lon, icao, required)
-        if problem is not None:
-            return problem
-        return _ladder_recheck_problem(INSETS, lat, lon, icao, required)
+        return IPF.airport_problem(lat, lon, icao, required,
+                                   _ladder_recheck_problem)
     except Exception as exc:
         print(f"  [harness] per-airport inset check skipped ({exc!r})")
         return None
+
+
+def tile_inset_refetch_rows(state, lat, lon) -> list:
+    """THE TILE-WIDE INSET REFUSAL (#583), as ``(scope, artifact, why)``
+    rows: every selected aerodrome of the tile whose inset a TILE build
+    would fetch or re-fetch (:func:`inset_preflight.tile_pending_refetches`
+    -- the engine's own per-airport verdict and ladder re-check).
+
+    Measured 2026-10-12: ``KBFI --tile 47 -123`` named nothing, and the
+    build re-fetched KGRF's and KTCM's insets (a ladder rung listing new
+    coverage) into the shared corpus mid-build."""
+    return [("dem",
+             f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
+             f"{key}_*.tif [{kind}]", text)
+            for (key, kind, text) in IPF.tile_pending_refetches(
+                state, lat, lon, ladder_problem=_ladder_recheck_problem,
+                prepare=apply_xplane_install_paths_for_preflight)]
 
 
 #: THE INSET ARP SANITY (spec us-holder-providers §6.3, RULINGS
@@ -1878,8 +1888,14 @@ def seed_las_tiles(seed_dir, icaos, root, lat, lon, prog) -> dict:
             "refused": refused}
 
 
-def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
+def warm_airport_insets(icaos, root, lat, lon, prog, *,
+                        refresh: bool = True) -> dict:
     """Fetch/refresh the elevation insets of exactly the named airports.
+
+    ``refresh=False`` (#583, :func:`_complete_pending_insets`) runs the
+    pass as a BUILD would: a usable cached inset is reused, and only
+    what the build itself would fetch -- a stale negative's re-probe, a
+    pending ladder re-fetch, a re-cut -- is fetched.
 
     Runs the production pass (``O4_Airport_Elevation_Insets.
     ensure_airport_insets``) over a bounding-box map filtered to
@@ -1956,7 +1972,7 @@ def warm_airport_insets(icaos, root, lat, lon, prog) -> dict:
     polygons = INSETS.airport_boundary_polygons(tile, dico_airports,
                                                 only=list(wanted))
     INSETS.ensure_airport_insets(lat, lon, wanted, definitions,
-                                 resolution_m, refresh=True,
+                                 resolution_m, refresh=refresh,
                                  fetch_counter=fetch_counter,
                                  **({"airport_polygons": polygons}
                                     if polygons else {}))
@@ -2446,6 +2462,8 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
     state = dem_cache_state(root, lat, lon)
     if state["base_raster"] and state["airport_insets"]:
         derived = _refresh_airport_inset(root, state, lat, lon, icao, prog)
+        derived += _complete_pending_insets(root, lat, lon, prog,
+                                            tile_wide=not icao)
         if not derived:
             prog.note(f"refresh dem: tile {lat:+d}{lon:+d} already has its "
                       f"base raster and its airport insets — nothing to "
@@ -2515,6 +2533,8 @@ def refresh_tile_dem(root, lat, lon, prog, icao=None) -> dict:
             f"reachability (and, for the insets, that a provider covers "
             f"this tile at all) and re-run.")
     derived += _refresh_airport_inset(root, after, lat, lon, icao, prog)
+    derived += _complete_pending_insets(root, lat, lon, prog,
+                                        tile_wide=not icao)
     prog.note(f"refresh dem done: {derived}")
     return {"tile": [lat, lon], "derived": derived}
 
@@ -2546,6 +2566,63 @@ def _refresh_airport_inset(root, state, lat, lon, icao, prog) -> list:
             f"is STILL {again[0].upper()} — {again[1]}")
     return [f"Elevation_data/**/{state['tile_stem']}_airport_insets/"
             f"{icao}_*.tif [{problem[0]}]"]
+
+
+def _pending_inset_rows(state, lat, lon, *, tile_wide: bool) -> list:
+    """What the pre-flight names in the inset cache that a ``dem`` refresh
+    can complete: the index negatives the build would re-probe, and -- on
+    a ``--tile`` run -- every inset the tile build would re-fetch."""
+    rows = unverified_inset_negatives(state, lat, lon)
+    if tile_wide:
+        rows = rows + tile_inset_refetch_rows(state, lat, lon)
+    return rows
+
+
+def _complete_pending_insets(root, lat, lon, prog, *, tile_wide) -> list:
+    """Complete, under the ``dem`` authorisation, what the inset pass of a
+    build would otherwise do MID-BUILD (#583); returns what it derived.
+
+    THE GAP (measured 2026-10-12, ``KPDX --tile 45 -123 --refresh-data
+    rings,dem --refresh-only``): the pass answered "nothing to derive"
+    and the re-judge then refused on nine version-stale negatives, naming
+    ``--refresh-data dem`` -- the scope that had just run.  Only
+    ``--warm-insets <the nine names>`` cleared them.  The airports are
+    now named by the pre-flight's own rows and the production pass runs
+    over exactly those, as a build would run it (``refresh=False``).
+    Raises ``SystemExit`` when a row survives."""
+    state = dem_cache_state(root, lat, lon)
+    if not (state["airport_insets"] and state["airports_layer"]):
+        return []
+    names = set(IPF.stale_negative_airports(lat, lon))
+    if tile_wide:
+        names.update(key for (key, _kind, _text) in
+                     IPF.tile_pending_refetches(
+                         state, lat, lon,
+                         ladder_problem=_ladder_recheck_problem,
+                         prepare=apply_xplane_install_paths_for_preflight))
+    if not names:
+        return []
+    # An index row for an aerodrome the airports layer no longer carries
+    # cannot be warmed (its box is unknown); it stays in the re-judge.
+    here = IPF.required_boxes(lat, lon, selected_only=False)
+    wanted = sorted((name for name in names if name in here), key=str)
+    if not wanted:
+        return []
+    prog.note(f"REFRESH dem (authorised, locked, ledgered): completing the "
+              f"inset pass a build would run mid-build for {wanted} — "
+              f"stale negatives re-asked, pending re-fetches fetched")
+    warm_airport_insets(wanted, root, lat, lon, prog, refresh=False)
+    still = _pending_inset_rows(dem_cache_state(root, lat, lon), lat, lon,
+                                tile_wide=tile_wide)
+    if still:
+        raise SystemExit(
+            f"REFUSING: --refresh-data dem completed the inset pass for "
+            f"{wanted} and {len(still)} artifact(s) are STILL pending:\n  "
+            + "\n  ".join(f"[{s}] {a}\n      {w}" for s, a, w in still)
+            + "\nA provider that did not answer leaves its row pending "
+              "(check reachability and re-run).")
+    return [f"Elevation_data/**/{state['tile_stem']}_airport_insets/ "
+            f"[completed: {', '.join(map(str, wanted))}]"]
 
 
 # ══════════════════════════════════════════════════════════════════════

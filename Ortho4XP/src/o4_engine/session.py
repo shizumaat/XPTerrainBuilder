@@ -74,6 +74,10 @@ STEP_FAILURE_NOUNS = {
 }
 
 
+# The row label of a tile built without one of its airport patches (#564).
+BUILT_WITH_WARNINGS = "built with warnings"
+
+
 def build_done(lat, lon, ok, records):
     """A tile's ``BuildDone`` from its raw failure ``records``
     (``O4_Tile_Failures.record``), folded to one user message per cause
@@ -1178,8 +1182,11 @@ class EngineSession:
                                           self._take_tile_failures()))
                 else:
                     done += 1
-                    self._emit(TileState(lat=lat, lon=lon, state="done",
-                                         percent=100.0))
+                    self._emit(TileState(
+                        lat=lat, lon=lon, state="done", percent=100.0,
+                        label=(BUILT_WITH_WARNINGS if any(
+                            r["scope"] == "airport"
+                            for r in self._tile_failures) else "")))
                     # #564: an airport that lost its patch did not cost
                     # the tile — it is named in the tile's warnings.
                     self._emit(build_done(lat, lon, True,

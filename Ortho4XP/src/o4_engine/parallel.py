@@ -71,7 +71,7 @@ from . import tile_time_model
 from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
-    _predict_step_seconds, build_done, plan_steps, prediction_features,
+    BUILT_WITH_WARNINGS, _predict_step_seconds, build_done, plan_steps, prediction_features,
     reweight_plan_by_seconds,
 )
 
@@ -1625,6 +1625,9 @@ class ParallelBuildRun:
         elif event_name == "TileState":
             if event.state == "done" and not last_step:
                 return
+            if event.state == "done" and self._tile_warnings.get(tile):
+                # #564: an earlier step left an airport without a patch.
+                event = dataclasses.replace(event, label=BUILT_WITH_WARNINGS)
             if tile is not None and event.state in ("active", "indeterminate"):
                 # In-run TileState percents are step-local like
                 # StepProgress (a child's run IS one step) and include

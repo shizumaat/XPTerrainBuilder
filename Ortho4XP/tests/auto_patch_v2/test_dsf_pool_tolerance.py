@@ -107,7 +107,9 @@ def test_the_v1_reader_regenerates_a_zero_byte_cached_dump(tmp_path, monkeypatch
         Path(cmd[-1]).write_text("A\n800\nDSF2TEXT\n", encoding="utf-8", newline="")
         return subprocess.CompletedProcess(cmd, 0, b"", b"")
 
-    monkeypatch.setattr(R, "_dsftool_path", lambda: "/fixture/DSFTool")
+    # any existing file: the launch is faked, the "is there a tool" check
+    # is real (``dsf_write.dump``, the one dsf2text launch since #560)
+    monkeypatch.setattr(R, "_dsftool_path", lambda: str(dsf))
     monkeypatch.setattr(R.subprocess, "run", _fake_run)
     first = R.ensure_dsf_text_path(str(dsf), str(cache))
     assert first and os.path.getsize(first) > 0 and len(ran) == 1

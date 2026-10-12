@@ -57,6 +57,11 @@ recognition that broke; every refusal is NAMED in :data:`RECTS`):
   pavement's unconstrained reference (its DEM sample) EVERYWHERE it would
   stamp, it would LIFT pavement into the air and pins nothing.
 
+A VERTEX OF A RUNWAY-FAMILY FACE IS NEVER A MEMBER OF A RECT (#555): the
+roles exclude runway faces, and a taxi-family face sharing vertices with
+one (a connector at the runway's edge) contributes only the vertices that
+are its own — counted as ``runway_vertices_excluded``.
+
 Where two ends' corridors cover one node the LOWER value wins (the most
 restrictive surface governs, deterministically).  A node another family
 has already PINNED — a CIFP threshold, a crossing anchor, a seam, a water
@@ -259,7 +264,7 @@ def eat_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         "ends": 0, "runways_below_code": 0, "ends_without_anchor": 0,
         "runways_without_letter": 0, "rects_accepted": 0,
         "refused_far_bound": 0, "refused_no_wrap": 0, "refused_no_cut": 0,
-        "refused_along_corridor": 0, "pins": 0,
+        "refused_along_corridor": 0, "runway_vertices_excluded": 0, "pins": 0,
     }
     surface = getattr(law.ruleset, "eat", None)
     if surface is None:                    # the authority states no surface
@@ -298,6 +303,7 @@ def eat_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     cut_tol = 0.01                 # the anchor envelope's own materiality
 
     pins: dict[int, float] = {}
+    excluded: set[int] = set()     # runway vertices inside a corridor
     rect_of: dict[int, tuple[int, str, str]] = {}
     for spec in specs:
         half = spec["half_width_m"]
@@ -313,8 +319,20 @@ def eat_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             got: list[tuple[float, int]] = []
             for ring in [vw.rings[f.id], *vw.holes[f.id]]:
                 for v in ring:
+                    # A RUNWAY'S VERTEX IS NEVER GOVERNED (``EXTRA_ROLES``:
+                    # "the runway profile is senior — an EAT ceiling must
+                    # never bend it").  The roles exclude runway FACES; a
+                    # taxi-family face that shares its vertices with a
+                    # runway face — the connector where it meets the
+                    # runway's edge — would otherwise pin the runway's own
+                    # surface at the ceiling (#555: three vertices of a
+                    # runway edge 327 m beyond another runway's end pinned
+                    # 9.12 m under the ground; the ridge built a 9 m V)
                     s, q = _project(spec, *vw.xy[v])
                     if s < min_s or abs(q) > half:
+                        continue
+                    if v in rwy_vertices:
+                        excluded.add(v)
                         continue
                     if v not in seen:
                         got.append((s, v))
@@ -395,6 +413,7 @@ def eat_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     pins[v] = float(value)
                     rect_of[v] = (rid, spec["end"], spec["runway"])
     stats["pins"] = len(pins)
+    stats["runway_vertices_excluded"] = len(excluded)
     return [Pin(v, z, Source(GEN, RULING,
                              (f"vertex:{v}", f"rect:{rect_of[v][0]}",
                               f"end:{rect_of[v][1]}",

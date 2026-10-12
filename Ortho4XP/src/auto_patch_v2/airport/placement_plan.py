@@ -303,7 +303,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       connector_span_m,  # §16g (6)
                                       chain_min_height_m,  # §16g (10) (4)
                                       contents_min_fraction,  # S6
-                                      sheet_chain_min_fraction)  # 27a
+                                      sheet_chain_min_fraction,  # 27a
+                                      level_tol_m=split_tol_m)  # 10n (3)
     # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
     # derived once per plan; their whole viaduct rides the unit's level
     _viaducts = _bf.unit_viaducts(prints, plan, _pw, counts) if _pw else {}

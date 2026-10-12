@@ -27,10 +27,27 @@ a groundside cell that TOUCHES a pad in the source geometry
 held terraces) is welded to THAT pad's rim by the same two halves with
 the pad FROZEN: the pad is never a junior, never moves, and a pad still
 never welds by mere proximity — only to the cells the witness names.
+
+A NODE ON A SENIOR BOUNDARY (#556).  Half (2) reads the seniors' RING
+vertices, and the noding that follows adds more: a breakline that ENDS on
+a senior's edge (a runway's ridge on its own end edge) becomes a vertex
+there.  ``weld_cells(nodes=...)`` takes those points; one lying on a
+senior boundary (within the input quantum) and within the tolerance of a
+junior segment is inserted into it like any senior vertex.  MEASURED: a
+runway drawn as a draped polygon 0.37 m longer than its apt.dat rectangle
+left a rim cell whose end edge ran corner to corner 0.25 m from the
+ridge's CIFP-pinned end — never a vertex of it — and the crown stood
+0.18 m over that edge (``runway_step`` DEFECT, a cliff).  THE NECK: a
+junior that abuts the senior along that very edge would be PINCHED by a
+vertex exactly on it (an invalid ring, and ``buffer(0)`` keeps one half),
+so the inserted vertex stands ``input_quantum_m`` off the node toward the
+segment it enters — a neck the grid's snap closes onto the node — and is
+never projected afterwards.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
+import typing as _t
 
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import nearest_points, unary_union
@@ -57,14 +74,21 @@ class WeldStats:
     vertices_projected: int = 0
     vertices_inserted: int = 0
     cells_refused: int = 0     # a weld that would have collapsed the cell
+    nodes_seen: int = 0        # breakline nodes on a senior boundary, read as its vertices
     passes_max: int = 0        # the most passes one cell took to converge
 
 
-def weld_cells(cells: tuple[Cell, ...], law: Law
+def weld_cells(cells: tuple[Cell, ...], law: Law,
+               nodes: _t.Sequence[tuple[float, float]] = ()
                ) -> tuple[tuple[Cell, ...], WeldStats]:
     """``cells`` with every pavement cell welded to the seniors within
-    the tolerance; ids and order preserved."""
+    the tolerance; ids and order preserved.  ``nodes`` are points the
+    noding WILL make vertices (module docstring, "A NODE ON A SENIOR
+    BOUNDARY")."""
     tol = law.tables.emit.identity.weld_spacing_m
+    on_tol = law.tables.emit.identity.input_quantum_m
+    node_pts = [Point(xy) for xy in nodes]
+    node_tree = STRtree(node_pts) if node_pts else None
     stats = WeldStats(tolerance_m=tol)
     if tol <= 0.0 or not cells:
         return cells, stats
@@ -104,8 +128,14 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
             continue
         frozen = [others[int(j)] for j in other_tree.query(
             p.buffer(tol), predicate="intersects")] if other_tree is not None else []
-        q, moved, inserted, passes = _weld_one(p, unary_union(refs), tol,
-                                               unary_union(frozen) if frozen else None)
+        ref = unary_union(refs)
+        on_ref = [] if node_tree is None else [
+            node_pts[int(j)] for j in node_tree.query(p.buffer(2.0 * tol),
+                                                      predicate="intersects")
+            if ref.distance(node_pts[int(j)]) <= on_tol]
+        q, moved, inserted, passes = _weld_one(
+            p, ref, tol, unary_union(frozen) if frozen else None, on_ref, on_tol)
+        stats.nodes_seen += len(on_ref)
         stats.passes_max = max(stats.passes_max, passes)
         if q is None:
             stats.cells_refused += 1
@@ -122,12 +152,16 @@ def weld_cells(cells: tuple[Cell, ...], law: Law
     return tuple(out), stats
 
 
-def _weld_one(poly: Polygon, ref, tol: float, frozen=None
+def _weld_one(poly: Polygon, ref, tol: float, frozen=None,
+              on_ref: _t.Sequence[Point] = (), neck: float = 0.0
               ) -> tuple[Polygon | None, int, int, int]:
     """``poly`` welded to the boundary set ``ref``: ``(polygon, vertices
     moved, vertices inserted, passes)``; ``None`` when the weld would leave
     no valid polygon (the cell is narrower than the tolerance).  Vertices
-    on ``frozen`` (another cell's boundary) never move."""
+    on ``frozen`` (another cell's boundary) never move.  ``on_ref`` are the
+    nodes the noding will add to ``ref``, each inserted once, ``neck`` off
+    the node (module docstring)."""
+    nodes = _Nodes(on_ref, neck) if on_ref else None
     rpts = [Point(c) for g in getattr(ref, "geoms", [ref]) for c in g.coords]
     rtree = STRtree(rpts) if rpts else None
     ext = list(poly.exterior.coords)
@@ -140,15 +174,16 @@ def _weld_one(poly: Polygon, ref, tol: float, frozen=None
     # next pav129 vertex sat 0.88 m off the bent edge — un-welded by the
     # single pass, a 0.4-0.9 m sliver of graded strip and 14 rim steps)
     for _pass in range(MAX_PASSES):
-        ext, m = _project(ext, ref, rtree, rpts, tol, frozen)
+        held = nodes.held if nodes else ()
+        ext, m = _project(ext, ref, rtree, rpts, tol, frozen, held)
         hs = []
         for h in holes:
-            ring, mh = _project(h, ref, rtree, rpts, tol, frozen)
+            ring, mh = _project(h, ref, rtree, rpts, tol, frozen, held)
             hs.append(ring)
             m += mh
         n_before = len(ext) + sum(len(h) for h in hs)
-        ext = _insert(ext, rtree, rpts, tol)
-        hs = [_insert(h, rtree, rpts, tol) for h in hs]
+        ext = _insert(ext, rtree, rpts, tol, nodes)
+        hs = [_insert(h, rtree, rpts, tol, nodes) for h in hs]
         ins = len(ext) + sum(len(h) for h in hs) - n_before
         holes = hs
         moved += m
@@ -174,11 +209,48 @@ def _weld_one(poly: Polygon, ref, tol: float, frozen=None
     return q, moved, max(0, inserted), passes
 
 
-def _project(coords, ref, rtree, rpts, tol: float, frozen
+class _Nodes:
+    """The nodes on one junior's senior boundary (module docstring, "A NODE
+    ON A SENIOR BOUNDARY"): each enters the ring ONCE, ``neck`` off itself
+    toward the segment it enters; ``held`` are the vertices so made, which
+    the projection never moves."""
+
+    def __init__(self, pts: _t.Sequence[Point], neck: float) -> None:
+        self.pts = list(pts)
+        self.tree = STRtree(self.pts)
+        self.neck = neck
+        self.used: set[int] = set()
+        self.held: set[tuple[float, float]] = set()
+
+    def between(self, seg: LineString, tol: float
+                ) -> list[tuple[float, tuple[float, float]]]:
+        """``(station, vertex)`` for every unused node within ``tol`` of
+        ``seg`` and strictly between its ends."""
+        out: list[tuple[float, tuple[float, float]]] = []
+        for j in self.tree.query(seg.buffer(tol), predicate="intersects"):
+            j = int(j)
+            c = self.pts[j]
+            d = seg.distance(c)
+            t = seg.project(c)
+            if (j in self.used or d > tol or d <= 1e-9
+                    or t <= 1e-9 or t >= seg.length - 1e-9):
+                continue
+            foot = seg.interpolate(t)
+            k = min(self.neck, 0.5 * d) / d
+            xy = (float(c.x + (foot.x - c.x) * k),
+                  float(c.y + (foot.y - c.y) * k))
+            self.used.add(j)
+            self.held.add(xy)
+            out.append((t, xy))
+        return out
+
+
+def _project(coords, ref, rtree, rpts, tol: float, frozen, held=()
              ) -> tuple[list[tuple[float, float]], int]:
     """Ring coordinates with every vertex within ``tol`` of ``ref`` (not
-    on it, not on ``frozen``) moved onto ``ref``: to its nearest vertex
-    when one is within ``tol``, else to the nearest point of its edge."""
+    on it, not on ``frozen``, not in ``held``) moved onto ``ref``: to its
+    nearest vertex when one is within ``tol``, else to the nearest point of
+    its edge."""
     out: list[tuple[float, float]] = []
     moved = 0
     pts = list(coords)
@@ -187,7 +259,8 @@ def _project(coords, ref, rtree, rpts, tol: float, frozen
     for x, y in pts:
         pt = Point(x, y)
         d = ref.distance(pt)
-        if d <= 1e-9 or d > tol or (frozen is not None and frozen.distance(pt) <= 1e-9):
+        if (d <= 1e-9 or d > tol or (float(x), float(y)) in held
+                or (frozen is not None and frozen.distance(pt) <= 1e-9)):
             out.append((float(x), float(y)))
             continue
         q = None
@@ -203,8 +276,8 @@ def _project(coords, ref, rtree, rpts, tol: float, frozen
     return out, moved
 
 
-def _insert(ring: list[tuple[float, float]], rtree, rpts, tol: float
-            ) -> list[tuple[float, float]]:
+def _insert(ring: list[tuple[float, float]], rtree, rpts, tol: float,
+            nodes: "_Nodes | None" = None) -> list[tuple[float, float]]:
     """``ring`` with every ``ref`` vertex within ``tol`` of one of its
     segments (and not already a vertex) inserted into that segment, in
     order along it — and the sub-segments an insertion makes examined
@@ -238,10 +311,12 @@ def _insert(ring: list[tuple[float, float]], rtree, rpts, tol: float
             if xy in present:
                 continue
             found.append((t, xy))
+        if nodes is not None:
+            found.extend(nodes.between(seg, tol))
         if not found:
             return []
         chain: list[tuple[float, float]] = []
-        for _t, xy in sorted(found):
+        for _s, xy in sorted(found):
             if xy not in present:
                 chain.append(xy)
                 present.add(xy)

@@ -158,6 +158,42 @@ def content_keyed_dump(cache_dir: str, dsf_path: str) -> str | None:
     return None
 
 
+def missing_dump_reason(cache_dir: str, dsf_path: str) -> str:
+    """Why :func:`find_text_dump` has no dump of ``dsf_path``, in plain
+    words — for the refusal the loader raises (#560).  Three conditions a
+    reader can tell apart: an EMPTY dump under this file's own name (a
+    conversion that died before writing, #60), dumps of ANOTHER version
+    of the file (the pack changed since they were made), or none at all.
+    """
+    base = os.path.basename(dsf_path)
+    cut = base.lower().find(".dsf")
+    stem = (base[:cut + 4] if cut >= 0 else base).lower() + "."
+    own = f"{base}.{text_dump_tag(dsf_path)}.text".lower()
+    try:
+        names = [n for n in os.listdir(cache_dir)
+                 if n.lower().startswith(stem) and n.lower().endswith(".text")]
+    except OSError:
+        names = []
+    sizes = {}
+    for name in names:
+        try:
+            sizes[name] = os.path.getsize(os.path.join(cache_dir, name))
+        except OSError:
+            continue
+    empty = sorted(n for n, size in sizes.items() if size == 0)
+    if any(n.lower() == own for n in empty):
+        return (f"its text dump {own} is in {cache_dir} but is EMPTY (0 bytes) "
+                "— the conversion that made it died before writing anything; "
+                "an empty dump is never read")
+    other = sorted(n for n, size in sizes.items() if size > 0)
+    if other:
+        return (f"{cache_dir} holds no text dump of this version of the file "
+                f"(expected {own}); the {len(other)} dump(s) there "
+                f"({', '.join(other[:3])}{', …' if len(other) > 3 else ''}) "
+                "are of another version or are older than the file")
+    return f"no text dump of it ({own}) is in {cache_dir}"
+
+
 def find_text_dump(mod_cache_root: str, pack_name: str, lat: int,
                    lon: int, dsf_path: str | None = None) -> str | None:
     """The cached ``<tile>.dsf[.<tag>].text`` for the pack's tile DSF.

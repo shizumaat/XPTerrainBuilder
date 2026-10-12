@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         report = diff_text(*args.diff_text)
         _print_diff(report)
         if args.json:
-            with open(args.json, "w", encoding="utf-8") as fh:
+            with open(args.json, "w", encoding="utf-8", newline="\n") as fh:
                 json.dump(report, fh, indent=1)
         return 0
     if not args.roots or not args.out:

@@ -61,13 +61,13 @@ def test_two_tools_dumps_are_compared_by_row_class(tmp_path, capsys):
     body = "PROPERTY sim/overlay 1\nOBJECT_DEF a.obj\nOBJECT 0 1.0 2.0 3.0\n"
     for folder, file_row, pools, heights in (
             (old, "# file: /a/x.dsf", 16, "-82.0"), (new, "# file: /b/x.dsf", 12, "-22.0")):
-        (folder / "same.dsf.text").write_text(file_row + "\n" + body, encoding="utf-8")
+        (folder / "same.dsf.text").write_text(file_row + "\n" + body, encoding="utf-8", newline="\n")
         (folder / "moved.dsf.text").write_text(
             f"{file_row}\n# pool 64: # obj_pools found: {pools}\n"
-            f"HEIGHTS 0.03125 {heights}\n{body}", encoding="utf-8")
-    (old / "shorter.dsf.text").write_text(body, encoding="utf-8")
-    (new / "shorter.dsf.text").write_text(body + "OBJECT 0 4.0 5.0 6.0\n", encoding="utf-8")
-    (new / "crasher.dsf.text").write_text(body, encoding="utf-8")
+            f"HEIGHTS 0.03125 {heights}\n{body}", encoding="utf-8", newline="\n")
+    (old / "shorter.dsf.text").write_text(body, encoding="utf-8", newline="\n")
+    (new / "shorter.dsf.text").write_text(body + "OBJECT 0 4.0 5.0 6.0\n", encoding="utf-8", newline="\n")
+    (new / "crasher.dsf.text").write_text(body, encoding="utf-8", newline="\n")
     report_path = tmp_path / "report.json"
 
     assert census.main(["--diff-text", str(old), str(new),

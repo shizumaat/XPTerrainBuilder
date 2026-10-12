@@ -151,3 +151,21 @@ PASS, layers PASS; no size warning for a touched file.
    one-line patch `longs.data()`; or report the UB upstream).
 5. Linux arm64 is not built (the bundle has no `lin/DSFTool-aarch64`
    today either).
+
+## Master's answers (2026-10-12) — the open items above are CLOSED
+
+3. Windows zlib: keep upstream's prebuilt `zlibstat.lib` (pinned `msvc_libs`).
+4. Keep `-fno-delete-null-pointer-checks`; no third patch, no upstream
+   report (owner declined).
+   Picks: exactly the two (`9c1a06c7b`, `a3725c8f5`).
+   macOS deployment target: 12.0.
+5. No Linux arm64 DSFTool.
+
+Items 1-2 (Linux / Windows recipes and the runner's Xcode unproven) stand
+until the master's first dispatch, once this branch is on main.
+
+Merged `origin/main` (e1ef4b94e) 2026-10-12, no conflicts. The Windows
+text-I/O twin (`test_windows_text_io.py`) was red on five `write_text()`
+sites of the `--diff-text` twin: fixed (`newline="\n"`), plus the tool's
+`--json` write. Full non-Qt suite once: 9334 passed, 19 skipped, 1 xfailed,
+1 xpassed.

@@ -1,5 +1,25 @@
 # Lane kbna555 — notes (#555 KBNA, #556 KBWG; tile +36-087, app 1.0.387)
 
+## RESUME HERE (2026-10-12, resumed session)
+
+- Branch `claude/kbna555`: WIP of the ended session committed as 1eaa9115c (both fixes + twins), main
+  1ff5a912a merged (fc0a951d9). Twins `test_v2eat.py` + `test_weld_ridge_end.py`: 26 passed.
+- Old session's scratch (captures `cap/KBNA.pkl`, `cap/KBWG.pkl`, bisect logs):
+  `/private/tmp/claude-501/-Users-noah-XPTerrainBuilder/0ec4326d-10bf-4753-bd1b-ca41fda6bcd1/scratchpad/kbna555`.
+  This session's: `…/466e18b3-e03c-471f-b042-c64d8df4e04d/scratchpad/kbna555`.
+- BISECT (harness builds, one per arm, same defect row each): KBWG `runway_step 1`, cliff 0.1801 m at
+  main b8b0abf4a, 7b2c122af (10-10), 6dfb97854 (10-09 18:50), 11e4746ef (10-09 11:24) AND at
+  `v1.0.350-beta.1` (867d90b75, tag KBWG_beta1, body d33cab2743d0). KBNA `runway_vertical_curve 2`
+  (0.2333 / 0.2042 m) at main and at 11e4746ef (KBNA_c, body 4d592d9c74c4). => KBWG is NOT a regression
+  (it failed on beta 1's engine too). KBNA at beta 1: build running in tree `kbna555c` (now detached
+  at the beta-1 tag), log `kbna_beta1.log`.
+- KBWG intervention (old session, `kbwg_fix2.log`): capture replayed `--from classify` with the weld
+  change -> `verify DEFECT families: ALL ZERO`, rows 584 -> 582 (runway_step 1 -> 0, runway_crown 54 -> 53).
+- KBNA intervention: replay of `cap/KBNA.pkl --from classify --verify --emit` with the EAT change
+  running (`kbna_fix.log`).
+- NEXT: read both; runway movers (`tools/airside_value_delta.py --by-ref`); related suites; ratchets;
+  ONE closing harness build each (the fixes are separate) + census.
+
 Branch `claude/kbna555`, base main b8b0abf4a. Scratch: session scratchpad `kbna555/`.
 
 ## Step 1 — reproduced through the harness (main b8b0abf4a)

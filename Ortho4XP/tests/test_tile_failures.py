@@ -343,7 +343,7 @@ def test_a_built_tile_names_its_unpatched_airports_as_warnings(
     (warning,) = done.warnings
     assert warning["what"] == ("Tile +10+020 was built, but airport AAAA "
                                "could not be processed.")
-    assert warning["why"].endswith("The airport is left on ungraded terrain.")
+    assert warning["why"].endswith(FAIL.UNPATCHED)
     assert "TopologyException" in warning["detail"]
     run_done = [e for e in events if isinstance(e, EV.RunDone)][-1]
     assert (run_done.done_count, run_done.error_count) == (1, 0)

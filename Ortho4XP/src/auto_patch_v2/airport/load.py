@@ -109,6 +109,18 @@ class Inputs:
     pack_pristine: _t.Any = None
 
 
+class PackDumpStale(RuntimeError):
+    """The pack's tile DSF has no fresh text dump (refused below).  The
+    class and its two attributes are what ``O4_Tile_Failures`` reads to
+    give the user a message (issue #562) — the wording is free to change."""
+
+    failure_code = "pack_dump_stale"
+
+    def __init__(self, pack: str, message: str):
+        super().__init__(message)
+        self.failure_params = {"pack": pack}
+
+
 @_dc.dataclass
 class LoadReport:
     """What the loader saw and did NOT turn into a graded input."""
@@ -438,7 +450,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     if (dump_path is None and inputs.mod_cache_root
             and os.path.isfile(pack_dsf)):
         rep.dsf_dump_stale = True
-        raise RuntimeError(
+        raise PackDumpStale(
+            sel.name,
             f"{icao}: the pack DSF {pack_dsf} is newer than every cached text "
             f"dump under {_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name)} "
             f"(no fresh {os.path.basename(pack_dsf)}.<sha256[:8]>.text there — "

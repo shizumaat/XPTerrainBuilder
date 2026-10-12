@@ -237,6 +237,7 @@ EXCEPTION_CODES = {
     "InterpAltLeak": "mesh_refused",
     "UnsealedInterpAltSeed": "mesh_refused",
     # scenery packs
+    "PackDumpStale": "pack_dump_stale",
     "BackupUnproven": "pack_write_failed",
     "StaleScreen": "pack_write_failed",
     "ColdPartition": "pack_write_failed",
@@ -358,7 +359,7 @@ def _airports_phrase(airports: list) -> str:
     return "airports %s and %s" % (", ".join(named[:-1]), named[-1])
 
 
-UNPATCHED = "The airport is left on ungraded terrain."
+UNPATCHED = "An airport without a patch is left on ungraded terrain."
 
 
 def _describe(code: str, tile: str, airports: list, params: dict,

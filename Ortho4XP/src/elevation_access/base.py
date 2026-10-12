@@ -106,7 +106,16 @@ class ProviderUnavailable(Exception):
     leaves no record at all, while this one leaves a legible "the tier
     here is degraded because the engine could not decode it" in the
     index.  Owner RULINGS 2026-09-13b.
+
+    ``declined_by_cap`` (class default ``False``) marks THE CAP CLASS: the
+    engine read the listing and DECLINED to download it (a per-airport
+    tile / byte cap).  That answer is a function of the listing and the
+    provider's definition alone, so the resolution ladder records the
+    listing beside it and the build-time re-check does not re-run the
+    whole ladder for the same listing on every build (#583).
     """
+
+    declined_by_cap = False
 
     def __init__(self, reason):
         super().__init__(str(reason))

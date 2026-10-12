@@ -984,7 +984,7 @@ class LasTileIndexStrategy:
         over_tiles = max_tiles and len(sources) > max_tiles
         over_bytes = max_bytes and total_bytes > max_bytes
         if over_tiles or over_bytes:
-            raise ProviderUnavailable(
+            error = ProviderUnavailable(
                 "%s: %s%s needs %d tiles / %s, cap %d / %s "
                 "(max_tiles_per_airport / max_bytes_per_airport in %s.elv)"
                 " — SKIPPED, recorded unavailable, not no-coverage"
@@ -993,6 +993,8 @@ class LasTileIndexStrategy:
                    else "", len(sources),
                    _las_size_text(total_bytes), max_tiles,
                    _las_size_text(max_bytes), code))
+            error.declined_by_cap = True
+            raise error
         return total_bytes
 
     def _download_tile(self, definition, source, scratch_path, final_path,

@@ -111,6 +111,7 @@ different working grids and disagree along the seam (measured at SPLP:
 """
 
 import os
+import hashlib
 import json
 import glob
 import math
@@ -157,6 +158,7 @@ from elevation_access.definitions import (
     export_image_definition_refusal,
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
+from elevation_access import fetch_scratch as FETCH_SCRATCH
 from elevation_access.fetch_slots import _held_provider_fetch_slot
 from elevation_access.las_tiles import LAS_FOOTPRINT_KEY, _buffer_geometry_m
 from elevation_access.registry import ACCESS_STRATEGIES
@@ -171,6 +173,7 @@ import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
 import O4_File_Lock as O4_File_Lock
+import O4_External_Writes as EXTWRITE
 import O4_Geo_Utils as GEO
 import O4_DEM_Utils as DEM
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
@@ -1229,6 +1232,34 @@ def _listing_ids(sources):
     return sorted(ids)
 
 
+def _rung_ask_signature(rung_definition):
+    """What a CAP-DECLINED rung was declined UNDER (#583): a digest of the
+    rung's definition (its caps among it; the per-airport footprint left
+    out -- the ladder records that once) and this engine's version and
+    capabilities (:func:`run_capability_record`).  A rung declined under
+    the SAME signature and the SAME listing would be declined again, so
+    the build-time re-check does not re-run the ladder for it; an edited
+    ``.elv`` (a raised cap), a new engine or a new listing asks again."""
+    items = sorted(
+        (str(key), repr(value)) for (key, value) in rung_definition.items()
+        if key != LAS_FOOTPRINT_KEY)
+    digest = hashlib.sha1(repr(items).encode("utf-8")).hexdigest()[:16]
+    return dict(run_capability_record(rung_definition), definition=digest)
+
+
+def _cap_declined_listing(error, rung_strategy):
+    """The listing ids a rung was DECLINED over by a per-airport cap, or
+    ``None`` when ``error`` is any other ``unavailable`` (a missing
+    decoder, a refused download: those are asked again on every build,
+    owner RULINGS 2026-09-13b) or the strategy kept no listing."""
+    if not getattr(error, "declined_by_cap", False):
+        return None
+    listing = getattr(rung_strategy, "last_listing", None)
+    if not listing:
+        return None
+    return _listing_ids(listing)
+
+
 def _provenance_listing_ids(provenance):
     """The discovery listing a fetch saw, read back out of its record:
     every source it names -- contributing, empty over the box, or listed
@@ -1361,6 +1392,7 @@ def _fetch_through_resolution_ladder(
         }
         provenance = None
         unavailable = None
+        declined_listing = None
         if index > 0 and not _coverage_bbox_intersects(
                 rung_definition, bounding_box_wgs84):
             attempt["outcome"] = "out-of-coverage"
@@ -1389,6 +1421,7 @@ def _fetch_through_resolution_ladder(
                 if index == 0:
                     unavailable_errors.append(error)
                 unavailable = error.reason
+                declined_listing = _cap_declined_listing(error, rung_strategy)
             except TransientFetchError as error:
                 # EVERY FAILURE CLASS FALLS THROUGH (owner RULINGS
                 # 2026-09-30bl): an outage on one rung is no answer FOR
@@ -1406,6 +1439,13 @@ def _fetch_through_resolution_ladder(
             attempt["outcome"] = "unavailable"
             attempt["unavailable_reason"] = unavailable
             attempt["valid_fraction"] = 0.0
+            if declined_listing is not None:
+                # THE CAP CLASS (#583): the listing was read and the
+                # engine declined it.  Recorded with what it was declined
+                # UNDER, so the re-check asks again only when one moved.
+                attempt["listing_ids"] = declined_listing
+                attempt["declined_under"] = _rung_ask_signature(
+                    rung_definition)
             if os.path.isfile(rung_path):
                 os.remove(rung_path)
             return (attempt, None)
@@ -3780,12 +3820,19 @@ def inset_recut_is_needed(lat, lon, icao, provider_code, required_box):
     return _bounding_box_extends_beyond(required_box, requested_box)
 
 
-def _stored_rung_listing(attempt):
+def _stored_rung_listing(attempt, rung_definition=None):
     """What a recorded ladder attempt says its discovery listed: the ids,
     ``[]`` for a rung that listed nothing (or was never in coverage), and
     ``None`` when the record cannot say (a rung recorded before listings
-    were -- every id it lists now is then NEW)."""
+    were -- every id it lists now is then NEW).  A CAP-DECLINED rung's
+    listing (#583) stands only under the signature it was declined under
+    (:func:`_rung_ask_signature`); under another it cannot say."""
     if not isinstance(attempt, dict):
+        return None
+    if attempt.get("outcome") == "unavailable" and (
+            rung_definition is None
+            or attempt.get("declined_under")
+            != _rung_ask_signature(rung_definition)):
         return None
     if isinstance(attempt.get("listing_ids"), list):
         return [str(value) for value in attempt["listing_ids"]]
@@ -3940,7 +3987,8 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
             transient = True
             continue
         listed = _listing_ids(sources)
-        known = _stored_rung_listing(stored.get(str(label)))
+        known = _stored_rung_listing(stored.get(str(label)),
+                                     rung_definition)
         fresh = [value for value in listed
                  if known is None or value not in set(known)]
         new_ids.extend(fresh)
@@ -4081,6 +4129,17 @@ def _cached_inset_oversamples(inset_path, definition):
         return False
     stored_pixel_m = abs(header[0][5]) * GEO.lat_to_m
     return stored_pixel_m < native_resolution_m * OVERSAMPLED_INSET_RATIO
+
+
+def _sweep_stale_fetch_scratch(lat, lon):
+    """Remove what a KILLED inset fetch left (#583): old private scratch
+    folders, and -- where this run may write the cache -- the scratch
+    files engines before #583 left beside this tile's cached insets."""
+    directory = FNAMES.airport_inset_directory(lat, lon)
+    if _write_refused_by_armed_guard(os.path.join(directory, "x.tif.x")):
+        directory = None
+    for path in FETCH_SCRATCH.sweep_stale(directory):
+        UI.vprint(1, "    [inset] removed stale fetch scratch", path)
 
 
 def _clear_poisoned_insets(lat, lon, index):
@@ -4310,6 +4369,7 @@ def ensure_airport_insets(
     # refetches them where still wanted; _write_index at the end of this
     # pass persists the scrub.
     _clear_poisoned_insets(lat, lon, index)
+    _sweep_stale_fetch_scratch(lat, lon)
     checked_stamp = datetime.date.today().isoformat()
     # One shared, LAZY footprint prefetch for the whole tile: the first
     # surface-model masking pass triggers a single extract read covering
@@ -4544,12 +4604,11 @@ def ensure_airport_insets(
                 code,
             )
             _count_fetch_attempt()
-            fetch_destination = destination
-            if cached_inset_is_stale:
-                # A failed warp can leave a partial file behind; the
-                # still-valid smaller inset must survive a failed
-                # enlargement, so fetch beside it and replace on success.
-                fetch_destination = destination + ".refetch"
+            # EVERY fetch works in a private scratch folder (#583) and
+            # only the finished raster is moved onto the cache: a failed
+            # or killed fetch leaves the cache directory as it was, and a
+            # still-valid cached inset survives a failed re-fetch.
+            fetch_destination = FETCH_SCRATCH.scratch_destination(destination)
             fetch_raised = False
             provider_unavailable = None
             # One-shot heartbeat so a long transfer is visibly alive:
@@ -4568,6 +4627,13 @@ def ensure_airport_insets(
                  " and is retried on the next run)"))
             slow_note.daemon = True
             try:
+                # A FETCH IS A WRITE DECLARATION (#583): GDAL cuts the
+                # raster in C, which no Python-level write guard sees, so
+                # the cache path is declared before a byte is asked for.
+                # Under an armed guard that refuses it nothing is fetched
+                # and the refusal is on the guard's record.
+                EXTWRITE.declare_external_write(
+                    destination, writer="the airport inset fetch")
                 with _held_provider_fetch_slot(code):
                     slow_note.start()
                     provenance = fetch_inset(
@@ -4623,25 +4689,29 @@ def ensure_airport_insets(
             finally:
                 slow_note.cancel()
             if provenance is None:
+                FETCH_SCRATCH.discard(fetch_destination)
                 if cached_inset_is_stale:
-                    if os.path.isfile(fetch_destination):
-                        os.remove(fetch_destination)
                     UI.vprint(
                         1,
-                        "   WARNING: could not refetch a larger inset for",
+                        "   WARNING: could not refetch the inset for",
                         icao,
                         "from",
                         code,
-                        "- keeping the previous smaller one.",
+                        "- keeping the cached one.",
                     )
                     airport_record[code] = "ok"
                     airport_record["checked"] = checked_stamp
                     break
-                if os.path.isfile(destination):
-                    # No cache existed before this fetch (that branch breaks
-                    # or refetches beside it), so this is a partial file
-                    # from a broken warp; left in place it would pass the
-                    # cache check and bake garbage on the next run.
+                answered = provider_unavailable is not None or (
+                    not fetch_raised)
+                if os.path.isfile(destination) and (
+                        answered or void_reason is not None
+                        or empty_reason is not None):
+                    # What is on disk here is a raster this pass already
+                    # declared no cache (void, empty) or one a refresh has
+                    # a durable answer against; left in place it would
+                    # pass the cache check on the next run.  A fetch that
+                    # merely FAILED leaves a good cached raster alone.
                     os.remove(destination)
                 if provider_unavailable is not None:
                     # Legible in the file: WHY this tier is missing.  Not
@@ -4661,8 +4731,10 @@ def ensure_airport_insets(
                 airport_record["checked"] = checked_stamp
                 _record_run_capabilities(airport_record, code, definition)
                 continue
-            if cached_inset_is_stale:
-                os.replace(fetch_destination, destination)
+            try:
+                FETCH_SCRATCH.land(fetch_destination, destination)
+            finally:
+                FETCH_SCRATCH.discard(fetch_destination)
             provenance_path = FNAMES.airport_inset_provenance(
                 lat, lon, icao, code
             )

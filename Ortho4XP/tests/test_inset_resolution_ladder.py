@@ -22,6 +22,7 @@ import O4_Airport_Elevation_Insets as INSETS
 from elevation_access import base as ea_base
 from elevation_access import capabilities as ea_capabilities
 from elevation_access import definitions as ea_definitions
+from elevation_access import failures as ea_failures
 from elevation_access import las_tiles as ea_las_tiles
 from elevation_access import registry as ea_registry
 from elevation_access.strategies import las_tile_index as ea_las_tile_index
@@ -315,6 +316,13 @@ def two_providers(monkeypatch, tmp_path):
             key = _key(definition)
             calls["fetch"].append(key)
             entry = plan.get(key) or {}
+            if entry.get("cap"):
+                # THE CAP CLASS: the listing is read, then declined.
+                self.last_listing = [{"source_id": i} for i in
+                                     entry.get("listing") or []]
+                raise ea_failures.cap_exceeded_unavailable(
+                    definition, "%d tiles" % len(self.last_listing),
+                    entry["cap"], "max_tiles_per_airport", destination_path)
             if entry.get("unavailable"):
                 raise ea_base.ProviderUnavailable(entry["unavailable"])
             if entry.get("transient"):
@@ -437,6 +445,60 @@ def test_unavailable_provider_rung_climbs_on(tmp_path, two_providers):
         "below-threshold", "unavailable", "delivered"]
     assert tried[1]["unavailable_reason"] == "laspy missing"
     assert "listing_ids" not in tried[1]
+
+
+@requires_gdal
+def test_cap_declined_rung_is_not_refetched_for_the_same_listing(
+        two_providers):
+    """#583 (KGRF / KTCM, 2026-10-12): a rung DECLINED by a per-airport
+    cap recorded no listing, so every build's re-check read its whole
+    listing as new and re-ran the ladder -- hundreds of MB, every build.
+    The listing is recorded with what it was declined under; the same
+    listing under the same definition is ``unchanged``."""
+    plan, calls, chain, other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"cap": "2 tiles", "listing": ["T1", "T2", "T3"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    declined = _sidecar()["ladder"]["rungs_tried"][1]
+    assert declined["outcome"] == "unavailable"
+    assert declined["listing_ids"] == ["T1", "T2", "T3"]
+    assert declined["declined_under"]["definition"]
+    for _build in range(2):
+        calls["fetch"].clear()
+        INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+        assert calls["fetch"] == []
+        assert _sidecar()["ladder"]["recheck"]["result"] == "unchanged"
+    # A NEW tile in the index asks again ...
+    plan["FAKEPIT"]["listing"] = ["T1", "T2", "T3", "T4"]
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert (recheck["result"], recheck["new_source_ids"]) == (
+        "new-listing", ["T4"])
+    # ... and so does an edited definition (the user raised the cap).
+    plan["FAKEPIT"]["listing"] = ["T1", "T2", "T3"]
+    assert INSETS.ladder_recheck(
+        39, -107, "KASE", "FAKE3DEP", BOX)["result"] == "unchanged"
+    other["max_tiles_per_airport"] = 64
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert (recheck["result"], recheck["new_source_ids"]) == (
+        "new-listing", ["T1", "T2", "T3"])
+
+
+@requires_gdal
+def test_unavailable_rung_that_is_no_cap_is_asked_again_every_build(
+        two_providers):
+    """13b stands for every other ``unavailable`` (a missing decoder, a
+    refused download): no listing is recorded and the re-check asks."""
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"unavailable": "laspy missing",
+                             "listing": ["T1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert "listing_ids" not in _sidecar()["ladder"]["rungs_tried"][1]
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert (recheck["result"], recheck["new_source_ids"]) == (
+        "new-listing", ["T1"])
 
 
 @requires_gdal

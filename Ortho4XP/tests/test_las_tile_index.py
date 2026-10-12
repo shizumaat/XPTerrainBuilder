@@ -336,6 +336,7 @@ def test_cap_wording_is_exact(fake_http, tmp_path, monkeypatch):
         "PITKIN1M: KASE needs 71 tiles / 7.9 GB, cap 64 / 8.0 GB "
         "(max_tiles_per_airport / max_bytes_per_airport in PITKIN1M.elv) "
         "— SKIPPED, recorded unavailable, not no-coverage")
+    assert caught.value.declined_by_cap is True          # the cap class, #583
     assert not any(call[0] == "GET" and "tiles.test" in call[1]
                    for call in fake_http["calls"])
 

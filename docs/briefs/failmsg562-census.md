@@ -11,7 +11,14 @@ Two message classes share one catalogue and one carrier. Every table below has a
 
 The engine behaviour (the vector step carrying on after an airport failure) is lane `tilecont564`'s. Until it merges, an airport failure still returns 0 from the vector step and the SAME records are reported as what ended the tile — no code here changes when it lands: the session turns airport records into warnings whenever the tile's `BuildDone` is ok.
 
-Copy as BUILT differs from the first draft in three places: every "report it" remedy names the log path (`… attach the log (<path>).`); two extra remedies exist (`all_steps`: "Build the tile again with every step selected."; `reinstall`: "Update or reinstall the app. If it still fails, report it and attach the log (<path>)."); the catalogue text is in `Ortho4XP/src/O4_Tile_Failures.py` (`CATALOGUE`, `REMEDIES`) and is the copy to rule on.
+**THE COPY TO RULE ON is `Ortho4XP/src/O4_Tile_Failures.py` (`CATALOGUE`, `REMEDIES`, `UNPATCHED`).** It differs from the first-draft tables below in these places:
+
+* "Report it" is now **"Press Report this problem."** (#565 buttons on both apps); `retry` is "Build the tile again. If it fails again, press Report this problem."; `reinstall` is "Update or reinstall the app. If it still fails, press Report this problem." The log path (`engine-stderr.log`, the file the report reads) is carried as `log_path` on every entry and printed in the tile's closing log lines — the fallback where there is no button.
+* Two extra remedies: `all_steps` ("Build the tile again with every step selected."), `settings` (not in the brief's set — needs a ruling).
+* A warning's "why" ends: "An airport without a patch is left on ungraded terrain; the next build of this tile tries it again."
+* Added after the census: `pack_dump_failed` (lane dump560's `DsfToolError` → "scenery for {airports} could not be read. · The file from {pack} for this tile could not be converted. · Press Report this problem."), `proxy_refused` ("something it needs could not be downloaded. · Your proxy or VPN refused the connection. · Check the internet connection, then build the tile again." — reached by `requests`' `ProxyError` class or an explicit `failure_code`), `ElevationTransportRefused` → `elevation_download_failed`.
+* Row 3 (`pack_dump_stale`) is the `PackDumpStale` class in `load.py`; after dump560 merges its raise line conflicts textually with dump560's reworded message (keep their message, this class).
+* Row 34 (DSF construction error read as a user Stop) is FIXED. Row 36 is not.
 
 ## How a tile ends without a tile today (four exits, all in `o4_engine`)
 

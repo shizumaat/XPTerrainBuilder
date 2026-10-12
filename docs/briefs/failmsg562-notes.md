@@ -10,31 +10,30 @@
   `tests/test_qt_tile_failures.py`, `Tests/SceneryKitTests/TileFailureTests.swift`).
 * LEFT: nothing planned. Full non-Qt suite result is in the final report.
 
-## THE WIRE CONTRACT (for lane tilecont564 and the master)
+## THE WIRE CONTRACT (protocol 1.10, ONE bump: events + the `failure_report` command)
 
-`origin/claude/tilecont564` did not exist when this was written, so the field is defined HERE.
-
-* `BuildDone.warnings: list` (default `[]`) — airports without a patch on a tile that WAS built. Each entry
-  is the same dict as `BuildDone.failures`: `{code, what, why, remedy, airports: [icao…], detail, log_path}`.
-  The unpatched airports are `[a for w in warnings for a in w["airports"]]`.
-* `BuildDone.failures: list` (default `[]`) — why a tile was NOT built.
+* `BuildDone.failures: list` (default `[]`) — why a tile was NOT built, one entry per cause:
+  `{code, what, why, remedy, airports, detail, log_path}`.
+* `BuildDone.warnings: list` (default `[]`) — same entries, for airports without a patch on a tile that
+  WAS built, folded per cause.
+* `BuildDone.unpatched_airports: list` (default `[]`) — the same airports ONE PER ENTRY, the same dict
+  plus `stage`. Non-empty with `ok=True` = built with warnings.
 * `AutoPatchFailed.code: str` (default `""`).
 * `TileState(state="done", label="built with warnings")` for such a tile.
-* Protocol `1.10`. Old peers ignore the new keys; `BuildDone.error` is now the plain message as one line.
+* Entries go back into `failure_report` unchanged (extra keys are ignored there).
 
-## THE ONE SESSION-SIDE HOOK (what tilecont564 calls — it already does)
+## WHERE THE WARNINGS COME FROM (master ruling)
 
-    UI.auto_patch_failed(icao, stage, error, code="", params=None)
+`O4_Unpatched_Airports.read(tile)` at the tile's successful end (`session._build_worker`), through
+`O4_Tile_Failures.from_unpatched`. `record()` there now also keeps `code` / `params`, so the last step's
+process (a different child under `parallel.py`) words the warning from the sidecar alone. The closing
+log lines (`O4_Tile_Failures.closing_lines`) are printed by the in-process session, or by the parallel
+parent after "Tile … completed in".
 
-`auto_patch/driver._fail_build_tasks` already makes this call for every failed airport. Nothing else is
-needed: when `O4_Vector_Map.build_poly_file` carries on and the tile's last step succeeds, the session
-emits `BuildDone(ok=True, warnings=…)` from those records. If the vector step still returns 0, the same
-records are reported as failures. `code` / `params` are optional (the `stage` decides otherwise).
-
-A step that ends the tile names its cause with
-`UI.exit_message_and_bottom_line(..., code="<catalogue key>")` or `UI.tile_failure("<key>", exc=exc)`.
-An exception names it by class (`O4_Tile_Failures.EXCEPTION_CODES`) or by `failure_code` /
-`failure_params` attributes.
+A tile that is NOT built reports the session's own records: `UI.auto_patch_failed(icao, stage, error,
+code=, params=)` (strict mode, `config`, an un-movable stale file), `UI.exit_message_and_bottom_line(...,
+code="<key>")`, `UI.tile_failure("<key>", exc=exc)`, or the exception's class
+(`O4_Tile_Failures.EXCEPTION_CODES`, or `failure_code` / `failure_params` attributes).
 
 ## For lane dump560
 

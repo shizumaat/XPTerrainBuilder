@@ -136,6 +136,7 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
                                KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
                                PROVENANCE_FILENAME, TOL_DEG, PlacementPlan)
 from . import backup_state as _bs
+from . import dsf_commands as _cmds
 from . import pack_art as _pa
 from .backup_state import BackupUnproven, State
 from .file_hash import sha256_file
@@ -537,6 +538,8 @@ class DsfToolError(RuntimeError):
 
     #: ``True`` when DSFTool was stopped at its time limit.
     timed_out = False
+    #: ``True`` when DSFTool was killed by a signal.
+    crashed = False
 
 
 def _exit_in_words(returncode: int) -> str:
@@ -581,8 +584,11 @@ def _run(args: list[str], *, writes: str | None = None,
         raise error from None
     if proc.returncode != 0:
         said = (proc.stderr or proc.stdout).strip()[:400]
-        raise DsfToolError(f"{' '.join(args[:2])} {_exit_in_words(proc.returncode)}"
-                           + (f": {said}" if said else ""))
+        error = DsfToolError(
+            f"{' '.join(args[:2])} {_exit_in_words(proc.returncode)}"
+            + (f": {said}" if said else ""))
+        error.crashed = proc.returncode < 0
+        raise error
 
 
 #: A ``<dump>.<pid>.<token>.partial`` older than this is the litter of a
@@ -614,6 +620,29 @@ def _sweep_stale_partials(text_out: str) -> None:
                 pass
 
 
+def _dump_pool_selected(dsf_path: str, partial: str, text_out: str,
+                        tool: str, timeout: float | None) -> bool:
+    """The retry after a DSFTool CRASH (#568): dump a temp copy of the DSF
+    whose command stream selects a pool first
+    (:func:`dsf_commands.select_pool_first`).  ``False`` when the DSF does
+    not have that trait — the crash is then another one and stands.  The
+    DSF itself is never written; the copy lives in the system temp dir."""
+    try:
+        with open(dsf_path, "rb") as fh:
+            repaired = _cmds.select_pool_first(fh.read())
+    except OSError:
+        return False
+    if repaired is None:
+        return False
+    with tempfile.TemporaryDirectory(prefix="dsf_pool_select_") as folder:
+        copy = os.path.join(folder, os.path.basename(dsf_path))
+        with open(copy, "wb") as fh:
+            fh.write(repaired)
+        _run([tool, "--dsf2text", copy, partial], writes=partial,
+             declares=text_out, timeout=timeout)
+    return True
+
+
 def dump(dsf_path: str, text_out: str, tool: str, *,
          timeout: float | None = None) -> str:
     """``DSFTool --dsf2text`` into ``text_out``; returns it.
@@ -629,14 +658,24 @@ def dump(dsf_path: str, text_out: str, tool: str, *,
     rename a complete file — the last one wins, both are whole.  The
     ``.partial`` name ends in neither ``.text`` nor ``.dsf``, so no reader
     globs it.  Raises :class:`DsfToolError` naming the real cause.
+
+    A CRASH is retried once on a temp copy with a pool selected first
+    (#568, :func:`_dump_pool_selected`): the text is the one DSFTool would
+    have written for the DSF itself, every row and every property, and
+    only its ``# file:`` comment names the copy.
     """
     if not tool or not os.path.isfile(tool):
         raise DsfToolError(f"DSFTool binary required, got {tool!r}")
     _sweep_stale_partials(text_out)
     partial = f"{text_out}.{os.getpid()}.{uuid.uuid4().hex[:8]}.partial"
     try:
-        _run([tool, "--dsf2text", dsf_path, partial], writes=partial,
-             declares=text_out, timeout=timeout)
+        try:
+            _run([tool, "--dsf2text", dsf_path, partial], writes=partial,
+                 declares=text_out, timeout=timeout)
+        except DsfToolError as error:
+            if not (error.crashed and _dump_pool_selected(
+                    dsf_path, partial, text_out, tool, timeout)):
+                raise
         if not os.path.isfile(partial) or os.path.getsize(partial) == 0:
             raise DsfToolError(
                 f"{tool} --dsf2text exited 0 but wrote no text for {dsf_path}")
@@ -670,20 +709,6 @@ def text_properties(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _atoms(buf: bytes, off: int, end: int) -> list[tuple[bytes, int, int]]:
-    """``(id as read, offset, length)`` of the atoms in ``buf[off:end]``."""
-    out = []
-    while off < end:
-        if off + 8 > end:
-            raise ValueError(f"truncated atom header at {off}")
-        aid, ln = struct.unpack_from("<4sI", buf, off)
-        if ln < 8 or off + ln > end:
-            raise ValueError(f"atom {aid[::-1]!r} at {off}: bad length {ln}")
-        out.append((aid, off, ln))
-        off += ln
-    return out
-
-
 def replace_properties(dsf_path: str, props: _t.Sequence[tuple[str, str]]
                        ) -> None:
     """Rewrite the ``HEAD/PROP`` atom of an UNCOMPRESSED DSF so it holds
@@ -695,12 +720,12 @@ def replace_properties(dsf_path: str, props: _t.Sequence[tuple[str, str]]
     if buf[:8] != b"XPLNEDSF" or len(buf) < 28:
         raise ValueError(f"{dsf_path}: not an uncompressed DSF")
     body_end = len(buf) - 16
-    top = _atoms(buf, 12, body_end)
+    top = _cmds.atoms(buf, 12, body_end)
     head = [a for a in top if a[0] == b"DAEH"]
     if len(head) != 1:
         raise ValueError(f"{dsf_path}: {len(head)} HEAD atoms")
     _hid, hoff, hlen = head[0]
-    kids = _atoms(buf, hoff + 8, hoff + hlen)
+    kids = _cmds.atoms(buf, hoff + 8, hoff + hlen)
     prop = [a for a in kids if a[0] == b"PORP"]
     if len(prop) != 1:
         raise ValueError(f"{dsf_path}: {len(prop)} PROP atoms")

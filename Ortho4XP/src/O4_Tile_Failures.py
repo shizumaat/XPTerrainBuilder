@@ -20,7 +20,8 @@ A failure is named by a stable ``code``.  A code reaches here three ways:
   the record already carries a ``code``.
 * a step that prints its error and returns 0 —
   ``UI.exit_message_and_bottom_line(..., code="...")`` or
-  ``UI.tile_failure("...")``.
+  ``UI.tile_failure("...")``.  A refused ACTIVATION of a finished scenery
+  file names its code with :func:`code_for_activation` (#585).
 
 ADDING A FAILURE CLASS: one :data:`CATALOGUE` entry, plus either the
 exception class name in :data:`EXCEPTION_CODES` or ``failure_code = "..."``
@@ -39,7 +40,7 @@ from typing import Iterable, NamedTuple, Optional
 __all__ = [
     "CATALOGUE", "EXCEPTION_CODES", "STAGE_CODES", "REMEDIES", "UNMAPPED",
     "UNMAPPED_AIRPORT", "UNMAPPED_STEP", "code_for_exception",
-    "params_for_exception", "record_fields", "code_for_stage", "record", "fold", "headline",
+    "code_for_activation", "params_for_exception", "record_fields", "code_for_stage", "record", "fold", "headline",
     "render", "from_unpatched", "closing_lines",
 ]
 
@@ -72,6 +73,9 @@ REMEDIES = {
     "all_steps": "Build the tile again with every step selected.",
     "reinstall": "Update or reinstall the app. If it still fails, "
                  "{report}.",
+    "quit_xplane": "Quit X-Plane if it is running, then build the tile "
+                   "again. If it fails again, check that the app is "
+                   "allowed to write to the tile's folder.",
 }
 
 UNMAPPED = "unexpected_error"          # an exception nobody catalogued
@@ -175,6 +179,15 @@ CATALOGUE = {
         "its scenery file could not be written.",
         "The app hit a problem while assembling the tile's scenery file.",
         "report"),
+    # The finished file could not be moved into place (#585): the tile is
+    # NOT active.  See :func:`code_for_activation`.
+    "scenery_file_locked": Entry(
+        "its new scenery file could not be put in place.",
+        "The file it replaces is in use or protected.", "quit_xplane"),
+    "scenery_file_not_activated": Entry(
+        "its new scenery file could not be put in place.",
+        "The finished file could not be moved into the tile's folder.",
+        "retry"),
     "output_folder_unwritable": Entry(
         "its output folder could not be written.",
         "The folder is protected or the disk is full.", "permissions"),
@@ -319,6 +332,23 @@ def code_for_exception(exc: BaseException, default: str = UNMAPPED) -> str:
         if code:
             return code
     return default
+
+
+def code_for_activation(exc: BaseException) -> str:
+    """The code of a refused ACTIVATION — the rename, replace or copy that
+    puts a finished scenery file where X-Plane reads it (#585).
+
+    A refused permission there is a file in use at least as often as a
+    protected folder (Windows refuses to replace a file a running X-Plane
+    holds open, and reports it as "access denied"), so it gets the remedy
+    that names X-Plane.  A full disk keeps its own code; anything else —
+    the finished file missing — is the generic "not put in place".
+    """
+    if (isinstance(exc, PermissionError)
+            or getattr(exc, "winerror", None) in (5, 32)):
+        return "scenery_file_locked"
+    by_errno = _ERRNO_CODES.get(getattr(exc, "errno", None))
+    return by_errno or "scenery_file_not_activated"
 
 
 def params_for_exception(exc: BaseException) -> dict:

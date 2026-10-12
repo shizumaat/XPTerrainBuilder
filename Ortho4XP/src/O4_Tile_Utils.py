@@ -13,6 +13,8 @@ import O4_Mesh_Utils as MESH
 import O4_Mask_Utils as MASK
 import O4_DSF_Utils as DSF
 import O4_Proj_Runtime as PROJRT
+import O4_Held_File as HELD
+import O4_Tile_Failures as FAILURES
 from O4_Parallel_Utils import (
     effective_convert_slots,
     effective_download_slots,
@@ -431,10 +433,13 @@ def build_tile(tile):
     # instead of dying silently and letting the activation step below report
     # a misleading rename error.
     dsf_build_error: list[str] = []
+    # ...and only a build_dsf that RETURNED 1 left a whole file to activate:
+    # a Stop inside the encoder returns 0 with a truncated ``.dsf.tmp``.
+    dsf_built: list[int] = []
 
     def _build_dsf_guarded() -> None:
         try:
-            DSF.build_dsf(tile, download_queue)
+            dsf_built.append(DSF.build_dsf(tile, download_queue))
         except Exception as exc:
             dsf_build_error.append(str(exc))
             UI.vprint(0, "ERROR during DSF construction:", str(exc))
@@ -548,16 +553,19 @@ def build_tile(tile):
         )
         UI.exit_message_and_bottom_line("", code="imagery_download_failed")
         return 0
-    UI.vprint(1, " *Activating DSF file.")
     dsf_file_name = os.path.join(
         tile.build_dir,
         "Earth nav data",
         FNAMES.long_latlon(tile.lat, tile.lon) + ".dsf",
     )
-    try:
-        os.replace(dsf_file_name + ".tmp", dsf_file_name)
-    except:
-        UI.vprint(0, "ERROR : could not rename DSF file, tile is not active.")
+    if not any(dsf_built):
+        # The encoder did not finish (a Stop): its ``.dsf.tmp`` is
+        # truncated and is NOT activated.  The next build rewrites it.
+        UI.exit_message_and_bottom_line()
+        return 0
+    if not activate_dsf(dsf_file_name):
+        UI.exit_message_and_bottom_line("", code=None)   # named there
+        return 0
     if UI.red_flag:
         UI.exit_message_and_bottom_line()
         return 0
@@ -600,6 +608,34 @@ def build_tile(tile):
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
     )
     return 1
+
+################################################################################
+def activate_dsf(dsf_file_name):
+    """Put the finished ``<dsf>.tmp`` where X-Plane reads it; False — with
+    the tile's failure NAMED — when the move is refused (#585).
+
+    The move was "print and carry on": the step returned success and the
+    session reported a built tile X-Plane would not load.
+
+    STATE LEFT BY A REFUSAL: no ``<dsf>`` (``build_dsf`` moved the previous
+    one to ``<dsf>.bak`` before writing), the finished ``<dsf>.tmp`` and
+    that ``.bak``.  X-Plane sees no scenery file for the tile and flies its
+    default scenery there.  The previous file is deliberately NOT put back:
+    this build has already rewritten the ``terrain`` folder it points into.
+    The next build repairs it unaided — it rewrites ``.tmp`` and activates.
+    """
+    UI.vprint(1, " *Activating DSF file.")
+    try:
+        HELD.retrying_a_held_file(
+            lambda: os.replace(dsf_file_name + ".tmp", dsf_file_name))
+    except OSError as exc:
+        UI.lvprint(0, "ERROR: could not move the new DSF file into place — "
+                      "the tile is NOT active:", exc)
+        exc.failure_code = FAILURES.code_for_activation(exc)
+        UI.tile_failure("scenery_file_not_activated", exc=exc)
+        return False
+    return True
+
 
 ################################################################################
 def build_all(tile):

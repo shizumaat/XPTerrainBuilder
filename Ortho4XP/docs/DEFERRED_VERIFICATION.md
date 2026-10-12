@@ -6368,3 +6368,15 @@ constraint, and owed:
   stopped short of it; SPJC, CYXY, KASE, NLWF, OTHH not replayed); the
   `round_cap` exits of the warm-up QP (KCLT stage 1 and stage 2) read in the
   sidecar; build walls beyond two single replay runs; no in-sim look.
+
+- **2026-10-12 lane `demfall561` (`claude/demfall561`, #561: base-tile fallback
+  to Copernicus GLO-30 / GLO-90 on a transport failure of the configured
+  source).** PAID: 29 twins (`tests/test_base_elevation_fallback.py`), the
+  full non-Qt suite, and ONE real fetch into lane scratch with the Viewfinder
+  transport forced to fail (the 3x3 assembly of tiles +47-123 and +48-123;
+  edge numbers in `docs/briefs/demfall561-notes.md` §4). DEFERRED: no tile or
+  airport BUILD on a substituted cell (the brief required none) — mesh, masks
+  and an airport patch beside a fallback cell are unread; the frozen engine
+  fetching through `/vsicurl/` on Windows; a real outage (the transport was
+  forced, not observed); no in-sim look at a tied edge.
+

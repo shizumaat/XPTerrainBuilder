@@ -3,13 +3,15 @@
 ## RESUME HERE
 
 - Branch `claude/demfall561` (from `aed288725`), worktree `.claude/worktrees/demfall561`.
-- Step 1 (census + design, this file): DONE, pushed before any code.
-- Step 2 (implement + twins): NOT STARTED.
-- Step 3 (one real fallback fetch into lane-local tmp, edge measurement on the built file): NOT STARTED
-  (the raw-source edge measurement below is already taken).
-- Step 4 (tests by changed files + full non-Qt suite, ratchets): NOT STARTED.
-- Scratch (lane-local, nothing in the shared corpus): the session scratchpad `dl/` (Viewfinder zips),
-  `glo/` (Copernicus cells), `scripts/` (edge.py, vfp.py).
+- Step 1 (census + design): DONE (`819589fd3`).
+- Step 2 (implement + twins): DONE (`377340c51`).
+- Step 3 (real fallback fetch into lane scratch, Viewfinder transport forced to fail): DONE, section 4.
+- Step 4 (tests): DONE, section 5. Ratchets pass.
+- Nothing left to do in this lane; open questions are in section 6.
+- Scratch (lane-local, nothing was written to the shared corpus): the session scratchpad `dl/`,
+  `glo/`, `elev/`, `elev_ref/`, `elev_time/`, `scripts/` (edge.py, vfp.py, real_fallback.py,
+  time_fetch.py). NOTE: another lane of the same session wrote `suite.log` in that scratchpad while
+  this lane's suite ran; this lane's result is read from its own run ledger, not from that file.
 
 ## 1. Census — base-tile strategies, callers, cache paths
 
@@ -126,3 +128,55 @@ OWNER QUESTION carried to the report: RULINGS 2026-10-02c keeps Copernicus GLO-3
 out of every wide-area use except approach ring 2; a base-tile fallback is a wide-area use. The issue
 text of 2026-10-12 names GLO-30 as the candidate, which this lane reads as the owner's permission for
 this one use — to be confirmed.
+
+## 4. Step 3 — the real fetch (2026-10-12, `scripts/real_fallback.py`, `scripts/time_fetch.py`)
+
+Lane-local elevation directory holding the corpus' Viewfinder cells around N48W123 WITHOUT
+`N48W123.hgt`; `O4_DEM_Utils.http_request` replaced by a function raising the transport refusal.
+
+- Tile 47/-123 (the owner's case, fallback NEIGHBOUR): built; Viewfinder asked once; cell +48-123
+  taken from Copernicus GLO-30; the home tile's 3601x3601 interior is byte-identical to the
+  all-Viewfinder build. Wall 23.6–25.2 s including the fetch.
+- Cold fetch alone: GLO-30 tile 18–51 s (23.8 MB on disk), GLO-90 tile 16.4 s (20.4 MB). The tile
+  equals the raw Copernicus objects post for post (max difference 0.0000 m), including the south
+  row (from the N47 object) and the east column (from the W122 object). No voids.
+- Shared row lat 48, fallback cell vs Viewfinder N47 (land posts): UNTIED mean +7.09, RMS 12.58,
+  p95 28.2, max 52.0 m; TIED 0.00 / 0.00 / 0.00 / 0.00 m.
+- Tile 48/-123 itself as the fallback cell (the reverse case): north and south edges equal the
+  Viewfinder neighbours' shared posts exactly (0.00 m); west and east edges equal them except one
+  corner post each (14 m and 13 m — the two Viewfinder neighbours disagree on that post; RMS over
+  the edge 0.23 / 0.22 m). Interior vs Viewfinder N48W123: mean +6.56, RMS 12.65, max 133 m (the
+  surface model; untied it is +7.25 / 12.77 / 133).
+- Band beyond the tile edge (tile 47, the 36 posts north of lat 48), fallback build minus
+  all-Viewfinder build: mean +1.34, RMS 10.68, max 55.4 m; the step from the edge row to the first
+  band row is RMS 6.10 m (4.62 m all-Viewfinder).
+- Log lines as printed:
+  `Viewfinderpanoramas did not answer; asking Copernicus GLO-30 for elevation cell +48-123.`
+  `Viewfinderpanoramas did not answer; elevation cell +48-123 taken from Copernicus GLO-30 instead
+  (<path>/N48W123_COPERNICUSGLO30BASE.tif). Viewfinderpanoramas is asked again on the next build.
+  Reason: the View elevation download of https://viewfinderpanoramas.org/dem3/M10.zip failed 6
+  times on the transport (last: …)`
+  `Elevation cell +48-123 (Copernicus GLO-30) tied to its south neighbour: edge difference up to
+  52.0 m closed over 240 posts.`
+
+## 5. Tests
+
+- `tests/test_base_elevation_fallback.py` (new, 29 twins): policy, transport class, seam, read,
+  fingerprint, shipped registry, the strategy, the warp's fixed grid.
+- By changed files (14 files): 366 passed.
+- Full non-Qt suite at `377340c51`: 9309 passed, 19 skipped, 1 xfailed, 1 xpassed, exit 0, 1146 s
+  (run ledger key `bd21c01781f7…`).
+- `tools/ratchets.py`: DUPLICATE RATCHET PASS, LAYER RATCHET PASS.
+
+## 6. Changed after the design note, and open
+
+- The package may not import the pipeline (`tests/test_elevation_access_registry.py`), so
+  `base_fallback` takes the parsed registry as an argument; `O4_DEM_Utils.read_base_cell` is the
+  reader's entry.
+- `degree_cog_base_tile` imports `degree_named_cog` (cell names + existence probe): a FOURTH
+  cross-strategy import, recorded in the twin's pinned set and the package docstring.
+- A corner post belongs to two sides; the row tied first keeps it (section 4).
+- Not done: a tile build; a tie against a neighbour on another grid (logged, not tied); the tile
+  mesh is not rebuilt by itself when the configured source returns (only airport patches are, through
+  the fingerprint); two stacked fallback cells beside one configured cell keep a small residual near
+  the shared corner; the GUI tile-info summary does not show a substituted cell.

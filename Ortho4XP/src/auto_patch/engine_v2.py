@@ -230,8 +230,27 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         dsf_path = pristine_dsf_path(_dsf2.dsf_path_in_pack(sel.root, lat, lon))
         if not os.path.isfile(dsf_path):
             return None
+        from auto_patch_v2.airport.dsf_write import DsfToolError
+    except Exception as exc:                # the load stage will refuse loudly
+        import logging
+        logging.getLogger(__name__).warning(
+            "pack dump refresh skipped for %s: %s", icao, exc)
+        return None
+    # THE REFRESH NAMES ITS OWN FAILURE (#560).  A pack DSF that EXISTS and
+    # cannot be dumped used to answer ``None`` here, and the load stage then
+    # refused with "the pack DSF is newer than every cached text dump" —
+    # the wrong cause, and one no retry could clear (2026-10-11: DSFTool
+    # crashed on a stock Global Airports tile, six airports refused twice).
+    try:
         return _DSFR.ensure_dsf_text_path(
-            dsf_path, _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(), sel.name))
+            dsf_path,
+            _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(), sel.name),
+            raise_on_failure=True)
+    except DsfToolError as exc:
+        raise DsfToolError(
+            f"{icao}: the scenery pack {sel.name!r} cannot be read — {exc}. "
+            "Nothing was left in the cache; the next build tries again."
+        ) from exc
     except Exception as exc:                # the load stage will refuse loudly
         import logging
         logging.getLogger(__name__).warning(

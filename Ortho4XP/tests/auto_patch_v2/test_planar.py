@@ -209,11 +209,19 @@ def test_default_inputs_mod_cache_root_follows_the_lane_redirect(tmp_path, monke
     msg = str(exc.value)
     assert str(lane / "CYXY Fixture") in msg, msg
     assert str(FIX / "Airport_mod_cache") not in msg, msg
-    assert "+60-136.dsf.<sha256[:8]>.text" in msg, msg
+    # the refusal states the REAL condition (#560): no dump, by its name
+    owed = f"+60-136.dsf.{text_dump_tag(str(dsf))}.text"
+    assert f"no text dump of it ({owed})" in msg, msg
+    assert "newer than" not in msg, msg
+
+    # an EMPTY dump under that name is no dump, and the refusal says empty
+    (lane / "CYXY Fixture").mkdir()
+    dump = lane / "CYXY Fixture" / owed
+    dump.write_bytes(b"")
+    with pytest.raises(RuntimeError, match=r"EMPTY \(0 bytes\)"):
+        load_with_report("CYXY", inputs, law)
 
     # seeded lane-local under the engine's own name, the read lands there
-    (lane / "CYXY Fixture").mkdir()
-    dump = lane / "CYXY Fixture" / f"+60-136.dsf.{text_dump_tag(str(dsf))}.text"
     shutil.copy(FIX / "Airport_mod_cache" / "CYXY Fixture" / "+60-136.dsf.fixture.text",
                 dump)
     _, rep = load_with_report("CYXY", inputs, law)

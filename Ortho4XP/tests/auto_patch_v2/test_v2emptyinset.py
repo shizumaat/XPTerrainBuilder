@@ -289,7 +289,10 @@ def test_an_empty_cached_raster_is_recorded_empty_and_refetched(
         raise ea_base.TransientFetchError("the provider timed out")
 
     record = _fetch_once(tmp_path, monkeypatch, fetch=fetch)
-    assert seen == [raster]                    # it asked again
+    # it asked again -- for the same file, in a scratch folder (#583)
+    assert [os.path.basename(path) for path in seen] == [
+        os.path.basename(raster)]
+    assert seen != [raster]
     status = record["SWISSALTI3D"]
     assert INSETS.status_is_empty(status), status
     assert status != "ok" and status != INSETS.NO_COVERAGE

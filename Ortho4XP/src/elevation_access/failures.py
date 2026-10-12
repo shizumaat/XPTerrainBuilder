@@ -29,10 +29,12 @@ def cap_exceeded_unavailable(definition, needs_text, cap_text, cap_key,
     code = definition.get("code") or "elevation provider"
     airport = (" " + os.path.basename(str(destination_path)).split("_", 1)[0]
                if destination_path else "")
-    return ProviderUnavailable(
+    error = ProviderUnavailable(
         "%s:%s needs %s, cap %s (%s in %s.elv) — SKIPPED, recorded "
         "unavailable, not no-coverage"
         % (code, airport, needs_text, cap_text, cap_key, code))
+    error.declined_by_cap = True
+    return error
 
 
 # Substrings (lower-cased) of libcurl / GDAL HTTP error messages that mean

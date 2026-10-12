@@ -46,6 +46,28 @@ harness refuses on its own.
   before/after, joins the band prefetch before disarming, and fails on
   swallowed refusals; warm-pass manifest rewrites are engine-suppressed
   (byte-identical writes skip).
+- A TILE build re-fetching ANOTHER aerodrome's inset mid-build (#583,
+  2026-10-12: `KBFI --tile 47 -123` re-fetched KGRF and KTCM — a ladder
+  rung listing new coverage — and GDAL cut 74 scratch files, 166 MB,
+  beside the shared insets): a `--tile` pre-flight asks the engine's
+  per-airport verdict for EVERY selected aerodrome of the tile
+  (`inset_preflight.py`) and refuses naming each inset and
+  `--refresh-data dem`. It reads DISK ONLY — a pre-flight never reaches
+  the network: the ladder is judged from the sidecar ("re-check owed"
+  when a re-asked rung recorded no listing), and the airports layer is
+  read only when its file is cached. The ASKING (the providers' indexes)
+  is `--refresh-data dem`'s, which completes exactly those names, and
+  the stale index negatives, in one command. Behind it, the engine
+  fetches an inset in a private scratch folder (lane `tmp/inset_fetch`,
+  `O4_INSET_SCRATCH_DIR`) and DECLARES the cache path first, so an armed
+  guard refuses the fetch at the call (`via` "spawn the airport inset
+  fetch writing") before a byte is asked for.
+- The guard refusing the CLEANUP of a file written past it (a child or
+  C-level write is invisible; the Python `os.remove` was the first call
+  seen, and refusing it left the file in the corpus): removing a
+  `*.tmp-<this pid>*` temporary created after the guard armed is let
+  through, and recorded in `write_guard_blocked` — the write was the
+  violation, so the run still fails, naming it, with the corpus clean.
 - A census that omits a law family, a sidecar key, or the ruleset:
   structurally impossible — the twins fail.
 - A pytest suite writing the shared data repo (the class that refused a

@@ -848,6 +848,29 @@ def is_library_index_artifact(relpath) -> bool:
     return bool(LIB_INDEX_ARTIFACT_RE.fullmatch(str(relpath)))
 
 
+#: THE OWN-TEMPORARY CLEANUP ALLOWANCE (#583).
+#:
+#: A write made in C (GDAL) or by a child process never passes the guard,
+#: so the first call the guard sees for such a file is the Python
+#: ``os.remove`` that cleans it up -- and refusing THAT is what leaves the
+#: file in the corpus (osmium's 10.5 MB clip, #159; 74 inset scratch
+#: files, #583).  Removing a file this very process wrote past the guard
+#: RESTORES the corpus, so it is let through -- and RECORDED in
+#: ``guard.blocked`` (``via`` = :data:`UNSEEN_WRITE_VIA`), because the
+#: write itself was the violation: the run still fails through
+#: :func:`require_no_swallowed_write_block`, naming the file.
+#:
+#: Authorship is PROVEN, never assumed: the name carries this process's
+#: pid (:data:`STRAY_TEMPORARY_RE`) and the file was created after this
+#: guard armed.  Anything else -- another process's temporary, a file
+#: older than the guard, a rename, an open -- still refuses.
+OWN_TEMPORARY_OPS = frozenset({"remove", "unlink"})
+
+#: How the allowance spells itself in ``guard.blocked``.
+UNSEEN_WRITE_VIA = ("a write made past the guard (C-level or child "
+                    "process) — its cleanup os.%s was ALLOWED")
+
+
 class SharedRepoWriteBlocked(RuntimeError):
     """A build tried to write the shared data repo outside an authorised
     ``--refresh-data`` scope, and the guard stopped it."""
@@ -1099,6 +1122,9 @@ class SharedRepoWriteGuard:
             for p in (os.path.abspath(os.fspath(r)),
                       os.path.realpath(os.fspath(r)))}))
         self.blocked: list = []
+        #: When this guard armed (``time.time()``); ``None`` until then.
+        #: The own-temporary allowance reads it (:data:`OWN_TEMPORARY_OPS`).
+        self.armed_at = None
         #: Every lock-file operation the allowance let through, recorded so
         #: "the repo was untouched apart from the ruled lock churn" is a
         #: fact in the artifact rather than a claim in a report.
@@ -1231,7 +1257,25 @@ class SharedRepoWriteGuard:
         scope = scope_of(rel)
         if scope in self.requested:
             return None
+        if op in OWN_TEMPORARY_OPS and self._wrote_past_the_guard(real, rel):
+            # Recorded as a block (the WRITE was one) and let through:
+            # the removal puts the corpus back.  See OWN_TEMPORARY_OPS.
+            self.blocked.append({"path": rel, "scope": scope,
+                                 "via": UNSEEN_WRITE_VIA % op})
+            return None
         return rel, scope
+
+    def _wrote_past_the_guard(self, real, rel) -> bool:
+        """Is ``real`` a temporary THIS process created after arming?"""
+        if self.armed_at is None or temporary_writer_pid(rel) != os.getpid():
+            return False
+        try:
+            status = os.stat(real)
+        except OSError:
+            return False
+        born = getattr(status, "st_birthtime", None) or status.st_ctime
+        # 2 s: the coarsest file-time step of a supported file system
+        return born >= self.armed_at - 2.0
 
     def _refuse(self, rel, scope, how):
         self.blocked.append({"path": rel, "scope": scope, "via": how})
@@ -1334,6 +1378,7 @@ class SharedRepoWriteGuard:
         # above.  Nothing further to patch; recorded so the next reader does
         # not re-derive it.
         del shutil
+        self.armed_at = time.time()
         _ACTIVE_GUARDS.append(self)
         return self
 

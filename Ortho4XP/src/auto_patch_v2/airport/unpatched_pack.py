@@ -37,6 +37,7 @@ from ..model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
 from . import backup_state as _bs
 from . import dsf_write as _dw
 from . import pack_art as _pa
+from . import pack_journal as _pj
 from .file_hash import sha256_file
 
 __all__ = ["NONE", "RESTORED", "RECOMPOSED", "UNPROVEN", "Outcome",
@@ -108,6 +109,8 @@ def restore_airport(pack_root: str, dsf_path: str, icao: str, tool: str, *,
         # file we cannot prove is ours never loses bytes
         return Outcome(NONE, dsf_path, seated)
     kept = tuple(a for a in seated if a != icao)
+    # #598: the pack as it is NOW, kept until this build completes
+    _pj.snapshot(pack_root, dsf_path)
     # THE ART THE USER ACCEPTED TO BUILD WITHOUT STAYS OUT (#433; master
     # ruling on 12d): "as authored" is the placements and their seating,
     # never definitions that are not installed — X-Plane refuses to load

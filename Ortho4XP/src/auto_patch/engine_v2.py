@@ -850,6 +850,9 @@ def _write_art_only(art: "_PackArt", pack_root: str, icao: str = "") -> None:
     plan = PlacementPlan("", art.pack_name, pack_root, art.dsf_path,
                          art.dsf_path + BACKUP_SUFFIX,
                          Provenance("", _engine_version(), "", {}))
+    # #598: a no-op outside a build's object stage (the user's command)
+    from auto_patch_v2.airport import pack_journal as _pj
+    _pj.snapshot(pack_root, art.dsf_path)
     _dw.write_pack(pack_root, plan, _DSFR._dsftool_path() or "DSFTool",
                    allow_live_install=True, engine_version=_engine_version(),
                    omit=art.missing if art.omit else ())
@@ -1160,6 +1163,77 @@ def _engine_version() -> str:
         return ""
 
 
+def restore_stopped_build(build_dir: str, lat: int, lon: int) -> list:
+    """A BUILD THAT DID NOT COMPLETE PUTS THE SCENERY PACKS BACK (owner
+    decision 2026-10-12, #598): every pack file the object stage of that
+    build rewrote is as it was BEFORE the build — the seating that
+    matches the scenery still active, not the pristine pack.  Called
+    when a build is stopped, and before a tile's next build when the last
+    one was killed (``pack_journal``).
+
+    Returns one sentence per pack that could NOT be put back (also said
+    as a warning); silent and read-free when the build rewrote no pack.
+    Never raises."""
+    import O4_File_Names as FNAMES
+    import O4_UI_Utils as UI
+    from auto_patch_v2.airport import pack_journal as _pj
+    unproven: list = []
+    try:
+        tile_name = FNAMES.short_latlon(lat, lon)
+        if not _pj.pending(build_dir, tile_name):
+            return unproven
+        done = _pj.replay(build_dir, tile_name, allow_live_install=True)
+        for out in done:
+            pack = os.path.basename(os.path.normpath(out.pack_root))
+            if out.state == _pj.UNPROVEN:
+                text = (f"The scenery pack {pack} was changed by the build "
+                        f"that did not finish and could not be put back as "
+                        f"it was: {out.reason} Its objects may float or "
+                        f"sink until the tile is built again.")
+                unproven.append(text)
+                UI.loud_warning("   " + text)
+            else:
+                UI.vprint(0, f"  [v2 rebake] pack {pack} "
+                             f"{os.path.basename(out.dsf_path)} is back as it "
+                             f"was before the build that did not finish")
+    except Exception as exc:
+        text = (f"The scenery packs changed by the build that did not finish "
+                f"could not be put back as they were ({exc}). Their objects "
+                f"may float or sink until the tile is built again.")
+        unproven.append(text)
+        UI.loud_warning("   " + text)
+        UI.vprint(2, traceback.format_exc())
+    return unproven
+
+
+def discard_pack_journal(build_dir: str, lat: int, lon: int) -> None:
+    """The build COMPLETED: its pack writes stand (#598)."""
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import pack_journal as _pj
+    _pj.discard(build_dir, FNAMES.short_latlon(lat, lon))
+
+
+def _pack_journalled(stage):
+    """The object stage of one tile's build, with the pack files it
+    rewrites kept as they were until the build completes (#598): a
+    journal an earlier build left is that build never completing — it is
+    put back first — and every pack write of ``stage`` is journalled."""
+    import functools
+
+    @functools.wraps(stage)
+    def journalled(tile) -> dict:
+        import O4_File_Names as FNAMES
+        from auto_patch_v2.airport import pack_journal as _pj
+        restore_stopped_build(tile.build_dir, tile.lat, tile.lon)
+        _pj.begin(tile.build_dir, FNAMES.short_latlon(tile.lat, tile.lon))
+        try:
+            return stage(tile)
+        finally:
+            _pj.end()
+    return journalled
+
+
+@_pack_journalled
 def rebake_after_mesh(tile) -> dict:
     """Run the PLACEMENT stage for every airport v2 patched on ``tile``
     against the mesh just built (see the section comment).  Never raises

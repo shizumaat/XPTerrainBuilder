@@ -273,3 +273,56 @@ def test_the_encoder_writes_terrain_files_to_the_staging_folder(tmp_path):
     os.remove(os.path.join(str(tmp_path), "terrain", name))
     DSF.create_terrain_file(*arguments)
     assert os.listdir(os.path.join(str(tmp_path), "terrain")) == [name]
+
+
+# ---------------------------------------------------------------------------
+# The scenery packs, and the tile's row (round 2)
+# ---------------------------------------------------------------------------
+def test_the_step_settles_a_stop_and_completes_a_build(run, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        TILE.STOPPED, "settle",
+        lambda build_dir, lat, lon: calls.append(("settle", lat, lon)))
+    monkeypatch.setattr(
+        TILE.STOPPED, "complete",
+        lambda build_dir, lat, lon: calls.append(("complete", lat, lon)))
+
+    assert run.build(["a"], stop_after_downloads=0) == 0
+    assert calls == [("settle", 60, 5)]       # packs put back, not kept
+    UI.red_flag = False
+    assert run.build(["a"]) == 1
+    assert calls == [("settle", 60, 5), ("complete", 60, 5)]
+
+
+@pytest.mark.parametrize("built_before", [True, False])
+def test_a_stopped_tiles_row_says_what_it_is_left_with(
+        tmp_path, monkeypatch, built_before):
+    import O4_Stopped_Build as STOPPED
+    from o4_engine import events as EV
+    from o4_engine.session import EngineSession
+    from test_engine_session import install_stub_pipeline, run_build
+
+    if built_before:
+        _write(STOPPED.scenery_file(str(tmp_path), 10, 20), b"previous")
+    holder = {}
+    install_stub_pipeline(
+        monkeypatch, hooks={"imagery": lambda tile: holder["s"].cancel()})
+    holder["s"] = session = EngineSession()
+
+    events = run_build(session, [(10, 20)], tmp_path)
+
+    (stopped,) = [e for e in events if isinstance(e, EV.TileState)
+                  and e.label == "stopped"]
+    assert stopped.state == "queued"
+    assert stopped.detail == (STOPPED.PREVIOUS_ACTIVE if built_before
+                              else STOPPED.NO_SCENERY)
+    assert not [e for e in events if isinstance(e, EV.BuildDone)]
+    from o4_engine.jsonl import serialize_event
+    assert serialize_event(stopped)["detail"] == stopped.detail
+
+
+def test_the_stopped_sentences_are_the_owners():
+    import O4_Stopped_Build as STOPPED
+    assert STOPPED.PREVIOUS_ACTIVE == (
+        "Stopped — the previous scenery is still active.")
+    assert STOPPED.NO_SCENERY == "Stopped — this tile has no scenery yet."

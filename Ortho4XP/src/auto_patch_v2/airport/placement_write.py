@@ -60,6 +60,7 @@ from . import authored_seat as _seat
 from . import backup_state as _bs
 from . import dsf_write as _dw
 from . import footprint_unit as _fu
+from . import pack_journal as _pj
 from . import placement_plan as _pp
 
 __all__ = ["PlacementWriteResult", "RestoreResult", "build_plan", "write_files",
@@ -459,6 +460,10 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     v = _bs.classify_dsf(plan.dsf_path)
     if not v.may_write:
         raise _dw.BackupUnproven(_dw._stand_down_line(v))
+    # #598: the pack as it is NOW, kept until this build completes
+    _pj.snapshot(plan.pack_root, plan.dsf_path, new_bodies=[
+        os.path.join(plan.pack_root, *f.resource.replace("\\", "/").split("/"))
+        for f in files])
     restore = restore_pack_objects(plan.pack_root,
                                    allow_live_install=allow_live_install,
                                    dsf_path=plan.dsf_path, icao=plan.icao)

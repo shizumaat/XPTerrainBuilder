@@ -249,6 +249,12 @@ import Foundation
                                       indeterminate: true))
         let state = event(#"{"event":"TileState","lat":10,"lon":20,"state":"done","label":"","percent":100.0,"seq":4,"ts":3.0}"#)
         #expect(state == .tileState(lat: 10, lon: 20, state: "done", label: "", percent: 100))
+        // #598 (additive within 1.10): a stopped tile says what it is left
+        // with; an engine that does not send the field decodes as "".
+        let stopped = event(#"{"event":"TileState","lat":10,"lon":20,"state":"queued","label":"stopped","percent":0.0,"detail":"Stopped — the previous scenery is still active.","seq":4,"ts":3.0}"#)
+        #expect(stopped == .tileState(lat: 10, lon: 20, state: "queued", label: "stopped", percent: 0,
+                                      detail: "Stopped — the previous scenery is still active."))
+        #expect(state == .tileState(lat: 10, lon: 20, state: "done", label: "", percent: 100, detail: ""))
         let eta = event(#"{"event":"RunEta","elapsed_seconds":12.0,"remaining_seconds":null,"done_tiles":0,"total_tiles":2,"seq":5,"ts":4.0}"#)
         #expect(eta == .runEta(elapsedSeconds: 12, remainingSeconds: nil,
                                doneTiles: 0, totalTiles: 2))

@@ -971,6 +971,14 @@ struct ActivityBox: View {
             ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
                 .controlSize(.small)
                 .tint(progressTint(progress.state))
+            // A stopped tile: what the engine left it with (#598).
+            if !progress.detail.isEmpty,
+               progress.state == .stopped || progress.label == "stopped" {
+                Text(progress.detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

@@ -436,6 +436,13 @@ def resolve_tile_state(incoming, current):
     return incoming
 
 
+def row_detail(state, label, detail):
+    """The second line of a tile's Activity row: the engine's sentence
+    for a STOPPED tile (``TileState.detail``, #598 — what the tile is
+    left with), shown only while the row reads stopped."""
+    return detail if (state == "stopped" or label == "stopped") else ""
+
+
 def enqueue_resume(tile, queue):
     """Ordered, deduped append to the pending-resume queue."""
     return list(queue) if tile in queue else list(queue) + [tile]
@@ -1215,6 +1222,8 @@ class MainWindow(QMainWindow):
         self._panel_layout = pv
         self._panel_spacer_index = pv.count() - 1
         self._tile_rows = {}
+        # TileState.detail of a stopped tile (#598), by tile.
+        self._tile_details = {}
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_build_clock)
@@ -3305,6 +3314,8 @@ class MainWindow(QMainWindow):
         for bar, status, row, cancel, clock in self._tile_rows.values():
             row.deleteLater()
         self._tile_rows = {}
+        # TileState.detail of a stopped tile (#598), by tile.
+        self._tile_details = {}
         self._tile_clocks = {}
         self._eta_samples = []
         self._eta_unreliable = False
@@ -3335,6 +3346,10 @@ class MainWindow(QMainWindow):
         for tile in tiles:
             if tile in self._tile_rows:
                 bar, status, _row, cancel, clock = self._tile_rows[tile]
+                self._tile_details.pop(tile, None)
+                stale = _row.findChild(QLabel, "tile_detail")
+                if stale is not None:
+                    stale.setVisible(False)
                 bar.setValue(0)
                 status.setText("queued")
                 status.setStyleSheet("color: gray; font-size: 11px;")
@@ -3379,6 +3394,13 @@ class MainWindow(QMainWindow):
             bar.setTextVisible(False)
             bar.setFixedHeight(6)
             rl.addWidget(bar)
+            # What a STOPPED tile is left with (#598); hidden otherwise.
+            detail = QLabel("")
+            detail.setObjectName("tile_detail")
+            detail.setWordWrap(True)
+            detail.setStyleSheet("color: gray; font-size: 11px;")
+            detail.setVisible(False)
+            rl.addWidget(detail)
             self._rows_layout.insertWidget(
                 self._rows_layout.count() - 1, row
             )
@@ -3408,10 +3430,15 @@ class MainWindow(QMainWindow):
             (event.state, event.label, event.percent),
             self._progress_states.get(tile),
         )
+        if event.label == "stopped":
+            # What the engine's stop left the tile with (#598) — the one
+            # thing its late notice adds to a row already stopped here.
+            self._tile_details[tile] = getattr(event, "detail", "") or ""
         if resolved is None:
             # The row is locally stopped and this is not a terminal
             # outcome — including the engine's own late "stopped" notice,
             # which the row said minutes ago.
+            self._render_row_state(tile)
             return
         state, label, _pct = resolved
         if state == "done":
@@ -3480,9 +3507,14 @@ class MainWindow(QMainWindow):
         row = self._tile_rows.get(tile)
         if row is None:
             return
-        bar, status, _row, button, _clock = row
+        bar, status, row_widget, button, _clock = row
         state, label, pct = self._progress_states.get(
             tile, ("queued", "queued", 0))
+        detail = row_widget.findChild(QLabel, "tile_detail")
+        if detail is not None:
+            text = row_detail(state, label, self._tile_details.get(tile, ""))
+            detail.setText(text)
+            detail.setVisible(bool(text))
         color = "gray"
         if state == "done":
             bar.setValue(100)

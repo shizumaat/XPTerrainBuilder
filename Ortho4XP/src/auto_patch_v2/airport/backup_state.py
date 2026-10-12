@@ -72,7 +72,7 @@ __all__ = ["State", "Verdict", "BackupUnproven", "OWNERSHIP_PROPERTY",
            "classify_dsf", "classify_object", "adopt", "carries_our_mark",
            "backup_matches_record", "read_record", "dsf_entry",
            "update_dsf_entry", "record_path_for", "preserve_live_copy",
-           "stamp", "invalidate_memo"]
+           "stamp", "invalidate_memo", "drop_dsf_entry", "restore_record"]
 
 #: The in-band ownership mark ``edit_dump`` writes into every DSF this
 #: engine encodes.  MEASURED 2026-09-18 on a real pack DSF (TFFJ
@@ -332,6 +332,47 @@ def drop_dsf_entry(dsf_path: str) -> bool:
     _write_record(path, doc)
     invalidate_memo()
     return True
+
+
+def restore_record(dsf_path: str, before: bytes | None) -> None:
+    """Put THIS DSF's part of the record back as ``before`` — the record
+    file's bytes from before a build that was then stopped (#598), or
+    ``None`` when there was no record.
+
+    When no SIBLING DSF's entry changed since, the file is ``before``
+    byte for byte.  Otherwise (another tile's build wrote its own DSF's
+    entry meanwhile) only this DSF's entry and the last-write keys go
+    back and the siblings' entries are kept."""
+    if before is None:
+        drop_dsf_entry(dsf_path)
+        return
+    path = record_path_for(dsf_path)
+    base = os.path.basename(dsf_path)
+    try:
+        then = json.loads(before.decode("utf-8"))
+    except ValueError:
+        then = None
+    now = read_record(dsf_path)
+
+    def others(doc: _t.Any) -> dict:
+        dsfs = doc.get("dsfs") if isinstance(doc, dict) else None
+        return {k: v for k, v in (dsfs if isinstance(dsfs, dict) else {}
+                                  ).items() if k != base}
+
+    if not isinstance(then, dict) or others(then) == others(now):
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as fh:
+            fh.write(before)
+        os.replace(tmp, path)
+    else:
+        doc = dict(then)
+        dsfs = others(now)
+        mine = dsf_entry(then, base)
+        if mine:
+            dsfs[base] = mine
+        doc["dsfs"] = dsfs
+        _write_record(path, doc)
+    invalidate_memo()
 
 
 # ── the DSF table ───────────────────────────────────────────────────────

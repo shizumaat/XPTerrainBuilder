@@ -72,7 +72,7 @@ from .events import (BuildDone, RunDone, RunEta, StepProgress, TileClocks,
                      TileState)
 from .session import (
     _predict_step_seconds, build_done, plan_steps, prediction_features,
-    reweight_plan_by_seconds,
+    reweight_plan_by_seconds, stopped_tile_state,
 )
 
 
@@ -1423,6 +1423,13 @@ class ParallelBuildRun:
         return True
 
     # -- cancellation ----------------------------------------------------
+    def _stopped_state(self, tile):
+        """The stopped ``TileState`` of ``tile``, its scenery packs put
+        back first (#598) — for a tile no child is working on any more."""
+        build_dir = (self._tile_arguments.get(tile)
+                     or {}).get("custom_build_dir", "")
+        return stopped_tile_state(tile[0], tile[1], build_dir)
+
     def cancel_tile(self, tile):
         emit_stopped = False
         cancelling = None
@@ -1457,8 +1464,7 @@ class ParallelBuildRun:
             # flag must not hang the run.
             self._arm_cancel_escalation(cancelling)
         if emit_stopped:
-            self._session._emit(TileState(lat=tile[0], lon=tile[1],
-                                          state="queued", label="stopped"))
+            self._session._emit(self._stopped_state(tile))
             self._maybe_finish()
         return accepted
 
@@ -1480,8 +1486,7 @@ class ParallelBuildRun:
                     child.send({"cmd": "cancel"})
                     cancelling.append(child)
         for tile in drained + waiting:
-            self._session._emit(TileState(lat=tile[0], lon=tile[1],
-                                          state="queued", label="stopped"))
+            self._session._emit(self._stopped_state(tile))
         for child in cancelling:
             self._arm_cancel_escalation(child)
         self._maybe_finish()
@@ -1805,8 +1810,7 @@ class ParallelBuildRun:
             self._dispatch_locked()
         if stopped_tile is not None:
             lat, lon = stopped_tile
-            self._session._emit(TileState(lat=lat, lon=lon, state="queued",
-                                          label="stopped"))
+            self._session._emit(self._stopped_state(stopped_tile))
             print("Build worker for", _short_latlon(stopped_tile),
                   "exited while being stopped; its tile is marked stopped.")
         if crashed_tile is not None:

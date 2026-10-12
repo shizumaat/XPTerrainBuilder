@@ -26,6 +26,7 @@ from collections import deque
 from typing import Callable, Optional
 
 import O4_File_Names as FNAMES
+import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
 import O4_Unpatched_Airports as UNPATCHED
 import O4_UI_Utils as UI
@@ -583,6 +584,20 @@ class _EtaTracker:
         return tuple(rows)
 
 
+def stopped_tile_state(lat, lon, custom_build_dir=""):
+    """The ``TileState`` of a tile whose build was STOPPED (#598): the
+    scenery packs the build rewrote are put back, and ``detail`` says what
+    the tile is left with (``O4_Stopped_Build.settle``).  ONE place for
+    the session and the parallel orchestrator; never raises."""
+    try:
+        detail = STOPPED.settle(
+            FNAMES.build_dir(lat, lon, custom_build_dir), lat, lon)
+    except Exception:
+        detail = ""
+    return TileState(lat=lat, lon=lon, state="queued", label="stopped",
+                     detail=detail)
+
+
 class EngineSession:
     """One engine, many views: commands in, typed events out."""
 
@@ -1095,8 +1110,7 @@ class EngineSession:
             (lat, lon) = tile_key
             if (lat, lon) in self._cancelled_tiles:
                 # Cancelled while queued: never started, reported stopped.
-                self._emit(TileState(lat=lat, lon=lon, state="queued",
-                                     label="stopped"))
+                self._emit(stopped_tile_state(lat, lon, custom_build_dir))
                 continue
             self._active_tile = (lat, lon)
             step_seconds = {}
@@ -1140,6 +1154,11 @@ class EngineSession:
                     if UI.red_flag:
                         break
                     self._start_step((lat, lon), key, base, width)
+                    if key == "vector":
+                        # A build of this tile that was KILLED after it
+                        # rewrote scenery packs never put them back: do
+                        # it before this one reads a pack (#598).
+                        STOPPED.settle(tile.build_dir, lat, lon)
                     step_t0 = time.time()
                     result = step_fn[key](tile)
                     step_seconds[key] = time.time() - step_t0
@@ -1169,8 +1188,8 @@ class EngineSession:
                 if UI.red_flag:
                     if self._eta:
                         self._eta.tile_terminal((lat, lon))
-                    self._emit(TileState(lat=lat, lon=lon, state="queued",
-                                         label="stopped"))
+                    self._emit(stopped_tile_state(lat, lon,
+                                                  custom_build_dir))
                     if (not self._cancel_all
                             and (lat, lon) in self._cancelled_tiles):
                         # Only THIS tile was cancelled (spec §3.4): clear

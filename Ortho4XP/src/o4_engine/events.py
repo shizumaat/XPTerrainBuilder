@@ -63,7 +63,8 @@ from typing import Optional
 # front end that reads only it shows no exception text either.  The SAME
 # bump covers the ``failure_report`` command (``o4_engine.failure_report``,
 # issue #565): a front end offers "Report this problem" / "Save report
-# file" only to an engine at 1.10 or later.
+# file" only to an engine at 1.10 or later.  Also within 1.10 (additive,
+# #598): ``TileState.detail`` — the second line of a stopped tile's row.
 PROTOCOL_VERSION = "1.10"
 
 
@@ -133,6 +134,10 @@ class TileState(EngineEvent):
 
     ``state``: "queued" | "active" | "indeterminate" | "done" | "error".
     ``label`` is the short human status ("failed", "stopped", "").
+    ``detail`` (additive within 1.10, #598) is one or more whole sentences
+    for a second line under the tile's row — for a stopped tile, what it
+    is left with (``O4_Stopped_Build``); empty otherwise.  A front end
+    shows it verbatim; an older one ignores it.
     """
 
     lat: int = 0
@@ -140,6 +145,7 @@ class TileState(EngineEvent):
     state: str = "queued"
     label: str = ""
     percent: float = 0.0
+    detail: str = ""
 
 
 @dataclass(frozen=True)

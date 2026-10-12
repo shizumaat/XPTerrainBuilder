@@ -152,3 +152,70 @@ Merged `origin/claude/failmsg562` @ e937e3a9a first. One conflict: `O4_Tile_Fail
   DSF); a backup retired to `.superseded-<UTC>` / a live copy kept as `.unrecognised-<UTC>` by
   `adopt` / `preserve_live_copy` stays retired; an authored `.obj` that step 0 put back to its
   original (a v1-era edit) stays original.
+
+## DESIGN, ROUND 2 (as built)
+
+**A. Pack restore on stop.** `auto_patch_v2/airport/pack_journal.py` (new). The object stage
+(`engine_v2.rebake_after_mesh`, now wrapped by `_pack_journalled`) opens a journal under the tile's
+build directory (`pack_journal_<tile>/`); each of the three pack writers calls `snapshot` before its
+first write — `placement_write.apply_plan`, `unpatched_pack.restore_airport`, the engine's
+`_write_art_only` — which copies the pack DSF, the record beside it and the split bodies the record
+names, once per DSF per build, and notes the body files about to be written (the record names them
+only once the DSF write got that far). Outside an object stage `snapshot` is a no-op (the user's art
+command is not a build).
+
+* **Stopped** → `O4_Stopped_Build.settle` → `engine_v2.restore_stopped_build` → `pack_journal.replay`:
+  bodies back, DSF back, the bodies only the stopped build minted removed (`remove_cut_files`, its
+  CUT_MARK guard), the record put back (`backup_state.restore_record`: byte for byte when no sibling
+  DSF's entry changed since, else only this DSF's entry). Called from every place a tile is ended as
+  stopped: the session's two (`session.stopped_tile_state`), the orchestrator's three
+  (`_stopped_state`: queue drain, between steps, child exited while being stopped) and the imagery
+  step's stop branch.
+* **Killed** → the journal is still there: the next build's vector step start (session) and the next
+  object stage (the decorator) replay it before anything else.
+* **Completed** (`build_tile` returns 1) → `O4_Stopped_Build.complete` discards the journal.
+* **Ownership.** A DSF is overwritten only when it is still the bytes saved, or `classify_dsf` says
+  OURS / PRISTINE; anything else (the user installed a new version meanwhile) is left and NAMED:
+  "The scenery pack <name> was changed by the build that did not finish and could not be put back as
+  it was: <reason> Its objects may float or sink until the tile is built again." — a warning in the
+  log (`loud_warning`) and appended to the stopped row's second line.
+* The restored DSF gets a NEW mtime on purpose: the readers' text dump is keyed on it and was
+  refreshed for the stopped build's file.
+* No composer, no encode: file copies plus the existing record writer and body helpers.
+
+DEVIATION from the brief, for the master: an unprovable restore does NOT go through the warnings
+sheet. That sheet is fed by `BuildDone.warnings`, and a stopped tile emits no `BuildDone` (emitting
+one would count the tile as finished or failed in both apps and in `RunDone`). It is on the row's
+second line and in the log instead.
+
+**B. Row subtitle.** `TileState.detail: str = ""` (additive, protocol stays 1.10; comment in
+`events.py`). For a stopped tile the engine sends "Stopped — the previous scenery is still active."
+or "Stopped — this tile has no scenery yet." (`O4_Stopped_Build.PREVIOUS_ACTIVE` / `NO_SCENERY`),
+plus the unprovable-restore sentence(s). mac: `O4Event.tileState(…, detail:)` (defaulted),
+`TileProgress.detail`, a `.caption2` line under the row's bar; `BuildModel.resolving` lets the
+engine's late "stopped" notice add ONLY the detail to a row stopped locally. Qt: a `tile_detail`
+label under the row's bar, `row_detail()` pure rule, same late-notice rule. Neither app carries the
+wording (parity twin).
+
+## TWINS, ROUND 2
+
+* `tests/auto_patch_v2/test_pack_journal.py` (9): stop after the stage → every pack file byte-identical
+  to before the build; first-ever build stopped → authored pack (its new `.anchor_bak` stays); killed
+  between the new bodies and the DSF write → the next object stage restores; completed → journal gone,
+  seating kept; pack never written → untouched (sizes and mtimes), no journal; write outside a build
+  not journalled; user-replaced DSF left and named; the row carries the sentence; a sibling DSF's
+  record entry survives.
+* `tests/test_stopped_build.py` (+4 → 13): the step settles a stop and completes a build; the session's
+  stopped `TileState` carries the right sentence, serialised, with no `BuildDone`; the two sentences.
+* `tests/test_qt_stop_resume.py` (+5): second line shown / hidden / cleared; copy parity.
+* `Tests/SceneryKitTests/OrthoKitTests.swift`: `TileState.detail` decodes; absent = "".
+
+## NOT DONE / LEFT, ROUND 2
+
+* The mac row and the Qt row were not looked at on screen (swift build + tests, Qt offscreen only).
+* The orchestrator's three stopped sites are covered by `test_engine_parallel` passing unchanged and
+  by the shared helper's own twin, not by a new parallel twin with a real journal.
+* A stop between two builds' object stages on a pack DSF shared by TWO TILES' builds running at once
+  restores each tile's own DSF only (a pack DSF is per tile; the record's sibling entries are kept).
+* `.anchor_bak` minted by the stopped build, backups retired by `adopt` / `preserve_live_copy`, and
+  authored `.obj` put back to original by step 0 are not undone (census note).

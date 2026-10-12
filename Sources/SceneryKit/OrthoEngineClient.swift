@@ -245,7 +245,11 @@ public enum O4Event: Sendable, Equatable {
     /// built: [lat, lon, info] triples; installed: [lat, lon] pairs.
     case scanBatch(built: [(lat: Int, lon: Int, info: O4JSON)], installed: [(lat: Int, lon: Int)])
     case scanDone(builtCount: Int, installedCount: Int)
-    case tileState(lat: Int, lon: Int, state: String, label: String, percent: Double)
+    /// `detail` (additive within protocol 1.10, #598): whole sentences for
+    /// a second line under the tile's row — for a stopped tile, what it is
+    /// left with. Empty from an older engine; shown verbatim.
+    case tileState(lat: Int, lon: Int, state: String, label: String, percent: Double,
+                   detail: String = "")
     case stepProgress(lat: Int, lon: Int, stepKey: String, label: String,
                       percent: Double, indeterminate: Bool)
     case autoPatchBegin(airports: [String], lat: Int, lon: Int)
@@ -357,7 +361,8 @@ public enum O4Event: Sendable, Equatable {
             return .scanDone(builtCount: int("built_count"), installedCount: int("installed_count"))
         case "TileState":
             return .tileState(lat: int("lat"), lon: int("lon"), state: string("state"),
-                              label: string("label"), percent: double("percent"))
+                              label: string("label"), percent: double("percent"),
+                              detail: string("detail"))
         case "StepProgress":
             return .stepProgress(lat: int("lat"), lon: int("lon"), stepKey: string("step_key"),
                                  label: string("label"), percent: double("percent"),

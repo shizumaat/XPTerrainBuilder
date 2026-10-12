@@ -15,6 +15,7 @@ import O4_Proj_Runtime as PROJRT
 import O4_Held_File as HELD
 import O4_Tile_Failures as FAILURES
 import O4_Tile_Staging as STAGING
+import O4_Stopped_Build as STOPPED
 from O4_Parallel_Utils import (
     effective_convert_slots,
     effective_download_slots,
@@ -547,7 +548,7 @@ def build_tile(tile):
         # during the texture downloads (it is whole, the textures are not).
         # Either way NOTHING is activated: activation is the last act of a
         # COMPLETED build (owner ruling 2026-10-12h (3), #598).
-        _say_stopped(dsf_file_name)
+        _say_stopped(tile, dsf_file_name)
         return 0
     if (
         download_launched
@@ -598,6 +599,8 @@ def build_tile(tile):
         remove_dsftool_dump_leftovers(tile)
     _write_imagery_manifest(tile, download_stats, dico_conv_progress)
     warn_if_imagery_incomplete(tile)
+    # The build COMPLETED: the pack files its object stage rewrote stand.
+    STOPPED.complete(tile.build_dir, tile.lat, tile.lon)
     UI.timings_and_bottom_line(timer)
     UI.logprint(
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
@@ -605,9 +608,11 @@ def build_tile(tile):
     return 1
 
 ################################################################################
-def _say_stopped(dsf_file_name):
-    """End a stopped step: say what the tile is left with.  A cancel, so no
-    failure is named; the line reaches both apps' logs as a warning."""
+def _say_stopped(tile, dsf_file_name):
+    """End a stopped step: put the scenery packs this build rewrote back
+    and say what the tile is left with.  A cancel, so no failure is named;
+    the line reaches both apps' logs as a warning."""
+    STOPPED.settle(tile.build_dir, tile.lat, tile.lon)
     if os.path.isfile(dsf_file_name):
         UI.loud_warning(
             "Build stopped before it completed: the new scenery was not "

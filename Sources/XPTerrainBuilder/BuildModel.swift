@@ -18,6 +18,9 @@ struct TileProgress: Equatable {
     var state: State
     var label: String
     var percent: Double
+    /// The engine's sentence for a stopped tile — what it is left with
+    /// (TileState.detail, #598). Shown under the row, verbatim.
+    var detail: String = ""
 }
 
 /// The build settings a tile's run was STARTED with, snapshotted per tile so
@@ -704,13 +707,14 @@ final class BuildModel: ObservableObject {
                     workingDir: base.path, customSceneryDir: customSceneryPath)
             }
             refreshConflictTiles()
-        case .tileState(let lat, let lon, let state, let label, let percent):
+        case .tileState(let lat, let lon, let state, let label, let percent, let detail):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued
             applyTileEvent(TileProgress(
                 state: state,
                 label: label.isEmpty ? state.rawValue : label,
-                percent: percent), to: coord)
+                percent: percent,
+                detail: detail), to: coord)
         case .stepProgress(let lat, let lon, _, let label, let percent, let indeterminate):
             let coord = TileCoord(lat: lat, lon: lon)
             let previous = activity.tiles[coord]?.percent ?? 0
@@ -1803,7 +1807,15 @@ final class BuildModel: ObservableObject {
     /// already shows. nil = the event is stale, drop it.
     static func resolving(_ incoming: TileProgress,
                           over current: TileProgress?) -> TileProgress? {
-        if current?.state == .stopped, !mayOverwriteStopped(incoming.state) { return nil }
+        if let current, current.state == .stopped, !mayOverwriteStopped(incoming.state) {
+            // The engine's late "stopped" notice adds one thing to a row
+            // already stopped here: what the tile is left with (#598).
+            guard incoming.label == "stopped", !incoming.detail.isEmpty,
+                  incoming.detail != current.detail else { return nil }
+            var kept = current
+            kept.detail = incoming.detail
+            return kept
+        }
         return incoming
     }
 

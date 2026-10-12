@@ -31,6 +31,21 @@ Patch clock 976.8 s NOT timed (cold partition 227 s after the code-key change; l
 Spec §47 (8) (d)/(e) + MEASURED written. Scripts: scratchpad w551/basin_table.py, roof_probe.py,
 witness_probe.py. Not done: no sim read; no HECA/KCLT builds (captures probed instead).
 
+SPJC CHANGED (master sweep sw15 -> sw16 after #589 landed) — ATTRIBUTED 2026-10-12: `building32` was torre_nueva's
+CLUSTER PAD (evidence._cluster_pads; 16,713 m2 flat at 12.17 m = the DEM mean under it, centroid -12.0181237,
+-77.1220686, the tower inside it). Mechanism: skirt.skirted_placements exempts BASIN MEMBERS (10ax (2)); under main
+torre_nueva's roofed basement was a pit WITNESS (region 1, then refused as a basement by rule 4 naming building32), so
+the tower was a member, never skirt-read, and the pad stood; with §47 (8) the witness is refused at the read, the tower
+is no member, the skirt reader reads it (foundation skirt 4.24 m) and evidence._drop_skirted drops the pad under 10ag
+("cluster1 dropped (skirted): 16697 m2, 70 % covered by skirted placements, relief 1.70 m <= skirt 4.24 m") — reproduced
+on the pads67 SPJC capture with the witness on/off (scratchpad w551, one script). sw16: nothing within 120 m of the
+tower, it stands on raw DEM (11.26–12.96 under the old ring, 11.80 at its origin); plan seat rows identical (unit:7,
+same anchor, agl 0, skirted True both; sw15 skipped the room as below_grade_parts 1, sw16 reads the whole object as one
+part, feet −4.241 both). sw16 is 10ag's state for a skirted building (no pad, low-side seat, skirt buried); sw15's pad
+lived only on the basin-member exemption the misread gave it. OTHH PowerStation_Clutter_000: in a unit both arms
+(unit:23 -> unit:21, anchor 25.258938925, 51.618530175), skirted False, no pad lost (only building6#7/#11/#12, the
+terminal pad's jetway-knife pieces, differ).
+
 ## RESUME HERE (2026-10-12, resumed lane; main merged at 1ff5a912a, docs only)
 
 WITNESS REVISED 82eafb1b8 (+ 64d02c7f1 code key): the v2 suite on the first witness (height against depth

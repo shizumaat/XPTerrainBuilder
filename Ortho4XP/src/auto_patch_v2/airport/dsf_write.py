@@ -603,6 +603,44 @@ def _remove_quietly(path: str) -> None:
         pass
 
 
+#: Waits between attempts to rename a finished dump onto its name when the
+#: rename is refused (about 2 s in all).
+_LAND_RETRY_WAITS_S = (0.05, 0.1, 0.2, 0.4, 0.6, 0.65)
+
+
+def _land_dump(partial: str, text_out: str, started: float) -> None:
+    """Rename the finished ``partial`` onto ``text_out``.
+
+    ON WINDOWS THE RENAME CAN BE REFUSED (``PermissionError``): another
+    worker is renaming its own dump of the same DSF onto the name at this
+    instant, or a reader has the old dump open (#560, PR #569 — six
+    workers dump one pack DSF at once).  If a whole dump has landed there
+    since this dump began (``started``), another writer won: it is the
+    same text, so ours is dropped and theirs is used.  Otherwise the
+    rename is tried again for about two seconds, then :class:`DsfToolError`
+    names the refusal.  The caller removes ``partial`` on every path.
+    """
+    refusal: OSError | None = None
+    for wait in (0.0,) + _LAND_RETRY_WAITS_S:
+        if wait:
+            time.sleep(wait)
+        try:
+            os.replace(partial, text_out)
+            return
+        except PermissionError as error:
+            refusal = error
+        try:
+            landed = os.stat(text_out)
+            # 2 s: the coarsest file-time step of a supported file system
+            if landed.st_size > 0 and landed.st_mtime >= started - 2.0:
+                return
+        except OSError:
+            pass
+    raise DsfToolError(
+        f"the finished text dump could not be moved onto {text_out}: "
+        f"{refusal} — another program has that file open") from refusal
+
+
 def _sweep_stale_partials(text_out: str) -> None:
     """Remove the ``.partial`` files a KILLED dump of ``text_out`` left."""
     folder, prefix = os.path.split(text_out)
@@ -667,6 +705,7 @@ def dump(dsf_path: str, text_out: str, tool: str, *,
     if not tool or not os.path.isfile(tool):
         raise DsfToolError(f"DSFTool binary required, got {tool!r}")
     _sweep_stale_partials(text_out)
+    started = time.time()
     partial = f"{text_out}.{os.getpid()}.{uuid.uuid4().hex[:8]}.partial"
     try:
         try:
@@ -679,7 +718,7 @@ def dump(dsf_path: str, text_out: str, tool: str, *,
         if not os.path.isfile(partial) or os.path.getsize(partial) == 0:
             raise DsfToolError(
                 f"{tool} --dsf2text exited 0 but wrote no text for {dsf_path}")
-        os.replace(partial, text_out)
+        _land_dump(partial, text_out, started)
     finally:
         _remove_quietly(partial)
     return text_out

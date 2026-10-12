@@ -165,6 +165,78 @@ def test_two_dumps_of_one_dsf_at_once_both_end_whole(tmp_path, monkeypatch):
     assert not [n for n in _names(tmp_path) if n.endswith(".partial")]
 
 
+# ── the rename, as Windows refuses it (PR #569) ─────────────────────────
+
+def _refusing_replace(monkeypatch, times, on_refusal=None):
+    """``os.replace`` raising ``PermissionError`` its first ``times`` calls,
+    as Windows does while another process holds or is replacing the
+    target; ``on_refusal(src, dst)`` runs at each refusal.  No sleeping."""
+    real, refused = os.replace, []
+
+    def replace(src, dst):
+        if len(refused) < times:
+            refused.append((src, dst))
+            if on_refusal:
+                on_refusal(src, dst)
+            raise PermissionError(13, "Access is denied")
+        return real(src, dst)
+
+    monkeypatch.setattr(dsf_write.os, "replace", replace)
+    monkeypatch.setattr(dsf_write.time, "sleep", lambda _s: None)
+    return refused
+
+
+def test_a_refused_rename_is_tried_again(tmp_path, monkeypatch):
+    out = tmp_path / "+47-123.dsf.abcd1234.text"
+    out.write_bytes(b"")                    # the empty dump being healed
+    _dsftool(monkeypatch)
+    refused = _refusing_replace(monkeypatch, times=1)
+
+    assert dsf_write.dump(_dsf(tmp_path), str(out), _fake_tool(tmp_path)) == str(out)
+
+    assert len(refused) == 1
+    assert out.read_text(encoding="utf-8") == DUMP_TEXT
+    assert not [n for n in _names(tmp_path) if n.endswith(".partial")]
+
+
+def test_a_refused_rename_uses_the_dump_another_writer_landed(tmp_path, monkeypatch):
+    out = tmp_path / "+47-123.dsf.abcd1234.text"
+    theirs = "A\n800\nDSF2TEXT\n\n# the other worker's whole dump\n"
+    _dsftool(monkeypatch)
+
+    def winner_lands(_src, dst):
+        with open(dst, "w", encoding="utf-8", newline="") as handle:
+            handle.write(theirs)
+
+    refused = _refusing_replace(monkeypatch, times=99, on_refusal=winner_lands)
+
+    assert dsf_write.dump(_dsf(tmp_path), str(out), _fake_tool(tmp_path)) == str(out)
+
+    assert len(refused) == 1, "a landed dump was not accepted at once"
+    assert out.read_text(encoding="utf-8") == theirs
+    assert not [n for n in _names(tmp_path) if n.endswith(".partial")]
+
+
+@pytest.mark.parametrize("already_there", [None, b"", b"an older dump"])
+def test_a_rename_refused_for_good_names_the_cause(tmp_path, monkeypatch, already_there):
+    out = tmp_path / "+47-123.dsf.abcd1234.text"
+    if already_there is not None:
+        out.write_bytes(already_there)
+        old = time.time() - 600             # there long before this dump
+        os.utime(out, (old, old))
+    _dsftool(monkeypatch)
+    refused = _refusing_replace(monkeypatch, times=99)
+
+    with pytest.raises(dsf_write.DsfToolError, match="could not be moved onto") as caught:
+        dsf_write.dump(_dsf(tmp_path), str(out), _fake_tool(tmp_path))
+
+    assert "Access is denied" in str(caught.value)
+    assert len(refused) == 1 + len(dsf_write._LAND_RETRY_WAITS_S)
+    # what was there is untouched: never a stale or empty dump served as new
+    assert (out.read_bytes() if out.exists() else None) == already_there
+    assert not [n for n in _names(tmp_path) if n.endswith(".partial")]
+
+
 # ── the readers ─────────────────────────────────────────────────────────
 
 def test_an_empty_dump_is_absent_and_the_reason_says_empty(tmp_path):

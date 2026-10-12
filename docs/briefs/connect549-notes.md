@@ -4,10 +4,9 @@
 * DONE: step 2 arm A2 attribution (below), step 3 = the object cut at a pad level (`pad_block_seat.split_units`
   second pass, commit c5f26c3ae), step 4 = three dry-run arms of `obj8_split_report` on the kclt546 build's plan
   (numbers below). Scratch this session: `<scratchpad 466e18b3…>/connect549/` (p1_rows.py … p5_sites.py, osr_*.json).
-* RUNNING / NEXT: closing harness build `connect549_KCLT` (`/private/tmp/harness/connect549_KCLT.*`), then
-  `obj8_split_report` on its `.v2/KCLT.rebake.json` + `KCLT.graded.json` (site rows via p5_sites.py), `census.py`
-  + `airside_value_delta.py` vs `frames/kclt546/kclt546_KCLT.osm`, register the frame, final report.
-* Full non-Qt suite running in the background (`suite_nonqt.log` in the scratch dir); ratchets PASS.
+* DONE: closing build `connect549_KCLT` (step 5 below), frames registered (`frames.py list KCLT`), suite
+  9290 passed / 19 skipped / 1 xfailed / 1 xpassed, ratchets PASS. Final report delivered. OPEN for the
+  owner: the outer garages' level (step 2 arm A2) — the report's one-line options.
 
 
 Scratch `<scratchpad>/connect549/` (c1..c5). Branch `claude/connect549` off main b7505552d.
@@ -102,3 +101,19 @@ base = kclt546 worktree src (main + #546) on the kclt546 graded surface; fix = t
 * §7 census, feet of all bodies: base <0.3 6360 / 0.3–1 2331 / 1–3 310 / >3 82 (building >3 39, buried 779,
   floating 1944) → fix 7038 / 1694 / 300 / 51 (building >3 1; buried 539, floating 1506) → fixA 7621 / 1747 /
   244 / 2 (buried 487, floating 1506). Bodies 615 → 624 → 587, files 538 → 539 → 507.
+
+## Step 5 — closing build `connect549_KCLT` (harness, branch 8ae3030bd = main 1ff5a912a + c5f26c3ae)
+rc 0, wall 1588 s (loaded machine, correctness build), body 424876ac748d (kclt546_KCLT 0615e9d9f888); artifact
+ledger NOT stored (74 external-candidate KTCM inset deltas from another lane in the window). Products copied to
+`frames/connect549/` (patch, graded, rebake) and registered.
+* Census (`harness/census.py`): LAW-TRUE TOTAL 17451 = 17451 (within 17427, cross 7, steps 17, both arms);
+  verify DEFECTS {} (none).
+* `airside_value_delta` vs kclt546_KCLT: solve-owned airside 0 movers, RUNWAY 0, structure frame 0 (299 nodes);
+  row-side 217 nodes moved, all `building` pads: building86 26/26 218.07..218.45 -> 222.99..223.37 (+4.92),
+  building90 52/52 218.98..219.43 -> 222.99..223.45 (+4.04), building88 223.21 -> 223.09..223.14; a second
+  re-united cluster building94–98 all to 230.73 (<= 0.17 m). Vertices added/removed 0/0.
+* Object rows (`obj8_split_report` on the build's plan + graded; p5_sites.py): site A `paredes_5 b0` y_zero
+  0.00 on `fu:6:960/p0` pad building81 221.75 (was −0.69); site B `paredes_1 b1` −0.30 (worst foot 0.53; was
+  −0.99 / 1.22), `b2` −0.17 (was −0.86). Garages: `fu:31:2809` ONE unit on pad building88 223.11, own ground
+  −0.48..+0.00 (was 10 bodies at −2.2..−4.86). §7 census bins: <0.3 7607 / 0.3–1 1741 / 1–3 244 / >3 2
+  (base 6360 / 2331 / 310 / 82); buried 485 (779), floating 1502 (1944); bodies 589, files 509 (615 / 538).

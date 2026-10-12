@@ -1137,6 +1137,100 @@ def _engine_version() -> str:
         return ""
 
 
+def _pack_stand_down(tile) -> str:
+    """Why no pack file may be written by this build, or ``""`` — the
+    object stage's three switches, in one place for the unpatched-airport
+    restore (the placement loop below words its own lines)."""
+    from .config import DSF_OBJECT_REANCHOR
+    if not getattr(tile, "modify_custom_airports", True):
+        return '"Modify custom airports" is off'
+    if os.environ.get("O4_PACK_WRITES") == "measure_only":
+        return "this is a lane build (O4_PACK_WRITES=measure_only)"
+    if not DSF_OBJECT_REANCHOR:
+        return "DSF_OBJECT_REANCHOR is off"
+    return ""
+
+
+def restore_unpatched_packs(tile, scenery_dir: str | None = None) -> dict:
+    """AN AIRPORT LEFT WITHOUT A PATCH GETS ITS ORIGINAL PACK BACK (owner
+    RULINGS 2026-10-12d).  For every airport this tile is built without
+    (``O4_Unpatched_Airports.read``), every pack DSF of this tile an
+    earlier build re-seated for it is restored
+    (``unpatched_pack.restore_airport``); a restore that cannot be done
+    or proven is NAMED on that airport's record and in the log.
+
+    The packs are found from the engine's own write records
+    (``object_rebake.modified_packs``) — the airport's plan was set aside
+    with its patch.  A disabled pack and a pack inside the base simulator
+    are never touched; an airport no record names is a no-op.  Returns
+    ``{"restored": n, "recomposed": n, "unproven": n}``.  Never raises."""
+    import O4_File_Names as FNAMES
+    import O4_Scenery_Packs as _SP
+    import O4_UI_Utils as UI
+    import O4_Unpatched_Airports as UNPATCHED
+    from auto_patch_v2.airport import unpatched_pack as _up
+    from . import dsf_reader as _DSFR
+    from . import object_rebake as _OR
+    from .post_mesh import _is_protected_scenery_root
+
+    counts = {_up.RESTORED: 0, _up.RECOMPOSED: 0, _up.UNPROVEN: 0}
+    try:
+        unpatched = [rec["icao"] for rec in UNPATCHED.read(tile)]
+        if not unpatched:
+            return counts
+        if scenery_dir is None:
+            import O4_Config_Utils as CFG
+            scenery_dir = getattr(CFG, "custom_scenery_dir", "") or ""
+        tile_name = FNAMES.short_latlon(tile.lat, tile.lon)
+        stand_down = _pack_stand_down(tile)
+        for pack in _OR.modified_packs(scenery_dir, tile_name):
+            pack_root = pack["pack_path"]
+            if _is_protected_scenery_root(pack_root) \
+                    or not _SP.pack_enabled(pack_root):
+                continue
+            for record_path in _OR._v2_record_paths(pack_root):
+                dsf_path = os.path.join(os.path.dirname(record_path),
+                                        tile_name + ".dsf")
+                for icao in sorted(set(unpatched)
+                                   & set(_up.seated_airports(dsf_path))):
+                    if stand_down:
+                        out = _up.Outcome(_up.UNPROVEN, dsf_path, reason=(
+                            "it was not restored because " + stand_down))
+                    else:
+                        try:
+                            out = _up.restore_airport(
+                                pack_root, dsf_path, icao,
+                                _DSFR._dsftool_path() or "DSFTool",
+                                allow_live_install=True,
+                                engine_version=_engine_version())
+                        except Exception as exc:
+                            out = _up.Outcome(_up.UNPROVEN, dsf_path,
+                                              reason=str(exc))
+                    counts[out.state] = counts.get(out.state, 0) + 1
+                    if out.state == _up.UNPROVEN:
+                        text = (
+                            f"The scenery pack {pack['pack_name']} was changed "
+                            f"by an earlier build for this airport's graded "
+                            f"ground and could not be put back to its "
+                            f"original: {out.reason} Its objects may float or "
+                            f"sink there.")
+                        UNPATCHED.note_pack(tile, icao, text)
+                        UI.loud_warning(f"   {icao}: {text}")
+                    elif out.state != _up.NONE:
+                        kept = (f"; {', '.join(out.kept)} keep their placements"
+                                if out.kept else "")
+                        UI.vprint(0, f"  [v2 rebake] {icao}: left without a "
+                                     f"patch — pack {pack['pack_name']} "
+                                     f"{tile_name}.dsf is back to its original "
+                                     f"for this airport ("
+                                     f"{len(out.bodies_removed)} split "
+                                     f"bod(ies) removed{kept})")
+    except Exception as exc:
+        UI.vprint(1, f"  [v2 rebake] unpatched-airport pack restore failed: {exc}")
+        UI.vprint(2, traceback.format_exc())
+    return counts
+
+
 def rebake_after_mesh(tile) -> dict:
     """Run the PLACEMENT stage for every airport v2 patched on ``tile``
     against the mesh just built (see the section comment).  Never raises
@@ -1152,6 +1246,15 @@ def rebake_after_mesh(tile) -> dict:
                             object_anchor_worklist_path)
 
     counts = {"airports": 0, "airports_failed": 0, "packs_written": 0}
+    # RULINGS 2026-10-12d, BEFORE every gate and every early return below:
+    # an unpatched airport has no plan here (it was set aside with its
+    # patch), a tile whose every airport failed has no plan at all, and
+    # the placement loop would otherwise RE-APPLY the unpatched airport's
+    # recorded edits when it writes a sibling served by the same DSF.
+    # Silent and read-free when the tile has no unpatched airport.
+    restored = restore_unpatched_packs(tile)
+    if restored["restored"] or restored["recomposed"]:
+        counts["packs_restored"] = restored["restored"] + restored["recomposed"]
     # THE USER'S SWITCH IS A STAND-DOWN, NOT A MEASURE-ONLY ARM (owner
     # ruling RULINGS 2026-09-18a (3), BETA2 GEN-1; issue #42).  When the
     # user unchecks "Modify custom airports" the whole placement stage is

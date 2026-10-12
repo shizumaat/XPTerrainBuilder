@@ -29,6 +29,7 @@ __all__ = [
     "STALE_SUFFIX", "STRICT_ENV", "UNPATCHED_SIDECAR", "PATCH_FAMILY",
     "airport_patch_family",
     "set_aside_unbuilt", "strict", "may_continue", "record", "read",
+    "PACK_RESTORE_KEY", "note_pack",
     "warn",
 ]
 
@@ -50,6 +51,10 @@ STRICT_ENV = "O4_AUTO_PATCH_STRICT"
 #: it always describes the mesh on disk.  A FILE because the app emits the
 #: tile's final ``BuildDone`` from a different process than step 1.
 UNPATCHED_SIDECAR = "o4_unpatched_airports.json"
+
+#: Key of an unpatched record: why the airport's PACK could not be put
+#: back to its original (absent when it was, or was never rewritten).
+PACK_RESTORE_KEY = "pack_restore"
 
 #: The whole-tile failure record's airport name (``stage == "config"``:
 #: auto-patch is on and no CIFP directory resolves).  Not one airport's
@@ -136,7 +141,8 @@ def record(tile, failures) -> list:
     unpatched = [{"icao": str(rec.get("icao") or "?"),
                   "stage": str(rec.get("stage") or "?"),
                   "error": str(rec.get("error") or ""),
-                  **{k: rec[k] for k in ("code", "params") if rec.get(k)}}
+                  **{k: rec[k] for k in ("code", "params", PACK_RESTORE_KEY)
+                     if rec.get(k)}}
                  for rec in failures or ()]
     tile.auto_patch_unpatched = unpatched
     build_dir = getattr(tile, "build_dir", None)
@@ -149,6 +155,23 @@ def record(tile, failures) -> list:
         except OSError:
             pass
     return unpatched
+
+
+def note_pack(tile, icao: str, text: str) -> None:
+    """Add to ``icao``'s record what could NOT be done about its pack.
+
+    Owner RULINGS 2026-10-12d: an airport left without a patch gets its
+    original pack back, and a restore that cannot be proven is NAMED,
+    never skipped silently — the pack may still be seated for the graded
+    ground this tile no longer has.  The object stage (which runs after
+    the mesh, usually in another process) calls this; the sentence lands
+    under :data:`PACK_RESTORE_KEY` in the sidecar the final step reads."""
+    unpatched = read(tile)
+    for rec in unpatched:
+        if rec.get("icao") == icao:
+            earlier = rec.get(PACK_RESTORE_KEY)
+            rec[PACK_RESTORE_KEY] = (earlier + " " + text) if earlier else text
+    record(tile, unpatched)
 
 
 def read(tile) -> list:

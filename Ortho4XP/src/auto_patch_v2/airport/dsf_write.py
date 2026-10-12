@@ -1121,14 +1121,17 @@ def written_body_files(pack_root: str, dsf_path: str,
     return _body_paths(pack_root, entry.get("body_files") or [])
 
 
-def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str
+def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str,
+                   drop: _t.Collection[str] = ()
                    ) -> tuple[list[PlacementPlan], dict[str, dict]]:
     """#25: the OTHER airports' recorded edits of this DSF, as plans to
     compose, plus their record rows to carry forward.
 
     A sibling is re-applied only when its edits were built against THIS
     pristine dump (``dump_sha256`` equal) and parse; a stale or garbled
-    row is dropped — its bodies become orphans the write removes.
+    row is dropped — its bodies become orphans the write removes.  So is
+    every airport named in ``drop`` (RULINGS 2026-10-12d: an airport left
+    without a patch is no longer seated).
     Sorted by ICAO so the composition is deterministic."""
     airports = entry.get("airports")
     if not isinstance(airports, dict):
@@ -1136,7 +1139,7 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str
     plans: list[PlacementPlan] = []
     keep: dict[str, dict] = {}
     for icao in sorted(airports):
-        if icao == plan.icao:
+        if icao == plan.icao or icao in drop:
             continue
         row = airports.get(icao)
         if not isinstance(row, dict) or row.get("dump_sha256") != dump_sha:
@@ -1160,7 +1163,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                engine_version: str = "",
                law_digest: str = "",
                body_files: _t.Sequence[str] = (),
-               omit: _t.Sequence[_pa.MissingDef] = ()) -> WriteResult:
+               omit: _t.Sequence[_pa.MissingDef] = (),
+               drop: _t.Collection[str] = ()) -> WriteResult:
     """Apply ``plan`` to the pack's DSF (§3.3-§3.5).
 
     The pristine DSF is kept ONCE as ``<name>.dsf.anchor_bak`` and is
@@ -1179,7 +1183,13 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     rows), and the record gains ``omitted_art``.  The backup is the
     pristine file as always, so a later write without ``omit`` puts them
     back.  A plan with no ICAO is the omission alone: every recorded
-    airport's edits are re-applied and none is re-recorded."""
+    airport's edits are re-applied and none is re-recorded.
+
+    ``drop`` (owner RULINGS 2026-10-12d) names recorded airports whose
+    edits are NOT re-applied: their rows leave the record and their
+    bodies go as orphans.  With a plan with no ICAO that is "this DSF
+    without that airport's seating, the others' kept"
+    (``unpatched_pack.restore_airport``)."""
     dsf_path = plan.dsf_path or ""
     if not os.path.isfile(dsf_path):
         raise FileNotFoundError(f"DSF not found: {dsf_path!r}")
@@ -1256,7 +1266,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # edit is an orphan and goes after the move.
     dump_sha = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
     prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
-    siblings, sibling_rows = _sibling_plans(prior_entry, plan, dump_sha)
+    siblings, sibling_rows = _sibling_plans(prior_entry, plan, dump_sha, drop)
     composed = plan.compose(siblings)
     edited = edit_dump(text, composed,
                        engine_version or plan.provenance.engine_version)

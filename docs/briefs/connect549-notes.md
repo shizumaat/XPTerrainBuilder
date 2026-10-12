@@ -1,5 +1,15 @@
 # connect549 — notes (implementation of RULINGS 2026-10-10n/10o at the KCLT garage group; supersedes §64 as written by level549)
 
+## RESUME HERE (2026-10-12, session 2; branch `claude/connect549` on main 1ff5a912a)
+* DONE: step 2 arm A2 attribution (below), step 3 = the object cut at a pad level (`pad_block_seat.split_units`
+  second pass, commit c5f26c3ae), step 4 = three dry-run arms of `obj8_split_report` on the kclt546 build's plan
+  (numbers below). Scratch this session: `<scratchpad 466e18b3…>/connect549/` (p1_rows.py … p5_sites.py, osr_*.json).
+* RUNNING / NEXT: closing harness build `connect549_KCLT` (`/private/tmp/harness/connect549_KCLT.*`), then
+  `obj8_split_report` on its `.v2/KCLT.rebake.json` + `KCLT.graded.json` (site rows via p5_sites.py), `census.py`
+  + `airside_value_delta.py` vs `frames/kclt546/kclt546_KCLT.osm`, register the frame, final report.
+* Full non-Qt suite running in the background (`suite_nonqt.log` in the scratch dir); ratchets PASS.
+
+
 Scratch `<scratchpad>/connect549/` (c1..c5). Branch `claude/connect549` off main b7505552d.
 
 ## Step 1 — THE CONNECTION AT KCLT (c1/c2/c3/c5 on plan sw11 v13 + owner's 1.0.387 graded + capture valley2)
@@ -49,3 +59,46 @@ Scratch `<scratchpad>/connect549/` (c1..c5). Branch `claude/connect549` off main
   "infeasible -> long-span exception" / 08-27 split case — the group keeps its two held levels with the 0.69 m
   step AT the link, and the object side must seat per piece (`plan_unit_datums` one-zero is the site). Not
   implemented here (design in §64 (3) (e)).
+
+## Step 2 arm A2 — NAMED (session 2; `armA2/KCLT.solved.pkl` read by p3.py)
+* The merged garage plane (108 rim vertices, 222.99–223.45) is held by ONE soft row family: `pad_level`
+  "structures.building_pad frontage_level (apron; FACING ACROSS BARE GROUND; owner 2026-09-27a (9) Q-11 A)" on
+  `face:974` (building86's face) against apron `pav14` / `pav14#plateau:building92` leaders at 222.1–223.7
+  (`pavement:apron:facing`). 27a (9): "a pad FRONTS every apron within 50 m across bare ground and takes that
+  edge's level; the ground between grades as a terrace" (spec-author decision, "owner may veto"). No pin, no
+  HELD block, no §9b datum: the deck piece /2 sat at 223.21 for the same reason before the merge. The "bare
+  ground" between the garages and `pav14` is the terminal forecourt — the object-drawn road slab of 10o / #229
+  (not pavement in the map), so the facing read is lawful today and would stop once #229 admits the slab.
+* So under 10n (1) + 27a (9) the three garages are ONE pad at the deck's level (223.0–223.4), the terminal's
+  level in effect (its pads 222.44 / 222.70 / 223.67); the fill at the outer garages' rims is +0.9..+5.3 m
+  over the DEM (building86 DEM mean 219.1, building90 219.6, building88 219.4) — "the fill that requires is
+  accepted" (10n (1)). The owner's stated KCLT expectation (outer garages "seated lower") is 10n (2), which
+  presumes they stand on their own; the pack joins them to the deck with 4 covered walkways per storey
+  (4.5–9.5 m wide, 29–68 m long, h 1.86) and their columns. INTENT QUESTION for the owner (report).
+
+## Step 3 — the object cut at a pad level (10n (3); #547) — commit c5f26c3ae
+* `airport/pad_block_seat.split_units` gained a FIRST pass (`_split_by_level`): a §16g unit standing on two or
+  more plain pads whose medians (`fold_pad_ref`, the one pad datum rule 17t) differ by more than
+  `[placement] split_tol_m` (0.3 m — the existing seat materiality, no new key) is one unit per LEVEL
+  (`<id>/p<k>`, lowest first; `level_groups`); bodies on no pad resolve by welds then feet exactly as the block
+  cut's (the common `_cut_unit`; the block cut is byte-for-byte the same behaviour through it, its 28 tests
+  pass). Block pads stay the block cut's (`level_pad_rings` skips them). Contacts are NOT severed at a level
+  boundary. Wired: `footprint_seats.plan_wide_seats(level_tol_m=)` ← `placement_plan` passes `split_tol_m`.
+* Twin: `tests/auto_patch_v2/test_connect549.py` (+3 tests, 7 total).
+
+## Step 4 — dry-run arms (`obj8_split_report` on `/private/tmp/harness/kclt546_KCLT.v2/KCLT.rebake.json`)
+base = kclt546 worktree src (main + #546) on the kclt546 graded surface; fix = this branch, same surface
+(object cut alone); fixA = this branch on arm A's graded surface (`armA/KCLT.graded.json`: the garages one plane).
+* Site A 35.2224352,-80.9472186 `paredes_5 b0` (19 feet): base y_zero −0.69 on `fu:6:960` "pad building75
+  222.44" → fix / fixA 0.00 on `fu:6:960/p0` pad building81 221.75 (own ground +0.00); its 4 carried riders
+  follow. Site B 35.2203395,-80.9466805 `paredes_1 b1`: base −0.99 (worst foot 1.22) → fix −0.30 (0.53) →
+  fixA −0.15 (0.24); `paredes_1 b2`: −0.86 → −0.17.
+* Garages (`fu:31:2809`): base = one zero at building88 223.21, 10 bodies at −2.2..−4.86 (floats 2.2–5.3 m)
+  on pads building86 218.14 / building90 218.99. fix (object cut alone): /p0 building86 (+0.07), /p1
+  building90 (+0.03), /p2 building88 — but the 7 bodies BETWEEN the garages (on no pad, welded to the deck
+  chain) stay on /p2 and still float 3–5 m: the object cut alone is not the fix. fixA (both): one unit on one
+  plane at 223.11, every body within 0.48 m (own ground −0.48..+0.00), 2 feet > 3 m airport-wide (the
+  forecourt slab `techos_1 b0` 3.86 m — the 10o/#229 base plate — and the 69.8°-tilted `paredes_4 b1`).
+* §7 census, feet of all bodies: base <0.3 6360 / 0.3–1 2331 / 1–3 310 / >3 82 (building >3 39, buried 779,
+  floating 1944) → fix 7038 / 1694 / 300 / 51 (building >3 1; buried 539, floating 1506) → fixA 7621 / 1747 /
+  244 / 2 (buried 487, floating 1506). Bodies 615 → 624 → 587, files 538 → 539 → 507.

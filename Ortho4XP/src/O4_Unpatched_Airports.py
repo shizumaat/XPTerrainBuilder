@@ -141,20 +141,24 @@ def record(tile, failures) -> list:
     unpatched = [{"icao": str(rec.get("icao") or "?"),
                   "stage": str(rec.get("stage") or "?"),
                   "error": str(rec.get("error") or ""),
-                  **{k: rec[k] for k in ("code", "params", PACK_RESTORE_KEY)
-                     if rec.get(k)}}
+                  **{k: rec[k] for k in ("code", "params") if rec.get(k)}}
                  for rec in failures or ()]
     tile.auto_patch_unpatched = unpatched
-    build_dir = getattr(tile, "build_dir", None)
-    if build_dir:
-        try:
-            os.makedirs(build_dir, exist_ok=True)
-            with open(_sidecar_path(build_dir), "w", encoding="utf-8",
-                      newline="\n") as handle:
-                json.dump({"unpatched": unpatched}, handle)
-        except OSError:
-            pass
+    _write_sidecar(tile, unpatched)
     return unpatched
+
+
+def _write_sidecar(tile, unpatched: list) -> None:
+    build_dir = getattr(tile, "build_dir", None)
+    if not build_dir:
+        return
+    try:
+        os.makedirs(build_dir, exist_ok=True)
+        with open(_sidecar_path(build_dir), "w", encoding="utf-8",
+                  newline="\n") as handle:
+            json.dump({"unpatched": unpatched}, handle)
+    except OSError:
+        pass
 
 
 def note_pack(tile, icao: str, text: str) -> None:
@@ -171,7 +175,8 @@ def note_pack(tile, icao: str, text: str) -> None:
         if rec.get("icao") == icao:
             earlier = rec.get(PACK_RESTORE_KEY)
             rec[PACK_RESTORE_KEY] = (earlier + " " + text) if earlier else text
-    record(tile, unpatched)
+    tile.auto_patch_unpatched = unpatched
+    _write_sidecar(tile, unpatched)
 
 
 def read(tile) -> list:

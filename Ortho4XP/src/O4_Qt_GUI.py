@@ -697,6 +697,7 @@ class MainWindow(QMainWindow):
         self._console_timer.timeout.connect(self._drain_console)
         self._console_timer.start()
         self._session = EngineSession()
+        self._session.app_driven = True     # this window has the buttons
         self._bridge = _EngineBridge()
         self._bridge.event.connect(self._on_engine_event)
         self._bridge.reanchor_ready.connect(self._on_reanchor_ready)

@@ -296,12 +296,100 @@ def test_an_uncatalogued_exception_is_report_it_never_its_own_text(
     assert failure["code"] == FAIL.UNMAPPED
     assert failure["what"] == ("Tile +10+020 was not built: the app ran "
                                "into an unexpected problem.")
-    assert failure["remedy"] == "Press Report this problem."
+    # nobody but a shell is driving this session: the remedy names the log
+    assert failure["remedy"] == "Report it with the log: " + failure["log_path"]
     assert failure["log_path"].endswith(
         os.path.join("logs", "engine-stderr.log"))
     for shown in (done.error, FAIL.render(failure)):
         assert "Ring edge" not in shown and "NobodyCatalogued" not in shown
     assert "NobodyCataloguedThis: Ring edge missing" in failure["detail"]
+
+
+def test_report_it_reads_by_who_is_driving(monkeypatch, tmp_path):
+    """Master ruling: an app has the button; a shell or harness build is
+    told where the log is.  ONE place decides (the catalogue's render)."""
+    records = [FAIL.record(FAIL.UNMAPPED, "x"),
+               FAIL.record("mesh_failed", "y")]
+    (report, retry) = FAIL.fold(records, "+1+002", log_path="/d/e.log",
+                                report_button=True)
+    assert report["remedy"] == "Press Report this problem."
+    assert retry["remedy"] == ("Build the tile again. If it fails again, "
+                               "press Report this problem.")
+    (report, retry) = FAIL.fold(records, "+1+002", log_path="/d/e.log")
+    assert report["remedy"] == "Report it with the log: /d/e.log"
+    assert retry["remedy"] == ("Build the tile again. If it fails again, "
+                               "report it with the log: /d/e.log")
+    assert not EngineSession().app_driven
+
+    # the JSONL transport's peer IS an app
+    import test_engine_jsonl as TRANSPORT
+    monkeypatch.setattr(
+        TRANSPORT, "install_stub_pipeline",
+        lambda mp: install_stub_pipeline(mp, results={"mesh": 0}))
+    objects = TRANSPORT._run_transport_build(monkeypatch, tmp_path, True)
+    (done,) = [o for o in objects if o.get("event") == "BuildDone"]
+    assert done["failures"][0]["remedy"] == "Press Report this problem."
+
+
+def test_no_unmeasured_cause_and_the_ruled_remedies():
+    """Master copy rulings: only a real MemoryError names memory; a
+    permission cause says to check permissions; the stale pack copy is a
+    retry (a stock pack cannot be updated by the user)."""
+    for code, entry in FAIL.CATALOGUE.items():
+        if code != "out_of_memory":
+            assert "memory" not in entry.why.lower(), code
+    for code in ("airport_worker_died", "worker_died"):
+        assert FAIL.CATALOGUE[code].why == "A background process ended early."
+    assert FAIL.CATALOGUE["mesh_failed"].why == (
+        "The mesh program stopped before it finished.")
+    assert {c: FAIL.CATALOGUE[c].remedy for c in (
+        "out_of_memory", "no_permission", "output_folder_unwritable",
+        "disk_full", "pack_dump_stale", "pack_write_failed",
+        "airport_elevation_missing", "mesh_failed")} == {
+        "out_of_memory": "memory", "no_permission": "permissions",
+        "output_folder_unwritable": "permissions", "disk_full": "disk",
+        "pack_dump_stale": "retry", "pack_write_failed": "pack",
+        "airport_elevation_missing": "network", "mesh_failed": "retry"}
+    # the errno decides where the code can tell
+    assert FAIL.code_for_exception(OSError(28, "full")) == "disk_full"
+    assert FAIL.code_for_exception(OSError(13, "denied")) == "no_permission"
+
+
+def test_whatever_leaves_the_pack_dump_step_names_its_pack(monkeypatch):
+    """A converter failure of any class (lane dump560's ``DsfToolError``
+    carries no pack) leaves ``engine_v2`` naming the serving pack."""
+    from auto_patch import engine_v2 as EV2
+    import auto_patch_v2.airport.pack as PACK
+
+    class DsfToolError(RuntimeError):
+        pass
+
+    class _Selected:
+        name = "Some Pack"
+
+    def crash(*_args):
+        raise DsfToolError("DSFTool --dsf2text crashed (SIGSEGV)")
+
+    monkeypatch.setattr(EV2, "fresh_pack_dump", crash)
+    monkeypatch.setattr(PACK, "select_pack", lambda root, icao: _Selected())
+    with pytest.raises(DsfToolError) as caught:
+        EV2._pack_dump_naming_its_pack("/X", "AAAA", 47, -123)
+    fields = FAIL.record_fields(caught.value)
+    assert fields == {"code": "pack_dump_failed",
+                      "params": {"pack": "Some Pack"}}
+    (message,) = FAIL.fold([FAIL.record(fields["code"], "d", airport="AAAA",
+                                        **fields["params"])], "+47-123",
+                           built=True)
+    assert "the scenery pack “Some Pack”" in message["why"]
+    # a class that names its own pack keeps it
+    def named(*_args):
+        error = RuntimeError("x")
+        error.failure_params = {"pack": "Its Own"}
+        raise error
+    monkeypatch.setattr(EV2, "fresh_pack_dump", named)
+    with pytest.raises(RuntimeError) as caught:
+        EV2._pack_dump_naming_its_pack("/X", "AAAA", 47, -123)
+    assert caught.value.failure_params == {"pack": "Its Own"}
 
 
 def test_a_catalogued_exception_gets_its_own_message(monkeypatch, tmp_path):

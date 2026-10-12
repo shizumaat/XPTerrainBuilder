@@ -79,7 +79,7 @@ STEP_FAILURE_NOUNS = {
 BUILT_WITH_WARNINGS = "built with warnings"
 
 
-def build_done(lat, lon, ok, records):
+def build_done(lat, lon, ok, records, app_driven=False):
     """A tile's ``BuildDone`` from its raw failure ``records``
     (``O4_Tile_Failures.record``), folded to one user message per cause
     (issue #562).  Shared with the parallel orchestrator's dead-worker
@@ -91,6 +91,10 @@ def build_done(lat, lon, ok, records):
     (an unpatched airport on a tile that does not exist is no news: its
     ``AutoPatchFailed`` line is already in the log); when airport records
     are all there is, they are what ended the tile.
+
+    ``app_driven`` (``EngineSession.app_driven``): an app is on the other
+    end, so "report it" reads "Press Report this problem"; a shell or
+    harness build is given the log's path instead.
     """
     tile = FNAMES.short_latlon(lat, lon)
     try:
@@ -107,16 +111,17 @@ def build_done(lat, lon, ok, records):
         return BuildDone(
             lat=lat, lon=lon, ok=True,
             warnings=FAIL.fold(unpatched, tile, built=True,
-                               log_path=log_path),
+                               log_path=log_path, report_button=app_driven),
             # The same airports one by one (#564): each entry is a
             # message of its own plus its ``stage``, so it feeds
             # ``failure_report`` unchanged.
             unpatched_airports=[
-                dict(FAIL.fold([r], tile, built=True, log_path=log_path)[0],
+                dict(FAIL.fold([r], tile, built=True, log_path=log_path,
+                               report_button=app_driven)[0],
                      stage=r.get("stage", "")) for r in unpatched])
     failures = FAIL.fold(
         ending or unpatched or [FAIL.record(FAIL.UNMAPPED_STEP)],
-        tile, log_path=log_path)
+        tile, log_path=log_path, report_button=app_driven)
     return BuildDone(lat=lat, lon=lon, ok=False,
                      error=FAIL.headline(failures), failures=failures)
 SCAN_FLUSH_SECONDS = 0.1     # scan streaming cadence (~10 Hz)
@@ -590,6 +595,10 @@ class EngineSession:
         # per-airport records, the steps' named error exits): raw
         # ``O4_Tile_Failures.record`` dicts, folded into its BuildDone.
         self._tile_failures: list = []
+        # An APP is on the other end (the JSONL transport, the Qt window):
+        # it has the "Report this problem" button (#565).  False for a
+        # shell or harness build, whose remedy names the log instead.
+        self.app_driven = False
         self._eta: Optional[_EtaTracker] = None
         self._eta_last_emit = 0.0
         # Per-tile cancellation (docs/specs/parallel-tile-builds.md §3.4):
@@ -1190,7 +1199,8 @@ class EngineSession:
                             step=STEP_FAILURE_NOUNS.get(key, key))
                             for key in failed_step_keys)
                     self._emit(build_done(lat, lon, False,
-                                          self._take_tile_failures()))
+                                          self._take_tile_failures(),
+                                          self.app_driven))
                 else:
                     done += 1
                     # #564: the airports this tile's MESH was built
@@ -1199,7 +1209,7 @@ class EngineSession:
                     # this step's process is not the one that ran it.
                     self._take_tile_failures()
                     built = build_done(lat, lon, True, FAIL.from_unpatched(
-                        UNPATCHED.read(tile)))
+                        UNPATCHED.read(tile)), self.app_driven)
                     self._emit(TileState(
                         lat=lat, lon=lon, state="done", percent=100.0,
                         label=BUILT_WITH_WARNINGS if built.warnings else ""))
@@ -1260,7 +1270,8 @@ class EngineSession:
                     "%s: %s" % (type(step_error).__name__, step_error),
                     **FAIL.params_for_exception(step_error)))
                 self._emit(build_done(lat, lon, False,
-                                      self._take_tile_failures()))
+                                      self._take_tile_failures(),
+                                      self.app_driven))
         cancelled = bool(UI.red_flag)
         if not run_completed:
             with self._work_queue_lock:

@@ -742,7 +742,7 @@ final class BuildModel: ObservableObject {
             for warning in warnings {
                 warning.consoleLines(isWarning: true).forEach { console.append($0) }
             }
-            runTileIssues.append(O4TileIssues(
+            runIssueLog.add(O4TileIssues(
                 tileKey: coord.key, lat: lat, lon: lon, built: ok,
                 failures: failures, warnings: warnings))
             if ok {
@@ -797,12 +797,10 @@ final class BuildModel: ObservableObject {
             isBuilding = false
             isStopping = false
             var parts = ["\(done) tile\(done == 1 ? "" : "s") built"]
-            let warned = runTileIssues.filter { $0.built && !$0.warnings.isEmpty }.count
+            let warned = runIssueLog.warnedCount
             if warned > 0 { parts.append("\(warned) with warnings") }
             if errors > 0 { parts.append("\(errors) failed") }
-            runIssuesCounter += 1
-            runIssues = O4RunIssues(id: runIssuesCounter, tiles: runTileIssues)
-            runTileIssues = []
+            runIssues = runIssueLog.finish()
             if cancelled { parts.append("stopped") }
             lastRunSummary = parts.joined(separator: ", ")
             console.append("=== Run complete: \(lastRunSummary!) ===")
@@ -1328,6 +1326,9 @@ final class BuildModel: ObservableObject {
             activity.reset()
             isBuilding = true
             isStopping = false
+            // A previous run that died without RunDone leaves nothing in
+            // this run's report (#562).
+            runIssueLog.begin()
             // THE RUN BOUNDARY: the build request that opens a run starts a
             // fresh engine-stderr.log (twin: O4_Qt_GUI._start_run_now).
             EngineStderrLog.shared.startRun(
@@ -1378,8 +1379,7 @@ final class BuildModel: ObservableObject {
     /// The finished run's failures and warnings to present, or nil: ONE
     /// report per run (#562, #564), shown by `RunIssuesSheet`.
     @Published var runIssues: O4RunIssues?
-    private var runTileIssues: [O4TileIssues] = []
-    private var runIssuesCounter = 0
+    private var runIssueLog = O4RunIssueLog()
 
     /// Whether the engine has the `failure_report` command (#565).
     var canReportFailures: Bool {

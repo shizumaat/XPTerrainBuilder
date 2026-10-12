@@ -124,3 +124,41 @@ struct FailureReportSupportTests {
         #expect(wire["airports"] as? [String] == ["AAAA"])
     }
 }
+
+/// One report per run, and only that run's tiles.
+struct RunIssueLogTests {
+    private func failed(_ key: String) -> O4TileIssues {
+        O4TileIssues(tileKey: key, built: false,
+                     failures: [O4TileFailure(code: "c", what: key, why: "", remedy: "")],
+                     warnings: [])
+    }
+
+    @Test func aRunThatDiedLeavesNothingInTheNextRunsReport() throws {
+        var log = O4RunIssueLog()
+        log.begin()
+        log.add(failed("+45-123"))
+        // The engine died: no RunDone, no finish(). The next run begins.
+        log.begin()
+        log.add(failed("+47-123"))
+        let finished = log.finish()
+        let report = try #require(finished)
+        #expect(report.tiles.map(\.tileKey) == ["+47-123"])
+    }
+
+    @Test func finishEmptiesTheLogAndNumbersTheReports() throws {
+        var log = O4RunIssueLog()
+        log.add(failed("+10+020"))
+        let firstReport = log.finish()
+        let first = try #require(firstReport)
+        #expect(log.tiles.isEmpty)
+        let clean = log.finish()
+        #expect(clean == nil)                       // a clean run: no sheet
+        log.add(O4TileIssues(
+            tileKey: "+11+021", built: true, failures: [],
+            warnings: [O4TileFailure(code: "w", what: "W", why: "", remedy: "")]))
+        #expect(log.warnedCount == 1)
+        let thirdReport = log.finish()
+        let third = try #require(thirdReport)
+        #expect(third.id != first.id)               // a new sheet, not the old one
+    }
+}

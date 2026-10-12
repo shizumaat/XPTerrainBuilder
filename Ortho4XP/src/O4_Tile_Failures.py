@@ -56,19 +56,22 @@ class Entry(NamedTuple):
 # The fixed remedy set (the master rules the copy; census
 # docs/briefs/failmsg562-census.md).
 REMEDIES = {
-    "retry": "Build the tile again. If it fails again, press Report "
-             "this problem.",
+    "retry": "Build the tile again. If it fails again, {report}.",
     "network": "Check the internet connection, then build the tile again.",
     "later": "Try again later.",
     "disk": "Free some disk space, then build the tile again.",
     "pack": "Update, repair or disable that scenery pack, then build the "
             "tile again.",
-    "report": "Press Report this problem.",
+    "report": "{Report}.",
+    "memory": "Close other apps to free memory, then build the tile again.",
+    "permissions": "Check that the app is allowed to write to the X-Plane "
+                   "folder and its own data folder, then build the tile "
+                   "again.",
     "settings": "Check the X-Plane folder and the sources chosen in "
                 "Settings, then build the tile again.",
     "all_steps": "Build the tile again with every step selected.",
-    "reinstall": "Update or reinstall the app. If it still fails, press "
-                 "Report this problem.",
+    "reinstall": "Update or reinstall the app. If it still fails, "
+                 "{report}.",
 }
 
 UNMAPPED = "unexpected_error"          # an exception nobody catalogued
@@ -98,8 +101,7 @@ CATALOGUE = {
         "The app could not write its working files.", "retry"),
     "airport_worker_died": Entry(
         "work on {airports} stopped unexpectedly.",
-        "A background process ended early, most often because the "
-        "computer ran out of memory.", "retry"),
+        "A background process ended early.", "retry"),
     "airport_no_result": Entry(
         "{airports} produced no result.",
         "A background process ended without reporting why.", "retry"),
@@ -114,7 +116,7 @@ CATALOGUE = {
     "pack_dump_stale": Entry(
         "scenery for {airports} could not be read.",
         "The app could not make a readable copy of the file from {pack} "
-        "for this tile.", "pack"),
+        "for this tile.", "retry"),
     # X-Plane's own converter failed on the pack's file (lane dump560's
     # ``DsfToolError``; a crash on a stock file is a bug, #568): retrying
     # does not help, so this one is "report it".
@@ -156,8 +158,7 @@ CATALOGUE = {
         "report"),
     "mesh_failed": Entry(
         "the terrain mesh could not be built.",
-        "The mesh program stopped, most often because the computer ran "
-        "out of memory.", "retry"),
+        "The mesh program stopped before it finished.", "retry"),
     "earlier_step_missing": Entry(
         "files from an earlier step are missing.",
         "The step before this one did not finish, or its files were "
@@ -176,7 +177,7 @@ CATALOGUE = {
         "report"),
     "output_folder_unwritable": Entry(
         "its output folder could not be written.",
-        "The disk is full or the folder is protected.", "disk"),
+        "The folder is protected or the disk is full.", "permissions"),
     "overlay_source_missing": Entry(
         "X-Plane's default scenery for this tile was not found.",
         "The overlay is copied from X-Plane's Global Scenery, which is "
@@ -202,18 +203,17 @@ CATALOGUE = {
         "There was no room left to write the tile's files.", "disk"),
     "no_permission": Entry(
         "the app was not allowed to write a file.",
-        "A folder it needs is read-only or protected.", "settings"),
+        "A folder it needs is read-only or protected.", "permissions"),
     "out_of_memory": Entry(
         "the computer ran out of memory.",
-        "This tile needed more memory than was free.", "later"),
+        "This tile needed more memory than was free.", "memory"),
     "file_missing": Entry(
         "a file it needs was not found.",
         "It is missing from the X-Plane install, a scenery pack or the "
         "app's working folder.", "settings"),
     "worker_died": Entry(
         "the build stopped unexpectedly.",
-        "A background process ended early, most often because the "
-        "computer ran out of memory.", "retry"),
+        "A background process ended early.", "retry"),
     # ── the fallbacks: never a bare exception string as the headline ───
     "step_failed": Entry(
         "the {step} step failed.",
@@ -373,12 +373,23 @@ def _airports_phrase(airports: list) -> str:
     return "airports %s and %s" % (", ".join(named[:-1]), named[-1])
 
 
+# "Report it", by WHO IS DRIVING: an app has the button (#565); a shell or
+# harness build is told where the log is.  The one place that decides.
+def _report_phrase(report_button: bool, log_path: str) -> str:
+    if report_button:
+        return "press Report this problem"
+    if log_path:
+        return "report it with the log: " + log_path
+    return "report it with the log"
+
+
 UNPATCHED = ("An airport without a patch is left on ungraded terrain; the "
              "next build of this tile tries it again.")
 
 
 def _describe(code: str, tile: str, airports: list, params: dict,
-              details: list, built: bool, log_path: str) -> dict:
+              details: list, built: bool, log_path: str,
+              report_button: bool) -> dict:
     entry = CATALOGUE[code]
     pack = params.get("pack")
     words = {
@@ -394,23 +405,31 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "code": code,
         "what": lead % tile + entry.what.format(**words),
         "why": (why + " " + UNPATCHED) if built else why,
-        "remedy": REMEDIES[entry.remedy],
+        "remedy": _remedy(entry.remedy, report_button, log_path),
         "airports": list(airports),
         "detail": "\n".join(details),
         "log_path": log_path,
     }
 
 
+def _remedy(key: str, report_button: bool, log_path: str) -> str:
+    phrase = _report_phrase(report_button, log_path)
+    text = REMEDIES[key].replace("{report}", phrase).replace(
+        "{Report}", phrase[:1].upper() + phrase[1:])
+    # a path ends the sentence by itself ("…log: /x/y.log")
+    return text[:-1] if text.endswith(".log.") else text
+
+
 def fold(records: Iterable[dict], tile: str, built: bool = False,
-         log_path: str = "") -> list:
+         log_path: str = "", report_button: bool = False) -> list:
     """The tile's failures, one per CAUSE: records with the same code and
     parameters fold into one message listing their airports (six airports
     refused for one stale file are one message, not six).  First-seen
     order; each entry is the wire dict of ``BuildDone.failures`` — or,
     with ``built``, of ``BuildDone.warnings``: the tile was built and the
     airports named are the ones without a patch.  ``log_path`` is the
-    log a report reads — the fallback where no "Report this problem"
-    button exists (a shell build)."""
+    log a report reads; ``report_button`` says an APP is driving (it has
+    "Report this problem"), else the remedy names that log."""
     groups: dict = {}
     for rec in records:
         key = (rec["code"], tuple(sorted(rec.get("params", {}).items())))
@@ -427,7 +446,7 @@ def fold(records: Iterable[dict], tile: str, built: bool = False,
             if line not in group["details"]:
                 group["details"].append(line)
     return [_describe(code, tile, group["airports"], dict(params),
-                      group["details"], built, log_path)
+                      group["details"], built, log_path, report_button)
             for (code, params), group in groups.items()]
 
 
@@ -464,7 +483,5 @@ def closing_lines(warnings: list) -> list:
     for warning in warnings:
         lines.append("WARNING: " + warning["what"])
         lines.append("   " + warning["why"])
-        lines.append("   " + warning["remedy"]
-                     + (" (log: %s)" % warning["log_path"]
-                        if warning.get("log_path") else ""))
+        lines.append("   " + warning["remedy"])
     return lines

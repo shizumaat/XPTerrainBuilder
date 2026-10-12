@@ -132,6 +132,34 @@ public struct O4RunIssues: Sendable, Equatable, Identifiable {
     }
 }
 
+/// The tiles of ONE run, collected as their `BuildDone` events arrive.
+/// `begin()` at the run's start as well as `finish()` at its end: a run
+/// that ends by engine death never reaches `RunDone`, and its entries
+/// must not appear in the next run's report.
+public struct O4RunIssueLog: Sendable, Equatable {
+    public private(set) var tiles: [O4TileIssues] = []
+    private var reports = 0
+
+    public init() {}
+
+    public mutating func begin() { tiles = [] }
+
+    public mutating func add(_ tile: O4TileIssues) { tiles.append(tile) }
+
+    /// Tiles built with warnings so far in this run.
+    public var warnedCount: Int {
+        tiles.filter { $0.built && !$0.warnings.isEmpty }.count
+    }
+
+    /// The run's report (nil when there is nothing to say); the log is
+    /// empty afterwards.
+    public mutating func finish() -> O4RunIssues? {
+        reports += 1
+        defer { tiles = [] }
+        return O4RunIssues(id: reports, tiles: tiles)
+    }
+}
+
 /// App-side copy around the engine's messages (identical to the Qt
 /// window's `O4_Qt_Tile_Failures.AIRPORT_FAILED_LINE`).
 public enum O4TileFailureCopy {

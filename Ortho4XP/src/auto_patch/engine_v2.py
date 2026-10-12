@@ -241,6 +241,25 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         return None
 
 
+def _pack_dump_naming_its_pack(xplane_root: str, icao: str, lat: int,
+                               lon: int) -> str | None:
+    """:func:`fresh_pack_dump`, with the serving PACK'S NAME attached to
+    whatever exception leaves it (``failure_params``, issue #562): the
+    user's message then names the pack whatever class arrives."""
+    try:
+        return fresh_pack_dump(xplane_root, icao, lat, lon)
+    except Exception as exc:
+        if not getattr(exc, "failure_params", None):
+            try:
+                from auto_patch_v2.airport.pack import select_pack
+                sel = select_pack(xplane_root, icao)
+                if sel is not None:
+                    exc.failure_params = {"pack": sel.name}
+            except Exception:
+                pass
+        raise
+
+
 def _stamp_header(task: dict) -> dict[str, str]:
     """The ``<osm>`` root attributes the driver's freshness gate reads back
     (``layout.read_patch_source`` → ``_auto_patch_is_current``), rendered
@@ -388,7 +407,8 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             xplane_root=task["xp_root"], cifp_dir=task.get("cifp_path") or "",
             osm_root=FNAMES.OSM_dir, elevation_root=FNAMES.Elevation_dir,
             mod_cache_root=FNAMES.airport_mod_cache_root(),
-            dsf_dump_path=fresh_pack_dump(task["xp_root"], icao, lat, lon),
+            dsf_dump_path=_pack_dump_naming_its_pack(
+                task["xp_root"], icao, lat, lon),
             dem_frame="production", production_dem_tiles=seeds,
             core_hosted=True,
             road_grade_limit=task.get("road_grade_limit"),

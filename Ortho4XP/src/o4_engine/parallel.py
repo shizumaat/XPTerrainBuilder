@@ -1815,7 +1815,8 @@ class ParallelBuildRun:
             done_event = build_done(
                 lat, lon, False,
                 [FAIL.record("worker_died",
-                             "build worker exited unexpectedly")])
+                             "build worker exited unexpectedly")],
+                getattr(self._session, "app_driven", False))
             self._tile_warnings.pop(crashed_tile, None)
             self._session._emit(done_event)
             print("Build worker for", _short_latlon(crashed_tile),

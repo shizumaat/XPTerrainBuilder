@@ -418,6 +418,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
     try:
         _initialize_pipeline_registries()
         session = EngineSession(version=_ortho4xp_version())
+        session.app_driven = True       # the peer of this pipe is an app
         if owns_process:
             _install_terminate_signal_handler(session)
             _start_parent_death_watchdog(session)

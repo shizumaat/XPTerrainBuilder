@@ -184,3 +184,35 @@ also the instrument for judging a replacement binary (`--tool`).
   remove one crash + one crash report per first dump of such a file.
 
 ## 4. Closing test
+
+`venv/bin/python tools/harness/build_airport.py KBFI --tile 47 -123`,
+branch sha ae2b4a3b9, 2026-10-12 09:53-10:17 (1,492 s; run-ledger key
+`40938be1…`, recorded exit 1).
+
+**KBFI built.** Report `tmp/auto_patch_v2/+47-123/KBFI/KBFI.report.json`:
+pack `Global Airports`, `dsf_dump_path` = the lane-local
+`tmp/engine_caches/Airport_mod_cache/Global Airports/+47-123.dsf.2f51dffe.text`
+(3,653,663 bytes — the harness redirects the cache, so the dump was
+re-derived there through the crash retry), `dsf_dump_stale` false, 1,065
+objects resolved, 0 unresolved, warnings `[]`; patch 527 ways / 5,489
+nodes. **All nine airports of the tile emitted a patch**: KBFI KGRF KPAE
+KPLU KPWT KTCM (the six refused before) + KRNT KSEA KTIW. Mesh step DONE
+(224 s).
+
+**The harness REFUSED to report the build (rc 1) — for the DEM, not for
+the dump**: the shared-repo guard blocked 6 `os.remove` of
+`Elevation_data/+40-130/N47W123_airport_insets/{KGRF,KTCM}_usgs3dep.tif.refetch*`
+(scope dem) and the engine carried on. So no census number from this
+build is quoted. STOPPED here; a `--refresh-data dem` run is the master's
+ledgered act.
+
+**Left in the shared corpus by this build (NOT cleaned — master's
+call):** 74 files, 166 MB, all `*.refetch*` beside the KGRF (10) and KTCM
+(64) insets, written 09:53-09:56 by the inset re-fetch before the guard
+blocked their removal. The insets themselves (`KGRF_usgs3dep.tif`,
+`KTCM_usgs3dep.tif`, KBFI's) are untouched. The harness's contamination
+report also lists 19 + 3 paths under `N45W123_*` written 10:11-10:15:
+another tile, not this build's (another process was writing the corpus).
+The 0-byte `Airport_mod_cache/Global Airports/+47-123.dsf.2f51dffe.text`
+of 2026-10-11 is still in the shared corpus (dump560's note stands); the
+app's next build of the tile replaces it through `dump()`.

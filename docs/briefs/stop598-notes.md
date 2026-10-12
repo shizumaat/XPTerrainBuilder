@@ -119,3 +119,36 @@ the stopped line said; the next build asks only for the texture that had not arr
 once; a completed build activates exactly once; at the swap both generations' `.ter` are present;
 grouped folder not pruned; refused terrain install keeps the previous scenery; the encoder writes to
 staging. `test_dsf_activation.py` (15, 4 rewritten to the new state, 2 added).
+
+# ROUND 2 — pack restore on stop, row subtitle (owner 2026-10-12: Q1 = b, Q2 = a, Q6 = "a build stopped should restore any modifications made to scenery packs")
+
+Merged `origin/claude/failmsg562` @ e937e3a9a first. One conflict: `O4_Tile_Failures.__all__` (kept
+`code_for_activation` of #585 and `from_substitutions` / `is_proxy_refusal` of #562).
+
+## CENSUS — when a build writes scenery PACK files, and what a Stop leaves
+
+| # | When | Site | Pack files written | Pre-build copy that exists | A Stop / kill here leaves |
+|---|------|------|--------------------|----------------------------|---------------------------|
+| 1 | vector step | — | NONE. The step READS pack DSFs (dumps go to `Airport_mod_cache`) and writes plans beside the patch (`o4_v2_rebake_<ICAO>.json`, screens) in the tile's `Patches` folder | — | packs untouched |
+| 2 | END of the mesh step (`O4_Mesh_Utils._auto_patch_post_mesh_rebake` → `engine_v2.rebake_after_mesh`), first act | `restore_unpatched_packs` → `unpatched_pack.restore_airport` | the pack DSF (backup copied over it, or re-encoded without the airport — `write_pack(drop=)`), split bodies removed, the record entry dropped / rewritten | `.anchor_bak` = the PRISTINE file only | a pack back at its original while the tile still active was built WITH that airport's seating |
+| 3 | same stage, per airport, `_art_stage` / `_art_after_place` → `_write_art_only` | `write_pack(omit=)` | DSF, record | pristine only | as 4 |
+| 4 | same stage, per airport, `_place_objects` → `placement_write.apply_plan` | step 0 `restore_pack_objects` (authored `.obj` put back from its own `.anchor_bak`; THIS airport's previous bodies removed) → `write_files` (new `__b<k>.obj` bodies) → `write_pack` (record written first, DSF moved in, record again, orphan bodies removed) | `.obj`, bodies, DSF, `o4_placement_provenance.json` | pristine only; the previous build's bodies are DELETED in step 0 | killed between step 0 and the DSF move: the live DSF (previous seating) names bodies that are gone. Killed between two airports / two packs: some packs at the new seating, some at the previous |
+| 5 | masks step, imagery step | — | none | — | every pack at the NEW seating under the PREVIOUS scenery (the #598 case: a Stop is honoured throughout these steps, minutes to hours after the object stage) |
+| 6 | user command, not a build | `omit_missing_art` | DSF, record | — | out of scope |
+
+* The object stage does NOT run after the last point a Stop is honoured: it is followed by the whole
+  masks and imagery steps. Machinery is needed.
+* Can the previous build's state be RECOMPOSED from the record? Not soundly. The record keeps each
+  airport's compact edit set and `write_pack` re-applies recorded siblings — but (a) the stopped build
+  has already REPLACED the airport's row with its own edits, so the previous edits survive only in a
+  copy of the record taken before the write; (b) the split BODY files are not in the record, only
+  their names — step 0 deletes them and they cannot be re-cut without re-running the object stage
+  against the previous mesh, which the stopped build has overwritten; (c) a re-encode is not the same
+  bytes. So the stage must SNAPSHOT what it is about to rewrite. No composer is added: the snapshot is
+  file copies, and putting back uses `backup_state`'s ownership rule and record writer and
+  `dsf_write`'s body helpers.
+* Not put back by this design (rows where the pre-build state is not what X-Plane loads differently,
+  or cannot be un-done): a `.anchor_bak` created by the stopped build stays (it equals the restored
+  DSF); a backup retired to `.superseded-<UTC>` / a live copy kept as `.unrecognised-<UTC>` by
+  `adopt` / `preserve_live_copy` stays retired; an authored `.obj` that step 0 put back to its
+  original (a v1-era edit) stays original.

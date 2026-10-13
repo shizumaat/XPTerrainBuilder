@@ -245,6 +245,28 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
     fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
     jrep["rim"] = late_rim_levels(pm_base, z_base, pm, fixed, free, ident * 0.02)
+    # THE ROAD YIELDS TO THE PAD (issue #609; 13a (1), 13d): a pad road's
+    # absolute road rows leave and it carries the ramp from the rim it is
+    # welded to — the rim a constant of this stage
+    from ..constraints.road_ramp import pad_ramp_rewrite
+    cs, pad_ramp = pad_ramp_rewrite(pm, law, cs)
+    pad_joins = pad_ramp.pop("joins")
+    # 13d "road ramps first": where no cap-grade ramp fits between the pad
+    # and the road's other standing end — the remainder, read not applied
+    from ..constraints.pad_road_reach import pad_road_reach
+    pad_ramp["reach"] = reach_rep = pad_road_reach(pm, law, fixed)
+    short = sorted((r for r in reach_rep if r["remainder_m"]),
+                   key=lambda r: -abs(r["remainder_m"]))
+    if reach_rep:
+        to_ll = airport.frame.transformers()[1]
+        out(f"LAST STAGE pad roads (13d): {len(reach_rep)} pad|road network(s) between "
+            f"two standing levels, {len(short)} with no ramp inside the road cap")
+        for r in short:
+            lat, lon = to_ll(*pm.vertices[r["far_v"]].xy)
+            out(f"    {r['pad']}: {r['rise_m']:+.2f} m over {r['run_m']:.1f} m to {r['far']} "
+                f"at {lat:.7f},{lon:.7f} = {100 * r['grade']:.1f} % (cap "
+                f"{100 * r['cap']:.0f} %), remainder {r['remainder_m']:+.2f} m; "
+                f"road {', '.join(r['road'][:3])}")
     cs_all = cs
     # THE FLOOR, ONE NUMBER AT ONE SITE (spec §55 (5), (15) rule B): the
     # widening reads it here and the sidecar publishes THIS value
@@ -284,11 +306,16 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     off = [abs(float(sol.z[v]) - z) for v, z in fixed.items()] if sol.z else []
     out(f"LAST STAGE: fixed vertices off their constant by > 0.02 m: "
         f"{sum(1 for d in off if d > 0.02)} of {len(off)} (worst {max(off, default=0.0):.3f} m)")
+    for r in pad_joins:                  # published with the level they took
+        if sol.z:
+            r["z_m"] = round(float(sol.z[r["v"]]), 4)
+            r["excess_m"] = round(r["z_m"] - r["pinned_m"], 4)
     report = {"cut": cut, "cl": cl_cut, "followers": frep, "join": jrep,
+              "pad_ramp": pad_ramp,
               "stage": {"floor_m": floor_m,
                         "followers": list(frep["follower_ribbon_refs"])},
               "dropped": dropped, "follow": grep, "cs": cs, "cs_full": cs_full,
-              "fixed": fixed, "strips": strips, "pin_yield": _carry_pin_yield(base_solution, pm_base, pm),
+              "fixed": fixed, "strips": strips, "pin_yield": [*_carry_pin_yield(base_solution, pm_base, pm), *pad_joins],
               "design": design,
               "wall_s": {"cut": round(t_cut, 2), "derive": round(t_derive, 2),
                          "solve": round(t_solve, 2)}}

@@ -94,6 +94,62 @@ def test_no_ribbon_inside_a_pad(law):
             assert Polygon(c.ring, c.holes).intersection(p).area < 1e-6
 
 
+def _mint(law, way, pads=()):
+    """``mint_osm_ribbons`` over a runway along y = 0 and ``pads`` (rects):
+    the minted ``(ref, polygon, evidence)`` list."""
+    import types
+    from shapely.geometry import box
+    from auto_patch_v2.classify.ribbon_mint import mint_osm_ribbons
+    from auto_patch_v2.classify.roles import Cell
+    cells = [Cell(0, "runway", "09/27", tuple(box(0, -15, 1060, 15).exterior.coords)[:-1],
+                  (), 2, "B", "airside", "runway", {})]
+    cells += [Cell(i + 1, "building", f"pad{i}", tuple(box(*r).exterior.coords)[:-1], (),
+                   None, None, "airside", "pad", {}) for i, r in enumerate(pads)]
+    out = []
+    mint_osm_ribbons(types.SimpleNamespace(osm_ways=(way,), dem=None),
+                     types.SimpleNamespace(pavement_union=box(0, -15, 1060, 15),
+                                           truck_chains=()),
+                     cells, law, load_rules(),
+                     lambda role, ref, part, kind, cn, cl, ev: out.append((ref, part, ev)))
+    return out
+
+
+def test_a_road_reaching_a_pad_outside_the_patch_is_a_pad_road(law):
+    """#609 round 4: the patch's own ribbon is minted as before (pass 1);
+    the stretch that runs on from the patch to a pad standing outside it is
+    a SECOND cell, flagged ``pad_road`` and meeting the pad's footprint —
+    with no pad out there nothing is added, and the base map of the last
+    stage (``gap_free``) is the airport's without the pad road."""
+    way = _way(-3, ((600.0, -40.0), (900.0, -40.0), (900.0, -200.0)), highway="service")
+    pad = (880.0, -260.0, 920.0, -180.0)
+    plain, mine = _mint(law, way), _mint(law, way, [pad])
+    assert plain and not any(ev.get("pad_road") for _r, _p, ev in plain)
+    first = [(r, p) for r, p, ev in mine if not ev.get("pad_road")]
+    assert [(r, p.wkt) for r, p in first] == [(r, p.wkt) for r, p, _e in plain]
+    roads = [(r, p) for r, p, ev in mine if ev.get("pad_road")]
+    assert [r for r, _p in roads] == ["small_roads:-3#1"]
+    from shapely.geometry import box
+    assert roads[0][1].distance(box(*pad)) < 1e-6          # no knife: it meets the rim
+    assert roads[0][1].intersection(box(*pad)).area < 1e-6
+    assert all(roads[0][1].intersection(p).area < 1e-6 for _r, p in first)
+
+
+def test_a_path_between_two_patch_mouths_is_not_bridged_for_a_pad(law):
+    """The network bridge of pass 2 serves a PAD: a path of several ways
+    between two in-patch mouths, no pad on it, mints nothing more."""
+    from auto_patch_v2.classify.ribbon_mint import network_spans
+    from shapely.geometry import LineString, box
+    a = LineString([(0.0, 0.0), (100.0, 0.0)])
+    b = LineString([(100.0, 0.0), (200.0, 0.0)])
+    extent = box(-10, -10, 20, 10).union(box(180, -10, 210, 10))
+    ways = [(None, a), (None, b)]
+    assert network_spans(ways, extent, 250.0) == [[(0.0, 100.0)], [(0.0, 100.0)]]
+    assert network_spans(ways, extent, 250.0, serve=box(500, 0, 510, 10)) == \
+        [[(0.0, 20.0)], [(80.0, 100.0)]]
+    assert network_spans(ways, extent, 250.0, serve=box(180, -10, 210, 10)) == \
+        [[(0.0, 100.0)], [(0.0, 100.0)]]
+
+
 def _airside_rings(pm, law):
     air = rolled_on_roles(law)
     return sorted((f.role, f.ref, tuple(pm.vertices[v].xy

@@ -101,8 +101,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
              rep: DesignReport, *,
              drop: _t.AbstractSet[int] | None = None,
              fixed: _t.Mapping[int, float] | None = None,
-             stage_roles: _t.AbstractSet[str] | None = None,
-             drop_faces: _t.AbstractSet[int] | None = None) -> Base:
+             stage_roles: _t.AbstractSet[str] | None = None) -> Base:
     """Sections 1-9 of the module docstring: the sheets and their
     triangulation, the zone ramp, the reduction, and every always-on row
     (bending, road chains, the chord, the zone DEM fit, the law's equalities,
@@ -126,24 +125,10 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     sheet and the pads-ON arm neither, at LEMD 2 ``service_road`` faces
     against 1 ``building`` — a difference in stage 1's own problem made by
     groundside geometry, which is exactly what §20b (3) forbids.  ``None``
-    (the single solve, stage 2) keeps the whole sheet.
-
-    ``drop_faces`` (issue #609, stage 2's SENIOR pass): the faces whose
-    triangles leave the sheet and whose MINTED rows (``_groundside_minter``
-    over them: the road generators' rows naming the face or one of its
-    vertices) are dropped whatever their columns — the pad roads, so the
-    lot and pad levels they weld to are the no-road problem's."""
+    (the single solve, stage 2) keeps the whole sheet."""
     d = design_law(law)
     n = len(planar.vertices)
     drop_f = frozenset(drop or ())
-    # §20b's STAGE 1 is the stage with ``stage_roles`` (its own sheet);
-    # ``drop`` alone does not say so: stage 2's SENIOR pass (issue #609,
-    # ``solve_design``'s junior pass) drops a road network's vertices from
-    # a groundside problem that must keep its conforming rows, its welded
-    # road faces' rows and the ribbon-read bodies — the three reads below
-    # that stage 1 refuses.  MEASURED (KCLT, keyed on ``drop``): every pad
-    # skirt and flatness row left with the junior set and the pads fell 5 m.
-    stage1 = stage_roles is not None
 
     # 1. the sheets and their triangulation
     roles = set(bend_roles(law))
@@ -157,10 +142,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # m on ``test_crown``'s fixture).  A stage therefore triangulates only
     # the faces it owns: the Laplacian's stencil never leaves the stage,
     # and every bending row it writes is in-stage by construction.
-    drop_faces_f = frozenset(drop_faces or ())
     sheet_faces = [f.id for f in planar.faces.values()
                    if f.role in roles
-                   and f.id not in drop_faces_f
                    and (stage_roles is None or f.role in stage_roles)
                    and not (drop_f and any(
                        v in drop_f
@@ -386,7 +369,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #: §20b (1b): the rows whose whole job is to FOLLOW — stage 1 refuses
     #: them even where every column is airside (a welded pad's skirt and
     #: flatness rows sit between two vertices the apron owns)
-    conform = conforming_rulings(law) if stage1 else frozenset()
+    conform = conforming_rulings(law) if drop_f else frozenset()
     # §5 THE FRONTING SET'S CAPS ARE HARD (flat-pad spec v2, RULINGS
     # 2026-09-30y (3)): the ONE filter — an airside pair cap whose every
     # foot is on the published fronting set joins the hard set; ``is_hard``
@@ -403,9 +386,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # ribbon) is stage 2's WHATEVER ITS COLUMNS — a ribbon ring pair footed
     # on two rim vertices has only airside columns, and stage 1 took it by
     # column (30aa (b)).  The minting face is the row's own ``face:N``.
-    gs_minted = (_groundside_minter(planar, law) if stage1
-                 else _groundside_minter(planar, law, drop_faces_f) if drop_faces_f
-                 else None)
+    gs_minted = _groundside_minter(planar, law) if drop_f else None
     for side in one_t:
         terms, hi, row = side
         vs = {v for v, _c in terms}
@@ -578,7 +559,7 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
     #    apron toward the road's terrain), so stage 1 reads the bodies
     #    without the ribbons
     gs_roles = {r for r in pav_roles if role_side(law, r) == "groundside"}
-    welded = _welded_faces(planar) if stage1 else set()
+    welded = _welded_faces(planar) if drop_f else set()
     for vs in _role_bodies(planar, gs_roles, red, welded):
         by_comp.setdefault(("groundside", vs[0]), vs)
     #    A RIGID GROUP (a pad, a plate, a wall band) is ONE column, so its

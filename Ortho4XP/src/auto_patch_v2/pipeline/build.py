@@ -714,7 +714,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # WITHOUT the pieces (the BASE — the build an airport with no gap sheet
     # gets, row for row) and ``pipeline/late_stage`` solves the pieces
     # against its levels after the solve.  No piece: ``None``, and nothing
-    # of the last stage runs.
+    # of the last stage runs.  The PAD ROADS (issue #609; owner RULINGS
+    # 2026-10-13a (1), 13d) join there too: a road admitted for a pad is
+    # solved against the levels of the map without it, so no pad, lot or
+    # airside level moves for it.
     from .stage_one_map import gap_free
     cl_gaps, _cl_base = None, gap_free(cl)
     if _cl_base is not None:

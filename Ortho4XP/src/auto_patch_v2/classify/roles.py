@@ -671,13 +671,15 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["osm_ribbon_m2"] = m_rib
     # THE RIBBON AT A PAD IS READ BY THE ONE TOUCH WITNESS (issue #609;
     # owner RULINGS 2026-10-09j (2)): a mapped road reaching a pad in source
-    # is welded to its rim like a lot or a 1206 corridor, a hillside step
-    # holds it off as a terrace, a gap leaves it as drawn.  Read on the NEW
-    # cells only — no standing cell is cut twice (roadweld100's measured
-    # hazard: a pad's knife re-armed cut two existing groundside cells).
-    cells, n_cut_rib = _cut_back_groundside(cells, law, rules, airport,
-                                            only=range(n_before, len(cells)),
-                                            hold=False)
+    # is welded to its rim like a lot or a 1206 corridor, a gap leaves it
+    # as drawn.  Read on the PAD ROADS only (the mint's second pass) — no
+    # standing cell is cut twice (roadweld100's measured hazard: a pad's
+    # knife re-armed cut two existing groundside cells), and the patch's
+    # own ribbons keep the set-back they were minted with.
+    cells, n_cut_rib = _cut_back_groundside(
+        cells, law, rules, airport, hold=False,
+        only=[i for i in range(n_before, len(cells))
+              if cells[i].evidence.get("pad_road")])
     stats["mixed_pad_cutbacks"] += n_cut_rib
     stats["ribbon_pad_welds"] = sum(1 for c in cells[n_before:]
                                     if c.evidence.get(WELD_KEY))

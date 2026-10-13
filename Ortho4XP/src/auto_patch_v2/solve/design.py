@@ -235,44 +235,13 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     elif pass1a is not None and hasattr(hold, "apply"):
         cs = hold.apply(cs)        # stage 2 states pass 1b's hold law (§4)
     t2 = time.perf_counter()
-    # THE JUNIOR PASS (owner RULINGS 2026-10-13a (1) "road yields to the
-    # pad"; issue #609 round 3).  The rewrite names the vertices of a pad's
-    # road network off the rim as ``"junior"`` and its faces as
-    # ``"junior_faces"``: stage 2 is first solved WITHOUT them — the
-    # vertices' rows and the faces' triangles and MINTED rows dropped,
-    # as stage 1 drops its foreign vertices and the welded roads' rows —
-    # so every pad, lot and ground level is the one the no-road problem
-    # gives; then they alone, every level the senior pass gave substituted
-    # as a constant (``fixed``, as stage 2 reads stage 1).  Seniority by construction: no priced road row and
-    # no road bending has a pad column to bargain with.  MEASURED (KCLT
-    # round 2, the rows alone): the garages fell 0.40-0.50 m through a free
-    # road vertex "held by bending alone".  No junior set: one pass, as before.
-    junior = frozenset(int(v) for v in (seed_rep.pop("junior", None) or ()))
-    junior_faces = frozenset(int(f) for f in (seed_rep.pop("junior_faces", None) or ()))
-    seed_rep["junior_vertices"], seed_rep["junior_faces"] = len(junior), len(junior_faces)
-    fixed2: _t.Mapping[int, float] = levels
-    senior_rep: dict = {}
-    if junior or junior_faces:
-        lv2: dict[int, float] = {}
-        dem_j = {v: float(planar.vertices[v].dem_z or 0.0) for v in junior}
-        sol2s, rep2s = _solve_stage(planar, cs, law, options, size_out=None,
-                                    method=method, low_rank=low_rank,
-                                    drop=junior, fixed={**levels, **dem_j},
-                                    levelled_out=lv2, drop_faces=junior_faces)
-        fixed2 = {**levels, **{v: z for v, z in lv2.items() if v not in junior}}
-        senior_rep = {"unknowns": rep2s.unknowns, "rows": rep2s.rows,
-                      "hard_rows": rep2s.hard_rows, "hard_active": rep2s.hard_active,
-                      "hard_max_violation_m": round(rep2s.hard_max_violation_m, 6),
-                      "levelled": len(fixed2) - len(levels), "junior": len(junior),
-                      "wall_s": round(time.perf_counter() - t2, 3),
-                      "status": sol2s.status.name}
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
-                              method=method, low_rank=low_rank, fixed=fixed2)
+                              method=method, low_rank=low_rank, fixed=levels)
     yielded: list[dict] = []
     if not rep2.hard_settled and sol2.z and yield_heads:
         def _stage2(cs_x: ConstraintSet):
             return _solve_stage(planar, cs_x, law, options, size_out=size_out,
-                                method=method, low_rank=low_rank, fixed=fixed2)
+                                method=method, low_rank=low_rank, fixed=levels)
         among2 = {p.v for p in cs.pins} - set(s1_read)
         sol2, rep2, yielded, _cs2 = _yield_pins(planar, cs, law, sol2, rep2,
                                                 levels, _stage2, among=among2)
@@ -315,57 +284,11 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         rep2.stages["stage1a"] = pass1a
     if stage1 is not None:
         rep2.stages["stage1_map"] = dict(stage1.report)   # #100 option (c)
-    if senior_rep:
-        rep2.stages["stage2_senior"] = senior_rep
     rep2.stages["stage1"]["hard_feasibility"] = publish_stages(rep1, rep2, pass1a=pass1a, law=law)
     # THE HARD SET IS THE COMBINATION (§20b's census table): an airside hard
     # row carries no column in stage 2 — it was enforced and read in stage 1,
     # where it is scaled to metres — so the shipped surface's hard set is
-    # stage 1's plus stage 2's, and SETTLED is the conjunction.  The junior
-    # pass's report is the final one; the senior pass of stage 2 folds in
-    # first, then stage 1.
-    if senior_rep:
-        _fold_stage(rep2, rep2s)
-    _fold_stage(rep2, rep1)
-    # THE RUNWAY PROJECTION RAN IN STAGE 1, where the runway family is free;
-    # in stage 2 it is a no-op on a fixed family (``if not rep.columns``),
-    # so the report carries stage 1's certificate — the one that describes
-    # the shipped runway.
-    if not rep2.runway_projection.ran:
-        rep2.runway_projection = rep1.runway_projection
-    if not rep2.zone_projection.ran and rep1.zone_projection.ran:
-        rep2.zone_projection = rep1.zone_projection
-    if rep1.one_way_rows and not rep1.one_way_settled and rep2.one_way_settled:
-        rep2.one_way_settled = False
-        rep2.one_way_failure = rep1.one_way_failure
-        rep2.one_way_move_m = max(rep2.one_way_move_m, rep1.one_way_move_m)
-    if size_out is not None:
-        size_out.update({"stage1_columns": size1.get("columns", 0),
-                         "stage1_rows": size1.get("rows", 0),
-                         "stage1_fixed_into_stage2": len(levels)})
-    statuses = (sol1.status, sol2.status) + ((sol2s.status,) if senior_rep else ())
-    status = (Status.ERROR if Status.ERROR in statuses
-              else Status.FEASIBLE if Status.FEASIBLE in statuses
-              else sol2.status)
-    sol = _dc.replace(sol2, status=status,
-                      iterations=sol1.iterations + sol2.iterations,
-                      wall_s=time.perf_counter() - t_all,
-                      message=f"staged design surface (20b): stage 1 {sol1.message}; "
-                              f"stage 2 {sol2.message}")
-    return _with_facade_strips(planar, law, sol, rep2)
-
-
-def _fold_stage(rep2: DesignReport, rep1: DesignReport) -> None:
-    """THE REPORT OF A LATER STAGE FOLDS IN AN EARLIER ONE'S (§20b's census
-    table, the report row).  The hard set is the combination and SETTLED
-    the conjunction.  A counter that says how many rows of a kind the
-    problem carried describes ONE assembly, and under §20b there are
-    several: the apron bodies' datum planes, the taxi and apron trends, the
-    ground datum, the level belt, the bank filter, the foot rows and the
-    bending rows per class all live in the stage that owns their vertices.
-    Left as the last stage's they read 0 for everything airside — the
-    report would say "0 apron bodies on their own DEM PLANE" of a build
-    that fitted 271 of them in stage 1."""
+    # stage 1's plus stage 2's, and SETTLED is the conjunction.
     rep2.hard_rows += rep1.hard_rows
     rep2.hard_active += rep1.hard_active
     rep2.hard_rounds += rep1.hard_rounds
@@ -373,6 +296,15 @@ def _fold_stage(rep2: DesignReport, rep1: DesignReport) -> None:
         rep2.hard_max_violation_m = rep1.hard_max_violation_m
         rep2.hard_worst = rep1.hard_worst
     rep2.hard_settled = bool(rep1.hard_settled and rep2.hard_settled)
+    # THE ASSEMBLY COUNTERS ARE THE TWO STAGES' (§20b's census table, the
+    # report row).  A counter that says how many rows of a kind the problem
+    # carried describes ONE assembly, and under §20b there are two: the
+    # apron bodies' datum planes, the taxi and apron trends, the ground
+    # datum, the level belt, the bank filter, the foot rows and the bending
+    # rows per class all live in the stage that owns their vertices.  Left
+    # as stage 2's they read 0 for everything airside — the report would
+    # say "0 apron bodies on their own DEM PLANE" of a build that fitted
+    # 271 of them in stage 1.
     rep2.body_datum_rows += rep1.body_datum_rows
     rep2.body_datum_bodies += rep1.body_datum_bodies
     rep2.body_datums = list(rep1.body_datums) + list(rep2.body_datums)
@@ -394,6 +326,31 @@ def _fold_stage(rep2: DesignReport, rep1: DesignReport) -> None:
     rep2.set_flip_max_m = max(rep2.set_flip_max_m, rep1.set_flip_max_m)
     for c, n in rep1.bend_rows_by_class.items():
         rep2.bend_rows_by_class[c] = rep2.bend_rows_by_class.get(c, 0) + n
+    # THE RUNWAY PROJECTION RAN IN STAGE 1, where the runway family is free;
+    # in stage 2 it is a no-op on a fixed family (``if not rep.columns``),
+    # so the report carries stage 1's certificate — the one that describes
+    # the shipped runway.
+    if not rep2.runway_projection.ran:
+        rep2.runway_projection = rep1.runway_projection
+    if not rep2.zone_projection.ran and rep1.zone_projection.ran:
+        rep2.zone_projection = rep1.zone_projection
+    if rep1.one_way_rows and not rep1.one_way_settled and rep2.one_way_settled:
+        rep2.one_way_settled = False
+        rep2.one_way_failure = rep1.one_way_failure
+        rep2.one_way_move_m = max(rep2.one_way_move_m, rep1.one_way_move_m)
+    if size_out is not None:
+        size_out.update({"stage1_columns": size1.get("columns", 0),
+                         "stage1_rows": size1.get("rows", 0),
+                         "stage1_fixed_into_stage2": len(levels)})
+    status = (Status.ERROR if Status.ERROR in (sol1.status, sol2.status)
+              else Status.FEASIBLE if Status.FEASIBLE in (sol1.status, sol2.status)
+              else sol2.status)
+    sol = _dc.replace(sol2, status=status,
+                      iterations=sol1.iterations + sol2.iterations,
+                      wall_s=time.perf_counter() - t_all,
+                      message=f"staged design surface (20b): stage 1 {sol1.message}; "
+                              f"stage 2 {sol2.message}")
+    return _with_facade_strips(planar, law, sol, rep2)
 
 
 def _with_facade_strips(planar: PlanarMap, law: Law, sol: Solution,
@@ -434,8 +391,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  drop: _t.AbstractSet[int] | None = None,
                  fixed: _t.Mapping[int, float] | None = None,
                  levelled_out: dict[int, float] | None = None,
-                 stage_roles: _t.AbstractSet[str] | None = None,
-                 drop_faces: _t.AbstractSet[int] | None = None
+                 stage_roles: _t.AbstractSet[str] | None = None
                  ) -> tuple[Solution, DesignReport]:
     """ONE solve of the design surface (module docstring) — the whole thing
     when ``staged_solve`` is off, one stage of §20b when it is not.
@@ -451,7 +407,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     t0 = time.perf_counter()
     n = len(planar.vertices)
     base_p = assemble(planar, cs, law, rep, drop=drop, fixed=fixed,
-                      stage_roles=stage_roles, drop_faces=drop_faces)
+                      stage_roles=stage_roles)
     rows, red, one, eqs = base_p.rows, base_p.red, base_p.one, base_p.eqs
     # §20b (4): a column with NO LEVEL is not this stage's answer.  The level
     # belt (§23.4) normally leaves none — it gives every level-free piece its

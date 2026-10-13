@@ -62,10 +62,14 @@ def _items(vertices):
 
 
 def gap_free(cl):
-    """``cl`` without its §53 gap pieces, or ``None`` when it has none —
-    THE BASE MAP of the last stage (below)."""
+    """``cl`` without its LAST-STAGE cells — the §53 gap pieces and the pad
+    roads (issue #609: a mapped-road ribbon admitted for a pad, evidence
+    ``pad_road``) — or ``None`` when it has none: THE BASE MAP of the last
+    stage (below)."""
     from ..model.planar import is_gap_ref
-    cells = tuple(c for c in cl.cells if not is_gap_ref(getattr(c, "ref", "")))
+    cells = tuple(c for c in cl.cells
+                  if not (is_gap_ref(getattr(c, "ref", ""))
+                          or (getattr(c, "evidence", None) or {}).get("pad_road")))
     if len(cells) == len(cl.cells):
         return None
     return _dc.replace(cl, cells=cells)
@@ -83,8 +87,12 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
     the earlier stages gave it, and the follower grades up to it.  A face of
     a ``soft_roles`` role (the adjacent-ground bands, which adopt their
     value) does not hold a vertex.  ``(vertices, report)``."""
-    from ..model.planar import gap_follower_faces
+    from ..model.planar import gap_follower_faces, pad_road_faces
     gap, ribbons = gap_follower_faces(pm_full)
+    # the pad roads (issue #609; 13a (1)): followers as a gap piece is
+    pad_roads = pad_road_faces(pm_full)
+    ribbons = [*ribbons, *(f for f in pad_roads
+                           if f.id not in {r.id for r in ribbons})]
     follow = {f.id for f in gap} | {f.id for f in ribbons}
     free: set[int] = set()
     held: set[int] = set()
@@ -94,6 +102,7 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
         elif f.role not in soft_roles:
             held |= _face_vertices(pm_full, f)
     rep = {"gap_faces": len(gap), "follower_ribbons": len(ribbons),
+           "pad_roads": len(pad_roads),
            "follower_ribbon_refs": sorted({str(f.ref) for f in ribbons}),
            "vertices": len(free - held), "held_on_a_leader": len(free & held)}
     return free - held, rep

@@ -2269,7 +2269,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         from auto_patch_v2.pipeline.stage_one_map import gap_free as _gap_free
         _n = len(cl.cells)
         cl = _gap_free(cl) or cl
-        print(f"[{icao}] --gap-free: {_n - len(cl.cells)} gap piece(s) dropped, "
+        print(f"[{icao}] --gap-free: {_n - len(cl.cells)} last-stage cell(s) (gap pieces, pad roads) dropped, "
               f"{len(cl.cells)} cells (the build's base map)")
     if late is None:
         return _rest(cl)

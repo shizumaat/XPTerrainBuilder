@@ -172,20 +172,12 @@ _ROAD_GENERATORS = frozenset({"roads", "road_ramp", "pavement_road_cap",
                               "pavement_ceiling"})
 
 
-def _groundside_minter(planar: PlanarMap, law: Law,
-                       faces: _t.AbstractSet[int] | None = None
+def _groundside_minter(planar: PlanarMap, law: Law
                        ) -> _t.Callable[[_t.Any], bool]:
     """RULINGS 2026-09-30aa rule 1: ``row -> True`` when the row names a
     ``face:N`` input whose face is a WELDED road face — the row that face
-    MINTED, stage 2's whatever its columns.  ``faces`` narrows the set
-    (issue #609: stage 2's senior pass drops the rows the PAD ROADS
-    minted) and then a ``vertex:N`` input on one of those faces' vertices
-    marks the row too — the road ramp's rows (§37 (6), (9), the pad ramp)
-    name their vertex, not their face."""
-    gs = set(_welded_faces(planar)) if faces is None else set(faces)
-    vs: set[int] = set() if faces is None else {
-        v for fid in gs for cyc in (planar.faces[fid].ring, *planar.faces[fid].holes)
-        for v in planar.ring_vertices(cyc)}
+    MINTED, stage 2's whatever its columns."""
+    gs = _welded_faces(planar)
 
     def _is(row) -> bool:
         if not gs:
@@ -200,15 +192,12 @@ def _groundside_minter(planar: PlanarMap, law: Law,
         if getattr(src, "generator", None) not in _ROAD_GENERATORS:
             return False
         for t in getattr(src, "inputs", ()) or ():
-            if not isinstance(t, str):
-                continue
-            try:
-                if t.startswith("face:") and int(t[5:]) in gs:
-                    return True
-                if vs and t.startswith("vertex:") and int(t[7:]) in vs:
-                    return True
-            except ValueError:
-                continue
+            if isinstance(t, str) and t.startswith("face:"):
+                try:
+                    if int(t[5:]) in gs:
+                        return True
+                except ValueError:
+                    continue
         return False
     return _is
 

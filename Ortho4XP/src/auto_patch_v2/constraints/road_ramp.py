@@ -323,16 +323,6 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # floor of their profiles, so the rim's rows leave after them
     cs, rep["pad_weld"] = pad_weld_release(planar, law, cs)
     rep["welded_join"] = [*rep["welded_join"], *rep["pad_weld"].pop("joins")]
-    cs, rep["pad_ramp"] = pad_ramp_rewrite(planar, law, cs)
-    rep["welded_join"] = [*rep["welded_join"], *rep["pad_ramp"].pop("joins")]
-    # THE JUNIOR SET (owner RULINGS 2026-10-13a (1), master's reading of
-    # round 2: "road yields to the pad" is SENIORITY, not a weight): every
-    # vertex of the pad's road network off the rim.  ``solve.design.solve_
-    # design`` solves stage 2 WITHOUT them first and then them alone, every
-    # other level a constant — the pad's level reaches the road rows as a
-    # constant, never as an unknown the road rows can bargain with.
-    rep["junior"] = rep["pad_ramp"].pop("junior")
-    rep["junior_faces"] = rep["pad_ramp"].pop("junior_faces")
     return cs, rep
 
 
@@ -343,61 +333,31 @@ PAD_RAMP_RULING = ("roads.groundside_road ramp from the pad "
 
 
 def _welded_ribbon_vertices(planar: PlanarMap, law: Law
-                            ) -> tuple[dict[int, int], frozenset[int], frozenset[int],
-                                       frozenset[int]]:
+                            ) -> tuple[dict[int, int], frozenset[int]]:
     """``{ribbon vertex: its nearest pad-rim vertex}`` over THE ROADS
-    ADMITTED FOR A PAD (``PlanarMap.pad_roads``, the mint's admission
-    witness: a mapped road none of whose ribboned stretch lies inside the
-    airside patch — in the patch only because a pad is): the faces sharing
-    a rim with a building pad and every pad-road face reached from one
-    through shared vertices, STOPPING at a face that touches stage-1
-    airside pavement (``airside_stage_roles``: there the road is bordered
-    by airside and keeps the airside's rows, ``terrace_profile``).  A
-    road the AIRSIDE patch admits is not here: it keeps the rows it has
-    always had with the lots and airside it borders.
-
-    MEASURED (KCLT round 2, the welded face alone): the neighbouring face
-    of the same forecourt kept its hard join pin 5.7 m on, and its hard
-    within-shape row pulled the rim through the welded face's design row
-    — the pad still fell.  MEASURED (round 3, the junior set drawn by
-    GEOMETRY instead of the witness): the pad's network stopped at any
-    other pavement — a pad road's newly admitted stretch at a lot kept
-    its absolute rows and pulled the lot and the three pads welded to it
-    (building77 +0.65 m); every airside-free ribbon junior — the lots
-    main's roads pull today took their no-road levels and seven pads
-    moved with them (building58 +2.20 m).
-
-    The third value is THE JUNIOR SET: every vertex of every pad-road
-    face (rim-connected or not) that is on no pad rim and on no other
-    pavement face — the vertices ``solve.design.solve_design`` solves
-    LAST, every other level a constant; a vertex the road shares with a
-    lot is the LOT's and the road conforms to it.  The fourth is the
-    pad-road faces themselves: their triangles and their minted rows
-    leave the senior pass whatever their columns."""
-    from ..law.tables import airside_stage_roles, pavement_roles
-    from ..model.planar import is_osm_ribbon_ref
+    ADMITTED FOR A PAD (``model.planar.pad_road_faces``: the mint's second
+    pass — in the patch only because a pad is): the faces sharing a rim
+    with a building pad and every pad-road face reached from one through
+    shared vertices, less a face that touches stage-1 airside pavement
+    (``airside_stage_roles``: there the road is bordered by airside and
+    keeps the airside's rows).  A road the patch itself admits is not
+    here: it keeps the rows it has always had.  The second value is the
+    pad rims' vertices."""
+    from ..law.tables import airside_stage_roles
+    from ..model.planar import pad_road_faces
     from .pads import pad_welded_vertices
     rim = pad_welded_vertices(planar, law)
-    pad_roads = getattr(planar, "pad_roads", None) or frozenset()
-    if not rim or not pad_roads:
-        return {}, rim, frozenset(), frozenset()
-    roles = family(law, "road_cross_section").roles
+    roads = pad_road_faces(planar)
+    if not rim or not roads:
+        return {}, rim
     air = airside_stage_roles(law)
-    pav = set(pavement_roles(law))
     air_vs: set[int] = set()
-    other_vs: set[int] = set()        # vertices of any pavement that is not a pad road
-    ribbon: dict[int, set[int]] = {}
     for f in planar.faces.values():
-        vs = {v for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
-        if f.role in roles and is_osm_ribbon_ref(f.ref) and f.ref in pad_roads:
-            ribbon[f.id] = vs
-        elif f.role in pav:
-            other_vs |= vs
-            if f.role in air:
-                air_vs |= vs
-    ribbon = {fid: vs for fid, vs in ribbon.items() if not (vs & air_vs)}
-    junior = frozenset(v for vs in ribbon.values() for v in vs) - rim - other_vs
-    faces = frozenset(ribbon)
+        if f.role in air:
+            air_vs |= {v for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+    ribbon = {f.id: vs for f in roads
+              for vs in [{v for cyc in (f.ring, *f.holes)
+                          for v in planar.ring_vertices(cyc)}] if not (vs & air_vs)}
     by_vertex: dict[int, list[int]] = {}
     for fid, vs in ribbon.items():
         for v in vs:
@@ -420,7 +380,7 @@ def _welded_ribbon_vertices(planar: PlanarMap, law: Law
             x, y = planar.vertices[v].xy
             out[v] = min(rim_l, key=lambda q: (planar.vertices[q].xy[0] - x) ** 2
                          + (planar.vertices[q].xy[1] - y) ** 2)
-    return out, rim, junior, faces
+    return out, rim
 
 
 def _dist(planar: PlanarMap, a: int, b: int) -> float:
@@ -463,23 +423,19 @@ def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet
     itself can never pull the pad.  Nothing absolute
     remains on the ribbon but the core-profile fit (``[design] road``).
 
-    SENIORITY, NOT A WEIGHT (round 3; the master's reading of round 2's
-    residual): MEASURED with the rows above alone, the garages still fell
-    0.40-0.50 m — ``--why-vertex`` on a rim ended at a FREE road vertex
-    "held by bending alone": the pad's one facing preference against the
-    road sheet's bending and its priced rows, an objective contest the
-    one-way register does not settle.  So the report names every
-    airside-free ribbon vertex off a pad rim as ``"junior"`` and
-    ``solve.design.solve_design`` solves them LAST, in a pass of their own
-    with every other level a constant (``assemble``'s ``drop`` /
-    ``fixed``, exactly how stage 2 reads stage 1): the pad's — and the
-    lot's — level reaches the road rows as a constant, its no-road level
-    by construction."""
-    near, rim, junior, faces = _welded_ribbon_vertices(planar, law)
+    SENIORITY, NOT A WEIGHT (13b (5), 13d "road ramps first"): the
+    rewrite runs in THE LAST STAGE (``pipeline/late_stage``), where the
+    pad roads are the unknowns and every pad, lot and airside level is a
+    constant the map WITHOUT them was solved to — so no road row and no
+    road bending has a pad column to bargain with.  MEASURED before that
+    order: with these rows in one solve the garages fell 0.40-0.50 m
+    (round 2: a free road vertex "held by bending alone"); solved after
+    the pads but on rows generated from the map WITH the roads (round 3),
+    the patch's own ribbons re-read their borders and lifted a lot 2.9 m
+    and the pad welded to it 0.8 m (KCLT ``dsf:pol84``, building77)."""
+    near, rim = _welded_ribbon_vertices(planar, law)
     rep: dict[str, _t.Any] = {"ribbon_vertices": len(near), "targets": 0,
-                              "ceilings": 0, "rows": 0, "joins": [],
-                              "junior": sorted(int(v) for v in junior),
-                              "junior_faces": sorted(int(f) for f in faces)}
+                              "ceilings": 0, "rows": 0, "joins": []}
     if not near:
         return cs, rep
     g = float(law.tables.emit.road_contact.ramp_grade)

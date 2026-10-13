@@ -1,6 +1,7 @@
 """Issue #609, owner RULINGS 2026-10-13a (1)/(3): THE ROAD YIELDS TO THE PAD.
 
-A mapped-road ribbon welded to a building pad keeps no absolute road row
+A mapped-road ribbon admitted for a pad is a FOLLOWER of the last stage
+(round 4), keeps no absolute road row
 off the rim (its §37 (6) target and ceiling leave, its §37 (9) join pin is
 released so the core ribbon yields), and carries ONE design row relative
 to its nearest rim vertex; the ribbon pass of the touch witness never
@@ -104,58 +105,52 @@ class _FallingDem(_Dem):
         return 700.0 + (0.0 if y >= 100.0 else 0.08 * (y - 100.0))
 
 
-def _solve(law, cells, airport, *, junior=True):
-    """The build's own staged solve over ``cells`` (``pipeline/build``'s
-    binding of ``reach_seed_rewrite``); ``junior=False`` withholds the
-    junior set the rewrite names, so stage 2 runs in one pass as before."""
+def _derive(airport, law):
+    """The caller's prefix the last stage runs (``pipeline/build``'s shape)."""
     from auto_patch_v2.constraints import generate
     from auto_patch_v2.constraints.no_step import hold_pass
-    from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
-    from auto_patch_v2.solve import solve_design
 
-    def rewrite(pm, cs, lv):
-        cs2, rep = reach_seed_rewrite(pm, law, cs, lv)
-        if not junior:
-            rep.pop("junior", None)
-            rep.pop("junior_faces", None)
-        return cs2, rep
-    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
-    cs, _c, _w = generate(pm, law, airport)
-    sol, rep = solve_design(pm, cs, law, hold=hold_pass(pm, law),
-                            stage2_rewrite=lambda lv: rewrite(pm, cs, lv))
-    return pm, sol, rep
+    def run(cl0):
+        pm0, _st = build(airport, cl0, law)
+        cs0, _c, _w = generate(pm0, law, airport)
+        return pm0, cs0, None, hold_pass(pm0, law)
+    return run
 
 
-def _pad_levels(pm, sol) -> dict[tuple[float, float], float]:
-    return {tuple(round(c, 3) for c in pm.vertices[v].xy): float(sol.z[v])
+def _pad_levels(pm, z) -> dict[tuple[float, float], float]:
+    return {tuple(round(c, 3) for c in pm.vertices[v].xy): float(z[v])
             for f in pm.faces.values() if f.role == "building"
             for v in pm.ring_vertices(f.ring)}
 
 
-def test_the_pad_takes_its_no_road_level_and_the_road_is_solved_last(law):
-    """ROUND 3 — SENIORITY BY CONSTRUCTION (13a (1), the master's reading
-    of round 2's 0.5 m residual): the rewrite names the welded ribbon's
-    vertices off the rim as ``junior``; ``solve_design`` solves stage 2
-    without them first (``stages["stage2_senior"]``) and then them alone
-    against constants.  The pad's level is the no-road problem's EXACTLY,
-    and the road descends from the rim toward its own ground."""
+def test_the_pad_road_is_a_follower_of_the_last_stage(law):
+    """ROUND 4 — SENIORITY AS AN ORDER (13b (5), 13d): the base map is the
+    classification WITHOUT its pad roads (``gap_free``), solved as an
+    airport with no such road is; the last stage solves the pad road
+    against those levels.  The pad's level is the base's EXACTLY, and the
+    road descends from the rim toward its own ground."""
+    from auto_patch_v2.constraints.pads import pad_welded_vertices
+    from auto_patch_v2.pipeline.late_stage import run_late_stage
+    from auto_patch_v2.pipeline.stage_one_map import gap_free, late_followers
+    from auto_patch_v2.solve import solve_design
     airport = _airport(law, _FallingDem())
     cells, _n = _cut_back_groundside(_ribbon_cells(), law, load_rules(), airport,
                                      only=[2], hold=False)
-    pm1, sol1, rep1 = _solve(law, cells, airport)
-    pm0, sol0, _rep0 = _solve(law, [c for c in cells if c.role != "service_road"],
-                              airport)
-    assert rep1.reach_seed["junior_vertices"] > 0
-    senior = rep1.stages["stage2_senior"]
-    assert senior["junior"] == rep1.reach_seed["junior_vertices"]
-    assert rep1.reach_seed["junior_faces"] > 0
-    assert senior["levelled"] > 0 and senior["status"] == "OPTIMAL"
-    p1, p0 = _pad_levels(pm1, sol1), _pad_levels(pm0, sol0)
-    assert set(p1) == set(p0)
-    assert max(abs(p1[k] - p0[k]) for k in p1) < 1e-6
-    # the road: at the rim it is the pad's level, outward it falls toward
-    # its ground and never below the pad's level minus the design grade
-    from auto_patch_v2.constraints.pads import pad_welded_vertices
+    cl = Classification(tuple(cells), (), {}, ())
+    base = gap_free(cl)
+    assert base is not None and not any(c.role == "service_road" for c in base.cells)
+    derive = _derive(airport, law)
+    pm0, cs0, _s, hold0 = derive(base)
+    sol0, _rep0 = solve_design(pm0, cs0, law, hold=hold0)
+    pm1, sol1, rep = run_late_stage(cl, airport, law, derive,
+                                    {"pm": pm0, "z": sol0.z, "pin_yield": []},
+                                    out=lambda m: None)
+    assert rep["followers"]["pad_roads"] >= 1 and rep["followers"]["gap_faces"] == 0
+    free, _f = late_followers(pm1)
+    assert free and rep["pad_ramp"]["rows"] > 0
+    p1, p0 = _pad_levels(pm1, sol1.z), _pad_levels(pm0, sol0.z)
+    assert set(p0) <= set(p1)
+    assert max(abs(p1[k] - p0[k]) for k in p0) < 1e-6
     rim = pad_welded_vertices(pm1, law)
     road = {v for f in pm1.faces.values() if f.ref == "small_roads:-1"
             for v in pm1.ring_vertices(f.ring)}
@@ -163,6 +158,40 @@ def test_the_pad_takes_its_no_road_level_and_the_road_is_solved_last(law):
     outer = [v for v in road - rim if pm1.vertices[v].xy[1] < 100.0]
     assert outer and all(sol1.z[v] <= 700.0 + 1e-6 for v in outer)
     assert min(sol1.z[v] for v in outer) < 700.0 - 0.1
-    # withholding the junior set is the one-pass stage 2 of before
-    _pm, _sol, rep_o = _solve(law, cells, airport, junior=False)
-    assert "stage2_senior" not in rep_o.stages
+
+
+def test_the_reach_read_names_the_remainder_where_no_cap_ramp_fits(law):
+    """13d: between the pad's rim and the road's other standing end the
+    least grade is |rise| / run; over the road cap the remainder is
+    ``|rise| - cap x run``, signed toward the far end."""
+    from auto_patch_v2.constraints.pad_road_reach import pad_road_reach
+    from auto_patch_v2.constraints.pads import pad_welded_vertices
+    from auto_patch_v2.law.tables import role_cap
+    airport = _airport(law, _Dem())
+    lot = Cell(2, "parking_lot", "lot1", _rect(100.0, 60.0, 200.0, 80.0), (),
+               None, None, "groundside", "pavement", {})
+    road = Cell(3, "service_road", "small_roads:-1", _rect(100.0, 80.0, 200.0, 104.0), (),
+                None, None, "groundside", "service_road",
+                {"osm_ribbon": 1.0, "pad_road": 1.0})
+    cells = [c for c in _ribbon_cells() if c.role != "service_road"] + [lot, road]
+    cells, _n = _cut_back_groundside(cells, law, load_rules(), airport, only=[3], hold=False)
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), law)
+    assert pm.pad_roads == frozenset({"small_roads:-1"})
+    rim = pad_welded_vertices(pm, law)
+    rv = {v for f in pm.faces.values() if f.ref == "small_roads:-1"
+          for v in pm.ring_vertices(f.ring)}
+    lot_v = {v for f in pm.faces.values() if f.ref == "lot1" for v in pm.ring_vertices(f.ring)}
+    assert rv & rim and rv & lot_v
+    cap = float(role_cap(law, "service_road").longitudinal)
+
+    def read(drop):
+        fixed = {v: 700.0 for f in pm.faces.values() if f.ref != "small_roads:-1"
+                 for v in pm.ring_vertices(f.ring)}
+        fixed.update({v: 700.0 - drop for v in lot_v})
+        return pad_road_reach(pm, law, fixed)
+    fits, = read(1.0)                     # 1 m over ~20 m: ~5 %
+    assert fits["pad"] == "padA" and fits["remainder_m"] == 0.0
+    assert 19.0 <= fits["run_m"] <= 24.0             # the road is 20 m long
+    short, = read(5.0)                    # 5 m over 20 m: 25 %
+    assert short["rise_m"] == pytest.approx(-5.0)
+    assert short["remainder_m"] == pytest.approx(-(5.0 - cap * short["run_m"]), abs=1e-3)

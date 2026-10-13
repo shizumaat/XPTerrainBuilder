@@ -129,6 +129,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  coarsen_reach_m: float = 0.0,
                  contact_eps_m: float = 0.0, rigid_reach_m: float = 0.0,
                  bind_ground_m: float = 0.0,
+                 # #610/#625: the roof witness's own cap (``[terrace]
+                 # pad_terrace_floor_m``); 0 disarms the witness
+                 roof_bind_m: float = 0.0,
                  cluster_min_m2: float = 0.0, touch_m: float = 0.0,
                  connector_span_m: float = 0.0,
                  chain_min_height_m: float = 0.0,
@@ -508,6 +511,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         forced, cl_census = _atom.bind_unit(
             cands, staged, surface, unit_pairs.get(ui, ()), counts,
             near_m=coarsen_reach_m, bind_ground_m=bind_ground_m,
+            roof_bind_m=roof_bind_m,
             cluster_out=_clus)
         cl_spans.extend(cl_census[:5])
 
@@ -529,6 +533,13 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 visual_m=bind_ground_m,
                 beside=lambda k, parts: _deck_rider(
                     _deck_by_key.get(k), parts, foot_band_m, deck_edge_m)))
+        # owner RULINGS 2026-10-10n (1)/(3), 2026-09-11i (#625, #610): a
+        # body the §16c (7) bind put on its senior FOLLOWS the senior
+        # through the unit and viaduct seats above — the bind copied the
+        # senior's anchor BEFORE those seats moved it, and a bound leaf
+        # (a plate, a low wall, an awning's posts) is in no unit of its own
+        if _clus:
+            _atom.follow_seniors(cands, staged, surface, _clus, counts)
         # RULINGS 2026-09-29q (#98): a CUT connector's rail top and floor
         # ride the DECK — the authored unit's own body — never the station
         # unit the §16c (7) contact bind above handed them to

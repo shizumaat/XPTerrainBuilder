@@ -691,6 +691,45 @@ def _place_graded_surface(task: dict, paths, icao: str) -> str | None:
 # edited, encoded, verified and backed up, the READ path's text-dump
 # cache is refreshed and the placement plan lands beside the patch.
 
+def mesh_placement_sampler(mesh_path: str,
+                           bounds: tuple[float, float, float, float]):
+    """The BUILT MESH as the placement stage reads it: ``sample(lat, lon)
+    -> (z, is_water) | None`` with ``.many`` over the same grid index
+    (RULINGS 2026-09-12g), ``None`` outside every retained triangle and
+    for a non-finite height.  ONE adapter for the app
+    (:func:`rebake_after_mesh`) and the replay instrument
+    (``tools/obj8_split_report.py --mesh``, lane seat610): the dry run on
+    the graded surface cannot see a body seated against mesh ground that
+    slopes under one building (#625), so the instrument reads the same
+    mesh the app seated on, through the same adapter."""
+    import math
+    from .mesh_sampler import MeshElevationSampler, OutsideMeshError
+    sampler = MeshElevationSampler(mesh_path, bounds)
+
+    def _sample(lat: float, lon: float, _s=sampler):
+        try:
+            s = _s.sample_at(lat, lon)
+        except OutsideMeshError:
+            return None
+        z = float(s.elevation_metres)
+        return (z, bool(s.is_water)) if math.isfinite(z) else None
+
+    def _sample_many(lats, lons, _s=sampler):
+        """The same grid index, one call for a whole batch.  Point-for-
+        point identical to ``_sample`` — the non-finite guard included."""
+        out = []
+        for s in _s.sample_many(lats, lons):
+            if s is None:
+                out.append(None)
+                continue
+            z = float(s.elevation_metres)
+            out.append((z, bool(s.is_water)) if math.isfinite(z) else None)
+        return out
+
+    _sample.many = _sample_many
+    return _sample
+
+
 def _placement_surface(mesh_sample):
     """The placement stage's design surface over a mesh sampler
     (RULINGS 2026-09-12g (2)).
@@ -1081,6 +1120,11 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         # (A), owner RULINGS 2026-09-12ap: the height a cross-member
         # §16c (7) bind may move a body off its OWN ground.
         bind_ground_m=law.tables.emit.cockpit.visual_m,
+        # #610/#625: a body under ONE roof with the cluster is bound past
+        # that test while the step at its feet is under the terrace floor
+        # (a weld, RULINGS 2026-09-30i); a terrace-sized step is the
+        # terrain's to adapt and is reported, not seated
+        roof_bind_m=law.tables.emit.terrace.pad_terrace_floor_m,
         # §16f (7) (owner RULINGS 2026-09-13bj item 1): the footprint-union
         # area above which a family is a CLUSTER and seats as one unit.
         cluster_min_m2=law.tables.structures.placement.cluster_pad_min_m2,
@@ -1279,12 +1323,10 @@ def rebake_after_mesh(tile) -> dict:
     against the mesh just built (see the section comment).  Never raises
     (the mesh hook wraps it too); returns the counts for the summary."""
     import glob
-    import math
     import O4_File_Names as FNAMES
     import O4_UI_Utils as UI
     from auto_patch_v2.law import Law
     from auto_patch_v2.model import rebake as _rb
-    from .mesh_sampler import MeshElevationSampler, OutsideMeshError
     from .post_mesh import (_is_protected_scenery_root, _mesh_is_newer_than_alt,
                             object_anchor_worklist_path)
 
@@ -1454,31 +1496,7 @@ def rebake_after_mesh(tile) -> dict:
                                  "nothing is read, classified or written")
                     counts["airports"] += 1
                     continue
-                sampler = MeshElevationSampler(mesh_path, plan_.bounds())
-
-                def _sample(lat: float, lon: float, _s=sampler):
-                    try:
-                        s = _s.sample_at(lat, lon)
-                    except OutsideMeshError:
-                        return None
-                    z = float(s.elevation_metres)
-                    return (z, bool(s.is_water)) if math.isfinite(z) else None
-
-                def _sample_many(lats, lons, _s=sampler):
-                    """The same grid index, one call for a whole batch
-                    (RULINGS 2026-09-12g).  Point-for-point identical to
-                    ``_sample`` — the non-finite guard included."""
-                    out = []
-                    for s in _s.sample_many(lats, lons):
-                        if s is None:
-                            out.append(None)
-                            continue
-                        z = float(s.elevation_metres)
-                        out.append((z, bool(s.is_water))
-                                   if math.isfinite(z) else None)
-                    return out
-
-                _sample.many = _sample_many
+                _sample = mesh_placement_sampler(mesh_path, plan_.bounds())
 
                 # THE PLACEMENT PATH (11e (3); the ONLY object stage
                 # since 2026-09-12s) — no seat is computed

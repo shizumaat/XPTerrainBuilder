@@ -788,32 +788,15 @@ def _stable_repr(value) -> str:
 # Everything else in config.py is IN, including every numeric standards /
 # tuning constant and every ``O4_`` env gate — the whole point of the digest is
 # that it cannot rot as constants are added.  The env gate whose default
-# produced each excluded constant is excluded alongside it, otherwise the gate
-# value would re-introduce exactly what the constant exclusion removed.
+# produced each excluded constant is left out alongside it (it is in
+# ``provenance_env.RUN_ENVIRONMENT``, the ONE table of ``O4_`` variables the
+# digest never reads — #607), otherwise the gate value would re-introduce
+# exactly what the constant exclusion removed.
 CONFIG_DIGEST_EXCLUDED_CONSTANTS = frozenset({
     "LOG_VERBOSITY",
     "BUILD_PROGRESS",
     "REPORT_GRADE_AUDIT",
     "PARALLEL_AIRPORTS",
-})
-CONFIG_DIGEST_EXCLUDED_GATES = frozenset({
-    "O4_LOG_VERBOSITY",
-    "O4_BUILD_PROGRESS",
-    "O4_REPORT_GRADE_AUDIT",
-    "O4_PARALLEL_AIRPORTS",
-    # Not settings at all: the freshness gate's own force-rebuild flag (which
-    # the gate consults directly and which must not itself be an input), and
-    # the provenance stamp's master switch (it governs the header block, not
-    # any emitted geometry).
-    "O4_AUTO_PATCH_REBUILD",
-    "O4_PATCH_PROVENANCE",
-    # WHERE the masks are kept (``O4_File_Names.masks_root``), never what a
-    # patch is: the masks step runs after the patch and the airport build
-    # reads nothing under it.  The harness points it at a fresh per-run
-    # directory, so with it digested no harness tile build could ever reuse
-    # a patch (#346).  The other two root redirects stay in: the DSF and
-    # airport caches hold what the build READS.
-    "O4_MASKS_DIR",
 })
 
 
@@ -826,22 +809,29 @@ def config_digest() -> str:
       value — enumerated by :func:`introspect_config_gates`, the same
       introspection the provenance stamp uses, so the inventory tracks the
       source automatically and cannot rot as gates come and go;
-    * every ``O4_`` variable actually SET in the environment.  Two reasons:
-      gates read at a call site outside config.py (``O4_FORCE_APT_DAT``, the
-      pavement-model toggles in ``driver``) are covered, and — the important
-      one — a FROZEN engine ships no ``.py`` for the introspection to read, so
-      without this a gate flip would be invisible in the packaged app; and
+    * every ``O4_`` variable actually SET in the environment that is a
+      SETTING (``provenance_env.digested_environment``).  Two reasons: gates
+      read at a call site outside config.py (``O4_FORCE_APT_DAT``, the apt.dat
+      reader's curve knobs) are covered, and — the important one — a FROZEN
+      engine ships no ``.py`` for the introspection to read, so without this
+      a gate flip would be invisible in the packaged app.  The variables that
+      only identify or steer the RUN (the parent's pid, the sibling count,
+      scratch and ledger locations, verbosity, strict mode) are NOT read:
+      they are new on every launch and cannot change a patch (#607).  A
+      variable in neither class is digested, the safe side; and
     * every module-level constant config.py defines (standards numbers, role
       tables, tuning knobs) — the source-edit half, which no env gate covers,
       and which reads correctly from the compiled module when frozen.
 
-    See ``CONFIG_DIGEST_EXCLUDED_*`` for what is left out and why.  Returns
+    See ``CONFIG_DIGEST_EXCLUDED_CONSTANTS`` and ``provenance_env.RUN_
+    ENVIRONMENT`` for what is left out and why.  Returns
     ``"unknown"`` only when the config module itself cannot be imported.
     """
     try:
         from . import config as _config
     except Exception:
         return "unknown"
+    from . import provenance_env as _env
     parts: list[str] = []
     gates = introspect_config_gates()
     # Recorded so a build whose config SOURCE was readable never silently
@@ -849,15 +839,13 @@ def config_digest() -> str:
     # gate sets, and a patch must not cross that boundary unrebuilt.
     parts.append("introspect:" + ("ok" if gates else "unavailable"))
     for name in sorted(gates):
-        if name in CONFIG_DIGEST_EXCLUDED_GATES:
+        if name in _env.RUN_ENVIRONMENT:
             continue
         parts.append(f"gate:{name}={gates[name]['value']}")
-    for name in sorted(os.environ):
-        if not name.startswith("O4_") or name in CONFIG_DIGEST_EXCLUDED_GATES:
-            continue
+    for name, value in sorted(_env.digested_environment().items()):
         if name in gates:
             continue                     # already digested at its live value
-        parts.append(f"env:{name}={os.environ[name]}")
+        parts.append(f"env:{name}={value}")
     for name in sorted(dir(_config)):
         if name.startswith("_") or name in CONFIG_DIGEST_EXCLUDED_CONSTANTS:
             continue

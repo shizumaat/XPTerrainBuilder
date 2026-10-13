@@ -64,7 +64,7 @@ release, most verification weight below is SUSPENDED: no per-edit
 blast-radius or full-suite runs (only the test files directly
 covering the change, once), no per-lane acceptance builds/censuses/
 battery proofs, short reports, ONE implementer per coupled
-change-set. KEPT: root cause first, Fable specs, the shared-repo
+change-set. KEPT: root cause first, written specs, the shared-repo
 guard + harness entries, never writing the real X-Plane install,
 per-change unit tests run once, convergence guards. The owner's
 in-sim pass is acceptance; each skipped verification gets a line in
@@ -74,7 +74,7 @@ the ship gate.
 This repo is worked with a lead-session + subagent model to spend
 top-tier-model tokens only where judgment is required:
 
-1. **The lead session (Fable) is architect and reviewer.** It owns
+1. **The lead session is architect and reviewer.** It owns
    architecture, public interfaces, UX decisions, integration, and final
    review. It writes the judgment-heavy code itself (core widgets, wiring,
    anything user-facing in copy or behavior).

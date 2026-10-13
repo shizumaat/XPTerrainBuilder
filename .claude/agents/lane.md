@@ -1,6 +1,6 @@
 ---
 name: lane
-description: Implementation lane for XPTerrainBuilder / Ortho4XP work — a mechanism, a fix, a measurement, a merge. Opus by default (Fable 5.1 when the brief is spec-critical), moderate effort, orchestrated by the session (owner standing 2026-09-03, amended evening).
+description: Implementation lane for XPTerrainBuilder / Ortho4XP work — a mechanism, a fix, a measurement, a merge. Opus, moderate effort, orchestrated by the session (owner standing 2026-10-13: Fable only with the owner's approval of that launch).
 model: opus
 effort: medium
 ---

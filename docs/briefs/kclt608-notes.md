@@ -174,3 +174,20 @@ metres; but HECA is APPROVED on the current body (12m) → OWNER'S CALL. To drop
   test_vector_map_hairline_weld ×1 at teardown). Ratchets: duplicate PASS, layer PASS; size WARN
   constraints/platform.py 1065 → 1267 (+202 vs the recorded baseline; +55 here), no_step.py 1284.
 * Frames registered: `frames/kclt608/` patch, rebake, graded.
+
+## Step E — HECA control build `kclt608_HECA` (rc 0, 1158 s loaded; body 2854927a1a9b, sw17 53a84604b6ce) — OWNER: "Go ahead with the KCLT change and I will retest HECA"
+* `airside_value_delta` sw17 → build: solve-owned airside 0 movers, structures 0, RUNWAY 0. Row-side 101 nodes, all
+  `building`: building6 43/43 92.03..92.43 → 101.77 (+9.75 m, 30.11296625916,31.39556497958), building7 54/54
+  100.38..100.81 → 101.79 (+1.41), building110 4/4 84.99 → 83.76 (−1.24); groundside_pavement 212 nodes worst 9.74 m
+  (the forecourt lots welded to building6), service_road 11 nodes ≤ 0.53. The datum group: T3 building4 (101.79) +
+  building6 + building7 — pieces of one cluster stem joined by the 148 × 256 m floor plates (connect549's 14ah class);
+  building110 grouped with its neighbour at 83.76. Frontage: hard relaxed 75 → 76, frontage_hold rows 2568 = 2568, no
+  warnings. Census: LAW-TRUE TOTAL and adjudicated — see the report (census run on the build below).
+* Object plan (dry run on the build's plan + graded vs sw17's): `pad_level_units_split` 5 → 4 (fu:40:120 is now 2
+  levels not 4), off_pad 41 units / 975 bodies; 309 bodies change unit or zero, 115 by > 0.05 m: the T3 cluster
+  `fu:40:120/p0` (92.03) → `/p1` 101.79 (+9.76: metal_strip_2, floor, T3_brick_clean, meridien ×2, metal_titles,
+  t3_13, titles_1 ×2 … the bodies on building6), `sign_T2.obj` 101.79 → 66.83 (−34.96, carried by metal_dark b0),
+  `T3_concrete_Yellow` fu:42:1906/1892 69.58/70.37 → 100.57/100.96 (+31.0/+30.6), fu:42:1902/1906 → 83.76 (+14..16),
+  `interior_door` 75.36 → 101.80 (+26.4), `floor_more_yellow` 100.38 → 74.69 (−25.7), `metal_strip_2` fu:43:5046
+  69.94 → 95.03 (+25.1), `T3_14` 72.72/73.13 → 91.0 (+18), 101.79 → 91.5/91.9 (−10); full list: `c2_osr_diff.py
+  osr_heca_sw17.json osr_heca_build.json 200`.

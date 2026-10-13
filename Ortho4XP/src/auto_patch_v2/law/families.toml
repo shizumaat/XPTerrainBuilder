@@ -74,11 +74,11 @@ solver    = "edge"
 cockpit   = "grade"
 
 [runway_end_skirt]
-measures  = "end-skirt down-grade and its rate beyond the runway end"
+measures  = "the ground beyond a runway end against the runway-end profile (tables.runway_end_profile): falling faster than the strip's cap over its end length (ICAO) / the near-end cap (FAA) or the skirt's 5 % beyond, rising over the take-off climb surface, or (FAA) a grade change over the rate — graded_strip rings in the end corridors, by ring pair and by the chord from the runway's end edge"
 parameter = "ruleset.end_skirt.max_down_grade"
-roles     = ["runway_clearance"]
+roles     = ["graded_strip"]
 pairs     = "within"
-ruling    = "reg-set 2026-08-08"
+ruling    = "owner RULINGS 2026-10-12q (1) (#620); reg-set 2026-08-08"
 solver    = "edge"
 cockpit   = "grade"
 

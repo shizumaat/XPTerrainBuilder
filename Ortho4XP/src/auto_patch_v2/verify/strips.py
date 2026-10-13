@@ -13,6 +13,15 @@ v1 ``_check_strip_longitudinal_grade`` / ``_check_strip_arc_rate`` /
   the generator's own helpers (``constraints.strips.strip_longitudinal_
   pairs`` / ``pavement_ring_vertices``, RULINGS 2026-09-05ae(3));
 * ``resa_transverse``: across pairs inside an end corridor;
+* ``runway_end_skirt`` (owner RULINGS 2026-10-12q (1) (d); #620): THE
+  GROUND BEYOND THE END as v2 emits it — the ``graded_strip`` rings in
+  the end corridors against ``law.tables.runway_end_profile``: along-axis
+  ring pairs by the profile's increment between their stations, every
+  vertex by the chord from the runway's end edge at its own plan
+  distance (the generator's two forms, ``constraints/strips``), and the
+  FAA grade-change rate over three stations where the authority states
+  one.  Until this ruling the family read a ``runway_end_skirt`` ring v2
+  never emits and judged nothing;
 * ``raoa`` (ICAO): the s-sorted rate law inside the RAOA rectangle,
   EXACTLY as the census walks it (cross-width neighbours included — the
   reading v2 reports as a residual, ``constraints/strips.py``);
@@ -43,16 +52,18 @@ import typing as _t
 
 from ..constraints.geometry import (longitudinal_runs, point_in_rect_ring,
                                     principal_axis, rect_ring)
-from ..constraints.strips import pavement_ring_vertices, strip_longitudinal_pairs
+from ..constraints.strips import (end_pair_bounds, end_transect_pairs,
+                                  pavement_ring_vertices, strip_longitudinal_pairs)
 from shapely.geometry import Point as _ShPoint
 
-from ..law.tables import (snap_margin_m, strip_transverse_bound,
-                          zone2_half_width_m, zone_bounds)
-from .frame import Patch, Row, Shape, row
+from ..law.tables import (runway_end_profile, snap_margin_m,
+                          strip_transverse_bound, zone2_half_width_m,
+                          zone_bounds)
+from .frame import Patch, Row, Shape, pair_side, row
 from .no_step import rate_breaches
 
 __all__ = ["groups", "strip_longitudinal", "strip_arc", "resa_transverse",
-           "raoa", "adjacent_ground_tear", "strip_seam_tear", "strip_transverse",
+           "runway_end_skirt", "raoa", "adjacent_ground_tear", "strip_seam_tear", "strip_transverse",
            "runway_edge_tie", "TiePoint", "TieEdge", "TieHit",
            "natural_shore_geometry", "road_cap_geometry"]
 
@@ -326,6 +337,179 @@ def resa_transverse(p: Patch) -> list[Row]:
                     out.append(row("resa_transverse", ("graded_strip",) * 2,
                                    p.side("graded_strip"), dz, 100 * dz / across,
                                    100 * cap, across, sh.xy[i], sh.xy[j], sh.key, sh.key))
+    return out
+
+
+FAMILY_RUNWAY_END_SKIRT = "runway_end_skirt"
+
+
+def _runway_end_edges(p: Patch, ref: str, a0, unit, L: float, m: float):
+    """The runway face's END EDGES in the census frame: ``(xa, za, xb, zb,
+    end)`` for each ring edge of a ``runway`` shape of ``ref`` whose two
+    vertices both stand at the start (1) or the end (2) station."""
+    ux, uy = unit
+    out = []
+    for sh in p.shapes:
+        if sh.role != "runway" or sh.ref != ref:
+            continue
+        n = len(sh.ids)
+        for i in range(n):
+            j = (i + 1) % n
+            sa = (sh.xy[i][0] - a0[0]) * ux + (sh.xy[i][1] - a0[1]) * uy
+            sb = (sh.xy[j][0] - a0[0]) * ux + (sh.xy[j][1] - a0[1]) * uy
+            for end, s0 in ((1, 0.0), (2, L)):
+                if abs(sa - s0) <= m and abs(sb - s0) <= m:
+                    out.append((sh.xy[i], sh.z[i], sh.xy[j], sh.z[j], end))
+    return out
+
+
+def end_chord_foot(x: float, y: float, edges, rect_of) -> tuple[float, float, int] | None:
+    """``(d, z_foot, end)`` — the nearest point of the nearest runway end
+    edge (``t`` clamped, §35) for a vertex inside that end's rect: the
+    true plan distance to it and the edge's elevation interpolated there.
+    ONE geometry with ``constraints.strips._end_feet``."""
+    best = None
+    for (ax, ay), za, (bx, by), zb, end in edges:
+        if not rect_of(end, x, y):
+            continue
+        ex, ey = bx - ax, by - ay
+        l2 = ex * ex + ey * ey
+        if l2 < 1e-9:
+            continue
+        t = ((x - ax) * ex + (y - ay) * ey) / l2
+        t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+        d = math.hypot(x - (ax + t * ex), y - (ay + t * ey))
+        if best is None or d < best[0]:
+            best = (d, za + t * (zb - za), end)
+    return best
+
+
+def end_excess_m(prof, d_in: float, d_out: float, z_in: float, z_out: float,
+                 q: float) -> float:
+    """How far a pair (``d_in ≤ d_out`` beyond the end) stands OUTSIDE the
+    profile's bounds on ``z_in − z_out`` (``end_pair_bounds``): > 0 is a
+    breach — falling too fast (positive drop over ``hi``) or rising over
+    the climb surface (below ``lo``).  0 inside."""
+    lo, hi = end_pair_bounds(prof, d_in, d_out, q)
+    drop = z_in - z_out
+    if drop > hi:
+        return drop - hi
+    if lo is not None and drop < lo:
+        return lo - drop
+    return 0.0
+
+
+def runway_end_skirt(p: Patch) -> list[Row]:
+    law = p.law
+    q = law.tables.emit.instrument.strip_edge_noise_m
+    qc = law.tables.emit.instrument.coarse_noise_m
+    m = law.tables.emit.identity.min_distinct_spacing_m
+    pav = _pavement_ids(p)
+    out: list[Row] = []
+    seen: set = set()
+    for rings, unit, code, L, letter, a0, _b in groups(p):
+        prof = runway_end_profile(law, code, letter)
+        ux, uy = unit
+
+        def beyond(xy, ring_idx):
+            s = (xy[0] - a0[0]) * ux + (xy[1] - a0[1]) * uy
+            return max(0.0, -s) if ring_idx == 1 else max(0.0, s - L)
+
+        def rect_of(end, x, y):
+            return point_in_rect_ring(x, y, rings[end])
+
+        ref = next((sh.ref for sh in p.shapes if sh.role == "runway"
+                    and point_in_rect_ring(sh.xy[0][0], sh.xy[0][1], rings[0])), None)
+        edges = _runway_end_edges(p, ref, a0, unit, L, m) if ref else []
+        # the TRANSECT pairs (``constraints.strips.end_transect_pairs``)
+        for ring_idx in (1, 2):
+            st: dict = {}
+            for sh in _strips(p):
+                for k, v in enumerate(sh.ids):
+                    if v in pav or v in st:
+                        continue
+                    x, y = sh.xy[k]
+                    if not point_in_rect_ring(x, y, rings[ring_idx]):
+                        continue
+                    d = beyond((x, y), ring_idx)
+                    if d <= 0.0:
+                        continue
+                    st[v] = (d, -(x - a0[0]) * uy + (y - a0[1]) * ux, sh.z[k], (x, y), sh.key)
+            for vi, vo in end_transect_pairs([(v, d, t) for v, (d, t, _z, _xy, _k) in st.items()], m):
+                site = tuple(sorted((tuple(round(c, 3) for c in st[vi][3]),
+                                     tuple(round(c, 3) for c in st[vo][3]))))
+                if site in seen:
+                    continue
+                seen.add(site)
+                ex = end_excess_m(prof, st[vi][0], st[vo][0], st[vi][2], st[vo][2], q)
+                if ex <= 0.0:
+                    continue
+                ds = st[vo][0] - st[vi][0]
+                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                               p.side("graded_strip"), ex, 100 * (st[vo][2] - st[vi][2]) / ds,
+                               100 * prof.down_cap_at(st[vo][0]), ds,
+                               st[vi][3], st[vo][3], st[vi][4], st[vo][4]))
+        for sh in _strips(p):
+            for ring_idx in (1, 2):
+                inside = [point_in_rect_ring(x, y, rings[ring_idx]) for x, y in sh.xy]
+                if not any(inside):
+                    continue
+                for run in longitudinal_runs(sh.xy, unit, inside):
+                    for i, j in zip(run, run[1:]):
+                        ds = abs((sh.xy[j][0] - sh.xy[i][0]) * ux + (sh.xy[j][1] - sh.xy[i][1]) * uy)
+                        if ds < 1.0:
+                            continue
+                        site = tuple(sorted((tuple(round(c, 3) for c in sh.xy[i]),
+                                             tuple(round(c, 3) for c in sh.xy[j]))))
+                        if site in seen:
+                            continue
+                        seen.add(site)
+                        di, dj = beyond(sh.xy[i], ring_idx), beyond(sh.xy[j], ring_idx)
+                        (vi, vo) = (i, j) if di <= dj else (j, i)
+                        ex = end_excess_m(prof, min(di, dj), max(di, dj), sh.z[vi], sh.z[vo], q)
+                        if ex <= 0.0:
+                            continue
+                        dz = abs(sh.z[j] - sh.z[i])
+                        out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                                       p.side("graded_strip"), ex, 100 * dz / ds,
+                                       100 * prof.down_cap_at(max(di, dj)), ds,
+                                       sh.xy[i], sh.xy[j], sh.key, sh.key))
+                    if prof.rate is not None:
+                        pts = [(sh.xy[i][0] * ux + sh.xy[i][1] * uy, 0.0) for i in run]
+                        zs = [sh.z[i] for i in run]
+                        for a, b, c, change, allowed, dp, dn in rate_breaches(
+                                pts, zs, False, prof.rate, qc,
+                                law.tables.emit.materiality.grade):
+                            A, B, C = run[a], run[b], run[c]
+                            site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[k]) for k in (A, B, C)))
+                            if site in seen:
+                                continue
+                            seen.add(site)
+                            out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                                           p.side("graded_strip"), abs(sh.z[C] - sh.z[A]),
+                                           100 * change, None, 0.5 * (dp + dn),
+                                           sh.xy[A], sh.xy[C], sh.key, sh.key))
+            if not edges:
+                continue
+            for k, v in enumerate(sh.ids):
+                if v in pav:
+                    continue
+                x, y = sh.xy[k]
+                foot = end_chord_foot(x, y, edges, rect_of)
+                if foot is None or foot[0] < 1.0:
+                    continue
+                d, zf, _end = foot
+                site = ("chord", tuple(round(c, 3) for c in sh.xy[k]))
+                if site in seen:
+                    continue
+                seen.add(site)
+                ex = end_excess_m(prof, 0.0, d, zf, sh.z[k], q)
+                if ex <= 0.0:
+                    continue
+                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
+                               pair_side(p, "graded_strip", "runway"), ex,
+                               100 * (sh.z[k] - zf) / d, 100 * prof.down_cap_at(d), d,
+                               sh.xy[k], sh.xy[k], sh.key, sh.key))
     return out
 
 

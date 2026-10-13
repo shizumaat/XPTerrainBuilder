@@ -28,10 +28,13 @@ Rows over ``graded_strip`` rings (the ground the strip law governs):
 * ``resa_transverse``: consecutive pairs inside an end corridor whose
   step is predominantly ACROSS at ``resa.transverse_max`` (FAA near zone
   by letter);
-* ``runway_end_skirt``: consecutive along-axis pairs inside an end
-  corridor at ``end_skirt.max_down_grade`` (the v1 skirt ring is not a
-  v2 shape — the end-corridor ground is graded_strip — so the
-  longitudinal skirt law binds here instead);
+* ``runway_end_skirt`` (``end_corridor_longitudinal`` /
+  ``end_corridor_rate``): the RUNWAY-END PROFILE (owner RULINGS
+  2026-10-12q (1); ``law.tables.runway_end_profile``) over the end
+  corridors' ground — falling at most the strip's cap over the strip's
+  end length (ICAO) or the near-end cap (FAA), the skirt's 5 % beyond;
+  rising at most the take-off climb surface; the FAA rate at the end
+  edge and along the corridor;
 * ``raoa`` (ICAO only, Annex 14 §3.8.4 "grade change along the
   approach"): the rate law over the strip vertices inside the
   ``raoa.length_m × 2·half_width_m`` rectangle before each threshold, in
@@ -52,7 +55,8 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import airside_stage_roles, zone2_half_width_m
+from ..law.tables import (EndProfile, airside_stage_roles, runway_end_profile,
+                          zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -63,13 +67,19 @@ from .precedence import View, view
 __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
            "pavement_ring_vertices", "strip_longitudinal_pairs",
            "strip_longitudinal", "strip_arc", "resa_transverse",
-           "end_corridor_longitudinal", "raoa"]
+           "end_corridor_longitudinal", "end_corridor_rate", "end_pair_bounds",
+           "end_transect_pairs",
+           "END_PROFILE_RULING", "END_RATE_RULING", "raoa"]
 
 #: A strip pair shorter than this ALONG the axis carries more rounding
 #: than signal (the census's own floor, ``check_grade`` strip readers).
 MIN_ALONG_M = 1.0
 
 GEN = "strips"
+#: The ruling HEADS (before the parenthesis) ``[design] one_way_rulings``
+#: names: the ground follows the runway's end edge, never pulls it.
+END_PROFILE_RULING = "rulesets.end_skirt runway-end profile (owner RULINGS 2026-10-12q (1))"
+END_RATE_RULING = "rulesets.end_skirt.rate end-edge change (FAA AC 150/5300-13B §3.16.5 item 5)"
 
 
 @_dc.dataclass(frozen=True)
@@ -318,22 +328,85 @@ def resa_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     return rows
 
 
+def _beyond_of(g: RunwayGroup, ring_idx: int):
+    """``d(p)``: the along-axis distance of ``p`` beyond the pavement end
+    the corridor ring ``ring_idx`` (1 = before the start, 2 = past the
+    end) belongs to; 0 abeam the runway."""
+    ux, uy = g.unit
+    ax, ay = g.axis_a
+
+    def d(p: XY) -> float:
+        s = (p[0] - ax) * ux + (p[1] - ay) * uy
+        return max(0.0, -s) if ring_idx == 1 else max(0.0, s - g.length_m)
+    return d
+
+
+def end_pair_bounds(prof: EndProfile, d_in: float, d_out: float, q: float
+                    ) -> tuple[float | None, float]:
+    """``(lo, hi)`` on ``z_in − z_out`` for a pair of end-band vertices
+    ``d_in ≤ d_out`` beyond the end (ONE reading, generator and readers;
+    :class:`law.tables.EndProfile`): the drop may not exceed the
+    profile's fall between the two stations, the rise not the climb
+    surface's; ``lo = None`` where rising ground is unbound."""
+    hi = prof.fall_m(d_out) - prof.fall_m(d_in) + q
+    r_out, r_in = prof.rise_m(d_out), prof.rise_m(d_in)
+    lo = None if r_out is None else -(r_out - (r_in or 0.0)) - q
+    return lo, hi
+
+
+def end_transect_pairs(stations: _t.Sequence[tuple[int, float, float]],
+                       tol_m: float) -> list[tuple[int, int]]:
+    """THE TRANSECT PAIRS of an end band (owner RULINGS 2026-10-12q (1),
+    design point 1 "measured how"): ``stations`` are ``(key, d, t)`` —
+    every band vertex's distance beyond the end and its lateral offset.
+    For each vertex the NEAREST vertex inward on the same extended line
+    (``|Δt| ≤ tol_m``, ``d`` smaller by at least ``MIN_ALONG_M``) is its
+    partner, so the profile along every line parallel to the centre line
+    is priced station to station — the break at the strip's end length
+    mints a vertex the ring walk never pairs with the outer ring (they
+    are not ring-consecutive: the ring runs along the break and along the
+    outer edge), and without this pair the chords alone allowed KASE 15 a
+    −9.2 % step over the last 15 m while both vertices sat inside their
+    chord bounds.  Returns ``(inner_key, outer_key)`` pairs."""
+    out: list[tuple[int, int]] = []
+    pts = sorted(stations, key=lambda p: p[1])
+    for k, (key, d, t) in enumerate(pts):
+        best = None
+        for key2, d2, t2 in pts[:k]:
+            if d - d2 < MIN_ALONG_M or abs(t - t2) > tol_m:
+                continue
+            if best is None or d2 > best[1]:
+                best = (key2, d2)
+        if best is not None:
+            out.append((best[0], key))
+    return out
+
+
 def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                               ) -> list[Row]:
-    """Down-grade cap along the end corridors (``end_skirt.max_down_grade``)."""
+    """THE RUNWAY-END PROFILE (owner RULINGS 2026-10-12q (1) (a)-(c);
+    ``tables.runway_end_profile``): along the end corridors the ground
+    may FALL from the runway end by at most the profile's fall — the
+    strip's own cap over the strip's end length (ICAO) or the near-end
+    cap over the near zone (FAA), the end skirt's beyond — and may RISE
+    by at most the take-off climb surface with no tail height.  Ring
+    pairs along the axis (both strip) carry the profile's increment
+    between their stations; the chord from the end edge
+    (:func:`_end_foot_rows`) the profile at the vertex's own distance.
+    The 5 % was two-sided from 0 m beyond the end until this ruling."""
     vw = view(planar, law)
-    cap = law.ruleset.end_skirt.max_down_grade
     q = law.tables.emit.instrument.strip_edge_noise_m - law.tables.emit.materiality.elevation_m
     rows: list[Row] = []
     seen: set[tuple[int, int]] = set()
     for g in runway_groups(vw, airport):
-        src = Source(GEN, "rulesets.end_skirt.max_down_grade (reg-set 2026-08-08)",
-                     (f"rwy:{g.ref}",))
+        prof = runway_end_profile(law, g.code_number, g.code_letter)
+        src = Source(GEN, END_PROFILE_RULING, (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):
             for ring_idx in (1, 2):
                 inside = [point_in_rect_ring(x, y, g.rings[ring_idx]) for x, y in xy]
                 if not any(inside):
                     continue
+                beyond = _beyond_of(g, ring_idx)
                 for run in longitudinal_runs(xy, g.unit, inside):
                     for i, j in zip(run, run[1:]):
                         a, b = ids[i], ids[j]
@@ -342,48 +415,57 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                         if ds < 1.0 or key in seen:
                             continue
                         seen.add(key)
-                        rows.append(Linear(((a, 1.0), (b, -1.0)), -cap * ds - q,
-                                           cap * ds + q, src))
-        rows.extend(_end_foot_rows(vw, g, cap, q, src, seen))
+                        di, dj = beyond(xy[i]), beyond(xy[j])
+                        vin, vout = (a, b) if di <= dj else (b, a)
+                        lo, hi = end_pair_bounds(prof, min(di, dj), max(di, dj), q)
+                        rows.append(Linear(((vin, 1.0), (vout, -1.0)), lo, hi, src))
+            # the TRANSECT pairs (``end_transect_pairs``): every band vertex
+            # against the nearest vertex inward on its own line
+            st = _end_stations(vw, g, ring_idx)
+            for vin, vout in end_transect_pairs([(v, d, t) for v, (d, t) in st.items()],
+                                                law.tables.emit.identity.min_distinct_spacing_m):
+                key = (min(vin, vout), max(vin, vout))
+                if key in seen:
+                    continue
+                seen.add(key)
+                lo, hi = end_pair_bounds(prof, st[vin][0], st[vout][0], q)
+                rows.append(Linear(((vin, 1.0), (vout, -1.0)), lo, hi, src))
+        rows.extend(_end_foot_rows(vw, g, prof, q, src, seen))
     return rows
 
 
-def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
-                   seen: set[tuple[int, int]]) -> list[Row]:
-    """THE CHORD FORM of the same law, from the runway END EDGE: every
-    strip vertex in an end corridor abeam the runway's width is bound to
-    the interpolation along the end edge over its along-axis distance
-    beyond the end.  The ring-pair form above binds only consecutive
-    ring vertices whose step is along the axis; the 3 m lip ring around
-    an end has none (its vertices step ACROSS), so the lip's outer ring
-    was tied to the runway only through 33 m transverse rows and the DEM
-    pull took it 2.44 m under the runway end centre 3 m away (measured
-    LEMD 18R/36L, the 2026-09-04e seam tear).
+def _end_stations(vw: View, g: RunwayGroup, ring_idx: int) -> dict[int, tuple[float, float]]:
+    """``{vertex: (d, t)}`` for every strip vertex inside end rect
+    ``ring_idx`` beyond the pavement end (``d > 0``), pavement excluded."""
+    ux, uy = g.unit
+    beyond = _beyond_of(g, ring_idx)
+    out: dict[int, tuple[float, float]] = {}
+    for fid, ids, xy in _strip_rings(vw):
+        for k, v in enumerate(ids):
+            if v in vw.pavement_vertices or v in out:
+                continue
+            x, y = xy[k]
+            if not point_in_rect_ring(x, y, g.rings[ring_idx]):
+                continue
+            d = beyond((x, y))
+            if d <= 0.0:
+                continue
+            t = -(x - g.axis_a[0]) * uy + (y - g.axis_a[1]) * ux
+            out[v] = (d, t)
+    return out
 
-    THE RUNWAY-END CORNER (§35, RULINGS 2026-09-13q item 1): a vertex
-    laterally OUTSIDE the runway's width used to fall out here (``t``
-    outside [0, 1]) and it does NOT keep the transverse rows — the
-    lateral law (``zones.abeam``) drops every runway-family band beyond
-    the runway's own extent, so the corner quadrant held §23's datum
-    alone against a runway cut into the hill (measured KCLT 18C/36C
-    south end, 1.0.324: nodes −4762 / −4763, 4.98 m over 4.62 m and
-    5.07 m over 3.91 m, the cockpit block's two critical-visual rows).
-    The corner now binds to the NEAREST POINT of the end edge (``t``
-    CLAMPED to [0, 1]) over its TRUE PLAN DISTANCE to that point — one
-    derivation serving both gates, and it tiles the plane with no gap
-    because the end corridor's rect is ALREADY as wide laterally as the
-    zone-2 half-width (``runway_groups``: ``end_half = max(width,
-    strip_half)``), so widening the rect a second time would change
-    nothing while clamping ``t`` is the whole gap.  For an abeam vertex
-    the clamp is the identity and the plan distance is the along-axis
-    distance the perpendicular end edge already gave."""
+
+def _runway_end_edges(vw: View, g: RunwayGroup) -> list[tuple[int, int, int]]:
+    """The runway face's END EDGES ``(a, b, end index)``: ring edges whose
+    two vertices both stand at the start (``end`` 1) or the end (2)
+    station, within the identity spacing."""
     ux, uy = g.unit
     m = vw.law.tables.emit.identity.min_distinct_spacing_m
 
     def s_of(p: XY) -> float:
         return (p[0] - g.axis_a[0]) * ux + (p[1] - g.axis_a[1]) * uy
 
-    end_edges: list[tuple[int, int, int]] = []          # (a, b, end index)
+    out: list[tuple[int, int, int]] = []
     for f in vw.faces_of_role(("runway",)):
         if f.ref != g.ref:
             continue
@@ -393,23 +475,29 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
             sa, sb = s_of(vw.xy[a]), s_of(vw.xy[b])
             for end, s0 in ((1, 0.0), (2, g.length_m)):
                 if abs(sa - s0) <= m and abs(sb - s0) <= m:
-                    end_edges.append((a, b, end))
-    if not end_edges:
-        return []
+                    out.append((a, b, end))
+    return out
+
+
+def _end_feet(vw: View, g: RunwayGroup, end_edges, seen: set[tuple[int, int]]
+              ) -> list[tuple[int, int, int, float, float]]:
+    """Every end-band strip vertex ``v`` with its FOOT on the nearest end
+    edge: ``(v, a, b, t, d)`` — ``t`` the foot's parameter along ``a→b``
+    CLAMPED to [0, 1] (the §35 corner rule), ``d`` the true plan distance
+    to the foot.  Pavement, wall-crest and road-cap vertices are never
+    feet (RULINGS 2026-09-03b L1; 2026-10-02ag (2))."""
     # a wall vertex carries the crest (the DEM, 2026-09-03b L1) and no
     # chord from the runway end binds it — the zones stop at the wall
     walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
     # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: no end-foot
     # chord under a mapped-road ribbon (``PlanarMap.ribbon_vertices``)
     road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
-    rows: list[Row] = []
+    out: list[tuple[int, int, int, float, float]] = []
     for fid, ids, xy in _strip_rings(vw):
         for k, v in enumerate(ids):
             if v in vw.pavement_vertices or v in walls or v in road_cap:
                 continue
             x, y = xy[k]
-            # THE NEAREST POINT of the nearest end edge (§35 (1)): ``t``
-            # clamped, the bound taken over the true plan distance to it
             cands: list[tuple[float, int, int, float]] = []
             for a, b, end in end_edges:
                 if not point_in_rect_ring(x, y, g.rings[end]):
@@ -434,9 +522,126 @@ def _end_foot_rows(vw: View, g: RunwayGroup, cap: float, q: float, src: Source,
                 if d < 1.0 or key in seen:
                     continue
                 seen.add(key)
-                rows.append(Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)),
-                                   -cap * d - q, cap * d + q, src))
+                out.append((v, a, b, t, d))
                 break
+    return out
+
+
+def _end_foot_rows(vw: View, g: RunwayGroup, prof: EndProfile, q: float,
+                   src: Source, seen: set[tuple[int, int]]) -> list[Row]:
+    """THE CHORD FORM of the end profile, from the runway END EDGE: every
+    strip vertex in an end corridor is bound to the interpolation along
+    the end edge over its plan distance beyond the end — below it by at
+    most ``prof.fall_m(d)``, above it by at most ``prof.rise_m(d)``.  The
+    ring-pair form above binds only consecutive ring vertices whose step
+    is along the axis; the 3 m lip ring around an end has none (its
+    vertices step ACROSS), so the lip's outer ring was tied to the runway
+    only through 33 m transverse rows and the DEM pull took it 2.44 m
+    under the runway end centre 3 m away (measured LEMD 18R/36L, the
+    2026-09-04e seam tear).
+
+    THE RUNWAY-END CORNER (§35, RULINGS 2026-09-13q item 1): a vertex
+    laterally OUTSIDE the runway's width binds to the NEAREST POINT of
+    the end edge (``t`` clamped to [0, 1]) over its TRUE PLAN DISTANCE —
+    the end corridor's rect is already as wide as the zone-2 half-width
+    (``runway_groups``), so clamping ``t`` is the whole gap.
+
+    ONE-WAY (``follows = v``; ``[design] one_way_rulings``): the runway's
+    end edge LEADS and the ground follows — the runway never moves to
+    satisfy its end band (owner RULINGS 2026-10-12q (1), point 2)."""
+    end_edges = _runway_end_edges(vw, g)
+    if not end_edges:
+        return []
+    rows: list[Row] = []
+    for v, a, b, t, d in _end_feet(vw, g, end_edges, seen):
+        r = prof.rise_m(d)
+        rows.append(Linear(((v, 1.0), (a, -(1.0 - t)), (b, -t)),
+                           -prof.fall_m(d) - q, None if r is None else r + q,
+                           src, follows=v))
+    return rows
+
+
+def _runway_inward_neighbour(vw: View, g: RunwayGroup, a: int
+                             ) -> tuple[int, float] | None:
+    """The runway ring vertex adjacent to end-edge vertex ``a`` whose step
+    from ``a`` runs ALONG the axis (the side edge), with its along-axis
+    distance — the runway's own last chord at that end."""
+    ux, uy = g.unit
+    best = None
+    for f in vw.faces_of_role(("runway",)):
+        if f.ref != g.ref or a not in vw.rings[f.id]:
+            continue
+        ring = vw.rings[f.id]
+        i = ring.index(a)
+        for nb in (ring[i - 1], ring[(i + 1) % len(ring)]):
+            dx, dy = vw.xy[nb][0] - vw.xy[a][0], vw.xy[nb][1] - vw.xy[a][1]
+            along, across = abs(dx * ux + dy * uy), abs(dx * -uy + dy * ux)
+            if along > across and along >= 1.0 and (best is None or along < best[1]):
+                best = (nb, along)
+    return best
+
+
+def end_corridor_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """THE GRADE-CHANGE RATE BEYOND THE END, where the authority states a
+    number (FAA AC 150/5300-13B §3.16.5 item 5: ±2 % per 100 ft;
+    ``end_skirt.rate`` with ``rate_provisional`` false — ICAO's text is
+    qualitative and gets no number, RULINGS 2026-10-12q (1) point 3):
+
+    * three consecutive along-axis stations in an end corridor at the
+      rate (the ``strip_arc`` form, rate reader's blind spot included);
+    * AT THE END EDGE, the chord from the end foot to a zone-2 vertex at
+      distance ``d`` against the runway's OWN last chord: a grade that may
+      change by ``rate`` per metre reaches at most ``g_end ± rate·d`` at
+      ``d``, so the chord's average grade is within ``½·rate·d`` of the
+      runway's — ``|z_v − z_foot − g_end·d| ≤ ½·rate·d² + q``, the runway
+      vertices leading (``follows = v``).  Lip (zone-1) vertices are the
+      lip law's and are not read here."""
+    vw = view(planar, law)
+    prof = runway_end_profile(law)
+    rate = prof.rate
+    if rate is None:
+        return []
+    q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
+    lip = law.tables.zones.adjacent_ground.lip_width_m
+    rows: list[Row] = []
+    seen3: set[tuple[int, ...]] = set()
+    seen: set[tuple[int, int]] = set()
+    for g in runway_groups(vw, airport):
+        src = Source(GEN, END_RATE_RULING, (f"rwy:{g.ref}",))
+        for fid, ids, xy in _strip_rings(vw):
+            for ring_idx in (1, 2):
+                inside = [point_in_rect_ring(x, y, g.rings[ring_idx]) for x, y in xy]
+                if not any(inside):
+                    continue
+                for run in longitudinal_runs(xy, g.unit, inside):
+                    s = [xy[i][0] * g.unit[0] + xy[i][1] * g.unit[1] for i in run]
+                    for k in range(1, len(run) - 1):
+                        a, b, c = ids[run[k - 1]], ids[run[k]], ids[run[k + 1]]
+                        key = tuple(sorted((a, b, c)))
+                        if key in seen3 or len(set(key)) < 3:
+                            continue
+                        dp, dn = abs(s[k] - s[k - 1]), abs(s[k + 1] - s[k])
+                        if dp < 1e-6 or dn < 1e-6:
+                            continue
+                        seen3.add(key)
+                        bound = rate * 0.5 * (dp + dn) + q * (1.0 / dp + 1.0 / dn)
+                        terms = ((c, 1.0 / dn), (b, -(1.0 / dn + 1.0 / dp)), (a, 1.0 / dp))
+                        rows.append(Linear(terms, -bound, bound, src))
+        end_edges = _runway_end_edges(vw, g)
+        for v, a, b, t, d in _end_feet(vw, g, end_edges, seen):
+            if d < lip:
+                continue
+            na, nb = _runway_inward_neighbour(vw, g, a), _runway_inward_neighbour(vw, g, b)
+            if na is None or nb is None:
+                continue
+            (pa, dpa), (pb, dpb) = na, nb
+            # z_foot = (1-t) z_a + t z_b ; g_end = ((1-t)(z_a - z_pa)/dpa + t (z_b - z_pb)/dpb)
+            terms = ((v, 1.0),
+                     (a, -(1.0 - t) * (1.0 + d / dpa)), (b, -t * (1.0 + d / dpb)),
+                     (pa, (1.0 - t) * d / dpa), (pb, t * d / dpb))
+            bound = 0.5 * rate * d * d + q
+            rows.append(Linear(tuple((i, c) for i, c in terms if c != 0.0),
+                               -bound, bound, src, follows=v))
     return rows
 
 

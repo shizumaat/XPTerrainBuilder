@@ -9591,7 +9591,9 @@ def test_a_rate_rows_span_is_the_separation_its_de_is_taken_over(cg):
     assert src.count("* 0.5 * (dp + dn)") == 3, (
         "the three rate readers price their allowance at the half span "
         "(the law's averaging term); only distance_m changed")
-    assert src.count("distance_m=dp + dn") == 3
+    # four since lane rwyend620 (#620): the runway-end profile's FAA rate
+    # rows (``_check_runway_end_skirt_edges``) publish the full span too
+    assert src.count("distance_m=dp + dn") == 4
     # ...and on a real patch: no rate row's published span is under the
     # straight-line separation of its own endpoints, and every one of
     # them carries a coordinate of its own rather than its ring's

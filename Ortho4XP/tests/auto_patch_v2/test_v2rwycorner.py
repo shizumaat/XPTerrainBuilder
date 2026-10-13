@@ -29,6 +29,7 @@ from auto_patch_v2.constraints import strips, zones
 from auto_patch_v2.constraints.precedence import view
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.law import Law
+from auto_patch_v2.law.tables import runway_end_profile
 from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
                                          SceneryPack)
 from auto_patch_v2.model.constraints import Linear
@@ -127,7 +128,9 @@ def test_the_corner_is_bound_to_the_nearest_point_of_the_end_edge(synthetic, law
     its TRUE PLAN DISTANCE to the nearest point of the end edge."""
     airport, pm = synthetic
     vw, g = _group(pm, law, airport)
-    cap = law.ruleset.end_skirt.max_down_grade
+    prof = runway_end_profile(law, g.code_number, g.code_letter)
+    q = (law.tables.emit.instrument.strip_edge_noise_m
+         - law.tables.emit.materiality.elevation_m)
     rows = strips.end_corridor_longitudinal(pm, law, airport)
     bound = {t[0] for r in rows if isinstance(r, Linear) for t in r.terms}
     corners = _corner_vertices(vw, g)
@@ -154,9 +157,12 @@ def test_the_corner_is_bound_to_the_nearest_point_of_the_end_edge(synthetic, law
         qy = ay * wa + by * wb
         d = math.hypot(x - qx, y - qy)
         assert wa + wb == pytest.approx(1.0)
-        assert -r.lo == pytest.approx(r.hi)
-        assert r.hi >= cap * d           # the bound is cap·d (+ the noise q)
-        assert r.hi == pytest.approx(cap * d, abs=0.3)
+        # the RUNWAY-END PROFILE (owner RULINGS 2026-10-12q (1)): the
+        # corner may stand BELOW the foot by the profile's fall over its
+        # plan distance and ABOVE it by the climb surface's rise, one-way
+        assert r.lo == pytest.approx(-(prof.fall_m(d) + q), abs=1e-9)
+        assert r.hi == pytest.approx(prof.rise_m(d) + q, abs=1e-9)
+        assert r.follows == v
 
 
 def test_a_three_metre_diagonal_corner_is_held_within_cap_times_d(synthetic, law):
@@ -167,7 +173,7 @@ def test_a_three_metre_diagonal_corner_is_held_within_cap_times_d(synthetic, law
     carried no row at all and kept §23's datum, the DEM."""
     airport, pm = synthetic
     vw, g = _group(pm, law, airport)
-    cap = law.ruleset.end_skirt.max_down_grade
+    prof = runway_end_profile(law, g.code_number, g.code_letter)
     q = (law.tables.emit.instrument.strip_edge_noise_m
          - law.tables.emit.materiality.elevation_m)
     rows = {r.terms[0][0]: r
@@ -195,8 +201,11 @@ def test_a_three_metre_diagonal_corner_is_held_within_cap_times_d(synthetic, law
     x, y = vw.xy[v]
     (ax, ay), (bx, by) = vw.xy[a], vw.xy[b]
     d = math.hypot(x - (ax * -ca + bx * -cb), y - (ay * -ca + by * -cb))
-    assert r.hi == pytest.approx(cap * d + q, abs=1e-9)
-    assert r.lo == pytest.approx(-(cap * d + q), abs=1e-9)
+    # the fall side: the strip's own cap over the first metres (ICAO code
+    # 3: 1.75 % to 60 m), the rise side the climb surface (level to 60 m)
+    assert r.lo == pytest.approx(-(prof.fall_m(d) + q), abs=1e-9)
+    assert prof.fall_m(d) == pytest.approx(law.ruleset.strip.longitudinal.value(3, "D") * d)
+    assert r.hi == pytest.approx(q, abs=1e-9)
 
 
 def test_the_falling_dem_would_break_the_corner_rows(synthetic, law):
@@ -266,7 +275,9 @@ def test_an_abeam_vertex_is_unchanged_by_the_clamp(synthetic, law):
     rows it was written for (2026-09-04e)."""
     airport, pm = synthetic
     vw, g = _group(pm, law, airport)
-    cap = law.ruleset.end_skirt.max_down_grade
+    prof = runway_end_profile(law, g.code_number, g.code_letter)
+    q = (law.tables.emit.instrument.strip_edge_noise_m
+         - law.tables.emit.materiality.elevation_m)
     ux, uy = g.unit
     rows = {r.terms[0][0]: r for r in strips.end_corridor_longitudinal(pm, law, airport)
             if isinstance(r, Linear) and len(r.terms) == 3 and r.terms[0][1] == 1.0}
@@ -280,7 +291,7 @@ def test_an_abeam_vertex_is_unchanged_by_the_clamp(synthetic, law):
             if off > g.width_m / 2.0 or beyond < 1.0 or v not in rows:
                 continue
             seen += 1
-            assert rows[v].hi == pytest.approx(cap * beyond, abs=0.31)
+            assert rows[v].lo == pytest.approx(-(prof.fall_m(beyond) + q), abs=0.31)
     assert seen, "the fixture must carry abeam end-corridor vertices too"
 
 

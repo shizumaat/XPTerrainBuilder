@@ -55,3 +55,53 @@ THE LAW AS ONE PROFILE, keyed by distance `d` beyond the pavement end along the 
 ## Captures
 * CYCG: `/Users/noah/XPTerrainBuilderData/.harness/frames/rwyend620/CYCG.pkl` (base 04a4f5992, 15 s, 1,010 V / 60 F).
 * SPJC / NLWF / HECA / KASE: lane pads67 captures (base 4b433195); KPDX: kpdx559 (4869d1e94); KBFI: none registered.
+
+## Built (sha below) — what landed
+* `law/model.py` `StripLaw.end_length_m`; `rulesets.toml` `[icao.strip] end_length_m` 30/60/60/60 by code; FAA `[faa.end_skirt]`
+  comment now cites §3.16.5 items 2-5 + Fig 3-35 (confirmed); ICAO `end_skirt.rate` stays provisional and unread.
+* `law/tables.py` `EndProfile` + `runway_end_profile(law, code, letter)` — the one derivation (fall_m / rise_m / rate / break_m).
+* `geom/rotated_rect.long_axis` (shared by `planar/strip_keepout` and the new `planar/zones.runway_end_breaks`): the zone-2 end
+  band is cut at `break_m` beyond each pavement end after every trim / shore decision (`_break_pieces`).
+* `constraints/strips.py`: `end_corridor_longitudinal` = ring pairs + TRANSECT pairs (`end_transect_pairs`: nearest vertex inward on
+  the same line — the break vertex and the outer ring are not ring-consecutive) + the end-edge chords (`_end_foot_rows`, one-way
+  `follows=v`, head `rulesets.end_skirt runway-end profile` in `one_way_rulings`); `end_corridor_rate` (FAA only): three-station
+  rate over the corridor runs + the end-edge parabola `|z_v − z_f − g_end·d| ≤ ½·rate·d² + q` against the runway's own last chord
+  (one-way). `solve/project.py` `CORRIDOR_RULINGS`: the chords join the post-solve zone projection (a 3 m fill at CYCG's band corner
+  shipped a 3 cm residual the census read as a row; clamped now).
+* Census (d): `verify/strips.runway_end_skirt` (pairs, transects, chords, FAA rate; `end_excess_m` / `end_chord_foot`), registered in
+  `verify/census.READERS`; `verify/runway.runway_end_skirt` (the vacuous ring reader) deleted; `families.toml` roles → graded_strip;
+  `tools/check_grade._check_runway_end_skirt_edges` rewritten on the same helpers + `_runway_end_profile_law`.
+* `tools/runway_end_ground.py --profile` (INDEX row): the end-profile reader used for every number below.
+* Twins: `tests/auto_patch_v2/test_runway_end_profile.py` (a)(b)(c)(d) + breakline; `test_v2rwycorner.py` updated to the profile;
+  `test_harness.py` rate-span count 3 → 4.
+
+## Measured (replays from planar, base = main 04a4f5992 tree, arm = this branch; runway/airside movers 0 everywhere)
+| end | before: first-60 m grade / dz at break / dz at band end | after | fill(+)/cut(−) at break, at band end | census rows base → arm |
+|---|---|---|---|---|
+| CYCG 15 (icao 3E) | −2.75 % / −1.65 / −2.06 @74.9 | −1.99 % then −4.87 % / −1.20 / −1.93 | +0.45, +0.13 (centreline vertex sits 0.24 above DEM; band CORNER at t=−48.7 lifted 1.96 m → 2.93 m bank) | 5 → 0 |
+| CYCG 33 | −2.24 / −1.34 / −1.69 @75.4 | −1.73 then −1.97 / −1.04 / −1.34 | +0.30, +0.35 (outer ring now ON the DEM: base was 0.34 m under it) | (same patch) |
+| SPJC 16R (icao 4D) | −3.55 / −2.13 / −2.67 @75.3 | −1.73 then −4.90 / −1.04 / −1.78 | +1.09, +0.89 | 11 → 0 (whole patch) |
+| SPJC 34L | −3.69 / −2.22 / −2.78 | −1.73 then −4.97 / −1.04 / −1.79 | +1.18, +0.99 | |
+| SPJC 16L / 34R | −1.74 / −1.39 (lawful) | −1.73 / −1.73 then 0.0 | ≤ 0.03 | |
+| NLWF 25 (icao 2C, band 39.6 m) | +4.44 % rising / +1.76 at band end | +0.30 % / +0.12 | −1.64 cut at the band's end (ceiling = level with the end + q inside the 60 m setback) | 4 → 3 (a 2.8 % pair off-axis, 0.15 m) |
+| NLWF 07 | +0.42 / +0.17 | +0.22 / +0.09 | −0.08 | |
+| KASE 15 (faa 4D) | −2.34 / −1.43 / −1.79 @76.6 | −1.01 then **−9.23 %** / −0.62 / −2.05 | UNRESOLVED — see open | 9 → 15 |
+| KASE 33 | −0.16 / −0.10 / −0.12 | −0.34 then +0.61 / −0.21 / −0.12 | ~0 | |
+| KPDX 3 (faa 4D) | −1.61 / −0.98 / −1.23 | −1.69 then −1.22 / −1.03 / −1.22 | ~0 | 6 → 2 (whole patch) |
+| KPDX 10L/10R/28L/28R/21 | ≤ 0.66 % | ≤ 0.66 %; 28R a +3.4 % kink 60.8→65.8 (the FAA ceiling jumps from 0 to 0.025·d past 61 m) | ≤ 0.12 | |
+| HECA (icao 4F; arm1 = before transects) | 05L −1.07 → −1.41 then +0.21; 23R −2.02 → −1.90 then −2.42; others chained taxi/road ground | | | 38 → 44 |
+Movers (strip only, airside 0): CYCG 11 (1.96), SPJC 23 (1.74), NLWF 11 (1.64), KASE 11 (0.26), KPDX 39 (0.34), HECA 511 (0.46; arm1).
+Closing harness builds (this tree): CYCG 19.2 s body aaa947ae4a79, census runway_end_skirt 0, LAW-TRUE 57; SPJC 81.1 s body c24798c27bf5,
+runway_end_skirt 0, LAW-TRUE 3439 (vs the base REPLAY patch 293 strip / 177 airside ≤ 0.08 m movers — a capture-vs-fresh-build difference,
+not this change: the matched replay pair reads 0 airside movers).
+
+## OPEN
+* KASE 15: the far piece's centreline pair (61.1 → 76.6 m) reads −9.23 % (verify: a −17 % transect pair 15 m, 1.69 m) with the pair
+  row priced at 300 and nothing named by `--why-at` ("the objective holds it"); dropping `end_corridor_longitudinal`, `end_corridor_rate`,
+  `resa_transverse`, `zone_bands`, `strip_transverse`, bend_strip=0 and zone_projection=0 ALL leave it unchanged — the profile there is
+  not set by any strip row. Base already read 9 rows at KASE under the new reader. Needs an attribution lane (candidates: a pad plateau /
+  platform collar or a road terrace reaching the end band; a hard row on the outer vertex).
+* ICAO `[icao.eat]` carries the code 3/4 climb surface only (2 %/60 m); codes 1/2 (Annex 14 Table 4-1: 5 %/30 m, 4 %/60 m) are a table
+  gap — immaterial inside any band (code-1 band 30 m, code-2 band 40 m ≤ the setback).
+* The generator's slack q (strip_edge_noise 0.15 − 0.01) is consumed by the solve: the achieved first-segment grade reads 1.99 % at
+  CYCG 15 against the 1.75 % cap (+0.14 m over 60 m); the census allows the same q.

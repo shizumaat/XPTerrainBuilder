@@ -254,6 +254,134 @@ def corners(patch, icao):
             "total_over_bound": sum(r["over_bound"] for r in rows)}
 
 
+def _axes_from_sidecar(patch):
+    """``[(ref, (lat0, lon0), (lat1, lon1), width_m, code_number, code_letter)]``
+    from the patch's own sidecar (``runway_axes`` + ``runway_caps``) — the
+    build's axis, never a second fit."""
+    side = Path(str(patch) + ".axes.json")
+    if not side.is_file():
+        return None, None
+    d = json.loads(side.read_text())
+    caps = {c.get("ref"): c for c in d.get("runway_caps") or []}
+    out = []
+    for ref, lat0, lon0, lat1, lon1, width in d.get("runway_axes") or []:
+        c = caps.get(ref) or {}
+        out.append((ref, (lat0, lon0), (lat1, lon1), float(width),
+                    c.get("code_number"), c.get("code_letter")))
+    return out, str(d.get("ruleset") or "icao")
+
+
+def profile(patch, corridor_m=8.0, law_dir=None):
+    """THE END PROFILE (#620; owner RULINGS 2026-10-12q (1)): per runway
+    end, the emitted NODES on the extended centre line (within
+    ``corridor_m`` laterally) beyond the last runway-role node, by
+    distance ``d``: altitude, role, the grade of each segment, and each
+    node against the ruleset's :class:`law.tables.EndProfile` — how far
+    it stands below the end (``fall``) against ``fall_m(d)`` or above it
+    against ``rise_m(d)``.  ``break_m`` is where the strip's cap hands
+    over to the skirt's.  Reports; prices no law and counts no defects
+    (the census family is ``runway_end_skirt``)."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import runway_end_profile
+    from check_grade import _parse_osm
+    axes, ruleset = _axes_from_sidecar(patch)
+    if not axes:
+        raise SystemExit("no sidecar runway_axes beside %s" % patch)
+    law = Law.load(ruleset=ruleset, law_dir=law_dir) if law_dir else Law.load(ruleset=ruleset)
+    nodes, ways = _parse_osm(Path(patch))
+    pts = {}
+    for w in ways:
+        for nid, e in zip(w.nids, w.elevs):
+            if e is None or nid not in nodes:
+                continue
+            pts.setdefault(nid, (nodes[nid], float(e), set()))[2].add(w.role)
+    out = []
+    for ref, (la0, lo0), (la1, lo1), width, cn, cl in axes:
+        prof = runway_end_profile(law, cn, cl)
+        cos0 = math.cos(math.radians(la0))
+        ux = (lo1 - lo0) * math.pi / 180.0 * R_EARTH * cos0
+        uy = (la1 - la0) * math.pi / 180.0 * R_EARTH
+        L = math.hypot(ux, uy)
+        ux, uy = ux / L, uy / L
+        st = []
+        for nid, ((la, lo), z, roles) in pts.items():
+            x = (lo - lo0) * math.pi / 180.0 * R_EARTH * cos0
+            y = (la - la0) * math.pi / 180.0 * R_EARTH
+            s, t = x * ux + y * uy, -x * uy + y * ux
+            if abs(t) <= corridor_m:
+                st.append((s, t, z, nid, roles, la, lo))
+        rw = [p for p in st if "runway" in p[4]]
+        if not rw:
+            continue
+        for end_name, sign, pav in ((ref.split("/")[0], -1.0, min(rw)[0]),
+                                    (ref.split("/")[-1], 1.0, max(rw)[0])):
+            z_end = [p for p in rw if abs(p[0] - pav) < 0.5]
+            z_end = min(z_end, key=lambda p: abs(p[1]))[2]
+            beyond = sorted(((sign * (p[0] - pav),) + p[1:] for p in st
+                             if sign * (p[0] - pav) > 0.5 and "runway" not in p[4]),
+                            key=lambda p: p[0])
+            # one node per station: the one nearest the centre line
+            rows = []
+            for d, t, z, nid, roles, la, lo in beyond:
+                if rows and abs(rows[-1]["d_m"] - d) < 0.5:
+                    if abs(t) < rows[-1]["t_m"]:
+                        rows.pop()
+                    else:
+                        continue
+                fall = z_end - z
+                r = prof.rise_m(d)
+                rows.append({"d_m": round(d, 1), "t_m": round(abs(t), 1), "z": round(z, 2),
+                             "dz_end_m": round(z - z_end, 2), "roles": "|".join(sorted(roles)),
+                             "node": nid, "lat": la, "lon": lo,
+                             "fall_allowed_m": round(prof.fall_m(d), 2),
+                             "rise_allowed_m": None if r is None else round(r, 2),
+                             "over_m": round(max(0.0, fall - prof.fall_m(d),
+                                                 0.0 if r is None else (-fall) - r), 2)})
+            segs = []
+            prev = (0.0, z_end)
+            for r in rows:
+                if r["d_m"] - prev[0] >= 0.5:
+                    segs.append((round(prev[0], 1), r["d_m"],
+                                 round(100.0 * (r["z"] - prev[1]) / (r["d_m"] - prev[0]), 2)))
+                prev = (r["d_m"], r["z"])
+            brk = prof.break_m
+
+            def z_at(d):
+                p0 = (0.0, z_end)
+                for r in rows:
+                    if r["d_m"] >= d:
+                        return p0[1] + (r["z"] - p0[1]) * (d - p0[0]) / max(r["d_m"] - p0[0], 1e-9)
+                    p0 = (r["d_m"], r["z"])
+                return None
+            zb = z_at(brk) if brk else None
+            out.append({"runway": ref, "end": end_name, "code": cn, "letter": cl,
+                        "ruleset": ruleset, "z_end": round(z_end, 2),
+                        "pavement_end_s": round(pav, 1), "break_m": brk,
+                        "segments": segs,
+                        "grade_to_break_pct": (None if zb is None else round(100.0 * (zb - z_end) / brk, 2)),
+                        "dz_at_break_m": (None if zb is None else round(zb - z_end, 2)),
+                        "band_end_m": rows[-1]["d_m"] if rows else None,
+                        "dz_at_band_end_m": rows[-1]["dz_end_m"] if rows else None,
+                        "over_rows": sum(1 for r in rows if r["over_m"] > 0.0),
+                        "nodes": rows})
+    return {"patch": os.fspath(patch), "ruleset": ruleset, "ends": out}
+
+
+def _print_profile(out):
+    print("=== RUNWAY-END PROFILE  %s  (ruleset %s)" % (out["patch"], out["ruleset"]))
+    for e in out["ends"]:
+        print("  %s end %-4s code %s%s  z_end %.2f  break %s m: grade to break %s %%, dz %s m; "
+              "band end %s m dz %s m; nodes over the profile: %d"
+              % (e["runway"], e["end"], e["code"], e["letter"] or "", e["z_end"],
+                 e["break_m"], e["grade_to_break_pct"], e["dz_at_break_m"],
+                 e["band_end_m"], e["dz_at_band_end_m"], e["over_rows"]))
+        print("    segments (from, to, grade %%): %s" % e["segments"])
+        for r in e["nodes"]:
+            print("    d=%6.1f t=%4.1f z=%8.2f dz=%+6.2f  allowed fall %5.2f rise %s  over %4.2f  %s"
+                  % (r["d_m"], r["t_m"], r["z"], r["dz_end_m"], r["fall_allowed_m"],
+                     r["rise_allowed_m"], r["over_m"], r["roles"]))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -269,11 +397,26 @@ def main(argv=None):
                         help="a runway end (repeatable); REQUIRED — an end "
                              "table baked into an instrument would be a "
                              "second source of truth about the runway")
+    parser.add_argument("--profile", action="store_true",
+                        help="THE END PROFILE (#620): the emitted nodes on each "
+                             "runway's extended centre line beyond its ends, "
+                             "against the ruleset's runway-end profile "
+                             "(law.tables.runway_end_profile); axes from the "
+                             "patch's own sidecar, no --end needed")
+    parser.add_argument("--corridor-m", type=float, default=8.0,
+                        help="--profile: lateral half-width of the centre-line corridor (m)")
     parser.add_argument("--radius-m", type=float, default=500.0)
     parser.add_argument("--level-m", type=float, default=0.0)
     parser.add_argument("--roles", default=",".join(DEFAULT_ROLES))
     parser.add_argument("--json", default=None)
     args = parser.parse_args(argv)
+    if args.profile:
+        out = profile(args.patch, args.corridor_m)
+        _print_profile(out)
+        if args.json:
+            Path(args.json).write_text(json.dumps(out, indent=1))
+            print("JSON -> %s" % args.json)
+        return 0
     if args.corners:
         out = corners(args.patch, args.corners)
         print("=== RUNWAY-END CORNERS (§35)  %s" % out["patch"])
@@ -300,7 +443,7 @@ def main(argv=None):
             print("JSON -> %s" % args.json)
         return 0
     if not args.end:
-        parser.error("give at least one --end NAME LAT LON, or --corners ICAO")
+        parser.error("give at least one --end NAME LAT LON, --corners ICAO or --profile")
     ends = [(name, float(lat), float(lon))
             for (name, lat, lon) in args.end]
     roles = tuple(r.strip() for r in args.roles.split(",") if r.strip())

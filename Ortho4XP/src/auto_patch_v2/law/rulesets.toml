@@ -110,14 +110,25 @@ transverse_min = 0.010                                    # recorded, not bound 
 width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 18.0, "E" = 23.0, "F" = 25.0 }, default = 18.0 }  # taxiway pavement width, §3.9.3 (D: 18, OMGWS < 9 m) — law key of RULINGS 2026-09-06t; its corridor reading withdrawn 06v
 
 [icao.strip]
-longitudinal = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.0175, "4" = 0.015 }, default = 0.015 }  # §3.4.12 abeam slope (reg-set 08-08)
+longitudinal = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.0175, "4" = 0.015 }, default = 0.015 }  # §3.4.12 abeam slope (reg-set 08-08); ALSO the cap over the strip's `end_length_m` beyond each runway end (owner RULINGS 2026-10-12q (1) (a); Doc 9157 §5.3.17 / CS ADR-DSN.B.180(b): the graded portion is defined about the runway centre line "and its extended centre line")
 arc_rate     = { grade = 0.02, per_m = 30.5 }             # PROVISIONAL (§3.4.14 qualitative; owner question 2)
 arc_rate_provisional = true
+# THE STRIP BEYOND THE END (owner RULINGS 2026-10-12q (1) (a); Doc 9157 Part 1
+# §5.3.2 / CS ADR-DSN.B.155(a) / Annex 14 §3.4.2 as the repo cites it): the
+# strip extends 60 m beyond the runway end at code 2, 3 and 4; 30 m at code 1
+# (the non-instrument figure — the instrument one is 60 m, and the engine has
+# no instrument witness, so every code-1 runway takes the length that binds
+# all of them).  Over this length the `longitudinal` cap above governs the
+# ground; the RESA's `end_skirt.max_down_grade` only beyond it.  The planar
+# stage breaks the zone-2 end band here (`planar/zones.py`) so the two slopes
+# are expressible.  The band's own LENGTH stays the zone-2 half-width (NOT
+# ruled: the RESA length is not built).
+end_length_m = { by_code = { "1" = 30.0, "2" = 60.0, "3" = 60.0, "4" = 60.0 }, default = 60.0 }
 
 [icao.end_skirt]
-max_down_grade = 0.05                                     # beyond the runway end (reg-set 08-08)
+max_down_grade = 0.05                                     # beyond the strip's end (Doc 9157 §5.4.13 / CS C.230(a)(2); reg-set 08-08): FALLING ground only (RULINGS 2026-10-12q (1) (c)) — rising ground is bound by the take-off climb surface, `[icao.eat]` below with no tail height (`tables.runway_end_profile`)
 corridor_length_m = { by_code = { "1" = 60.0, "2" = 90.0, "3" = 150.0, "4" = 240.0 }, default = 240.0 }  # governed end corridor beyond each end (Annex 14 §3.5.3 RESA length; RUNWAY_END_CLEARANCE_LENGTH_BY_CODE)
-rate           = { grade = 0.02, per_m = 30.5 }           # PROVISIONAL
+rate           = { grade = 0.02, per_m = 30.5 }           # PROVISIONAL — Doc 9157 §5.4.13 / CS C.230(a)(2) are QUALITATIVE ("as gradual as practicable"); read by NOTHING while provisional (RULINGS 2026-10-12q (1): no number invented for ICAO)
 rate_provisional = true
 
 [icao.resa]
@@ -167,12 +178,26 @@ longitudinal = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.01
 arc_rate     = { grade = 0.02, per_m = 30.5 }             # §3.16.5 item 5
 arc_rate_provisional = false
 
+# THE RSA BEYOND THE END — CONFIRMED FROM THE PRIMARY TEXT 2026-10-12 (lane
+# rwyend620: AC 150/5300-13B Chg 1 w/ errata, faa.gov PDF, §3.16.5 "RSA
+# Grades" Standards items 2-5, p. 3-62, and Figure 3-35 "RSA Grade
+# Limitations Beyond 200 feet (61 m) from the Runway End", p. 3-63):
+#   2. first 200 ft (61 m) beyond the runway ends: longitudinal grade
+#      between 0 and 3.0 percent, "with any slope being downward from the
+#      ends" (no rise at all in the near zone);
+#   3. beyond 200 ft: the maximum positive grade is such that no part of
+#      the RSA penetrates any applicable approach surface or clearway plane
+#      (the departure surface, `[faa.eat]` below with no tail height);
+#   4. maximum negative grade 5.0 percent;
+#   5. grade changes ±2.0 percent per 100 ft (30.5 m).
+# Built as one profile by `tables.runway_end_profile` (owner RULINGS
+# 2026-10-12q (1) (b)/(c)).
 [faa.end_skirt]
-near_zone_m          = 61.0                               # first 200 ft beyond the end (Table 3-6)
+near_zone_m          = 61.0                               # §3.16.5 item 2: the first 200 ft; also Table 3-6's transverse near zone
 corridor_length_m    = { by_code = { "1" = 60.0, "2" = 90.0, "3" = 150.0, "4" = 240.0 }, default = 240.0 }  # governed end corridor (RUNWAY_END_CLEARANCE_LENGTH_BY_CODE; the repo keys it by ICAO code number under both authorities)
-near_max_down_grade  = 0.03
-max_down_grade       = 0.05
-rate                 = { grade = 0.02, per_m = 30.5 }
+near_max_down_grade  = 0.03                               # §3.16.5 item 2: 0 to 3.0 percent, downward only
+max_down_grade       = 0.05                               # §3.16.5 item 4
+rate                 = { grade = 0.02, per_m = 30.5 }     # §3.16.5 item 5
 rate_provisional     = false
 
 [faa.resa]

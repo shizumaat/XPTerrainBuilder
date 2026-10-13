@@ -419,6 +419,34 @@ def test_a_foundation_under_a_standing_object_is_not_a_door(objs, law):
     assert any("FOUNDATION" in r and "plinth.obj" in r for r in ds.refused), ds.refused
 
 
+def test_a_moving_part_never_witnesses(objs, law, tmp_path):
+    """Issue #612: a SAM jetway is 271 of 276 components ANIMATED — its
+    telescoping wheel strut is authored 11 m under the anchor and never
+    shown there.  The parser marks every solid triangle emitted inside an
+    ``ANIM_begin`` / ``ANIM_end`` block; such a component is no witness
+    for the door reader (``ResourceCache.genuine``) nor the basin reader
+    — the same fixture door, wrapped in an ANIM block, reads NO well."""
+    src = objs["door"].read_text(encoding="utf-8").splitlines()
+    out = []
+    for ln in src:
+        if ln.startswith("TRIS"):
+            out += ["ANIM_begin", "ANIM_trans 0 0 0 0 -11 0 0 1 sam/jetway/wheels", ln, "ANIM_end"]
+        else:
+            out.append(ln)
+    p = tmp_path / "anim_door.obj"
+    p.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
+    g = obj8.parse_obj8(str(p))
+    assert g.animated.shape[0] == g.solid.shape[0] and bool(g.animated.all())
+    assert all(c.animated for c in obj8.solid_components(g))
+    g0 = obj8.parse_obj8(str(objs["door"]))
+    assert not g0.animated.any() and not any(c.animated for c in obj8.solid_components(g0))
+    objs2 = dict(objs); objs2["anim_door"] = p
+    airport, cache, objects = _read(objs2, law, [("anim_door", (0.0, 0.0), 0.0, 0.0, "OBJECT")])
+    assert cache.genuine(str(p)) == []
+    wells, ds = read_door_wells(airport, objects, cache, law)
+    assert ds.wells == 0 and not wells, ds.refused
+
+
 # ── Law B ────────────────────────────────────────────────────────────────
 
 def test_sunken_road_read_profile_and_pins(objs, law):

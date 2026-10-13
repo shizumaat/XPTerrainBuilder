@@ -273,15 +273,35 @@ def _dsf_identities_now(apt_dat_path: str,
 
 
 def _rebuild_reason(icao: str, key: str) -> None:
-    """ONE line, at verbosity 1, naming WHY this airport's patch rebuilt.
+    """ONE line naming WHY this airport's patch rebuilt — always printed.
 
     The app's log used to say "up to date (build inputs unchanged), reusing
     existing patch" for a reuse and NOTHING for a rebuild — every "why is
     TFFJ rebuilt on every build?" question then cost a verbosity-2 rerun.
     STAMP KEYS ONLY: no paths, no old/new values (those stay at
     ``vprint(2)``), so a tile full of rebuilds is one short line each.
+
+    AT LEVEL 0, like the reuse line (#607): the tile driver runs its airport
+    loop at ``config.LOG_VERBOSITY`` — 0 unless a developer raises it — so
+    the ``vprint(1)`` this used to be never reached the app's log.
     """
-    UI.vprint(1, "   Auto-patch:", icao, "rebuilding —", key, "changed.")
+    UI.lvprint(0, "   Auto-patch:", icao, "rebuilding —", key, "changed.")
+
+
+def _name_unclassified_environment() -> None:
+    """Name every set ``O4_`` variable that is in no class (#607).
+
+    Such a variable IS in the ``o4_cfg`` stamp (fail-safe: a setting that
+    cannot be verified is a rebuild), so the line says which one, once per
+    tile build, before any airport reports ``o4_cfg changed``.
+    """
+    from . import provenance as _prov
+    from . import provenance_env as _env
+    for name in _env.unclassified(_prov.introspect_config_gates()):
+        UI.lvprint(
+            0, "   Auto-patch: environment variable", name,
+            "is set and is not classified — it is read as a patch setting, "
+            "so changing or clearing it rebuilds every airport.")
 
 
 def _cifp_path_under_root(xp_root: str | None, icao: str) -> str | None:
@@ -412,9 +432,11 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
 
     Set ``O4_AUTO_PATCH_REBUILD=1`` to force rebuilds regardless.
     """
-    if os.environ.get("O4_AUTO_PATCH_REBUILD", "0") == "1":
-        return False
     if not os.path.isfile(auto_patch_file):
+        return False                      # a first build, not a rebuild
+    if os.environ.get("O4_AUTO_PATCH_REBUILD", "0") == "1":
+        UI.lvprint(0, "   Auto-patch:", icao,
+                   "rebuilding — O4_AUTO_PATCH_REBUILD=1 forces it.")
         return False
     from .build_support import read_patch_source
     meta = read_patch_source(auto_patch_file)
@@ -430,6 +452,7 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         apt_dat_now = _pick_best_apt_dat_against_osm(xp_root, icao)
     apt_now = apt_dat_now
     if not apt_now:
+        _rebuild_reason(icao, "o4_apt_dat")
         return False
     if os.path.realpath(apt_now) != os.path.realpath(meta["apt_dat"]):
         _rebuild_reason(icao, "o4_apt_dat")
@@ -1603,6 +1626,7 @@ def generate_auto_patches(tile, cifp_path: str,
     if selection is None:
         selection = _SELECTION.select_patch_airports(
             tile, cifp_path, mode, manual_icaos=manual_patches)
+    _name_unclassified_environment()
     for candidate in selection:
         icao = candidate.icao
         filepath = candidate.cifp_file

@@ -78,3 +78,29 @@ OSM feed has 32 `highway=service` ways within 120 m (one `bridge=yes layer=2`). 
 into the airport patch at all, so the ground between the garages is the raw DEM mesh (~218.1–219.6) rising to the
 pads' 223.0–223.4 inside the pad stand-off: the "access ramps" are the mesh bank at the pad edge (+4.9 / +4.0 m fill
 accepted in 12c) plus the pack's own ramp objects, not engine-graded roads.
+
+## Step B — the design surface: WHERE the connected terminal gets two levels (base replay `<scratch>/base/`, = sw17: 0 movers in all three frames)
+* `b1_clusters.py` on the solved pickle: the terminal is ONE design cluster `unit:31#0` in THREE outline pieces —
+  `/0` = building75 (26 faces), `/1` = building81 (9 faces), `/2` = building84 (3 faces); building83 is no cluster's
+  face (its own plane entry), building85 is cluster `unit:30#0` (the `-paredes_*` north extension, a different load
+  unit). Every piece FRONTS AIRSIDE → `cluster_pad._pinned_faces` kept each piece its own plane entry (the 10-10 re-union
+  skipped pinned pieces), so three entries: 221.75 / 222.44 / 222.70.
+* All five (75, 81, 83, 84, 85) are HELD blocks (`hold_report`): each has its OWN datum column `dv` with hard plane rows
+  (own vertices = dv), hard weld holds (contacts = dv) and a SOFT preference `Band(dv, D, D)` at the median of its
+  contacts' pass-1a value (building75 D 220.88 → solved 222.44; building81 D 220.55 → 221.75; building84 D 222.99 →
+  222.70). Reach bands: building75 [220.42, 227.16], building81 [216.67, 226.13], building84 [222.88, 231.57] —
+  the INTERSECTION [222.88, 226.13] is non-empty: one level for the three pieces exists within the reach graph.
+* MECHANISM: two (three) held blocks of one connected cluster, each seated by its own frontage; nothing tied them.
+* RULE LANDED (f84234382): (a) `cluster_pad._plane_groups` re-unites the pieces of one cluster stem whether or not
+  they front airside (`_pinned_faces` deleted; the flat BLOCKS `/b<k>` of a cut unit still split by `_split_blocks`);
+  (b) `constraints/platform.datum_groups(planar, law, airport, prefs)` = the held refs of one plane entry,
+  `datum_group_rows` = hard two-sided `z[dv_b] − z[dv_a] = 0` under the HOLD_RULING head (stripped in pass 1a with the
+  holds, carried in pass 1b); minted in `no_step.hold_interval` (stats `datum_groups`, `datum_group_rows`; each
+  block record carries `group`). The per-block soft preferences stay; the welds and the apron caps decide the one level.
+  A weld no one level can hold is released and warned exactly as a single block's (never two levels).
+* Object side (f84234382): `pad_block_seat.split_off_pad` — a FOOTED body of a pad unit whose every foot is farther
+  than `[placement] footprint_touch_m` (0.5 m, the §16g touch — no new key) outside every pad/block ring the unit stands
+  in becomes `<id>/g<n>`, seated by `plan_unit_datums`' ground datum (10n (2)/(3)); footless bodies keep their welds.
+  `_split_by_level` STAYS: HECA's sw17 dry run cuts 5 units by level (fu:40:120 4 levels / 230 bodies, fu:43:5027,
+  fu:43:5241, fu:43:5987, fu:41:348 — 324 bodies), the state the owner approved (12m).
+* Arm replay `<scratch>/arm1/` running (KCLT); HECA arm next.

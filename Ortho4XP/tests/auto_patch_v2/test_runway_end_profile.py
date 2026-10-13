@@ -225,3 +225,73 @@ def test_the_chord_projection_names_the_generators_own_head():
 
 def ruling_head_of(ruling: str) -> str:
     return ruling.split(" (")[0].strip()
+
+
+# ── lane kase620: both ends, the pad beyond an end, the slab frame, the key ──
+
+def test_the_transect_pairs_are_minted_at_both_ends(synthetic, icao):  # noqa: F811
+    """The break vertex and the outer ring are not ring-consecutive: only
+    the TRANSECT pair prices the last piece of the band.  The pair block
+    once read the ring loop's leaked index and priced the far end only
+    (KASE 15: −9.2 % over the last 15 m with no row on the pair)."""
+    airport, pm = synthetic
+    vw = view(pm, icao)
+    (g,) = strips.runway_groups(vw, airport)
+    brk = runway_end_profile(icao, g.code_number, g.code_letter).break_m
+    rows = strips.end_corridor_longitudinal(pm, icao, airport)
+    paired = {frozenset(v for v, _c in r.terms) for r in rows if len(r.terms) == 2}
+    for ring_idx in (1, 2):
+        st = strips._end_stations(vw, g, ring_idx)
+        want = [(a, b) for a, b in strips.end_transect_pairs(
+                    [(v, d, t) for v, (d, t) in st.items()], 0.5)
+                if abs(st[a][0] - brk) <= 0.5]
+        assert want, f"end {ring_idx}: no transect pair leaves the break"
+        assert all(frozenset(p) in paired for p in want), f"end {ring_idx}: unpriced"
+
+
+def test_the_transect_foot_is_the_nearest_pavement_edge_inward():
+    """Runway pavement that continues past the end (a paved pad) leads the
+    ground behind it: the foot is where the vertex's own line crosses the
+    pad's FAR edge — never the end edge itself, never an edge outward."""
+    pad_far = ((60.0, -21.0), (60.0, 21.0))
+    pad_side = ((0.0, 21.0), (60.0, 21.0))
+    end_edge = ((0.0, -20.0), (0.0, 20.0))
+    outward = ((90.0, -30.0), (90.0, 30.0))
+    edges = [end_edge, pad_side, pad_far, outward]
+    k, tau, de = strips.end_transect_foot(61.0, 0.0, edges, 0.5)
+    assert (k, de) == (2, 60.0) and tau == pytest.approx(0.5)
+    # lateral of the pad: no pavement on its line beyond the end
+    assert strips.end_transect_foot(61.0, 48.0, edges, 0.5) is None
+    # the end edge alone is the chord's, not a transect foot
+    assert strips.end_transect_foot(30.0, 0.0, [end_edge], 0.5) is None
+
+
+def test_the_readers_frame_is_the_published_slab(icao):
+    """``runway_axes`` rows carry each end's overrun; the end frame is the
+    apt.dat ends pushed out by them — never a fit to the runway-role rings
+    (a shoulder beyond the end would lengthen it)."""
+    def to_m(lat, lon):
+        return (lon * 1000.0, lat * 1000.0)
+    rows = [["09/27", 0.0, 0.0, 0.0, 2.0, 22.5, 60.0, 0.0],
+            ["old", 0.0, 0.0, 0.0, 1.0, 15.0]]            # predates the overruns
+    slabs = vstrips.published_slabs(rows, to_m)
+    assert set(slabs) == {"09/27"}
+    a, b, width = slabs["09/27"]
+    assert a == pytest.approx((-60.0, 0.0)) and b == pytest.approx((2000.0, 0.0))
+    assert width == pytest.approx(45.0)
+
+
+def test_the_tolerance_is_one_key(icao):
+    """#620: ``emit.instrument.strip_edge_noise_m`` is the generator's
+    slack (less materiality, never negative) and the readers' forgiveness
+    (never under the rounding a pair carries) — 0 prices the cap exactly."""
+    import dataclasses as dc
+    from auto_patch_v2.law.tables import end_profile_noise_m
+    ins = icao.tables.emit.instrument
+    assert end_profile_noise_m(icao) == pytest.approx(
+        ins.strip_edge_noise_m - icao.tables.emit.materiality.elevation_m)
+    assert end_profile_noise_m(icao, reader=True) == pytest.approx(ins.strip_edge_noise_m)
+    emit0 = dc.replace(icao.tables.emit, instrument=dc.replace(ins, strip_edge_noise_m=0.0))
+    exact = dc.replace(icao, tables=dc.replace(icao.tables, emit=emit0))
+    assert end_profile_noise_m(exact) == 0.0
+    assert end_profile_noise_m(exact, reader=True) == pytest.approx(ins.rounding_noise_m)

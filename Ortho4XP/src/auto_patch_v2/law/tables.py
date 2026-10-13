@@ -22,7 +22,7 @@ __all__ = [
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
-    "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "family", "families_for_role",
+    "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "end_profile_noise_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "gap_standoff_m",
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
@@ -580,6 +580,21 @@ def runway_end_profile(law: Law, code_number: int | None = None,
     return EndProfile(tuple(segs), hold,
                       None if eat is None else float(eat.slope),
                       0.0 if eat is None else float(eat.setback_m), rate)
+
+
+def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:
+    """THE RUNWAY-END PROFILE'S TOLERANCE — the ONE key
+    ``emit.instrument.strip_edge_noise_m`` (#620: the owner's open choice
+    between today's 0.15 m and pricing the first strip length at the cap
+    exactly, which is this key at 0).  The GENERATOR prices its rows with
+    the key less the materiality floor, never below zero; a READER
+    (``reader=True``) forgives the key itself, never less than the
+    per-node rounding a pair of emitted altitudes carries."""
+    ins = law.tables.emit.instrument
+    if reader:
+        return max(float(ins.strip_edge_noise_m), float(ins.rounding_noise_m))
+    return max(0.0, float(ins.strip_edge_noise_m)
+               - float(law.tables.emit.materiality.elevation_m))
 
 
 def runway_end_zone_length_m(law: Law, runway_length_m: float) -> float:

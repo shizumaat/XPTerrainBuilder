@@ -168,8 +168,8 @@ def corners(patch, icao):
     law = Law.for_airport(icao)
     cap = law.ruleset.end_skirt.max_down_grade
     corridor = law.ruleset.end_skirt.corridor_length_m
-    q = (law.tables.emit.instrument.strip_edge_noise_m
-         - law.tables.emit.materiality.elevation_m)
+    from auto_patch_v2.law.tables import end_profile_noise_m
+    q = end_profile_noise_m(law)
     nodes, ways = _parse_osm(Path(patch))
     lat0 = sum(v[0] for v in nodes.values()) / len(nodes)
     lon0 = sum(v[1] for v in nodes.values()) / len(nodes)
@@ -264,7 +264,8 @@ def _axes_from_sidecar(patch):
     d = json.loads(side.read_text())
     caps = {c.get("ref"): c for c in d.get("runway_caps") or []}
     out = []
-    for ref, lat0, lon0, lat1, lon1, width in d.get("runway_axes") or []:
+    for row in d.get("runway_axes") or []:
+        ref, lat0, lon0, lat1, lon1, width = row[:6]    # [6:] the overruns
         c = caps.get(ref) or {}
         out.append((ref, (lat0, lon0), (lat1, lon1), float(width),
                     c.get("code_number"), c.get("code_letter")))

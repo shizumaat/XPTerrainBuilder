@@ -55,8 +55,8 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (EndProfile, airside_stage_roles, runway_end_profile,
-                          zone2_half_width_m)
+from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
+                          runway_end_profile, zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -68,7 +68,7 @@ __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
            "pavement_ring_vertices", "strip_longitudinal_pairs",
            "strip_longitudinal", "strip_arc", "resa_transverse",
            "end_corridor_longitudinal", "end_corridor_rate", "end_pair_bounds",
-           "end_transect_pairs",
+           "end_transect_pairs", "end_transect_foot",
            "END_PROFILE_RULING", "END_PROFILE_PAIR_RULING", "END_RATE_RULING",
            "END_RATE_PAIR_RULING", "raoa"]
 
@@ -386,6 +386,73 @@ def end_transect_pairs(stations: _t.Sequence[tuple[int, float, float]],
     return out
 
 
+def end_transect_foot(d: float, t: float,
+                      edges: _t.Sequence[tuple[tuple[float, float], tuple[float, float]]],
+                      min_m: float) -> tuple[int, float, float] | None:
+    """THE TRANSECT FOOT of an end-band vertex at ``(d, t)`` (distance
+    beyond the end, lateral offset): the NEAREST point inward on its own
+    line where that line crosses one of ``edges`` — ``((d_a, t_a), (d_b,
+    t_b))`` ring edges of the runway's own pavement — more than ``min_m``
+    beyond the end (the end edge itself is the chord's,
+    :func:`_end_foot_rows`).  Returns ``(edge index, tau, d_foot)`` with
+    ``tau`` the foot's parameter along the edge, or ``None``.
+
+    Why: runway-role pavement that CONTINUES PAST THE END (a paved pad
+    that joined the runway body as a §40 shoulder) lies between the end
+    and the ground behind it, and :func:`end_transect_pairs` pairs
+    VERTICES on one line — the pad's corners stand on other lines.  With
+    no row from the pad's far edge the break at the profile's first
+    length landed 0.85 m behind a 60 m pad and the ground stepped 0.44 m
+    down across it (KASE 15, lane kase620); one reading for the
+    generator and both readers."""
+    best = None
+    for k, ((da, ta), (db, tb)) in enumerate(edges):
+        if ta == tb or (ta - t) * (tb - t) > 0.0:
+            continue
+        tau = (t - ta) / (tb - ta)
+        de = da + tau * (db - da)
+        if de <= min_m or d - de < 0.01:
+            continue
+        if best is None or de > best[2]:
+            best = (k, tau, de)
+    return best
+
+
+def _end_pavement_edges(vw: View, g: RunwayGroup, ring_idx: int
+                        ) -> list[tuple[int, int, tuple[float, float], tuple[float, float]]]:
+    """The OUTER-ring edges ``(a, b, (d_a, t_a), (d_b, t_b))`` of every
+    runway-role face of ``g``'s own ref, in the end frame of corridor
+    ``ring_idx`` (``d`` signed: negative abeam the runway)."""
+    ux, uy = g.unit
+    ax, ay = g.axis_a
+
+    def dt(v: int) -> tuple[float, float]:
+        x, y = vw.xy[v]
+        s = (x - ax) * ux + (y - ay) * uy
+        return (-s if ring_idx == 1 else s - g.length_m), -(x - ax) * uy + (y - ay) * ux
+
+    out = []
+    for f in vw.faces_of_role(("runway",)):
+        if f.ref != g.ref:
+            continue
+        ring = vw.rings[f.id]
+        for i in range(len(ring)):
+            a, b = ring[i], ring[(i + 1) % len(ring)]
+            pa, pb = dt(a), dt(b)
+            if max(pa[0], pb[0]) > 0.0:
+                out.append((a, b, pa, pb))
+    return out
+
+
+def _unbound_end_vertices(vw: View) -> set[int]:
+    """Strip vertices NO end row from the runway binds: a wall vertex
+    carries the crest (the DEM, RULINGS 2026-09-03b L1 — the zones stop at
+    the wall), and under a mapped-road ribbon THE ROAD CAP GOVERNS (owner
+    RULINGS 2026-10-02ag (2), #100; ``PlanarMap.ribbon_vertices``)."""
+    walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
+    return walls | set(vw.pm.road_cap_vertices(airside_stage_roles(vw.law)))
+
+
 def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                               ) -> list[Row]:
     """THE RUNWAY-END PROFILE (owner RULINGS 2026-10-12q (1) (a)-(c);
@@ -399,12 +466,14 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     (:func:`_end_foot_rows`) the profile at the vertex's own distance.
     The 5 % was two-sided from 0 m beyond the end until this ruling."""
     vw = view(planar, law)
-    q = law.tables.emit.instrument.strip_edge_noise_m - law.tables.emit.materiality.elevation_m
+    q = end_profile_noise_m(law)
     rows: list[Row] = []
     seen: set[tuple[int, int]] = set()
+    unbound = _unbound_end_vertices(vw)
     for g in runway_groups(vw, airport):
         prof = runway_end_profile(law, g.code_number, g.code_letter)
         src = Source(GEN, END_PROFILE_PAIR_RULING, (f"rwy:{g.ref}",))
+        chord_src = Source(GEN, END_PROFILE_RULING, (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):
             for ring_idx in (1, 2):
                 inside = [point_in_rect_ring(x, y, g.rings[ring_idx]) for x, y in xy]
@@ -423,8 +492,12 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                         vin, vout = (a, b) if di <= dj else (b, a)
                         lo, hi = end_pair_bounds(prof, min(di, dj), max(di, dj), q)
                         rows.append(Linear(((vin, 1.0), (vout, -1.0)), lo, hi, src))
-            # the TRANSECT pairs (``end_transect_pairs``): every band vertex
-            # against the nearest vertex inward on its own line
+        # the TRANSECT pairs (``end_transect_pairs``): every band vertex
+        # against the nearest vertex inward on its own line — at BOTH ends
+        # (until lane kase620 this block read the ring loop's leaked index
+        # and so priced the far end only: KASE 15's break → outer-ring pair
+        # had no row and shipped −9.2 % over the last 15 m)
+        for ring_idx in (1, 2):
             st = _end_stations(vw, g, ring_idx)
             for vin, vout in end_transect_pairs([(v, d, t) for v, (d, t) in st.items()],
                                                 law.tables.emit.identity.min_distinct_spacing_m):
@@ -434,8 +507,23 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                 seen.add(key)
                 lo, hi = end_pair_bounds(prof, st[vin][0], st[vout][0], q)
                 rows.append(Linear(((vin, 1.0), (vout, -1.0)), lo, hi, src))
-        rows.extend(_end_foot_rows(vw, g, prof, q,
-                                   Source(GEN, END_PROFILE_RULING, (f"rwy:{g.ref}",)), seen))
+            # the TRANSECT FEET (``end_transect_foot``): the ground behind
+            # runway pavement that continues past the end follows that
+            # pavement's far edge by the profile's increment — one-way
+            edges = _end_pavement_edges(vw, g, ring_idx)
+            if not edges:
+                continue
+            m = law.tables.emit.identity.min_distinct_spacing_m
+            for v, (d, t) in st.items():
+                hit = None if v in unbound else end_transect_foot(
+                    d, t, [(e[2], e[3]) for e in edges], m)
+                if hit is None:
+                    continue
+                k, tau, de = hit
+                lo, hi = end_pair_bounds(prof, de, d, q)       # on z_foot − z_v
+                rows.append(Linear(((v, 1.0), (edges[k][0], -(1.0 - tau)), (edges[k][1], -tau)),
+                                   -hi, None if lo is None else -lo, chord_src, follows=v))
+        rows.extend(_end_foot_rows(vw, g, prof, q, chord_src, seen))
     return rows
 
 
@@ -491,16 +579,11 @@ def _end_feet(vw: View, g: RunwayGroup, end_edges, seen: set[tuple[int, int]]
     CLAMPED to [0, 1] (the §35 corner rule), ``d`` the true plan distance
     to the foot.  Pavement, wall-crest and road-cap vertices are never
     feet (RULINGS 2026-09-03b L1; 2026-10-02ag (2))."""
-    # a wall vertex carries the crest (the DEM, 2026-09-03b L1) and no
-    # chord from the runway end binds it — the zones stop at the wall
-    walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
-    # OWNER RULINGS 2026-10-02ag (2) (#100) ROAD CAP GOVERNS: no end-foot
-    # chord under a mapped-road ribbon (``PlanarMap.ribbon_vertices``)
-    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
+    unbound = _unbound_end_vertices(vw)
     out: list[tuple[int, int, int, float, float]] = []
     for fid, ids, xy in _strip_rings(vw):
         for k, v in enumerate(ids):
-            if v in vw.pavement_vertices or v in walls or v in road_cap:
+            if v in vw.pavement_vertices or v in unbound:
                 continue
             x, y = xy[k]
             cands: list[tuple[float, int, int, float]] = []

@@ -52,17 +52,17 @@ import typing as _t
 
 from ..constraints.geometry import (longitudinal_runs, point_in_rect_ring,
                                     principal_axis, rect_ring)
-from ..constraints.strips import (end_pair_bounds, end_transect_pairs,
+from ..constraints.strips import (end_pair_bounds, end_transect_foot, end_transect_pairs,
                                   pavement_ring_vertices, strip_longitudinal_pairs)
 from shapely.geometry import Point as _ShPoint
 
-from ..law.tables import (runway_end_profile, snap_margin_m,
+from ..law.tables import (end_profile_noise_m, runway_end_profile, snap_margin_m,
                           strip_transverse_bound, zone2_half_width_m,
                           zone_bounds)
 from .frame import Patch, Row, Shape, pair_side, row
 from .no_step import rate_breaches
 
-__all__ = ["groups", "strip_longitudinal", "strip_arc", "resa_transverse",
+__all__ = ["groups", "published_slabs", "end_groups", "strip_longitudinal", "strip_arc", "resa_transverse",
            "runway_end_skirt", "raoa", "adjacent_ground_tear", "strip_seam_tear", "strip_transverse",
            "runway_edge_tie", "TiePoint", "TieEdge", "TieHit",
            "natural_shore_geometry", "road_cap_geometry"]
@@ -234,6 +234,61 @@ def groups(p: Patch):
     return out
 
 
+def published_slabs(rows, to_m) -> dict[str, tuple]:
+    """``{ref: (a, b, width_m)}`` — each runway's SLAB axis (physical end
+    to physical end, overruns included: ``model.airport.Runway.
+    slab_corners``) in the caller's metre frame, from the sidecar's
+    ``runway_axes`` rows ``[ref, lat_a, lon_a, lat_b, lon_b, half_m,
+    overrun_a_m, overrun_b_m]``.  THE FRAME OF THE RUNWAY-END PROFILE for
+    every reader (#620): the generator prices the ground beyond an end
+    from the slab's end (§40 (1)/(4): a shoulder moves no axis and mints
+    no region), and a reader that fits the runway-role RINGS instead
+    measures from the far edge of whatever shoulder lies beyond it —
+    KASE 15, a 60 m paved pad: every end station read 60 m short and the
+    last 15 m of the band was judged at the first 61 m's cap.  A row
+    without the two overruns (a patch predating them) is not a slab and
+    is left out: the caller keeps its fitted axis."""
+    out: dict[str, tuple] = {}
+    for r in rows or ():
+        if len(r) < 8:
+            continue
+        a, b = to_m(float(r[1]), float(r[2])), to_m(float(r[3]), float(r[4]))
+        L = math.hypot(b[0] - a[0], b[1] - a[1])
+        if L < 1.0:
+            continue
+        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        out[str(r[0])] = ((a[0] - ux * float(r[6]), a[1] - uy * float(r[6])),
+                          (b[0] + ux * float(r[7]), b[1] + uy * float(r[7])),
+                          2.0 * float(r[5]))
+    return out
+
+
+def end_groups(p: Patch):
+    """:func:`groups` rows WITH THEIR REF, in the frame the runway-end
+    profile is priced in: the published slab where the patch carries one
+    (:func:`published_slabs`), the fitted axis otherwise."""
+    law = p.law
+    slabs = published_slabs(p.publication.get("runway_axes"), p.to_m)
+    out = []
+    for rings, unit, code, L, letter, a, b in groups(p):
+        ref = next((sh.ref for sh in p.shapes if sh.role == "runway"
+                    and point_in_rect_ring(sh.xy[0][0], sh.xy[0][1], rings[0])), None)
+        slab = slabs.get(ref) if ref else None
+        if slab is not None:
+            a, b, width = slab
+            L = math.hypot(b[0] - a[0], b[1] - a[1])
+            unit = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+            code = _code(L)
+            half = zone2_half_width_m(law, "runway", code, letter) or 0.0
+            cl = law.ruleset.end_skirt.corridor_length_m
+            end_len = (cl.value(code, letter) if cl is not None else 0.0) or 0.0
+            end_half = max(width, half)
+            rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -end_len, 0.0, end_half),
+                     rect_ring(a, b, L, L + end_len, end_half))
+        out.append((ref, rings, unit, code, L, letter, a, b))
+    return out
+
+
 def _strips(p: Patch) -> list[Shape]:
     return [sh for sh in p.shapes if sh.role == "graded_strip" and len(sh.ids) >= 2]
 
@@ -363,6 +418,30 @@ def _runway_end_edges(p: Patch, ref: str, a0, unit, L: float, m: float):
     return out
 
 
+def _end_pavement_edges(p: Patch, ref: str, a0, unit, L: float, ring_idx: int):
+    """``((d_a, t_a), (d_b, t_b), z_a, z_b)`` for every outer-ring edge of
+    a ``runway`` shape of ``ref`` reaching beyond end ``ring_idx`` — the
+    generator's ``constraints.strips._end_pavement_edges`` in the census
+    frame."""
+    ux, uy = unit
+
+    def dt(xy):
+        s = (xy[0] - a0[0]) * ux + (xy[1] - a0[1]) * uy
+        return (-s if ring_idx == 1 else s - L), -(xy[0] - a0[0]) * uy + (xy[1] - a0[1]) * ux
+
+    out = []
+    for sh in p.shapes:
+        if sh.role != "runway" or sh.ref != ref:
+            continue
+        n = len(sh.ids)
+        for i in range(n):
+            j = (i + 1) % n
+            pa, pb = dt(sh.xy[i]), dt(sh.xy[j])
+            if max(pa[0], pb[0]) > 0.0:
+                out.append((pa, pb, sh.z[i], sh.z[j]))
+    return out
+
+
 def end_chord_foot(x: float, y: float, edges, rect_of) -> tuple[float, float, int] | None:
     """``(d, z_foot, end)`` — the nearest point of the nearest runway end
     edge (``t`` clamped, §35) for a vertex inside that end's rect: the
@@ -401,13 +480,13 @@ def end_excess_m(prof, d_in: float, d_out: float, z_in: float, z_out: float,
 
 def runway_end_skirt(p: Patch) -> list[Row]:
     law = p.law
-    q = law.tables.emit.instrument.strip_edge_noise_m
+    q = end_profile_noise_m(law, reader=True)
     qc = law.tables.emit.instrument.coarse_noise_m
     m = law.tables.emit.identity.min_distinct_spacing_m
     pav = _pavement_ids(p)
     out: list[Row] = []
     seen: set = set()
-    for rings, unit, code, L, letter, a0, _b in groups(p):
+    for ref, rings, unit, code, L, letter, a0, _b in end_groups(p):
         prof = runway_end_profile(law, code, letter)
         ux, uy = unit
 
@@ -418,8 +497,6 @@ def runway_end_skirt(p: Patch) -> list[Row]:
         def rect_of(end, x, y):
             return point_in_rect_ring(x, y, rings[end])
 
-        ref = next((sh.ref for sh in p.shapes if sh.role == "runway"
-                    and point_in_rect_ring(sh.xy[0][0], sh.xy[0][1], rings[0])), None)
         edges = _runway_end_edges(p, ref, a0, unit, L, m) if ref else []
         # the TRANSECT pairs (``constraints.strips.end_transect_pairs``)
         for ring_idx in (1, 2):
@@ -449,6 +526,22 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                                p.side("graded_strip"), ex, 100 * (st[vo][2] - st[vi][2]) / ds,
                                100 * prof.down_cap_at(st[vo][0]), ds,
                                st[vi][3], st[vo][3], st[vi][4], st[vo][4]))
+            # the TRANSECT FEET (``constraints.strips.end_transect_foot``):
+            # the ground behind runway pavement that continues past the end
+            pedges = _end_pavement_edges(p, ref, a0, unit, L, ring_idx) if ref else []
+            for v, (d, t, z, xy, key) in st.items():
+                hit = end_transect_foot(d, t, [(e[0], e[1]) for e in pedges], m)
+                if hit is None:
+                    continue
+                k, tau, de = hit
+                zf = pedges[k][2] + tau * (pedges[k][3] - pedges[k][2])
+                ex = end_excess_m(prof, de, d, zf, z, q)
+                if ex <= 0.0:
+                    continue
+                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
+                               pair_side(p, "graded_strip", "runway"), ex,
+                               100 * (z - zf) / (d - de), 100 * prof.down_cap_at(d), d - de,
+                               xy, xy, key, key))
         for sh in _strips(p):
             for ring_idx in (1, 2):
                 inside = [point_in_rect_ring(x, y, rings[ring_idx]) for x, y in sh.xy]

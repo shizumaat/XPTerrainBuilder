@@ -26,6 +26,15 @@ Instrument only: it measures no law and counts no defects (that is
 """
 from __future__ import annotations
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``, ahead of every other import (the
+# ``--help`` carries ``ε`` / ``−``).  Twin: ``tests/test_console_encoding.py``.
+import os as _o4os, sys as _o4sys                                    # noqa: E402
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
+
 import argparse
 import collections
 import json

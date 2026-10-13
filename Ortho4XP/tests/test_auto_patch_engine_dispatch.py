@@ -38,6 +38,7 @@ from auto_patch import driver as DRIVER            # noqa: E402
 from auto_patch import engine_v2 as E2              # noqa: E402
 from auto_patch import provenance as PROV           # noqa: E402
 import O4_UI_Utils as UI                            # noqa: E402
+from tests import module_isolation                  # noqa: E402
 
 ENGINE_ROOT = Path(__file__).resolve().parents[1]
 
@@ -189,17 +190,15 @@ def _stub_v2(monkeypatch, *, status="optimal", pieces_tiles=None, raise_exc=None
     mods["auto_patch_v2.law"].Law = _Law
     mods["auto_patch_v2.law"].law_tables_digest = lambda law_dir=None: {
         "dir": "stub", "files": ["emit.toml"], "sha256": "feedfacecafebeef" * 4}
-    # THE STUB ROOT IS STILL A PACKAGE.  ``engine_v2`` also imports v2
-    # modules this stub does not replace (``V2Progress`` reads
-    # ``auto_patch_v2.model.pulse``); a path-less root answers "is not a
-    # package" for them unless an EARLIER test file happened to import the
-    # real ones into ``sys.modules`` — five tests here went red when the
-    # file ran alone.  The real package's ``__path__`` lets every
-    # unstubbed submodule resolve to the real one, in any order.
-    import auto_patch_v2 as _real_v2
-    mods["auto_patch_v2"].__path__ = list(_real_v2.__path__)
-    for name, m in mods.items():
-        monkeypatch.setitem(sys.modules, name, m)
+    # EVERY STUB PACKAGE IS STILL A PACKAGE, and nothing imported under the
+    # stubs outlives the test (#639).  ``engine_v2`` and the driver also
+    # import v2 modules this stub does not replace (``auto_patch_v2.model.
+    # pulse``, ``auto_patch_v2.airport.object_plan``); a path-less stand-in
+    # answers "is not a package" / "cannot import name" for them unless an
+    # EARLIER test happened to import the real ones — red alone, green in a
+    # full file.  ``install`` gives each stand-in the real ``__path__`` and
+    # snapshots ``auto_patch_v2*``; conftest restores it after the test.
+    module_isolation.install(mods)
     return calls
 
 

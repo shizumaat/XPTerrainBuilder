@@ -15,7 +15,7 @@ from shapely.ops import unary_union
 from ..classify.roles import Classification, is_runway_shoulder
 from ..law import Law
 from ..law.tables import zone2_half_width_m
-from ..model.frame import rotated_rectangle
+from ..geom.rotated_rect import long_axis, rotated_rectangle
 
 __all__ = ["strip_keepout"]
 
@@ -38,22 +38,12 @@ def strip_keepout(classification: Classification, law: Law):
             continue
         half = zone2_half_width_m(law, "runway", c.code_number, c.code_letter) or 0.0
         end = (cl.value(c.code_number, c.code_letter) if cl is not None else 0.0) or 0.0
-        rect = rotated_rectangle(poly)
-        pts = list(rect.exterior.coords)[:4]
-        if len(pts) < 4:
+        ab = long_axis(rotated_rectangle(poly))
+        if ab is None:
             polys.append(poly.buffer(half))
             continue
-        sides = [(math.hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]), k)
-                 for k in range(3)] + [(math.hypot(pts[0][0] - pts[3][0], pts[0][1] - pts[3][1]), 3)]
-        _l, k = max(sides)
-        p, q = pts[k], pts[(k + 1) % 4]
-        r, s = pts[(k + 3) % 4], pts[(k + 2) % 4]
-        a = ((p[0] + r[0]) / 2.0, (p[1] + r[1]) / 2.0)
-        b = ((q[0] + s[0]) / 2.0, (q[1] + s[1]) / 2.0)
+        a, b = ab
         L = math.hypot(b[0] - a[0], b[1] - a[1])
-        if L <= 0.0:
-            polys.append(poly.buffer(half))
-            continue
         ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
         axis = LineString([(a[0] - ux * end, a[1] - uy * end), (b[0] + ux * end, b[1] + uy * end)])
         width = max(half, poly.area / max(L, 1.0) / 2.0)

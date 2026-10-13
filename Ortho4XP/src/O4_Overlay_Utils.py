@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 import subprocess
-import O4_Console_Encoding as CONSOLE
+import O4_DSFTool as DSFTOOL
 
 # DSFTool's text is the DSF's own bytes -- UTF-8 by specification.  Lines
 # are copied through to the file DSFTool reads back, so a byte that is not
@@ -13,6 +13,11 @@ import O4_File_Names as FNAMES
 import O4_Held_File as HELD
 import O4_Tile_Failures as FAILURES
 import O4_UI_Utils as UI
+
+# The longest one overlay conversion may run.  A whole tile's overlay
+# converts in seconds to a couple of minutes; a converter still running
+# after this is hung, and the step ends naming it instead of waiting.
+OVERLAY_CONVERSION_TIMEOUT_S = 900.0
 
 # the following is meant to be modified directly by users who need it (in the 
 # config window, not here!)
@@ -65,6 +70,41 @@ def resolve_unzip_cmd():
         if found:
             return found
     return None
+
+
+################################################################################
+def convert_overlay_dsf(direction, source, converted):
+    """One DSFTool conversion of the overlay step (``direction`` is
+    ``-dsf2text`` or ``-text2dsf``); False — with the tile's failure NAMED
+    — when the converter did not do it (#591).
+
+    The converter is WAITED for and its exit read: a crash, a non-zero
+    exit (even after it wrote a file) and a run past
+    ``OVERLAY_CONVERSION_TIMEOUT_S`` each end the step as
+    ``overlay_tool_failed`` with the cause in the log.  What an earlier
+    run left under ``converted`` is removed first, so a file found there
+    afterwards is this run's.
+    """
+    try:
+        os.remove(converted)
+    except OSError:
+        pass
+    try:
+        said = DSFTOOL.run([dsftool_cmd.strip(), direction, source, converted],
+                           timeout=OVERLAY_CONVERSION_TIMEOUT_S)
+    except DSFTOOL.DsfToolError as error:
+        UI.exit_message_and_bottom_line(
+            "   ERROR: the overlay could not be converted:", error,
+            code="overlay_tool_failed")
+        return False
+    for line in said.splitlines():
+        UI.vprint(1, "     " + line)
+    if not os.path.isfile(converted) or os.path.getsize(converted) == 0:
+        UI.exit_message_and_bottom_line(
+            "   ERROR: DSFTool", direction, "ended normally but wrote nothing.",
+            code="overlay_tool_failed")
+        return False
+    return True
 
 
 ################################################################################
@@ -161,26 +201,13 @@ def build_overlay(lat, lon):
         subprocess.run([seven_zip, "e", f"-o{FNAMES.Tmp_dir}", f"{file_to_sniff_loc}.7z"], **UI.external_tool_keyword_arguments())
         os.remove(file_to_sniff_loc + ".7z")
     UI.vprint(1, "-> Converting the copy to text format")
-    dsfconvertcmd = [
-        dsftool_cmd.strip(),
-        " -dsf2text ".strip(),
+    if not convert_overlay_dsf(
+        "-dsf2text",
         file_to_sniff_loc,
         os.path.join(
             FNAMES.Tmp_dir, FNAMES.short_latlon(lat, lon) + "_tmp_dsf.txt"
         ),
-    ]
-    fingers_crossed = subprocess.Popen(
-        dsfconvertcmd, stdout=subprocess.PIPE, bufsize=0, **UI.external_tool_keyword_arguments()
-    )
-    while True:
-        line = fingers_crossed.stdout.readline()
-        if not line:
-            break
-        else:
-            UI.vprint(1, "     " + CONSOLE.native_tool_text(line)[:-1])
-    if fingers_crossed.returncode:
-        UI.exit_message_and_bottom_line("   ERROR: DSFTool crashed.",
-                                        code="overlay_tool_failed")
+    ):
         return 0
     UI.vprint(1, "-> Selecting overlays for copy/paste")
     f = open(
@@ -263,9 +290,8 @@ def build_overlay(lat, lon):
     f.close()
     g.close()
     UI.vprint(1, "-> Converting back the text DSF to binary format")
-    dsfconvertcmd = [
-        dsftool_cmd.strip(),
-        " -text2dsf ".strip(),
+    if not convert_overlay_dsf(
+        "-text2dsf",
         os.path.join(
             FNAMES.Tmp_dir,
             FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.txt",
@@ -274,16 +300,8 @@ def build_overlay(lat, lon):
             FNAMES.Tmp_dir,
             FNAMES.short_latlon(lat, lon) + "_tmp_dsf_without_mesh.dsf",
         ),
-    ]
-    fingers_crossed = subprocess.Popen(
-        dsfconvertcmd, stdout=subprocess.PIPE, bufsize=0, **UI.external_tool_keyword_arguments()
-    )
-    while True:
-        line = fingers_crossed.stdout.readline()
-        if not line:
-            break
-        else:
-            print("     " + CONSOLE.native_tool_text(line)[:-1])
+    ):
+        return 0
     dest_dir = os.path.join(
         FNAMES.Overlay_dir, "Earth nav data", FNAMES.round_latlon(lat, lon)
     )

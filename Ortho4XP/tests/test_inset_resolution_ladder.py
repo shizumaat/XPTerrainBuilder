@@ -487,8 +487,9 @@ def test_cap_declined_rung_is_not_refetched_for_the_same_listing(
 @requires_gdal
 def test_unavailable_rung_that_is_no_cap_is_asked_again_every_build(
         two_providers):
-    """13b stands for every other ``unavailable`` (a missing decoder, a
-    refused download): no listing is recorded and the re-check asks."""
+    """13b stands for every other ``unavailable`` (a refused download, a
+    product the engine could not use; #595 left undecided): no listing is
+    recorded and the re-check asks."""
     plan, calls, chain, _other, _raise = two_providers
     plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
                  "FAKEPIT": {"unavailable": "laspy missing",
@@ -499,6 +500,75 @@ def test_unavailable_rung_that_is_no_cap_is_asked_again_every_build(
     recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
     assert (recheck["result"], recheck["new_source_ids"]) == (
         "new-listing", ["T1"])
+
+
+@requires_gdal
+def test_rung_without_its_decoder_is_asked_again_when_the_decoder_appears(
+        two_providers, monkeypatch):
+    """#595, THE DECODER CLASS: a rung ``unavailable`` because the engine
+    lacks a capability it needs recorded no listing, so every build's
+    re-check read its listing as new and re-fetched the airport's inset.
+    It is recorded with what the engine lacked and the signature it was
+    refused under: not asked while that holds (no index query, no
+    download), asked again when the capability appears."""
+    plan, calls, chain, other, _raise = two_providers
+    other["asset_compression"] = "lerc"
+    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: False)
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"unavailable": "FAKEPIT: no LERC decoder",
+                             "listing": ["T1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    refused = _sidecar()["ladder"]["rungs_tried"][1]
+    assert refused["outcome"] == "unavailable"
+    assert refused["missing_capabilities"] == [INSETS.CAPABILITY_LERC]
+    assert refused["declined_under"]["capabilities"] == []
+    assert "listing_ids" not in refused          # no verdict on the listing
+    for _build in range(2):
+        calls["fetch"].clear()
+        calls["discover"].clear()
+        INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+        assert calls["fetch"] == []
+        assert "FAKEPIT" not in calls["discover"]
+        assert _sidecar()["ladder"]["recheck"]["result"] == "unchanged"
+    # A new product on a rung the engine still cannot read changes nothing.
+    plan["FAKEPIT"]["listing"] = ["T1", "T2"]
+    assert INSETS.ladder_recheck(
+        39, -107, "KASE", "FAKE3DEP", BOX)["result"] == "unchanged"
+    assert INSETS.ladder_recheck_owed(39, -107, "KASE", "FAKE3DEP", BOX) == []
+    # THE DECODER APPEARS: the rung is asked, and the build re-fetches.
+    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert (recheck["result"], recheck["new_source_ids"]) == (
+        "new-listing", ["T1", "T2"])
+    plan["FAKEPIT"] = {"valid": 1.0, "listing": ["T1", "T2"]}
+    calls["fetch"].clear()
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert "FAKEPIT" in calls["fetch"]
+    ladder = _sidecar()["ladder"]
+    assert ladder["delivered_provider"] == "FAKEPIT"
+    assert "missing_capabilities" not in ladder["rungs_tried"][1]
+
+
+@requires_gdal
+def test_rung_refused_with_every_capability_present_is_not_remembered(
+        two_providers, monkeypatch):
+    """The decoder rule reads the ENGINE, not the refusal's wording: a
+    rung that needs a capability the engine HAS and is refused for
+    something else (a refused download) records nothing to stand on."""
+    plan, calls, chain, other, _raise = two_providers
+    other["asset_compression"] = "lerc"
+    monkeypatch.setattr(INSETS, "lerc_decode_available", lambda: True)
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"unavailable": "FAKEPIT: tile T1 answered "
+                                            "HTTP 403", "listing": ["T1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    refused = _sidecar()["ladder"]["rungs_tried"][1]
+    assert "missing_capabilities" not in refused
+    assert "declined_under" not in refused
+    assert INSETS.ladder_recheck(
+        39, -107, "KASE", "FAKE3DEP", BOX)["result"] == "new-listing"
 
 
 @requires_gdal

@@ -5,6 +5,7 @@ import queue
 import threading
 from collections import defaultdict
 import O4_UI_Utils as UI
+import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
 import O4_Vector_Map as VMAP
@@ -206,7 +207,7 @@ def _count_dds_textures(tile):
         return sum(
             1 for name in os.listdir(
                 os.path.join(tile.build_dir, "textures"))
-            if name.endswith(".dds")
+            if name.endswith(".dds") and not DDS.is_partial_name(name)
         )
     except OSError:
         return 0

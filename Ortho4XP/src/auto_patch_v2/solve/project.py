@@ -823,13 +823,30 @@ ZONE_GENERATOR = "zones"
 #: left alone and re-read as a report figure.
 ZONE_RULING = "zones.adjacent_ground"
 
+#: THE CORRIDOR ROWS THIS PROJECTION OWNS, as ``(generator, ruling head)``
+#: pairs matched exactly: the zone bands, and — the same class of row, ONE
+#: ground vertex (``follows``) against runway feet the staged solve has
+#: already fixed — the RUNWAY-END PROFILE chords (owner RULINGS
+#: 2026-10-12q (1); ``constraints/strips._end_foot_rows``).  Priced at the
+#: law weight alone a 3 m fill at a band's end shipped a 3 cm residual the
+#: census read as a row (CYCG 15, the band's corner: 2.17 m over a 2.14 m
+#: bound) — the exact class §32 (1) was written for.
+#: ``solve`` imports nothing of ``constraints`` (``test_model.test_
+#: dependency_direction``): the strips generator's name and head are
+#: spelled here as the zone pair is, and ``tests/auto_patch_v2/
+#: test_runway_end_profile.py`` holds them equal to the generator's own.
+CORRIDOR_RULINGS: tuple[tuple[str, str], ...] = (
+    (ZONE_GENERATOR, ZONE_RULING),
+    ("strips", "rulesets.end_skirt runway-end profile chord"),
+)
+
 
 def zone_band_sides(base: _t.Any) -> list[int]:
-    """Indices into ``base.one`` of the ADJACENT-GROUND corridor rows —
-    the one population this projection owns."""
+    """Indices into ``base.one`` of the corridor rows this projection owns
+    (:data:`CORRIDOR_RULINGS`)."""
     return [k for k, (_terms, _hi, row) in enumerate(base.one)
-            if row.source.generator == ZONE_GENERATOR
-            and row.source.ruling.split(" (")[0].strip() == ZONE_RULING]
+            if (row.source.generator,
+                row.source.ruling.split(" (")[0].strip()) in CORRIDOR_RULINGS]
 
 
 def foreign_hard_columns(base: _t.Any, owned: _t.Container[int]) -> np.ndarray:

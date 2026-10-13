@@ -20,19 +20,21 @@ import dataclasses as _dc
 
 import shapely
 from shapely.geometry import LineString, Polygon
+from shapely.ops import split as _split
 from shapely.ops import unary_union
 
 from ..classify.pad_touch import is_rim_strip
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
+from ..geom.rotated_rect import long_axis, rotated_rectangle
 from ..law import Law
-from ..law.tables import snap_margin_m, zone2_half_width_m
+from ..law.tables import runway_end_profile, snap_margin_m, zone2_half_width_m
 from ..model.planar import is_gap_apron_ref, is_late_ref
 from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
                     shore_declarations, shore_verdict)
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
 __all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
-           "SHORE_WALL_TAGS", "shore_wedge_m"]
+           "SHORE_WALL_TAGS", "shore_wedge_m", "runway_end_breaks"]
 
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -142,6 +144,66 @@ def _unclaimed(cell: Cell) -> bool:
     return is_gap_apron_ref(getattr(cell, "ref", "")) or is_rim_strip(cell)
 
 
+def runway_end_breaks(cells: tuple[Cell, ...], law: Law) -> list[LineString]:
+    """THE BREAKLINE AT THE STRIP'S END (owner RULINGS 2026-10-12q (1) (a);
+    ``tables.runway_end_profile``): per runway, the line across the end
+    band perpendicular to the runway's long axis at ``EndProfile.break_m``
+    beyond each pavement end — where the strip's own cap hands over to the
+    end skirt's.  The end band was ONE plane from the end edge to the
+    outer ring, and one plane cannot fall at 1.75 % for 60 m and 5 % for
+    the rest (measured CYCG 15: −2.77 % over the whole 74 m, #620).  The
+    axis is the runway's own cells' rectangle (§40 (4): a shoulder minted
+    no region and mints no break; ``geom.long_axis``), the runway grouped
+    by ``ref`` so a crossing's cut does not shorten it.  Empty where the
+    ruleset states no first segment."""
+    by_ref: dict[str, list] = {}
+    cls: dict[str, tuple[int | None, str | None]] = {}
+    for c in cells:
+        if c.role not in RUNWAY_FAMILY or len(c.ring) < 3 or is_runway_shoulder(c):
+            continue
+        if c.role != "runway":
+            continue
+        by_ref.setdefault(c.ref, []).append(Polygon(c.ring, c.holes))
+        cls.setdefault(c.ref, (c.code_number, c.code_letter))
+    out: list[LineString] = []
+    for ref, polys in by_ref.items():
+        cn, cl = cls[ref]
+        prof = runway_end_profile(law, cn, cl)
+        brk = prof.break_m
+        if not brk:
+            continue
+        u = unary_union(polys)
+        if u.is_empty or u.area <= 0.0:
+            continue
+        ab = long_axis(rotated_rectangle(u.convex_hull))
+        if ab is None:
+            continue
+        a, b = ab
+        L = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        px, py = -uy, ux
+        hw = (zone2_half_width_m(law, "runway", cn, cl) or 0.0) + u.area / L + 1.0
+        for s0 in (-brk, L + brk):
+            cx, cy = a[0] + ux * s0, a[1] + uy * s0
+            out.append(LineString([(cx - px * hw, cy - py * hw), (cx + px * hw, cy + py * hw)]))
+    return out
+
+
+def _break_pieces(g: Polygon, breaks: list[LineString]) -> list[Polygon]:
+    """``g`` cut by every break line that crosses it (polygon parts only)."""
+    parts = [g]
+    for ln in breaks:
+        nxt: list = []
+        for part in parts:
+            if not part.intersects(ln):
+                nxt.append(part)
+                continue
+            nxt.extend(p for p in shapely.get_parts(_split(part, ln))
+                       if p.geom_type == "Polygon" and not p.is_empty)
+        parts = nxt
+    return parts
+
+
 def zone_regions(cells: tuple[Cell, ...], law: Law,
                  keepouts: tuple[tuple, ...] = (), dem=None, roads=(),
                  edge_report: EdgeReport | None = None,
@@ -249,6 +311,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     water = shore_region(cells, dem)
     claimed = everything
     out: list[ZoneRegion] = []
+    breaks = runway_end_breaks(cells, law)
     for key in sorted(groups, key=rank):
         fam, cn, cl = key
         role = "runway" if fam == "runway" else "junction"
@@ -290,6 +353,12 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                                         edge_report)
             geom = clip.kept
             parts = shapely.get_parts(geom) if geom.geom_type != "Polygon" else [geom]
+            # THE BREAK AT THE STRIP'S END (``runway_end_breaks``): the
+            # zone-2 end band is cut AFTER every trim and shore decision,
+            # so each piece inherits its part's verdict and edge
+            if breaks and fam == "runway" and zone == 2:
+                parts = [p for g0 in parts if g0.geom_type == "Polygon"
+                         for p in _break_pieces(g0, breaks)]
             k = 0
             for g in parts:
                 if g.geom_type != "Polygon" or g.is_empty or g.area < 1.0:

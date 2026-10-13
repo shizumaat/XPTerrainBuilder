@@ -177,7 +177,11 @@ def test_a_2m_step_between_4m_rim_neighbours_is_refused_by_the_row_and_read_with
     key = (min(a, b), max(a, b))
     v2_hit = [r for r in v2 if r["distance_m"] == pytest.approx(NEIGHBOUR_M, abs=0.01)
               and r["magnitude_m"] == pytest.approx(STEP_M, abs=0.02)]
-    or_hit = [r for r in oracle if r.distance_m == pytest.approx(NEIGHBOUR_M, abs=0.01)
+    # the oracle reads the pair in the census frame: 3.9899 m since the
+    # runway-end breakline (lane rwyend620, #620) entered the arrangement
+    # — snap-rounding is global (§16g (10) (12) (1)) and the rim vertices
+    # moved by a tenth of a millimetre; the identity quantum is the bar
+    or_hit = [r for r in oracle if r.distance_m == pytest.approx(NEIGHBOUR_M, abs=0.02)
               and r.de_m == pytest.approx(STEP_M, abs=0.02)]
     assert v2_hit and or_hit, (len(v2), len(oracle))
     assert all(r["family"] == FAMILY_TAXI_BOX for r in v2)

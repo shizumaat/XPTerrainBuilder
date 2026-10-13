@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["rotated_rectangle"]
+__all__ = ["rotated_rectangle", "long_axis"]
 
 
 def rotated_rectangle(poly):
@@ -35,3 +35,24 @@ def rotated_rectangle(poly):
     """
     with np.errstate(divide="ignore", invalid="ignore"):
         return poly.minimum_rotated_rectangle
+
+
+def long_axis(rect):
+    """``(a, b)`` — the mid-points of the two SHORT sides of a rotated
+    rectangle, i.e. its long axis from one end to the other (``planar/
+    strip_keepout`` and ``planar/zones`` read a runway's axis off its
+    cells' rectangle this way).  ``None`` for a degenerate rectangle."""
+    pts = list(rect.exterior.coords)[:4] if hasattr(rect, "exterior") else []
+    if len(pts) < 4:
+        return None
+    sides = [(float(np.hypot(pts[(k + 1) % 4][0] - pts[k][0],
+                             pts[(k + 1) % 4][1] - pts[k][1])), k)
+             for k in range(4)]
+    _l, k = max(sides)
+    p, q = pts[k], pts[(k + 1) % 4]
+    r, s = pts[(k + 3) % 4], pts[(k + 2) % 4]
+    a = ((p[0] + r[0]) / 2.0, (p[1] + r[1]) / 2.0)
+    b = ((q[0] + s[0]) / 2.0, (q[1] + s[1]) / 2.0)
+    if np.hypot(b[0] - a[0], b[1] - a[1]) <= 0.0:
+        return None
+    return a, b

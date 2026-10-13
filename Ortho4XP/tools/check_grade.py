@@ -2891,131 +2891,290 @@ def iter_shape_grade_constraints(
     return out
 
 
+def _runway_end_profile_law():
+    """The v2 :class:`law.tables.EndProfile` for the run's active ruleset
+    — ONE derivation with the generator and the in-build verify reader
+    (``auto_patch_v2.verify.strips.runway_end_skirt``)."""
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import runway_end_profile
+    law = Law.load(ruleset=str(_ACTIVE_RULESET or _DEFAULT_RULESET).lower())
+    return law, runway_end_profile
+
+
 def _check_runway_end_skirt_edges(ways: List[Way],
                                   nodes: Dict[str, Tuple[float, float]],
-                                  ll_to_m) -> List[Violation]:
-    """DEM-free skirt-law reader on the EMITTED patch: every ring edge
-    of a ``runway_end_skirt`` way must stay within the law's maximum
-    down-grade (``grade_law.RUNWAY_END_SKIRT_MAX_DOWN_GRADE``).  By
-    construction the skirt surface never exceeds it in ANY direction —
-    band rows are level and the descent is rate-limited — so a steeper
-    emitted edge means the patch was corrupted after emission.  The
-    full DEM-aware floor/curvature law lives in
-    ``verification.check_runway_end_skirt``; this is the always-on
-    lockstep reader for emitted patches."""
-    from harness.law_support.grade_law import RUNWAY_END_SKIRT_MAX_DOWN_GRADE
-    # Skirt altitudes emit at 0.1 m quantization — a pair carries up to
-    # ~0.1 m of rounding; padded slightly for float noise.
-    skirt_edge_noise_m = 0.15
-    # LIFT-ONLY tolerance (2026-07-07): the skirt surface is
-    # ``max(analytic_floor, DEM)`` per vertex (clearance._skirt_lift_alt
-    # — the fill-only / flat-shadow convention: a fill never cuts).  A
-    # band that TRIGGERS on falling terrain can still SPAN a DEM bump
-    # that sits above the floor; that vertex lifts to the DEM instead of
-    # being graded DOWN to the floor.  So a band row is no longer level,
-    # and the surface can descend from a lifted bump back to the floor
-    # FASTER than the down-grade cap — this is LAWFUL (the law bounds how
-    # far BELOW the floor the surface may drop, not how it rides an
-    # existing bump back up; a vertex at/above the floor descending no
-    # lower than the floor is compliant).  DEM-free we cannot read the
-    # floor, but we CAN tell the two apart by SHAPE: a lift raises a
-    # vertex ABOVE its ring neighbours (a peak); post-emission corruption
-    # DROPS a vertex below its neighbours (a valley).  So an over-steep
-    # edge is flagged ONLY when its HIGHER endpoint is NOT a local lift
-    # peak — i.e. the steepness comes from the lower vertex dropping, the
-    # one signature ``max(floor, DEM)`` can never produce.  The DEM-aware
-    # floor/curvature law (verification.check_runway_end_skirt) remains
-    # the full below-floor check.
+                                  ll_to_m,
+                                  runway_axes_ll: Optional[list] = None,
+                                  road_cap_governs_ll: Optional[list] = None
+                                  ) -> List[Violation]:
+    """THE GROUND BEYOND A RUNWAY END, as v2 emits it (owner RULINGS
+    2026-10-12q (1) (d); #620): every ``graded_strip`` ring in a runway's
+    END corridor (``_runway_strip_groups`` rings 1 and 2) against the
+    ruleset's runway-end profile (``auto_patch_v2.law.tables.
+    runway_end_profile``; verify twin ``auto_patch_v2.verify.strips.
+    runway_end_skirt``, the same helpers ``end_excess_m`` /
+    ``end_chord_foot``):
 
-    def _ring_neighbour_elevs(w, i):
-        """Elevations of the two ring-adjacent vertices of index ``i``
-        on the closed way ``w`` (its ring's last nid repeats the first)."""
-        m = len(w.nids) - 1  # distinct vertices (ring closes)
-        if m < 2:
-            return []
-        elevs = []
-        for j in (i - 1, i + 1):
-            k = j % m
-            e = w.elevs[k] if k < len(w.elevs) else None
-            if e is not None:
-                elevs.append(float(e))
-        return elevs
+    * along-axis ring PAIRS by the profile's increment between their
+      stations beyond the end — falling at most the strip's cap over the
+      strip's end length (ICAO) or the near-end cap (FAA), the skirt's
+      5 % beyond; rising at most the take-off climb surface;
+    * every end-band vertex by the CHORD from the runway's end edge at its
+      own plan distance (the §35 corner rule: nearest point, ``t``
+      clamped);
+    * the FAA grade-change rate over three stations where the authority
+      states one (``rate_provisional`` false).
 
-    out: List[Violation] = []
+    THE FRAME IS THE RUNWAY'S SLAB where the sidecar publishes it
+    (``runway_axes`` with the two overruns; ``verify.strips.
+    published_slabs``) — the generator's own end, never a fit to the
+    runway-role rings, which a shoulder beyond the end lengthens (KASE 15:
+    a 60 m paved pad, every station read 60 m short).  A patch without
+    the key reads on the fitted axis as before.
+
+    Until this ruling the family read ``runway_end_skirt`` rings v2 never
+    emitted and judged nothing (the "0 rows judged" of #620)."""
+    if _runway_axis_and_width is None:
+        return []
+    from auto_patch_v2.verify.no_step import rate_breaches
+    from auto_patch_v2.constraints.strips import (end_transect_foot,
+                                                  end_transect_pairs)
+    from auto_patch_v2.verify.strips import (end_chord_foot, end_excess_m,
+                                             published_slabs, road_cap_geometry)
+    from shapely.geometry import Point as _Pt
+    slabs = published_slabs(runway_axes_ll, ll_to_m)
+    law, profile_of = _runway_end_profile_law()
+    from auto_patch_v2.law.tables import end_profile_noise_m
+    q = end_profile_noise_m(law, reader=True)
+    # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): a node under a
+    # mapped-road ribbon is the road's; the family reads no row on it
+    # (the published set — ``verify.strips.runway_end_skirt``'s reading)
+    cap_geom = road_cap_geometry(road_cap_governs_ll, ll_to_m, law)
+
+    def road(pt) -> bool:
+        return cap_geom is not None and cap_geom.covers(_Pt(pt[0], pt[1]))
+    qc = law.tables.emit.instrument.coarse_noise_m
+    ident = law.tables.emit.identity.min_distinct_spacing_m
+    pavement_nids: set = set()
     for w in ways:
-        if w.ref != "runway_end_skirt":
+        if w.role in _STRIP_PAVEMENT_ROLES:
+            pavement_nids.update(w.nids)
+    # the runway END EDGES per ref, in the group's own axis frame
+    rw_pts: Dict[str, list] = {}
+    rw_edges: Dict[str, list] = {}
+    for w in ways:
+        if w.role != "runway":
             continue
-        ring = w.nids
-        for i in range(len(ring) - 1):
-            nid_a, nid_b = ring[i], ring[i + 1]
-            if nid_a not in nodes or nid_b not in nodes:
+        nn = w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1] else w.nids
+        pts = [(ll_to_m(*nodes[n]), (w.elevs[k] if k < len(w.elevs) else None))
+               for k, n in enumerate(nn) if n in nodes]
+        rw_pts.setdefault(w.ref or w.wid, []).extend(p for p, _z in pts)
+        rw_edges.setdefault(w.ref or w.wid, []).extend(
+            (pts[i][0], pts[i][1], pts[(i + 1) % len(pts)][0], pts[(i + 1) % len(pts)][1])
+            for i in range(len(pts)) if len(pts) >= 2)
+    end_edges_by_ref: Dict[str, tuple] = {}
+    groups: List[tuple] = []
+    for ref, pts in rw_pts.items():
+        ax = slabs.get(ref) or (_runway_axis_and_width(pts) if len(pts) >= 3 else None)
+        if ax is None:
+            continue
+        grp = _strip_group_of_axis(ax)
+        if grp is None:
+            continue
+        groups.append((ref,) + grp)
+        (ax0, ay0), (bx0, by0), _w = ax
+        L = math.hypot(bx0 - ax0, by0 - ay0)
+        ux, uy = (bx0 - ax0) / L, (by0 - ay0) / L
+        edges = []
+        for pa, za, pb, zb in rw_edges.get(ref, ()):
+            if za is None or zb is None:
                 continue
-            ea = w.elevs[i] if i < len(w.elevs) else None
-            eb = w.elevs[i + 1] if i + 1 < len(w.elevs) else None
-            if ea is None or eb is None:
-                continue
-            xa, ya = ll_to_m(*nodes[nid_a])
-            xb, yb = ll_to_m(*nodes[nid_b])
-            dist = math.hypot(xb - xa, yb - ya)
-            if dist < 0.5:
-                continue
-            de = abs(float(ea) - float(eb))
-            allowance = (RUNWAY_END_SKIRT_MAX_DOWN_GRADE * dist
-                         + skirt_edge_noise_m)
-            if de <= allowance:
-                continue
-            # Lift check: if the HIGHER endpoint is strictly above BOTH
-            # its ring neighbours, it is a lifted DEM bump and the steep
-            # descent off it is lawful (max(floor, DEM) riding terrain).
-            hi_idx = i if float(ea) >= float(eb) else i + 1
-            hi_elev = max(float(ea), float(eb))
-            neigh = _ring_neighbour_elevs(w, hi_idx)
-            if neigh and all(hi_elev > ne + skirt_edge_noise_m
-                             for ne in neigh):
-                continue
-            # END-CAP exclusion (CYXY diagnosis 2026-07-26): the skirt
-            # ring is two station rows; the short edges CLOSING the ring
-            # run ACROSS the band, where the surface is pure DEM drape —
-            # the 5 % law bounds the descent ALONG the rows, not the
-            # lateral terrain.  An edge near-perpendicular to BOTH its
-            # ring neighbours is such an end-cap/row-transition edge and
-            # is exempt; along-row steps (the real dropped-vertex class,
-            # KCLT #845) stay flagged because they parallel their
-            # neighbours.  Rings under 6 distinct vertices have no row
-            # structure to protect (a bare quad reads all-perpendicular),
-            # so they keep the full check.
-            m_ring = len(ring) - 1
-            if m_ring >= 6 and dist > 1e-6:
-                ex, ey = (xb - xa) / dist, (yb - ya) / dist
-                perp_both = True
-                for pj, qj in (((i - 1) % m_ring, i),
-                               ((i + 1) % m_ring, (i + 2) % m_ring)):
-                    pn, qn = ring[pj], ring[qj]
-                    if pn not in nodes or qn not in nodes:
-                        perp_both = False
-                        break
-                    px, py = ll_to_m(*nodes[pn])
-                    qx, qy = ll_to_m(*nodes[qn])
-                    nlen = math.hypot(qx - px, qy - py)
-                    if nlen < 0.5:
-                        perp_both = False
-                        break
-                    if abs(ex * (qx - px) / nlen
-                           + ey * (qy - py) / nlen) > 0.35:
-                        perp_both = False
-                        break
-                if perp_both:
+            sa = (pa[0] - ax0) * ux + (pa[1] - ay0) * uy
+            sb = (pb[0] - ax0) * ux + (pb[1] - ay0) * uy
+            for end, s0 in ((1, 0.0), (2, L)):
+                if abs(sa - s0) <= ident and abs(sb - s0) <= ident:
+                    edges.append((pa, float(za), pb, float(zb), end))
+        end_edges_by_ref[ref] = ((ax0, ay0), (ux, uy), L, edges)
+    out: List[Violation] = []
+    seen: set = set()
+    strip_ways = []
+
+    def _dt(pt, a0, u, L, ring_idx):
+        s_ = (pt[0] - a0[0]) * u[0] + (pt[1] - a0[1]) * u[1]
+        return ((-s_ if ring_idx == 1 else s_ - L),
+                -(pt[0] - a0[0]) * u[1] + (pt[1] - a0[1]) * u[0])
+
+    for w in ways:
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
+            continue
+        closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
+        nn = w.nids[:-1] if closed else w.nids
+        pts, zs = [], []
+        ok = True
+        for k, nid in enumerate(nn):
+            if nid not in nodes:
+                ok = False
+                break
+            pts.append(ll_to_m(*nodes[nid]))
+            zs.append(w.elevs[k] if k < len(w.elevs) else None)
+        if not ok or len(pts) < 2:
+            continue
+        strip_ways.append((w, closed, nn, pts, zs))
+    # the TRANSECT pairs (``auto_patch_v2.constraints.strips.end_transect_
+    # pairs``): every end-band node against the nearest node inward on
+    # its own line, across every strip way
+    for ref, rings, axis, code, length, letter in groups:
+        prof = profile_of(law, code, letter)
+        ux, uy = axis
+        frame = end_edges_by_ref.get(ref)
+        if frame is None:
+            continue
+        a0, u, L, _edges = frame
+        for ring_idx in (1, 2):
+            st: Dict[str, tuple] = {}
+            for w, closed, nn, pts, zs in strip_ways:
+                for k, nid in enumerate(nn):
+                    if zs[k] is None or nid in pavement_nids or nid in st:
+                        continue
+                    x, y = pts[k]
+                    if not _strip_station_inside(x, y, rings[ring_idx]) or road((x, y)):
+                        continue
+                    s_ = (x - a0[0]) * u[0] + (y - a0[1]) * u[1]
+                    d = max(0.0, -s_) if ring_idx == 1 else max(0.0, s_ - L)
+                    if d <= 0.0:
+                        continue
+                    t = -(x - a0[0]) * u[1] + (y - a0[1]) * u[0]
+                    st[nid] = (d, t, float(zs[k]), (x, y), w)
+            for ni, no in end_transect_pairs([(n, v[0], v[1]) for n, v in st.items()], ident):
+                site = _site_key(st[ni][3], st[no][3])
+                if site in seen:
                     continue
-            grade = de / dist
-            out.append(Violation(
-                grade_pct=grade * 100,
-                excess_pct=(grade - RUNWAY_END_SKIRT_MAX_DOWN_GRADE) * 100,
-                distance_m=dist,
-                de_m=de,
-                way_a=w, way_b=w,
-                pt_a=(xa, ya), pt_b=(xb, yb),
-                elev_a=float(ea), elev_b=float(eb)))
-    out.sort(key=lambda v: -v.excess_pct)
+                seen.add(site)
+                allow = max(_pair_quant_noise_m(st[no][4]), q)
+                ex = end_excess_m(prof, st[ni][0], st[no][0], st[ni][2], st[no][2], allow)
+                if ex <= 0.0:
+                    continue
+                ds = st[no][0] - st[ni][0]
+                out.append(Violation(
+                    grade_pct=100.0 * (st[no][2] - st[ni][2]) / ds, excess_pct=100.0 * ex / ds,
+                    distance_m=ds, de_m=abs(st[no][2] - st[ni][2]),
+                    way_a=st[ni][4], way_b=st[no][4], pt_a=st[ni][3], pt_b=st[no][3],
+                    elev_a=st[ni][2], elev_b=st[no][2],
+                    cap_pct=100.0 * prof.down_cap_at(st[no][0])))
+            # the TRANSECT FEET (``end_transect_foot``): the ground behind
+            # runway pavement that continues past the end, against that
+            # pavement's far edge on the node's own line
+            pedges = []
+            for pa, za, pb, zb in rw_edges.get(ref, ()):
+                if za is None or zb is None:
+                    continue
+                ea, eb = _dt(pa, a0, u, L, ring_idx), _dt(pb, a0, u, L, ring_idx)
+                if max(ea[0], eb[0]) > 0.0:
+                    pedges.append((ea, eb, float(za), float(zb)))
+            for nid, (d, t, z, xy, w) in st.items():
+                hit = end_transect_foot(d, t, [(e[0], e[1]) for e in pedges], ident)
+                if hit is None:
+                    continue
+                k, tau, de = hit
+                zf = pedges[k][2] + tau * (pedges[k][3] - pedges[k][2])
+                ex = end_excess_m(prof, de, d, zf, z, max(_pair_quant_noise_m(w), q))
+                if ex <= 0.0:
+                    continue
+                out.append(Violation(
+                    grade_pct=100.0 * (z - zf) / (d - de), excess_pct=100.0 * ex / (d - de),
+                    distance_m=d - de, de_m=abs(z - zf), way_a=w, way_b=w,
+                    pt_a=xy, pt_b=xy, elev_a=zf, elev_b=z,
+                    cap_pct=100.0 * prof.down_cap_at(d)))
+    for w, closed, nn, pts, zs in strip_ways:
+        allow = max(_pair_quant_noise_m(w), q)
+        for ref, rings, axis, code, length, letter in groups:
+            prof = profile_of(law, code, letter)
+            ux, uy = axis
+            frame = end_edges_by_ref.get(ref)
+            for ring_idx in (1, 2):
+                if ring_idx >= len(rings):
+                    continue
+                ring = rings[ring_idx]
+                inside = [_strip_station_inside(px, py, ring) for px, py in pts]
+                if not any(inside):
+                    continue
+                if frame is None:
+                    continue
+
+                def beyond(p, _a0=frame[0], _u=frame[1], _L=frame[2], _r=ring_idx):
+                    s = (p[0] - _a0[0]) * _u[0] + (p[1] - _a0[1]) * _u[1]
+                    return max(0.0, -s) if _r == 1 else max(0.0, s - _L)
+                for run in _strip_station_runs(pts, axis, inside, closed):
+                    for a, b in zip(run, run[1:]):
+                        if zs[a] is None or zs[b] is None:
+                            continue
+                        ds = abs((pts[b][0] - pts[a][0]) * ux + (pts[b][1] - pts[a][1]) * uy)
+                        if ds < 1.0 or road(pts[a]) or road(pts[b]) \
+                                or (nn[a] in pavement_nids and nn[b] in pavement_nids):
+                            continue      # two pavement nodes: that pavement's own
+                        site = _site_key(pts[a], pts[b])
+                        if site in seen:
+                            continue
+                        seen.add(site)
+                        da, db = beyond(pts[a]), beyond(pts[b])
+                        (i, o) = (a, b) if da <= db else (b, a)
+                        ex = end_excess_m(prof, min(da, db), max(da, db),
+                                          float(zs[i]), float(zs[o]), allow)
+                        if ex <= 0.0:
+                            continue
+                        dz = abs(float(zs[b]) - float(zs[a]))
+                        out.append(Violation(
+                            grade_pct=100.0 * dz / ds, excess_pct=100.0 * ex / ds,
+                            distance_m=ds, de_m=dz, way_a=w, way_b=w,
+                            pt_a=pts[a], pt_b=pts[b],
+                            elev_a=float(zs[a]), elev_b=float(zs[b]),
+                            cap_pct=100.0 * prof.down_cap_at(max(da, db))))
+                    if prof.rate is not None and len(run) >= 3 \
+                            and all(zs[k] is not None for k in run):
+                        spts = [(pts[k][0] * ux + pts[k][1] * uy, 0.0) for k in run]
+                        szs = [float(zs[k]) for k in run]
+                        for a, b, c, change, _al, dp, dn in rate_breaches(
+                                spts, szs, False, prof.rate, qc,
+                                law.tables.emit.materiality.grade):
+                            A, B, C = run[a], run[b], run[c]
+                            site = ("rate",) + _site_key(pts[A], pts[B], pts[C])
+                            if site in seen or any(nn[k] in pavement_nids for k in (A, B, C)):
+                                continue      # a pavement station: that pavement's own
+                            seen.add(site)
+                            out.append(Violation(
+                                grade_pct=100.0 * change, excess_pct=100.0 * change,
+                                distance_m=dp + dn,
+                                de_m=abs(float(zs[C]) - float(zs[A])),
+                                way_a=w, way_b=w, pt_a=pts[A], pt_b=pts[C],
+                                elev_a=float(zs[A]), elev_b=float(zs[C])))
+                a0, u, L, edges = frame
+                if not edges:
+                    continue
+                for k in range(len(pts)):
+                    if zs[k] is None or nn[k] in pavement_nids or not inside[k] \
+                            or road(pts[k]):
+                        continue
+                    x, y = pts[k]
+                    foot = end_chord_foot(
+                        x, y, edges,
+                        lambda end, px, py: _strip_station_inside(px, py, rings[end]))
+                    if foot is None or foot[0] < 1.0:
+                        continue
+                    d, zf, _end = foot
+                    site = ("chord",) + _site_key(pts[k])
+                    if site in seen:
+                        continue
+                    seen.add(site)
+                    ex = end_excess_m(prof, 0.0, d, zf, float(zs[k]), allow)
+                    if ex <= 0.0:
+                        continue
+                    out.append(Violation(
+                        grade_pct=100.0 * (float(zs[k]) - zf) / d,
+                        excess_pct=100.0 * ex / d, distance_m=d,
+                        de_m=abs(float(zs[k]) - zf), way_a=w, way_b=w,
+                        pt_a=pts[k], pt_b=pts[k], elev_a=zf, elev_b=float(zs[k]),
+                        cap_pct=100.0 * prof.down_cap_at(d)))
+    out.sort(key=lambda v: -abs(v.excess_pct))
     return out
 
 
@@ -3776,26 +3935,33 @@ def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
         groups.setdefault(w.ref or w.wid, []).extend(pts)
     out = []
     for pts in groups.values():
-        axis = _runway_axis_and_width(pts)
-        if axis is None:
-            continue
-        (ax, ay), (bx, by), width_m = axis
-        length = math.hypot(bx - ax, by - ay)
-        if length < 1.0:
-            continue
-        letter = (_runway_code_letter(width_m)
-                  if _runway_code_letter is not None else None)
-        rings = _runway_strip_wall_keepout_rings(
-            (ax, ay), (bx, by), width_m, letter, _ACTIVE_RULESET)
-        code = (_runway_code_number(length)
-                if _runway_code_number is not None else 4)
-        out.append((rings, ((bx - ax) / length, (by - ay) / length),
-                    code, length, letter))
-        # NOTE for consumers: ``rings[0]`` is the LATERAL graded-strip
-        # rectangle (between the ends) and ``rings[1:]`` the two END
-        # corridors — the split the abeam-longitudinal law needs (see
-        # ``grade_law.runway_strip_lateral_footprint_ring``).
+        grp = _strip_group_of_axis(_runway_axis_and_width(pts))
+        if grp is not None:
+            out.append(grp)
     return out
+
+
+def _strip_group_of_axis(axis):
+    """``(rings, axis_unit, code_number, length_m, code_letter)`` for one
+    runway axis ``((ax, ay), (bx, by), width_m)`` — the strip footprint a
+    ``_runway_strip_groups`` record carries, or ``None`` for no axis.
+    ``rings[0]`` is the LATERAL graded-strip rectangle (between the ends)
+    and ``rings[1:]`` the two END corridors — the split the
+    abeam-longitudinal law needs (see ``grade_law.
+    runway_strip_lateral_footprint_ring``)."""
+    if axis is None:
+        return None
+    (ax, ay), (bx, by), width_m = axis
+    length = math.hypot(bx - ax, by - ay)
+    if length < 1.0:
+        return None
+    letter = (_runway_code_letter(width_m)
+              if _runway_code_letter is not None else None)
+    rings = _runway_strip_wall_keepout_rings(
+        (ax, ay), (bx, by), width_m, letter, _ACTIVE_RULESET)
+    code = (_runway_code_number(length)
+            if _runway_code_number is not None else 4)
+    return (rings, ((bx - ax) / length, (by - ay) / length), code, length, letter)
 
 
 def _runway_strip_keepout_rings(ways: List[Way], nodes, ll_to_m):
@@ -4147,7 +4313,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     return out, n_stations, len(hit_ways)
 
 
-def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
+def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
+                                 road_cap_governs_ll: Optional[list] = None
                                  ) -> Tuple[List[Violation], int, int]:
     """§A1 twin — the END-corridor ACROSS-corridor grade, a family
     NOTHING read before (the count therefore RISES on first sight; that
@@ -4159,12 +4326,25 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
     predominantly ACROSS the extended centreline is judged against
     ``grade_law.resa_transverse_band`` at its own distance beyond the
     end: FAA Table 3-6 S-3 inside the 61 m near zone, ±5 % beyond
-    (Fig 3-35); ICAO §3.5.11 ±5 % throughout."""
+    (Fig 3-35); ICAO §3.5.11 ±5 % throughout.
+
+    ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): a pair with a node
+    under a mapped-road ribbon (sidecar ``road_cap_governs``) is the
+    road's — the strip's transverse tie is withdrawn there and no row is
+    read (``verify.strips.resa_transverse``, the same set)."""
     if _resa_transverse_band is None:
         return [], 0, 0
     groups = _runway_strip_groups(ways, nodes, ll_to_m)
     if not groups:
         return [], 0, 0
+    cap_geom = None
+    if road_cap_governs_ll:
+        from auto_patch_v2.law import Law
+        from auto_patch_v2.verify.strips import road_cap_geometry
+        cap_geom = road_cap_geometry(
+            road_cap_governs_ll, ll_to_m,
+            Law.load(ruleset=str(_ACTIVE_RULESET or _DEFAULT_RULESET).lower()))
+    from shapely.geometry import Point as _Pt
     out: List[Violation] = []
     n_pairs = 0
     hit_ways: set = set()
@@ -4209,6 +4389,9 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
                     across = abs(dx * px + dy * py)
                     if across <= along or across < 1.0:
                         continue        # the LONGITUDINAL skirt law's pair
+                    if cap_geom is not None and (cap_geom.covers(_Pt(*pts[a]))
+                                                 or cap_geom.covers(_Pt(*pts[b]))):
+                        continue        # the road's (2026-10-02ag (2))
                     n_pairs += 1
                     # distance beyond the end, from the nearer endpoint
                     s_mid = 0.5 * ((pts[a][0] + pts[b][0]) * ux
@@ -10423,7 +10606,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     # lockstep by ``auto_patch_v2.verify.within.taxi_box``.
     (TAXI_BOX_FAMILY, "TAXI SHORT-PAIR BOX (pairs under withdrawn_chord_min_m vs cL*|ds| + cT*|dt|)", "within"),
     ("plane_gradient", "PLANE GRADIENT (triangle surface)", "within"),
-    ("runway_end_skirt", "RUNWAY-END SKIRT edge grade", "within"),
+    ("runway_end_skirt", "RUNWAY-END PROFILE (the ground beyond a runway end, RULINGS 2026-10-12q)", "within"),
     ("terrace_joint_route", "APRON TERRACE JOINT crossing a taxi ROUTE",
      "within"),
     ("terrace_joint_strip", "APRON TERRACE JOINT inside a RUNWAY STRIP",
@@ -13295,8 +13478,12 @@ def run_checks(
     # shipped OSM to confirm it here is the remaining "purist OSM-path" follow-up.
 
     skirt_edges = _fam("runway_end_skirt",
-                       _check_runway_end_skirt_edges(ways, nodes, ll_to_m))
-    _pv("RUNWAY-END SKIRT edge grade > law max down-grade",
+                       _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
+                                                     runway_axes_ll,
+                                                     road_cap_governs_ll))
+    _pv("RUNWAY-END PROFILE: ground beyond a runway end outside the "
+        "ruleset's end profile (strip cap / near-end cap, 5 % beyond, the "
+        "climb surface above, the FAA rate) — RULINGS 2026-10-12q (1)",
         skirt_edges, top_n)
     within = within + skirt_edges
 
@@ -13734,7 +13921,7 @@ def run_checks(
 
     # ── §A1 — the END-corridor TRANSVERSE law ────────────────────────
     resa_tr, n_rt_pairs, n_rt_ways = _check_resa_transverse_grade(
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, road_cap_governs_ll)
     _fam("resa_transverse", resa_tr)
     _pv("RESA / END-CORRIDOR TRANSVERSE grade > the per-authority cap "
         "(FAA Table 3-6 S-3 inside 61 m, Fig 3-35 ±5% beyond; ICAO "

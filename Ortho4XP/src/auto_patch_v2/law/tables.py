@@ -585,7 +585,7 @@ def runway_end_profile(law: Law, code_number: int | None = None,
 def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:
     """THE RUNWAY-END PROFILE'S TOLERANCE — the ONE key
     ``emit.instrument.strip_edge_noise_m`` (#620: the owner's open choice
-    between today's 0.15 m and pricing the first strip length at the cap
+    between today's value and pricing the first strip length at the cap
     exactly, which is this key at 0).  The GENERATOR prices its rows with
     the key less the materiality floor, never below zero; a READER
     (``reader=True``) forgives the key itself, never less than the

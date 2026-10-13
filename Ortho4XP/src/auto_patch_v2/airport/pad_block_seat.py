@@ -357,8 +357,7 @@ def neighbours(plan: _t.Any) -> dict[int, set[int]]:
 
 
 def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
-                counts: "dict | None" = None, level_tol_m: float = 0.0,
-                off_pad_m: float = 0.0) -> list:
+                counts: "dict | None" = None, level_tol_m: float = 0.0) -> list:
     """Every §16g unit whose bodies stand on two or more blocks of ONE
     platform unit, split into one unit per block (module docstring); each
     is seated by ``plan_unit_datums``'s one pad rule, the median of its
@@ -372,13 +371,10 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     stand more than ``level_tol_m`` apart is one unit per level
     (``<id>/p<k>``), the lowest level first.  It runs before the block cut
     so a block id stays ``<...>/b<k>`` at the end, where
-    :func:`seat_unit` reads it.  0 disarms it.
-
-    LAST, with ``off_pad_m > 0``, the OFF-PAD cut (:func:`split_off_pad`,
-    owner RULINGS 2026-10-10n (2)/(3); #609): a FOOTED body of a pad unit
-    whose every foot stands farther than ``off_pad_m`` outside every pad
-    the unit stands on leaves the unit as ``<id>/g<n>`` and seats on its
-    own ground."""
+    :func:`seat_unit` reads it.  0 disarms it.  The OFF-PAD cut
+    (:func:`split_off_pad`) runs AFTER the units are seated, in
+    ``footprint_seats.plan_wide_seats``: it needs the ground under the
+    feet."""
     if level_tol_m > 0.0:
         units = _split_by_level(units, plan, pads, counts, level_tol_m)
     of = part_blocks(plan, pads)
@@ -399,13 +395,13 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
         if counts is not None:
             counts["block_units_split"] = n_split
         units = out
-    if off_pad_m > 0.0:
-        units = split_off_pad(units, plan, pads, counts, off_pad_m)
     return units
 
 
 def split_off_pad(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
-                  counts: "dict | None", off_pad_m: float) -> list:
+                  counts: "dict | None", off_pad_m: float,
+                  surface: _ar.Surface, zeros: _t.Mapping[str, float],
+                  tol_m: float) -> list:
     """THE OFF-PAD CUT (owner RULINGS 2026-10-10n (2) "a building or object
     that stands on its own and can be re-seated takes its OWN pad … never
     seated to another building's level merely because both come from one
@@ -422,11 +418,19 @@ def split_off_pad(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     At KCLT eight such bodies of the garage cluster stood between the
     garages on bare ground 2.4–5.0 m under the deck's level they were
     seated at.  Each becomes its own unit ``<id>/g<n>``, seated by
-    ``plan_unit_datums``'s ground datum.  A FOOTLESS body (a roof, a
+    ``plan_unit_datums``'s ground datum — but ONLY where the ground under
+    its feet (``surface``, the median over them) stands more than ``tol_m``
+    (``[placement] split_tol_m``, the seat materiality) off the unit's
+    zero ``zeros[unit id]``: a body off the pad outline on ground at the
+    pad's level sits right already and is not re-cut (measured at KCLT:
+    509 footed bodies of 72 units stand off their pad outline, nearly all
+    on ground at the pad's level — leaves the outline never carried).  A
+    body whose feet read no surface is left alone (the dry-run case: the
+    DEM governs there and is not guessed at).  A FOOTLESS body (a roof, a
     walkway) keeps its welds and its unit; a body with one foot on the pad
     stays."""
     from shapely.geometry import Point as _Pt
-    from .placement_family import bodies_of_plan
+    from .placement_family import _median, bodies_of_plan
     rings = [(key, ring, bx) for key, ring, bx in level_pad_rings(pads)]
     rings += [((unit, k), ring, bx) for unit, k, ring, bx in block_rings(pads)]
     if not rings or not units:
@@ -444,6 +448,10 @@ def split_off_pad(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
         if not regions:
             out.append(un)                      # a unit on no pad: its ground
             continue
+        zero = zeros.get(un.id)
+        if zero is None:
+            out.append(un)
+            continue
         pg = [g for r in regions for g in polys.get(r, ())]
         off: list = []
         for key in un.bodies:
@@ -451,8 +459,11 @@ def split_off_pad(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
             feet = [(f[0], f[1]) for q in pids for f in (parts[q].feet or ())]
             if not feet or any(getattr(parts[q], "line", False) for q in pids):
                 continue
-            if all(min(g.distance(_Pt(lo * kx, la * ky)) for g in pg) > off_pad_m
-                   for la, lo in feet):
+            if not all(min(g.distance(_Pt(lo * kx, la * ky)) for g in pg) > off_pad_m
+                       for la, lo in feet):
+                continue
+            zs = [z for la, lo in feet if (z := surface(la, lo)) is not None]
+            if zs and abs(_median(zs) - zero) > tol_m:
                 off.append(key)
         if not off:
             out.append(un)

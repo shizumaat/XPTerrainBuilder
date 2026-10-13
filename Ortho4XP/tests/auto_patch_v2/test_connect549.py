@@ -216,30 +216,37 @@ def test_block_pads_are_not_level_pads_and_a_level_id_keeps_the_block_tail():
 
 # ── 10n (2)/(3): THE OFF-PAD CUT (#609) ───────────────────────────────────
 
-def test_a_footed_body_off_every_pad_of_its_unit_leaves_it_for_its_own_ground():
-    """``_terminal``'s member C has feet on no pad (north of both) and is
-    welded to nothing: under the off-pad cut it is its own unit
-    ``fu:6/g0`` (seated on its ground by ``plan_unit_datums``), while A
-    and B — on their pads — stay the unit; the counts name it; 0 disarms
-    it; a FOOTLESS body keeps its unit; a body with ONE foot on a pad
-    stays."""
+def test_a_footed_body_off_every_pad_on_other_ground_leaves_its_unit():
+    """``_terminal``'s member C has feet on no pad (north of both).  Where
+    the ground under its feet stands off the unit's zero by more than the
+    tolerance it is its own unit ``fu:6/g0`` (seated on its ground by
+    ``plan_unit_datums``), A and B stay the unit and the counts name it;
+    on ground AT the zero it stays (it sits right already); feet that read
+    no surface leave it alone; a FOOTLESS body keeps its unit; a body with
+    ONE foot on a pad stays."""
     import types
     from auto_patch_v2.airport import pad_block_seat as pbs
     pads = [_pad("t75", 0.0, 0.5, 222.44), _pad("t81", 0.5, 1.0, 222.50)]
     plan, un = _terminal()
+    zeros = {"fu:6": 222.44}
+    low = lambda la, lo: 218.0
     counts = {}
-    out = pbs.split_units([un], plan, pads, counts, level_tol_m=0.3, off_pad_m=0.5)
+    out = pbs.split_off_pad([un], plan, pads, counts, 0.5, low, zeros, 0.3)
     assert {u.id: u.bodies for u in out} == {
         "fu:6": ((0, 0, 0), (0, 1, 0)), "fu:6/g0": ((0, 2, 0),)}
     assert counts["off_pad_units_split"] == 1 and counts["off_pad_bodies"] == 1
-    assert [u.id for u in pbs.split_units([un], plan, pads, {}, level_tol_m=0.3)] == ["fu:6"]
+    same = lambda la, lo: 222.6
+    assert [u.id for u in pbs.split_off_pad([un], plan, pads, {}, 0.5, same, zeros, 0.3)] == ["fu:6"]
+    none = lambda la, lo: None
+    assert [u.id for u in pbs.split_off_pad([un], plan, pads, {}, 0.5, none, zeros, 0.3)] == ["fu:6"]
+    assert [u.id for u in pbs.split_off_pad([un], plan, pads, {}, 0.5, low, {}, 0.3)] == ["fu:6"]
     # footless: C's part has no feet -> it rides its welds, the unit keeps it
     c = plan.units[0].members[2]
     c.parts = (types.SimpleNamespace(pid=4, lat=1.5, lon=0.45, feet=(),
                                      box=(1.5, 0.45, 1.5, 0.45), line=False),)
-    assert [u.id for u in pbs.split_units([un], plan, pads, {}, off_pad_m=0.5)] == ["fu:6"]
+    assert [u.id for u in pbs.split_off_pad([un], plan, pads, {}, 0.5, low, zeros, 0.3)] == ["fu:6"]
     # one foot on the pad: the body stands on it
     c.parts = (types.SimpleNamespace(pid=4, lat=1.5, lon=0.45,
                                      feet=((1.5, 0.45, 0.0), (0.9, 0.45, 0.0)),
                                      box=(0.9, 0.45, 1.5, 0.45), line=False),)
-    assert [u.id for u in pbs.split_units([un], plan, pads, {}, off_pad_m=0.5)] == ["fu:6"]
+    assert [u.id for u in pbs.split_off_pad([un], plan, pads, {}, 0.5, low, zeros, 0.3)] == ["fu:6"]

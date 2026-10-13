@@ -69,7 +69,8 @@ __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
            "strip_longitudinal", "strip_arc", "resa_transverse",
            "end_corridor_longitudinal", "end_corridor_rate", "end_pair_bounds",
            "end_transect_pairs",
-           "END_PROFILE_RULING", "END_RATE_RULING", "raoa"]
+           "END_PROFILE_RULING", "END_PROFILE_PAIR_RULING", "END_RATE_RULING",
+           "END_RATE_PAIR_RULING", "raoa"]
 
 #: A strip pair shorter than this ALONG the axis carries more rounding
 #: than signal (the census's own floor, ``check_grade`` strip readers).
@@ -78,8 +79,11 @@ MIN_ALONG_M = 1.0
 GEN = "strips"
 #: The ruling HEADS (before the parenthesis) ``[design] one_way_rulings``
 #: names: the ground follows the runway's end edge, never pulls it.
-END_PROFILE_RULING = "rulesets.end_skirt runway-end profile (owner RULINGS 2026-10-12q (1))"
+END_PROFILE_RULING = "rulesets.end_skirt runway-end profile chord (owner RULINGS 2026-10-12q (1))"
+#: The same profile over a PAIR of band vertices (both ground, two-way).
+END_PROFILE_PAIR_RULING = "rulesets.end_skirt runway-end profile pair (owner RULINGS 2026-10-12q (1))"
 END_RATE_RULING = "rulesets.end_skirt.rate end-edge change (FAA AC 150/5300-13B §3.16.5 item 5)"
+END_RATE_PAIR_RULING = "rulesets.end_skirt.rate corridor stations (FAA AC 150/5300-13B §3.16.5 item 5)"
 
 
 @_dc.dataclass(frozen=True)
@@ -400,7 +404,7 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     seen: set[tuple[int, int]] = set()
     for g in runway_groups(vw, airport):
         prof = runway_end_profile(law, g.code_number, g.code_letter)
-        src = Source(GEN, END_PROFILE_RULING, (f"rwy:{g.ref}",))
+        src = Source(GEN, END_PROFILE_PAIR_RULING, (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):
             for ring_idx in (1, 2):
                 inside = [point_in_rect_ring(x, y, g.rings[ring_idx]) for x, y in xy]
@@ -430,7 +434,8 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                 seen.add(key)
                 lo, hi = end_pair_bounds(prof, st[vin][0], st[vout][0], q)
                 rows.append(Linear(((vin, 1.0), (vout, -1.0)), lo, hi, src))
-        rows.extend(_end_foot_rows(vw, g, prof, q, src, seen))
+        rows.extend(_end_foot_rows(vw, g, prof, q,
+                                   Source(GEN, END_PROFILE_RULING, (f"rwy:{g.ref}",)), seen))
     return rows
 
 
@@ -607,7 +612,7 @@ def end_corridor_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     seen3: set[tuple[int, ...]] = set()
     seen: set[tuple[int, int]] = set()
     for g in runway_groups(vw, airport):
-        src = Source(GEN, END_RATE_RULING, (f"rwy:{g.ref}",))
+        src = Source(GEN, END_RATE_PAIR_RULING, (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):
             for ring_idx in (1, 2):
                 inside = [point_in_rect_ring(x, y, g.rings[ring_idx]) for x, y in xy]
@@ -628,6 +633,7 @@ def end_corridor_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                         terms = ((c, 1.0 / dn), (b, -(1.0 / dn + 1.0 / dp)), (a, 1.0 / dp))
                         rows.append(Linear(terms, -bound, bound, src))
         end_edges = _runway_end_edges(vw, g)
+        src = Source(GEN, END_RATE_RULING, (f"rwy:{g.ref}",))
         for v, a, b, t, d in _end_feet(vw, g, end_edges, seen):
             if d < lip:
                 continue

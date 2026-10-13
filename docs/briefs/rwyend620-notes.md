@@ -105,3 +105,12 @@ not this change: the matched replay pair reads 0 airside movers).
   gap — immaterial inside any band (code-1 band 30 m, code-2 band 40 m ≤ the setback).
 * The generator's slack q (strip_edge_noise 0.15 − 0.01) is consumed by the solve: the achieved first-segment grade reads 1.99 % at
   CYCG 15 against the 1.75 % cap (+0.14 m over 60 m); the census allows the same q.
+
+## Suites (this branch)
+Full non-Qt: 9,628 passed, 19 skipped, 1 xfailed, 1 xpassed (260 s). test_harness 426, v2 twins green. ratchets: DUPLICATE PASS,
+LAYER PASS; size WARN check_grade.py +429 (13,793 → 14,222; run_checks 1,190 lines, pre-existing), project.py 1,039.
+Twins adjusted: test_v2rwycorner (profile bounds), test_v2grounddem (end corridors are the end profile's now), test_v2ground (chord
+head one-way, pair head two-way: `END_PROFILE_PAIR_RULING`), test_v2ridge3 (oracle tolerance 0.01 → 0.02: the breakline's global
+snap-rounding moved a stub rim pair 0.1 mm), test_harness rate-span count 3 → 4, test_model (solve spells the strips head as a
+literal, held equal by test_runway_end_profile). Lane cznl623 touches airport/dem_production + solve/ground_band + engine_v2: no
+file overlap with this branch; its census family (if any) is not in check_grade yet.

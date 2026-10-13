@@ -73,7 +73,6 @@ import typing as _t
 import numpy as np
 import scipy.sparse as sp
 
-from ..constraints import strips as _strips
 from ..law import Law
 from ..law.tables import design as design_law
 from ..model.planar import PlanarMap
@@ -832,9 +831,13 @@ ZONE_RULING = "zones.adjacent_ground"
 #: law weight alone a 3 m fill at a band's end shipped a 3 cm residual the
 #: census read as a row (CYCG 15, the band's corner: 2.17 m over a 2.14 m
 #: bound) — the exact class §32 (1) was written for.
+#: ``solve`` imports nothing of ``constraints`` (``test_model.test_
+#: dependency_direction``): the strips generator's name and head are
+#: spelled here as the zone pair is, and ``tests/auto_patch_v2/
+#: test_runway_end_profile.py`` holds them equal to the generator's own.
 CORRIDOR_RULINGS: tuple[tuple[str, str], ...] = (
     (ZONE_GENERATOR, ZONE_RULING),
-    (_strips.GEN, _strips.END_PROFILE_RULING.split(" (")[0].strip()),
+    ("strips", "rulesets.end_skirt runway-end profile chord"),
 )
 
 

@@ -186,6 +186,15 @@ def _ground(pm, law):                                        # noqa: F811
     return ground_datum_vertices(pm, law)
 
 
+def _abeam(pm, v) -> bool:
+    """ABEAM the runway: the ground BEYOND an end is the runway-end
+    profile's (owner RULINGS 2026-10-12q (1); ``constraints/strips.end_
+    corridor_longitudinal``) — this fixture's uniform 3.06 % fall is lawful
+    for the zone corridor and over the strip's 1.75 % cap beyond the ends,
+    so those vertices are cut/filled TO THAT law line, not left on the DEM."""
+    return _X0 <= pm.vertices[v].xy[0] <= _X1
+
+
 def _law_line(pm, law, v):                                   # noqa: F811
     """The corridor at ``v`` in metres of elevation: the runway EDGE level
     that governs it plus the signed ``zone_bounds`` offsets."""
@@ -208,7 +217,7 @@ def test_the_strip_equals_the_natural_ground_where_the_ground_is_lawful(lawful, 
     term carrying a level, and the strip sits ON the DEM."""
     pm, _cs, sol, _rep = lawful[:4]
     z = np.asarray(sol.z, float)
-    g = _ground(pm, law)
+    g = [v for v in _ground(pm, law) if _abeam(pm, v)]
     assert g, "the fixture must have adjacent ground"
     off = [abs(z[v] - float(pm.vertices[v].dem_z)) for v in g]
     assert max(off) <= 0.05, f"worst {max(off):.3f} m off its DEM"
@@ -266,8 +275,9 @@ def test_ground_over_the_ceiling_is_cut_to_the_law_line_and_nowhere_else(law):  
     over = [z[v] - _law_line(pm, law, v)[1] for v in on]
     assert max(over) <= 0.05, f"held {max(over):.3f} m over its ceiling"
     assert min(over) >= -0.10, f"cut {-min(over):.3f} m past its ceiling"
-    clear = [v for v in off if not (x0 - 40.0 <= pm.vertices[v].xy[0] <= x1 + 40.0
-                                    and pm.vertices[v].xy[1] < 0.0)]
+    clear = [v for v in off if _abeam(pm, v)
+             and not (x0 - 40.0 <= pm.vertices[v].xy[0] <= x1 + 40.0
+                      and pm.vertices[v].xy[1] < 0.0)]
     assert clear
     assert max(abs(z[v] - float(pm.vertices[v].dem_z)) for v in clear) <= 0.05
 

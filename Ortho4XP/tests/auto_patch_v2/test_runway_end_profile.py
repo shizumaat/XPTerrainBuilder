@@ -189,7 +189,10 @@ def test_the_family_is_registered_in_both_censuses(icao):
     from auto_patch_v2.law.tables import family
     assert census.READERS["runway_end_skirt"] is vstrips.runway_end_skirt
     assert "graded_strip" in family(icao, "runway_end_skirt").roles
-    import check_grade  # tools/ on sys.path through the suite's conftest
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import check_grade
     assert any(k == "runway_end_skirt" for k, _d, _b in check_grade.LAW_FAMILIES)
 
 
@@ -210,3 +213,15 @@ def test_the_planar_stage_breaks_the_end_band_at_the_strip_length(synthetic, ica
             if abs(s - g.length_m - brk) <= 0.5 or abs(s + brk) <= 0.5:
                 hits.append(v)
     assert hits, f"no strip vertex at {brk} m beyond an end"
+
+
+def test_the_chord_projection_names_the_generators_own_head():
+    """``solve/project.CORRIDOR_RULINGS`` spells the strips chord head as a
+    literal (solve imports nothing of constraints); it is the generator's."""
+    from auto_patch_v2.solve.project import CORRIDOR_RULINGS
+    assert (strips.GEN, ruling_head_of(strips.END_PROFILE_RULING)) in CORRIDOR_RULINGS
+    assert (strips.GEN, ruling_head_of(strips.END_PROFILE_PAIR_RULING)) not in CORRIDOR_RULINGS
+
+
+def ruling_head_of(ruling: str) -> str:
+    return ruling.split(" (")[0].strip()

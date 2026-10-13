@@ -150,3 +150,103 @@ door beside it still a door). Door twins 10/10 pass.
 HECA carries 0 door ramps (unchanged by construction); OTHH's 4 are the two
 garages at 0 % — unchanged. KSEA arm: replay of `jetbay/KSEA.pkl --from planar`
 (re-reads the pack's door wells under this tree) vs the same-tree base.
+
+Committed 8a626b3d5 on `claude/jetbay612`: the refusal, the twin, the tool
+mode (+ INDEX row), notes, frames. `tests/test_no_airport_specific_code.py::
+test_the_readers_see_an_offence` ERRORS on this tree AND on main c379d3784
+(the per-session shared-repo snapshot detector: a subprocess write by a
+concurrent lane; the 6 code gates pass) — pre-existing, not this lane's.
+
+## STEP 1 — the design, against the live code (numbers from the arm below)
+
+The owner's sentence names a fix ("expand terminal pads to include jetways so
+that area remains flat, and the apron grades to it") for a picture ("jetways
+floating and partly underground") whose measured cause at KSEA is a door ramp
+minted under each jetway by the jetway's own plinth. Two different questions,
+kept apart:
+
+(a) THE CUT UNDER THE JETWAY — the foundation rule above. No pad outline, no
+law key, no consumer touched: the door reader refuses one more class of well
+by the geometry it already reads. After it, what stands under a KSEA jetway is
+what stood there before the ramp: the stand-zone PLATEAU (riders + startups,
+held at the block datum) where the jetway is within 40 m of a rider edge or
+30 m of a gate, else plain apron graded within its cap.
+
+(b) THE FLAT AREA — 12l (2) as law: "the flat pad extends over the jetways,
+and the apron grades to that edge". What exists already IS this for the
+jetway's own reach: `planar/pad_cut.plateau_cut` region (a) = the apron
+within `jetway_strip_m` (40 m) of every RIDER EDGE of the block (a rider = a
+placement within 12 m of the outline the plan holds no geometry for — every
+jetway at HECA / OTHH / KSEA is one) and (b) = `stand_zone_radius_m` (30 m)
+round every `gate`/`tie_down` startup within 60 m of the held contacts, swept
+to the outline; one region, hard at the datum, ref `<apron>#plateau:<block>`,
+taxi / runway vertices `foreign`. So "the pad takes in its jetways" is built
+today as a PLATEAU, not as a re-roled building pad (08e (A) Q1 YES), and it
+already reaches ≥ 40 m past the jetway's root — further than a SAM cabin's
+17 m extent. What §57 (2) adds on top is the WHOLE BAY (hull pocket holding a
+gate) — the owner's 08b "whole piers as well"; 09g (1) set it aside and 12l
+reopens it "to be returned with numbers". The numbers that decide whether the
+bay matters FOR THE JETWAYS are the arm's: with the ramps gone, is the ground
+under every jetway's 25 m reach within 0.3 m of its anchor and of the pad's
+level? If yes, (a) alone closes #612's sim picture and the bay is a separate,
+sloping-ground question (12l's "how large a flat pad sloping ground allows")
+with its own owner numbers; if no, the bay (or a deeper strip) is owed.
+
+Consumer census of the plateau region (what a bay extension would touch) —
+ONE derivation site, `pad_cut._stand_zone` (the union of parts (a)+(b),
+closed by Rz/2, clipped to the held span and the apron bodies the outline
+touches); every reader below reads the SET it produces, never the region
+rule, so a region change at that site needs no consumer edit:
+
+| reader | what it reads | effect of a larger region |
+|---|---|---|
+| `constraints/platform.hold_sets` → `frontage_hold_rows` | `plateau_vertices` (ref mark) less `foreign` (taxi/runway/rigid faces) | more hard rows on the datum column; taxiway-edge vertices stay the taxiway's |
+| `constraints/no_step` (606, 733, 926) | `HELD[b]["plateau_vertices"]` for the interval / pair graph | the interval reads more contacts (§57 (3) J3 is NOT built: bands withdrawn, `reach_isect` None) |
+| `planar/overlay` 827–835 | `PLATEAU_MARK` in ref: never absorbs a plateau face | more faces kept apart |
+| `planar/pad_sliver` (`_dissolve_rest_slivers`, `_enclosed_rests_to_plateau`) | rest parts vs pieces | same rule on more rests |
+| `pipeline/publication._plateau_rings` → sidecar `plateau_rings`; `emit/osm_adapter` key list | the vertex set | larger key |
+| `tools/check_grade` / `harness/law_support/grade_law.py` (`pad_airside_renode` outside `plateau_rings`) | the sidecar key | same census |
+| `constraints/platform.platform_records` → sidecar `platforms[].plateau_*`, `stand_zone_source` | counts | `stand_zone_source` would carry a new token |
+| object stage (`pad_block_seat`, `footprint_seats`, `placement_*`) — lane kclt608's files | the `building` faces and the graded z under feet; NOT the plateau mark | none (a plateau is role `apron`) |
+| `airport/riders.riders_for_dump` | `provenance.jetway_strips` (EMPTY on a held block: the strip is disarmed, P12) | none |
+
+Emittable in a heightfield: a plateau is apron faces at one z meeting their
+neighbours over the apron's own cap rows — the same class as today's
+plateaus (KSEA 7 at 3.6k–62k m²), nothing new in kind.
+
+## STEP 1/2 — the arms (same-tree replay pairs of `jetbay/KSEA.pkl`, `--from planar --emit --verify`)
+
+ARM 1 (foundation rule only): door ramps 83 → 1, released contacts 21 → 0 —
+but the SAME jetways then read as 12 m PITS (68 `basin_floor` faces as
+`tunnel_trench`, anchors 11.8 m under the apron): the SAM wheel strut (animated,
+authored to −11 m) became the basin reader's floor plate; #551's standing
+witness does not hold it (the deepest plate is a 0.1 m column, roofed 0). The
+parser knows nothing of animation → RULE A: `obj8` marks solid triangles inside
+`ANIM_begin/ANIM_end`, `Component.animated`, `ResourceCache.genuine` and the
+basin loop skip them (a moving part never witnesses terrain). SAM jetway: 271
+of 276 components animated; the probe then reads 0 basin witnesses, 0 wells.
+Commits 8a626b3d5 (rule F + tool) and 793c1dd39 (rule A); twins: door 11
+(+2 new), wells551 / m4b / v2basinfix / pardoors, objsplit / leafframe /
+objcut / partextend / witnessvalid / tunnel_objects / doorwellperf — 59 + 253
+pass; ratchets PASS (duplicate + layer).
+
+ARM 2 (both rules) vs base — spec §65 (3) carries the full numbers: door
+ramps 83 → 1, pits 0, released contacts 21 → 0, the four warnings GONE, the
+complex at one level 117.68 (building8 +3.3 m, building9 +2.6, building7 +1.1,
+building13 −1.3, building2 +2.6), adjudicated airside census 1,232 → 895
+(hard_conflict 247 → 0, pad_frontage_* 8 → 0, pavement_over_road_cap 26 → 0,
+ramp_in_strip 37 → 0), runway movers 13 / worst 0.060 m, taxi 417 / 2.70 m
+and strip 285 / 2.35 m at the complex. Jetways: anchors apron 46 / building
+34 / off-face 1; forward 25 m within −0.48…+0.06 m on all 81; anchor − level
+> 0.3 on 13 (all building16: it went from a HELD flat block at 122.00 to a
+TILTED platform 1.27 % at 120.83, residual 0.485 — a seat question for
+kclt608's domain); disc > 0.3 above: 17 (worst +1.61), below: 19 (−0.48).
+Residual points are `junction` cells (KSEA's one-polygon pavement `pav1`
+classified taxi family under the stands; `plateau_cut` cuts apron only).
+§57's bay would fill NOTHING there. Options O1/O2/O3 in §65 (3) — STOP for
+the owner on the bay; rules F and A ship as the #612 fix.
+
+Shared-file note for kclt608: this lane touched `airport/obj8.py` (parser +
+Component + genuine), `airport/door_wells.py` (one refusal), `tools/
+seat_feet_census.py`, `tests/auto_patch_v2/test_v2doorramp.py`, spec §65 —
+NOT cluster_pad / pad_block_seat / footprint_seats / platform.

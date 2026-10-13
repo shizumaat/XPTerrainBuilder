@@ -71,7 +71,8 @@ _CLASSES = (("stock", "stock library"),
 
 
 def read_feet(pack_root: str, path: str, thickness: float = 0.5,
-              max_feet: int = 16) -> dict | str:
+              max_feet: int = 16, index: dict | None = None,
+              base_ref: float | None = None) -> dict | str:
     """The object's GROUND components' feet, or why it has none.
 
     A foot is the lowest vertex of a genuine solid component (y-extent at
@@ -79,6 +80,15 @@ def read_feet(pack_root: str, path: str, thickness: float = 0.5,
     base is within 1 m of the file's base: those are the components that
     touch the terrain, and their residual is what the eye reads in the
     sim.  The AUTHORED file is read (``.anchor_bak`` first).
+
+    ``index`` (the merged ``library.txt`` map, ``obj8.read_library_index``)
+    resolves a LIBRARY resource the pack does not carry (#612: KSEA's
+    jetways are ``MisterX_Library/...`` paths).  ``base_ref`` reads the
+    feet about THAT height instead of the file's own base: a jetway whose
+    authored room reaches 4 m under the apron (OTHH, HECA) stands on
+    wheels and a pillar at y = 0, and it is those that the eye reads.
+    An ``.agp`` has no solids: its feet are its footprint corners at 0
+    (``riders.agp_footprint_local``), the tile the sim drapes.
     """
     live = os.path.join(pack_root, path.replace("\\", "/"))
     # §12a (3) row 17: the AUTHORED frame is ``pack.authored_source``'s —
@@ -86,7 +96,11 @@ def read_feet(pack_root: str, path: str, thickness: float = 0.5,
     from auto_patch_v2.airport.pack import authored_source
     src = authored_source(live, pack_root)[0] or live
     if not os.path.isfile(src):
+        src = obj8.resolve_resource(path.replace("\\", "/"), None, index) or src
+    if not os.path.isfile(src):
         return "missing"
+    if src.lower().endswith(".agp"):
+        return _agp_feet(path, src)
     geom = obj8.parse_obj8(src)
     if geom.solid.shape[0] == 0:
         return "no solid geometry"
@@ -95,11 +109,12 @@ def read_feet(pack_root: str, path: str, thickness: float = 0.5,
     base = float(v[vi][:, 1].min())
     if base > 1.0:
         return "elevated base (+%.1f m)" % base
-    if base < -2.0:
+    if base_ref is None and base < -2.0:
         return "buried base (%.1f m)" % base
+    ref = base if base_ref is None else float(base_ref)
     feet = []
     for ci, c in enumerate(obj8.solid_components(geom)):
-        if c.max_y - c.min_y < thickness or c.min_y > base + 1.0:
+        if c.max_y - c.min_y < thickness or abs(c.min_y - ref) > 1.0:
             continue
         pts = v[np.unique(c.tris.reshape(-1))]
         q = pts[int(np.argmin(pts[:, 1]))]
@@ -110,6 +125,26 @@ def read_feet(pack_root: str, path: str, thickness: float = 0.5,
     feet.sort(key=lambda f: -f[4])
     return dict(path=path, feet=feet[:max_feet], base=base,
                 span=float(np.hypot(np.ptp(v[vi][:, 0]), np.ptp(v[vi][:, 2]))))
+
+
+def _agp_feet(path: str, src: str) -> dict | str:
+    """An ``.agp``'s feet: its footprint corners at y = 0 in the OBJ frame
+    (x east, z south), the tile's own ``ROTATION`` applied."""
+    from auto_patch_v2.airport.riders import agp_footprint_local
+    got = agp_footprint_local(src)
+    if got is None:
+        return "agp without a footprint"
+    local, rotation = got
+    th = math.radians(rotation)
+    s, c = math.sin(th), math.cos(th)
+    feet = []
+    for i, (ex, ny) in enumerate(local):
+        e, n = ex * c + ny * s, -ex * s + ny * c
+        feet.append((i, float(e), 0.0, float(-n), 1.0))
+    xs = [f[1] for f in feet]
+    zs = [f[3] for f in feet]
+    return dict(path=path, feet=feet, base=0.0,
+                span=float(math.hypot(max(xs) - min(xs), max(zs) - min(zs))))
 
 
 def census(rows: list[dict], skipped: dict[str, str],
@@ -198,18 +233,24 @@ def plan_bounds(plc: list[tuple[int, float, float, float]]
 
 def measure_rows(pack_root: str, defs: list[str],
                  plc: list[tuple[int, float, float, float]], sampler,
-                 thickness: float = 0.5) -> list[dict]:
-    """The measurement itself, over the plan's placement rows."""
+                 thickness: float = 0.5, index: dict | None = None,
+                 base_ref: float | None = None) -> list[dict]:
+    """The measurement itself, over the plan's placement rows.  ``index``
+    and ``base_ref`` are :func:`read_feet`'s (the dump mode's; an ``.agp``
+    is read only when ``base_ref`` is given — the plan mode keeps its
+    ``notobj`` class)."""
     if not plc:
         return []
     resources: dict[int, dict | str] = {}
     for i, p in enumerate(defs):
-        if not p.lower().endswith(".obj"):
+        is_agp = p.lower().endswith(".agp") and base_ref is not None
+        if not p.lower().endswith(".obj") and not is_agp:
             resources[i] = "notobj"
         elif p.replace("\\", "/").lower().startswith("lib/"):
             resources[i] = "stock"
         else:
-            resources[i] = read_feet(pack_root, p, thickness)
+            resources[i] = read_feet(pack_root, p, thickness, index=index,
+                                     base_ref=base_ref)
     rows: list[dict] = []
     for idx, lon, lat, hdg in plc:
         r = resources.get(idx)
@@ -225,19 +266,147 @@ def measure_rows(pack_root: str, defs: list[str],
         s, c = math.sin(h), math.cos(h)
         mlon = MLAT * math.cos(math.radians(lat))
         ds = []
+        feet_ll: list[list[float]] = []
         for (ci, x, y, z, _area) in r["feet"]:
             east = x * c - z * s
             north = -(x * s + z * c)
-            z_foot = sampler.elevation_at_or_none(lat + north / MLAT, lon + east / mlon)
+            fla, flo = lat + north / MLAT, lon + east / mlon
+            z_foot = sampler.elevation_at_or_none(fla, flo)
             if z_foot is None:
                 continue
             ds.append(z_foot - (z_anchor + y))
+            feet_ll.append([fla, flo, float(z_foot), float(ds[-1])])
         if not ds:
             continue
         rows.append(dict(path=r["path"], kind="measured", lat=lat, lon=lon,
                          dmax=max(ds, key=abs), dmean=float(np.mean(ds)), n=len(ds),
-                         span=r["span"], seated=False, line=False))
+                         span=r["span"], seated=False, line=False,
+                         z_anchor=float(z_anchor), feet=feet_ll, hdg=float(hdg)))
     return rows
+
+
+#: the forward stations of :func:`reach_profile`, metres along the object's
+#: own −z axis (an OBJ8's "front"; a jetway's cabin extends that way)
+REACH_STATIONS_M = (5.0, 10.0, 15.0, 20.0, 25.0)
+
+
+def reach_profile(row: dict, sampler, radius_m: float = 25.0) -> None:
+    """THE TERRAIN THE OBJECT REACHES OVER (#612): an animated object's
+    rest-pose feet say nothing about where its moving parts touch the
+    ground (a SAM jetway's cabin wheels travel up to 17 m along its −z
+    axis), so the row also carries the design surface RELATIVE TO THE
+    ANCHOR along that axis (``forward``: ``[station_m, dz, role]`` at
+    :data:`REACH_STATIONS_M`) and its extremes over the whole disc of
+    ``radius_m`` on 16 bearings at 5 m steps (``disc_dz`` = ``[min, max]``
+    with the point of each).  Positive ``dz`` = the ground stands ABOVE the
+    anchor's (a part there is buried); negative = below (it floats)."""
+    lat, lon = row["lat"], row["lon"]
+    z0 = row.get("z_anchor")
+    if z0 is None:
+        return
+    mlon = MLAT * math.cos(math.radians(lat))
+    roles = getattr(sampler, "roles", None)
+    h = math.radians(row.get("hdg", 0.0))
+    fwd = []
+    for d in REACH_STATIONS_M:
+        # −z in the OBJ frame is "north" before the heading: east = d·sin h,
+        # north = d·cos h for a heading clockwise from north
+        la, lo = lat + d * math.cos(h) / MLAT, lon + d * math.sin(h) / mlon
+        z = sampler.elevation_at_or_none(la, lo)
+        role = roles.roles_many([la], [lo])[0] if roles is not None else None
+        fwd.append([d, None if z is None else round(float(z) - z0, 3), role])
+    row["forward"] = fwd
+    lo_pt = hi_pt = None
+    for k in range(16):
+        b = math.radians(k * 22.5)
+        d = 5.0
+        while d <= radius_m + 1e-9:
+            la, lo = lat + d * math.cos(b) / MLAT, lon + d * math.sin(b) / mlon
+            z = sampler.elevation_at_or_none(la, lo)
+            if z is not None:
+                dz = float(z) - z0
+                if lo_pt is None or dz < lo_pt[0]:
+                    lo_pt = (dz, la, lo)
+                if hi_pt is None or dz > hi_pt[0]:
+                    hi_pt = (dz, la, lo)
+            d += 5.0
+    if lo_pt and hi_pt:
+        row["disc_dz"] = [round(lo_pt[0], 3), round(hi_pt[0], 3)]
+        row["disc_lo"] = [lo_pt[1], lo_pt[2]]
+        row["disc_hi"] = [hi_pt[1], hi_pt[2]]
+
+
+def dump_rows(dump, names: str) -> tuple[list[str], list[tuple[int, float, float, float]]]:
+    """``(defs, placements)`` from a PRISTINE DSF text dump (the
+    ``airport/dsf.read_dump`` parse) — every ``OBJECT`` row whose resource
+    path contains ``names`` (case-insensitive), in the DSF's own shape, so
+    :func:`measure_rows` is one code path for a plan and for the rows the
+    plan never re-seats (#612: a jetway placed at N anchors is a
+    multi-anchor resource the partition drops, a plain ``OBJECT`` row the
+    sim drapes at its anchor — its float is the terrain between the anchor
+    and its feet, and no plan row carries it)."""
+    want = names.lower()
+    defs: list[str] = []
+    idx: dict[str, int] = {}
+    plc: list[tuple[int, float, float, float]] = []
+    for p in dump.placements:
+        res = str(p.def_path)
+        if want and want not in res.lower():
+            continue
+        if res not in idx:
+            idx[res] = len(defs)
+            defs.append(res)
+        plc.append((idx[res], float(p.lon), float(p.lat), float(p.heading_deg)))
+    return defs, plc
+
+
+def annotate_rows(rows: list[dict], sampler, host_m: float = 12.0) -> None:
+    """What each measured row STANDS ON (#612): the graded face role under
+    the anchor and under its worst foot (``sampler.roles``, the senior
+    face — ``None`` off every face), the terrain's own spread under the
+    feet (``feet_dz`` = max − min foot z: the slope the object straddles),
+    and the nearest emitted PAD within ``host_m`` of the anchor with its
+    median ring level (``sampler.pads``) — the terminal the jetway serves.
+    A sampler without roles or pads annotates nothing."""
+    roles = getattr(sampler, "roles", None)
+    pads = getattr(sampler, "pads", None) or ()
+    polys = []
+    if pads:
+        from shapely.geometry import Point, Polygon
+        for pd in pads:
+            if len(pd.ring) >= 3:
+                try:
+                    polys.append((pd, Polygon([(lo, la) for la, lo in pd.ring])))
+                except Exception:  # noqa: BLE001 — a degenerate ring
+                    continue
+    for r in rows:
+        if r.get("kind") != "measured":
+            continue
+        feet = r.get("feet") or []
+        if feet:
+            zs = [f[2] for f in feet]
+            r["feet_dz"] = float(max(zs) - min(zs))
+            worst = max(feet, key=lambda f: abs(f[3]))
+            r["worst_foot"] = [worst[0], worst[1], worst[3]]
+        if roles is not None:
+            las = [r["lat"]] + [f[0] for f in feet]
+            los = [r["lon"]] + [f[1] for f in feet]
+            rr = roles.roles_many(las, los)
+            r["role_anchor"] = rr[0]
+            r["role_feet"] = sorted({str(x) for x in rr[1:]})
+        if polys:
+            mlon = MLAT * math.cos(math.radians(r["lat"]))
+            best = None
+            for pd, poly in polys:
+                d = poly.distance(Point(r["lon"], r["lat"]))
+                dm = math.hypot(d * mlon, d * MLAT) / math.sqrt(2.0)
+                if dm <= host_m and (best is None or dm < best[0]):
+                    best = (dm, pd)
+            if best is not None:
+                zs = sorted(float(z) for z in best[1].z) if best[1].z else []
+                r["host_pad"] = best[1].ref
+                r["host_gap_m"] = round(best[0], 2)
+                r["host_level"] = zs[len(zs) // 2] if zs else None
 
 
 
@@ -250,6 +419,8 @@ class _GradedSampler:
             sys.path.insert(0, tools)
         from obj8_split_report import surface_from_graded
         self._f, self.pads, self.rims = surface_from_graded(path)
+        #: the face role under a point (#612's annotation), the sampler's own
+        self.roles = getattr(self._f, "roles", None)
 
     def elevation_at_or_none(self, lat: float, lon: float):
         return self._f(lat, lon)
@@ -419,9 +590,21 @@ def _print_elevated(plan: dict, sampler=None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--placement-plan", required=True,
+    ap.add_argument("--placement-plan", default="",
                     help="an o4_v2_placement_<ICAO>.json: census the PLACEMENT "
                          "plan's own rows (11e (3))")
+    ap.add_argument("--dsf-dump", default="",
+                    help="a PRISTINE DSF text dump: census its plain OBJECT rows "
+                         "instead (the rows the plan never re-seats — riders, "
+                         "multi-anchor resources; #612), with --names and --pack")
+    ap.add_argument("--names", default="jetway",
+                    help="--dsf-dump: only resources whose path contains this "
+                         "(case-insensitive; '' = every OBJECT row)")
+    ap.add_argument("--host-m", type=float, default=12.0,
+                    help="--dsf-dump: a pad within this of the anchor is the host")
+    ap.add_argument("--reach-m", type=float, default=25.0,
+                    help="--dsf-dump: the disc round the anchor the terrain "
+                         "profile reads (reach_profile)")
     ap.add_argument("--mesh", default="", help="the built Data+XX+YYY.mesh")
     ap.add_argument("--graded", default="", help="an emitted <ICAO>.graded.json — the "
                                                  "DESIGN SURFACE, for a dry run with no "
@@ -436,8 +619,75 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.mesh and not args.graded:
         ap.error("pass --mesh (the built mesh) or --graded (the design surface)")
-
+    if args.dsf_dump:
+        return _census_dump(ap, args)
+    if not args.placement_plan:
+        ap.error("pass --placement-plan (the plan's rows) or --dsf-dump (the "
+                 "pristine rows)")
     return _census_placement_plan(ap, args)
+
+
+def _census_dump(ap, args) -> int:
+    """#612: the plain OBJECT rows of the pristine dump, the ones no plan
+    row re-seats, each at its authored anchor over the design surface."""
+    from auto_patch_v2.airport.dsf import read_dump
+    if not args.pack or not os.path.isdir(args.pack):
+        ap.error("--dsf-dump needs --pack ROOT (the feet are read from the pack)")
+    dump = read_dump(args.dsf_dump, accept_polygon=lambda _p: False)
+    defs, plc = dump_rows(dump, args.names)
+    if not plc:
+        ap.error(f"{args.dsf_dump} carries no OBJECT row matching {args.names!r}")
+    if args.graded:
+        sampler = _GradedSampler(args.graded)
+    else:
+        sampler = MeshElevationSampler(args.mesh, plan_bounds(plc))
+    # the merged library.txt map of the pack's install, READ-ONLY (never
+    # rebuilt here): a resource the pack does not carry resolves through it
+    import O4_File_Names as _F
+    xplane_root = os.path.dirname(os.path.dirname(os.path.normpath(args.pack)))
+    index = obj8.read_library_index(
+        obj8.library_index_path(_F.airport_mod_cache_root(), xplane_root))
+    rows = measure_rows(args.pack, defs, plc, sampler, args.thickness,
+                        index=index, base_ref=0.0)
+    annotate_rows(rows, sampler, args.host_m)
+    for r in rows:
+        if r.get("kind") == "measured":
+            reach_profile(r, sampler, args.reach_m)
+    if args.json:
+        with open(args.json, "w") as fh:
+            json.dump(rows, fh)
+    label = args.label or f"dump rows matching {args.names!r}"
+    census(rows, {}, label, args.top)
+    meas = [r for r in rows if r["kind"] == "measured"]
+    if meas:
+        print(f"   rows with a foot > 0.3 m: {sum(1 for r in meas if abs(r['dmax']) > 0.3)}"
+              f"; > 1 m: {sum(1 for r in meas if abs(r['dmax']) > 1.0)}; "
+              f"with a host pad: {sum(1 for r in meas if r.get('host_pad'))}")
+        reach_lines(meas, args.top)
+    return 0
+
+
+def reach_lines(meas: list[dict], top: int) -> None:
+    """The terrain-reach table (#612): per row the worst forward dz and the
+    disc extremes, the histogram of the disc spread, the worst ``top``."""
+    have = [r for r in meas if r.get("disc_dz")]
+    if not have:
+        return
+    spread = [r["disc_dz"][1] - r["disc_dz"][0] for r in have]
+    hist = collections.Counter("<0.3" if s < 0.3 else "0.3-1" if s < 1 else
+                               "1-3" if s < 3 else ">3" for s in spread)
+    print(f"   TERRAIN REACH (design surface within the disc, relative to the "
+          f"anchor; {len(have)} rows): spread histogram "
+          + " ".join(f"{k}:{hist[k]}" for k in ("<0.3", "0.3-1", "1-3", ">3")))
+    have.sort(key=lambda r: -(r["disc_dz"][1] - r["disc_dz"][0]))
+    for r in have[:top]:
+        fw = " ".join(f"{int(d)}m:{'-' if dz is None else f'{dz:+.2f}'}"
+                      for d, dz, _ in r.get("forward", ()))
+        print(f"   {r['lat']:10.6f} {r['lon']:11.6f} {os.path.basename(r['path'])[-30:]:30} "
+              f"disc[{r['disc_dz'][0]:+.2f},{r['disc_dz'][1]:+.2f}] fwd {fw} "
+              f"anchor {r.get('role_anchor')} host {r.get('host_pad')} "
+              f"lvl {'' if r.get('host_level') is None else f'{r['host_level']:.2f}'} "
+              f"z0 {r['z_anchor']:.2f}")
 
 
 if __name__ == "__main__":

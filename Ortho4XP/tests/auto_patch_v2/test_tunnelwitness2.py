@@ -259,16 +259,68 @@ def test_a_fenced_bore_under_an_ELEVATED_pack_part_alone_is_REFUSED(law):
     assert "Terminals/link.obj (unit:24)" in named[0] and "3.4 m of clear space" in named[0]
 
 
-def test_the_same_bore_under_a_CLASSIFIED_CELL_or_a_GROUND_RISE_is_built(law):
-    """(c)'s witnesses run first and are untouched: the same bore, the
-    same elevated part, under classified cover or under a hill."""
-    apron = Cell(2, "apron", "pav50", _rect(310, -110, 325, -90), (), None, None,
-                 "airside", "apron", {})
-    _cl, _t, st = _spjc(law, partition=_link(), extra_cells=(apron,))
-    assert not _refusals(st), st.mouths_off_field_nearest
-    hill = lambda x, y: 21.97 - 0.015 * (x - 300.0) + 2.0 * math.exp(-((x - 317.0) / 8.0) ** 2)
-    _cl, _t, st = _spjc(law, partition=_link(), dem=hill)
-    assert not _refusals(st) and st.tunnels == 2, st.mouths_off_field_nearest
+# ── #548: the pack's open passage outranks cover and a rise (10q) ───────
+
+#: a classified apron cell over 15 m of the bore's line — the cover witness
+APRON = Cell(2, "apron", "pav50", _rect(310, -110, 325, -90), (), None, None,
+             "airside", "apron", {})
+
+
+def _hill(h):
+    return lambda x, y: 21.97 - 0.015 * (x - 300.0) + h * math.exp(-((x - 317.0) / 8.0) ** 2)
+
+
+def test_a_bore_under_COVER_with_an_open_pack_PASSAGE_is_REFUSED(law):
+    """Owner RULINGS 2026-10-10q, issue #548: KCLT's service road under the
+    terminal — classified cover over its line (the terminal's own pad), an
+    elevated pack part over the carriageway, nothing in the pack at grade.
+    The passage is asked FIRST and the cover witness never speaks."""
+    _cl, tunnels, st = _spjc(law, partition=_link(), extra_cells=(APRON,))
+    assert st.tunnels == 0 and not tunnels, st.mouths_off_field_nearest
+    named = _refusals(st)
+    assert len(named) == 1 and "-5724 PASSES UNDER AN ELEVATED PACK PART AT GRADE" in named[0]
+    assert "Terminals/link.obj (unit:24)" in named[0] and "2026-10-10q" in named[0]
+
+
+def test_a_RISE_of_the_ground_does_not_outrank_the_passage(law):
+    """The same passage where the DEM stands over the mouth chord — 0.7 m
+    (KCLT read 0.55 .. 0.82 against the law's 0.5) and 2.0 m: refused."""
+    for h in (0.7, 2.0):
+        _cl, tunnels, st = _spjc(law, partition=_link(), dem=_hill(h))
+        assert st.tunnels == 0 and not tunnels, h
+        assert len(_refusals(st)) == 1 and "PASSES UNDER AN ELEVATED PACK PART" in _refusals(st)[0]
+
+
+def test_a_NEGATIVE_LAYER_is_senior_to_the_passage(law):
+    """HECA -20899 / -19181 / -3949: a pack passage over the carriageway
+    AND ``layer=-1`` — the map says the bore runs below ground, and it is
+    built, with cover, with a rise and with neither."""
+    tags = dict(SPJC_TAGS, layer="-1")
+    for kw in ({}, {"extra_cells": (APRON,)}, {"dem": _hill(0.7)}):
+        _cl, _t, st = _spjc(law, partition=_link(), tags=tags, **kw)
+        assert st.tunnels == 2 and not _refusals(st), (kw, st.mouths_off_field_nearest)
+    # a layer at or above ground states nothing of the kind
+    _cl, _t, st = _spjc(law, partition=_link(), tags=dict(SPJC_TAGS, layer="0"))
+    assert st.tunnels == 0 and len(_refusals(st)) == 1
+
+
+def test_COVER_or_a_RISE_with_NO_passage_still_builds_the_bore(law):
+    """(c)'s witnesses are untouched where the pack shows no passage: no
+    pack at all, and a pack part at grade over the line (cover)."""
+    over = _part(0.0, 6.0, _ll_ring(310, -110, 325, -90))      # holds neither end
+    for part in (None, _link(over)):
+        _cl, _t, st = _spjc(law, partition=part, extra_cells=(APRON,))
+        assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
+        _cl, _t, st = _spjc(law, partition=part, dem=_hill(2.0))
+        assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
+
+
+def test_the_passage_reads_a_MAPPED_tunnel_outside_the_fence_too(law):
+    """10q asks the passage of a MAPPED bore, not of a fenced one: outside
+    the boundary the same bore under cover is refused by name."""
+    _cl, _t, st = _spjc(law, fence=None, partition=_link(), extra_cells=(APRON,))
+    assert st.tunnels == 0
+    assert len(_refusals(st)) == 1 and "PASSES UNDER AN ELEVATED PACK PART" in _refusals(st)[0]
 
 
 def test_a_pack_part_AT_GRADE_over_the_line_is_cover_and_d_stands(law):

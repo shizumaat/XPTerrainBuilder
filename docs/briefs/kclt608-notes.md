@@ -123,3 +123,16 @@ accepted in 12c) plus the pack's own ramp objects, not engine-graded roads.
   [222.88, 226.13]? — no: 222.68 is 0.20 m under building84's band floor 222.88 (the bands are the report; the
   welds + caps are the hard set) and the solve held every weld within caps anyway (0 new relaxations).
 * Closing builds started 19:20: `kclt608_KCLT`, `kclt608_HECA` (harness, `/tmp/harness/`).
+
+## HECA — the off-pad cut's blast (object dry run `obj8_split_report` on sw17 HECA plan + graded, be4317166 vs main)
+`c2_osr_diff.py osr_heca_sw17.json osr_heca_arm.json`: off_pad_units_split 44, off_pad_bodies 979; **74 bodies move
+> 0.05 m**, the largest `T3_concrete_Yellow.obj` fu:42:1906 69.58 → `fu:43:5027/p0/g5` 100.57 (+30.99, 30.1288455,
+31.4001441), fu:42:1892 70.37 → 100.96 (+30.59), `metal_strip_2.obj` fu:43:5046 69.94 → 95.03 (+25.09,
+30.1189660,31.3884155), `T3_14.obj` 72.72 → 91.09 (+18.38, 30.1254677,31.3999493), `door.obj` fu:40:120/p3 101.79 →
+91.01 (−10.78, 30.1139691,31.3967509), `T3_14.obj` 101.79 → 91.93 (−9.86) … 23 more between 2.4 and 8.9 m; plus the
+re-partition (92 base-only / 361 arm-only body keys: coarsening regroups when units change). The design side moves
+NOTHING at HECA in this dry run (same graded surface); the design arm (datum groups) is measured by the HECA BUILD.
+These are bodies with feet on ground far from their unit's zero — under 10n (3) they float/bury today by those
+metres; but HECA is APPROVED on the current body (12m) → OWNER'S CALL. To drop the object-side rule alone: restore
+`Ortho4XP/src/auto_patch_v2/airport/pad_block_seat.py` and `footprint_seats.py` from main and delete the last test of
+`tests/auto_patch_v2/test_connect549.py` (`test_a_footed_body_off_every_pad_on_other_ground_leaves_its_unit`).

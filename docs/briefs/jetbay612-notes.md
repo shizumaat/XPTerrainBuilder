@@ -250,3 +250,16 @@ Shared-file note for kclt608: this lane touched `airport/obj8.py` (parser +
 Component + genuine), `airport/door_wells.py` (one refusal), `tools/
 seat_feet_census.py`, `tests/auto_patch_v2/test_v2doorramp.py`, spec §65 —
 NOT cluster_pad / pad_block_seat / footprint_seats / platform.
+
+## CLOSING (RESUME HERE: done; the bay decision is the owner's)
+
+Closing KSEA harness build `KSEA_20261012T183132` on 1b3ac42b5: rc 0, 314.5 s;
+IDENTICAL to arm2 (door ramps 1, pits 0, released 0, warnings 0, census
+adjudicated airside 895, runway 13 / 0.060 m, jetways: anchors apron 46 /
+building 34, forward −0.48…+0.06 m on all 81, 13 anchors off level all on
+building16's tilted platform). Frames registered: STEP 0 patch/graded/rebake
+(a11299a48), capture `frames/jetbay612/KSEA.pkl`, closing patch/graded
+(1b3ac42b5). OTHH same-tree pair (pads67 capture, --from planar): 10 basins
+identical, 4 door ramps, 0 movers at 0.01 m in all three frames (21,698 /
+10,190 / 1,060 common nodes). HECA: 0 door ramps on sw17 — unchanged by
+construction (no replay run).

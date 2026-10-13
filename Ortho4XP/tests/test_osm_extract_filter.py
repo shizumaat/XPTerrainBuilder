@@ -890,8 +890,15 @@ def windows_replace(monkeypatch):
     everything else (pytest's own, the staging copy's) reaches the real
     ``os.replace`` untouched.  ``sleep`` is recorded rather than slept, so
     the backoff is asserted without spending it.
+
+    The REAL replace onto a target runs one thread at a time: the refusals
+    a twin meets are the ones it injected.  On a real Windows runner two
+    threads renaming onto one name at the same instant are refused by
+    Windows itself (the very #205 condition) — an extra, uninjected round
+    of the retry, with the backoff not slept (#602).
     """
     real_replace = os.replace
+    one_at_a_time = _threading.Lock()
     state = {"targets": set(), "fail_with": {}, "per_thread": {},
              "attempts": [], "sleeps": []}
 
@@ -905,6 +912,8 @@ def windows_replace(monkeypatch):
                 queue = state["fail_with"].setdefault(str(destination), [])
             if queue:
                 raise queue.pop(0)
+            with one_at_a_time:
+                return real_replace(source, destination, **kwargs)
         return real_replace(source, destination, **kwargs)
 
     monkeypatch.setattr(FILTER.os, "replace", _replace)
@@ -1005,17 +1014,25 @@ def test_the_cross_volume_staging_replace_retries_too(
     assert [p.name for p in tmp_path.iterdir() if ".tmp-" in p.name] == []
 
 
+@pytest.mark.parametrize("loser_held", [1, 2, HELD.HELD_FILE_ATTEMPTS - 1])
 def test_two_cutters_racing_one_destination_both_succeed_when_held(
-        tmp_path, windows_replace):
+        tmp_path, windows_replace, loser_held):
     """The #205 shape: two threads, one destination, cross-volume.
 
     Each thread's first replace answers EXDEV (so both take the staging
     branch, as a Windows runner does, where the workspace is on ``D:`` and
-    ``TEMP`` on ``C:``), and each thread's staging replace is refused once
-    with WinError 5 / 32 — the loser meeting a destination the winner still
-    holds.  Both cutters must finish: the invariant the 2026-07-23 field
-    failure bought is that neither writer loses minutes of work to the
-    other's rename.
+    ``TEMP`` on ``C:``), and each thread's staging replace is refused with
+    WinError 5 / 32 — the loser meeting a destination the winner still
+    holds, once for one cutter and ``loser_held`` times for the other.
+    Both cutters must finish: the invariant the 2026-07-23 field failure
+    bought is that neither writer loses minutes of work to the other's
+    rename.
+
+    THE SCHEDULE IS INJECTED, per thread, and the property is asserted —
+    not one exact count of attempts (#602).  How many rounds a cutter
+    needs depends on how long the other holds the name; what the retry
+    promises is that every refusal injected here is waited out and that
+    no cutter tries more often than its documented bound.
     """
     destination = str(tmp_path / "clip.osm.pbf")
     windows_replace["targets"].add(destination)
@@ -1024,19 +1041,19 @@ def test_two_cutters_racing_one_destination_both_succeed_when_held(
     # No barrier: each thread's failures are injected per thread, so the
     # race is deterministic without one -- and a barrier with a wall clock
     # is itself a flake on a loaded runner.
-    def cut(tag, winerror):
-        windows_replace["per_thread"][_threading.get_ident()] = [
-            OSError(errno.EXDEV, "cross-device link"),
-            _held_destination_error(destination, winerror=winerror),
-        ]
+    def cut(tag, winerror, held):
+        windows_replace["per_thread"][_threading.get_ident()] = (
+            [OSError(errno.EXDEV, "cross-device link")]
+            + [_held_destination_error(destination, winerror=winerror)
+               for _ in range(held)])
         try:
             FILTER._move_into_place(
                 _cut(tmp_path, name=tag, body=tag.encode()), destination)
         except Exception as error:     # noqa: BLE001 - the assertion target
             errors.append(error)
 
-    threads = [_threading.Thread(target=cut, args=("a" * 8, 5)),
-               _threading.Thread(target=cut, args=("b" * 8, 32))]
+    threads = [_threading.Thread(target=cut, args=("a" * 8, 5, 1)),
+               _threading.Thread(target=cut, args=("b" * 8, 32, loser_held))]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -1045,5 +1062,11 @@ def test_two_cutters_racing_one_destination_both_succeed_when_held(
     assert os.path.isfile(destination)
     assert open(destination, "rb").read() in (b"a" * 8, b"b" * 8)
     assert [p.name for p in tmp_path.iterdir() if ".tmp-" in p.name] == []
-    # each cutter attempted the move three times: EXDEV, held, done
-    assert len(windows_replace["attempts"]) == 6
+    # Each cutter tries the move once (EXDEV), then the staged replace once
+    # per injected refusal and once more to succeed; never more than the
+    # one EXDEV try plus HELD_FILE_ATTEMPTS.
+    injected = (1 + 1 + 1) + (1 + loser_held + 1)
+    bound = 2 * (1 + HELD.HELD_FILE_ATTEMPTS)
+    assert injected <= len(windows_replace["attempts"]) <= bound
+    assert all(queue == [] for queue in
+               windows_replace["per_thread"].values())

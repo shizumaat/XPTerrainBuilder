@@ -29,7 +29,7 @@ __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
            "between_levels_rewrite", "airside_joins", "welded_join_release",
            "terrace_rewrite", "terrace_profile", "wall_terrace_rows",
-           "wall_release", "pad_weld_release",
+           "wall_release", "pad_weld_release", "pad_ramp_rewrite",
            "WALL_LOT_RULING"]
 
 GEN = "road_ramp"
@@ -323,7 +323,122 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # floor of their profiles, so the rim's rows leave after them
     cs, rep["pad_weld"] = pad_weld_release(planar, law, cs)
     rep["welded_join"] = [*rep["welded_join"], *rep["pad_weld"].pop("joins")]
+    cs, rep["pad_ramp"] = pad_ramp_rewrite(planar, law, cs)
+    rep["welded_join"] = [*rep["welded_join"], *rep["pad_ramp"].pop("joins")]
     return cs, rep
+
+
+#: The ruling head of the ROAD-YIELDS-TO-THE-PAD design row (owner RULINGS
+#: 2026-10-13a (1); issue #609).
+PAD_RAMP_RULING = ("roads.groundside_road ramp from the pad "
+                   "(owner 2026-10-13a (1); issue #609)")
+
+
+def _welded_ribbon_vertices(planar: PlanarMap, law: Law
+                            ) -> tuple[dict[int, int], frozenset[int]]:
+    """``{ribbon vertex: its nearest pad-rim vertex}`` for every mapped-road
+    ribbon face sharing a rim with a building pad, and the rim itself."""
+    from ..model.planar import is_osm_ribbon_ref
+    from .pads import pad_welded_vertices
+    rim = pad_welded_vertices(planar, law)
+    if not rim:
+        return {}, rim
+    roles = family(law, "road_cross_section").roles
+    out: dict[int, int] = {}
+    for f in planar.faces.values():
+        if f.role not in roles or not is_osm_ribbon_ref(f.ref):
+            continue
+        vs = {v for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+        feet = vs & rim
+        if not feet:
+            continue
+        for v in vs - rim:
+            x, y = planar.vertices[v].xy
+            r = min(feet, key=lambda q: (planar.vertices[q].xy[0] - x) ** 2
+                    + (planar.vertices[q].xy[1] - y) ** 2)
+            if v not in out or _dist(planar, v, r) < _dist(planar, v, out[v]):
+                out[v] = r
+    return out, rim
+
+
+def _dist(planar: PlanarMap, a: int, b: int) -> float:
+    (ax, ay), (bx, by) = planar.vertices[a].xy, planar.vertices[b].xy
+    return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+
+
+def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet
+                     ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
+    """THE ROAD YIELDS TO THE PAD (owner RULINGS 2026-10-13a (1), issue
+    #609; 09j: pads are senior to roads).  A mapped-road ribbon WELDED to
+    a building pad's rim takes the PAD's level at the weld and climbs to
+    it at the least grade that fits — design ``[road_contact] ramp_grade``
+    (5 %), the road's own cap (10 %, its hard cross-section rows, which
+    stay) where the run is short.  The pad never moves for the road.
+
+    MEASURED before this rewrite (lane roads609, KCLT / HECA / SPJC / CYXY
+    replay pairs): the ribbon's §37 (6) target and hard ceiling are ABSOLUTE
+    (the DEM-based profile from a contact whose level classify could not
+    know — the pad's seat is a stage-2 unknown) and its §37 (9) coverage-
+    edge join is a hard PIN at the core road's level metres off the rim;
+    against them the pad's own level is a soft datum, so the LP moved the
+    pad to the road (KCLT's garages 223 -> 218.3, HECA building128 -4.53 m,
+    SPJC building28 -2.11 m, CYXY lot pav4 -3.55 m).
+
+    THE REWRITE, on every vertex of such a ribbon off the rim: (1) its
+    §37 (6) design target and hard ceiling are withdrawn; (2) its join pin
+    is RELEASED to a design target at its own value (``welded_join_release``'s
+    form, stage ``"2p"``), so the core ribbon YIELDS to the level the
+    patch carries at the join (``emit/road_join.with_pin_yield``) and the
+    core's own cap-Lipschitz levelling carries the ramp OUTWARD along the
+    mapped road — the run the ribbon could not have inside the patch;
+    (3) ONE design row RELATIVE to its nearest rim vertex ``r``:
+    ``z[v] - z[r] = clip(dem[v] - proxy[r], -g d, +g d)`` — descend (or
+    climb) toward the terrain at the design grade, never past it — priced
+    at ``[design] law`` like every §37 (6) target.  Nothing absolute
+    remains on the ribbon but the core-profile fit (``[design] road``)."""
+    near, rim = _welded_ribbon_vertices(planar, law)
+    rep: dict[str, _t.Any] = {"ribbon_vertices": len(near), "targets": 0,
+                              "ceilings": 0, "rows": 0, "joins": []}
+    if not near:
+        return cs, rep
+    g = float(law.tables.emit.road_contact.ramp_grade)
+
+    def _at(r: Row, ruling: str) -> bool:
+        if r.source.generator != GEN or r.source.ruling != ruling:
+            return False
+        tag = r.source.inputs[0] if r.source.inputs else ""
+        return tag.startswith("vertex:") and int(tag[7:]) in near
+    linears = [r for r in cs.linears if not _at(r, RULING)]
+    bands = [r for r in cs.bands if not _at(r, RULING_CEILING)]
+    rep["targets"] = len(cs.linears) - len(linears)
+    rep["ceilings"] = len(cs.bands) - len(bands)
+    pins, released = [], []
+    for p in cs.pins:
+        if p.v in near and p.source.generator == GEN and p.source.ruling == JOIN_RULING:
+            released.append(p)
+            linears.append(Linear(((p.v, 1.0),), float(p.z), float(p.z), p.source))
+        else:
+            pins.append(p)
+    rep["joins"] = [
+        {"v": int(p.v), "xy": tuple(float(c) for c in planar.vertices[p.v].xy),
+         "pinned_m": round(float(p.z), 4), "z_m": round(float(p.z), 4),
+         "excess_m": 0.0, "stage": "2p"} for p in released]
+    pref = getattr(planar, "preferred_z", None) or {}
+    for v, r in sorted(near.items()):
+        dv = planar.vertices[v].dem_z
+        zr = pref.get(r, planar.vertices[r].dem_z)
+        if dv is None or zr is None:
+            continue
+        d = _dist(planar, v, r)
+        delta = max(-g * d, min(g * d, float(dv) - float(zr)))
+        ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
+                    if planar.faces[f].ref), "")
+        linears.append(Linear(((v, 1.0), (r, -1.0)), delta, delta,
+                              Source(GEN, PAD_RAMP_RULING,
+                                     (f"vertex:{v}", f"rim:{r}", ref))))
+        rep["rows"] += 1
+    return _dc.replace(cs, pins=tuple(pins), linears=tuple(linears),
+                       bands=tuple(bands)), rep
 
 
 def pad_weld_release(planar: PlanarMap, law: Law, cs: ConstraintSet

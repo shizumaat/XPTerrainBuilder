@@ -676,7 +676,8 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # cells only — no standing cell is cut twice (roadweld100's measured
     # hazard: a pad's knife re-armed cut two existing groundside cells).
     cells, n_cut_rib = _cut_back_groundside(cells, law, rules, airport,
-                                            only=range(n_before, len(cells)))
+                                            only=range(n_before, len(cells)),
+                                            hold=False)
     stats["mixed_pad_cutbacks"] += n_cut_rib
     stats["ribbon_pad_welds"] = sum(1 for c in cells[n_before:]
                                     if c.evidence.get(WELD_KEY))
@@ -868,8 +869,8 @@ def _road_evidence(scored, ev: Evidence, rules: Rules, *,
 
 def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
                          airport: Airport | None = None,
-                         only: _t.Iterable[int] | None = None
-                         ) -> tuple[list[Cell], int]:
+                         only: _t.Iterable[int] | None = None,
+                         hold: bool = True) -> tuple[list[Cell], int]:
     """THE PAD'S GROUNDSIDE EDGE (owner RULINGS 2026-10-09j, spec §63;
     before it the pad set-back of 2026-09-01g/i and 2026-09-04u).  Each
     groundside pavement cell is read against every pad beside it AS DRAWN
@@ -890,7 +891,11 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
       edge is 09j's wall or embankment.
 
     ``only`` restricts the READ to those cell ids (the ribbons minted after
-    the first pass, #609); the pads are every pad standing.
+    the first pass, #609); the pads are every pad standing.  ``hold=False``
+    never applies the §28 (6) hillside hold: a MAPPED ROAD that reaches a
+    pad RAMPS to it (owner RULINGS 2026-10-13a (3) "Ramp it" — the
+    terrace is not the answer where a road reaches a pad; the road's run
+    is the §37 (6) ramp's, ``constraints/road_ramp.pad_ramp_rewrite``).
 
     Returns the cells and the number the KNIFE cut (the held terraces)."""
     back = law.tables.structures.building_pad.groundside_cutback_m
@@ -950,8 +955,8 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
             if ref not in knives:
                 knives[ref] = pads[ref].buffer(knife_m, join_style="mitre",
                                                mitre_limit=2.0)
-            if is_held_step(law, dem_step_m(g, pads[ref], knives[ref],
-                                            airside, dem, law)):
+            if hold and is_held_step(law, dem_step_m(g, pads[ref], knives[ref],
+                                                     airside, dem, law)):
                 held.append(ref)
                 cutters.append(knives[ref])    # HELD: the terrace's knife
             else:

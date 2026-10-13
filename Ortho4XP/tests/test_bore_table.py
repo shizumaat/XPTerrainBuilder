@@ -47,7 +47,8 @@ def test_the_diff_names_an_unexpected_verdict_change(tmp_path):
     for d, second in ((base, True), (branch, False)):
         d.mkdir()
         (d / "ZZZZ.bores.json").write_text(json.dumps(
-            [_row("-1", True), _row("-2+-3", second, ["x/deck.obj", "unit:2", 3.0])]))
+            [_row("-1", True), _row("-2+-3", second, ["x/deck.obj", "unit:2", 3.0])]),
+            encoding="utf-8", newline="\n")
     lines, unexpected = bore_table.diff(base, branch, ["ZZZZ"])
     assert unexpected == ["ZZZZ -2+-3"] and "*** CHANGED" in lines[2] and "CHANGED" not in lines[1]
     assert "deck.obj @ 3.0 m" in lines[2]

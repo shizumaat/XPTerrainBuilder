@@ -19,6 +19,14 @@ Promoted on its second use (lane ``kclt546`` scratch ``bore_witness.py``, lane
 """
 from __future__ import annotations
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
+import os as _o4os, sys as _o4sys                                    # noqa: E402
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
+
 import argparse
 import json
 import os
@@ -94,7 +102,7 @@ def diff(base_dir: Path, branch_dir: Path, icaos, expect=()) -> tuple[list[str],
         arms = []
         for d in (base_dir, branch_dir):
             f = Path(d) / f"{icao}.bores.json"
-            arms.append({r["ids"]: r for r in json.loads(f.read_text())} if f.exists() else {})
+            arms.append({r["ids"]: r for r in json.loads(f.read_text(encoding="utf-8"))} if f.exists() else {})
         lines.append(f"== {icao}: {len(arms[0])} bore(s) asked (base), {len(arms[1])} (branch)")
         for ids, row in arms[0].items():
             other = arms[1].get(ids)
@@ -126,9 +134,10 @@ def main(argv=None) -> int:
     from auto_patch_v2.planar import structure_service
     a.out.mkdir(parents=True, exist_ok=True)
     log = a.out / f"{a.icao}.bores.json"
-    log.write_text("[]")
+    log.write_text("[]", encoding="utf-8", newline="\n")
     structure_service.terrain_tunnel_witness = logged(
-        structure_service, [], lambda rows: log.write_text(json.dumps(rows, indent=1)))
+        structure_service, [], lambda rows: log.write_text(
+            json.dumps(rows, indent=1), encoding="utf-8", newline="\n"))
     sys.argv = ["auto_patch_v2.planar", a.icao, "--stage", "structures",
                 "--out", str(a.out / a.icao)]
     runpy.run_module("auto_patch_v2.planar", run_name="__main__")

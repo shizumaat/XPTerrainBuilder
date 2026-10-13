@@ -503,6 +503,19 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                         di, dj = beyond(xy[i]), beyond(xy[j])
                         vin, vout = (a, b) if di <= dj else (b, a)
                         lo, hi = end_pair_bounds(prof, min(di, dj), max(di, dj), q)
+                        # AIRSIDE IS KING: a strip ring runs along the edge
+                        # of whatever pavement stands in the end band.  Two
+                        # pavement vertices are that pavement's own (KBFI: an
+                        # apron edge beside a runway end moved 0.06 m to this
+                        # profile); one pavement vertex LEADS and the ground
+                        # follows it, one-way, as it follows the end edge
+                        pa, pb = a in vw.pavement_vertices, b in vw.pavement_vertices
+                        if pa and pb:
+                            continue
+                        if pa or pb:
+                            rows.append(Linear(((vin, 1.0), (vout, -1.0)), lo, hi, chord_src,
+                                               follows=b if pa else a))
+                            continue
                         rows.append(Linear(((vin, 1.0), (vout, -1.0)), lo, hi, src))
         # the TRANSECT pairs (``end_transect_pairs``): every band vertex
         # against the nearest vertex inward on its own line — at BOTH ends
@@ -720,6 +733,12 @@ def end_corridor_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                         a, b, c = ids[run[k - 1]], ids[run[k]], ids[run[k + 1]]
                         key = tuple(sorted((a, b, c)))
                         if key in seen3 or len(set(key)) < 3:
+                            continue
+                        # AIRSIDE IS KING: the rate is the GROUND's — a
+                        # station on pavement (an apron edge the strip ring
+                        # runs along) is that pavement's and enters no row
+                        # (KBFI: three apron-edge vertices in one rate row)
+                        if any(v in vw.pavement_vertices for v in key):
                             continue
                         dp, dn = abs(s[k] - s[k - 1]), abs(s[k + 1] - s[k])
                         if dp < 1e-6 or dn < 1e-6:

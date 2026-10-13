@@ -295,3 +295,23 @@ def test_the_tolerance_is_one_key(icao):
     exact = dc.replace(icao, tables=dc.replace(icao.tables, emit=emit0))
     assert end_profile_noise_m(exact) == 0.0
     assert end_profile_noise_m(exact, reader=True) == pytest.approx(ins.rounding_noise_m)
+
+
+def test_no_two_way_end_row_holds_a_pavement_vertex(synthetic, icao, faa):  # noqa: F811
+    """AIRSIDE IS KING: the end profile is the GROUND's.  A two-way row
+    (the pair head, the FAA corridor-rate head) never names a pavement
+    vertex — a pair with one is one-way under the chord head, the ground
+    following; a rate triple with one is not stated (KBFI: an apron edge
+    inside an end band moved with the tolerance until this held)."""
+    airport, pm = synthetic
+    for law_ in (icao, faa):
+        vw = view(pm, law_)
+        ow = one_way_rulings(law_)
+        rows = (strips.end_corridor_longitudinal(pm, law_, airport)
+                + strips.end_corridor_rate(pm, law_, airport))
+        assert rows
+        for r in rows:
+            if ruling_head(r) in ow:
+                assert r.follows is not None and r.follows not in vw.pavement_vertices
+            else:
+                assert not {v for v, _c in r.terms} & vw.pavement_vertices

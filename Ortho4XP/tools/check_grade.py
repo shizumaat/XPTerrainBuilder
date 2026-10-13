@@ -3109,8 +3109,9 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                         if zs[a] is None or zs[b] is None:
                             continue
                         ds = abs((pts[b][0] - pts[a][0]) * ux + (pts[b][1] - pts[a][1]) * uy)
-                        if ds < 1.0 or road(pts[a]) or road(pts[b]):
-                            continue
+                        if ds < 1.0 or road(pts[a]) or road(pts[b]) \
+                                or (nn[a] in pavement_nids and nn[b] in pavement_nids):
+                            continue      # two pavement nodes: that pavement's own
                         site = _site_key(pts[a], pts[b])
                         if site in seen:
                             continue
@@ -3137,8 +3138,8 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                                 law.tables.emit.materiality.grade):
                             A, B, C = run[a], run[b], run[c]
                             site = ("rate",) + _site_key(pts[A], pts[B], pts[C])
-                            if site in seen:
-                                continue
+                            if site in seen or any(nn[k] in pavement_nids for k in (A, B, C)):
+                                continue      # a pavement station: that pavement's own
                             seen.add(site)
                             out.append(Violation(
                                 grade_pct=100.0 * change, excess_pct=100.0 * change,

@@ -563,8 +563,9 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 for run in longitudinal_runs(sh.xy, unit, inside):
                     for i, j in zip(run, run[1:]):
                         ds = abs((sh.xy[j][0] - sh.xy[i][0]) * ux + (sh.xy[j][1] - sh.xy[i][1]) * uy)
-                        if ds < 1.0 or road(sh.xy[i]) or road(sh.xy[j]):
-                            continue
+                        if ds < 1.0 or road(sh.xy[i]) or road(sh.xy[j]) \
+                                or (sh.ids[i] in pav and sh.ids[j] in pav):
+                            continue      # two pavement vertices: that pavement's own
                         site = tuple(sorted((tuple(round(c, 3) for c in sh.xy[i]),
                                              tuple(round(c, 3) for c in sh.xy[j]))))
                         if site in seen:
@@ -588,8 +589,8 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                                 law.tables.emit.materiality.grade):
                             A, B, C = run[a], run[b], run[c]
                             site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[k]) for k in (A, B, C)))
-                            if site in seen:
-                                continue
+                            if site in seen or any(sh.ids[k] in pav for k in (A, B, C)):
+                                continue      # a pavement station: that pavement's own
                             seen.add(site)
                             out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                            p.side("graded_strip"), abs(sh.z[C] - sh.z[A]),

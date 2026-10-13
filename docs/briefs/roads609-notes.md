@@ -64,3 +64,55 @@ the part BETWEEN the garages is still out of the patch. So two things are missin
 | `verify` families | `road_cross_section`, `within_shape`, `pad_*` price the new faces | counted in the census |
 Object stage: a body whose feet stand on a ribbon face reads that graded surface (10n (3)); the bodies between the
 garages stood on NO face before (off-surface → mesh ground in the tile build).
+
+## Arm 1 — KCLT replay (`frames/pads67/KCLT.pkl --from classify --emit --verify`, branch 6399c2cf1 vs main 8d0cd75e8; `<scratch>/base/`, `<scratch>/arm1/`)
+* RIBBONS: 529 → 602 faces, 36,988 → 72,498 m²; within 150 m of 35.2248,-80.9450: 0 → 17 faces / 6,973 m² (the
+  forecourt's `small_roads:-16661/-16664/-16665/-16660/-16663/-16649/-16662/-16651/-24651/-24655`, the terminal
+  approaches `-8186/-8188/-8200`); 10 of them WELDED to a garage pad (`pad_touch` d=0.0: building86 ×3, building88 ×2,
+  building90 ×6); airport-wide `ribbon_pad_welds` 53, ribbons held off as §28 (6) terraces 10.
+* THE GARAGES DROP TO THEIR GROUND: building86 223.0–223.4 → **218.44–218.82**, building88 223.1 → **218.80–219.08**,
+  building90 223.0–223.45 → **218.33–218.79** (DEM 218.1–219.6; −4.69 m worst). `--why-vertex 16965` (a building86
+  rim vertex shared with no road): held by the pad rows through a chain to a §37 (9) COVERAGE-EDGE JOIN PIN on the
+  ribbon `small_roads:-16649#2` (v22433, 218.29 = the core road's level) 2.7 m off the rim — the road leaves the
+  patch 2.7 m from the pad and is pinned at DEM there; its hard cross-section row ties the rim; the pad (touching no
+  airside, a soft 27a (9) facing preference at 223 only) MOVES to where the road welded to it grades inside its caps —
+  exactly 10a (2) (a) and 09j. The 223 level of 12c was the 27a (9) facing read's (connect549 arm A2) and nothing in
+  law holds it once the roads are welded. (`exit_reach` at a pad mouth reads the DEM at the mouth as the patch level
+  — the pad's seat is unknown at classify — so the ribbon stub past the rim is one station long.)
+* AIRSIDE: solve-owned 0 movers, RUNWAY 0; row-side 244 (strip 56 worst 2.32 m at 35.22609,-80.93521; apron 30
+  ≤ 0.65; other 158 = the garage pads); STRUCTURE 17 tunnel-wall rim nodes ≤ 1.30 m at 35.20218,-80.94025 (the
+  terminal tunnel: ribbons `small_roads:-30357/-30359` beside it are now welded to their pad instead of knifed; the
+  census shows cross_connector rows over the bore moved ≤ 0.92 m |de|).
+* RAMPS (`road_course_profile --on-patch`): garage entries flat — `-16664` 3.2 %, `-16649` 3.4 %, `-24655` 5.8 % at its
+  patch edge, `-16651` 1.5 %, `-16661` 1.1 %; the terminal approach `-8188` (217.3 → building75 222.44): the ribbon is
+  HELD off building75 by the §28 (6) hillside step (DEM step > 2.4 m) and ends 2.7 m short of the rim with a 5.1 m
+  wall (50.7 % over 10 m at 35.222959,-80.945684) — the #519 "road diving into a hole" class, the one lawful terrace.
+* THE 223 WORLD (if the owner holds 12c's plane): the forecourt would be a 223 plateau welded to the three pads and
+  ramps would sit at its EXITS — rise 4.9–5.8 m over DEM 217.3–218.2 at the five exits (35.225810,-80.943949;
+  35.225349,-80.945790; 35.223592,-80.945233; 35.223252,-80.945231; 35.222959,-80.945684): 98–115 m at the 5 % design
+  grade, 49–58 m at the 10 % cap; the terrain outward is flat (217–220), nothing obstructs. No law holds 223 today
+  (10a (2) (a): a pad's object level is a preference, never a hold) — OWNER QUESTION.
+* OBJECTS (dry run `obj8_split_report` on `frames/kclt608/KCLT.rebake.json`, graded base vs arm1;
+  `tools/rebake_plan_diff.py zeros`): 55 bodies change unit or zero (54 > 0.05 m), re-partition 67/88. The garage
+  unit `fu:31:2809` is now level-cut (/p0 building90 218.37, /p1 building88 218.85). The small bodies between the
+  garages (base: written at 223.11, own ground −0.35..−0.48 on the graded read, +2.4..+5.0 on mesh ground): arm1
+  `paredes_10 b14/b15` at 35.2244049,-80.9445682 z 218.30 (own ground −0.52 → stands 0.03 m off the ribbon under
+  it), `b13` 35.2254439,-80.9446534 z 218.45 (own −0.36), `b2/b3` 35.2241809,-80.9458015 z 218.60 (own −0.22/−0.61),
+  `b5/b6` on building90 218.33/218.34 (own 0.00/−0.38). Movers elsewhere: `techos_1` low-side-foot bodies at
+  35.2219199,-80.9457901 / 35.2228061,-80.9425073 −3.04 (the forecourt slab bodies on the new road ground);
+  `paredes_10` footless at 35.2234854,-80.9443605 −1.93 ×7, −1.87 ×7, −1.75 ×7; east side `002/007_ALB` fu:3:161/162
+  +2.12 / +1.64 (35.2178533,-80.9294227 — ribbons newly admitted there); §15 floating footed bodies 10 → 40 (worst
+  3.47 m `paredes_10 b47` at 35.2234314,-80.9442846 over `techos_1 b3`).
+* CENSUS: LAW-TRUE 17444 → 17886 (+442: NEW service_road within_shape 146, road_cross_section 107 (+25
+  building|service_road), hairline_pair 88, within_shape building|service_road 79, hard_conflict groundside 40;
+  airside NEW taxi_box 51 / airside_no_step 44 / within_shape 18 cross_connector at the tunnel 35.2015,-80.9402);
+  ADJUDICATED 6104 → 6521 (airside 2949 → 3040, groundside 3133 → 3456); steps 17 → 28; CRITICAL motion 4 = 4,
+  visual 1974 → 2076. Hard feasibility relaxed 309 → 349.
+* Twin `tests/auto_patch_v2/test_gap_apron.py::test_the_class_table_read_on_a_real_map` (HECA real-map pin: 38 gap
+  pieces) FAILS on the branch (60 pieces + 12 gap aprons): the ribbons occupy more ground — re-pin after the HECA arm.
+* Tools promoted: `tools/rebake_plan_diff.py` (`zeros` = kclt608 c2_osr_diff, `separations` = a2_separations) + INDEX
+  row + `tests/test_rebake_plan_diff.py`.
+* RUNNING: HECA pair (`heca_base/` main tree, `heca_arm1/`), then CYXY/NLWF/SPJC/OTHH pairs (`run_pairs.sh`), all on
+  the PRE-MERGE branch 6399c2cf1 vs main 8d0cd75e8; origin/main has moved to d64b880da (#627 one level, #626) —
+  merge AFTER the pairs, then the closing harness build vs `frames/kclt608/kclt608_KCLT.osm` (= #627's KCLT
+  3f22a1e516b3) and the tile builds.

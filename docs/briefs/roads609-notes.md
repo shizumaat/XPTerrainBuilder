@@ -246,3 +246,67 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   pass; then no bridge) read at pol84 — `a1_extent_arm.py` is the instrument shape.
 * NOT DONE: the ramp table, approved-airport pairs, twin re-pins (`test_gap_apron`/`test_gap_terrace` still red,
   state as round 1), closing build, #229, suites beyond the touched files (72 passed).
+
+## ROUND 4 (lane roads609d; RULINGS 2026-10-13b (5), 13d, 13e) — RESUME HERE
+* Branch `claude/roads609` (worktree `.claude/worktrees/roads609c`), origin/main 574729a79 merged (7d49fae88); base
+  worktree `roads609base` at 574729a79. Scratch `<scratch>/roads609/r4/`: `base/` (main replay), `arm0` (882fb55da),
+  `a_hold` / `a_nobridge` / `a_noextent` (intervention arms, `arm_run.py` + `run_arm.sh`), `a2_b` (the branch's
+  `--gap-free` base), `a4` (the late stage, `run_late2.sh`), `pair.sh ICAO TAG` (harness pair vs `/tmp/harness/sw23_*`),
+  `build*_ICAO.log`. REPLAY IS NOW TWO RUNS: `--from classify --gap-free --solved-out B.pkl` then
+  `--from classify --late-from B.pkl` (the single `--from classify` run solves the pad roads in one solve — not the build).
+* ATTRIBUTION OF ROUND 3'S RESIDUALS (KCLT pair vs main, one intervention each, `avd_a_*.json`):
+  | arm | garages 86/88/90 | building77 | pol84 / pol83 / pol71 | structures |
+  | branch 882fb55da | −0.03 ×3 | +0.65 | +2.79 / +1.25 / +0.76 | 12 tunnel rims ≤ 1.30 |
+  | (a) ribbon pass `hold=True` | −0.03 ×3 | +0.65 | identical to the branch | identical — NOT the cause |
+  | (b) no network bridge | 0 / −0.03 / 0 | 0 | 0 / 0.02 / 0.28 | 0 (but building59 −0.54, pol58 0.54) |
+  | (c) pads not in the extent | 0 ×3 | +0.65 | identical to the branch | identical |
+  So: the lot chain and the tunnel rims came from the NETWORK BRIDGE admitting stretches between two airside mouths
+  (`small_roads:-3991#3/#4`, `-30357/-30359`), the garages' −0.03 from the forecourt admitted through the pad extent,
+  building59/67 from the patch's own ribbons being WELDED where main knifed. Then a deeper one: with every new road
+  junior (round 3's two-pass solve) pol84 still rose 2.93 m — the constraint set was generated from the map WITH the
+  roads, so the patch's own ribbons re-read their borders (terrace / between-levels / join rewrites) and moved
+  (93 main ribbons ≤ 2.43 m), the lots with them. No row order inside one map removes that.
+* MECHANISM (replaces round 3's senior/junior solve, which is DELETED — `solve/design*.py` are main's again):
+  1. `classify/ribbon_mint`: `mint_osm_ribbons` is main's mint again (per-way bridge, pads knifed, `ribbon_extent`
+     without pads); `mint_pad_roads` runs LAST (after the gap pieces) over what `network_spans(extent ∪ pads,
+     serve=pads)` adds — a path is bridged only when one of its mouths stands on a pad — less the first pass's spans,
+     pads subtracted at the footprint, evidence `pad_road`; the touch witness reads those cells only (`hold=False`).
+  2. THE PAD ROAD IS A FOLLOWER OF THE LAST STAGE (§55 (4), the gap pieces' own machinery): `stage_one_map.gap_free`
+     drops pad-road cells too, `late_followers` adds `model.planar.pad_road_faces`; `pad_ramp_rewrite` runs in
+     `run_late_stage` (released joins published through `pin_yield`). The base map is main's, cell for cell.
+  3. `constraints/pad_road_reach` (13d's read): per pad|road network between two standing levels, least grade =
+     |rise| / run along the pad roads' edges; over the road cap the remainder, `shift_m` inside `[road_contact]
+     pad_shift_max_m` (0.5 m, working value), `step_m` left. READ AND LOGGED, NOT APPLIED.
+* MEASURED (harness builds at 8231c75f9, tag `r4c_<ICAO>`, vs `/tmp/harness/sw23_<ICAO>.osm` = main 574729a79;
+  CYXY / NLWF at a3b11615b, tag `r4_`, no pad road there):
+  | airport | pads > 0.02 m | solve-owned airside | structures | pad roads | other movers | rebake plan | build s (sw23 → branch) |
+  | KCLT | 0 | 0 | 0 | 35 | none | identical | 344 → 415 |
+  | HECA | 0 | 0 | 0 | 202 | 24 gap parts / 399 nodes worst 7.36 m (`gap:5/s0`), 10 follower ribbons ≤ 0.68 m | identical | 704 → 743 |
+  | OTHH | 0 | 0 | 0 | 171 | 7 gap pieces / 16 nodes worst 0.20 m (`gap:27`) | 2 deck datums: unit:24 4.61 → 4.46, unit:20 3.96 → 3.97 | 420 → 534 |
+  | SPJC | 0 | 0 (1 node ADDED) | 0 | 138 | none | units identical (one stock library resource unresolved — environment) | 81 → 121 |
+  | KASE | 0 | 0 | 0 | 6 | none | identical | 36 → 47 |
+  | CYXY | 0 | 0 | 0 | 0 | body b3d42825d802 = sw23 | — | 32 → 35 |
+  | NLWF | 0 | 0 | 0 | 0 | body 500d6429f065 = sw23 | — | 7 → 7 |
+  (six builds ran in parallel: the wall times are not a timing measurement.) KCLT replay: the branch's `--gap-free`
+  patch is BYTE-IDENTICAL to main's (`cmp`), late stage "none relaxed", fixed off constant 0.
+* 13d TABLE — pad|road networks where no ramp inside 10 % fits (pad fixed; the shift is read, not applied):
+  | airport | pad | rise / run | grade needed | far end | remainder | shift inside 0.5 | step left |
+  | SPJC | building24 | +3.90 / 2.4 m | 161 % | lot `dsf:pol36#1` −12.0238115,−77.1070113 | +3.66 | +0.50 | 3.16 |
+  | SPJC | building24 | +3.95 / 14.2 m | 27.9 % | lot `dsf:pol35` −12.0221301,−77.1077552 | +2.53 | +0.50 | 2.03 |
+  | SPJC | building8 | +2.01 / 17.5 m | 11.5 % | apron `pav35` −12.0319743,−77.1046877 | +0.26 | +0.26 | 0 |
+  | HECA | building148 ↔ building152 | 2.39 / 13.7 m | 17.5 % | each other, 30.1289254,31.4137903 | ±1.02 | ±0.50 | 0.52 (0.02 if both move) |
+  KCLT 0 of 5, OTHH 0 of 2, KASE 0 of 1.
+* KCLT RAMPS (`road_course_profile --on-patch`, `r4/ramps_a4.txt`): on-patch worst over 10 m — forecourt `-16661` 0.8 %,
+  `-16664` 0.8 %, `-16649` 2.4 %, `-16651` 0.4 %, `-24655` 3.4 %, `-24651` 4.5 %; approaches `-8186` 5.7 %, `-8188`
+  3.9 %, `-8200` 1.8 % (the 5.1 m wall at 35.222959,−80.945684 is gone on-patch). AT THE PATCH EDGE the instrument reads
+  47–55 % over 10 m at seven exits (e.g. 35.224347,−80.945714; 35.225615,−80.945279; 35.223856,−80.945906): the pad
+  roads stand at 223 and the capture DEM outside is 218. The join yields are published (`road_join_yield`, +3.6 … +5.2 m
+  at those exits) for the core road to carry the ramp outward — NOT VERIFIED: needs a tile build (mesh).
+* KNOWN DEFECT, NOT FIXED: at an airport with BOTH gap pieces and pad roads (HECA, OTHH) the two are unknowns of
+  the same last stage, and the pad roads' rows move the gap pieces (HECA `gap:5/s0` −7.36 m beside T3). FIX SHAPE:
+  the pad roads as their own stage after the gap pieces — `run_late_stage` a second time, base = the gap stage's
+  result, no cut, followers = pad roads only (one more derive at those airports).
+* NOT BUILT: 13d step 2 (the pad shift — a pad welded to a standing lot or apron cannot move without re-solving
+  what it is welded to: owner/spec question), 13e step 3 (explicit release of the longitudinal cap spread over the
+  run; today an infeasible pad road is relaxed by the hard-feasibility LP row by row) and its consumer census of
+  "road ≤ 10 %" readers; ramps inside the patch at the exits; the mesh read; #229.

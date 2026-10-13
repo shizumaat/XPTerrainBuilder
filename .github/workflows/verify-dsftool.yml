@@ -93,7 +93,8 @@ jobs:
             echo "::warning::the dsftool-binaries artifact of run $CI_RUN could not be downloaded (expired?) — the vendored file is still pinned by DSFTool.identity.json"
             exit 0
           fi
-          tar -xzf "$RUNNER_TEMP/artifact/dsftool-binaries.tar.gz" -C "$RUNNER_TEMP/artifact"
+          # relative paths: GNU tar on the Windows runner reads "D:\..." as host:path
+          (cd "$RUNNER_TEMP/artifact" && tar -xzf dsftool-binaries.tar.gz)
           cat "$RUNNER_TEMP/artifact/SHA256SUMS"
           grep -F "$WANT_SHA  Utils/$TOOL_FILE" "$RUNNER_TEMP/artifact/SHA256SUMS" || {
             echo "FAIL: run $CI_RUN did not build the vendored Utils/$TOOL_FILE" >&2; exit 1; }

@@ -136,3 +136,41 @@ These are bodies with feet on ground far from their unit's zero — under 10n (3
 metres; but HECA is APPROVED on the current body (12m) → OWNER'S CALL. To drop the object-side rule alone: restore
 `Ortho4XP/src/auto_patch_v2/airport/pad_block_seat.py` and `footprint_seats.py` from main and delete the last test of
 `tests/auto_patch_v2/test_connect549.py` (`test_a_footed_body_off_every_pad_on_other_ground_leaves_its_unit`).
+
+## Step E — KCLT closing build `kclt608_KCLT` (harness, be4317166 + notes; rc 0, wall 694.8 s loaded machine, body 3f22a1e516b3; sw17 424876ac748d)
+* = the arm replay to the node: `airside_value_delta` sw17 → build: RUNWAY 0; solve-owned 995 (apron 721 worst 0.93 m
+  at 35.22006914808,-80.94808090106 — `pav14#plateau:building81` 94/94 +0.93 (220.85..221.75 → 221.68..222.68),
+  `pav14#plateau:building75` 520/521 ≤ 0.84, `pav14` apron 358/662 ≤ 0.93 and junction 177/406 ≤ 0.91 at
+  35.21947425094,-80.94753721362; taxi family = those junctions, 255; strip 19 ≤ 0.21); row-side 1,567 (strip 304 ≤
+  0.46, other 287); structures 11 tunnel-wall rim nodes ≤ 0.24 m. Vertices added/removed 0/0 in every frame.
+* Pads: building75 222.44 → 222.68, building81 221.75 → 222.68, building83 222.44 → 222.68, building84 222.69/222.70,
+  building85 222.88, garages 223.05 / 223.11 / 222.99 (unchanged), building92 223.67.
+* Census (`harness/census.py`): LAW-TRUE TOTAL 17451 → 17499 (within 17427 → 17475, cross 7 = 7, steps 17 = 17);
+  CRITICAL motion 4 = 4 (worst 0.280 m strip_arc, same site), CRITICAL visual 1986 = 1986; ADJUDICATED 6125 → 6180
+  (airside 2973 → 2972, groundside 3130 → 3186, mixed 22 = 22); verify DEFECTS none in the build log.
+* Object plan (dry run `obj8_split_report` on the build's plan + graded, `<scratch>/osr_build.json`):
+  `pad_level_units_split` 0 (the terminal is no longer cut — one level group within 0.3 m: 222.68 / 222.69 / 222.88);
+  `fu:6:960` ONE zero 222.68. NW window 35.2218..35.2240 / -80.9485..-80.9460: every written part at 222.68 (walls
+  paredes_4 b0 232 feet, paredes_5 b0, roofs techos_1 b2 / techos_2 b0, floor suelos_interiores b0, paredes_9/12 …);
+  the never-re-seated roof files (paredes_11 / paredes_6) sit on their authored row at the file anchor on building75
+  = 222.68 = the walls' zero → the roof planes meet the walls (was 222.44 over walls at 221.75).
+  Site A `paredes_5 b0` y_zero 0.00 on 222.68 (sw17 0.00 on 221.75; 1.0.387 −0.69). Site B `paredes_1` b3 (the
+  35.2203941 body) y_zero −0.18 (sw17 b2 −0.17; the b1 at −0.30 is now in b3), `paredes_2 b0` 0.00.
+  North extension `-paredes_2/4/5 b0` seated at the unit's 222.68 with own ground 222.88 (+0.20, within 0.3; was its
+  own level 222.87 1.12 m above the concourse); `-paredes_2 b1`, `-paredes_4 b1..b10` cut off-pad to `fu:6:960/g0..g19`
+  on building85 222.88 (own ground 0.00..0.35).
+  Separations ≥ 0.3 m (a2): 34 → 32 pairs; the north-extension 1.12 m pairs GONE (now ≤ 0.56: `-paredes_7 b3` 222.12
+  ↔ `-modulos_interiores b0` 222.68; `-techos_1 b1` 0.45); the 0.69 m class now 0.70 (`suelos_interiores b0` 222.68 ↔
+  `Paredes_7 b1` own ground 221.98 at 35.2202619,-80.9473359 — a body outside the unit on its own ground, the
+  east-side class); `paredes_8 b4` (the #548 tunnel-ramp body, own ground 217.21) ↔ `paredes_4 b3` 5.47 (was 5.23).
+  EAST SIDE UNCHANGED (1.31 / 0.77 / 0.64 / 0.58 / 0.56 / 0.47 / 0.44 / 0.38 / 0.38 / 0.36 / 0.35) — not this round's
+  mechanism (own-ground seats of touching bodies in no unit; §16c (7) bind refused for ground).
+  `off_pad_units_split` 8 / `off_pad_bodies` 90 (dry run reads the graded surface only; the garage-area bodies are
+  OFF-SURFACE there and are untouched in the dry run — only the app's tile build (mesh ground) exercises the cut for
+  them; their expected seat is the DEM ~218.1–219.6).
+* Suite (full non-Qt, -n 4, during the builds): 9562 passed / 19 skipped / 1 xfailed / 1 xpassed / 6 ERRORS — all six
+  are the session shared-repo CHILD-PROCESS detector naming a FOREIGN writer (SEQM `-01-079` caches and OSM layers:
+  another lane's build during the run), not this branch (test_silent_tile_death ×2, test_xdist_qt_guard ×3,
+  test_vector_map_hairline_weld ×1 at teardown). Ratchets: duplicate PASS, layer PASS; size WARN
+  constraints/platform.py 1065 → 1267 (+202 vs the recorded baseline; +55 here), no_step.py 1284.
+* Frames registered: `frames/kclt608/` patch, rebake, graded.

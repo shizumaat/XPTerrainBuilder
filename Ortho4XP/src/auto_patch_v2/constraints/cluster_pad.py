@@ -482,27 +482,6 @@ def _piece_stem(cid: str) -> str | None:
     return stem if sep and tail.isdigit() and stem else None
 
 
-def _pinned_faces(planar: PlanarMap, law: Law,
-                  faces: "dict[str, list[int]]") -> set[int]:
-    """The plate faces among ``faces`` whose level is SET by something other
-    than the pad's own plane: a frontage on airside pavement
-    (``pads.pad_fronts_airside``, §20 / §63 Rule S) or a HELD platform
-    block (``model.platform.HELD``, flat-pad spec §1 (2)).  A piece holding
-    one keeps its own entry; the others of its cluster re-unite without it."""
-    from ..model.platform import HELD
-    from .pads import pad_fronts_airside
-    fronting = pad_fronts_airside(planar, law)
-    out: set[int] = set()
-    for fids in faces.values():
-        for fid in fids:
-            f = planar.faces.get(fid)
-            if f is None:
-                continue
-            if fid in fronting or str(f.ref) in HELD:
-                out.add(fid)
-    return out
-
-
 def _plane_groups(planar: PlanarMap, law: Law, airport: Airport | None,
                   groups: list[tuple[int, str, list[int]]]
                   ) -> list[tuple[int, str, list[int], tuple[int, ...]]]:
@@ -547,23 +526,30 @@ def _plane_groups(planar: PlanarMap, law: Law, airport: Airport | None,
     # (223.21 m) while the garages took theirs (218.1 / 219.0) and the one
     # §16g zero the object stage gives the unit floated 10 bodies 3–5 m.
     # The pieces are therefore re-united here, as :func:`_split_blocks`'s
-    # inverse, UNLESS one of them is seated by something else: a piece that
-    # fronts airside (§20 / §63 Rule S — it keeps its frontage fit and the
-    # others their own) or a HELD platform block (flat-pad spec §1 (2)).
-    # Pieces 0.5 m apart are the same building; pieces 30 m apart are two
-    # buildings whose connector the outline could not carry — 10n (2)
-    # says each stands on its own, and the 08-27 split ("grade law
-    # outranks shared-datum preservation") is what parts them when one
-    # level cannot serve both: that split is the solve's, read on the
-    # merged entry, never a second grouping here.
-    pinned = _pinned_faces(planar, law, faces)
+    # inverse.  A piece that FRONTS AIRSIDE re-unites too (owner RULINGS
+    # 2026-10-12l (1), #608: "aprons are supposed to grade to pads, and
+    # pads are supposed to be seated so they can do it within grade law" —
+    # the apron does not hold two pads of one connected building at two
+    # levels; until 12l a fronting piece was PINNED by its own frontage fit
+    # and KCLT's concourse sat at 221.75 beside its terminal at 222.44, the
+    # roof parts of one building written at two zeros).  The HELD blocks
+    # among the pieces take ONE datum column through ``no_step.
+    # hold_interval``'s group rows, which read the merged entry.  Only the
+    # flat BLOCKS of a cut unit stay apart (:func:`_split_blocks`, the
+    # 08-27 / 09-30r split the solve itself makes when one level cannot
+    # serve a stepped base).  Pieces 0.5 m apart are the same building;
+    # pieces 30 m apart are two buildings whose connector the outline could
+    # not carry — 10n (2) says each stands on its own, and the 08-27 split
+    # ("grade law outranks shared-datum preservation") is what parts them
+    # when one level cannot serve both: that split is the solve's, read on
+    # the merged entry, never a second grouping here.
     base_of: dict[str, list[str]] = {}
     for cid in faces:
         stem = _piece_stem(cid)
         if stem is not None:
             base_of.setdefault(stem, []).append(cid)
     for stem, cids in base_of.items():
-        if len(cids) < 2 or any(q in pinned for c in cids for q in faces[c]):
+        if len(cids) < 2:
             continue
         for c in cids[1:]:
             ra, rb = find_root(root, cids[0]), find_root(root, c)

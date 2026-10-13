@@ -38,6 +38,7 @@ import pytest
 import auto_patch.driver as driver
 import auto_patch.build_support as build_support
 import auto_patch.provenance as provenance
+import auto_patch.provenance_env as provenance_env
 from auto_patch.driver import _auto_patch_is_current
 from auto_patch.build_support import read_patch_source
 from auto_patch import engine_v2
@@ -421,6 +422,31 @@ def test_output_only_gates_do_not_rebuild(install, patch_file, monkeypatch,
     assert install.is_current(patch_file)
 
 
+@pytest.mark.parametrize("name, built_under, gated_under", [
+    ("O4_PARENT_PROCESS_ID", "111", "222"),        # the app relaunched
+    ("O4_PARENT_PROCESS_ID", "111", None),         # in-process build
+    ("O4_PARALLEL_BUILD_SIBLINGS", "3", "1"),      # fewer tiles at once
+    ("O4_PARALLEL_BUILD_SIBLINGS", "3", None),
+    ("O4_INSET_SCRATCH_DIR", "/tmp/run_one", "/tmp/run_two"),
+    ("O4_AUTO_PATCH_STRICT", "1", None),
+    ("O4_PACK_WRITES", "measure_only", None),
+])
+def test_run_identity_is_not_a_build_input(install, tmp_path, monkeypatch,
+                                           name, built_under, gated_under):
+    """#607: the app's pid and the number of tiles building at once were
+    hashed into ``o4_cfg``, so every airport rebuilt after an app relaunch
+    or a change in the tile count.  Through the GATE, not only the digest:
+    a patch stamped under one value is current under another."""
+    monkeypatch.setenv(name, built_under)
+    path = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
+    assert install.is_current(path)
+    if gated_under is None:
+        monkeypatch.delenv(name)
+    else:
+        monkeypatch.setenv(name, gated_under)
+    assert install.is_current(path), f"{name} moved the patch stamp"
+
+
 def test_config_digest_covers_every_gate_and_constant():
     """The digest tracks config.py automatically — no hand-kept list."""
     gates = provenance.introspect_config_gates()
@@ -430,10 +456,11 @@ def test_config_digest_covers_every_gate_and_constant():
     assert provenance.CONFIG_DIGEST_EXCLUDED_CONSTANTS == frozenset({
         "LOG_VERBOSITY", "BUILD_PROGRESS", "REPORT_GRADE_AUDIT",
         "PARALLEL_AIRPORTS"})
-    assert provenance.CONFIG_DIGEST_EXCLUDED_GATES == frozenset({
-        "O4_LOG_VERBOSITY", "O4_BUILD_PROGRESS", "O4_REPORT_GRADE_AUDIT",
-        "O4_PARALLEL_AIRPORTS", "O4_AUTO_PATCH_REBUILD",
-        "O4_PATCH_PROVENANCE", "O4_MASKS_DIR"})
+    # ... and the env gate behind each is in the ONE table of variables the
+    # digest never reads (``tests/test_patch_env_classification.py``).
+    assert {"O4_" + name for name in
+            provenance.CONFIG_DIGEST_EXCLUDED_CONSTANTS} <= set(
+                provenance_env.RUN_ENVIRONMENT)
 
 
 def test_where_the_masks_are_kept_is_not_a_build_input(install, patch_file,
@@ -450,7 +477,7 @@ def test_where_the_masks_are_kept_is_not_a_build_input(install, patch_file,
     readers = [str(path.relative_to(src))
                for package in ("auto_patch", "auto_patch_v2")
                for path in sorted((src / package).rglob("*.py"))
-               if path.name != "provenance.py"
+               if path.name not in ("provenance.py", "provenance_env.py")
                and ("masks_root" in path.read_text(encoding="utf-8")
                     or "O4_MASKS_DIR" in path.read_text(encoding="utf-8"))]
     assert not readers, (
@@ -1048,6 +1075,54 @@ def test_generate_then_regenerate_reuses(tmp_path, monkeypatch, fresh_env):
     assert [p.calls for p in providers] == [0, 0, 0]
 
 
+def test_a_relaunched_app_reuses_and_a_rebuild_names_its_key(
+        tmp_path, monkeypatch, fresh_env, capsys):
+    """#607 through the real tile driver: a tile built by one app process
+    is reused by the next (new pid, different tile count), and when an
+    input DOES move the driver's own log names the stamp key — the loop
+    runs at ``config.LOG_VERBOSITY`` = 0, where the old line was silent."""
+    apt = _make_apt_dat(tmp_path)
+    tile = types.SimpleNamespace(lat=40.0, lon=-100.0, dem=None)
+    monkeypatch.setenv("O4_PARENT_PROCESS_ID", "111")
+    monkeypatch.setenv("O4_PARALLEL_BUILD_SIBLINGS", "3")
+    first, _ = _drive_generate(tmp_path, monkeypatch, apt, tile=tile)
+    assert first == ["KFAK"]
+    assert "rebuilding" not in capsys.readouterr().out   # a first build
+
+    monkeypatch.setenv("O4_PARENT_PROCESS_ID", "222")
+    monkeypatch.delenv("O4_PARALLEL_BUILD_SIBLINGS")
+    second, _ = _drive_generate(tmp_path, monkeypatch, apt, tile=tile)
+    out = capsys.readouterr().out
+    assert second == [], out
+    assert "KFAK up to date" in out and "rebuilding" not in out
+
+    _touch_newer(apt)
+    third, _ = _drive_generate(tmp_path, monkeypatch, apt, tile=tile)
+    out = capsys.readouterr().out
+    assert third == ["KFAK"]
+    assert out.count("Auto-patch: KFAK rebuilding —") == 1, out
+    assert "o4_apt_dat_mtime changed." in out
+
+
+def test_an_unclassified_variable_is_digested_and_named(
+        tmp_path, monkeypatch, fresh_env, capsys):
+    """A set ``O4_`` variable in no class stays in the stamp (a setting
+    that cannot be verified is a rebuild) and the tile's log names it."""
+    apt = _make_apt_dat(tmp_path)
+    tile = types.SimpleNamespace(lat=40.0, lon=-100.0, dem=None)
+    first, _ = _drive_generate(tmp_path, monkeypatch, apt, tile=tile)
+    assert first == ["KFAK"]
+    assert "is not classified" not in capsys.readouterr().out
+
+    monkeypatch.setenv("O4_NOBODY_CLASSIFIED_THIS", "1")
+    second, _ = _drive_generate(tmp_path, monkeypatch, apt, tile=tile)
+    out = capsys.readouterr().out
+    assert second == ["KFAK"]
+    assert out.count("O4_NOBODY_CLASSIFIED_THIS is set and is not "
+                     "classified") == 1, out
+    assert "KFAK rebuilding — o4_cfg changed." in out
+
+
 def test_lazy_inputs_resolved_once_on_rebuild(
         tmp_path, monkeypatch, fresh_env):
     apt = _make_apt_dat(tmp_path)
@@ -1641,18 +1716,46 @@ def test_a_replaced_dsf_rebuilds_once(install, patch_file):
 # WHY a patch rebuilt — one line, at verbosity 1
 # ──────────────────────────────────────────────────────────────────────
 def _reason_lines(monkeypatch) -> list:
-    """Capture ``UI.vprint`` calls made at level 1."""
+    """The lines the gate prints at level 0 or 1, by either print."""
     seen: list[str] = []
 
-    def _vprint(level, *args):
+    def _print(level, *args):
         if level <= 1:
             seen.append(" ".join(str(a) for a in args))
 
-    monkeypatch.setattr(driver.UI, "vprint", _vprint)
+    monkeypatch.setattr(driver.UI, "vprint", _print)
+    monkeypatch.setattr(driver.UI, "lvprint", _print)
     return seen
 
 
-def test_rebuild_reason_prints_at_verbosity_one(install, patch_file,
+def test_rebuild_reason_prints_when_the_driver_has_silenced_the_tile(
+        install, patch_file, monkeypatch, capsys):
+    """#607: the tile driver runs its airport loop at
+    ``config.LOG_VERBOSITY`` (0), so the reason — a ``vprint(1)`` — never
+    reached the app's log.  It prints at the level the reuse line does."""
+    monkeypatch.setattr(driver.UI, "verbosity", 0)
+    monkeypatch.setattr(driver.UI, "log", False)
+    _touch_newer(install.cifp)
+    assert not install.is_current(patch_file)
+    out = capsys.readouterr().out
+    assert out.count("Auto-patch: KFAKE rebuilding — o4_cifp changed.") == 1
+
+
+def test_a_forced_rebuild_says_so(install, patch_file, monkeypatch):
+    seen = _reason_lines(monkeypatch)
+    monkeypatch.setenv("O4_AUTO_PATCH_REBUILD", "1")
+    assert not install.is_current(patch_file)
+    assert len(seen) == 1 and "O4_AUTO_PATCH_REBUILD=1" in seen[0], seen
+
+
+def test_a_first_build_gives_no_rebuild_reason(install, tmp_path,
+                                               monkeypatch):
+    seen = _reason_lines(monkeypatch)
+    assert not install.is_current(tmp_path / "KNONE_auto.patch.osm")
+    assert seen == []
+
+
+def test_rebuild_reason_names_the_stamp_key(install, patch_file,
                                                 monkeypatch):
     seen = _reason_lines(monkeypatch)
     _touch_newer(install.cifp)

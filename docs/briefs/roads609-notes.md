@@ -145,3 +145,27 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   214 new ribbon refs, 37 new groundside pieces.
 * origin/main d64b880da (#627 one level, #626) MERGED into the branch after these pairs; a base worktree
   `roads609base` at origin/main serves the post-merge pairs (`heca2_*`, `kclt2_*`).
+
+## Closing (branch c6d52bbb0 = 6399c2cf1 + 254207389 + origin/main d64b880da; then 83c51c107 console pin)
+* `roads609_KCLT` harness build: rc 0, 435 s, body c96ca98266ce, ledger 9f3bfeb59245; frames registered
+  (`frames.py list KCLT` → `frames/roads609/`). vs `frames/kclt608/kclt608_KCLT.osm` (= #627's KCLT 3f22a1e516b3):
+  RUNWAY 2 nodes 0.05 m (35.22475552,-80.93645381), solve-owned 46 ≤ 0.05 m, structure 17 tunnel-wall rim nodes ≤ 1.30
+  m (35.20218,-80.94025); row-side 320: building90 −4.69, building86 −4.55, building88 −4.32 (the garages to their
+  ground 218.33–219.08), building77 +0.65, building59 −0.34; strip 67 ≤ 2.32; groundside dsf:pol84 2.79, pol83 1.25.
+  Census: LAW-TRUE 17931 (kclt608 17499), ADJUDICATED 6573 (airside 3038, groundside 3510, mixed 25), CRITICAL
+  motion 4 = 4 (worst 0.280 m strip_arc, same site), steps 28 (17).
+* TILE BUILD REFUSED by the corpus pre-flight (verbatim): "REFUSING: 1 artifact(s) are MISSING from the shared data
+  repo … [dem] Elevation_data/**/N35W081_airport_insets/KVUJ_*.tif [stale] — STALE airport elevation inset
+  …/N35W081_airport_insets/KVUJ_usgs3dep.tif — it was cut for -80.178694,35.390689,-80.121899,35.440769 but KVUJ now
+  r… To fetch them deliberately: --refresh-data dem" — the master's refresh; no mesh-ground placement read was
+  possible for KCLT or HECA this lane (D not done).
+* Suites on the merged tree: v2 `tests/auto_patch_v2` 2983 passed / 3 skipped / 1 xfailed / 1 xpassed / 2 FAILED;
+  full non-Qt 9634 passed / 19 skipped / 1 xfailed / 1 xpassed / 4 FAILED — the two console-encoding rows fixed
+  (83c51c107); the two HECA real-map pins still RED: `test_gap_apron::test_the_class_table_read_on_a_real_map` (38
+  gap pieces → 60 + 12 gap aprons; road pieces [0,2,4,7,11,12,28,29] → [0,1,7,9,16,20,44,49,65]; aprons no-road
+  [22,24,35] → [41,43,68], road [13,15,16,17,20,30,33,36] → [11,19,21,28,29,36,53,60,69]; stats (11, 8) → (12, 9))
+  and `test_gap_terrace::test_the_rule_read_on_a_real_map_gives_the_recorded_counts` — NOT re-pinned: a pin of a
+  HECA table the branch changes, left red for the master's decision. Ratchets: DUPLICATE PASS, LAYER PASS; size WARN
+  classify/roles.py 1444 → 1522 (+78 here; the main merge carries the rest).
+* Post-merge HECA pair (`heca2_base/` roads609base = origin/main d64b880da, `heca2_arm/`): base done; the arm's hard
+  set is 565,731 rows (LP 17.6 s, OVER BUDGET, 0 relaxed) — see the report for its delta if it landed.

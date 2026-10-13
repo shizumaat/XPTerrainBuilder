@@ -2280,13 +2280,13 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     if resume not in ("classify", "planar"):
         raise SystemExit("--late-from needs --from classify or --from planar: the pieces "
                          "are cut by the base's levels BEFORE the map is built")
-    from auto_patch_v2.pipeline.late_stage import run_late_stage
+    from auto_patch_v2.pipeline.late_stage import run_last_stages
     held: dict = {}
 
     def _derive(cl_cut):
         held.update(_rest(cl_cut, stage_one=False))
         return held["pm"], held["cs"], None, None
-    pm_l, sol, lrep = run_late_stage(
+    pm_l, sol, lrep = run_last_stages(
         cl, airport, law, _derive, late["base"],
         out=lambda m: print(f"[{icao}] {m}"), **late.get("solve_kw", {}))
     held.update(pm=pm_l, cs=lrep["cs"], cl=lrep["cl"], stage1=None,

@@ -1168,13 +1168,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # against constants.  Everything below reads the full map.
         t = time.perf_counter()
         _pulse.tick("the last stage: the gap pieces")
-        from .late_stage import run_late_stage
+        from .late_stage import run_last_stages
         _base_rep = design_rep
         # the last stage re-mints the HELD registry (its own prefix run): the
         # base solve's hold report is carried over it (``model.platform``)
         from ..model.platform import hold_report, install_hold_report
         _hold_rep = hold_report()
-        pm, sol, _late = run_late_stage(
+        pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, _ribbon_free,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield},
             rules=load_rules(), options=cfg.options,

@@ -75,8 +75,8 @@ def gap_free(cl):
     return _dc.replace(cl, cells=cells)
 
 
-def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
-                   ) -> tuple[set[int], dict]:
+def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset(),
+                   roads_only: bool = False) -> tuple[set[int], dict]:
     """THE LAST STAGE'S UNKNOWNS (spec §53 (9); owner RULINGS 2026-10-04o/q,
     master 2026-10-04: "pieces follow, never lead"): the vertices of every
     §53 GAP PIECE, and of every mapped-road RIBBON
@@ -86,9 +86,11 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset()
     a pad, an airside face, an apt.dat road, an existing lot keeps the level
     the earlier stages gave it, and the follower grades up to it.  A face of
     a ``soft_roles`` role (the adjacent-ground bands, which adopt their
-    value) does not hold a vertex.  ``(vertices, report)``."""
+    value) does not hold a vertex.  ``roads_only``: THE PAD ROADS' OWN
+    STAGE (issue #609) — they alone follow, the gap pieces and the ribbons
+    along them stand with everything else.  ``(vertices, report)``."""
     from ..model.planar import gap_follower_faces, pad_road_faces
-    gap, ribbons = gap_follower_faces(pm_full)
+    gap, ribbons = ([], []) if roads_only else gap_follower_faces(pm_full)
     # the pad roads (issue #609; 13a (1)): followers as a gap piece is
     pad_roads = pad_road_faces(pm_full)
     ribbons = [*ribbons, *(f for f in pad_roads

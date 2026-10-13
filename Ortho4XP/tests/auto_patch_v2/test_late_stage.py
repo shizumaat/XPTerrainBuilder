@@ -248,10 +248,11 @@ def test_stations_are_standing_rings_within_reach_at_the_pieces_cap():
 
 
 def test_the_build_enters_the_last_stage_once_and_only_with_a_gap_piece():
-    """Spec §55 (9) THE NO-OP IS STRUCTURAL: ``pipeline/build.build`` calls
-    ``run_late_stage`` at ONE site, under the one condition that the
-    classification carried a gap piece (``gap_free(cl)`` is not ``None``) —
-    and ``gap_free`` of a classification without one is ``None``."""
+    """Spec §55 (9) THE NO-OP IS STRUCTURAL: ``pipeline/build.build`` enters
+    the last stage (``run_last_stages`` — the gap pieces, then the pad roads
+    of #609) at ONE site, under the one condition that the classification
+    carried a last-stage cell (``gap_free(cl)`` is not ``None``) — and
+    ``gap_free`` of a classification without one is ``None``."""
     import ast
     import inspect
 
@@ -265,7 +266,7 @@ def test_the_build_enters_the_last_stage_once_and_only_with_a_gap_piece():
             u = under
             if isinstance(child, ast.If) and "cl_gaps is not None" in ast.unparse(child.test):
                 u = True
-            if isinstance(child, ast.Call) and getattr(child.func, "id", "") == "run_late_stage":
+            if isinstance(child, ast.Call) and getattr(child.func, "id", "") == "run_last_stages":
                 calls.append(child)
                 guarded.append(u)
             walk(child, u)

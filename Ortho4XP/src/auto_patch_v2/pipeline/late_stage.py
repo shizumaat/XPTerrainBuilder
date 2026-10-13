@@ -28,6 +28,7 @@ from shapely.strtree import STRtree
 from ..classify.gap_mint import _poly
 from ..classify.gap_terrace import APRON, PAD, ROAD, Station, terrace_cut
 from ..constraints.ceiling import RULING as _CEILING_RULING
+from ..constraints.gap_follow import GEN as _GAP_GEN
 from ..constraints.gap_follow import (BehindStep, PartStations,
                                       gap_follow_rows, reach_m)
 from ..constraints.pavement_cap import RULING as _FALLBACK_RULING
@@ -39,9 +40,9 @@ from ..model.planar import face_edge_ids, is_gap_ref, is_osm_ribbon_ref
 from ..planar.basins import WALL_ROLE
 from ..planar.chords import stations as _chord_stations
 from .stage_one_map import (late_constraints, late_fixed, late_followers,
-                            late_rim_levels)
+                            late_rim_levels, row_vertices)
 
-__all__ = ["late_stations", "cut_classification", "run_late_stage",
+__all__ = ["late_stations", "cut_classification", "run_late_stage", "run_last_stages",
            "BEHIND_STEP"]
 
 #: THE CELLS BEHIND A DECLARED STEP (spec §60 (9) R1) — a structure's floor
@@ -216,13 +217,19 @@ def _carry_pin_yield(base_solution, pm_base, pm_full) -> list[dict]:
 def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                    base_solution: _t.Mapping[str, _t.Any], *, rules=None,
                    options=None, out: _t.Callable[[str], None] = print,
+                   roads_only: bool = False,
                    **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
     """THE LAST STAGE (spec §55 (4)).  ``base_solution`` is the base map and
     its solved levels (``{"pm", "z"}``); ``derive(cl) -> (pm, cs, strips,
     hold)`` is the CALLER's own prefix (the build's, the replay's), run here
     on the classification with the pieces cut.  ``(full map, solution,
     report)``; the report carries the stage's own row set (``cs``), its
-    constants (``fixed``) and the solve's report (``design``)."""
+    constants (``fixed``) and the solve's report (``design``).
+
+    ``roads_only`` is THE PAD ROADS' OWN STAGE (issue #609; 13a (1): junior
+    to every pavement they meet — :func:`run_last_stages`): ``cl`` is taken
+    as it is (nothing is cut), only the pad roads follow, and no gap-follow
+    row is minted."""
     from ..law.tables import design as _design_law
     from ..solve import feasibility as _feas
     from ..solve.design import solve_late_stage
@@ -231,7 +238,11 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         rules = load_rules()
     pm_base, z_base = base_solution["pm"], base_solution["z"]
     t0 = time.perf_counter()
-    cl_cut, cut = cut_classification(cl, pm_base, z_base, law, rules)
+    if roads_only:
+        cl_cut, cut = cl, {"pieces": [], "parts": 0, "knives": 0, "merged": 0,
+                           "stations": 0, "part_stations": {}}
+    else:
+        cl_cut, cut = cut_classification(cl, pm_base, z_base, law, rules)
     # the stations stay the stage's own (the cut report is a published record)
     part_stations = cut.pop("part_stations")
     t_cut = time.perf_counter() - t0
@@ -241,7 +252,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     t0 = time.perf_counter()
     pm, cs, strips, _hold = derive(cl_cut)
     t_derive = time.perf_counter() - t0
-    free, frep = late_followers(pm)
+    free, frep = late_followers(pm, roads_only=roads_only)
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
     fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
     jrep["rim"] = late_rim_levels(pm_base, z_base, pm, fixed, free, ident * 0.02)
@@ -281,7 +292,8 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         widen_floor_m=floor_m)
     out(f"LAST STAGE (§53 (9)): followers {frep}; join {jrep}; "
         f"rows with no unknown dropped {dropped}")
-    grows, grep = gap_follow_rows(pm, law, fixed, part_stations, BEHIND_STEP)
+    grows, grep = ([], {"rows": 0, "conflicts": [], "declared": []}) if roads_only \
+        else gap_follow_rows(pm, law, fixed, part_stations, BEHIND_STEP)
     cs = ConstraintSet.from_rows([*cs.rows(), *grows])
     cs_full = ConstraintSet.from_rows([*cs_all.rows(), *grows])
     # the lot SITS at its road's level: the one published-target channel
@@ -322,3 +334,64 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
               "wall_s": {"cut": round(t_cut, 2), "derive": round(t_derive, 2),
                          "solve": round(t_solve, 2)}}
     return pm, sol, report
+
+
+def _has_pad_road(c) -> bool:
+    return bool((getattr(c, "evidence", None) or {}).get("pad_road"))
+
+
+def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
+                    base_solution: _t.Mapping[str, _t.Any], *,
+                    out: _t.Callable[[str], None] = print, **kw
+                    ) -> tuple[_t.Any, _t.Any, dict]:
+    """THE LAST STAGE, AND THE PAD ROADS AFTER IT (issue #609; owner RULINGS
+    2026-10-13a (1): a pad road is junior to every pavement it meets — the
+    gap pieces too).  With only gap pieces, or only pad roads, on the map
+    this IS :func:`run_late_stage`.  With both, the gap pieces are solved
+    first on the classification WITHOUT the pad roads (the stage an airport
+    with no pad road gets, row for row), then the pad roads alone against
+    its levels (``roads_only``): a second derive, paid only there.
+    MEASURED before the order (HECA, one stage for both): 24 gap parts moved,
+    worst 7.36 m; and with the order inside ONE derive (gap pieces' pass
+    with the pad roads' vertices and rows dropped, OTHH): 12 gap nodes
+    still moved up to 0.20 m — the rings the pad roads re-node."""
+    from ..solve import feasibility as _feas
+    from .stage_one_map import remap_row
+    roads = [c for c in cl.cells if _has_pad_road(c)]
+    gaps = any(is_gap_ref(c.ref) for c in cl.cells)
+    if not (roads and gaps):
+        return run_late_stage(cl, airport, law, derive, base_solution, out=out,
+                              roads_only=not gaps, **kw)
+    plain = _dc.replace(cl, cells=tuple(c for c in cl.cells if not _has_pad_road(c)))
+    pm_g, sol_g, rep_g = run_late_stage(plain, airport, law, derive, base_solution,
+                                        out=out, **kw)
+    nid = max((c.id for c in rep_g["cl"].cells), default=-1) + 1
+    cl_all = _dc.replace(rep_g["cl"], cells=tuple(rep_g["cl"].cells) + tuple(
+        _dc.replace(c, id=nid + k) for k, c in enumerate(roads)))
+    out(f"LAST STAGE, then the pad roads ({len(roads)} cells) against it (13a (1))")
+    pm, sol, rep = run_late_stage(
+        cl_all, airport, law, derive,
+        {"pm": pm_g, "z": sol_g.z, "pin_yield": rep_g["pin_yield"],
+         "hard_conflict": [dict(r) for r in _feas.HARD_CONFLICT]},
+        out=out, roads_only=True, **kw)
+    # the gap stage's records stand; its follow rows cross to the final map
+    # by the canonical join (vertex coordinate)
+    at = {tuple(v.xy): i for i, v in pm.vertices.items()}
+    vmap = {i: at[tuple(v.xy)] for i, v in pm_g.vertices.items() if tuple(v.xy) in at}
+    g_rows = [r for r in rep_g["cs_full"].rows() if r.source.generator == _GAP_GEN]
+    carried = [remap_row(r, vmap) for r in g_rows
+               if all(v in vmap for v in row_vertices(r))]
+    rep["cs_full"] = ConstraintSet.from_rows([*rep["cs_full"].rows(), *carried])
+    rep["cut"], rep["follow"] = rep_g["cut"], rep_g["follow"]
+    rep["gap_stage"] = {"followers": rep_g["followers"], "join": rep_g["join"],
+                        "dropped": rep_g["dropped"], "wall_s": rep_g["wall_s"],
+                        "follow_rows_carried": len(carried), "follow_rows": len(g_rows)}
+    refs = sorted({*rep_g["stage"]["followers"], *rep["stage"]["followers"]})
+    rep["stage"] = {**rep_g["stage"], "followers": refs}
+    rep["followers"] = {**rep["followers"], "gap_faces": rep_g["followers"]["gap_faces"],
+                        "follower_ribbon_refs": refs,
+                        "follower_ribbons": len(refs)}
+    rep["wall_s"] = {k: round(rep_g["wall_s"][k] + rep["wall_s"][k], 2)
+                     for k in rep["wall_s"]}
+    rep["design"].stages["gap_stage"] = dict(rep_g["design"].stages)
+    return pm, sol, rep

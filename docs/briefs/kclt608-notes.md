@@ -213,3 +213,21 @@ metres; but HECA is APPROVED on the current body (12m) → OWNER'S CALL. To drop
   50 bodies change zero, ALL the concourse's: +0.93 (221.75 → 222.68: paredes_4 b0, paredes_2, techos_2, paredes_10,
   the interior clutter), the north extension −paredes_2 221.71 → 222.68 (+0.97), silla_1 221.35 → 222.68 (+1.33, a
   footless carried chair), paredes_8 +0.41, Paredes_7 +0.26; nothing else. Units changed: fu:6:960 only.
+* CORRECTION: the earlier HECA body list (sign_T2 −34.96, interior_door +26.4, floor_more_yellow −25.7, T3_concrete_Yellow
+  +31 …) was a DIFF-TOOL ARTEFACT — `c2_osr_diff.py` keyed bodies by (resource, component set) WITHOUT the placement
+  index, so single-component bodies of different placements of one resource collided. Fixed (key now carries
+  `placement.index`); re-read:
+  - HECA (a) alone (kclt608a code on the kclt608_HECA surface vs sw17): 45 bodies > 0.05 m, WORST +9.76: the
+    building6 class (fu:40:120/p0 92.03 → /p1 101.79: T3_brick_clean, blank, floor, interior_glass ×2, meridien ×2,
+    metal_strip_2, t3_13 ×2, titles_1 ×3, building (carried), metal_blue 92.18 → 101.91, 30.1130–30.1145, 31.3943–
+    31.3959); building7's bodies +1.41 (lancang, metal_strip_2 ×2, Plastic, ceiling_2); building110's brick −1.22
+    (30.1222406,31.4059144); ground units on the lots that rose with building6's groundside pavement: fu:43:16953
+    floor/t3_13 +8.48 (30.1140211,31.3959077), fu:43:13575 door/T3_2 ×5 +1.32; own-ground/low-side-foot bodies on
+    those lots and aprons ±0.1–3.2 (OB-asphalt_3 +3.22, OB-asphalt_2 +2.89, t3_13 +2.73/+2.44, metal_blue +2.51/
+    +1.67/+1.10, building_2_texture +1.38/−0.27, T3_concrete_white +1.13, OB-asphalt −0.95/−0.49, door −0.40,
+    building_texture ×2 −0.08). Units changed: fu:40:120 (4 levels → 2), fu:43:5241 (2 → 1). All three classes are
+    the three pad moves the owner accepted + the 212 groundside-pavement nodes welded to them.
+  - HECA (b) = full kclt608: 109 bodies > 0.05 m, worst −10.25 (T3_14 fu:40:120/p3 101.79 → /p1/g3 ground 91.54,
+    30.1138013,31.3969550; −9.93 /g19), the rest (a)'s; off_pad 41 units / 975 bodies.
+  - KCLT (a): 50 bodies, all the concourse +0.93 (worst silla_1 +1.33); KCLT (b): 50 bodies, same, plus the
+    off-pad re-partition (8 units / 90 bodies) with no body moving > 0.3 m on the graded surface.

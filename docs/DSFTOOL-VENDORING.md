@@ -125,6 +125,25 @@ pack's own DSF, not a `dsf_pool_select_*` temp copy.  The retry
 (`dsf_write._dump_pool_selected`, #582) stays in the engine as the
 fallback, by ruling.
 
+## Proving the vendored files on Windows and Linux
+
+The Windows and Linux binaries cannot be run on this Mac.  After the
+vendoring commit is on a branch GitHub has — and again whenever
+`Utils/toolchains/smoke_test_dsftool.py` learns a new check —
+
+    gh workflow run verify-dsftool.yml --ref <that branch>
+
+It builds nothing and changes nothing: per platform it checks the
+checked-out `Utils/<platform>/DSFTool[.exe]` against
+`DSFTool.identity.json`, compares it byte for byte with the
+`dsftool-binaries` artifact of the recorded `ci_run` (a warning, not a
+failure, once that artifact has expired — 90 days), and runs the smoke
+test on it (macOS: both slices).  Three green jobs are the platform
+evidence for the files that ship.  A smoke test that grew does NOT by
+itself call for a rebuild: the source and pins are unchanged, and a
+rebuild would only ship different bytes (compile date, non-reproducible
+build) that then need this same proof.
+
 ## What a new tool invalidates
 
 Dump caches are keyed by the DSF's bytes (`<tile>.dsf.<sha256[:8]>.text`

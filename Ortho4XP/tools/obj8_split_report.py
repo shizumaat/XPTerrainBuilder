@@ -236,6 +236,24 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
     return sampler, pads, rims
 
 
+def surface_from_mesh(mesh_path: str, bounds, graded_sampler):
+    """The BUILT MESH as the placement surface (``--mesh``): the app's
+    own adapter (``auto_patch.engine_v2.mesh_placement_sampler`` wrapped
+    by its ``_placement_surface`` memo, exactly the callable
+    ``_place_objects`` hands ``build_plan``), carrying the graded
+    document's ``roles`` / ``rolled_on`` / ``decks`` from
+    ``graded_sampler`` so §17 and §49 read as they do in the app.
+    ``bounds`` is the plan's ``(min_lon, min_lat, max_lon, max_lat)``."""
+    from auto_patch.engine_v2 import (_placement_surface,
+                                      mesh_placement_sampler)
+    s = _placement_surface(mesh_placement_sampler(mesh_path, bounds))
+    for k in ("roles", "rolled_on", "decks"):
+        setattr(s, k, getattr(graded_sampler, k, None))
+    s.holes_struck = 0                        # type: ignore[attr-defined]
+    s.mesh = mesh_path                        # type: ignore[attr-defined]
+    return s
+
+
 def _near_m(lat0: float, lon0: float, lat: float, lon: float) -> float:
     """Plan distance in metres at this latitude — the same small-angle
     frame every per-site read in this tool uses."""
@@ -1198,6 +1216,15 @@ def _main() -> int:
     ap.add_argument("plan", help="<ICAO>.rebake.json (or o4_v2_rebake_<ICAO>.json)")
     ap.add_argument("--graded", default="", help="<ICAO>.graded.json "
                     "(required unless --torn-seams)")
+    ap.add_argument("--mesh", default="", metavar="Data+XX-YYY.mesh",
+                    help="sample the BUILT MESH instead of the graded "
+                         "surface's Delaunay — the terrain the app's own "
+                         "placement stage seated on (engine_v2."
+                         "mesh_placement_sampler, the same adapter); the "
+                         "graded document still supplies the pads, rims, "
+                         "decks and face roles.  A body of one building on "
+                         "ground that slopes under it (#625) is visible "
+                         "only here")
     ap.add_argument("--write-into", default="", help="write the cut files here and "
                                                      "parse each back (scratch only)")
     ap.add_argument("--json", default="", help="write the whole report here")
@@ -1369,6 +1396,11 @@ def _main() -> int:
         for line in base_profile_lines(bp_rep, top=a.top):
             print(line)
     sampler, pads, rims = surface_from_graded(a.graded, tol_m)
+    if a.mesh:
+        sampler = surface_from_mesh(a.mesh, plan.bounds(), sampler)
+        print(f"  surface: the BUILT MESH {os.path.basename(a.mesh)} "
+              f"(the app's own placement ground); pads, rims, decks and "
+              f"face roles from {os.path.basename(a.graded)}")
     if a.admit_skipped:
         plan, n_rows, n_res = admit_skipped(
             plan, os.path.abspath(a.admit_skipped), a.dsftool,
@@ -1452,6 +1484,7 @@ def _main() -> int:
                                         else a.rigid_reach),
                          # (A), RULINGS 2026-09-12ap
                          bind_ground_m=_law.tables.emit.cockpit.visual_m,
+                         roof_bind_m=_law.tables.emit.terrace.pad_terrace_floor_m,
                          cluster_min_m2=_law.tables.structures.placement
                          .cluster_pad_min_m2,
                          touch_m=_law.tables.structures.placement

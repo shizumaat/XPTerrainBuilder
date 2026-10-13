@@ -55,8 +55,19 @@ RIGID_CLUSTER_SPAN_MAX_M = 1200.0
 UNIT_CLUSTER_SPAN_MAX_M = 300.0
 
 __all__ = ["comp_of", "comp_cluster", "comp_blocks", "unit_clusters",
-           "unit_rigid", "RigidNode", "bind_unit", "RIGID_REACH_COMPONENTS_MAX",
+           "unit_rigid", "RigidNode", "bind_unit", "follow_seniors",
+           "RIGID_REACH_COMPONENTS_MAX",
            "RIGID_CLUSTER_SPAN_MAX_M", "UNIT_CLUSTER_SPAN_MAX_M"]
+
+
+def _overlap(b: "tuple | None", q: "tuple | None") -> float:
+    """Plan overlap of two ``(lat0, lon0, lat1, lon1)`` boxes, in square
+    degrees — the "stands over" reading §16c (7) (a) and the roof witness
+    below share."""
+    if b is None or q is None:
+        return 0.0
+    return (max(0.0, min(b[2], q[2]) - max(b[0], q[0]))
+            * max(0.0, min(b[3], q[3]) - max(b[1], q[1])))
 
 
 def comp_of(cut, tris) -> "list[int]":
@@ -357,7 +368,7 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
                contacts: _t.Iterable[tuple[int, int]],
                span_max_m: float = UNIT_CLUSTER_SPAN_MAX_M,
                near_m: float = 0.0, bind_ground_m: float = 0.0,
-               counts: dict | None = None
+               counts: dict | None = None, roof_bind_m: float = 0.0
                ) -> tuple[list[int], list[tuple[float, int, int]]]:
     """§16c (7): THE UNIT BINDS BY CONTACT (owner RULINGS 2026-09-12q).
 
@@ -467,8 +478,7 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
             best, best_ov, near, near_d = -1, 0.0, -1, near_m
             for j in feet_i:
                 q = nodes[j].box
-                ov = (max(0.0, min(b[2], q[2]) - max(b[0], q[0]))
-                      * max(0.0, min(b[3], q[3]) - max(b[1], q[1])))
+                ov = _overlap(b, q)
                 if ov > best_ov:
                     best, best_ov = j, ov
                 if best_ov > 0.0 or near_m <= 0.0:
@@ -494,7 +504,6 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
     groups: dict[int, list[int]] = {}
     for i in range(n):
         groups.setdefault(find_root(par, i), []).append(i)
-
     def _area(i: int) -> float:
         if nodes[i].footprint_m2:
             return float(nodes[i].footprint_m2)
@@ -561,6 +570,7 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
         # ground disagrees with the cluster's — does not care whose file
         # the body is in.
         _sz = nodes[top].zero
+        refused: list[int] = []
         for i in idx:
             if i == top:
                 continue
@@ -568,23 +578,197 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
                     and nodes[i].footed and nodes[i].zero is not None
                     and abs(float(nodes[i].zero) - float(_sz))
                     > float(bind_ground_m)):
-                if counts is not None:
-                    counts["bind_refused_for_ground"] = \
-                        counts.get("bind_refused_for_ground", 0) + 1
-                    counts["bind_refused_worst_m"] = max(
-                        counts.get("bind_refused_worst_m", 0.0),
-                        round(abs(float(nodes[i].zero) - float(_sz)), 3))
+                refused.append(i)
                 continue
             senior[i] = top
+        # THE ROOF WITNESS (owner RULINGS 2026-09-11i, 2026-10-10n (1)/(3);
+        # #610, #625).  12ap's ground test tells a GSE box chained over
+        # 154 m of apron from the building it touches; it cannot tell the
+        # POSTS of a canopy from that box — KASE's Atlantic FBO posts
+        # (`FBO_3` b1, 8 feet) stand 0.78 m below the senior's zero on
+        # mesh ground that slopes under ONE building, were refused, and
+        # ended 1.29 m under the canopy that rides the building.  What
+        # says "one building" in the geometry is the ROOF: an ELEVATED
+        # body of this cluster that stands over the refused body AND over
+        # a body the cluster kept is one roof over one building, and the
+        # body under it is bound whatever its own ground says (the walls,
+        # roof and posts of one building never end on different levels;
+        # the float at its feet is the terrain's to adapt, §11).  A roof
+        # that stands over refused bodies ONLY is that body's own roof —
+        # two buildings that touch — and it rides the body it stands on,
+        # not the senior, so no roof is ever written above its own walls.
+        if refused and roof_bind_m > 0.0:
+            kept = [i for i in idx if nodes[i].footed and senior[i] == top
+                    or i == top]
+            for e in idx:
+                if nodes[e].footed or nodes[e].box is None:
+                    continue
+                over_kept = any(_overlap(nodes[e].box, nodes[j].box) > 0.0
+                                for j in kept)
+                over_ref = [(j, _overlap(nodes[e].box, nodes[j].box))
+                            for j in refused]
+                over_ref = [(j, ov) for j, ov in over_ref if ov > 0.0]
+                if not over_ref:
+                    continue
+                if over_kept:
+                    for j, _ov in over_ref:
+                        # THE CAP: under the terrace floor the step is a
+                        # weld and the body is the building's; a
+                        # terrace-sized step (HECA T3's doors on the
+                        # ground 10 m under the pad's roof) is the
+                        # terrain's and the body keeps its own ground
+                        if (senior[j] != top and _sz is not None
+                                and abs(float(nodes[j].zero) - float(_sz))
+                                <= float(roof_bind_m)):
+                            senior[j] = top
+                            if counts is not None:
+                                counts["bind_kept_under_one_roof"] = \
+                                    counts.get("bind_kept_under_one_roof", 0) + 1
+                else:
+                    senior[e] = max(over_ref, key=lambda t: t[1])[0]
+                    if counts is not None:
+                        counts["roof_rides_its_own_walls"] = \
+                            counts.get("roof_rides_its_own_walls", 0) + 1
+        for i in refused:
+            if senior[i] == top:
+                continue
+            if counts is not None:
+                counts["bind_refused_for_ground"] = \
+                    counts.get("bind_refused_for_ground", 0) + 1
+                counts["bind_refused_worst_m"] = max(
+                    counts.get("bind_refused_worst_m", 0.0),
+                    round(abs(float(nodes[i].zero) - float(_sz)), 3))
     census.sort(reverse=True)
     return (senior, census)
+
+
+#: the reason prefix of a §16c (7) bound body (read back by
+#: :func:`_take_senior` when the body follows a moved senior)
+_BOUND = "§16c (7) bound to "
+
+
+def _take_senior(cands: _t.Any, by_mi: _t.Mapping[int, _t.Any],
+                 surface: _t.Any, ci: int, si: int) -> bool:
+    """THE ONE WRITE of a §16c (7) bind: candidate ``ci`` takes the
+    senior ``si``'s anchor — its file stays its own, anchored where the
+    cluster is — into ``cands`` and into its staged member's ``raw`` /
+    ``ground_off``.  ``bind_unit`` makes it at bind time and
+    :func:`follow_seniors` makes it again after a later seat moved the
+    senior.  Returns whether anything was written.
+
+    (E)/12ap: THE REASON NAMES THIS BODY'S OWN READING, not the
+    senior's.  A bound body used to inherit the senior's whole Anchor
+    including the sentence that explains it, and 12ao's "4,454 feet on
+    low-side anchors" table was built on that field.  It says what it is
+    — bound, to whom — and carries the body's own zero against the one it
+    takes.  The senior's ``unit_seat`` / ``family`` ride along: a body
+    bound to a unit-seated senior IS on that unit's level."""
+    import dataclasses as _dc0
+    from . import placement_carrier as _pc
+    c, sc = cands[ci], cands[si]
+    _own = (None if (c.anchor.surface_z is None
+                     or sc.anchor.surface_z is None) else
+            (float(c.anchor.surface_z) - float(c.anchor.y_zero))
+            - (float(sc.anchor.surface_z) - float(sc.anchor.y_zero)))
+    if (_own is not None and c.anchor.reason.startswith(_BOUND)
+            and c.ground_off is not None):
+        # following a MOVED senior: this body's own ground is no longer
+        # its anchor (that is the senior's old copy) but the ground under
+        # its own feet, which ``ground_off`` measured from that copy
+        _own -= float(c.ground_off)
+    a = _dc0.replace(sc.anchor, body_class=c.anchor.body_class,
+                    reason=f"{_BOUND}{sc.resource} (the unit's rigid "
+                           f"cluster, senior by feet then footprint; own "
+                           f"ground "
+                           + ("off-sheet)" if _own is None
+                              else f"{_own:+.2f} m)"))
+    st0 = by_mi.get(c.member)
+    if st0 is None or not (0 <= c.group < len(st0.groups)):
+        return False
+    grp0 = st0.groups[c.group]
+    if not grp0:
+        return False
+    k0 = _pc.senior_of(st0.raw, grp0)
+    r0 = st0.raw[k0]
+    st0.raw[k0] = (r0[0], r0[1], a) + tuple(r0[3:])
+    _off0 = _pc.anchor_ground_off(
+        a, tuple(f for j0 in grp0 for f in st0.raw[j0][3]), surface)
+    if c.group < len(st0.ground_off):
+        st0.ground_off[c.group] = _off0
+    cands[ci] = _dc0.replace(c, anchor=a, ground_off=_off0)
+    return True
+
+
+def _zero_of(a: _t.Any) -> "float | None":
+    return (None if a.surface_z is None
+            else round(float(a.surface_z) - float(a.y_zero), 4))
+
+
+def follow_seniors(cands: _t.Any, staged: _t.Sequence[_t.Any],
+                   surface: _t.Any, cluster: _t.Mapping[int, int],
+                   counts: dict) -> int:
+    """A BOUND BODY FOLLOWS ITS SENIOR THROUGH EVERY LATER SEAT (owner
+    RULINGS 2026-10-10n (1)/(3), 2026-09-11i; #625, #610).
+
+    :func:`bind_unit` runs BEFORE the §16g unit seat and hands a bound
+    body a by-value COPY of its senior's anchor.  The unit seat then
+    re-anchors the senior — a WALLED body, in a plan-wide unit — and
+    never sees the bound body, which is a LEAF in no unit (a plate, a low
+    wall, the posts of an awning): it keeps the senior's PRE-SEAT zero.
+    On the graded surface the two coincide, so the dry run is blind; on
+    the mesh they differ by the slope between the senior's low-side foot
+    and the unit's median — KASE's Atlantic FBO (`FBO_3` b2/b4, `FBO_6`
+    b1/b2 at 2362.11 under a building seated at 2362.62: 0.51 m, the
+    owner's "roof floating").  ``cluster`` is the ``cluster_out`` map the
+    bind published (candidate -> its senior candidate); every dependent
+    whose anchor no longer equals its senior's takes it again.  Returns
+    how many followed."""
+    by_mi = {st.mi: st for st in staged}
+    groups: dict[int, list[int]] = {}
+    for ci, si in cluster.items():
+        if 0 <= ci < len(cands) and 0 <= si < len(cands):
+            groups.setdefault(si, []).append(ci)
+    n = held = 0
+    for si, members in sorted(groups.items()):
+        # THE UNIT SEAT LEADS.  §16g seated the cluster's WALLED members
+        # on their unit's datum, and that seat is senior to the bind:
+        # measured at KCLT, a unit host (`003_ALB` b10, fu:3:368/host at
+        # 210.14) bound to a 4-foot leaf with more feet was pulled back
+        # down to the leaf's own ground by a senior-first reading.  The
+        # lead is the senior when it carries a unit seat, else the
+        # unit-seated member with the most feet, else the senior.  Two
+        # unit seats at two zeros in one cluster are two UNITS touching
+        # (or one unit cut by level, 10n (3)) — each keeps its own.
+        seated = [ci for ci in members
+                  if getattr(cands[ci].anchor, "unit_seat", False)]
+        lead = (si if si in seated else
+                (max(seated, key=lambda ci: (cands[ci].feet, -ci))
+                 if seated else si))
+        for ci in members:
+            if ci == lead:
+                continue
+            if _zero_of(cands[ci].anchor) == _zero_of(cands[lead].anchor):
+                continue               # already on the cluster's level
+            if ci in seated:
+                held += 1              # its own unit's level, kept
+                continue
+            if _take_senior(cands, by_mi, surface, ci, lead):
+                n += 1
+    if n:
+        counts["bodies_followed_senior_seat"] = \
+            counts.get("bodies_followed_senior_seat", 0) + n
+    if held:
+        counts["bound_unit_seats_kept_apart"] = \
+            counts.get("bound_unit_seats_kept_apart", 0) + held
+    return n
 
 
 def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
           surface: _t.Any, contacts: _t.Iterable[tuple[int, int]],
           counts: dict, near_m: float = 0.0,
           bind_ground_m: float = 0.0,
-          cluster_out: "dict[int, int] | None" = None) -> tuple[dict, list]:
+          cluster_out: "dict[int, int] | None" = None,
+          roof_bind_m: float = 0.0) -> tuple[dict, list]:
     """§16c (7) APPLIED TO ONE UNIT (owner RULINGS 2026-09-12q).
 
     Builds the unit's rigid nodes — every footed CANDIDATE and every
@@ -611,7 +795,6 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
     SAME ``senior_node`` the re-anchor below acts on."""
     from . import anchor_rule as _ar
     from . import placement_carrier as _pc
-    import dataclasses as _dc0
     _never_bind = (_ar.LINE_SEGMENT, _ar.BASIN)
     # the nodes: every footed CANDIDATE, then every elevated body
     nodes: list[RigidNode] = []
@@ -654,7 +837,7 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
                 zero=None))
     senior_node, cl_census = unit_rigid(
         nodes, contacts, span_max_m=UNIT_CLUSTER_SPAN_MAX_M, near_m=near_m,
-        bind_ground_m=bind_ground_m, counts=counts)
+        bind_ground_m=bind_ground_m, counts=counts, roof_bind_m=roof_bind_m)
     # (A): the cluster's ZERO-PLANE SPAN, capped the same way and
     # reported — every retained footed member stands within
     # ``bind_ground_m`` of its senior, so this is what the cap bought.
@@ -682,39 +865,9 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
         if cluster_out is not None:
             cluster_out[ci] = si
             cluster_out[si] = si
-        c, sc = cands[ci], cands[si]
-        # (E)/12ap: THE REASON NAMES THIS BODY'S OWN READING, not the
-        # senior's.  A bound body used to inherit the senior's whole
-        # Anchor including the sentence that explains it, and 12ao's
-        # "4,454 feet on low-side anchors" table was built on that
-        # field.  It says what it is — bound, to whom — and carries the
-        # body's own zero against the one it takes.
-        _own = (None if (c.anchor.surface_z is None
-                         or sc.anchor.surface_z is None) else
-                (float(c.anchor.surface_z) - float(c.anchor.y_zero))
-                - (float(sc.anchor.surface_z) - float(sc.anchor.y_zero)))
-        a = _dc0.replace(sc.anchor, body_class=c.anchor.body_class,
-                        reason=f"§16c (7) bound to {sc.resource} (the "
-                               f"unit's rigid cluster, senior by feet then "
-                               f"footprint; own ground "
-                               + ("off-sheet)" if _own is None
-                                  else f"{_own:+.2f} m)"))
-        st0 = by_mi0.get(mi0)
-        if st0 is None or not (0 <= c.group < len(st0.groups)):
-            continue
-        grp0 = st0.groups[c.group]
-        if not grp0:
-            continue
-        k0 = _pc.senior_of(st0.raw, grp0)
-        r0 = st0.raw[k0]
-        st0.raw[k0] = (r0[0], r0[1], a) + tuple(r0[3:])
-        _off0 = _pc.anchor_ground_off(
-            a, tuple(f for j0 in grp0 for f in st0.raw[j0][3]), surface)
-        if c.group < len(st0.ground_off):
-            st0.ground_off[c.group] = _off0
-        cands[ci] = _dc0.replace(c, anchor=a, ground_off=_off0)
-        counts["bodies_bound_by_unit_contact"] = \
-            counts.get("bodies_bound_by_unit_contact", 0) + 1
+        if _take_senior(cands, by_mi0, surface, ci, si):
+            counts["bodies_bound_by_unit_contact"] = \
+                counts.get("bodies_bound_by_unit_contact", 0) + 1
     # (b) an ELEVATED body of the cluster RIDES its senior — the
     #     carrier search is not asked, because the answer is not
     #     "what does it stand over" but "what is it part of"

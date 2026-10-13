@@ -1,0 +1,113 @@
+# Prove the DSFTool binaries THAT SHIP — the three files vendored under
+# Ortho4XP/Utils/{mac,lin,win}/ — on the platform each one runs on
+# (issue #587, owner RULINGS 2026-10-13a (9)).
+#
+# Why this exists beside build-dsftool.yml: the Windows and Linux binaries
+# cannot be executed on the Mac where vendoring is done, so their only
+# evidence was the smoke step of the run that built them — and that smoke
+# has since grown (a road network with shape points, a holed polygon, a
+# facade, MSL/AGL objects).  Rebuilding to run the new smoke would ship
+# DIFFERENT bytes (the build is not reproducible, and the compile date
+# changes) for no change of source.  This workflow runs the CURRENT
+# Utils/toolchains/smoke_test_dsftool.py against the ALREADY-VENDORED
+# files instead, and changes nothing.
+#
+# Per platform:
+#   1. the checked-out file's sha256 must equal its row in
+#      Utils/DSFTool.identity.json (a mismatch fails);
+#   2. the `dsftool-binaries` artifact of the run that file names
+#      (`ci_run`) is downloaded and must carry the same sha256 (a mismatch
+#      fails; an EXPIRED artifact — GitHub keeps them 90 days — is a
+#      warning, since step 1 already pins the bytes);
+#   3. the smoke test runs on the checked-out file (macOS: once per
+#      architecture slice, the x86_64 one under Rosetta).
+#
+# Dispatch only.  It never builds, never commits, never uploads.
+
+name: Verify vendored DSFTool
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: verify-dsftool-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            file: mac/DSFTool
+            python: python3
+          - runner: ubuntu-22.04      # the frozen engine's glibc floor (release.yml)
+            file: lin/DSFTool
+            python: python3
+          - runner: windows-latest
+            file: win/DSFTool.exe
+            python: python
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      TOOL_FILE: ${{ matrix.file }}
+      PY: ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The vendored file is the one DSFTool.identity.json records
+        run: |
+          "$PY" - <<'PY' >> "$GITHUB_ENV"
+          import hashlib, json, os, sys
+          name = os.environ["TOOL_FILE"]
+          with open("Ortho4XP/Utils/DSFTool.identity.json", encoding="utf-8") as fh:
+              identity = json.load(fh)
+          row = identity["binaries"][name]
+          with open(os.path.join("Ortho4XP", "Utils", *name.split("/")), "rb") as fh:
+              found = hashlib.sha256(fh.read()).hexdigest()
+          print(f"{name}: sha256 {found}; recorded {row['sha256']}; "
+                f"ci_run {identity['ci_run']}", file=sys.stderr)
+          if found != row["sha256"]:
+              sys.exit(f"FAIL: Ortho4XP/Utils/{name} is not the recorded binary")
+          if not identity["patched"] or not identity["ci_run"]:
+              sys.exit("FAIL: the identity file names no CI run")
+          print(f"WANT_SHA={row['sha256']}")
+          print(f"CI_RUN={identity['ci_run']}")
+          PY
+
+      - name: The artifact of that run carries the same bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/artifact"
+          if ! gh run download "$CI_RUN" --repo "$GITHUB_REPOSITORY" \
+                --name dsftool-binaries --dir "$RUNNER_TEMP/artifact"; then
+            echo "::warning::the dsftool-binaries artifact of run $CI_RUN could not be downloaded (expired?) — the vendored file is still pinned by DSFTool.identity.json"
+            exit 0
+          fi
+          # relative paths: GNU tar on the Windows runner reads "D:\..." as host:path
+          (cd "$RUNNER_TEMP/artifact" && tar -xzf dsftool-binaries.tar.gz)
+          cat "$RUNNER_TEMP/artifact/SHA256SUMS"
+          grep -F "$WANT_SHA  Utils/$TOOL_FILE" "$RUNNER_TEMP/artifact/SHA256SUMS" || {
+            echo "FAIL: run $CI_RUN did not build the vendored Utils/$TOOL_FILE" >&2; exit 1; }
+          cmp "$RUNNER_TEMP/artifact/Utils/$TOOL_FILE" "Ortho4XP/Utils/$TOOL_FILE"
+
+      - name: Smoke test — the vendored file
+        run: |
+          "$PY" Ortho4XP/Utils/toolchains/smoke_test_dsftool.py "Ortho4XP/Utils/$TOOL_FILE"
+
+      - name: Smoke test — macOS x86_64 slice under Rosetta
+        if: runner.os == 'macOS'
+        run: |
+          sudo softwareupdate --install-rosetta --agree-to-license || true
+          lipo -archs "Ortho4XP/Utils/$TOOL_FILE"
+          lipo -thin x86_64 "Ortho4XP/Utils/$TOOL_FILE" -output "$RUNNER_TEMP/DSFTool.x86_64"
+          "$PY" Ortho4XP/Utils/toolchains/smoke_test_dsftool.py "$RUNNER_TEMP/DSFTool.x86_64"

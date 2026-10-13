@@ -207,3 +207,33 @@ identity file, the notice table and `Licence/copyright.txt` in one commit.
   is missing from the shared corpus (deleted with the 0-byte dump, ruling
   12g (3)); `--refresh-data airport_mod_cache` is the master's ledgered act.
   Not run by this lane.
+
+## Extended smoke + verify workflow — lane dsfsmoke587 (RULINGS 2026-10-13a (9))
+
+Branch `claude/dsfsmoke587`. No binary replaced, no workflow dispatched.
+
+* `smoke_test_dsftool.py` gains the AIRPORT overlay (`airport_text`): 300
+  object defs, a `.pol`, a `.fac`, a `.net`; `HEIGHTS 0.03125 0.0`; two
+  `OBJECT`, one `OBJECT_MSL` (131.5 m), one `OBJECT_AGL` (12.25 m); a
+  draped polygon with a hole (two windings); a facade (3 planes, wall
+  types); two road segments meeting at a junction, the first with two
+  shape points (`AddSegmentShapePoint`, the gcc `-Wstringop-overflow`
+  site).  Run twice: defs 1-3 (no trait — the good-tool control) and defs
+  297-299 (the #568 trait).  The dump is compared with the text sent by
+  `differences()`: definitions in order, placements / polygons / segments
+  as multisets within 4 pool quanta.  Without the `HEIGHTS` row DSFTool
+  pools MSL/AGL heights at 1 m (131.5 came back 131.0) — the fixture
+  carries the row, as every real dump does.
+* Local, 2026-10-13: vendored mac binary (712c9d2c…) arm64 slice OK,
+  x86_64 slice OK (all four fixtures).  STOCK 2.4.0-b1 from git history
+  (4abaed05…), both slices: plain OK, airport overlay OK, then FAIL at the
+  trait file (`--dsf2text exited -11`) — passes where a good tool should,
+  fails where the broken one does.  The engine's `compare_dumps` on the
+  airport dump -> encode -> dump: ok, both variants.
+* `.github/workflows/verify-dsftool.yml` (dispatch only): the vendored
+  files against the identity file and the recorded run's artifact, then
+  the smoke per platform.  RE-VENDORING IS NOT NEEDED for a smoke-test
+  change: source and pins are unchanged; the master dispatches
+  `verify-dsftool.yml` and three green jobs prove the shipped bytes.
+  `build-dsftool.yml` is untouched and picks up the extended smoke on its
+  next run by itself.

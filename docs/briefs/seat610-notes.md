@@ -151,3 +151,46 @@ senior `002_ALB b10` 0.38 m up (35.2140963,-80.9317748); `003_ALB b0` (48 ft, 13
 posts and the canopy with a gap) — the contact graph is the only witness the bind has; a plan-overlap witness
 (§14 (3) `bind_plan_overlaps` is per member) would be a second rule.
 (g) **one building on > 1 m of slope with no pad** (b17/b48): no single zero within the visual bar; design-stage.
+
+## Step 4 — APPROVED AIRPORTS on the app's own meshes (sw20 plans + graded, main engine vs branch cd248a93d; `rebake_plan_diff zeros`, tol 0.05)
+HECA (`Data+30+031.mesh` 16:36 2026-10-12; 3,166 bodies): **40 bodies move > 0.05 m, worst +10.59** (`zeros_heca2.json`);
+bands > 2 m: 6, 1–2: 7, 0.5–1: 7, 0.3–0.5: 3, 0.05–0.3: 17. Classes: 20 were ALREADY bound and now FOLLOW their
+senior's unit seat (`door.obj` b6 91.20 → 101.79 at 30.1139630,31.3968298 — bound to `T3_14` b0 whose unit seat is
+the T3 pad 101.79 (#627's +9.75 fill): the door was left on the ground 10 m under the wall it is cut from;
+`concrete_3`/`building_texture_4` 66.99 → 68.57 at 30.1286009,31.3996681; four `building_texture*`/`T3_39` 90.73 →
+89.63 at 30.1196650,31.4057788; `concrete_1` b1 71.69 → 70.76; `T3_17` b2 83.46 → 82.81); 12 own-ground → bound by
+the roof witness ≤ 1.0 m (`concrete_1` b2 82.37 → 80.87 at 30.1195588,31.3966684; `Plastic` b38/b37 79.99/79.68 →
+79.03 at 30.1245823,31.4048085; `concrete_1` b0 68.10 → 67.29; `T3_48` b3 71.94 → 71.21; `T3_9` b1 95.88 → 96.53
+at 30.1092715,31.3878175); 7 carried bodies whose cluster senior changed (`T3_37` b3 90.20 → 86.08 at
+30.1188537,31.4072591; `building_texture` b75 90.22 → 94.31 at 30.1157820,31.4095375; `building` b36 82.81 → 80.56;
+`BLUE` b0 75.36 → 77.40); 1 `metal_strip_1_yellow` b69 89.75 → 92.21. Counts: roof witness kept 96, roofs riding
+their own walls 745, followed 41, unit seats kept apart 143, 12ap refusals 441 → 345. UNCAPPED (first arm,
+`zeros_heca.json`): 60 movers, 31 own-ground → bound, the same +10.59 worst.
+OTHH (`Data+25+051.mesh` 17:35; 2,737 bodies): **18 bodies move, worst −2.47**: the five `Bridge_01` clutter/LOD
+pieces carried by `OTHH_Bridge_01_LOD0_000` b0 1.95 → −0.53 at 25.2561479,51.6167982 (their senior's cluster changed
+— a bus-bridge deck, 12m-approved: OWNER); `Bridge_01_LOD0_003` b0/b2 1.15/2.67 → 1.95 (bound to b1); five
+`Terminal_Parking_002/004` pieces 4.48 → 3.96 at 25.2596441,51.6152845 (follow the `Parking-Right_006` b1 unit seat);
+`FuelFarm_03` b3 3.50 → 3.96; ATC tower b1 3.59 → 3.86; `Fuel_02_006_2` −0.18 ×2. Counts: kept 42, own-walls 96,
+followed 23, apart 27, refusals 100 → 58.
+THE BAR ("only bodies visibly separated from their own building move"): every HECA/OTHH mover is a body the
+contact graph binds to its building (a follow of its own senior's seat, or a refused body under the building's
+roof within 1.0 m); whether the T3 door at +10.59 (its wall is on the 101.79 pad) and the OTHH bridge clutter at
+−2.47 are "visibly separated from their own building" or the owner-approved state is the OWNER'S CALL — listed,
+not merged by this lane.
+
+## CLOSING — what ran and what did not
+* Tile builds through the mesh step: BOTH REFUSE on the corpus (KASE `N39W107_bathymetry_band` missing; KCLT
+  `N35W081_bathymetry_band` missing after the master's 21:03 KVUJ inset refresh) — the master's `--refresh-data dem`
+  on +39-107 and +35-081, then `build_airport.py KASE --tile 39 -107 --steps "1 vector,2 mesh"` / `KCLT --tile 35 -81`
+  on this branch is the closing test still owed. In its place: the app's own meshes replayed (above) — the same
+  object stage on the same ground the owner read.
+* Airside untouched: patch-only harness builds on this branch — KASE body **9aceb887dd67 = sw20/owner**; KCLT body
+  = see `build_KCLT_patch.log` line 'built seat610_KCLT_patch' (sw20 9731f0b70610; the branch changes no patch code).
+* Suite: full non-Qt `-n 4` **9639 passed / 19 skipped / 1 xfailed / 1 xpassed** (844 s); touched files re-run after
+  the last edit: 231 passed. `tools/ratchets.py`: DUPLICATE PASS, LAYER PASS; size WARN engine_v2.py 1108 → 1629
+  (+5 here, +516 others' baseline drift), placement_plan.py 1022 (+11), obj8_split_report.py 1818 (+33).
+* Frames registered (`frames.py register`): KASE/KCLT app meshes (kind mesh) and app rebake plans (kind rebake).
+* NOT DONE: the two mesh-step tile builds (refused); the residual KCLT classes (b)–(g) above; the awning's exact
+  identity (two candidates, both posts with 0 ε-contacts to their roof — owner to confirm at 35.2129379,-80.9327134
+  and 35.218182,-80.931399); `split_off_pad` / roads609's files untouched (`pad_block_seat.py`, `footprint_seats.py`,
+  `footprint_unit.py` not edited; `placement_plan.py` +11 lines: one call after the viaduct seat).

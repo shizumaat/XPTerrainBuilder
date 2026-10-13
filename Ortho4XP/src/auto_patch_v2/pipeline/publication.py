@@ -457,7 +457,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "runway_axes": [
                 [rw.id, round(rw.ends[0].ll[0], 11), round(rw.ends[0].ll[1], 11),
                  round(rw.ends[1].ll[0], 11), round(rw.ends[1].ll[1], 11),
-                 round(runway_half_widths(airport).get(rw.id, 0.0), 4)]
+                 round(runway_half_widths(airport).get(rw.id, 0.0), 4),
+                 # #620: each end's overrun / blast pad — with the ends they
+                 # are the SLAB (``Runway.slab_corners``), the frame the
+                 # runway-end profile is priced in (``verify.strips.
+                 # published_slabs``); a reader that fitted the runway
+                 # RINGS measured from a shoulder's far edge instead
+                 round(float(rw.ends[0].overrun_m), 4),
+                 round(float(rw.ends[1].overrun_m), 4)]
                 for rw in airport.runways],
             "shoulder_transverse_max":
                 float(law.ruleset.runway.shoulder_transverse_max),

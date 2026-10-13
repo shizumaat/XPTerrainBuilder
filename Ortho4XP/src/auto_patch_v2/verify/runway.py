@@ -1,4 +1,4 @@
-"""``runway_crown``, ``runway_transverse`` and ``runway_end_skirt`` over
+"""``runway_crown``, ``runway_transverse`` and ``runway_vertical_curve`` over
 the emitted rings.
 
 THE POPULATION (lane ``rwyholes``, the RULINGS 2026-09-13dd chip): both
@@ -36,9 +36,9 @@ states the same bound as a hard runway-tier row.  Stations are the
 generator's own (``constraints.runway_profile.curve_stations``: the
 identity floor drops slivers).
 
-End skirt: rings with ``ref == runway_end_skirt`` — v2 emits none, so
-the family is vacuous on v2's own product (the corridor ground is
-``graded_strip``, bound by ``strips.py``).
+End skirt: ``verify/strips.runway_end_skirt`` — the ground beyond the
+end as v2 emits it (owner RULINGS 2026-10-12q (1) (d)); the reader of a
+``runway_end_skirt`` ring v2 never emitted left this module.
 """
 from __future__ import annotations
 
@@ -54,7 +54,7 @@ from .steps import _edges, _step_rows
 from .within import crown_by_vertex
 
 __all__ = ["runway_crown", "runway_transverse", "runway_vertical_curve",
-           "runway_end_skirt", "runway_step"]
+           "runway_step"]
 
 FAMILY_TRANSVERSE = "runway_transverse"
 FAMILY_VERTICAL_CURVE = "runway_vertical_curve"
@@ -252,30 +252,6 @@ def runway_vertical_curve(p: Patch) -> list[Row]:
             r.update({"reading": "vertical_curve", "face": sh.ref,
                       "station": [round(v, 3) for v in sh.xy[b]]})
             out.append(r)
-    return out
-
-
-def runway_end_skirt(p: Patch) -> list[Row]:
-    law = p.law
-    cap = law.ruleset.end_skirt.max_down_grade
-    noise = law.tables.emit.instrument.strip_edge_noise_m
-    out: list[Row] = []
-    for sh in p.shapes:
-        if sh.ref != "runway_end_skirt":
-            continue
-        n = len(sh.ids)
-        for i in range(n):
-            j = (i + 1) % n
-            (xa, ya), (xb, yb) = sh.xy[i], sh.xy[j]
-            d = math.hypot(xb - xa, yb - ya)
-            if d < 0.5:
-                continue
-            de = abs(sh.z[i] - sh.z[j])
-            if de <= cap * d + noise:
-                continue
-            out.append(row("runway_end_skirt", (sh.role, sh.role), p.side(sh.role),
-                           de, 100 * de / d, 100 * cap, d, sh.xy[i], sh.xy[j],
-                           sh.key, sh.key))
     return out
 
 

@@ -85,6 +85,7 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("strip_arc", strips.strip_arc),
     ("resa_transverse", strips.resa_transverse),
     ("end_corridor_longitudinal", strips.end_corridor_longitudinal),
+    ("end_corridor_rate", strips.end_corridor_rate),
     ("raoa", strips.raoa),
     ("pad_flats", pads.pad_flats),
     ("pad_frontage_level", pads.pad_frontage_level),

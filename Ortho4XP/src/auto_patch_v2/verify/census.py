@@ -20,12 +20,12 @@ from .no_step import no_step_direct, no_step_rate
 from .pads import pad_flat
 from .runway import (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE, runway_crown,
                      runway_step,
-                     runway_end_skirt, runway_transverse, runway_vertical_curve)
+                     runway_transverse, runway_vertical_curve)
 from .steps import cross_shape, mid_edge_step, stacked_nodes, vertex_to_edge_step
 from .strips import (FAMILY_STRIP_TRANSVERSE, adjacent_ground_step,
                      adjacent_ground_tear, raoa,
-                     resa_transverse, strip_arc, strip_longitudinal, strip_seam_tear,
-                     strip_transverse)
+                     resa_transverse, runway_end_skirt, strip_arc, strip_longitudinal,
+                     strip_seam_tear, strip_transverse)
 from .channel import channel_crest_at_edge, channel_floor_at_declaration
 from .contiguity import lateral_contiguity
 from .cutback import groundside_cutback

@@ -22,7 +22,7 @@ __all__ = [
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
-    "runway_end_zone_length_m", "family", "families_for_role",
+    "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "end_profile_noise_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "gap_standoff_m",
     "Cockpit", "cockpit", "cliff_grade", "rolled_on_roles",
@@ -485,6 +485,116 @@ def strip_transverse_bound(law: Law, d_m: float, code_number: int | None = None,
     derivation site of the corridor, 08-30l).  ``None`` in zone 3."""
     floor, _ceil = zone_bounds(law, "runway", d_m, code_number, code_letter)
     return None if floor is None else -floor
+
+
+@_dc.dataclass(frozen=True)
+class EndProfile:
+    """THE GROUND BEYOND A RUNWAY END as ONE profile keyed by the distance
+    ``d`` (m) beyond the pavement end along the extended centre line
+    (owner RULINGS 2026-10-12q (1) (a)-(c); audit
+    ``docs/findings/runway-end-law-audit-20261012.md``).  The ONE
+    derivation the planar break, the generator, the verify reader and the
+    harness census all read:
+
+    * ``segments``: the FALLING side — ``(length_m, max_down)`` in order,
+      the last with an infinite length.  ICAO: the strip's own cap over
+      ``strip.end_length_m`` then the RESA's ``end_skirt.max_down_grade``;
+      FAA: the near-end 3 % over ``end_skirt.near_zone_m`` then 5 %.
+    * ``hold_m``: the RISING side is held to ZERO this far (FAA §3.16.5
+      item 2 "any slope being downward"; 0 where no such rule).
+    * ``climb_slope`` / ``climb_setback_m``: beyond ``hold_m`` the ground
+      may not stand above the take-off climb / departure surface with NO
+      tail height (``[<ruleset>.eat]``; the master's note on (c)).
+      ``None`` = the authority states no surface: rising ground unbound.
+    * ``rate``: grade change per metre, FAA only (``rate_provisional``
+      false); ``None`` where the text is qualitative (ICAO).
+    * ``break_m``: where the first segment ends — the planar stage breaks
+      the zone-2 end band there so both slopes are expressible.
+    """
+
+    segments: tuple[tuple[float, float], ...]
+    hold_m: float
+    climb_slope: float | None
+    climb_setback_m: float
+    rate: float | None
+
+    @property
+    def break_m(self) -> float | None:
+        if len(self.segments) < 2:
+            return None
+        return self.segments[0][0]
+
+    def fall_m(self, d_m: float) -> float:
+        """How far BELOW the runway end the ground may stand at ``d_m``."""
+        d = max(0.0, float(d_m))
+        out = 0.0
+        for length, cap in self.segments:
+            take = min(d, length)
+            out += take * cap
+            d -= take
+            if d <= 0.0:
+                break
+        return out
+
+    def rise_m(self, d_m: float) -> float | None:
+        """How far ABOVE the runway end the ground may stand at ``d_m``;
+        ``None`` = unbound (no climb surface in the table)."""
+        d = max(0.0, float(d_m))
+        if d <= self.hold_m:
+            return 0.0
+        if self.climb_slope is None:
+            return None
+        return max(0.0, d - self.climb_setback_m) * self.climb_slope
+
+    def down_cap_at(self, d_m: float) -> float:
+        """The down-grade cap in force at ``d_m`` (the segment's)."""
+        d = max(0.0, float(d_m))
+        for length, cap in self.segments:
+            if d < length:
+                return cap
+            d -= length
+        return self.segments[-1][1]
+
+
+def runway_end_profile(law: Law, code_number: int | None = None,
+                       code_letter: str | None = None) -> EndProfile:
+    """:class:`EndProfile` for a runway of this class under the law's
+    ruleset — the strip's end length and cap where the authority states
+    them, else the end skirt's near zone; the skirt's max down-grade
+    beyond; the climb surface from the ruleset's ``eat`` table."""
+    rs = law.ruleset
+    sk = rs.end_skirt
+    segs: list[tuple[float, float]] = []
+    hold = 0.0
+    el = rs.strip.end_length_m
+    end_len = el.value(code_number, code_letter) if el is not None else None
+    strip_cap = rs.strip.longitudinal.value(code_number, code_letter)
+    if end_len and strip_cap is not None:
+        segs.append((float(end_len), float(strip_cap)))
+    elif sk.near_zone_m and sk.near_max_down_grade is not None:
+        segs.append((float(sk.near_zone_m), float(sk.near_max_down_grade)))
+        hold = float(sk.near_zone_m)
+    segs.append((math.inf, float(sk.max_down_grade)))
+    eat = rs.eat
+    rate = None if sk.rate_provisional else sk.rate.per_metre
+    return EndProfile(tuple(segs), hold,
+                      None if eat is None else float(eat.slope),
+                      0.0 if eat is None else float(eat.setback_m), rate)
+
+
+def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:
+    """THE RUNWAY-END PROFILE'S TOLERANCE — the ONE key
+    ``emit.instrument.strip_edge_noise_m`` (#620: the owner's open choice
+    between today's value and pricing the first strip length at the cap
+    exactly, which is this key at 0).  The GENERATOR prices its rows with
+    the key less the materiality floor, never below zero; a READER
+    (``reader=True``) forgives the key itself, never less than the
+    per-node rounding a pair of emitted altitudes carries."""
+    ins = law.tables.emit.instrument
+    if reader:
+        return max(float(ins.strip_edge_noise_m), float(ins.rounding_noise_m))
+    return max(0.0, float(ins.strip_edge_noise_m)
+               - float(law.tables.emit.materiality.elevation_m))
 
 
 def runway_end_zone_length_m(law: Law, runway_length_m: float) -> float:

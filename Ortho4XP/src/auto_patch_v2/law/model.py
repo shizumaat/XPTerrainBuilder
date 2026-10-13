@@ -110,11 +110,18 @@ class StripLaw:
     longitudinal: CodeTable
     arc_rate: Rate
     arc_rate_provisional: bool
+    #: How far the STRIP runs beyond each runway end (owner RULINGS
+    #: 2026-10-12q (1) (a)): the strip's longitudinal cap governs the
+    #: ground over this length, the end skirt's down-grade beyond it.
+    #: ``None`` = the authority states no strip beyond the end (FAA: the
+    #: RSA near-end rule, ``EndSkirtLaw.near_zone_m``, governs instead).
+    end_length_m: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
 class EndSkirtLaw:
-    """Ground beyond the runway end."""
+    """Ground beyond the runway end (one profile with the strip's end
+    length and the take-off climb surface: ``tables.runway_end_profile``)."""
 
     max_down_grade: float
     rate: Rate

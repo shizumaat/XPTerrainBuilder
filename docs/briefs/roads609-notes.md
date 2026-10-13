@@ -203,3 +203,46 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   row at a weight below the pad level rows, or lag the rim as a constant from a pad-only pre-pass.
 * NOT DONE in round 2: approved-airport pairs, closing harness build vs sw20, ramp table, the mesh read
   (`obj8_split_report --mesh` on seat610), the twin re-pins (gap_apron / gap_terrace) — pending the pad bar.
+
+## ROUND 3 (lane roads609c; master's call on Q-A: (b) seniority by construction) — RESUME HERE
+* Branch `claude/roads609` (worktree `.claude/worktrees/roads609c`), origin/main b790c8336 merged (adf54e81c). Base worktree
+  `roads609base` moved to origin/main b790c8336; its KCLT replay is `<scratch>/roads609/kclt7_base/` (pads67 capture,
+  `--from classify --emit --verify`). Arms `kclt7_arm` … `kclt14_arm` (each with `KCLT.solved.pkl` for `--why-vertex`);
+  pair reads `avd_kclt7..14.json` (`airside_value_delta.py BASE ARM --tol 0.02 --by-ref 8 --json`), pad rows via
+  `<scratch>/roads609/pad_movers.py AVD.json 0.02`.
+* MECHANISM (the one stage 2 already uses to read stage 1): `solve_design` runs stage 2 in TWO passes when the
+  rewrite's report names a junior set — SENIOR: `_solve_stage(..., drop=junior, fixed=levels ∪ {junior: DEM},
+  drop_faces=junior_faces, levelled_out=lv2)` (the junior vertices' rows and the pad-road faces' triangles and MINTED
+  rows out, as stage 1 drops foreign vertices / welded-road rows — `design_stage._groundside_minter(planar, law,
+  faces)` now takes a face set and also matches `vertex:N` inputs); JUNIOR: `_solve_stage(..., fixed=levels ∪ lv2)`
+  — only the junior vertices unknown, every pad/lot level a CONSTANT. Report: `stages["stage2_senior"]`,
+  `reach_seed.junior_vertices/junior_faces`; `_fold_stage` folds the senior pass's counters as stage 1's.
+  THE WITNESS (classify, general): `ribbon_mint` flags a ribbon PART whose area inside the AIRSIDE extent (the
+  30e (2) extent without the pads) is under `cells.min_area_m2` as `pad_road`; `planar/build` publishes
+  `PlanarMap.pad_roads` (refs); `road_ramp._welded_ribbon_vertices` reads only pad roads (airside-touching faces
+  excluded): junior = their vertices off a pad rim and off any other pavement face; `near` (the design row to the
+  nearest rim) over the rim-connected network as round 2.
+  TRAP FOUND AND FIXED: `design_assemble` keyed three stage-1 reads (conforming rows dropped, welded-road rows dropped,
+  ribbon-free bodies) on `drop` being non-empty — the senior pass tripped them and the pads fell 5 m (kclt7_arm);
+  they key on `stage_roles is not None` now (stage 1's own signal).
+* MEASURED, KCLT pair vs origin/main (pads > 0.02 m):
+  | arm | junior set | garages 86/88/90 | other pads |
+  | kclt7 | pad network, drop-keyed stage-1 reads | −5.26/−4.94/−5.90 (the trap) | 33 pads |
+  | kclt8 | pad network (stop at airside) | −0.03/−0.03/−0.03 | b77 +0.65, b59 −0.34, b67 −0.22, b26 0.09, b56 0.07, b6/b74 0.04 |
+  | kclt9 | EVERY airside-free ribbon | −0.03 | b58 +2.20, b59 +1.46, b67 −0.99, b72 +0.81, b26 −0.72, b77 +0.55, b57 −0.33 … (16) — main's lots are pulled by main's roads today; freed, they take no-road levels and their pads follow |
+  | kclt10 | pad network, stop at any pavement | −0.03 | b77 +0.65, b59 −0.34, b67 −0.17, b56 0.07, b74 0.03 |
+  | kclt11/12/13/14 | pad-road witness (way / part / part-area), junior faces' minted rows dropped | −0.03 | b77 +0.65, b59 −0.34, b67 −0.17, b56 0.07, b74 0.03 (identical in every arm) |
+  Solve-owned airside 0 movers in every arm from kclt8 on; structure 12 ≤ 1.30 (tunnel rims, as rounds 1–2).
+* BAR NOT MET. Two residuals: (a) the garages −0.03 m (222.99→222.96; a 0.03 shift of the whole rigid plane — a
+  planar-map difference, not a road row: the junior pass has NO pad column; unattributed); (b) building77 +0.65,
+  building59 −0.34, building67 −0.17 — INVARIANT under every junior configuration, so NOT the solve: they are
+  welded to lots `dsf:pol71` (+0.76) / `dsf:pol58` (+1.04), and pol71 follows `dsf:pol83` (+1.25) which follows
+  `dsf:pol84` (+2.79, nodes 6 m above DEM at 1794,474 frame m; `--why-vertex 19668`: "no row binds — the objective
+  holds it"). pol84 is touched by `dsf:pol53`, building74 and `small_roads:-3991#2/#3/#4` (#3/#4 NEW in the arm, a
+  network-bridged stretch of an airside-admitted way; not a pad road). Every solve-side treatment of -3991 left pol84
+  unchanged, so the lift is upstream: round 1's classify/planar changes — the ribbon touch-witness pass
+  (`_cut_back_groundside(only=new ribbon cells, hold=False)`, which welds instead of knifing), the network bridge
+  admitting #3/#4 beside pol84, or the pad extent. NEXT: a classify intervention pair (hold=True for the ribbon
+  pass; then no bridge) read at pol84 — `a1_extent_arm.py` is the instrument shape.
+* NOT DONE: the ramp table, approved-airport pairs, twin re-pins (`test_gap_apron`/`test_gap_terrace` still red,
+  state as round 1), closing build, #229, suites beyond the touched files (72 passed).

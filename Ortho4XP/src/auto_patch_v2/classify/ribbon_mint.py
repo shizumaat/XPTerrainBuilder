@@ -263,6 +263,14 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     extent = ribbon_extent(cells, law, ev.pavement_union)
     if extent.is_empty:
         return 0, 0.0
+    # THE ADMISSION WITNESS (owner RULINGS 2026-10-13a (1)): a ribbon
+    # PART that meets no stretch of its way inside the AIRSIDE patch (the
+    # extent without the pads) is admitted for the pad it serves —
+    # evidence ``pad_road``, published as ``PlanarMap.pad_roads``: junior
+    # to every pavement it meets.  A part the airside patch admits is as
+    # before.
+    extent_air = ribbon_extent([c for c in cells if c.role != "building"], law,
+                               ev.pavement_union)
     cover = unary_union([c.line for c in ev.truck_chains]).buffer(orr.dedup_m) \
         if ev.truck_chains else Polygon()
     hw = float(law.tables.emit.road_profile.lane_width_m)
@@ -280,6 +288,14 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     ways.sort(key=lambda wl: (wl[0].kind, wl[0].id))
     all_spans = network_spans(ways, extent, orr.road_gap_bridge_m)
     for (w, line), spans in zip(ways, all_spans):
+        # the way's ribbon inside the AIRSIDE patch, as a region: a PART
+        # of the way's ribbon that meets none of it is a pad road (OSM
+        # splits a road at every junction, and one way can carry both a
+        # stretch the airside admits and a stretch bridged to a pad)
+        in_air = _way_intervals(line, extent_air) if not extent_air.is_empty else []
+        air_rib = unary_union([substring(line, a2, b2).buffer(hw + grid)
+                               for a2, b2 in in_air if b2 - a2 > 1e-6]) \
+            if in_air else Polygon()
         spans = [exit_reach(line, a, b, dem, airside, cap_l, hw, 2.0 * hw)
                  for a, b in spans]
         axes = []
@@ -300,10 +316,17 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
         for part in polygon_parts(rib):
             if part.area < rules.cells.min_area_m2:
                 continue
+            # a part whose airside-admitted stretch is smaller than a cell
+            # (``cells.min_area_m2``) is not the airside's: a stretch the
+            # network bridge admitted meets the in-patch stretch at its
+            # junction only
+            pad_road = (air_rib.is_empty
+                        or part.intersection(air_rib).area < rules.cells.min_area_m2)
             add("service_road", ref if k == 0 else f"{ref}#{k}", part,
                 "service_road", None, None,
                 {"osm_ribbon": 1.0, "highway": str(w.tags.get("highway")),
-                 "road_len_m": float(sum(ax.length for ax in axes))})
+                 "road_len_m": float(sum(ax.length for ax in axes)),
+                 **({"pad_road": 1.0} if pad_road else {})})
             k += 1
             n += 1
             area += part.area

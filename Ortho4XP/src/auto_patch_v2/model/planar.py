@@ -610,6 +610,16 @@ class PlanarMap:
     #: ``constraints/pad_fronting.facing`` so a pad never faces back the
     #: apron it was separated from; empty on a map nothing split.
     pad_terraces: _t.Mapping[str, frozenset] = _dc.field(default_factory=dict)
+    #: THE ROADS ADMITTED FOR A PAD (issue #609; owner RULINGS 2026-10-13a
+    #: (1)): the refs of the mapped-road ribbon PARTS that meet no stretch
+    #: of their way inside the airside patch (30e (2)'s pavement + zone-2
+    #: extent) — admitted only because a building pad is patch
+    #: (``classify/ribbon_mint``, evidence ``pad_road``).  Such a
+    #: road serves the pad and is JUNIOR to every pavement it meets
+    #: (``constraints/road_ramp.pad_ramp_rewrite``): solved last, every
+    #: other level a constant.  A road the airside patch admits keeps the
+    #: rows it has always had with the lots and airside it borders.
+    pad_roads: frozenset[str] = _dc.field(default_factory=frozenset)
     #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
     #: frame polygon rings — the SINGLE derivation is
     #: ``planar/overlay.seam_bands``, recorded here so every downstream

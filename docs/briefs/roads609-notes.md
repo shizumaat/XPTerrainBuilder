@@ -169,3 +169,9 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   classify/roles.py 1444 → 1522 (+78 here; the main merge carries the rest).
 * Post-merge HECA pair (`heca2_base/` roads609base = origin/main d64b880da, `heca2_arm/`): base done; the arm's hard
   set is 565,731 rows (LP 17.6 s, OVER BUDGET, 0 relaxed) — see the report for its delta if it landed.
+* HECA post-merge pair LANDED (origin/main d64b880da vs branch): #627's hard datum group HOLDS the T3 complex
+  (building6/7 no longer move); remaining: 92 pads moved — building128 69.86 → 65.33 (−4.53), building33 −3.05,
+  building38 −2.97, building13 −2.95 (+ building4's collar 8 nodes), building86 −2.35 …; solve-owned airside 2,786
+  movers worst 1.11 m (apron route11 176/194 at 30.12678,31.39606, dsf:objpav383 1.02, pav39 0.27), RUNWAY 90 nodes
+  ≤ 0.05 m, strip 609 ≤ 0.20, structure 6 ≤ 0.18. Same mechanism (unheld pads move to the road welded to them,
+  10a (2) (a)); every one is an owner item at an approved airport. Branch NOT merge-ready without that list ruled.

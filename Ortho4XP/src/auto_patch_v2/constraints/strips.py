@@ -293,6 +293,12 @@ def resa_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     rows: list[Row] = []
     seen: set[tuple[int, int]] = set()
+    # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2): "the strip's
+    # transverse tie rows are withdrawn under the ribbon") — the end
+    # corridor's transverse rows too (NLWF 25: a strip vertex against a
+    # service-road vertex on its DEM ramp, 5.6 % over 26 m once the end
+    # profile lowered the strip beside it)
+    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
     for g in runway_groups(vw, airport):
         src = Source(GEN, "rulesets.resa.transverse_max (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
@@ -319,7 +325,7 @@ def resa_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                         continue
                     a, b = ids[i], ids[j]
                     key = (min(a, b), max(a, b))
-                    if key in seen:
+                    if key in seen or a in road_cap or b in road_cap:
                         continue
                     seen.add(key)
                     # the census reads ``across`` in its own frame; a pair near
@@ -470,6 +476,12 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     rows: list[Row] = []
     seen: set[tuple[int, int]] = set()
     unbound = _unbound_end_vertices(vw)
+    # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): under a mapped-road
+    # ribbon the road's own cap and its ramp to the DEM state the level —
+    # no end row of any form prices that vertex (NLWF 25: a service road
+    # across the band, its DEM ramp an equality the pair row lost to by
+    # 0.16 m; the readers skip the published ``road_cap_governs`` set)
+    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
     for g in runway_groups(vw, airport):
         prof = runway_end_profile(law, g.code_number, g.code_letter)
         src = Source(GEN, END_PROFILE_PAIR_RULING, (f"rwy:{g.ref}",))
@@ -485,7 +497,7 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
                         a, b = ids[i], ids[j]
                         ds = _along(g.unit, xy[i], xy[j])
                         key = (min(a, b), max(a, b))
-                        if ds < 1.0 or key in seen:
+                        if ds < 1.0 or key in seen or a in road_cap or b in road_cap:
                             continue
                         seen.add(key)
                         di, dj = beyond(xy[i]), beyond(xy[j])
@@ -498,7 +510,8 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
         # and so priced the far end only: KASE 15's break → outer-ring pair
         # had no row and shipped −9.2 % over the last 15 m)
         for ring_idx in (1, 2):
-            st = _end_stations(vw, g, ring_idx)
+            st = {v: dt for v, dt in _end_stations(vw, g, ring_idx).items()
+                  if v not in road_cap}
             for vin, vout in end_transect_pairs([(v, d, t) for v, (d, t) in st.items()],
                                                 law.tables.emit.identity.min_distinct_spacing_m):
                 key = (min(vin, vout), max(vin, vout))

@@ -359,6 +359,8 @@ def resa_transverse(p: Patch) -> list[Row]:
     q = law.tables.emit.instrument.coarse_noise_m
     rs = law.ruleset
     out: list[Row] = []
+    # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): the published set
+    cap_geom = road_cap_geometry(p.publication.get("road_cap_governs"), p.to_m, law)
     for rings, unit, code, L, letter, a0, _b in groups(p):
         ux, uy = unit
         px, py = -uy, ux
@@ -371,6 +373,9 @@ def resa_transverse(p: Patch) -> list[Row]:
                 for i in range(len(sh.xy) - 1):
                     j = i + 1
                     if not (inside[i] and inside[j]):
+                        continue
+                    if cap_geom is not None and (cap_geom.covers(_ShPoint(*sh.xy[i]))
+                                                 or cap_geom.covers(_ShPoint(*sh.xy[j]))):
                         continue
                     dx, dy = sh.xy[j][0] - sh.xy[i][0], sh.xy[j][1] - sh.xy[i][1]
                     along, across = abs(dx * ux + dy * uy), abs(dx * px + dy * py)
@@ -484,6 +489,14 @@ def runway_end_skirt(p: Patch) -> list[Row]:
     qc = law.tables.emit.instrument.coarse_noise_m
     m = law.tables.emit.identity.min_distinct_spacing_m
     pav = _pavement_ids(p)
+    # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): a vertex under a
+    # mapped-road ribbon is the road's — the generator states no end row
+    # on it and the family reads none (the published set, one reading)
+    cap_geom = road_cap_geometry(p.publication.get("road_cap_governs"), p.to_m, law)
+
+    def road(xy) -> bool:
+        return cap_geom is not None and cap_geom.covers(_ShPoint(xy[0], xy[1]))
+
     out: list[Row] = []
     seen: set = set()
     for ref, rings, unit, code, L, letter, a0, _b in end_groups(p):
@@ -506,7 +519,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                     if v in pav or v in st:
                         continue
                     x, y = sh.xy[k]
-                    if not point_in_rect_ring(x, y, rings[ring_idx]):
+                    if not point_in_rect_ring(x, y, rings[ring_idx]) or road((x, y)):
                         continue
                     d = beyond((x, y), ring_idx)
                     if d <= 0.0:
@@ -550,7 +563,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 for run in longitudinal_runs(sh.xy, unit, inside):
                     for i, j in zip(run, run[1:]):
                         ds = abs((sh.xy[j][0] - sh.xy[i][0]) * ux + (sh.xy[j][1] - sh.xy[i][1]) * uy)
-                        if ds < 1.0:
+                        if ds < 1.0 or road(sh.xy[i]) or road(sh.xy[j]):
                             continue
                         site = tuple(sorted((tuple(round(c, 3) for c in sh.xy[i]),
                                              tuple(round(c, 3) for c in sh.xy[j]))))
@@ -585,7 +598,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
             if not edges:
                 continue
             for k, v in enumerate(sh.ids):
-                if v in pav:
+                if v in pav or road(sh.xy[k]):
                     continue
                 x, y = sh.xy[k]
                 foot = end_chord_foot(x, y, edges, rect_of)

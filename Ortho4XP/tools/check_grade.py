@@ -2904,7 +2904,8 @@ def _runway_end_profile_law():
 def _check_runway_end_skirt_edges(ways: List[Way],
                                   nodes: Dict[str, Tuple[float, float]],
                                   ll_to_m,
-                                  runway_axes_ll: Optional[list] = None
+                                  runway_axes_ll: Optional[list] = None,
+                                  road_cap_governs_ll: Optional[list] = None
                                   ) -> List[Violation]:
     """THE GROUND BEYOND A RUNWAY END, as v2 emits it (owner RULINGS
     2026-10-12q (1) (d); #620): every ``graded_strip`` ring in a runway's
@@ -2939,11 +2940,19 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     from auto_patch_v2.constraints.strips import (end_transect_foot,
                                                   end_transect_pairs)
     from auto_patch_v2.verify.strips import (end_chord_foot, end_excess_m,
-                                             published_slabs)
+                                             published_slabs, road_cap_geometry)
+    from shapely.geometry import Point as _Pt
     slabs = published_slabs(runway_axes_ll, ll_to_m)
     law, profile_of = _runway_end_profile_law()
     from auto_patch_v2.law.tables import end_profile_noise_m
     q = end_profile_noise_m(law, reader=True)
+    # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): a node under a
+    # mapped-road ribbon is the road's; the family reads no row on it
+    # (the published set — ``verify.strips.runway_end_skirt``'s reading)
+    cap_geom = road_cap_geometry(road_cap_governs_ll, ll_to_m, law)
+
+    def road(pt) -> bool:
+        return cap_geom is not None and cap_geom.covers(_Pt(pt[0], pt[1]))
     qc = law.tables.emit.instrument.coarse_noise_m
     ident = law.tables.emit.identity.min_distinct_spacing_m
     pavement_nids: set = set()
@@ -3028,7 +3037,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                     if zs[k] is None or nid in pavement_nids or nid in st:
                         continue
                     x, y = pts[k]
-                    if not _strip_station_inside(x, y, rings[ring_idx]):
+                    if not _strip_station_inside(x, y, rings[ring_idx]) or road((x, y)):
                         continue
                     s_ = (x - a0[0]) * u[0] + (y - a0[1]) * u[1]
                     d = max(0.0, -s_) if ring_idx == 1 else max(0.0, s_ - L)
@@ -3100,7 +3109,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                         if zs[a] is None or zs[b] is None:
                             continue
                         ds = abs((pts[b][0] - pts[a][0]) * ux + (pts[b][1] - pts[a][1]) * uy)
-                        if ds < 1.0:
+                        if ds < 1.0 or road(pts[a]) or road(pts[b]):
                             continue
                         site = _site_key(pts[a], pts[b])
                         if site in seen:
@@ -3141,7 +3150,8 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                 if not edges:
                     continue
                 for k in range(len(pts)):
-                    if zs[k] is None or nn[k] in pavement_nids or not inside[k]:
+                    if zs[k] is None or nn[k] in pavement_nids or not inside[k] \
+                            or road(pts[k]):
                         continue
                     x, y = pts[k]
                     foot = end_chord_foot(
@@ -4302,7 +4312,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     return out, n_stations, len(hit_ways)
 
 
-def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
+def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
+                                 road_cap_governs_ll: Optional[list] = None
                                  ) -> Tuple[List[Violation], int, int]:
     """§A1 twin — the END-corridor ACROSS-corridor grade, a family
     NOTHING read before (the count therefore RISES on first sight; that
@@ -4314,12 +4325,25 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
     predominantly ACROSS the extended centreline is judged against
     ``grade_law.resa_transverse_band`` at its own distance beyond the
     end: FAA Table 3-6 S-3 inside the 61 m near zone, ±5 % beyond
-    (Fig 3-35); ICAO §3.5.11 ±5 % throughout."""
+    (Fig 3-35); ICAO §3.5.11 ±5 % throughout.
+
+    ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): a pair with a node
+    under a mapped-road ribbon (sidecar ``road_cap_governs``) is the
+    road's — the strip's transverse tie is withdrawn there and no row is
+    read (``verify.strips.resa_transverse``, the same set)."""
     if _resa_transverse_band is None:
         return [], 0, 0
     groups = _runway_strip_groups(ways, nodes, ll_to_m)
     if not groups:
         return [], 0, 0
+    cap_geom = None
+    if road_cap_governs_ll:
+        from auto_patch_v2.law import Law
+        from auto_patch_v2.verify.strips import road_cap_geometry
+        cap_geom = road_cap_geometry(
+            road_cap_governs_ll, ll_to_m,
+            Law.load(ruleset=str(_ACTIVE_RULESET or _DEFAULT_RULESET).lower()))
+    from shapely.geometry import Point as _Pt
     out: List[Violation] = []
     n_pairs = 0
     hit_ways: set = set()
@@ -4364,6 +4388,9 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m
                     across = abs(dx * px + dy * py)
                     if across <= along or across < 1.0:
                         continue        # the LONGITUDINAL skirt law's pair
+                    if cap_geom is not None and (cap_geom.covers(_Pt(*pts[a]))
+                                                 or cap_geom.covers(_Pt(*pts[b]))):
+                        continue        # the road's (2026-10-02ag (2))
                     n_pairs += 1
                     # distance beyond the end, from the nearer endpoint
                     s_mid = 0.5 * ((pts[a][0] + pts[b][0]) * ux
@@ -13451,7 +13478,8 @@ def run_checks(
 
     skirt_edges = _fam("runway_end_skirt",
                        _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
-                                                     runway_axes_ll))
+                                                     runway_axes_ll,
+                                                     road_cap_governs_ll))
     _pv("RUNWAY-END PROFILE: ground beyond a runway end outside the "
         "ruleset's end profile (strip cap / near-end cap, 5 % beyond, the "
         "climb surface above, the FAA rate) — RULINGS 2026-10-12q (1)",
@@ -13892,7 +13920,7 @@ def run_checks(
 
     # ── §A1 — the END-corridor TRANSVERSE law ────────────────────────
     resa_tr, n_rt_pairs, n_rt_ways = _check_resa_transverse_grade(
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, road_cap_governs_ll)
     _fam("resa_transverse", resa_tr)
     _pv("RESA / END-CORRIDOR TRANSVERSE grade > the per-authority cap "
         "(FAA Table 3-6 S-3 inside 61 m, Fig 3-35 ±5% beyond; ICAO "

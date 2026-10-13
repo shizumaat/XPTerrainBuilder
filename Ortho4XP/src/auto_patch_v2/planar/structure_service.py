@@ -70,11 +70,20 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     is OSM's statement that it runs below what it crosses.
     (d) An OSM ``tunnel`` bore lying INSIDE THE AIRPORT BOUNDARY is a
     terrain tunnel on its own (owner RULINGS 2026-09-27a (4), issue #5:
-    SPJC's -5724 builds its two mouths) — UNLESS the only thing over it
-    is an ELEVATED pack part with clear space beneath (owner RULINGS
-    2026-10-10i (1), issue #522): the tag is then the road's passage
-    under that part, at grade, and nothing is cut
-    (:meth:`_PackBuildings.passage`).
+    SPJC's -5724 builds its two mouths).
+    (e) THE PACK'S OPEN PASSAGE OUTRANKS COVER, A CROSSING, A RISE AND
+    THE FENCE (owner RULINGS 2026-10-10q, issue #548; extends 10i (1) /
+    10k, issue #522): where an ELEVATED pack part stands over a mapped
+    bore's carriageway with clear space beneath and no pack part at
+    grade covers its line (:meth:`_PackBuildings.passage`), the tag is
+    the road's passage under that part, at grade, and nothing is cut —
+    asked FIRST, after (a), of every mapped bore whose ``layer`` does not
+    say it runs below ground.  The ``layer`` witness alone is senior to
+    it.  MEASURED at KCLT: a 313 m ``service`` bore under the terminal
+    read 273.0 m of cover (the terminal's own pad) and +0.55 .. +0.82 m
+    of ground over its mouth chord, under a road deck 6 m over the
+    terminal's zero with nothing at grade; three HECA bores report a
+    passage too and are real tunnels by ``layer`` -1.
 
     THE LAST TWO ARE §34 (12) (4)'S OWN WITNESSES, in the form a BORE
     takes them: (4) (i) reads a tag, (4) (ii) reads the DEM against the
@@ -141,7 +150,7 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     # is a terrain tunnel on its own — "the sim shows the pack's ground
     # over it".  Outside the fence the four witnesses of (c) apply as
     # before.  (a)'s refusal runs FIRST: a bore entering a building is
-    # that building's ramp inside the fence too.
+    # that building's ramp inside the fence too; (e)'s runs second.
     fence = _fence_of(airport)
 
     def witness(bore) -> tuple[bool, str]:
@@ -166,34 +175,38 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"(§34 (12) (5) (a) extended, owner RULINGS "
                                f"2026-09-27a (3))")
         cover = on_field.cover_run_m(ln) if on_field is not None else 0.0
-        if cover >= tn.terrain_cover_min_m:
-            return True, f"under the classified cover for {cover:.1f} m"
         lay = _layer_of_bore(bore)
-        if lay is not None and lay <= tn.terrain_layer_max:
-            return True, f"the bore carries layer {lay}"
-        crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m)
-        if crossed:
-            return True, ("under " + ", ".join(crossed[:3]) + " at grade")
+        below = lay is not None and lay <= tn.terrain_layer_max
         rise = _rise_m(airport, ln)
-        if rise is not None and rise >= tn.terrain_rise_m:
-            return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
-        if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
-                and fence.covers(ln):
+        # THE PACK'S OPEN PASSAGE IS ASKED FIRST (owner RULINGS 2026-10-10q):
+        # over the cover witness and the rise witness, under the map's own
+        # statement that the bore runs below ground (its ``layer``)
+        if not below and _osm_tunnel(bore, tn.admitted_values):
             width = max(carriageway_width_m(w.tags or {}, law) for w in bore.ways)
             over = pack_bldg.passage(ln, width, tn.terrain_cover_min_m)
             if over is not None:
                 res, uid, base = over
                 return False, (f"bore {ids} PASSES UNDER AN ELEVATED PACK PART AT "
-                               f"GRADE ({ln.length:.0f} m; cover {cover:.1f} m, no "
-                               f"road or railway across it, ground "
+                               f"GRADE ({ln.length:.0f} m; classified cover "
+                               f"{cover:.1f} m, ground "
                                f"{'unreadable' if rise is None else f'{rise:+.2f} m'} "
                                f"over its mouth chord, layer "
                                f"{'none' if lay is None else lay}) — {res} ({uid}) "
                                f"stands over its carriageway with {base:.1f} m of "
                                f"clear space beneath and no pack part at grade: the "
                                f"tag is the road's passage under it, not a terrain "
-                               f"tunnel (§34 (12) (5) (d) narrowed, owner RULINGS "
-                               f"2026-10-10i (1))")
+                               f"tunnel (§34 (12) (5), owner RULINGS 2026-10-10q)")
+        if cover >= tn.terrain_cover_min_m:
+            return True, f"under the classified cover for {cover:.1f} m"
+        if below:
+            return True, f"the bore carries layer {lay}"
+        crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m)
+        if crossed:
+            return True, ("under " + ", ".join(crossed[:3]) + " at grade")
+        if rise is not None and rise >= tn.terrain_rise_m:
+            return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
+        if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
+                and fence.covers(ln):
             return True, ("an OSM tunnel inside the airport boundary "
                           "(§34 (12) (5) (d), owner RULINGS 2026-09-27a (4))")
         return False, (f"bore {ids} PASSES UNDER NOTHING AT GRADE "
@@ -317,8 +330,8 @@ class _PackBuildings:
         return poly if poly.is_valid else poly.buffer(0)
 
     def passage(self, line, width_m: float, cover_min_m: float):
-        """§34 (12) (5) (d) NARROWED (owner RULINGS 2026-10-10i (1), issue
-        #522): ``(resource, unit id, base)`` of the lowest ELEVATED pack
+        """§34 (12) (5) (e) THE PACK'S OPEN PASSAGE (owner RULINGS 2026-10-10i
+        (1) / 10q, issues #522 / #548): ``(resource, unit id, base)`` of the lowest ELEVATED pack
         building part standing over the bore's CARRIAGEWAY — ``line``
         widened to the road's own ``width_m`` — when NO part at grade
         covers the bore's line for ``cover_min_m``; else ``None``.
@@ -332,7 +345,8 @@ class _PackBuildings:
         0.6 m off the mapped line, nothing at grade — and two ramps with
         a trench 9.47 m deep were built there.  SPJC's -5724 has no pack
         part within 60 m and stays (d)'s.  A part AT GRADE over the line
-        is cover, and (d) stands (the building a bore ENDS in is (a)'s)."""
+        is cover, and the witnesses of (c) / (d) are asked (the building a
+        bore ENDS in is (a)'s)."""
         from shapely.geometry import box
         if self._tree is None:
             return None

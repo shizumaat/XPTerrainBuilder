@@ -665,9 +665,21 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     from .facade_mint import mint_facade_cells
     stats.update(mint_facade_cells(airport, cells, law, rules, add))
     from .ribbon_mint import mint_osm_ribbons   # lazy: ribbon_mint imports this module
+    n_before = len(cells)
     n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
     stats["osm_ribbons"] = n_rib
     stats["osm_ribbon_m2"] = m_rib
+    # THE RIBBON AT A PAD IS READ BY THE ONE TOUCH WITNESS (issue #609;
+    # owner RULINGS 2026-10-09j (2)): a mapped road reaching a pad in source
+    # is welded to its rim like a lot or a 1206 corridor, a hillside step
+    # holds it off as a terrace, a gap leaves it as drawn.  Read on the NEW
+    # cells only — no standing cell is cut twice (roadweld100's measured
+    # hazard: a pad's knife re-armed cut two existing groundside cells).
+    cells, n_cut_rib = _cut_back_groundside(cells, law, rules, airport,
+                                            only=range(n_before, len(cells)))
+    stats["mixed_pad_cutbacks"] += n_cut_rib
+    stats["ribbon_pad_welds"] = sum(1 for c in cells[n_before:]
+                                    if c.evidence.get(WELD_KEY))
     # §53 (RULINGS 2026-10-04o (a)): the gap pieces — LAST, so every
     # pavement the engine already knows (the ribbons too) keeps its ground
     from .gap_mint import mint_gap_pieces
@@ -855,7 +867,8 @@ def _road_evidence(scored, ev: Evidence, rules: Rules, *,
 # ── mixed pads ───────────────────────────────────────────────────────────
 
 def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
-                         airport: Airport | None = None
+                         airport: Airport | None = None,
+                         only: _t.Iterable[int] | None = None
                          ) -> tuple[list[Cell], int]:
     """THE PAD'S GROUNDSIDE EDGE (owner RULINGS 2026-10-09j, spec §63;
     before it the pad set-back of 2026-09-01g/i and 2026-09-04u).  Each
@@ -876,10 +889,14 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
     * GAPPED — left as drawn: no knife, no weld.  The height at the pad's
       edge is 09j's wall or embankment.
 
+    ``only`` restricts the READ to those cell ids (the ribbons minted after
+    the first pass, #609); the pads are every pad standing.
+
     Returns the cells and the number the KNIFE cut (the held terraces)."""
     back = law.tables.structures.building_pad.groundside_cutback_m
     if back <= 0.0:
         return cells, 0
+    pick = None if only is None else set(only)
     # The set-back holds AFTER the identity snap: the pad is read on the
     # identity grid and the knife carries the snap margin on top of the
     # set-back (``tables.snap_margin_m``), so a lot vertex the snap moves
@@ -891,7 +908,8 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
     pads = {c.ref: gridded(Polygon(c.ring, c.holes), grid)
             for c in cells if c.role == "building"}
     ground_idx = [i for i, c in enumerate(cells)
-                  if c.side == "groundside" and is_value_role(law, c.role)]
+                  if c.side == "groundside" and is_value_role(law, c.role)
+                  and (pick is None or i in pick)]
     if not pads or not ground_idx:
         return cells, 0
     gpolys = [gridded(Polygon(cells[i].ring, cells[i].holes), grid)

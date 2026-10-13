@@ -13,8 +13,9 @@ the unit's one §16g zero floated ten bodies 3–5 m.  Now:
    ``cluster:`` entry holding both faces;
 2. two pads of two DIFFERENT clusters stay two plain entries — the piece
    stem is the witness, never proximity;
-3. a piece that FRONTS AIRSIDE is pinned by its frontage (§20 / §63 Rule S)
-   and the re-union does not take it: the entries stay apart.
+3. a piece that FRONTS AIRSIDE re-unites too (owner RULINGS 2026-10-12l (1),
+   #608: the apron grades to the one level the complex is seated at) and the
+   HELD blocks of one entry share one datum column (``platform.datum_groups``).
 """
 from __future__ import annotations
 
@@ -82,9 +83,12 @@ def test_two_clusters_are_two_planes_whatever_their_distance(law):
     assert all(len(q[3]) == 1 for q in groups)
 
 
-def test_a_piece_fronting_airside_is_pinned_and_the_rest_stay_apart(law):
-    """PAD_A stands in the apron (its frontage fit is its seat); a landside
-    piece of the same cluster does not pull it, nor ride it."""
+def test_a_piece_fronting_airside_re_unites_with_its_cluster(law):
+    """Owner RULINGS 2026-10-12l (1) (#608): PAD_A stands in the apron and a
+    landside piece of the same cluster is still ONE plane with it — the
+    apron grades to the one level the complex is seated at; a frontage no
+    longer pins a piece apart (the pre-12l reading left KCLT's concourse
+    0.69 m under its terminal, the roofs of one building at two zeros)."""
     airport = _airport(law)
     airport = _dc.replace(airport, clusters=(
         _Cluster(airport, (PAD_A,), cid="unit:9#7/0"),
@@ -92,8 +96,33 @@ def test_a_piece_fronting_airside_is_pinned_and_the_rest_stay_apart(law):
     pm, _st = build(airport, Classification(tuple(_land_cells()), (), {}, ()), law)
     want = {f.id for f in pm.faces.values() if f.ref in ("padA", "landB")}
     groups = [q for q in plane_groups(pm, law, airport) if set(q[3]) & want]
-    assert len(groups) == 2, groups
-    assert all(len(q[3]) == 1 for q in groups)
+    assert len(groups) == 1, groups
+    assert groups[0][1] == "cluster:unit:9#7/0"
+    assert {pm.faces[q].ref for q in groups[0][3]} == {"padA", "landB"}
+
+
+def test_held_blocks_of_one_plane_entry_share_one_datum_column(law):
+    """``platform.datum_groups`` names the held refs of one entry and
+    ``datum_group_rows`` ties their datum columns, hard, under the hold
+    head (stripped in pass 1a, carried in pass 1b); two entries tie
+    nothing; a ref with no datum column is skipped."""
+    from auto_patch_v2.constraints.platform import (HOLD_RULING, datum_group_rows,
+                                                    datum_groups)
+    airport = _airport(law)
+    airport = _dc.replace(airport, clusters=(
+        _Cluster(airport, (PAD_A,), cid="unit:9#7/0"),
+        _Cluster(airport, (LAND_B,), cid="unit:9#7/1"),
+        _Cluster(airport, (LAND_A,), cid="unit:5#2")))
+    pm, _st = build(airport, Classification(tuple(_land_cells()), (), {}, ()), law)
+    groups = datum_groups(pm, law, airport, ["padA", "landB", "landA"])
+    assert groups == {"landB": ["padA"]}
+    assert datum_groups(pm, law, None, ["padA", "landB"]) == {}
+    rows = datum_group_rows(groups, {"landB": 7, "padA": 3})
+    assert len(rows) == 2
+    assert all(r.source.ruling.split(" (")[0] == HOLD_RULING for r in rows)
+    assert {tuple(sorted(dict(r.terms).items())) for r in rows} == {
+        ((3, 1.0), (7, -1.0)), ((3, -1.0), (7, 1.0))}
+    assert datum_group_rows(groups, {"landB": 7}) == []
 
 
 # ── 10n (3): THE OBJECT CUT AT A PAD LEVEL (#547) ─────────────────────────
@@ -183,3 +212,34 @@ def test_block_pads_are_not_level_pads_and_a_level_id_keeps_the_block_tail():
     assert [r[0] for r in pbs.level_pad_rings(pads)] == ["t81"]
     assert pbs._block_id("fu:6/p1/b1") == ("fu:6/p1", 1)
     assert pbs._block_id("fu:6/p1") is None
+
+
+# ── 10n (2)/(3): THE OFF-PAD CUT (#609) ───────────────────────────────────
+
+def test_a_footed_body_off_every_pad_of_its_unit_leaves_it_for_its_own_ground():
+    """``_terminal``'s member C has feet on no pad (north of both) and is
+    welded to nothing: under the off-pad cut it is its own unit
+    ``fu:6/g0`` (seated on its ground by ``plan_unit_datums``), while A
+    and B — on their pads — stay the unit; the counts name it; 0 disarms
+    it; a FOOTLESS body keeps its unit; a body with ONE foot on a pad
+    stays."""
+    import types
+    from auto_patch_v2.airport import pad_block_seat as pbs
+    pads = [_pad("t75", 0.0, 0.5, 222.44), _pad("t81", 0.5, 1.0, 222.50)]
+    plan, un = _terminal()
+    counts = {}
+    out = pbs.split_units([un], plan, pads, counts, level_tol_m=0.3, off_pad_m=0.5)
+    assert {u.id: u.bodies for u in out} == {
+        "fu:6": ((0, 0, 0), (0, 1, 0)), "fu:6/g0": ((0, 2, 0),)}
+    assert counts["off_pad_units_split"] == 1 and counts["off_pad_bodies"] == 1
+    assert [u.id for u in pbs.split_units([un], plan, pads, {}, level_tol_m=0.3)] == ["fu:6"]
+    # footless: C's part has no feet -> it rides its welds, the unit keeps it
+    c = plan.units[0].members[2]
+    c.parts = (types.SimpleNamespace(pid=4, lat=1.5, lon=0.45, feet=(),
+                                     box=(1.5, 0.45, 1.5, 0.45), line=False),)
+    assert [u.id for u in pbs.split_units([un], plan, pads, {}, off_pad_m=0.5)] == ["fu:6"]
+    # one foot on the pad: the body stands on it
+    c.parts = (types.SimpleNamespace(pid=4, lat=1.5, lon=0.45,
+                                     feet=((1.5, 0.45, 0.0), (0.9, 0.45, 0.0)),
+                                     box=(0.9, 0.45, 1.5, 0.45), line=False),)
+    assert [u.id for u in pbs.split_units([un], plan, pads, {}, off_pad_m=0.5)] == ["fu:6"]

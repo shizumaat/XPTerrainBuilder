@@ -53,7 +53,7 @@ from ..model.planar import block_of
 from . import anchor_rule as _ar
 
 __all__ = ["STRADDLE_KEY", "block_rings", "neighbours", "part_blocks",
-           "seat_unit", "sever", "split_units"]
+           "seat_unit", "sever", "split_off_pad", "split_units"]
 
 # counts key prefix naming a ringless body whose welded parts hold no strict
 # majority in one block (``<prefix><resource>@<unit id>``), the way
@@ -357,7 +357,8 @@ def neighbours(plan: _t.Any) -> dict[int, set[int]]:
 
 
 def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
-                counts: "dict | None" = None, level_tol_m: float = 0.0) -> list:
+                counts: "dict | None" = None, level_tol_m: float = 0.0,
+                off_pad_m: float = 0.0) -> list:
     """Every §16g unit whose bodies stand on two or more blocks of ONE
     platform unit, split into one unit per block (module docstring); each
     is seated by ``plan_unit_datums``'s one pad rule, the median of its
@@ -371,27 +372,101 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     stand more than ``level_tol_m`` apart is one unit per level
     (``<id>/p<k>``), the lowest level first.  It runs before the block cut
     so a block id stays ``<...>/b<k>`` at the end, where
-    :func:`seat_unit` reads it.  0 disarms it."""
+    :func:`seat_unit` reads it.  0 disarms it.
+
+    LAST, with ``off_pad_m > 0``, the OFF-PAD cut (:func:`split_off_pad`,
+    owner RULINGS 2026-10-10n (2)/(3); #609): a FOOTED body of a pad unit
+    whose every foot stands farther than ``off_pad_m`` outside every pad
+    the unit stands on leaves the unit as ``<id>/g<n>`` and seats on its
+    own ground."""
     if level_tol_m > 0.0:
         units = _split_by_level(units, plan, pads, counts, level_tol_m)
     of = part_blocks(plan, pads)
-    if not of or not units:
+    if of and units:
+        rings = block_rings(pads)
+        ref_lat = rings[0][2][0][0]
+        out: list = []
+        n_split = 0
+        for un in units:
+            per_body, regions = _bodies_regions(un, plan, of)
+            if len(regions) < 2 or len({b[0] for b in regions}) != 1:
+                out.append(un)
+                continue
+            n_split += 1
+            out.extend(_cut_unit(un, plan, of, per_body, regions,
+                                 _platform_polys(pads), ref_lat, counts,
+                                 lambda b: f"/b{b[1]}", "block"))
+        if counts is not None:
+            counts["block_units_split"] = n_split
+        units = out
+    if off_pad_m > 0.0:
+        units = split_off_pad(units, plan, pads, counts, off_pad_m)
+    return units
+
+
+def split_off_pad(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
+                  counts: "dict | None", off_pad_m: float) -> list:
+    """THE OFF-PAD CUT (owner RULINGS 2026-10-10n (2) "a building or object
+    that stands on its own and can be re-seated takes its OWN pad … never
+    seated to another building's level merely because both come from one
+    object file or one anchor", (3) "nothing floats: each body is seated
+    to the pad it stands on"; #609).
+
+    A §16g unit takes ONE zero, the pad most of its footprint stands on.
+    A body of the unit that has FEET of its own, every one of them farther
+    than ``off_pad_m`` (``[placement] footprint_touch_m``, the §16g touch)
+    outside every pad ring any part of the unit stands in — plain pads
+    and blocks alike — does not stand on that pad: it stands on the
+    ground beside it, and a weld to the unit (a kiosk under a walkway, a
+    column of a covered way) is no reason to write it at the pad's level.
+    At KCLT eight such bodies of the garage cluster stood between the
+    garages on bare ground 2.4–5.0 m under the deck's level they were
+    seated at.  Each becomes its own unit ``<id>/g<n>``, seated by
+    ``plan_unit_datums``'s ground datum.  A FOOTLESS body (a roof, a
+    walkway) keeps its welds and its unit; a body with one foot on the pad
+    stays."""
+    from shapely.geometry import Point as _Pt
+    from .placement_family import bodies_of_plan
+    rings = [(key, ring, bx) for key, ring, bx in level_pad_rings(pads)]
+    rings += [((unit, k), ring, bx) for unit, k, ring, bx in block_rings(pads)]
+    if not rings or not units:
         return units
-    rings = block_rings(pads)
-    ref_lat = rings[0][2][0][0]
+    of = _part_regions(plan, rings)
+    polys = _polys_of(rings)
+    bodies, _of_pid = bodies_of_plan(plan)
+    parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
+    ky = 111_320.0
+    kx = ky * _math.cos(_math.radians(rings[0][1][0][0]))
     out: list = []
-    n_split = 0
+    n_units = n_bodies = 0
     for un in units:
-        per_body, regions = _bodies_regions(un, plan, of)
-        if len(regions) < 2 or len({b[0] for b in regions}) != 1:
+        _pb, regions = _bodies_regions(un, plan, of)
+        if not regions:
+            out.append(un)                      # a unit on no pad: its ground
+            continue
+        pg = [g for r in regions for g in polys.get(r, ())]
+        off: list = []
+        for key in un.bodies:
+            pids = [q for q in bodies.get(key, ()) if q in parts]
+            feet = [(f[0], f[1]) for q in pids for f in (parts[q].feet or ())]
+            if not feet or any(getattr(parts[q], "line", False) for q in pids):
+                continue
+            if all(min(g.distance(_Pt(lo * kx, la * ky)) for g in pg) > off_pad_m
+                   for la, lo in feet):
+                off.append(key)
+        if not off:
             out.append(un)
             continue
-        n_split += 1
-        out.extend(_cut_unit(un, plan, of, per_body, regions,
-                             _platform_polys(pads), ref_lat, counts,
-                             lambda b: f"/b{b[1]}", "block"))
+        keep = tuple(k for k in un.bodies if k not in off)
+        if keep:
+            out.append(_piece(un, plan, bodies, parts, keep, ""))
+        out.extend(_piece(un, plan, bodies, parts, (k,), f"/g{n}")
+                   for n, k in enumerate(off))
+        n_units += 1
+        n_bodies += len(off)
     if counts is not None:
-        counts["block_units_split"] = n_split
+        counts["off_pad_units_split"] = n_units
+        counts["off_pad_bodies"] = n_bodies
     return out
 
 
@@ -468,7 +543,7 @@ def _cut_unit(un, plan: _t.Any, of: _t.Mapping[int, _t.Any], per_body: dict,
     by name, never silently assigned.  ``counts`` keys carry ``tag``
     (``block`` / ``pad_level``)."""
     from shapely.geometry import Point as _Pt
-    from .placement_family import bodies_of_plan, union_area_m2
+    from .placement_family import bodies_of_plan
     bodies, _of_pid = bodies_of_plan(plan)
     parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
     ky = 111_320.0
@@ -525,20 +600,28 @@ def _cut_unit(un, plan: _t.Any, of: _t.Mapping[int, _t.Any], per_body: dict,
     out: list = []
     for b in sorted(regions, key=lambda t: t[1]):
         keys = tuple(k for k in un.bodies if per_body.get(k) == b)
-        if not keys:
-            continue
-        pids = frozenset(q for k in keys for q in bodies.get(k, ()))
-        boxes = tuple(parts[q].box for q in sorted(pids)
-                      if q in parts and not getattr(parts[q], "line", False))
-        out.append(_dc.replace(
-            un, id=f"{un.id}{suffix(b)}", bodies=keys, pids=pids,
-            members=tuple(sorted({plan.units[k[0]].members[k[1]].resource
-                                  for k in keys})),
-            boxes=boxes or un.boxes,
-            area_m2=union_area_m2(boxes) if boxes else un.area_m2,
-            deck_pids=frozenset(un.deck_pids & pids)))
+        if keys:
+            out.append(_piece(un, plan, bodies, parts, keys, suffix(b)))
     if counts is not None:
         for name, n in (("bodies_nearest", n_near), ("bodies_welded", n_weld),
                         ("bodies_straddle", n_strad)):
             counts[f"{tag}_{name}"] = counts.get(f"{tag}_{name}", 0) + n
     return out
+
+
+def _piece(un, plan: _t.Any, bodies: _t.Mapping, parts: _t.Mapping,
+           keys: tuple, suffix: str):
+    """``un`` cut down to the bodies ``keys`` under ``<id><suffix>`` — its
+    part ids, members, boxes, footprint area and deck pids re-read from
+    those bodies (the one piece builder of every cut here)."""
+    from .placement_family import union_area_m2
+    pids = frozenset(q for k in keys for q in bodies.get(k, ()))
+    boxes = tuple(parts[q].box for q in sorted(pids)
+                  if q in parts and not getattr(parts[q], "line", False))
+    return _dc.replace(
+        un, id=f"{un.id}{suffix}", bodies=keys, pids=pids,
+        members=tuple(sorted({plan.units[k[0]].members[k[1]].resource
+                              for k in keys})),
+        boxes=boxes or un.boxes,
+        area_m2=union_area_m2(boxes) if boxes else un.area_m2,
+        deck_pids=frozenset(un.deck_pids & pids))

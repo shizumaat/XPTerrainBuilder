@@ -707,6 +707,19 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                         "unreached": sum(1 for c in weld if c not in lo_c and c not in hi_c)}
     if not blocks:
         return None
+    # ONE CONNECTED COMPLEX, ONE LEVEL (owner RULINGS 2026-10-12l (1); #608):
+    # the held blocks that are pieces of one cluster (``platform.
+    # datum_groups``) have their datum columns tied, hard, so the welds of
+    # EVERY frontage hold to one level and the aprons grade to it; a weld
+    # no one level can hold within the caps is released by the elastic LP
+    # and warned exactly as a single block's is — never two levels
+    from .platform import datum_group_rows, datum_groups
+    groups = datum_groups(planar, law, airport, blocks)
+    group_rows = datum_group_rows(groups, {p: b["dv"] for p, b in blocks.items()})
+    for lead, members in groups.items():
+        blocks[lead]["group"] = lead
+        for ref in members:
+            blocks[ref]["group"] = lead
     # Λ_c and R(c) → β_R: ZERO — nothing pulls the airside any more, so no
     # runway earns a flex budget (every runway column is held at its
     # pass-1a value, A1 (c)); the lift records stay for the report
@@ -728,7 +741,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
         b["I"], b["held"] = b["I0"], True
         b["eval"] = "residual" if b["residual"] else "i"
     # the rows
-    rows: list = []
+    rows: list = list(group_rows)
     for pref, b in blocks.items():
         plat = set(HELD[pref].get("plateau_vertices") or ())
         res = set(b.get("residual") or ())
@@ -906,6 +919,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     stats.update(fronting_faces=len(front_f), fronting_vertices=len(fronting),
                  fronting_cap_infeasible_vertices=len(infeasible))
     stats.update(blocks=len(blocks),
+                 datum_groups=len(groups), datum_group_rows=len(group_rows),
                  held=sum(1 for b in blocks.values() if b["held"]),
                  held_eval_ii=sum(1 for b in blocks.values() if b["eval"] == "ii"),
                  residual=sum(1 for b in blocks.values() if not b["held"]),

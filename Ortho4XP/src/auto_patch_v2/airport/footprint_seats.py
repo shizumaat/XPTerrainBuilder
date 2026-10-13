@@ -94,7 +94,7 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
     # #547) a unit standing on PADS more than ``level_tol_m`` ([placement]
     # split_tol_m) apart is one unit PER LEVEL, each seated on its own pad
     from .pad_block_seat import split_units as _split_blocks
-    units = _split_blocks(units, plan, pads, counts, level_tol_m)
+    units = _split_blocks(units, plan, pads, counts, level_tol_m, off_pad_m=touch_m)
     counts["connector_verdict_stamped"] = int(stamped is not None)
     if stamped is not None:
         counts["connectors_solid"] = sum(1 for v in stamped if v.solid)

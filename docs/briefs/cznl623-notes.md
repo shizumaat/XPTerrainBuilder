@@ -47,3 +47,10 @@ PINLESS RUNWAY: not a defect of the solve. Both thresholds carry CIFP 534.924 an
 `runway_caps[].pins` names only the GOVERNING span (the pair that set g_pin) and a level runway has g_pin 0 -> no span -> `pins: []`.
 A reporting ambiguity in constraints/runway_yield.py RunwayCap (not changed).
 TODO: suites, ratchets, commit.
+
+## DONE (2026-10-12 19:25)
+Commit 4f23d8723 on claude/cznl623. Tests: test_ground_envelope 11; tests/auto_patch_v2 2982 passed / 3 skipped / 1 xfailed / 1 xpassed;
+rest of non-Qt suite 6646 passed / 16 skipped; ratchets PASS (duplicate + layers).
+Frames registered: CZNL capture (base 7d29f9d75), CZNL patch (closing build).
+NOT done: no app/tile build; KBIL/LPPT mouth_road rows not adjudicated; RunwayCap `pins: []` wording untouched;
+the river case (one level per polygon over a sloping river) is a finding, not fixed.

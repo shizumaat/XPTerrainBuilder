@@ -116,3 +116,32 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   the PRE-MERGE branch 6399c2cf1 vs main 8d0cd75e8; origin/main has moved to d64b880da (#627 one level, #626) —
   merge AFTER the pairs, then the closing harness build vs `frames/kclt608/kclt608_KCLT.osm` (= #627's KCLT
   3f22a1e516b3) and the tile builds.
+
+## Approved airports — replay pairs (PRE-MERGE branch 6399c2cf1 vs main 8d0cd75e8, `frames/pads67/*.pkl --from classify`)
+* HECA (`heca_base/`, `heca_arm1/`): solve-owned airside 2,786 movers worst 1.11 m (apron `route11` 176/194 at
+  30.12678,31.39606; `dsf:objpav383` 1.02), RUNWAY 90 nodes ≤ 0.05 m, strip 609 ≤ 0.20; 92 PADS moved — **building6
+  101.77 → 89.20–89.77 (−12.57 m, 30.11451,31.39611 WELDED-TO-ROAD), building7 101.79 → 94.47–94.91 (−7.32),
+  building128 −4.53, building33/38/13 −3.0, building86 −2.35**; groundside gap:0 944 nodes ≤ 2.90, dsf:pol10 1.65.
+  Plan diff (`rebake_plan_diff zeros`, plan `/private/tmp/harness/kclt608_HECA.v2/HECA.rebake.json`): 817 bodies
+  change unit or zero, 674 > 0.05 m — the T3 complex `fu:40:120/p1` 101.79 → `/p0` 89.37 (−12.42: T3_14 ×4,
+  T3_brick_clean, floor, meridien ×2, t3_13 ×2, titles_1 ×3, door ×3, glass_blue, metal_strip_2 …), `lancang` → /p2
+  94.49 (−7.30), `T3_19` +10.37 (carried). Census LAW-TRUE 55,982 → 58,684 (+2,702), ADJUDICATED 14,447 → 16,764
+  (groundside 2,518 → 4,829). NOT ACCEPTABLE at an approved airport.
+* THE MECHANISM (same as KCLT's garages, `--why-vertex`): a ribbon WELDED to a pad whose §37 (9) COVERAGE-EDGE JOIN
+  PIN (hard, at the core road's = DEM level) stands a few metres off the rim; `exit_reach` gave the ribbon no run
+  because the pad's level is unknown at classify (it reads the DEM at the mouth as the patch level); the ribbon's
+  hard cross-section / cap rows then tie the rim to the pin and the PAD — its level a soft datum / facing
+  preference, 10a (2) (a) — moves to the road. 09j (1) says the pad is senior and the road comes to it; the hard
+  road rows against a soft pad level invert that wherever the pad is not HELD (airside contact, or a #627 datum
+  group — the T3 group is hard on origin/main now, so the post-merge pair below is the read that counts).
+* CYXY: airside 0 / structure 0; groundside `pav4` (the 04u lot beside building9) 698.42–702.14 → 694.99–702.14
+  (51/66 nodes, worst 3.55 m), `dsf:pol131/132/2/124` ≤ 1.47; ribbons `dsf:pol23` 2.99, `small_roads:-1070` 2.99,
+  `-1071#1` 1.62 (5 new refs).
+* NLWF: 0 movers in every frame.
+* SPJC: airside 0 / structure 0; pads building28 25.07 → 22.96 (−2.11), building30 −1.43, building22 +0.70, building7
+  +0.42, building23 +0.28 (9 pads); strip `adjacent_ground:taxi:E:zone2#11` 9 nodes worst 3.00 m at
+  −12.03225,−77.11186; groundside `dsf:pol36#1/37` ≤ 3.15; 144 new ribbon refs (`small_roads:-9143` +3.58 …).
+* OTHH: airside 0 / structure 8 ≤ 0.10; pads building4 0.41, building3 0.32, building9 0.21 (7 pads, 597 nodes);
+  214 new ribbon refs, 37 new groundside pieces.
+* origin/main d64b880da (#627 one level, #626) MERGED into the branch after these pairs; a base worktree
+  `roads609base` at origin/main serves the post-merge pairs (`heca2_*`, `kclt2_*`).

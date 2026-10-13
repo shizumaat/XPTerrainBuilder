@@ -191,3 +191,19 @@ metres; but HECA is APPROVED on the current body (12m) → OWNER'S CALL. To drop
   `interior_door` 75.36 → 101.80 (+26.4), `floor_more_yellow` 100.38 → 74.69 (−25.7), `metal_strip_2` fu:43:5046
   69.94 → 95.03 (+25.1), `T3_14` 72.72/73.13 → 91.0 (+18), 101.79 → 91.5/91.9 (−10); full list: `c2_osr_diff.py
   osr_heca_sw17.json osr_heca_build.json 200`.
+
+## KASE (#625, Atlantic FBO) and the plan-diff gap
+* `kclt608_KASE` build on this branch: body 9aceb887dd67 = the owner's; object dry run vs sw17's: 0 bodies changed
+  unit or zero, `pad_level_units_split` 0 in BOTH, `off_pad` 0 — this branch does not touch KASE.
+* The FBO as the APP wrote it (`Patches/+30-110/+39-107/o4_v2_placement_KASE.json`, engine 1.50.1835, mesh ground):
+  `FBO_3 b0` / `b3`, `FBO_6 b0` / `b3` on unit `fu:121:909@ground` 2362.62 (the roofs FBO_1/2/5/7/8 carried by `FBO_3
+  b0` at 2362.62); `FBO_6 b1` / `b2`, `FBO_3 b2` / `b4`, `FBO_4 b1` "§16c (7) bound to FBO_3__b0" but at **2362.11**
+  (0.51 m under the roof); `FBO_3 b1` "surface at the body's zero" **2361.33** (1.29 m under). Lat/lon 39.22316,
+  -106.86670 (FBO_3 b0) … 39.22324,-106.86652 (b1). NOT the level cut (0 at KASE) — a GROUND unit (no pad) on sloping
+  mesh ground whose touching bodies seat on three own grounds (the §16c (7) bind read against the mesh). In the dry
+  run (graded surface only) every FBO body is at ONE zero 2362.62, so the obj8_split_report dry run cannot show it:
+  only a tile build (mesh) does. NOT attributed to a commit here (no pre-#577 mesh placement to compare); open.
+* PLAN DIFF: no tool in `tools/INDEX.md` diffs two rebake plans / placements. Scratch `<scratch>/kclt608/c2_osr_diff.py`
+  (two `obj8_split_report --json` dumps of the SAME plan → bodies whose unit or zero changed, by resource + component
+  set) and `a2_separations.py` (touching bodies written at two zeros) are the two reads this lane used; both are
+  candidates for promotion into `tools/` with index rows (second use = promote).

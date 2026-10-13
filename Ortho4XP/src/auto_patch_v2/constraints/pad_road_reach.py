@@ -12,8 +12,10 @@ is geometry, read before the solve:
 the run being the shortest path between the two along the pad roads' own
 edges.  Over the road cap (``role_cap(service_road).longitudinal``) no
 profile fits, and ``|difference| - cap x run`` is THE REMAINDER — the least
-rigid shift of the pad that would let the road reach.  This module reads
-it; it moves nothing.  An end where the road LEAVES the patch is no
+rigid shift of the pad that would let the road reach; ``[road_contact]
+pad_shift_max_m`` bounds what the pad may take of it (``shift_m``) and the
+rest stands as the road's step (``step_m``).  This module reads them; it
+moves nothing.  An end where the road LEAVES the patch is no
 constant (its join is released and the core road carries the ramp on,
 ``road_ramp.pad_ramp_rewrite``), so it never binds here.
 """
@@ -63,12 +65,15 @@ def pad_road_reach(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float]
     minus the pad's rim level at the near end), ``grade`` (the least the
     road needs), ``cap`` and ``remainder_m`` (signed: the rigid shift of
     the pad toward the far end that lets a cap-grade ramp fit; 0.0 when
-    one fits).  ``fixed`` is the last stage's constants."""
+    one fits), ``shift_m`` (the remainder inside ``[road_contact]
+    pad_shift_max_m``) and ``step_m`` (what is left: the road's step at the
+    pad).  ``fixed`` is the last stage's constants."""
     roads = pad_road_faces(planar)
     if not roads:
         return []
     rc = role_cap(law, "service_road")
     cap = float(rc.longitudinal) if rc and rc.longitudinal else 0.0
+    most = float(law.tables.emit.road_contact.pad_shift_max_m)
     V, E, F = planar.vertices, planar.edges, planar.faces
     road_ids = {f.id for f in roads}
     verts = {f.id: {v for e in face_edge_ids(f) for v in (E[e].a, E[e].b)}
@@ -129,7 +134,9 @@ def pad_road_reach(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float]
                 rec = {"pad": pad, "road": refs, "far": name, "far_v": int(q),
                        "run_m": round(dist[q], 2), "rise_m": round(rise, 3),
                        "grade": round(abs(rise) / dist[q], 4), "cap": cap,
-                       "remainder_m": round(rem if rise > 0 else -rem, 3)}
+                       "remainder_m": round(rem if rise > 0 else -rem, 3),
+                       "shift_m": round(min(rem, most) * (1 if rise > 0 else -1), 3),
+                       "step_m": round(max(0.0, rem - most), 3)}
                 if worst is None or (abs(rec["remainder_m"]), rec["grade"]) > \
                         (abs(worst["remainder_m"]), worst["grade"]):
                     worst = rec

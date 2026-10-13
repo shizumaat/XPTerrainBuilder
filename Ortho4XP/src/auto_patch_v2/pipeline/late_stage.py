@@ -265,7 +265,9 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
             lat, lon = to_ll(*pm.vertices[r["far_v"]].xy)
             out(f"    {r['pad']}: {r['rise_m']:+.2f} m over {r['run_m']:.1f} m to {r['far']} "
                 f"at {lat:.7f},{lon:.7f} = {100 * r['grade']:.1f} % (cap "
-                f"{100 * r['cap']:.0f} %), remainder {r['remainder_m']:+.2f} m; "
+                f"{100 * r['cap']:.0f} %), remainder {r['remainder_m']:+.2f} m "
+                f"(pad shift {r['shift_m']:+.2f} m inside the cap, step left {r['step_m']:.2f} m; "
+                f"READ, not applied); "
                 f"road {', '.join(r['road'][:3])}")
     cs_all = cs
     # THE FLOOR, ONE NUMBER AT ONE SITE (spec §55 (5), (15) rule B): the

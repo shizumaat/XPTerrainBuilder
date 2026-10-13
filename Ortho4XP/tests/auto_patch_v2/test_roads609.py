@@ -195,3 +195,6 @@ def test_the_reach_read_names_the_remainder_where_no_cap_ramp_fits(law):
     short, = read(5.0)                    # 5 m over 20 m: 25 %
     assert short["rise_m"] == pytest.approx(-5.0)
     assert short["remainder_m"] == pytest.approx(-(5.0 - cap * short["run_m"]), abs=1e-3)
+    most = float(law.tables.emit.road_contact.pad_shift_max_m)
+    assert short["shift_m"] == -most                      # the pad takes no more than the cap
+    assert short["step_m"] == pytest.approx(abs(short["remainder_m"]) - most, abs=1e-3)

@@ -117,15 +117,6 @@ def plan_wide_seats(plan: _t.Any, surface: _ar.Surface,
                 out.extend(p.feet)
         return out
     dat = plan_unit_datums(units, plan, surface, pads, cluster_min_m2)
-    # owner RULINGS 2026-10-10n (2)/(3) (#609): a FOOTED body of a seated
-    # unit standing off every pad of the unit, on ground more than
-    # ``level_tol_m`` off the unit's zero, leaves it for its own ground
-    from .pad_block_seat import split_off_pad
-    before = {u.id for u in units}
-    units = split_off_pad(units, plan, pads, counts, touch_m, surface,
-                          {u: d[0] for u, d in dat.items()}, level_tol_m)
-    dat.update(plan_unit_datums([u for u in units if u.id not in before],
-                                plan, surface, pads, cluster_min_m2))
     out: dict[int, tuple] = {}
     seats: list[tuple[float, float, float, float, float, str]] = []
     for un in units:

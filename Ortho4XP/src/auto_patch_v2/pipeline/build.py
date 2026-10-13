@@ -49,6 +49,7 @@ from ..model import pulse as _pulse
 from ..planar.build import build as build_planar
 from ..planar.pack_reads import pool_report as _pack_read_pool
 from ..solve import DesignReport, Options, Solution, solve_design
+from ..solve.ground_band import ground_envelope, outside_envelope
 from .publication import face_tags, publication
 from . import xplat as _xplat
 
@@ -1257,6 +1258,19 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _say(f"[{icao}] off-DEM > {MOVED_M} m by role: " + ", ".join(
             f"{r} {v['over']}/{v['vertices']} (max {v['max_m']:.2f})"
             for r, v in moved.items() if v["over"]), out)
+    # issue #623 THE GROUND ENVELOPE: a solved vertex outside every level
+    # the airport's ground holds is named here and FAILS the airport in the
+    # driver (``auto_patch/engine_v2.py``) — the solve cannot see it, a
+    # wrong datum is met exactly and the status is optimal.
+    _envelope = ground_envelope(pm, law)
+    off_ground = outside_envelope(pm, sol.z, _envelope) if sol.z else []
+    if off_ground:
+        w = off_ground[0]
+        _say(f"[{icao}] OFF THE GROUND: {len(off_ground)} solved vertex(es) "
+             f"outside the ground envelope [{_envelope[0]:.2f}, "
+             f"{_envelope[1]:.2f}] m — worst {w['z_m']:.2f} m over a DEM of "
+             f"{w['dem_m']} m at ({w['lat']}, {w['lon']}); the app build "
+             f"fails this airport (issue #623)", out)
     if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
         tol = law.tables.emit.materiality.elevation_m
         res_seam = sorted(((abs(sol.z[v] - pm.vertices[v].dem_z), v)
@@ -1316,7 +1330,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "solve": {"status": sol.status.value, "wall_s": round(sol.wall_s, 3),
                   "iterations": sol.iterations, "message": sol.message,
                   "rounds": design_rep.rounds, "converged": design_rep.converged,
-                  "residual": None if sol.residual is None else _dc.asdict(sol.residual)},
+                  "residual": None if sol.residual is None else _dc.asdict(sol.residual),
+                  # issue #623: empty at every lawful airport
+                  "off_ground": {"envelope_m": None if _envelope is None else
+                                 [round(_envelope[0], 3), round(_envelope[1], 3)],
+                                 "vertices": off_ground[:50],
+                                 "count": len(off_ground)}},
     }
     if _late_report is not None:
         report["late_stage"] = _late_report

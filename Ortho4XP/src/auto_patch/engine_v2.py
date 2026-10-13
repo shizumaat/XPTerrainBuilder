@@ -62,7 +62,9 @@ _DEFECT_LAW = {
                              "curve law",
     "stacked_nodes": "two emitted nodes share one identity at different "
                      "elevations",
-    "sentinel_elevation": "an emitted vertex carries a sentinel elevation",
+    "sentinel_elevation": "an emitted vertex stands outside the ground "
+                          "envelope of its airport — a sentinel, not "
+                          "geometry (issue #623)",
 }
 
 #: The v2 pipeline's stages as the progress window's phases (the driver's
@@ -491,6 +493,25 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
                           f"{solve_rep.get('failure')}; the report is in "
                           f"{os.path.join(scratch, icao + '.report.json')}"),
                 "traceback": _iis_text(res.report, log_lines)}
+    # A SOLVED VERTEX OFF THE GROUND IS A NAMED FAILURE (issue #623): the
+    # solve met every row and still put a vertex outside every level the
+    # airport's ground holds (``auto_patch_v2/solve/ground_band.py``) — a
+    # datum that is not geometry reached it.  CZNL shipped 15 strip
+    # vertices at 1,798 m beside a 535 m runway under ``status optimal``.
+    off = (solve_rep.get("off_ground") or {}).get("vertices") or []
+    if off:
+        env = solve_rep["off_ground"].get("envelope_m")
+        worst = off[0]
+        return {"icao": icao, "ok": False, "stage": "solve", "engine": ENGINE_V2,
+                "code": "airport_surface_off_ground",
+                "error": (f"[v2] the solve for {icao} put {len(off)} vertex(es) "
+                          f"outside the airport's ground envelope {env} m — "
+                          f"worst {worst.get('z_m'):.2f} m over a DEM of "
+                          f"{worst.get('dem_m')} m at ({worst.get('lat')}, "
+                          f"{worst.get('lon')}); the report is in "
+                          f"{os.path.join(scratch, icao + '.report.json')}"),
+                "traceback": json.dumps(solve_rep["off_ground"], default=str)
+                + "\n--- v2 build log ---\n" + "\n".join(log_lines)}
     # A VERIFY DEFECT never ships (lane v2padflat 2026-09-05): a DEFECT
     # family is a solver/emit invariant broken, not a residual — the
     # airport fails by name, like a non-optimal solve.  The pad_flat

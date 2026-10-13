@@ -158,10 +158,10 @@ def road_coverage_join(p: Patch) -> list[Row]:
                      ROAD_JOIN_TOL_M)
 
 
-def sentinel_floor_m(p: Patch) -> tuple[float, float] | None:
-    """``(the 5th-percentile elevation, the floor below it)``, or ``None``
-    when the patch carries fewer than :data:`SENTINEL_MIN_NODES` valued
-    nodes — a fixture, not a ground band.
+def _sentinel_band_m(p: Patch) -> tuple[float, float] | None:
+    """``(the 5th-percentile elevation, the 95th)``, or ``None`` when the
+    patch carries fewer than :data:`SENTINEL_MIN_NODES` valued nodes — a
+    fixture, not a ground band.
 
     One vertex, one value: the elevations are taken per VERTEX ID (the
     identity the patch is written at), so a vertex on three rings weighs
@@ -170,38 +170,75 @@ def sentinel_floor_m(p: Patch) -> tuple[float, float] | None:
                 {vid for sh in p.shapes for vid in sh.ids} if vid in p.z)
     if len(zs) < SENTINEL_MIN_NODES:
         return None
-    idx = max(0, min(len(zs) - 1,
-                     int(round((SENTINEL_FLOOR_PCTL / 100.0) * (len(zs) - 1)))))
-    pctl = zs[idx]
-    return pctl, pctl - float(p.law.tables.emit.cockpit.sentinel_drop_m)
+
+    def at(pctl: float) -> float:
+        return zs[max(0, min(len(zs) - 1,
+                             int(round((pctl / 100.0) * (len(zs) - 1)))))]
+    return at(SENTINEL_FLOOR_PCTL), at(100.0 - SENTINEL_FLOOR_PCTL)
+
+
+def sentinel_floor_m(p: Patch) -> tuple[float, float] | None:
+    """``(the 5th-percentile elevation, the floor below it)`` — the
+    patch-intrinsic floor (:func:`_sentinel_band_m`), or ``None``."""
+    band = _sentinel_band_m(p)
+    if band is None:
+        return None
+    return band[0], band[0] - float(p.law.tables.emit.cockpit.sentinel_drop_m)
+
+
+def _sentinel_limits(p: Patch) -> tuple[float, float, float, float] | None:
+    """``(reference low, floor, reference high, ceiling)`` the sentinel is
+    read against (issue #623: BOTH sides — 15 strip vertices shipped at
+    1,798 m beside a 535 m runway and the floor-only family said nothing).
+
+    THE PUBLISHED GROUND ENVELOPE FIRST (sidecar ``ground_envelope`` =
+    ``[lowest, highest]`` lawful elevation, ``solve/ground_band.py``): the
+    hull of the DEM under the whole map, widened by the law's drop — the
+    same two numbers the pipeline failed the solve against, so a row is a
+    vertex outside every level the airport's ground holds.  A patch that
+    predates the key is read PATCH-INTRINSICALLY, as before but two-sided:
+    the drop below its own 5th percentile, the drop above its 95th."""
+    drop = float(p.law.tables.emit.cockpit.sentinel_drop_m)
+    env = p.publication.get("ground_envelope")
+    if env:
+        lo, hi = float(env[0]), float(env[1])
+        return lo + drop, lo, hi - drop, hi
+    band = _sentinel_band_m(p)
+    if band is None:
+        return None
+    return band[0], band[0] - drop, band[1], band[1] + drop
 
 
 def sentinel_elevation(p: Patch) -> list[Row]:
     """SENTINEL ELEVATION: an emitted vertex more than
-    ``emit.cockpit.sentinel_drop_m`` below the patch's own 5th-percentile
-    elevation (RULINGS 2026-09-13m, lane ``v2zerocrater``).
+    ``emit.cockpit.sentinel_drop_m`` outside the ground band
+    (:func:`_sentinel_limits`; RULINGS 2026-09-13m, lane ``v2zerocrater``;
+    issue #623 for the high side).
 
-    A no-data value or a homogeneous least-squares block's 0.0 is not
-    geometry.  The engine now refuses to emit such a piece (``solve/design``
-    §9c, the level belt); this is the net under the SHIP, so the class can
-    never leave the patch silently again whatever mints it.  CRITICAL at
-    any airport it touches.  One row per offending vertex, the magnitude
-    how far under the percentile it sits."""
-    got = sentinel_floor_m(p)
+    A no-data value, a homogeneous least-squares block's 0.0 or a datum
+    read off the wrong ground is not geometry.  The engine refuses to emit
+    such a piece (``solve/design`` §9c, the level belt; ``solve/
+    ground_band``, the envelope); this is the net under the SHIP, so the
+    class can never leave the patch silently again whatever mints it.
+    CRITICAL at any airport it touches.  One row per offending vertex, the
+    magnitude how far beyond the band's reference level it sits."""
+    got = _sentinel_limits(p)
     if got is None:
         return []
-    pctl, floor = got
+    ref_lo, floor, ref_hi, ceiling = got
     best: dict[int, Shape] = {}
     for sh in p.shapes:
         for vid in sh.ids:
-            if vid in p.z and float(p.z[vid]) < floor:
+            if vid in p.z and not floor <= float(p.z[vid]) <= ceiling:
                 best.setdefault(vid, sh)
     out: list[Row] = []
     for vid, sh in best.items():
         la, lo = p.ll.get(vid, (None, None))
         xy = p.xy.get(vid)
+        zv = float(p.z[vid])
         out.append(row(FAMILY_SENTINEL, (sh.role,), p.side(sh.role),
-                       pctl - float(p.z[vid]), None, None, None, xy, xy,
+                       ref_lo - zv if zv < floor else zv - ref_hi,
+                       None, None, None, xy, xy,
                        sh.ref, sh.ref, lat=la, lon=lo))
     out.sort(key=lambda r: -float(r["magnitude_m"]))
     return out

@@ -207,3 +207,9 @@ metres; but HECA is APPROVED on the current body (12m) → OWNER'S CALL. To drop
   (two `obj8_split_report --json` dumps of the SAME plan → bodies whose unit or zero changed, by resource + component
   set) and `a2_separations.py` (touching bodies written at two zeros) are the two reads this lane used; both are
   candidates for promotion into `tools/` with index rows (second use = promote).
+
+## SPLIT (master): `claude/kclt608a` f77dfae53 = (a) the design-surface one-level rule ALONE (cluster_pad, platform, no_step + twins; +122/−40); `claude/kclt608` keeps (b) `split_off_pad` for mesh verification.
+* (a) KCLT rebake-plan diff (dry run, (a)-only code on the kclt608_KCLT surface vs sw17): `pad_level_units_split` 0;
+  50 bodies change zero, ALL the concourse's: +0.93 (221.75 → 222.68: paredes_4 b0, paredes_2, techos_2, paredes_10,
+  the interior clutter), the north extension −paredes_2 221.71 → 222.68 (+0.97), silla_1 221.35 → 222.68 (+1.33, a
+  footless carried chair), paredes_8 +0.41, Paredes_7 +0.26; nothing else. Units changed: fu:6:960 only.

@@ -184,8 +184,8 @@ not merged by this lane.
   on +39-107 and +35-081, then `build_airport.py KASE --tile 39 -107 --steps "1 vector,2 mesh"` / `KCLT --tile 35 -81`
   on this branch is the closing test still owed. In its place: the app's own meshes replayed (above) — the same
   object stage on the same ground the owner read.
-* Airside untouched: patch-only harness builds on this branch — KASE body **9aceb887dd67 = sw20/owner**; KCLT body
-  = see `build_KCLT_patch.log` line 'built seat610_KCLT_patch' (sw20 9731f0b70610; the branch changes no patch code).
+* Airside untouched: patch-only harness builds on this branch — KASE body **9aceb887dd67 = sw20/owner**; KCLT body **9731f0b70610 = sw20** (941 s, 4915 verify rows)
+  — the object stage moves no terrain.
 * Suite: full non-Qt `-n 4` **9639 passed / 19 skipped / 1 xfailed / 1 xpassed** (844 s); touched files re-run after
   the last edit: 231 passed. `tools/ratchets.py`: DUPLICATE PASS, LAYER PASS; size WARN engine_v2.py 1108 → 1629
   (+5 here, +516 others' baseline drift), placement_plan.py 1022 (+11), obj8_split_report.py 1818 (+33).

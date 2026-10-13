@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw
 import subprocess
 import O4_Airport_Fade_Masks as FADE
 import O4_Bathymetry as BATHY
+import O4_DDS_File as DDS
 import O4_DEM_Utils as DEM
 import O4_Default_Terrain_Map as DEFTER
 import O4_File_Names as FNAMES
@@ -294,7 +295,7 @@ def zone_list_to_ortho_dico(tile):
     if tile.cover_airports_with_highres == "Existing":
         # what we find in the texture folder of the existing tile
         for f in os.listdir(os.path.join(tile.build_dir, "textures")):
-            if f[-4:] != ".dds":
+            if f[-4:] != ".dds" or DDS.is_partial_name(f):
                 continue
             items = f.split("_")
             (til_y_text, til_x_text) = [int(x) for x in items[:2]]
@@ -1228,7 +1229,7 @@ def build_dsf(tile, download_queue):
                 target_tex = os.path.join(
                     tile.build_dir, "textures", texture_file_name
                 )
-                if not os.path.isfile(target_tex):
+                if not DDS.is_whole(target_tex):
                     download_queue.put(texture_attributes)
                     textures_queued_count[0] += 1
                 else:
@@ -1412,7 +1413,7 @@ def build_dsf(tile, download_queue):
                                 tile.build_dir, "textures", texture_file_name
                                 )
                         rebuild = False
-                        if (not os.path.isfile(target_tex)):
+                        if (not DDS.is_whole(target_tex)):
                             rebuild = True
                         elif (tile.imprint_masks_to_dds):
                             # Maybe target_tex was a DXT1, we need DXT5
@@ -1666,7 +1667,7 @@ def build_dsf(tile, download_queue):
                             tile.build_dir, "textures", texture_file_name
                             )
                 rebuild = False
-                if (not os.path.isfile(target_tex)):
+                if (not DDS.is_whole(target_tex)):
                     rebuild = True
                 if (rebuild):
                     download_queue.put(texture_attributes)

@@ -17,6 +17,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 import requests
 
 import O4_Color_Harmonization as HARMONIZE
+import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Mask_Utils as MASK
@@ -2878,39 +2879,29 @@ def convert_texture(
     else:
         file_to_convert = os.path.join(file_dir, jpeg_file_name)
     # eventually the dds conversion
+    dds_final = dds_partial = None
     if type == "dds":
-        if not dxt5:
-            if "dar" in sys.platform:
-                conv_cmd = [
-                    dds_convert_cmd,
-                    "--png2dxt1",
-                    file_to_convert,
-                    os.path.join(tile.build_dir, "textures", out_file_name)
-                ]
-            else:
-                conv_cmd = [
-                    dds_convert_cmd,
-                    "-bc1",
-                    "-fast",
-                    file_to_convert,
-                    os.path.join(tile.build_dir, "textures", out_file_name)
-                ]
+        # The converter writes a PARTIAL name beside the texture; it is
+        # renamed onto the texture only when whole (#600), so a converter
+        # killed mid-write never leaves a short .dds under the final name.
+        dds_final = os.path.join(tile.build_dir, "textures", out_file_name)
+        DDS.sweep_partials(dds_final)
+        dds_partial = DDS.partial_name(dds_final)
+        if "dar" in sys.platform:
+            conv_cmd = [
+                dds_convert_cmd,
+                "--png2dxt5" if dxt5 else "--png2dxt1",
+                file_to_convert,
+                dds_partial,
+            ]
         else:
-            if "dar" in sys.platform:
-                conv_cmd = [
-                    dds_convert_cmd,
-                    "--png2dxt5",
-                    file_to_convert,
-                    os.path.join(tile.build_dir, "textures", out_file_name)
-                ]
-            else:
-                conv_cmd = [
-                    dds_convert_cmd,
-                    "-bc3",
-                    "-fast",
-                    file_to_convert,
-                    os.path.join(tile.build_dir, "textures", out_file_name)
-                ]
+            conv_cmd = [
+                dds_convert_cmd,
+                "-bc3" if dxt5 else "-bc1",
+                "-fast",
+                file_to_convert,
+                dds_partial,
+            ]
     else:
         (latmax, lonmin) = GEO.gtile_to_wgs84(til_x_left, til_y_top, zoomlevel)
         (latmin, lonmax) = GEO.gtile_to_wgs84(
@@ -2991,10 +2982,12 @@ def convert_texture(
         if not subprocess.call(
             conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
             **UI.external_tool_keyword_arguments()
-        ):
+        ) and (dds_partial is None or DDS.land(dds_partial, dds_final)):
             break
         tentative += 1
         if tentative == 10:
+            if dds_partial is not None:
+                DDS.sweep_partials(dds_final)
             UI.lvprint(
                 1,
                 "ERROR: Could not convert texture",

@@ -120,17 +120,15 @@ import json
 import os
 import re
 import shutil
-import signal
 import struct
-import subprocess
 import tempfile
 import time
 import typing as _t
 import uuid
 from bisect import bisect_left
 
-import O4_Console_Encoding as _console
-import O4_UI_Utils as _ui
+import O4_DSFTool as _dsftool
+from O4_DSFTool import DsfToolError
 
 from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
                                KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
@@ -504,91 +502,14 @@ def edit_dump(text: str, plan: PlacementPlan,
     return "".join(out)
 
 
-def _extwrite():
-    """``O4_External_Writes``, the one site the engine asks whether a CHILD
-    PROCESS may write a path (#159).
-
-    Imported lazily and absolutely, not relatively: this package lives
-    under ``src/`` beside the module, and every engine entry puts ``src/``
-    on ``sys.path``.  A missing import must never stop a DSFTool run, so a
-    failure yields a no-op stand-in.
-    """
-    try:
-        import O4_External_Writes as module
-        return module
-    except Exception:
-        class _NoGuard:
-            @staticmethod
-            def declare_external_write(path, *, writer):
-                return None
-        return _NoGuard
-
-
 # ── DSFTool ─────────────────────────────────────────────────────────────
-
-#: How the DSFTool child is NAMED when its output path is declared to an
-#: armed shared-repo write guard (#159).
-_DSFTOOL_WRITER_NAME = "DSFTool"
-
-
-class DsfToolError(RuntimeError):
-    """DSFTool did not do what it was asked: it exited non-zero, was killed
-    by a signal (a crash), ran past its time limit, or wrote nothing.  The
-    message is the real cause in plain words (#560)."""
-
-    #: ``True`` when DSFTool was stopped at its time limit.
-    timed_out = False
-    #: ``True`` when DSFTool was killed by a signal.
-    crashed = False
-
-
-def _exit_in_words(returncode: int) -> str:
-    """``"crashed (SIGSEGV)"`` for a signal death, else ``"failed (exit N)"``."""
-    if returncode < 0:
-        try:
-            return f"crashed ({signal.Signals(-returncode).name})"
-        except ValueError:
-            return f"crashed (signal {-returncode})"
-    return f"failed (exit {returncode})"
-
-
-def _run(args: list[str], *, writes: str | None = None,
-         declares: str | None = None, timeout: float | None = None) -> None:
-    """Run DSFTool; ``writes`` is the path the child writes and ``declares``
-    the path an armed guard is asked about (default: ``writes`` — they
-    differ when the child writes a temp file beside its destination)."""
-    # A SPAWN IS A WRITE DECLARATION (#159, RULINGS 2026-09-30bs).  DSFTool
-    # rewrites the SERVING PACK under the owner's ``Custom Scenery`` (the
-    # 2026-09-15av class: lane v2vmmcshore's tile build rewrote the live
-    # VHHH pack) and dumps into the shared ``Airport_mod_cache``, and
-    # neither write passes the harness's Python-level guard because the
-    # writer is a child process.  Declaring the output path means the child
-    # is never started when an armed guard refuses it, and the refusal is
-    # RECORDED, so swallowing it fails the run.
-    if writes is not None:
-        _extwrite().declare_external_write(declares or writes,
-                                          writer=_DSFTOOL_WRITER_NAME)
-    # DSFTool is a native tool: its messages (echoing the paths it was
-    # given) are in the ANSI code page on Windows, UTF-8 elsewhere, and a
-    # path in any other spelling must not turn its failure into a
-    # UnicodeDecodeError (#419).  The launch keywords make it posix_spawn,
-    # never fork (O4_UI_Utils.external_tool_keyword_arguments).
-    try:
-        proc = subprocess.run(args, capture_output=True, timeout=timeout,
-                              **_console.native_tool_pipe(),
-                              **_ui.external_tool_keyword_arguments())
-    except subprocess.TimeoutExpired:
-        error = DsfToolError(f"{' '.join(args[:2])} did not finish within "
-                             f"{timeout:g} s and was stopped")
-        error.timed_out = True
-        raise error from None
-    if proc.returncode != 0:
-        said = (proc.stderr or proc.stdout).strip()[:400]
-        error = DsfToolError(
-            f"{' '.join(args[:2])} {_exit_in_words(proc.returncode)}"
-            + (f": {said}" if said else ""))
-        error.crashed = proc.returncode < 0
-        raise error
+# The launch itself is ``O4_DSFTool.run`` — the one launcher, shared with
+# the overlay step (#591); the names below are this module's handles on it.
+_run = _dsftool.run
+_exit_in_words = _dsftool.exit_in_words
+#: The module the launcher spawns through — where a twin stands in for
+#: the DSFTool child (``monkeypatch.setattr(dsf_write.subprocess, "run", …)``).
+subprocess = _dsftool.subprocess
 
 
 #: A ``<dump>.<pid>.<token>.partial`` older than this is the litter of a

@@ -310,3 +310,45 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   what it is welded to: owner/spec question), 13e step 3 (explicit release of the longitudinal cap spread over the
   run; today an infeasible pad road is relaxed by the hard-feasibility LP row by row) and its consumer census of
   "road ≤ 10 %" readers; ramps inside the patch at the exits; the mesh read; #229.
+
+### ROUND 4 — STATE AT THE STOP (WIP commit; machine shutdown 2026-10-13)
+* OWNER RULED Q1 = option 1 (RULINGS 2026-10-13f): only FREE-STANDING pads shift (≤ 0.5 m, `[road_contact]
+  pad_shift_max_m`); a pad welded to a lot or apron stays and the road steepens (13e). NOT BUILT (the reach read
+  reports `shift_m`; nothing applies it).
+* DONE AND MEASURED (commit 3a8de8be8): the pad roads' OWN stage after the gap pieces — `late_stage.run_last_stages`
+  (gap stage on the classification without pad roads, then `run_late_stage(roads_only=True)`; a second derive only
+  where both exist). Replay vs main's late stage (`r4/ref_OTHH`, `r4/ref_HECA`; arms `o3`, `h1`): OTHH and HECA
+  0 movers in every frame, gap pieces 0, follower ribbons 0, only pad roads added. One late stage with an internal
+  order on ONE derive was tried first (`o1`/`o2`): 12 gap nodes still moved ≤ 0.20 m at OTHH — refuted, deleted.
+  Cost: one more derive (HECA ~97 s, OTHH ~72 s). NOT yet re-proved by harness builds (rebake plans not re-compared).
+* IN THE WIP COMMIT, HALF-DONE (unit twins green: test_roads609, test_roadmint100, test_late_stage; full suite NOT
+  re-run; no twin yet for the three new pieces):
+  1. `constraints/pad_road_reach.pad_grade_release` (13e): widens the longitudinal `Diff` caps of a pad|road network
+     whose least grade is over the cap, drops its PAD_RAMP design rows; called in `run_late_stage`. Not yet exercised
+     on a real case (KCLT has none; run SPJC / HECA). The CENSUS LAW CONTEXT IS OWED: readers that assume a road
+     ≤ 10 % — `tools/check_grade.py` road families (road_cross_section / within_shape / the `road_cap_governs`
+     readers at :2908 :3670 :4317), `verify/strips.py` `road_cap_geometry`, `emit/road_join.with_pin_yield`'s
+     budget, object seating on road faces — need a sidecar key for the released stretches (`pad_ramp["released"]`
+     is in the late report only).
+  2. `pad_road_reach`: a far end nearer than the road is wide (2 × lane width) is BESIDE the pad, not along the
+     road, and is skipped (SPJC building24's 2.4 m / 161 % row was a lot across the road, by inference from
+     run < width — not yet looked at on the map).
+  3. `classify/pad_road_exit.extend_pad_roads` (the ramp INSIDE the patch): in the roads stage the classification
+     is rewritten — from each patch exit of a pad road the network is walked outward until a 5 % profile from the
+     pad's solved level meets the DEM; minted as pad road (`pad_exit`). `_mint_spans(min_len=0.0)` for pad roads.
+     KCLT replay `r4/k9` (two runs, base byte-identical to main, pads/airside/structures 0 movers, none relaxed):
+     49 exit cells, 2,135 m. DEFECT OPEN: the exit cells do NOT descend — `-8190` stays at 222.6–223.2 over 245 m
+     (DEM 217.4–218.2) and drops 53 % at its far patch edge; all its vertices are in `near`, so the PAD_RAMP design
+     row is there but does not carry (suspect: `clip(dem − proxy[rim], ±g·d)` reads `preferred_z` of the rim, or the
+     row is outweighed by bending between the 223 forecourt and a released far join). Also open: `-24651` 50.8 %
+     on-patch at a 6 m dead-end stub, `-24655` / `-30420` / `-16664` s=0 edges (ways that end at a bridge way or a
+     sliver). NEXT: `--why-from r4/k9/KCLT.solved.pkl --why-vertex <a -8190#1 vertex>`.
+* NEXT COMMANDS (from `<worktree>/Ortho4XP`): replay = `tools/v2_solve_replay.py --replay <frames>/pads67/KCLT.pkl
+  --from classify --gap-free --emit B --verify --solved-out B/KCLT.solved.pkl`, then `… --from classify --late-from
+  B/KCLT.solved.pkl --emit A --verify --solved-out A/KCLT.solved.pkl` (`r4/run_late.sh NAME ICAO`); the
+  `tools/INDEX.md` row for `v2_solve_replay.py` does NOT yet say that pad roads need the two-run form.
+* HARNESS RESIDUE of the killed builds: none in the shared data repo (`.harness/locks` empty, no ledger line);
+  in `/tmp/harness` only `r4_HECA.*`, `r4b_HECA.*`, `r4b_KCLT.*`, `r4b_OTHH.*` (`.engine_caches`, `.env.json`,
+  `.progress`; no patch, no result) — the master's to delete. Frames NOT registered.
+* NOT DONE: harness builds on the current code, full suite, ratchets, 13d step 2, the census law context, the
+  ramp table on a working exit ramp, the small buildings between the garages, the closing KCLT build, #229.

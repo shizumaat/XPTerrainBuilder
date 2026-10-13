@@ -198,6 +198,17 @@ def cut_classification(cl, pm_base, z_base, law: Law, rules) -> tuple[_t.Any, di
     return _dc.replace(cl, cells=tuple(cells)), rep
 
 
+def _pad_levels(pm, z, law: Law) -> dict[str, float]:
+    """``{pad ref: the median solved level of its faces' vertices}``."""
+    import statistics
+    from ..model.planar import face_vertex_set
+    acc: dict[str, list[float]] = {}
+    for f in pm.faces.values():
+        if is_rigid_role(law, f.role):
+            acc.setdefault(str(f.ref), []).extend(float(z[v]) for v in face_vertex_set(pm, f))
+    return {ref: statistics.median(zs) for ref, zs in acc.items() if zs}
+
+
 def _carry_pin_yield(base_solution, pm_base, pm_full) -> list[dict]:
     """The base solve's released join pins (``DesignReport.pin_yield``) on
     the FULL map's vertex ids, by the canonical coordinate join."""
@@ -238,9 +249,17 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         rules = load_rules()
     pm_base, z_base = base_solution["pm"], base_solution["z"]
     t0 = time.perf_counter()
+    exits = None
     if roads_only:
-        cl_cut, cut = cl, {"pieces": [], "parts": 0, "knives": 0, "merged": 0,
-                           "stations": 0, "part_stations": {}}
+        # the ramp is INSIDE the patch (13a (1)/(3)): each pad road runs on
+        # from its patch exits until a design-grade profile from its pad's
+        # solved level meets the terrain
+        from ..classify.pad_road_exit import extend_pad_roads
+        cl_cut, exits = extend_pad_roads(cl, airport, law, rules,
+                                         _pad_levels(pm_base, z_base, law))
+        out(f"LAST STAGE pad road exits (13a (1)): {exits}")
+        cut = {"pieces": [], "parts": 0, "knives": 0, "merged": 0, "stations": 0,
+               "part_stations": {}}
     else:
         cl_cut, cut = cut_classification(cl, pm_base, z_base, law, rules)
     # the stations stay the stage's own (the cut report is a published record)
@@ -264,8 +283,12 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     pad_joins = pad_ramp.pop("joins")
     # 13d "road ramps first": where no cap-grade ramp fits between the pad
     # and the road's other standing end — the remainder, read not applied
-    from ..constraints.pad_road_reach import pad_road_reach
+    from ..constraints.pad_road_reach import pad_grade_release, pad_road_reach
+    from ..constraints.road_ramp import PAD_RAMP_RULING
     pad_ramp["reach"] = reach_rep = pad_road_reach(pm, law, fixed)
+    # 13e: no step — the stretch that cannot reach inside the cap steepens,
+    # one ramp over its whole run
+    cs, pad_ramp["released"] = pad_grade_release(pm, cs, reach_rep, PAD_RAMP_RULING)
     short = sorted((r for r in reach_rep if r["remainder_m"]),
                    key=lambda r: -abs(r["remainder_m"]))
     if reach_rep:
@@ -277,8 +300,8 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
             out(f"    {r['pad']}: {r['rise_m']:+.2f} m over {r['run_m']:.1f} m to {r['far']} "
                 f"at {lat:.7f},{lon:.7f} = {100 * r['grade']:.1f} % (cap "
                 f"{100 * r['cap']:.0f} %), remainder {r['remainder_m']:+.2f} m "
-                f"(pad shift {r['shift_m']:+.2f} m inside the cap, step left {r['step_m']:.2f} m; "
-                f"READ, not applied); "
+                f"(a pad shift of {r['shift_m']:+.2f} m is READ, not applied); GRADE RELEASED "
+                f"to {100 * r['grade']:.1f} % over the run (13e); "
                 f"road {', '.join(r['road'][:3])}")
     cs_all = cs
     # THE FLOOR, ONE NUMBER AT ONE SITE (spec §55 (5), (15) rule B): the
@@ -325,7 +348,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
             r["z_m"] = round(float(sol.z[r["v"]]), 4)
             r["excess_m"] = round(r["z_m"] - r["pinned_m"], 4)
     report = {"cut": cut, "cl": cl_cut, "followers": frep, "join": jrep,
-              "pad_ramp": pad_ramp,
+              "pad_ramp": pad_ramp, "pad_exits": exits,
               "stage": {"floor_m": floor_m,
                         "followers": list(frep["follower_ribbon_refs"])},
               "dropped": dropped, "follow": grep, "cs": cs, "cs_full": cs_full,

@@ -259,10 +259,14 @@ def _ribbon_ways(airport: Airport, rules: Rules) -> list[tuple[object, LineStrin
 
 
 def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
-                cover, law: Law, rules: Rules, add, extra: dict):
+                cover, law: Law, rules: Rules, add, extra: dict,
+                min_len: float | None = None):
     """One way's ribbon over ``spans`` less ``occupied``, added part by
     part (refs numbered on from ``serial``): ``(parts, m2, ribbon)`` — the
-    ribbon ``None`` when no part was minted."""
+    ribbon ``None`` when no part was minted.  ``min_len`` (default
+    ``osm_roads.min_len_m``, the floor under a stray stub) is the shortest
+    axis ribboned: a pad road's piece between two standing roads is road
+    however short (the cell floor ``cells.min_area_m2`` still stands)."""
     from shapely.ops import substring
     orr = rules.osm_roads
     hw = float(law.tables.emit.road_profile.lane_width_m)
@@ -273,7 +277,8 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
             axes.extend(line_parts(seg.difference(cover)))
         else:
             axes.append(seg)
-    axes = [ax for ax in axes if ax.length >= orr.min_len_m]
+    axes = [ax for ax in axes
+            if ax.length >= (orr.min_len_m if min_len is None else min_len)]
     if not axes:
         return 0, 0.0, None
     rib = unary_union([ax.buffer(hw, cap_style="flat", join_style="mitre",
@@ -393,7 +398,7 @@ def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,
         if not spans:
             continue
         k, m2, rib = _mint_spans(w, line, spans, occupied, first["serial"], cover,
-                                 law, rules, add, {"pad_road": 1.0})
+                                 law, rules, add, {"pad_road": 1.0}, min_len=0.0)
         n += k
         area += m2
         if rib is not None:

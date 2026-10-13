@@ -21,14 +21,22 @@ constant (its join is released and the core road carries the ramp on,
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import heapq
 import typing as _t
 
 from ..law import Law
 from ..law.tables import is_rigid_role, role_cap
+from ..model.constraints import ConstraintSet, Diff
 from ..model.planar import PlanarMap, face_edge_ids, pad_road_faces
 
-__all__ = ["pad_road_reach"]
+#: the released cap stands this far (relative) over the least grade that
+#: reaches, so the straight ramp is strictly inside it
+RELEASE_SLACK = 1e-3
+#: the ruling head of the cross-fall rows, which the release never touches
+_TRANSVERSE = "road_cross_section"
+
+__all__ = ["pad_road_reach", "pad_grade_release", "RELEASE_SLACK"]
 
 
 def _components(faces, verts: dict[int, set[int]]) -> list[list]:
@@ -74,6 +82,7 @@ def pad_road_reach(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float]
     rc = role_cap(law, "service_road")
     cap = float(rc.longitudinal) if rc and rc.longitudinal else 0.0
     most = float(law.tables.emit.road_contact.pad_shift_max_m)
+    wide = 2.0 * float(law.tables.emit.road_profile.lane_width_m)
     V, E, F = planar.vertices, planar.edges, planar.faces
     road_ids = {f.id for f in roads}
     verts = {f.id: {v for e in face_edge_ids(f) for v in (E[e].a, E[e].b)}
@@ -127,11 +136,17 @@ def pad_road_reach(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float]
                         heapq.heappush(heap, (nd, w))
             worst = None
             for q, (qpad, name) in ends.items():
-                if qpad == pad or q not in dist or dist[q] <= 0.0:
+                # an end nearer than the road is WIDE stands BESIDE the pad
+                # across the road, not along it: no ramp runs there (the
+                # two levels are each other's wall with or without a road
+                # — MEASURED SPJC: a lot 3.9 m over building24's pad, 2.4 m
+                # away through the road between them, read as 161 %)
+                if qpad == pad or q not in dist or dist[q] <= wide:
                     continue
                 rise = float(fixed[q]) - float(fixed[src[q]])
                 rem = max(0.0, abs(rise) - cap * dist[q])
                 rec = {"pad": pad, "road": refs, "far": name, "far_v": int(q),
+                       "faces": sorted(int(f.id) for f in comp),
                        "run_m": round(dist[q], 2), "rise_m": round(rise, 3),
                        "grade": round(abs(rise) / dist[q], 4), "cap": cap,
                        "remainder_m": round(rem if rise > 0 else -rem, 3),
@@ -143,3 +158,44 @@ def pad_road_reach(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float]
             if worst is not None:
                 out.append(worst)
     return out
+
+
+def pad_grade_release(planar: PlanarMap, cs: ConstraintSet,
+                      reach: _t.Sequence[_t.Mapping], design_head: str
+                      ) -> tuple[ConstraintSet, list[dict]]:
+    """13e: on every pad|road network of ``reach`` whose least grade is over
+    the road cap, each LONGITUDINAL cap row between two of its vertices
+    (a ``Diff`` that is not a cross-fall row) is widened to that grade, and
+    its ramp design rows (``design_head``, built at the design grade) leave
+    — between two constants the sheet's own bending lays the one straight
+    ramp.  ``(set, [{pad, road, grade, run_m, rise_m, rows}])``."""
+    need: dict[int, float] = {}
+    out: list[dict] = []
+    E, F = planar.edges, planar.faces
+    for r in reach:
+        if not r["remainder_m"]:
+            continue
+        vs = {v for f in r["faces"] for e in face_edge_ids(F[f]) for v in (E[e].a, E[e].b)}
+        g = float(r["grade"]) * (1.0 + RELEASE_SLACK)
+        for v in vs:
+            need[v] = max(need.get(v, 0.0), g)
+        out.append({"pad": r["pad"], "road": list(r["road"]), "grade": r["grade"],
+                    "run_m": r["run_m"], "rise_m": r["rise_m"], "far": r["far"],
+                    "far_v": r["far_v"], "rows": 0})
+    if not need:
+        return cs, out
+    rows, n = [], 0
+    for row in cs.rows():
+        head = str(row.source.ruling)
+        if isinstance(row, Diff) and row.a in need and row.b in need \
+                and not head.startswith(_TRANSVERSE):
+            g = min(need[row.a], need[row.b])
+            if row.cap < g:
+                row = _dc.replace(row, cap=g)
+                n += 1
+        elif head == design_head and any(v in need for v, _c in getattr(row, "terms", ())):
+            continue
+        rows.append(row)
+    for rec in out:
+        rec["rows"] = n
+    return ConstraintSet.from_rows(rows), out

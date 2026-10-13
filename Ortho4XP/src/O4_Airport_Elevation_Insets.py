@@ -1251,14 +1251,42 @@ def _rung_ask_signature(rung_definition):
 def _cap_declined_listing(error, rung_strategy):
     """The listing ids a rung was DECLINED over by a per-airport cap, or
     ``None`` when ``error`` is any other ``unavailable`` (a missing
-    decoder, a refused download: those are asked again on every build,
-    owner RULINGS 2026-09-13b) or the strategy kept no listing."""
+    decoder has its own rule, :func:`_rung_stands_without_capability`; a
+    refused download is asked again on every build, owner RULINGS
+    2026-09-13b) or the strategy kept no listing."""
     if not getattr(error, "declined_by_cap", False):
         return None
     listing = getattr(rung_strategy, "last_listing", None)
     if not listing:
         return None
     return _listing_ids(listing)
+
+
+def _rung_missing_capabilities(rung_definition):
+    """The capabilities ``rung_definition`` needs and THIS engine lacks
+    (:func:`provider_required_capabilities` less
+    :func:`run_capability_record`), sorted; ``[]`` when it lacks none."""
+    have = run_capability_record(rung_definition)["capabilities"]
+    return [capability
+            for capability in provider_required_capabilities(rung_definition)
+            if capability not in have]
+
+
+def _rung_stands_without_capability(attempt, rung_definition):
+    """THE DECODER CLASS (#595): was this rung recorded ``unavailable``
+    while the engine LACKED a capability it needs, under the signature
+    that still holds (:func:`_rung_ask_signature`: same definition, same
+    engine, same capabilities)?  Whatever it lists, this engine still
+    cannot read it, so the build-time re-check does not ask it and does
+    not re-run the ladder for it.  The capability appearing -- or a new
+    engine, or an edited definition -- moves the signature and the rung
+    is asked again."""
+    return bool(
+        isinstance(attempt, dict)
+        and attempt.get("outcome") == "unavailable"
+        and attempt.get("missing_capabilities")
+        and attempt.get("declined_under")
+        == _rung_ask_signature(rung_definition))
 
 
 def _provenance_listing_ids(provenance):
@@ -1445,6 +1473,15 @@ def _fetch_through_resolution_ladder(
                 # engine declined it.  Recorded with what it was declined
                 # UNDER, so the re-check asks again only when one moved.
                 attempt["listing_ids"] = declined_listing
+                attempt["declined_under"] = _rung_ask_signature(
+                    rung_definition)
+            elif _rung_missing_capabilities(rung_definition):
+                # THE DECODER CLASS (#595): the rung needs a capability
+                # this engine lacks.  Recorded with the signature it was
+                # refused under; the re-check asks it again when that
+                # moves (the capability appears), not on every build.
+                attempt["missing_capabilities"] = (
+                    _rung_missing_capabilities(rung_definition))
                 attempt["declined_under"] = _rung_ask_signature(
                     rung_definition)
             if os.path.isfile(rung_path):
@@ -3940,6 +3977,10 @@ def _ladder_recheck_rungs(lat, lon, icao, provider_code, bounding_box):
         (label, rung_definition) for (label, rung_definition) in rungs
         if label in reask_labels
         and label not in [other for (other, _d) in finer]]
+    # A rung this engine still cannot decode is not asked (#595).
+    finer = [(label, rung_definition) for (label, rung_definition) in finer
+             if not _rung_stands_without_capability(
+                 stored.get(str(label)), rung_definition)]
     return (sidecar, meta, ladder, labels, stored, finer)
 
 

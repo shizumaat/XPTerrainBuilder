@@ -289,23 +289,41 @@ class TileWater:
         lvl = self._level[index]
         if lvl is not None:
             return lvl
-        poly = self.polys[index]
-        minx, miny, maxx, maxy = poly.bounds
+        gx, gy = self._level_posts(self.polys[index])
+        z = (np.asarray(sampler(gy + self.lat, gx + self.lon), float)
+             if gx.size else np.empty(0))
+        z = z[np.isfinite(z)]
+        # NO SAMPLE IS NO LEVEL (issue #623): NaN, which every reader of
+        # ``water_many`` already treats as "no datum here" — never 0.0, a
+        # sea level an inland body does not hold.
+        lvl = float(np.median(z)) if z.size else float("nan")
+        self._level[index] = lvl
+        return lvl
+
+    @staticmethod
+    def _level_posts(poly) -> tuple[np.ndarray, np.ndarray]:
+        """The posts a body's level is the DEM median of — INSIDE THE
+        BODY AND INSIDE THIS TILE (issue #623).  The cached water layer
+        is not cut at the tile edge: a lake that runs on into the next
+        tiles keeps its whole outline, and the tile's raster answers a
+        post beyond its edge with the EDGE cell (``_BakedTile.sample``
+        clips).  A grid over the whole outline then reads the level of a
+        lake off the mountainside at the tile edge — measured: a 532 m
+        lake levelled at 1,798 m, 15 strip vertices pinned to it."""
+        from shapely import contains_xy
+        from shapely.geometry import box
+        own = poly.intersection(box(0.0, 0.0, 1.0, 1.0))
+        if own.is_empty:
+            return np.empty(0), np.empty(0)
+        minx, miny, maxx, maxy = own.bounds
         gx, gy = np.meshgrid(np.linspace(minx, maxx, _LEVEL_GRID),
                              np.linspace(miny, maxy, _LEVEL_GRID))
         gx, gy = gx.ravel(), gy.ravel()
-        from shapely import contains_xy
-        keep = contains_xy(poly, gx, gy)
-        if not keep.any():                       # a sliver: its centroid
-            c = poly.representative_point()
-            gx, gy = np.array([c.x]), np.array([c.y])
-        else:
-            gx, gy = gx[keep], gy[keep]
-        z = np.asarray(sampler(gy + self.lat, gx + self.lon), float)
-        z = z[np.isfinite(z)]
-        lvl = float(np.median(z)) if z.size else 0.0
-        self._level[index] = lvl
-        return lvl
+        keep = contains_xy(own, gx, gy)
+        if keep.any():
+            return gx[keep], gy[keep]
+        c = own.representative_point()           # a sliver: a point of it
+        return np.array([c.x]), np.array([c.y])
 
     def state(self) -> dict:
         return {"tile": [self.lat, self.lon], "has_data": self.has_data,

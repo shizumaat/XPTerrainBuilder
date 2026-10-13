@@ -259,8 +259,15 @@ def census_patch(p: Patch, *, say: _t.Callable[[str], None] = print,
 #: same solve as every other law, so a pad standing off its plane is a
 #: census row like any other (``verify/pads.py`` still reads and reports it).
 FAMILY_PAD_FLAT = "pad_flat"
+#:
+#: AND THE SENTINEL (issue #623): ``sentinel_elevation`` is not a law the
+#: surface aims for at all — a vertex outside the ground envelope is a
+#: number that is not geometry (a crater to 0 m, a wall to 1,798 m beside a
+#: 535 m runway).  CZNL shipped that with ``solve=optimal`` and a verify
+#: that listed its 1,265 m steps as residuals; a patch carrying one is never
+#: placed.
 DEFECT_KEYS: tuple[str, ...] = (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE,
-                                "runway_step")
+                                "runway_step", "sentinel_elevation")
 
 
 def defect_excess_m(r: Row) -> float:

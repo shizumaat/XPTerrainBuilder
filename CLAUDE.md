@@ -12,14 +12,26 @@ macOS Swift app + vendored Python engine that builds X-Plane ortho scenery.
 
 ## Lanes (owner standing 2026-09-03)
 
-The session is the project manager (Fable 5.1, high effort). Work is
+The session is the project manager (the model the owner set for the
+session — Opus 5.5 since 2026-10-12; never switched by the session). Work is
 dispatched to subagents at MODERATE effort via the project definitions
 in `.claude/agents/`: `lane` (implementation, all tools) and `scout`
-(read-only research). MODEL (owner amendment 2026-09-03 evening, Fable
-limits are finite): lanes and scouts run on **Opus by default**
-(`model: "opus"`); Fable 5.1 (`model: "fable"`) is reserved for briefs
-where the judgement is the deliverable — spec authoring, attribution
-that will become an owner ruling, and review — or when the owner asks.
+(read-only research). MODEL (owner standing 2026-10-13, RULINGS 13c;
+replaces the 2026-09-03 evening amendment): lanes and scouts run on
+**Opus** (`model: "opus"`) — implementation, measurement, attribution,
+audits, specs and review alike. **Fable 5.1 (`model: "fable"`) is launched
+only after the owner has approved THAT launch in chat**: the master names
+the brief and why Opus is not enough, and waits for the yes. "The brief
+needs judgement" is not a reason; a brief with law in it is still an Opus
+brief. The approved launch's prompt carries the line
+`OWNER-APPROVED-FABLE: <date> "<the owner's words>"`, without which the
+hook refuses it. A Fable lane is never resumed (`SendMessage`) for a new
+piece of work — each round re-reads its whole context at Fable price; its
+follow-up goes to a fresh Opus lane on its branch. The master reads
+`get_usage` (Weekly · Fable) at session start and before asking for a
+Fable launch, and reports the figure with the request. Precedent: on
+2026-10-12/13 nine of 32 lanes were launched on Fable for implementation
+briefs and used 50 % of the weekly Fable allowance in under a day.
 Every `Agent` launch passes the model explicitly and one of those
 `subagent_type`s — the PreToolUse hook `.claude/hooks/agent_guard.py`
 refuses anything else (built-in types inherit the session's high

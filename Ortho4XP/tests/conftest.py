@@ -1452,6 +1452,32 @@ def _xplane_guard_class():
     return _XPLANE_GUARD_CLS
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    """No test leaves a stand-in engine module in ``sys.modules`` (#639).
+
+    Runs AFTER every function fixture is finalised (``monkeypatch`` has put
+    its own entries back by then): the stand-ins installed through
+    ``tests/module_isolation.install`` are restored exactly, and anything
+    first-party still there that is not the engine's own module fails THIS
+    test by name — then is taken out, so the next test on the worker does
+    not inherit it.
+    """
+    try:
+        return (yield)
+    finally:
+        from tests import module_isolation
+        module_isolation.restore_all()
+        leaked = module_isolation.left_behind()
+        if leaked:
+            module_isolation.evict(leaked)
+            pytest.fail(
+                f"{item.nodeid} left stand-in engine modules in sys.modules: "
+                f"{', '.join(leaked)}.  Install them with tests/"
+                f"module_isolation.install (or monkeypatch.setitem), never "
+                f"by bare assignment.", pytrace=False)
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """Stash each phase's report on the item, so the install guard's

@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests import module_isolation
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
@@ -96,9 +98,12 @@ def _install_stub_modules(monkeypatch, models, placements, recorded):
     pack_module.compute_exclusion_rectangles = compute_exclusions
     pack_module.write_overlay_dsf = write_overlay_dsf
 
-    monkeypatch.setitem(sys.modules, "O4_MSFS_Package", package_module)
-    monkeypatch.setitem(sys.modules, "O4_MSFS_XPlane_Pack", pack_module)
-    # Force a re-import of the orchestrator against the stubs.
+    # The orchestrator is re-imported against the stubs, and the copy bound
+    # to them does not outlive the test (#639): ``install`` snapshots all
+    # three names and conftest puts them back.
+    module_isolation.install({"O4_MSFS_Package": package_module,
+                              "O4_MSFS_XPlane_Pack": pack_module},
+                             also=("O4_MSFS_Airport_Convert",))
     sys.modules.pop("O4_MSFS_Airport_Convert", None)
 
 

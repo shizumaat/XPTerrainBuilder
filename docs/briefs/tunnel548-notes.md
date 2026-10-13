@@ -173,12 +173,21 @@ on the re-run. Re-run of the affected files (`test_bore_table`, `test_console_en
 `test_no_airport_specific_code`): 341 passed. `tools/ratchets.py`: DUPLICATE RATCHET PASS,
 LAYER RATCHET PASS; no size or long-function line for a file this lane touched.
 
+## Owner decision (RULINGS 2026-10-13a (10))
+
+The tunnel rule STANDS AS BUILT, both extensions included: the passage outranks an at-grade
+crossing, and it is asked of a mapped bore outside the fence too.
+
+## CI fix (PR #633)
+
+`tests/test_bore_table.py::test_the_diff_names_an_unexpected_verdict_change` exited 2 on all
+three CI jobs: a bore id starts with `-`, and argparse before Python 3.13 reads a separate
+`--expect -2+-3` as an option (reproduced on 3.11; the venv is 3.14). `--expect` is now
+`--expect=IDS`, repeatable.
+
 ## NOT DONE
 - Spec text: `design-surface-spec.md` §34 (12) (5) still reads "(d) NARROWED" (10i (1)); the 10q
   order lives in the code docstring only. Fable authors specs — owed by the spec author.
-- Two decisions inside "asked FIRST" the ruling does not spell out (passage over the CROSSING
-  witness; passage asked outside the fence too): built as written above, no bore at the nine
-  airports depends on either. For the spec author / owner if they matter.
 - The "tiny arm" (pad building75's thin strip) — the pad-outline thin-piece question, untouched.
 - The two-state vertex at 35.22475551650,-80.93645381248 — not attributed.
 - Qt suite not run (no Qt or app code touched).

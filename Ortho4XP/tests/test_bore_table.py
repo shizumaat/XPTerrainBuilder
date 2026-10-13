@@ -54,4 +54,4 @@ def test_the_diff_names_an_unexpected_verdict_change(tmp_path):
     assert "deck.obj @ 3.0 m" in lines[2]
     assert bore_table.diff(base, branch, ["ZZZZ"], {"-2+-3"})[1] == []
     assert bore_table.main(["diff", str(base), str(branch), "ZZZZ"]) == 1
-    assert bore_table.main(["diff", str(base), str(branch), "ZZZZ", "--expect", "-2+-3"]) == 0
+    assert bore_table.main(["diff", str(base), str(branch), "ZZZZ", "--expect=-2+-3"]) == 0

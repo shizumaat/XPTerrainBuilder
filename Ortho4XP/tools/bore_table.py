@@ -2,7 +2,7 @@
 witness readings and its verdict, and the diff of two arms.
 
     cd Ortho4XP && PYTHONPATH=src venv/bin/python tools/bore_table.py run ICAO --out DIR
-    venv/bin/python tools/bore_table.py diff BASE_DIR BRANCH_DIR ICAO [ICAO ...] [--expect IDS ...]
+    venv/bin/python tools/bore_table.py diff BASE_DIR BRANCH_DIR ICAO [ICAO ...] [--expect=IDS ...]
 
 ``run`` is the dry structure replay (``python -m auto_patch_v2.planar ICAO
 --stage structures --out DIR/ICAO``) with ``planar/structure_service.
@@ -12,7 +12,8 @@ rise over the mouth chord, fence membership, the pack building at each end and
 the pack's open passage (``_PackBuildings.passage``) — the readings the
 refusal line prints only for a REFUSED bore.  It measures no law and changes
 no verdict.  ``diff`` prints one row per bore (base verdict -> branch verdict)
-and exits non-zero when a verdict changed on a bore not named by ``--expect``.
+and exits non-zero when a verdict changed on a bore not named by ``--expect=IDS``
+(attached: a bore id starts with ``-``, which argparse before 3.13 reads as an option).
 
 Promoted on its second use (lane ``kclt546`` scratch ``bore_witness.py``, lane
 ``tunnel548``; RULINGS ``7e90032``).  Twin: ``tests/test_bore_table.py``.
@@ -123,7 +124,10 @@ def main(argv=None) -> int:
     d.add_argument("base", type=Path)
     d.add_argument("branch", type=Path)
     d.add_argument("icaos", nargs="+")
-    d.add_argument("--expect", nargs="*", default=[])
+    # a bore id starts with "-": before Python 3.13 argparse reads a separate
+    # "-32111+-27411" as an option, so the id is given attached, repeatably
+    d.add_argument("--expect", action="append", default=[], metavar="IDS",
+                   help="a bore whose verdict may change; spell it --expect=IDS")
     a = ap.parse_args(argv)
     if a.cmd == "diff":
         lines, unexpected = diff(a.base, a.branch, a.icaos, set(a.expect))

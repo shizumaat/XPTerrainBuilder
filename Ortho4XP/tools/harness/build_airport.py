@@ -4200,6 +4200,12 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
               f"sidecar={'OK' if side.exists() else 'MISSING'}  "
               f"body_sha={body_sha256(osm)[:12]}  v2-verify rows="
               f"{sum(verify.values()) if verify else 'n/a'}")
+    _off = ((res.report.get("solve") or {}).get("off_ground") or {})
+    if _off.get("count"):
+        # issue #623: a solved vertex outside the airport's ground envelope
+        prog.note(f"v2-solve OFF THE GROUND (the app build would fail this "
+                  f"airport): {_off['count']} vertex(es) outside "
+                  f"{_off.get('envelope_m')} m")
     if verify_defects:
         # a structural defect of the product (verify.DEFECT_KEYS: a RUNWAY
         # law the solve holds as a constraint, read broken on the emitted

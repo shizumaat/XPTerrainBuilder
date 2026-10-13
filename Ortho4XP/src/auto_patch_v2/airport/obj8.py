@@ -86,6 +86,16 @@ class ObjGeometry:
     solid: np.ndarray
     hardness: np.ndarray
     draped: np.ndarray
+    #: per solid triangle, whether it was emitted inside an ``ANIM_begin``
+    #: / ``ANIM_end`` block — MOVING geometry (issue #612: a SAM jetway's
+    #: telescoping wheel strut reaches 11 m under its anchor in the
+    #: authored file; the sim never shows it there).  Empty = none known
+    #: (a geometry built by hand reads as all static).
+    animated: np.ndarray = _dc.field(default_factory=lambda: np.zeros(0, dtype=bool))
+
+    def tri_animated(self, idx: np.ndarray) -> bool:
+        """Whether ANY of the solid triangles ``idx`` is animated."""
+        return bool(self.animated.shape[0] and self.animated[idx].any())
 
     @property
     def hard_deck(self) -> np.ndarray:
@@ -110,9 +120,10 @@ def parse_obj8(path: str) -> ObjGeometry:
     idx_lines = [ln.split(None, 1)[1] for ln in lines
                  if ln.startswith(b"IDX") and len(ln.split(None, 1)) == 2]
     idx = _ints(idx_lines) if idx_lines else np.zeros(0, dtype=np.int64)
-    ranges: list[tuple[int, int, bool, int]] = []
+    ranges: list[tuple[int, int, bool, int, bool]] = []
     draped = False
     hard = 0
+    anim = 0                       # ANIM_begin nesting depth
     for ln in lines:
         c = ln[:1]
         if c != b"T" and c != b"A":
@@ -123,9 +134,13 @@ def parse_obj8(path: str) -> ObjGeometry:
         kw = toks[0]
         if kw == b"TRIS" and len(toks) >= 3:
             try:
-                ranges.append((int(toks[1]), int(toks[2]), draped, hard))
+                ranges.append((int(toks[1]), int(toks[2]), draped, hard, anim > 0))
             except ValueError:
                 continue
+        elif kw == b"ANIM_begin":
+            anim += 1
+        elif kw == b"ANIM_end":
+            anim = max(0, anim - 1)
         elif kw == b"ATTR_draped":
             draped = True
         elif kw == b"ATTR_no_draped":
@@ -140,8 +155,9 @@ def parse_obj8(path: str) -> ObjGeometry:
     nv = int(verts.shape[0])
     solid_parts: list[np.ndarray] = []
     hard_parts: list[np.ndarray] = []
+    anim_parts: list[np.ndarray] = []
     draped_parts: list[np.ndarray] = []
-    for off, cnt, is_draped, h in ranges:
+    for off, cnt, is_draped, h, is_anim in ranges:
         lo, hi = max(0, off), min(off + cnt, n)
         hi -= (hi - lo) % 3
         if hi <= lo:
@@ -153,10 +169,12 @@ def parse_obj8(path: str) -> ObjGeometry:
         else:
             solid_parts.append(tri)
             hard_parts.append(np.full(tri.shape[0], h, dtype=np.int8))
+            anim_parts.append(np.full(tri.shape[0], is_anim, dtype=bool))
     solid = np.concatenate(solid_parts) if solid_parts else np.zeros((0, 3), dtype=np.int64)
     hardness = np.concatenate(hard_parts) if hard_parts else np.zeros(0, dtype=np.int8)
+    animated = np.concatenate(anim_parts) if anim_parts else np.zeros(0, dtype=bool)
     drp = np.concatenate(draped_parts) if draped_parts else np.zeros((0, 3), dtype=np.int64)
-    return ObjGeometry(path, verts, solid, hardness, drp)
+    return ObjGeometry(path, verts, solid, hardness, drp, animated)
 
 
 def _floats(rows: list[bytes], width: int) -> np.ndarray:
@@ -208,6 +226,10 @@ class Component:
     #: The component's triangle indices into ``ObjGeometry.solid`` (the
     #: deck signature reads a plate's own component's faces).
     idx: np.ndarray | None = None
+    #: MOVING geometry (any triangle inside an ``ANIM`` block, issue #612):
+    #: a part the sim animates is never a witness of the terrain — not a
+    #: floor plate, not a wall, not a sill (``ResourceCache.genuine``).
+    animated: bool = False
 
 
 def solid_components(geom: ObjGeometry) -> list[Component]:
@@ -246,7 +268,7 @@ def solid_components(geom: ObjGeometry) -> list[Component]:
         pts = v[tris.reshape(-1)]
         out.append(Component(tris, float(pts[:, 1].min()), float(pts[:, 1].max()),
                              float(pts[:, 0].mean()), float(pts[:, 2].mean()),
-                             bool(hard_deck[idx].any()), idx))
+                             bool(hard_deck[idx].any()), idx, geom.tri_animated(idx)))
     return out
 
 
@@ -463,8 +485,13 @@ class ResourceCache:
         return c
 
     def genuine(self, path: str) -> list[Component]:
-        """The thickness-gated components (§2.1: a decal never witnesses)."""
-        return [c for c in self.components(path) if c.max_y - c.min_y >= self.thickness_m]
+        """The thickness-gated components (§2.1: a decal never witnesses),
+        less the ANIMATED ones (issue #612: a moving part never witnesses
+        — KSEA's SAM jetways carry a telescoping wheel strut authored to
+        −11 m, which read as a 12 m pit once their plinth no longer read
+        as a door)."""
+        return [c for c in self.components(path)
+                if c.max_y - c.min_y >= self.thickness_m and not c.animated]
 
     def base_profile(self, path: str, law) -> "BaseProfile":
         """base-profile spec §1 (4) THE ONE DERIVATION SITE, read once per
@@ -833,7 +860,7 @@ def placement_grounds(cache: "ResourceCache", phys: str, xy: XY, heading: float,
         return None
     return tuple(float(dem_z(*_to_frame(xy, heading, comp.cx, comp.cz)))
                  for comp in cache.components(phys)
-                 if comp.max_y - comp.min_y >= cache.thickness_m)
+                 if comp.max_y - comp.min_y >= cache.thickness_m and not comp.animated)
 
 
 def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
@@ -868,8 +895,9 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
             through: tuple[float, float] | None = None
             protruding: tuple[float, float] | None = None
             for ci, comp in enumerate(cache.components(phys)):
-                if comp.max_y - comp.min_y < cache.thickness_m:
-                    continue            # a decal never witnesses (§2.1)
+                if comp.max_y - comp.min_y < cache.thickness_m or comp.animated:
+                    continue            # a decal never witnesses (§2.1); nor
+                    # does a MOVING part (#612, ``ResourceCache.genuine``)
                 local = float(next(grounds))
                 if math.isnan(local):
                     local = anchor_z

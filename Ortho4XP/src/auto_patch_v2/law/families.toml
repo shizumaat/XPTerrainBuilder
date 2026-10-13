@@ -669,11 +669,11 @@ solver    = "construction"
 cockpit   = "step"
 
 [sentinel_elevation]
-measures  = "an emitted vertex far below the patch's own ground band"
+measures  = "an emitted vertex far outside the ground band — below or above (the sidecar's ground envelope, else the patch's own 5th..95th percentiles)"
 parameter = "emit.cockpit.sentinel_drop_m"
 roles     = ["all"]
 pairs     = "within"
-ruling    = "RULINGS 2026-09-13 (lane v2zerocrater): a sentinel / homogeneous-block 0.0 in the design surface"
+ruling    = "RULINGS 2026-09-13 (lane v2zerocrater): a sentinel / homogeneous-block 0.0 in the design surface; issue #623: its mirror, a datum read off the wrong ground"
 solver    = "construction"
 cockpit   = "sentinel"
 

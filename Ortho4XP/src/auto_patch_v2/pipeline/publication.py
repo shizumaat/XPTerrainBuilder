@@ -137,6 +137,7 @@ from ..constraints.pad_relief import pad_relief_offsets
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
+from ..solve.ground_band import ground_envelope
 
 __all__ = ["gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
@@ -384,6 +385,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
     withheld — the solve priced none, so the readers price none (a
     ``taxi_route_pairs`` entry becomes the null record: no law edge)."""
     ll = {vid: [v.key[0], v.key[1]] for vid, v in planar.vertices.items()}
+    _envelope = ground_envelope(planar, law)
     ax_out = []
     for k, a in enumerate(axes(planar, law)):
         ax_out.append([[ll[v] for v in a.vertices], a.cap_l, a.cap_t, k,
@@ -597,6 +599,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "road_coverage_join": [[ll[v][0], ll[v][1], round(float(z), 4)]
                                    for v, z in sorted(
                                        planar.road_coverage_join.items())],
+            # issue #623 THE GROUND ENVELOPE: ``[lowest, highest]`` lawful
+            # elevation of this map (``solve/ground_band.py`` — the hull
+            # of the DEM under every vertex, widened by the sentinel
+            # drop).  LAW INPUT: the ``sentinel_elevation`` family prices
+            # the EMITTED patch against the two numbers the pipeline
+            # failed the solve against.  ``None`` on a map with no DEM.
+            "ground_envelope": (None if _envelope is None else
+                                [round(_envelope[0], 3), round(_envelope[1], 3)]),
             # OWNER RULINGS 2026-09-27a (10) THE RIBBON YIELDS:
             # ``[lat, lon, the level the patch took, the ribbon's own
             # level]`` per join the solve released.  LAW INPUT for the

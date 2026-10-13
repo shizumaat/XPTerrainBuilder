@@ -6368,50 +6368,73 @@ SENTINEL_FLOOR_PCTL: float = 5.0
 SENTINEL_MIN_NODES: int = 20
 
 
-def _check_sentinel_elevation(ways: List[Way], nodes) -> List[Violation]:
+def _check_sentinel_elevation(ways: List[Way], nodes,
+                              ground_envelope=None) -> List[Violation]:
     """SENTINEL ELEVATION: an emitted vertex more than ``sentinel_drop_m()``
-    below the patch's own 5th-percentile elevation.
+    outside the ground band — BOTH sides (issue #623).
 
     THE CLASS (RULINGS 2026-09-13m, lane ``v2zerocrater``): KCLT shipped 20
     apron vertices at exactly z = 0.00 over 217 m ground — a 90 x 65 m mesh
     pit to sea level with a 130 m skirt — because that piece of the design
     sheet reached the least-squares solve carrying only homogeneous rows,
-    whose minimiser is 0.  The engine now refuses to emit such a piece
-    (``solve/design`` §9c, the level belt); this is the SHIP-SIDE net, so
-    the class can never leave the patch silently again whatever mints it.
-    Patch-intrinsic on purpose — the census has no DEM — and priced against
-    a ROBUST floor rather than the minimum.
+    whose minimiser is 0.  ITS MIRROR (issue #623): CZNL shipped 15 strip
+    vertices at exactly 1,798.00 m beside a 535 m runway, a lake's level
+    read off the mountainside at the tile edge, and the floor-only family
+    said nothing.  The engine now refuses to emit either (``solve/design``
+    §9c; ``solve/ground_band``); this is the SHIP-SIDE net.
 
-    One row per offending node, ``de_m`` = how far under the floor it sits.
+    THE BAND: the sidecar's ``ground_envelope`` (``[lowest, highest]``
+    lawful elevation — the hull of the DEM under the whole map, widened by
+    the drop) when the patch carries it; a patch that predates the key is
+    read patch-intrinsically against a ROBUST band — the drop below its own
+    5th percentile, the drop above its 95th — never the extremes, which ARE
+    the defect.  The twin of ``auto_patch_v2.verify.pins.sentinel_elevation``.
+
+    One row per offending node, ``de_m`` = how far beyond the band's
+    reference level it sits.
     """
     vals: List[Tuple[str, float, int, int]] = []
     for wi, w in enumerate(ways):
         for k, (nid, e) in enumerate(zip(w.nids, w.elevs)):
             if e is not None:
                 vals.append((nid, float(e), wi, k))
-    if len(vals) < SENTINEL_MIN_NODES:
-        return []
     drop_m = sentinel_drop_m()
-    by_nid: Dict[str, Tuple[float, int]] = {}
+    # one node, one row: its lowest and its highest value (they differ only
+    # on a stacked identity, which ``stacked_nodes`` names)
+    lows: Dict[str, Tuple[float, int]] = {}
+    highs: Dict[str, Tuple[float, int]] = {}
     for nid, e, wi, _k in vals:
-        cur = by_nid.get(nid)
-        if cur is None or e < cur[0]:
-            by_nid[nid] = (e, wi)
-    zs = sorted(e for e, _w in by_nid.values())
-    idx = max(0, min(len(zs) - 1,
-                     int(round((SENTINEL_FLOOR_PCTL / 100.0) * (len(zs) - 1)))))
-    floor = zs[idx] - drop_m
+        if nid not in lows or e < lows[nid][0]:
+            lows[nid] = (e, wi)
+        if nid not in highs or e > highs[nid][0]:
+            highs[nid] = (e, wi)
+    if ground_envelope:
+        floor, ceiling = float(ground_envelope[0]), float(ground_envelope[1])
+        ref_lo, ref_hi = floor + drop_m, ceiling - drop_m
+    else:
+        if len(vals) < SENTINEL_MIN_NODES:
+            return []
+        zs = sorted(e for e, _w in lows.values())
+
+        def _at(pctl: float) -> float:
+            return zs[max(0, min(len(zs) - 1,
+                                 int(round((pctl / 100.0) * (len(zs) - 1)))))]
+        ref_lo, ref_hi = _at(SENTINEL_FLOOR_PCTL), _at(100.0 - SENTINEL_FLOOR_PCTL)
+        floor, ceiling = ref_lo - drop_m, ref_hi + drop_m
     out: List[Violation] = []
-    for nid, (e, wi) in by_nid.items():
+    for nid, (e, wi) in lows.items():
         if e >= floor:
-            continue
+            e, wi = highs[nid]
+            if e <= ceiling:
+                continue
+        ref = ref_lo if e < floor else ref_hi
         ll = nodes.get(nid)
         w = ways[wi]
         v = Violation(
             grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-            de_m=float(zs[idx] - e), way_a=w, way_b=w,
+            de_m=float(abs(ref - e)), way_a=w, way_b=w,
             pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=float(e),
-            elev_b=float(zs[idx]))
+            elev_b=float(ref))
         if ll is not None:
             v.lat, v.lon = float(ll[0]), float(ll[1])
         out.append(v)
@@ -10761,7 +10784,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     # a no-data value or a homogeneous least-squares block's 0.0 — not
     # geometry.  CRITICAL at any airport it touches, whatever mints it.
     ("sentinel_elevation",
-     "SENTINEL ELEVATION (vertex far below the patch's own ground band)",
+     "SENTINEL ELEVATION (vertex far outside the patch's own ground band)",
      "within"),
     ("cross_shape", "CROSS-SHAPE proximity grade", "cross"),
     ("frontage_near_miss",
@@ -11484,6 +11507,11 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each
     # coverage exit — LAW INPUT, the value the solve PINNED.
     "road_coverage_join": "road_coverage_join_ll",
+    # issue #623 THE GROUND ENVELOPE: ``[lowest, highest]`` lawful elevation
+    # of the map (``auto_patch_v2/solve/ground_band.py``) — LAW INPUT for
+    # ``sentinel_elevation``.  A patch with no key is read against its own
+    # robust band, as before.
+    "ground_envelope": "ground_envelope",
     "crown_centerline": "crown_centerline_ll",
     "pair_caps": "pair_caps_ll",
     # TAXIWAY STRETCHES (RULINGS 2026-09-04t-3 / 04y): the v2 emitter's
@@ -11917,6 +11945,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     # §37 (7): absent on any patch built before it (the chord law)
     ctx["road_route_frame_ll"] = data.get("road_route_frame") or None
     ctx["road_coverage_join_ll"] = data.get("road_coverage_join") or None
+    ctx["ground_envelope"] = data.get("ground_envelope") or None
     ctx["crown_centerline_ll"] = data.get("crown_centerline") or None
     ctx["pair_caps_ll"] = data.get("pair_caps") or None
     ctx["stretches_ll"] = data.get("stretches") or None
@@ -13033,6 +13062,7 @@ def run_checks(
     pad_relief_ll: Optional[list] = None,
     road_route_frame_ll: Optional[list] = None,
     road_coverage_join_ll: Optional[list] = None,
+    ground_envelope: Optional[list] = None,
     crown_centerline_ll: Optional[list] = None,
     pair_caps_ll: Optional[list] = None,
     station_caps_ll: Optional[list] = None,
@@ -13950,10 +13980,11 @@ def run_checks(
     within = within + stacked
 
     sentinel = _fam("sentinel_elevation",
-                    _check_sentinel_elevation(ways, nodes))
+                    _check_sentinel_elevation(ways, nodes, ground_envelope))
     _pv(f"SENTINEL ELEVATION (emitted vertex more than {sentinel_drop_m():g} m "
-        f"below the patch's own {SENTINEL_FLOOR_PCTL:g}th-percentile "
-        f"elevation — RULINGS 2026-09-13, cap 0)", sentinel, top_n)
+        f"outside the ground band — the sidecar's ground envelope, else the "
+        f"patch's own {SENTINEL_FLOOR_PCTL:g}th..{100 - SENTINEL_FLOOR_PCTL:g}th "
+        f"percentiles — RULINGS 2026-09-13 / issue #623, cap 0)", sentinel, top_n)
     within = within + sentinel
 
     cross = _fam("cross_shape", _check_cross_shape_proximity(

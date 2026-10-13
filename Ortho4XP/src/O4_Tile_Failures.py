@@ -101,6 +101,12 @@ CATALOGUE = {
         "the ground at {airports} could not be shaped.",
         "The app found no surface that meets its slope limits there.",
         "report"),
+    # issue #623: the solve met its rules and still put part of the surface
+    # far off the ground (a level read from the wrong place)
+    "airport_surface_off_ground": Entry(
+        "the ground at {airports} came out at an impossible height.",
+        "Part of the shaped surface stood far above or below the terrain "
+        "around the airport, so it was not used.", "report"),
     "airport_verify": Entry(
         "the ground at {airports} failed its final check.",
         "The shaped surface broke one of the app's own rules, so it was "

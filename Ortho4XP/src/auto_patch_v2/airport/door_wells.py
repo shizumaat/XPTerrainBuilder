@@ -436,6 +436,28 @@ def read_family(rd: DoorReader, fam: _t.Sequence[tuple], members: _t.Sequence[_o
             stats.refused.append(f"{name} at {site}: no building solids above the contact band "
                                  f"reach the well ({region.area:.1f} m2) — a pit on its own, not a door")
             continue
+        # THE BUILDING STANDS IN THE WELL -> A FOUNDATION, NOT A DOOR
+        # (issue #612; the door-reader twin of #551's "a thing standing
+        # on the ground is not a pit").  A door well is dug OUTSIDE the
+        # face it serves: the building's at-grade solids touch it only
+        # along the sill (the ``floor_overlap_m`` strip).  A well whose
+        # interior the building's own at-grade solids occupy is the
+        # ground the building stands in — KSEA's SAM jetways: a 3.4 x 2.8
+        # plinth from -1.7 to +1.7 m with the rotunda column standing on
+        # it (building cover 66-70 % of the well); a basement door reads
+        # 0 % (OTHH's car-park wells, the fixture door).  Measured
+        # 2026-10-12: 79 of KSEA's 83 door ramps were these plinths, each
+        # cutting the apron 1.6-2.4 m down at a jetway's own anchor.
+        core = region.buffer(-law.tables.structures.cutout.floor_overlap_m)
+        bld_at = _fe.union(bld_polys, "door_wells.building") if bld_polys else None
+        stood = (bld_at.intersection(core).area
+                 if bld_at is not None and not core.is_empty else 0.0)
+        if stood > grid * grid:
+            stats.refused.append(f"{name} at {site}: the building's own at-grade solids stand "
+                                 f"IN the well over {stood / region.area:.0%} of it — a "
+                                 f"FOUNDATION under a thing standing on the ground, not a "
+                                 f"door (#612)")
+            continue
         # THE FACE (spec §2): the well's longer rectangle side nearer the
         # MASS of the family's above-band solids around it (the building
         # the well is attached to; the ramp leaves away from it along

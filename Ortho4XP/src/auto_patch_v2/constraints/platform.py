@@ -40,6 +40,7 @@ from ..model.platform import HELD, HOLD_DATUM_RULING, HOLD_RULING, datum_vertice
 from .pad_warning import stamp_warning
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
+           "datum_groups", "datum_group_rows",
            "landing_rows", "landing_vertices",
            "TERRACE_RULING", "HOLD_RULING", "HOLD_DATUM_RULING",
            "platform_level_rows", "platform_contacts", "COLLAR_RULING",
@@ -872,6 +873,57 @@ def hold_row(o: int, dv: int, pref: str, residual: bool = False,
     src = Source(GEN, head + f" ({what})",
                  (pref, f"platform:{pref}", "plateau" if plateau else "pavement:welded"))
     return list(_two_sided(((o, 1.0), (dv, -1.0)), src, None))
+
+
+def datum_groups(planar: PlanarMap, law: Law, airport: Airport | None,
+                 prefs: _t.Iterable[str]) -> dict[str, list[str]]:
+    """THE HELD BLOCKS OF ONE CONNECTED COMPLEX SHARE ONE LEVEL (owner
+    RULINGS 2026-10-12l (1), applying 10n (1) at the design surface; #608):
+    ``{leader ref: [the other held refs of its plane entry]}`` over
+    ``prefs``, the plane entries being ``cluster_pad.plane_groups`` — the
+    pieces of one cluster (buildings joined by a walkway, road deck or
+    elevated connector, ``geom/cluster_outline`` rule 2) re-united as one
+    entry, the flat blocks of a cut unit kept apart.  Each listed ref's
+    datum column is tied to the leader's by :func:`datum_group_rows`, so
+    the stage-1 solve seats the complex at ONE level its aprons can reach
+    and every frontage welds to that level (the contacts' hold rows are
+    the blocks' own, unchanged).  Empty without an airport (no cluster
+    relation) or where every entry holds at most one held block."""
+    if airport is None:
+        return {}
+    from .cluster_pad import plane_groups
+    want = set(prefs)
+    out: dict[str, list[str]] = {}
+    for _fid, _ref, _group, fids in plane_groups(planar, law, airport):
+        refs = sorted({str(planar.faces[q].ref) for q in fids
+                       if q in planar.faces} & want)
+        if len(refs) > 1:
+            out[refs[0]] = refs[1:]
+    return out
+
+
+def datum_group_rows(groups: _t.Mapping[str, _t.Sequence[str]],
+                     dv_of: _t.Mapping[str, int]) -> list[Row]:
+    """The HARD two-sided rows ``z[dv_b] − z[dv_a] = 0`` tying every
+    member's datum column to its leader's (:func:`datum_groups`); head
+    :data:`HOLD_RULING`, so pass 1a strips them with the holds and pass 1b
+    carries them (``no_step.HoldPass``)."""
+    from .pads import _two_sided
+    rows: list[Row] = []
+    for lead, members in sorted(groups.items()):
+        da = dv_of.get(lead)
+        if da is None:
+            continue
+        for ref in members:
+            db = dv_of.get(ref)
+            if db is None or db == da:
+                continue
+            src = Source(GEN, HOLD_RULING + " (group: the held blocks of one "
+                         "connected complex take ONE level — owner RULINGS "
+                         "2026-10-12l (1), 10n (1); #608)",
+                         (ref, f"platform:{ref}", f"platform:{lead}"))
+            rows.extend(_two_sided(((db, 1.0), (da, -1.0)), src, None))
+    return rows
 
 
 def frontage_hold_rows(planar: PlanarMap, law: Law,

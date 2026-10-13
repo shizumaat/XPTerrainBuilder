@@ -104,3 +104,22 @@ accepted in 12c) plus the pack's own ramp objects, not engine-graded roads.
   `_split_by_level` STAYS: HECA's sw17 dry run cuts 5 units by level (fu:40:120 4 levels / 230 bodies, fu:43:5027,
   fu:43:5241, fu:43:5987, fu:41:348 — 324 bodies), the state the owner approved (12m).
 * Arm replay `<scratch>/arm1/` running (KCLT); HECA arm next.
+
+## Step B — ARM (replay `frames/pads67/KCLT.pkl --from classify --emit --verify` on be4317166, `<scratch>/arm1/`)
+* ONE LEVEL: building75 222.44 → **222.68**, building81 221.75 → **222.68**, building83 222.44 → 222.68, building84
+  222.70 → 222.69/222.70 (flat at 222.68 to 0.02 m); building85 222.87 → 222.88 (0.20 m above the complex — within
+  `split_tol_m`, so the object unit `fu:6:960` has ONE level group and is no longer cut); garages unchanged
+  (223.05 / 223.11 / 222.99), building92 223.67 unchanged. The `datum_groups` stat: 1 group (building75 ← 81, 84).
+* THE APRON GRADES TO IT (`airside_value_delta` sw17 → arm, tol 0.02): RUNWAY 0; solve-owned 995 movers — apron
+  721 (worst 0.93 m at 35.22006914808,-80.94808090106, the concourse frontage: `pav14#plateau:building81` 94/94
+  +0.93, `pav14#plateau:building75` 520/521 ≤ 0.84, `pav14` 358/662 ≤ 0.93), taxi family 255 (worst 0.91 m, all
+  `junction` of `pav14` at 35.21947425094,-80.94753721362 — the apron's own junction by the concourse), strip 19
+  (≤ 0.21); row-side 1,567 (strip 304 ≤ 0.46, other 287); structures 11 tunnel-wall rim nodes ≤ 0.24 m at the
+  terminal. Vertices added/removed 0/0 in every frame.
+* FRONTAGE: `hard_feasibility` relaxed rows frontage_hold 2 (= base 2, worst 0.0598 m = base), pad_slope ceiling 15
+  = 15, platform plane 16 = 16 — no NEW released weld, `warnings` none: every frontage of the complex welds to
+  222.68 within the caps. `pad_level` family 90 rows / 45 missed (base 94 / 47, same max 6.62 m elsewhere).
+* So (ii) is lawful at KCLT without any step: the one level sits inside the three reach bands' intersection
+  [222.88, 226.13]? — no: 222.68 is 0.20 m under building84's band floor 222.88 (the bands are the report; the
+  welds + caps are the hard set) and the solve held every weld within caps anyway (0 new relaxations).
+* Closing builds started 19:20: `kclt608_KCLT`, `kclt608_HECA` (harness, `/tmp/harness/`).

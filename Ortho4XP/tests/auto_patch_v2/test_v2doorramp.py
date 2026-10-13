@@ -23,6 +23,7 @@ Law values are read from the tables inside the tests, never retyped.
 from __future__ import annotations
 
 import math
+import os
 
 import pytest
 import shapely
@@ -112,6 +113,28 @@ def _roofed_well_obj(path):
     return _write(path, vt, tris)
 
 
+def _plinth_obj(path):
+    """A THING STANDING ON THE GROUND (issue #612, the door reader's twin
+    of #551): a 3.4 x 2.8 plinth from -1.7 to +1.7 m — four walls and a
+    floor plate, open above (a SAM jetway's rotunda base: its lid is cut
+    where the column passes) — with a 1.2 m column standing INSIDE it
+    from the contact band up.  The plate is at the door's sill depth and
+    outside every OTHER component's at-grade geometry, so rules 1-2 take
+    it for a well and the open top keeps it under the basement cover;
+    what refuses it is that the column (the "building") stands IN the
+    well."""
+    vt: list = []
+    tris: list = []
+    for x0, x1, z0, z1 in ((-1.7, -1.5, -1.4, 1.4), (1.5, 1.7, -1.4, 1.4),
+                           (-1.5, 1.5, -1.4, -1.2), (-1.5, 1.5, 1.2, 1.4)):
+        _slab(vt, tris, x0, x1, z0, z1, -1.7, 1.7)          # the four walls
+    b = len(vt)
+    vt += [(-1.7, -1.7, -1.4), (1.7, -1.7, -1.4), (1.7, -1.7, 1.4), (-1.7, -1.7, 1.4)]
+    tris += [(b, b + 1, b + 2), (b, b + 2, b + 3)]           # the floor plate
+    _slab(vt, tris, -0.6, 0.6, -0.6, 0.6, -0.3, 7.0)          # the column in it
+    return _write(path, vt, tris)
+
+
 def _sloped_slab(vt, tris, x0, x1, z0, z1, y_z0, y_z1, thick):
     """A slab whose top descends from ``y_z0`` at ``z0`` to ``y_z1`` at
     ``z1`` (along authored z), ``thick`` thick: top, bottom, four sides,
@@ -162,6 +185,7 @@ def objs(tmp_path_factory):
             "door": _door_obj(d / "door.obj"),
             "roofed": _roofed_well_obj(d / "roofed.obj"),
             "wide": _wide_well_obj(d / "wide.obj"),
+            "plinth": _plinth_obj(d / "plinth.obj"),
             "road": _road_obj(d / "road.obj"),
             "road_level": _road_obj(d / "road_level.obj", level=True),
             "road_open": _road_obj(d / "road_open.obj", roof=False)}
@@ -378,6 +402,21 @@ def test_well_under_the_roof_is_a_basement(objs, law):
     wells, ds = read_door_wells(airport, objects, cache, law)
     assert not wells
     assert any("BASEMENT" in r for r in ds.refused), ds.refused
+
+
+def test_a_foundation_under_a_standing_object_is_not_a_door(objs, law):
+    """Issue #612: KSEA's 81 SAM jetways each cut a 1.7 m door ramp into
+    the apron at their own anchor — the rotunda plinth's floor plate read
+    as a sill.  A door well is dug OUTSIDE the face it serves; a well
+    whose interior the building's own at-grade solids occupy is the
+    ground the building stands in.  Refused, named; the fixture door
+    beside it (building cover 0 %) still reads as a door."""
+    airport, cache, objects = _read(objs, law, [("plinth", (0.0, 0.0), 0.0, 0.0, "OBJECT"),
+                                                ("door", (300.0, 0.0), 0.0, 0.0, "OBJECT")])
+    wells, ds = read_door_wells(airport, objects, cache, law)
+    assert ds.wells == 1 and [os.path.basename(w.resource) for w in wells] == ["door.obj"], \
+        (ds.wells, ds.refused)
+    assert any("FOUNDATION" in r and "plinth.obj" in r for r in ds.refused), ds.refused
 
 
 # ── Law B ────────────────────────────────────────────────────────────────

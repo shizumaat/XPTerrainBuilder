@@ -664,29 +664,32 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # inside a facade lot is the lot)
     from .facade_mint import mint_facade_cells
     stats.update(mint_facade_cells(airport, cells, law, rules, add))
-    from .ribbon_mint import mint_osm_ribbons   # lazy: ribbon_mint imports this module
+    from .ribbon_mint import mint_osm_ribbons, mint_pad_roads   # lazy: it imports this module
+    first: dict = {}
+    n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add, first)
+    # §53 (RULINGS 2026-10-04o (a)): the gap pieces — after the patch's
+    # ribbons, so every pavement the engine already knows keeps its ground
+    from .gap_mint import mint_gap_pieces
+    stats.update(mint_gap_pieces(airport, ev, cells, law, rules, add, notes))
+    # THE PAD ROADS, LAST (issue #609; owner RULINGS 2026-10-13a (1), 13d):
+    # nothing standing is overlapped or re-cut by them.  Each is read by
+    # THE ONE TOUCH WITNESS (09j (2)): a mapped road reaching a pad in
+    # source is welded to its rim like a lot or a 1206 corridor, a gap
+    # leaves it as drawn; never held off as a hillside terrace (13a (3)
+    # "Ramp it").  Read on the pad roads ONLY — no standing cell is cut
+    # twice (roadweld100's measured hazard: a pad's knife re-armed cut two
+    # existing groundside cells).
     n_before = len(cells)
-    n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add)
-    stats["osm_ribbons"] = n_rib
-    stats["osm_ribbon_m2"] = m_rib
-    # THE RIBBON AT A PAD IS READ BY THE ONE TOUCH WITNESS (issue #609;
-    # owner RULINGS 2026-10-09j (2)): a mapped road reaching a pad in source
-    # is welded to its rim like a lot or a 1206 corridor, a gap leaves it
-    # as drawn.  Read on the PAD ROADS only (the mint's second pass) — no
-    # standing cell is cut twice (roadweld100's measured hazard: a pad's
-    # knife re-armed cut two existing groundside cells), and the patch's
-    # own ribbons keep the set-back they were minted with.
+    n_pad, m_pad = mint_pad_roads(airport, ev, cells, law, rules, add, first)
+    stats["osm_ribbons"] = n_rib + n_pad
+    stats["osm_ribbon_m2"] = m_rib + m_pad
+    stats["pad_roads"] = n_pad
     cells, n_cut_rib = _cut_back_groundside(
         cells, law, rules, airport, hold=False,
-        only=[i for i in range(n_before, len(cells))
-              if cells[i].evidence.get("pad_road")])
+        only=range(n_before, len(cells)))
     stats["mixed_pad_cutbacks"] += n_cut_rib
     stats["ribbon_pad_welds"] = sum(1 for c in cells[n_before:]
                                     if c.evidence.get(WELD_KEY))
-    # §53 (RULINGS 2026-10-04o (a)): the gap pieces — LAST, so every
-    # pavement the engine already knows (the ribbons too) keeps its ground
-    from .gap_mint import mint_gap_pieces
-    stats.update(mint_gap_pieces(airport, ev, cells, law, rules, add, notes))
     stats["taxi_chains"] = len(ev.taxi_chains)
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)

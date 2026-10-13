@@ -82,9 +82,8 @@ def test_a_welded_ribbon_keeps_no_absolute_road_row_off_the_rim(law):
     assert not out.pins
     assert not any(r.source.ruling == RULING_CEILING for r in out.bands)
     assert not any(r.source.ruling == RULING for r in out.linears)
-    # the released join is a design target at its own value
-    assert [(r.terms, r.lo) for r in out.linears if r.source.ruling == JOIN_RULING] \
-        == [(((off[0], 1.0),), 702.0)]
+    # the released join leaves no row behind: the core yields to the patch
+    assert not any(r.source.ruling == JOIN_RULING for r in out.linears)
     rel = [r for r in out.linears if r.source.ruling == PAD_RAMP_RULING]
     assert rep["rows"] == len(rel) == len(off)
     g = float(law.tables.emit.road_contact.ramp_grade)

@@ -1028,6 +1028,7 @@ seal_max_m      = 0.05    # THE WELD PROJECTION'S BOUND (spec §57 (3) (ii-c); s
 # outer-round value.  Two-way, the corridor rows dragged the taxiway down
 # to the ground they were meant to shape (the owner's undulation read).
 one_way_rulings = [
+  "roads.groundside_road ramp from the pad",                # owner RULINGS 2026-10-13a (1) (#609): a ribbon welded to a building pad FOLLOWS the pad's rim at the design grade; the rim leads, the road never pulls it (`constraints/road_ramp.pad_ramp_rewrite`)
   "zones.adjacent_ground",                                  # the zone-1 lip / zone-2 corridor bands
   "zones.adjacent_ground between-levels bank",              # owner RULINGS 2026-09-29x (Q-97 (b)): the ONE bank from a between-levels road's far kerb to the higher pavement - the strip vertex follows, the road and the pavement foot lead
   "zones.adjacent_ground.runway.band_max_down strip tie",   # the strip tie (06b law 2 / 06p / 06q)

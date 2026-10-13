@@ -175,3 +175,31 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   movers worst 1.11 m (apron route11 176/194 at 30.12678,31.39606, dsf:objpav383 1.02, pav39 0.27), RUNWAY 90 nodes
   ≤ 0.05 m, strip 609 ≤ 0.20, structure 6 ≤ 0.18. Same mechanism (unheld pads move to the road welded to them,
   10a (2) (a)); every one is an owner item at an approved airport. Branch NOT merge-ready without that list ruled.
+
+## ROUND 2 (RULINGS 2026-10-13a (1)–(3): road yields to the pad; garages stay at 223 with ramps; ramp the -8188 approach)
+* Branch merged origin/main (bfda39378); base worktree `roads609base` at origin/main (`kclt3_base/` replay).
+* MECHANISM CHOSEN: a stage-2 rewrite, `constraints/road_ramp.pad_ramp_rewrite` (called LAST in `reach_seed_rewrite`,
+  after `pad_weld_release`): over the ribbon NETWORK a pad serves (every mapped-road ribbon face sharing a rim with a
+  building pad, and every ribbon face reached from one through shared vertices, stopping at a face that touches
+  stage-1 airside — those keep the airside foot's rows), every vertex off the rim: §37 (6) target + hard ceiling
+  withdrawn; §37 (9) coverage-edge join pin released OUTRIGHT (recorded stage "2p" → `with_pin_yield`, the core road
+  carries the ramp outward under its own cap-Lipschitz levelling — the run the ribbon cannot have inside the
+  patch); ONE one-way design row `z[v] − z[rim] = clip(dem[v] − proxy[rim], ±g·d)` (g = `[road_contact]
+  ramp_grade` 5 %; head "roads.groundside_road ramp from the pad" registered in `[design] one_way_rulings`); the
+  hard cross-section cap rows (10 %) stay. `classify/roles._cut_back_groundside(hold=False)` for the ribbon pass: a
+  road reaching a pad is never held off it as a §28 (6) terrace (13a (3)). Twin `tests/auto_patch_v2/test_roads609.py`.
+  Why not `exit_reach` at classify: the pad's level is a STAGE-2 unknown (pads are rigid → not `airside_stage_roles`),
+  so neither classify nor stage 1 knows it; the core's own levelling outside the patch is the run.
+* ARMS (KCLT `--from classify`, pads vs `kclt3_base`): arm3 (welded face only) garages 223 → 218.7–219.3 — the
+  neighbouring ribbon face of the same forecourt kept its hard join pin 5.7 m on; arm4 (network) → 220.3–220.8 —
+  the released join re-stated as a target at the core's level (221.0) still drew the pad through the design rows;
+  arm5 (one-way rows, join Bands too) same; arm6 (join released outright, no target) → **building86 222.59–222.97
+  (−0.40), building88 222.61–222.68 (−0.48), building90 222.53–222.99 (−0.50)**; `--why-vertex 16965`: the chain ends
+  at a FREE road vertex "held by bending alone" through the design row — the residual is the objective contest
+  (many road rows + bending/fit vs the pad's one facing preference); the one-way register did not remove it
+  (`one_way_rows` 24,593 in the LP). Other pads vs base: building77 +0.65 (210.45 → 211.10), building59 −0.34,
+  building67 −0.23. Solve-owned airside 2 ≤ 0.02; structure 17 ≤ 1.30 (tunnel rims, as round 1).
+  BAR (b) "every pad identical within 0.02 m" NOT MET: residual 0.65 / 0.50 m. Next candidate: price the design
+  row at a weight below the pad level rows, or lag the rim as a constant from a pad-only pre-pass.
+* NOT DONE in round 2: approved-airport pairs, closing harness build vs sw20, ramp table, the mesh read
+  (`obj8_split_report --mesh` on seat610), the twin re-pins (gap_apron / gap_terrace) — pending the pad bar.

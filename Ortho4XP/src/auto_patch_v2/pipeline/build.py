@@ -590,6 +590,9 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _wpool.close()
     airport = _dc.replace(airport, partition=_part, groups=_groups,
                           clusters=_clusters)
+    # issue #516: the sunken ramps' ground, beside the clusters it trims
+    from ..airport.sunken_ramp import attach_sunken_ramps
+    airport = attach_sunken_ramps(airport, law)
     # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.
     # HECA's round-5 build priced 0 cluster cross-links while
     # ``plan_clusters`` on the same plan returned 2, and nothing in the

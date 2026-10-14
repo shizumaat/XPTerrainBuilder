@@ -585,6 +585,8 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     from auto_patch_v2.planar.cluster import clusters as _derive_clusters
     _cl_t = time.perf_counter()
     airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
+    from auto_patch_v2.airport.sunken_ramp import attach_sunken_ramps
+    airport = attach_sunken_ramps(airport, law)       # issue #516
     print(f"[{icao}] clusters {len(airport.clusters)} "
           f"({time.perf_counter() - _cl_t:.0f} s)")
     print(f"[{icao}] pack partition {time.perf_counter() - t:.0f} s  "
@@ -2023,6 +2025,12 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         print(f"[{icao}] capture predates Airport.clusters — derived "
               f"{len(airport.clusters)} off its own partition "
               f"({time.perf_counter() - _ct:.0f} s)")
+    # issue #516: a capture written before ``Airport.sunken_ramps`` reads
+    # it as not derived; the replay derives it off the capture's own
+    # partition, clusters and DEM (the load-time call, the same inputs)
+    if getattr(airport, "sunken_ramps", None) is None:
+        from auto_patch_v2.airport.sunken_ramp import attach_sunken_ramps
+        airport = attach_sunken_ramps(airport, law)
     t0 = time.perf_counter()
     _ocache = _objs = _orep = None
     if resume in ("classify", "planar"):

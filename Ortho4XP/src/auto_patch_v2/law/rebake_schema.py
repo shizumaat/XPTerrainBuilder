@@ -333,6 +333,15 @@ class Placement:
     #: up to twice this (owner RULINGS 2026-09-29c / 29g: 1.25 = a 2.5 m
     #: plan gap, OTHH unit:24#0 one pad).  0 disarms.
     post_bridge_gap_m: float = 1.25
+    #: issue #516 (owner RULINGS 2026-09-13bi / 13cm): A RAMP END SINKS
+    #: INTO THE GROUND — the ground under a unit member's sloped deck that
+    #: rises through the natural ground is not the pad's
+    #: (``airport/sunken_ramp``).  The raster cell (0 disarms), the least
+    #: climb of the deck's own top surface, and the steepest change of it
+    #: between neighbouring cells that is still one deck.
+    sunken_ramp_grid_m: float = 2.0
+    sunken_ramp_climb_min_m: float = 1.0
+    sunken_ramp_step_grade: float = 0.12
 
     #: §16g (10) (8) REFINED (owner RULINGS 2026-09-14al): THE SKIRT
     #: BAND.  A pad's vertices within this of an edge it SHARES with an

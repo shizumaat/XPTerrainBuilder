@@ -41,7 +41,7 @@ from . import dsf_write as _dw
 from .file_hash import sha256_file
 
 __all__ = ["RESTORED", "UNPROVEN", "Replayed", "path_for", "begin", "end",
-           "snapshot", "pending", "replay", "discard"]
+           "snapshot", "pending", "journalled_dsfs", "replay", "discard"]
 
 #: the pack's files are as they were before the build
 RESTORED = "restored"
@@ -169,6 +169,13 @@ def snapshot(pack_root: str, dsf_path: str,
 def pending(build_dir: str, tile_name: str) -> bool:
     """Whether a build of this tile rewrote a pack and did not complete."""
     return bool(_read(path_for(build_dir, tile_name)))
+
+
+def journalled_dsfs(build_dir: str, tile_name: str) -> list:
+    """The pack DSFs this tile's build in progress has rewritten (the
+    step-reuse record stamps them, ``O4_Step_Reuse``)."""
+    return sorted(str(e["dsf"]) for e in _read(path_for(build_dir, tile_name))
+                  if e.get("dsf"))
 
 
 def discard(build_dir: str, tile_name: str) -> None:

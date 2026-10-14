@@ -203,9 +203,8 @@ def test_the_cli_hands_the_overlay_to_the_GUARDED_capture(R, tmp_path,
                                                           monkeypatch):
     """The overlay is a read-side declaration: the shared-repo write guard
     stays armed, so the flag must arrive through ``_capture_guarded`` --
-    never by a path that skips it.  (An ``OSM_data`` overlay: one
-    providing ``Elevation_data`` now refuses in ``main`` before the
-    capture is called — issue #420, below.)"""
+    never by a path that skips it.  (An ``OSM_data`` overlay, so the
+    early clash check reads nothing of the engine tree's corpus.)"""
     d = _overlay(tmp_path, "OSM_data")
     seen = {}
 
@@ -249,17 +248,32 @@ def test_the_tool_is_in_the_index_with_the_flag():
     assert "test_v2_solve_replay_overlay.py" in rows[0]
 
 
-# ---- lane tools321 (2026-10-05): the Elevation_data half cannot take effect
-def test_an_elevation_overlay_refuses_before_the_load(R, tmp_path):
-    """MEASURED at CYXY: an overlay providing ``Elevation_data`` died
-    mid-load in ``dem_production._check_corpus`` ("two corpora, refused") —
-    the production frame reads the core's own data root.  The tool now
-    refuses up front, by name, and says what does work."""
+# ---- lane tools321 (2026-10-05) refused the Elevation_data half outright;
+# ---- lane overlay156 (2026-10-13) makes it take effect through a view
+def test_an_elevation_overlay_is_no_longer_refused(R, tmp_path):
+    """MEASURED at CYXY 2026-10-05: an ``Elevation_data`` overlay died
+    mid-load in ``dem_production._check_corpus``.  ``arm_data_overlay`` now
+    points the core and ``elevation_root`` at one lane-local view, so the
+    overlay is not refused when it lays cleanly over the shared corpus."""
+    shared = tmp_path / "shared" / "Elevation_data" / "+30-090"
+    shared.mkdir(parents=True)
     frame = R.resolve_data_overlay(str(_overlay(tmp_path, "Elevation_data")))
-    why = R.overlay_refusal(_Inputs(), frame)
+    inp = _Inputs(elevation_root=str(shared.parent))
+    assert R.overlay_refusal(inp, frame) is None
+
+
+def test_a_file_directory_clash_refuses_before_the_load(R, tmp_path):
+    """The one refusal left: the overlay carries a FILE where the shared
+    corpus has a DIRECTORY (it would hide a whole subtree)."""
+    shared = tmp_path / "shared" / "Elevation_data"
+    (shared / "+30-090").mkdir(parents=True)
+    ovl = tmp_path / "ovl" / "Elevation_data"
+    ovl.mkdir(parents=True)
+    (ovl / "+30-090").write_text("not a dir\n", encoding="utf-8", newline="\n")
+    frame = R.resolve_data_overlay(str(ovl.parent))
+    why = R.overlay_refusal(_Inputs(elevation_root=str(shared)), frame)
     assert why.startswith("REFUSED: --data-overlay")
-    assert "Elevation_data" in why and "e9daef5" in why
-    assert "--corpus snapshot:DIR" in why and "--witness" in why
+    assert "+30-090 is a file in the overlay and a directory" in why
 
 
 def test_an_osm_overlay_and_no_overlay_are_not_refused(R, tmp_path):
@@ -346,9 +360,19 @@ def test_a_refused_elevation_overlay_prints_no_capture_arm_line(R, tmp_path,
                                                                monkeypatch,
                                                                capsys):
     """The CLI printed ``CAPTURE ARM --data-overlay … (takes effect at
-    capture)`` and only THEN refused (after arming the guard).  It now
-    refuses first and prints nothing else; the capture is never called."""
-    d = _overlay(tmp_path, "Elevation_data")
+    capture)`` and only THEN refused (after arming the guard).  It refuses
+    first and prints nothing else; the capture is never called.  The clash
+    is judged against the engine tree's ``Elevation_data`` (READ only:
+    ``view_conflicts`` stats the shared paths the overlay names)."""
+    d = tmp_path / "ovl"
+    (d / "Elevation_data").mkdir(parents=True)
+    # a FILE where every corpus layout has a 10-degree DIRECTORY
+    shared_elev = ROOT / "Elevation_data"
+    blocks = sorted(p.name for p in shared_elev.iterdir() if p.is_dir()) \
+        if shared_elev.is_dir() else []
+    if not blocks:
+        pytest.skip("no Elevation_data block directory mounted in this checkout")
+    (d / "Elevation_data" / blocks[0]).write_text("x\n", encoding="utf-8", newline="\n")
     called = []
     monkeypatch.setattr(R, "_capture_guarded", lambda *a, **k: called.append(a))
     monkeypatch.setattr(sys, "argv", [

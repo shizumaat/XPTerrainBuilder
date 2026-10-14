@@ -8,11 +8,32 @@ public struct GlobalAirport: Codable, Sendable {
     public let icao: String
     public let latitude: Double
     public let longitude: Double
+    /// The airport's extent (boundary, runways, helipads, datum) from a
+    /// v5 cache; nil from an older one — the airport is then its point.
+    public let extent: AirportExtent?
 
-    public init(icao: String, latitude: Double, longitude: Double) {
+    public init(icao: String, latitude: Double, longitude: Double,
+                extent: AirportExtent? = nil) {
         self.icao = icao
         self.latitude = latitude
         self.longitude = longitude
+        self.extent = extent
+    }
+}
+
+/// A latitude/longitude box, degrees: the v5 cache's four extent columns.
+public struct AirportExtent: Codable, Sendable, Equatable {
+    public let minLatitude: Double
+    public let minLongitude: Double
+    public let maxLatitude: Double
+    public let maxLongitude: Double
+
+    public init(minLatitude: Double, minLongitude: Double,
+                maxLatitude: Double, maxLongitude: Double) {
+        self.minLatitude = minLatitude
+        self.minLongitude = minLongitude
+        self.maxLatitude = maxLatitude
+        self.maxLongitude = maxLongitude
     }
 }
 
@@ -43,7 +64,9 @@ public enum GlobalAirportIndex {
     /// `#SRC` provenance lines, then TAB-separated
     /// `code name city country lat lon category` rows (the trailing
     /// category column arrived in v3, so 6 and 7 columns are both
-    /// accepted). Only columns 0/4/5 are read — stable since v1 — but a
+    /// accepted), then — since v5 — `min_lat min_lon max_lat max_lon`,
+    /// the airport's extent (11 columns). Columns 0/4/5 are stable since
+    /// v1 and 7–10 are read when present — but a
     /// pre-v3 cache is rejected anyway: the engine always writes the
     /// category column now, so an older file means an older engine wrote
     /// it, and the engine is about to replace it.
@@ -61,7 +84,7 @@ public enum GlobalAirportIndex {
         airports.reserveCapacity(max(0, count))
         for line in lines.dropFirst() where !line.hasPrefix("#SRC") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard fields.count == 6 || fields.count == 7,
+            guard [6, 7, 11].contains(fields.count),
                   let latitude = Double(fields[4]),
                   let longitude = Double(fields[5]),
                   // The 0/0 placeholder can't be searched or drawn.
@@ -69,7 +92,8 @@ public enum GlobalAirportIndex {
             else { continue }
             airports.append(GlobalAirport(icao: String(fields[0]),
                                           latitude: latitude,
-                                          longitude: longitude))
+                                          longitude: longitude,
+                                          extent: extent(fields)))
         }
         return airports
     }
@@ -87,6 +111,16 @@ public enum GlobalAirportIndex {
     public static func cacheLooksValid(at url: URL) -> Bool {
         guard let text = TextFile.contents(of: url) else { return false }
         return declaredRowCount(header: TextFile.lines(text).first) != nil
+    }
+
+    /// A v5 row's extent columns (7–10), or nil for an older row or a
+    /// malformed value (the airport then falls back to its point).
+    private static func extent(_ fields: [Substring]) -> AirportExtent? {
+        guard fields.count == 11 else { return nil }
+        let values = fields[7...10].compactMap { Double($0) }
+        guard values.count == 4 else { return nil }
+        return AirportExtent(minLatitude: values[0], minLongitude: values[1],
+                             maxLatitude: values[2], maxLongitude: values[3])
     }
 
     /// The row count declared by an `O4AIRPORTIDX <version> <count>` header

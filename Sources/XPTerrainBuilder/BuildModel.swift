@@ -1046,6 +1046,14 @@ final class BuildModel: ObservableObject {
         activeTile = coord
     }
 
+    /// Add several tiles to the selection (an airport-code list, #542);
+    /// the first becomes active, as `selectTile` makes its one tile.
+    func selectTiles(_ coords: [TileCoord]) {
+        guard let first = coords.first else { return }
+        selected.formUnion(coords)
+        activeTile = first
+    }
+
     func clearSelection() {
         selected = []
         activeTile = nil

@@ -34,3 +34,19 @@ in the pad roads' last stage (`classify/ramp_runout.mint_ramp_runouts`), as a
 `service_road` pad-road cell `runout:<k>` (census reads road law); its rows are
 `constraints/ramp_runout.runout_rows` (one design row per free vertex, the
 `pad_ramp.ramp_delta` profile shared with the pad-road ramp).
+
+## Build cost (master 2026-10-14) — one parse per resource
+`ramp_feet` now runs once per build, after the planar stage, on the run's `ResourceCache`
+(`attach_ramp_feet` → `Airport.ramp_feet`); `sunken_ramp` also reads through that cache.
+Recorded `[ramp feet]` phase: OTHH 0.78 s (389/389 resources already parsed), HECA 0.24 s
+(125/125), KCLT 0.63 s (36/36); it was 29–36 s / ~10 s / ~6 s. Run-out faces byte-identical
+(KCLT runout:1, HECA runout:0); OTHH still 0 run-outs.
+
+## RULINGS 2026-10-14i (road carries the run-out at a landing) — tried, withdrawn
+Build `rampfoot669d_HECA`: the collar was cleared ahead of the foot (lot not cut), and every
+ribbon touching a landing was made a pad road of it. Result vs sw28: the lot `dsf:pol10`
+welded up to the landing (worst +5.70 m at 30.1113059, 31.3922606; lot 3–5 m over the DEM for
+65 m ahead of landing4, then a 2.9 m step). Road `small_roads:-3963` ahead of landing3 stayed
+at 100.4 → 99.8 m and ended over raw DEM 93.67 (a 6 m step): the mapped way dead-ends there,
+so the exit walk prunes it. Gap pieces gap:26 / gap:2 / gap:6 moved 1.7–3.1 m. Withdrawn; the
+landing case stays as on main (the collar banks it).

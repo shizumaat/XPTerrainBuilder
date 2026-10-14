@@ -101,10 +101,7 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     stats["base_slab_sheets"] = len(slabs)
     stats["base_slab_sheet_m2"] = round(sum(g.area for g in slabs), 1)
     stats["gap_pieces_base_slab"] = 0
-    slab_u = unary_union(slabs) if slabs else None
-    pack_u = unary_union(sheets) if slabs and sheets else None
-    sheets += slabs
-    if not sheets:
+    if not sheets and not slabs:
         return stats
     lw = law.tables.structures.load
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
@@ -153,31 +150,45 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     # ``airport/object_pavement``, issue #20): the sheet's own outline is
     # simplified at half the identity spacing BEFORE the difference, so the
     # runs it shares with a standing cell stay that cell's own boundary
-    sheet = unary_union(sheets).simplify(0.5 * ident, preserve_topology=True)
     standing = unary_union(flush + apart)
-    before_bands = sheet.difference(standing)
-    geom = shapely.set_precision(
-        before_bands.difference(band_knife) if not band_knife.is_empty
-        else before_bands, grid)
+
+    def _cut(sh):
+        """The sheet minus every standing cell, then the band envelope,
+        on the snap grid: ``(before the bands, the piece geometry)``."""
+        bb = sh.difference(standing)
+        return bb, shapely.set_precision(
+            bb.difference(band_knife) if not band_knife.is_empty else bb, grid)
+
+    def _order(g):
+        return sorted(polygon_parts(g),
+                      key=lambda q: (-round(q.area), round(q.bounds[0], 2),
+                                     round(q.bounds[1], 2)))
+    sheet = (unary_union(sheets).simplify(0.5 * ident, preserve_topology=True)
+             if sheets else Polygon())
+    before_bands, geom = _cut(sheet)
     if not band_knife.is_empty:
         stats["gap_band_trim_m2"] = float(before_bands.intersection(band_knife).area)
     to_ll = airport.frame.transformers()[1]
-    # the order (and so the ``gap:<k>`` refs) is the pack sheets' own: a
-    # piece ranks by its area ON the pack sheets, so a base slab never
-    # renumbers them and a slab-only piece comes after every one of them
-    # A piece no slab touches keeps EXACTLY its old key — its own area: a
-    # recomputed "area on the pack sheets" differs in the last square metre
-    # and swapped two equal OTHH pieces (gap:66 <-> gap:67), which re-ran
-    # the late stage's cuts in another order 1 km from any slab.
-    def _rank(q):
-        if slab_u is None or not q.intersects(slab_u):
-            return (False, -round(q.area))
-        on_slab = q.intersection(slab_u).area > 0.5 * q.area
-        pack_m2 = q.intersection(pack_u).area if pack_u is not None else 0.0
-        return (on_slab, -round(pack_m2))
-    parts = sorted(polygon_parts(geom),
-                   key=lambda q: (*_rank(q), -round(q.area),
-                                  round(q.bounds[0], 2), round(q.bounds[1], 2)))
+    parts = _order(geom)
+    # THE BASE SLABS COME AFTER, AND NEVER RE-CUT A PACK PIECE (#229): the
+    # slab sheet is what the pack sheets do not already cover, cut by the
+    # same standing cells, minted as pieces of its own numbered after every
+    # pack piece — so every pack piece, its ref and its late-stage cut stay
+    # exactly what they were.  MEASURED (lane slab229, OTHH): a slab merged
+    # into the Emiri pack piece re-cut `gap:2/s6` (4 -> 66 vertices) and
+    # moved `OTHH_TerminalRoads_03_003`'s seat 1.62 m, 800 m away.
+    slab_ids: set[int] = set()
+    if slabs:
+        ssh = unary_union(slabs).simplify(0.5 * ident, preserve_topology=True)
+        if not sheet.is_empty:
+            ssh = ssh.difference(sheet)
+        sb, sg = _cut(ssh)
+        if not geom.is_empty:
+            sg = sg.difference(geom)
+        before_bands = unary_union([before_bands, sb])
+        extra = _order(sg)
+        slab_ids = {id(q) for q in extra}
+        parts += extra
     kept: list[tuple[Polygon, float, bool]] = []
     for part in parts:
         if part.area < lw.object_pavement_min_m2 \
@@ -201,11 +212,9 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
                 continue
         kept.append((part, apron_m, touches))
     # A BASE SLAB IS GROUNDSIDE PAVEMENT (owner RULINGS 2026-10-10o (B)): a
-    # piece standing mostly on a base slab is never judged into the apron —
+    # base-slab piece is never judged into the apron —
     # it joins the late stage welded to the apron rim, the apron fixed
-    slabby = {k for k, (q, _m, _t) in enumerate(kept)
-              if slab_u is not None
-              and q.intersection(slab_u).area > 0.5 * q.area}
+    slabby = {k for k, (q, _m, _t) in enumerate(kept) if id(q) in slab_ids}
     stats["gap_pieces_base_slab"] = len(slabby)
     # THE CLASS (spec §59 (2)): the apron-touching pieces, judged ONCE by the
     # standing readers; a piece that touches no apron is not judged (04m (3))

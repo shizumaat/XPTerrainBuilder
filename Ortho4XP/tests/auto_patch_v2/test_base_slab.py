@@ -97,6 +97,20 @@ def test_pad_shades_carry_the_slab_and_disarmed_carries_nothing():
     assert bs.slab_polygons(part, to_xy, off) == []
 
 
+def test_one_shade_path_carries_the_slab_and_the_sunken_ramp():
+    """#655 + #657 merged: the sunken-ramp ground (``Airport.sunken_ramps``)
+    rides the SAME ``pad_shades`` call as the slabs, armed or not."""
+    wall = _part(0, box(0, 0, 40, 40), h=12.0)
+    slab = _part(1, box(40, 0, 100, 40))
+    part = _partition(wall, slab)
+    ramp = box(200, 0, 210, 10)
+    on = bs.pad_shades(part, to_xy, LW._replace(leaves_pads=True), ramp)
+    assert on.area == pytest.approx(2500.0, rel=1e-6)
+    off = bs.pad_shades(part, to_xy, LW._replace(leaves_pads=False), ramp)
+    assert off.equals(ramp)
+    assert bs.pad_shades(part, to_xy, None, None) is None
+
+
 def test_the_gap_mint_takes_the_slab_as_a_sheet():
     wall = _part(0, box(0, 0, 40, 40), h=12.0)
     slab = _part(1, box(40, 0, 100, 40))

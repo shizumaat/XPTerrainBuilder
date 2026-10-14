@@ -120,14 +120,14 @@ def test_a_road_end_standing_off_the_rim_is_at_the_rim(law):
     ramped from THAT rim (0.03 m under a pad 5 m up), not left without a
     row — or ramped from a rim round the block."""
     from auto_patch_v2.constraints.pads import pad_welded_vertices
-    from auto_patch_v2.constraints.pad_ramp import _stand_off_m, _welded_ribbon_vertices
+    from auto_patch_v2.constraints.pad_ramp import stand_off_m, _welded_ribbon_vertices
     road = _road(1, "small_roads:-1", _rect(201.0, 146.0, 320.0, 154.0))   # 1.0 m off
     cells = [c for c in _ribbon_cells() if c.role != "service_road"] + [road]
     _a, pm = _map(law, cells, only=[2])
     assert not pad_welded_vertices(pm, law)                     # no shared vertex
     near, _rim = _welded_ribbon_vertices(pm, law)
     ends = [v for v in near if pm.vertices[v].xy[0] <= 202.0]
-    assert ends and all(near[v][1] <= _stand_off_m(law) for v in ends)
+    assert ends and all(near[v][1] <= stand_off_m(law) for v in ends)
     pad_vs = {v for f in pm.faces.values() if f.role == "building"
               for v in pm.ring_vertices(f.ring)}
     assert all(near[v][0] in pad_vs for v in ends)

@@ -1037,6 +1037,20 @@ flat_line_max_width_m = 1.0
 # pads unchanged; HECA's 2.72 m lace gap stays open.  0 disarms.
 post_bridge_gap_m     = 1.25
 
+# issue #516 (owner RULINGS 2026-09-13bi "sink into the ground so its ramp
+# meets DEM", 13cm "the top deck meeting the sloping terrain at the ramp
+# ends"): the ground under a unit member's SLOPED DECK where it rises
+# through the natural ground — under the ground at one end, over it further
+# on — and stands above the unit's level by [cockpit] visual_m is not the
+# pad's; it leaves the outline as a shade (airport/sunken_ramp,
+# geom.cluster_outlines rule 8).  SPJC: the departures-ramp end 3.9 m
+# under the DEM (-12.0318118, -77.1134626).  The raster cell (0 disarms),
+# the deck's least climb, and the steepest cell-to-cell change of its top
+# surface that is still one deck (a wall or a roof edge breaks it).
+sunken_ramp_grid_m       = 2.0
+sunken_ramp_climb_min_m  = 1.0
+sunken_ramp_step_grade   = 0.12
+
 
 # §16g (3) THE ONLY CUT (owner RULINGS 2026-09-13bo): the HECA elevated
 # rail class — a body whose footprint span reaches this AND whose two

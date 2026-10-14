@@ -162,7 +162,9 @@ def late_fixed(pm_base, z_base, pm_full, free: _t.AbstractSet[int],
 
 
 def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
-                    free: _t.AbstractSet[int], tol_m: float) -> dict:
+                    free: _t.AbstractSet[int], tol_m: float,
+                    notch_m: float = 0.0,
+                    rigid: _t.AbstractSet[str] = frozenset()) -> dict:
     """THE NEW NODE ON A STANDING EDGE STANDS ON THAT EDGE (spec §53 (11)).
     A follower's ring nodes the rim it shares with a standing cell, so the
     full map carries vertices the base map lacks that no follower owns.
@@ -170,7 +172,21 @@ def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
     level at its foot — the linear interpolation of the edge's two solved
     ends — and joins ``fixed`` (in place): the standing cell's surface is
     the base's, with one more node on a straight edge.  A vertex on no base
-    edge is counted (``off_edge``) and stays an unknown."""
+    edge is counted (``off_edge``) and stays an unknown.
+
+    ``notch_m`` (the pad roads' stage, issue #609): a node the arrangement
+    NOTCHED off its standing edge (pass C's stand-off, ``constraints/
+    pad_ramp.stand_off_m``) is still that cell's: within ``notch_m`` of a
+    base edge of a face of ITS OWN standing ref it takes that edge's level
+    (``notched``).  MEASURED (lane crossfall609, HECA round 5): 301 such
+    nodes of gap parts and lots stood as unknowns of the pad roads' solve,
+    a standing cell bending under the road welded to it — 86 of its 155
+    relaxed cross-section rows sat on one.  ``rigid``: the RIGID roles (a
+    pad stands where it stands): a node of a pad the arrangement left
+    farther than ``notch_m`` from its edges (a sliver beside a road crossing
+    it) takes its pad's nearest base edge at any distance.  MEASURED (OTHH
+    round 5): ``building9``'s sliver floated 5 cm over its rim as four
+    unknowns; a plane fitted to the nearest piece put it 6 cm under."""
     import shapely
     from shapely.strtree import STRtree
     todo = [j for j, _v in _items(pm_full.vertices) if j not in fixed and j not in free]
@@ -185,17 +201,68 @@ def late_rim_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
     pts = shapely.points([pm_full.vertices[j].xy for j in todo])
     near = tree.query_nearest(pts, max_distance=tol_m, all_matches=False)
     hit = {int(i): int(k) for i, k in zip(near[0], near[1])}
+    off: list[int] = []
     for i, j in enumerate(todo):
         k = hit.get(i)
         if k is None:
             rep["off_edge"] += 1
+            off.append(j)
             continue
-        e = edges[k]
-        length = float(shapely.length(lines[k]))
-        t = float(shapely.line_locate_point(lines[k], pts[i])) / length if length else 0.0
-        fixed[j] = (1.0 - t) * float(z_base[e.a]) + t * float(z_base[e.b])
+        fixed[j] = _edge_level(lines[k], edges[k], pts[i], z_base)
         rep["on_a_base_edge"] += 1
+    if notch_m > 0.0 and off:
+        rep["notched"] = _notched_levels(pm_base, z_base, pm_full, fixed, off, notch_m,
+                                         rigid)
+        rep["off_edge"] -= rep["notched"]
     return rep
+
+
+def _edge_level(line, e, pt, z_base) -> float:
+    """The level at ``pt``'s foot on base edge ``e`` (``line``)."""
+    import shapely
+    length = float(shapely.length(line))
+    t = float(shapely.line_locate_point(line, pt)) / length if length else 0.0
+    return (1.0 - t) * float(z_base[e.a]) + t * float(z_base[e.b])
+
+
+def _notched_levels(pm_base, z_base, pm_full, fixed: dict[int, float],
+                    off: _t.Sequence[int], notch_m: float,
+                    rigid: _t.AbstractSet[str] = frozenset()) -> int:
+    """:func:`late_rim_levels`' ``notch_m`` pass: each of ``off`` within
+    ``notch_m`` (any distance on a face of a ``rigid`` role) of a base edge
+    of a face carrying one of ITS standing refs takes the nearest such
+    edge's level (in place).  How many did."""
+    import shapely
+    by_ref: dict[str, list] = {}
+    for f in (pm_base.faces.values() if isinstance(pm_base.faces, dict) else pm_base.faces):
+        for cyc in (f.ring, *f.holes):
+            ring = list(pm_base.ring_vertices(cyc))
+            by_ref.setdefault(str(f.ref), []).extend(zip(ring, ring[1:] + ring[:1]))
+    bv, n = pm_base.vertices, 0
+    for j in off:
+        v = pm_full.vertices[j]
+        fs = [pm_full.faces[q] for q in v.incident_faces if q in pm_full.faces]
+        refs = {str(f.ref) for f in fs}
+        reach = float("inf") if any(getattr(f, "role", None) in rigid for f in fs) \
+            else notch_m
+        segs = [ab for r in sorted(refs) for ab in by_ref.get(r, ())]
+        if not segs:
+            continue
+        pt = shapely.points(v.xy)
+        lines = shapely.linestrings([[bv[a].xy, bv[b].xy] for a, b in segs])
+        dist = shapely.distance(pt, lines)
+        k = int(dist.argmin())
+        if float(dist[k]) > reach:
+            continue
+        a, b = segs[k]
+        fixed[j] = _edge_level(lines[k], _Edge(a, b), pt, z_base)
+        n += 1
+    return n
+
+
+class _Edge(_t.NamedTuple):
+    a: int
+    b: int
 
 
 def row_vertices(row) -> tuple[int, ...]:

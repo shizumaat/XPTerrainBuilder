@@ -34,8 +34,7 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
-from ..geom import (cluster_building_evidence, cluster_outlines,
-                    deck_shades)
+from ..geom import cluster_building_evidence, cluster_outlines
 from ..law import Law
 from ..geom.base_slab import pad_shades
 from ..law.tables import base_slab_law, pad_admission, rolled_on_roles
@@ -160,10 +159,10 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             walled_only=True, min_m2=min_m2,
             # issue #14 (``welded-deck-spec.md`` §2 (1)): the SAME shades
             # the mint subtracted (``geom.deck_shades``)
-            # ...and the base slabs' open parts (issue #229, 10o (B))
-            shades=(pad_shades(getattr(airport, "partition", None), to_xy,
-                               slab_law) if slab_law is not None
-                    else deck_shades(getattr(airport, "partition", None), to_xy)),
+            # ...the base slabs' open parts (issue #229, 10o (B)) and issue
+            # #516's sunken ramps (``airport/sunken_ramp``): the ONE path
+            shades=pad_shades(getattr(airport, "partition", None), to_xy,
+                              slab_law, getattr(airport, "sunken_ramps", None)),
             # issue #73 rule 2a: the SAME post close the mint applied
             bridge_m=bridge_m,
             # §16g (10) (12), issue #101: the SAME two pad-admission gates

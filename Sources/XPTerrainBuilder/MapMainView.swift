@@ -9,6 +9,9 @@ struct MapMainView: View {
     @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
     @EnvironmentObject var buildModel: BuildModel
     @StateObject private var searchText = ViewState("")
+    /// The codes an airport-code list did not find (#542), shown as an
+    /// alert after the rest are selected; empty = no alert.
+    @StateObject private var unknownCodesMessage = ViewState("")
     @StateObject private var showingPicker = ViewState(false)
     /// Why the last folder the user picked was not accepted (empty = none).
     @StateObject private var rejectedFolder = ViewState("")
@@ -121,6 +124,7 @@ struct MapMainView: View {
         } message: {
             Text(controller.errorMessage ?? "")
         }
+        .modifier(UnknownCodesAlert(message: unknownCodesMessage))
     }
 
     private var subtitle: String {
@@ -197,6 +201,7 @@ struct MapMainView: View {
                                placeholder: "Airport or tile like +48-006",
                                onSubmit: performSearch)
                 .frame(width: 220)
+                .help("Several airport codes (KCLT, KASE OTHH) select all their tiles at once")
         }
         // Keep the panel toggle its own control, not glued to the search
         // cluster (modern macOS groups adjacent trailing items).
@@ -216,7 +221,8 @@ struct MapMainView: View {
     // MARK: - Search
 
     /// Zoom the map to a matching airport (ICAO or name), a tile key like
-    /// "+48-006", or a package.
+    /// "+48-006", a list of airport codes ("KCLT, KASE OTHH" — every tile
+    /// they touch), or a package.
     private func performSearch() {
         let query = searchText.value.trimmingCharacters(in: .whitespaces).lowercased()
         guard !query.isEmpty else { return }
@@ -230,6 +236,13 @@ struct MapMainView: View {
             cam.scale = max(cam.scale, 60)
             cam.clamp(in: controller.mapCanvasSize.value)
             controller.mapCamera.value = cam
+            return
+        }
+
+        // A list of codes selects all their tiles; one code (or a name)
+        // falls through to the single-airport search below, unchanged.
+        if let batch = AirportCodeList.resolve(searchText.value, lookup: airportCodeLookup()) {
+            selectAirportBatch(batch)
             return
         }
 
@@ -272,6 +285,33 @@ struct MapMainView: View {
         }) {
             controller.zoomToPack(pack)
         }
+    }
+
+    /// Code → tiles for a code list: the Global Airports index (which
+    /// carries each airport's extent), then the custom packs' airports
+    /// (a point each) for codes the index lacks.
+    private func airportCodeLookup() -> (String) -> [AirportTile]? {
+        let custom = controller.mapOverlays.airports
+        return AirportCodeList.lookup(buildModel.globalAirports) { code in
+            custom.first { $0.icao.uppercased() == code }.map {
+                AirportCodeList.tiles(latitude: $0.info.latitude,
+                                      longitude: $0.info.longitude, extent: nil)
+            }
+        }
+    }
+
+    /// Select (adding to the selection, as a single airport does) every
+    /// tile of a code list, frame them, and alert on the codes that were
+    /// not found (owner decision on #542) — the text stays in the field
+    /// then, to be corrected.
+    private func selectAirportBatch(_ batch: AirportBatch) {
+        let tiles = batch.tiles.map { BuildModel.TileCoord(lat: $0.lat, lon: $0.lon) }
+        if !tiles.isEmpty {
+            buildModel.selectTiles(tiles)
+            controller.zoomToTiles(batch.tiles.map { (lat: $0.lat, lon: $0.lon) })
+        }
+        if batch.unknown.isEmpty { searchText.value = "" }
+        unknownCodesMessage.value = batch.unknownCodesMessage ?? ""
     }
 
     private var mainLayout: some View {
@@ -351,6 +391,26 @@ struct MapMainView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The alert an airport-code list raises for codes it could not identify
+/// (owner decision on #542); empty message = no alert. A modifier of its
+/// own so `MapMainView.body` stays cheap to type-check.
+struct UnknownCodesAlert: ViewModifier {
+    @ObservedObject var message: ViewState<String>
+
+    func body(content: Content) -> some View {
+        content.alert(AirportBatch.unknownCodesTitle, isPresented: isPresented) {
+            Button("OK") { message.value = "" }
+        } message: {
+            Text(message.value)
+        }
+    }
+
+    private var isPresented: Binding<Bool> {
+        Binding(get: { !message.value.isEmpty },
+                set: { if !$0 { message.value = "" } })
     }
 }
 

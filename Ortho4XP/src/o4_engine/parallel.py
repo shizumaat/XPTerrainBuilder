@@ -941,6 +941,7 @@ class ParallelBuildRun:
             self._static_windows[tile] = {
                 key: (base, width) for (key, base, width) in full_plan
             }
+            features = {}
             try:
                 features = prediction_features(
                     tile[0], tile[1], provider, zoomlevel,
@@ -956,8 +957,11 @@ class ParallelBuildRun:
             except Exception:
                 self._estimates.pop(tile, None)
                 self._tile_step_windows.pop(tile, None)
+            # A mesh the build will REUSE (#615) reads a record, not a
+            # raster: it must not wait for memory a real mesh would hold.
             self._mesh_memory_estimates[tile] = (
-                self._estimate_mesh_memory(tile, custom_build_dir))
+                0.0 if "mesh" in (features.get("reused_steps") or ())
+                else self._estimate_mesh_memory(tile, custom_build_dir))
             self._percent_high_water.pop(tile, None)
             self._forget_cache_state_locked(tile)
             self._queue.append(tile)

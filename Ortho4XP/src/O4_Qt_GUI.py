@@ -77,6 +77,7 @@ import O4_Version
 import O4_Build_Info
 import O4_Engine_Stderr_Log as STDLOG
 import O4_Airport_Index as APT
+import O4_Airport_Batch as APTBATCH
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
 import O4_Qt_Map as QTMAP
@@ -649,6 +650,20 @@ def _sync_combo_to_agreed_value(combo, configured_values):
         combo.setCurrentIndex(index)
 
 
+def _batch_summary(batch):
+    """One line for a resolved code list: what is selected, and every code
+    that was not found."""
+    parts = []
+    if batch.codes:
+        parts.append("Select %d tile%s for %s" % (
+            len(batch.tiles), "" if len(batch.tiles) == 1 else "s",
+            ", ".join(batch.codes)))
+    if batch.unknown:
+        parts.append("Unknown airport code%s: %s" % (
+            "" if len(batch.unknown) == 1 else "s", ", ".join(batch.unknown)))
+    return " — ".join(parts)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -856,6 +871,10 @@ class MainWindow(QMainWindow):
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(
             "Search airport, city, country — or tile like +48-006"
+        )
+        self.search_edit.setToolTip(
+            "Several airport codes (KCLT, KASE OTHH) select all their "
+            "tiles at once"
         )
         self.search_edit.setFixedWidth(320)
         self.search_edit.textEdited.connect(self._update_search_popup)
@@ -1634,7 +1653,14 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem("Go to tile %+03d%+04d" % coord)
             item.setData(Qt.UserRole, ("tile", coord))
             self.search_popup.addItem(item)
-        for entry in APT.search(self._airports, text, limit=8):
+        batch = None if coord else self._airport_batch(text)
+        if batch is not None:
+            # A list of codes is ONE choice: select them all (#542).
+            item = QListWidgetItem(_batch_summary(batch))
+            item.setData(Qt.UserRole, ("batch", batch))
+            self.search_popup.addItem(item)
+        for entry in ([] if batch is not None
+                      else APT.search(self._airports, text, limit=8)):
             label = "%s — %s" % (entry.code, entry.name)
             if entry.city:
                 label += " (%s)" % entry.city
@@ -1655,15 +1681,52 @@ class MainWindow(QMainWindow):
         self.search_popup.show()
 
     def _search_accept_first(self):
+        text = self.search_edit.text()
+        if not APT.parse_coordinate_query(text):
+            batch = self._airport_batch(text)
+            if batch is not None:
+                # Return selects the batch whether or not the popup is up.
+                self.search_popup.hide()
+                self._select_airport_batch(batch)
+                return
         if self.search_popup.count():
             self._search_accept_item(self.search_popup.item(0))
 
     def _search_accept_item(self, item):
-        kind, (lat, lon) = item.data(Qt.UserRole)
+        kind, target = item.data(Qt.UserRole)
         self.search_popup.hide()
+        if kind == "batch":
+            self._select_airport_batch(target)
+            return
+        lat, lon = target
         self.search_edit.clear()
         self.map.center_on_tile(lat, lon, zoom=9 if kind == "apt" else 8)
         self.map.set_active(lat, lon)
+
+    def _airport_batch(self, text):
+        """``text`` as a list of airport codes, or None for an ordinary
+        search (O4_Airport_Batch.resolve_codes).  The code lookup is built
+        once per loaded index, not per keystroke."""
+        cached = getattr(self, "_airport_lookup", None)
+        if cached is None or cached[0] is not self._airports:
+            cached = (self._airports, APTBATCH.code_lookup(self._airports))
+            self._airport_lookup = cached
+        return APTBATCH.resolve_codes(text, cached[1])
+
+    def _select_airport_batch(self, batch):
+        """Select every tile of the listed airports, then alert on the
+        codes that were not found (owner decision on #542).  With an
+        unknown code the text stays in the field so it can be corrected."""
+        if batch.tiles:
+            self.map.set_selection(batch.tiles)
+            self.map.set_active(*batch.tiles[0], select=False)
+            self.map.zoom_to_tiles(batch.tiles)
+        if not batch.unknown:
+            self.search_edit.clear()
+        self._status(_batch_summary(batch))
+        message = APTBATCH.unknown_codes_message(batch)
+        if message:
+            QMessageBox.warning(self, APTBATCH.UNKNOWN_CODES_TITLE, message)
 
     # ------------------------------------------------------------------
     # Selection / tile info

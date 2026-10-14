@@ -371,6 +371,14 @@ class Airport:
     #: ``constraints`` may not import ``planar``, so the relation travels
     #: here.  Same ``None`` / empty rule as ``groups``.
     clusters: _t.Any = None
+    #: issue #516 THE SUNKEN RAMPS' GROUND (``airport/sunken_ramp``,
+    #: owner RULINGS 2026-09-13bi / 13cm): the planar-frame union of the
+    #: ground under a unit member's sloped deck where it rises through the
+    #: natural ground, which leaves the cluster pads like a deck shade.
+    #: Derived at load beside the clusters; the pad MINT (``classify``) and
+    #: its CENSUS (``constraints``, which may not import ``airport``) both
+    #: read THIS.  ``None`` = not derived (a capture written before it).
+    sunken_ramps: _t.Any = None
     #: THE GAP SHEETS (owner RULINGS 2026-10-04o (a); issues #292, #358): the
     #: bodies of a pack's draped pavement page admitted by the PER-TRIANGLE
     #: flatness read (``airport/object_pavement.gap_sheet_footprint``).

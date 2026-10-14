@@ -1843,6 +1843,20 @@ def download_jpeg_ortho(
 ################################################################################
 
 ################################################################################
+_download_count_lock = threading.Lock()
+
+
+def note_orthophoto_download(tile):
+    """One orthophoto of ``tile`` is being DOWNLOADED, not read from the
+    imagery cache (#622): ``tile.imagery_downloads`` counts them, so the
+    imagery step can say which it is doing and the time model can learn
+    the seconds a download costs."""
+    with _download_count_lock:
+        tile.imagery_downloads = getattr(tile, "imagery_downloads", 0) + 1
+        if getattr(tile, "imagery_first_download_at", None) is None:
+            tile.imagery_first_download_at = time.time()
+
+
 def build_jpeg_ortho(
     tile, til_x_left, til_y_top, zoomlevel, provider_code, out_file_name=""
 ):
@@ -1916,6 +1930,7 @@ def build_jpeg_ortho(
                         + provider_code
                         + ")",
                     )
+                    note_orthophoto_download(tile)
                     if not download_jpeg_ortho(
                         true_file_dir, true_file_name, *true_texture_attributes
                     ):
@@ -1987,6 +2002,7 @@ def build_jpeg_ortho(
             return 0
         if state == "absent":
             UI.vprint(1, "   Downloading missing orthophoto " + file_name)
+            note_orthophoto_download(tile)
             if not download_jpeg_ortho(
                 file_dir, file_name, *texture_attributes
             ):

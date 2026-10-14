@@ -92,3 +92,13 @@
   the other packs' composed verdicts (LEMD, OTHH, KASE — KASE's 10-01f
   stepped buildings are the case (1) must keep stepped and was NOT
   measured), and the owner's sim read of T3 and SPJC's terminal.
+- 2026-10-13 lane reuse615 (#615, #622, branches `claude/reuse615` /
+  `claude/reuse622`): step reuse and the imagery share are proven by
+  twins (`tests/test_step_reuse.py`, `tests/test_imagery_share.py`) and on
+  the owner's recorded build history (+37-008 cold BI ZL16: imagery
+  window began at 65 %, now 12 %), NOT on a real app build — the harness
+  tile path (`run_tile_steps`) does not run through the engine session.
+  OWED: the owner's texture-mode switch rebuild of +25+051 in the app
+  (expect vector / mesh / masks 'reused' rows and only the scenery-file
+  step run), and one cold-imagery tile build reading the 'downloading
+  imagery · N of M' row and the bar share.

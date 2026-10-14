@@ -61,7 +61,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from .cluster_outline import _parts, deck_shades
+from .cluster_outline import _parts, deck_shades, with_shade
 
 __all__ = ["Slab", "base_slabs", "slab_polygons", "pad_shades"]
 
@@ -195,17 +195,22 @@ def slab_polygons(partition: _t.Any, to_xy, lw: _t.Any) -> list[Polygon]:
     return [s.open for s in base_slabs(partition, to_xy, lw)]
 
 
-def pad_shades(partition: _t.Any, to_xy, lw: _t.Any):
+def pad_shades(partition: _t.Any, to_xy, lw: _t.Any, extra: _t.Any = None):
     """What leaves every pad outline: the welded decks' shades
-    (:func:`cluster_outline.deck_shades`) and the base slabs' open parts.
-    The ONE reading the pad mint (``classify/evidence``), the pad census
-    (``constraints/cluster_pad``) and the fallback trim pass, so they cannot
-    disagree.  ``None`` where there is neither."""
+    (:func:`cluster_outline.deck_shades`), the base slabs' open parts when
+    ``lw.leaves_pads`` (``lw`` None reads no slab), and ``extra`` — issue
+    #516's sunken ramps (``Airport.sunken_ramps``), added through
+    :func:`cluster_outline.with_shade`.  The ONE shade path the pad mint
+    (``classify/evidence``), the pad census (``constraints/cluster_pad``)
+    and the fallback trim all take, so they cannot disagree.  ``None``
+    where there is nothing."""
     deck = deck_shades(partition, to_xy)
-    slabs = slab_polygons(partition, to_xy, lw) if lw.leaves_pads else []
-    if not slabs:
-        return deck
-    got = unary_union(([deck] if deck is not None else []) + slabs)
-    if not got.is_valid:
-        got = got.buffer(0.0)
-    return None if got.is_empty else got
+    slabs = (slab_polygons(partition, to_xy, lw)
+             if lw is not None and lw.leaves_pads else [])
+    if slabs:
+        deck = unary_union(([deck] if deck is not None else []) + slabs)
+        if not deck.is_valid:
+            deck = deck.buffer(0.0)
+        if deck.is_empty:
+            deck = None
+    return with_shade(deck, extra)

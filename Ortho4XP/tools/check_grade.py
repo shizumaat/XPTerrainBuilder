@@ -2578,6 +2578,17 @@ def iter_shape_grade_constraints(
             generator's own rule): two ADJACENT ring vertices keep the
             chord reading even across a route boundary, so a way boundary
             mid-road can never leave a step unpriced.
+
+            ``cap_l`` is THE WAY'S OWN longitudinal cap (``grade_cap``, the
+            role's — ``constraints/roads.road_within_shape`` passes
+            ``role_cap(...).longitudinal``), never the chain's pair cap.
+            MEASURED (issue #609, SPJC round-5 pad roads): the chain had
+            already tightened a chord-transverse pair to the cross-section
+            cap and a pair with a pad-rim endpoint to the pad's 1 %, and fed
+            to this reading as the LONGITUDINAL cap it priced the along-route
+            half of a lawful 10 % ramp (13a (1)) at 1-2 %: 202 of SPJC's 298
+            new ``road_cross_section`` rows and ~200 of its 236 new
+            ``within_shape`` rows sat on pairs the solve's own row held.
             """
             if not _road_frame or law_role(w) not in _ROAD_FAMILY_ROLES:
                 return None
@@ -2739,7 +2750,7 @@ def iter_shape_grade_constraints(
                     # ring walk, the cap the ramp's own.  Applied before the road
                     # reading, which returns None for a non-road role anyway.
                     d = _ramp_span(ia, ib, d)
-                    _rr = _route_read(ia, ib, cap.flat_cap())
+                    _rr = _route_read(ia, ib, grade_cap)
                     if _rr == "skip":
                         continue                       # §37 (7): not a pair
                     if _rr is not None:
@@ -2793,7 +2804,7 @@ def iter_shape_grade_constraints(
                 # ring walk, the cap the ramp's own.  Applied before the road
                 # reading, which returns None for a non-road role anyway.
                 d = _ramp_span(ia, ib, d)
-                _rr = _route_read(ia, ib, cap.flat_cap())
+                _rr = _route_read(ia, ib, grade_cap)
                 if _rr == "skip":
                     continue                           # §37 (7): not a pair
                 if _rr is not None:

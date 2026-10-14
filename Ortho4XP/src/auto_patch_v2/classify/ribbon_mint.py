@@ -298,7 +298,7 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
         k = serial.get(f"{lot.ref}#road", 0)
         serial[f"{lot.ref}#road"] = k + 1
         add(lot.role, f"{lot.ref}#road{k}", part, lot.kind, None, None,
-            {"lot_road": 1.0, "lot_of": lot.ref,
+            {"lot_road": 1.0, "lot_of": lot.ref, **({"lot_road_pad": 1.0} if extra.get("pad_road") else {}),
              "highway": str(w.tags.get("highway")),
              "lot_road_way": f"{OSM_RIBBON_FEEDS[w.kind]}:{w.id}"})
     ref = f"{OSM_RIBBON_FEEDS[w.kind]}:{w.id}"
@@ -365,14 +365,13 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
                            if c.side == "airside"]) if cells else Polygon()
     serial: dict[str, int] = {}
     spans_of: dict[tuple, list[tuple[float, float]]] = {}
-    lots = lot_cells(cells)                 # 14a (2): a road along a lot is the lot
     for w, line in ways:
         spans = [exit_reach(line, a, b, dem, airside, cap_l, hw, 2.0 * hw)
                  for a, b in bridge_gaps(_way_intervals(line, extent),
                                          orr.road_gap_bridge_m)]
         spans_of[(w.kind, w.id)] = sorted(spans)
         k, m2, rib = _mint_spans(w, line, spans, occupied, serial, cover, law,
-                                 rules, add, {}, lots=lots)
+                                 rules, add, {})
         n += k
         area += m2
         if rib is not None:
@@ -409,7 +408,13 @@ def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,
                            rules.osm_roads.road_gap_bridge_m, serve=pad_union)
     occupied = unary_union([Polygon(c.ring, c.holes) for c in cells])
     cover = _cover(ev, rules)
-    lots = lot_cells(cells)                 # 14a (2): a road along a lot is the lot
+    # 14a (2): a pad road's stretch along a lot is the lot.  The patch's own
+    # ribbons (``mint_osm_ribbons``) are NOT read: their lot strips re-solve
+    # stage 1, and MEASURED (lane lotroads) that moves airside — HECA apron
+    # ``dsf:objpav402`` 0.62 m and 30 pads up to 0.87 m, KCLT pads 0.54 m
+    # and runway 18L/36R 0.05 m — the pad roads' strips (SPJC building24)
+    # move none.  Owner question, not ruled.
+    lots = lot_cells(cells)
     n, area = 0, 0.0
     for (w, line), spans in zip(ways, served):
         mine = bridge_gaps(first["spans"].get((w.kind, w.id), []), 1e-6)

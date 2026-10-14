@@ -67,7 +67,7 @@ def test_a_pad_road_along_a_lot_is_the_lot(law):
     lot = [(role, ref, p, ev) for role, ref, p, ev in mine if ev.get("lot_road")]
     assert [(role, ref) for role, ref, _p, _e in lot] == [("groundside_pavement", "lot0#road0")]
     _role, _ref, part, ev = lot[0]
-    assert ev["lot_of"] == "lot0" and not ev.get("pad_road")
+    assert ev["lot_of"] == "lot0" and not ev.get("pad_road") and ev["lot_road_pad"] == 1.0
     assert part.distance(box(*LOT)) < 1e-6
     assert part.area > 0.9 * 8.0 * 100.0          # the 100 m along the lot, full width
     road_m2 = sum(p.area for _r, _f, p, ev in mine if not ev.get("lot_road"))
@@ -76,12 +76,13 @@ def test_a_pad_road_along_a_lot_is_the_lot(law):
     assert any(ev.get("pad_road") for *_x, ev in mine)   # beyond the lot: still road
 
 
-def test_a_patch_ribbon_along_a_lot_is_the_lot(law):
-    """The patch's own ribbons read the same witness."""
+def test_a_patch_ribbon_along_a_lot_stays_road_for_now(law):
+    """The patch's own ribbons are not read (their strips would re-solve
+    stage 1 and move airside: HECA apron 0.62 m, KCLT pads 0.54 m) — the
+    owner's question; this pins the shipped scope."""
     lot = (650.0, -50.0, 750.0, -44.0)            # south of the ribbon at y = -40
     mine = _mint(law, _way(WAY[:2]), (), [lot])
-    lots = [ref for _r, ref, _p, ev in mine if ev.get("lot_road")]
-    assert lots == ["lot0#road0"]
+    assert mine and not any(ev.get("lot_road") for *_x, ev in mine)
 
 
 def test_a_road_meeting_a_lot_end_on_or_crossing_open_ground_stays_road():

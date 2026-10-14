@@ -20,10 +20,11 @@ Everything above the "Qt" rule is pure and imports no Qt.
 from __future__ import annotations
 
 import os
+import sys
 
 __all__ = ["AIRPORT_FAILED_LINE", "REPORT_BUTTON", "SAVE_REPORT_BUTTON",
            "console_lines", "report_phrase", "box_texts", "tile_report",
-           "issues_box"]
+           "REMOVE_LINK_BUTTON", "removable_links", "issues_box"]
 
 # --- copy (identical to the mac app's O4TileFailureCopy) ----------------
 REPORT_BUTTON = "Report this problem"
@@ -34,6 +35,11 @@ REPORT_PREVIEW_NOTE = (
     "opens a new GitHub issue in your browser, where you can read it again "
     "before posting.")
 OPEN_ISSUE_BUTTON = "Copy and Open GitHub"
+# A tile folder behind a link to a drive that is not mounted (#668); the
+# mac app's O4TileFailureCopy.removeLinkButton on macOS.
+REMOVE_LINK_BUTTON = ("Remove the link and build on this %s drive"
+                      % ("Mac's" if sys.platform == "darwin"
+                         else "computer's"))
 
 # The live line for one airport, while its tile is still building.
 AIRPORT_FAILED_LINE = ("*** Tile {tile}: airport {airport} could not be "
@@ -99,6 +105,22 @@ def box_texts(events) -> tuple:
     return (", ".join(parts), body, detail)
 
 
+def removable_links(events) -> list:
+    """``(event, link)`` for every tile NOT built because its Custom
+    Scenery folder is a link to a drive that is not mounted (#668): the
+    links the box offers to remove."""
+    out = []
+    for event in events:
+        if getattr(event, "ok", False):
+            continue
+        for entry in getattr(event, "failures", None) or []:
+            if (entry.get("code") == "output_link_unmounted"
+                    and entry.get("link")):
+                out.append((event, entry["link"]))
+                break
+    return out
+
+
 def tile_report(event, save_path="", app_version=""):
     """The engine's redacted report of one ``BuildDone`` (the in-process
     form of the ``failure_report`` command, #565): its result dict."""
@@ -162,10 +184,12 @@ def _save(events, parent, app_version):
         tile_report(event, save_path=path, app_version=app_version)
 
 
-def issues_box(events, parent=None, app_version=""):
-
+def issues_box(events, parent=None, app_version="", on_remove_link=None):
     """The run's one non-modal box, or ``None`` when there is nothing to
-    say.  The technical detail sits behind "Show Details…"."""
+    say.  The technical detail sits behind "Show Details…".  With
+    ``on_remove_link`` and a tile behind an unmounted drive's link (#668)
+    it offers "Remove the link…" (``on_remove_link(event, link)``) and
+    "Cancel"."""
     texts = box_texts(events)
     if texts is None:
         return None
@@ -191,5 +215,13 @@ def issues_box(events, parent=None, app_version=""):
         button.clicked.connect(
             lambda _checked=False, action=action: action(
                 with_issues, box, app_version))
-    box.addButton(QMessageBox.Ok)
+    removable = removable_links(events) if on_remove_link else []
+    if removable:
+        remove = box.addButton(REMOVE_LINK_BUTTON, QMessageBox.AcceptRole)
+        remove.clicked.connect(
+            lambda _checked=False: [on_remove_link(event, link)
+                                    for (event, link) in removable])
+        box.addButton(QMessageBox.Cancel)
+    else:
+        box.addButton(QMessageBox.Ok)
     return box

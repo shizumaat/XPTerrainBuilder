@@ -111,3 +111,23 @@ def test_notes_sit_under_the_warnings_and_count_as_built_with_warnings():
     (title, body, _detail) = QTFAIL.box_texts([_warned(), noted])
     assert title == "2 built with warnings"
     assert body.index("was built, but") < body.index("stand-in elevation")
+
+
+def test_a_tile_behind_an_unmounted_drive_offers_the_link_removal():
+    """#668: the box offers "Remove the link…" for the tile whose Custom
+    Scenery folder is a dangling link — and for nothing else."""
+    link = "/XP/Custom Scenery/zOrtho4XP_-12-078"
+    behind = SESSION.build_done(-12, -78, False, [FAIL.record(
+        "output_link_unmounted", "x", link=link,
+        target="/Volumes/Drive/zOrtho4XP_-12-078", volume="Drive")])
+    assert behind.failures[0]["link"] == link
+    found = QTFAIL.removable_links([_failed(), _warned(), behind])
+    assert [(e.lat, l) for (e, l) in found] == [(-12, link)]
+    assert QTFAIL.REMOVE_LINK_BUTTON.startswith(
+        "Remove the link and build on this ")
+    if sys.platform == "darwin":
+        swift = os.path.join(os.path.dirname(__file__), "..", "..",
+                             "Sources", "SceneryKit", "TileFailure.swift")
+        if os.path.exists(swift):
+            with open(swift, encoding="utf-8") as handle:
+                assert '"%s"' % QTFAIL.REMOVE_LINK_BUTTON in handle.read()

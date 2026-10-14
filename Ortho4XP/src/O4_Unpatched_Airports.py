@@ -31,6 +31,7 @@ __all__ = [
     "set_aside_unbuilt", "strict", "may_continue", "record", "read",
     "PACK_RESTORE_KEY", "note_pack",
     "record_substitutions", "read_substitutions",
+    "UNMOUNTED_KEY", "record_unmounted_packs", "read_unmounted_packs",
     "warn",
 ]
 
@@ -184,32 +185,61 @@ def _write_key(build_dir: str, key: str, value) -> None:
 SUBSTITUTIONS_KEY = "elevation_substituted"
 
 
-def record_substitutions(tile, rows) -> list:
-    """Publish the base cells this tile's DEM read from a fallback source
-    — the same two ways as :func:`record`, for the same reason (the tile's
-    final ``BuildDone`` comes from another process).  Called by every
-    production DEM load, with an empty list when none.  Never fatal."""
+def _publish_rows(tile, attr: str, key: str, rows) -> list:
+    """Publish ``rows`` (dicts) as ``tile.<attr>`` for this process and
+    under ``key`` in the sidecar for another.  Never fatal."""
     rows = [dict(row) for row in rows or () if isinstance(row, dict)]
-    tile.elevation_substitutions = rows
+    setattr(tile, attr, rows)
     build_dir = getattr(tile, "build_dir", None)
     if build_dir:
         try:
             os.makedirs(build_dir, exist_ok=True)
-            _write_key(build_dir, SUBSTITUTIONS_KEY, rows)
+            _write_key(build_dir, key, rows)
         except OSError:
             pass
     return rows
 
 
-def read_substitutions(tile) -> list:
-    """The substituted cells of the tile on disk (see :func:`read`)."""
-    own = getattr(tile, "elevation_substitutions", None)
+def _read_rows(tile, attr: str, key: str) -> list:
+    own = getattr(tile, attr, None)
     if own is not None:
         return list(own)
     try:
-        return list(_read_all(tile.build_dir).get(SUBSTITUTIONS_KEY) or [])
+        return list(_read_all(tile.build_dir).get(key) or [])
     except (AttributeError, TypeError):
         return []
+
+
+def record_substitutions(tile, rows) -> list:
+    """Publish the base cells this tile's DEM read from a fallback source
+    — the same two ways as :func:`record`, for the same reason (the tile's
+    final ``BuildDone`` comes from another process).  Called by every
+    production DEM load, with an empty list when none.  Never fatal."""
+    return _publish_rows(tile, "elevation_substitutions", SUBSTITUTIONS_KEY,
+                         rows)
+
+
+def read_substitutions(tile) -> list:
+    """The substituted cells of the tile on disk (see :func:`read`)."""
+    return _read_rows(tile, "elevation_substitutions", SUBSTITUTIONS_KEY)
+
+
+#: Sidecar key of the airports graded WITHOUT their pack because the pack
+#: is a link to a drive that is not mounted (#668, ``O4_Unmounted_Links``).
+UNMOUNTED_KEY = "unmounted_packs"
+
+
+def record_unmounted_packs(tile, rows) -> list:
+    """Publish the airports of this tile whose pack is an unreachable
+    link (rows of ``O4_Unmounted_Links.unmounted_packs``) — called by every
+    vector step, before it rewrites the patches.  Never fatal."""
+    return _publish_rows(tile, "unmounted_packs", UNMOUNTED_KEY, rows)
+
+
+def read_unmounted_packs(tile) -> list:
+    """The rows :func:`record_unmounted_packs` published for the tile on
+    disk (see :func:`read`)."""
+    return _read_rows(tile, "unmounted_packs", UNMOUNTED_KEY)
 
 
 def note_pack(tile, icao: str, text: str, pack: str = "",

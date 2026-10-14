@@ -21,11 +21,17 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
     public let detail: String
     /// The engine's own log file, named by a "report it" remedy.
     public let logPath: String
+    /// The unreachable Custom Scenery link a tile's output sits behind
+    /// (protocol 1.11, #668): non-empty only for `output_link_unmounted`,
+    /// where the app offers to remove it.
+    public let link: String
 
     public var id: String { code + "|" + what }
 
     public init(code: String, what: String, why: String, remedy: String,
-                airports: [String] = [], detail: String = "", logPath: String = "") {
+                airports: [String] = [], detail: String = "", logPath: String = "",
+                link: String = "") {
+        self.link = link
         self.code = code
         self.what = what
         self.why = why
@@ -49,7 +55,8 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
                 remedy: entry["remedy"] as? String ?? "",
                 airports: (entry["airports"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 detail: entry["detail"] as? String ?? "",
-                logPath: entry["log_path"] as? String ?? "")
+                logPath: entry["log_path"] as? String ?? "",
+                link: entry["link"] as? String ?? "")
         }
     }
 
@@ -58,6 +65,11 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
     public var wireObject: [String: Any] {
         ["code": code, "what": what, "why": why, "remedy": remedy,
          "airports": airports, "detail": detail]
+    }
+
+    /// Whether the app may offer "Remove the link…" for this entry (#668).
+    public var offersLinkRemoval: Bool {
+        code == "output_link_unmounted" && !link.isEmpty
     }
 
     /// The three sentences, one per line.
@@ -98,6 +110,13 @@ public struct O4TileIssues: Sendable, Equatable {
     }
 
     public var entries: [O4TileFailure] { failures + warnings + notes }
+
+    /// The link to offer to remove — the tile was not built because its
+    /// Custom Scenery folder is a link to a drive that is not mounted
+    /// (#668) — or nil.
+    public var removableLink: String? {
+        built ? nil : failures.first(where: \.offersLinkRemoval)?.link
+    }
 }
 
 /// The run's ONE report (a batch of twenty tiles must not raise twenty
@@ -184,6 +203,13 @@ public enum O4TileFailureCopy {
         + "opens a new GitHub issue in your browser, where you can read it again "
         + "before posting."
     public static let openIssueButton = "Copy and Open GitHub"
+
+    // An output folder behind a link to an unmounted drive (#668).
+    public static let removeLinkButton = "Remove the link and build on this Mac's drive"
+    public static let removeLinkCancel = "Cancel"
+    public static func removeLinkFailed(_ reason: String) -> String {
+        "The link was not removed. " + reason
+    }
 }
 
 /// The engine's redacted report of one tile (`failure_report` command,

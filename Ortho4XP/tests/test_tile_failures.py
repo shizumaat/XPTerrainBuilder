@@ -717,7 +717,7 @@ def test_the_new_fields_are_additive_and_survive_the_child_hop():
     assert payload["event"] == "BuildDone"
     assert set(payload["failures"][0]) == {
         "code", "what", "why", "remedy", "airports", "detail", "log_path",
-        "cells"}
+        "cells", "link"}
     # ...and goes back into the report command unchanged (#565)
     from o4_engine.failure_report import _normalise
     assert _normalise(payload["failures"])[0]["code"] == "disk_full"

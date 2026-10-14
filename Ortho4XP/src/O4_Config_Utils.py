@@ -37,6 +37,8 @@ from O4_Cfg_Vars import (
     list_vector_vars,
     cfg_stamp_key,
     cleanup_retired_cfg_keys,
+    legacy_cfg_value,
+    _legacy_cfg_reported,
     retired_cfg_keys,
 )
 
@@ -329,14 +331,18 @@ class Tile:
                     # Values from other forks map to their closest
                     # equivalent here (registry-driven), loudly — never
                     # silently treated as "off".
-                    legacy_map = cfg_vars.get(var, {}).get("legacy_values")
-                    if legacy_map and value in legacy_map:
-                        UI.vprint(
-                            1,
-                            "   Legacy config value", value, "for", var,
-                            "read as", legacy_map[value] + ".",
-                        )
-                        value = legacy_map[value]
+                    # The cleanup after the read rewrites the line
+                    # (#676), so the notice is printed once per run.
+                    current = legacy_cfg_value(var, value)
+                    if current is not None:
+                        if (var, value) not in _legacy_cfg_reported:
+                            _legacy_cfg_reported.add((var, value))
+                            UI.vprint(
+                                1,
+                                "   Legacy config value", value, "for", var,
+                                "read as", current + ".",
+                            )
+                        value = current
                     if cfg_vars[var]["type"] in (bool, list):
                         cmd = "self." + var + "=" + value
                     else:

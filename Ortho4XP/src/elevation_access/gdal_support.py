@@ -8,7 +8,7 @@ failing at import.
 
 from typing import Any
 
-__all__ = ["gdal", "has_gdal", "ogr", "osr"]
+__all__ = ["gdal", "has_gdal", "memory_vector_driver", "ogr", "osr"]
 
 gdal: Any = None
 ogr: Any = None
@@ -23,3 +23,12 @@ try:
     osr.UseExceptions()
 except Exception:
     has_gdal = False
+
+
+def memory_vector_driver():
+    """The in-memory OGR vector driver.
+
+    GDAL 3.11 renamed it ``Memory`` -> ``MEM`` and warns on every use of
+    the old name; older builds (Linux 3.9) only know ``Memory``.
+    """
+    return ogr.GetDriverByName("MEM") or ogr.GetDriverByName("Memory")

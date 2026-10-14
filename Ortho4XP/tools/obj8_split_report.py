@@ -96,14 +96,67 @@ from auto_patch_v2.airport import placement_boxes as PB        # noqa: E402
 from auto_patch_v2.airport import placement_plan as PP         # noqa: E402
 
 
+class GradedInterpolator:
+    """The design surface's linear interpolator, LOCAL (issue #660).
+
+    ``scipy``'s Delaunay over RAW ``(lat, lon)`` is not local: Qhull lifts
+    every point onto ``lat² + lon²`` (≈ 3,300 at OTHH), the metre detail
+    of the field (1e-5 deg) drowns in that magnitude, and every
+    near-cocircular or near-duplicate decision then follows Qhull's
+    PROCESSING ORDER — which any vertex added anywhere changes.  Measured
+    on OTHH's sw24 surface: adding the two Emiri slab plates (800 m away)
+    changed 687 simplices more than 300 m from them, the surface under
+    ``TerminalRoads_03_003`` by up to 0.60 m, and with it the bodies of
+    unit:24 (``03_003`` b0 −1.62 m).
+
+    The triangulation is therefore built in a frame TRANSLATED to the
+    surface's own centre — a translation, so it is the same Delaunay in
+    exact arithmetic, only computed where the coordinates are small.  The
+    origin is the centre of the vertices' bounding box ROUNDED to
+    ``ORIGIN_QUANTUM_DEG``, so a vertex added inside the surface's extent
+    (a slab piece, a repaired face) cannot move it: OTHH 0 simplices more
+    than 300 m from the plates change.  Queries are translated alike.
+
+    LIMIT: an EXACT tie — four exactly cocircular
+    vertices with a non-planar z — has no unique Delaunay in any frame;
+    Qhull still breaks it by processing order."""
+
+    #: the origin's quantum, degrees (~1.1 km): coarse enough that no
+    #: vertex added inside the extent moves it, fine enough that every
+    #: coordinate in the frame stays within a few hundredths of a degree
+    ORIGIN_QUANTUM_DEG = 0.01
+
+    def __init__(self, pts, zs):
+        from scipy.interpolate import LinearNDInterpolator
+        pts = np.asarray(pts, dtype=float).reshape(-1, 2)
+        q = self.ORIGIN_QUANTUM_DEG
+        self.origin = (np.round((pts.min(axis=0) + pts.max(axis=0))
+                                / (2.0 * q)) * q
+                       if len(pts) else np.zeros(2))
+        self._f = LinearNDInterpolator(pts - self.origin,
+                                       np.asarray(zs, dtype=float))
+        self.tri = getattr(self._f, "tri", None)
+
+    def local(self, las, los):
+        """``(n, 2)`` query points in the interpolator's own frame."""
+        return np.column_stack((np.asarray(las, dtype=float).reshape(-1),
+                                np.asarray(los, dtype=float).reshape(-1))
+                               ) - self.origin
+
+    def __call__(self, las, los):
+        return self._f(self.local(las, los))
+
+    def find_simplex(self, las, los):
+        return self.tri.find_simplex(self.local(las, los))
+
+
 def surface_from_graded(path: str, split_tol_m: float = 0.3):
     """``(sampler, pads, rims)`` from an emitted ``<ICAO>.graded.json``."""
     d = json.loads(open(path, encoding="utf-8").read())
     vs = d["vertices"]
     pts = np.asarray([[v[1], v[2]] for v in vs], dtype=float)
     zs = np.asarray([v[3] for v in vs], dtype=float)
-    from scipy.interpolate import LinearNDInterpolator
-    interp = LinearNDInterpolator(pts, zs)
+    interp = GradedInterpolator(pts, zs)
 
     # §17 (owner RULINGS 2026-09-12am (2)): THE FACE ROLE UNDER A POINT,
     # off the SAME parsed document — the sampler answers how HIGH the
@@ -186,7 +239,7 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
             return z
         la = np.asarray(las, dtype=float)
         lo = np.asarray(los, dtype=float)
-        s = _tri.find_simplex(np.column_stack((la, lo)))
+        s = interp.find_simplex(la, lo)
         out = np.asarray(z, dtype=float).copy()
         hit = np.nonzero((s >= 0) & _bad[np.maximum(s, 0)])[0]
         if not hit.size:
@@ -206,7 +259,7 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
         return out
 
     def sampler(lat: float, lon: float):
-        z = _mask([lat], [lon], np.asarray(interp(lat, lon)).reshape(-1))
+        z = _mask([lat], [lon], np.asarray(interp([lat], [lon])).reshape(-1))
         z = float(np.asarray(z).reshape(-1)[0])
         return None if not np.isfinite(z) else z
 

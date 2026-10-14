@@ -501,7 +501,7 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   10.4 %, `-8190` 10.1 %: real, <= 0.4 pp, minted by the floor widening (B3).  `-24655` 10.3 %: persists with the
   floor off — not attributed.
 * D. ITEM 3 (roads-only derive): NOT DONE.
-* E. CLOSING PROOF (harness builds at a68a6c352 except OTHH's first, tags `cf609_<ICAO>` / `cf609b_OTHH`, vs
+* E. CLOSING PROOF (harness builds: KCLT HECA SPJC KASE at 72d2b9185 — a68a6c352 is a no-op there, their pads have no node beyond the notch — tags `cf609_<ICAO>`; OTHH at a68a6c352, `cf609b_OTHH`; vs
   `/tmp/harness/sw24_<ICAO>` = main bd950d682; census = the REPAIRED census on both sides; old = main's census):
   | airport | total sw24 / mine | airside | groundside sw24 / mine (old-census sw24) | road_cross_section | within_shape gs | hard_conflict |
   | KCLT | 15491 / 15493 | 13292 / 13292 | 1888 / 1890 (4254) | 172 / 173 | 285 / 285 | 288 / 287 |

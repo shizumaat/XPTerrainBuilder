@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 """PreToolUse guard for Agent/Task launches.
 
-Owner standing rule, 2026-09-03 (supersedes the 2026-07-30 "Opus
-implements" rule; memory: agents-run-on-opus): every subagent runs on
-Fable 5.1 at MODERATE effort, orchestrated by the Fable 5.1 high-effort
-session acting as project manager.  So every Agent launch must pass
-`model: "fable"` explicitly — inheriting the session model would put
-the orchestrator's HIGH effort on a lane, and any other model is the
-retired rule.  Effort is pinned by the project agent definition
-`.claude/agents/lane.md`; prefer `subagent_type: "lane"` for
-implementation briefs so the effort pin applies.
+Owner standing rule 2026-10-13 (root CLAUDE.md "Lanes", RULINGS 13c;
+memory: agents-run-on-opus): every subagent runs on OPUS at moderate
+effort, model passed explicitly, through the project definitions `lane` /
+`scout`.  Fable 5.1 is launched only after the owner approved that launch
+in chat; the prompt then carries `OWNER-APPROVED-FABLE: <date> "<words>"`
+and this guard refuses a Fable launch without it.  Precedent: nine Fable
+implementation lanes used half the weekly Fable allowance in a day.
 """
 import json
 import sys
@@ -23,10 +21,10 @@ tool_input = data.get("tool_input") or {}
 model = tool_input.get("model")
 if not model:
     print(
-        "BLOCKED (owner standing rule 2026-09-03): every Agent launch must "
-        "pass `model: \"fable\"` explicitly — subagents are Fable 5.1 at "
-        "moderate effort (project definition `lane` pins the effort), never "
-        "the inherited session model. Re-issue with model set.",
+        "BLOCKED (owner standing rule 2026-10-13): every Agent launch must "
+        "pass `model: \"opus\"` explicitly — subagents are Opus at moderate "
+        "effort (project definition `lane` pins the effort), never the "
+        "inherited session model. Re-issue with model set.",
         file=sys.stderr,
     )
     sys.exit(2)
@@ -46,6 +44,19 @@ if model not in ("fable", "opus"):
     )
     sys.exit(2)
 
+if model == "fable" and "OWNER-APPROVED-FABLE:" not in (tool_input.get("prompt") or ""):
+    print(
+        "BLOCKED (owner standing rule 2026-10-13, RULINGS 13c): a Fable launch "
+        "needs the owner's approval of THIS launch in chat. Launch it on "
+        "`model: \"opus\"` — specs, audits and review included. If Opus is "
+        "truly not enough, ask the owner (name the brief, say why, quote "
+        "get_usage Weekly Fable) and, on a yes, put the line "
+        "`OWNER-APPROVED-FABLE: <date> \"<the owner's words>\"` in the prompt. "
+        "Never write that line without the owner's yes.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+
 ALLOWED_TYPES = {"lane", "scout", "claude-code-guide"}
 subagent_type = tool_input.get("subagent_type") or "general-purpose"
 if subagent_type not in ALLOWED_TYPES:
@@ -53,7 +64,7 @@ if subagent_type not in ALLOWED_TYPES:
         f"BLOCKED (owner standing rule 2026-09-03): subagent_type "
         f"'{subagent_type}' does not carry the moderate-effort pin. Use "
         "`lane` (implementation, all tools) or `scout` (read-only "
-        "research) from .claude/agents/ — both are Fable 5.1 at effort "
+        "research) from .claude/agents/ — both are Opus at effort "
         "medium; built-in types inherit the session's HIGH effort.",
         file=sys.stderr,
     )

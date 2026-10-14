@@ -1,6 +1,6 @@
 ---
 name: scout
-description: Read-only research / inventory / attribution lane — sweeps files, logs, docs and censuses and returns a cited report. Opus by default (Fable 5.1 when the attribution will become a ruling), moderate effort. No edits.
+description: Read-only research / inventory / attribution lane — sweeps files, logs, docs and censuses and returns a cited report. Opus, moderate effort (owner standing 2026-10-13: Fable only with the owner's approval of that launch). No edits.
 model: opus
 effort: medium
 disallowedTools: Edit, Write, NotebookEdit

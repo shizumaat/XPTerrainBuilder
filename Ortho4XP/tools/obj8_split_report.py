@@ -107,7 +107,11 @@ class GradedInterpolator:
     on OTHH's sw24 surface: adding the two Emiri slab plates (800 m away)
     changed 687 simplices more than 300 m from them, the surface under
     ``TerminalRoads_03_003`` by up to 0.60 m, and with it the bodies of
-    unit:24 (``03_003`` b0 −1.62 m).
+    unit:24 (``03_003`` b0 −1.62 m).  Worse, the raw frame is simply
+    WRONG at metre scale: the triangle it served under ``03_003``
+    (2 m edges, a door-ramp vertex 1.7 m below its neighbours) fails the
+    empty-circumcircle test in exact arithmetic (relative margin 0.58 —
+    no tie), and the translated frame returns the true Delaunay.
 
     The triangulation is therefore built in a frame TRANSLATED to the
     surface's own centre — a translation, so it is the same Delaunay in

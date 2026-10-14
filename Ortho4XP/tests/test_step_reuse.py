@@ -42,8 +42,8 @@ def tile(tmp_path, monkeypatch):
     monkeypatch.setattr(FNAMES, "airport_inset_directory",
                         lambda lat, lon: str(tmp_path / "insets"))
     monkeypatch.delenv("O4_STEP_REUSE", raising=False)
-    (tmp_path / "osm" / "+25+051_airports.osm.bz2").write_text("osm")
-    (tmp_path / "masks" / "mask.png").write_text("mask")
+    (tmp_path / "osm" / "+25+051_airports.osm.bz2").write_bytes(b"osm")
+    (tmp_path / "masks" / "mask.png").write_bytes(b"mask")
     return _Tile(tmp_path / "build")
 
 
@@ -51,7 +51,7 @@ def _write_outputs(tile):
     for path in (FNAMES.input_node_file(tile), FNAMES.input_poly_file(tile),
                  FNAMES.alt_file(tile),
                  FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)):
-        with open(path, "w") as handle:
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write("data")
 
 
@@ -133,10 +133,10 @@ def test_changed_output_or_data_rebuilds(tile, tmp_path):
         "its output files changed or are missing")
     # A layer a LATER step fetched (the masks step's reefs) is not one
     # the vector step read...
-    (tmp_path / "osm" / "+25+051_reef.osm.bz2").write_text("reef")
+    (tmp_path / "osm" / "+25+051_reef.osm.bz2").write_bytes(b"reef")
     assert REUSE.stale_reason(tile, "vector") is None
     # ...a refreshed one it read is.
-    (tmp_path / "osm" / "+25+051_airports.osm.bz2").write_text("refreshed")
+    (tmp_path / "osm" / "+25+051_airports.osm.bz2").write_bytes(b"refreshed")
     assert REUSE.stale_reason(tile, "vector") == (
         "the OpenStreetMap data changed")
 
@@ -144,7 +144,7 @@ def test_changed_output_or_data_rebuilds(tile, tmp_path):
 def test_a_new_elevation_inset_rebuilds_the_vector_step(tile, tmp_path):
     _write_outputs(tile)
     _complete_build(tile)
-    (tmp_path / "insets" / "OTHH_x.tif").write_text("inset")
+    (tmp_path / "insets" / "OTHH_x.tif").write_bytes(b"inset")
     assert REUSE.stale_reason(tile, "vector") == (
         "the airport elevation insets changed")
 
@@ -169,12 +169,12 @@ def test_reuse_can_be_turned_off(tile, monkeypatch):
 def test_mesh_records_the_pack_dsfs_its_object_stage_rewrote(tile, tmp_path,
                                                              monkeypatch):
     dsf = tmp_path / "pack.dsf"
-    dsf.write_text("dsf")
+    dsf.write_bytes(b"dsf")
     monkeypatch.setattr(REUSE, "_journalled_dsfs", lambda t: [str(dsf)])
     _write_outputs(tile)
     _complete_build(tile)
     assert REUSE.stale_reason(tile, "mesh") is None
-    dsf.write_text("a reinstalled pack")
+    dsf.write_bytes(b"a reinstalled pack")
     assert REUSE.stale_reason(tile, "mesh") == (
         "its output files changed or are missing")
 

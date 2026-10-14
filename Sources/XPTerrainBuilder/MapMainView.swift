@@ -124,14 +124,7 @@ struct MapMainView: View {
         } message: {
             Text(controller.errorMessage ?? "")
         }
-        .alert(AirportBatch.unknownCodesTitle, isPresented: Binding(
-            get: { !unknownCodesMessage.value.isEmpty },
-            set: { if !$0 { unknownCodesMessage.value = "" } }
-        )) {
-            Button("OK") { unknownCodesMessage.value = "" }
-        } message: {
-            Text(unknownCodesMessage.value)
-        }
+        .modifier(UnknownCodesAlert(message: unknownCodesMessage))
     }
 
     private var subtitle: String {
@@ -398,6 +391,26 @@ struct MapMainView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The alert an airport-code list raises for codes it could not identify
+/// (owner decision on #542); empty message = no alert. A modifier of its
+/// own so `MapMainView.body` stays cheap to type-check.
+struct UnknownCodesAlert: ViewModifier {
+    @ObservedObject var message: ViewState<String>
+
+    func body(content: Content) -> some View {
+        content.alert(AirportBatch.unknownCodesTitle, isPresented: isPresented) {
+            Button("OK") { message.value = "" }
+        } message: {
+            Text(message.value)
+        }
+    }
+
+    private var isPresented: Binding<Bool> {
+        Binding(get: { !message.value.isEmpty },
+                set: { if !$0 { message.value = "" } })
     }
 }
 

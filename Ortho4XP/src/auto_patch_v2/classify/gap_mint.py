@@ -184,7 +184,11 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
             ssh = ssh.difference(sheet)
         sb, sg = _cut(ssh)
         if not geom.is_empty:
-            sg = sg.difference(geom)
+            # ...and stands off the pack's pieces like any standing cell
+            # (§53 (12)): flush, two late pieces met at T-junctions and the
+            # seam stepped (HECA: 28 new mid-edge steps, worst 2.75 m at
+            # 30.112626, 31.397571)
+            sg = shapely.set_precision(sg.difference(off(geom)), grid)
         before_bands = unary_union([before_bands, sb])
         extra = _order(sg)
         slab_ids = {id(q) for q in extra}

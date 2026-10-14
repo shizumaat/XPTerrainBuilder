@@ -194,7 +194,7 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # RE-RECORDED (lane slab229, issue #229 / RULINGS 2026-10-10o (B)): the
     # base-slab pieces of this capture (groundside pieces of their own, the
     # pack's pieces unchanged) are cut too — (69, 34, 56, 9) without them.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (82, 34, 58, 9)
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (79, 34, 56, 9)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

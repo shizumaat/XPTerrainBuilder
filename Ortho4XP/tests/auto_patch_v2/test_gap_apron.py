@@ -307,7 +307,7 @@ def test_the_class_table_read_on_a_real_map():
     # + the base slabs (issue #229, 10o (B)): groundside pieces of their
     # own, numbered after the pack's 38 — none of the pack's refs moves
     n_slab = cl.stats["gap_pieces_base_slab"]
-    assert n_slab == 13
+    assert n_slab == 10
     assert len(pieces) + len(aprons) == 38 + n_slab == cl.stats["gap_pieces"]
     assert sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("base_slab")) == list(range(38, 38 + n_slab))

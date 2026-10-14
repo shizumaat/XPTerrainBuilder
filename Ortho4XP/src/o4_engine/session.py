@@ -26,6 +26,7 @@ from collections import deque
 from typing import Callable, Optional
 
 import O4_File_Names as FNAMES
+import O4_Step_Reuse as REUSE
 import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
 import O4_Unpatched_Airports as UNPATCHED
@@ -190,14 +191,26 @@ def step_progress(step_key, bars):
 STEP_RATE_BARS = {"vector": (1,), "masks": (1,), "imagery": (1, 2, 3)}
 
 
+# What a reused step (#615) is priced at: a record read, not a build.
+REUSED_STEP_SECONDS = 1.0
+
+
 def _predict_step_seconds(lat, lon, features, steps):
     """Learned per-step estimates, or static-weight-scaled defaults when the
-    time model is unavailable (module optional during bring-up)."""
+    time model is unavailable (module optional during bring-up).  A step
+    the build will reuse (``features["reused_steps"]``) costs
+    :data:`REUSED_STEP_SECONDS`, so its window of the bar is a sliver."""
+    features = dict(features or {})
+    reused_steps = set(features.pop("reused_steps", ()) or ())
     try:
         from . import tile_time_model
-        return tile_time_model.predict_step_seconds(lat, lon, features, steps)
+        estimates = tile_time_model.predict_step_seconds(
+            lat, lon, features, steps)
     except Exception:
-        return {k: 600.0 * STEP_WEIGHTS[k] for k in steps}
+        estimates = {k: 600.0 * STEP_WEIGHTS[k] for k in steps}
+    for key in reused_steps & set(estimates):
+        estimates[key] = REUSED_STEP_SECONDS
+    return estimates
 
 
 def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
@@ -206,9 +219,18 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
     Provider and zoom identify the imagery bucket; the texture counts
     (estimated from this tile's history plus the ``.dds`` files already
     on disk) carry the cold/warm cache state, so a fully cached rebuild
-    predicts materially cheaper than a cold one.  Never raises.
+    predicts materially cheaper than a cold one; ``reused_steps`` names
+    the steps whose output is current (``O4_Step_Reuse``, #615).  Never
+    raises.
     """
     features = {"zoomlevel": zoomlevel, "provider": provider}
+    try:
+        import O4_Config_Utils as CFG
+        tile = CFG.Tile(lat, lon, custom_build_dir)
+        tile.read_from_config()
+        features["reused_steps"] = list(REUSE.predicted_reuse(tile))
+    except Exception:
+        pass
     try:
         from . import tile_time_model
         textures_directory = os.path.join(
@@ -1159,9 +1181,13 @@ class EngineSession:
                         # rewrote scenery packs never put them back: do
                         # it before this one reads a pack (#598).
                         STOPPED.settle(tile.build_dir, lat, lon)
+                    if self._reuse_step(tile, (lat, lon), key, base, width):
+                        continue
                     step_t0 = time.time()
                     result = step_fn[key](tile)
                     step_seconds[key] = time.time() - step_t0
+                    if result == 1:
+                        REUSE.record(tile, key)
                     if self._autopatch_state is not None:
                         autopatch_airports = self._autopatch_state["total"]
                     self._finish_step((lat, lon), key)
@@ -1329,6 +1355,33 @@ class EngineSession:
             label=self._step_label(key),
             percent=base * 100.0, indeterminate=indeterminate))
         self._emit_eta(force=True)
+
+    def _reuse_step(self, tile, tile_key, key, base, width):
+        """Skip ``key`` when its output is current (#615): True when it
+        was reused — said in the log and on the tile's row, and left out
+        of the step-time history (a reused step's seconds are not what
+        the step costs).  Otherwise the step's old record is dropped
+        before it runs, and False."""
+        if key not in REUSE.REUSABLE_STEPS:
+            return False
+        why = REUSE.stale_reason(tile, key)
+        if why is not None:
+            UI.vprint(1, "   %s step: building (%s)."
+                      % (STEP_FAILURE_NOUNS.get(key, key).capitalize(), why))
+            REUSE.forget_from(tile, key)
+            return False
+        REUSE.reused(tile, key)
+        UI.vprint(0, "\n%s for tile %s: REUSED — its inputs are unchanged "
+                     "since the last completed build."
+                  % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
+                     FNAMES.short_latlon(*tile_key)))
+        self._step_percent = (base + width) * 100.0
+        self._emit(StepProgress(
+            lat=tile_key[0], lon=tile_key[1], step_key=key,
+            label=REUSE.reused_label(STEP_LABELS.get(key, key)),
+            percent=self._step_percent))
+        self._finish_step(tile_key, key)
+        return True
 
     def _finish_step(self, tile, key):
         if self._eta:

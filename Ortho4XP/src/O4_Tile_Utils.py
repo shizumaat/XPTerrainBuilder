@@ -16,6 +16,7 @@ import O4_Proj_Runtime as PROJRT
 import O4_Held_File as HELD
 import O4_Tile_Failures as FAILURES
 import O4_Tile_Staging as STAGING
+import O4_Step_Reuse as REUSE
 import O4_Stopped_Build as STOPPED
 from O4_Parallel_Utils import (
     effective_convert_slots,
@@ -602,6 +603,9 @@ def build_tile(tile):
     warn_if_imagery_incomplete(tile)
     # The build COMPLETED: the pack files its object stage rewrote stand.
     STOPPED.complete(tile.build_dir, tile.lat, tile.lon)
+    # ...and the records of the steps it ran or reused are the ones the
+    # next build may reuse (#615).
+    REUSE.commit(tile)
     UI.timings_and_bottom_line(timer)
     UI.logprint(
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."

@@ -77,6 +77,24 @@ def test_the_ramp_row_descends_from_the_rims_standing_level(law):
     assert all(lo == pytest.approx(0.0) for _r, lo in _ramp_rows(pm, law, None).values())
 
 
+def test_on_ground_falling_away_the_ramp_comes_down_to_it(law):
+    """KASE: the ground falls 8 % away from a pad standing on it.  The ramp
+    takes the profile nearer the ground — the ground's own — and never
+    floats at 5 % over a valley it cannot catch (which sent the exit walk
+    1,000 m down the road)."""
+    from auto_patch_v2.constraints.pads import pad_welded_vertices
+    from tests.auto_patch_v2.test_roads609 import _FallingDem
+    road = _road(1, "small_roads:-1", _rect(146.0, 0.0, 154.0, 100.0))
+    cells = [c for c in _ribbon_cells() if c.role != "service_road"] + [road]
+    _a, pm = _map(law, cells, only=[2], dem=_FallingDem())
+    rim = pad_welded_vertices(pm, law)
+    rows = _ramp_rows(pm, law, {v: 700.0 for v in rim})
+    far = [v for v in rows if pm.vertices[v].xy[1] <= 1.0]
+    assert far and all(rows[v][1] == pytest.approx(pm.vertices[v].dem_z - 700.0)
+                       for v in far)                         # on the ground, -8 m
+    assert all(rows[v][1] < -0.05 * 100.0 for v in far)        # below a 5 % ramp
+
+
 def test_the_run_is_measured_along_the_road(law):
     """An L-shaped road: the vertex round the corner is ramped by the run
     along the road's own edges, never the straight line across the bend."""

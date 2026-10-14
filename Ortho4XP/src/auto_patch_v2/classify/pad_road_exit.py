@@ -30,6 +30,14 @@ branches stopped by the 1,000 m bound alone.  A ramp closes the pad's
 OFFSET from its ground; the ground's own slope is the road's
 (``constraints/pad_ramp.pad_ramp_rewrite`` lays the same profile).
 
+THE RUN STARTS AGAIN AT EVERY PAD THE WALK PASSES.  A walked stretch whose
+ribbon touches a pad is welded to it, and the solve ramps from the nearest
+rim along the road — so a branch leaving that stretch starts its run at
+THAT pad, however far the walk has come.  MEASURED KCLT (way ``-13743``
+off the exit ``-6064#1``, which runs back along the terminal's pad): sized
+from the first exit 100 m behind, the branch was "complete" after 19 m and
+stood 2.3 m over its ground at its end.
+
 TWO THINGS ARE NOT WALKED.  An exit whose pad already stands within one
 lane width of design grade of the terrain there (the join law's own
 allowance, ``constraints/road_ramp._run_grade``: "an end inside one lane
@@ -122,6 +130,8 @@ def extend_pad_roads(cl, airport, law: Law, rules: Rules,
     """``cl`` with every pad road run on from its patch exits (module doc);
     ``pad_levels`` is ``{pad ref: its solved level}``.  ``(cl, report)`` —
     the report counts the exits walked, the cells added and their run."""
+    from shapely.ops import substring
+    from .pad_touch import touch_limit_m
     from .roles import Cell, _cut_back_groundside
     from ..law.tables import role_side
     rep = {"exits": 0, "cells": 0, "run_m": 0.0, "run_complete": 0, "re_entered": 0,
@@ -176,6 +186,7 @@ def extend_pad_roads(cl, airport, law: Law, rules: Rules,
     # a pad's edge, the pad more than a lane of design grade off the ground
     heap: list[tuple[float, tuple, float]] = []
     best: dict[tuple, float] = {}
+    best_key: dict[tuple, tuple[float, float]] = {}
     ends_ok: set[tuple] = set()
     for n in sorted(adj):
         zs = road_levels(Point(n))
@@ -187,26 +198,44 @@ def extend_pad_roads(cl, airport, law: Law, rules: Rules,
             rep["at_grade"] += 1
             continue
         best[n] = 0.0
+        best_key[n] = (0.0, -off / g)
         heap.append((0.0, n, off / g))       # the run this exit's ramp needs
         ends_ok.add(n)
     rep["exits"] = len(heap)
+    seeds = {n for _d, n, _need in heap}
     heapq.heapify(heap)
+    reach_pad = hw + touch_limit_m(law)
+    beside: dict[tuple[int, float, float], list[float]] = {}
+
+    def pads_beside(i: int, s0: float, s1: float) -> list[float]:
+        """The levels of the pads the ribbon of this piece touches."""
+        key = (i, s0, s1)
+        if key not in beside:
+            beside[key] = [] if ptree is None else [
+                pads[j][1] for j in ptree.query(
+                    substring(ways[i][1], s0, s1), predicate="dwithin",
+                    distance=reach_pad).tolist()]
+        return beside[key]
+
     pieces: set[tuple[int, float, float, tuple, tuple]] = set()
     while heap:
         d, n, need = heapq.heappop(heap)
         if d > best.get(n, float("inf")):
             continue
-        if d > 0.0:
-            if inside.distance(Point(n)) <= 2e-3:
-                rep["re_entered"] += 1
-                ends_ok.add(n)
-                continue
-            if d >= need:
-                rep["run_complete"] += 1
-                ends_ok.add(n)
-                continue
+        if n not in seeds and inside.distance(Point(n)) <= 2e-3:
+            rep["re_entered"] += 1
+            ends_ok.add(n)
+            continue
+        if d >= need:
+            rep["run_complete"] += 1
+            ends_ok.add(n)
+            continue
         for i, s0, s1, m in adj[n]:
-            nd = d + (s1 - s0)
+            nd, need_m = d + (s1 - s0), need
+            zs = pads_beside(i, s0, s1)
+            if zs:       # welded to that pad: the run starts again from it
+                ground = float(dem.z(*m))
+                nd, need_m = 0.0, max(abs(ground - z) for z in zs) / g
             if nd > MAX_REACH_M:
                 rep["out_of_reach"] += 1
                 ends_ok.add(n)
@@ -214,9 +243,10 @@ def extend_pad_roads(cl, airport, law: Law, rules: Rules,
             # the piece is the road's whether or not its far node was
             # reached sooner from another exit (a stretch between two exits)
             pieces.add((i, s0, s1, *sorted((n, m))))
-            if nd < best.get(m, float("inf")):
+            if (nd, -need_m) < best_key.get(m, (float("inf"), 0.0)):
+                best_key[m] = (nd, -need_m)
                 best[m] = nd
-                heapq.heappush(heap, (nd, m, need))
+                heapq.heappush(heap, (nd, m, need_m))
     kept = _prune_dead_ends(pieces, ends_ok)
     rep["dead_end_pieces"] = len(pieces) - len(kept)
     walked: dict[int, list[tuple[float, float]]] = {}

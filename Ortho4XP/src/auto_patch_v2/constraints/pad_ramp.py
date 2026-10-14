@@ -177,16 +177,19 @@ def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     core's own cap-Lipschitz levelling carries the ramp OUTWARD along the
     mapped road — the run the ribbon could not have inside the patch;
     (3) ONE design row RELATIVE to its nearest rim vertex ``r`` along the
-    road, ``d`` the run to it: the pad stands ``off = L[r] - dem[r]`` over
-    (or under) its own ground at that rim, and the road closes that offset
-    at the design grade — ``z[v] - z[r] = dem[v] + shrink(off, g d) -
-    L[r]``, ``shrink`` taking ``g d`` off the offset's size and never past
-    zero.  On level ground that is "descend (or climb) toward the terrain
-    at the design grade, never past it"; on a slope the ground's own fall
-    is the road's, so the ramp's run is the offset's alone (MEASURED KASE,
-    round 5: measured against the terrain at the vertex instead, a road
-    down a valley steeper than the design grade never met its ground —
-    2,295 m of exit ribbon from 3 exits).  ``L[r]`` is the rim's STANDING
+    road, ``d`` the run to it, ``z[v] - z[r] = delta`` where ``delta`` is
+    the NEARER TO THE GROUND of two profiles leaving the rim at the design
+    grade: ``clip(dem[v] - L[r], -g d, +g d)`` — toward the terrain, never
+    past it — and ``dem[v] + shrink(off, g d) - L[r]``, closing the pad's
+    own offset over its ground ``off = L[r] - dem[r]`` (``shrink`` takes
+    ``g d`` off its size, never past zero).  On level ground they agree.
+    Where the ground falls away from the pad faster than the design grade
+    the first never comes down (MEASURED KASE, round 5: 2,295 m of exit
+    ribbon from 3 exits, the walk stopped by its 1,000 m bound alone) and
+    the second does; where the ground rises toward the pad's level the
+    first meets it sooner (KCLT way ``-13743``: closing the terminal pad's
+    5.5 m offset alone left it 2 m over ground that had risen 3 m).
+    ``L[r]`` is the rim's STANDING
     level (``levels``: the last stage's constants).  MEASURED round 5
     (KCLT way ``-8190``, 245 m off a garage at 222.68 m on terrain at
     217.5 m): read off the rim's DEM instead, the row said "+0.37 m from
@@ -245,9 +248,16 @@ def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         zr = levels.get(r, pref.get(r, dr))
         if dv is None or zr is None:
             continue
+        # two profiles leave the rim at the design grade: toward the ground
+        # never past it (the level-ground ramp), and closing the pad's own
+        # offset over its ground (the ramp on a slope falling away from the
+        # pad, which the first never brings down) — the road takes the one
+        # nearer its ground
+        toward = max(-g * d, min(g * d, float(dv) - float(zr)))
         off = float(zr) - float(dv if dr is None else dr)
         left = max(0.0, abs(off) - g * d)
-        delta = float(dv) + (left if off > 0.0 else -left) - float(zr)
+        closing = float(dv) + (left if off > 0.0 else -left) - float(zr)
+        delta = min((toward, closing), key=lambda t: (abs(float(zr) + t - float(dv)), t))
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
                     if planar.faces[f].ref), "")
         # ONE-WAY (``[design] one_way_rulings``): the rim is the LEADER,

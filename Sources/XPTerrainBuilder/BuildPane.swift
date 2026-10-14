@@ -911,7 +911,7 @@ struct ActivityBox: View {
         let progress = progress ?? TileProgress(state: .queued, label: "queued", percent: 0)
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 6) {
-                Text(coord.key)
+                Text(coord.key + (activity.runTags[coord] ?? ""))
                     .font(.caption.monospaced())
                 Text(progress.state == .active
                      ? "\(progress.label) · \(Int(progress.percent))%" : progress.label)

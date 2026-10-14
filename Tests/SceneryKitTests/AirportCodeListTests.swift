@@ -17,12 +17,17 @@ import Foundation
             let code: String, lat: Double, lon: Double
             let extent: [Double]?
         }
-        struct Batch: Decodable { let codes: [String]; let unknown: [String]; let tiles: [[Int]] }
+        struct Pick: Decodable { let tile: [Int]; let codes: [String] }
+        struct Batch: Decodable {
+            let codes: [String]; let unknown: [String]; let tiles: [[Int]]; let picks: [Pick]
+        }
+        struct Tag: Decodable { let codes: [String]; let tag: String }
         struct Resolve: Decodable { let query: String; let batch: Batch? }
         let split: [Split]
         let tiles: [Tiles]
         let index: [Entry]
         let resolve: [Resolve]
+        let tags: [Tag]
     }
 
     static let cases: Cases = {
@@ -69,9 +74,38 @@ import Foundation
                 #expect(got == nil, "\(c.query)")
                 continue
             }
+            var picks: [AirportTile: [String]] = [:]
+            for p in want.picks { picks[AirportTile(lat: p.tile[0], lon: p.tile[1])] = p.codes }
             #expect(got == AirportBatch(codes: want.codes, unknown: want.unknown,
-                                        tiles: Self.tiles(want.tiles)), "\(c.query)")
+                                        tiles: Self.tiles(want.tiles), picks: picks), "\(c.query)")
         }
+    }
+
+    /// #667: the progress row's suffix, the same text as the Python twin.
+    @Test func tagSuffixLikeThePythonTwin() {
+        for c in Self.cases.tags {
+            #expect(TileSearchTags.suffix(c.codes) == c.tag)
+        }
+    }
+
+    /// #667: the Mac app ADDS a search to the selection, so it adds tags;
+    /// a code already on a tile keeps its place; deselecting drops a tag;
+    /// a hand-selected tile has none.
+    @Test func tagsAddAcrossSearchesAndDropOnDeselect() {
+        let a = AirportTile(lat: 35, lon: -81), b = AirportTile(lat: 25, lon: 51)
+        let hand = AirportTile(lat: 10, lon: 10)
+        let lookup: (String) -> [AirportTile]? = { code in
+            ["KCLT": [a], "KJQF": [a], "OTHH": [b]][code]
+        }
+        var tags = TileSearchTags()
+        tags.add(AirportCodeList.resolve("KCLT, OTHH", lookup: lookup)!.picks)
+        tags.add(AirportCodeList.resolve("kjqf kclt", lookup: lookup)!.picks)
+        #expect(tags.suffix(for: a) == " (KCLT, KJQF)")
+        #expect(tags.suffix(for: b) == " (OTHH)")
+        #expect(tags.suffix(for: hand) == "")
+        tags.keep(only: [b, hand])
+        #expect(tags.suffix(for: a) == "")
+        #expect(tags.suffix(for: b) == " (OTHH)")
     }
 
     @Test func fallbackAnswersCodesTheIndexLacks() {

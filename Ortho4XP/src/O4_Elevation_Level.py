@@ -1221,6 +1221,7 @@ def _region_strip_mask(
     geometry code -- GDAL's own rasteriser.
     """
     from osgeo import ogr, osr
+    from elevation_access.gdal_support import memory_vector_driver
 
     columns = len(grid_x)
     rows = int(row_stop) - int(row_start)
@@ -1241,7 +1242,7 @@ def _region_strip_mask(
     srs = osr.SpatialReference()
     srs.ImportFromEPSG(4326)
     raster.SetProjection(srs.ExportToWkt())
-    source = ogr.GetDriverByName("Memory").CreateDataSource("region")
+    source = memory_vector_driver().CreateDataSource("region")
     try:
         layer = source.CreateLayer("region", srs, ogr.wkbPolygon)
         feature = ogr.Feature(layer.GetLayerDefn())
@@ -1800,7 +1801,8 @@ def _neighbour_boundary_polygons(lat, lon, reach_m):
             neighbour.read_from_config()
             layer = OSM.OSM_layer()
             layer.update_dicosm(cached)
-            dico = VMAP.build_airports_dico(neighbour, layer)
+            dico = VMAP.build_airports_dico(neighbour, layer,
+                                            persist=False)
             selected = MODES.inset_keys(
                 dico, MODES.resolved_inset_mode(neighbour)
             )

@@ -166,3 +166,37 @@ def test_retired_key_in_tile_cfg_still_skipped(tmp_path, monkeypatch):
     # from the cfg on read (RULINGS 2026-09-13a (2)), never warned about.
     assert not hasattr(tile, "solve_model")
     assert "solve_model" not in open(tile._tile_cfg_path(), encoding="utf-8").read()
+
+
+# ── Legacy values are migrated once (#676) ───────────────────────────────
+# The owner's global cfg still said ``airport_elevation_insets=True`` (the
+# pre-2026-09-18 bool); every tile read mapped it and printed "Legacy
+# config value True ... read as ICAO." — 220 lines across six logs.  The
+# read-time cleanup now rewrites the line with the mapped value, same
+# meaning, so the notice is said once and the file never says it again.
+
+def test_legacy_value_is_rewritten_once(tmp_path):
+    import O4_Cfg_Vars as CV
+
+    cfg = tmp_path / "Ortho4XP.cfg"
+    cfg.write_text("airport_elevation_insets=True\nauto_patch=ICAO\n",
+                   encoding="utf-8", newline="")
+    lines = CV.cleanup_retired_cfg_keys(str(cfg))
+    assert lines and "airport_elevation_insets" in lines[0]
+    assert cfg.read_text(encoding="utf-8") == (
+        "airport_elevation_insets=ICAO\nauto_patch=ICAO\n")
+    # Migrated: the second read has nothing to say and writes nothing.
+    before = cfg.stat().st_mtime_ns
+    assert CV.cleanup_retired_cfg_keys(str(cfg)) == []
+    assert cfg.stat().st_mtime_ns == before
+
+
+def test_legacy_value_read_keeps_its_meaning(tmp_path, monkeypatch):
+    tile = _layered_tile(tmp_path, monkeypatch,
+                         global_lines="airport_elevation_insets=True\n",
+                         tile_lines=None)
+    tile.airport_elevation_insets = "None"
+    assert tile.read_from_config() == 1
+    assert tile.airport_elevation_insets == "ICAO"
+    assert "airport_elevation_insets=ICAO" in (
+        tmp_path / "Ortho4XP.cfg").read_text(encoding="utf-8")

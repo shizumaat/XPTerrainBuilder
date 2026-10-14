@@ -731,3 +731,32 @@ def test_the_new_fields_are_additive_and_survive_the_child_hop():
     old = _rebuild_event({"event": "BuildDone", "lat": 1, "lon": 2,
                           "ok": False, "error": "x"})
     assert old.failures == [] and old.warnings == []
+
+
+def test_a_fixable_failure_reaches_the_wire_when_its_tile_fails(
+        monkeypatch, tmp_path):
+    """#695: the tile's own BuildDone carries the code and the link the
+    moment it fails — before the next tile's first step and before the
+    run's RunDone — so a front end can ask at once (no second channel)."""
+    import O4_Unmounted_Links as UNMOUNTED
+
+    def first_unreachable(tile):
+        if (int(tile.lat), int(tile.lon)) == (10, 20):
+            raise UNMOUNTED.UnmountedLink({"link": "/CS/zOrtho4XP_+10+020",
+                                           "target": "/Volumes/D/t",
+                                           "volume": "D"})
+        return 1
+
+    install_stub_pipeline(monkeypatch, results={"vector": first_unreachable})
+    events = run_build(EngineSession(), [(10, 20), (11, 20)], tmp_path)
+    failed = next(i for i, e in enumerate(events)
+                  if isinstance(e, EV.BuildDone) and (e.lat, e.lon) == (10, 20))
+    (failure,) = events[failed].failures
+    assert failure["code"] == "output_link_unmounted"
+    assert failure["link"] == "/CS/zOrtho4XP_+10+020"
+    second_starts = next(i for i, e in enumerate(events)
+                         if isinstance(e, EV.StepProgress)
+                         and (e.lat, e.lon) == (11, 20))
+    run_done = next(i for i, e in enumerate(events)
+                    if isinstance(e, EV.RunDone))
+    assert failed < second_starts < run_done

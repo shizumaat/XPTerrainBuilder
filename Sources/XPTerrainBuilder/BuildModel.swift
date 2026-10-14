@@ -761,9 +761,13 @@ final class BuildModel: ObservableObject {
             for note in notes {
                 note.consoleLines(isWarning: false, isNote: true).forEach { console.append($0) }
             }
-            runIssueLog.add(O4TileIssues(
+            let issues = O4TileIssues(
                 tileKey: coord.key, lat: lat, lon: lon, built: ok,
-                failures: failures, warnings: warnings, notes: notes))
+                failures: failures, warnings: warnings, notes: notes)
+            runIssueLog.add(issues)
+            // #695: a cause the user can fix is asked NOW, while the rest
+            // of the run goes on — not when the run ends.
+            if !ok { linkFixes.offer(issues) }
             if ok {
                 let airports = unpatched.flatMap(\.airports)
                 console.append(warnings.isEmpty && notes.isEmpty
@@ -819,7 +823,10 @@ final class BuildModel: ObservableObject {
             let warned = runIssueLog.warnedCount
             if warned > 0 { parts.append("\(warned) with warnings") }
             if errors > 0 { parts.append("\(errors) failed") }
-            runIssues = runIssueLog.finish()
+            // #695: the report waits for an unanswered fix choice (a sheet
+            // and an alert never stack).
+            let report = runIssueLog.finish()
+            if linkFixes.isIdle { runIssues = report } else { deferredRunIssues = report }
             if cancelled { parts.append("stopped") }
             lastRunSummary = parts.joined(separator: ", ")
             console.append("=== Run complete: \(lastRunSummary!) ===")
@@ -1452,11 +1459,55 @@ final class BuildModel: ObservableObject {
                     completion(refusal)
                     return
                 }
-                self.console.append("Removed the link \(link); building tile \(tile.tileKey) on this Mac's drive.")
+                self.requeueFixedTile(tile, link: link)
                 completion(nil)
-                self.startBuild(batches: [([TileCoord(lat: tile.lat, lon: tile.lon)],
-                                           self.buildProvider, self.buildZL)])
             }
+        }
+    }
+
+    /// #695: the fixed tile joins the RUNNING build (enqueue_build appends
+    /// to a live run) with the settings its run started it with, or starts
+    /// a new run when this one has ended; every report of this run says
+    /// "fixed and re-queued" for it.
+    private func requeueFixedTile(_ tile: O4TileIssues, link: String) {
+        let coord = TileCoord(lat: tile.lat, lon: tile.lon)
+        runIssueLog.markRequeued(tileKey: tile.tileKey)
+        deferredRunIssues?.markRequeued(tileKey: tile.tileKey)
+        runIssues?.markRequeued(tileKey: tile.tileKey)
+        console.append(O4TileFailureCopy.requeuedConsole(
+            tile: tile.tileKey, link: link, intoRun: isBuilding))
+        let settings = activity.runSettings[coord]
+            ?? TileRunSettings(provider: buildProvider, zl: buildZL)
+        startResumeRun([(tiles: [coord], settings: settings)])
+    }
+
+    /// The fixable failures of this run, asked one at a time as each tile
+    /// fails (#695); the view shows `linkFixes.current`.
+    @Published private(set) var linkFixes = O4LinkFixQueue()
+    /// The run's report, held while a fix choice is still on screen.
+    private var deferredRunIssues: O4RunIssues?
+
+    /// The user's answer to the choice on screen: `remove` removes the
+    /// link and re-queues the tile; otherwise it is dismissed (the run's
+    /// report still lists the failure and offers the button again).
+    func answerLinkFix(remove: Bool) {
+        guard let fix = linkFixes.answer() else { return }
+        if remove {
+            removeLinkAndRebuild(fix.tile, link: fix.link) { [weak self] refusal in
+                if let refusal {
+                    self?.console.append("*** " + O4TileFailureCopy.removeLinkFailed(refusal))
+                }
+            }
+        }
+        guard linkFixes.isIdle, deferredRunIssues != nil else { return }
+        // A moment after the alert closes: AppKit drops a sheet asked for
+        // while an alert is still dismissing. Read when it fires, so a
+        // re-queue confirmed meanwhile is already marked on it.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, self.linkFixes.isIdle, let report = self.deferredRunIssues else { return }
+            self.deferredRunIssues = nil
+            self.runIssues = report
         }
     }
 

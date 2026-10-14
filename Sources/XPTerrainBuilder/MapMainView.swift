@@ -97,6 +97,9 @@ struct MapMainView: View {
                 buildModel.runIssues = nil
             }
         }
+        // A tile that failed with a cause the user can fix, asked as soon
+        // as it fails (#695).
+        .modifier(LinkFixAlert(buildModel: buildModel))
         // A pack X-Plane will not load (protocol 1.9, #433): owner-fixed
         // copy; the primary button only when the art can be omitted.
         .alert(buildModel.packArtPrompt?.titleText ?? "", isPresented: Binding(

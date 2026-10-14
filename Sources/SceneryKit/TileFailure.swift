@@ -96,6 +96,10 @@ public struct O4TileIssues: Sendable, Equatable {
     public let warnings: [O4TileFailure]
     /// Info-level entries (stand-in elevation), shown under the warnings.
     public let notes: [O4TileFailure]
+    /// The user fixed this failure while the run was still going (#695):
+    /// the link was removed and the tile re-queued. The run's report
+    /// still lists it, as "fixed and re-queued", and offers no buttons.
+    public var requeued = false
 
     public init(tileKey: String, lat: Int = 0, lon: Int = 0, built: Bool,
                 failures: [O4TileFailure], warnings: [O4TileFailure],
@@ -115,7 +119,17 @@ public struct O4TileIssues: Sendable, Equatable {
     /// Custom Scenery folder is a link to a drive that is not mounted
     /// (#668) — or nil.
     public var removableLink: String? {
-        built ? nil : failures.first(where: \.offersLinkRemoval)?.link
+        built || requeued ? nil : failures.first(where: \.offersLinkRemoval)?.link
+    }
+}
+
+extension Array where Element == O4TileIssues {
+    /// #695: mark the LAST failed entry of `tileKey` re-queued (a tile
+    /// that fails again after its fix arrives as a new, unmarked entry).
+    mutating func markRequeued(tileKey: String) {
+        if let index = lastIndex(where: { $0.tileKey == tileKey && !$0.built }) {
+            self[index].requeued = true
+        }
     }
 }
 
@@ -123,7 +137,12 @@ public struct O4TileIssues: Sendable, Equatable {
 /// sheets): every tile that was not built or was built with warnings.
 public struct O4RunIssues: Sendable, Equatable, Identifiable {
     public let id: Int
-    public let tiles: [O4TileIssues]
+    public private(set) var tiles: [O4TileIssues]
+
+    /// #695: a failure the user fixed after this report was made.
+    public mutating func markRequeued(tileKey: String) {
+        tiles.markRequeued(tileKey: tileKey)
+    }
 
     public init?(id: Int, tiles: [O4TileIssues]) {
         let withIssues = tiles.filter { !$0.entries.isEmpty }
@@ -170,6 +189,11 @@ public struct O4RunIssueLog: Sendable, Equatable {
 
     public mutating func add(_ tile: O4TileIssues) { tiles.append(tile) }
 
+    /// #695: the tile's failure was fixed mid-run and the tile re-queued.
+    public mutating func markRequeued(tileKey: String) {
+        tiles.markRequeued(tileKey: tileKey)
+    }
+
     /// Tiles built with warnings so far in this run.
     public var warnedCount: Int {
         tiles.filter { $0.built && !$0.entries.isEmpty }.count
@@ -209,6 +233,15 @@ public enum O4TileFailureCopy {
     public static let removeLinkCancel = "Cancel"
     public static func removeLinkFailed(_ reason: String) -> String {
         "The link was not removed. " + reason
+    }
+    /// #695: the run report's line for a failure fixed while the run went on.
+    public static let requeuedLine = "Fixed and re-queued."
+    /// #695: the console line when the fixed tile joins the run in progress
+    /// or, the run having ended, starts a new one.
+    public static func requeuedConsole(tile: String, link: String, intoRun: Bool) -> String {
+        "Removed the link \(link); tile \(tile) "
+            + (intoRun ? "is queued into the running build on this Mac's drive."
+                       : "is building on this Mac's drive.")
     }
 }
 

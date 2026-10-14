@@ -88,6 +88,7 @@ import O4_Qt_Wizard as QTWIZ
 import O4_Qt_Boundary_Dialog as QTBOUND
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Tile_Failures as QTFAIL
+import O4_Qt_Link_Fix as QTLINK
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -749,6 +750,11 @@ class MainWindow(QMainWindow):
         self._pack_art_boxes = []
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
+        # #695: fixable failures, asked one at a time as each tile fails;
+        # the open choice; the run's box held while a choice is on screen.
+        self._link_fixes = QTLINK.LinkFixQueue()
+        self._link_fix_box = None
+        self._deferred_issue_events = None
         # Boundary-airport preflights in flight, by request id: each is
         # {"request_id", "tiles", "proceed", "timer"}.  A TABLE, not one
         # slot — the resume queue can have several batches waiting, and
@@ -3336,10 +3342,70 @@ class MainWindow(QMainWindow):
         except (ValueError, OSError) as refusal:
             self._status("The link was not removed. %s" % refusal)
             return
-        print("Removed the link %s; building tile %+03d%+04d on this "
-              "computer's drive." % (link, int(event.lat), int(event.lon)))
-        self.map.set_selection([(int(event.lat), int(event.lon))])
-        self.start_build()
+        tile = (int(event.lat), int(event.lon))
+        self._link_fixes.mark_requeued(event)
+        print("Removed the link %s; tile %+03d%+04d %s on this computer's "
+              "drive." % (link, tile[0], tile[1],
+                          "is queued into the running build"
+                          if self._building else "is building"))
+        # #695: the tile's OWN run settings, into the run in progress
+        # (enqueue_build appends to a live run) or a new one.
+        settings = self._run_settings.get(tile) or self._toolbar_settings()
+        if settings is None:
+            self._status(
+                "Pick an imagery source and zoom level to build this tile.")
+        elif self._building:
+            self._queue_into_running_build(
+                [tile], settings["provider"], settings["zoomlevel"],
+                settings["do_vector"], settings["do_imagery"],
+                settings["do_overlays"])
+        else:
+            self._start_run([tile], settings)
+
+    def _show_link_fix(self):
+        """#695: the choice for the next fixable failure, unless one is
+        already on screen (several never stack).  Non-modal: the build
+        keeps running under it."""
+        if self._link_fix_box is not None or self._link_fixes.idle():
+            return
+        (event, link) = self._link_fixes.current
+        (box, remove) = QTLINK.link_fix_box(event, parent=self)
+
+        def finished(_result, box=box, remove=remove):
+            (answered_event, answered_link) = self._link_fixes.answer()
+            self._link_fix_box = None
+            if box.clickedButton() is remove:
+                self._remove_link_and_build(answered_event, answered_link)
+            if not self._link_fixes.idle():
+                self._show_link_fix()
+            elif self._deferred_issue_events is not None:
+                (events, self._deferred_issue_events) = (
+                    self._deferred_issue_events, None)
+                self._show_issues_box(events)
+
+        box.finished.connect(finished)
+        self._link_fix_box = box
+        box.show()
+
+    def _show_issues_box(self, issue_events):
+        """The run's one box (#562), unless a fix choice is still on
+        screen (#695): then it waits for the answer."""
+        if not self._link_fixes.idle():
+            self._deferred_issue_events = issue_events
+            return
+        (requeued, self._link_fixes.requeued) = (
+            self._link_fixes.requeued, set())
+        issues = QTFAIL.issues_box(issue_events, parent=self,
+                                   app_version=O4_Version.version,
+                                   on_remove_link=self._remove_link_and_build,
+                                   requeued=requeued)
+        if issues is not None:
+            # Kept alive (non-modal) the way the missing-art boxes are.
+            self._pack_art_boxes.append(issues)
+            issues.finished.connect(
+                lambda _result, box=issues: box in self._pack_art_boxes
+                and self._pack_art_boxes.remove(box))
+            issues.show()
 
     def _queue_into_running_build(self, todo, provider, zoomlevel,
                                   do_vector, do_imagery, do_overlays):
@@ -3873,6 +3939,9 @@ class MainWindow(QMainWindow):
         if lines:
             print("\n".join(lines))
             self._run_issue_events.append(event)
+        # #695: a cause the user can fix is asked NOW, not at the run's end.
+        if not event.ok and self._link_fixes.offer(event):
+            self._show_link_fix()
         if event.ok and self.chk_auto_install.isChecked():
             self._auto_install_tile(tile)
 
@@ -3943,16 +4012,7 @@ class MainWindow(QMainWindow):
         print("\n".join([summary] + detail_lines))
         self._status(summary)
         (issue_events, self._run_issue_events) = (self._run_issue_events, [])
-        issues = QTFAIL.issues_box(issue_events, parent=self,
-                                   app_version=O4_Version.version,
-                                   on_remove_link=self._remove_link_and_build)
-        if issues is not None:
-            # Kept alive (non-modal) the way the missing-art boxes are.
-            self._pack_art_boxes.append(issues)
-            issues.finished.connect(
-                lambda _result, box=issues: box in self._pack_art_boxes
-                and self._pack_art_boxes.remove(box))
-            issues.show()
+        self._show_issues_box(issue_events)
         self.progress_title.setText("<b>%s</b>" % summary)
         UI.is_working = False
         self._update_build_summary()

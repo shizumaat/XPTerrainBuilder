@@ -24,7 +24,7 @@ import sys
 
 __all__ = ["AIRPORT_FAILED_LINE", "REPORT_BUTTON", "SAVE_REPORT_BUTTON",
            "console_lines", "report_phrase", "box_texts", "tile_report",
-           "REMOVE_LINK_BUTTON", "removable_links", "issues_box"]
+           "REMOVE_LINK_BUTTON", "REQUEUED_LINE", "removable_links", "issues_box"]
 
 # --- copy (identical to the mac app's O4TileFailureCopy) ----------------
 REPORT_BUTTON = "Report this problem"
@@ -40,6 +40,9 @@ OPEN_ISSUE_BUTTON = "Copy and Open GitHub"
 REMOVE_LINK_BUTTON = ("Remove the link and build on this %s drive"
                       % ("Mac's" if sys.platform == "darwin"
                          else "computer's"))
+# A failure the user fixed while the run went on (#695; the mac app's
+# O4TileFailureCopy.requeuedLine).
+REQUEUED_LINE = "Fixed and re-queued."
 
 # The live line for one airport, while its tile is still building.
 AIRPORT_FAILED_LINE = ("*** Tile {tile}: airport {airport} could not be "
@@ -82,9 +85,11 @@ def report_phrase(event) -> str:
     return " ".join(f.get("what", "").split(": ", 1)[-1] for f in failures)
 
 
-def box_texts(events) -> tuple:
+def box_texts(events, requeued=()) -> tuple:
     """``(title, body, detail)`` of the run's one box; ``None`` when no
-    tile of the run failed or carries a warning."""
+    tile of the run failed or carries a warning.  A failure whose event
+    is in ``requeued`` (its ``id``, #695) was fixed while the run went on:
+    it is still listed, followed by :data:`REQUEUED_LINE`."""
     entries = [pair for event in events for pair in _entries(event)]
     if not entries:
         return None
@@ -97,21 +102,24 @@ def box_texts(events) -> tuple:
                      % (failed, " was" if failed == 1 else "s were"))
     if warned:
         parts.append("%d built with warnings" % warned)
-    body = "\n\n".join("%s\n%s\n%s" % (e.get("what", ""), e.get("why", ""),
-                                      e.get("remedy", ""))
-                       for _warning, e in entries)
+    body = "\n\n".join(
+        "%s\n%s\n%s" % (e.get("what", ""), e.get("why", ""),
+                        e.get("remedy", ""))
+        + ("\n" + REQUEUED_LINE if id(event) in requeued else "")
+        for event in events for _warning, e in _entries(event))
     detail = "\n\n".join("%s\n%s" % (e.get("what", ""), e.get("detail", ""))
                          for _warning, e in entries if e.get("detail"))
     return (", ".join(parts), body, detail)
 
 
-def removable_links(events) -> list:
+def removable_links(events, requeued=()) -> list:
     """``(event, link)`` for every tile NOT built because its Custom
     Scenery folder is a link to a drive that is not mounted (#668): the
-    links the box offers to remove."""
+    links the box offers to remove — none for an event in ``requeued``
+    (already fixed mid-run, #695)."""
     out = []
     for event in events:
-        if getattr(event, "ok", False):
+        if getattr(event, "ok", False) or id(event) in requeued:
             continue
         for entry in getattr(event, "failures", None) or []:
             if (entry.get("code") == "output_link_unmounted"
@@ -184,13 +192,14 @@ def _save(events, parent, app_version):
         tile_report(event, save_path=path, app_version=app_version)
 
 
-def issues_box(events, parent=None, app_version="", on_remove_link=None):
+def issues_box(events, parent=None, app_version="", on_remove_link=None,
+               requeued=()):
     """The run's one non-modal box, or ``None`` when there is nothing to
     say.  The technical detail sits behind "Show Details…".  With
     ``on_remove_link`` and a tile behind an unmounted drive's link (#668)
     it offers "Remove the link…" (``on_remove_link(event, link)``) and
-    "Cancel"."""
-    texts = box_texts(events)
+    "Cancel".  ``requeued``: see :func:`box_texts`."""
+    texts = box_texts(events, requeued)
     if texts is None:
         return None
     from PySide6.QtCore import Qt
@@ -215,7 +224,8 @@ def issues_box(events, parent=None, app_version="", on_remove_link=None):
         button.clicked.connect(
             lambda _checked=False, action=action: action(
                 with_issues, box, app_version))
-    removable = removable_links(events) if on_remove_link else []
+    removable = (removable_links(events, requeued) if on_remove_link
+                 else [])
     if removable:
         remove = box.addButton(REMOVE_LINK_BUTTON, QMessageBox.AcceptRole)
         remove.clicked.connect(

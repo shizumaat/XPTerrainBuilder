@@ -208,3 +208,78 @@ struct UnmountedLinkTests {
                 == "Remove the link and build on this Mac's drive")
     }
 }
+
+/// #695: a fixable failure is asked AS SOON AS its tile fails — from the
+/// tile's own BuildDone, before the run's RunDone — one choice at a time.
+struct LinkFixQueueTests {
+    private func failedTile(_ key: String, lat: Int, lon: Int, link: String) -> O4TileIssues {
+        let raw: [String: Any] = [
+            "code": "output_link_unmounted",
+            "what": "Tile \(key) was not built: its folder in Custom Scenery could not be reached.",
+            "why": "Why.", "remedy": "Do this.", "airports": [String](),
+            "detail": "", "log_path": "", "link": link]
+        return O4TileIssues(tileKey: key, lat: lat, lon: lon, built: false,
+                            failures: O4TileFailure.parseList([raw]), warnings: [])
+    }
+
+    /// The tile's BuildDone event alone produces the pending choice.
+    @Test func aMidRunBuildDoneProducesTheChoiceBeforeRunDone() throws {
+        let object: [String: Any] = [
+            "event": "BuildDone", "lat": -12, "lon": -78, "ok": false, "error": "E.",
+            "failures": [["code": "output_link_unmounted", "what": "Tile -12-078 was not built.",
+                          "why": "Why.", "remedy": "Do this.", "airports": [String](),
+                          "detail": "", "log_path": "", "link": "/XP/CS/zOrtho4XP_-12-078"]]]
+        guard case .buildDone(let lat, let lon, let ok, _, let failures, _, _, _)?
+                = O4Event.parse(object: object) else {
+            Issue.record("BuildDone did not decode"); return
+        }
+        var queue = O4LinkFixQueue()
+        let offered = queue.offer(O4TileIssues(tileKey: "-12-078", lat: lat, lon: lon,
+                                               built: ok, failures: failures, warnings: []))
+        #expect(offered)
+        let current = try #require(queue.current)
+        #expect(current.link == "/XP/CS/zOrtho4XP_-12-078")
+        #expect(current.title == "Tile -12-078 was not built.")
+        #expect(current.message == "Why.\n\nDo this.")
+    }
+
+    /// Two fixable failures in one run: the second waits behind the first.
+    @Test func twoFailuresQueueOneAtATime() {
+        var queue = O4LinkFixQueue()
+        let first = failedTile("-12-078", lat: -12, lon: -78, link: "/a")
+        let second = failedTile("-13-078", lat: -13, lon: -78, link: "/b")
+        queue.offer(first)
+        queue.offer(second)
+        let again = queue.offer(first)
+        #expect(!again)                              // never asked twice at once
+        #expect(queue.current?.link == "/a" && queue.waiting.count == 1)
+        let a = queue.answer()
+        #expect(a?.link == "/a" && queue.current?.link == "/b")
+        let b = queue.answer()
+        let none = queue.answer()
+        #expect(b?.link == "/b" && queue.isIdle && none == nil)
+        // a cause the user cannot fix here is never asked
+        let full = O4TileIssues(tileKey: "-14-078", built: false,
+                                failures: O4TileFailure.parseList([[
+                                    "code": "disk_full", "what": "Full."]]), warnings: [])
+        let unfixable = queue.offer(full)
+        #expect(!unfixable && queue.isIdle)
+    }
+
+    /// A re-queued tile shows "fixed and re-queued" in the run's report
+    /// and offers no button; a later failure of it arrives unmarked.
+    @Test func reQueueMarksTheReport() throws {
+        var log = O4RunIssueLog()
+        log.add(failedTile("-12-078", lat: -12, lon: -78, link: "/a"))
+        log.add(failedTile("-13-078", lat: -13, lon: -78, link: "/b"))
+        log.markRequeued(tileKey: "-12-078")
+        let finished = log.finish()
+        var report = try #require(finished)
+        #expect(report.tiles.count == 2)               // every failure still listed
+        #expect(report.tiles[0].requeued && report.tiles[0].removableLink == nil)
+        #expect(!report.tiles[1].requeued && report.tiles[1].removableLink == "/b")
+        report.markRequeued(tileKey: "-13-078")        // fixed after the report was made
+        #expect(report.tiles[1].requeued)
+        #expect(O4TileFailureCopy.requeuedLine == "Fixed and re-queued.")
+    }
+}

@@ -1014,14 +1014,36 @@ retired_cfg_keys = {
 #: lines and says so once; the reads after it find nothing to say.
 _retired_cfg_reported = set()
 
+#: ``(var, value)`` legacy values whose "read as" notice this process
+#: has already printed (#676): the reader prints each once per run even
+#: when the file could not be migrated.
+_legacy_cfg_reported = set()
+
+
+def legacy_cfg_value(var, value):
+    """The current spelling of a legacy (foreign-fork / pre-enum) value of
+    *var*, or ``None`` when *value* is not one (registry
+    ``legacy_values``).  Surrounding quotes are ignored."""
+    legacy_map = cfg_vars.get(var, {}).get("legacy_values")
+    text = str(value).strip().strip("\"'")
+    if legacy_map and text in legacy_map:
+        return legacy_map[text]
+    return None
+
 
 def cleanup_retired_cfg_keys(source):
-    """REMOVE every retired key from the cfg file *source*.
+    """REMOVE every retired key from the cfg file *source*, and MIGRATE
+    every legacy value in it to its current spelling.
 
     The owner's ruling (2026-09-13a (2)): a retired key found on READ is
     not warned about for the rest of time — it is deleted from the file,
-    reported ONCE as INFO, and never seen again.  The rewrite goes
-    through :func:`O4_Settings_Model._write_atomic_with_backup` — THE cfg
+    reported ONCE as INFO, and never seen again.  A legacy value (e.g. the
+    pre-2026-09-18 bool ``airport_elevation_insets=True``) gets the same
+    treatment (#676): the reader already maps it on every read, so the
+    file is rewritten with the mapped value once — same meaning, and the
+    "Legacy config value" notice stops repeating for every tile read.
+    The rewrite goes through
+    :func:`O4_Settings_Model._write_atomic_with_backup` — THE cfg
     writer, so the prior file is kept as ``<cfg>.bak`` and no second
     writer exists to disagree with it.  (Imported lazily:
     ``O4_Settings_Model`` imports this module at module level.)
@@ -1030,8 +1052,8 @@ def cleanup_retired_cfg_keys(source):
     directory) is NOT an error: the caller is told once, per file, and
     the build carries on — a stale cfg line must never take a build
     down.  Comments and blank lines do not survive a rewrite; a file
-    carrying NO retired key is never rewritten, so a clean cfg keeps
-    every byte (and mints no ``.bak``).
+    carrying NO retired key and no legacy value is never rewritten, so a
+    clean cfg keeps every byte (and mints no ``.bak``).
 
     :param source: path to the cfg file just read.
     :returns: the INFO lines the caller should print (possibly empty).
@@ -1045,15 +1067,22 @@ def cleanup_retired_cfg_keys(source):
 
         data = SETTINGS._parse_cfg(path, strip_quotes=False)
         stale = [var for var in data if var in retired_cfg_keys]
-        if not stale:
+        migrated = {var: legacy_cfg_value(var, value)
+                    for var, value in data.items()
+                    if var not in retired_cfg_keys
+                    and legacy_cfg_value(var, value) is not None}
+        if not stale and not migrated:
             return []
         try:
             SETTINGS._write_atomic_with_backup(
-                path, {k: v for k, v in data.items() if k not in stale})
+                path, {k: migrated.get(k, v) for k, v in data.items()
+                       if k not in stale})
         except Exception as error:
             if (path, None) in _retired_cfg_reported:
                 return []
             _retired_cfg_reported.add((path, None))
+            if not stale:
+                return []
             return ["retired key" + ("s" if len(stale) > 1 else "") + " "
                     + ", ".join(stale) + " in " + path + " " +
                     ("are" if len(stale) > 1 else "is") +
@@ -1065,6 +1094,9 @@ def cleanup_retired_cfg_keys(source):
                 continue
             _retired_cfg_reported.add((path, var))
             lines.append("removed retired key " + var + " from " + path)
+        for var, value in migrated.items():
+            lines.append("rewrote legacy value " + str(data[var]) + " of "
+                         + var + " as " + value + " in " + path)
         return lines
     except Exception:
         # A cleanup that raises is a cleanup that breaks builds.

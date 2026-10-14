@@ -388,15 +388,25 @@ def _note_tilted_kept_whole(m: Member, counts: dict[str, int],
 def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                   splits: list[Split], kept: list[Kept], whole: list[Split],
                   *, always_write: bool,
-                  tilted_whole: list[tuple[int, str, tuple[str, ...]]]) -> None:
+                  tilted_whole: list[tuple[int, str, tuple[str, ...]]],
+                  drape_comps: "frozenset[int]" = frozenset(),
+                  drape_law: _t.Any = None) -> None:
     """The OBJ8 cut for one member's bodies, and where the record lands.
 
     ``always_write`` is §14 (1)'s change: a CARRIED footless placement is
     written even when it is one body, because its row must MOVE to the
     carrier's anchor — where the pre-§14 reading left a one-body placement
     exactly as authored (``one_body``), which for a shared-datum unit is
-    the datum point 15.7 m under the building."""
+    the datum point 15.7 m under the building.
+
+    ``drape_comps`` (owner RULINGS 2026-10-14d (1)): the member's base-slab
+    components that DRAPE — a placement carrying one is WRITTEN even as
+    one body, its slab's up faces re-emitted as draped geometry
+    (``obj8_split``'s drape cut, ``drape_law``)."""
     bodies = record.bodies
+    drape_comps = frozenset(drape_comps) if drape_law is not None else frozenset()
+    if drape_comps:
+        always_write = True
     index = record.index
     if len(bodies) < 2 and not always_write:
         counts["kept"] += 1
@@ -416,7 +426,8 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                 for b in bodies]
         try:
             res = _split.split_obj8(pristine_path(m), cuts, m.resource,
-                                    allow_single=always_write)
+                                    allow_single=always_write,
+                                    drape_comps=drape_comps, drape_law=drape_law)
         except (OSError, ValueError, IndexError) as exc:
             counts["write_error"] += 1
             err = f"{type(exc).__name__}: {exc}"

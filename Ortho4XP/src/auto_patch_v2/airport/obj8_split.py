@@ -117,6 +117,7 @@ import typing as _t
 import numpy as np
 
 from . import obj8 as _obj8
+from . import obj8_drape as _drape
 
 __all__ = ["BodyCut", "SplitFile", "SplitResult", "split_obj8",
            "body_resource_name", "offset_tag", "tilt_matrix", "NO_TILT",
@@ -500,11 +501,20 @@ def _retok(line: str, first: int, delta: tuple[float, float, float],
 # ── the cut ──────────────────────────────────────────────────────────────
 
 def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
-               resource: str = "", *, allow_single: bool = False) -> SplitResult:
+               resource: str = "", *, allow_single: bool = False,
+               drape_comps: "_t.Collection[int]" = (),
+               drape_law: "_drape.DrapeLaw | None" = None) -> SplitResult:
     """Cut ``pristine_path`` into one file per body (module doc).  Reads
     the file and returns text; writes nothing.  ``resource`` is the
     pack-relative spelling the new names are derived from (defaults to
-    the file's own basename under ``objects/``)."""
+    the file's own basename under ``objects/``).
+
+    THE DRAPE CUT (owner RULINGS 2026-10-14d (1); ``airport/obj8_drape``):
+    a static triangle of a component in ``drape_comps`` is NOT written
+    rigid — facing up (``drape_law.ny_min``) it goes to its body's DRAPED
+    block, otherwise (a kerb side, the slab's underside) it is dropped.
+    The component stays the atom: its triangles go to the body that owns
+    it, as every other triangle does."""
     counts: dict[str, int] = {"bodies": len(bodies), "tris": 0, "assigned": 0,
                               "nearest": 0, "anim_blocks": 0, "lod_brackets": 0,
                               # #232: the seat directives this writer
@@ -520,6 +530,16 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     geom = _obj8.parse_obj8(pristine_path)
     comps = _obj8.solid_components(geom)
     verts = _coords(src.vt, 1)
+    #: the drape cut: the up faces of the draped components (sorted
+    #: vertex triples), and the header lines the draped bodies carry
+    drape_set = {int(c) for c in drape_comps if 0 <= int(c) < len(comps)} \
+        if drape_law is not None else set()
+    drape_head = _drape.header_lines(src.header, drape_law) if drape_set else []
+    if not drape_head:
+        drape_set = set()
+    drape_up: set = set()
+    for ci in sorted(drape_set):
+        drape_up |= _drape.up_keys(geom.vertices, comps[ci].tris, drape_law.ny_min)
     # vertex -> body, from the bodies' own components
     body_of_vertex: dict[int, int] = {}
     centroid: dict[int, np.ndarray] = {}
@@ -679,6 +699,7 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     lods_seen: dict[int, list[str]] = {b.body_id: [] for b in bodies}
     anim_count: dict[int, int] = {b.body_id: 0 for b in bodies}
     tri_count: dict[int, int] = {b.body_id: 0 for b in bodies}
+    draped: dict[int, list[tuple[int, int, int]]] = {b.body_id: [] for b in bodies}
     offset_of = {b.body_id: b.offset for b in bodies}
     # rule 5: the body's own seat rotation, or None where it is not
     # tilted (then every row below takes the pre-tilt path exactly)
@@ -804,8 +825,16 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
             per: dict[int, list[tuple[int, int, int]]] = {}
             for k in range(off, min(off + cnt, n_idx) - 2, 3):
                 a, b_, c = int(src.idx[k]), int(src.idx[k + 1]), int(src.idx[k + 2])
-                per.setdefault(tri_body(a, b_, c), []).append((a, b_, c))
                 counts["tris"] += 1
+                if drape_set:
+                    key = tuple(sorted((a, b_, c)))
+                    if comp_of_tri.get(key, -1) in drape_set:
+                        if key in drape_up:
+                            draped[tri_body(a, b_, c)].append((a, b_, c))
+                        else:
+                            counts["drape_dropped"] = counts.get("drape_dropped", 0) + 1
+                        continue
+                per.setdefault(tri_body(a, b_, c), []).append((a, b_, c))
             for body in sorted(per):
                 sync(body)
                 emit_tris(body, per[body], False)
@@ -868,6 +897,21 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
             out[body].append(ln)
         i += 1
 
+    # THE DRAPED BLOCK (``obj8_drape``): the up faces of each body's draped
+    # components, indexed into its own tables like any triangle and put at
+    # the head of its stream
+    for bid, tris in draped.items():
+        if not tris:
+            continue
+        start = len(idx_out[bid])
+        for a, b_, c in tris:
+            idx_out[bid].extend((vt_index(bid, a, False), vt_index(bid, b_, False),
+                                 vt_index(bid, c, False)))
+        out[bid] = _drape.splice(out[bid], _drape.block(start, 3 * len(tris)))
+        tri_count[bid] += len(tris)
+        counts["drape_tris"] = counts.get("drape_tris", 0) + len(tris)
+        counts["drape_bodies"] = counts.get("drape_bodies", 0) + 1
+
     live = [b for b in bodies if tri_count[b.body_id] or idx_out[b.body_id]
             or vlight_out[b.body_id]]
     if len(live) < 2 and not (allow_single and live):
@@ -889,6 +933,8 @@ def split_obj8(pristine_path: str, bodies: _t.Sequence[BodyCut],
     for b in live:
         bid = b.body_id
         body_text: list[str] = list(head)
+        if draped[bid]:
+            body_text.extend(drape_head)
         body_text.append(f"POINT_COUNTS\t{len(vt_out[bid])} {len(vline_out[bid])} "
                          f"{len(vlight_out[bid])} {len(idx_out[bid])}")
         _tl = tilt_of[bid]

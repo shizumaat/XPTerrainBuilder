@@ -19,6 +19,7 @@ from shapely.strtree import STRtree
 
 from ..geom import (cluster_building_evidence, cluster_outlines,
                     osm_building_evidence)
+from ..airport.slab_faces import witness_faces
 from ..geom.base_slab import pad_shades, slab_polygons
 from ..law.tables import base_slab_law, pad_admission
 from ..model.airport import Airport, Runway
@@ -536,9 +537,10 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     # never a pad) and, issue #516 (owner RULINGS 2026-09-13bi / 13cm), a
     # sloped deck's ground where it rises through the natural ground —
     # ``geom.base_slab.pad_shades``, the ONE shade path the census takes too
-    shades = pad_shades(getattr(airport, "partition", None), to_xy,
-                        base_slab_law(law),
-                        getattr(airport, "sunken_ramps", None))
+    _lw = base_slab_law(law)
+    shades = pad_shades(getattr(airport, "partition", None), to_xy, _lw,
+                        getattr(airport, "sunken_ramps", None),
+                        witness_faces(_lw))
     # §16g (10) (12), issue #101 (owner RULINGS 2026-10-02v (3)): v1's two
     # PAD-ADMISSION gates.  The thresholds come from the ONE reading the
     # census takes too (``law.tables.pad_admission``) and the OSM half from
@@ -566,7 +568,7 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     CLUSTER_PADS["deck_shade_m2"] = round(shades.area, 1) if shades is not None else 0.0
     CLUSTER_PADS["base_slab_m2"] = round(sum(
         g.area for g in slab_polygons(getattr(airport, "partition", None),
-                                      to_xy, base_slab_law(law))), 1)
+                                      to_xy, _lw, witness_faces(_lw))), 1)
     _sunk = getattr(airport, "sunken_ramps", None)
     CLUSTER_PADS["sunken_ramp_m2"] = round(_sunk.area, 1) if _sunk is not None else 0.0
     CLUSTER_PADS["area_m2"] = round(sum(g.area for _i, _c, g in got), 1)
@@ -671,9 +673,11 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # trimmed by the welded decks' shades BEFORE the cover test — a deck
     # never re-enters as a v1 footprint or an OSM ``building=roof``
     if polys:
+        _lw = base_slab_law(law)
         _shades = pad_shades(getattr(airport, "partition", None),
-                             airport.frame.entry(), base_slab_law(law),
-                             getattr(airport, "sunken_ramps", None))
+                             airport.frame.entry(), _lw,
+                             getattr(airport, "sunken_ramps", None),
+                             witness_faces(_lw))
         if _shades is not None:
             trimmed = []
             for p in polys:

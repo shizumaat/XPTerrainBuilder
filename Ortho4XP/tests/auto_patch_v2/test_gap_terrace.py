@@ -194,7 +194,11 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # RE-RECORDED (lane slab229, issue #229 / RULINGS 2026-10-10o (B)): the
     # base-slab pieces of this capture (groundside pieces of their own, the
     # pack's pieces unchanged) are cut too — (69, 34, 56, 9) without them.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (79, 34, 56, 9)
+    # RE-RECORDED (lane drape229, owner RULINGS 2026-10-14d): the level
+    # plates touching no wall are slabs on the drape side, the kerb ring
+    # `T23/door` comp 9 is not — the eight new slab pieces each stay ONE
+    # part (no knife, no merged station) — (79, 34, 56, 9) before.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (87, 34, 56, 9)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

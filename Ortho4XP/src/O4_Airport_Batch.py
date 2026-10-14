@@ -26,7 +26,7 @@ are the caller's to recognise first.
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 __all__ = [
     "AirportBatch",
@@ -36,6 +36,7 @@ __all__ = [
     "code_lookup",
     "UNKNOWN_CODES_TITLE",
     "unknown_codes_message",
+    "tile_tag",
 ]
 
 # The alert shown when a code was not found (owner decision on #542).
@@ -62,11 +63,15 @@ class AirportBatch:
         codes: The codes found, upper-cased, in the order typed.
         unknown: The codes not in the index, in the order typed.
         tiles: Every tile the found airports touch, sorted, no repeats.
+        picks: Each of those tiles -> the codes that picked it, in the
+            order typed (#667: the progress list shows them after the
+            tile, ``-13-078 (SPJC)``).
     """
 
     codes: List[str] = field(default_factory=list)
     unknown: List[str] = field(default_factory=list)
     tiles: List[Tile] = field(default_factory=list)
+    picks: Dict[Tile, List[str]] = field(default_factory=dict)
 
 
 def split_codes(query: str) -> List[str]:
@@ -121,6 +126,10 @@ def resolve_codes(query: str,
         else:
             batch.codes.append(code)
             tiles.update(found)
+            for tile in found:
+                picked = batch.picks.setdefault(tuple(tile), [])
+                if code not in picked:
+                    picked.append(code)
     if not explicit and not batch.codes:
         return None
     batch.tiles = sorted(tiles)
@@ -135,6 +144,13 @@ def unknown_codes_message(batch: AirportBatch) -> Optional[str]:
     selected = ("The tiles of %s are selected." % ", ".join(batch.codes)
                 if batch.codes else "No tiles were selected.")
     return "Not identified: %s. %s" % (", ".join(batch.unknown), selected)
+
+
+def tile_tag(codes: Sequence[str]) -> str:
+    """What follows a tile's coordinate in the progress list (#667):
+    `` (KCLT, KJQF)`` for the codes that picked it, ``""`` for a tile
+    selected by hand.  Same text as SceneryKit's ``TileSearchTags``."""
+    return " (%s)" % ", ".join(codes) if codes else ""
 
 
 def code_lookup(entries: Iterable) -> Callable[[str], Optional[List[Tile]]]:

@@ -55,6 +55,9 @@ final class BuildActivityModel: ObservableObject {
     /// What each tile in this run was started with — the resume path's
     /// settings source (a resume must not adopt today's pickers).
     @Published var runSettings: [BuildModel.TileCoord: TileRunSettings] = [:]
+    /// The search codes that picked each row's tile, as shown after its
+    /// coordinate (#667) — taken from `BuildModel.searchTags` when queued.
+    @Published var runTags: [BuildModel.TileCoord: String] = [:]
 
     func reset() {
         tiles = [:]
@@ -65,6 +68,7 @@ final class BuildActivityModel: ObservableObject {
         totalTiles = 0
         tileClocks = [:]
         runSettings = [:]
+        runTags = [:]
     }
 
     /// The post-run linger clear. Rows the user STOPPED survive it: their
@@ -81,11 +85,13 @@ final class BuildActivityModel: ObservableObject {
         let order = runOrder.filter { keep.contains($0) }
         let clocks = tileClocks.filter { keep.contains($0.key) }
         let settings = runSettings.filter { keep.contains($0.key) }
+        let tags = runTags.filter { keep.contains($0.key) }
         reset()
         tiles = stopped
         runOrder = order
         tileClocks = clocks
         runSettings = settings
+        runTags = tags
     }
 }
 
@@ -213,8 +219,14 @@ final class BuildModel: ObservableObject {
     // MARK: Selection (Qt semantics: a set + one active tile)
 
     @Published var selected: Set<TileCoord> = [] {
-        didSet { persistSelection() }
+        didSet {
+            persistSelection()
+            searchTags.keep(only: Set(selected.map { AirportTile(lat: $0.lat, lon: $0.lon) }))
+        }
     }
+    /// The search codes that picked each selected tile (#667); a search
+    /// adds them, deselecting drops them. Session state only.
+    var searchTags = TileSearchTags()
     @Published var activeTile: TileCoord? {
         didSet {
             adoptActiveTileConfig()
@@ -1054,6 +1066,13 @@ final class BuildModel: ObservableObject {
         activeTile = first
     }
 
+    /// The progress rows of `todo` carry the codes that picked them (#667).
+    private func stampRunTags(_ todo: [TileCoord]) {
+        for coord in todo {
+            activity.runTags[coord] = searchTags.suffix(for: AirportTile(lat: coord.lat, lon: coord.lon))
+        }
+    }
+
     func clearSelection() {
         selected = []
         activeTile = nil
@@ -1359,6 +1378,7 @@ final class BuildModel: ObservableObject {
             activity.tiles[coord] = TileProgress(state: .queued, label: "queued", percent: 0)
             activity.runOrder.append(coord)
         }
+        stampRunTags(todo)
         // The settings this tile is being STARTED with — what a later
         // resume of it must use.
         for coord in todo {
@@ -2161,6 +2181,7 @@ final class BuildModel: ObservableObject {
             activity.tiles[coord] = TileProgress(state: .queued, label: "queued", percent: 0)
             activity.runOrder.append(coord)
         }
+        stampRunTags(todo)
         activity.totalTiles = todo.count
         legacyRunNext()
     }

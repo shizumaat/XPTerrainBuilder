@@ -35,6 +35,26 @@ have no candidate).  Refused for touching no walled part: KASE's
 ``Aspen_Rockwall`` and a city plaza, two OTHH Emiri plates, twenty-one
 HECA ``OB-asphalt`` planes.
 
+THE PLATE AND THE DRAPE SIDE (owner RULINGS 2026-10-14d (4); lane
+drape229).  Where the caller hands a FACE reader (``faces(member, comp)
+-> FaceFacts``, ``airport/slab_faces``) the witness also reads the
+component's own faces:
+
+5. A PLATE — at most ``max_side_share`` of its face area is SIDE faces
+   (not plate faces).  A kerb outline whose ring encloses a lot it does
+   not pave (HECA ``T23/door`` comp 9: 217 m2 of tops, 372 m2 of 0.5 m
+   kerb sides, an 8,736 m2 outline) and a dock on posts (OTHH
+   ``16L_ILS_Dock`` comp 0, side share 0.80) are not slabs.
+6. ON THE DRAPE SIDE, a plate that touches NO walled part is admitted
+   too when it is LEVEL (its up-facing faces' authored ``y`` range within
+   ``level_m``, ``[placement] split_tol_m``) and CLEARLY A LOT OR ROAD
+   (its open piece holds a disc one lane wide, the gap mint's own floor).
+   HECA's twenty ``OB-asphalt`` plates come in; KASE's ``Aspen_Rockwall``
+   (top relief 0.83 m) and a city plaza (1.70 m) do not.
+
+Without a face reader the reading is the walled-touch witness alone, as
+it was.
+
 The reading is used in TWO places, and both read THIS function:
 
 * :func:`pad_shades` — with ``leaves_pads`` (``[placement]
@@ -63,7 +83,16 @@ from shapely.strtree import STRtree
 
 from .cluster_outline import _parts, deck_shades, with_shade
 
-__all__ = ["Slab", "base_slabs", "slab_polygons", "pad_shades"]
+__all__ = ["Slab", "FaceFacts", "base_slabs", "slab_polygons", "pad_shades"]
+
+
+class FaceFacts(_t.NamedTuple):
+    """What a component's own faces say (rules 5 and 6): the share of its
+    face area that is SIDE (not plate) faces, and the authored ``y`` range
+    of its up-facing plate faces."""
+
+    side_share: float
+    top_relief_m: float
 
 
 class Slab(_t.NamedTuple):
@@ -76,6 +105,9 @@ class Slab(_t.NamedTuple):
     comp: int
     outline_m2: float
     open: Polygon
+    #: whether it touches a walled part (rule 4 of the module doc); False
+    #: only for a level plate admitted on the drape side (rule 6)
+    touches: bool = True
 
 
 def _ring_poly(part: _t.Any, to_xy) -> "Polygon | None":
@@ -127,7 +159,8 @@ def _near_mask(boxes: np.ndarray, cand: np.ndarray) -> np.ndarray:
     return hit
 
 
-def base_slabs(partition: _t.Any, to_xy, lw: _t.Any) -> tuple[Slab, ...]:
+def base_slabs(partition: _t.Any, to_xy, lw: _t.Any,
+               faces: "_t.Callable | None" = None) -> tuple[Slab, ...]:
     """Every base slab of ``partition`` (see the module doc), in unit order.
     ``()`` where the law is disarmed or there is no partition.
 
@@ -135,11 +168,12 @@ def base_slabs(partition: _t.Any, to_xy, lw: _t.Any) -> tuple[Slab, ...]:
     and touches, the parts of EVERY unit (HECA's ``OB-asphalt`` planes
     carry other files' buildings).  Only parts whose plan box
     (``Part.box``, lat/lon) comes near a candidate's are read, so the cost
-    is the candidates', not the pack's."""
+    is the candidates', not the pack's.  ``faces`` is the face reader of
+    rules 5 and 6 (None reads neither)."""
     if partition is None or not lw.armed:
         return ()
-    for p0, l0, got in _MEMO:
-        if p0 is partition and l0 == lw:
+    for p0, l0, f0, got in _MEMO:
+        if p0 is partition and l0 == lw and f0 is faces:
             return got
     cands: list = []
     rest: list = []
@@ -154,7 +188,7 @@ def base_slabs(partition: _t.Any, to_xy, lw: _t.Any) -> tuple[Slab, ...]:
                 else:
                     rest.append(q)
     if not cands:
-        _MEMO.append((partition, lw, ()))
+        _MEMO.append((partition, lw, faces, ()))
         return ()
     near = _near_mask(np.array([tuple(q.box) for q in rest], dtype=float).reshape(-1, 4),
                       np.array([tuple(q.box) for _u, _m, q in cands], dtype=float))
@@ -164,14 +198,16 @@ def base_slabs(partition: _t.Any, to_xy, lw: _t.Any) -> tuple[Slab, ...]:
             and float(getattr(q, "height_m", 0.0)) >= lw.tall_min_m]
     tree = STRtree(rings) if rings else None
     tall_tree = STRtree(tall) if tall else None
+    drape_side = faces is not None and float(getattr(lw, "level_m", 0.0)) > 0.0
     out: list[Slab] = []
     for u, m, q in cands:
         g = _ring_poly(q, to_xy)
         if g is None or g.area < lw.min_m2:
             continue
-        if tall_tree is None or not any(
-                tall[int(i)].distance(g) <= lw.touch_m
-                for i in tall_tree.query(g.buffer(lw.touch_m))):
+        touches = tall_tree is not None and any(
+            tall[int(i)].distance(g) <= lw.touch_m
+            for i in tall_tree.query(g.buffer(lw.touch_m)))
+        if not touches and not drape_side:
             continue
         cover = ([rings[int(i)] for i in tree.query(g)]
                  if tree is not None else [])
@@ -180,22 +216,41 @@ def base_slabs(partition: _t.Any, to_xy, lw: _t.Any) -> tuple[Slab, ...]:
             op = op.buffer(0.0)
         if op.area < lw.min_m2 or op.area < lw.open_min_share * g.area:
             continue
+        if faces is not None and not _plate(faces(m, int(q.comp)), lw, touches):
+            continue
         for piece in _parts(op):
-            if piece.area >= lw.min_m2:
-                out.append(Slab(u.id, m.id, m.resource, int(q.comp),
-                                float(g.area), piece))
+            if piece.area < lw.min_m2:
+                continue
+            if not touches and piece.buffer(-0.5 * float(lw.lane_m)).is_empty:
+                continue            # rule 6: no car fits — not clearly a lot or road
+            out.append(Slab(u.id, m.id, m.resource, int(q.comp),
+                            float(g.area), piece, touches))
     got = tuple(out)
-    _MEMO.append((partition, lw, got))
+    _MEMO.append((partition, lw, faces, got))
     del _MEMO[:-4]
     return got
 
 
-def slab_polygons(partition: _t.Any, to_xy, lw: _t.Any) -> list[Polygon]:
+def _plate(ff: "FaceFacts | None", lw: _t.Any, touches: bool) -> bool:
+    """Rules 5 and 6 on one component's face facts.  No facts (an
+    unreadable file) keeps the walled-touch reading and admits nothing on
+    the drape side."""
+    if ff is None:
+        return touches
+    side_max = float(getattr(lw, "max_side_share", 0.0))
+    if side_max > 0.0 and float(ff.side_share) > side_max:
+        return False
+    return touches or float(ff.top_relief_m) <= float(lw.level_m)
+
+
+def slab_polygons(partition: _t.Any, to_xy, lw: _t.Any,
+                  faces: "_t.Callable | None" = None) -> list[Polygon]:
     """The open parts of every base slab — the gap mint's extra sheets."""
-    return [s.open for s in base_slabs(partition, to_xy, lw)]
+    return [s.open for s in base_slabs(partition, to_xy, lw, faces)]
 
 
-def pad_shades(partition: _t.Any, to_xy, lw: _t.Any, extra: _t.Any = None):
+def pad_shades(partition: _t.Any, to_xy, lw: _t.Any, extra: _t.Any = None,
+               faces: "_t.Callable | None" = None):
     """What leaves every pad outline: the welded decks' shades
     (:func:`cluster_outline.deck_shades`), the base slabs' open parts when
     ``lw.leaves_pads`` (``lw`` None reads no slab), and ``extra`` — issue
@@ -205,7 +260,7 @@ def pad_shades(partition: _t.Any, to_xy, lw: _t.Any, extra: _t.Any = None):
     and the fallback trim all take, so they cannot disagree.  ``None``
     where there is nothing."""
     deck = deck_shades(partition, to_xy)
-    slabs = (slab_polygons(partition, to_xy, lw)
+    slabs = (slab_polygons(partition, to_xy, lw, faces)
              if lw is not None and lw.leaves_pads else [])
     if slabs:
         deck = unary_union(([deck] if deck is not None else []) + slabs)

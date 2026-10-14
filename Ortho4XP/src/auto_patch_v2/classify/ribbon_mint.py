@@ -17,6 +17,8 @@ from ..model.airport import Airport
 from ..model.planar import OSM_RIBBON_FEEDS
 from .evidence import Evidence, polygon_parts
 from .roles import TAXI_FAMILY, is_runway_shoulder
+from .lot_roads import lot_cells, split_lot_ribbon
+from .pad_touch import touch_limit_m
 from .rules import Rules
 from ..geom.parts import line_parts
 
@@ -260,13 +262,16 @@ def _ribbon_ways(airport: Airport, rules: Rules) -> list[tuple[object, LineStrin
 
 def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
                 cover, law: Law, rules: Rules, add, extra: dict,
-                min_len: float | None = None):
+                min_len: float | None = None, lots=None):
     """One way's ribbon over ``spans`` less ``occupied``, added part by
     part (refs numbered on from ``serial``): ``(parts, m2, ribbon)`` — the
     ribbon ``None`` when no part was minted.  ``min_len`` (default
     ``osm_roads.min_len_m``, the floor under a stray stub) is the shortest
     axis ribboned: a pad road's piece between two standing roads is road
-    however short (the cell floor ``cells.min_area_m2`` still stands)."""
+    however short (the cell floor ``cells.min_area_m2`` still stands).
+    ``lots`` (``lot_roads.lot_cells``): a stretch running ALONG a lot is
+    minted as that lot (RULINGS 2026-10-14a (2), ``classify/lot_roads``);
+    the returned ribbon still covers it (it is occupied)."""
     from shapely.ops import substring
     orr = rules.osm_roads
     hw = float(law.tables.emit.road_profile.lane_width_m)
@@ -284,10 +289,22 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
     rib = unary_union([ax.buffer(hw, cap_style="flat", join_style="mitre",
                                  mitre_limit=2.0) for ax in axes])
     rib = shapely.set_precision(rib.difference(occupied), rules.cells.snap_grid_m)
+    road, lot_parts = rib, []
+    if lots:
+        road, lot_parts = split_lot_ribbon(
+            rib, line, lots, hw, touch_limit_m(law), rules.cells.snap_grid_m,
+            rules.cells.min_area_m2)
+    for lot, part in lot_parts:
+        k = serial.get(f"{lot.ref}#road", 0)
+        serial[f"{lot.ref}#road"] = k + 1
+        add(lot.role, f"{lot.ref}#road{k}", part, lot.kind, None, None,
+            {"lot_road": 1.0, "lot_of": lot.ref, **({"lot_road_pad": 1.0} if extra.get("pad_road") else {}),
+             "highway": str(w.tags.get("highway")),
+             "lot_road_way": f"{OSM_RIBBON_FEEDS[w.kind]}:{w.id}"})
     ref = f"{OSM_RIBBON_FEEDS[w.kind]}:{w.id}"
     k0 = k = serial.get(ref, 0)
     area = 0.0
-    for part in polygon_parts(rib):
+    for part in polygon_parts(road):
         if part.area < rules.cells.min_area_m2:
             continue
         add("service_road", ref if k == 0 else f"{ref}#{k}", part,
@@ -297,7 +314,7 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
         k += 1
         area += part.area
     serial[ref] = k
-    return k - k0, area, (rib if k > k0 else None)
+    return k - k0, area, (rib if k > k0 or lot_parts else None)
 
 
 def _cover(ev: Evidence, rules: Rules):
@@ -391,6 +408,13 @@ def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,
                            rules.osm_roads.road_gap_bridge_m, serve=pad_union)
     occupied = unary_union([Polygon(c.ring, c.holes) for c in cells])
     cover = _cover(ev, rules)
+    # 14a (2): a pad road's stretch along a lot is the lot.  The patch's own
+    # ribbons (``mint_osm_ribbons``) are NOT read: their lot strips re-solve
+    # stage 1, and MEASURED (lane lotroads) that moves airside — HECA apron
+    # ``dsf:objpav402`` 0.62 m and 30 pads up to 0.87 m, KCLT pads 0.54 m
+    # and runway 18L/36R 0.05 m — the pad roads' strips (SPJC building24)
+    # move none.  Owner question, not ruled.
+    lots = lot_cells(cells)
     n, area = 0, 0.0
     for (w, line), spans in zip(ways, served):
         mine = bridge_gaps(first["spans"].get((w.kind, w.id), []), 1e-6)
@@ -398,7 +422,8 @@ def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,
         if not spans:
             continue
         k, m2, rib = _mint_spans(w, line, spans, occupied, first["serial"], cover,
-                                 law, rules, add, {"pad_road": 1.0}, min_len=0.0)
+                                 law, rules, add, {"pad_road": 1.0}, min_len=0.0,
+                                 lots=lots)
         n += k
         area += m2
         if rib is not None:

@@ -1385,6 +1385,11 @@ def _main() -> int:
                     "the per-member upper bound §1 (3) names — so a unit of "
                     "one member is exact and a multi-member unit may lose a "
                     "plane to the roof test once the planar stage composes it")
+    ap.add_argument("--drape", action="store_true",
+                    help="owner RULINGS 2026-10-14d (1): read the base slabs "
+                         "over sloping ground on --graded (airport/slab_drape) "
+                         "and cut them DRAPED, as the shipped stage does; with "
+                         "--write-into the draped files parse back draped")
     ap.add_argument("--no-cut", action="store_true",
                     help="body counts only — do not cut any OBJ8")
     ap.add_argument("--units-with", metavar="SUBSTR",
@@ -1492,6 +1497,19 @@ def _main() -> int:
                   or getattr(_law.tables.structures.placement,
                              "airside_floor", False))
     _extra = {"airside_floor": True} if _floor else {}
+    if a.drape:
+        from auto_patch_v2.airport import slab_drape as _sd
+        with open(a.graded, encoding="utf-8") as _fh:
+            _gdoc = json.load(_fh)
+        _dr, _dl, _drows = _sd.drape_for_graded(plan, _gdoc, _law, sampler)
+        print(f"\nBASE SLABS (14d): {len(_drows)} piece(s), "
+              f"{sum(1 for r in _drows if r.drape)} over sloping ground drape "
+              f"(relief > 2 x split_tol_m)")
+        for r in _drows:
+            print(f"  {'DRAPE' if r.drape else 'rigid'}  {r.resource} c{r.comp}  "
+                  f"{r.open_m2:7,.0f} m2  relief {r.relief_m:5.2f} m  "
+                  f"{r.lat:.6f}, {r.lon:.6f}" + ("" if r.touches else "  (no wall)"))
+        _extra.update(drape=_dr, drape_law=_dl)
     _t0 = time.perf_counter()
     ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut,
                          **_extra,
@@ -1742,7 +1760,7 @@ def _main() -> int:
         if len(s.bodies) > 6:
             print(f"      ... {len(s.bodies) - 6} more")
 
-    wrote = parsed = 0
+    wrote = parsed = draped_n = 0
     if a.write_into:
         os.makedirs(a.write_into, exist_ok=True)
         for s in ss.splits:
@@ -1752,13 +1770,15 @@ def _main() -> int:
                     fh.write(f.text)
                 wrote += 1
                 g = obj8.parse_obj8(p)
+                draped_n += int(g.draped.shape[0])
                 if g.solid.shape[0] + g.draped.shape[0] == f.tris:
                     parsed += 1
                 else:
                     print(f"  MISMATCH {f.resource}: wrote {f.tris} tris, "
                           f"parse_obj8 reads {g.solid.shape[0] + g.draped.shape[0]}")
         print(f"\nwrote {wrote} files into {a.write_into}; "
-              f"{parsed} parse back with the written triangle count")
+              f"{parsed} parse back with the written triangle count"
+              + (f"; {draped_n} draped triangles read back" if draped_n else ""))
 
     if a.write_pack:
         _write_pack(a, plan, ss, sampler)

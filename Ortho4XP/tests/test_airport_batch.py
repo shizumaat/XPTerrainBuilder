@@ -54,6 +54,14 @@ def test_resolve_codes(case):
     assert batch.codes == want["codes"]
     assert batch.unknown == want["unknown"]
     assert batch.tiles == [tuple(t) for t in want["tiles"]]
+    assert batch.picks == {
+        tuple(p["tile"]): p["codes"] for p in want["picks"]}
+
+
+@pytest.mark.parametrize("case", CASES["tags"], ids=lambda c: c["tag"])
+def test_tile_tag(case):
+    """#667: the progress row's suffix for the codes that picked a tile."""
+    assert BATCH.tile_tag(case["codes"]) == case["tag"]
 
 
 def test_alert_message_only_when_a_code_is_unknown():

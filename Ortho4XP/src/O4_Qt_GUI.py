@@ -143,6 +143,8 @@ TILE_SCAN_CACHE_VERSION = 1
 # Shared, so the button never changes size when a row flips between
 # them, and big enough to read AS a stop sign (owner, on 1.0.238).
 STOP_ICON_PT = 16
+# Search-popup item role carrying an airport row's code (#667 tag).
+_SEARCH_CODE_ROLE = Qt.UserRole + 1
 STOP_SIGN_COLOR = "#E5372B"
 RESUME_COLOR = "#2E9E5B"
 STOPPED_COLOR = QTMAP.STOPPED_COLOR
@@ -929,6 +931,10 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(settings_btn)
 
         # Map + right panel
+        # Tile -> the search codes that picked it (#667), shown after the
+        # tile in its progress row.  Session state only; deselecting a
+        # tile drops its codes (_selection_changed).
+        self._search_tags = {}
         self.map = QTMAP.MapView()
         self.map.selection_changed.connect(self._selection_changed)
         self.map.active_changed.connect(self._active_changed)
@@ -1669,6 +1675,7 @@ class MainWindow(QMainWindow):
                 Qt.UserRole,
                 ("apt", (math.floor(entry.lat), math.floor(entry.lon))),
             )
+            item.setData(_SEARCH_CODE_ROLE, entry.code)
             self.search_popup.addItem(item)
         if not self.search_popup.count():
             self.search_popup.hide()
@@ -1699,6 +1706,12 @@ class MainWindow(QMainWindow):
             self._select_airport_batch(target)
             return
         lat, lon = target
+        if kind == "apt":
+            # The airport's tile replaces the selection, and its tag the
+            # tags (#667) — set before set_active prunes to the selection.
+            self._search_tags = {
+                (lat, lon): [str(item.data(_SEARCH_CODE_ROLE)).upper()]
+            }
         self.search_edit.clear()
         self.map.center_on_tile(lat, lon, zoom=9 if kind == "apt" else 8)
         self.map.set_active(lat, lon)
@@ -1718,6 +1731,8 @@ class MainWindow(QMainWindow):
         codes that were not found (owner decision on #542).  With an
         unknown code the text stays in the field so it can be corrected."""
         if batch.tiles:
+            # The batch replaces the selection, and its codes the tags.
+            self._search_tags = {t: list(c) for t, c in batch.picks.items()}
             self.map.set_selection(batch.tiles)
             self.map.set_active(*batch.tiles[0], select=False)
             self.map.zoom_to_tiles(batch.tiles)
@@ -2201,6 +2216,9 @@ class MainWindow(QMainWindow):
 
     def _selection_changed(self):
         sel = self.map.selection()
+        self._search_tags = {
+            t: c for t, c in self._search_tags.items() if t in sel
+        }
         self._sync_build_controls_to_selection(sel)
         self._update_build_summary(sel)
         self._persist_selection(sel)
@@ -3307,6 +3325,22 @@ class MainWindow(QMainWindow):
             self._update_build_summary()
             self._status("The build could not be started.")
 
+    def _remove_link_and_build(self, event, link):
+        """#668: remove the ONE dangling Custom Scenery link the tile's
+        folder sits behind (never its target, never a folder), then build
+        the tile again here."""
+        import O4_Unmounted_Links as UNMOUNTED
+
+        try:
+            UNMOUNTED.remove_link(link)
+        except (ValueError, OSError) as refusal:
+            self._status("The link was not removed. %s" % refusal)
+            return
+        print("Removed the link %s; building tile %+03d%+04d on this "
+              "computer's drive." % (link, int(event.lat), int(event.lon)))
+        self.map.set_selection([(int(event.lat), int(event.lon))])
+        self.start_build()
+
     def _queue_into_running_build(self, todo, provider, zoomlevel,
                                   do_vector, do_imagery, do_overlays):
         """Append a batch to the run in progress; it starts as soon as
@@ -3427,7 +3461,10 @@ class MainWindow(QMainWindow):
             rl.setSpacing(2)
             head = QHBoxLayout()
             head.setSpacing(6)
-            head.addWidget(QLabel(FNAMES.short_latlon(*tile)))
+            head.addWidget(QLabel(
+                FNAMES.short_latlon(*tile)
+                + APTBATCH.tile_tag(self._search_tags.get(tile, ()))
+            ))
             head.addStretch(1)
             # Per-tile clock (elapsed · ~remaining), fed by TileClocks.
             clock = QLabel("")
@@ -3907,7 +3944,8 @@ class MainWindow(QMainWindow):
         self._status(summary)
         (issue_events, self._run_issue_events) = (self._run_issue_events, [])
         issues = QTFAIL.issues_box(issue_events, parent=self,
-                                   app_version=O4_Version.version)
+                                   app_version=O4_Version.version,
+                                   on_remove_link=self._remove_link_and_build)
         if issues is not None:
             # Kept alive (non-modal) the way the missing-art boxes are.
             self._pack_art_boxes.append(issues)

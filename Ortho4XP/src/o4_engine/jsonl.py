@@ -65,6 +65,7 @@ from typing import Any, Callable, Dict, TextIO
 import O4_Console_Encoding
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
+import O4_Unmounted_Links as UNMOUNTED
 
 from . import failure_report
 from .events import EngineHello, Error, ScanBatch
@@ -196,6 +197,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # ``save_path``, the report file.  Synchronous — it reads the end
         # of one log file — and no session state: a module function.
         "failure_report": failure_report.failure_report,
+        # Unmounted-drive link (protocol 1.11, #668): remove ONE dangling
+        # link directly in a Custom Scenery folder — never its target,
+        # never a folder; a refusal is ok=false with the user's sentence.
+        "remove_scenery_link": UNMOUNTED.remove_link,
     }
 
 

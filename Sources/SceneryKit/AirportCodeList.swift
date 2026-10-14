@@ -23,6 +23,9 @@ public struct AirportBatch: Sendable, Equatable {
     public var unknown: [String] = []
     /// Every tile the found airports touch, sorted, no repeats.
     public var tiles: [AirportTile] = []
+    /// Each of those tiles → the codes that picked it, in the order typed
+    /// (#667: the progress list shows them after the tile).
+    public var picks: [AirportTile: [String]] = [:]
 
     /// The alert's title when a code was not found (owner decision on
     /// #542). Same wording as the Qt app (`O4_Airport_Batch`).
@@ -120,6 +123,9 @@ public enum AirportCodeList {
             if let found = lookup(code) {
                 batch.codes.append(code)
                 tiles.formUnion(found)
+                for tile in found where !(batch.picks[tile]?.contains(code) ?? false) {
+                    batch.picks[tile, default: []].append(code)
+                }
             } else {
                 batch.unknown.append(code)
             }

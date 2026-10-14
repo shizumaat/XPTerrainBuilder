@@ -65,7 +65,12 @@ from typing import Optional
 # issue #565): a front end offers "Report this problem" / "Save report
 # file" only to an engine at 1.10 or later.  Also within 1.10 (additive,
 # #598): ``TileState.detail`` — the second line of a stopped tile's row.
-PROTOCOL_VERSION = "1.10"
+# 1.11 (2026-10-14, additive): the ``remove_scenery_link`` command and
+# the ``link`` key of a ``BuildDone.failures`` entry — a tile whose
+# Custom Scenery folder is a link to a drive that is not mounted
+# (``output_link_unmounted``) names the link, and a front end may offer
+# to remove it and build on the computer's own drive (issue #668).
+PROTOCOL_VERSION = "1.11"
 
 
 @dataclass(frozen=True)
@@ -256,7 +261,8 @@ class BuildDone(EngineEvent):
 
     ``failures`` (1.10, issue #562) is why a tile was NOT built, one entry
     per cause: ``{"code", "what", "why", "remedy", "airports", "detail",
-    "log_path"}`` — three short sentences written for the user
+    "log_path", "link"}`` (``link``, 1.11: the unreachable link a front
+    end may offer to remove, else "") — three short sentences written for the user
     (``O4_Tile_Failures``), the airports the cause covers, and the
     technical ``detail`` (the original exception or console text) for the
     log and a disclosure.  ``error`` is the same message as one plain line.

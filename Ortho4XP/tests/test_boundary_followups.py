@@ -139,7 +139,7 @@ def frame_sandbox(monkeypatch, tmp_path):
             marker.write_text("{}", encoding="utf-8", newline="")
 
     monkeypatch.setattr(VMAP.OSM, "OSM_queries_to_OSM_layer", fake_osm)
-    monkeypatch.setattr(VMAP, "build_airports_dico", lambda tile, layer: {})
+    monkeypatch.setattr(VMAP, "build_airports_dico", lambda tile, layer, **kw: {})
     monkeypatch.setattr(VMAP.INSETS, "ensure_insets_for_tile", fake_insets)
     monkeypatch.setattr(VMAP.UI, "step_detail", details.append)
     monkeypatch.setattr(VMAP, "tile_frame_is_warm", lambda lat, lon: True)

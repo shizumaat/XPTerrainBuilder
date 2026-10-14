@@ -14,6 +14,7 @@ import O4_OSM_Utils as OSM
 import O4_Overlay_Utils as OVL
 import O4_Tile_Utils as TILE
 import O4_UI_Utils as UI
+import O4_Unmounted_Links as UNMOUNTED
 import O4_Vector_Map as VMAP
 from O4_Cfg_Vars import (
     cfg_app_vars,
@@ -37,6 +38,8 @@ from O4_Cfg_Vars import (
     list_vector_vars,
     cfg_stamp_key,
     cleanup_retired_cfg_keys,
+    legacy_cfg_value,
+    _legacy_cfg_reported,
     retired_cfg_keys,
 )
 
@@ -185,29 +188,18 @@ class Tile:
                     " is write protected.",
                 )
                 raise Exception
-        elif os.path.islink(self.build_dir) and not os.path.exists(
-            self.build_dir
-        ):
-            # A DANGLING SYMLINK, not a permissions problem: the tile dir
-            # points at a target that is not there — an external volume
-            # left unmounted is the everyday cause (found in the wild
-            # 2026-09-16, VHHH on an unmounted disk, where the old message
-            # sent the user to check file permissions).  os.makedirs would
-            # raise FileExistsError here, which said nothing either.
-            try:
-                target = os.readlink(self.build_dir)
-            except OSError:
-                target = "?"
-            UI.vprint(
-                0,
-                "OS error: Tile directory is a symlink whose target is"
-                " missing:",
-                self.build_dir,
-                "->",
-                target,
-                "(is the volume mounted?)",
-            )
-            raise Exception
+        elif (found := UNMOUNTED.dangling_link(self.build_dir)):
+            # A DANGLING LINK on the tile dir (or a folder above it), not a
+            # permissions problem: an external volume left unmounted is
+            # the everyday cause (found in the wild 2026-09-16, VHHH; and
+            # #668).  os.makedirs would raise FileExistsError here, which
+            # said nothing.  The typed exception carries the link, its
+            # target and the drive to the user's message.
+            error = UNMOUNTED.UnmountedLink(found)
+            UI.vprint(0, "OS error: Tile directory is a symlink whose "
+                      "target is missing:", found["link"], "->",
+                      found["target"] or "?", "(is the volume mounted?)")
+            raise error
         else:
             try:
                 os.makedirs(self.build_dir)
@@ -329,14 +321,18 @@ class Tile:
                     # Values from other forks map to their closest
                     # equivalent here (registry-driven), loudly — never
                     # silently treated as "off".
-                    legacy_map = cfg_vars.get(var, {}).get("legacy_values")
-                    if legacy_map and value in legacy_map:
-                        UI.vprint(
-                            1,
-                            "   Legacy config value", value, "for", var,
-                            "read as", legacy_map[value] + ".",
-                        )
-                        value = legacy_map[value]
+                    # The cleanup after the read rewrites the line
+                    # (#676), so the notice is printed once per run.
+                    current = legacy_cfg_value(var, value)
+                    if current is not None:
+                        if (var, value) not in _legacy_cfg_reported:
+                            _legacy_cfg_reported.add((var, value))
+                            UI.vprint(
+                                1,
+                                "   Legacy config value", value, "for", var,
+                                "read as", current + ".",
+                            )
+                        value = current
                     if cfg_vars[var]["type"] in (bool, list):
                         cmd = "self." + var + "=" + value
                     else:

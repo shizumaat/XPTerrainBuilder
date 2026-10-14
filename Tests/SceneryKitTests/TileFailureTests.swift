@@ -172,3 +172,39 @@ struct RunIssueLogTests {
         #expect(third.id != first.id)               // a new sheet, not the old one
     }
 }
+
+/// #668: the "Remove the link…" choice of the run report.
+struct UnmountedLinkTests {
+    private func entry(_ code: String, what: String) -> [String: Any] {
+        ["code": code, "what": what, "why": "Why.", "remedy": "Do this.",
+         "airports": [String](), "detail": "", "log_path": ""]
+    }
+
+    /// #668: a tile whose Custom Scenery folder is a link to a drive that
+    /// is not mounted offers "Remove the link…" — and nothing else does.
+    @Test func anUnmountedOutputLinkOffersRemoval() throws {
+        var raw = entry("output_link_unmounted",
+                        what: "Tile -12-078 was not built: its folder in Custom Scenery could not be reached.")
+        raw["link"] = "/XP/Custom Scenery/zOrtho4XP_-12-078"
+        let failures = O4TileFailure.parseList([raw, entry("disk_full", what: "Full.")])
+        #expect(failures[0].link == "/XP/Custom Scenery/zOrtho4XP_-12-078")
+        #expect(failures[0].offersLinkRemoval && !failures[1].offersLinkRemoval)
+        let failed = O4TileIssues(tileKey: "-12-078", lat: -12, lon: -78, built: false,
+                                  failures: failures, warnings: [])
+        #expect(failed.removableLink == "/XP/Custom Scenery/zOrtho4XP_-12-078")
+        // an older engine sends no link: no button
+        let old = O4TileIssues(tileKey: "-12-078", built: false,
+                               failures: O4TileFailure.parseList([entry(
+                                   "output_link_unmounted", what: "W.")]),
+                               warnings: [])
+        #expect(old.removableLink == nil)
+        // a READ pack on the drive is a warning on a built tile: no button
+        var read = entry("airport_pack_unmounted", what: "Tile -12-078 was built, but …")
+        read["link"] = ""
+        let built = O4TileIssues(tileKey: "-12-078", built: true, failures: [],
+                                 warnings: O4TileFailure.parseList([read]))
+        #expect(built.removableLink == nil)
+        #expect(O4TileFailureCopy.removeLinkButton
+                == "Remove the link and build on this Mac's drive")
+    }
+}

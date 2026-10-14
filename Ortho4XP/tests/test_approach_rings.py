@@ -525,7 +525,7 @@ def _install_neighbour(monkeypatch, tmp_path, boundaries, cached_stems):
     )
     monkeypatch.setattr(
         VMAP, "build_airports_dico",
-        lambda tile, layer: _dico(
+        lambda tile, layer, **kwargs: _dico(
             **{name: poly for name, poly in boundaries.items()}
         ),
     )

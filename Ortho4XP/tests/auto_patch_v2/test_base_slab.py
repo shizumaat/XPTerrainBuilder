@@ -130,7 +130,8 @@ def test_the_gap_mint_takes_the_slab_as_a_sheet():
     stats = gm.mint_gap_pieces(airport, ev, [], LAW, RULES, add, [])
     assert stats["base_slab_sheets"] == 1
     assert stats["base_slab_sheet_m2"] == pytest.approx(2400.0, rel=1e-6)
-    assert [r for r, *_ in out] == [gm.ROLE] and out[0][2].area > 2000.0
+    # 14d (2): a 60 x 40 m forecourt has LOT proportions
+    assert [r for r, *_ in out] == [gm.LOT_ROLE] and out[0][2].area > 2000.0
 
 
 def test_the_base_of_objects_is_not_one_object_files():
@@ -170,6 +171,60 @@ def test_a_slab_against_an_apron_stays_groundside_pavement():
     def add(role, ref, poly, kind, cn=None, cl=None, evidence=None):
         out.append((role, ref, poly, kind, dict(evidence or {})))
     stats = gm.mint_gap_pieces(airport, ev, [cell], LAW, RULES, add, [])
-    assert [(r, k) for r, _ref, _p, k, _e in out] == [(gm.ROLE, gm.KIND)]
+    assert [(r, k) for r, _ref, _p, k, _e in out] == [(gm.LOT_ROLE, gm.KIND)]
     assert out[0][4]["base_slab"] == 1.0 and out[0][4]["touches_apron"] == 1.0
     assert stats["gap_pieces_apron"] == 0 and stats["gap_pieces_base_slab"] == 1
+
+
+# ── owner RULINGS 2026-10-14d (lane drape229) ──────────────────────────
+
+def _faces(table):
+    """A face reader over ``{comp: FaceFacts}``."""
+    return lambda member, comp: table.get(comp)
+
+
+def test_a_kerb_ring_or_a_dock_is_not_a_plate():
+    """Rule 5: a component whose SIDE faces dominate is not a slab (HECA
+    ``T23/door`` comp 9 side 0.63; OTHH ``16L_ILS_Dock`` comp 0, 0.80)."""
+    wall = _part(0, box(0, 0, 40, 40), h=12.0)
+    slab = _part(1, box(40, 0, 100, 40))
+    part = _partition(wall, slab)
+    kerb = _faces({1: bs.FaceFacts(0.63, 0.0)})
+    plate = _faces({1: bs.FaceFacts(0.08, 0.0)})
+    assert bs.base_slabs(part, to_xy, LW, kerb) == ()
+    assert len(bs.base_slabs(part, to_xy, LW, plate)) == 1
+    # no facts (an unreadable file): the walled-touch reading stands
+    assert len(bs.base_slabs(part, to_xy, LW, _faces({}))) == 1
+
+
+def test_a_level_plate_with_no_wall_is_admitted_on_the_drape_side():
+    """Rule 6: a LEVEL plate touching no walled part, holding a lane disc,
+    is a slab (touches False); a sloped sheet, a sliver and a plate read
+    without a face reader are not."""
+    far = _part(0, box(0, 0, 40, 40), h=12.0)
+    plane = _part(1, box(45, 0, 100, 40))                # 5 m from the building
+    part = _partition(far, plane)
+    level = _faces({1: bs.FaceFacts(0.1, 0.0)})
+    got = bs.base_slabs(part, to_xy, LW, level)
+    assert len(got) == 1 and got[0].touches is False
+    rock = _faces({1: bs.FaceFacts(0.36, 0.83)})         # KASE Aspen_Rockwall
+    assert bs.base_slabs(part, to_xy, LW, rock) == ()
+    assert bs.base_slabs(part, to_xy, LW) == ()
+    sliver = _partition(far, _part(1, box(45, 0, 345, 3)))   # 3 m wide
+    assert bs.base_slabs(sliver, to_xy, LW, level) == ()
+
+
+def test_proportions_read_a_curved_road_as_a_road_and_a_square_as_a_lot():
+    """14d (2): ROAD = typical width <= [service] free_max_width_m and run
+    >= [apron] arm_min_aspect widths; a road's junction bulge does not make
+    it a lot (the widest place is not the proportion)."""
+    from shapely.geometry import LineString
+    from auto_patch_v2.geom.proportions import road_proportioned, typical_width_m
+    road = LineString([(0, 0), (200, 0), (300, 100), (300, 400)]).buffer(5.0)
+    road = road.union(box(195, -15, 225, 15))            # a 30 m junction
+    W, A = RULES.service.free_max_width_m, RULES.apron.arm_min_aspect
+    assert typical_width_m(box(0, 0, 100, 10)) == pytest.approx(10.0, rel=0.15)
+    assert road_proportioned(road, W, A)
+    assert gm.slab_role(road, RULES) == gm.ROLE
+    assert not road_proportioned(box(0, 0, 60, 40), W, A)
+    assert gm.slab_role(box(0, 0, 60, 40), RULES) == gm.LOT_ROLE

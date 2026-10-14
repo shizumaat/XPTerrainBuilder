@@ -165,18 +165,36 @@ def plan_steps(do_vector, do_imagery, do_overlays, steps=None):
     return plan
 
 
-def step_progress(step_key, bars):
+# The imagery step's bars: 1 = scenery-file render, 2 = texture downloads,
+# 3 = DDS conversion, weighted by their planned seconds when the tile has
+# a download plan (#622) and by these shares otherwise.
+IMAGERY_BAR_WEIGHTS = {1: 0.20, 2: 0.55, 3: 0.25}
+
+
+def imagery_bar_weights(components):
+    """Bar weights from :func:`tile_time_model.imagery_components`, or
+    the static :data:`IMAGERY_BAR_WEIGHTS` without them."""
+    if not components:
+        return dict(IMAGERY_BAR_WEIGHTS)
+    weights = {1: components.get("render", 0.0),
+               2: components.get("download", 0.0),
+               3: components.get("convert", 0.0)}
+    total = sum(weights.values())
+    if total <= 0:
+        return dict(IMAGERY_BAR_WEIGHTS)
+    return {bar: seconds / total for bar, seconds in weights.items()}
+
+
+def step_progress(step_key, bars, imagery_weights=None):
     """Percent (0-100) inside one step from the three legacy progress bars,
     or None when the step reports no usable percentage (mesh triangulation,
     overlay extraction)."""
     if step_key in ("vector", "masks"):
         return bars.get(1, 0)
     if step_key == "imagery":
-        return (
-            0.55 * bars.get(2, 0)
-            + 0.25 * bars.get(3, 0)
-            + 0.20 * bars.get(1, 0)
-        )
+        weights = imagery_weights or IMAGERY_BAR_WEIGHTS
+        return sum(weights.get(bar, 0.0) * bars.get(bar, 0)
+                   for bar in (1, 2, 3))
     return None
 
 
@@ -224,6 +242,7 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
     raises.
     """
     features = {"zoomlevel": zoomlevel, "provider": provider}
+    tile = None
     try:
         import O4_Config_Utils as CFG
         tile = CFG.Tile(lat, lon, custom_build_dir)
@@ -233,13 +252,46 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
         pass
     try:
         from . import tile_time_model
+        if getattr(tile, "texture_mode", "") == "default_xplane":
+            # X-Plane's own textures: nothing to download or convert.
+            features.update(textures_total=0, textures_missing=0,
+                            textures_to_download=0)
+            return features
         textures_directory = os.path.join(
             FNAMES.build_dir(lat, lon, custom_build_dir), "textures")
         features.update(tile_time_model.estimate_texture_features(
-            lat, lon, zoomlevel, provider, textures_directory))
+            lat, lon, zoomlevel, provider, textures_directory,
+            jpeg_directory=_imagery_cache_directory(lat, lon, zoomlevel,
+                                                    provider)))
     except Exception:
         pass
     return features
+
+
+def _imagery_weights_for(lat, lon, provider, zoomlevel, custom_build_dir):
+    """The imagery step's bar weights for this tile's planned download."""
+    try:
+        from . import tile_time_model
+        features = prediction_features(lat, lon, provider, zoomlevel,
+                                       custom_build_dir)
+        return imagery_bar_weights(
+            tile_time_model.imagery_components(lat, lon, features))
+    except Exception:
+        return dict(IMAGERY_BAR_WEIGHTS)
+
+
+def _imagery_cache_directory(lat, lon, zoomlevel, provider):
+    """Where the imagery cache keeps this source's orthophotos for the
+    tile, or None (a combined source has no single folder)."""
+    try:
+        import O4_Imagery_Utils as IMG
+        definition = IMG.providers_dict.get(provider)
+        if not definition or not zoomlevel:
+            return None
+        return FNAMES.jpeg_file_dir_from_attributes(
+            lat, lon, int(zoomlevel), definition)
+    except Exception:
+        return None
 
 
 # How far a step's DISPLAY window may drift from its canonical
@@ -1183,6 +1235,9 @@ class EngineSession:
                         STOPPED.settle(tile.build_dir, lat, lon)
                     if self._reuse_step(tile, (lat, lon), key, base, width):
                         continue
+                    if key == "imagery":
+                        self._imagery_weights = _imagery_weights_for(
+                            lat, lon, provider, zoomlevel, custom_build_dir)
                     step_t0 = time.time()
                     result = step_fn[key](tile)
                     step_seconds[key] = time.time() - step_t0
@@ -1288,6 +1343,15 @@ class EngineSession:
                              tile, "textures_total_last_build", 0) or 0),
                          "textures_missing": int(getattr(
                              tile, "textures_missing_last_build", 0) or 0),
+                         # The MEASURED download (#622): orthophotos
+                         # fetched and the seconds from the first one to
+                         # the queue draining — what a cold build's
+                         # download share of the bar is priced from.
+                         "textures_downloaded": int(getattr(
+                             tile, "imagery_downloads", 0) or 0),
+                         "download_seconds": round(float(getattr(
+                             tile, "imagery_download_seconds", 0.0)
+                             or 0.0), 2),
                          # Airport elevation inset fetches performed by
                          # step 1 (zero on a warm inset cache): their
                          # download wall time lands inside the vector
@@ -1420,7 +1484,8 @@ class EngineSession:
             self._emit_eta()
             return
         tile, key, base, width = self._current_step
-        inside = step_progress(key, self._bar_values)
+        inside = step_progress(key, self._bar_values,
+                               getattr(self, "_imagery_weights", None))
         if inside is None:
             self._emit_eta()
             return

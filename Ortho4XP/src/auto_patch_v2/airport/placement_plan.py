@@ -162,7 +162,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # 10-01k Q1 (#162): a FEET-verdict post base over a graded
                  # apron is seated by TILTING THE BODY, capped here
                  # (``[placement] seat_tilt_max_deg``); 0 disarms the seat
-                 seat_tilt_max_deg: float = 0.0) -> SplitSet:
+                 seat_tilt_max_deg: float = 0.0,
+                 # owner RULINGS 2026-10-14g (3): the pack DSF's rows (the
+                 # authored kind and elevation of each placement) and
+                 # ``[placement] authored_keep_tol_m`` — a placement whose
+                 # bodies would all land within it of the authored seat is
+                 # not split.  Either absent / 0 disarms.
+                 rows: "_t.Sequence | None" = None,
+                 authored_keep_tol_m: float = 0.0) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
     (1)) and each anchored by the generic rule of 11e (2).
@@ -246,6 +253,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     #: directive — reported for the owner's rule, never changed
     tilted_whole: list[tuple[int, str, tuple[str, ...]]] = []
     whole: list[Split] = []
+    # 14g (1): a §18 RE-SEATED row is the law's seat, never the author's lift
+    from . import authored_seat as _aseat
+    reseated = _aseat.reseated_rows(getattr(plan, "authored_seats", ()) or ())
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -859,7 +869,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                m.authored_path, u.anchor[0], u.anchor[1],
                                m.heading_deg, (body,))
                 before = len(splits)
+                record = _lifted(record, rows, reseated)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
+                              landed=_lands(record, rows, surface,
+                                            authored_keep_tol_m),
                               always_write=True, tilted_whole=tilted_whole)
                 written_of[mi] = len(splits) > before
                 continue
@@ -932,7 +945,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if not all(b.merged_into_written for b in bodies):
                     counts["footless_carrier_kept_whole"] = \
                         counts.get("footless_carrier_kept_whole", 0) + 1
+                record = _lifted(record, rows, reseated)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
+                              landed=_lands(record, rows, surface,
+                                            authored_keep_tol_m),
                               always_write=True, tilted_whole=tilted_whole)
             else:
                 # §14 (1)'s own sentence, read on the case §14 (3) creates.
@@ -951,7 +967,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     z_row, bodies[0].anchor if bodies else None, split_tol_m)
                 if off_row and len(bodies) < 2:
                     counts["one_body_off_row"] = counts.get("one_body_off_row", 0) + 1
+                record = _lifted(record, rows, reseated)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
+                              landed=_lands(record, rows, surface,
+                                            authored_keep_tol_m),
                               always_write=off_row, tilted_whole=tilted_whole)
             written_of[mi] = len(splits) > before
     for k, v in sorted(by_class.items()):
@@ -966,6 +985,43 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     plan_wide=_pw or {})
 
 
+
+
+def _row_of(record: Split, rows: "_t.Sequence | None") -> _t.Any:
+    """The pack DSF row of this placement, or ``None`` — a row that is not
+    this placement's resource is no witness."""
+    if not rows or not 0 <= record.index < len(rows):
+        return None
+    row = rows[record.index]
+    if getattr(row, "def_path", record.resource) != record.resource:
+        return None
+    return row
+
+
+def _lifted(record: Split, rows: "_t.Sequence | None",
+            reseated: _t.AbstractSet[int]) -> Split:
+    """14g (1): every body of an ``OBJECT_AGL`` placement keeps the
+    author's lift on its row (``authored_landing.body_lift`` decides
+    which bodies do)."""
+    row = _row_of(record, rows)
+    if row is None:
+        return record
+    from . import authored_landing as _al
+    bodies = tuple(_dc.replace(b, lift_m=_al.body_lift(
+        row, b.anchor, reseated=record.index in reseated))
+        for b in record.bodies)
+    return _dc.replace(record, bodies=bodies)
+
+
+def _lands(record: Split, rows: "_t.Sequence | None", surface: _ar.Surface,
+           tol_m: float) -> bool:
+    """14g (3) for one placement's bodies, read against ITS dump row
+    (``authored_landing.lands_on_authored_seat``)."""
+    row = _row_of(record, rows)
+    if row is None or tol_m <= 0.0:
+        return False
+    from . import authored_landing as _al
+    return _al.lands_on_authored_seat(record.bodies, row, surface, tol_m)
 
 
 def id_of(key: tuple[int, int]) -> int:
@@ -1016,7 +1072,8 @@ def to_placement_records(ss: SplitSet) -> tuple[tuple, tuple]:
             unit_of=(b.anchor.family
                      if str(b.anchor.reason).startswith(_fu.UNIT_REASON)
                      else ""),
-            connector_of=b.anchor.connector_of) for b in s.bodies))
+            connector_of=b.anchor.connector_of,
+            lift_m=b.lift_m) for b in s.bodies))
         for s in ss.splits)
     kept = tuple(_pm.Kept(k.index, k.resource, k.reason) for k in ss.kept)
     return splits, kept

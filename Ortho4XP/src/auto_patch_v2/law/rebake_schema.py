@@ -213,6 +213,13 @@ class Placement:
     #: entirely (every FEET body stays vertical, the pre-10-01k reading).
     seat_tilt_max_deg: float = 1.5
 
+    #: THE AUTHORED PLACEMENT IS KEPT (owner RULINGS 2026-10-14g (2)/(3);
+    #: ``airport/authored_landing``).  An ``OBJECT_AGL`` row whose written
+    #: ``OBJECT_MSL`` would equal its drape within this stays AGL, and a
+    #: placement whose bodies would all land within this of the authored
+    #: seat is not split.  The owner's own figure (0.05 m); 0 disarms both.
+    authored_keep_tol_m: float = 0.05
+
     #: §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo,
     #: interviewed): "We always want to keep objects covering the same
     #: footprint together when changing their seat."  Two bodies whose

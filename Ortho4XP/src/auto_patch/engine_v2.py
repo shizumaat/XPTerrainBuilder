@@ -1165,6 +1165,10 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         # is seated by baking its own TILT, capped by this
         seat_tilt_max_deg=float(
             law.tables.structures.placement.seat_tilt_max_deg),
+        # 14g (2)/(3): an authored placement our ground asks nothing of
+        # is kept (an AGL row stays AGL; a split that moves nothing is not made)
+        authored_keep_tol_m=float(
+            law.tables.structures.placement.authored_keep_tol_m),
         # jetway-strip spec §4 (C17): the riders' population and strips
         jetway_strips=jetway_strips,
         # a CLAMPED GATE is a clamp within D of the rider (#31)

@@ -320,9 +320,7 @@ def test_the_class_table_read_on_a_real_map():
         assert c.role == "apron" and c.side == "airside" and c.kind == "gap_apron"
         by[c.evidence["road_evidence"] == 1.0].append(int(c.evidence["gap_ref"].split(":")[1]))
     assert sorted(by[False]) == [22, 24, 35]                       # no road evidence
-    # (#229: a base slab joins the 3,870 m2 road piece, 4,637 m2 now; it
-    # ranks ahead of the 3,876 m2 apron piece, so the two swap 13 <-> 14)
-    assert sorted(by[True]) == [14, 15, 16, 17, 20, 30, 33, 36]    # §37 (2)'s share
+    assert sorted(by[True]) == [13, 15, 16, 17, 20, 30, 33, 36]    # §37 (2)'s share
     assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(11)]
     assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (11, 8)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)

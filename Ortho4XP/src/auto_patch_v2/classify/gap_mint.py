@@ -165,8 +165,12 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     # the order (and so the ``gap:<k>`` refs) is the pack sheets' own: a
     # piece ranks by its area ON the pack sheets, so a base slab never
     # renumbers them and a slab-only piece comes after every one of them
+    # A piece no slab touches keeps EXACTLY its old key — its own area: a
+    # recomputed "area on the pack sheets" differs in the last square metre
+    # and swapped two equal OTHH pieces (gap:66 <-> gap:67), which re-ran
+    # the late stage's cuts in another order 1 km from any slab.
     def _rank(q):
-        if slab_u is None:
+        if slab_u is None or not q.intersects(slab_u):
             return (False, -round(q.area))
         on_slab = q.intersection(slab_u).area > 0.5 * q.area
         pack_m2 = q.intersection(pack_u).area if pack_u is not None else 0.0

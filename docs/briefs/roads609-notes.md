@@ -458,3 +458,87 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
 * NOT DONE: #229; a fix for the pad-road cross-fall / within-shape growth (next round: attribute HECA / SPJC rows the
   way KCLT's are, then the two classes — cross-fall between a fixed rim and a lower standing edge, and the airside-
   touching pad roads that keep their absolute ceilings); the mesh read of the joins; the roads-only derive (F).
+
+## ROUND 6 (lane crossfall609; the census growth on the pad-road faces, items 1-3 of the master's brief) — RESUME HERE
+* Branch `claude/crossfall609` (worktree `.claude/worktrees/crossfall609`) off origin/main bd950d682 (= sw24). Scratch
+  `<scratch>/crossfall609/`: `late.sh NAME ICAO` (late stage on the round-5 lane's gap-free bases), `cen.sh TAG PATCH`
+  (census rows), `rowdiff.py A B` (rows added by family / way, keyed on family + site), `probe2.py SOLVED ADDED FAMILY`
+  (each census row against the solve's own rows between the same two vertices), `hc.py SOLVED HEAD` (relaxed records
+  by the standing faces at their vertices), `sites.py`, `tot.py`, `avd.py`, `close_one.sh ICAO`.
+  Replays at main reproduce sw24's census row for row (KCLT k0, SPJC s0, HECA h0).
+* A. MOST OF THE GROWTH WAS THE CENSUS (instrument).  SPJC: of 298 new `road_cross_section` rows, 202 stood on pairs
+  whose own solve row (`road_cross_section`, route reading) HELD; of 236 new `within_shape` rows ~200 likewise.  The
+  census's §37 (7) route reading was fed the CHAIN's pair cap as its longitudinal cap — the chain had already tightened
+  a chord-transverse pair to the 2 % cross-section cap and a pair with a pad-rim endpoint to the pad's 1 % — so the
+  along-route half of a lawful 10 % ramp was priced at 1-2 % (pair 10139/10144 on `-8982`: solve bound 0.909 m =
+  10 % x 7.89 + 1.5 % x 8.00, census bound 0.278 m = 2 % x 7.89 + 1.5 % x 8.00; dz 0.91 m).  The generator
+  (`constraints/roads.road_within_shape`) passes the role's longitudinal cap; the census now does too
+  (`check_grade._route_read(..., grade_cap)`, as its lockstep path already did).  The same reading moves the
+  STANDING roads' counts: under the repaired census sw23 KCLT road_cross_section 817 -> 159, within_shape groundside
+  1726 -> 282 (the dropped rows: KCLT roads at 10.0 % along priced at 2 %, e.g. 35.2147157, -80.9291351, 4.24 m over
+  42 m).  Twin `tests/test_census_road_route_cap.py` (red on main: 2 of 3).
+* B. THE SOLVE-SIDE CLASSES, by intervention (HECA replay; numbers are the pad-road stage's relaxations):
+  1. ramp ceiling 45 rows, worst 16.85 m -> 0: pad roads welded to a gap part standing 8 m over the DEM (`gap:5`,
+     ~101 m at 30.1135571, 31.3956686) and reached from NO pad rim kept the absolute §37 (6) DEM-ramp ceiling (93.3 m)
+     — `pad_ramp_rewrite` withdrew it only on rim-reached vertices.  Now it leaves every pad-road unknown that is no
+     pad vertex.  REFUTED first: the airside-touching-face exclusion in `_welded_ribbon_vertices` (arm h2, identical
+     to h0) — not the mechanism, deleted.
+  2. cross-section 155 -> 71, ceiling 106 -> 84: the pad roads' arrangement NOTCHES a standing cell's node off its
+     edge (pass C, <= 3 identity cells) and such a node stood as an UNKNOWN of the pad roads' solve
+     (`late_rim_levels` off_edge: HECA 301, SPJC 72, OTHH 216; notched now 293 / 72 / 209) — the road bent a standing cell.  MEASURED SPJC: 50 of
+     its 72 such lot nodes moved by the road, worst 2.75 m (`dsf:pol35`, -12.0220488, -77.1077966).  Now a notched node
+     takes the edge level of a base face of its OWN ref (`notch_m`), and a pad's node beyond the notch its pad's
+     nearest base edge at any distance (`rigid`; OTHH `building9`'s sliver at 25.2584954, 51.6140857 floated
+     3.95-3.99 over its 3.90 rim and minted two `within_shape` pad rows; a plane fitted to the nearest piece put it
+     at 3.84 — refuted, deleted).  Twins `tests/auto_patch_v2/test_crossfall609.py` (3).
+  3. REFUTED as a fix: the terrace floor (`pad_terrace_floor_m` 1 m) the last stage widens every all-unknown ceiling
+     by also widens the PAD ROADS' (they have no terrace).  Off for the pad roads' stage: KCLT `-8187` 10.4 -> 9.8 %,
+     `-8190` 10.1 -> 9.8 %, but SPJC groundside +183 census rows (pavement_over_road_cap +89, hard_conflict +58) and
+     HECA +62 relaxed rows — the floor is absorbing real conflicts.  NOT shipped.
+* C. ITEM 2 (KCLT roads over 10 % not on the 13e list): `-28436` 12.3 % is the CENTRELINE read over `-8205`'s face at
+  the T (its first 5 m cross `-8205` obliquely): `-28436`'s own face is inside its route law (worst 0.008 m over);
+  `-8205`'s own face carries one pair 0.096 m over (11.1 % over 8.8 m), inside the floor widening (B3).  `-8187`
+  10.4 %, `-8190` 10.1 %: real, <= 0.4 pp, minted by the floor widening (B3).  `-24655` 10.3 %: persists with the
+  floor off — not attributed.
+* D. ITEM 3 (roads-only derive): NOT DONE.
+* E. CLOSING PROOF (harness builds: KCLT HECA SPJC KASE at 72d2b9185 — a68a6c352 is a no-op there, their pads have no node beyond the notch — tags `cf609_<ICAO>`; OTHH at a68a6c352, `cf609b_OTHH`; vs
+  `/tmp/harness/sw24_<ICAO>` = main bd950d682; census = the REPAIRED census on both sides; old = main's census):
+  | airport | total sw24 / mine | airside | groundside sw24 / mine (old-census sw24) | road_cross_section | within_shape gs | hard_conflict |
+  | KCLT | 15491 / 15493 | 13292 / 13292 | 1888 / 1890 (4254) | 172 / 173 | 285 / 285 | 288 / 287 |
+  | HECA | 56240 / 56098 | 52796 / 52796 | 3186 / 3044 (5545) | 212 / 225 | 484 / 485 | 672 / 520 |
+  | OTHH | 2308 / 2309 | 1050 / 1050 | 814 / 815 (954) | 11 / 12 | 3 / 3 | 9 / 9 |
+  | SPJC | 3862 / 3867 | 2969 / 2968 | 780 / 786 (1468) | 67 / 78 | 33 / 24 | 60 / 67 |
+  | KASE | 3479 / 3479 | 3440 / 3440 | 24 / 24 (90) | 0 / 0 | 14 / 14 | 0 / 0 |
+  Solve-owned airside and structures: 0 movers at all five.  Rebake plans: KCLT / HECA / OTHH / KASE IDENTICAL; SPJC
+  counts only (stock 3291 -> 3290, unresolved 0 -> 1: the library index, as round 5 saw).  Movers by family (all
+  explained): standing cells' notched nodes back at their own levels — SPJC `dsf:pol35` 2.75 m (sw24 25.50..28.31 ->
+  26.63..28.34), `dsf:pol36` 0.81, `building5` 0.30 (19.07..19.44 -> 19.09..19.14), HECA 21 gap parts worst 1.49 m
+  (`gap:2/s0`), OTHH gap parts <= 0.11, `building9` sliver 3.95-3.99 -> 3.89-3.90 (rim 3.90), KCLT `dsf:pol48` 0.36;
+  KASE `big_roads:-1110#2` +3.99 m: sw24 held it 4 m under the ground at its patch exit (47.1 % over 10 m at
+  39.222067, -106.872061 by the absolute ceiling); now it climbs at <= 9 % to the DEM (2371.42 vs 2371.39).  Pad
+  roads re-solved (service_road refs).  OTHH row-side 9 movers <= 0.29 m, all welded to a pad road
+  (adjacent_ground zone-2 strips beside `-3368#1`, `-1186`).
+  ROWS OVER sw24, LISTED: SPJC road_cross_section +11, mid_edge +3, hard_conflict +7, pad_frontage_infeasible +1
+  (0.024 m, airside record, building24 at -12.0215335, -77.1082925, not warned); HECA road_cross_section +13,
+  mid_edge +4, within_shape +1, vertex_to_edge +1; KCLT road_cross_section +1 (0.44 m), transverse +2; OTHH
+  road_cross_section +1 (0.07 m).  Mechanism: the standing nodes no longer bend, so the junior pad road takes the
+  residual where it is welded to two standing levels across its width — NOT lawful by any ruling; see F.
+* F. OWNER QUESTION (intent; stopped): a pad road welded on one long edge to a pad and on the other to a standing level
+  metres away cannot hold its cross-fall.  SPJC: 115 of the 128 remaining non-hairline rows over sw23 lie on
+  building24's east rim (one 99,237 m2 pad at 24.36 m cut 3.85 m into ground at 28.2 m; lots `dsf:pol35`,
+  `dsf:pol36#1` at 28.06-28.33 across the road; sites -12.0238250, -77.1070160 (61 rows, worst 3.74 m), -12.0220780,
+  -77.1078060 (30), -12.0214720, -77.1082920 (15), -12.0206200, -77.1086280 (9)).  HECA: `gap:5` at 30.1130430,
+  31.3967790 (29 rows, worst 4.63 m) and building148/152 at 30.1289410, 31.4137540 (16).  Options: (a) the road
+  stays welded to the pad (senior) and stands off the lot with a declared wall/bank at the lot's edge; (b) rule a
+  released cross-fall on a road welded to two standing levels (as 13e releases the longitudinal), published as a
+  lifted cap; (c) the lot follows the pad down (moves `dsf:pol35` / `pol36#1` ~3.7-3.9 m); (d) leave as is.
+* G. HAIRLINE (not this lane's class): `hairline_pair` sw23 -> sw24 +91 KCLT, +443 HECA, +454 SPJC, +399 OTHH, all on
+  pad-road faces among themselves (SPJC: 277 'ring' within 0.5 m of a foreign pad-road edge, 145 'short' segments) —
+  the pad roads' ribbon arrangement (pass C), a §39 (2) load-time defect.  Unchanged here.
+* H. SLAB RAMPS (master, lowest priority; needs #657 `claude/slab229`): NOT DONE.  Mechanism by reading:
+  `pad_ramp._welded_ribbon_vertices` seeds the ramp's run only from PAD rims (`pads.pad_welded_vertices`, rigid
+  roles); a base slab (groundside pavement standing in the gap sheet) between the pad and the road is a constant the
+  road is welded to but not a seed, so the design row still reads "from the pad's rim" (KCLT `-8197` 222.68 -> 219.88
+  under the slab edge, object foot +3.15 m at 35.2221531, -80.9425076).  Intended fix: seed the Dijkstra from every
+  standing plateau vertex the road is welded to (pad rims AND slab-edge constants of the last stage), the row's
+  `L[r]` that constant's standing level — one change in `_welded_ribbon_vertices`, twin: pad | slab | road.

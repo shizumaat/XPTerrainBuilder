@@ -274,7 +274,14 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     free, frep = late_followers(pm, roads_only=roads_only)
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
     fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
-    jrep["rim"] = late_rim_levels(pm_base, z_base, pm, fixed, free, ident * 0.02)
+    # the pad roads' arrangement notches a standing cell's node off its
+    # edge (pass C, three identity cells): that node is still the cell's
+    from ..constraints.pad_ramp import stand_off_m
+    jrep["rim"] = late_rim_levels(
+        pm_base, z_base, pm, fixed, free, ident * 0.02,
+        notch_m=stand_off_m(law) if roads_only else 0.0,
+        rigid=frozenset(f.role for f in pm.faces.values()
+                         if is_rigid_role(law, f.role)) if roads_only else frozenset())
     # THE ROAD YIELDS TO THE PAD (issue #609; 13a (1), 13d): a pad road's
     # absolute road rows leave and it carries the ramp from the rim it is
     # welded to — the rim a constant of this stage

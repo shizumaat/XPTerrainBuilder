@@ -19,7 +19,7 @@ from ..model.constraints import ConstraintSet, Linear, Row, Source
 from ..model.planar import PlanarMap
 from .road_ramp import GEN, JOIN_RULING, RULING, RULING_CEILING
 
-__all__ = ["PAD_RAMP_RULING", "pad_ramp_rewrite"]
+__all__ = ["PAD_RAMP_RULING", "pad_ramp_rewrite", "stand_off_m"]
 
 
 #: The ruling head of the ROAD-YIELDS-TO-THE-PAD design row (owner RULINGS
@@ -33,7 +33,7 @@ def _dist(planar: PlanarMap, a: int, b: int) -> float:
     return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
 
 
-def _stand_off_m(law: Law) -> float:
+def stand_off_m(law: Law) -> float:
     """How far a ribbon the arrangement could not weld to a rim NODE stands
     off that rim (``planar/ribbons._ribbons_pass_c``: notched by the
     hot-pixel band, ``max(1.5, 2) x`` the identity spacing, and snapped
@@ -44,7 +44,7 @@ def _stand_off_m(law: Law) -> float:
 def _rim_stand_offs(planar: PlanarMap, law: Law, vs: _t.Iterable[int],
                     rim: frozenset[int]) -> dict[int, tuple[float, int]]:
     """``{v: (distance, nearest rim vertex of that edge)}`` for each of
-    ``vs`` standing within :func:`_stand_off_m` of a pad's rim EDGE without
+    ``vs`` standing within :func:`stand_off_m` of a pad's rim EDGE without
     being a rim vertex.  MEASURED KCLT (way ``-8198``, welded to the
     terminal's pad by the touch witness): its end stands 0.7 m off the
     rim — a long straight edge with no node to weld to — and, sharing no
@@ -70,7 +70,7 @@ def _rim_stand_offs(planar: PlanarMap, law: Law, vs: _t.Iterable[int],
     pts = shapely.points([planar.vertices[v].xy for v in vs])
     out: dict[int, tuple[float, int]] = {}
     for vi, si in zip(*tree.query(pts, predicate="dwithin",
-                                  distance=_stand_off_m(law)).tolist()):
+                                  distance=stand_off_m(law)).tolist()):
         v = vs[vi]
         d = float(shapely.distance(pts[vi], lines[si]))
         r = min(ends[si], key=lambda q: (_dist(planar, v, q), q))
@@ -148,6 +148,20 @@ def _welded_ribbon_vertices(planar: PlanarMap, law: Law
     return {v: (r, d) for v, (d, r) in best.items() if v not in rim}, rim
 
 
+def _pad_road_unknowns(planar: PlanarMap, law: Law, levels: _t.Mapping[int, float]
+                       ) -> frozenset[int]:
+    """Every vertex of a pad-road face that is no constant of ``levels`` and
+    no vertex of a pad (a pad's own rows are the pad's, never the road's)."""
+    from ..law.tables import is_rigid_role
+    from ..model.planar import pad_road_faces
+    F = planar.faces
+    return frozenset(
+        v for f in pad_road_faces(planar) for cyc in (f.ring, *f.holes)
+        for v in planar.ring_vertices(cyc) if v not in levels
+        and not any(q in F and is_rigid_role(law, F[q].role)
+                    for q in planar.vertices[v].incident_faces))
+
+
 def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
                      levels: _t.Mapping[int, float] | None = None
                      ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
@@ -213,7 +227,14 @@ def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     near, rim = _welded_ribbon_vertices(planar, law)
     rep: dict[str, _t.Any] = {"ribbon_vertices": len(near), "targets": 0,
                               "ceilings": 0, "rows": 0, "joins": []}
-    if not near:
+    # THE ABSOLUTE CEILING LEAVES EVERY PAD-ROAD UNKNOWN, not only the ones
+    # a rim reaches (13a (1): the pad road is junior to every standing level
+    # it meets — a gap part, a lot, a pad).  MEASURED (lane crossfall609,
+    # HECA round 5): pad roads welded to a gap part standing 8 m over the
+    # DEM (``gap:5``, ~101 m) and reached from no rim kept the §37 (6)
+    # DEM-ramp ceiling (93.3 m): 45 rows relaxed, worst 16.85 m
+    unknown = _pad_road_unknowns(planar, law, levels) if levels else frozenset()
+    if not near and not unknown:
         return cs, rep
     g = float(law.tables.emit.road_contact.ramp_grade)
 
@@ -223,9 +244,17 @@ def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         tag = r.source.inputs[0] if r.source.inputs else ""
         return tag.startswith("vertex:") and int(tag[7:]) in near
     linears = [r for r in cs.linears if not _at(r, RULING)]
+
+    def _ceiling(r: Row) -> bool:
+        if _at(r, RULING_CEILING):
+            return True
+        if r.source.generator != GEN or r.source.ruling != RULING_CEILING:
+            return False
+        tag = r.source.inputs[0] if r.source.inputs else ""
+        return tag.startswith("vertex:") and int(tag[7:]) in unknown
     # the join re-stated as a BAND by an earlier rewrite (the reach seed's
     # anchor form) is the same hard absolute, and leaves with the pin
-    bands = [r for r in cs.bands if not (_at(r, RULING_CEILING) or _at(r, JOIN_RULING))]
+    bands = [r for r in cs.bands if not (_ceiling(r) or _at(r, JOIN_RULING))]
     rep["targets"] = len(cs.linears) - len(linears)
     rep["ceilings"] = len(cs.bands) - len(bands)
     pins, released = [], []

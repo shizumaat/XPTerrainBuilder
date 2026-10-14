@@ -30,6 +30,7 @@ from shapely.strtree import STRtree
 
 from ..classify.roles import Classification, is_late_cell
 from ..geom.containment import sets_inside_one_ring
+from ..geom.proportions import inscribed_width_m
 from ..law import Law
 from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
 from ..model.airport import Airport
@@ -613,26 +614,6 @@ def merge_slivers(faces: list[tuple[Polygon, Region]], area_max: float,
         keep[i] = None
         merged += 1
     return [f for f in keep if f is not None], merged
-
-
-def inscribed_width_m(poly: Polygon, tol: float = 0.01) -> float:
-    """THE WIDTH OF A FACE: twice the radius of its MAXIMUM INSCRIBED
-    CIRCLE — the diameter of the largest disc the shape holds, i.e. how
-    wide it is at its WIDEST place.
-
-    Deliberately NOT ``2 A / P``, which is a mean-width proxy: a shape
-    with one fat end and a long tail reads narrow under the proxy while
-    holding a wide disc, and on the owner's 1.0.331 HECA patch the proxy
-    called 153 zone faces narrower than 3 m where the inscribed circle
-    calls 42 (RULINGS 2026-09-14g item 4 — "use the INSCRIBED circle")."""
-    if poly is None or poly.is_empty or poly.area <= 0.0:
-        return 0.0
-    try:
-        return 2.0 * float(shapely.maximum_inscribed_circle(poly, tol).length)
-    except Exception:                                      # pragma: no cover
-        return 0.0
-
-
 
 
 def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],

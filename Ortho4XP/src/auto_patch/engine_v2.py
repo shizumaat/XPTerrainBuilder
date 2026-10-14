@@ -1068,6 +1068,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     pads, rims = (), ()
     decks: tuple = ()                                               # §49
     jetway_strips: tuple = ()          # jetway-strip spec §4 (C17), #31
+    drape, drape_law = {}, None        # owner RULINGS 2026-10-14d (1)
+    _gd = None
     graded = graded_surface_path(patch_dir, plan_.icao)
     if os.path.isfile(graded):
         try:
@@ -1101,6 +1103,24 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
     else:
         UI.vprint(1, f"  [v2 placement] {plan_.icao}: no {os.path.basename(graded)} "
                      "beside the patch — no body can classify as building or basin")
+    # owner RULINGS 2026-10-14d (1): the base slabs over sloping ground DRAPE
+    # (their up faces laid on this surface); a failure here drapes nothing
+    # and never costs the pads above
+    if _gd is not None:
+        try:
+            from auto_patch_v2.airport import slab_drape as _sd
+            drape, drape_law, _drows = _sd.drape_for_graded(plan_, _gd, law, _surface)
+            for _r in _drows:
+                UI.vprint(1, f"  [v2 placement] {plan_.icao}: base slab "
+                             f"{_r.resource} c{_r.comp} {_r.open_m2:,.0f} m2 at "
+                             f"{_r.lat:.6f}, {_r.lon:.6f}: ground relief "
+                             f"{_r.relief_m:.2f} m -> "
+                             + ("DRAPED" if _r.drape else "rigid")
+                             + ("" if _r.touches else " (no wall: drape side)"))
+        except Exception as exc:
+            drape, drape_law = {}, None
+            UI.vprint(1, f"  [v2 placement] {plan_.icao}: base-slab drape read "
+                         f"failed ({exc}) — no slab drapes")
 
     from auto_patch_v2.law.tables import law_tables_digest
     digest = str(law_tables_digest().get("sha256") or "")
@@ -1173,6 +1193,7 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         jetway_strips=jetway_strips,
         # a CLAMPED GATE is a clamp within D of the rider (#31)
         jetway_strip_m=float(law.tables.emit.design.jetway_strip_m),
+        drape=drape, drape_law=drape_law,
         engine_version=_engine_version(), law_digest=digest,
         write_cuts=bool(write_enabled and not measure_only))
     c = dict(plan.counts())

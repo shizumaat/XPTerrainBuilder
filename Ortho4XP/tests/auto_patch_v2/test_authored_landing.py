@@ -172,3 +172,28 @@ def test_the_kept_lift_survives_the_compact_edit_record():
     back = PM.PlacementPlan.from_dict({**plan.edit_rows(), "pack_root": "/p"})
     assert back.splits[0].bodies[0].lift_m == 3.5
     assert PM.PlacementPlan.from_json(plan.to_json()).splits[0].bodies[0].lift_m == 3.5
+
+
+def test_a_placement_carrying_a_draped_slab_is_never_kept_by_rule_3():
+    """14d (1) before 14g (3): a draped base slab is a rewrite of the
+    placement's geometry, so a placement carrying one is written even
+    where every body would land on its authored seat."""
+    from auto_patch_v2.airport import placement_file as PF
+    from auto_patch_v2.airport.placement_record import Split
+    m = types.SimpleNamespace(id="dsf:obj1", resource="objects/lot.obj", tilted=(),
+                              live_path="/nonexistent/lot.obj",
+                              authored_path="/nonexistent/lot.obj")
+    body = types.SimpleNamespace(body_id=0, new_resource="objects/lot__b0.obj", seat=None,
+                                 merged_into="")
+    rec = Split(1, "dsf:obj1", "objects/lot.obj", "", 40.0, -3.0, 0.0, (body,))
+
+    def run(**kw):
+        counts = {"kept": 0, "one_body": 0, "split": 0, "files": 0, "write_error": 0}
+        splits, kept, whole = [], [], []
+        PF._cut_and_file(rec, m, False, counts, splits, kept, whole,
+                         always_write=False, tilted_whole=[], landed=True, **kw)
+        return splits, kept
+    splits, kept = run()
+    assert not splits and [k.reason for k in kept] == ["authored_seat_lands"]
+    splits, kept = run(drape_comps=frozenset({0}), drape_law=object())
+    assert len(splits) == 1 and not kept

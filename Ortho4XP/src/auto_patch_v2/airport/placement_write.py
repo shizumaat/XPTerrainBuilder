@@ -144,7 +144,11 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                # 10-01k Q1 (#162): the SEAT TILT cap, 0 disarms the seat
                seat_tilt_max_deg: float = 0.0,
                # 14g (2)/(3): ``[placement] authored_keep_tol_m``, 0 disarms
-               authored_keep_tol_m: float = 0.0) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
+               authored_keep_tol_m: float = 0.0,
+               # owner RULINGS 2026-10-14d (1): the base slabs that drape
+               # (``slab_drape.drape_for_graded``) and the writer's law
+               drape: "_t.Mapping[str, frozenset[int]] | None" = None,
+               drape_law: _t.Any = None) -> tuple[PlacementPlan, tuple, _pp.SplitSet]:
     """``(plan, cut files, the SplitSet behind it)``.
 
     ``rebake_plan`` is the build's own ``<ICAO>.rebake.json`` model (the
@@ -181,7 +185,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           deck_edge_m=deck_edge_m, deck_under_m=deck_under_m,
                           seat_tilt_max_deg=seat_tilt_max_deg,
                           rows=getattr(dump, "placements", None),
-                          authored_keep_tol_m=authored_keep_tol_m)
+                          authored_keep_tol_m=authored_keep_tol_m,
+                          drape=drape, drape_law=drape_law)
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,

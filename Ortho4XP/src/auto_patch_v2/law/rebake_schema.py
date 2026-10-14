@@ -321,6 +321,10 @@ class Placement:
     #: splits in three (-3,043 m2), two slab-only pads go, T3 building4
     #: -0.07 m, 1,951 airside vertices <= 0.20 m.  Off until ruled.
     base_slab_leaves_pads: bool = False
+    #: owner RULINGS 2026-10-14d (lane drape229): the PLATE witness — a
+    #: slab component whose SIDE faces carry more than this share of its
+    #: face area is a kerb ring or a dock, not a plate.  0 disarms.
+    base_slab_max_side_share: float = 0.5
 
     #: S6 THE RIGID BUILDING UNIT — CONTENTS (spec
     #: ``pack-read-once-fast-spec.md`` §F.2 / F.9 R1; issues #30, #10): a

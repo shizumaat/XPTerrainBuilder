@@ -1,5 +1,6 @@
 """App log noise (#676): readable unnamed-airport labels, no neighbour
 ``Data*.apt`` write, and the GDAL >= 3.11 in-memory vector driver name."""
+import pytest
 
 import sys
 
@@ -36,11 +37,9 @@ def test_neighbour_dico_is_not_persisted(monkeypatch):
 
 
 def test_memory_vector_driver_is_not_the_deprecated_name():
-    from elevation_access.gdal_support import has_gdal, memory_vector_driver
-    from osgeo import gdal
+    gdal = pytest.importorskip("osgeo.gdal")
+    from elevation_access.gdal_support import memory_vector_driver
 
-    if not has_gdal:
-        return
     driver = memory_vector_driver()
     assert driver is not None
     if int(gdal.VersionInfo()) >= 3110000:

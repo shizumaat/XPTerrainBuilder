@@ -264,6 +264,10 @@ class DesignReport:
     #: columns no chain reaches (``solve/design_edge``)
     taxi_xsec_rows: int = 0
     free_membrane_rows: int = 0
+    #: issue #517: how many ``taxi_profile`` rows continue a centreline
+    #: THROUGH a junction where two breaklines meet and run straight on
+    #: (``solve/design_junction``)
+    taxi_junction_rows: int = 0
     #: THE APRON BODY'S 2-D TREND (owner RULINGS 2026-09-10ar; spec §8.7):
     #: per body carrying a 2-D trend, the built surface against its
     #: published target (RMS and max) and its mean z − DEM — filled by the
@@ -661,6 +665,7 @@ class DesignReport:
                 "taxi_trend": self.taxi_trend,
                 "taxi_trend_rows": self.taxi_trend_rows,
                 "taxi_xsec_rows": self.taxi_xsec_rows,
+                "taxi_junction_rows": self.taxi_junction_rows,
                 "free_membrane_rows": self.free_membrane_rows,
                 "apron_trend": self.apron_trend,
                 "apron_trend_rows": self.apron_trend_rows,
@@ -829,6 +834,7 @@ class DesignReport:
                 + self._body_plane_line()
                 + f", {self.taxi_trend_rows} taxi trend rows"
                 + self._taxi_trend_line()
+                + f", {self.taxi_junction_rows} taxi profile rows through junctions"
                 + f", {self.taxi_xsec_rows} taxi edges on their centreline"
                 f" + {self.free_membrane_rows} membrane rows"
                 + f", {self.apron_trend_rows} apron trend rows"

@@ -31,6 +31,7 @@ from .rows import (_cotangent_laplacian, _face_triangles, _law_sides,
                    _sheet_components, _Side, _zone_weights,
                    apply_level_belt)
 from .design_edge import cross_section_rows, membrane_rows
+from .design_junction import second_difference, through_junction_rows
 from .design_ground import ground_datum_vertices, ground_rim_vertices
 from .design_stage import _groundside_minter, _welded_faces
 from .design_roles import (bend_class, bend_roles, conforming_rulings,
@@ -220,16 +221,9 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             continue
         ch = bl.vertices(planar)
         for k in range(1, len(ch) - 1):
-            a, m, c = ch[k - 1], ch[k], ch[k + 1]
-            if len({a, m, c}) < 3:
-                continue
-            (ax, ay), (mx, my), (cx, cy) = (planar.vertices[i].xy for i in (a, m, c))
-            dp, dn = math.hypot(mx - ax, my - ay), math.hypot(cx - mx, cy - my)
-            if dp <= 1e-6 or dn <= 1e-6:
-                continue
-            sc = 0.5 * (dp + dn)
-            rows.add(((c, sc / dn), (m, -sc * (1.0 / dn + 1.0 / dp)), (a, sc / dp)),
-                     0.0, d.road, ("road", bl.id))
+            terms = second_difference(planar, ch[k - 1], ch[k], ch[k + 1])
+            if terms is not None:
+                rows.add(terms, 0.0, d.road, ("road", bl.id))
 
     # 5b. THE TAXI DESIGN PROFILE (owner RULINGS 2026-09-09b (2): taxiways
     #     "should follow terrain less and be more like runways").  A runway
@@ -244,16 +238,16 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
             continue
         ch = bl.vertices(planar)
         for k in range(1, len(ch) - 1):
-            a, m, c = ch[k - 1], ch[k], ch[k + 1]
-            if len({a, m, c}) < 3:
-                continue
-            (ax, ay), (mx, my), (cx, cy) = (planar.vertices[i].xy for i in (a, m, c))
-            dp, dn = math.hypot(mx - ax, my - ay), math.hypot(cx - mx, cy - my)
-            if dp <= 1e-6 or dn <= 1e-6:
-                continue
-            sc = 0.5 * (dp + dn)
-            rows.add(((c, sc / dn), (m, -sc * (1.0 / dn + 1.0 / dp)), (a, sc / dp)),
-                     0.0, d.taxi_profile, ("taxi_profile", bl.id))
+            terms = second_difference(planar, ch[k - 1], ch[k], ch[k + 1])
+            if terms is not None:
+                rows.add(terms, 0.0, d.taxi_profile, ("taxi_profile", bl.id))
+    # 5b'. ... AND THROUGH A JUNCTION (issue #517): a breakline ENDS where
+    #      centrelines meet, so the station where one taxiway runs straight
+    #      on into the next had no curvature cost and took a kink.  The same
+    #      row, the same weight, at every pair of ends that continue within
+    #      ``[design] taxi_profile_through_max_deg`` (``solve/design_junction``).
+    rep.taxi_junction_rows = through_junction_rows(
+        planar, rows, d.taxi_profile, d.taxi_profile_through_max_deg)
 
     # 5c. THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
     #     spec §8.6).  The second-difference rows above are CURVATURE and

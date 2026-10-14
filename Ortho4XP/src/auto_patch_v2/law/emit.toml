@@ -443,6 +443,23 @@ law           = 300.0  # every law row of every generator as a ONE-SIDED quadrat
 # ``bank_min_width_m`` with zero drop, by the walk it already runs.
 ground_datum  = 3.0
 taxi_profile  = 300.0  # THE TAXI DESIGN PROFILE (09-09b (2), "taxiways should follow terrain less and be more like runways"): the second difference of z along every taxi CENTRELINE chain — the runway K pattern as a strong curvature target, so a taxiway is designed along its route instead of draping between its law rows
+# THE PROFILE CONTINUES THROUGH A JUNCTION (issue #517).  ``taxi_profile``
+# above is written at the INTERIOR stations of each centreline breakline,
+# and a breakline ENDS where centrelines meet — so the station where one
+# taxiway runs straight on into the next carried no curvature cost and the
+# solve put its kink there (SPJC taxiway L: +2.99 % grade change at ONE
+# vertex, the end of all three centrelines meeting there).  At every pair
+# of centreline ENDS meeting at one vertex whose path turns at most this
+# many degrees, the same second-difference row at the same weight.  30 deg
+# is the turn a taxiway is laid out to be DRIVEN THROUGH at speed — ICAO
+# Doc 9157 Part 2's rapid exit taxiway meets its runway at 25-45 deg,
+# preferably 30 — so a path under it is a route an aircraft rolls along
+# and its vertical profile is priced like a straight one; a T or a cross
+# (a slow turn, ~90 deg) is not.  Measured population (sw24 axes, seven
+# airports, every pair of stretch ends at one vertex): 599 pairs at 0-5
+# deg, 778 at 85-95, and the bins between thin out from 20-30 (124) to
+# 30-50 (94 over four bins) — the threshold is not tuned to one airport.
+taxi_profile_through_max_deg = 30.0
 # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
 # §8.6).  ``taxi_profile`` is a SECOND DIFFERENCE with RHS 0 — curvature,
 # no level — so a long taxiway had no level at all (CYXY `pav28`, 10o) and

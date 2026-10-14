@@ -103,6 +103,12 @@ class Design:
     #: difference of z along every taxi CENTRELINE chain, as a strong
     #: curvature target — the runway K pattern read as an objective term
     taxi_profile: float
+    #: THE PROFILE CONTINUES THROUGH A JUNCTION (issue #517): at a vertex
+    #: where two taxi centreline breaklines END and the path through it
+    #: turns at most this many degrees, the ``taxi_profile`` second
+    #: difference is written across the junction too
+    #: (``solve/design_junction``).  A plan ANGLE, not a weight.
+    taxi_profile_through_max_deg: float
     #: THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1);
     #: spec §8.6): the ground's LONG-WAVE TREND along every taxi centreline
     #: chain — the §21 construction at the same window key, shifted
@@ -395,6 +401,11 @@ def check_design(d: Design, err: type[Exception],
                   f"rulesets.*.runway.vertical_curve_k_m "
                   f"{max_vertical_curve_k_m} — a shorter window fits "
                   f"curvature the K law forbids (RULINGS 2026-09-10t (3))")
+    if not 0.0 <= d.taxi_profile_through_max_deg < 90.0:
+        raise err(f"emit.design.taxi_profile_through_max_deg "
+                  f"{d.taxi_profile_through_max_deg}: degrees in [0, 90) — "
+                  f"the turn under which a taxi path runs STRAIGHT ON through "
+                  f"a junction (a T or a cross turns ~90 and is not one)")
     if not 0.0 <= d.runway_yield_margin < 1.0:
         raise err(f"emit.design.runway_yield_margin {d.runway_yield_margin}: "
                   f"a grade in [0, 1) — the margin a YIELDED runway cap "

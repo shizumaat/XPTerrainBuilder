@@ -54,6 +54,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_PARALLEL_AIRPORTS":
         "scheduling only; the parallel path is byte-identical to serial",
     "O4_PARALLEL_AIRPORTS_N": "the airport worker cap",
+    "O4_STEP_REUSE":
+        "whether a tile build may skip a step whose output is current "
+        "(O4_Step_Reuse, #615); a step that runs builds the same patch",
     "O4_CACHE_AWARE_ADMISSION": "tile admission order in a parallel run",
     "O4_OSM_CLASS_LIMIT": "concurrent Overpass fetches",
     "O4_IMAGERY_CLASS_LIMIT": "concurrent imagery fetches",

@@ -53,6 +53,11 @@ struct RunIssuesSheet: View {
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        if tile.requeued {
+                            // #695: fixed while the run went on.
+                            Label(O4TileFailureCopy.requeuedLine, systemImage: "arrow.clockwise")
+                                .foregroundStyle(.secondary)
+                        }
                         if let link = tile.removableLink {
                             linkButtons(tile, link: link)
                         }

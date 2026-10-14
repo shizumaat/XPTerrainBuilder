@@ -900,7 +900,7 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
     never applies the §28 (6) hillside hold: a MAPPED ROAD that reaches a
     pad RAMPS to it (owner RULINGS 2026-10-13a (3) "Ramp it" — the
     terrace is not the answer where a road reaches a pad; the road's run
-    is the §37 (6) ramp's, ``constraints/road_ramp.pad_ramp_rewrite``).
+    is the §37 (6) ramp's, ``constraints/pad_ramp.pad_ramp_rewrite``).
 
     Returns the cells and the number the KNIFE cut (the held terraces)."""
     back = law.tables.structures.building_pad.groundside_cutback_m

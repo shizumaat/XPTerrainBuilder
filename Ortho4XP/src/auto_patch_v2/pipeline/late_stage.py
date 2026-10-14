@@ -278,31 +278,52 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     # THE ROAD YIELDS TO THE PAD (issue #609; 13a (1), 13d): a pad road's
     # absolute road rows leave and it carries the ramp from the rim it is
     # welded to — the rim a constant of this stage
-    from ..constraints.road_ramp import pad_ramp_rewrite
-    cs, pad_ramp = pad_ramp_rewrite(pm, law, cs)
+    from ..constraints.pad_ramp import pad_ramp_rewrite
+    cs, pad_ramp = pad_ramp_rewrite(pm, law, cs, fixed)
     pad_joins = pad_ramp.pop("joins")
     # 13d "road ramps first": where no cap-grade ramp fits between the pad
-    # and the road's other standing end — the remainder, read not applied
-    from ..constraints.pad_road_reach import pad_grade_release, pad_road_reach
-    from ..constraints.road_ramp import PAD_RAMP_RULING
-    pad_ramp["reach"] = reach_rep = pad_road_reach(pm, law, fixed)
-    # 13e: no step — the stretch that cannot reach inside the cap steepens,
-    # one ramp over its whole run
+    # and the road's other standing end — the remainder.  13f: ONLY A
+    # FREE-STANDING PAD takes any of it (one rigid pad, inside the cap);
+    # 13e: what is still out of reach steepens — one ramp over its whole
+    # run, no step — and is published as a lifted cap on those faces
+    from ..constraints.pad_road_reach import (free_standing_pads, pad_grade_release,
+                                              pad_road_reach, pad_shifts, shift_pads)
+    from ..constraints.pad_ramp import PAD_RAMP_RULING
+    reach_rep = pad_road_reach(pm, law, fixed)
+    first = [r for r in reach_rep if r["remainder_m"]]
+    free_pads = free_standing_pads(pm, law) if first else frozenset()
+    shifts = pad_shifts(reach_rep, free_pads)
+    if shifts:
+        pad_ramp["shifted"] = shift_pads(pm, law, fixed, shifts)
+        reach_rep = pad_road_reach(pm, law, fixed)
+    pad_ramp["shifts"] = shifts
+    pad_ramp["reach"] = reach_rep
     cs, pad_ramp["released"] = pad_grade_release(pm, cs, reach_rep, PAD_RAMP_RULING)
-    short = sorted((r for r in reach_rep if r["remainder_m"]),
-                   key=lambda r: -abs(r["remainder_m"]))
+    if pad_ramp["released"]:
+        pm = _dc.replace(pm, pad_road_released={
+            int(f): (r["pad"], float(r["run_m"]), float(r["grade"]))
+            for r in pad_ramp["released"] for f in r["faces"]})
     if reach_rep:
         to_ll = airport.frame.transformers()[1]
         out(f"LAST STAGE pad roads (13d): {len(reach_rep)} pad|road network(s) between "
-            f"two standing levels, {len(short)} with no ramp inside the road cap")
-        for r in short:
+            f"two standing levels, {len(first)} with no ramp inside the road cap, "
+            f"{len(shifts)} free-standing and shifted (13f), "
+            f"{len(pad_ramp['released'])} stretch(es) released above the cap (13e)")
+        for r in sorted(first, key=lambda r: -abs(r["remainder_m"])):
+            pad = r["pad"]
             lat, lon = to_ll(*pm.vertices[r["far_v"]].xy)
-            out(f"    {r['pad']}: {r['rise_m']:+.2f} m over {r['run_m']:.1f} m to {r['far']} "
+            now = next((q for q in pad_ramp["released"]
+                        if q["pad"] == pad and q["road"] == r["road"]), None)
+            out(f"    {pad}: {r['rise_m']:+.2f} m over {r['run_m']:.1f} m to {r['far']} "
                 f"at {lat:.7f},{lon:.7f} = {100 * r['grade']:.1f} % (cap "
-                f"{100 * r['cap']:.0f} %), remainder {r['remainder_m']:+.2f} m "
-                f"(a pad shift of {r['shift_m']:+.2f} m is READ, not applied); GRADE RELEASED "
-                f"to {100 * r['grade']:.1f} % over the run (13e); "
-                f"road {', '.join(r['road'][:3])}")
+                f"{100 * r['cap']:.0f} %), remainder {r['remainder_m']:+.2f} m; "
+                + (f"FREE-STANDING: pad shifted {shifts[pad]:+.2f} m (13f); "
+                   if pad in shifts else
+                   "free-standing, its roads ask opposite ways: stays (13f); "
+                   if pad in free_pads else "welded to other pavement: stays (13f); ")
+                + (f"GRADE RELEASED to {100 * now['grade']:.1f} % over "
+                   f"{now['run_m']:.1f} m (13e); " if now else "a cap-grade ramp now fits; ")
+                + f"road {', '.join(r['road'][:3])}")
     cs_all = cs
     # THE FLOOR, ONE NUMBER AT ONE SITE (spec §55 (5), (15) rule B): the
     # widening reads it here and the sidecar publishes THIS value

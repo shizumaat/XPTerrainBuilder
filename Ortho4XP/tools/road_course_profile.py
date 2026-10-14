@@ -18,6 +18,19 @@ PATCH-EDGE window (some samples on the patch, some on the DEM), and per
 from its mouth (the vertices it shares with a ``graded_strip`` ring) and
 their worst ``|z - DEM|`` (bar: within ``cockpit.visual_m``).
 
+A WELD GAP IS PATCH (lane roads609e): a sample off every ring but inside
+the patch's CLOSING by ``--gap`` metres (default 1.5 — three identity
+cells, the most a ribbon the arrangement could not weld to a rim node
+stands off it; a crack between two decimated rings is centimetres) is read
+at the nearest ring's level and labelled ``gap``: no vertex stands in such
+a sliver, so the mesh spans it between its sides and never drapes the DEM
+there.  MEASURED before (KCLT): way ``-6064``, one sample in the 0.7 m
+sliver between a road end at 222.54 m and the pad it runs into at 222.68 m
+read the DEM (218.32 m) — "44.3 % at the patch edge" over a surface that
+steps 0.14 m; way ``-8190``, two samples 0.07 / 0.09 m outside every ring
+on the seam of three road faces — "41.4 %".  A true patch edge is not
+closed: the closing of a straight edge is the edge.
+
 It is an INSTRUMENT: the triangulation approximates the mesher's, it prices
 no law and counts no defects (``harness/census.py`` does).  Measured basis
 (NLWF, capture base d5173ad6): road -1 along 07/25, 15.0 % -> 2.3 % with the
@@ -45,6 +58,7 @@ from pathlib import Path
 
 import numpy as np
 import shapely
+import shapely.ops
 from pyproj import Transformer
 from shapely.geometry import LineString, Point, Polygon
 
@@ -77,10 +91,15 @@ def patch_surface(patch: str, crs: str):
             poly = poly.buffer(0)
         for tr in shapely.get_parts(shapely.constrained_delaunay_triangles(poly)):
             cs = list(tr.exterior.coords)[:3]
-            try:
-                zs = [zmap[(round(x, 3), round(y, 3))] for x, y in cs]
-            except KeyError:
-                continue
+            # a ring that touches itself is repaired (``buffer(0)``) and may
+            # carry a corner the ring has no node at: it takes the nearest
+            # ring node's level instead of dropping the triangle (a dropped
+            # triangle read the DEM inside a face — lane roads609e, KCLT
+            # ``-8202``: "41 % at the patch edge" in the middle of a road)
+            zs = [zmap.get((round(x, 3), round(y, 3))) for x, y in cs]
+            for i, (x, y) in enumerate(cs):
+                if zs[i] is None:
+                    zs[i] = min(P, key=lambda q: (q[0] - x) ** 2 + (q[1] - y) ** 2)[2]
             tris.append((tr, cs, zs))
     return tris, shapely.STRtree([t[0] for t in tris])
 
@@ -93,6 +112,8 @@ def main(argv=None) -> int:
     ap.add_argument("--step", type=float, default=2.0)
     ap.add_argument("--window", type=float, default=10.0)
     ap.add_argument("--detail", default=None, help="WAY:S0:S1")
+    ap.add_argument("--gap", type=float, default=1.5,
+                    help="widest weld gap read as patch (m; 0 = off)")
     ap.add_argument("--on-patch", action="store_true",
                     help="worst on-patch / patch-edge windows + corridor-end |z-DEM|")
     a = ap.parse_args(argv)
@@ -114,21 +135,37 @@ def main(argv=None) -> int:
                 return l1 * zs[0] + l2 * zs[1] + (1 - l1 - l2) * zs[2], "patch"
         return float(dem.z(x, y)), "dem"
 
+    def zon(L, s):
+        """``zat`` at chainage ``s`` of ``L``, a weld gap read as patch."""
+        p = L.interpolate(s)
+        z, src = zat(p.x, p.y)
+        if src == "dem" and a.gap > 0.0:
+            near = [tris[i] for i in tree.query(p.buffer(a.gap))]
+            if near and shapely.union_all([t[0] for t in near]).buffer(
+                    0.5 * a.gap).buffer(-0.5 * a.gap + 1e-6).covers(p):
+                tr = min(near, key=lambda t: t[0].distance(p))
+                q = shapely.ops.nearest_points(tr[0], p)[0]
+                # a hair inside the triangle, so its own plane reads it
+                c = tr[0].centroid
+                z2, src2 = zat(q.x + 1e-6 * (c.x - q.x), q.y + 1e-6 * (c.y - q.y))
+                if src2 == "patch":
+                    return p, z2, "gap"
+        return p, z, src
+
     ways = {w.id: w for w in airport.osm_ways}
     k = max(1, int(round(a.window / a.step)))
     for wid in (int(s) for s in a.ways.split(",")):
         L = LineString(ways[wid].points)
         prof = []
         for i in range(int(L.length / a.step) + 1):
-            p = L.interpolate(i * a.step)
-            z, src = zat(p.x, p.y)
+            p, z, src = zon(L, i * a.step)
             prof.append((i * a.step, p.x, p.y, z, src))
         worst = sorted(((abs(prof[i + k][3] - prof[i][3]) / (k * a.step), prof[i])
                         for i in range(len(prof) - k)), key=lambda r: -r[0])
         zs = [q[3] for q in prof]
         print(f"road {wid} {ways[wid].tags.get('highway')} len {L.length:.0f} m  "
               f"z {min(zs):.2f}..{max(zs):.2f}  patch-samples "
-              f"{sum(q[4] == 'patch' for q in prof)}/{len(prof)}")
+              f"{sum(q[4] != 'dem' for q in prof)}/{len(prof)}")
         shown: list[float] = []
         for g, q in worst:
             if any(abs(q[0] - s) < 30 for s in shown):
@@ -140,8 +177,9 @@ def main(argv=None) -> int:
             if len(shown) >= 5:
                 break
         if a.on_patch:
-            for label, keep in (("ON-PATCH", lambda srcs: all(x == "patch" for x in srcs)),
-                                ("PATCH-EDGE", lambda srcs: "patch" in srcs and "dem" in srcs)):
+            for label, keep in (("ON-PATCH", lambda srcs: "dem" not in srcs),
+                                ("PATCH-EDGE", lambda srcs: "dem" in srcs
+                                 and len(set(srcs)) > 1)):
                 best = None
                 for i in range(len(prof) - k):
                     if not keep([prof[j][4] for j in range(i, i + k + 1)]):
@@ -163,8 +201,7 @@ def main(argv=None) -> int:
         wid, s0, s1 = a.detail.split(":")
         L = LineString(ways[int(wid)].points)
         for s in np.arange(float(s0), float(s1), 2 * a.step):
-            p = L.interpolate(s)
-            z, src = zat(p.x, p.y)
+            p, z, src = zon(L, s)
             lon, lat = Ti.transform(p.x, p.y)
             print(f"  s={s:.0f} {lat:.6f},{lon:.6f} z={z:.2f} {src} dem={dem.z(p.x, p.y):.2f}")
     return 0

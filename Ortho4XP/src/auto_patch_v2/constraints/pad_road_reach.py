@@ -14,10 +14,18 @@ edges.  Over the road cap (``role_cap(service_road).longitudinal``) no
 profile fits, and ``|difference| - cap x run`` is THE REMAINDER — the least
 rigid shift of the pad that would let the road reach; ``[road_contact]
 pad_shift_max_m`` bounds what the pad may take of it (``shift_m``) and the
-rest stands as the road's step (``step_m``).  This module reads them; it
-moves nothing.  An end where the road LEAVES the patch is no
-constant (its join is released and the core road carries the ramp on,
-``road_ramp.pad_ramp_rewrite``), so it never binds here.
+rest is what the road's grade is released for (``step_m``; 13e: no step).
+An end where the road LEAVES the patch is no constant (its join is released
+and the ramp runs on inside the patch, ``classify/pad_road_exit``), so it
+never binds here.
+
+THE ORDER (13e, 13f): (1) the ramp at the least grade inside the cap —
+nothing here; (2) ONLY A FREE-STANDING PAD SHIFTS (:func:`free_standing_pads`,
+:func:`pad_shifts`, :func:`shift_pads`): one rigid pad, the least amount,
+inside ``pad_shift_max_m``; a pad with other pavement beside it stays;
+(3) what is still out of reach is released above the cap over the whole run
+(:func:`pad_grade_release`) and published as a lifted cap on those faces
+(``PlanarMap.pad_road_released`` -> ``pipeline/publication.lifted_caps``).
 """
 from __future__ import annotations
 
@@ -36,7 +44,8 @@ RELEASE_SLACK = 1e-3
 #: the ruling head of the cross-fall rows, which the release never touches
 _TRANSVERSE = "road_cross_section"
 
-__all__ = ["pad_road_reach", "pad_grade_release", "RELEASE_SLACK"]
+__all__ = ["pad_road_reach", "pad_grade_release", "RELEASE_SLACK",
+           "free_standing_pads", "pad_shifts", "shift_pads"]
 
 
 def _components(faces, verts: dict[int, set[int]]) -> list[list]:
@@ -168,7 +177,7 @@ def pad_grade_release(planar: PlanarMap, cs: ConstraintSet,
     (a ``Diff`` that is not a cross-fall row) is widened to that grade, and
     its ramp design rows (``design_head``, built at the design grade) leave
     — between two constants the sheet's own bending lays the one straight
-    ramp.  ``(set, [{pad, road, grade, run_m, rise_m, rows}])``."""
+    ramp.  ``(set, [{pad, road, grade, run_m, rise_m, faces, rows}])``."""
     need: dict[int, float] = {}
     out: list[dict] = []
     E, F = planar.edges, planar.faces
@@ -181,7 +190,7 @@ def pad_grade_release(planar: PlanarMap, cs: ConstraintSet,
             need[v] = max(need.get(v, 0.0), g)
         out.append({"pad": r["pad"], "road": list(r["road"]), "grade": r["grade"],
                     "run_m": r["run_m"], "rise_m": r["rise_m"], "far": r["far"],
-                    "far_v": r["far_v"], "rows": 0})
+                    "far_v": r["far_v"], "faces": list(r["faces"]), "rows": 0})
     if not need:
         return cs, out
     rows, n = [], 0
@@ -199,3 +208,80 @@ def pad_grade_release(planar: PlanarMap, cs: ConstraintSet,
     for rec in out:
         rec["rows"] = n
     return ConstraintSet.from_rows(rows), out
+
+
+def _pad_of(ref) -> str:
+    return str(ref).split("#")[0]
+
+
+def free_standing_pads(planar: PlanarMap, law: Law) -> frozenset[str]:
+    """THE PADS THAT MAY SHIFT FOR A ROAD (owner RULINGS 2026-10-13f: "only
+    a free-standing pad shifts"; a pad welded to a lot, an apron or other
+    pavement stays).  A pad is free-standing when NO value-carrying face
+    but its own and its pad roads' stands within ``[design] pad_frontage_m``
+    of it — the radius beyond which a pad and a cell have no relation
+    (``classify/pad_touch``).  Geometry only: nothing is asked of the pad
+    but what stands beside it."""
+    import shapely
+    from shapely.strtree import STRtree
+    from ..law.tables import is_value_role
+    road_ids = {f.id for f in pad_road_faces(planar)}
+    V = planar.vertices
+
+    def poly(f):
+        return shapely.polygons([V[v].xy for v in planar.ring_vertices(f.ring)])
+    pads: dict[str, list] = {}
+    others, names = [], []
+    for f in planar.faces.values():
+        if f.id in road_ids or len(planar.ring_vertices(f.ring)) < 3:
+            continue
+        if is_rigid_role(law, f.role):
+            pads.setdefault(_pad_of(f.ref), []).append(poly(f))
+        if is_value_role(law, f.role):
+            others.append(poly(f))
+            names.append(_pad_of(f.ref) if is_rigid_role(law, f.role) else None)
+    if not pads:
+        return frozenset()
+    reach = float(law.tables.emit.design.pad_frontage_m)
+    tree = STRtree(others) if others else None
+    free = set()
+    for pad, parts in pads.items():
+        hit = tree.query(parts, predicate="dwithin", distance=reach)[1].tolist() \
+            if tree is not None else []
+        if all(names[j] == pad for j in hit):
+            free.add(pad)
+    return frozenset(free)
+
+
+def pad_shifts(reach: _t.Sequence[_t.Mapping], free: _t.AbstractSet[str]
+               ) -> dict[str, float]:
+    """13d step 2 as 13f settles it: ``{pad: its rigid shift}`` — for a
+    FREE-STANDING pad whose road cannot reach inside the cap, the largest
+    ``shift_m`` its roads ask (each already the remainder inside
+    ``pad_shift_max_m``), when they all ask the same way.  Two roads asking
+    opposite ways leave the pad where it is: a shift for one is a longer
+    climb for the other."""
+    ask: dict[str, list[float]] = {}
+    for r in reach:
+        if r["remainder_m"] and r["pad"] in free:
+            ask.setdefault(r["pad"], []).append(float(r["shift_m"]))
+    return {pad: max(a, key=abs) for pad, a in sorted(ask.items())
+            if all(x > 0.0 for x in a) or all(x < 0.0 for x in a)}
+
+
+def shift_pads(planar: PlanarMap, law: Law, fixed: dict[int, float],
+               shifts: _t.Mapping[str, float]) -> dict[str, int]:
+    """Each pad of ``shifts`` moved AS ONE RIGID PAD: every constant of
+    ``fixed`` (in place) on a face of that pad takes the pad's shift.
+    ``{pad: vertices moved}``."""
+    moved: dict[str, set[int]] = {}
+    for f in planar.faces.values():
+        pad = _pad_of(f.ref)
+        if pad in shifts and is_rigid_role(law, f.role):
+            moved.setdefault(pad, set()).update(
+                v for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)
+                if v in fixed)
+    for pad, vs in moved.items():
+        for v in vs:
+            fixed[v] = float(fixed[v]) + float(shifts[pad])
+    return {pad: len(vs) for pad, vs in sorted(moved.items())}

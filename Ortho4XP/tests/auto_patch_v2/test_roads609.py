@@ -56,9 +56,8 @@ def test_the_ribbon_pass_never_holds_a_road_off_a_pad(law):
 
 def test_a_welded_ribbon_keeps_no_absolute_road_row_off_the_rim(law):
     from auto_patch_v2.constraints.pads import pad_welded_vertices
-    from auto_patch_v2.constraints.road_ramp import (JOIN_RULING, PAD_RAMP_RULING,
-                                                     RULING, RULING_CEILING,
-                                                     pad_ramp_rewrite,
+    from auto_patch_v2.constraints.pad_ramp import PAD_RAMP_RULING, pad_ramp_rewrite
+    from auto_patch_v2.constraints.road_ramp import (JOIN_RULING, RULING, RULING_CEILING,
                                                      pad_weld_release,
                                                      road_join_rows,
                                                      road_ramp_rows)

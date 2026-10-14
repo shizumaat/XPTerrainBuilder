@@ -180,15 +180,21 @@ def lifted_caps(planar: PlanarMap) -> dict[int, float]:
     the face built at the lifted grade.  A ramp face of an unpinched
     corridor, and every neighbour of a pinched one, is absent: the lift
     never leaves the faces the ruling named."""
+    # 13e (issue #609): a pad road released above the road cap is the same
+    # thing to a reader — "whatever grade the span requires is lawful" on
+    # the faces the last stage named, and on no neighbour
+    out: dict[int, float] = {
+        int(fid): float(rec[2])
+        for fid, rec in (getattr(planar, "pad_road_released", None) or {}).items()
+        if fid in planar.faces}
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
-        return {}
+        return out
     from shapely.geometry import LineString, Point
     axes = {tn.id: LineString(tn.axis) for tn in planar.structures
             if len(tn.axis) >= 2}
     if not axes:
-        return {}
-    out: dict[int, float] = {}
+        return out
     for fid, f in planar.faces.items():
         if f.role not in RAMP_ROLES:
             continue
@@ -210,17 +216,22 @@ def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
     corridor id, road ref, span m, designed grade]``, off the SAME
     ``Tunnel.pinched`` record and the SAME face join :func:`lifted_caps`
     uses."""
+    # 13e: a released pad road's record names its PAD where a pinched
+    # ramp's names its corridor — ``[shapeID, "pad:<ref>", road ref, run m,
+    # grade]``
+    released = getattr(planar, "pad_road_released", None) or {}
+    out: list[list[_t.Any]] = [
+        [int(fid), f"pad:{rec[0]}", str(planar.faces[fid].ref),
+         round(float(rec[1]), 3), round(float(rec[2]), 6)]
+        for fid, rec in sorted(released.items()) if fid in planar.faces]
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
-        return []
+        return out
     caps = lifted_caps(planar)
-    if not caps:
-        return []
     from shapely.geometry import LineString, Point
     axes = {tn.id: LineString(tn.axis) for tn in planar.structures
             if len(tn.axis) >= 2}
-    out: list[list[_t.Any]] = []
-    for fid in sorted(caps):
+    for fid in sorted(set(caps) - set(released)):
         vs = planar.ring_vertices(planar.faces[fid].ring)
         cx = sum(planar.vertices[v].xy[0] for v in vs) / len(vs)
         cy = sum(planar.vertices[v].xy[1] for v in vs) / len(vs)

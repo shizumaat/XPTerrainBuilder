@@ -618,6 +618,14 @@ class PlanarMap:
     #: LAST STAGE (:func:`pad_road_faces`), solved against the levels of
     #: the map without it.
     pad_roads: frozenset[str] = _dc.field(default_factory=frozenset)
+    #: THE PAD ROADS RELEASED ABOVE THE ROAD CAP (owner RULINGS 2026-10-13e:
+    #: "allow the road to steepen so we don't have a step"): face id ->
+    #: ``(pad ref, run m, the grade the stretch needs)`` for every face of
+    #: a pad|road network no cap-grade ramp fits on, written by the last
+    #: stage (``constraints/pad_road_reach.pad_grade_release``).  The
+    #: census reads it as a LIFTED longitudinal cap
+    #: (``pipeline/publication.lifted_caps``); empty where every road fits.
+    pad_road_released: _t.Mapping[int, tuple] = _dc.field(default_factory=dict)
     #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
     #: frame polygon rings — the SINGLE derivation is
     #: ``planar/overlay.seam_bands``, recorded here so every downstream

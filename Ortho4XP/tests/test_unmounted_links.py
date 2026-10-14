@@ -28,12 +28,43 @@ def scenery(tmp_path):
     return custom
 
 
-def test_volume_names():
+def _present(monkeypatch, *roots):
+    """``os.path.exists`` that says only ``roots`` exist (any platform)."""
+    monkeypatch.setattr(UL.os.path, "exists", lambda p: p in roots)
+
+
+def test_volume_named_only_when_the_drive_is_missing(monkeypatch):
+    _present(monkeypatch, "/Volumes/Mounted", "C:\\")
     assert UL.volume_of("/Volumes/ThunderBlade/a/b") == "ThunderBlade"
+    assert UL.volume_of("/Volumes/Mounted/gone/pack") == ""
     assert UL.volume_of("E:\\Scenery\\pack") == "E:"
+    assert UL.volume_of("C:\\Scenery\\gone") == ""       # present drive
     assert UL.volume_of("\\\\?\\F:\\x") == "F:"
+    assert UL.volume_of("\\\\?\\C:\\x") == ""
     assert UL.volume_of("/mnt/data/pack") == ""
     assert UL.volume_of("") == ""
+
+
+def test_extended_length_targets_are_cleaned():
+    assert UL.clean_target("\\\\?\\C:\\Users\\x") == "C:\\Users\\x"
+    assert UL.clean_target("\\\\?\\UNC\\host\\share\\p") == \
+        "\\\\host\\share\\p"
+    assert UL.clean_target("/Volumes/D/p") == "/Volumes/D/p"
+
+
+def test_a_windows_readlink_is_reported_clean(monkeypatch, scenery):
+    link = scenery / "pack"
+    os.symlink(_missing_volume_target(), link)
+    monkeypatch.setattr(UL.os, "readlink",
+                        lambda p: "\\\\?\\G:\\Library\\pack")
+    found = UL.dangling_link(str(link))
+    assert found["target"] == "G:\\Library\\pack"
+    assert found["volume"] == ("" if os.path.exists("G:\\") else "G:")
+    (entry,) = FAIL.fold([FAIL.record(
+        "output_link_unmounted", link=found["link"], target=found["target"],
+        volume="")], "+01+001")
+    assert "which no longer exists" in entry["why"]       # not "not mounted"
+    assert entry["remedy"].startswith("Restore the folder the link points")
 
 
 def test_dangling_link_to_unmounted_volume(scenery):

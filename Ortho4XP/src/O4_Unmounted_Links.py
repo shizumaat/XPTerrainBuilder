@@ -37,8 +37,8 @@ from typing import Optional
 # the ONE link test and removal (symlink or Windows junction)
 from O4_Scenery_Links import _is_link, _remove_link
 
-__all__ = ["UnmountedLink", "dangling_link", "volume_of", "check_output",
-           "unmounted_packs", "remove_link", "FAILURE_CODE",
+__all__ = ["UnmountedLink", "dangling_link", "volume_of", "clean_target",
+           "check_output", "unmounted_packs", "remove_link", "FAILURE_CODE",
            "READ_FAILURE_CODE"]
 
 FAILURE_CODE = "output_link_unmounted"
@@ -48,27 +48,40 @@ _APT_DAT_RE = re.compile(r"""o4_apt_dat=['"]([^'"]*)['"]""")
 _ICAO_RE = re.compile(r"""o4_icao=['"]([^'"]*)['"]""")
 
 
+def clean_target(target: str) -> str:
+    """A link target as the user would type it: Windows ``readlink``
+    returns the extended-length form — ``\\\\?\\C:\\x`` becomes
+    ``C:\\x`` and ``\\\\?\\UNC\\host\\share`` becomes
+    ``\\\\host\\share``."""
+    if target.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + target[8:]
+    if target.startswith("\\\\?\\"):
+        return target[4:]
+    return target
+
+
 def _read_target(path: str) -> str:
     try:
-        return os.readlink(path)
+        return clean_target(os.readlink(path))
     except OSError:
         return ""
 
 
 def volume_of(target: str) -> str:
-    """The drive a link target lives on, as the user knows it: the
-    ``<name>`` of a macOS ``/Volumes/<name>/…`` path, the ``X:`` of a
-    Windows drive path; ``""`` when the target names no drive."""
-    if not target:
-        return ""
-    norm = target.replace("\\", "/")
-    if norm.startswith("//?/"):
-        norm = norm[4:]
+    """The drive a link target waits for, as the user knows it — named only
+    when that drive is NOT there: the ``<name>`` of a macOS
+    ``/Volumes/<name>/…`` path whose ``/Volumes/<name>`` is not mounted,
+    the ``X:`` of a Windows path whose drive root ``X:\\`` is missing.
+    ``""`` otherwise: a dangling link on a present drive is a missing
+    target, not an unmounted drive."""
+    norm = clean_target(target or "").replace("\\", "/")
     parts = [p for p in norm.split("/") if p]
     if norm.startswith("/Volumes/") and len(parts) >= 2:
-        return parts[1]
+        mount = "/Volumes/" + parts[1]
+        return "" if os.path.exists(mount) else parts[1]
     if re.match(r"^[A-Za-z]:", norm):
-        return norm[:2].upper()
+        drive = norm[:2].upper()
+        return "" if os.path.exists(drive + "\\") else drive
     return ""
 
 

@@ -102,8 +102,17 @@ class Body:
     #: the seat is disarmed); a record with ``applied`` False is the
     #: REPORTED case, which is never a block cut.
     seat: "_pst.SeatTilt | None" = None
+    #: owner RULINGS 2026-10-14g (1): the authored ``OBJECT_AGL`` lift the
+    #: body's row keeps (``authored_landing.body_lift``), 0 on-ground
+    lift_m: float = 0.0
 
     def to_dict(self) -> dict[str, _t.Any]:
+        d = self._dict()
+        if self.lift_m:
+            d["lift_m"] = self.lift_m
+        return d
+
+    def _dict(self) -> dict[str, _t.Any]:
         a = self.anchor
         return {"body_id": self.body_id, "class": self.body_class,
                 "components": list(self.components),

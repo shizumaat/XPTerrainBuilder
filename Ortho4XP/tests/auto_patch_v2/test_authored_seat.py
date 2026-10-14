@@ -353,8 +353,12 @@ def test_a_kept_seat_keeps_its_dsf_row():
     assert AS.kept_rows([{"id": "unit:3", "seat": AS.SEAT_AUTHORED}]) == frozenset()
     conv, msl, riders, counts = _rows_of(seats)
     assert not (conv | msl) & {0, 1, 2, 4, 5}
-    assert {3, 6} <= conv | msl and not riders
+    # the RE-SEATED wall's row converts (its seat is the law's); the row no
+    # record names is an AGL row KEPT AS AUTHORED (owner RULINGS
+    # 2026-10-14g (1)) — neither converted nor re-expressed as MSL
+    assert 3 in conv and 6 not in conv | msl and not riders
     assert counts["authored_rows_kept"] == 5
-    # THE CONTROL: with no record every one of those rows is touched
+    # THE CONTROL: with no record no LIFTED AGL row is touched (14g (1));
+    # the SUNK ones (rows 0, 4, 5: negative columns) convert as before
     conv0, msl0, _r, counts0 = _rows_of(())
-    assert conv0 | msl0 == set(range(7)) and counts0["authored_rows_kept"] == 0
+    assert conv0 | msl0 == {0, 4, 5} and counts0["authored_rows_kept"] == 0

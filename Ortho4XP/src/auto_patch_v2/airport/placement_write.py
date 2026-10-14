@@ -143,6 +143,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                jetway_strip_m: float | None = None,
                # 10-01k Q1 (#162): the SEAT TILT cap, 0 disarms the seat
                seat_tilt_max_deg: float = 0.0,
+               # 14g (2)/(3): ``[placement] authored_keep_tol_m``, 0 disarms
+               authored_keep_tol_m: float = 0.0,
                # owner RULINGS 2026-10-14d (1): the base slabs that drape
                # (``slab_drape.drape_for_graded``) and the writer's law
                drape: "_t.Mapping[str, frozenset[int]] | None" = None,
@@ -182,11 +184,14 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
                           decks=decks, deck_on_fraction=deck_on_fraction,
                           deck_edge_m=deck_edge_m, deck_under_m=deck_under_m,
                           seat_tilt_max_deg=seat_tilt_max_deg,
+                          rows=getattr(dump, "placements", None),
+                          authored_keep_tol_m=authored_keep_tol_m,
                           drape=drape, drape_law=drape_law)
     splits, kept = _pp.to_placement_records(ss)
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
-        pads=pads, jetway_strips=jetway_strips, gate_m=jetway_strip_m)
+        pads=pads, jetway_strips=jetway_strips, gate_m=jetway_strip_m,
+        keep_tol_m=authored_keep_tol_m)
     files = tuple(f for s in ss.splits for f in s.files)
     counts = dict(ss.counts)
     counts.update(counts_extra)
@@ -203,7 +208,8 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
 def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence,
               surface: _t.Callable, pack_root: str, *, tol_m: float,
               pads: _t.Sequence = (), jetway_strips: _t.Sequence = (),
-              gate_m: float | None = None) -> tuple[tuple, tuple, tuple, dict]:
+              gate_m: float | None = None,
+              keep_tol_m: float = 0.0) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -216,18 +222,26 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     that they all are at the correct elevation without any changes") —
     that row's elevation column IS the author's seat and stays as written.
 
-    * every other ``OBJECT_MSL`` / ``OBJECT_AGL`` row converts to
-      on-ground (``dsf_write.conversions_for_dump``);
+    * every other ``OBJECT_MSL`` row converts to on-ground
+      (``dsf_write.conversions_for_dump``); an ``OBJECT_AGL`` row is kept
+      as authored (owner RULINGS 2026-10-14g (1)) unless §18 RE-SEATED it;
     * §16g (5) PER-PLACEMENT ELEVATION (owner RULINGS 2026-09-13bw): a
       MULTI-ANCHOR resource — one file at N anchors needing N seats — is
       dropped from the plan and seated HERE, on the row, the one place the
       dump and the plan are seen together; a row so seated keeps an
       elevation column and is not also converted;
-    * the riders (:func:`seat_riders`)."""
-    conversions, _kept = _dw.conversions_for_dump(dump, pack_root)
-    kept_idx = _seat.kept_rows(getattr(rebake_plan, "authored_seats", ()) or ())
+    * the riders (:func:`seat_riders`);
+    * 14g (2): an ``OBJECT_AGL`` row whose written ``OBJECT_MSL`` would
+      equal its drape within ``keep_tol_m`` stays AGL
+      (:func:`_agl_rows_kept`; 0 disarms)."""
+    _records = getattr(rebake_plan, "authored_seats", ()) or ()
+    conversions, _kept = _dw.conversions_for_dump(
+        dump, pack_root, convert_agl=_seat.reseated_rows(_records))
+    kept_idx = _seat.kept_rows(_records)
     settled = frozenset(s.placement.index for s in splits) | kept_idx
-    authored_rows = sum(1 for c in conversions if c.index in kept_idx)
+    _rows = list(getattr(dump, "placements", ()) or ())
+    authored_rows = sum(1 for i in kept_idx if 0 <= i < len(_rows)
+                        and _rows[i].kind in _dw.CONVERTIBLE_KINDS)
     conversions = tuple(c for c in conversions if c.index not in settled)
     flat = getattr(rebake_plan, "flat", None)
     ground = None if flat is None else flat.z0_m
@@ -241,15 +255,32 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     riders, msl, conversions = seat_riders(
         dump, jetway_strips, pads, surface, settled, msl, conv0, conversions,
         tol_m=tol_m, authored_ground=ground, gate_m=gate_m)
+    msl, agl_kept = _agl_rows_kept(dump, msl, surface, keep_tol_m)
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,
-                              "msl_seats": len(msl)}
+                              "msl_seats": len(msl),
+                              "agl_rows_kept_unchanged": agl_kept}
     counts.update(msl_counts)
     counts.update(_riders.rider_census(riders))
     counts.update(_fu.multi_anchor_census(dump, rebake_plan, msl, settled,
                                           ss.unit_seats))
     return conversions, msl, tuple(riders), counts
+
+
+def _agl_rows_kept(dump: _t.Any, msl: tuple, surface: _t.Callable,
+                   tol_m: float) -> tuple[tuple, int]:
+    """14g (2): ``(msl seats, AGL rows withdrawn)`` — an ``OBJECT_AGL``
+    row is not re-expressed as ``OBJECT_MSL`` when that changes nothing
+    (``authored_landing.msl_changes_nothing``): it stays AGL and keeps
+    following the mesh.  One filter over every row seat (§16g (5) and the
+    riders alike)."""
+    from . import authored_landing as _al
+    rows = list(getattr(dump, "placements", ()) or ())
+    keep = tuple(m for m in msl
+                 if not (0 <= m.index < len(rows) and _al.msl_changes_nothing(
+                     rows[m.index], m.elevation, surface, tol_m)))
+    return keep, len(msl) - len(keep)
 
 
 def seat_riders(dump: _t.Any, jetway_strips: _t.Sequence, pads: _t.Sequence,

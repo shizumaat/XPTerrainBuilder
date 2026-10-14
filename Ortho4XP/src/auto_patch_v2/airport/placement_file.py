@@ -389,6 +389,7 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                   splits: list[Split], kept: list[Kept], whole: list[Split],
                   *, always_write: bool,
                   tilted_whole: list[tuple[int, str, tuple[str, ...]]],
+                  landed: bool = False,
                   drape_comps: "frozenset[int]" = frozenset(),
                   drape_law: _t.Any = None) -> None:
     """The OBJ8 cut for one member's bodies, and where the record lands.
@@ -408,6 +409,19 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     if drape_comps:
         always_write = True
     index = record.index
+    if landed and not drape_comps:
+        # owner RULINGS 2026-10-14g (3): every body would land within
+        # ``authored_keep_tol_m`` of its authored seat — the split moves
+        # nothing, so the placement stays one placement of the original
+        # object on its authored row.  A placement carrying a DRAPED slab
+        # (14d (1)) is never kept whole: the drape is a rewrite of its
+        # geometry, decided before this keep
+        counts["kept"] += 1
+        counts["authored_seat_lands"] = counts.get("authored_seat_lands", 0) + 1
+        kept.append(Kept(index, m.id, m.resource, "authored_seat_lands"))
+        _note_tilted_kept_whole(m, counts, tilted_whole, index)
+        whole.append(record)
+        return
     if len(bodies) < 2 and not always_write:
         counts["kept"] += 1
         counts["one_body"] += 1

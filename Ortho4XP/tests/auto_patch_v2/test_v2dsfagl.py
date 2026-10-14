@@ -12,6 +12,7 @@ in ``tmp_path``, and ``write_pack`` refuses a live install without an
 explicit opt-in (twin below)."""
 from __future__ import annotations
 
+import dataclasses as _dc
 import json
 import os
 import shutil
@@ -103,7 +104,8 @@ def test_msl_and_agl_convert_and_every_other_line_is_byte_identical(tmp_path):
 
 def test_split_appends_defs_without_renumbering(tmp_path):
     bodies = tuple(Body(f"b{k}", "building", (k,), Anchor(-94.71 - k / 1000, 39.29, 12.5),
-                        "pad point", f"objects/hangar__b{k}.obj", (1.0, 2.0, 3.0))
+                        "pad point", f"objects/hangar__b{k}.obj", (1.0, 2.0, 3.0),
+                        lift_m=24.999816892)
                    for k in range(3))
     plan = _plan(tmp_path, splits=(
         Split(PlacementRef(2, "objects/hangar.obj", -94.716857881, 39.298726825,
@@ -114,12 +116,39 @@ def test_split_appends_defs_without_renumbering(tmp_path):
                         "OBJECT_DEF lib/cars/car_static_invar.obj",
                         "OBJECT_DEF objects/hangar.obj"]
     assert defs[3:] == [f"OBJECT_DEF objects/hangar__b{k}.obj" for k in range(3)]
-    # the split row became three OBJECT rows on the NEW def indices 3, 4, 5
-    rows = [ln for ln in out if ln.startswith("OBJECT ")]
-    assert [ln.split()[1] for ln in rows[-3:]] == ["3", "4", "5"]
-    assert "OBJECT_AGL" not in "\n".join(out)
+    # the split AGL row became three rows on the NEW def indices 3, 4, 5,
+    # each KEEPING the author's lift (owner RULINGS 2026-10-14g (1)): the
+    # elevation token copied verbatim, the body's own anchor and heading
+    rows = [ln for ln in out if ln.startswith("OBJECT_AGL ")]
+    assert [ln.split()[1] for ln in rows] == ["3", "4", "5"]
+    assert all(ln.split()[4] == "24.999816892" for ln in rows)
+    assert rows[0] == "OBJECT_AGL 3 -94.710000000 39.290000000 24.999816892 12.500000"
+    # a body the plan writes on-ground (a datum anchor, a §18 re-seat) is
+    # OBJECT, and a lift the row does not carry is refused
+    ground = _dc.replace(bodies[0], lift_m=0.0)
+    out2 = W.edit_dump(DUMP, _plan(tmp_path, splits=(Split(PlacementRef(
+        2, "objects/hangar.obj", -94.716857881, 39.298726825, 102.026093),
+        (ground,)),))).splitlines()
+    assert "OBJECT 3 -94.710000000 39.290000000 12.500000" in out2
+    with pytest.raises(ValueError, match="keeps lift"):
+        W.edit_dump(DUMP, _plan(tmp_path, splits=(Split(PlacementRef(
+            1, "objects/tower.obj", -94.719717041, 39.294637407, 352.787366),
+            (_dc.replace(bodies[0], new_resource="objects/tower__b0.obj"),)),)))
     # ...and every remaining row is as authored
     assert "OBJECT 1 -94.715004864 39.296891928 194.027008" in out
+
+
+def test_split_of_a_plain_or_msl_row_is_on_ground(tmp_path):
+    """14g (1) narrows only the AGL row: an ``OBJECT_MSL`` split's bodies
+    are on-ground (the 09-11b conversion of a hard-coded absolute)."""
+    body = Body("b0", "building", (0,), Anchor(-94.7197, 39.2946, 352.787366),
+                "pad point", "objects/tower__b0.obj", (0.0, 0.0, 0.0))
+    plan = _plan(tmp_path, splits=(
+        Split(PlacementRef(1, "objects/tower.obj", -94.719717041, 39.294637407,
+                           352.787366), (body,)),))
+    out = W.edit_dump(DUMP, plan).splitlines()
+    assert "OBJECT 3 -94.719700000 39.294600000 352.787366" in out
+    assert not any(ln.startswith("OBJECT_MSL 0 ") for ln in out)
 
 
 def test_edit_refuses_a_stale_plan(tmp_path):
@@ -145,15 +174,18 @@ def test_edit_refuses_a_stale_plan(tmp_path):
 def test_conversions_for_dump_converts_stock_too(tmp_path):
     """§5 as RE-SCOPED by owner RULINGS 2026-09-11d: a ``lib/…`` placement
     converts like a pack resource (a placement edit modifies no object);
-    a plain ``OBJECT`` row is listed by neither."""
+    a plain ``OBJECT`` row is listed by neither — and, owner RULINGS
+    2026-10-14g (1), neither is an ``OBJECT_AGL`` row: its lift is the
+    author's statement about our terrain and is kept as authored (row 2,
+    the hangar 25 m up, is not converted)."""
     p = tmp_path / "d.text"
     p.write_text(DUMP, encoding="utf-8", newline="")
     (tmp_path / "objects").mkdir()
     for n in ("tower.obj", "hangar.obj"):
         (tmp_path / "objects" / n).write_text("I\n800\nOBJ\n", encoding="utf-8", newline="")
     conv, kept = W.conversions_for_dump(D.read_dump(str(p)), str(tmp_path))
-    assert [c.index for c in conv] == [1, 2, 3]
-    assert [c.kind_before for c in conv] == ["OBJECT_MSL", "OBJECT_AGL", "OBJECT_MSL"]
+    assert [c.index for c in conv] == [1, 3]
+    assert [c.kind_before for c in conv] == ["OBJECT_MSL", "OBJECT_MSL"]
     assert kept == []
 
 
@@ -226,7 +258,13 @@ def test_real_pack_roundtrip_and_idempotent_write(tmp_path):
     assert tally(after.placements) == want
     assert all(pl.elevation is None for pl in after.placements
                if pl.kind == "OBJECT")
-    assert sum(1 for pl in after.placements if pl.kind != "OBJECT") == len(kept)
+    # 14g (1): the AGL rows that are lifts are not converted and read back
+    # as authored (a sink — a negative column — converts as before)
+    assert sum(1 for pl in after.placements if pl.kind not in ("OBJECT", "OBJECT_AGL")) \
+        == len(kept)
+    assert sum(1 for pl in after.placements if pl.kind == "OBJECT_AGL") \
+        == sum(1 for pl in dump.placements if pl.kind == "OBJECT_AGL"
+               and (pl.elevation or 0.0) >= 0.0)
 
     prov = json.loads(Path(res.provenance_path).read_text(encoding="utf-8"))
     assert prov["counts"]["conversions"] == len(conv)
@@ -273,13 +311,13 @@ def test_dsf_placement_diff_tool_reports_the_same_edit(tmp_path, capsys):
                    "--icao", "TEST", "--json"])
     assert rc == 0
     rep = json.loads(capsys.readouterr().out)
-    assert rep["counts"]["conversions"] == 3          # 11d: stock converts too
+    # 11d: stock converts too; 14g (1): the AGL hangar row is kept
+    assert rep["counts"]["conversions"] == 2
     assert rep["kept_by_reason"] == {}
     assert rep["per_resource"] == {"objects/tower.obj": 1,
-                                   "objects/hangar.obj": 1,
                                    "lib/cars/car_static_invar.obj": 1}
     # §12a: the one added row is the ownership mark
     assert rep["lines_after"] == rep["lines_before"] + 1
     news = {c["index"]: c["new"] for c in rep["changes"]}
     assert news[1] == "OBJECT 0 -94.719717041 39.294637407 352.787366"
-    assert news[2] == "OBJECT 2 -94.716857881 39.298726825 102.026093"
+    assert 2 not in news                                  # 14g (1)

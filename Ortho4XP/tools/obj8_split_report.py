@@ -1081,7 +1081,9 @@ def authored_rows_lines(dump, plan, ss, sampler, pack_root: str = "") -> list[st
     splits, _kept = PP.to_placement_records(ss)
     conv, msl, riders, counts = PW.dump_rows(
         dump, plan, ss, splits, sampler, pack_root,
-        tol_m=float(_L2.load().tables.emit.design.hard_tol_m))
+        tol_m=float(_L2.load().tables.emit.design.hard_tol_m),
+        keep_tol_m=float(_L2.load().tables.structures.placement
+                         .authored_keep_tol_m))
     kept = sorted(_as.kept_rows(getattr(plan, "authored_seats", ()) or ()))
     touched = ({c.index: "CONVERTED to on-ground" for c in conv}
                | {m.index: f"SEATED at OBJECT_MSL {m.elevation:+.3f}" for m in msl}
@@ -1173,7 +1175,8 @@ def _write_pack(a, plan, ss, sampler) -> None:
         dump, plan, ss, splits, sampler, root,
         tol_m=float(_law2.tables.emit.design.hard_tol_m), pads=_pads,
         jetway_strips=_strips,
-        gate_m=float(_law2.tables.emit.design.jetway_strip_m))
+        gate_m=float(_law2.tables.emit.design.jetway_strip_m),
+        keep_tol_m=float(_law2.tables.structures.placement.authored_keep_tol_m))
     counts = dict(ss.counts)
     counts.update(_rows)
     pl = PlacementPlan(icao=plan.icao, pack_name=os.path.basename(root),
@@ -1511,8 +1514,18 @@ def _main() -> int:
                   f"{r.lat:.6f}, {r.lon:.6f}" + ("" if r.touches else "  (no wall)"))
         _extra.update(drape=_dr, drape_law=_dl)
     _t0 = time.perf_counter()
+    # 14g (3): the split is judged against the pack's own rows where the
+    # dump is given (the engine passes the dump it writes)
+    _rows = None
+    if a.dsf_dump:
+        from auto_patch_v2.airport import dsf as _dsf_rows
+        _rows = _dsf_rows.read_dump(a.dsf_dump).placements
     ss = PP.build_splits(plan, sampler, pads, rims, write=not a.no_cut,
                          **_extra,
+                         rows=_rows,
+                         authored_keep_tol_m=float(
+                             _law.tables.structures.placement
+                             .authored_keep_tol_m),
                          # §49: the deck-face datum, off the same document
                          decks=getattr(sampler, "decks", ()),
                          deck_on_fraction=_law.tables.structures.deck.on_fraction,

@@ -357,8 +357,8 @@ def test_mouth_by_bore_floor_ground_minus_plate_ramp_inside_walls(objs, law):
     assert c.mouth_kind == "bore" and c.mouth_closed and not c.far_closed and not c.flat
     assert c.axis[0][1] < c.axis[-1][1]          # the mouth is the −y (closed) end
     # RULINGS 2026-09-08l: no floor slab -> the bore law's depth, never the crest
-    assert c.depth_m == pytest.approx(law.tables.structures.tunnel.bore_datum_m)
-    assert c.floor_z == pytest.approx(dem.z(*c.axis[0]) - law.tables.structures.tunnel.bore_datum_m)
+    assert c.depth_m == pytest.approx(law.tables.structures.tunnel.mouth_depth_m)
+    assert c.floor_z == pytest.approx(dem.z(*c.axis[0]) - law.tables.structures.tunnel.mouth_depth_m)
     assert c.plate_y == pytest.approx(5.0)
     cl = Classification(tuple(_cells(-200, -300, 200, 200)), (), {}, ())
     cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
@@ -367,12 +367,12 @@ def test_mouth_by_bore_floor_ground_minus_plate_ramp_inside_walls(objs, law):
     assert t.mouth_z == pytest.approx(c.floor_z) and t.climb_from_s == 0.0
     assert t.top_s == pytest.approx(t.wall_length_m) and t.top_pinned
     assert 0.0 < t.design_grade < tn.ramp_max_grade
-    assert t.design_grade == pytest.approx(tn.bore_datum_m / t.wall_length_m)   # 2026-09-08l
+    assert t.design_grade == pytest.approx(tn.mouth_depth_m / t.wall_length_m)   # 2026-09-08l
     assert t.mouth_kind == "bore" and t.ground_kind == "open"
 
 
 def test_wall_too_short_ramp_beyond_at_ramp_max_grade(objs, law):
-    """A 40 m wall cannot hold 5 m at 8 % (62.5 m needed): the ramp
+    """A 40 m wall cannot hold the 7.5 m mouth at 10 % (75 m needed): the ramp
     continues beyond the wall end at exactly ``ramp_max_grade`` along the
     approach.  (RULINGS 2026-09-12m took the cap 4 % -> 8 %, which halved
     the ramp: the 100 m wall this twin used to ride is now long enough, so
@@ -392,11 +392,40 @@ def test_wall_too_short_ramp_beyond_at_ramp_max_grade(objs, law):
     # prices ring pairs over the chord: 2 × half off the axis), plus one
     # station of slack
     half = t.half_width_m
-    need = 5.0 / tn.ramp_max_grade + 2.0 * half
+    need = t.depth_m / tn.ramp_max_grade + 2.0 * half
     spacing = law.tables.emit.chords.station_spacing_m
     assert need <= t.top_s <= need + 2.0 * spacing
     # the ramp beyond the walls runs down the approach way (x = 0)
     assert all(abs(x) < 0.5 for x, y in t.axis)
+
+
+def test_mouth_depth_is_measured_from_the_ground_not_a_proud_crest(objs, law):
+    """Owner RULINGS 2026-10-14f (3): the mouth depth is measured from the
+    GROUND at the wall, never from a wall crest that stands proud of it.
+    The same wall seated with its crest 0, 1 and 2 m over the ground (AGL
+    −5 / −4 / −3 on a 5 m plate) cuts the SAME mouth — ``mouth_depth_m``
+    under the ground — so a parapet the author keeps (``authored_crest_max_m``)
+    never shortens the cut; the crest-to-floor height grows by the parapet."""
+    tn = law.tables.structures.tunnel
+    dem = _PlaneDem()
+    floors = []
+    for agl, proud in ((-5.0, 0.0), (-4.0, 1.0), (-3.0, 2.0)):
+        airport, objects, cache, cs, st = _corridors(
+            objs, law, [("wall_long", (0.0, 0.0), 180.0, agl, "OBJECT_AGL")],
+            _bore(y_in=-70.0, y_open=80.0))
+        assert st.corridors == 1, st.refused
+        c = cs[0]
+        ground = dem.z(*c.axis[0])
+        assert c.mouth_dem_z == pytest.approx(ground)
+        assert ground - c.floor_z == pytest.approx(tn.mouth_depth_m)
+        cl = Classification(tuple(_cells(-200, -300, 200, 200)), (), {}, ())
+        _cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
+        t = [t for t in tunnels if t.source == "object"][0]
+        assert t.mouth_dem_z - t.mouth_z == pytest.approx(tn.mouth_depth_m)
+        # the crest over UNCUT ground is the parapet; the cut ignores it
+        assert t.authored_crest_m[0][1] == pytest.approx(proud, abs=1e-3)
+        floors.append(t.mouth_z)
+    assert max(floors) - min(floors) == pytest.approx(0.0, abs=1e-9)
 
 
 # ── RULINGS 2026-10-07a (7)-(9): a wall seated AT GRADE, by its bore ────
@@ -416,8 +445,8 @@ def test_wall_at_grade_with_a_bore_at_its_plate_is_admitted(objs, law):
         assert not [r for r in st.refused if "at grade" in r], st.refused
         c = cs[0]
         assert c.mouth_kind == "bore" and c.bore_ways == (-101,) and c.agl_m == agl
-        assert c.depth_m == pytest.approx(tn.bore_datum_m)
-        assert c.floor_z == pytest.approx(dem.z(*c.axis[0]) - tn.bore_datum_m)
+        assert c.depth_m == pytest.approx(tn.mouth_depth_m)
+        assert c.floor_z == pytest.approx(dem.z(*c.axis[0]) - tn.mouth_depth_m)
         assert any("at grade, admitted by its bore" in n for n in c.notes)
         cl = Classification(tuple(_cells(-200, -300, 200, 200)), (), {}, ())
         cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
@@ -426,7 +455,7 @@ def test_wall_at_grade_with_a_bore_at_its_plate_is_admitted(objs, law):
         assert t.replaced_ways == (-101,)
         assert t.top_s == pytest.approx(t.wall_length_m) and t.top_pinned
         assert t.wall_length_m == pytest.approx(c.length_m)
-        assert t.design_grade == pytest.approx(tn.bore_datum_m / t.wall_length_m)
+        assert t.design_grade == pytest.approx(tn.mouth_depth_m / t.wall_length_m)
 
 
 def test_wall_at_grade_is_the_same_corridor_as_the_deep_seat(objs, law):
@@ -551,7 +580,7 @@ def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
     mouth_pins = [p for p in pins.values() if "mouth_depth = floor_slab" in p.source.ruling]
     assert len(mouth_pins) == 1 and mouth_pins[0].z == pytest.approx(t.mouth_z)
     # no 5.1 m mouth relation on the OBJECT's rows (the OSM far mouth keeps its own)
-    assert not any(r.source.ruling.startswith("tunnel.bore_datum") for r in rows
+    assert not any(r.source.ruling.startswith("tunnel.mouth_depth") for r in rows
                    if r.source.inputs and r.source.inputs[0] == t.id)
     cs_all, counts, _w = generate(pm, law, airport)
     sol = solve_design(pm, cs_all, law)[0]
@@ -573,7 +602,7 @@ def test_generator_rows_solve_and_verify(corridor_map, law, tmp_path):
     surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs, {})
     pub = publication(pm, law, airport, sol.z)
     rec = pub["tunnel_objects"][0]
-    assert rec["depth_m"] == pytest.approx(law.tables.structures.tunnel.bore_datum_m)
+    assert rec["depth_m"] == pytest.approx(law.tables.structures.tunnel.mouth_depth_m)
     assert rec["mouth"] == "bore"
     assert rec["ramp_beyond_walls_m"] == 0.0 and rec["trench_outside_max_m"] == 0.0
     from auto_patch_v2.emit.osm_adapter import write_patch

@@ -131,7 +131,7 @@ def test_dual_bore_is_one_ramp_per_mouth_with_gap_wall_cap(synthetic, law):
     assert all(c.ref == "tunnel_ramp" for c in cl2.cells if c.role == "tunnel_ramp")
     assert all(c.ref == "tunnel_wall" for c in cl2.cells if c.role == "retaining_wall")
     for t in tunnels:
-        assert t.mouth_z == pytest.approx(t.mouth_dem_z - tn.bore_datum_m)
+        assert t.mouth_z == pytest.approx(t.mouth_dem_z - tn.mouth_depth_m)
         # the mouth line stands at the bore's mapped end (x = ±80)
         assert abs(abs(t.axis[0][0]) - 80.0) < 1.0
         assert t.half_width_m == pytest.approx((12.0 + 2 * 3.5 * 2 / 2) / 2, abs=0.6)
@@ -235,34 +235,34 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     sol = solve_design(pm, cs, law)[0]
     assert sol.status is Status.OPTIMAL, sol.iis[:5]
     east = next(t for t in tunnels if t.axis[0][0] > 0)
-    # the mouth group sits at the datum; the wall stands bore_datum above it
+    # the mouth group sits at the datum; the wall stands mouth_depth_m above it
     ramp_f = ramp_faces_of(pm, tunnels)[east.id]
     zs = [sol.z[v] for f in ramp_f for v in pm.ring_vertices(f.ring)]
-    # the mouth datum: the cap's crest (the covering ground) − bore_datum
+    # the mouth datum: the cap's crest (the covering ground) − mouth_depth_m
     # — within the DEM's slope across the 1.1 m to the cap of the point
     # sample the record carries
     assert min(zs) == pytest.approx(east.mouth_z, abs=0.05)
-    lin = [r for r in rows if isinstance(r, Linear) and r.source.ruling.startswith("tunnel.bore_datum")]
+    lin = [r for r in rows if isinstance(r, Linear) and r.source.ruling.startswith("tunnel.mouth_depth")]
     assert lin
     # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth datum is
     # stated as a TWO-SIDED PAIR of ONE-SIDED rows, never one ``lo == hi``
     # equality — ``solve/rows._law_sides`` routes an equality into the
     # ``eqs`` bucket, which ``solve/design`` adds at the LAW WEIGHT, so the
     # datum was a soft least-squares row and at LEMD ``tunnel:-15327@0`` it
-    # LOST 2.17 m.  One-sided, the head ``tunnel.bore_datum_m`` is read
+    # LOST 2.17 m.  One-sided, the head ``tunnel.mouth_depth_m`` is read
     # from ``[design] hard_rulings`` and the rows are CONSTRAINTS.
     assert len(lin) % 2 == 0 and len(lin) >= 2
     assert all(r.lo is None and r.hi is not None for r in lin), (
         "an lo == hi Linear never reaches [design] hard_rulings")
-    assert {r.hi for r in lin} == {-tn.bore_datum_m, tn.bore_datum_m}
+    assert {r.hi for r in lin} == {-tn.mouth_depth_m, tn.mouth_depth_m}
     for r in lin:
         # each row, in its own sense, is MET (a constraint now, not a target)
         assert sum(c * sol.z[v] for v, c in r.terms) <= (
             r.hi + law.tables.emit.materiality.elevation_m)
         assert abs(sum(c * sol.z[v] for v, c in r.terms)) == pytest.approx(
-            tn.bore_datum_m, abs=law.tables.emit.materiality.elevation_m)
+            tn.mouth_depth_m, abs=law.tables.emit.materiality.elevation_m)
     wz = [sol.z[v] for f in walls[east.id] for v in pm.ring_vertices(f.ring)]
-    assert max(wz) - min(zs) >= tn.bore_datum_m - 1e-6
+    assert max(wz) - min(zs) >= tn.mouth_depth_m - 1e-6
     # the deck stands the clearance above the ramp beneath
     deck = [f for f in pm.faces.values() if f.ref.startswith("bridge_deck:")]
     dz = min(sol.z[v] for f in deck for v in pm.ring_vertices(f.ring))

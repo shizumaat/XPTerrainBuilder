@@ -13,8 +13,8 @@ THE ROWS (law ``structures.toml``; RULINGS 2026-08-30, 2026-08-30c/d/f,
   (the ramp is laterally flat — ``road_cross_section`` at 0 %), and
   consecutive groups are a ``Diff`` at ``tunnel.ramp_max_grade`` over
   their axis distance (the descent law, per corridor axis).  The mouth
-  group is PINNED at the mouth datum ``DEM(mouth) − bore_datum_m``
-  (09-03b: the mouth wall stands ``bore_datum_m`` above the ramp's
+  group is PINNED at the mouth datum ``DEM(mouth) − mouth_depth_m``
+  (09-03b: the mouth wall stands ``mouth_depth_m`` above the ramp's
   mouth node; the bore continues below and is not emitted).  With a
   deck across the corridor the cut stays AT the mouth datum from the
   mouth to the deck and the climb begins on the far side (08-30f): every
@@ -28,7 +28,7 @@ THE ROWS (law ``structures.toml``; RULINGS 2026-08-30, 2026-08-30c/d/f,
   DEM by station"; ``tunnel.crest = "dem"``) where bare, and carries the
   governed ground's value where shared with the pavement the structure
   cut; the end cap likewise (the cap's centre is the MOUTH WALL NODE:
-  its crest is ``DEM(mouth)`` — ``bore_datum_m`` above the mouth node
+  its crest is ``DEM(mouth)`` — ``mouth_depth_m`` above the mouth node
   exactly).  Nothing else touches a rim value: no transition law, no
   ramp-side grading (09-03b L2: the wall IS the discontinuity).  The
   void between ramp and rim has no vertices of its own: the mesh
@@ -239,7 +239,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     edge vs the apron's 1 % cap was an IIS); a vertex on bare ground is
     the DEM.  The band stays ONE value per station across its width
     (09-01c) as a ``Flat``; the mouth datum is the end cap's crest minus
-    ``bore_datum_m`` (09-03b's 5.1 m relation, exact in both cases)."""
+    ``mouth_depth_m`` (09-03b's relation at RULINGS 2026-10-14f's 7.5 m, exact in both cases)."""
     tunnels = planar.structures
     if not tunnels:
         return []
@@ -294,7 +294,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     for tn in tunnels:
         inputs = (tn.id, *(f"osm:{w}" for w in tn.ways))
         src_ramp = Source(GEN, "tunnel.ramp_max_grade (2026-08-07 r4; 2026-08-30)", inputs)
-        src_mouth = Source(GEN, "tunnel.bore_datum_m (2026-09-03b)", inputs)
+        src_mouth = Source(GEN, "tunnel.mouth_depth_m (2026-09-03b)", inputs)
         src_flat = Source(GEN, "tunnel_ramp laterally flat (road_cross_section 0 %)", inputs)
         src_top = Source(GEN, "ramp top = ground (2026-08-30 canonical mouth)", inputs)
         src_mono = Source(GEN, "tunnel.ramp monotone profile (spec 34 (3); 2026-09-13i)",
@@ -322,7 +322,7 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             src_wall = Source(GEN, "tunnel.object.plate_datum = ground: the ground by station "
                               "(2026-09-03b L1; 2026-09-05n-4) under an object corridor", inputs)
             src_mouth = Source(GEN, "tunnel.object.mouth_depth = floor_slab: ground(mouth) − "
-                              "the floor slab or bore_datum_m (2026-09-05n-1; 2026-09-08l)", inputs)
+                              "the floor slab or mouth_depth_m (2026-09-05n-1; 2026-09-08l)", inputs)
         elif tn.source == "door":
             # THE DOOR RAMP (RULINGS 2026-09-08b/c Law A): the well floor
             # pinned at the SILL, the ramp at the grade the well gives (07e), the
@@ -466,14 +466,28 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # emitted row AT the cap, not over it.  ``ramp_top`` leaves a
             # whole station of slack (0.96 m at 8 % over 12 m) so the
             # tightening never makes a ramp that fit stop fitting.
+            # A DESIGN GRADE IS A ROUTE GRADE (lane mouth75, OTHH -1355@0): a
+            # ramp priced at the grade it was built at climbs that grade
+            # ALONG its axis, so over a chord across a bend the pair's cap
+            # is the design grade × route / chord — never above the law's
+            # ceiling, which stays the census's cap over the direct distance.
+            # Measured OTHH -1355@0 (7.5 m over a 141 m axis, ~80 m chord):
+            # 5.66 % chord rows forced the station 13 m out 1.25 m over its
+            # design and minted 7 within_shape rows at 10.6-19 %.
             ids = [v for _s, vs in groups_climb for v in vs]
+            _ax = LineString(tn.axis)
+            s_of = {v: _ax.project(Point(planar.vertices[v].xy)) for v in ids}
+            stretch_ok = ramp_cap < tn_law.ramp_max_grade - 1e-12
             for i in range(len(ids)):
                 (xa, ya) = planar.vertices[ids[i]].xy
                 for j in range(i + 1, len(ids)):
                     (xb, yb) = planar.vertices[ids[j]].xy
                     d = math.hypot(xa - xb, ya - yb)
                     if d > 1e-6:
-                        cap_d = max(0.0, ramp_cap - hard_tol / d)
+                        g = ramp_cap if not stretch_ok else min(
+                            tn_law.ramp_max_grade,
+                            ramp_cap * max(1.0, abs(s_of[ids[i]] - s_of[ids[j]]) / d))
+                        cap_d = max(0.0, g - hard_tol / d)
                         rows.append(Diff(ids[i], ids[j], cap_d, d, src_ramp))
             # A RAMP CLIMBS MONOTONICALLY (spec §34 (3); Fable 2026-09-13i,
             # RULINGS 2026-09-13i item 7b): the cap above is SYMMETRIC, so a
@@ -518,9 +532,9 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                             pin(v, z, src_top)
         # THE MOUTH DATUM: the end cap's crest (the covering surface's own
         # level — the DEM where bare, the ground's solved value where
-        # shared) minus bore_datum_m (09-03b: "the mouth wall node stands
-        # 5.1 m above the ramp's mouth node"), as an EQUALITY on the
-        # datum group: z_mouth − z_cap_centre = −bore_datum_m.  A
+        # shared) minus mouth_depth_m (09-03b: "the mouth wall node stands
+        # 5.1 m above the ramp's mouth node"; 7.5 m since 2026-10-14f), as an EQUALITY on the
+        # datum group: z_mouth − z_cap_centre = −mouth_depth_m.  A
         # DEM point sample at the mouth is not the covering surface where
         # the smoothed DEM rides a ridge over a real cutting (measured
         # LEMD -15327+-5980: the ground 8.4 m under the datum 24 m out).
@@ -545,14 +559,14 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 # pinned at; ``--why-at`` on the base capture names this row
                 # and the rim's PIN as the whole chain).  Stated as a
                 # two-sided PAIR the rows enter the one-sided bucket, where
-                # the head ``tunnel.bore_datum_m`` — registered in
+                # the head ``tunnel.mouth_depth_m`` — registered in
                 # ``[design] hard_rulings`` — makes them CONSTRAINTS of the
                 # active set.  The value is unchanged: z_mouth − z_cap =
-                # −bore_datum_m.
+                # −mouth_depth_m.
                 terms = ((group[0], 1.0), (cap_reps[0], -1.0))
-                rows.append(Linear(terms, None, -tn_law.bore_datum_m, src_mouth))
+                rows.append(Linear(terms, None, -tn_law.mouth_depth_m, src_mouth))
                 rows.append(Linear(tuple((v, -c) for v, c in terms), None,
-                                   tn_law.bore_datum_m, src_mouth))
+                                   tn_law.mouth_depth_m, src_mouth))
             else:
                 pin(group[0], tn.mouth_z, src_mouth)
         # ── decks ───────────────────────────────────────────────────

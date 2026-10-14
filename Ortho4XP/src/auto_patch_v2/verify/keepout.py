@@ -401,10 +401,10 @@ def object_cut_depth(p: Patch) -> list[Row]:
     the OBJECT states (``object_cuts[].floor_m``).
 
     "The FLOOR PLATE's level in the seated frame is the floor (the depth is
-    AUTHORED — it overrides ``bore_datum_m``, which is the law for
+    AUTHORED — it overrides ``mouth_depth_m``, which is the law for
     UNAUTHORED bores only)."  Measured at VHHH before §33 (6): the owner's
     site read 2.23 against the authored 1.31, 0.92 m too shallow, because
-    the bore law's ``bore_datum_m`` 5.10 was subtracted from the DEM.
+    the bore law's ``mouth_depth_m`` 5.10 was subtracted from the DEM.
 
     One row per cut that misses :data:`OBJECT_CUT_DEPTH_M`, at the
     offending vertex.  A cut with no emitted ramp vertex inside it prices

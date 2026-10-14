@@ -195,7 +195,7 @@ class Tunnel:
     ``axis`` runs from the mouth outward (``axis[0]`` = the mouth line's
     centre); ``half_width_m`` the ramp's half width; ``mouth_dem_z`` the
     DEM at the mouth and ``mouth_z`` the ramp's mouth datum
-    (``mouth_dem_z - tunnel.bore_datum_m``); ``top_s`` where the ramp
+    (``mouth_dem_z - tunnel.mouth_depth_m``); ``top_s`` where the ramp
     reaches the DEM; ``climb_from_s`` where the climb starts (0, or the
     far edge of the last deck + the gap); ``ramp_refs`` / ``wall_ref`` /
     ``deck_refs`` the face refs the planar map carries for it;
@@ -223,10 +223,10 @@ class Tunnel:
     top_pinned: bool = True
     clipped_by: str = ""
     #: The two end-cap corner points on the band's centreline (left,
-    #: right): the mouth datum is their crest's mean minus ``bore_datum_m``.
+    #: right): the mouth datum is their crest's mean minus ``mouth_depth_m``.
     cap_corners: tuple[XY, XY] | None = None
     #: The end cap's centre point on the band's centreline: the MOUTH WALL
-    #: NODE of 2026-09-03b — the mouth datum is its crest − bore_datum_m.
+    #: NODE of 2026-09-03b — the mouth datum is its crest − mouth_depth_m.
     cap_centre: XY | None = None
     # ── TUNNEL WALL OBJECTS (RULINGS 2026-09-05k-1; ``[tunnel.object]``) ──
     #: ``"osm"`` (a mapped bore) or ``"object"`` (the pack's wall object:

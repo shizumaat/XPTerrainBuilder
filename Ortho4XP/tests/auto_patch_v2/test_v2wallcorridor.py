@@ -2,7 +2,7 @@
 ``docs/specs/auto-patch-v2/othh-terminal-ramps-spec.md`` §6 / §6a):
 
 * DEPTH (08l/08o): a wall object's trench depth is its FLOOR SLAB when it
-  carries one (crest − slab), else ``tunnel.bore_datum_m`` for every mouth
+  carries one (crest − slab), else ``tunnel.mouth_depth_m`` for every mouth
   kind — never the crest's height above the anchor; a bore END within
   ``bore_end_tolerance_m`` of the plate makes the object that bore's mouth
   and the OSM mouth PAIRS with it (no overlap refusal); a closed-end
@@ -211,7 +211,7 @@ def _bore(y_in, y_far=-400.0):
 
 def test_depth_is_the_floor_slab_else_the_bore_law(objs, law):
     """08l: a floor slab states the depth (crest − slab); a skirt takes
-    ``bore_datum_m`` whatever the crest's height above the anchor."""
+    ``mouth_depth_m`` whatever the crest's height above the anchor."""
     tn = law.tables.structures.tunnel
     cache = obj8.ResourceCache(law.tables.structures.basin.min_solid_thickness_m)
     skirt = signature(cache.geometry(str(objs["wall"])), cache.genuine(str(objs["wall"])), law)
@@ -219,7 +219,7 @@ def test_depth_is_the_floor_slab_else_the_bore_law(objs, law):
     assert not isinstance(skirt, str) and skirt.floor_y is None
     assert not isinstance(slab, str) and slab.floor_y == pytest.approx(-12.0)
     # the object placed with its bore ending 10 m inside the closed end
-    for name, depth in (("wall", tn.bore_datum_m), ("floored", 5.0 + 12.0)):
+    for name, depth in (("wall", tn.mouth_depth_m), ("floored", 5.0 + 12.0)):
         airport, cache, objects = _read(objs, law, [(name, (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")],
                                         _bore(y_in=-40.0))
         cs, st = read_corridors(airport, objects, cache, law)
@@ -303,7 +303,7 @@ def test_closed_end_fallback_with_a_road_through_is_a_mouth(objs, law):
     airport, cache, objects = _read(objs, law, [("wall", (0.0, 0.0), 180.0, -3.0, "OBJECT_AGL")], road)
     cs, st = read_corridors(airport, objects, cache, law)
     assert len(cs) == 1, st.refused
-    assert cs[0].mouth_kind == "closed" and cs[0].depth_m == pytest.approx(tn.bore_datum_m)
+    assert cs[0].mouth_kind == "closed" and cs[0].depth_m == pytest.approx(tn.mouth_depth_m)
 
 
 # ── SEAT STATIONS (08o) ──────────────────────────────────────────────────

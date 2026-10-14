@@ -81,7 +81,7 @@ class ObjectCut:
     measures against it).  ``wall_line`` is the plan union of the object's
     own wall solids.  ``floor_z`` is the AUTHORED floor in the seated
     frame, or ``None`` where the object states no depth (signature C: the
-    depth is ``bore_datum_m``).  ``covered`` is the covered extent (the
+    depth is ``mouth_depth_m``).  ``covered`` is the covered extent (the
     signature-B cover's flat plate), ``stations`` the cover's own
     descending profile as ``(metres along the axis, y under the object's
     zero)`` pairs, ``ends`` the two portal points."""
@@ -559,7 +559,7 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
                  f"cover {_base(cov_obj.path)}: flush HARD_DECK plate {cov_area:.0f} m2 at "
                  f"|y| <= cover_flush_m {ob.cover_flush_m}",
                  f"floor {zero + r.floor_y:.2f} = the object's zero {zero:.2f} "
-                 f"{r.floor_y:+.2f} (AUTHORED — it overrides bore_datum_m)"]
+                 f"{r.floor_y:+.2f} (AUTHORED — it overrides mouth_depth_m)"]
         if sts:
             notes.append("ramp stations from the cover's profile: "
                          + " -> ".join(f"{y:+.2f}" for _s, y in sts))

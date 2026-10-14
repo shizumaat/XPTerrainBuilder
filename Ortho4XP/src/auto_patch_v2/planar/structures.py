@@ -102,8 +102,9 @@ from .structure_approach import (FieldRegion, apply_plates, standing_cover,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
                                  pavement_half_widths, ramp_top as _ramp_top, unit)
-from .unframed_ramp import (MAX_OVERLAP_PASSES, overlap_run_end,
+from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
+from .structure_overlap import resolve_overlaps
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -136,7 +137,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      extra_groups: _t.Sequence[Group] = (),
                      plates: _t.Sequence = (), channels: _t.Sequence[Channel] = (),
                      run_limits: _t.Mapping[str, tuple[float, str]] | None = None,
-                     _pass: int = 0
+                     _pass: int = 0, at_cap: _t.Mapping[str, str] | None = None,
+                     overlap_refused: _t.Mapping[str, str] | None = None
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -155,9 +157,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     §45 OPEN CHANNELS identified upstream (``planar/channel_claims``).
     ``run_limits`` is this function's own: the run ends two overlapping
     unframed ramps gave one another on the pass before (2026-10-08d (1),
-    ``unframed_ramp.overlap_run_end``)."""
+    ``unframed_ramp.overlap_run_end``), ``at_cap`` / ``overlap_refused``
+    the cap tie-break's (2026-10-14j, ``unframed_ramp.overlap_yield``)."""
     args = (airport, classification, law, objects, corridors, extra_groups, plates, channels)
     run_limits = dict(run_limits or {})
+    at_cap = dict(at_cap or {})
+    overlap_refused = dict(overlap_refused or {})
     stats = StructureStats()
     odecks = object_decks(objects)
     tn = law.tables.structures.tunnel
@@ -361,7 +366,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             p = _ln.interpolate(min(s, _ln.length))
             return (p.x, p.y)
 
-        # THE MOUTH DATUM is the MOUTH WALL NODE's DEM − bore_datum_m
+        # THE MOUTH DATUM is the MOUTH WALL NODE's DEM − mouth_depth_m
         # (09-03b): the rim's cap centre, the rim stand-off in front of
         # the mouth line — not the axis point's sample (measured LEMD
         # -15327+-5980: a cutting whose cap stands 2 m above the axis
@@ -378,24 +383,24 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # THE MOUTH CREST IS THE ROAD'S GROUND, NOT THE OVERBRIDGE'S
             # (spec §33 (3); owner RULINGS 2026-09-13d item 6).  `crest =
             # "dem"` samples the DEM at the mouth node; a portal's cover may
-            # stand up to bore_datum_m above the road it lets out onto, and
+            # stand up to mouth_depth_m above the road it lets out onto, and
             # no more — a sample that stands HIGHER is not the portal's
             # cover but an OVERBRIDGE EMBANKMENT crossing the road (measured
             # LEMD bore -5931's south mouth: DEM 610.23 at the cap against
             # 603.9-604.3 along the approach 12-24 m out, a 5.0-5.8 m rim
             # wall and a ramp that DESCENDED).  The crest is capped at the
-            # approach's ground + bore_datum_m; the cap only bites beyond
+            # approach's ground + mouth_depth_m; the cap only bites beyond
             # split_tol_m, the materiality the sim read is judged at.
-            ground = _approach_ground(airport, axis_fn, tn.bore_datum_m, spacing_g)
-            cap_z = ground + tn.bore_datum_m if not math.isnan(ground) else None
+            ground = _approach_ground(airport, axis_fn, tn.mouth_depth_m, spacing_g)
+            cap_z = ground + tn.mouth_depth_m if not math.isnan(ground) else None
             if cap_z is not None and mouth_dem - cap_z > tol_m:
                 stats.crest_from_approach.append(
                     f"{tid}: mouth crest {mouth_dem:.2f} -> {cap_z:.2f} — the DEM at the mouth "
                     f"stands {mouth_dem - ground:.2f} m over the approach's ground {ground:.2f} "
-                    f"(> bore_datum_m {tn.bore_datum_m} + split_tol_m {tol_m}): an "
+                    f"(> mouth_depth_m {tn.mouth_depth_m} + split_tol_m {tol_m}): an "
                     f"overbridge embankment, not the portal's cover (§33 (3))")
                 mouth_dem = cap_z
-        mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
+        mouth_z = c.floor_z if c is not None else mouth_dem - tn.mouth_depth_m
         # decks across the corridor.  TWO orthogonal readings at one
         # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the
         # cutting witness), §33 (6) C3' its LATERAL EXTENT (the pack's
@@ -535,9 +540,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if c is None:
                 # NO OBJECT FRAMES IT: the design grade, steeper only where
                 # that cannot top out in its run (2026-10-08c (1) / 08d (1))
-                got, s_top, ss, steepen_note = _unframed_climb(
-                    airport, law, axis_fn, mouth_z, climb_from, spacing_g, run_ends, max_len_g)
-                design_grade = got if got is not None else design_grade
+                if tid in at_cap:           # 2026-10-14j: the overlap tie-break, at the cap
+                    s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from,
+                                          spacing_g, grade=tn.ramp_max_grade, max_len=max_len_g)
+                    design_grade, steepen_note = tn.ramp_max_grade, _cap_note(law, at_cap[tid])
+                else:
+                    got, s_top, ss, steepen_note = _unframed_climb(
+                        airport, law, axis_fn, mouth_z, climb_from, spacing_g, run_ends, max_len_g)
+                    design_grade = got if got is not None else design_grade
             else:
                 s_top, ss = _ramp_top(airport, law, axis_fn, mouth_z, climb_from, spacing_g,
                                       s_min=g.hull_s, grade=grade_g, max_len=max_len_g)
@@ -797,7 +807,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if g.kind == "object":
                 notes.append(f"tunnel wall object {c.resource} (2026-09-05n; depth 2026-09-08l): "
                              f"floor at the mouth {mouth_z:.2f} = ground {mouth_dem:.2f} − depth "
-                             f"{c.depth_m:.2f} ({'floor slab' if c.floor_y is not None else 'bore_datum_m'}; "
+                             f"{c.depth_m:.2f} ({'floor slab' if c.floor_y is not None else 'mouth_depth_m'}; "
                              f"crest {c.plate_y:.2f}), ends {c.ends}, mouth by {c.mouth_kind}")
             elif g.kind == "door":
                 top_ground = dem_z_at(airport, axis_fn(s_top))
@@ -880,7 +890,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # (a diverging separation profile, a crossing approach) would be
     # polygonised into crumbs; the narrower one is refused loudly
     keep = [True] * len(tunnels)
-    new_limits: dict[str, tuple[float, str]] = {}
     siblings = {g.tid: g.sibling for g in groups if g.sibling}
     # A LEVEL CORRIDOR IS BUILT WHOLE OR NOT AT ALL (Law C, spec §6a row
     # 15): its two capless halves share their mouth line; a half whose
@@ -888,46 +897,25 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # measured OTHH tile: a 12.2 m demotion at Qatar_DutyFree_003@1/b)
     built_ids = {t.id for t in tunnels}
     for i, t in enumerate(tunnels):
+        if t.id in overlap_refused:
+            keep[i] = False
+            stats.refused.append(overlap_refused[t.id])
+            continue
         sib = siblings.get(t.id)
         if sib and sib not in built_ids:
             keep[i] = False
             stats.refused.append(f"{t.id}: its sibling half {sib} was refused — a level corridor "
                                  f"is built whole or not at all (Law C)")
-    for i in range(len(tunnels)):
-        for j in range(i + 1, len(tunnels)):
-            if not (keep[i] and keep[j]):
-                continue
-            if siblings.get(tunnels[i].id) == tunnels[j].id:
-                continue            # two halves of one corridor meet at their mouth line
-            if not footprints[i].intersects(footprints[j]):
-                continue
-            inter = footprints[i].intersection(footprints[j])
-            wall_i, wall_j = tunnels[i].source == WALL_KIND, tunnels[j].source == WALL_KIND
-            # a WALL CORRIDOR may not even TOUCH another structure (Law C):
-            # a shared ring vertex carries the other's pin into its rows
-            # (measured OTHH: a Parking_004 corridor's vertex on the door
-            # ramp Parking-Right_000@1's ring — its 8 % rows over 1.6 m
-            # yielded 13 mm); the OTHER structure is senior
-            touches = (wall_i or wall_j) and (inter.area > 1e-9 or inter.length > grid)
-            if inter.area > 1.0 or touches:
-                yields = overlap_run_end((tunnels[i], tunnels[j]), (footprints[i], footprints[j]),
-                                         run_limits, law, gap) if _pass < MAX_OVERLAP_PASSES else None
-                if yields is not None:
-                    new_limits[yields[0]] = yields[1]
-                if wall_i != wall_j:
-                    drop = i if wall_i else j
-                else:
-                    drop = i if footprints[i].area < footprints[j].area else j
-                other = j if drop == i else i
-                keep[drop] = False
-                stats.refused.append(f"{tunnels[drop].id}: its corridor overlaps "
-                                     f"{tunnels[other].id} (not a dual under 31h's "
-                                     f"separation test)")
-    if new_limits:
-        # an unframed ramp yields its design-grade length before a
-        # structure is refused for it: re-plan with those run ends
+    new_limits, new_cap, released = resolve_overlaps(
+        tunnels, footprints, keep, siblings, run_limits, at_cap, overlap_refused, law, gap,
+        grid, _pass < MAX_OVERLAP_PASSES, stats.refused)
+    if new_limits or new_cap or (released and _pass < MAX_OVERLAP_PASSES):
+        # an unframed ramp yields its design-grade length, then steepens to
+        # the cap (2026-10-14j), before a structure is refused for it
+        caps = {k: v for k, v in {**at_cap, **new_cap}.items() if k not in released}
         return build_structures(*args, run_limits={**run_limits, **new_limits},
-                                _pass=_pass + 1)
+                                _pass=_pass + 1, at_cap=caps,
+                                overlap_refused=overlap_refused)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]

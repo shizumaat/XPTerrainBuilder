@@ -4,8 +4,22 @@
 # "dem" = the DEM sample at that vertex, "deck_top" = the object's deck).
 
 [tunnel]
-bore_datum_m      = 5.1
-mouth_pair_m      = 100.0   # §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): a mapped road whose two ENDS are each within this of a structure mouth (the two mouths different, at least one end joined to the bore by a shared NODE) is THE ROAD BETWEEN TWO MOUTHS and mints one road face.  100 m because a MERGED dual carriageway reports its mouth at the pair's CENTRE: LEMD -5944 ends 0.00 m from tunnel:-5931@1 (a node join) and 47.3 m from tunnel:-5980@0.  Measured at LEMD: 4 ways / 616.5 m at 100 m; 0 if two node joins are demanded, 27 if none is     # the mouth wall node stands this above the ramp's mouth node (BRIDGE_ROAD_CLEARANCE_M; 09-03b)
+# THE MOUTH DEPTH (owner RULINGS 2026-10-14f; supersedes the 5.1 m
+# bore_datum_m of 2026-09-03b / 09-08l, which was a clearance alone): the
+# road surface at the portal face stands clearance + equipment + roof +
+# cover = 7.5 m under the GROUND above it — the natural / graded ground at
+# the mouth (an OSM bore's rim, an object wall's ground), NEVER a wall crest
+# that stands proud of it.  Real cut-and-cover / airport underpasses:
+# clearance 4.5-5.5 + signs/fans 0.3-1.5 + roof 0.8-1.5 + cover 0.6-1.5,
+# ~7.5 m most common (range 6.5-9.5).  Read through the ONE accessor
+# `Tunnel.mouth_depth_m` (law/model.py).  At the 5 % ramp_grade the ramp
+# lengthens from ~102 to ~150 m.  A pack wall object with a FLOOR SLAB keeps
+# the author's floor ([tunnel.object] mouth_depth = "floor_slab").
+clearance_m       = 5.0     # the road's vertical clearance under the roof
+equipment_m       = 0.3     # signs / fans / lighting hung under the roof
+roof_m            = 1.0     # the roof slab
+cover_m           = 1.2     # the ground cover on the roof
+mouth_pair_m      = 100.0   # §34 (13) (4) (Fable 2026-09-15; RULINGS 2026-09-15y): a mapped road whose two ENDS are each within this of a structure mouth (the two mouths different, at least one end joined to the bore by a shared NODE) is THE ROAD BETWEEN TWO MOUTHS and mints one road face.  100 m because a MERGED dual carriageway reports its mouth at the pair's CENTRE: LEMD -5944 ends 0.00 m from tunnel:-5931@1 (a node join) and 47.3 m from tunnel:-5980@0.  Measured at LEMD: 4 ways / 616.5 m at 100 m; 0 if two node joins are demanded, 27 if none is
 wall_gap_m        = 0.6     # an OSM BORE's ramp edge -> its at-grade rim, together with wall_band_width_m (09-01c/e; superseded for OBJECT corridors by [cutout], 2026-09-06)
 crest             = "dem"   # wall crest = DEM all the way round the ramp, one corridor-top value per station (09-03b L1)
 admitted_values   = ["yes"]   # spec 26 (RULINGS 2026-09-11aq item A): the ONLY `tunnel` values that seed a bore. `building_passage` (a road under a building — LEMD's old terminal, 10 of 33 covered bores), `culvert`, `avalanche_protector`, `flooded` and `no` are NOT bores; the passage belongs to the building's pad
@@ -66,7 +80,7 @@ enclosure_parking_values = ["underground", "multi-storey", "multi_storey", "gara
 [tunnel.object]                     # RULINGS 2026-09-05k-1 / 05n: the pack's tunnel wall OBJECTS are the tunnel authority; round 2 = ground-referenced ramps inside the walls
 source_precedence   = ["object", "osm"]   # applied PER MOUTH (05n-3): an OSM bore mouth inside an object's trench or wall band is the object's (its OSM ramp is not built); a mouth outside every object keeps its OSM ramp exactly as before
 plate_datum         = "ground"      # the wall's top plate is FLUSH with the ground at the wall (05n-4); the object is re-seated to it
-mouth_depth         = "floor_slab" # RULINGS 2026-09-08l/08o: the trench depth = the object's FLOOR SLAB (a near-horizontal plate at the model's bottom running along the axis, plate_min_area_m2) when it carries one — depth = crest − slab; else tunnel.bore_datum_m for EVERY mouth kind (bore / closed / family). NEVER the crest-to-anchor height (plate_y is the author's origin handle: OTHH's two mouths of ONE bore read 5.0 and 10.0 by it). The crest stays the seat datum (05n-4).
+mouth_depth         = "floor_slab" # RULINGS 2026-09-08l/08o: the trench depth = the object's FLOOR SLAB (a near-horizontal plate at the model's bottom running along the axis, plate_min_area_m2) when it carries one — depth = crest − slab; else tunnel.mouth_depth_m for EVERY mouth kind (bore / closed / family). NEVER the crest-to-anchor height (plate_y is the author's origin handle: OTHH's two mouths of ONE bore read 5.0 and 10.0 by it). The crest stays the seat datum (05n-4). THE REFERENCE IS THE GROUND (owner RULINGS 2026-10-14f (3)): the floor is `ground(mouth) - depth`, ground = the median DEM along the mouth end's inner wall faces — never a crest kept proud of it by authored_crest_max_m (measured OTHH sw28: all nine wall crests 1.58-2.59 m proud, every mouth 5.10 under the ground, 0 m lost to the parapet).
 ramp_end            = "wall_end"    # the ramp reaches ground at the far end of the wall, extended beyond it only where ramp_max_grade needs the length (05n-1)
 trench              = "inner_walls" # trench = the region between the walls' INNER faces, following their curves; the wall band = each wall's own plan footprint (05n-2); never a hull rectangle
 wall_face_max_thickness_m = 2.0     # a wall solid's plan thickness; thicker plan solids are decks/slabs, not walls (OTHH: 1.0-1.1 m side walls, 2.0 m box walls)
@@ -84,7 +98,7 @@ plate_min_height_m  = 2.0           # a FULL tunnel wall's crest stands this far
 # floor plate and no roof is an EDGE-WALL object — it gives the ramp its
 # PLAN (the curve, the width between the walls) with the crest FLUSH at
 # grade (05n-4, the re-seat), and the DEPTH comes from the tunnel law:
-# the OSM bore's bore_datum_m at the mouth, since the wall does not state
+# the OSM bore's mouth_depth_m at the mouth, since the wall does not state
 # it.  Precedence per mouth (05n-3) unchanged: the bore mouth inside the
 # edge walls is the object's.  An edge wall with NO bore mouth has no
 # depth authority and is refused by name.  Below this the object is an
@@ -127,7 +141,7 @@ bore_end_tolerance_m = 5.0         # RULINGS 2026-09-08o: a mapped bore END with
 # deck (bridge=yes) for hull_min_length_m and whose solids span at least
 # this is an AUTHORED CORRIDOR: its plan ring gives the corridor's axis,
 # width and PORTAL POSITIONS (the object's ends); the depth stays
-# tunnel.bore_datum_m for a bore, and for a deck the deck's top is the
+# tunnel.mouth_depth_m for a bore, and for a deck the deck's top is the
 # object's authored top WHERE THE PLACEMENT CARRIES AN ABSOLUTE SEAT
 # (OBJECT_MSL) — a DRAPED placement's authored top is an offset over the
 # solved ground, no datum at all, and the deck's ends govern (§33 (4)).
@@ -143,7 +157,7 @@ merge_gap_m         = 3.0           # two corridors whose ground ends face withi
 # B — SHELL + FLUSH HARD COVER (VHHH, EGLL).  A SHELL object whose largest
 # horizontal plate lies shell_floor_min_m or more below its zero is the
 # tunnel's FLOOR — and that level is the AUTHORED depth, which overrides
-# tunnel.bore_datum_m (the law for UNAUTHORED bores only).  Measured VHHH:
+# tunnel.mouth_depth_m (the law for UNAUTHORED bores only).  Measured VHHH:
 # tunnel1..5_done.obj floors -6.01 / -6.54 / -8.95 / -9.01, 733-16,759 m2;
 # EGLL -4 … -7.  The COVER is the placement at the SAME position
 # (cover_placement_tol_m, same heading) whose HARD_DECK plate stands flush

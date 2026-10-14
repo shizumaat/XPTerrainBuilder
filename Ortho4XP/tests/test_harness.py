@@ -10496,9 +10496,9 @@ def test_the_offset_bar_is_the_spec_bar(cg, tmp_path):
 
 
 def test_a_shallow_cut_is_an_object_cut_depth_row(cg, tmp_path):
-    """The owner's VHHH site: the floor came out at DEM − ``bore_datum_m``
+    """The owner's VHHH site: the floor came out at DEM − ``mouth_depth_m``
     = 2.23 against the object's AUTHORED 1.31, 0.92 m too shallow.  The
-    authored depth overrides ``bore_datum_m``."""
+    authored depth overrides ``mouth_depth_m``."""
     fo = _families(cg, _object_cut_patch(tmp_path, name="shallow",
                                          ramp_out_m=-3.0, floor_z=2.23,
                                          authored_floor=1.31))

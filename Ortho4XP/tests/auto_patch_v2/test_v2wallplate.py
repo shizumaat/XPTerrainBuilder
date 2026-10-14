@@ -11,7 +11,7 @@ One test per clause:
   on the object's centre; a plate that merely CLIPS a mapped way is
   refused by name; both numbers come from the law;
 * (3) THE MOUTH CREST IS THE ROAD'S GROUND — a DEM sample standing more
-  than ``bore_datum_m`` over the approach's ground is an overbridge
+  than ``mouth_depth_m`` over the approach's ground is an overbridge
   embankment and the crest reads the approach; an ordinary portal cover
   is untouched;
 * (4) A TERRAIN DECK IS TIED TO ITS ENDS — its datum is the higher of
@@ -206,29 +206,30 @@ def _one_tunnel(law, dem, ways):
 
 
 def test_a_mouth_on_an_overbridge_embankment_reads_the_approachs_ground(law):
-    """§33 (3) / bar 6: the DEM at the mouth stands 6 m over the approach's
-    ground — more than ``bore_datum_m`` + ``split_tol_m`` — so it is an
+    """§33 (3) / bar 6: the DEM at the mouth stands ~10 m over the approach's
+    ground — more than ``mouth_depth_m`` (7.5, RULINGS 2026-10-14f) +
+    ``split_tol_m`` — so it is an
     embankment crossing the road, not the portal's cover; the crest reads
     the approach and the ramp climbs instead of descending."""
     bore = OsmWay(-101, "big_roads", ((-200.0, 0.0), (0.0, 0.0)), False, TAGS_T)
     road = OsmWay(-201, "big_roads", ((0.0, 0.0), (260.0, 0.0)), False, TAGS_R)
     tn_law = law.tables.structures.tunnel
     flat, s_flat = _one_tunnel(law, _Dem(), [bore, road])
-    ridge, s_ridge = _one_tunnel(law, _Dem(ridge_x=-2.0), [bore, road])
+    ridge, s_ridge = _one_tunnel(law, _Dem(ridge_x=-2.0, height=12.0), [bore, road])
     east_flat = [t for t in flat if t.axis[0][0] > -1.0][0]
     east_ridge = [t for t in ridge if t.axis[0][0] > -1.0][0]
-    # the DEM the mouth samples: 700 on the flat field, ~707 on the ridge
+    # the DEM the mouth samples: 700 on the flat field, ~710 on the ridge
     assert east_flat.mouth_dem_z == pytest.approx(700.0, abs=0.05)
     assert s_flat.crest_from_approach == []
     assert s_ridge.crest_from_approach and "-101" in s_ridge.crest_from_approach[0]
-    # ...and the CREST comes back to the approach's ground + bore_datum_m,
+    # ...and the CREST comes back to the approach's ground + mouth_depth_m,
     # so the mouth floor is the road's own level and the ramp CLIMBS
-    assert east_ridge.mouth_dem_z == pytest.approx(700.0 + tn_law.bore_datum_m, abs=0.05)
+    assert east_ridge.mouth_dem_z == pytest.approx(700.0 + tn_law.mouth_depth_m, abs=0.05)
     assert east_ridge.mouth_z == pytest.approx(700.0, abs=0.05)
 
 
 def test_an_ordinary_portal_cover_is_not_capped(law):
-    """The cap bites only beyond ``bore_datum_m + split_tol_m``: a portal
+    """The cap bites only beyond ``mouth_depth_m + split_tol_m``: a portal
     whose cover stands within the bore datum of the road keeps its DEM
     crest, so the other corridors do not move."""
     bore = OsmWay(-101, "big_roads", ((-200.0, 0.0), (0.0, 0.0)), False, TAGS_T)

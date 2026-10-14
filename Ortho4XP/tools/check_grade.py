@@ -8135,12 +8135,12 @@ def _check_object_cut_depth(object_cuts_ll, ways, nodes, ll_to_m) -> List[Violat
     """§33 (6) THE DEPTH IS AUTHORED — the ``object_cut_depth`` family.
 
     "The FLOOR PLATE's level in the seated frame is the floor (the depth
-    is AUTHORED — it overrides ``bore_datum_m``, which is the law for
+    is AUTHORED — it overrides ``mouth_depth_m``, which is the law for
     UNAUTHORED bores only)."  The emitted floor INSIDE an object cut — the
     lowest ramp vertex standing in its wall line — against the floor the
     OBJECT states, published as ``object_cuts[].floor_m``.  Measured at
     VHHH before §33 (6): the owner's site read 2.23 against the authored
-    1.31, 0.92 m too shallow, because the bore law's ``bore_datum_m`` 5.10
+    1.31, 0.92 m too shallow, because the bore law's ``mouth_depth_m`` 5.10
     was subtracted from the DEM instead.
 
     One row per cut that misses the spec's 0.10 m bar, at the offending
@@ -13687,7 +13687,7 @@ def run_checks(
     obj_dep = _fam("object_cut_depth",
                    _check_object_cut_depth(object_cuts_ll, ways, nodes, ll_to_m))
     _pv("EMITTED cut floor OFF the object's AUTHORED floor plate (§33 (6): "
-        "the authored depth overrides bore_datum_m)", obj_dep, top_n)
+        "the authored depth overrides mouth_depth_m)", obj_dep, top_n)
     within = within + obj_dep
     # §34 (5) (b): the covered extent of an underpass spans the pavement
     # AND its graded strip, so no ramp vertex stands inside that strip

@@ -258,6 +258,13 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         cl_cut, exits = extend_pad_roads(cl, airport, law, rules,
                                          _pad_levels(pm_base, z_base, law))
         out(f"LAST STAGE pad road exits (13a (1)): {exits}")
+        # the ramp foot runs out at road grade to raw DEM (14c (5), #669)
+        from ..classify.ramp_runout import mint_ramp_runouts
+        cl_cut, runouts = mint_ramp_runouts(cl_cut, airport, law, rules, pm_base, z_base)
+        out(f"LAST STAGE ramp-foot run-outs (14c (5)): "
+            f"{ {k: v for k, v in runouts.items() if k != 'list'} }")
+        for line in runouts["list"]:
+            out(f"    run-out: {line}")
         cut = {"pieces": [], "parts": 0, "knives": 0, "merged": 0, "stations": 0,
                "part_stations": {}}
     else:
@@ -287,6 +294,8 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     # welded to — the rim a constant of this stage
     from ..constraints.pad_ramp import pad_ramp_rewrite
     cs, pad_ramp = pad_ramp_rewrite(pm, law, cs, fixed)
+    from ..constraints.ramp_runout import runout_rows
+    cs, pad_ramp["runout_rows"] = runout_rows(pm, law, cs, fixed)
     pad_joins = pad_ramp.pop("joins")
     # 13d "road ramps first": where no cap-grade ramp fits between the pad
     # and the road's other standing end — the remainder.  13f: ONLY A

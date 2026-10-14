@@ -593,7 +593,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
                           clusters=_clusters)
     # issue #516: the sunken ramps' ground, beside the clusters it trims
     from ..airport.sunken_ramp import attach_sunken_ramps
-    airport = attach_sunken_ramps(airport, law)
+    airport = attach_sunken_ramps(airport, law, ocache)
     # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.
     # HECA's round-5 build priced 0 cluster cross-links while
     # ``plan_clusters`` on the same plan returned 2, and nothing in the
@@ -731,6 +731,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
                               objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
+    # issue #669: the object ramps' feet for the last stage's run-outs —
+    # read HERE, on the run's ResourceCache, once classify and the planar
+    # stage have parsed the pack's objects (no second parse)
+    from ..airport.ramp_feet import REPORT as _feet_rep, attach_ramp_feet
+    airport = attach_ramp_feet(airport, law, ocache)
+    wall["ramp_feet"] = _feet_rep.get("s", 0.0)
+    _say(f"[{icao}] ramp feet (14c (5)): {_feet_rep}", out)
     # §37 (11) (7) (issue #72): the shore the zones were cut against —
     # quay faces stand on a DECLARED shore (or a pavement edge that IS
     # the coast), natural faces slope to the water.

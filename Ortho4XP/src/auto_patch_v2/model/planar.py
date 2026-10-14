@@ -618,6 +618,13 @@ class PlanarMap:
     #: LAST STAGE (:func:`pad_road_faces`), solved against the levels of
     #: the map without it.
     pad_roads: frozenset[str] = _dc.field(default_factory=frozenset)
+    #: THE RAMP-FOOT RUN-OUTS (issue #669; owner RULINGS 2026-10-14c (5);
+    #: ``classify/ramp_runout``): run-out ref -> ``(x0, y0, dx, dy, z0)`` —
+    #: where the strip leaves the graded ground at an object ramp's foot,
+    #: its direction of travel and the ground's level there.  Each is also
+    #: a pad road (:attr:`pad_roads`); its rows are
+    #: ``constraints/ramp_runout``'s.
+    ramp_runouts: _t.Mapping[str, tuple] = _dc.field(default_factory=dict)
     #: THE PAD ROADS RELEASED ABOVE THE ROAD CAP (owner RULINGS 2026-10-13e:
     #: "allow the road to steepen so we don't have a step"): face id ->
     #: ``(pad ref, run m, the grade the stretch needs)`` for every face of

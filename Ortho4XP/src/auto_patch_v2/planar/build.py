@@ -175,6 +175,18 @@ def _pad_terraces() -> dict[str, frozenset]:
     return {k: frozenset(v) for k, v in out.items()}
 
 
+def _runouts(classification) -> dict[str, tuple]:
+    """``PlanarMap.ramp_runouts`` from the cells ``classify/ramp_runout``
+    minted (issue #669): ref -> ``(x0, y0, dx, dy, z0)``."""
+    from ..classify.ramp_runout import runout_of
+    out = {}
+    for c in classification.cells:
+        r = runout_of(c)
+        if r is not None:
+            out[str(c.ref)] = r
+    return out
+
+
 def build(airport: Airport, classification: Classification, law: Law,
           grid_m: float | None = None, objects_out: list | None = None,
           cache=None, objects=None, object_report=None,
@@ -364,7 +376,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                    pad_terraces=_pad_terraces(),
                    pad_roads=frozenset(
                        c.ref for c in classification.cells
-                       if (getattr(c, "evidence", None) or {}).get("pad_road")))
+                       if (getattr(c, "evidence", None) or {}).get("pad_road")),
+                   ramp_runouts=_runouts(classification))
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps

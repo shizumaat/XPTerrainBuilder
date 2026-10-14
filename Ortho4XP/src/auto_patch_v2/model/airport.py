@@ -379,6 +379,11 @@ class Airport:
     #: its CENSUS (``constraints``, which may not import ``airport``) both
     #: read THIS.  ``None`` = not derived (a capture written before it).
     sunken_ramps: _t.Any = None
+    #: THE FEET OF THE PACK'S OBJECT RAMPS (issue #669; owner RULINGS
+    #: 2026-10-14c (5); ``airport/ramp_feet``): derived at load beside the
+    #: sunken ramps on the build's ``ResourceCache``; the run-out mint
+    #: (``classify/ramp_runout``) reads THIS.  ``None`` = not derived.
+    ramp_feet: _t.Any = None
     #: THE GAP SHEETS (owner RULINGS 2026-10-04o (a); issues #292, #358): the
     #: bodies of a pack's draped pavement page admitted by the PER-TRIANGLE
     #: flatness read (``airport/object_pavement.gap_sheet_footprint``).

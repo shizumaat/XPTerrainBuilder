@@ -341,10 +341,11 @@ def _classified_land(classification):
 
 
 #: the taxi-family row counters (§8.6 trend, §61 cross-section and
-#: membrane): their rows live in the stage that owns their vertices — the
+#: membrane, #517 through-junction profile): their rows live in the stage that owns their vertices — the
 #: base's stage 1 — so behind a last stage (§55 (4)) the sidecar's top
 #: block is the sum over stages, never the last stage's own 0
-_BASE_STAGE_ROWS = ("taxi_trend_rows", "taxi_xsec_rows", "free_membrane_rows")
+_BASE_STAGE_ROWS = ("taxi_trend_rows", "taxi_xsec_rows", "taxi_junction_rows",
+                    "free_membrane_rows")
 
 
 def _fold_base_rows(rep, base) -> None:

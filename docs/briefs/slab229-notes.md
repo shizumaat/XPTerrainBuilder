@@ -121,3 +121,44 @@ Replays on captures `cap/{KCLT,HECA}.pkl`, main bd950d682 vs branch, two-stage (
 * The gap piece stands off a pad by the set-back and follows its level (`gap_follow`) — the gap path's weld, not a
   shared-rim weld (10o "weld as to any pavement").
 * OTHH object move above: not attributed.
+
+## ROUND 2 (master 2026-10-14: judge every approved-airport object move, attribute OTHH, fix regressions)
+Final closing builds `slab229d_<ICAO>` at 63bb55ddb (frames as registered for round 1 are superseded by these).
+* FIX 1 (409bcd732): base-slab pieces are minted AFTER the pack's and never re-cut a pack piece (slab sheet minus
+  the pack sheets); the pack's pieces, refs and late cuts stay byte-for-byte (HECA real-map twins: knives 34 = 34).
+* FIX 2 (63bb55ddb): a base-slab piece stands off the pack's pieces like any standing cell (§53 (12)). Flush, two
+  late pieces met at T-junctions: HECA +28 mid-edge steps, worst 2.75 m at 30.112626, 31.397571 (build c).
+* (1d7b17071, superseded by FIX 1: exact old ordering key for pieces no slab touches.)
+* Instrument: `feetdump.py` (scratch) = `obj8_split_report` census `foot_floats`; `movetab2.py` joins bodies by
+  (placement, components) and reads the worst |foot float| per body before -> after.
+### Results vs sw24 (d builds)
+* Row-side, solve-owned airside, structures: 0 movers at KCLT, HECA, OTHH; rebake plans identical; pads 0.
+* HECA groundside: 1 gap ref (`gap:2/s0` 3 nodes, 0.19 m), 27 service-road refs / 211 nodes worst 1.56 m
+  (`small_roads:-3994#4` 2 nodes), +6 slab pieces. Census 58599 -> 58556 (mid_edge_step 72 -> 69). Feet over
+  3 m 493 -> 479, floating 8535 -> 8479. Object zeros > 0.05 m: 18 bodies, all <= 0.11 m — 3 better, 8 same,
+  2 worse (door body at 30.115389, 31.406660 -0.09 m: worst foot -1.19 -> -1.27; metal_dark at 30.111192,
+  31.397892 -0.07 m: 0.00 -> +0.07), 5 riders with no feet of their own. The round-1 +2.42 m door / strip /
+  titles move and the +3.49 m OB-asphalt move are gone (they came from slab area merged into pack pieces).
+* KCLT unchanged from round 1 (forecourt graded under the slab; 1 body, `Paredes_7`, +0.77 m, now carried by the
+  forecourt slab body).
+* OTHH: 2 new pieces (Emiri), 0 moved values; census 2448 -> 2431. ONE body moves: `OTHH_TerminalRoads_03_003`
+  dsf:obj8721 b0 (5 comps) -1.62 m at 25.257546, 51.612392 — feet -0.30..0.00 -> +1.32..+1.62 (BURIED 1.6 m,
+  worse) — and its rider `TerminalRoads_CLUTTER_03_002` b2 -0.90 m.
+### OTHH attribution (interventions, main's code, sw24 plan)
+| surface given to the object stage | moves? |
+|---|---|
+| sw24 graded, twice | no (deterministic) |
+| this branch's graded | yes, -1.62 |
+| branch graded minus the new piece `gap:131` (round 1) | yes |
+| branch graded with sw24's road faces at the body (`-10439` and 8 more) | yes |
+| sw24 graded + branch `gap:2/*` parts (round 1) | yes |
+| sw24 graded + branch `gap:131` alone (round 1) | no |
+| sw24 graded + branch `gap:2/s0` alone (round 3) | no |
+| sw24 graded + the round-3 slab pieces `gap:131-133` alone (Emiri, 25.2545, 51.6205) | YES |
+The surface every moved body reads is IDENTICAL: the Delaunay sampler at all 33 plan feet of the three placements
+(dsf:obj8708 / 8712 / 8721) reads 0.00 m difference; they are in unit:24, the Emiri plates in unit:13, 800 m
+away. What changes is the object stage's grouping: `OTHH_TerminalRoads_Parking_002` is kept whole (one body)
+instead of two, the CLUTTER rider is re-carried from Parking_002 b1 to 03_003 b0, and 03_003's low-side foot
+y0 goes -3.169 -> -1.552. MECHANISM: an object-stage non-locality — new graded faces at one site re-group bodies of
+another unit 800 m away through the pack-wide grouping/carrier passes. The final hop (why Parking_002 is kept
+whole) is NOT named; it is not in the surface. Not fixed here (object stage).

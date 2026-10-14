@@ -50,8 +50,9 @@ Run it from ``Ortho4XP/``; read-only on the shared corpus (the capture
 reads through the production loader like a build; nothing is written
 outside ``--out`` / ``--json``).  ``--data-overlay DIR`` declares a
 LANE-LOCAL overlay for the corpus dirs it carries (issue #156,
-:func:`resolve_data_overlay`) and is RECORDED in the capture; it is a
-read-side declaration and authorises no write."""
+:func:`resolve_data_overlay`, :func:`arm_data_overlay`) and is RECORDED
+in the capture (and in ``<out>.overlay.json`` for ``harness/frames.py``);
+it is a read-side declaration and authorises no write."""
 from __future__ import annotations
 
 # The console is UTF-8 before anything prints (#171, #125): ONE derivation
@@ -198,38 +199,91 @@ def capture_dem_inputs():
                                  elevation_root=str(ROOT / "Elevation_data"))
 
 
-def overlay_refusal(inputs, frame: dict | None) -> str | None:
-    """Why ``frame`` CANNOT take effect on ``inputs``, or ``None``.
+def _data_overlay():
+    """``tools/harness/data_overlay.py`` — the lane-local view, the overlay
+    manifest and its staleness check (stdlib only, no engine import)."""
+    _harness_dir = str(ROOT / "tools" / "harness")
+    if _harness_dir not in sys.path:
+        sys.path.insert(0, _harness_dir)
+    import data_overlay
+    return data_overlay
 
-    MEASURED 2026-10-05 (lane ``tools321``, CYXY): an overlay providing
-    ``Elevation_data`` — the provider-inset case issue #156 was filed for —
-    died mid-load with a ``ColdDemFrame`` traceback.  The capture composes
-    its DEM in the PRODUCTION frame, through the core, and the core reads
-    ``Elevation_data`` from ITS data root; ``airport/dem_production.
-    _check_corpus`` refuses any other ``elevation_root`` as a second corpus
-    (RULINGS ``e9daef5``).  So that half of the flag has never been able to
-    run, and it now says so BEFORE the load instead of advertising a read
-    the engine will not make.  An ``OSM_data`` overlay is not checked by
-    the engine and still captures."""
+
+def _same_corpus(a, b) -> bool:
+    return os.path.realpath(a) == os.path.realpath(b)
+
+
+def overlay_refusal(inputs, frame: dict | None) -> str | None:
+    """Why ``frame`` CANNOT be laid over ``inputs``' elevation corpus, or
+    ``None``: a path that is a file on one side and a directory on the
+    other (:func:`data_overlay.view_conflicts`).  ``main`` asks this BEFORE
+    any arm line is printed (issue #420: a refused arm is never announced).
+
+    Until issue #156's second round an ``Elevation_data`` overlay REFUSED
+    here outright — measured 2026-10-05 (lane ``tools321``, CYXY) dying
+    mid-load in ``airport/dem_production._check_corpus``, because the core
+    reads ``Elevation_data`` from its own data root.  :func:`arm_data_overlay`
+    now points the core AND ``elevation_root`` at one lane-local view, so
+    that check holds and the overlay takes effect."""
     if not frame or "Elevation_data" not in frame["provides"]:
         return None
-    if getattr(inputs, "dem_frame", "production") != "production":
-        return None
-    ours = os.path.realpath(frame["provides"]["Elevation_data"])
-    if ours == os.path.realpath(inputs.elevation_root):
+    ours = frame["provides"]["Elevation_data"]
+    if _same_corpus(ours, inputs.elevation_root):
         return None                      # the same corpus under another name
-    return (f"REFUSED: {DATA_OVERLAY_FLAG} {frame['dir']} provides "
-            f"Elevation_data, which cannot take effect: the capture composes "
-            f"its DEM in the production frame through the core, and the core "
-            f"reads Elevation_data from its own data root "
-            f"({os.path.realpath(inputs.elevation_root)}) — a second "
-            f"elevation corpus is refused there (RULINGS e9daef5, "
-            f"airport/dem_production._check_corpus).  A lane-local inset is "
-            f"witnessed with tools/fetch_airport_elevation_insets.py "
-            f"--witness ICAO --elevation-data-dir DIR and BUILT on a verified "
-            f"snapshot (tools/harness/build_airport.py --corpus snapshot:DIR); "
-            f"capturing on one needs an engine-side redirect that does not "
-            f"exist (issue #156)")
+    why = _data_overlay().view_conflicts(inputs.elevation_root, ours)
+    return None if why is None else (
+        f"REFUSED: {DATA_OVERLAY_FLAG} {frame['dir']}: {why} — an overlay "
+        f"replaces files and adds paths, it never swaps a file for a directory")
+
+
+#: where a capture's lane-local elevation views live (``tmp/`` is a lane
+#: PRODUCT dir — never mounted from the shared repo)
+OVERLAY_VIEW_DIR = ROOT / "tmp" / "data_overlay_views"
+
+
+def arm_data_overlay(inputs, frame: dict | None):
+    """``(inputs, frame)`` with the overlay IN EFFECT and RECORDED.
+
+    Every provided directory that is not the shared corpus under another
+    name is hashed into ``frame["files"]`` (the replay's staleness check).
+    ``OSM_data`` is read through ``inputs.osm_root`` directly.  An
+    ``Elevation_data`` overlay is composed into a lane-local VIEW
+    (:func:`data_overlay.compose_view` — overlay files win, every other
+    entry links to the shared corpus) and, in the production DEM frame, the
+    core's ``Elevation_dir`` is pointed at the same view, so the engine's
+    one-corpus check (``dem_production._check_corpus``) holds — and still
+    refuses if anything re-points the core afterwards.  No engine code, no
+    worktree symlink, no shared-repo byte is touched."""
+    if not frame:
+        return inputs, frame
+    dov = _data_overlay()
+    shared = {"Elevation_data": inputs.elevation_root, "OSM_data": inputs.osm_root}
+    own = [n for n, p in sorted(frame["provides"].items())
+           if not _same_corpus(p, shared[n])]
+    frame = {**frame, "manifested": own,
+             "files": dov.overlay_manifest(frame["dir"], own)}
+    inputs = overlay_inputs(inputs, frame)
+    if "Elevation_data" in own:
+        view = dov.compose_view(shared["Elevation_data"],
+                                frame["provides"]["Elevation_data"], OVERLAY_VIEW_DIR)
+        frame["elevation_view"] = str(view)
+        inputs = _dc.replace(inputs, elevation_root=str(view))
+        if getattr(inputs, "dem_frame", "production") == "production":
+            from auto_patch_v2.airport.dem_production import ProductionDem
+            ProductionDem._ensure_core_path()
+            import O4_File_Names as FNAMES
+            FNAMES.Elevation_dir = str(view)
+    return inputs, frame
+
+
+def overlay_stale(frame: dict | None) -> str | None:
+    """Why the overlay a capture recorded is no longer that overlay (the
+    first file missing, changed or added, by name), or ``None``.  A frame
+    recorded before the manifest (no ``files``) cannot be judged: ``None``."""
+    if not frame or "files" not in frame:
+        return None
+    return _data_overlay().stale_reason(frame["dir"], frame["files"],
+                                        frame.get("manifested", ()))
 
 
 def capture_data_overlay(cap: dict) -> dict | None:
@@ -511,7 +565,7 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     _why_not = overlay_refusal(inputs, _overlay)
     if _why_not:
         raise SystemExit(_why_not)
-    inputs = overlay_inputs(inputs, _overlay)
+    inputs, _overlay = arm_data_overlay(inputs, _overlay)
     print(overlay_line(icao, _overlay))
     if mod_cache_root:
         # AN EXPLICIT OVERRIDE ONLY (lane ``v2roadcap2``, RULINGS
@@ -638,6 +692,9 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
                      _cstate.CAPTURE_STATE_KEY: _state,
                      # issue #156: the DECLARED overlay this capture read
                      CAPTURE_OVERLAY_KEY: _overlay}, fh)
+    # beside the pickle, for ``tools/harness/frames.py register`` (which
+    # reads it without unpickling engine objects)
+    _data_overlay().write_sidecar(out, _overlay)
     print(_cstate.line(icao, tuple(_state["fields"]), _state))
     print(f"[{icao}] captured -> {out} in {time.perf_counter() - t:.0f} s "
           f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
@@ -1941,6 +1998,13 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
     # a replay off an overlay capture says so in its first lines
     _overlay = capture_data_overlay(cap)
     print(overlay_line(icao, _overlay))
+    _stale = overlay_stale(_overlay)
+    if _stale:
+        raise SystemExit(
+            f"[{icao}] REFUSED: the data overlay this capture recorded is STALE — "
+            f"{_stale}.  The capture's numbers came from the overlay as it was; "
+            f"restore it, or re-capture: venv/bin/python tools/v2_solve_replay.py "
+            f"--capture {icao} --out {pkl} {DATA_OVERLAY_FLAG} {_overlay['dir']}")
     if not capture_has_groups(cap):
         raise SystemExit(
             f"[{icao}] REFUSED: this capture carries no pack PARTITION / GROUPS, so the "
@@ -2683,9 +2747,12 @@ def main() -> int:
                          "capture — a data root whose "
                          f"{'/'.join(OVERLAY_DIRS)} take precedence over the "
                          "shared corpus's; every other input stays shared.  "
-                         "An Elevation_data overlay REFUSES on the production "
-                         "DEM frame (the core reads its own data root, RULINGS "
-                         "e9daef5) — only OSM_data can take effect today.  DECLARED "
+                         "An Elevation_data overlay is read through a lane-local "
+                         "VIEW (tmp/data_overlay_views/: overlay files win, the "
+                         "rest links to the shared corpus) that the core and the "
+                         "loader both read, so one corpus is read (RULINGS "
+                         "e9daef5).  Its files are hashed; a replay off a STALE "
+                         "overlay refuses by file name.  DECLARED "
                          "and RECORDED in the capture, so an overlay capture "
                          "can never be mistaken for a shared-corpus one; "
                          "authorises no write.  NOT --corpus snapshot:DIR, "

@@ -47,7 +47,7 @@ from shapely.ops import unary_union
 from ..model.planar import COLLAR_SUFFIX, pad_base_ref
 from ..model.platform import HELD, LANDING_SEP, LANDINGS
 
-__all__ = ["BAND_M", "landing_regions", "landing_cut"]
+__all__ = ["BAND_M", "AHEADS", "ahead_regions", "landing_regions", "landing_cut"]
 
 #: the landing band: the deck surface within this of its lowest authored
 #: ``y`` is a landing (the master's "y <= min + 0.5", lane viaduct290)
@@ -83,6 +83,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     """The landing + collar regions to add to the pad regions ``out``
     (module docstring), registering each in :data:`LANDINGS`."""
     LANDINGS.clear()
+    AHEADS.clear()
     part = getattr(airport, "partition", None)
     frame = getattr(airport, "frame", None)
     if part is None or frame is None or not HELD or collar_m <= 0.0:
@@ -212,9 +213,16 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     if not plats:
         counts["landings"] = 0
         return []
-    # PASS 2: the collars, over what no platform, pad or airside holds
+    # PASS 2: the collars, over what no platform, pad or airside holds —
+    # less the ground AHEAD of a ramp's foot, which runs out at road grade
+    # (14c (5), #669; ``ahead_regions``): the 1:3 bank stays for its sides
     held_c = taken
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
+        A = ahead_regions(Lu, HELD[bref].get("datum_pred"), y_land, airport, law,
+                          held_c, reach + grid)
+        if A is not None:
+            AHEADS[ref] = A
+            held_c = unary_union([held_c, A])
         C = Lu.buffer(collar_m, join_style=2).difference(held_c)
         cparts = [q for q in _parts(C) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
@@ -223,13 +231,47 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                      for q in cparts)
         LANDINGS[ref] = {"block": bref, "y": round(y_land, 4), "deck": key,
                          "voters": voters, "area_m2": round(Lu.area, 1),
-                         "collar_m2": round(sum(q.area for q in cparts), 1)}
+                         "collar_m2": round(sum(q.area for q in cparts), 1),
+                         "ahead_m2": round(AHEADS[ref].area, 1) if ref in AHEADS else 0.0}
     counts["landings"] = len(LANDINGS)
     if LANDINGS:
         counts["landing_list"] = "; ".join(
             f"{r} on {v['block']} y {v['y']:+.2f} {v['area_m2']:g} m2"
             for r, v in sorted(LANDINGS.items()))
     return added
+
+
+#: owner RULINGS 2026-10-14c (5) (#669): the last arrangement's ground AHEAD
+#: of each landing's ramp foot — landing ref -> the region (frame metres)
+#: its run-out will take (``classify/ramp_runout``, the last stage).  No
+#: collar banks there and no lot keeps it (:func:`landing_cut`).
+AHEADS: dict[str, _t.Any] = {}
+
+
+def ahead_regions(Lu, datum, y_land: float, airport, law, held, near_m: float):
+    """The ground ahead of every ramp foot (``airport/ramp_feet``) standing
+    on the landing ``Lu``: the foot's width, from the landing's edge along
+    the direction of travel for the run its offset over the DEM needs at
+    the design grade (``[road_contact] ramp_grade``), less what ``held``
+    holds; None where no foot stands on it or its datum is not known."""
+    from shapely.geometry import Point
+    from ..airport.ramp_feet import ramp_feet
+    frame, dem = getattr(airport, "frame", None), getattr(airport, "dem", None)
+    if datum is None or frame is None or dem is None:
+        return None
+    g = float(law.tables.emit.road_contact.ramp_grade)
+    got = []
+    for f in ramp_feet(airport, law, frame.entry()):
+        (lx, ly), (dx, dy), h = f.lip, f.direction, 0.5 * f.width_m
+        if Lu.distance(Point(lx, ly)) > near_m:
+            continue
+        run = abs(float(datum) + float(y_land) - float(dem.z(lx, ly))) / g + near_m
+        nx, ny = -dy, dx
+        R = Polygon([(lx + dx * s + nx * t, ly + dy * s + ny * t)
+                     for s, t in ((0.0, -h), (run, -h), (run, h), (0.0, h))])
+        got.extend(q for q in _parts(R.difference(Lu).difference(held))
+                   if q.distance(Lu) <= near_m)
+    return unary_union(got) if got else None
 
 
 #: the groundside roles a landing (and its collar) is cut out of: the LOT
@@ -261,7 +303,7 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
     from ..law.tables import role_side
     L = unary_union([r.polygon for r in pad_regions
                      if pad_base_ref(r.ref) in LANDINGS
-                     and r.polygon is not None])
+                     and r.polygon is not None] + list(AHEADS.values()))
     if L.is_empty:
         return base_regions
     out: list = []

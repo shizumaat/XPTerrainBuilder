@@ -19,7 +19,7 @@ from ..model.constraints import ConstraintSet, Linear, Row, Source
 from ..model.planar import PlanarMap
 from .road_ramp import GEN, JOIN_RULING, RULING, RULING_CEILING
 
-__all__ = ["PAD_RAMP_RULING", "pad_ramp_rewrite", "stand_off_m"]
+__all__ = ["PAD_RAMP_RULING", "pad_ramp_rewrite", "ramp_delta", "stand_off_m"]
 
 
 #: The ruling head of the ROAD-YIELDS-TO-THE-PAD design row (owner RULINGS
@@ -100,7 +100,10 @@ def _welded_ribbon_vertices(planar: PlanarMap, law: Law
     from ..model.planar import face_edge_ids, pad_road_faces
     from .pads import pad_welded_vertices
     rim = pad_welded_vertices(planar, law)
-    roads = pad_road_faces(planar)
+    # a ramp foot's run-out carries its own profile (``constraints/
+    # ramp_runout``, #669): it leaves the patch's edge, not a pad's rim
+    runs = getattr(planar, "ramp_runouts", None) or {}
+    roads = [f for f in pad_road_faces(planar) if str(f.ref) not in runs]
     if not roads:
         return {}, rim
     air = airside_stage_roles(law)
@@ -160,6 +163,20 @@ def _pad_road_unknowns(planar: PlanarMap, law: Law, levels: _t.Mapping[int, floa
         for v in planar.ring_vertices(cyc) if v not in levels
         and not any(q in F and is_rigid_role(law, F[q].role)
                     for q in planar.vertices[v].incident_faces))
+
+
+def ramp_delta(dv: float, zr: float, dr: float, g: float, d: float) -> float:
+    """The ramp's rise from its leader at level ``zr`` (ground ``dr``) to a
+    vertex ``d`` along the road over ground ``dv``, at the design grade
+    ``g``.  Two profiles leave the leader: toward the ground never past it
+    (the level-ground ramp), and closing the leader's own offset over its
+    ground (the ramp on a slope falling away, which the first never brings
+    down) — the road takes the one nearer its ground."""
+    toward = max(-g * d, min(g * d, dv - zr))
+    off = zr - dr
+    left = max(0.0, abs(off) - g * d)
+    closing = dv + (left if off > 0.0 else -left) - zr
+    return min((toward, closing), key=lambda t: (abs(zr + t - dv), t))
 
 
 def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
@@ -277,16 +294,7 @@ def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         zr = levels.get(r, pref.get(r, dr))
         if dv is None or zr is None:
             continue
-        # two profiles leave the rim at the design grade: toward the ground
-        # never past it (the level-ground ramp), and closing the pad's own
-        # offset over its ground (the ramp on a slope falling away from the
-        # pad, which the first never brings down) — the road takes the one
-        # nearer its ground
-        toward = max(-g * d, min(g * d, float(dv) - float(zr)))
-        off = float(zr) - float(dv if dr is None else dr)
-        left = max(0.0, abs(off) - g * d)
-        closing = float(dv) + (left if off > 0.0 else -left) - float(zr)
-        delta = min((toward, closing), key=lambda t: (abs(float(zr) + t - float(dv)), t))
+        delta = ramp_delta(float(dv), float(zr), float(dv if dr is None else dr), g, d)
         ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
                     if planar.faces[f].ref), "")
         # ONE-WAY (``[design] one_way_rulings``): the rim is the LEADER,

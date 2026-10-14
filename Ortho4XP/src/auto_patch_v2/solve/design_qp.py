@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import time
 import typing as _t
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import scipy.sparse as sp
@@ -105,6 +106,19 @@ _BACKOFF_MAX = 12
 #: a ceiling, whose hit is a NAMED failure and never a silent stop (§20a's
 #: discipline for every loop in this solve)
 _ROUNDS_MAX = 400
+#: HOW MANY λ OF ONE ROUND ARE FACTORISED AT ONCE (issue #149, lane
+#: ``perf149``).  A rejected step is retried at ``λ·6`` from the SAME
+#: iterate, so the tries of one round depend on each other only through
+#: "was the previous one accepted?".  They are therefore solved
+#: CONCURRENTLY (SuperLU's factorisation releases the GIL) and READ IN
+#: ORDER exactly as the sequential loop reads them: the first that lowers
+#: ``F`` is taken, ``λ`` ends where the sequential loop leaves it, and the
+#: ``solves`` count is the tries READ, never the tries computed — so the
+#: iterate, the report and the surface are byte for byte the one-at-a-time
+#: loop's.  A try computed past the accepted one is discarded unread.
+#: Measured HECA stage 1: 842 linear solves over 475 rounds (1.77 per
+#: round).  1 is the sequential loop.
+_SPECULATE = 2
 
 
 class QPResult(_t.NamedTuple):
@@ -165,10 +179,16 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
         r = np.maximum(A1 @ x - bb, 0.0)
         return g + 2.0 * (A1T @ (w_row * r))
 
-    def step(x: np.ndarray | None, lam: float) -> tuple[np.ndarray, int]:
-        """The active set's own subproblem, PROXIMAL at ``x``."""
-        sel = (np.flatnonzero(A1 @ x - bb > active_tol) if x is not None
-               else np.zeros(0, dtype=np.int64))
+    def active(x: np.ndarray | None) -> np.ndarray:
+        return (np.flatnonzero(A1 @ x - bb > active_tol) if x is not None
+                else np.zeros(0, dtype=np.int64))
+
+    def step(x: np.ndarray | None, lam: float,
+             sel: np.ndarray | None = None) -> tuple[np.ndarray, int]:
+        """The active set's own subproblem, PROXIMAL at ``x`` (``sel`` its
+        active rows when the caller already read them off ``x``)."""
+        if sel is None:
+            sel = active(x)
         blocks: list = [A0]
         rhs: list = [b0]
         if sel.size:
@@ -193,31 +213,62 @@ def solve_one_sided(A0: sp.csr_matrix, b0: np.ndarray,
     lam = _LAMBDA0
     status = "round_cap"
     rnd = 0
-    for rnd in range(1, _ROUNDS_MAX + 1):
-        took = False
-        for _back in range(_BACKOFF_MAX):
-            xt, nact = step(x, lam)
-            solves += 1
-            ft = F(xt)
-            if ft < f:
-                took = True
+    pool = ThreadPoolExecutor(_SPECULATE) if _SPECULATE > 1 else None
+
+    def tried(x_: np.ndarray, lam_: float, sel: np.ndarray
+              ) -> tuple[np.ndarray, int, float]:
+        xt_, nact_ = step(x_, lam_, sel)
+        return xt_, nact_, F(xt_)
+    try:
+        for rnd in range(1, _ROUNDS_MAX + 1):
+            took, lam, xt, ft, nact, read = _round(x, f, lam, tried, active(x), pool)
+            solves += read
+            if not took:
+                # No damped step of the SAME subproblem decreases a convex C¹
+                # F: the iterate is its minimiser to the linear solve's own
+                # precision.  Named, never silent.
+                status = "no_descent"
                 break
-            lam *= _LAMBDA_UP
-        if not took:
-            # No damped step of the SAME subproblem decreases a convex C¹
-            # F: the iterate is its minimiser to the linear solve's own
-            # precision.  Named, never silent.
-            status = "no_descent"
-            break
-        gain = f - ft
-        x, f = xt, ft
-        lam = max(lam / _LAMBDA_DOWN, _LAMBDA_FLOOR)
-        if verbose:
-            print(f"    [design/qp] round {rnd}: F {f:.10g} (-{gain:.4g}) "
-                  f"λ {lam:.3g}, {nact} active")
-        if gain <= rel_tol * max(1.0, abs(f)):
-            status = "optimal"
-            break
+            gain = f - ft
+            x, f = xt, ft
+            lam = max(lam / _LAMBDA_DOWN, _LAMBDA_FLOOR)
+            if verbose:
+                print(f"    [design/qp] round {rnd}: F {f:.10g} (-{gain:.4g}) "
+                      f"λ {lam:.3g}, {nact} active")
+            if gain <= rel_tol * max(1.0, abs(f)):
+                status = "optimal"
+                break
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=True)
     return QPResult(x=x, status=status, rounds=rnd, solves=solves,
                     objective=float(f), grad_norm=float(np.linalg.norm(grad(x))),
                     wall_s=time.perf_counter() - t0)
+
+
+def _round(x: np.ndarray, f: float, lam: float, tried: _t.Callable,
+           sel: np.ndarray, pool: "ThreadPoolExecutor | None") -> tuple:
+    """ONE round's backoff (:data:`_SPECULATE`): ``(took, λ, x_t, F(x_t),
+    active count, tries read)`` — the sequential loop's answer.  Up to
+    ``_BACKOFF_MAX`` tries at ``λ, λ·6, λ·6², …`` (the λ by the SAME
+    repeated multiplication), solved ``_SPECULATE`` at a time and read in
+    order until one lowers ``F``."""
+    read = 0
+    xt, nact, ft = x, 0, f
+    while read < _BACKOFF_MAX:
+        k = min(_SPECULATE, _BACKOFF_MAX - read) if pool is not None else 1
+        lams = [lam]
+        for _i in range(k - 1):
+            lams.append(lams[-1] * _LAMBDA_UP)
+        if k > 1:
+            got = [fu.result() for fu in [pool.submit(tried, x, lm, sel) for lm in lams]]
+        else:
+            got = [tried(x, lam, sel)]
+        for (xt, nact, ft), lm in zip(got, lams):
+            read += 1
+            lam = lm
+            if ft < f:
+                return True, lam, xt, ft, nact, read
+        lam = lam * _LAMBDA_UP
+    return False, lam, xt, ft, nact, read
+

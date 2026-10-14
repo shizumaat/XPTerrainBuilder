@@ -33,6 +33,7 @@ __all__ = [
     "ring_vertex_ids", "principal_axis", "long_axis",
     "pair_is_transverse", "station_indices", "longitudinal_runs",
     "rect_ring", "point_in_ring", "point_in_rect_ring", "project_to_chain",
+    "chains_within",
     "TransectShape", "TransectAxis", "Transect", "walk_transects",
     "polyline_length", "face_cover", "chords_covered", "chord_midpoints_hit",
 ]
@@ -409,6 +410,52 @@ def project_to_chain(p: XY, chain: _t.Sequence[XY]
             best = (d, k, t, s + t * math.sqrt(l2))
         s += math.sqrt(l2)
     return best
+
+
+def chains_within(chains: _t.Sequence[_t.Sequence[XY]], r: float,
+                  cell: float = 50.0) -> _t.Callable[[XY], bool]:
+    """``near(p)`` == ``any(project_to_chain(p, ch)[0] <= r for ch in
+    chains)``, answered off a grid of the chains' segments instead of a
+    walk of every segment of every chain (issue #149: HECA's apron spine
+    test called :func:`project_to_chain` 4.6 M times).
+
+    EXACT, not approximate.  :func:`project_to_chain`'s distance is the
+    least of its segments' own distances, each computed from that segment
+    and ``p`` alone, so ``<= r`` holds iff SOME segment's does; that
+    segment's foot lies in its bounding box (to rounding), so ``p`` lies in
+    the box widened by ``r`` — every segment is binned into each cell its
+    box widened by ``r`` (plus a millimetre of rounding slack) overlaps,
+    and the cell holding ``p`` lists it.  The candidates are measured with
+    :func:`project_to_chain`'s own arithmetic, a degenerate segment skipped
+    as it skips one."""
+    segs: list[tuple[float, float, float, float, float]] = []
+    grid: dict[tuple[int, int], list[int]] = {}
+    pad = float(r) + 1e-3
+    for ch in chains:
+        for k in range(len(ch) - 1):
+            (ax, ay), (bx, by) = ch[k], ch[k + 1]
+            vx, vy = bx - ax, by - ay
+            l2 = vx * vx + vy * vy
+            if l2 < 1e-18:
+                continue
+            i = len(segs)
+            segs.append((ax, ay, vx, vy, l2))
+            for gx in range(int((min(ax, bx) - pad) // cell),
+                            int((max(ax, bx) + pad) // cell) + 1):
+                for gy in range(int((min(ay, by) - pad) // cell),
+                                int((max(ay, by) + pad) // cell) + 1):
+                    grid.setdefault((gx, gy), []).append(i)
+
+    def near(p: XY) -> bool:
+        for i in grid.get((int(p[0] // cell), int(p[1] // cell)), ()):
+            ax, ay, vx, vy, l2 = segs[i]
+            t = ((p[0] - ax) * vx + (p[1] - ay) * vy) / l2
+            t = 0.0 if t < 0.0 else (1.0 if t > 1.0 else t)
+            qx, qy = ax + t * vx, ay + t * vy
+            if math.hypot(p[0] - qx, p[1] - qy) <= r:
+                return True
+        return False
+    return near
 
 
 # ── the transect walk (owner 2026-08-21: one station set, both readers) ──

@@ -127,7 +127,7 @@ class Band:
 class Offset:
     """``z[a] - z[b] >= min_delta`` — deck clearance above a ramp
     (``structures.bridge.clearance_m``), the mouth wall above the mouth
-    node (``structures.tunnel.bore_datum_m``, RULINGS 2026-09-03b)."""
+    node (``structures.tunnel.mouth_depth_m``, RULINGS 2026-09-03b)."""
 
     a: int
     b: int

@@ -22,7 +22,7 @@ mapped bore (``tunnel=yes``) or deck (``bridge=yes``) for
 ``hull_min_length_m`` of that way is an AUTHORED CORRIDOR.  Its plan
 RECTANGLE gives the corridor's axis (the long side), its width (the short
 side) and its PORTAL POSITIONS (the short sides' midpoints — the object's
-ends).  The depth stays ``tunnel.bore_datum_m`` for a bore.
+ends).  The depth stays ``tunnel.mouth_depth_m`` for a bore.
 
 THE DECK PLATE reads its top from the object only where the placement
 carries an ABSOLUTE seat (``OBJECT_MSL``).  A plain ``OBJECT`` is DRAPED

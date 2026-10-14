@@ -286,7 +286,9 @@ def _common_checks(c: Checks, t) -> None:
 
 def _structures_emit_checks(c: Checks, t) -> None:
     s, e = t.structures, t.emit
-    c.eq("tunnel.bore_datum_m", v1.BRIDGE_ROAD_CLEARANCE_M, s.tunnel.bore_datum_m)
+    # owner RULINGS 2026-10-14f: the mouth depth is NO LONGER v1's clearance
+    # (BRIDGE_ROAD_CLEARANCE_M 5.1) but its composition — clearance +
+    # equipment + roof + cover = 7.5 m (``test_mouth_depth_is_its_composition``)
     c.eq("tunnel.ramp_max_grade", v1.TUNNEL_RAMP_MAX_GRADE, s.tunnel.ramp_max_grade)
     c.eq("bridge.clearance_m", v1.BRIDGE_ROAD_CLEARANCE_M, s.bridge.clearance_m)
     c.eq("bridge.clearance_minimum_m", v1.BRIDGE_ROAD_CLEARANCE_MINIMUM_M,
@@ -555,7 +557,7 @@ def _mutated(tmp_path, fname, old, new):
      "duplicate"),
     ("zones.toml", 'beyond_zone2   = "dem"', 'beyond_zone2   = "graded"',
      "beyond_zone2"),
-    ("structures.toml", "bore_datum_m      = 5.1", "bore_datum_m      = -5.1",
+    ("structures.toml", "cover_m           = 1.2", "cover_m           = -1.2",
      ">= 0"),
 ])
 def test_loader_refuses_malformed_tables(tmp_path, fname, old, new, needle):
@@ -620,3 +622,12 @@ def test_input_quantum_is_law(tables):
     # most half the quantum against ``min_distinct_spacing_m``
     assert T.input_quantum_m(law) * 1000 <= \
         tables.emit.identity.min_distinct_spacing_m * 2
+
+
+def test_mouth_depth_is_its_composition():
+    """Owner RULINGS 2026-10-14f (1): the road tunnel's mouth depth is 7.5 m,
+    held in law as clearance 5.0 + equipment 0.3 + roof 1.0 + cover 1.2,
+    read through ONE accessor (``Tunnel.mouth_depth_m``)."""
+    tn = load_tables(DEFAULT_LAW_DIR).structures.tunnel
+    assert (tn.clearance_m, tn.equipment_m, tn.roof_m, tn.cover_m) == (5.0, 0.3, 1.0, 1.2)
+    assert tn.mouth_depth_m == pytest.approx(7.5)

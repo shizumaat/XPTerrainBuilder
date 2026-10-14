@@ -10,7 +10,7 @@
   object with a real skirt and a low crest gives the ramp its PLAN
   (straight or curved, the width between the walls) with the crest
   flush at grade (the seat reads the crest), and its DEPTH from the bore
-  law (``tunnel.bore_datum_m`` at the mouth); the bore mouth inside it
+  law (``tunnel.mouth_depth_m`` at the mouth); the bore mouth inside it
   is the object's; an edge wall with no bore mouth is refused by name.
 """
 from __future__ import annotations
@@ -157,7 +157,7 @@ def _corridors(objs, law, placements, ways):
 
 def test_edge_wall_plan_from_the_walls_depth_from_the_bore_law(wall_objs, law):
     """The ramp's width is the walls' inner width (not lanes × lane
-    width), its depth at the mouth tunnel.bore_datum_m (not the crest),
+    width), its depth at the mouth tunnel.mouth_depth_m (not the crest),
     the crest is the seat's plate, the bore mouth inside is the object's."""
     tn = law.tables.structures.tunnel
     co = law.tables.structures.cutout
@@ -168,14 +168,14 @@ def test_edge_wall_plan_from_the_walls_depth_from_the_bore_law(wall_objs, law):
     assert st.corridors == 1, st.refused
     c = cs[0]
     assert c.edge_wall and c.mouth_kind == "bore"
-    assert c.depth_m == pytest.approx(tn.bore_datum_m) and c.plate_y == pytest.approx(1.18)
-    assert c.floor_z == pytest.approx(airport.dem.z(*c.axis[0]) - tn.bore_datum_m)
+    assert c.depth_m == pytest.approx(tn.mouth_depth_m) and c.plate_y == pytest.approx(1.18)
+    assert c.floor_z == pytest.approx(airport.dem.z(*c.axis[0]) - tn.mouth_depth_m)
     assert any("edge wall" in n for n in c.notes)
     cl = Classification(tuple(_wall_cells(-200, -300, 200, 200)), (), {}, ())
     cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
     assert not [r for r in sst.refused if "edge.obj" in r], sst.refused
     t = [t for t in tunnels if t.source == "object"][0]
-    assert t.edge_wall and t.depth_m == pytest.approx(tn.bore_datum_m)
+    assert t.edge_wall and t.depth_m == pytest.approx(tn.mouth_depth_m)
     assert t.plate_y_m == pytest.approx(1.18)
     assert t.mouth_z == pytest.approx(c.floor_z)
     assert -101 in t.replaced_ways            # the bore mouth inside is the object's
@@ -191,7 +191,7 @@ def test_edge_wall_plan_from_the_walls_depth_from_the_bore_law(wall_objs, law):
     assert max(xs) > tn.lane_width_m * 2 / 2.0 + 1.0
     # 5.1 m over 160 m fits inside the walls at 3.2 %: the ramp tops at the wall end
     assert t.top_s == pytest.approx(t.wall_length_m) and t.design_grade == pytest.approx(
-        tn.bore_datum_m / t.wall_length_m)
+        tn.mouth_depth_m / t.wall_length_m)
     # the seat reads the CREST: plate 1.18 for the placement
     pm, stats = build(airport, cl, law)
     seats = _plate_seats(pm, law)

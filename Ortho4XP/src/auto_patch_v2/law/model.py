@@ -247,7 +247,13 @@ class Zones:
 class Tunnel:
     """Tunnel ramp / wall / bore law (RULINGS 2026-09-01c/e, 2026-09-03b)."""
 
-    bore_datum_m: float
+    #: THE MOUTH DEPTH AS ITS COMPOSITION (owner RULINGS 2026-10-14f (1)):
+    #: the road's vertical clearance, the signs / fans over it, the roof
+    #: slab and the cover on the roof.  Their sum is :attr:`mouth_depth_m`.
+    clearance_m: float
+    equipment_m: float
+    roof_m: float
+    cover_m: float
     wall_gap_m: float
     crest: str
     #: spec §26: the ``tunnel`` values that seed a bore (default ``["yes"]``);
@@ -291,6 +297,14 @@ class Tunnel:
     #: mapped road's END may stand from a structure MOUTH and still be
     #: the ROAD BETWEEN TWO MOUTHS (`planar/structure_road`).
     mouth_pair_m: float
+
+    @property
+    def mouth_depth_m(self) -> float:
+        """THE MOUTH DEPTH (owner RULINGS 2026-10-14f; supersedes the clearance-only
+        ``bore_datum_m`` of 2026-09-03b / 09-08l): the road surface at the
+        portal face stands this far under the GROUND above it — clearance +
+        equipment + roof + cover.  The one derivation every reader takes."""
+        return float(self.clearance_m + self.equipment_m + self.roof_m + self.cover_m)
 
 @_dc.dataclass(frozen=True)
 class Channel:

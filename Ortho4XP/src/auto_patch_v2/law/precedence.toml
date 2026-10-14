@@ -104,7 +104,7 @@ tunnel_trench       = { family = "none",   side = "airside",    value = false, a
 # structure's pin on that vertex is withdrawn, never both hard (LEMD basin
 # 22 vs tunnel -5938: two hard pins 5.99 m apart on one vertex were the
 # IIS).  The tunnel is senior: its crest is the bore's own geometry
-# (bore_datum_m above the mouth), a basin rim is the ground's reading.
+# (mouth_depth_m above the mouth), a basin rim is the ground's reading.
 # Values are the ``Source.inputs`` prefixes the generators write.
 [structures]
 datum_order = ["tunnel", "basin"]

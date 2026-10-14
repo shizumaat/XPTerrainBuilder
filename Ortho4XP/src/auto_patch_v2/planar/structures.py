@@ -361,7 +361,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             p = _ln.interpolate(min(s, _ln.length))
             return (p.x, p.y)
 
-        # THE MOUTH DATUM is the MOUTH WALL NODE's DEM − bore_datum_m
+        # THE MOUTH DATUM is the MOUTH WALL NODE's DEM − mouth_depth_m
         # (09-03b): the rim's cap centre, the rim stand-off in front of
         # the mouth line — not the axis point's sample (measured LEMD
         # -15327+-5980: a cutting whose cap stands 2 m above the axis
@@ -378,24 +378,24 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # THE MOUTH CREST IS THE ROAD'S GROUND, NOT THE OVERBRIDGE'S
             # (spec §33 (3); owner RULINGS 2026-09-13d item 6).  `crest =
             # "dem"` samples the DEM at the mouth node; a portal's cover may
-            # stand up to bore_datum_m above the road it lets out onto, and
+            # stand up to mouth_depth_m above the road it lets out onto, and
             # no more — a sample that stands HIGHER is not the portal's
             # cover but an OVERBRIDGE EMBANKMENT crossing the road (measured
             # LEMD bore -5931's south mouth: DEM 610.23 at the cap against
             # 603.9-604.3 along the approach 12-24 m out, a 5.0-5.8 m rim
             # wall and a ramp that DESCENDED).  The crest is capped at the
-            # approach's ground + bore_datum_m; the cap only bites beyond
+            # approach's ground + mouth_depth_m; the cap only bites beyond
             # split_tol_m, the materiality the sim read is judged at.
-            ground = _approach_ground(airport, axis_fn, tn.bore_datum_m, spacing_g)
-            cap_z = ground + tn.bore_datum_m if not math.isnan(ground) else None
+            ground = _approach_ground(airport, axis_fn, tn.mouth_depth_m, spacing_g)
+            cap_z = ground + tn.mouth_depth_m if not math.isnan(ground) else None
             if cap_z is not None and mouth_dem - cap_z > tol_m:
                 stats.crest_from_approach.append(
                     f"{tid}: mouth crest {mouth_dem:.2f} -> {cap_z:.2f} — the DEM at the mouth "
                     f"stands {mouth_dem - ground:.2f} m over the approach's ground {ground:.2f} "
-                    f"(> bore_datum_m {tn.bore_datum_m} + split_tol_m {tol_m}): an "
+                    f"(> mouth_depth_m {tn.mouth_depth_m} + split_tol_m {tol_m}): an "
                     f"overbridge embankment, not the portal's cover (§33 (3))")
                 mouth_dem = cap_z
-        mouth_z = c.floor_z if c is not None else mouth_dem - tn.bore_datum_m
+        mouth_z = c.floor_z if c is not None else mouth_dem - tn.mouth_depth_m
         # decks across the corridor.  TWO orthogonal readings at one
         # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the
         # cutting witness), §33 (6) C3' its LATERAL EXTENT (the pack's
@@ -797,7 +797,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if g.kind == "object":
                 notes.append(f"tunnel wall object {c.resource} (2026-09-05n; depth 2026-09-08l): "
                              f"floor at the mouth {mouth_z:.2f} = ground {mouth_dem:.2f} − depth "
-                             f"{c.depth_m:.2f} ({'floor slab' if c.floor_y is not None else 'bore_datum_m'}; "
+                             f"{c.depth_m:.2f} ({'floor slab' if c.floor_y is not None else 'mouth_depth_m'}; "
                              f"crest {c.plate_y:.2f}), ends {c.ends}, mouth by {c.mouth_kind}")
             elif g.kind == "door":
                 top_ground = dem_z_at(airport, axis_fn(s_top))

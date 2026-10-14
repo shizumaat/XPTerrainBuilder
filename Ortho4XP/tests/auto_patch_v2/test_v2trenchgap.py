@@ -130,7 +130,7 @@ def test_corridor_rim_inside_the_wall_floor_untouched(objs, law):
     near = c.footprint.buffer(5.0)
     # the object's own pieces: the ones INTERSECTING the footprint (a void's
     # centroid drifts with the ramp beyond the walls — 2026-09-08l moved the
-    # depth to bore_datum_m and the climb 2.5 m further out)
+    # depth to mouth_depth_m and the climb 2.5 m further out)
     ramps = [Polygon(x.ring) for x in cl2.cells if x.role == "tunnel_ramp"
              and near.intersects(Polygon(x.ring))]
     walls = [Polygon(x.ring, x.holes) for x in cl2.cells if x.role == "retaining_wall"

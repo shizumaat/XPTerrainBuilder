@@ -234,7 +234,7 @@ def test_the_crest_is_the_top_band_wherever_it_lies(wall_objs, law):
 
 @pytest.mark.parametrize("name,crest", [("standing", 2.016), ("sunk", -0.859)])
 def test_edge_wall_below_or_on_the_seat_builds_its_corridor(wall_objs, law, name, crest):
-    """Both readings build the corridor: depth = tunnel.bore_datum_m at
+    """Both readings build the corridor: depth = tunnel.mouth_depth_m at
     the mouth, the trench between the walls, the seat reading the crest
     (the re-seat's delta = ground − (base + crest) puts it flush)."""
     tn = law.tables.structures.tunnel
@@ -243,7 +243,7 @@ def test_edge_wall_below_or_on_the_seat_builds_its_corridor(wall_objs, law, name
     assert st.corridors == 1, st.refused
     c = cs[0]
     assert c.edge_wall and c.mouth_kind == "bore"
-    assert c.depth_m == pytest.approx(tn.bore_datum_m) and c.plate_y == pytest.approx(crest, abs=1e-3)
+    assert c.depth_m == pytest.approx(tn.mouth_depth_m) and c.plate_y == pytest.approx(crest, abs=1e-3)
     cl = Classification(tuple(_wall_cells(-200, -300, 200, 200)), (), {}, ())
     cl2, tunnels, sst = build_structures(airport, cl, law, objects, cs)
     assert not [r for r in sst.refused if name in r], sst.refused
@@ -283,7 +283,7 @@ def test_ramp_reaches_the_far_ground_on_sloped_terrain(wall_objs, law):
     t = [t for t in tunnels if t.source == "object"][0]
     far = dem.z(*t.axis[-1])
     rise = far - t.mouth_z
-    assert rise > tn.bore_datum_m + 0.5          # the ground rose along the walls
+    assert rise > tn.mouth_depth_m + 0.5          # the ground rose along the walls
     assert t.top_s == pytest.approx(t.wall_length_m)
     assert t.design_grade == pytest.approx(rise / t.wall_length_m, rel=1e-3)
     assert t.design_grade < tn.ramp_max_grade
@@ -337,7 +337,7 @@ def test_taxiway_spanning_the_corridor_is_a_deck_never_a_cut(wall_objs, law):
     assert 120.0 < d.s0 < d.s1 < 160.0
     assert t.climb_from_s == pytest.approx(d.s1 + tn.wall_gap_m)
     assert t.top_s == pytest.approx(t.wall_length_m)
-    assert t.design_grade == pytest.approx(tn.bore_datum_m / (t.wall_length_m - t.climb_from_s), rel=1e-2)
+    assert t.design_grade == pytest.approx(tn.mouth_depth_m / (t.wall_length_m - t.climb_from_s), rel=1e-2)
     # the cell is whole in plan: its pieces plus the deck piece cover it
     rect = Polygon(_rect(-80, -20, 80, 0))
     pieces = [Polygon(c.ring, c.holes) for c in cl2.cells if c.ref.startswith("twyD")]

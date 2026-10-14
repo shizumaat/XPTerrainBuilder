@@ -388,7 +388,7 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
     (the lowest piece), ONE rim answers it on BOTH sides and across the
     mouth (a rim vertex within ``wall_gap_m + wall_band_width_m + 1`` of
     the mouth edge's centre on the far side — the END CAP), and the
-    mouth wall node (the rim's cap) stands ``bore_datum_m`` above the
+    mouth wall node (the rim's cap) stands ``mouth_depth_m`` above the
     mouth node (2026-09-03b).  Each miss is a row naming the tunnel."""
     tn = p.law.tables.structures.tunnel
     tol = p.law.tables.emit.materiality.elevation_m
@@ -413,7 +413,7 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
     # THE OBJECT CORRIDORS (RULINGS 2026-09-05k-1; sidecar ``tunnel_objects``):
     # their mouth is the object's — floor = seat, crest = plate, a mouth
     # at each OPEN end with no cap — so the 09-03b mouth law (cap crest =
-    # mouth + bore_datum_m) does not read them; a site whose ramps stand
+    # mouth + mouth_depth_m) does not read them; a site whose ramps stand
     # on an object corridor's axis is out of this reader's scope
     obj_axes = []
     for rec in p.publication.get("tunnel_objects") or []:
@@ -461,11 +461,11 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
                            0.0, None, None, None, mouth, mouth, low.key, None,
                            out_of_scope=f"{tid}: no end cap across the mouth"))
             continue
-        # the MOUTH WALL NODE stands bore_datum_m above the mouth node
+        # the MOUTH WALL NODE stands mouth_depth_m above the mouth node
         # (09-03b): the cap edge's value at the point nearest the mouth
         # line's centre, interpolated along that edge (the crest follows
         # the DEM ACROSS the cap — SPJC's cap spans 0.5 m of relief)
-        want = zmouth + tn.bore_datum_m
+        want = zmouth + tn.mouth_depth_m
         best = None
         for w, k in cap:
             n = len(w.xy)
@@ -484,7 +484,7 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
             out.append(row("tunnel_mouth_canonical", ("tunnel_ramp", "retaining_wall"), "mixed",
                            worst, None, None, None, mouth, mouth, low.key, cap[0][0].key,
                            out_of_scope=f"{tid}: mouth wall {best[1]:.2f} vs ramp mouth "
-                                        f"{zmouth:.2f} + {tn.bore_datum_m}"))
+                                        f"{zmouth:.2f} + {tn.mouth_depth_m}"))
         if len(pieces) > 1:
             out.append(row("tunnel_mouth_canonical", ("retaining_wall",) * 2, "airside",
                            float(len(pieces)), None, None, None, mouth, mouth, low.key, None,

@@ -97,8 +97,10 @@ def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (33
     """SPJC -5724's shape: a 35 m ``secondary`` bore on a plane falling
     0.53 m, the nearest classified cell off it, inside a fence."""
     frame = Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11)
-    ends = (RunwayEnd("16", (0.0, 600.0), (0, 0), 0.0, 0.0, 22.0, "fixture"),
-            RunwayEnd("34", (0.0, -600.0), (0, 0), 0.0, 0.0, 22.0, "fixture"))
+    # the runway stands 400 m west of the bore: the 7.5 m mouth's ramp
+    # (owner RULINGS 2026-10-14f, ~150 m at 5 %) stays clear of its strip
+    ends = (RunwayEnd("16", (-100.0, 600.0), (0, 0), 0.0, 0.0, 22.0, "fixture"),
+            RunwayEnd("34", (-100.0, -600.0), (0, 0), 0.0, 0.0, 22.0, "fixture"))
     rw = Runway("16/34", 45.0, 1, ends, 4, "E")
     bore = OsmWay(-5724, "big_roads", tuple(bore_pts), False, dict(tags))
     # the road continues from both mouths, as -5708 / -5723 do at SPJC
@@ -112,7 +114,7 @@ def _spjc(law, fence=_rect(-800, -800, 800, 800), bore_pts=((300.0, -100.0), (33
                       (), fences, (), ways, (), (), pack,
                       _Dem(dem or (lambda x, y: 21.97 - 0.015 * (x - 300.0))),
                       law.ruleset_key, partition=partition)
-    cells = [Cell(0, "runway", "16/34", _rect(-22, -600, 22, 600), (), 4, "E",
+    cells = [Cell(0, "runway", "16/34", _rect(-122, -600, -78, 600), (), 4, "E",
                   "airside", "runway", {}),
              # the nearest classified cell stands OFF the bore's line (SPJC's
              # pav49 is 211 m away), so neither ramp is stopped by it

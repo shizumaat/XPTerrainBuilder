@@ -1180,7 +1180,7 @@ def object_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
     object's own WALL LINE as a ring in lat/lon (the outer face of the
     walls ∪ trench — what an emitted ring vertex may not stand outside)
     and the AUTHORED FLOOR the object states (the floor plate's level in
-    the seated frame, which overrides ``bore_datum_m``).
+    the seated frame, which overrides ``mouth_depth_m``).
 
     Published so the two census families read the OBJECT'S OWN numbers
     and never re-derive them from the pack: ``object_cut_offset`` prices

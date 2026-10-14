@@ -27,7 +27,7 @@ seat is the author's handle; a wall with no bore stays a fence).  THE EDGE WALL
 y −2.88 … −0.86, wholly below its seat; the seat is the author's
 handle, 05n-4 re-seats the crest flush at grade) — over a skirt of
 ``edge_wall_min_skirt_m`` below that crest gives the ramp its PLAN; the
-depth is the bore law's (``tunnel.bore_datum_m`` at a BORE mouth).
+depth is the bore law's (``tunnel.mouth_depth_m`` at a BORE mouth).
 
 THE WALLS (round 2 §3.1; ``tunnel_walls.py``): the crest plate's plan
 union IS the walls' footprint — a U / an O / two bands (measured OTHH:
@@ -46,7 +46,7 @@ mouths and the trench is FLAT at the mouth depth.
 THE DATUMS (RULINGS 2026-09-08l / 08o, ``mouth_depth = "floor_slab"``):
 the trench depth is the object's FLOOR SLAB when it carries one (a near-
 horizontal plate below the crest running along the axis, ``plate_min_
-area_m2``: depth = crest − slab), else ``tunnel.bore_datum_m`` for EVERY
+area_m2``: depth = crest − slab), else ``tunnel.mouth_depth_m`` for EVERY
 mouth kind (bore / closed / family) — never the crest's height above the
 ANCHOR (``plate_y`` is the author's origin handle: OTHH's two mouths of
 ONE bore read 5.0 and 10.0 m by it, both crests +2 m over ground, both
@@ -106,7 +106,7 @@ class WallSignature:
     width_m: float
     #: RULINGS 2026-09-06c (2): the crest stands under ``edge_wall_max_
     #: plate_m`` — an EDGE WALL: the plan is the walls', the depth the
-    #: bore law's (``tunnel.bore_datum_m`` at the mouth).
+    #: bore law's (``tunnel.mouth_depth_m`` at the mouth).
     edge_wall: bool = False
     #: RULINGS 2026-09-08l: the FLOOR SLAB's top (authored y, below the
     #: crest) when the model carries one along its axis — the depth is
@@ -182,7 +182,7 @@ class Corridor:
 
     #: The trench DEPTH at the mouth (RULINGS 2026-09-08l/08o, ``mouth_depth
     #: = "floor_slab"``): crest − floor slab when the model carries one,
-    #: else ``tunnel.bore_datum_m`` — ``plate_y`` stays the crest's height
+    #: else ``tunnel.mouth_depth_m`` — ``plate_y`` stays the crest's height
     #: for the seat (crest flush at grade, 05n-4).
     depth_m: float = 0.0
     edge_wall: bool = False
@@ -695,7 +695,7 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
         return "the corridor is shorter than one station"
     far = 1 - mouth
     # THE MOUTH GROUND is the ground AT THE MOUTH WALL (09-03b: "the mouth
-    # wall node stands bore_datum_m above the ramp's mouth node"; 05n-4:
+    # wall node stands mouth_depth_m above the ramp's mouth node"; 05n-4:
     # the crest is flush with the ground at the wall): the MEDIAN DEM
     # along the mouth end's inner faces — the end wall's polyline and the
     # side walls' ends — never the axis sample.  LEMD's Bridge4 stands in
@@ -718,7 +718,7 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
         trench = max((g for g in trench.geoms if g.geom_type == "Polygon"), key=lambda g: g.area)
     # THE DEPTH (RULINGS 2026-09-08l / 08o, ``mouth_depth = "floor_slab"``):
     # the model's floor slab under the crest when it carries one, else the
-    # bore law's bore_datum_m for every mouth kind — never the crest's
+    # bore law's mouth_depth_m for every mouth kind — never the crest's
     # height above the anchor.  A CLOSED-end fallback (no bore, no facing
     # placement) needs a mapped road through the trench, else it is a
     # wall around nothing and is refused by name.
@@ -727,8 +727,8 @@ def _corridor(sig: WallSignature, o: _obj8.PlacedObject, k: int, airport: Airpor
         notes.append(f"depth {depth:.2f} m = crest {sig.plate_y:.2f} − floor slab "
                      f"{sig.floor_y:.2f} (2026-09-08l)")
     else:
-        depth = float(tn.bore_datum_m)
-        notes.append(f"depth {depth:.2f} m = tunnel.bore_datum_m (no floor slab: a skirt; "
+        depth = float(tn.mouth_depth_m)
+        notes.append(f"depth {depth:.2f} m = tunnel.mouth_depth_m (no floor slab: a skirt; "
                      f"crest {sig.plate_y:.2f} is the seat's handle, 2026-09-08l/08o)")
     if kind == "closed":
         roads = _road_through(trench, airport.osm_ways)
@@ -766,7 +766,7 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
     shell's own interior (never a hull, never the chords between the wall
     lines); the two inner chains are its ring cut at its two portals; and
     the DEPTH IS AUTHORED — ``floor_z`` is the floor plate's level in the
-    SEATED frame, which overrides ``bore_datum_m`` (the law for
+    SEATED frame, which overrides ``mouth_depth_m`` (the law for
     UNAUTHORED bores only)."""
     ob = law.tables.structures.tunnel.object
     grid = law.tables.emit.identity.min_distinct_spacing_m
@@ -831,8 +831,8 @@ def shell_corridor(cut, airport: Airport, tunnel_ways, law: Law) -> "Corridor | 
     depth = float(mouth_dem - cut.floor_z)
     width = 2.0 * sum((s.half_l + s.half_r) / 2.0 for s in sts2) / len(sts2)
     notes.append(f"depth {depth:.2f} m = ground {mouth_dem:.2f} − the AUTHORED floor "
-                 f"{cut.floor_z:.2f} (§33 (6) B: it overrides bore_datum_m "
-                 f"{law.tables.structures.tunnel.bore_datum_m})")
+                 f"{cut.floor_z:.2f} (§33 (6) B: it overrides mouth_depth_m "
+                 f"{law.tables.structures.tunnel.mouth_depth_m})")
     return Corridor(cut.id, cut.resource, (cut.object_id,), 0.0, tuple(axis2), tuple(sts2),
                     float(sts2[-1].s), width, False, False, mean_t, mean_t, kind, flat,
                     mouth_dem, float(cut.floor_z), band, trench, footprint,

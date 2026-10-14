@@ -74,8 +74,10 @@ def _rect(x0, y0, x1, y1):
 
 def _run(law, extra_cells=()):
     frame = Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11)
-    ends = (RunwayEnd("16", (0.0, 600.0), (0, 0), 0.0, 0.0, 22.0, "fixture"),
-            RunwayEnd("34", (0.0, -600.0), (0, 0), 0.0, 0.0, 22.0, "fixture"))
+    # the runway stands 400 m west of the bore: the 7.5 m mouth's ramp
+    # (owner RULINGS 2026-10-14f, ~150 m at 5 %) stays clear of its strip
+    ends = (RunwayEnd("16", (-100.0, 600.0), (0, 0), 0.0, 0.0, 22.0, "fixture"),
+            RunwayEnd("34", (-100.0, -600.0), (0, 0), 0.0, 0.0, 22.0, "fixture"))
     rw = Runway("16/34", 45.0, 1, ends, 4, "E")
     bore = OsmWay(-5724, "big_roads", ((300.0, -100.0), (335.0, -100.0)), False,
                   {"highway": "secondary", "lanes": "3", "tunnel": "yes"})
@@ -84,7 +86,7 @@ def _run(law, extra_cells=()):
     airport = Airport("ZZZZ", "Synthetic", frame, 22.0, (rw,), (), (), {}, (),
                       (), (fence,), (), (bore,), (), (), pack, _FallDem(),
                       law.ruleset_key)
-    cells = [Cell(0, "runway", "16/34", _rect(-22, -600, 22, 600), (), 4, "E",
+    cells = [Cell(0, "runway", "16/34", _rect(-122, -600, -78, 600), (), 4, "E",
                   "airside", "runway", {}),
              # the nearest classified cell stands off the bore, as SPJC's
              # building5 does (147.8 m there; the mouth gate still admits)

@@ -60,12 +60,12 @@ def _bore_with_bridge(pack, law, x_bridge):
 
 def test_a_bridge_far_beyond_the_ramps_top_holds_no_cut(pack, law):
     """The east mouth is at x = 80 and the free ramp reaches the ground
-    ``bore_datum_m / ramp_max_grade`` out.  An object bridge four ramp
+    ``mouth_depth_m / ramp_max_grade`` out.  An object bridge four ramp
     lengths away crosses a road at grade: the climb starts AT the mouth and
     the bridge is no deck of this tunnel.  The same bridge half a ramp
     length out stands over the ramp and still holds the cut under it."""
     tn = law.tables.structures.tunnel
-    run = tn.bore_datum_m / tn.ramp_max_grade
+    run = tn.mouth_depth_m / tn.ramp_max_grade
     far, _st = _bore_with_bridge(pack, law, 80.0 + 4.0 * run)
     assert far.climb_from_s == 0.0 and not far.decks
     # built at the DESIGN grade (2026-10-08d (1)), still short of the bridge

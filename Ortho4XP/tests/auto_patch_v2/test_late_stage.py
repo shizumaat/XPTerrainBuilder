@@ -127,7 +127,7 @@ def test_a_new_node_on_a_standing_edge_takes_the_edges_own_level():
 def test_a_yielding_pin_on_a_follower_is_released():
     from auto_patch_v2.model.constraints import ConstraintSet, Pin, Source
     join = Source("road_coverage_join", "roads.coverage_edge join (27a (10))", ())
-    other = Source("twin", "tunnel.bore_datum_m (x)", ())
+    other = Source("twin", "tunnel.mouth_depth_m (x)", ())
     rows = [Pin(v=7, z=87.51, source=join), Pin(v=8, z=50.0, source=other)]
     cs, dropped = som.late_constraints(ConstraintSet.from_rows(rows), {1: 10.0},
                                        frozenset({"roads.coverage_edge join"}))

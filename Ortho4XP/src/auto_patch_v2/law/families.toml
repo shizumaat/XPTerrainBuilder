@@ -422,7 +422,7 @@ solver    = "construction"
 cockpit   = "keepout"
 
 [object_cut_depth]
-measures  = "an OBJECT CUT's emitted floor (its ramp faces' lowest vertex) standing off the AUTHORED floor the object states — the depth is the floor plate's, and it overrides bore_datum_m"
+measures  = "an OBJECT CUT's emitted floor (its ramp faces' lowest vertex) standing off the AUTHORED floor the object states — the depth is the floor plate's, and it overrides mouth_depth_m"
 parameter = "structures.tunnel.object.shell_floor_min_m"
 roles     = ["tunnel_ramp"]
 pairs     = "within"

@@ -15,9 +15,12 @@ digest, the auto-patch configuration digest, and the record of the step
 before it (a rebuilt vector step rebuilds the mesh, a rebuilt mesh the
 masks).  The vector step adds the data it read that can change without a
 setting: the tile's OSM cache files, its cached airport elevation
-insets, ``scenery_packs.ini``, and for each
-airport patch the apt.dat / CIFP / pack DSF files its own freshness stamp
-names.  None of the texture settings (``list_dsf_vars``, the imagery
+insets, the pack order and state ``scenery_packs.ini`` gives (its
+content, the tile's own pack left out), and for each airport patch the
+apt.dat / CIFP files its own freshness stamp names and its pack DSFs as
+the build's INPUT — the pristine pack, never the file the mesh step's
+object stage rewrote: a file a build wrote must not make that build's own
+earlier steps stale.  None of the texture settings (``list_dsf_vars``, the imagery
 source, zoom and zone list) is an input of any of the three — they are
 read only by the scenery-file step (``O4_DSF_Utils``,
 ``O4_Imagery_Utils``, ``O4_Airport_Fade_Masks``,
@@ -52,7 +55,9 @@ import O4_File_Names as FNAMES
 __all__ = ["REUSABLE_STEPS", "stale_reason", "predicted_reuse", "record",
            "reused", "commit", "forget_from", "reused_label"]
 
-SCHEMA = "2026-10-13"
+# 2026-10-14: pack DSFs keyed as the build's input and scenery_packs.ini
+# by content (#615 self-invalidation); a 2026-10-13 record reads as none.
+SCHEMA = "2026-10-14"
 
 #: the steps whose output can be reused, in build order
 REUSABLE_STEPS = ("vector", "mesh", "masks")
@@ -141,8 +146,18 @@ def _stamped_paths(value: str) -> list:
 
 
 def _patch_inputs(tile) -> dict:
-    """For each airport patch, the live identity of the apt.dat, CIFP
-    and pack DSF files its own freshness stamp names."""
+    """For each airport patch, the identity of the apt.dat and CIFP files
+    its own freshness stamp names, and of its pack DSFs AS THE BUILD'S
+    INPUT.
+
+    The mesh step's object stage REWRITES those pack DSFs after this
+    record is cut, so their live identity never matches at the next build
+    (#615, app 1.0.391: every OTHH rebuild reran the vector step).  The
+    input is the pack as installed — ``provenance.pack_dsf_identity_list``,
+    the rule the patch freshness gate already uses for the same reason:
+    the pristine backup's size+mtime when the live file is this app's
+    own write, the live file's when the user replaced the pack."""
+    from auto_patch import provenance
     from auto_patch.build_support import read_patch_source
     inputs = {}
     for patch in _patch_files(tile):
@@ -150,9 +165,31 @@ def _patch_inputs(tile) -> dict:
         fresh = meta.get("freshness") or {}
         named = [meta.get("apt_dat"), meta.get("apt_dat_borrowed")]
         named += _stamped_paths(fresh.get("o4_cifp"))
-        named += _stamped_paths(fresh.get("o4_dsf"))
-        inputs[os.path.basename(patch)] = _identity([p for p in named if p])
+        inputs[os.path.basename(patch)] = {
+            "files": _identity([p for p in named if p]),
+            "pack_dsfs": provenance.pack_dsf_identity_list(
+                _stamped_paths(fresh.get("o4_dsf")))}
     return inputs
+
+
+def _scenery_packs_state(tile) -> str:
+    """What the vector step reads from ``scenery_packs.ini``: the enabled
+    packs in order and the disabled ones — not the file's size and mtime,
+    which the app's own pack reconcile and X-Plane's launch rewrite with
+    nothing changed for this tile.  The tile's own pack (the folder this
+    build writes, which the app lists when it installs it) is left out:
+    the build's own install must not make its earlier steps stale."""
+    import O4_Scenery_Packs as PACKS
+    ini = os.path.join(str(_setting(tile, "custom_scenery_dir") or ""),
+                       PACKS.INI_FILENAME)
+    if not os.path.isfile(ini):
+        return "absent"
+    own = {FNAMES.tile_dir(tile.lat, tile.lon),
+           os.path.basename(os.path.normpath(str(tile.build_dir or "")))}
+    enabled, disabled = PACKS.parse_ini(ini)
+    text = json.dumps([[n for n in enabled if n not in own],
+                       sorted(n for n in disabled if n not in own)])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _osm_files(tile) -> list:
@@ -190,9 +227,7 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
     if step == "vector":
         inputs["osm"] = _identity(
             _osm_files(tile) if osm_files is None else osm_files)
-        packs = os.path.join(str(_setting(tile, "custom_scenery_dir") or ""),
-                             "scenery_packs.ini")
-        inputs["scenery_packs"] = _identity([packs])
+        inputs["scenery_packs"] = _scenery_packs_state(tile)
         inputs["patches"] = _patch_inputs(tile)
         inputs["insets"] = _identity(_inset_files(tile))
     return inputs

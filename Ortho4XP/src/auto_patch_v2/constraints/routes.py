@@ -926,20 +926,27 @@ def route_pairs(g: RouteGraph, groups: _t.Sequence[_t.Sequence[int]],
         _PAIRS_READS["hit"] += 1
         return hit
     _PAIRS_READS["miss"] += 1
+    # each group's members (ascending) and their inbound walk ids, once: a
+    # source pairs with the members ABOVE it, read off as one array slice
+    # and filtered in one mask (issue #149: the per-target Python loop was
+    # HECA's hottest line in the constraints stage) — the same pairs in the
+    # same order with the same ``float`` values
+    garr = [np.asarray(gr, np.int64) for gr in grp]
+    gcol = [g.inbound(a) if a.size else a for a in garr]
     for c0 in range(0, len(srcs), chunk):
         idx = srcs[c0:c0 + chunk]
         D = dijkstra(m, directed=True, indices=idx)
         B = dijkstra(wb, directed=True, indices=idx)
         for i, s in enumerate(idx):
             for k in members[s]:
-                tg = [t for t in grp[k] if t > s]
-                if not tg:
+                j0 = int(np.searchsorted(garr[k], s, side="right"))
+                if j0 >= garr[k].size:
                     continue
-                cols = g.inbound(np.array(tg, np.int64))
+                cols = gcol[k][j0:]
                 d, b = D[i, cols], B[i, cols]
-                for t, dv, bv in zip(tg, d, b):
-                    if np.isfinite(dv) and dv > 0.0:
-                        out[(s, t)] = (float(dv), float(bv))
+                ok = np.isfinite(d) & (d > 0.0)
+                out.update(zip(((s, t) for t in garr[k][j0:][ok].tolist()),
+                               zip(d[ok].tolist(), b[ok].tolist())))
     while len(_PAIRS_MEMO) >= _PAIRS_SLOTS:
         del _PAIRS_MEMO[next(iter(_PAIRS_MEMO))]
     _PAIRS_MEMO[key] = out

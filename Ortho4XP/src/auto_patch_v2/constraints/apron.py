@@ -83,7 +83,7 @@ from ..model.constraints import Diff, Row, Source
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap, is_osm_ribbon_ref
 from .geometry import (chord_midpoints_hit, chords_covered, face_cover,
-                       principal_axis, project_to_chain)
+                       chains_within, principal_axis)
 from .precedence import View, view
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
@@ -211,16 +211,13 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
     # polylines (the weld tolerance): an apron vertex lying ON a taxi
     # centreline chord between two axis vertices is a spine node there
     # even when the noding left it off the breakline chain
-    chains = [[vw.xy[v] for v in ch] for bid, ch in vw.chains.items()
-              if planar.breaklines[bid].kind == "taxi_centerline" and len(ch) >= 2]
+    near = chains_within([[vw.xy[v] for v in ch] for bid, ch in vw.chains.items()
+                          if planar.breaklines[bid].kind == "taxi_centerline"
+                          and len(ch) >= 2], min_d)
     for f in vw.faces_of_role(("apron",)):
         for v in vw.rings[f.id]:
-            if v in strict:
-                continue
-            for ch in chains:
-                if project_to_chain(vw.xy[v], ch)[0] <= min_d:
-                    strict.add(v)
-                    break
+            if v not in strict and near(vw.xy[v]):
+                strict.add(v)
     tol = snap_margin_m(law)
     rows: list[Row] = []
     outside = 0

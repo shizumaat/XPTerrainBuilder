@@ -1714,9 +1714,9 @@ class MainWindow(QMainWindow):
         return APTBATCH.resolve_codes(text, cached[1])
 
     def _select_airport_batch(self, batch):
-        """Select every tile of the listed airports and say, inline, which
-        codes were not found.  With an unknown code the text stays in the
-        field so it can be corrected."""
+        """Select every tile of the listed airports, then alert on the
+        codes that were not found (owner decision on #542).  With an
+        unknown code the text stays in the field so it can be corrected."""
         if batch.tiles:
             self.map.set_selection(batch.tiles)
             self.map.set_active(*batch.tiles[0], select=False)
@@ -1724,6 +1724,9 @@ class MainWindow(QMainWindow):
         if not batch.unknown:
             self.search_edit.clear()
         self._status(_batch_summary(batch))
+        message = APTBATCH.unknown_codes_message(batch)
+        if message:
+            QMessageBox.warning(self, APTBATCH.UNKNOWN_CODES_TITLE, message)
 
     # ------------------------------------------------------------------
     # Selection / tile info

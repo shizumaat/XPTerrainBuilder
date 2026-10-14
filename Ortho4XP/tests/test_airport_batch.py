@@ -56,6 +56,18 @@ def test_resolve_codes(case):
     assert batch.tiles == [tuple(t) for t in want["tiles"]]
 
 
+def test_alert_message_only_when_a_code_is_unknown():
+    lookup = BATCH.code_lookup(_index_entries())
+    assert BATCH.unknown_codes_message(
+        BATCH.resolve_codes("KCLT, OTHH", lookup)) is None
+    assert BATCH.unknown_codes_message(
+        BATCH.resolve_codes("KCLT, kzzz", lookup)) == (
+        "Not identified: KZZZ. The tiles of KCLT are selected.")
+    assert BATCH.unknown_codes_message(
+        BATCH.resolve_codes("KZZZ, QQQQ", lookup)) == (
+        "Not identified: KZZZ, QQQQ. No tiles were selected.")
+
+
 def test_lookup_is_case_blind_and_first_entry_wins():
     entries = [AI.AirportEntry("kclt", "a", "", "", 35.2, -80.9),
                AI.AirportEntry("KCLT", "b", "", "", 10.5, 10.5)]

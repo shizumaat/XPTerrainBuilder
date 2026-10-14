@@ -139,7 +139,10 @@ def test_scenery_filter_reaches_the_map_and_persists(make_window):
 # Airport code list in the search field (#542; the Mac twin is
 # Tests/SceneryKitTests/AirportCodeListTests.swift)
 # ===========================================================================
-def _batch_window(make_window):
+def _batch_window(make_window, monkeypatch):
+    alerts = []
+    monkeypatch.setattr(GUI.QMessageBox, "warning",
+                        lambda *args: alerts.append(args))
     window = make_window()
     window._airports = [
         APT.AirportEntry("KCLT", "Charlotte", "", "", 35.21, -80.94),
@@ -150,21 +153,26 @@ def _batch_window(make_window):
     ]
     statuses = []
     window._status = statuses.append
+    window.alerts = alerts
     return window, statuses
 
 
-def test_return_selects_every_tile_of_a_code_list(make_window):
-    window, statuses = _batch_window(make_window)
+def test_return_selects_every_tile_of_a_code_list(make_window, monkeypatch):
+    window, statuses = _batch_window(make_window, monkeypatch)
     window.search_edit.setText("kclt, OTHH xedg")
     window._search_accept_first()
     assert window.map.selection() == {
         (35, -81), (25, 51), (47, 8), (47, 9), (48, 8), (48, 9)}
     assert window.search_edit.text() == ""
     assert statuses == ["Select 6 tiles for KCLT, OTHH, XEDG"]
+    assert window.alerts == []   # every code resolved: no alert
 
 
-def test_unknown_codes_are_reported_inline_and_the_rest_selected(make_window):
-    window, statuses = _batch_window(make_window)
+def test_unknown_codes_alert_after_the_rest_are_selected(make_window,
+                                                         monkeypatch):
+    """Owner decision on #542: select all matching tiles and ALERT on the
+    codes that could not be identified."""
+    window, statuses = _batch_window(make_window, monkeypatch)
     window.search_edit.setText("KCLT; KZZZ, qqqq")
     window._search_accept_first()
     assert window.map.selection() == {(35, -81)}
@@ -172,18 +180,21 @@ def test_unknown_codes_are_reported_inline_and_the_rest_selected(make_window):
     assert window.search_edit.text() == "KCLT; KZZZ, qqqq"
     assert statuses == [
         "Select 1 tile for KCLT — Unknown airport codes: KZZZ, QQQQ"]
+    assert window.alerts == [(
+        window, "Some airport codes were not found",
+        "Not identified: KZZZ, QQQQ. The tiles of KCLT are selected.")]
 
 
-def test_a_code_list_is_one_popup_choice(make_window):
-    window, _ = _batch_window(make_window)
+def test_a_code_list_is_one_popup_choice(make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
     window._update_search_popup("KCLT OTHH")
     assert window.search_popup.count() == 1
     kind, batch = window.search_popup.item(0).data(GUI.Qt.UserRole)
     assert kind == "batch" and batch.codes == ["KCLT", "OTHH"]
 
 
-def test_a_single_code_searches_exactly_as_before(make_window):
-    window, statuses = _batch_window(make_window)
+def test_a_single_code_searches_exactly_as_before(make_window, monkeypatch):
+    window, statuses = _batch_window(make_window, monkeypatch)
     window._update_search_popup("KCLT")
     kind, tile = window.search_popup.item(0).data(GUI.Qt.UserRole)
     assert (kind, tile) == ("apt", (35, -81))

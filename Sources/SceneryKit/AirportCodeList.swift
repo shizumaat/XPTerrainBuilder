@@ -24,8 +24,21 @@ public struct AirportBatch: Sendable, Equatable {
     /// Every tile the found airports touch, sorted, no repeats.
     public var tiles: [AirportTile] = []
 
-    /// One line for the search field's inline notice: what is selected
-    /// and every code that was not found. Same wording as the Qt app.
+    /// The alert's title when a code was not found (owner decision on
+    /// #542). Same wording as the Qt app (`O4_Airport_Batch`).
+    public static let unknownCodesTitle = "Some airport codes were not found"
+
+    /// The alert's message — nil when every code resolved, so no alert.
+    public var unknownCodesMessage: String? {
+        guard !unknown.isEmpty else { return nil }
+        let selected = codes.isEmpty
+            ? "No tiles were selected."
+            : "The tiles of \(codes.joined(separator: ", ")) are selected."
+        return "Not identified: \(unknown.joined(separator: ", ")). " + selected
+    }
+
+    /// One line for what is selected and every code that was not found
+    /// (the Qt status bar's text). Same wording as the Qt app.
     public var summary: String {
         var parts: [String] = []
         if !codes.isEmpty {

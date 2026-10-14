@@ -83,6 +83,20 @@ import Foundation
         #expect(batch?.summary == "Select 1 tile for XPAK — Unknown airport code: KZZZ")
     }
 
+    /// The state that drives the Mac alert (owner decision on #542):
+    /// a message only when a code is unknown; same text as the Qt twin.
+    @Test func alertMessageOnlyWhenACodeIsUnknown() {
+        let index = [GlobalAirport(icao: "KCLT", latitude: 35.2, longitude: -80.9),
+                     GlobalAirport(icao: "OTHH", latitude: 25.3, longitude: 51.6)]
+        let lookup = AirportCodeList.lookup(index)
+        #expect(AirportCodeList.resolve("KCLT, OTHH", lookup: lookup)?.unknownCodesMessage == nil)
+        #expect(AirportCodeList.resolve("KCLT, kzzz", lookup: lookup)?.unknownCodesMessage
+                == "Not identified: KZZZ. The tiles of KCLT are selected.")
+        #expect(AirportCodeList.resolve("KZZZ, QQQQ", lookup: lookup)?.unknownCodesMessage
+                == "Not identified: KZZZ, QQQQ. No tiles were selected.")
+        #expect(AirportBatch.unknownCodesTitle == "Some airport codes were not found")
+    }
+
     @Test func readsTheV5ExtentColumns() throws {
         let cache = [
             "O4AIRPORTIDX 5 2",

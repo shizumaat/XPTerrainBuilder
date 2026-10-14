@@ -34,7 +34,13 @@ __all__ = [
     "airport_tiles",
     "resolve_codes",
     "code_lookup",
+    "UNKNOWN_CODES_TITLE",
+    "unknown_codes_message",
 ]
+
+# The alert shown when a code was not found (owner decision on #542).
+# Same wording as SceneryKit's AirportBatch.unknownCodesTitle/Message.
+UNKNOWN_CODES_TITLE = "Some airport codes were not found"
 
 # Separators: any run of commas, semicolons and whitespace.
 _SEPARATORS = re.compile(r"[,;\s]+")
@@ -119,6 +125,16 @@ def resolve_codes(query: str,
         return None
     batch.tiles = sorted(tiles)
     return batch
+
+
+def unknown_codes_message(batch: AirportBatch) -> Optional[str]:
+    """The alert's message, or ``None`` when every code resolved (no
+    alert)."""
+    if not batch.unknown:
+        return None
+    selected = ("The tiles of %s are selected." % ", ".join(batch.codes)
+                if batch.codes else "No tiles were selected.")
+    return "Not identified: %s. %s" % (", ".join(batch.unknown), selected)
 
 
 def code_lookup(entries: Iterable) -> Callable[[str], Optional[List[Tile]]]:

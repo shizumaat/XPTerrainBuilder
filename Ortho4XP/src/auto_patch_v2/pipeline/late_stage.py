@@ -419,14 +419,7 @@ def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     from .stage_one_map import remap_row
     roads = [c for c in cl.cells if _has_pad_road(c)]
     gaps = any(is_gap_ref(c.ref) for c in cl.cells)
-    # a ramp foot's run-out (14c (5), #669) is minted in the pad roads'
-    # stage: an airport with gap pieces and ramp feet but no pad road
-    # still has that stage
-    feet = False
-    if gaps and not roads:
-        from ..airport.ramp_feet import ramp_feet
-        feet = bool(ramp_feet(airport, law, airport.frame.entry()))
-    if not ((roads or feet) and gaps):
+    if not (roads and gaps):
         return run_late_stage(cl, airport, law, derive, base_solution, out=out,
                               roads_only=not gaps, **kw)
     plain = _dc.replace(cl, cells=tuple(c for c in cl.cells if not _has_pad_road(c)))

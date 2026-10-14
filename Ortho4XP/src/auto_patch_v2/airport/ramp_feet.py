@@ -73,14 +73,6 @@ class RampFoot:
     climb_m: float
 
 
-def _law(law):
-    st = law.tables.structures.placement
-    return (float(getattr(st, "sunken_ramp_grid_m", 0.0) or 0.0),
-            float(getattr(st, "sunken_ramp_climb_min_m", 1.0)),
-            float(getattr(st, "sunken_ramp_step_grade", 0.12)),
-            float(law.tables.emit.cockpit.visual_m))
-
-
 def _gradient(T: np.ndarray, grid: float, step: float):
     """``(gx, gy)`` per cell: central differences over the neighbours whose
     ``T`` is within ``step`` of the cell's (one deck), one-sided at a deck
@@ -204,6 +196,7 @@ def ramp_feet(airport, law, to_xy) -> tuple[RampFoot, ...]:
     for key, val in _MEMO:
         if key is part:
             return val
+    from .sunken_ramp import _law
     lv = _law(law)
     feet: list[RampFoot] = []
     if lv[0] > 0.0:

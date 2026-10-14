@@ -48,6 +48,14 @@ c. **`_CACHE_VERSION` 3 → 4.** (a) changes parse results and (b)
    (`index_is_stale`'s `version < _CACHE_VERSION` already handles it —
    Qt and the bathymetry band's gate rebuild transparently).
 
+d. **`_CACHE_VERSION` 4 → 5 (issue #542, 2026-10-13).** Rows gain four
+   trailing columns `min_lat min_lon max_lat max_lon`: the airport's
+   extent over its boundary (row 130) nodes, runway ends, helipads and
+   datum, so a typed list of codes selects every tile an airport
+   touches (`O4_Airport_Batch` / SceneryKit `AirportCodeList`). Both
+   readers accept 6, 7 and 11 columns; an older row has no extent and
+   is its point.
+
 Update the module docstring and the affected function docstrings; keep
 the module stdlib-only, no GUI imports.
 

@@ -23,6 +23,13 @@ insets of the holder-provider lanes, #154; registering one REFUSES a raster
 whose sidecar is absent, `--copy` brings the sidecar along, and the row
 names it as `sidecar`).
 
+A `capture` carries its DATA OVERLAY (issue #156): `v2_solve_replay.py
+--capture` writes `<pkl>.overlay.json` beside the pickle (the declared
+`--data-overlay` frame, or `null` for the shared corpus); `register` copies
+it into the row as `data_overlay` (`--copy` brings it along) and `list`
+flags the row `[DATA OVERLAY DIR]`.  A capture without the sidecar
+predates the record and its row carries no key.
+
 DURABLE PATHS ONLY (issue #37, 2026-09-21): 279 of 282 registered frames
 were MISSING after one reboot, because lanes registered products under
 `/tmp` and session scratchpads, which a reboot purges.  `register` now
@@ -59,6 +66,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 REGISTRY = os.path.join(ROOT, "docs", "frames.jsonl")
 KINDS = ("capture", "rebake", "patch", "graded", "mesh", "inset")
 SIDECAR_SUFFIX = ".axes.json"     # census.py: Path(str(osm) + ".axes.json")
+#: ``Ortho4XP/tools/harness/data_overlay.SIDECAR_SUFFIX`` — the capture's
+#: overlay record (twin-pinned equal; frames.py loads no Ortho4XP module
+#: at import beyond the guard's state root)
+CAPTURE_SIDECAR_SUFFIX = ".overlay.json"
 
 #: THE SECOND-ROUND NAME (issue #102).  When ``--copy``'s destination
 #: basename is already taken by DIFFERENT bytes, the copy lands beside it
@@ -165,6 +176,35 @@ def _pick_dest(path: str, dest: str, base: str, is_dir: bool) -> str:
         f"replaced in place, and a row never names bytes it did not write)")
 
 
+def _sidecar_of(path: str, kind: str) -> "str | None":
+    """The one sidecar a kind's product travels with, or ``None``: a
+    patch's ``.axes.json``, an inset's provenance ``<stem>.json``, a
+    capture's ``.overlay.json`` (issue #156 — the declared data overlay
+    the capture read, or ``null`` for the shared corpus)."""
+    if kind == "patch":
+        return path + SIDECAR_SUFFIX
+    if kind == "inset":
+        return inset_sidecar(path)
+    if kind == "capture":
+        return path + CAPTURE_SIDECAR_SUFFIX
+    return None
+
+
+def _copy_sidecar(side: str, side_dest: str, kind: str) -> str:
+    """Copy ``side`` to ``side_dest`` beside a durable product; an existing
+    ``side_dest`` must be byte-identical (the row would otherwise name this
+    product's bytes and another run's sidecar)."""
+    if os.path.exists(side_dest):
+        if _sha256(side_dest) != _sha256(side):
+            raise SystemExit(
+                f"frames: refusing to overwrite an existing durable {kind} sidecar "
+                f"that differs: {side_dest}\n  (the row would name this {kind}'s "
+                f"bytes and another run's sidecar)")
+    else:
+        shutil.copy2(side, side_dest)
+    return side_dest
+
+
 def _copy_durable(path: str, lane: str, kind: str,
                   base: str = "") -> tuple[str, list[str]]:
     """Copy ``path`` (file or directory) into ``<durable root>/<lane>/`` and
@@ -189,31 +229,9 @@ def _copy_durable(path: str, lane: str, kind: str,
         if not os.path.exists(dest):
             shutil.copy2(path, dest)
         # an existing dest here is byte-identical (``_pick_dest``)
-        if kind == "patch":
-            side = path + SIDECAR_SUFFIX
-            if os.path.isfile(side):
-                side_dest = dest + SIDECAR_SUFFIX
-                if os.path.exists(side_dest):
-                    if _sha256(side_dest) != _sha256(side):
-                        raise SystemExit(
-                            f"frames: refusing to overwrite an existing durable "
-                            f"patch sidecar that differs: {side_dest}\n  (the row "
-                            f"would name this patch's bytes and another run's "
-                            f"census context)")
-                else:
-                    shutil.copy2(side, side_dest)
-                extras.append(side_dest)
-        if kind == "inset":
-            side = inset_sidecar(path)
-            side_dest = inset_sidecar(dest)
-            if os.path.exists(side_dest):
-                if _sha256(side_dest) != _sha256(side):
-                    raise SystemExit(
-                        f"frames: refusing to overwrite an existing durable inset "
-                        f"sidecar that differs: {side_dest}")
-            else:
-                shutil.copy2(side, side_dest)
-            extras.append(side_dest)
+        side = _sidecar_of(path, kind)
+        if side and os.path.isfile(side):
+            extras.append(_copy_sidecar(side, _sidecar_of(dest, kind), kind))
     return dest, extras
 
 
@@ -260,6 +278,11 @@ def register(icao: str, kind: str, path: str, base: str, lane: str, note: str = 
         rec["copied_from"] = copied_from
     if kind == "inset":
         rec["sidecar"] = inset_sidecar(path)
+    if kind == "capture":
+        side = _sidecar_of(path, kind)
+        if os.path.isfile(side):
+            with open(side, encoding="utf-8") as f:
+                rec["data_overlay"] = json.load(f).get("data_overlay")
     os.makedirs(os.path.dirname(REGISTRY), exist_ok=True)
     with open(REGISTRY, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -270,7 +293,9 @@ def _fmt(r: dict) -> str:
     exists = os.path.exists(r["path"])
     flag = "" if exists else "  [MISSING]"
     note = f"  — {r['note']}" if r.get("note") else ""
-    return f"{r['icao']:5s} {r['kind']:8s} base {r['base']:10s} lane {r['lane']:16s} {r['at']}  {r['path']}{flag}{note}"
+    ovl = f"  [DATA OVERLAY {r['data_overlay']['dir']}]" if r.get("data_overlay") else ""
+    return (f"{r['icao']:5s} {r['kind']:8s} base {r['base']:10s} lane {r['lane']:16s} "
+            f"{r['at']}  {r['path']}{flag}{ovl}{note}")
 
 
 def list_frames(icao: str | None, kind: str | None) -> list[dict]:

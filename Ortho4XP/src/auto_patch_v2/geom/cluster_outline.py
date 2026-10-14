@@ -24,7 +24,7 @@ from shapely.strtree import STRtree
 from .rotated_rect import rotated_rectangle
 
 __all__ = ["cluster_outlines", "OUTLINE_SIMPLIFY_M", "airside_vertex_snap",
-           "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades",
+           "AirsideRim", "ON_BOUNDARY_EPS_M", "deck_shades", "with_shade",
            "osm_building_evidence", "OSM_BUILDING_SOURCE",
            "CACHE_VOUCHED_SOURCE", "CLUSTER_EVIDENCE_SOURCES",
            "cluster_building_evidence"]
@@ -146,6 +146,16 @@ def deck_shades(partition: _t.Any,
                 ps.extend(_parts(g))
     got = unary_union(ps) if ps else None
     return None if got is None or got.is_empty else got
+
+
+def with_shade(shades, extra):
+    """``shades`` with ``extra`` (another planar-frame region that leaves
+    every outline — issue #516's sunken ramps, ``Airport.sunken_ramps``)
+    added; either may be None.  The ONE union both pad readers pass to
+    :func:`cluster_outlines`."""
+    if extra is None or getattr(extra, "is_empty", True):
+        return shades
+    return extra if shades is None else unary_union([shades, extra])
 
 
 #: v1's EVIDENCE SOURCE (a) population: which ``model.airport.Building``

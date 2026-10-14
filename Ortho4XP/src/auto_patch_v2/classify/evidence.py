@@ -18,7 +18,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..geom import (cluster_building_evidence, cluster_outlines,
-                    deck_shades, osm_building_evidence)
+                    deck_shades, osm_building_evidence, with_shade)
 from ..law.tables import pad_admission
 from ..model.airport import Airport, Runway
 from ..model.frame import XY
@@ -531,6 +531,10 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     # leave every outline — the SAME reading ``constraints/cluster_pad``
     # censuses with
     shades = deck_shades(getattr(airport, "partition", None), to_xy)
+    # issue #516 (owner RULINGS 2026-09-13bi / 13cm): a sloped deck's
+    # ground where it rises through the natural ground leaves the outline
+    # the same way — ONE derivation, the census reads it too
+    shades = with_shade(shades, getattr(airport, "sunken_ramps", None))
     # §16g (10) (12), issue #101 (owner RULINGS 2026-10-02v (3)): v1's two
     # PAD-ADMISSION gates.  The thresholds come from the ONE reading the
     # census takes too (``law.tables.pad_admission``) and the OSM half from
@@ -556,6 +560,8 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
     # footprint's length/width, which issue #229 reads)
     CLUSTER_PADS["refused"] = _refused
     CLUSTER_PADS["deck_shade_m2"] = round(shades.area, 1) if shades is not None else 0.0
+    _sunk = getattr(airport, "sunken_ramps", None)
+    CLUSTER_PADS["sunken_ramp_m2"] = round(_sunk.area, 1) if _sunk is not None else 0.0
     CLUSTER_PADS["area_m2"] = round(sum(g.area for _i, _c, g in got), 1)
     return [g for _i, _c, g in got]
 
@@ -658,8 +664,9 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # trimmed by the welded decks' shades BEFORE the cover test — a deck
     # never re-enters as a v1 footprint or an OSM ``building=roof``
     if polys:
-        _shades = deck_shades(getattr(airport, "partition", None),
-                              airport.frame.entry())
+        _shades = with_shade(deck_shades(getattr(airport, "partition", None),
+                                         airport.frame.entry()),
+                             getattr(airport, "sunken_ramps", None))
         if _shades is not None:
             trimmed = []
             for p in polys:

@@ -352,3 +352,109 @@ garages stood on NO face before (off-surface → mesh ground in the tile build).
   `.progress`; no patch, no result) — the master's to delete. Frames NOT registered.
 * NOT DONE: harness builds on the current code, full suite, ratchets, 13d step 2, the census law context, the
   ramp table on a working exit ramp, the small buildings between the garages, the closing KCLT build, #229.
+
+## ROUND 5 (lane roads609e; RULINGS 2026-10-13a (1)-(3), 13d, 13e, 13f) — RESUME HERE
+* Branch `claude/roads609` (worktree `.claude/worktrees/roads609c`), origin/main 94352a0c5 merged (0d4e47c61). Scratch
+  `<scratch>/roads609/r5/`: `late.sh NAME ICAO BASE.pkl` (late stage on an existing gap-free base), `two.sh` (both runs),
+  `ramps.sh DIR ICAO [PATCH]` (road_course_profile over every pad road of DIR/replay.log), `pair.sh ICAO TAG` (harness
+  pair vs sw23: movers, rebake cmp, late-stage log), `read.sh`, `rebake_diff.py`, probes (`at.py`, `faces_ll.py`,
+  `patch_at.py`, `ways_at.py`, `exit_probe.py` on `kclt_exit_in.pkl` = extend_pad_roads' grabbed inputs).
+* A. The WIP was green as it stood (full non-Qt 9718 passed); ratchets pass.
+* B. MECHANISM (KCLT `-8190`, `--why-from r4/k9/KCLT.solved.pkl --why-at 35.223092,-80.944095`): the vertex was held by
+  ONE row, `road_ramp` "ramp from the pad", bound `+0.37` m from rim v16908 (222.68 m, a constant). The design row read
+  `clip(dem[v] - proxy[r])` with proxy = the rim's DEM (217.5 m), so "0.37 m over the rim" all the way out. Not a weld
+  row, not a missing anchor: the row's datum. FIXES (each measured on the KCLT replay, then twinned):
+  1. the row reads the rim's STANDING level (the last stage's constants) and the run ALONG the road (shortest path on
+     the pad roads' edges; the straight line cut bends);
+  2. a road end the arrangement could not weld to a rim node stands off it (pass C's notch, <= 3 identity cells): it
+     is at that rim (`-8198`: 0.7 m off the terminal pad, ramped from a rim 133 m round the block, 60 %);
+  3. the exit walk: an exit is the way's own crossing of the patch edge off a pad road OR a pad's edge (garage
+     entries), never a way vertex that merely lies within a lane of one (`-13743`); the run is the pad's OFFSET over
+     its ground / design grade (the old "until a design-grade profile meets the terrain" ran 1,000 m down KASE's
+     valley: 2,295 m from 3 exits -> 303 m); the run restarts at every pad the walk passes; an exit within one lane of
+     design grade of its ground is not walked; A BRANCH THAT LEADS NOWHERE (a dead end before the run completes) is
+     pruned (`-24651`: 17 m stub, its 8 x 1 m tip cell 5 m under the garage lip); exit cells get the ONE touch witness
+     (`roles._cut_back_groundside(hold=False)`), so an exit reaching another pad is welded to it;
+  4. the row takes the profile NEARER THE GROUND of two at the design grade: toward the terrain never past it, and the
+     pad's offset closed over its ground (the first never comes down a slope falling faster than 5 %, the second
+     floats over ground rising toward the pad — `-13743` 2.3 m up).
+  The instrument: `road_course_profile --gap` (a sample in the patch's closing by 1.5 m reads the nearest ring, not
+  the DEM) and a repaired-ring triangle keeps its plane — half the old "47-55 % at the patch edge" readings were one
+  sample in a 0.7 m notch sliver or a 0.09 m crack between rings at the same level (`-6064`, `-8190`, `-30417`).
+* KCLT RAMP TABLE (closing build `r5b_KCLT`, 72 pad-road ways, `r5/kr5b/compact.txt`): on-patch worst over 10 m <= 10 %
+  on 68; over: `-28436` 12.3 % (22 m connector: its first 5 m cross `-8205`'s face obliquely, a 0.57 m seam at the T),
+  `-8187` 10.4 %, `-24655` 10.3 %, `-8190` 10.1 % (the centreline read of edges held at the 10 % cap). Patch edge:
+  `-24651` 44.9 % and `-24655` 45.4 % at s=0 = the two way TIPS 1 m beyond garage building90's lip (35.225620,
+  -80.945188 / 35.225615, -80.945279; main read 47.9 / 48.6 % there — dead ends, pruned, unchanged); every other pad
+  road meets the outside ground within 6.4 % (`-10041`). The former 5.1 m wall on `-8188` (35.222959, -80.945684):
+  on-patch 5.2 %. Joins still yielding > 0.5 m at the site: the notch joins against pads (road end at 222.5 vs pad
+  222.7, the core sliver between them yields, e.g. 35.22283, -80.94256 +6.3 m on `-8201`, 35.22158, -80.94238 +3.4 m
+  on `-11471`, 35.22582, -80.94369 +4.7 m at garage building88's entry) and two lateral core joins (35.22310,
+  -80.94338 +2.6 m on `-8190#1`; 35.22346, -80.94257 +1.6 m at `-28436`/`-28438`) — NOT VERIFIED in the mesh.
+* C. 13e RELEASE exercised on the real cases (closing builds): SPJC building24 -> lot `dsf:pol35` +3.95 m / 14.2 m =
+  27.9 % (far end -12.0221301, -77.1077552); building24 -> lot `dsf:pol36#1` +3.72 m / 27.8 m = 13.4 % (-12.0240330,
+  -77.1069011); building8 -> apron `pav35` +2.01 m / 17.5 m = 11.5 % (-12.0319743, -77.1046877); HECA building148 <->
+  building152 2.39 m / 13.7 m = 17.5 % (30.1289254, 31.4137903). Every pad stays (13f: none is free-standing).
+  THE SPJC 2.4 m / 161 % ROW ON THE MAP: building24 is ONE 99,237 m2 pad at 24.36 m whose east rim stands on ground at
+  28.21 m (cut 3.85 m into rising ground); the "far end" is a 74 m2 groundside pavement sliver `dsf:pol36#1` at
+  28.06-28.33 m 0.63 m off that rim, ACROSS the pad road `-6132#1` from it — a lateral neighbour, not a road end. The
+  witness (an end nearer than 2 x lane width is beside the pad) stands; the level difference is the pad's own cut
+  bank, there with or without a road (a pad question for the owner, not a road one).
+  CONSUMER CENSUS of "road <= 10 %" readers:
+  | reader | reads | released stretch |
+  | solve, `roads` longitudinal Diff + last-stage `pavement_ceiling` / `pavement_road_cap` Diff | the cap | widened to the stretch's grade x (1 + 1e-3), its vertices only (`pad_grade_release`) |
+  | solve, `road_cross_section` | cross-fall | untouched (13e) |
+  | solve, PAD_RAMP design rows (5 %) | design grade | dropped on that network |
+  | v1 census `check_grade._check_within_shape` | way tag `o4_grade_law_cap_lifted` | LIFTED on those faces, counted in the lifted stats, never silenced; transverse pairs still judged |
+  | v2 verify `census_frame(lifted_caps(pm))` | `publication.lifted_caps` | same map, same faces |
+  | sidecar `lifted_caps` (evidence) | records | `[shapeID, "pad:<ref>", road ref, run m, grade]` |
+  | `road_cap_governs` readers (verify/strips, check_grade :2908 :3670 :4317) | apron / strip pairs under a ribbon | untouched (airside) |
+  | `emit/road_join.with_pin_yield` budget | patch exits | untouched (a released stretch lies between two standing levels) |
+  | object seating, lateral contiguity `o4_grade_law_cap_t`, road_course_profile | final z / transverse / no law | untouched |
+  ONE channel: `PlanarMap.pad_road_released` (face -> pad, run, grade), written by the last stage, read by
+  `publication.lifted_caps` — the §34 (9) pinched-ramp lift's own readers.
+* D. 13f: `pad_road_reach.free_standing_pads` (no value face but its own and its pad roads' within `[design]
+  pad_frontage_m`), `pad_shifts` (the largest `shift_m` its roads ask, none if two ask opposite ways), `shift_pads`
+  (every constant on the pad's faces, rigidly); then the reach is read again and 13e releases what is left. NO
+  FREE-STANDING CASE at the seven airports (SPJC / HECA's short pads all have other pavement within 3 m) — built on
+  a synthetic twin (two free pads 5 m apart over 20 m: each moves 0.5 m toward the other).
+* E. Twins `tests/auto_patch_v2/test_roads609e.py` (10): red before on the pre-round code — the four exit twins fail
+  on the WIP walk (run, at-grade, stub, pad-edge exit), the rim-level twin asserts the old read in-test, the others
+  need what did not exist (the run, the stand-off, the slope profile, 13f, the published lift).
+* F. Phase split (closing builds run five in parallel — not a timing measurement; sw23 -> r5b, s): KCLT total 344 ->
+  398 (late stage 0 -> 62), HECA 703 -> 830 (115 -> 236), OTHH 420 -> 510 (79 -> 169), SPJC 81 -> 107 (0 -> 27), KASE 36
+  -> 37 (0 -> 3); CYXY / NLWF have no pad road and take no late stage (`gap_free` is None: the stage is skipped).
+  The cost is the second DERIVE (planar build + every generator over the whole map, then `late_constraints` drops the
+  rows with no unknown — KCLT: 2,561 Diff / 918 Linear of them). Cheapest structural reduction, NOT done: a roads-only
+  derive — pass C (`planar/ribbons._ribbons_pass_c`) already joins ribbons to a FINISHED arrangement, so the pad
+  roads could be noded onto the gap stage's map and only the follower faces' generators run.
+* MODULES: `constraints/pad_ramp.py` (new; the pad ramp out of `constraints/road_ramp.py`, which held two things);
+  `classify/pad_road_exit.py`; `constraints/pad_road_reach.py` (13f, 13e); `pipeline/late_stage.py`;
+  `model/planar.py` (`pad_road_released`); `pipeline/publication.py` (`lifted_caps`, `_lifted_records`);
+  `tools/road_course_profile.py` (`--gap`); `tools/INDEX.md` (the two-run replay note, `--gap`).
+* G. CLOSING PROOF (harness builds at 7ef473b66, tag `r5b_<ICAO>`, registered `frames.py` lane roads609e; vs
+  `/tmp/harness/sw23_<ICAO>` = main 574729a79): pads > 0.02 m 0, solve-owned airside 0, structures 0, every other ref
+  family 0 movers at all five (HECA, OTHH gap pieces and main's ribbons included); only new `service_road` refs
+  (KCLT 88, HECA 297, OTHH 163, SPJC 321, KASE 9). Node sets: HECA airside one node fewer (a plateau ring), SPJC
+  airside one more, OTHH structures four more (added, not moved). Rebake plans: KCLT / HECA / KASE IDENTICAL; OTHH
+  one value, `OTHH_TerminalRoads_Parking_000.obj` (dsf:obj8710, unit:24 member 31, a flag deck) `deck_datum_z` 4.61 ->
+  4.46 (its deck datum reads the ground under its ring, which is now graded pad road); SPJC counts only (one stock
+  library resource `jet_c.obj` "unresolved" where sw23 read it "stock" — the library index, not geometry). CYXY /
+  NLWF: no pad road, no late stage — not rebuilt (round 4's bodies b3d42825d802 / 500d6429f065 = sw23).
+  CENSUS (`harness/census.py`, law-true totals sw23 / round-4 r4c / round-5 r5b):
+  | airport | total | airside | groundside | road_cross_section | within_shape | hairline_pair | hard_conflict |
+  | KCLT | 17480 / 17595 / 17857 | 13295 / 13292 / 13292 | 3881 / 3995 / 4254 | 817 / 853 / 950 | 11263 / 11323 / 11410 | 1969 / 1988 / 2063 | 320 / 320 / 321 |
+  | HECA | 56359 / 57696 / 58599 | 52812 / 52798 / 52796 | 3347 / 4649 / 5545 | 558 / 826 / 1363 | 45470 / 45998 / 46061 | 1937 / 2240 / 2420 | 389 / 564 / 701 |
+  | OTHH | 1803 / 2335 / 2448 | 1102 / 1050 / 1050 | 392 / 861 / 954 | 3 / 30 / 62 | 57 / 127 / 150 | 1615 / 2028 / 2093 | 0 / 18 / 9 |
+  | SPJC | 3439 / 3887 / 4550 | 2965 / 2967 / 2969 | 379 / 812 / 1468 | 49 / 130 / 341 | 2453 / 2539 / 2689 | 480 / 671 / 951 | 9 / 61 / 61 |
+  | KASE | 3493 / 3507 / 3545 | 3439 / 3439 / 3440 | 41 / 55 / 90 | 13 / 17 / 37 | 2617 / 2619 / 2634 | 43 / 50 / 54 | 0 / 0 / 0 |
+  BAR NOT MET on the census: airside is unchanged (or lower), but the groundside families grow with every new pad-road
+  face — KCLT attributed row by row: EVERY added row is on a pad-road face (road_cross_section +133 worst 0.80 m,
+  within_shape +147 worst 3.77 m, hairline +97, mid_edge_step +2); the standing faces' counts equal sw23's exactly.
+  The road_cross_section growth matches the last stage's own hard-feasibility relaxations (HECA 163 rows worst 2.87 m,
+  SPJC 40 worst 2.28 m): a pad road welded along a pad on one side and another standing level on the other cannot
+  hold the cross-fall cap. HECA's `roads.groundside_road ramp ceiling` relaxations (45, worst 16.85 m) are round 4's
+  (h1: 76, worst 16.85 m): pad-road faces that touch airside keep their absolute §37 (6) ceiling while welded to a pad.
+* NOT DONE: #229; a fix for the pad-road cross-fall / within-shape growth (next round: attribute HECA / SPJC rows the
+  way KCLT's are, then the two classes — cross-fall between a fixed rim and a lower standing edge, and the airside-
+  touching pad roads that keep their absolute ceilings); the mesh read of the joins; the roads-only derive (F).

@@ -255,6 +255,11 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         # from its patch exits until a design-grade profile from its pad's
         # solved level meets the terrain
         from ..classify.pad_road_exit import extend_pad_roads
+        # a road touching a 10-03e landing carries its run-out (14i)
+        from ..classify.ramp_runout import landing_roads
+        cl, lroads = landing_roads(cl, pm_base, law)
+        if lroads["roads"]:
+            out(f"LAST STAGE landing roads (14i): {lroads}")
         cl_cut, exits = extend_pad_roads(cl, airport, law, rules,
                                          _pad_levels(pm_base, z_base, law))
         out(f"LAST STAGE pad road exits (13a (1)): {exits}")

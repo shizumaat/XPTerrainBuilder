@@ -184,18 +184,47 @@ def test_the_runout_rows_lay_the_design_grade_to_the_dem(law):
 
 
 
-def test_a_landing_foot_keeps_its_collar(tmp_path, law):
-    # 10-03e's landing under the foot: not yet run out (module NOT YET)
-    from auto_patch_v2.classify.roles import Classification
+
+def test_a_landing_keeps_the_ground_ahead_of_its_foot_clear_of_its_collar(tmp_path, law):
+    # 10-03e's landing under the foot: its collar never banks AHEAD of the
+    # foot (south); the ramp's sides keep the 1:3 bank (14c (5), 14i)
+    from shapely.geometry import box
+    from auto_patch_v2.planar.landing import ahead_regions
     rf._MEMO.clear()
     part = _partition(tmp_path, [(0, 8, 0, -100, 0.0, 6.0)])
     ap = types.SimpleNamespace(partition=part, dem=_Dem(), frame=_frame())
-    # the landing is a PLANAR pad region on the solved map, not a cell
-    cl = Classification((), (), {}, ())
-    xy = [(-4, -3), (12, -3), (12, 100), (-4, 100)]
+    Lu = box(-1.0, -1.0, 9.0, 10.0)
+    A = ahead_regions(Lu, ap, law, Lu, 3.0, 6.0)
+    assert A is not None
+    x0, y0, x1, y1 = A.bounds
+    assert y1 == pytest.approx(-1.0, abs=0.05) and y0 == pytest.approx(-9.0, abs=0.5)
+    assert 7.0 <= x1 - x0 <= 11.0                       # the foot's width only
+    assert ahead_regions(box(50, 50, 60, 60), ap, law, Lu, 3.0, 6.0) is None
+
+
+def test_a_road_touching_a_landing_carries_its_run_out(law):
+    # 14i "road carries the run-out": a mapped ribbon touching a landing
+    # platform becomes a pad road of it (the exit walk runs it on from the
+    # landing's level); a road elsewhere, and the collar, are untouched
+    from auto_patch_v2.classify.pad_touch import EVIDENCE_KEY
+    from auto_patch_v2.classify.ramp_runout import landing_roads
+    from auto_patch_v2.classify.roles import Cell, Classification
+    xy = [(0, 0), (10, 0), (10, 10), (0, 10), (20, 0), (30, 0), (30, 10), (20, 10)]
     pm = types.SimpleNamespace(
         vertices={k: types.SimpleNamespace(xy=p) for k, p in enumerate(xy)},
-        faces={0: types.SimpleNamespace(ref="building4/landing0", ring=(0, 1, 2, 3))},
+        faces={0: types.SimpleNamespace(ref="building4/landing0", ring=(0, 1, 2, 3)),
+               1: types.SimpleNamespace(ref="building4/landing0#collar", ring=(4, 5, 6, 7))},
         ring_vertices=lambda cyc: tuple(cyc))
-    _cl, rep = mint_ramp_runouts(cl, ap, law, load_rules(), pm, {k: 14.0 for k in range(4)})
-    assert rep["runouts"] == 0 and rep["landing"] == 1
+
+    def road(i, ref, x0):
+        q = Polygon([(x0, 2), (x0 + 8, 2), (x0 + 8, 6), (x0, 6)])
+        return Cell(i, "service_road", ref, tuple(q.exterior.coords)[:-1], (), None, None,
+                    "groundside", "service_road", {"osm_ribbon": 1.0})
+    cl = Classification((road(0, "small_roads:-1", 10.0), road(1, "small_roads:-2", 40.0),
+                         road(2, "small_roads:-3", 30.0)), (), {}, ())
+    cl2, rep = landing_roads(cl, pm, law)
+    assert rep["roads"] == 1 and rep["refs"] == ["small_roads:-1"]
+    c = cl2.cells[0]
+    assert c.evidence["pad_road"] and "building4/landing0" in c.evidence[EVIDENCE_KEY]
+    assert not cl2.cells[1].evidence.get("pad_road")
+    assert not cl2.cells[2].evidence.get("pad_road")   # beside the collar only

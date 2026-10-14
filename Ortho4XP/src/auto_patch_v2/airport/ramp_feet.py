@@ -214,13 +214,14 @@ def ramp_feet(airport, law, to_xy, cache=None) -> tuple[RampFoot, ...]:
     if lv[0] > 0.0:
         for u in part.units:
             for m in u.members:
-                if not (getattr(m, "deck_kind", "") or getattr(m, "elevated_deck", False)):
+                if (not (getattr(m, "deck_kind", "") or getattr(m, "elevated_deck", False))
+                        or not getattr(m, "live_path", None)):
                     continue
                 n += 1
                 if cache is not None and pristine_path(m) in getattr(cache, "_geom", {}):
                     held += 1
                 org = getattr(m, "origin", None) or u.anchor
-                feet.extend(_member_feet(u.id, m, org, to_xy, lv, cache))
+                feet.extend(_member_feet(getattr(u, "id", ""), m, org, to_xy, lv, cache))
     val = tuple(feet)
     REPORT.clear()
     REPORT.update({"feet": len(val), "members": n, "parsed_already": held,

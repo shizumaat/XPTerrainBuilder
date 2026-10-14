@@ -149,3 +149,25 @@ def test_two_overlapping_unframed_ramps_the_longer_yields_its_run(law):
     # a ramp an object frames never yields
     framed = types.SimpleNamespace(**{**vars(a), "source": "wall_corridor"})
     assert overlap_run_end((framed, at_cap[1]), (fa, fb), {}, law, gap) is None
+
+
+def test_ramps_that_cannot_yield_steepen_to_the_cap_before_a_refusal(law):
+    """Owner RULINGS 2026-10-14j (the HECA clustered bores): where
+    ``overlap_run_end`` can shorten neither ramp, EACH mapped ramp not yet
+    at the cap steepens to it before either bore is refused; a pair both
+    at the cap (or framed by an object) returns nothing — the refusal
+    stands.  Measured on the HECA capture: -1725@0, -1730@1 and -1758@0
+    are all built (96 m at 10 %) where the 7.5 m mouth refused two."""
+    from auto_patch_v2.planar.unframed_ramp import cap_note, overlap_to_cap
+    tn = law.tables.structures.tunnel
+
+    def ramp(tid, grade, source="osm"):
+        return types.SimpleNamespace(id=tid, source=source, top_s=150.0, climb_from_s=0.0,
+                                     design_grade=grade)
+    a, b = ramp("tunnel:a@0", tn.ramp_grade), ramp("tunnel:b@0", 0.07)
+    assert overlap_to_cap((a, b), {}, law) == ["tunnel:a@0", "tunnel:b@0"]
+    assert overlap_to_cap((a, b), {"tunnel:a@0": "tunnel:b@0"}, law) == ["tunnel:b@0"]
+    capped = [ramp(t.id, tn.ramp_max_grade) for t in (a, b)]
+    assert overlap_to_cap(capped, {}, law) == []
+    assert overlap_to_cap((ramp("w", 0.02, "wall_corridor"), capped[0]), {}, law) == []
+    assert "tunnel:b@0" in cap_note(law, "tunnel:b@0") and "2026-10-14j" in cap_note(law, "x")

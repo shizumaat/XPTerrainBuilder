@@ -977,6 +977,10 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
         out(f"      {k:20s} {r['rows']:4d}  {r['sum_abs_dual']:10.2f}  {r['example']}")
     if not fam:
         out("      (none: no row binds the vertex — the objective holds it)")
+    # every binding row, strongest first (a family's example names ONE
+    # row; two rows of one family pulling opposite ways read as one)
+    for b in sorted(bl, key=lambda b: -abs(b.dual or 0.0))[:8]:
+        out(f"        dual {b.dual or 0.0:+10.2f}  {_row_desc(prep, b)}")
     tr = chain_trace(prep, [v])
     trace = None
     if tr is not None:

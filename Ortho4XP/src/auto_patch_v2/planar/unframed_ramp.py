@@ -25,7 +25,8 @@ from ..law import Law
 from ..model.airport import Airport
 from .structure_approach import ramp_top
 
-__all__ = ["unframed_top", "unframed_climb", "overlap_run_end", "MAX_OVERLAP_PASSES"]
+__all__ = ["unframed_top", "unframed_climb", "overlap_run_end", "overlap_to_cap",
+           "cap_note", "MAX_OVERLAP_PASSES"]
 
 #: How often the build is re-planned for ramps that yield to one another.
 MAX_OVERLAP_PASSES = 8
@@ -142,3 +143,25 @@ def overlap_run_end(pair, footprints, limits, law: Law, gap: float
         if best is None or climb > best[0]:
             best = (climb, t.id, (float(end), f"the corridor of {other.id}"))
     return None if best is None else (best[1], best[2])
+
+
+def overlap_to_cap(pair, at_cap: _t.AbstractSet[str], law: Law) -> list[str]:
+    """THE TIE-BREAK BEFORE A REFUSAL (owner RULINGS 2026-10-14j): two
+    unframed ramps whose corridors still overlap after
+    :func:`overlap_run_end` could shorten neither each steepen to the CAP
+    — the shortest run that reaches the mouth depth at ``ramp_max_grade``
+    — before either bore is refused.  The ids of the pair's ramps that
+    can still steepen (a mapped bore's climb, not yet at the cap); empty
+    when both already stand at it — the refusal then stands."""
+    cap = law.tables.structures.tunnel.ramp_max_grade
+    return [t.id for t in pair
+            if t.source == "osm" and t.top_s - t.climb_from_s > 0.0
+            and t.id not in at_cap and t.design_grade < cap - 1e-9]
+
+
+def cap_note(law: Law, other: str) -> str:
+    """The note a ramp built AT THE CAP by :func:`overlap_to_cap` carries."""
+    tn = law.tables.structures.tunnel
+    return (f"ramp steepened {100.0 * tn.ramp_grade:.1f} -> {100.0 * tn.ramp_max_grade:.0f} % "
+            f"(the cap): its corridor overlapped {other} at every shorter grade (owner "
+            f"RULINGS 2026-10-14j: each ramp steepens to the cap before a bore is refused)")

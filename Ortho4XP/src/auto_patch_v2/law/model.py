@@ -665,6 +665,12 @@ class RoadContact:
     #: BUILT at; the road role's longitudinal cap is the ceiling it
     #: steepens toward only where the run cannot fit this
     ramp_grade: float
+    #: THE MOST A PAD MOVES FOR ITS ROAD (owner RULINGS 2026-10-13d "road
+    #: ramps first, pad takes the remainder, capped"): where no ramp inside
+    #: the road cap fits between a pad and its road's other standing end,
+    #: the pad takes the remainder up to this, as one rigid pad; beyond it
+    #: the road ends at a step (``constraints/pad_road_reach``)
+    pad_shift_max_m: float
     #: contact roles BESIDE the airside value roles (apron, pad, the taxi
     #: family, the runway family with §40's shoulder): §37 (10)'s LOT,
     #: which precedence.toml partitions groundside but which is hard

@@ -20,7 +20,8 @@ from .roles import TAXI_FAMILY, is_runway_shoulder
 from .rules import Rules
 from ..geom.parts import line_parts
 
-__all__ = ["mint_osm_ribbons", "ribbon_extent", "bridge_gaps", "exit_reach"]
+__all__ = ["mint_osm_ribbons", "mint_pad_roads", "ribbon_extent", "bridge_gaps",
+           "network_spans", "exit_reach"]
 
 
 
@@ -70,6 +71,93 @@ def bridge_gaps(intervals: list[tuple[float, float]], gap_m: float
         else:
             out.append([a, b])
     return [(a, b) for a, b in out]
+
+
+def _arc_cuts(line: LineString, intervals: list[tuple[float, float]]
+              ) -> list[float]:
+    """The arclengths that cut ``line`` into pieces each wholly in or out
+    of the extent: its own vertices and every interval end."""
+    cuts = {0.0, float(line.length)}
+    s = 0.0
+    pts = list(line.coords)
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        s += ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5
+        cuts.add(s)
+    for a, b in intervals:
+        cuts.update((a, b))
+    return sorted(cuts)
+
+
+def network_spans(ways: list[tuple[object, LineString]], extent, gap_m: float,
+                  serve=None) -> list[list[tuple[float, float]]]:
+    """30e (2)'s GAP BRIDGE READ ON THE ROAD, NOT THE OSM WAY (issue #609):
+    per way, the arclength intervals ribboned — its in-extent stretches,
+    plus every out-of-extent stretch on a path of at most ``gap_m`` along
+    the ROAD NETWORK (ways sharing a node) between two in-extent mouths.
+    OSM splits a road at every junction, so the forecourt between two
+    garage entries is a path of several short ways; the one-way bridge
+    (:func:`bridge_gaps`) is this read's special case of the path along
+    a single way.  A road that leaves the patch toward nothing in-patch
+    within ``gap_m`` is not bridged (never the way's whole span).  With
+    ``serve`` (a region — the building pads) a path is bridged only when
+    one of its two mouths stands on it: the road between serves a pad."""
+    import heapq
+    ivs = [_way_intervals(ln, extent) for _, ln in ways]
+    # sub-edges: (way, s0, s1, inside); nodes keyed by their coordinate
+    # (shared OSM nodes are identical doubles after the entry quantum)
+    edges: list[tuple[int, float, float, bool]] = []
+    adj: dict[tuple[float, float], list[tuple[int, tuple[float, float]]]] = {}
+    inside_at: dict[tuple[float, float], bool] = {}
+    outside_at: dict[tuple[float, float], bool] = {}
+
+    def key(p) -> tuple[float, float]:
+        return (round(float(p.x), 3), round(float(p.y), 3))
+
+    for i, (_w, ln) in enumerate(ways):
+        cuts = _arc_cuts(ln, ivs[i])
+        for s0, s1 in zip(cuts, cuts[1:]):
+            if s1 - s0 <= 1e-9:
+                continue
+            mid = 0.5 * (s0 + s1)
+            inside = any(a - 1e-9 <= mid <= b + 1e-9 for a, b in ivs[i])
+            na, nb = key(ln.interpolate(s0)), key(ln.interpolate(s1))
+            e = len(edges)
+            edges.append((i, s0, s1, inside))
+            for n in (na, nb):
+                (inside_at if inside else outside_at)[n] = True
+            if not inside:
+                adj.setdefault(na, []).append((e, nb))
+                adj.setdefault(nb, []).append((e, na))
+    mouths = [n for n in inside_at if n in outside_at]
+    serving = None if serve is None else {
+        n for n in mouths if serve.covers(Point(n)) or serve.distance(Point(n)) <= 2e-3}
+    bridged: set[int] = set()
+    for m in mouths:
+        dist = {m: 0.0}
+        pred: dict[tuple[float, float], tuple[int, tuple[float, float]]] = {}
+        heap = [(0.0, m)]
+        while heap:
+            d, n = heapq.heappop(heap)
+            if d > dist.get(n, float("inf")):
+                continue
+            if n != m and n in inside_at:
+                q = n
+                while q in pred and (serving is None or m in serving or n in serving):
+                    e, q = pred[q]               # mark the path back to m
+                    bridged.add(e)
+                continue                          # a mouth ends the walk
+            for e, nn in adj.get(n, ()):
+                i, s0, s1, _ = edges[e]
+                nd = d + (s1 - s0)
+                if nd <= gap_m and nd < dist.get(nn, float("inf")):
+                    dist[nn] = nd
+                    pred[nn] = (e, n)
+                    heapq.heappush(heap, (nd, nn))
+    out = [list(iv) for iv in ivs]
+    for e in bridged:
+        i, s0, s1, _ = edges[e]
+        out[i].append((s0, s1))
+    return [bridge_gaps(sorted(iv), 1e-6) for iv in out]
 
 
 def _stations(d0: float, d1: float, step: float) -> list[float]:
@@ -139,8 +227,87 @@ def exit_reach(line: LineString, a: float, b: float, dem, airside,
     return a, b
 
 
+def _interval_minus(spans: list[tuple[float, float]],
+                    cut: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """``spans`` without ``cut`` (both sorted arclength intervals)."""
+    out = []
+    for a, b in spans:
+        for c, d in cut:
+            if d <= a or c >= b:
+                continue
+            if c > a:
+                out.append((a, c))
+            a = max(a, d)
+            if a >= b:
+                break
+        if b - a > 1e-9:
+            out.append((a, b))
+    return out
+
+
+def _ribbon_ways(airport: Airport, rules: Rules) -> list[tuple[object, LineString]]:
+    """The mapped at-grade roads of a ribbon class, in the mint's order."""
+    from ..airport.road_ways import road_ways
+    orr = rules.osm_roads
+    if not orr.enabled or not orr.ribbon_highways:
+        return []
+    ways = [(w, ln) for w, ln in road_ways(getattr(airport, "osm_ways", ()))
+            if (w.tags or {}).get("highway") in orr.ribbon_highways
+            and getattr(w, "kind", "") in OSM_RIBBON_FEEDS]
+    ways.sort(key=lambda wl: (wl[0].kind, wl[0].id))
+    return ways
+
+
+def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
+                cover, law: Law, rules: Rules, add, extra: dict,
+                min_len: float | None = None):
+    """One way's ribbon over ``spans`` less ``occupied``, added part by
+    part (refs numbered on from ``serial``): ``(parts, m2, ribbon)`` — the
+    ribbon ``None`` when no part was minted.  ``min_len`` (default
+    ``osm_roads.min_len_m``, the floor under a stray stub) is the shortest
+    axis ribboned: a pad road's piece between two standing roads is road
+    however short (the cell floor ``cells.min_area_m2`` still stands)."""
+    from shapely.ops import substring
+    orr = rules.osm_roads
+    hw = float(law.tables.emit.road_profile.lane_width_m)
+    axes = []
+    for a, b in spans:
+        seg = substring(line, a, b)
+        if not cover.is_empty:
+            axes.extend(line_parts(seg.difference(cover)))
+        else:
+            axes.append(seg)
+    axes = [ax for ax in axes
+            if ax.length >= (orr.min_len_m if min_len is None else min_len)]
+    if not axes:
+        return 0, 0.0, None
+    rib = unary_union([ax.buffer(hw, cap_style="flat", join_style="mitre",
+                                 mitre_limit=2.0) for ax in axes])
+    rib = shapely.set_precision(rib.difference(occupied), rules.cells.snap_grid_m)
+    ref = f"{OSM_RIBBON_FEEDS[w.kind]}:{w.id}"
+    k0 = k = serial.get(ref, 0)
+    area = 0.0
+    for part in polygon_parts(rib):
+        if part.area < rules.cells.min_area_m2:
+            continue
+        add("service_road", ref if k == 0 else f"{ref}#{k}", part,
+            "service_road", None, None,
+            {"osm_ribbon": 1.0, "highway": str(w.tags.get("highway")),
+             "road_len_m": float(sum(ax.length for ax in axes)), **extra})
+        k += 1
+        area += part.area
+    serial[ref] = k
+    return k - k0, area, (rib if k > k0 else None)
+
+
+def _cover(ev: Evidence, rules: Rules):
+    return unary_union([c.line for c in ev.truck_chains]).buffer(rules.osm_roads.dedup_m) \
+        if ev.truck_chains else Polygon()
+
+
 def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
-                     rules: Rules, add) -> tuple[int, float]:
+                     rules: Rules, add, first_out: dict | None = None
+                     ) -> tuple[int, float]:
     """30e (1)-(3), (6): the RIBBON FACE of every mapped at-grade road
     (``planar/terrain_edge.road_ways`` — the one at-grade road source) of
     an ``osm_roads.ribbon_highways`` class, over its parts inside the patch
@@ -149,23 +316,20 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     senior); half-width = ``road_profile.lane_width_m`` (the ribbon
     half-width ``terrain_edge.road_half_width_m`` reads).  Nothing already
     standing is overlapped — pavement, runway, shoulder, pad, a 1206
-    corridor, an earlier ribbon — so no ribbon lies inside a pad face;
-    structure faces (tunnel / bridge) cut the ribbons at the structure
-    pass like every other cell.  Returns (faces minted, m2)."""
-    from ..airport.road_ways import road_ways
+    corridor, an earlier ribbon — and every pad's set-back is kept
+    (roadweld100: "the ribbon takes the same set-back itself"), so no
+    ribbon lies inside a pad face; structure faces (tunnel / bridge) cut
+    the ribbons at the structure pass like every other cell.
+    ``first_out`` receives what :func:`mint_pad_roads` reads: each way's
+    ribboned spans and the serial of its refs.  Returns (faces minted, m2)."""
     orr = rules.osm_roads
-    if not orr.enabled or not orr.ribbon_highways:
-        return 0, 0.0
-    ways = [(w, ln) for w, ln in road_ways(getattr(airport, "osm_ways", ()))
-            if (w.tags or {}).get("highway") in orr.ribbon_highways
-            and getattr(w, "kind", "") in OSM_RIBBON_FEEDS]
+    ways = _ribbon_ways(airport, rules)
     if not ways:
         return 0, 0.0
     extent = ribbon_extent(cells, law, ev.pavement_union)
     if extent.is_empty:
         return 0, 0.0
-    cover = unary_union([c.line for c in ev.truck_chains]).buffer(orr.dedup_m) \
-        if ev.truck_chains else Polygon()
+    cover = _cover(ev, rules)
     hw = float(law.tables.emit.road_profile.lane_width_m)
     # every cell standing, and every pad's set-back (``_cut_back_groundside``'s
     # own knife: ``groundside_cutback_m`` + the snap margin, mitred)
@@ -176,45 +340,67 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
                                knife_m, join_style="mitre", mitre_limit=2.0)
                                for c in cells if c.role == "building"]
                               if knife_m > 0.0 else []))
-    grid = rules.cells.snap_grid_m
-    from shapely.ops import substring
     n, area = 0, 0.0
     cap = role_cap(law, "service_road")
     cap_l = float(cap.longitudinal) if cap else 0.0
     dem = getattr(airport, "dem", None)
     airside = unary_union([Polygon(c.ring, c.holes) for c in cells
                            if c.side == "airside"]) if cells else Polygon()
-    for w, line in sorted(ways, key=lambda wl: (wl[0].kind, wl[0].id)):
-        spans = bridge_gaps(_way_intervals(line, extent), orr.road_gap_bridge_m)
+    serial: dict[str, int] = {}
+    spans_of: dict[tuple, list[tuple[float, float]]] = {}
+    for w, line in ways:
         spans = [exit_reach(line, a, b, dem, airside, cap_l, hw, 2.0 * hw)
-                 for a, b in spans]
-        axes = []
-        for a, b in spans:
-            seg = substring(line, a, b)
-            if not cover.is_empty:
-                axes.extend(line_parts(seg.difference(cover)))
-            else:
-                axes.append(seg)
-        axes = [ax for ax in axes if ax.length >= orr.min_len_m]
-        if not axes:
-            continue
-        rib = unary_union([ax.buffer(hw, cap_style="flat", join_style="mitre",
-                                     mitre_limit=2.0) for ax in axes])
-        rib = shapely.set_precision(rib.difference(occupied), grid)
-        ref = f"{OSM_RIBBON_FEEDS[w.kind]}:{w.id}"
-        k = 0
-        for part in polygon_parts(rib):
-            if part.area < rules.cells.min_area_m2:
-                continue
-            add("service_road", ref if k == 0 else f"{ref}#{k}", part,
-                "service_road", None, None,
-                {"osm_ribbon": 1.0, "highway": str(w.tags.get("highway")),
-                 "road_len_m": float(sum(ax.length for ax in axes))})
-            k += 1
-            n += 1
-            area += part.area
-        if k:
+                 for a, b in bridge_gaps(_way_intervals(line, extent),
+                                         orr.road_gap_bridge_m)]
+        spans_of[(w.kind, w.id)] = sorted(spans)
+        k, m2, rib = _mint_spans(w, line, spans, occupied, serial, cover, law,
+                                 rules, add, {})
+        n += k
+        area += m2
+        if rib is not None:
             occupied = unary_union([occupied, rib])
+    if first_out is not None:
+        first_out.update(spans=spans_of, serial=serial, extent=extent)
     return n, area
 
 
+def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,
+                   rules: Rules, add, first: dict) -> tuple[int, float]:
+    """THE PAD ROADS (issue #609; owner RULINGS 2026-10-13a (1)-(3), 13d)
+    — what remains of each mapped road once a BUILDING PAD is patch too
+    and the gap bridge is read along the road NETWORK
+    (:func:`network_spans`), a path bridged only when one of its mouths
+    stands on a pad: the stretches that reach a pad and the paths from a
+    pad to the patch or to another pad.  Minted AFTER every other cell —
+    the patch's own ribbons (``first``, :func:`mint_osm_ribbons`'s
+    ``first_out``) and the §53 gap pieces — so nothing standing is
+    overlapped or re-cut: the map without the pad roads is the airport's
+    as it was.  Evidence ``pad_road`` (published as
+    ``PlanarMap.pad_roads``): junior to every pavement they meet, solved
+    in the last stage.  A pad is subtracted at its FOOTPRINT, never with
+    the set-back knife (09j (2): a road touching a pad in source is
+    welded; the engine's own knife is no witness) — the caller reads these
+    cells through the one touch witness (``roles._cut_back_groundside``).
+    Returns (faces minted, m2)."""
+    pads = [Polygon(c.ring, c.holes) for c in cells if c.role == "building"]
+    ways = _ribbon_ways(airport, rules)
+    if not pads or not ways or not first:
+        return 0, 0.0
+    pad_union = unary_union(pads)
+    served = network_spans(ways, unary_union([first["extent"], pad_union]),
+                           rules.osm_roads.road_gap_bridge_m, serve=pad_union)
+    occupied = unary_union([Polygon(c.ring, c.holes) for c in cells])
+    cover = _cover(ev, rules)
+    n, area = 0, 0.0
+    for (w, line), spans in zip(ways, served):
+        mine = bridge_gaps(first["spans"].get((w.kind, w.id), []), 1e-6)
+        spans = _interval_minus(spans, mine)
+        if not spans:
+            continue
+        k, m2, rib = _mint_spans(w, line, spans, occupied, first["serial"], cover,
+                                 law, rules, add, {"pad_road": 1.0}, min_len=0.0)
+        n += k
+        area += m2
+        if rib is not None:
+            occupied = unary_union([occupied, rib])
+    return n, area

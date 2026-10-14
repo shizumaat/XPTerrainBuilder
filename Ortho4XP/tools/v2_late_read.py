@@ -118,9 +118,10 @@ class Late:
         return sorted({_name(self.pa.faces[i]) for i in self.faces_of[v]})
 
     def follower_faces(self) -> list:
-        from auto_patch_v2.model.planar import gap_follower_faces
+        from auto_patch_v2.model.planar import gap_follower_faces, pad_road_faces
         gap, rib = gap_follower_faces(self.pa)
-        return [*gap, *rib]
+        seen = {f.id for f in (*gap, *rib)}
+        return [*gap, *rib, *(f for f in pad_road_faces(self.pa) if f.id not in seen)]
 
 
 def _poly(pm, f):

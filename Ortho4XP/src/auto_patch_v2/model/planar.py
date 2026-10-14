@@ -50,7 +50,7 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "gap_step_part", "shares_gap_part",
            "bears_shape",
            "face_edge_ids",
-           "face_vertex_set", "gap_follower_faces"]
+           "face_vertex_set", "gap_follower_faces", "pad_road_faces"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -610,6 +610,22 @@ class PlanarMap:
     #: ``constraints/pad_fronting.facing`` so a pad never faces back the
     #: apron it was separated from; empty on a map nothing split.
     pad_terraces: _t.Mapping[str, frozenset] = _dc.field(default_factory=dict)
+    #: THE ROADS ADMITTED FOR A PAD (issue #609; owner RULINGS 2026-10-13a
+    #: (1), 13d): the refs of the mapped-road ribbon cells the mint's
+    #: SECOND pass made (``classify/ribbon_mint``, evidence ``pad_road``) —
+    #: in the patch only because a building pad is.  Such a road serves
+    #: the pad and is JUNIOR to every pavement it meets: a follower of the
+    #: LAST STAGE (:func:`pad_road_faces`), solved against the levels of
+    #: the map without it.
+    pad_roads: frozenset[str] = _dc.field(default_factory=frozenset)
+    #: THE PAD ROADS RELEASED ABOVE THE ROAD CAP (owner RULINGS 2026-10-13e:
+    #: "allow the road to steepen so we don't have a step"): face id ->
+    #: ``(pad ref, run m, the grade the stretch needs)`` for every face of
+    #: a pad|road network no cap-grade ramp fits on, written by the last
+    #: stage (``constraints/pad_road_reach.pad_grade_release``).  The
+    #: census reads it as a LIFTED longitudinal cap
+    #: (``pipeline/publication.lifted_caps``); empty where every road fits.
+    pad_road_released: _t.Mapping[int, tuple] = _dc.field(default_factory=dict)
     #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
     #: frame polygon rings — the SINGLE derivation is
     #: ``planar/overlay.seam_bands``, recorded here so every downstream
@@ -1039,6 +1055,17 @@ def gap_follower_faces(pm) -> tuple[list, list]:
                if f.role == "service_road" and is_osm_ribbon_ref(f.ref)
                and not gv.isdisjoint(face_vertex_set(pm, f))] if gv else []
     return gap, ribbons
+
+
+def pad_road_faces(pm) -> list:
+    """THE PAD ROADS' FACES (issue #609; owner RULINGS 2026-10-13a (1),
+    13d "road ramps first"): the mapped-road ribbon faces admitted for a
+    pad (``PlanarMap.pad_roads``).  Followers of the last stage like a gap
+    piece — "the road yields to the pad" as an ORDER: the map without them
+    is built and solved first, and they are solved against its levels."""
+    refs = getattr(pm, "pad_roads", None) or frozenset()
+    return [f for f in pm.faces.values()
+            if f.role == "service_road" and f.ref in refs] if refs else []
 
 
 def is_late_ref(ref) -> bool:

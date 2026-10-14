@@ -18,6 +18,14 @@ own terrain (HECA ``T23/T3_road``, 3.9 m of authored relief) misfits ours
 however it is seated, and draping a sheet that would have fit loses
 nothing (it has no kerbs).
 
+AN ELEVATED DECK NEVER DRAPES (issue #669): a slab the witness marks
+``Slab.elevated`` (rule 7 of ``geom.base_slab``: its top stands clear of
+its own foot over most of its plan — KCLT ``techos_1`` comp 8, the
+departures roadway; HECA ``T23/T3_road`` comp 0, the T3 viaduct) is a
+deck on its feet, not a plate at the base of objects: draping it would
+lay the roadway on the ground and take it from where it stands.  It
+stays rigid as authored, whatever the ground's relief.
+
 :func:`drape_plan` answers ``{member id: frozenset(component)}`` — what the
 writer drapes (``obj8_split.BodyCut.drape``) — and one :class:`DrapeRow`
 per slab piece for the report.  Nothing is written here.
@@ -53,6 +61,8 @@ class DrapeRow(_t.NamedTuple):
     relief_m: float
     drape: bool
     touches: bool
+    #: an elevated deck (``Slab.elevated``): rigid whatever the relief
+    elevated: bool = False
 
 
 def relief_m(poly: _t.Any, to_ll, surface) -> float:
@@ -89,14 +99,14 @@ def drape_plan(partition: _t.Any, to_xy, to_ll, law: _t.Any, surface
     rows: list[DrapeRow] = []
     for s in base_slabs(partition, to_xy, lw, witness_faces(lw)):
         rel = relief_m(s.open, to_ll, surface)
-        drape = rel == rel and rel > 2.0 * tol
+        drape = not s.elevated and rel == rel and rel > 2.0 * tol
         if drape:
             out.setdefault(s.member, set()).add(int(s.comp))
         rp = s.open.representative_point()
         la, lo = to_ll(rp.x, rp.y)
         rows.append(DrapeRow(s.member, s.resource, int(s.comp), float(la),
                              float(lo), float(s.open.area), rel, drape,
-                             bool(s.touches)))
+                             bool(s.touches), bool(s.elevated)))
     return {k: frozenset(v) for k, v in out.items()}, tuple(rows)
 
 

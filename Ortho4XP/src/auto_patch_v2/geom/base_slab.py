@@ -52,6 +52,20 @@ component's own faces:
    HECA's twenty ``OB-asphalt`` plates come in; KASE's ``Aspen_Rockwall``
    (top relief 0.83 m) and a city plaza (1.70 m) do not.
 
+7. NOT AN ELEVATED DECK (issue #669; lane deck669) — a slab whose
+   up-facing faces stand ``deck_elev_m`` (``[bridge]
+   deck_min_elevation_m``, the deck law's own "a slab on the ground is
+   not a deck") or more over its own lowest ``y`` across more than
+   ``elevated_share_max`` of their area is a deck that reaches the
+   ground only at its feet: KCLT ``techos_1`` comp 8, the departures
+   roadway (its top at 5.6-6.0 m over 85 % of 15,864 m2, ramps down to
+   its zero at each end), and HECA ``T23/T3_road`` comp 0, the T3
+   viaduct at T3's level (2026-10-03e; 3.72 m).  It is marked
+   ``Slab.elevated``: the gap mint still grades the ground under it as
+   pavement (as before the drape), but it is NEVER draped
+   (``airport/slab_drape``) — it stands rigid as authored, and its feet
+   are the sunken-ramp (#655) and run-out (#690) rules'.
+
 Without a face reader the reading is the walled-touch witness alone, as
 it was.
 
@@ -110,6 +124,9 @@ class FaceFacts(_t.NamedTuple):
 
     side_share: float
     top_relief_m: float
+    #: the share of the up-facing plate area standing ``deck_elev_m`` or
+    #: more over the component's lowest ``y`` (rule 7; 0 where unread)
+    elevated_share: float = 0.0
 
 
 class Slab(_t.NamedTuple):
@@ -125,6 +142,9 @@ class Slab(_t.NamedTuple):
     #: whether it touches a walled part (rule 4 of the module doc); False
     #: only for a level plate admitted on the drape side (rule 6)
     touches: bool = True
+    #: rule 7: an elevated deck that reaches the ground only at its feet —
+    #: pavement under it, but never draped
+    elevated: bool = False
 
 
 def _ring_poly(part: _t.Any, to_xy) -> "Polygon | None":
@@ -233,15 +253,17 @@ def base_slabs(partition: _t.Any, to_xy, lw: _t.Any,
             op = op.buffer(0.0)
         if op.area < lw.min_m2 or op.area < lw.open_min_share * g.area:
             continue
-        if faces is not None and not _plate(faces(m, int(q.comp)), lw, touches):
+        ff = faces(m, int(q.comp)) if faces is not None else None
+        if faces is not None and not _plate(ff, lw, touches):
             continue
+        lifted = _elevated(ff, lw)
         for piece in _parts(op):
             if piece.area < lw.min_m2:
                 continue
             if not touches and piece.buffer(-0.5 * float(lw.lane_m)).is_empty:
                 continue            # rule 6: no car fits — not clearly a lot or road
             out.append(Slab(u.id, m.id, m.resource, int(q.comp),
-                            float(g.area), piece, touches))
+                            float(g.area), piece, touches, lifted))
     got = tuple(out)
     _MEMO.append((partition, lw, faces, got))
     del _MEMO[:-4]
@@ -258,6 +280,15 @@ def _plate(ff: "FaceFacts | None", lw: _t.Any, touches: bool) -> bool:
     if side_max > 0.0 and float(ff.side_share) > side_max:
         return False
     return touches or float(ff.top_relief_m) <= float(lw.level_m)
+
+
+def _elevated(ff: "FaceFacts | None", lw: _t.Any) -> bool:
+    """Rule 7 on one component's face facts: more than
+    ``elevated_share_max`` of its up-facing area stands clear of its foot.
+    No facts, or the rule disarmed (``elevated_share_max`` 0), reads
+    ground."""
+    cap = float(getattr(lw, "elevated_share_max", 0.0) or 0.0)
+    return ff is not None and cap > 0.0 and float(ff.elevated_share) > cap
 
 
 def slab_polygons(partition: _t.Any, to_xy, lw: _t.Any,

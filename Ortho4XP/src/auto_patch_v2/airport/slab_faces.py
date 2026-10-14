@@ -6,8 +6,9 @@ the authored file the partition was read from (``Member.authored_path``,
 the pristine ``.anchor_bak`` where one exists):
 
 * :func:`face_facts` — the share of the component's face area that is
-  SIDE faces and the authored ``y`` range of its up-facing PLATE faces
-  (``geom.base_slab.FaceFacts``, the witness's rules 5 and 6);
+  SIDE faces, the authored ``y`` range of its up-facing PLATE faces
+  and the share of their area that stands CLEAR of the component's own
+  foot (``geom.base_slab.FaceFacts``, the witness's rules 5, 6 and 7);
 * :func:`tri_normals_y` — each triangle's ``n_y``, which the draped
   writer reads for the faces it re-emits (``airport/obj8_drape.up_keys``).
 
@@ -62,9 +63,13 @@ def _comp(path: str, comp: int) -> "tuple[np.ndarray, np.ndarray] | None":
     return v, np.asarray(comps[int(comp)].tris, dtype=np.int64).reshape(-1, 3)
 
 
-def face_facts(path: str, comp: int, ny_min: float) -> "FaceFacts | None":
-    """Rules 5 and 6's facts for component ``comp`` of the file at
-    ``path``; ``None`` where the file or the component cannot be read."""
+def face_facts(path: str, comp: int, ny_min: float,
+               elev_m: float = 0.0) -> "FaceFacts | None":
+    """Rules 5, 6 and 7's facts for component ``comp`` of the file at
+    ``path``; ``None`` where the file or the component cannot be read.
+    ``elev_m`` (``[bridge] deck_min_elevation_m``; 0 reads no elevation)
+    is how far over the component's lowest authored ``y`` an up face's
+    centroid must stand to count as ELEVATED (rule 7)."""
     got = _comp(path, comp)
     if got is None or not got[1].shape[0]:
         return None
@@ -76,17 +81,23 @@ def face_facts(path: str, comp: int, ny_min: float) -> "FaceFacts | None":
     side = float(area[np.abs(ny) < ny_min].sum()) / total
     up = ny >= ny_min
     ys = v[tris[up].reshape(-1), 1] if up.any() else np.zeros(1)
-    return FaceFacts(side, float(ys.max() - ys.min()))
+    up_m2 = float(area[up].sum())
+    lifted = 0.0
+    if elev_m > 0.0 and up_m2 > 0.0:
+        foot = float(v[tris.reshape(-1), 1].min())
+        cy = v[tris[up]][:, :, 1].mean(axis=1)
+        lifted = float(area[up][cy >= foot + elev_m].sum()) / up_m2
+    return FaceFacts(side, float(ys.max() - ys.min()), lifted)
 
 
 @functools.lru_cache(maxsize=8)
-def faces_for(ny_min: float) -> _t.Callable:
-    """The witness's face reader at one threshold — ONE object per value,
+def faces_for(ny_min: float, elev_m: float = 0.0) -> _t.Callable:
+    """The witness's face reader at one law — ONE object per value pair,
     so ``geom.base_slab``'s memo (keyed on the reader's identity) is shared
     by every caller that reads the same law."""
     def faces(member: _t.Any, comp: int) -> "FaceFacts | None":
         return face_facts(str(getattr(member, "authored_path", "") or ""),
-                          int(comp), float(ny_min))
+                          int(comp), float(ny_min), float(elev_m))
     return faces
 
 
@@ -96,7 +107,8 @@ def witness_faces(lw: _t.Any) -> "_t.Callable | None":
     the census read ONE witness; None where the plate witness is
     disarmed."""
     ny = float(getattr(lw, "plate_ny_min", 0.0) or 0.0)
-    return faces_for(ny) if ny > 0.0 and lw.armed else None
+    elev = float(getattr(lw, "deck_elev_m", 0.0) or 0.0)
+    return faces_for(ny, elev) if ny > 0.0 and lw.armed else None
 
 
 register_face_reader(witness_faces)

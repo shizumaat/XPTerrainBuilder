@@ -228,3 +228,22 @@ def test_proportions_read_a_curved_road_as_a_road_and_a_square_as_a_lot():
     assert gm.slab_role(road, RULES) == gm.ROLE
     assert not road_proportioned(box(0, 0, 60, 40), W, A)
     assert gm.slab_role(box(0, 0, 60, 40), RULES) == gm.LOT_ROLE
+
+
+def test_an_elevated_deck_is_pavement_under_it_but_marked_elevated():
+    """Rule 7 (issue #669): a sheet whose top stands clear of its foot over
+    most of its plan (KCLT ``techos_1`` comp 8 0.95; HECA ``T23/T3_road``
+    comp 0 0.87) is still the gap mint's slab, marked ``elevated``; a
+    ground plate (every measured one reads 0) is not; at the cap it is
+    ground; disarmed (cap 0) nothing is elevated."""
+    wall = _part(0, box(0, 0, 40, 40), h=12.0)
+    part = _partition(wall, _part(1, box(40, 0, 100, 40)))
+    deck = _faces({1: bs.FaceFacts(0.0, 6.17, 0.95)})
+    (s,) = bs.base_slabs(part, to_xy, LW, deck)
+    assert s.elevated is True and LW.elevated_share_max == 0.5
+    (s,) = bs.base_slabs(part, to_xy, LW, _faces({1: bs.FaceFacts(0.0, 6.17, 0.5)}))
+    assert s.elevated is False
+    (s,) = bs.base_slabs(part, to_xy, LW, _faces({1: bs.FaceFacts(0.1, 0.0)}))
+    assert s.elevated is False
+    (s,) = bs.base_slabs(part, to_xy, LW._replace(elevated_share_max=0.0), deck)
+    assert s.elevated is False

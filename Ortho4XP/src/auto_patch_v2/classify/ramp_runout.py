@@ -83,6 +83,17 @@ def _level_at(seg: LineString, xy: np.ndarray, z: np.ndarray,
     return float(np.median(z[near]))
 
 
+def _landing_faces(pm):
+    """The 10-03e landings and their collars on the solved map: planar pad
+    regions (``planar/landing``), never classification cells."""
+    from ..model.platform import LANDING_SEP
+    faces = getattr(pm, "faces", None) or {}
+    return unary_union([
+        q for f in faces.values() if LANDING_SEP in str(f.ref)
+        for q in [Polygon([pm.vertices[v].xy for v in pm.ring_vertices(f.ring)])]
+        if q.is_valid and not q.is_empty])
+
+
 def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
                       ) -> tuple[_t.Any, dict]:
     """``cl`` with a run-out strip minted off every object ramp's graded
@@ -108,10 +119,8 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     ids = sorted(pm_base.vertices)
     xy = np.array([pm_base.vertices[v].xy for v in ids], dtype=float)
     zz = np.array([float(z_base[v]) for v in ids], dtype=float)
-    occupied = unary_union([Polygon(c.ring, c.holes) for c in cl.cells])
-    from ..model.platform import LANDING_SEP
-    landings = unary_union([Polygon(c.ring, c.holes) for c in cl.cells
-                            if LANDING_SEP in str(c.ref)])
+    landings = _landing_faces(pm_base)
+    occupied = unary_union([Polygon(c.ring, c.holes) for c in cl.cells] + [landings])
     cells = list(cl.cells)
     to_ll = frame.transformers()[1]
     for f in feet:

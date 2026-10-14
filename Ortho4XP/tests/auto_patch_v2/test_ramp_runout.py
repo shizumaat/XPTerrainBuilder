@@ -190,8 +190,12 @@ def test_a_landing_foot_keeps_its_collar(tmp_path, law):
     rf._MEMO.clear()
     part = _partition(tmp_path, [(0, 8, 0, -100, 0.0, 6.0)])
     ap = types.SimpleNamespace(partition=part, dem=_Dem(), frame=_frame())
-    pav = Polygon([(-4, -3), (12, -3), (12, 100), (-4, 100)])
-    cl = Classification((_cell(0, "building", "building4/landing0", pav),), (), {}, ())
-    pm = types.SimpleNamespace(vertices={0: types.SimpleNamespace(xy=(4.0, -3.0))})
-    _cl, rep = mint_ramp_runouts(cl, ap, law, load_rules(), pm, {0: 14.0})
+    # the landing is a PLANAR pad region on the solved map, not a cell
+    cl = Classification((), (), {}, ())
+    xy = [(-4, -3), (12, -3), (12, 100), (-4, 100)]
+    pm = types.SimpleNamespace(
+        vertices={k: types.SimpleNamespace(xy=p) for k, p in enumerate(xy)},
+        faces={0: types.SimpleNamespace(ref="building4/landing0", ring=(0, 1, 2, 3))},
+        ring_vertices=lambda cyc: tuple(cyc))
+    _cl, rep = mint_ramp_runouts(cl, ap, law, load_rules(), pm, {k: 14.0 for k in range(4)})
     assert rep["runouts"] == 0 and rep["landing"] == 1

@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import math
+import typing as _t
 
 from pathlib import Path
 
-from ..geom.base_slab import SlabLaw
 from .model import (Cockpit, Declared, Family, FlatSite, Law,
                     RoleCap, ZoneClass, load_tables, resolve_ruleset)
 
@@ -845,6 +845,26 @@ def pad_admission(law: Law) -> PadAdmission:
         building_evidence=bool(getattr(p, "building_evidence", False)),
         evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
         evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)))
+
+
+class SlabLaw(_t.NamedTuple):
+    """The base-slab witness's law values (``[placement] base_slab_*``;
+    ``geom/base_slab`` reads them duck-typed, like :class:`PadAdmission`)."""
+
+    max_height_m: float
+    base_y_max_m: float
+    min_m2: float
+    open_min_share: float
+    tall_min_m: float
+    touch_m: float
+    #: OWNER-PENDING (lane slab229 report): the slab's open part also leaves
+    #: the pads it lies under.  Off, a slab is pavement only where no pad
+    #: stands (the measured HECA pad moves of the ON arm await the owner).
+    leaves_pads: bool = False
+
+    @property
+    def armed(self) -> bool:
+        return self.min_m2 > 0.0 and self.max_height_m > 0.0
 
 
 def base_slab_law(law: "Law | None") -> SlabLaw:

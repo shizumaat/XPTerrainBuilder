@@ -191,7 +191,10 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # are read at the pad's own reach (the piece's stand-off + its noding
     # margin), so 7 more pad stations stand beside parts of another group —
     # (69, 34, 49, 9) at the plain reach.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (69, 34, 56, 9)
+    # RE-RECORDED (lane slab229, issue #229 / RULINGS 2026-10-10o (B)): the
+    # two base-slab pieces of this capture (OB-asphalt ground planes near
+    # 30.1166, 31.4013, groundside) are cut too — (69, 34, 56, 9) without them.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (72, 36, 57, 9)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

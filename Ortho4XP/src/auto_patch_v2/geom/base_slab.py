@@ -47,7 +47,8 @@ The reading is used in TWO places, and both read THIS function:
   ground under it is graded as groundside pavement.
 
 Only shape lives here, as in all of ``geom``: the law values come in as
-:class:`SlabLaw` (``law.tables.base_slab_law``).  Duck-typed on the
+:class:`law.tables.SlabLaw` (``law.tables.base_slab_law``), duck-typed
+(``geom`` imports nothing of v2).  Duck-typed on the
 partition, like ``deck_shades``.
 """
 from __future__ import annotations
@@ -62,26 +63,7 @@ from shapely.strtree import STRtree
 
 from .cluster_outline import _parts, deck_shades
 
-__all__ = ["SlabLaw", "Slab", "base_slabs", "slab_polygons", "pad_shades"]
-
-
-class SlabLaw(_t.NamedTuple):
-    """The witness's law values (``[placement] base_slab_*``)."""
-
-    max_height_m: float
-    base_y_max_m: float
-    min_m2: float
-    open_min_share: float
-    tall_min_m: float
-    touch_m: float
-    #: OWNER-PENDING (lane slab229 report): the slab's open part also leaves
-    #: the pads it lies under.  Off, a slab is pavement only where no pad
-    #: stands (the measured HECA pad moves of the ON arm await the owner).
-    leaves_pads: bool = False
-
-    @property
-    def armed(self) -> bool:
-        return self.min_m2 > 0.0 and self.max_height_m > 0.0
+__all__ = ["Slab", "base_slabs", "slab_polygons", "pad_shades"]
 
 
 class Slab(_t.NamedTuple):
@@ -113,7 +95,7 @@ def _ring_poly(part: _t.Any, to_xy) -> "Polygon | None":
     return None if g.is_empty else g
 
 
-def _is_candidate(part: _t.Any, lw: SlabLaw) -> bool:
+def _is_candidate(part: _t.Any, lw: _t.Any) -> bool:
     return (bool(getattr(part, "feet", ()))
             and abs(float(part.base_y)) <= lw.base_y_max_m
             and float(getattr(part, "height_m", 0.0)) <= lw.max_height_m)
@@ -145,7 +127,7 @@ def _near_mask(boxes: np.ndarray, cand: np.ndarray) -> np.ndarray:
     return hit
 
 
-def base_slabs(partition: _t.Any, to_xy, lw: SlabLaw) -> tuple[Slab, ...]:
+def base_slabs(partition: _t.Any, to_xy, lw: _t.Any) -> tuple[Slab, ...]:
     """Every base slab of ``partition`` (see the module doc), in unit order.
     ``()`` where the law is disarmed or there is no partition.
 
@@ -208,12 +190,12 @@ def base_slabs(partition: _t.Any, to_xy, lw: SlabLaw) -> tuple[Slab, ...]:
     return got
 
 
-def slab_polygons(partition: _t.Any, to_xy, lw: SlabLaw) -> list[Polygon]:
+def slab_polygons(partition: _t.Any, to_xy, lw: _t.Any) -> list[Polygon]:
     """The open parts of every base slab — the gap mint's extra sheets."""
     return [s.open for s in base_slabs(partition, to_xy, lw)]
 
 
-def pad_shades(partition: _t.Any, to_xy, lw: SlabLaw):
+def pad_shades(partition: _t.Any, to_xy, lw: _t.Any):
     """What leaves every pad outline: the welded decks' shades
     (:func:`cluster_outline.deck_shades`) and the base slabs' open parts.
     The ONE reading the pad mint (``classify/evidence``), the pad census

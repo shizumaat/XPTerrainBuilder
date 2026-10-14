@@ -389,10 +389,62 @@ def test_the_read_arm_hashes_the_two_arms_equal_and_a_change_differently(world, 
     assert arm.sha({"b", "a"}) == arm.sha({"a", "b"})
     assert arm.sha(PR.WallCorridorStats(read_s=1.0)) == arm.sha(PR.WallCorridorStats(read_s=2.0))
     # the peak resident memory is a reading beside the clocks, never identity
-    peak = arm.PeakRss()
-    peak.sample()
-    assert peak.gb["sum"] >= peak.gb["parent"] > 0.0 and "peak_rss_gb" in recs[0]["timing"]
+    assert {"peak_rss_gb", "peak_rss_unread_samples"} <= set(recs[0]["timing"])
     assert '"--reader-cap"' in src and "reader_work.MAX_WORKERS = max(1, a.reader_cap)" in src
+
+
+def test_the_peak_resident_memory_is_read_or_says_it_was_not(monkeypatch):
+    """Issue #643: a live process never reads 0 — a value is positive or
+    ``None`` (NOT READ), on the platform's own path and on each fallback."""
+    import os
+    arm, _src = _tool("planar_read_arm")
+    me = os.getpid()
+    # this platform's own path: the parent of a live process reads positive
+    peak = arm.PeakRss()
+    assert peak.gb == arm.PeakRss.NOT_READ and peak.sample()
+    assert peak.gb["sum"] >= peak.gb["parent"] > 0.0
+    if os.name == "nt":                              # read in-process there
+        assert arm.own_resident_kib() > 0
+    # the table read, no in-process reader (POSIX): parent + workers above
+    # the floor, the helper under it left out
+    table = [(me, 1, 2 * 1048576), (me + 1, me, 1048576), (me + 2, me + 1, 524288),
+             (me + 3, me, 1024), (7, 1, 9 * 1048576)]
+    monkeypatch.setattr(arm, "own_resident_kib", lambda: None)
+    monkeypatch.setattr(arm, "process_rows", lambda: table)
+    peak = arm.PeakRss()
+    assert peak.sample() and peak.unread == 0
+    assert peak.gb == {"sum": 3.5, "parent": 2.0, "worker_max": 1.0, "workers": 2}
+    # a small live parent keeps a positive reading (3 MiB is not 0.00 GB)
+    monkeypatch.setattr(arm, "process_rows", lambda: [(me, 1, 3072)])
+    peak = arm.PeakRss()
+    assert peak.sample() and peak.gb["parent"] > 0.0 and peak.gb["workers"] == 0
+    # the table NOT read (Windows: PowerShell failed or outlasted its
+    # timeout) — the in-process reading stands, the workers are NOT READ
+    monkeypatch.setattr(arm, "process_rows", lambda: [])
+    monkeypatch.setattr(arm, "own_resident_kib", lambda: 1048576)
+    peak = arm.PeakRss()
+    assert peak.sample() and peak.unread == 1
+    assert peak.gb == {"sum": 1.0, "parent": 1.0, "worker_max": None, "workers": None}
+    # a later full sample is the peak; a later unread one does not erase it
+    monkeypatch.setattr(arm, "process_rows", lambda: table)
+    assert peak.sample() and peak.gb["sum"] == 2.5 and peak.gb["workers"] == 2
+    monkeypatch.setattr(arm, "process_rows", lambda: [])
+    assert peak.sample() and peak.gb["sum"] == 2.5 and peak.unread == 2
+    # nothing read at all, or a table without this process: NOT READ, never 0
+    monkeypatch.setattr(arm, "own_resident_kib", lambda: None)
+    for rows in ([], [(7, 1, 9 * 1048576)]):
+        monkeypatch.setattr(arm, "process_rows", lambda rows=rows: rows)
+        peak = arm.PeakRss()
+        assert not peak.sample() and peak.gb == arm.PeakRss.NOT_READ
+    # the Windows reader stands down off Windows; an unreadable table is empty
+    monkeypatch.undo()
+    if os.name != "nt":
+        assert arm.own_resident_kib() is None
+
+    def boom(*a, **k):
+        raise arm.subprocess.TimeoutExpired("powershell", 30)
+    monkeypatch.setattr(arm.subprocess, "run", boom)
+    assert arm.process_rows() == []
 
 
 def test_the_replay_pins_the_pool_budget():

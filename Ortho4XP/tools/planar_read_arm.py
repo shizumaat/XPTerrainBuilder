@@ -17,7 +17,8 @@ sunken roads, wall corridors) under a pinned work-pool budget, and prints
   vertices, resources) and the memo sizes;
 * the readers' own seconds, the pool's account, the load average and the
   peak resident memory of this process + its workers (sampled once a
-  second through ``ps`` on POSIX, PowerShell CIM on Windows).
+  second through ``ps`` on POSIX, PowerShell CIM on Windows; a value not
+  read is ``null``, never ``0``).
 
 The wall corridors are read under THE FIELD (ramps spec §12h (4)): the
 cover of the capture's own classification, derived as ``planar/build``
@@ -50,7 +51,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
-__all__ = ["canon", "sha", "reading", "PeakRss", "main"]
+__all__ = ["canon", "sha", "reading", "PeakRss", "own_resident_kib", "main"]
 
 READINGS = ("tunnels", "plates", "door_wells", "sunken_roads", "wall_corridors")
 
@@ -107,6 +108,40 @@ def process_rows() -> list[tuple[int, int, int]]:
             if len(r) == 3 and all(f.isdigit() for f in r)]
 
 
+def own_resident_kib() -> int | None:
+    """This process's own resident KiB read IN-PROCESS, or ``None`` where
+    only the process table carries it.  Windows: the working set, through
+    ``K32GetProcessMemoryInfo`` — the table there is a PowerShell start and
+    a CIM query, which a loaded machine fails or outlasts the timeout of,
+    and the parent's reading must not ride on it (issue #643)."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):
+            _fields_ = ([("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)]
+                        + [(n, ctypes.c_size_t) for n in (
+                            "PeakWorkingSetSize", "WorkingSetSize",
+                            "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+                            "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
+                            "PagefileUsage", "PeakPagefileUsage")])
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        k32.K32GetProcessMemoryInfo.argtypes = [
+            wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+        k32.K32GetProcessMemoryInfo.restype = wintypes.BOOL
+        c = Counters()
+        c.cb = ctypes.sizeof(Counters)
+        if not k32.K32GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(c), c.cb):
+            return None
+        return int(c.WorkingSetSize // 1024) or None
+    except (OSError, AttributeError, ImportError, ValueError):
+        return None
+
+
 def load_average() -> list[float] | None:
     """The system load averages, or ``None`` where the platform keeps none
     (``os.getloadavg`` does not exist on Windows)."""
@@ -120,10 +155,20 @@ class PeakRss:
     """The peak of (this process + its descendants) resident memory while
     the block runs, sampled once a second: ``gb`` — ``{"sum", "parent",
     "worker_max", "workers"}`` at the peak of the sum (a clock-like
-    reading: never identity)."""
+    reading: never identity).
+
+    A value is ``None`` — NOT READ — until a sample reads it, never a
+    silent ``0.0`` (issue #643): all four where no sample was taken (a
+    block under one period) or none could be read; the two worker values
+    where the process table could not be read and the parent's own
+    reading stands alone (``sum`` is then the parent's).  ``unread``
+    counts the samples whose process table could not be read."""
+
+    NOT_READ = {"sum": None, "parent": None, "worker_max": None, "workers": None}
 
     def __init__(self, every_s: float = 1.0) -> None:
-        self.gb = {"sum": 0.0, "parent": 0.0, "worker_max": 0.0, "workers": 0}
+        self.gb = dict(self.NOT_READ)
+        self.unread = 0
         self._every, self._stop = every_s, threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
@@ -135,16 +180,20 @@ class PeakRss:
         self._stop.set()
         self._thread.join(5.0)
 
-    def sample(self) -> None:
+    def sample(self) -> bool:
+        """Take one sample; whether the parent was read."""
         rows = process_rows()
-        if not rows:
-            return                                   # no table here: no reading
+        self.unread += not rows
         kids: dict[int, list] = {}
         rss = {}
         for pid, ppid, kb in rows:
             kids.setdefault(ppid, []).append(pid)
             rss[pid] = kb / 1048576.0
         me = os.getpid()
+        own = own_resident_kib()
+        parent = own / 1048576.0 if own else rss.get(me)
+        if not parent:
+            return False                             # not read: gb stands
         workers = []
         stack = list(kids.get(me, ()))
         while stack:
@@ -152,11 +201,14 @@ class PeakRss:
             stack += kids.get(pid, ())
             if rss[pid] >= 0.05:                     # not the ps, not the tracker
                 workers.append(rss[pid])
-        total = rss.get(me, 0.0) + sum(workers)
-        if total > self.gb["sum"]:
-            self.gb = {"sum": round(total, 2), "parent": round(rss.get(me, 0.0), 2),
-                       "worker_max": round(max(workers, default=0.0), 2),
-                       "workers": len(workers)}
+        total = parent + sum(workers)
+        if total > (self.gb["sum"] or 0.0):
+            # 3 dp: a megabyte, so a small live process never rounds to 0
+            self.gb = {"sum": round(total, 3), "parent": round(parent, 3),
+                       "worker_max": round(max(workers), 3) if workers else
+                       (0.0 if rows else None),
+                       "workers": len(workers) if rows else None}
+        return True
 
     def _run(self) -> None:
         while not self._stop.wait(self._every):
@@ -202,7 +254,7 @@ def reading(airport, objects, cache, law, field=None) -> dict:
                                         "sunken": pr.road_stats.read_s,
                                         "walls": wstats.read_s},
                      "pool": PR.pool_report(cache), "loadavg": load_average(),
-                     "peak_rss_gb": peak.gb}
+                     "peak_rss_gb": peak.gb, "peak_rss_unread_samples": peak.unread}
     return rec
 
 

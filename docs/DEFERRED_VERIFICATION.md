@@ -102,3 +102,16 @@
   (expect vector / mesh / masks 'reused' rows and only the scenery-file
   step run), and one cold-imagery tile build reading the 'downloading
   imagery · N of M' row and the bar share.
+
+- **#229 draped base slabs (lane drape229, owner RULINGS 2026-10-14d).**
+  The draped writer is proven OFFLINE only: `tools/obj8_split_report.py
+  --drape --write-into` on the lane's harness build products (HECA, KCLT,
+  OTHH) writes the body files and parses every one back through
+  `airport/obj8.parse_obj8` (draped triangles read back as draped). The
+  harness airport build does not run the placement write, so no DSF was
+  written with a draped body. OWED: one TILE build of HECA (and KCLT) in
+  the app and the owner's sim read of `T23/T3_road`, `T23/side_walk`, the
+  `OB-asphalt` plates and KCLT's `techos_1` forecourt — texture draws in
+  the `runways +1` draped band, no z-fight with the pack's own draped
+  concrete, the author's UVs unstretched, the rigid rest of each object
+  (booths, kerbs not draped) where it was.

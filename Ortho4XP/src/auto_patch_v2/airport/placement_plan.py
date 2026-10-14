@@ -512,7 +512,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             cands, staged, surface, unit_pairs.get(ui, ()), counts,
             near_m=coarsen_reach_m, bind_ground_m=bind_ground_m,
             roof_bind_m=roof_bind_m,
-            cluster_out=_clus)
+            cluster_out=_clus,
+            # #610: the §16g unit of a footed body (the part-id join)
+            unit_of=((lambda pids: getattr(
+                _fu.unit_by_pid(pids, _pw, _unit_ix()), "unit", ""))
+                if _pw else None))
         cl_spans.extend(cl_census[:5])
 
         # §16f AN OBJECT FAMILY STAYS TOGETHER (RULINGS 2026-09-13af),
@@ -589,6 +593,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             else:
                 _solid.append(c)
         _index = _pc.CandidateIndex(_solid, u.anchor[0]) if _solid else None
+        _cand_ix = {id(c): k for k, c in enumerate(cands)}
+
+        def _stands_over(bx, gboxes) -> set:
+            """#610: the indices of the footed candidates a carried piece
+            stands over in plan — §15 (1)(a)'s relation, the one the
+            carrier search ranks (``stands_over_rank``)."""
+            if bx is None or _index is None:
+                return set()
+            return {_cand_ix[id(c)] for c in _index.near(bx)
+                    if c.feet and id(c) in _cand_ix
+                    and _pc.stands_over_rank(bx, c.box, gboxes,
+                                             c.part_boxes) > (0.0, 0.0)}
         # issue #127: every part id already written on a carrier (a
         # footed body's own pids on itself, a carried body's on its
         # carrier) and the bodies the search left with none — resolved
@@ -697,7 +713,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 _f = _fu.cluster_zero_allowed(
                     sorted({forced[(st.mi, i)] for i in src
                             if (st.mi, i) in forced}),
-                    st, bx, cands, coarsen_reach_m, counts)
+                    st, bx, cands, coarsen_reach_m, counts,
+                    # #610: a piece with NO part of its own (an atom of
+                    # components the plan holds no part for) has no
+                    # contact of its own either — its cluster membership
+                    # is its source body's — so what it stands over is
+                    # asked first; never for a 29q deck rider or a
+                    # connector-length piece (a railway's rails ride the
+                    # deck, not the terminal under the viaduct)
+                    over=None if (_pids
+                                  or any((st.mi, i) in _rides29q for i in src)
+                                  or _fu.is_connector_length(bx, connector_span_m))
+                    else (lambda _b=bx, _g=gboxes: _stands_over(_b, _g)))
                 if _f:
                     counts["bodies_bound_to_cluster_by_contact"] = \
                         counts.get("bodies_bound_to_cluster_by_contact", 0) + 1

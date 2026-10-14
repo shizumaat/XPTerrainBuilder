@@ -70,6 +70,21 @@ def _overlap(b: "tuple | None", q: "tuple | None") -> float:
             * max(0.0, min(b[3], q[3]) - max(b[1], q[1])))
 
 
+def _over(e: "RigidNode", j: "RigidNode") -> float:
+    """THE ROOF WITNESS'S "stands over" (#610): the hull boxes as the cheap
+    reject, then the PART boxes where both nodes publish them — the
+    relation §15 (1) ranks carriers by (``stands_over_rank``).  On hulls
+    alone a hangar's high roof, whose hull spans the whole building,
+    "stood over" the south bay's walls it does not cover and bound them
+    0.78 m down to the north bay's zero, under a roof that stayed up
+    (KASE, 1.0.391)."""
+    ov = _overlap(e.box, j.box)
+    if ov <= 0.0 or not e.part_boxes or not j.part_boxes:
+        return ov
+    from .placement_boxes import parts_overlap
+    return parts_overlap(e.part_boxes, j.part_boxes)
+
+
 def comp_of(cut, tris) -> "list[int]":
     """§16c (1): THE COMPONENT EACH TRIANGLE BELONGS TO.
 
@@ -362,6 +377,12 @@ class RigidNode:
     #: how many GROUND-CONTACT vertices it publishes — §9's own
     #: seniority, which decides the senior inside a file already
     feet: int = 0
+    #: the boxes it actually stands on / covers (its parts', or a piece's
+    #: own) — what the roof witness reads "stands over" on (#610)
+    part_boxes: tuple = ()
+    #: its §16g FOOTPRINT UNIT (the plan-wide part-id join), "" for none —
+    #: the roof witness never binds across two units (#610)
+    unit: str = ""
 
 
 def unit_rigid(nodes: _t.Sequence[RigidNode],
@@ -603,9 +624,9 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
             for e in idx:
                 if nodes[e].footed or nodes[e].box is None:
                     continue
-                over_kept = any(_overlap(nodes[e].box, nodes[j].box) > 0.0
+                over_kept = any(_over(nodes[e], nodes[j]) > 0.0
                                 for j in kept)
-                over_ref = [(j, _overlap(nodes[e].box, nodes[j].box))
+                over_ref = [(j, _over(nodes[e], nodes[j]))
                             for j in refused]
                 over_ref = [(j, ov) for j, ov in over_ref if ov > 0.0]
                 if not over_ref:
@@ -617,6 +638,19 @@ def unit_rigid(nodes: _t.Sequence[RigidNode],
                         # terrace-sized step (HECA T3's doors on the
                         # ground 10 m under the pad's roof) is the
                         # terrain's and the body keeps its own ground
+                        # #610: TWO FOOTPRINT UNITS ARE TWO BUILDINGS.
+                        # A body the plan puts in another §16g unit than
+                        # the senior's is seated by that unit, and so are
+                        # the roofs that are its contents; bound here it
+                        # left them behind (KASE's hangar: the south bay's
+                        # walls 0.78 m down to the north bay's zero, its
+                        # roof planes kept up on their own unit, 1.0.391)
+                        if (nodes[j].unit and nodes[top].unit
+                                and nodes[j].unit != nodes[top].unit):
+                            if counts is not None:
+                                counts["roof_witness_other_unit"] = \
+                                    counts.get("roof_witness_other_unit", 0) + 1
+                            continue
                         if (senior[j] != top and _sz is not None
                                 and abs(float(nodes[j].zero) - float(_sz))
                                 <= float(roof_bind_m)):
@@ -768,7 +802,9 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
           counts: dict, near_m: float = 0.0,
           bind_ground_m: float = 0.0,
           cluster_out: "dict[int, int] | None" = None,
-          roof_bind_m: float = 0.0) -> tuple[dict, list]:
+          roof_bind_m: float = 0.0,
+          unit_of: "_t.Callable[[frozenset], str] | None" = None
+          ) -> tuple[dict, list]:
     """§16c (7) APPLIED TO ONE UNIT (owner RULINGS 2026-09-12q).
 
     Builds the unit's rigid nodes — every footed CANDIDATE and every
@@ -820,7 +856,9 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
             member=c.member, pids=frozenset(c.pids), box=c.box,
             footprint_m2=sum(_pc.box_area_m2(b) for b in c.part_boxes),
             footed=True, bindable=c.body_class not in _never_bind,
-            zero=_z, feet=c.feet))
+            zero=_z, feet=c.feet, part_boxes=tuple(c.part_boxes),
+            unit=(unit_of(frozenset(c.pids)) if unit_of is not None
+                  else "")))
     for st in staged:
         for _bi, _r in enumerate(st.raw):
             if not (_r[4] or st.footless):
@@ -834,7 +872,7 @@ def bind_unit(cands: _t.Sequence[_t.Any], staged: _t.Sequence[_t.Any],
                 footprint_m2=sum(_pc.box_area_m2(b)
                                  for b in st.part_boxes[_bi]),
                 footed=False, bindable=_r[1] not in _never_bind,
-                zero=None))
+                zero=None, part_boxes=tuple(st.part_boxes[_bi])))
     senior_node, cl_census = unit_rigid(
         nodes, contacts, span_max_m=UNIT_CLUSTER_SPAN_MAX_M, near_m=near_m,
         bind_ground_m=bind_ground_m, counts=counts, roof_bind_m=roof_bind_m)

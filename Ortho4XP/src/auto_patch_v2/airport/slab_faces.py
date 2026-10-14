@@ -8,8 +8,8 @@ the pristine ``.anchor_bak`` where one exists):
 * :func:`face_facts` — the share of the component's face area that is
   SIDE faces and the authored ``y`` range of its up-facing PLATE faces
   (``geom.base_slab.FaceFacts``, the witness's rules 5 and 6);
-* :func:`up_faces` — which of the component's triangles face UP, the set
-  the draped writer re-emits (``airport/obj8_split``'s drape cut).
+* :func:`tri_normals_y` — each triangle's ``n_y``, which the draped
+  writer reads for the faces it re-emits (``airport/obj8_drape.up_keys``).
 
 ONE winding convention for both: X-Plane OBJ8 triangles face the viewer
 CLOCKWISE, so the outward normal of ``(a, b, c)`` is ``(c − a) × (b − a)``
@@ -32,7 +32,7 @@ import numpy as np
 from ..geom.base_slab import FaceFacts, register_face_reader
 from . import obj8 as _obj8
 
-__all__ = ["face_facts", "up_faces", "faces_for", "witness_faces", "tri_normals_y"]
+__all__ = ["face_facts", "faces_for", "witness_faces", "tri_normals_y"]
 
 
 def tri_normals_y(v: np.ndarray, tris: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -77,17 +77,6 @@ def face_facts(path: str, comp: int, ny_min: float) -> "FaceFacts | None":
     up = ny >= ny_min
     ys = v[tris[up].reshape(-1), 1] if up.any() else np.zeros(1)
     return FaceFacts(side, float(ys.max() - ys.min()))
-
-
-def up_faces(path: str, comp: int, ny_min: float) -> "frozenset[tuple[int, int, int]]":
-    """The up-facing triangles of component ``comp`` as sorted authored
-    vertex triples — the keys ``obj8_split`` files triangles by."""
-    got = _comp(path, comp)
-    if got is None:
-        return frozenset()
-    v, tris = got
-    ny, _area = tri_normals_y(v, tris)
-    return frozenset(tuple(sorted(int(i) for i in t)) for t in tris[ny >= ny_min])
 
 
 @functools.lru_cache(maxsize=8)

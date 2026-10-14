@@ -304,7 +304,12 @@ def test_the_class_table_read_on_a_real_map():
     cl = classify(airport, law, load_rules(), cache=cache)
     pieces = [c for c in cl.cells if mp.is_gap_ref(c.ref)]
     aprons = [c for c in cl.cells if mp.is_gap_apron_ref(c.ref)]
-    assert len(pieces) + len(aprons) == 38 == cl.stats["gap_pieces"]
+    # + the base slabs (issue #229, 10o (B)): groundside pieces numbered
+    # after the pack's 38, so none of the pack's refs moves
+    assert len(pieces) + len(aprons) == 40 == cl.stats["gap_pieces"]
+    assert cl.stats["gap_pieces_base_slab"] == 2
+    assert sorted(int(c.ref.split(":")[1]) for c in pieces
+                  if c.evidence.get("base_slab"))[-2:] == [38, 39]
     road = sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("touches_apron") == 1.0)
     assert road == [0, 2, 4, 7, 11, 12, 28, 29]
@@ -315,7 +320,9 @@ def test_the_class_table_read_on_a_real_map():
         assert c.role == "apron" and c.side == "airside" and c.kind == "gap_apron"
         by[c.evidence["road_evidence"] == 1.0].append(int(c.evidence["gap_ref"].split(":")[1]))
     assert sorted(by[False]) == [22, 24, 35]                       # no road evidence
-    assert sorted(by[True]) == [13, 15, 16, 17, 20, 30, 33, 36]    # §37 (2)'s share
+    # (#229: a base slab joins the 3,870 m2 road piece, 4,637 m2 now; it
+    # ranks ahead of the 3,876 m2 apron piece, so the two swap 13 <-> 14)
+    assert sorted(by[True]) == [14, 15, 16, 17, 20, 30, 33, 36]    # §37 (2)'s share
     assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(11)]
     assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (11, 8)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)

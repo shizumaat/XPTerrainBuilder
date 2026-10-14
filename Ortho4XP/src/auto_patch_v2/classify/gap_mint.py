@@ -34,7 +34,8 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import gap_standoff_m, snap_margin_m
+from ..geom.base_slab import slab_polygons
+from ..law.tables import base_slab_law, gap_standoff_m, snap_margin_m
 from ..model.airport import Airport
 from ..model.planar import GAP_APRON_PREFIX, GAP_PREFIX, is_osm_ribbon_ref
 from .evidence import Evidence, polygon_parts
@@ -91,6 +92,18 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     sheets = [p for p in (_poly(g.outer, g.holes)
                           for g in getattr(airport, "gap_sheets", ()) or ())
               if p is not None]
+    # THE BASE SLABS ARE GAP SHEETS (owner RULINGS 2026-10-10o (B), issue
+    # #229): the open part of every flat plane at the base of objects
+    # (``geom.base_slab`` — the reading that took it off the pads)
+    _part = getattr(airport, "partition", None)
+    slabs = (slab_polygons(_part, airport.frame.entry(), base_slab_law(law))
+             if _part is not None else [])
+    stats["base_slab_sheets"] = len(slabs)
+    stats["base_slab_sheet_m2"] = round(sum(g.area for g in slabs), 1)
+    stats["gap_pieces_base_slab"] = 0
+    slab_u = unary_union(slabs) if slabs else None
+    pack_u = unary_union(sheets) if slabs and sheets else None
+    sheets += slabs
     if not sheets:
         return stats
     lw = law.tables.structures.load
@@ -149,9 +162,18 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     if not band_knife.is_empty:
         stats["gap_band_trim_m2"] = float(before_bands.intersection(band_knife).area)
     to_ll = airport.frame.transformers()[1]
+    # the order (and so the ``gap:<k>`` refs) is the pack sheets' own: a
+    # piece ranks by its area ON the pack sheets, so a base slab never
+    # renumbers them and a slab-only piece comes after every one of them
+    def _rank(q):
+        if slab_u is None:
+            return (False, -round(q.area))
+        on_slab = q.intersection(slab_u).area > 0.5 * q.area
+        pack_m2 = q.intersection(pack_u).area if pack_u is not None else 0.0
+        return (on_slab, -round(pack_m2))
     parts = sorted(polygon_parts(geom),
-                   key=lambda q: (-round(q.area), round(q.bounds[0], 2),
-                                  round(q.bounds[1], 2)))
+                   key=lambda q: (*_rank(q), -round(q.area),
+                                  round(q.bounds[0], 2), round(q.bounds[1], 2)))
     kept: list[tuple[Polygon, float, bool]] = []
     for part in parts:
         if part.area < lw.object_pavement_min_m2 \
@@ -174,9 +196,17 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
                         f"runway / taxi face and touches no apron (§53)")
                 continue
         kept.append((part, apron_m, touches))
+    # A BASE SLAB IS GROUNDSIDE PAVEMENT (owner RULINGS 2026-10-10o (B)): a
+    # piece standing mostly on a base slab is never judged into the apron —
+    # it joins the late stage welded to the apron rim, the apron fixed
+    slabby = {k for k, (q, _m, _t) in enumerate(kept)
+              if slab_u is not None
+              and q.intersection(slab_u).area > 0.5 * q.area}
+    stats["gap_pieces_base_slab"] = len(slabby)
     # THE CLASS (spec §59 (2)): the apron-touching pieces, judged ONCE by the
     # standing readers; a piece that touches no apron is not judged (04m (3))
-    judged = [i for i, (_p, _m, touches) in enumerate(kept) if touches]
+    judged = [i for i, (_p, _m, touches) in enumerate(kept)
+              if touches and i not in slabby]
     verdict = dict(zip(judged, judge(
         [kept[i][0] for i in judged], airport, ev, cells, sheet, stand + weld_m,
         law, rules, ROLE, KIND))) if judged else {}
@@ -217,6 +247,8 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
         else:
             evid = {"gap_piece": 1.0, "area_m2": float(part.area),
                     "touches_apron": float(touches), "apron_shared_m": float(apron_m)}
+            if k in slabby:
+                evid["base_slab"] = 1.0
             if v is not None:
                 evid["road_evidence"] = 1.0
                 stats["gap_pieces_road"] += 1

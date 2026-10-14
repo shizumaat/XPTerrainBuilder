@@ -300,6 +300,21 @@ class Placement:
     #: rule and every body chains, as it did before 14ah.
     chain_min_height_m: float = 2.5
 
+    #: THE FLAT PLANE AT THE BASE OF OBJECTS (owner RULINGS 2026-10-10o
+    #: (B); issue #229; ``geom/base_slab``): the base-slab witness —
+    #: maximum solid height, maximum |lowest authored y|, minimum open
+    #: area, minimum open share of the outline.  ``base_slab_min_m2`` 0
+    #: disarms (no slab leaves a pad, no slab sheet is minted).
+    base_slab_max_height_m: float = 2.0
+    base_slab_base_y_max_m: float = 0.5
+    base_slab_min_m2: float = 300.0
+    base_slab_open_min_share: float = 0.25
+    #: OWNER-PENDING (lane slab229): the slab's open part also leaves the
+    #: pads it lies under.  MEASURED ON (HECA replay): building15 30,332 m2
+    #: splits in three (-3,043 m2), two slab-only pads go, T3 building4
+    #: -0.07 m, 1,951 airside vertices <= 0.20 m.  Off until ruled.
+    base_slab_leaves_pads: bool = False
+
     #: S6 THE RIGID BUILDING UNIT — CONTENTS (spec
     #: ``pack-read-once-fast-spec.md`` §F.2 / F.9 R1; issues #30, #10): a
     #: LEAF body (under ``chain_min_height_m``) whose plan footprint lies

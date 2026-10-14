@@ -13,6 +13,7 @@ import math
 
 from pathlib import Path
 
+from ..geom.base_slab import SlabLaw
 from .model import (Cockpit, Declared, Family, FlatSite, Law,
                     RoleCap, ZoneClass, load_tables, resolve_ruleset)
 
@@ -844,6 +845,25 @@ def pad_admission(law: Law) -> PadAdmission:
         building_evidence=bool(getattr(p, "building_evidence", False)),
         evidence_min_height_m=float(getattr(p, "evidence_min_height_m", 0.0)),
         evidence_min_coverage=float(getattr(p, "evidence_min_coverage", 0.0)))
+
+
+def base_slab_law(law: "Law | None") -> SlabLaw:
+    """``structures.toml [placement] base_slab_*`` — the base-slab witness
+    (``geom.base_slab``; owner RULINGS 2026-10-10o (B), issue #229) — ONE
+    derivation site: the pad mint, the pad census and the gap mint read
+    it.  No law in hand (a reader called without one) is the DISARMED
+    witness: no slab is read."""
+    if law is None:
+        return SlabLaw(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, False)
+    p = law.tables.structures.placement
+    return SlabLaw(
+        max_height_m=float(getattr(p, "base_slab_max_height_m", 0.0)),
+        base_y_max_m=float(getattr(p, "base_slab_base_y_max_m", 0.0)),
+        min_m2=float(getattr(p, "base_slab_min_m2", 0.0)),
+        open_min_share=float(getattr(p, "base_slab_open_min_share", 0.0)),
+        tall_min_m=float(p.chain_min_height_m),
+        touch_m=float(p.footprint_touch_m),
+        leaves_pads=bool(getattr(p, "base_slab_leaves_pads", False)))
 
 
 def footprint_touch_m(law: Law) -> float:

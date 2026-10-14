@@ -165,18 +165,36 @@ def plan_steps(do_vector, do_imagery, do_overlays, steps=None):
     return plan
 
 
-def step_progress(step_key, bars):
+# The imagery step's bars: 1 = scenery-file render, 2 = texture downloads,
+# 3 = DDS conversion, weighted by their planned seconds when the tile has
+# a download plan (#622) and by these shares otherwise.
+IMAGERY_BAR_WEIGHTS = {1: 0.20, 2: 0.55, 3: 0.25}
+
+
+def imagery_bar_weights(components):
+    """Bar weights from :func:`tile_time_model.imagery_components`, or
+    the static :data:`IMAGERY_BAR_WEIGHTS` without them."""
+    if not components:
+        return dict(IMAGERY_BAR_WEIGHTS)
+    weights = {1: components.get("render", 0.0),
+               2: components.get("download", 0.0),
+               3: components.get("convert", 0.0)}
+    total = sum(weights.values())
+    if total <= 0:
+        return dict(IMAGERY_BAR_WEIGHTS)
+    return {bar: seconds / total for bar, seconds in weights.items()}
+
+
+def step_progress(step_key, bars, imagery_weights=None):
     """Percent (0-100) inside one step from the three legacy progress bars,
     or None when the step reports no usable percentage (mesh triangulation,
     overlay extraction)."""
     if step_key in ("vector", "masks"):
         return bars.get(1, 0)
     if step_key == "imagery":
-        return (
-            0.55 * bars.get(2, 0)
-            + 0.25 * bars.get(3, 0)
-            + 0.20 * bars.get(1, 0)
-        )
+        weights = imagery_weights or IMAGERY_BAR_WEIGHTS
+        return sum(weights.get(bar, 0.0) * bars.get(bar, 0)
+                   for bar in (1, 2, 3))
     return None
 
 
@@ -248,6 +266,18 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
     except Exception:
         pass
     return features
+
+
+def _imagery_weights_for(lat, lon, provider, zoomlevel, custom_build_dir):
+    """The imagery step's bar weights for this tile's planned download."""
+    try:
+        from . import tile_time_model
+        features = prediction_features(lat, lon, provider, zoomlevel,
+                                       custom_build_dir)
+        return imagery_bar_weights(
+            tile_time_model.imagery_components(lat, lon, features))
+    except Exception:
+        return dict(IMAGERY_BAR_WEIGHTS)
 
 
 def _imagery_cache_directory(lat, lon, zoomlevel, provider):
@@ -1205,6 +1235,9 @@ class EngineSession:
                         STOPPED.settle(tile.build_dir, lat, lon)
                     if self._reuse_step(tile, (lat, lon), key, base, width):
                         continue
+                    if key == "imagery":
+                        self._imagery_weights = _imagery_weights_for(
+                            lat, lon, provider, zoomlevel, custom_build_dir)
                     step_t0 = time.time()
                     result = step_fn[key](tile)
                     step_seconds[key] = time.time() - step_t0
@@ -1451,7 +1484,8 @@ class EngineSession:
             self._emit_eta()
             return
         tile, key, base, width = self._current_step
-        inside = step_progress(key, self._bar_values)
+        inside = step_progress(key, self._bar_values,
+                               getattr(self, "_imagery_weights", None))
         if inside is None:
             self._emit_eta()
             return

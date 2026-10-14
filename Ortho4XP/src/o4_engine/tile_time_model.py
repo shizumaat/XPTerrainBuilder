@@ -490,9 +490,17 @@ DEFAULT_SECONDS_PER_CONVERTED_TEXTURE = 0.5
 
 def _predict_imagery(features: dict, same_tile_records: list,
                      all_records: list) -> float:
-    """Imagery seconds = the scenery-file render + the textures to build:
-    downloads at the measured seconds per downloaded texture, the rest
-    of the missing DDS at the conversion cost (#622).
+    """Imagery seconds: the sum of :func:`_imagery_components`."""
+    return sum(_imagery_components(features, same_tile_records,
+                                   all_records).values())
+
+
+def _imagery_components(features: dict, same_tile_records: list,
+                        all_records: list) -> dict:
+    """``{"render", "convert", "download"}`` seconds of the imagery step:
+    the scenery-file render, the textures converted from cached
+    orthophotos, and the downloads at the measured seconds per downloaded
+    texture (#622).
 
     ``features["textures_to_download"]`` is the planned download count
     (0 when every texture is on disk or cached, or the scenery uses
@@ -518,16 +526,34 @@ def _predict_imagery(features: dict, same_tile_records: list,
         total = float(features.get("textures_total") or 0)
         render = (rates[1] * total if rates and total
                   else DEFAULT_IMAGERY_LOCAL_SECONDS)
-    seconds = render + converts * DEFAULT_SECONDS_PER_CONVERTED_TEXTURE
-    if not downloads:
-        return seconds
-    per_texture = _seconds_per_downloaded_texture(
-        features.get("provider"), all_records)
-    if per_texture is None and rates and rates[0] > 0:
-        per_texture = rates[0]
-    if per_texture is None:
-        per_texture = DEFAULT_SECONDS_PER_DOWNLOADED_TEXTURE
-    return seconds + downloads * per_texture
+    components = {"render": render,
+                  "convert": converts * DEFAULT_SECONDS_PER_CONVERTED_TEXTURE,
+                  "download": 0.0}
+    if downloads:
+        per_texture = _seconds_per_downloaded_texture(
+            features.get("provider"), all_records)
+        if per_texture is None and rates and rates[0] > 0:
+            per_texture = rates[0]
+        if per_texture is None:
+            per_texture = DEFAULT_SECONDS_PER_DOWNLOADED_TEXTURE
+        components["download"] = downloads * per_texture
+    return components
+
+
+def imagery_components(lat: int, lon: int, features: dict):
+    """The planned imagery step's ``{"render", "convert", "download"}``
+    seconds, or None without a download plan (``textures_to_download``).
+    The session weights the step's three progress bars by them, so a
+    cached tile's bar does not leap when its empty download queue
+    reports done.  Never raises."""
+    if "textures_to_download" not in (features or {}):
+        return None
+    try:
+        same_tile = [r for r in _load_tile_records(lat, lon)
+                     if _same_tile_compatible(r, features, "imagery")]
+        return _imagery_components(features, same_tile, _load_all_records())
+    except Exception:
+        return None
 
 
 def _seconds_per_downloaded_texture(provider, all_records: list):

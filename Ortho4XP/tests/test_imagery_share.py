@@ -162,3 +162,25 @@ def test_a_download_is_counted_on_its_tile():
     IMG.note_orthophoto_download(tile)
     assert tile.imagery_downloads == 2
     assert tile.imagery_first_download_at is not None
+
+
+def test_a_cached_tiles_bar_does_not_leap_when_its_download_queue_is_empty(
+        store, tmp_path):
+    """Bar 2 (downloads) reads 100 the moment a cached tile's queue
+    drains; with the static weights that was 55 % of the imagery window
+    before any texture was converted."""
+    _record(25, 51, {"imagery": 30.0}, textures_total=184)
+    features = {"zoomlevel": 16, "provider": "BI", "textures_total": 184,
+                "textures_missing": 184, "textures_to_download": 0}
+    weights = SESSION.imagery_bar_weights(
+        model.imagery_components(25, 51, features))
+    assert weights[2] == 0.0
+    bars = {1: 0, 2: 100, 3: 0}
+    assert SESSION.step_progress("imagery", bars) == pytest.approx(55.0)
+    assert SESSION.step_progress("imagery", bars, weights) == 0.0
+    # A cold tile's download carries the bulk of the window.
+    cold = dict(features, textures_missing=184, textures_to_download=184)
+    assert SESSION.imagery_bar_weights(
+        model.imagery_components(25, 51, cold))[2] > 0.9
+    # No download plan: the static shares.
+    assert SESSION.imagery_bar_weights(None) == SESSION.IMAGERY_BAR_WEIGHTS

@@ -861,6 +861,20 @@ class SlabLaw(_t.NamedTuple):
     #: the pads it lies under.  Off, a slab is pavement only where no pad
     #: stands (the measured HECA pad moves of the ON arm await the owner).
     leaves_pads: bool = False
+    #: owner RULINGS 2026-10-14d (lane drape229): the PLATE witness — at
+    #: most this share of a slab component's face area is SIDE faces
+    #: (``[placement] base_slab_max_side_share``; 0 disarms)
+    max_side_share: float = 0.0
+    #: ...the drape side's LEVEL plate: its up-facing faces' authored y
+    #: range within this (``[placement] split_tol_m``, the foot tolerance;
+    #: 0 admits nothing that touches no wall)
+    level_m: float = 0.0
+    #: ...and CLEARLY A LOT OR ROAD: its open piece holds a disc this wide
+    #: (``emit.road_profile.lane_width_m``, the gap mint's own floor)
+    lane_m: float = 0.0
+    #: what makes a face a PLATE face (``[bridge]
+    #: deck_plate_normal_y_min``, the near-horizontal normal)
+    plate_ny_min: float = 0.0
 
     @property
     def armed(self) -> bool:
@@ -883,7 +897,11 @@ def base_slab_law(law: "Law | None") -> SlabLaw:
         open_min_share=float(getattr(p, "base_slab_open_min_share", 0.0)),
         tall_min_m=float(p.chain_min_height_m),
         touch_m=float(p.footprint_touch_m),
-        leaves_pads=bool(getattr(p, "base_slab_leaves_pads", False)))
+        leaves_pads=bool(getattr(p, "base_slab_leaves_pads", False)),
+        max_side_share=float(getattr(p, "base_slab_max_side_share", 0.0)),
+        level_m=float(p.split_tol_m),
+        lane_m=float(law.tables.emit.road_profile.lane_width_m),
+        plate_ny_min=float(law.tables.structures.bridge.deck_plate_normal_y_min))
 
 
 def footprint_touch_m(law: Law) -> float:

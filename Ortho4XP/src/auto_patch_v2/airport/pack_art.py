@@ -36,6 +36,15 @@ WITHOUT a library index nothing can be called missing — a virtual path
 would read as absent — so the check then answers nothing (``None``),
 never a guess.
 
+THE UNUSED — :func:`unused_definitions` (issue #678): the definitions a
+dump declares that no row uses.  A split replaces every placement of an
+object by its bodies' rows, so the ORIGINAL ``OBJECT_DEF`` stays declared
+with nothing placing it — and X-Plane resolves (loads) every declared
+definition when it loads the DSF (OTHH: 755 such originals, 1.23 GB of
+OBJ text).  ``dsf_write.write_pack`` hands them to the SAME
+:func:`omit_definitions`: zero uses, so only the definition rows go and
+the indices above them are renumbered.
+
 A missing ``TERRAIN_DEF`` is REPORTED but cannot be omitted: its patches
 are the mesh itself, and a DSF without them has a hole in the ground
 (:func:`can_omit`).
@@ -51,7 +60,7 @@ import typing as _t
 from .obj8 import is_stock_library_resource, resolve_resource
 
 __all__ = ["MissingDef", "DEF_KINDS", "FIRST_PATHS", "declared_definitions",
-           "missing_definitions", "omit_definitions", "can_omit",
+           "missing_definitions", "omit_definitions", "unused_definitions", "can_omit",
            "decision_key", "kind_counts", "first_paths", "summary",
            "log_line", "accepted", "record", "recorded"]
 
@@ -170,6 +179,26 @@ def missing_definitions(pack_root: str, source: str | _t.Sequence[str],
         return ()
     uses = _count_uses(source, {(k, i) for k, i, _p in absent})
     return tuple(MissingDef(k, i, p, uses[(k, i)]) for k, i, p in absent)
+
+
+def unused_definitions(text: str, kinds: _t.AbstractSet[str] = frozenset({"object"}),
+                       keep: _t.Container[str] = ()) -> tuple[MissingDef, ...]:
+    """THE UNUSED (pure): every definition of ``kinds`` (omittable kinds
+    only) that ``text`` declares and no row of it uses, as rows
+    :func:`omit_definitions` takes (``uses`` 0), declaration order.  A
+    path in ``keep`` is never returned — the write keeps a definition the
+    pack's AUTHOR declared unused, so only what an edit emptied goes."""
+    bad = set(kinds) - OMITTABLE
+    if bad:
+        raise ValueError(f"not omittable: {sorted(bad)}")
+    lines = text.splitlines()
+    declared = declared_definitions(lines)
+    cand = {(k, i) for k in kinds for i, p in enumerate(declared[k])
+            if p not in keep}
+    uses = _count_uses(lines, cand)
+    return tuple(MissingDef(k, i, declared[k][i]) for k in DEF_KINDS.values()
+                 if k in kinds for i in range(len(declared[k]))
+                 if (k, i) in cand and not uses[(k, i)])
 
 
 def can_omit(missing: _t.Iterable[MissingDef]) -> bool:

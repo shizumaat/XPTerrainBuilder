@@ -53,6 +53,9 @@ struct RunIssuesSheet: View {
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        if let link = tile.removableLink {
+                            linkButtons(tile, link: link)
+                        }
                         if buildModel.canReportFailures {
                             HStack {
                                 Button(O4TileFailureCopy.reportButton) { report(tile) }
@@ -70,6 +73,23 @@ struct RunIssuesSheet: View {
             }
         }
         .frame(maxHeight: 380)
+    }
+
+    /// The tile's folder is a link to a drive that is not mounted (#668):
+    /// remove the link and build here, or leave it.
+    private func linkButtons(_ tile: O4TileIssues, link: String) -> some View {
+        HStack {
+            Button(O4TileFailureCopy.removeLinkButton) {
+                buildModel.removeLinkAndRebuild(tile, link: link) { refusal in
+                    if let refusal {
+                        note = O4TileFailureCopy.removeLinkFailed(refusal)
+                    } else {
+                        dismiss()
+                    }
+                }
+            }
+            Button(O4TileFailureCopy.removeLinkCancel, action: dismiss)
+        }
     }
 
     private func reportPreview(_ report: O4FailureReport) -> some View {

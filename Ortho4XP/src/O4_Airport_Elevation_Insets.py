@@ -131,7 +131,9 @@ import numpy
 # The access strategies (one module each) and what they share live in
 # the ``elevation_access`` package; importing it registers every strategy.
 import elevation_access  # noqa: F401  (registers the strategies)
-from elevation_access.gdal_support import gdal, ogr, osr, has_gdal
+from elevation_access.gdal_support import (
+    gdal, ogr, osr, has_gdal, memory_vector_driver,
+)
 from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access import base_fallback as ea_base_fallback
 from elevation_access.base_tiles import (
@@ -1979,8 +1981,7 @@ def inset_void_islands(void, outside):
     raster.SetGeoTransform(identity)
     band = raster.GetRasterBand(1)
     band.WriteArray(void.astype(numpy.uint8))
-    vector_driver = (ogr.GetDriverByName("MEM")
-                     or ogr.GetDriverByName("Memory"))
+    vector_driver = memory_vector_driver()
     vector = vector_driver.CreateDataSource("voids")
     layer = vector.CreateLayer("voids", None, ogr.wkbPolygon)
     layer.CreateField(ogr.FieldDefn("v", ogr.OFTInteger))
@@ -2160,10 +2161,7 @@ class LadderInsetAssembly:
         mask_ds.SetGeoTransform(self.transform)
         mask_ds.SetProjection(self.projection)
         region_geometry = _buffer_geometry_m(boundary_polygon, buffer_m)
-        # GDAL >= 3.11 names the in-memory vector driver MEM (Memory is
-        # deprecated there); older builds (Linux 3.9) only know Memory.
-        vector_driver = (ogr.GetDriverByName("MEM")
-                         or ogr.GetDriverByName("Memory"))
+        vector_driver = memory_vector_driver()
         layer_ds = vector_driver.CreateDataSource("core")
         srs = osr.SpatialReference()
         srs.ImportFromEPSG(4326)
@@ -3379,11 +3377,7 @@ def _rasterize_footprint_mask(footprints, reference_dataset):
     )
     memory_raster.SetGeoTransform(reference_dataset.GetGeoTransform())
     memory_raster.SetProjection(reference_dataset.GetProjection())
-    # GDAL 3.11 renamed the in-memory OGR driver "Memory" -> "MEM";
-    # accept both so older installs keep working.
-    vector_driver = ogr.GetDriverByName("MEM") or ogr.GetDriverByName(
-        "Memory"
-    )
+    vector_driver = memory_vector_driver()
     vector_dataset = vector_driver.CreateDataSource("")
     spatial_reference = osr.SpatialReference()
     spatial_reference.ImportFromEPSG(4326)

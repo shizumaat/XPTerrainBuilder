@@ -253,3 +253,90 @@ def test_predicted_reuse_stops_at_the_first_step_that_runs(tile):
     assert REUSE.predicted_reuse(tile) == ("vector", "mesh", "masks")
     tile.min_angle = tile.min_angle + 1
     assert REUSE.predicted_reuse(tile) == ("vector",)
+
+
+# ── #615 self-invalidation: a file the build itself wrote must not make that
+# build's own earlier steps stale (app 1.0.391: every OTHH rebuild reran
+# the vector step because the mesh step's object stage had rewritten the
+# pack DSF the vector record keyed on).
+
+@pytest.fixture
+def pack_patch(tile, tmp_path, monkeypatch):
+    """One airport patch whose freshness stamp names a pack DSF."""
+    from types import SimpleNamespace
+
+    from auto_patch import build_support, provenance
+    nav = tmp_path / "Custom Scenery" / "Some Pack" / "Earth nav data"
+    (nav / "+20+050").mkdir(parents=True)
+    apt, dsf = nav / "apt.dat", nav / "+20+050" / "+25+051.dsf"
+    apt.write_bytes(b"apt")
+    dsf.write_bytes(b"XPLNEDSF-as-installed")
+    (tmp_path / "patches" / "XXXX_auto.patch.osm").write_bytes(b"<osm/>")
+    meta = {"apt_dat": str(apt),
+            "freshness": {"o4_dsf": provenance.identity_list([str(dsf)])}}
+    monkeypatch.setattr(build_support, "read_patch_source",
+                        lambda path: dict(meta))
+    return SimpleNamespace(dsf=dsf)
+
+
+def _build_with_object_stage(tile, install, payload):
+    """A complete build whose mesh step's object stage rewrites the pack
+    DSF AFTER the vector step recorded its inputs."""
+    from test_auto_patch_freshness import _rebake
+    REUSE.forget_from(tile, "vector")
+    REUSE.record(tile, "vector")
+    REUSE.forget_from(tile, "mesh")
+    _rebake(install, payload=payload)          # the object stage's write
+    REUSE.record(tile, "mesh")
+    REUSE.forget_from(tile, "masks")
+    REUSE.record(tile, "masks")
+    REUSE.commit(tile)
+
+
+def test_the_builds_own_pack_rewrite_keeps_the_vector_step(tile, pack_patch):
+    _write_outputs(tile)
+    _build_with_object_stage(tile, pack_patch, b"XPLNEDSF-rewrite-1")
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    # ...and through every later rewrite of the same pack.
+    _build_with_object_stage(tile, pack_patch, b"XPLNEDSF-rewrite-22")
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+
+
+def test_a_user_replaced_pack_reruns_the_vector_step(tile, pack_patch):
+    from auto_patch_v2.airport import backup_state
+    _write_outputs(tile)
+    _build_with_object_stage(tile, pack_patch, b"XPLNEDSF-rewrite-1")
+    pack_patch.dsf.write_bytes(b"XPLNEDSF-the-pack-version-2")  # an update
+    backup_state.invalidate_memo()
+    assert REUSE.stale_reason(tile, "vector") == (
+        "an airport's apt.dat, CIFP or pack changed")
+
+
+def _ini(tmp_path, lines):
+    path = tmp_path / "Custom Scenery" / "scenery_packs.ini"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("I\n1000 Version\nSCENERY\n\n" + "".join(
+        line + "\n" for line in lines), encoding="utf-8", newline="\n")
+
+
+def test_scenery_packs_ini_is_read_by_content(tile, tmp_path):
+    tile.custom_scenery_dir = str(tmp_path / "Custom Scenery")
+    packs = ["SCENERY_PACK Custom Scenery/Airport A/",
+             "SCENERY_PACK Custom Scenery/Airport B/"]
+    _ini(tmp_path, packs)
+    _write_outputs(tile)
+    _complete_build(tile)
+    # The app's reconcile or X-Plane's launch rewrites it, nothing changed.
+    _ini(tmp_path, packs)
+    os.utime(tmp_path / "Custom Scenery" / "scenery_packs.ini",
+             (1, 1))
+    assert REUSE.stale_reason(tile, "vector") is None
+    # The app lists the tile's OWN pack when it installs it.
+    _ini(tmp_path, packs + ["SCENERY_PACK Custom Scenery/zOrtho4XP_+25+051/"])
+    assert REUSE.stale_reason(tile, "vector") is None
+    # The user reorders the airports or disables one: the vector step reruns.
+    _ini(tmp_path, packs[::-1])
+    assert REUSE.stale_reason(tile, "vector") == "scenery_packs.ini changed"
+    _ini(tmp_path, packs[:1] + ["SCENERY_PACK_DISABLED Custom Scenery/"
+                                "Airport B/"])
+    assert REUSE.stale_reason(tile, "vector") == "scenery_packs.ini changed"

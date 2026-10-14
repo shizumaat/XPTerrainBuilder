@@ -757,6 +757,21 @@ public final class OrthoEngineClient: @unchecked Sendable {
         }
     }
 
+    // MARK: - Unmounted-drive link (protocol 1.11, issue #668)
+
+    /// Remove ONE dangling link directly in a Custom Scenery folder
+    /// (engine `O4_Unmounted_Links.remove_link`; the command name and key
+    /// are STRING LITERALS matched against `o4_engine/jsonl.py`). The engine
+    /// refuses a folder, a reachable link and a path outside Custom
+    /// Scenery. The completion carries nil on success, else the reason.
+    public func removeSceneryLink(
+        path: String, completion: @escaping @Sendable (String?) -> Void
+    ) {
+        send(command: "remove_scenery_link", arguments: ["path": path]) { reply in
+            completion(reply.ok ? nil : (reply.error ?? "The engine did not answer."))
+        }
+    }
+
     // MARK: - Boundary airports (protocol 1.8)
 
     /// Start the boundary-airport preflight for the tiles about to be

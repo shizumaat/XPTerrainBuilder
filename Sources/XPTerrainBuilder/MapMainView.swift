@@ -248,7 +248,7 @@ struct MapMainView: View {
 
         // Finding an airport also selects its tile — the airport index
         // doubles as the tile picker.
-        func zoomAndSelect(_ info: AirportInfo) {
+        func zoomAndSelect(_ info: AirportInfo, code: String) {
             var cam = controller.mapCamera.value
             cam.centerLon = info.longitude
             cam.centerLat = info.latitude
@@ -256,6 +256,8 @@ struct MapMainView: View {
             cam.clamp(in: controller.mapCanvasSize.value)
             controller.mapCamera.value = cam
             buildModel.selectTile(containingLat: info.latitude, lon: info.longitude)
+            let tile = AirportTile(lat: Int(floor(info.latitude)), lon: Int(floor(info.longitude)))
+            buildModel.searchTags.add([tile: [code.uppercased()]])
         }
 
         // Airports first: exact ICAO, then prefix, then name contains.
@@ -264,7 +266,7 @@ struct MapMainView: View {
             ?? airports.first { $0.icao.lowercased().hasPrefix(query) }
             ?? airports.first { $0.info.name.lowercased().contains(query) }
         if let match {
-            zoomAndSelect(match.info)
+            zoomAndSelect(match.info, code: match.icao)
             return
         }
 
@@ -275,7 +277,7 @@ struct MapMainView: View {
         let defaultMatch = defaults.first { $0.icao.lowercased() == query }
             ?? defaults.first { $0.icao.lowercased().hasPrefix(query) }
         if let defaultMatch {
-            zoomAndSelect(defaultMatch.info)
+            zoomAndSelect(defaultMatch.info, code: defaultMatch.icao)
             return
         }
 
@@ -308,6 +310,7 @@ struct MapMainView: View {
         let tiles = batch.tiles.map { BuildModel.TileCoord(lat: $0.lat, lon: $0.lon) }
         if !tiles.isEmpty {
             buildModel.selectTiles(tiles)
+            buildModel.searchTags.add(batch.picks)
             controller.zoomToTiles(batch.tiles.map { (lat: $0.lat, lon: $0.lon) })
         }
         if batch.unknown.isEmpty { searchText.value = "" }

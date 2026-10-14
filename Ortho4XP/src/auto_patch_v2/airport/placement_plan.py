@@ -162,7 +162,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # 10-01k Q1 (#162): a FEET-verdict post base over a graded
                  # apron is seated by TILTING THE BODY, capped here
                  # (``[placement] seat_tilt_max_deg``); 0 disarms the seat
-                 seat_tilt_max_deg: float = 0.0) -> SplitSet:
+                 seat_tilt_max_deg: float = 0.0,
+                 # owner RULINGS 2026-10-14d (1): the base slabs that DRAPE
+                 # (``slab_drape.drape_plan``: member id -> components) and
+                 # the draped writer's law (``obj8_drape.DrapeLaw``)
+                 drape: "_t.Mapping[str, frozenset[int]] | None" = None,
+                 drape_law: _t.Any = None) -> SplitSet:
     """Every placement of ``plan`` cut into its bodies (module doc), the
     bodies COARSENED by ``split_tol_m`` (``[placement] split_tol_m``, 11e
     (1)) and each anchored by the generic rule of 11e (2).
@@ -887,7 +892,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                m.heading_deg, (body,))
                 before = len(splits)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              always_write=True, tilted_whole=tilted_whole)
+                              always_write=True, tilted_whole=tilted_whole,
+                              drape_comps=(drape or {}).get(m.id, frozenset()),
+                              drape_law=drape_law)
                 written_of[mi] = len(splits) > before
                 continue
             bodies = ([] if st.footless
@@ -960,7 +967,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     counts["footless_carrier_kept_whole"] = \
                         counts.get("footless_carrier_kept_whole", 0) + 1
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              always_write=True, tilted_whole=tilted_whole)
+                              always_write=True, tilted_whole=tilted_whole,
+                              drape_comps=(drape or {}).get(m.id, frozenset()),
+                              drape_law=drape_law)
             else:
                 # §14 (1)'s own sentence, read on the case §14 (3) creates.
                 # A ONE-BODY placement is KEPT — its row untouched — and on a
@@ -979,7 +988,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if off_row and len(bodies) < 2:
                     counts["one_body_off_row"] = counts.get("one_body_off_row", 0) + 1
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              always_write=off_row, tilted_whole=tilted_whole)
+                              always_write=off_row, tilted_whole=tilted_whole,
+                              drape_comps=(drape or {}).get(m.id, frozenset()),
+                              drape_law=drape_law)
             written_of[mi] = len(splits) > before
     for k, v in sorted(by_class.items()):
         counts[f"class_{k}"] = v

@@ -1011,7 +1011,10 @@ def test_25_the_second_airports_write_keeps_the_firsts_bodies_and_rows(
     # 2. the live DSF carries BOTH airports' edits over the pristine dump
     text = dsf.read_text(encoding="utf-8")
     assert "OBJECT 0 -63.1 18.04 10.0\n" in text            # TNCM conversion
-    assert "OBJECT 2 -63.15 18.1 30.0\n" in text            # TFFG conversion
+    # TFFG conversion: c.obj is def 1 once the split originals b.obj and
+    # d.obj, placed by nothing, are no longer declared (#678)
+    assert "OBJECT 1 -63.15 18.1 30.0\n" in text
+    assert "objects/b.obj" not in text and "objects/d.obj" not in text
     assert "OBJECT_DEF objects/b__b0.obj\n" in text
     assert "OBJECT_DEF objects/b__b1.obj\n" in text
     assert "OBJECT_DEF objects/d__b0.obj\n" in text

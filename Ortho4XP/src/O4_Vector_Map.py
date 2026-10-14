@@ -1849,7 +1849,7 @@ def ensure_tile_frame(lat, lon, *, reason=""):
         layer = OSM.OSM_layer()
         OSM.OSM_queries_to_OSM_layer(AIRPORTS_QUERIES, layer, lat, lon,
                                      ["all"], cached_suffix="airports")
-        dico = build_airports_dico(neighbour, layer)
+        dico = build_airports_dico(neighbour, layer, persist=False)
         mode = _SELECTION.resolved_inset_mode(neighbour)
         selected = _SELECTION.inset_keys(dico, mode)
         UI.lvprint(0, "   Airport insets: tile %s: %d selected (insets = %s) "
@@ -2057,14 +2057,18 @@ def resolve_cifp_dir_for_tile(tile):
 
 
 ################################################################################
-def build_airports_dico(tile, airport_layer):
+def build_airports_dico(tile, airport_layer, persist=True):
     """The tile build's airport-dictionary chain, exactly as
     ``load_airports_and_prepare_dem`` runs it (discovery, surfaces,
     runway reconstruction, discards, hangar/apron/taxiway areas,
     boundaries).  Factored out (2026-07-19, production-DEM parity v2)
     so the standalone DEM loader in ``auto_patch.elevation`` can build
     the same ``dico_airports`` the production airport smoothing uses.
-    Pure compute over the already-loaded layer — no network."""
+    Pure compute over the already-loaded layer — no network.
+
+    *persist* writes the dictionary to the tile's ``Data*.apt`` for Steps
+    2 and 3; a NEIGHBOUR read passes False (#676: it wrote into a
+    neighbour's build folder that did not exist)."""
     dico_airports = {}
     APT.discover_airport_names(airport_layer, dico_airports)
     APT.attach_surfaces_to_airports(airport_layer, dico_airports)
@@ -2074,6 +2078,8 @@ def build_airports_dico(tile, airport_layer):
     APT.build_apron_areas(tile, airport_layer, dico_airports)
     APT.build_taxiway_areas(tile, airport_layer, dico_airports)
     APT.update_airport_boundaries(tile, dico_airports)
+    if persist:
+        APT.save_airport_info(tile, dico_airports)
     return dico_airports
 
 

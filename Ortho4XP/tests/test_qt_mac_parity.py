@@ -204,6 +204,38 @@ def test_a_single_code_searches_exactly_as_before(make_window, monkeypatch):
     assert statuses == []
 
 
+def _row_labels(window, tiles):
+    """The coordinate label of each tile's fresh progress row."""
+    window._setup_progress_page(tiles)
+    return [window._tile_rows[t][2].findChildren(GUI.QLabel)[0].text()
+            for t in tiles]
+
+
+def test_progress_rows_name_the_codes_that_picked_them(make_window,
+                                                       monkeypatch):
+    """#667: a tile picked by search shows its code(s) after the
+    coordinate, in the order typed; a hand-selected tile shows none; a
+    deselected tile loses its tag; a new search replaces the tags as it
+    replaces the selection."""
+    window, _ = _batch_window(make_window, monkeypatch)
+    window._airports.append(
+        APT.AirportEntry("KJQF", "Concord", "", "", 35.39, -80.71))
+    window.search_edit.setText("KCLT, KJQF othh")
+    window._search_accept_first()
+    assert _row_labels(window, [(35, -81), (25, 51)]) == [
+        "+35-081 (KCLT, KJQF)", "+25+051 (OTHH)"]
+    # Deselect one: its tag goes; a hand-added tile has none.
+    window.map.set_selection([(25, 51), (10, 10)])
+    assert _row_labels(window, [(35, -81), (25, 51), (10, 10)]) == [
+        "+35-081", "+25+051 (OTHH)", "+10+010"]
+    # One airport replaces the selection and the tags (Qt replaces).
+    window.search_edit.setText("KCLT")
+    window._update_search_popup("KCLT")
+    window._search_accept_first()
+    assert _row_labels(window, [(35, -81), (25, 51)]) == [
+        "+35-081 (KCLT)", "+25+051"]
+
+
 # ===========================================================================
 # Airport marks
 # ===========================================================================

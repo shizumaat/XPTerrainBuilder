@@ -34,7 +34,9 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
+from ..airport.slab_faces import witness_faces
 from ..geom.base_slab import slab_polygons
+from ..geom.proportions import road_proportioned
 from ..law.tables import base_slab_law, gap_standoff_m, snap_margin_m
 from ..model.airport import Airport
 from ..model.planar import GAP_APRON_PREFIX, GAP_PREFIX, is_osm_ribbon_ref
@@ -42,13 +44,31 @@ from .evidence import Evidence, polygon_parts
 from .gap_apron import close_rim, judge
 from .rules import Rules
 
-__all__ = ["mint_gap_pieces", "standoff_m", "ROLE", "KIND", "APRON_KIND"]
+__all__ = ["mint_gap_pieces", "standoff_m", "slab_role", "ROLE", "LOT_ROLE",
+           "KIND", "APRON_KIND"]
 
 #: every gap piece (04m (3): graded at the road grade cap)
 ROLE = "groundside_pavement"
 KIND = "gap_piece"
 #: a piece classed APRON (spec §59): a stage-1 apron cell
 APRON_KIND = "gap_apron"
+#: a BASE-SLAB piece with LOT proportions (owner RULINGS 2026-10-14d (2))
+LOT_ROLE = "parking_lot"
+
+
+def slab_role(part: Polygon, rules: Rules) -> str:
+    """THE GROUND UNDER A BASE SLAB IS GRADED BY ITS PROPORTIONS (owner
+    RULINGS 2026-10-14d (2)): a ROAD-proportioned piece (long and narrow,
+    ``geom.proportions.road_proportioned`` at the free-road width
+    ``[service] free_max_width_m`` and the path elongation ``[apron]
+    arm_min_aspect``) keeps the gap piece's road-limit role; every other
+    slab piece is a LOT (``parking_lot``, the lot law).  GROUNDSIDE ONLY:
+    a gap piece is a late cell, absent from the stage-1 map, so the
+    airside never sees the choice (RULINGS 2026-10-02n's #110 lesson)."""
+    if road_proportioned(part, float(rules.service.free_max_width_m),
+                         float(rules.apron.arm_min_aspect)):
+        return ROLE
+    return LOT_ROLE
 
 
 def standoff_m(law: Law) -> float:
@@ -96,7 +116,8 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     # #229): the open part of every flat plane at the base of objects
     # (``geom.base_slab`` — the reading that took it off the pads)
     _part = getattr(airport, "partition", None)
-    slabs = (slab_polygons(_part, airport.frame.entry(), base_slab_law(law))
+    _lw = base_slab_law(law)
+    slabs = (slab_polygons(_part, airport.frame.entry(), _lw, witness_faces(_lw))
              if _part is not None else [])
     stats["base_slab_sheets"] = len(slabs)
     stats["base_slab_sheet_m2"] = round(sum(g.area for g in slabs), 1)
@@ -264,11 +285,15 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
         else:
             evid = {"gap_piece": 1.0, "area_m2": float(part.area),
                     "touches_apron": float(touches), "apron_shared_m": float(apron_m)}
+            role = ROLE
             if k in slabby:
                 evid["base_slab"] = 1.0
+                role = slab_role(part, rules)
+                stats["gap_pieces_base_slab_lot"] = \
+                    stats.get("gap_pieces_base_slab_lot", 0) + int(role == LOT_ROLE)
             if v is not None:
                 evid["road_evidence"] = 1.0
                 stats["gap_pieces_road"] += 1
-            add(ROLE, ref, part, KIND, None, None, evid)
+            add(role, ref, part, KIND, None, None, evid)
         stats["gap_piece_m2"] += float(part.area)
     return stats

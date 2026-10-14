@@ -35,13 +35,15 @@ Stdlib only: the airport workers and the core step modules import it.
 from __future__ import annotations
 
 import errno as _errno
+import os
 from typing import Iterable, NamedTuple, Optional
 
 __all__ = [
     "CATALOGUE", "EXCEPTION_CODES", "STAGE_CODES", "REMEDIES", "UNMAPPED",
     "UNMAPPED_AIRPORT", "UNMAPPED_STEP", "code_for_exception",
     "code_for_activation", "params_for_exception", "record_fields", "code_for_stage", "record", "fold", "headline",
-    "render", "from_unpatched", "from_substitutions", "closing_lines",
+    "render", "from_unpatched", "from_substitutions", "from_unmounted",
+    "closing_lines",
     "is_proxy_refusal",
 ]
 
@@ -81,6 +83,11 @@ REMEDIES = {
     "quit_xplane": "Quit X-Plane if it is running, then build the tile "
                    "again. If it fails again, check that the app is "
                    "allowed to write to the tile's folder.",
+    # a link into a drive that is not mounted (#668); ``{connect}`` names
+    # the drive.  Both apps offer the removal as a button.
+    "unmounted_output": "{connect} and build the tile again, or remove the "
+                        "link to build on this computer's drive.",
+    "unmounted_pack": "{connect} and build the tile again.",
 }
 
 UNMAPPED = "unexpected_error"          # an exception nobody catalogued
@@ -218,6 +225,19 @@ CATALOGUE = {
         "its new scenery file could not be put in place.",
         "The finished file could not be moved into the tile's folder.",
         "retry"),
+    # the tile's folder in Custom Scenery is a link whose target is
+    # missing — a drive not mounted (#668, ``O4_Unmounted_Links``)
+    "output_link_unmounted": Entry(
+        "its folder in Custom Scenery could not be reached.",
+        "“{link_name}” is a link to “{target}”, {missing}.",
+        "unmounted_output"),
+    # ...and a pack the build only READS: the tile builds, the airport is
+    # graded from X-Plane's own data (the #564 "built, but" path)
+    "airport_pack_unmounted": Entry(
+        "{airports} {was} graded without {pack}.",
+        "The pack is a link to “{target}”, {missing}, so X-Plane's own "
+        "airport data was used instead; the ground may not match the pack "
+        "when the drive is back.", "unmounted_pack"),
     "output_folder_unwritable": Entry(
         "its output folder could not be written.",
         "The folder is protected or the disk is full.", "permissions"),
@@ -307,6 +327,8 @@ EXCEPTION_CODES = {
     # caught before the worker / never raised by an app build
     "AutoPatchBuildFailure": UNMAPPED_AIRPORT,
     "ExternalWriteRefused": UNMAPPED,
+    # O4_Unmounted_Links (#668) names its code with ``failure_code``
+    "UnmountedLink": "output_link_unmounted",
     "LoginError": UNMAPPED,
     "CredentialStoreUnavailable": UNMAPPED,
     # the standard library and the HTTP stack
@@ -481,28 +503,54 @@ def _describe(code: str, tile: str, airports: list, params: dict,
                 else "a scenery pack on this tile",
         "step": params.get("step") or "build",
     }
+    words.update(_link_words(params))
+    words["was"] = "were" if len(airports) > 1 else "was"
     why = entry.why.format(**words)
     why = why[:1].upper() + why[1:]
     lead = ("Tile %s was built " if note else "Tile %s was built, but "
             if built else "Tile %s was not built: ")
-    # the unpatched sentence belongs to the airport's own warning only
-    unpatched = built and not note and code != "pack_restore_unproven"
+    # the unpatched sentence belongs to an airport left WITHOUT a patch
+    unpatched = built and not note and code not in _PATCHED_WARNINGS
     return {
         "code": code,
         "what": lead % tile + entry.what.format(**words),
         "why": (why + " " + UNPATCHED) if unpatched else why,
         "cells": list(cells),
-        "remedy": _remedy(entry.remedy, report_button, log_path),
+        "remedy": _remedy(entry.remedy, report_button, log_path,
+                          words["connect"]),
         "airports": list(airports),
+        # the link a front end may offer to remove (#668), else ""
+        "link": params.get("link", "") if code == "output_link_unmounted"
+                else "",
         "detail": "\n".join(details),
         "log_path": log_path,
     }
 
 
-def _remedy(key: str, report_button: bool, log_path: str) -> str:
+# warnings on a built tile whose airport DID get a patch
+_PATCHED_WARNINGS = ("pack_restore_unproven", "airport_pack_unmounted")
+
+
+def _link_words(params: dict) -> dict:
+    """The words of a link whose target is missing (#668): its name, its
+    target, and the drive it waits for when the target names one."""
+    volume = params.get("volume") or ""
+    return {
+        "link_name": os.path.basename(params.get("link") or "") or "?",
+        "target": params.get("target") or "?",
+        "missing": ("and the drive “%s” is not mounted" % volume) if volume
+                   else "which no longer exists",
+        "connect": ("Mount the drive “%s”" % volume) if volume
+                   else "Restore the folder the link points to",
+    }
+
+
+def _remedy(key: str, report_button: bool, log_path: str,
+            connect: str = "") -> str:
     phrase = _report_phrase(report_button, log_path)
     text = REMEDIES[key].replace("{report}", phrase).replace(
-        "{Report}", phrase[:1].upper() + phrase[1:])
+        "{Report}", phrase[:1].upper() + phrase[1:]).replace(
+        "{connect}", connect)
     # a path ends the sentence by itself ("…log: /x/y.log")
     return text[:-1] if text.endswith(".log.") else text
 
@@ -584,6 +632,20 @@ def from_unpatched(rows: Iterable[dict]) -> list:
                        **({"pack": pack} if pack else {})),
                 secondary=True))
     return out
+
+
+def from_unmounted(rows: Iterable[dict]) -> list:
+    """Raw WARNING records from ``O4_Unpatched_Airports.read_unmounted_packs``
+    rows (``{"icao", "pack", "link", "target", "volume"}``, #668): an
+    airport graded without its pack because the pack is a link to a drive
+    that is not mounted.  Folded per pack."""
+    return [record("airport_pack_unmounted",
+                   "%s -> %s" % (row.get("link"), row.get("target")),
+                   airport=row.get("icao") or "?",
+                   pack=row.get("pack") or "", link=row.get("link") or "",
+                   target=row.get("target") or "",
+                   volume=row.get("volume") or "")
+            for row in rows or () if isinstance(row, dict)]
 
 
 def from_substitutions(rows: Iterable[dict]) -> list:

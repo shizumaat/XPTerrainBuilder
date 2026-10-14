@@ -170,3 +170,64 @@ def test_a_rigid_pad_is_never_a_host(law):
     assert (dissolved, dropped) == (0, 1)
     assert rows[0][3] is None
     assert [r.ref for _p, r in faces] == ["building1"]
+
+
+# ── issue #637: the width is read on a SNAPPED face ──────────────────────
+#
+# The lip law mints strips exactly ``zones.lip_width_m`` wide and that IS
+# ``strip_min_width_m`` (3.0 / 3.0).  Found at a 107 m2 lip between a
+# parallel and a runway: on the identity grid the SAME strip read 2.99 m
+# (dissolved into the RUNWAY) or 3.04 m (kept) according to one noding
+# vertex on the runway edge, which came and went with a tunnel 940 m away —
+# a runway vertex 227.13 / 227.08 m build to build.
+
+#: the strip as the identity grid holds it (3.0 m across, slanted) ...
+_LIP = [(6.0, 0.0), (3.0, 0.0), (0.5, 35.5), (3.5, 35.5)]
+#: ... and with the one extra grid vertex on its runway edge
+_LIP_NODED = [(6.0, 0.0), (3.0, 0.0), (0.5, 35.5), (3.5, 35.5), (4.5, 22.0)]
+
+
+def _lip_verdict(law, ring, snap_m=None):
+    from auto_patch_v2.law.tables import snap_margin_m
+    runway = Polygon([(6.0, 0.0), (3.5, 35.5), (60.0, 35.5), (60.0, 0.0)])
+    parallel = Polygon([(3.0, 0.0), (0.5, 35.5), (-40.0, 35.5), (-40.0, 0.0)])
+    faces = [_cell("runway", "rw", runway), _cell("junction", "pav", parallel),
+             _zone("z1", Polygon(ring))]
+    tr = law.tables.emit.terrace
+    _f, dissolved, dropped, _a, _rows = dissolve_sliver_zones(
+        faces, tr.strip_min_m2, tr.strip_min_width_m, ("runway", *HOSTS),
+        snap_m=2.0 * snap_margin_m(law) if snap_m is None else snap_m)
+    return dissolved + dropped
+
+
+def test_the_two_snapped_readings_of_one_lip_straddle_the_bare_threshold(law):
+    """The defect, stated: the lip law's width IS the sliver width, and the
+    two grid readings of one strip fall either side of it."""
+    w_min = law.tables.emit.terrace.strip_min_width_m
+    assert law.tables.zones.adjacent_ground.lip_width_m == w_min
+    assert inscribed_width_m(Polygon(_LIP)) < w_min <= inscribed_width_m(
+        Polygon(_LIP_NODED))
+    assert _lip_verdict(law, _LIP, 0.0) == 1          # unioned into a host
+    assert _lip_verdict(law, _LIP_NODED, 0.0) == 0    # kept
+
+
+def test_a_full_width_lip_stands_whichever_way_the_grid_read_it(law):
+    """RED before #637's snap allowance: ``_LIP`` was dissolved and
+    ``_LIP_NODED`` kept.  Both are the lip; both stand."""
+    assert _lip_verdict(law, _LIP) == 0
+    assert _lip_verdict(law, _LIP_NODED) == 0
+
+
+def test_the_snap_allowance_keeps_the_owner_sliver_a_sliver(law):
+    """HECA shape 1035's class — 2.16 m at its widest, over the area floor
+    here so the WIDTH decides — is still dissolved."""
+    from auto_patch_v2.law.tables import snap_margin_m
+    ring = [(2.16, 0.0), (0.0, 0.0), (0.0, 40.0), (2.16, 40.0)]
+    faces = [_cell("junction", "pav", _rect(-30.0, 0.0, 0.0, 40.0)),
+             _zone("z1", Polygon(ring))]
+    tr = law.tables.emit.terrace
+    assert Polygon(ring).area >= tr.strip_min_m2
+    _f, dissolved, _d, _a, rows = dissolve_sliver_zones(
+        faces, tr.strip_min_m2, tr.strip_min_width_m, HOSTS,
+        snap_m=2.0 * snap_margin_m(law))
+    assert dissolved == 1 and rows[0][3] == "junction:pav"

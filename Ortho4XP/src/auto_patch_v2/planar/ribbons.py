@@ -16,7 +16,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..model.planar import is_osm_ribbon_ref
-from ..law.tables import rolled_on_roles
+from ..law.tables import rolled_on_roles, snap_margin_m
 from .pad_cut import _drop_rim_midpoints, airside_clip, build_rim
 from . import overlay as _ov
 from .overlay import (PAD_AIRSIDE, Region, _claiming_region, _node_coords,
@@ -194,7 +194,8 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
         tuple(law.tables.emit.terrace.shape_roles),
         tuple(r for r, spec in law.tables.precedence.roles.items()
               if spec.rigid),
-        frozen=frozen, hosts_seen=hosts_seen)
+        frozen=frozen, hosts_seen=hosts_seen,
+        snap_m=2.0 * snap_margin_m(law))
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
     # spec §56 (10) R-F: a surplus pad scrap its own plateau surrounds is

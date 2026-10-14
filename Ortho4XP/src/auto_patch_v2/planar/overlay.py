@@ -640,7 +640,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                           host_roles: tuple[str, ...] = (),
                           refuse_roles: tuple[str, ...] = (),
                           frozen: "set | None" = None,
-                          hosts_seen: "dict | None" = None
+                          hosts_seen: "dict | None" = None,
+                          snap_m: float = 0.0
                           ) -> tuple[list[tuple[Polygon, Region]], int, int,
                                      float, tuple]:
     """§41 (4) — A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS
@@ -671,6 +672,19 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     into each other.  Returns ``(faces, dissolved, dropped, area_m2,
     rows)``.
 
+    ``snap_m`` — THE WIDTH IS READ ON A SNAPPED FACE (issue #637).  The lip
+    law mints strips exactly ``zones.lip_width_m`` wide, which IS
+    ``width_min_m`` (3.0 and 3.0), and the identity snap moves either side
+    of a face by up to its half-diagonal: a full lip read 2.94-3.4 m, so
+    the snap alone decided whether it stood or was unioned into the RUNWAY
+    it borders — and that snap follows a noding crossing which moves with
+    any cell anywhere at the airport (MEASURED: a tunnel refused 940 m away
+    flipped a 107 m2 lip between 2.99 and 3.04 m, and a runway vertex
+    between 227.13 and 227.08 m).  A face is narrow only when it is under
+    ``width_min_m`` by MORE than the snap can account for — ``snap_m``, the
+    caller's two half-diagonals (``tables.snap_margin_m``: the same margin a
+    stand-off that must hold after the snap is given).
+
     ``frozen`` (RULINGS 2026-09-30aa rules 9-10, #100): the node set pass A
     fixed.  A sliver carrying a coordinate pass B added (a mapped-road
     ribbon cut it) never grows an aircraft-pavement host — that would give
@@ -700,7 +714,7 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             continue
         poly, region = keep[i]
         width = inscribed_width_m(poly)
-        if poly.area >= area_min_m2 and width >= width_min_m:
+        if poly.area >= area_min_m2 and width >= width_min_m - snap_m:
             continue
         best = None
         best_rank = None

@@ -9,7 +9,8 @@ NOTHING STANDING UNDER A ROAD ROW IT CANNOT HOLD.
   worst 16.85 m.
 * A standing cell's node the pad roads' arrangement NOTCHED off its edge is
   still that cell's and takes its edge's level (``late_rim_levels``
-  ``notch_m``).  MEASURED HECA round 5: 301 such nodes stood as unknowns.
+  ``notch_m``), a pad's at any distance (``rigid``).  MEASURED HECA round
+  5: 301 such nodes stood as unknowns.
 """
 from __future__ import annotations
 
@@ -76,11 +77,11 @@ def test_a_notched_node_of_a_standing_cell_takes_its_edge_level():
     assert som.late_rim_levels(base, z, full, fixed, set(), 0.01)["off_edge"] == 3
 
 
-def test_a_node_inside_a_pad_stands_on_the_pads_plane():
-    """A pad is ONE plane (09-09c): a node the pad roads' arrangement carved
-    INTO a pad's face, farther than the notch from its edges, takes the
-    plane of the pad's base vertices — never an unknown of the road's
-    solve (MEASURED OTHH round 5: ``building9``'s carved piece floated 5 cm)."""
+def test_a_pad_node_beyond_the_notch_stands_on_its_pad():
+    """A pad stands where it stands: a node the pad roads' arrangement left
+    on a pad farther than the notch from its edges takes its pad's nearest
+    base edge — never an unknown of the road's solve (MEASURED OTHH round 5:
+    ``building9``'s sliver floated 5 cm over its rim)."""
     base = _pm([(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)],
                [("building", "padA", (0, 1, 2, 3))])
     base.edges = {k: types.SimpleNamespace(a=a, b=b)
@@ -92,6 +93,11 @@ def test_a_node_inside_a_pad_stands_on_the_pads_plane():
     z = {0: 100.0, 1: 100.2, 2: 100.2, 3: 100.0}        # 1 % along x
     fixed = dict(z)
     rep = som.late_rim_levels(base, z, full, fixed, set(), 0.01, notch_m=1.5,
-                              planes=frozenset({"building"}))
+                              rigid=frozenset({"building"}))
     assert fixed[4] == pytest.approx(100.1)
-    assert rep["on_plane"] == 1 and rep["off_edge"] == 0
+    assert rep["notched"] == 1 and rep["off_edge"] == 0
+    # a cell of no rigid role keeps the notch's reach
+    full.faces[0].role = "parking_lot"
+    fixed = dict(z)
+    assert som.late_rim_levels(base, z, full, fixed, set(), 0.01, notch_m=1.5,
+                               rigid=frozenset({"building"}))["off_edge"] == 1

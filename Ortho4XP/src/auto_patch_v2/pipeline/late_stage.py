@@ -280,7 +280,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     jrep["rim"] = late_rim_levels(
         pm_base, z_base, pm, fixed, free, ident * 0.02,
         notch_m=stand_off_m(law) if roads_only else 0.0,
-        planes=frozenset(f.role for f in pm.faces.values()
+        rigid=frozenset(f.role for f in pm.faces.values()
                          if is_rigid_role(law, f.role)) if roads_only else frozenset())
     # THE ROAD YIELDS TO THE PAD (issue #609; 13a (1), 13d): a pad road's
     # absolute road rows leave and it carries the ramp from the rim it is

@@ -24,12 +24,16 @@ patch ends, at the level the map solved there (``z0``), and runs for the
 foot's OFFSET at the design grade, ``|z0 - DEM| / ramp_grade`` (the ramp
 closes the offset; the terrain's own slope beyond is the terrain's —
 ``pad_road_exit``'s round 5), or until a standing face stops it (then the
-road's own cap steepens it).  A 10-03e landing keeps that ground clear of
-its collar and its lot (``planar/landing.ahead_regions``).  The strip is a
+road's own cap steepens it).  The strip is a
 ROAD (``service_road``, the road law's caps) and a PAD ROAD (a follower of
 the last stage, junior to every pavement it meets); its profile rows are
 ``constraints/ramp_runout``'s.  A foot whose ground already stands within
 ``[cockpit] visual_m`` of the DEM where the patch ends asks nothing.
+
+NOT YET: a 10-03e LANDING's foot keeps its 1:3 collar in the direction of
+travel too (counted ``landing``) — clearing it lets a mapped pad road take
+the ground ahead (HECA), which the pad-road exit walk does not yet run out;
+that interaction is the spec's to rule (issue #669).
 """
 from __future__ import annotations
 
@@ -87,7 +91,7 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     from ..law.tables import role_side
     from .evidence import polygon_parts
     from .roles import Cell
-    rep: dict[str, _t.Any] = {"feet": 0, "ungraded": 0, "at_grade": 0, "blocked": 0,
+    rep: dict[str, _t.Any] = {"feet": 0, "ungraded": 0, "landing": 0, "at_grade": 0, "blocked": 0,
                               "runouts": 0, "run_m": 0.0, "list": []}
     dem = getattr(airport, "dem", None)
     frame = getattr(airport, "frame", None)
@@ -105,6 +109,9 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     xy = np.array([pm_base.vertices[v].xy for v in ids], dtype=float)
     zz = np.array([float(z_base[v]) for v in ids], dtype=float)
     occupied = unary_union([Polygon(c.ring, c.holes) for c in cl.cells])
+    from ..model.platform import LANDING_SEP
+    landings = unary_union([Polygon(c.ring, c.holes) for c in cl.cells
+                            if LANDING_SEP in str(c.ref)])
     cells = list(cl.cells)
     to_ll = frame.transformers()[1]
     for f in feet:
@@ -120,6 +127,13 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
         back = rect(-FOOT_SPAN_M, 0.0)
         if back.intersection(occupied).area < 0.5 * back.area:
             rep["ungraded"] += 1
+            continue
+        if back.intersects(landings):
+            # a 10-03e landing's foot: its collar banks it today; the run-out
+            # there waits on the spec (MEASURED HECA, T3_road landing3: with
+            # the collar cleared ahead, the mapped pad road -3963 took the
+            # ground and ended 6 m over the raw DEM — see the lane notes)
+            rep["landing"] += 1
             continue
         free = [q for q in polygon_parts(rect(0.0, MAX_RUN_M).difference(occupied))
                 if q.distance(occupied) <= touch]

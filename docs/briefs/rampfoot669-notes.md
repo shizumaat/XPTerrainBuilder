@@ -20,7 +20,7 @@ scratchpad `rampfoot669/{KCLT,HECA,SPJC,OTHH}.pkl`.
 ## Consumer census — every pass that grades ground to an object ramp's foot
 | pass | grades the foot how | in the travel direction before | ruled here |
 |---|---|---|---|
-| `planar/landing` (10-03e) | landing platform at the unit datum + y_land, 1:3 collar all round | the 1:3 collar | collar trimmed AHEAD of the foot (`ahead_regions`, width = the foot's, run = offset / 5 %); sides keep the bank; the lot is cut by the ahead region too (`landing_cut`) |
+| `planar/landing` (10-03e) | landing platform at the unit datum + y_land, 1:3 collar all round | the 1:3 collar | NOT CHANGED this round (the mint counts such a foot `landing` and skips it). TRIED and withdrawn: the collar and the lot cleared AHEAD of the foot (width = the foot's, run = offset / 5 %) — at HECA T3_road landing3 (30.1140697, 31.3975845, 101.78 m over DEM 94.87) the mapped pad road small_roads:-3963 then took the ground ahead and ended at 99.42 m over raw DEM 93.4 (a 6 m step, worse than the collar's 3 m toe step at sw28). Needs a ruling: does a mapped road ahead of a landing carry the run-out (pad-road exit walk), or does the run-out take it? |
 | cluster pad (`classify/evidence._cluster_pads`) | the unit pad covers the deck footprint | pad edge: whatever borders it | the run-out leaves the patch edge (any face) |
 | §53 gap pieces (`gap_mint` / `gap_terrace`) | pack pavement under the ramp, follows its neighbours | patch edge → raw DEM (KCLT) | idem |
 | pad roads (`ribbon_mint.mint_pad_roads`, `pad_road_exit`, `pad_ramp`) | a MAPPED road off a pad ramps at 5 % from the rim | only where a mapped way continues | untouched; the run-out is the same law where no way continues; run-out faces are excluded from `pad_ramp`'s rim seeding (they carry their own row) |
@@ -29,7 +29,7 @@ scratchpad `rampfoot669/{KCLT,HECA,SPJC,OTHH}.pkl`.
 | zones 1–2 (adjacent ground) | airside only | n/a | untouched |
 
 Single derivation: the FOOT is read once (`airport/ramp_feet`, memoised per partition) by
-both `planar/landing.ahead_regions` and `classify/ramp_runout`. The STRIP is minted once,
+`classify/ramp_runout`. The STRIP is minted once,
 in the pad roads' last stage (`classify/ramp_runout.mint_ramp_runouts`), as a
 `service_road` pad-road cell `runout:<k>` (census reads road law); its rows are
 `constraints/ramp_runout.runout_rows` (one design row per free vertex, the

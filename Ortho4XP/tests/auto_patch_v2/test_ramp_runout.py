@@ -183,23 +183,15 @@ def test_the_runout_rows_lay_the_design_grade_to_the_dem(law):
     assert all(r.lo == pytest.approx(10.0) for r in rows)
 
 
-def test_a_landing_keeps_the_ground_ahead_of_its_foot_clear(tmp_path, law):
-    # 10-03e's landing under the ramp's foot, at a datum 4 m over the DEM:
-    # the ground AHEAD of the foot (south) is the run-out's, never the
-    # collar's or the lot's; its sides keep the 1:3 bank
-    from shapely.geometry import box
-    from auto_patch_v2.planar.landing import ahead_regions
+
+def test_a_landing_foot_keeps_its_collar(tmp_path, law):
+    # 10-03e's landing under the foot: not yet run out (module NOT YET)
+    from auto_patch_v2.classify.roles import Classification
     rf._MEMO.clear()
     part = _partition(tmp_path, [(0, 8, 0, -100, 0.0, 6.0)])
     ap = types.SimpleNamespace(partition=part, dem=_Dem(), frame=_frame())
-    Lu = box(-1.0, -1.0, 9.0, 10.0)
-    A = ahead_regions(Lu, 14.0, 0.0, ap, law, Lu, 3.0)
-    assert A is not None
-    g = float(law.tables.emit.road_contact.ramp_grade)
-    x0, y0, x1, y1 = A.bounds
-    assert y1 == pytest.approx(-1.0, abs=0.05)          # from the landing's edge
-    assert y0 <= -4.0 / g + 1.0                           # the whole run south
-    assert 7.0 <= x1 - x0 <= 11.0                         # the foot's width only
-    # no datum known: nothing reserved; no foot on the landing: nothing
-    assert ahead_regions(Lu, None, 0.0, ap, law, Lu, 3.0) is None
-    assert ahead_regions(box(50, 50, 60, 60), 14.0, 0.0, ap, law, Lu, 3.0) is None
+    pav = Polygon([(-4, -3), (12, -3), (12, 100), (-4, 100)])
+    cl = Classification((_cell(0, "building", "building4/landing0", pav),), (), {}, ())
+    pm = types.SimpleNamespace(vertices={0: types.SimpleNamespace(xy=(4.0, -3.0))})
+    _cl, rep = mint_ramp_runouts(cl, ap, law, load_rules(), pm, {0: 14.0})
+    assert rep["runouts"] == 0 and rep["landing"] == 1

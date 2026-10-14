@@ -217,12 +217,16 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # less the ground AHEAD of a ramp's foot, which runs out at road grade
     # (14c (5), #669; ``ahead_regions``): the 1:3 bank stays for its sides
     held_c = taken
+    # every landing's ground ahead FIRST: another landing's collar never
+    # takes it (MEASURED, HECA replay: landing2's collar banked 1:3 ahead
+    # of landing3's foot)
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
         A = ahead_regions(Lu, HELD[bref].get("datum_pred"), y_land, airport, law,
                           held_c, reach + grid)
         if A is not None:
             AHEADS[ref] = A
             held_c = unary_union([held_c, A])
+    for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
         C = Lu.buffer(collar_m, join_style=2).difference(held_c)
         cparts = [q for q in _parts(C) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])

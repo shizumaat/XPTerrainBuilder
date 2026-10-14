@@ -346,3 +346,101 @@ def test_a_write_without_omit_restores_the_definitions(tmp_path, monkeypatch,
                  work_dir=str(tmp_path / "w2"))
     assert _live(dsf) == DUMP
     assert _entry(dsf)["omitted_art"] is None, "never sticky"
+
+
+# ── THE UNUSED (issue #678: a split's original stays declared) ──────────
+
+#: ``b`` is split into two bodies; ``u`` is declared unused BY THE AUTHOR
+SPLIT_DUMP = ("PROPERTY sim/west 51\n"
+              "OBJECT_DEF objects/a.obj\n"
+              "OBJECT_DEF objects/b.obj\n"
+              "OBJECT_DEF objects/u.obj\n"
+              "OBJECT_DEF objects/c.obj\n"
+              "POLYGON_DEF draped/ok.pol\n"
+              "OBJECT 0 51.1 25.1 90.0\n"
+              "OBJECT 1 51.2 25.2 45.0\n"
+              "OBJECT_AGL 3 51.3 25.3 10.0 2.5\n"
+              "BEGIN_POLYGON 0 65535 2\n"
+              "BEGIN_WINDING\n"
+              "POLYGON_POINT 51.0 25.0\n"
+              "END_WINDING\n"
+              "END_POLYGON\n")
+
+
+def _placed_paths(text: str) -> list[tuple[str, ...]]:
+    """Every placement as (path, coordinate tokens), in row order — what a
+    placement-by-placement diff compares."""
+    defs = PA.declared_definitions(text.splitlines())["object"]
+    return [(defs[int(t[1])],) + tuple(t[2:])
+            for t in (r.split() for r in text.splitlines())
+            if t and t[0] in ("OBJECT", "OBJECT_AGL", "OBJECT_MSL")]
+
+
+def test_unused_definitions_names_only_the_unplaced():
+    got = PA.unused_definitions(SPLIT_DUMP)
+    assert got == (PA.MissingDef("object", 2, "objects/u.obj"),)
+    assert PA.unused_definitions(SPLIT_DUMP, keep={"objects/u.obj"}) == ()
+    with pytest.raises(ValueError):
+        PA.unused_definitions(SPLIT_DUMP, kinds={"terrain"})
+
+
+def test_an_unused_definition_is_dropped_and_the_rest_renumbered():
+    out, counts = PA.omit_definitions(SPLIT_DUMP,
+                                      PA.unused_definitions(SPLIT_DUMP))
+    assert counts == {"object_defs": 1}
+    assert "objects/u.obj" not in out
+    assert _rows(out, "OBJECT_AGL") == ["OBJECT_AGL 2 51.3 25.3 10.0 2.5"]
+    assert _placed_paths(out) == _placed_paths(SPLIT_DUMP)
+    assert _rows(out, "BEGIN_POLYGON") == _rows(SPLIT_DUMP, "BEGIN_POLYGON")
+
+
+def _split_plan(pack: Path, dsf: Path) -> PM.PlacementPlan:
+    split = PM.Split(
+        placement=PM.PlacementRef(1, "objects/b.obj", 51.2, 25.2, 45.0),
+        bodies=tuple(PM.Body(f"b{k}", "other", (k,),
+                             PM.Anchor(51.2 + k / 100, 25.2, 45.0),
+                             "surface at the body's zero",
+                             f"objects/b__b{k}.obj") for k in range(2)))
+    return PM.PlacementPlan("OTST", pack.name, str(pack), str(dsf),
+                            str(dsf) + PM.BACKUP_SUFFIX,
+                            PM.Provenance("", "1.0.test", "", {}),
+                            splits=(split,))
+
+
+def test_the_write_drops_the_split_original_keeps_the_authors(tmp_path,
+                                                             monkeypatch,
+                                                             _memo):
+    pack, dsf = _pack(tmp_path, present=("objects/a.obj", "objects/b.obj",
+                                         "objects/u.obj", "objects/c.obj",
+                                         "draped/ok.pol"),
+                      dump=SPLIT_DUMP)
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    plan = _split_plan(pack, dsf)
+    res = W.write_pack(str(pack), plan, tool, work_dir=str(tmp_path / "w"))
+    assert res.report.ok, res.report.findings
+    assert res.unused_dropped == {"object_defs": 1}
+    live = _live(dsf)
+    assert _rows(live, "OBJECT_DEF") == [
+        "OBJECT_DEF objects/a.obj", "OBJECT_DEF objects/u.obj",
+        "OBJECT_DEF objects/c.obj", "OBJECT_DEF objects/b__b0.obj",
+        "OBJECT_DEF objects/b__b1.obj"]
+    # every placement names the SAME file it named before the drop
+    undropped = W.edit_dump(SPLIT_DUMP, plan, "1.0.test")
+    assert _placed_paths(live) == _placed_paths(
+        "".join(r for r in undropped.splitlines(True)
+                if not r.startswith("PROPERTY o4/")))
+    assert PA.unused_definitions(live) == (
+        PA.MissingDef("object", 1, "objects/u.obj"),), "the author's stays"
+    assert _entry(dsf)["unused_defs_dropped"] == 1
+    assert Path(str(dsf) + PM.BACKUP_SUFFIX).read_text(
+        encoding="utf-8") == SPLIT_DUMP, "the pristine, untouched"
+
+
+def test_a_write_that_empties_nothing_drops_nothing(tmp_path, monkeypatch,
+                                                   _memo):
+    pack, dsf = _pack(tmp_path, dump=SPLIT_DUMP)
+    tool = _stand_in_dsftool(tmp_path, monkeypatch)
+    res = W.write_pack(str(pack), _art_plan(pack, dsf), tool,
+                       work_dir=str(tmp_path / "w"))
+    assert res.unused_dropped == {}
+    assert _live(dsf) == SPLIT_DUMP

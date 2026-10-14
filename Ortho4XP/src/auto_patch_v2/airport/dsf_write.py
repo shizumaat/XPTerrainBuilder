@@ -14,6 +14,9 @@ replace, exactly as the ruling says:
 * a split placement becomes N ``OBJECT`` rows, one per body, with
   ``OBJECT_DEF`` lines APPENDED for the new resources — never a
   renumbering of the existing defs, which every existing row indexes.
+  :func:`write_pack` then drops each definition the edit left with no
+  row (#678 — X-Plane loads every declared definition) through
+  ``pack_art.omit_definitions``, the one renumbering.
 * every other line is byte-identical, tokens and all: the coordinates
   are copied as TEXT (a KMCI dump spells them to 9 decimals, not the 7 a
   reformat would produce).
@@ -1140,6 +1143,9 @@ class WriteResult:
     #: #433: what the accepted missing-art omission removed
     #: (``pack_art.omit_definitions``'s counts); empty when none was asked
     omitted: _t.Mapping[str, int] = _dc.field(default_factory=dict)
+    #: #678: the definitions the edit left with no row, dropped
+    #: (``pack_art.omit_definitions``'s counts: ``{"object_defs": n}``)
+    unused_dropped: _t.Mapping[str, int] = _dc.field(default_factory=dict)
 
 
 def remove_cut_files(paths: _t.Iterable[str]) -> tuple[str, ...]:
@@ -1368,6 +1374,11 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     omitted: dict[str, int] = {}
     if omit:
         edited, omitted = _pa.omit_definitions(edited, omit)
+    # #678: a definition the edit left with no row (a split's original)
+    # is not declared — X-Plane would load it for nothing.  One the
+    # AUTHOR declared unused is the pack's own and stays.
+    edited, unused = _pa.omit_definitions(edited, _pa.unused_definitions(
+        edited, keep={m.path for m in _pa.unused_definitions(text)}))
     with open(edited_text, "w", encoding="utf-8",
               errors="surrogateescape", newline="\n") as fh:
         fh.write(edited)
@@ -1452,6 +1463,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         # #433: the omission the user accepted, or None — never a stale one
         "omitted_art": (_pa.record(sha256_file(backup), omit, omitted,
                                    _bs.stamp()) if omit else None),
+        # #678: the definitions the edit emptied and the write dropped
+        "unused_defs_dropped": int(unused.get("object_defs", 0)),
     }
     # the top-level keys of the LAST write stay exactly as they were
     # (tools and ``v2_rebake_replay.py disk`` read them)
@@ -1486,7 +1499,8 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     return WriteResult(dsf_path, backup, created, edited_text, prov_path,
                        report, counts, verdict.state.value,
                        superseded, preserved, tuple(notes),
-                       tuple(sorted(sibling_rows)), removed, omitted)
+                       tuple(sorted(sibling_rows)), removed, omitted,
+                       dict(unused))
 
 
 def _stand_down_line(v) -> str:

@@ -380,17 +380,17 @@ def sort_and_reconstruct_runways(tile, airport_layer, dico_airports):
                             UI.logprint(
                                 "Bad runway (geometry too far from a ",
                                 "rectangle) close to",
-                                airport,
+                                airport_label(airport),
                                 "at",
-                                dico_airports[airport]["repr_node"],
+                                position_label(dico_airports[airport]["repr_node"]),
                             )
                             UI.vprint(
                                 1,
                                 "   !Bad runway (geometry too far from a ",
                                 "rectangle) close to",
-                                airport,
+                                airport_label(airport),
                                 "at",
-                                dico_airports[airport]["repr_node"],
+                                position_label(dico_airports[airport]["repr_node"]),
                             )
                             UI.vprint(
                                 1,
@@ -422,17 +422,17 @@ def sort_and_reconstruct_runways(tile, airport_layer, dico_airports):
                         1,
                         "Bad runway (geometry invalid or going back over ",
                         "itself) close to",
-                        airport,
+                        airport_label(airport),
                         "at",
-                        dico_airports[airport]["repr_node"],
+                        position_label(dico_airports[airport]["repr_node"]),
                     )
                     UI.vprint(
                         1,
                         "   !Bad runway (geometry invalid or going back over ",
                         "itself) close to",
-                        airport,
+                        airport_label(airport),
                         "at",
-                        dico_airports[airport]["repr_node"],
+                        position_label(dico_airports[airport]["repr_node"]),
                     )
                     UI.vprint(
                         1,
@@ -482,17 +482,17 @@ def sort_and_reconstruct_runways(tile, airport_layer, dico_airports):
                         UI.logprint(
                             "Bad runway (geometry too far from a rectangle) ",
                             "close to",
-                            airport,
+                            airport_label(airport),
                             "at",
-                            dico_airports[airport]["repr_node"],
+                            position_label(dico_airports[airport]["repr_node"]),
                         )
                         UI.vprint(
                             1,
                             "   !Bad runway (geometry too far from a ",
                             "rectangle) close to",
-                            airport,
+                            airport_label(airport),
                             "at",
-                            dico_airports[airport]["repr_node"],
+                            position_label(dico_airports[airport]["repr_node"]),
                         )
                         UI.vprint(
                             1,
@@ -522,17 +522,17 @@ def sort_and_reconstruct_runways(tile, airport_layer, dico_airports):
                     1,
                     "Bad runway (geometry invalid or going back over itself) ",
                     "close to",
-                    airport,
+                    airport_label(airport),
                     "at",
-                    dico_airports[airport]["repr_node"],
+                    position_label(dico_airports[airport]["repr_node"]),
                 )
                 UI.vprint(
                     1,
                     "   !Bad runway (geometry invalid or going back over ",
                     "itself) close to",
-                    airport,
+                    airport_label(airport),
                     "at",
-                    dico_airports[airport]["repr_node"],
+                    position_label(dico_airports[airport]["repr_node"]),
                 )
                 UI.vprint(
                     1,
@@ -831,8 +831,17 @@ def update_airport_boundaries(tile, dico_airports):
             apt["boundary"] = VECT.ensure_MultiPolygon(
                 boundary.buffer(0).simplify(0.00001)
             )
-    # pickle dico_airports for later use in Step 2 (apt_curv_tol) and Step 3 
-    # (cover_airports_with_high_res)
+    return
+
+################################################################################
+def save_airport_info(tile, dico_airports):
+    """Pickle *dico_airports* into THIS tile's build folder for Step 2
+    (apt_curv_tol) and Step 3 (cover_airports_with_high_res).
+
+    Only the tile being built persists its dictionary: a neighbour read
+    (the approach-ring / inset-frame passes) builds a dico for a tile
+    whose build folder may not exist, and its pickle belongs to that
+    tile's own build (#676)."""
     try:
         with open(FNAMES.apt_file(tile), "wb") as outf:
             pickle.dump(dico_airports, outf)
@@ -843,6 +852,27 @@ def update_airport_boundaries(tile, dico_airports):
             FNAMES.apt_file(tile),
         )
     return
+
+################################################################################
+def airport_label(airport):
+    """A readable name for a ``dico_airports`` key: the code itself, or
+    ``unnamed airport at LAT, LON`` for an aerodrome keyed by its
+    (lon, lat) representative node (#676 — the log printed the numpy
+    tuple's repr)."""
+    if isinstance(airport, str):
+        return airport
+    return "unnamed airport at " + position_label(airport)
+
+
+def position_label(lon_lat):
+    """``LAT, LON`` (4 decimals) for a (lon, lat) node, never a numpy
+    repr."""
+    try:
+        lon, lat = lon_lat
+        return "%.4f, %.4f" % (float(lat), float(lon))
+    except (TypeError, ValueError):
+        return str(lon_lat)
+
 
 ################################################################################
 def list_airports_and_runways(dico_airports):
@@ -1027,7 +1057,7 @@ def smooth_raster_over_airports(
             UI.vprint(
                 1,
                 "   Airport",
-                airport,
+                airport_label(airport),
                 ": smoothing radius",
                 pix,
                 "pixel(s) (source pixel",

@@ -304,7 +304,13 @@ def test_the_class_table_read_on_a_real_map():
     cl = classify(airport, law, load_rules(), cache=cache)
     pieces = [c for c in cl.cells if mp.is_gap_ref(c.ref)]
     aprons = [c for c in cl.cells if mp.is_gap_apron_ref(c.ref)]
-    assert len(pieces) + len(aprons) == 38 == cl.stats["gap_pieces"]
+    # + the base slabs (issue #229, 10o (B)): groundside pieces of their
+    # own, numbered after the pack's 38 — none of the pack's refs moves
+    n_slab = cl.stats["gap_pieces_base_slab"]
+    assert n_slab == 10
+    assert len(pieces) + len(aprons) == 38 + n_slab == cl.stats["gap_pieces"]
+    assert sorted(int(c.ref.split(":")[1]) for c in pieces
+                  if c.evidence.get("base_slab")) == list(range(38, 38 + n_slab))
     road = sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("touches_apron") == 1.0)
     assert road == [0, 2, 4, 7, 11, 12, 28, 29]

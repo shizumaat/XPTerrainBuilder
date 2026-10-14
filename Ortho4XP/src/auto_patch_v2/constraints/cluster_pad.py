@@ -34,10 +34,10 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
-from ..geom import (cluster_building_evidence, cluster_outlines,
-                    deck_shades, with_shade)
+from ..geom import cluster_building_evidence, cluster_outlines
 from ..law import Law
-from ..law.tables import pad_admission, rolled_on_roles
+from ..geom.base_slab import pad_shades
+from ..law.tables import base_slab_law, pad_admission, rolled_on_roles
 from ..model.airport import Airport
 from ..model.planar import (PlanarMap, block_of, is_bank_ref, pad_base_ref,
                             platform_ref_of, unit_ref_of)
@@ -105,7 +105,7 @@ _AIRSIDE_MEMO: list[tuple[int, _t.Any, _t.Any]] = []
 
 def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
                   law_touch: float | None = None, airside=None,
-                  bridge_m: float = 0.0, admission=None
+                  bridge_m: float = 0.0, admission=None, slab_law=None
                   ) -> list[tuple[str, _t.Any, Polygon]]:
     """§30 (4): each CLUSTER carried on ``Airport.clusters``
     (``planar/cluster.py``, computed once at load beside the pack
@@ -140,7 +140,7 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
         return []
     touch = float(law_touch) if law_touch is not None else 0.0
     got = counts = None
-    akey = (id(airside), min_m2, float(bridge_m), admission)
+    akey = (id(airside), min_m2, float(bridge_m), admission, slab_law)
     for k, ap, t0, cached in _POLY_MEMO:
         if k == id(airport) and ap is airport and t0 == (touch, akey):
             got, counts = cached, {}
@@ -159,10 +159,10 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             walled_only=True, min_m2=min_m2,
             # issue #14 (``welded-deck-spec.md`` §2 (1)): the SAME shades
             # the mint subtracted (``geom.deck_shades``)
-            # and issue #516's sunken ramps (``airport/sunken_ramp``)
-            shades=with_shade(
-                deck_shades(getattr(airport, "partition", None), to_xy),
-                getattr(airport, "sunken_ramps", None)),
+            # ...the base slabs' open parts (issue #229, 10o (B)) and issue
+            # #516's sunken ramps (``airport/sunken_ramp``): the ONE path
+            shades=pad_shades(getattr(airport, "partition", None), to_xy,
+                              slab_law, getattr(airport, "sunken_ramps", None)),
             # issue #73 rule 2a: the SAME post close the mint applied
             bridge_m=bridge_m,
             # §16g (10) (12), issue #101: the SAME two pad-admission gates
@@ -265,7 +265,7 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
         airport, min_m2, footprint_touch_m(law),
         None if bool(law.tables.structures.placement.pad_airside_clip)
         else airside_union(planar, law), _bridge_m(law),
-        pad_admission(law))
+        pad_admission(law), base_slab_law(law))
     # §16g (10) (11) A PIECE THE MINT NEVER PADDED IS NOT A PAD.  The
     # mint drops every piece under ``[building_pad] min_area_m2``
     # (``classify/evidence._pads``), so a 7 m2 sliver of a cluster's
@@ -658,7 +658,7 @@ def cluster_offsets(planar: PlanarMap, law: Law, airport: Airport | None
     pairs = cluster_polys(
         airport, float(law.tables.structures.placement.cluster_pad_min_m2),
         touch, airside_union(planar, law), _bridge_m(law),
-        pad_admission(law))
+        pad_admission(law), base_slab_law(law))
     if len(pairs) < 2:
         return {}
     floor_of: dict[str, float] = {}

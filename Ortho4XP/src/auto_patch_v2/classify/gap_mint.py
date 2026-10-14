@@ -34,7 +34,8 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.tables import gap_standoff_m, snap_margin_m
+from ..geom.base_slab import slab_polygons
+from ..law.tables import base_slab_law, gap_standoff_m, snap_margin_m
 from ..model.airport import Airport
 from ..model.planar import GAP_APRON_PREFIX, GAP_PREFIX, is_osm_ribbon_ref
 from .evidence import Evidence, polygon_parts
@@ -91,7 +92,16 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     sheets = [p for p in (_poly(g.outer, g.holes)
                           for g in getattr(airport, "gap_sheets", ()) or ())
               if p is not None]
-    if not sheets:
+    # THE BASE SLABS ARE GAP SHEETS (owner RULINGS 2026-10-10o (B), issue
+    # #229): the open part of every flat plane at the base of objects
+    # (``geom.base_slab`` — the reading that took it off the pads)
+    _part = getattr(airport, "partition", None)
+    slabs = (slab_polygons(_part, airport.frame.entry(), base_slab_law(law))
+             if _part is not None else [])
+    stats["base_slab_sheets"] = len(slabs)
+    stats["base_slab_sheet_m2"] = round(sum(g.area for g in slabs), 1)
+    stats["gap_pieces_base_slab"] = 0
+    if not sheets and not slabs:
         return stats
     lw = law.tables.structures.load
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
@@ -140,18 +150,49 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     # ``airport/object_pavement``, issue #20): the sheet's own outline is
     # simplified at half the identity spacing BEFORE the difference, so the
     # runs it shares with a standing cell stay that cell's own boundary
-    sheet = unary_union(sheets).simplify(0.5 * ident, preserve_topology=True)
     standing = unary_union(flush + apart)
-    before_bands = sheet.difference(standing)
-    geom = shapely.set_precision(
-        before_bands.difference(band_knife) if not band_knife.is_empty
-        else before_bands, grid)
+
+    def _cut(sh):
+        """The sheet minus every standing cell, then the band envelope,
+        on the snap grid: ``(before the bands, the piece geometry)``."""
+        bb = sh.difference(standing)
+        return bb, shapely.set_precision(
+            bb.difference(band_knife) if not band_knife.is_empty else bb, grid)
+
+    def _order(g):
+        return sorted(polygon_parts(g),
+                      key=lambda q: (-round(q.area), round(q.bounds[0], 2),
+                                     round(q.bounds[1], 2)))
+    sheet = (unary_union(sheets).simplify(0.5 * ident, preserve_topology=True)
+             if sheets else Polygon())
+    before_bands, geom = _cut(sheet)
     if not band_knife.is_empty:
         stats["gap_band_trim_m2"] = float(before_bands.intersection(band_knife).area)
     to_ll = airport.frame.transformers()[1]
-    parts = sorted(polygon_parts(geom),
-                   key=lambda q: (-round(q.area), round(q.bounds[0], 2),
-                                  round(q.bounds[1], 2)))
+    parts = _order(geom)
+    # THE BASE SLABS COME AFTER, AND NEVER RE-CUT A PACK PIECE (#229): the
+    # slab sheet is what the pack sheets do not already cover, cut by the
+    # same standing cells, minted as pieces of its own numbered after every
+    # pack piece — so every pack piece, its ref and its late-stage cut stay
+    # exactly what they were.  MEASURED (lane slab229, OTHH): a slab merged
+    # into the Emiri pack piece re-cut `gap:2/s6` (4 -> 66 vertices) and
+    # moved `OTHH_TerminalRoads_03_003`'s seat 1.62 m, 800 m away.
+    slab_ids: set[int] = set()
+    if slabs:
+        ssh = unary_union(slabs).simplify(0.5 * ident, preserve_topology=True)
+        if not sheet.is_empty:
+            ssh = ssh.difference(sheet)
+        sb, sg = _cut(ssh)
+        if not geom.is_empty:
+            # ...and stands off the pack's pieces like any standing cell
+            # (§53 (12)): flush, two late pieces met at T-junctions and the
+            # seam stepped (HECA: 28 new mid-edge steps, worst 2.75 m at
+            # 30.112626, 31.397571)
+            sg = shapely.set_precision(sg.difference(off(geom)), grid)
+        before_bands = unary_union([before_bands, sb])
+        extra = _order(sg)
+        slab_ids = {id(q) for q in extra}
+        parts += extra
     kept: list[tuple[Polygon, float, bool]] = []
     for part in parts:
         if part.area < lw.object_pavement_min_m2 \
@@ -174,9 +215,15 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
                         f"runway / taxi face and touches no apron (§53)")
                 continue
         kept.append((part, apron_m, touches))
+    # A BASE SLAB IS GROUNDSIDE PAVEMENT (owner RULINGS 2026-10-10o (B)): a
+    # base-slab piece is never judged into the apron —
+    # it joins the late stage welded to the apron rim, the apron fixed
+    slabby = {k for k, (q, _m, _t) in enumerate(kept) if id(q) in slab_ids}
+    stats["gap_pieces_base_slab"] = len(slabby)
     # THE CLASS (spec §59 (2)): the apron-touching pieces, judged ONCE by the
     # standing readers; a piece that touches no apron is not judged (04m (3))
-    judged = [i for i, (_p, _m, touches) in enumerate(kept) if touches]
+    judged = [i for i, (_p, _m, touches) in enumerate(kept)
+              if touches and i not in slabby]
     verdict = dict(zip(judged, judge(
         [kept[i][0] for i in judged], airport, ev, cells, sheet, stand + weld_m,
         law, rules, ROLE, KIND))) if judged else {}
@@ -217,6 +264,8 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
         else:
             evid = {"gap_piece": 1.0, "area_m2": float(part.area),
                     "touches_apron": float(touches), "apron_shared_m": float(apron_m)}
+            if k in slabby:
+                evid["base_slab"] = 1.0
             if v is not None:
                 evid["road_evidence"] = 1.0
                 stats["gap_pieces_road"] += 1

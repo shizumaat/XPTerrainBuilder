@@ -364,14 +364,15 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
     def _graded_sampler():
         import numpy as np
-        from scipy.interpolate import LinearNDInterpolator
+        # issue #660: the ONE local interpolator (a raw-degree Delaunay
+        # is re-triangulated far away by any vertex added anywhere)
+        from obj8_split_report import GradedInterpolator
         with open(args.graded, encoding="utf-8") as fh:
             data = json.load(fh)
         verts = data["vertices"]
         started = time.perf_counter()
-        interp = LinearNDInterpolator(
-            np.asarray([[v[1], v[2]] for v in verts], dtype=float),
-            np.asarray([v[3] for v in verts], dtype=float))
+        interp = GradedInterpolator(
+            [[v[1], v[2]] for v in verts], [v[3] for v in verts])
         construct = time.perf_counter() - started
         print("  graded interpolator: %d vertices, construct %.2fs"
               % (len(verts), construct))

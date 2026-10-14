@@ -121,13 +121,16 @@ def _box_xy(b, to_xy):
     return box(min(ax, bx), min(ay, by), max(ax, bx), max(ay, by))
 
 
-def _member_tris(m, origin, to_xy):
+def _member_tris(m, origin, to_xy, cache=None):
     """The member's solid triangles in the planar frame: ``(n, 3, 3)`` of
-    ``(x, y, authored y)``, or None when its file cannot be read."""
+    ``(x, y, authored y)``, or None when its file cannot be read.  With the
+    build's ``ResourceCache`` the file is parsed ONCE for the run — the
+    pack read, this pass, ``ramp_feet`` and the object stage share it."""
     from . import obj8 as _obj8
     from .placement_cut import pristine_path
     try:
-        g = _obj8.parse_obj8(pristine_path(m))
+        path = pristine_path(m)
+        g = cache.geometry(path) if cache is not None else _obj8.parse_obj8(path)
     except (OSError, ValueError):
         return None
     if g is None or not len(g.solid):
@@ -204,7 +207,7 @@ def _components(ok, T, step):
     return comps
 
 
-def _cluster_shades(c, members, dem, to_xy, law_v, report) -> list:
+def _cluster_shades(c, members, dem, to_xy, law_v, report, cache=None) -> list:
     grid, climb, grade, band = law_v
     outs = [q for q in (_poly(r, to_xy) for r in c.rings) if q is not None]
     if not outs:
@@ -246,7 +249,7 @@ def _cluster_shades(c, members, dem, to_xy, law_v, report) -> list:
                              for q in [_poly(r, to_xy)] if q is not None])
         if mfoot.is_empty or not mfoot.intersects(box(*outline.bounds)):
             continue
-        T = _top_surface(_member_tris(m, origin, to_xy), xs, ys, high)
+        T = _top_surface(_member_tris(m, origin, to_xy, cache), xs, ys, high)
         ok = high & ~np.isnan(T)
         if not ok.any():
             continue
@@ -286,7 +289,7 @@ def _cluster_shades(c, members, dem, to_xy, law_v, report) -> list:
     return got
 
 
-def sunken_ramp_shades(airport, law, to_xy):
+def sunken_ramp_shades(airport, law, to_xy, cache=None):
     """The union (planar frame metres) of every sunken ramp's ground of
     ``airport`` (module docstring), or None; memoised per airport."""
     # keyed on what the derivation READS (an airport is ``replace``d
@@ -323,7 +326,7 @@ def sunken_ramp_shades(airport, law, to_xy):
             ms = [x for r in c.members
                   for x in by_res.get((str(c.unit), str(r)), ())]
             if ms:
-                polys.extend(_cluster_shades(c, ms, dem, to_xy, lv, SUNKEN))
+                polys.extend(_cluster_shades(c, ms, dem, to_xy, lv, SUNKEN, cache))
         if polys:
             val = unary_union(polys)
             SUNKEN["area_m2"] = round(val.area, 1)
@@ -333,7 +336,7 @@ def sunken_ramp_shades(airport, law, to_xy):
     return val
 
 
-def attach_sunken_ramps(airport, law):
+def attach_sunken_ramps(airport, law, cache=None):
     """``airport`` with :attr:`Airport.sunken_ramps` derived — called once
     where the clusters are attached (``pipeline/build``, the replay)."""
     import dataclasses as _dc
@@ -341,4 +344,4 @@ def attach_sunken_ramps(airport, law):
     if frame is None or law is None:
         return airport
     return _dc.replace(airport, sunken_ramps=sunken_ramp_shades(
-        airport, law, frame.entry()))
+        airport, law, frame.entry(), cache))

@@ -41,7 +41,7 @@ import typing as _t
 import numpy as np
 from shapely.ops import unary_union
 
-__all__ = ["RampFoot", "ramp_feet", "MIN_GRADE", "FOOT_SPAN_M"]
+__all__ = ["RampFoot", "ramp_feet", "attach_ramp_feet", "REPORT", "MIN_GRADE", "FOOT_SPAN_M"]
 
 #: the gentlest top-surface grade read as a ramp's slope: under it a deck
 #: is a floor (a slab's authoring noise is well under 1 %)
@@ -124,10 +124,10 @@ def _window(tris, climb: float, grade: float, band: float):
             float(pts[:, 0].max()) + WINDOW_M, float(pts[:, 1].max()) + WINDOW_M)
 
 
-def _member_feet(unit_id, m, origin, to_xy, law_v) -> list[RampFoot]:
+def _member_feet(unit_id, m, origin, to_xy, law_v, cache=None) -> list[RampFoot]:
     from .sunken_ramp import _components, _member_tris, _poly, _top_surface
     grid, climb, grade, band = law_v
-    tris = _member_tris(m, origin, to_xy)
+    tris = _member_tris(m, origin, to_xy, cache)
     win = _window(tris, climb, grade, band)
     if win is None:
         return []
@@ -186,27 +186,57 @@ def _member_feet(unit_id, m, origin, to_xy, law_v) -> list[RampFoot]:
 
 _MEMO: list = []
 
+#: the last derivation's report: feet, members read, seconds, parses the
+#: run's ``ResourceCache`` already held
+REPORT: dict[str, _t.Any] = {}
 
-def ramp_feet(airport, law, to_xy) -> tuple[RampFoot, ...]:
-    """Every object ramp's foot of ``airport`` (module docstring), memoised
-    per partition."""
+
+def ramp_feet(airport, law, to_xy, cache=None) -> tuple[RampFoot, ...]:
+    """Every object ramp's foot of ``airport`` (module docstring): the value
+    derived at load (:func:`attach_ramp_feet`, ``Airport.ramp_feet``) when
+    there is one, else derived here, memoised per partition."""
+    got = getattr(airport, "ramp_feet", None)
+    if got is not None:
+        return got
     part = getattr(airport, "partition", None)
     if part is None or law is None:
         return ()
     for key, val in _MEMO:
         if key is part:
             return val
+    import time
     from .sunken_ramp import _law
+    from .placement_cut import pristine_path
+    t0 = time.perf_counter()
     lv = _law(law)
     feet: list[RampFoot] = []
+    n = held = 0
     if lv[0] > 0.0:
         for u in part.units:
             for m in u.members:
                 if not (getattr(m, "deck_kind", "") or getattr(m, "elevated_deck", False)):
                     continue
+                n += 1
+                if cache is not None and pristine_path(m) in getattr(cache, "_geom", {}):
+                    held += 1
                 org = getattr(m, "origin", None) or u.anchor
-                feet.extend(_member_feet(u.id, m, org, to_xy, lv))
+                feet.extend(_member_feet(u.id, m, org, to_xy, lv, cache))
     val = tuple(feet)
+    REPORT.clear()
+    REPORT.update({"feet": len(val), "members": n, "parsed_already": held,
+                   "s": round(time.perf_counter() - t0, 2)})
     _MEMO.append((part, val))
     del _MEMO[:-2]
     return val
+
+
+def attach_ramp_feet(airport, law, cache=None):
+    """``airport`` with :attr:`Airport.ramp_feet` derived — called once at
+    load beside the sunken ramps (``pipeline/build``), on the build's
+    ``ResourceCache`` so every resource is parsed once for the run."""
+    import dataclasses as _dc
+    frame = getattr(airport, "frame", None)
+    if frame is None or law is None or not hasattr(airport, "ramp_feet"):
+        return airport
+    return _dc.replace(airport, ramp_feet=ramp_feet(
+        _dc.replace(airport, ramp_feet=None), law, frame.entry(), cache))

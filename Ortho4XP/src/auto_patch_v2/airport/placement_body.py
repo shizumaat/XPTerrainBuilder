@@ -721,7 +721,13 @@ def _atom_targets(st: "_t.Any", grp: "list[int]",
         if not box:
             continue
         cset = {comp_of[j] for j in blk if comp_of[j] >= 0}
-        bp = [p for p in parts if p.comp in cset] or list(parts)
+        # #610: an atom made only of components the plan holds no part
+        # for (a roof plane is no welded solid) has NO parts — never the
+        # whole group's.  Handed the group's pids it inherited every part
+        # it does not contain: KCLT's roof over `005_ALB` b0 carried the
+        # pids of the `007_ALB` roofs 40 m away, and so their contacts and
+        # their §16g unit (fu:3:58's contents, 7.2 m up).
+        bp = [p for p in parts if p.comp in cset]
         bi = len(st.raw)
         _pp, _sp, _gg = _geom_ground(cutter, bp, bt, st.surface)
         st.raw.append((bp, senior[1], senior[2], (), True,

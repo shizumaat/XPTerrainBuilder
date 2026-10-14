@@ -48,3 +48,24 @@ def test_separations_read_touching_parts_at_two_zeros():
     rows = rpd.separations(osr, plan, min_sep=0.3)
     assert [(r["keyA"][1], r["keyB"][1], round(r["sep"], 2)) for r in rows] == [(0, 1, 2.5), (1, 2, 2.3)]
     assert rows[0]["pairs"] == 1 and rows[0]["lat"] == 1.0
+
+
+def test_samples_key_the_written_geometry_not_the_body():
+    """lane roofs610: two part-less bodies of one placement both have an
+    EMPTY component set — ``zeros`` collides them; ``samples`` keys the
+    written points, so a re-partition that moves nothing reads nothing,
+    and a real move reads once, with its own ground."""
+    def dump(z_a, z_b):
+        return {"splits": [{"placement": {"resource": "R/roof.obj", "index": 7},
+                            "bodies": [
+            {"body_id": 1, "components": [], "surface_z": z_a, "y_zero": 0.0,
+             "anchor_reason": "a", "geom_pts": [[40.0, -3.0, 4.0], [40.0001, -3.0, 4.0]]},
+            {"body_id": 2, "components": [], "surface_z": z_b, "y_zero": 0.0,
+             "anchor_reason": "b", "geom_pts": [[40.01, -3.0, 4.0]]}]}]}
+    assert rpd.sample_moves(dump(100.0, 120.0), dump(100.0, 120.0)) == []
+    rows = rpd.sample_moves(dump(100.0, 120.0), dump(93.0, 120.0),
+                            ground=lambda la, lo: 93.0)
+    assert len(rows) == 1 and rows[0]["body_id"] == 1 and rows[0]["n"] == 2
+    assert round(rows[0]["dz"], 2) == -7.0
+    assert (round(rows[0]["own_before"], 2), round(rows[0]["own_after"], 2),
+            rows[0]["verdict"]) == (7.0, 0.0, "better")

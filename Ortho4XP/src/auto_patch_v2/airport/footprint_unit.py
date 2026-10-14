@@ -331,7 +331,9 @@ def seat_viaducts(cands: list, staged: _t.Sequence[_t.Any],
 
 def cluster_zero_allowed(forced: _t.Sequence[int], st: _t.Any,
                          box: _t.Any, cands: _t.Sequence[_t.Any],
-                         reach_m: float, counts: dict) -> list[int]:
+                         reach_m: float, counts: dict,
+                         over: "_t.Callable[[], _t.AbstractSet[int]] | None"
+                         = None) -> list[int]:
     """§16g (4) (owner RULINGS 2026-09-13bu item 4): MAY THIS BODY TAKE
     §16c (7)'s CLUSTER ZERO without asking the carrier search?
 
@@ -364,6 +366,28 @@ def cluster_zero_allowed(forced: _t.Sequence[int], st: _t.Any,
     if not keep:
         counts["cluster_zero_refused_footless_or_far"] = \
             counts.get("cluster_zero_refused_footless_or_far", 0) + 1
+        return keep
+    # #610: A PIECE THAT STANDS OVER A BUILDING IS THAT BUILDING'S.  The
+    # distance test admits any cluster member within the reach, and a roof
+    # resource authored over a whole hangar district binds into ONE rigid
+    # cluster by contact: KCLT's `001_ALB` roof over `005_ALB` b0 (214.89)
+    # rode `007_ALB` b8 at 222.37, 7.5 m up, 40 m away.  ``over`` names the
+    # footed candidates the piece stands over in plan (§15 (1)(a)'s own
+    # relation) and ``touches`` whether the piece itself is in ε-contact
+    # with a cluster member.  Where it stands over some footed body, none
+    # of them in its cluster, and touches no member — its membership was
+    # its source body's, not its own — the cluster is not what holds it up
+    # and the carrier search, which ranks exactly those, decides.  A piece
+    # over nothing footed (a deck abutting its building), or one that
+    # touches its cluster, keeps the short-circuit.
+    under = over() if over is not None else None
+    if under:
+        mine = [q for q in keep if q in under]
+        if not mine:
+            counts["cluster_zero_refused_stands_over_other"] = \
+                counts.get("cluster_zero_refused_stands_over_other", 0) + 1
+            return []
+        keep = mine + [q for q in keep if q not in under]
     return keep
 
 

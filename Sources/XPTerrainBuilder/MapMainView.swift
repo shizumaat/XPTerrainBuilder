@@ -9,6 +9,9 @@ struct MapMainView: View {
     @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
     @EnvironmentObject var buildModel: BuildModel
     @StateObject private var searchText = ViewState("")
+    /// What the last airport-code list selected and which codes it did not
+    /// find (#542), shown inline over the map; empty = no notice.
+    @StateObject private var searchNotice = ViewState("")
     @StateObject private var showingPicker = ViewState(false)
     /// Why the last folder the user picked was not accepted (empty = none).
     @StateObject private var rejectedFolder = ViewState("")
@@ -197,6 +200,7 @@ struct MapMainView: View {
                                placeholder: "Airport or tile like +48-006",
                                onSubmit: performSearch)
                 .frame(width: 220)
+                .help("Several airport codes (KCLT, KASE OTHH) select all their tiles at once")
         }
         // Keep the panel toggle its own control, not glued to the search
         // cluster (modern macOS groups adjacent trailing items).
@@ -216,9 +220,11 @@ struct MapMainView: View {
     // MARK: - Search
 
     /// Zoom the map to a matching airport (ICAO or name), a tile key like
-    /// "+48-006", or a package.
+    /// "+48-006", a list of airport codes ("KCLT, KASE OTHH" — every tile
+    /// they touch), or a package.
     private func performSearch() {
         let query = searchText.value.trimmingCharacters(in: .whitespaces).lowercased()
+        searchNotice.value = ""
         guard !query.isEmpty else { return }
 
         // Tile-key search, like the Qt search field.
@@ -230,6 +236,13 @@ struct MapMainView: View {
             cam.scale = max(cam.scale, 60)
             cam.clamp(in: controller.mapCanvasSize.value)
             controller.mapCamera.value = cam
+            return
+        }
+
+        // A list of codes selects all their tiles; one code (or a name)
+        // falls through to the single-airport search below, unchanged.
+        if let batch = AirportCodeList.resolve(searchText.value, lookup: airportCodeLookup()) {
+            selectAirportBatch(batch)
             return
         }
 
@@ -274,6 +287,32 @@ struct MapMainView: View {
         }
     }
 
+    /// Code → tiles for a code list: the Global Airports index (which
+    /// carries each airport's extent), then the custom packs' airports
+    /// (a point each) for codes the index lacks.
+    private func airportCodeLookup() -> (String) -> [AirportTile]? {
+        let custom = controller.mapOverlays.airports
+        return AirportCodeList.lookup(buildModel.globalAirports) { code in
+            custom.first { $0.icao.uppercased() == code }.map {
+                AirportCodeList.tiles(latitude: $0.info.latitude,
+                                      longitude: $0.info.longitude, extent: nil)
+            }
+        }
+    }
+
+    /// Select (adding to the selection, as a single airport does) every
+    /// tile of a code list, frame them, and say inline which codes were
+    /// not found — the text stays in the field then, to be corrected.
+    private func selectAirportBatch(_ batch: AirportBatch) {
+        let tiles = batch.tiles.map { BuildModel.TileCoord(lat: $0.lat, lon: $0.lon) }
+        if !tiles.isEmpty {
+            buildModel.selectTiles(tiles)
+            controller.zoomToTiles(batch.tiles.map { (lat: $0.lat, lon: $0.lon) })
+        }
+        if batch.unknown.isEmpty { searchText.value = "" }
+        searchNotice.value = batch.summary
+    }
+
     private var mainLayout: some View {
         // Map over results in an NSSplitView-backed split (divider persists
         // via autosaveName, restoring before first display; hosted subtrees
@@ -285,6 +324,7 @@ struct MapMainView: View {
                         firstMin: 300, secondMin: 180) {
             MapCanvasView(camera: controller.mapCamera,
                           canvasSize: controller.mapCanvasSize)
+                .overlay(alignment: .top) { SearchNoticeBanner(notice: searchNotice) }
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)
@@ -351,6 +391,39 @@ struct MapMainView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The airport-code-list notice (#542): one line over the top of the map,
+/// dismissed by its close button or replaced by the next search. Inline,
+/// never a modal. Observes its own state so it updates inside the hosted
+/// split pane.
+struct SearchNoticeBanner: View {
+    @ObservedObject var notice: ViewState<String>
+
+    var body: some View {
+        if !notice.value.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: notice.value.contains("Unknown")
+                      ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .foregroundStyle(notice.value.contains("Unknown") ? .orange : .green)
+                Text(notice.value)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                Button {
+                    notice.value = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss")
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.regularMaterial, in: Capsule())
+            .padding(.top, 10)
+        }
     }
 }
 

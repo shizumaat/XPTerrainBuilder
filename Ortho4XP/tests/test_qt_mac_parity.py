@@ -136,6 +136,64 @@ def test_scenery_filter_reaches_the_map_and_persists(make_window):
 
 
 # ===========================================================================
+# Airport code list in the search field (#542; the Mac twin is
+# Tests/SceneryKitTests/AirportCodeListTests.swift)
+# ===========================================================================
+def _batch_window(make_window):
+    window = make_window()
+    window._airports = [
+        APT.AirportEntry("KCLT", "Charlotte", "", "", 35.21, -80.94),
+        APT.AirportEntry("OTHH", "Hamad", "", "", 25.27, 51.61),
+        # Boundary straddles 48N/9E: four tiles.
+        APT.AirportEntry("XEDG", "Edge", "", "", 47.95, 8.95,
+                         extent=(47.9, 8.9, 48.02, 9.01)),
+    ]
+    statuses = []
+    window._status = statuses.append
+    return window, statuses
+
+
+def test_return_selects_every_tile_of_a_code_list(make_window):
+    window, statuses = _batch_window(make_window)
+    window.search_edit.setText("kclt, OTHH xedg")
+    window._search_accept_first()
+    assert window.map.selection() == {
+        (35, -81), (25, 51), (47, 8), (47, 9), (48, 8), (48, 9)}
+    assert window.search_edit.text() == ""
+    assert statuses == ["Select 6 tiles for KCLT, OTHH, XEDG"]
+
+
+def test_unknown_codes_are_reported_inline_and_the_rest_selected(make_window):
+    window, statuses = _batch_window(make_window)
+    window.search_edit.setText("KCLT; KZZZ, qqqq")
+    window._search_accept_first()
+    assert window.map.selection() == {(35, -81)}
+    # The text stays so the unknown codes can be corrected.
+    assert window.search_edit.text() == "KCLT; KZZZ, qqqq"
+    assert statuses == [
+        "Select 1 tile for KCLT — Unknown airport codes: KZZZ, QQQQ"]
+
+
+def test_a_code_list_is_one_popup_choice(make_window):
+    window, _ = _batch_window(make_window)
+    window._update_search_popup("KCLT OTHH")
+    assert window.search_popup.count() == 1
+    kind, batch = window.search_popup.item(0).data(GUI.Qt.UserRole)
+    assert kind == "batch" and batch.codes == ["KCLT", "OTHH"]
+
+
+def test_a_single_code_searches_exactly_as_before(make_window):
+    window, statuses = _batch_window(make_window)
+    window._update_search_popup("KCLT")
+    kind, tile = window.search_popup.item(0).data(GUI.Qt.UserRole)
+    assert (kind, tile) == ("apt", (35, -81))
+    window.search_edit.setText("KCLT")
+    window._search_accept_first()
+    assert window.map.selection() == {(35, -81)}
+    assert statuses == []
+
+
+# ===========================================================================
 # Airport marks
 # ===========================================================================
 def _index_airport(code, lat, lon):

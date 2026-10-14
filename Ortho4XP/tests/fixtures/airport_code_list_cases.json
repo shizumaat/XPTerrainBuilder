@@ -1,0 +1,51 @@
+{
+  "about": "Issue #542 airport code list: ONE set of vectors read by tests/test_airport_batch.py (O4_Airport_Batch) and Tests/SceneryKitTests/AirportCodeListTests.swift (AirportCodeList). Edit both implementations together.",
+  "split": [
+    {"query": "KCLT, KASE, OTHH", "codes": ["KCLT", "KASE", "OTHH"]},
+    {"query": "KCLT, kase OTHH", "codes": ["KCLT", "KASE", "OTHH"]},
+    {"query": "  kclt;kase\tothh  ", "codes": ["KCLT", "KASE", "OTHH"]},
+    {"query": "KCLT,,; ,KASE", "codes": ["KCLT", "KASE"]},
+    {"query": "kclt KCLT Kclt", "codes": ["KCLT"]},
+    {"query": "KCLT", "codes": ["KCLT"]},
+    {"query": " , ; ", "codes": []},
+    {"query": "", "codes": []}
+  ],
+  "tiles": [
+    {"lat": 35.21, "lon": -80.94, "extent": null, "tiles": [[35, -81]]},
+    {"lat": -33.94, "lon": 151.17, "extent": null, "tiles": [[-34, 151]]},
+    {"lat": 47.5, "lon": 8.5, "extent": [47.5, 8.5, 47.5, 8.5], "tiles": [[47, 8]]},
+    {"lat": 47.95, "lon": 8.9, "extent": [47.9, 8.9, 48.02, 9.01], "tiles": [[47, 8], [47, 9], [48, 8], [48, 9]]},
+    {"lat": 10.0, "lon": 179.9, "extent": [10.0, -179.9, 10.1, 179.9], "tiles": [[10, 179]]},
+    {"lat": 1.5, "lon": 1.5, "extent": [2.0, 1.0, 1.0, 2.0], "tiles": [[1, 1]]}
+  ],
+  "index": [
+    {"code": "KCLT", "lat": 35.214, "lon": -80.943, "extent": [35.19, -80.97, 35.24, -80.92]},
+    {"code": "KASE", "lat": 39.223, "lon": -106.869, "extent": null},
+    {"code": "OTHH", "lat": 25.273, "lon": 51.608, "extent": [25.23, 51.58, 25.30, 51.64]},
+    {"code": "XEDG", "lat": 47.95, "lon": 8.95, "extent": [47.9, 8.9, 48.02, 9.01]},
+    {"code": "XNXT", "lat": 35.6, "lon": -80.5, "extent": null}
+  ],
+  "resolve": [
+    {"query": "KCLT", "batch": null},
+    {"query": "kclt", "batch": null},
+    {"query": "Charlotte Douglas", "batch": null},
+    {"query": "KZZZ QQQQ", "batch": null},
+    {"query": "KCLT, KASE, OTHH",
+     "batch": {"codes": ["KCLT", "KASE", "OTHH"], "unknown": [], "tiles": [[25, 51], [35, -81], [39, -107]]}},
+    {"query": "KCLT, kase OTHH",
+     "batch": {"codes": ["KCLT", "KASE", "OTHH"], "unknown": [], "tiles": [[25, 51], [35, -81], [39, -107]]}},
+    {"query": "kclt kase",
+     "batch": {"codes": ["KCLT", "KASE"], "unknown": [], "tiles": [[35, -81], [39, -107]]}},
+    {"query": "KCLT, KZZZ; othh qqqq",
+     "batch": {"codes": ["KCLT", "OTHH"], "unknown": ["KZZZ", "QQQQ"], "tiles": [[25, 51], [35, -81]]}},
+    {"query": "KCLT XNXT kclt",
+     "batch": {"codes": ["KCLT", "XNXT"], "unknown": [], "tiles": [[35, -81]]}},
+    {"query": "KCLT,",
+     "batch": {"codes": ["KCLT"], "unknown": [], "tiles": [[35, -81]]}},
+    {"query": "XEDG; KASE",
+     "batch": {"codes": ["XEDG", "KASE"], "unknown": [], "tiles": [[39, -107], [47, 8], [47, 9], [48, 8], [48, 9]]}},
+    {"query": "KZZZ, QQQQ",
+     "batch": {"codes": [], "unknown": ["KZZZ", "QQQQ"], "tiles": []}},
+    {"query": " , ; ", "batch": null}
+  ]
+}

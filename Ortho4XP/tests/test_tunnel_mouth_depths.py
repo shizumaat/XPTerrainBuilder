@@ -28,7 +28,7 @@ def _patch(path: Path, depth: float) -> Path:
     txt.append("  <way id='-11'>" + "".join(f"<nd ref='{n}' />" for n in (-5, -6))
                + "<tag k='o4_feature' v='structure_rim' /></way>")
     txt.append("</osm>")
-    path.write_text("\n".join(txt))
+    path.write_text("\n".join(txt), encoding="utf-8", newline="\n")
     return path
 
 

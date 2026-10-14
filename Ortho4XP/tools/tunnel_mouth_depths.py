@@ -16,6 +16,14 @@ expressions, and it counts no law family (that is ``harness/census.py``).
 """
 from __future__ import annotations
 
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
+import os as _o4os, sys as _o4sys                                    # noqa: E402
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
+
 import argparse
 import json
 import math
@@ -39,7 +47,7 @@ def _dist(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def _parse(path: Path):
-    txt = path.read_text()
+    txt = path.read_text(encoding="utf-8")
     ll = {m.group(1): (float(m.group(2)), float(m.group(3))) for m in _NODE_RE.finditer(txt)}
     alt: dict[str, float] = {}
     for m in _NODE_ALT_RE.finditer(txt):
@@ -118,7 +126,7 @@ def main(argv: _t.Sequence[str] | None = None) -> int:
         side = f"{_fmt(row.get('ref'))}  ->  " if a.ref else ""
         print(f"{r['lat']:.6f},{r['lon']:.6f} way {r['way']:>8s}  {side}{_fmt(row.get('new'))}")
     if a.json:
-        a.json.write_text(json.dumps(rows, indent=1))
+        a.json.write_text(json.dumps(rows, indent=1), encoding="utf-8", newline="\n")
     return 0
 
 

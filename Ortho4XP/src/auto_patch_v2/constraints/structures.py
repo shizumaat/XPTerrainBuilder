@@ -466,14 +466,28 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # emitted row AT the cap, not over it.  ``ramp_top`` leaves a
             # whole station of slack (0.96 m at 8 % over 12 m) so the
             # tightening never makes a ramp that fit stop fitting.
+            # A DESIGN GRADE IS A ROUTE GRADE (lane mouth75, OTHH -1355@0): a
+            # ramp priced at the grade it was built at climbs that grade
+            # ALONG its axis, so over a chord across a bend the pair's cap
+            # is the design grade × route / chord — never above the law's
+            # ceiling, which stays the census's cap over the direct distance.
+            # Measured OTHH -1355@0 (7.5 m over a 141 m axis, ~80 m chord):
+            # 5.66 % chord rows forced the station 13 m out 1.25 m over its
+            # design and minted 7 within_shape rows at 10.6-19 %.
             ids = [v for _s, vs in groups_climb for v in vs]
+            _ax = LineString(tn.axis)
+            s_of = {v: _ax.project(Point(planar.vertices[v].xy)) for v in ids}
+            stretch_ok = ramp_cap < tn_law.ramp_max_grade - 1e-12
             for i in range(len(ids)):
                 (xa, ya) = planar.vertices[ids[i]].xy
                 for j in range(i + 1, len(ids)):
                     (xb, yb) = planar.vertices[ids[j]].xy
                     d = math.hypot(xa - xb, ya - yb)
                     if d > 1e-6:
-                        cap_d = max(0.0, ramp_cap - hard_tol / d)
+                        g = ramp_cap if not stretch_ok else min(
+                            tn_law.ramp_max_grade,
+                            ramp_cap * max(1.0, abs(s_of[ids[i]] - s_of[ids[j]]) / d))
+                        cap_d = max(0.0, g - hard_tol / d)
                         rows.append(Diff(ids[i], ids[j], cap_d, d, src_ramp))
             # A RAMP CLIMBS MONOTONICALLY (spec §34 (3); Fable 2026-09-13i,
             # RULINGS 2026-09-13i item 7b): the cap above is SYMMETRIC, so a

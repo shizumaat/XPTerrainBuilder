@@ -236,6 +236,50 @@ def test_progress_rows_name_the_codes_that_picked_them(make_window,
         "+35-081 (KCLT)", "+25+051"]
 
 
+
+def test_progress_row_title_owns_its_line_status_and_clock_share_the_next(
+        make_window, monkeypatch):
+    """#694: the title spans the whole first line; the gray status sits
+    left on the second line and the clock right, before the button.  A
+    narrow row elides the title at its tail and the status before the
+    clock, which stays whole."""
+    window, _ = _batch_window(make_window, monkeypatch)
+    tile = (-13, -78)
+    window._search_tags = {tile: ("SPJC", "KCLT", "OTHH", "KJQF")}
+    window._setup_progress_page([tile])
+    _bar, status, row, button, clock = window._tile_rows[tile]
+    title = row.findChild(GUI.QLabel, "tile_title")
+    status.setText("building the mesh with a long status text · 42%")
+    clock.setText("1:23 · ~4:56")
+    row.setParent(None)
+    try:
+        for width in (420, 200):
+            row.resize(width, row.sizeHint().height())
+            row.show()
+            GUI.QApplication.processEvents()
+            inner = row.contentsRect().width() - 12  # 6 px margins
+            assert title.geometry().width() == inner
+            assert status.geometry().top() > title.geometry().bottom()
+            assert clock.geometry().top() > title.geometry().bottom()
+            assert status.geometry().left() == title.geometry().left()
+            assert status.geometry().right() < clock.geometry().left()
+            assert clock.geometry().right() < button.geometry().left()
+            assert button.geometry().right() == title.geometry().right()
+            assert clock.alignment() & GUI.Qt.AlignRight
+            # The clock is never squeezed: its whole text is painted.
+            assert clock.geometry().width() >= (
+                clock.fontMetrics().horizontalAdvance(clock.text()))
+            painted = GUI.QLabel.text(status)
+            if width == 200:
+                assert painted.endswith("…")
+                assert GUI.QLabel.text(title).endswith("…")
+            else:
+                assert GUI.QLabel.text(title) == title.text()
+            assert title.text() == "-13-078 (SPJC, KCLT, OTHH, KJQF)"
+    finally:
+        row.hide()
+
+
 # ===========================================================================
 # Airport marks
 # ===========================================================================

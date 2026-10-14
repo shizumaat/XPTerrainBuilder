@@ -894,11 +894,11 @@ struct ActivityBox: View {
             if buildModel.isBuilding || activity.totalTiles > 0 {
                 Divider()
                 HStack {
-                    Text("Total \(Self.clock(activity.elapsedSeconds))")
+                    Text("Total \(ProgressRowText.clock(activity.elapsedSeconds))")
                     Spacer()
                     Text(activity.remainingUnreliable
                          ? "Remaining: estimating…"
-                         : "Remaining ≈ \(activity.remainingSeconds.map(Self.clock) ?? "—")")
+                         : "Remaining ≈ \(activity.remainingSeconds.map(ProgressRowText.clock) ?? "—")")
                 }
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
@@ -909,22 +909,13 @@ struct ActivityBox: View {
     @ViewBuilder
     private func row(_ coord: BuildModel.TileCoord, _ progress: TileProgress?) -> some View {
         let progress = progress ?? TileProgress(state: .queued, label: "queued", percent: 0)
+        let text = ProgressRowText(
+            tileKey: coord.key, tag: activity.runTags[coord] ?? "",
+            status: progress.state == .active
+                ? "\(progress.label) · \(Int(progress.percent))%" : progress.label,
+            clock: activity.tileClocks[coord])
         VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(coord.key + (activity.runTags[coord] ?? ""))
-                    .font(.caption.monospaced())
-                Text(progress.state == .active
-                     ? "\(progress.label) · \(Int(progress.percent))%" : progress.label)
-                    .font(.caption)
-                    .foregroundStyle(statusColor(progress.state))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-                if let text = Self.tileClockText(activity.tileClocks[coord]) {
-                    Text(text)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
+            TileProgressRowLines(text: text, statusColor: statusColor(progress.state)) {
                 // Stop sign / resume. Deliberately NOT gated on isBuilding:
                 // a stopped row keeps its resume button after the run ends,
                 // so the tile never has to be found on the map again.
@@ -998,29 +989,5 @@ struct ActivityBox: View {
         case .stopped: return .orange
         default: return .accentColor
         }
-    }
-
-    static func clock(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        if total >= 3600 {
-            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
-        }
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
-
-    /// One row's clock text from its TileClocks entry (protocol 1.3).
-    /// Finished: the frozen final elapsed alone.  Active: "elapsed · ~remaining"
-    /// (the estimate is the tile's OWN outstanding work; a dash without a
-    /// basis).  Queued: the bare "~estimate", or nothing at all — a row of
-    /// dashes before anything starts is noise.
-    static func tileClockText(_ entry: O4TileClock?) -> String? {
-        guard let entry else { return nil }
-        if entry.finished { return clock(entry.elapsedSeconds) }
-        if entry.elapsedSeconds > 0 {
-            let remaining = entry.remainingSeconds.map { "~" + clock($0) } ?? "—"
-            return "\(clock(entry.elapsedSeconds)) · \(remaining)"
-        }
-        if let remaining = entry.remainingSeconds { return "~" + clock(remaining) }
-        return nil
     }
 }

@@ -866,16 +866,79 @@ def _deck_own_zero(geom: BodyGeometry, surface: Surface) -> "float | None":
     return zs[n // 2] if n % 2 else 0.5 * (zs[n // 2 - 1] + zs[n // 2])
 
 
-def _generic_anchor(body_class: BodyClass, geom: BodyGeometry,
-                    surface: Surface, pads: _t.Sequence[PadRing], tol_m: float,
-                    roles, rolled_on, skip_standins: bool) -> Anchor:
-    """THE GENERIC RULE's own pick (11e (2)) over the body's ground
-    contacts — every part's feet, and a part with none standing in at its
-    own base unless ``skip_standins`` (#610, :func:`anchor_for`)."""
+def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
+               pads: _t.Sequence[PadRing] = (), rims: _t.Sequence[RimRing] = (),
+               *, merged_into: str = "", tol_m: float = 0.0,
+               roles=None, rolled_on=None, datum: "Datum | None" = None,
+               deck_own_ground_m: float = 0.0) -> Anchor:
+    """THE GENERIC RULE (module doc; 11e (2)) for one body.
+
+    ``geom.parts`` are its ground-contact components
+    ``(lat, lon, base_y, feet)``; ``surface`` the design surface;
+    ``tol_m`` the admission (``[placement] split_tol_m``) — a body with no
+    ground-contact vertex whose surface reads within it of the body's own
+    ZERO PLANE anchors at its low-side foot and says so in
+    :attr:`Anchor.reason`, carrying the residual.
+
+    ``datum`` is §16e's: a crest plate or a deck top, read FIRST and
+    from the member's own stations (:func:`datum_of`,
+    :func:`_datum_anchor`).
+
+    ``pads`` are WIRED for §16d (6): where a body's ground contacts lie
+    MOSTLY inside one emitted `building` pad, only the contacts ON that
+    pad are read (:func:`pad_majority`) — the apron a footprint spills
+    onto is not the body's ground.  The per-class table the pads once
+    served is superseded.  ``rims`` are WIRED for the BASIN class (§14 (2)): the
+    interior of the body's own ring is excluded from its anchor search
+    and the anchor goes to the RIM, where the object's zero is
+    (:func:`_basin_rim_anchor`).  An 11a DECK is still the one body with
+    no anchor of its own (merged into the building it abuts).
+
+    The returned :attr:`Anchor.offset` is ``(0, y_zero, 0)`` in the y axis
+    only — the plan half (``anchor_x``, ``anchor_z``) is the AUTHORED
+    position of the anchor point, which only the caller holding the
+    authored frame can spell, and it fills that in before handing the cut
+    to the writer."""
+    # §16e: THE DATUM IS READ FIRST, and it needs nothing from the parts:
+    # a crest plate and a deck top are heights the law puts AT the ground
+    # at stations of their own, and the body's own feet are the thing
+    # they are NOT read from.  It outranks the basin branch on purpose —
+    # §16e (1) keys on ``plate_y``, never on the classification: OTHH's
+    # tunnel walls classify BASIN (they stand inside their own emitted
+    # ``tunnel_wall`` ring) and §14 (2)'s rim anchor, written for a floor
+    # plate authored -depth, stood their crests +5 … +20 m over the rim.
+    if datum is not None and datum.stations:
+        a = _datum_anchor(body_class, geom, surface, datum)
+        if a is not None:
+            return a
+    if not geom.parts:
+        return Anchor(body_class, geom.origin_lat, geom.origin_lon, 0.0,
+                      "no ground-contact component: the placement's own anchor",
+                      surface(geom.origin_lat, geom.origin_lon))
+    if body_class == DECK:
+        z = surface(geom.origin_lat, geom.origin_lon)
+        # RULINGS 2026-09-30g (3): THE KERB IS MERGED ONLY WHERE ITS OWN
+        # FEET AGREE.  A deck whose own ground-contact feet read a zero
+        # (median of ``surface(foot) - y_foot``) more than
+        # ``deck_own_ground_m`` (``[cockpit] visual_m``) from the abutting
+        # building's is NOT merged: it seats on its own ground by the
+        # generic rule below.  HECA's ``T23/T3_road`` took the unit
+        # origin's 108.53 over feet reading 93-98 and stood +12-14 m,
+        # carrying its riders (``small_sign``, ``palm``) with it.
+        own = _deck_own_zero(geom, surface) if deck_own_ground_m > 0.0 \
+            else None
+        if z is None or own is None or abs(own - float(z)) <= deck_own_ground_m:
+            return Anchor(DECK, geom.origin_lat, geom.origin_lon, 0.0,
+                          f"kerb (merged into {merged_into or 'the abutting building'})", z)
+    if body_class == BASIN and rims:
+        a = _basin_rim_anchor(geom, surface, rims)
+        if a is not None:
+            return a
+
+    # every GROUND-CONTACT VERTEX of the body (a part with no feet stands
+    # in for itself at its own base), read against the design surface
     cands: list[tuple[float, float, float, float]] = []
     for la, lo, base_y, feet in geom.parts:
-        if skip_standins and not feet:
-            continue
         for f in (feet or ((la, lo, base_y),)):
             z = surface(f[0], f[1])
             if z is not None:
@@ -948,99 +1011,6 @@ def _generic_anchor(body_class: BodyClass, geom: BodyGeometry,
                       + on_pad, low[3])
     return Anchor(body_class, best[0], best[1], best[2],
                   "surface at the body's zero" + on_pad, best[3])
-
-
-def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
-               pads: _t.Sequence[PadRing] = (), rims: _t.Sequence[RimRing] = (),
-               *, merged_into: str = "", tol_m: float = 0.0,
-               roles=None, rolled_on=None, datum: "Datum | None" = None,
-               deck_own_ground_m: float = 0.0) -> Anchor:
-    """THE GENERIC RULE (module doc; 11e (2)) for one body.
-
-    ``geom.parts`` are its ground-contact components
-    ``(lat, lon, base_y, feet)``; ``surface`` the design surface;
-    ``tol_m`` the admission (``[placement] split_tol_m``) — a body with no
-    ground-contact vertex whose surface reads within it of the body's own
-    ZERO PLANE anchors at its low-side foot and says so in
-    :attr:`Anchor.reason`, carrying the residual.
-
-    ``datum`` is §16e's: a crest plate or a deck top, read FIRST and
-    from the member's own stations (:func:`datum_of`,
-    :func:`_datum_anchor`).
-
-    ``pads`` are WIRED for §16d (6): where a body's ground contacts lie
-    MOSTLY inside one emitted `building` pad, only the contacts ON that
-    pad are read (:func:`pad_majority`) — the apron a footprint spills
-    onto is not the body's ground.  The per-class table the pads once
-    served is superseded.  ``rims`` are WIRED for the BASIN class (§14 (2)): the
-    interior of the body's own ring is excluded from its anchor search
-    and the anchor goes to the RIM, where the object's zero is
-    (:func:`_basin_rim_anchor`).  An 11a DECK is still the one body with
-    no anchor of its own (merged into the building it abuts).
-
-    The returned :attr:`Anchor.offset` is ``(0, y_zero, 0)`` in the y axis
-    only — the plan half (``anchor_x``, ``anchor_z``) is the AUTHORED
-    position of the anchor point, which only the caller holding the
-    authored frame can spell, and it fills that in before handing the cut
-    to the writer."""
-    # §16e: THE DATUM IS READ FIRST, and it needs nothing from the parts:
-    # a crest plate and a deck top are heights the law puts AT the ground
-    # at stations of their own, and the body's own feet are the thing
-    # they are NOT read from.  It outranks the basin branch on purpose —
-    # §16e (1) keys on ``plate_y``, never on the classification: OTHH's
-    # tunnel walls classify BASIN (they stand inside their own emitted
-    # ``tunnel_wall`` ring) and §14 (2)'s rim anchor, written for a floor
-    # plate authored -depth, stood their crests +5 … +20 m over the rim.
-    if datum is not None and datum.stations:
-        a = _datum_anchor(body_class, geom, surface, datum)
-        if a is not None:
-            return a
-    if not geom.parts:
-        return Anchor(body_class, geom.origin_lat, geom.origin_lon, 0.0,
-                      "no ground-contact component: the placement's own anchor",
-                      surface(geom.origin_lat, geom.origin_lon))
-    if body_class == DECK:
-        z = surface(geom.origin_lat, geom.origin_lon)
-        # RULINGS 2026-09-30g (3): THE KERB IS MERGED ONLY WHERE ITS OWN
-        # FEET AGREE.  A deck whose own ground-contact feet read a zero
-        # (median of ``surface(foot) - y_foot``) more than
-        # ``deck_own_ground_m`` (``[cockpit] visual_m``) from the abutting
-        # building's is NOT merged: it seats on its own ground by the
-        # generic rule below.  HECA's ``T23/T3_road`` took the unit
-        # origin's 108.53 over feet reading 93-98 and stood +12-14 m,
-        # carrying its riders (``small_sign``, ``palm``) with it.
-        own = _deck_own_zero(geom, surface) if deck_own_ground_m > 0.0 \
-            else None
-        if z is None or own is None or abs(own - float(z)) <= deck_own_ground_m:
-            return Anchor(DECK, geom.origin_lat, geom.origin_lon, 0.0,
-                          f"kerb (merged into {merged_into or 'the abutting building'})", z)
-    if body_class == BASIN and rims:
-        a = _basin_rim_anchor(geom, surface, rims)
-        if a is not None:
-            return a
-
-    # every GROUND-CONTACT VERTEX of the body (a part with no feet stands
-    # in for itself at its own base), read against the design surface
-    # #610: A PART THE PLAN JUDGED ELEVATED IS NO ANCHOR.  A part with no
-    # feet stands in for itself at its own base (a plan that recorded no
-    # feet at all, pre-09s); where the body ALSO has footed parts, a part
-    # with none is one the plan found standing above its contact structure
-    # (RULINGS 2026-09-09s (2)) — a canopy's roof, its beams.  Picked as
-    # the anchor it put KCLT's fuel canopy's zero on a beam (y 5.45 over
-    # posts at 0), the body read elevated and was carried, posts and all,
-    # to a building 45 m away.  So an anchor that lands ON such a stand-in,
-    # above every real foot of the body by more than the admission
-    # (``tol_m``), is re-taken from the footed parts alone; every other
-    # body reads exactly as before.
-    a = _generic_anchor(body_class, geom, surface, pads, tol_m, roles,
-                        rolled_on, False)
-    foot_ys = [f[2] for _la, _lo, _y, feet in geom.parts for f in feet]
-    if (foot_ys and float(a.y_zero) > max(foot_ys) + max(tol_m, 0.0)
-            and any(not feet and (la, lo, base_y) == (a.lat, a.lon, a.y_zero)
-                    for la, lo, base_y, feet in geom.parts)):
-        a = _generic_anchor(body_class, geom, surface, pads, tol_m, roles,
-                            rolled_on, True)
-    return a
 
 
 def _basin_rim_anchor(geom: BodyGeometry, surface: Surface,

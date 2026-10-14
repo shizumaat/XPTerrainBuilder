@@ -713,13 +713,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _pulse.tick("classifying the airport")
     cl = classify(airport, law, load_rules(), cache=ocache)
     wall["classify"] = time.perf_counter() - t
-    # issue #669: the object ramps' feet (the landings' ground ahead, the
-    # last stage's run-outs) — read HERE, on the run's ResourceCache, once
-    # classify has parsed the pack's placed objects (no second parse)
-    from ..airport.ramp_feet import REPORT as _feet_rep, attach_ramp_feet
-    airport = attach_ramp_feet(airport, law, ocache)
-    wall["ramp_feet"] = _feet_rep.get("s", 0.0)
-    _say(f"[{icao}] ramp feet (14c (5)): {_feet_rep}", out)
     # spec §55 (4), (9) THE GAP PIECES JOIN IN THE LAST STAGE: with a §53
     # gap piece minted, every stage below runs on the classification
     # WITHOUT the pieces (the BASE — the build an airport with no gap sheet
@@ -738,6 +731,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
                               objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
+    # issue #669: the object ramps' feet for the last stage's run-outs —
+    # read HERE, on the run's ResourceCache, once classify and the planar
+    # stage have parsed the pack's objects (no second parse)
+    from ..airport.ramp_feet import REPORT as _feet_rep, attach_ramp_feet
+    airport = attach_ramp_feet(airport, law, ocache)
+    wall["ramp_feet"] = _feet_rep.get("s", 0.0)
+    _say(f"[{icao}] ramp feet (14c (5)): {_feet_rep}", out)
     # §37 (11) (7) (issue #72): the shore the zones were cut against —
     # quay faces stand on a DECLARED shore (or a pavement edge that IS
     # the coast), natural faces slope to the water.

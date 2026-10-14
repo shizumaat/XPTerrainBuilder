@@ -30,13 +30,11 @@ the last stage, junior to every pavement it meets); its profile rows are
 ``constraints/ramp_runout``'s.  A foot whose ground already stands within
 ``[cockpit] visual_m`` of the DEM where the patch ends asks nothing.
 
-AT A 10-03e LANDING (owner RULINGS 2026-10-14i): the landing's collar keeps
-the ground ahead of the foot clear (``planar/landing.ahead_regions``).  A
-MAPPED ROAD there carries the run-out — :func:`landing_roads` makes each
-ribbon touching a landing a pad road of it, so the pad-road exit walk
-(``pad_road_exit``) runs it on from the landing's level along its course
-and ``pad_ramp`` grades it at road grade to the DEM; the strip takes only
-the ground no road holds.
+NOT YET: a 10-03e LANDING's foot (counted ``landing``) keeps its 1:3
+collar in the direction of travel.  RULINGS 2026-10-14i ("road carries the
+run-out") is not built: clearing the collar ahead let the lot ``dsf:pol10``
+weld to HECA's landing level (+5.7 m) and the mapped road ``-3963`` end
+6 m over the raw DEM (a dead end the exit walk prunes) — lane notes.
 """
 from __future__ import annotations
 
@@ -53,7 +51,7 @@ from ..airport.ramp_feet import FOOT_SPAN_M
 from ..law import Law
 from .rules import Rules
 
-__all__ = ["mint_ramp_runouts", "landing_roads", "runout_of", "RUNOUT_PREFIX", "MAX_RUN_M"]
+__all__ = ["mint_ramp_runouts", "runout_of", "RUNOUT_PREFIX", "MAX_RUN_M"]
 
 #: the run-out cell's ref: ``runout:<k>``
 RUNOUT_PREFIX = "runout"
@@ -86,51 +84,6 @@ def _level_at(seg: LineString, xy: np.ndarray, z: np.ndarray,
     return float(np.median(z[near]))
 
 
-def landing_roads(cl, pm_base, law: Law) -> tuple[_t.Any, dict]:
-    """``cl`` with every mapped-road ribbon that touches a 10-03e landing
-    platform made a PAD ROAD of it (owner RULINGS 2026-10-14i: "road
-    carries the run-out"): evidence ``pad_road`` and the touch witness
-    (``pad_touch.EVIDENCE_KEY``) naming the landing, so the exit walk sizes
-    its run from the landing's solved level and ``pad_ramp`` ramps it from
-    the landing's rim.  ``(cl, report)``."""
-    from ..constraints.pad_ramp import stand_off_m
-    from ..model.planar import COLLAR_SUFFIX, is_osm_ribbon_ref
-    from ..model.platform import LANDING_SEP
-    from .pad_touch import EVIDENCE_KEY
-    rep = {"landings": 0, "roads": 0, "refs": []}
-    faces = getattr(pm_base, "faces", None) or {}
-    plats = []
-    for f in faces.values():
-        ref = str(f.ref)
-        if LANDING_SEP in ref and not ref.endswith(COLLAR_SUFFIX):
-            q = Polygon([pm_base.vertices[v].xy for v in pm_base.ring_vertices(f.ring)])
-            if q.is_valid and not q.is_empty:
-                plats.append((ref, q))
-    rep["landings"] = len(plats)
-    if not plats:
-        return cl, rep
-    reach = stand_off_m(law)
-    cells = list(cl.cells)
-    for i, c in enumerate(cells):
-        ev = c.evidence or {}
-        if (c.role != "service_road" or ev.get("pad_road") or c.side != "groundside"
-                or not is_osm_ribbon_ref(c.ref)):
-            continue
-        q = Polygon(c.ring, c.holes)
-        near = {r: round(float(q.distance(p)), 4) for r, p in plats
-                if q.distance(p) <= reach}
-        if not near:
-            continue
-        cells[i] = _dc.replace(c, evidence={**ev, "pad_road": 1.0, "landing_road": 1.0,
-                                            EVIDENCE_KEY: {**(ev.get(EVIDENCE_KEY) or {}),
-                                                           **{r: 0.0 for r in near}}})
-        rep["roads"] += 1
-        rep["refs"].append(str(c.ref))
-    if not rep["roads"]:
-        return cl, rep
-    return _dc.replace(cl, cells=tuple(cells)), rep
-
-
 def _landing_faces(pm):
     """The 10-03e landings and their collars on the solved map: planar pad
     regions (``planar/landing``), never classification cells."""
@@ -150,7 +103,7 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     from ..law.tables import role_side
     from .evidence import polygon_parts
     from .roles import Cell
-    rep: dict[str, _t.Any] = {"feet": 0, "ungraded": 0, "at_grade": 0, "blocked": 0,
+    rep: dict[str, _t.Any] = {"feet": 0, "ungraded": 0, "landing": 0, "at_grade": 0, "blocked": 0,
                               "runouts": 0, "run_m": 0.0, "list": []}
     dem = getattr(airport, "dem", None)
     frame = getattr(airport, "frame", None)
@@ -184,6 +137,9 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
         back = rect(-FOOT_SPAN_M, 0.0)
         if back.intersection(occupied).area < 0.5 * back.area:
             rep["ungraded"] += 1
+            continue
+        if back.intersects(landings):
+            rep["landing"] += 1           # 10-03e: not yet (module NOT YET)
             continue
         free = [q for q in polygon_parts(rect(0.0, MAX_RUN_M).difference(occupied))
                 if q.distance(occupied) <= touch]

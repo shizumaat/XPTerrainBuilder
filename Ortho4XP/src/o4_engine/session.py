@@ -29,6 +29,7 @@ import O4_File_Names as FNAMES
 import O4_Step_Reuse as REUSE
 import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
+import O4_Unmounted_Links as UNMOUNTED
 import O4_Unpatched_Airports as UNPATCHED
 import O4_UI_Utils as UI
 
@@ -1233,6 +1234,13 @@ class EngineSession:
                         # rewrote scenery packs never put them back: do
                         # it before this one reads a pack (#598).
                         STOPPED.settle(tile.build_dir, lat, lon)
+                        # #668: airports whose pack is a link to a drive
+                        # that is not mounted, read from the patches
+                        # BEFORE this step rewrites them.
+                        UNPATCHED.record_unmounted_packs(
+                            tile, UNMOUNTED.unmounted_packs(
+                                FNAMES.patch_dir(lat, lon),
+                                UNPATCHED.read_unmounted_packs(tile)))
                     if self._reuse_step(tile, (lat, lon), key, base, width):
                         continue
                     if key == "imagery":
@@ -1316,7 +1324,9 @@ class EngineSession:
                     self._take_tile_failures()
                     built = build_done(
                         lat, lon, True,
-                        FAIL.from_unpatched(UNPATCHED.read(tile)),
+                        FAIL.from_unpatched(UNPATCHED.read(tile))
+                        + FAIL.from_unmounted(
+                            UNPATCHED.read_unmounted_packs(tile)),
                         self.app_driven,
                         notes=FAIL.from_substitutions(
                             UNPATCHED.read_substitutions(tile)))

@@ -3325,6 +3325,22 @@ class MainWindow(QMainWindow):
             self._update_build_summary()
             self._status("The build could not be started.")
 
+    def _remove_link_and_build(self, event, link):
+        """#668: remove the ONE dangling Custom Scenery link the tile's
+        folder sits behind (never its target, never a folder), then build
+        the tile again here."""
+        import O4_Unmounted_Links as UNMOUNTED
+
+        try:
+            UNMOUNTED.remove_link(link)
+        except (ValueError, OSError) as refusal:
+            self._status("The link was not removed. %s" % refusal)
+            return
+        print("Removed the link %s; building tile %+03d%+04d on this "
+              "computer's drive." % (link, int(event.lat), int(event.lon)))
+        self.map.set_selection([(int(event.lat), int(event.lon))])
+        self.start_build()
+
     def _queue_into_running_build(self, todo, provider, zoomlevel,
                                   do_vector, do_imagery, do_overlays):
         """Append a batch to the run in progress; it starts as soon as
@@ -3928,7 +3944,8 @@ class MainWindow(QMainWindow):
         self._status(summary)
         (issue_events, self._run_issue_events) = (self._run_issue_events, [])
         issues = QTFAIL.issues_box(issue_events, parent=self,
-                                   app_version=O4_Version.version)
+                                   app_version=O4_Version.version,
+                                   on_remove_link=self._remove_link_and_build)
         if issues is not None:
             # Kept alive (non-modal) the way the missing-art boxes are.
             self._pack_art_boxes.append(issues)

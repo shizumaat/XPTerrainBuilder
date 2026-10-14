@@ -1438,6 +1438,28 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    /// "Remove the link and build on this Mac's drive" (#668): the engine
+    /// removes the ONE dangling link (never its target, never a folder),
+    /// then the tile builds again with the current settings. Completes on
+    /// the main actor with nil on success, else the reason it refused.
+    func removeLinkAndRebuild(_ tile: O4TileIssues, link: String,
+                              completion: @escaping @MainActor (String?) -> Void) {
+        guard let client else { completion("The engine is not running."); return }
+        client.removeSceneryLink(path: link) { refusal in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if let refusal {
+                    completion(refusal)
+                    return
+                }
+                self.console.append("Removed the link \(link); building tile \(tile.tileKey) on this Mac's drive.")
+                completion(nil)
+                self.startBuild(batches: [([TileCoord(lat: tile.lat, lon: tile.lon)],
+                                           self.buildProvider, self.buildZL)])
+            }
+        }
+    }
+
     /// The "X-Plane will not load this pack" warning to present, or nil.
     @Published var packArtPrompt: O4PackMissingArt?
     /// Warnings waiting behind the one on screen, in arrival order.

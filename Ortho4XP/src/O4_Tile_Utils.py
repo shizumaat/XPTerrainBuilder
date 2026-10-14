@@ -16,6 +16,7 @@ import O4_Proj_Runtime as PROJRT
 import O4_Held_File as HELD
 import O4_Tile_Failures as FAILURES
 import O4_Tile_Staging as STAGING
+import O4_Imagery_Progress as IMGPROGRESS
 import O4_Step_Reuse as REUSE
 import O4_Stopped_Build as STOPPED
 from O4_Parallel_Utils import (
@@ -55,6 +56,8 @@ def download_textures(
     interrupted = False
     max_attempts = 3
 
+    detail_said = [0.0, ""]
+
     def _update_progress_locked():
         finished = progress_state["done"] + progress_state["failed"]
         denom = (
@@ -63,6 +66,14 @@ def download_textures(
             + download_queue.qsize()
         )
         UI.progress_bar(2, int(100 * finished / denom) if denom else 100)
+        # Downloading or reusing the cache, said on the row (#622) — at
+        # most twice a second, or at once when the mode changes.
+        text = IMGPROGRESS.label(tile, finished, denom)
+        now = time.time()
+        mode = text.split(" ·")[0]
+        if now - detail_said[0] >= 0.5 or mode != detail_said[1]:
+            detail_said[0], detail_said[1] = now, mode
+            UI.step_detail(text)
 
     def _download_task(*attrs):
         nonlocal interrupted
@@ -452,6 +463,9 @@ def build_tile(tile):
     producer_done_event = threading.Event()
 
     download_stats = {}
+    IMGPROGRESS.begin(tile)
+    if not imagery_needed:
+        UI.step_detail(IMGPROGRESS.DEFAULT_TEXTURES)
     # workers=None: download_textures resolves the Auto count itself and
     # keeps re-resolving it mid-step (an explicit workers value pins it).
     download_thread = threading.Thread(
@@ -520,6 +534,7 @@ def build_tile(tile):
         UI.imagery_downloads_done(
             tile.lat, tile.lon,
             download_stats.get("done", 0), download_stats.get("failed", 0))
+        UI.step_detail(IMGPROGRESS.finish(tile))
         if harmonization_active and not UI.red_flag:
             IMG.solve_color_field(tile)
             _launch_convert_workers()

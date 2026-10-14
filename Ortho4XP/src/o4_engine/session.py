@@ -224,6 +224,7 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
     raises.
     """
     features = {"zoomlevel": zoomlevel, "provider": provider}
+    tile = None
     try:
         import O4_Config_Utils as CFG
         tile = CFG.Tile(lat, lon, custom_build_dir)
@@ -233,13 +234,34 @@ def prediction_features(lat, lon, provider, zoomlevel, custom_build_dir):
         pass
     try:
         from . import tile_time_model
+        if getattr(tile, "texture_mode", "") == "default_xplane":
+            # X-Plane's own textures: nothing to download or convert.
+            features.update(textures_total=0, textures_missing=0,
+                            textures_to_download=0)
+            return features
         textures_directory = os.path.join(
             FNAMES.build_dir(lat, lon, custom_build_dir), "textures")
         features.update(tile_time_model.estimate_texture_features(
-            lat, lon, zoomlevel, provider, textures_directory))
+            lat, lon, zoomlevel, provider, textures_directory,
+            jpeg_directory=_imagery_cache_directory(lat, lon, zoomlevel,
+                                                    provider)))
     except Exception:
         pass
     return features
+
+
+def _imagery_cache_directory(lat, lon, zoomlevel, provider):
+    """Where the imagery cache keeps this source's orthophotos for the
+    tile, or None (a combined source has no single folder)."""
+    try:
+        import O4_Imagery_Utils as IMG
+        definition = IMG.providers_dict.get(provider)
+        if not definition or not zoomlevel:
+            return None
+        return FNAMES.jpeg_file_dir_from_attributes(
+            lat, lon, int(zoomlevel), definition)
+    except Exception:
+        return None
 
 
 # How far a step's DISPLAY window may drift from its canonical
@@ -1288,6 +1310,15 @@ class EngineSession:
                              tile, "textures_total_last_build", 0) or 0),
                          "textures_missing": int(getattr(
                              tile, "textures_missing_last_build", 0) or 0),
+                         # The MEASURED download (#622): orthophotos
+                         # fetched and the seconds from the first one to
+                         # the queue draining — what a cold build's
+                         # download share of the bar is priced from.
+                         "textures_downloaded": int(getattr(
+                             tile, "imagery_downloads", 0) or 0),
+                         "download_seconds": round(float(getattr(
+                             tile, "imagery_download_seconds", 0.0)
+                             or 0.0), 2),
                          # Airport elevation inset fetches performed by
                          # step 1 (zero on a warm inset cache): their
                          # download wall time lands inside the vector

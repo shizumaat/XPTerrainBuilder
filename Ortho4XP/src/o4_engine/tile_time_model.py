@@ -135,7 +135,8 @@ def features_for_record(*, zoomlevel: int, provider: str,
 
 def estimate_texture_features(lat: int, lon: int, zoomlevel: int,
                               provider: str,
-                              textures_directory: str) -> dict:
+                              textures_directory: str,
+                              jpeg_directory=None) -> dict:
     """Pre-build ``textures_total`` / ``textures_missing`` estimate.
 
     The cold/warm cache signal BEFORE the build runs: ``textures_total``
@@ -150,14 +151,7 @@ def estimate_texture_features(lat: int, lon: int, zoomlevel: int,
     """
     total = 0
     try:
-        for record in reversed(_load_tile_records(lat, lon)):
-            record_features = record.get("features") or {}
-            if (record_features.get("provider") == provider
-                    and record_features.get("zoomlevel") == int(zoomlevel)):
-                candidate = record_features.get("textures_total")
-                if isinstance(candidate, (int, float)) and candidate > 0:
-                    total = int(candidate)
-                    break
+        total = _texture_total_estimate(lat, lon, int(zoomlevel), provider)
     except Exception:
         total = 0
     present = 0
@@ -172,7 +166,54 @@ def estimate_texture_features(lat: int, lon: int, zoomlevel: int,
     except Exception:
         present = 0
     missing = max(total - present, 0) if total else 0
-    return {"textures_total": total, "textures_missing": missing}
+    estimate = {"textures_total": total, "textures_missing": missing}
+    if jpeg_directory is not None and total:
+        # A texture whose orthophoto is in the imagery cache is converted,
+        # not downloaded (#622): the download share of the bar counts
+        # only the textures neither on disk as DDS nor cached as JPEG.
+        cached = 0
+        try:
+            jpeg_suffix = "_%s%d.jpg" % (provider, int(zoomlevel))
+            cached = sum(1 for file_name in os.listdir(jpeg_directory)
+                         if file_name.endswith(jpeg_suffix))
+        except Exception:
+            cached = 0
+        estimate["textures_to_download"] = max(
+            total - max(present, cached), 0)
+    return estimate
+
+
+def _texture_total_estimate(lat: int, lon: int, zoomlevel: int,
+                            provider: str) -> int:
+    """How many textures this tile's scenery file names at ``zoomlevel``.
+
+    The texture grid is the zoom level's, the same for every imagery
+    source: this tile's newest record at the same source and zoom, else
+    at the same zoom from another source, else the median over every
+    recorded tile at that zoom (a first build: without it the count was
+    zero, the imagery step was priced as free and the bar read ~98 %
+    when the downloads began, #622).  ``0`` when nothing is known.
+    """
+    same_zoom = []
+    for record in reversed(_load_tile_records(lat, lon)):
+        record_features = record.get("features") or {}
+        candidate = record_features.get("textures_total")
+        if (record_features.get("zoomlevel") != zoomlevel
+                or not isinstance(candidate, (int, float)) or candidate <= 0):
+            continue
+        if record_features.get("provider") == provider:
+            return int(candidate)
+        same_zoom.append(int(candidate))
+    if same_zoom:
+        return same_zoom[0]
+    totals = [
+        (record.get("features") or {}).get("textures_total")
+        for record in _load_all_records()
+        if (record.get("features") or {}).get("zoomlevel") == zoomlevel
+    ]
+    median = _median([t for t in totals
+                      if isinstance(t, (int, float)) and t > 0])
+    return int(median) if median else 0
 
 
 def _tile_record_path(lat: int, lon: int) -> str:
@@ -420,10 +461,90 @@ def _predict_imagery_cross_tile(features: dict, all_records: list):
     fetch_rate, convert_rate = rates
     missing = float((features or {}).get("textures_missing", 0) or 0)
     total = float((features or {}).get("textures_total", 0) or 0)
+    if total <= 0:
+        # No texture count known: "free" would price the step at zero and
+        # the bar would read done when the downloads begin (#622).
+        return None
     seconds = fetch_rate * missing + convert_rate * total
     if not math.isfinite(seconds) or seconds < 0:
         return None
     return seconds
+
+
+# Seconds per DOWNLOADED texture when no build has measured one yet: the
+# median of the owner's 22 cold ZL16 imagery steps on record 2026-10-13
+# (whole-step seconds / textures queued, 2.4–6.7, median ~3.5).  A
+# texture is 4096 px square at every zoom, so the figure is zoom-free.
+DEFAULT_SECONDS_PER_DOWNLOADED_TEXTURE = 3.5
+
+# The imagery step's LOCAL work (scenery-file render) when no record of
+# the tile isolates it.
+DEFAULT_IMAGERY_LOCAL_SECONDS = 60.0
+
+# Seconds per texture CONVERTED from a cached orthophoto (no download).
+# No build on record isolates it (2026-10-13: none of the owner's 122
+# imagery records converted from a warm JPEG cache), so this is a
+# ballpark: DDS conversion runs on every core at once.
+DEFAULT_SECONDS_PER_CONVERTED_TEXTURE = 0.5
+
+
+def _predict_imagery(features: dict, same_tile_records: list,
+                     all_records: list) -> float:
+    """Imagery seconds = the scenery-file render + the textures to build:
+    downloads at the measured seconds per downloaded texture, the rest
+    of the missing DDS at the conversion cost (#622).
+
+    ``features["textures_to_download"]`` is the planned download count
+    (0 when every texture is on disk or cached, or the scenery uses
+    X-Plane's default textures).  The render is this tile's own records
+    that built no texture (same zoom), else the cross-tile convert rate
+    times the texture count, else a constant.  The per-texture download
+    time is measured by every build that downloaded (same source first),
+    then the fitted fetch rate, then a constant.
+    """
+    downloads = float(features.get("textures_to_download") or 0)
+    converts = max(0.0, float(features.get("textures_missing") or 0)
+                   - downloads)
+    render = _median([
+        _record_step_seconds(r, "imagery")
+        for r in same_tile_records[-_SAME_TILE_WINDOW:]
+        if not (r.get("features") or {}).get("textures_missing")])
+    rates = None
+    if render is None or downloads:
+        rates = _global_median_imagery_rates(
+            [r for r in all_records
+             if _record_step_seconds(r, "imagery") is not None])
+    if render is None:
+        total = float(features.get("textures_total") or 0)
+        render = (rates[1] * total if rates and total
+                  else DEFAULT_IMAGERY_LOCAL_SECONDS)
+    seconds = render + converts * DEFAULT_SECONDS_PER_CONVERTED_TEXTURE
+    if not downloads:
+        return seconds
+    per_texture = _seconds_per_downloaded_texture(
+        features.get("provider"), all_records)
+    if per_texture is None and rates and rates[0] > 0:
+        per_texture = rates[0]
+    if per_texture is None:
+        per_texture = DEFAULT_SECONDS_PER_DOWNLOADED_TEXTURE
+    return seconds + downloads * per_texture
+
+
+def _seconds_per_downloaded_texture(provider, all_records: list):
+    """Median measured wall seconds per downloaded texture, preferring
+    this imagery source's builds; ``None`` before any build measured it."""
+    by_source, every = [], []
+    for record in all_records:
+        record_features = record.get("features") or {}
+        count = record_features.get("textures_downloaded")
+        seconds = record_features.get("download_seconds")
+        if not (isinstance(count, (int, float)) and count > 0
+                and isinstance(seconds, (int, float)) and seconds > 0):
+            continue
+        every.append(seconds / count)
+        if record_features.get("provider") == provider:
+            by_source.append(seconds / count)
+    return _median(by_source) if by_source else _median(every)
 
 
 def _learned_vector_overhead(same_tile_records: list, all_records: list):
@@ -479,6 +600,9 @@ def _predict_one_step(step_key: str, features: dict,
             if overhead is None:
                 overhead = MINIMUM_VECTOR_OVERHEAD_S
             return overhead + float(autopatch_prediction)
+
+    if step_key == "imagery" and "textures_to_download" in (features or {}):
+        return _predict_imagery(features, compatible, all_records)
 
     # Source 1: this tile's own recent, compatible history for the step.
     same_tile_samples = [_record_step_seconds(r, step_key)

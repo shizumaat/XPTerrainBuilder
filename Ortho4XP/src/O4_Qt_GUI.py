@@ -3459,20 +3459,30 @@ class MainWindow(QMainWindow):
             rl = QVBoxLayout(row)
             rl.setContentsMargins(6, 4, 6, 4)
             rl.setSpacing(2)
-            head = QHBoxLayout()
-            head.setSpacing(6)
-            head.addWidget(QLabel(
+            # Two lines (#694): the title (coordinate + search tag, #667)
+            # owns the whole first line and elides at its tail only when
+            # wider than the row; the second line carries the status,
+            # left, and the clock, right, then the stop / resume button.
+            # The status elides before it reaches the clock, which never
+            # shrinks (a plain QLabel's minimum is its full text).
+            title = ElidedRowLabel(
                 FNAMES.short_latlon(*tile)
                 + APTBATCH.tile_tag(self._search_tags.get(tile, ()))
-            ))
-            head.addStretch(1)
+            )
+            title.setObjectName("tile_title")
+            rl.addWidget(title)
+            line = QHBoxLayout()
+            line.setSpacing(6)
+            status = ElidedRowLabel("queued")
+            status.setObjectName("tile_status")
+            status.setStyleSheet("color: gray; font-size: 11px;")
+            line.addWidget(status, 1)
             # Per-tile clock (elapsed · ~remaining), fed by TileClocks.
             clock = QLabel("")
+            clock.setObjectName("tile_clock")
             clock.setStyleSheet("color: gray; font-size: 11px;")
-            head.addWidget(clock)
-            status = QLabel("queued")
-            status.setStyleSheet("color: gray; font-size: 11px;")
-            head.addWidget(status)
+            clock.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            line.addWidget(clock)
             # Per-tile stop / resume: one button that changes what it
             # offers with the row's state — a red stop sign while the
             # tile is live, a green resume once the user has stopped it.
@@ -3486,8 +3496,8 @@ class MainWindow(QMainWindow):
             cancel.clicked.connect(
                 lambda _checked=False, t=tile: self._tile_button_clicked(t)
             )
-            head.addWidget(cancel)
-            rl.addLayout(head)
+            line.addWidget(cancel)
+            rl.addLayout(line)
             bar = QProgressBar()
             bar.setRange(0, 100)
             bar.setValue(0)

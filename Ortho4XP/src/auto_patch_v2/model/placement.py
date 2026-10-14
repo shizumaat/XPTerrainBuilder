@@ -346,8 +346,17 @@ class Body:
     #: station cut is written for it; the pair is published because the
     #: census has to be able to name the two units the piece must reach.
     connector_of: str = ""
+    #: owner RULINGS 2026-10-14g (1): the authored ``OBJECT_AGL`` lift this
+    #: body's row KEEPS (written ``OBJECT_AGL``), 0 for an on-ground row
+    lift_m: float = 0.0
 
     def to_dict(self) -> dict[str, _t.Any]:
+        d = self._dict()
+        if self.lift_m:
+            d["lift_m"] = self.lift_m
+        return d
+
+    def _dict(self) -> dict[str, _t.Any]:
         return {"body_id": self.body_id, "class": self.body_class,
                 "components": list(self.components), "anchor": self.anchor.to_dict(),
                 "anchor_reason": self.anchor_reason, "new_resource": self.new_resource,
@@ -396,7 +405,8 @@ class Body:
                    str(d.get("bridge_of") or ""),
                    str(d.get("family_of") or ""),
                    str(d.get("unit_of") or ""),
-                   str(d.get("connector_of") or ""))
+                   str(d.get("connector_of") or ""),
+                   _f(d.get("lift_m", 0.0)))
 
 
 @_dc.dataclass(frozen=True)
@@ -510,7 +520,10 @@ class PlacementPlan:
                             "bodies": [{"body_id": b.body_id,
                                         "class": b.body_class,
                                         "new_resource": b.new_resource,
-                                        "anchor": b.anchor.to_dict()}
+                                        "anchor": b.anchor.to_dict(),
+                                        # 14g (1): the row's kept lift
+                                        **({"lift_m": b.lift_m}
+                                           if b.lift_m else {})}
                                        for b in s.bodies]}
                            for s in self.splits]}
 

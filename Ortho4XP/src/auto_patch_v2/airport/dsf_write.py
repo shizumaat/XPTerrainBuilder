@@ -136,6 +136,7 @@ from O4_DSFTool import DsfToolError
 from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
                                KIND_AGL, KIND_MSL, KIND_ON_GROUND, POOL_QUANTA,
                                PROVENANCE_FILENAME, TOL_DEG, PlacementPlan)
+from . import authored_landing as _al
 from . import backup_state as _bs
 from . import dsf_commands as _cmds
 from . import pack_art as _pa
@@ -256,28 +257,37 @@ def live_install_roots(path: str) -> bool:
 # ── §5: which placements convert ────────────────────────────────────────
 
 def conversions_for_dump(dump_obj: _t.Any, pack_root: str | None = None,
-                         library_index: _t.Mapping[str, str] | None = None
+                         library_index: _t.Mapping[str, str] | None = None,
+                         *, convert_agl: _t.AbstractSet[int] = frozenset()
                          ) -> tuple[list, list]:
     """``(conversions, kept)`` for a ``airport/dsf.DsfDump`` (§5).
 
-    EVERY ``OBJECT_MSL`` / ``OBJECT_AGL`` placement converts to on-ground
-    — pack-authored AND stock library resources alike (owner RULINGS
-    2026-09-11d: "it's only changing the placement, not modifying the
-    object, and this will then allow them to sit on the new terrain
-    better"; 09z (2) forbids REWRITING a library object, never placing
-    it).  Nothing is kept here: the ``Kept`` reasons belong to the SPLIT
-    (§4 — a stock object is never split or re-anchored).  A placement
-    that is already ``OBJECT`` is not listed at all — there is nothing to
-    do.
+    EVERY ``OBJECT_MSL`` placement converts to on-ground — pack-authored
+    AND stock library resources alike (owner RULINGS 2026-09-11d: "it's
+    only changing the placement, not modifying the object, and this will
+    then allow them to sit on the new terrain better"; 09z (2) forbids
+    REWRITING a library object, never placing it).  An ``OBJECT_AGL`` row
+    does NOT (owner RULINGS 2026-10-14g (1), narrowing 09-11b): its height
+    above ground is the author's statement about OUR terrain, not a
+    hard-coded elevation, so it is kept as authored (the car on the deck,
+    the pallet on its rack, the beacon on its mast).  Nothing is kept
+    here: the ``Kept`` reasons belong to the SPLIT (§4 — a stock object
+    is never split or re-anchored).  A placement that is already
+    ``OBJECT`` or ``OBJECT_AGL`` is not listed at all — except the AGL
+    rows the caller names in ``convert_agl`` (a §18 RE-SEATED row, whose
+    seat is the law's and not the author's: "§18 walls/pits stay as they
+    are", 14g) and a SINK (``authored_landing.is_sink``: a negative
+    column is not a lift, and converts as before pending the owner).
 
     An ``OBJECT_MSL`` that is a genuine flying object is not
-    distinguishable from the DSF; the law is on-ground for everything
-    placed, and the owner's sim read is the acceptance."""
+    distinguishable from the DSF; the law is on-ground for every
+    absolute placed, and the owner's sim read is the acceptance."""
     from ..model.placement import Conversion
     conversions: list = []
     kept: list = []
     for i, p in enumerate(dump_obj.placements):
-        if p.kind not in CONVERTIBLE_KINDS:
+        if p.kind != KIND_MSL and not (p.kind == KIND_AGL and (
+                i in convert_agl or _al.is_sink(p))):
             continue
         conversions.append(Conversion(i, p.def_path, p.lon, p.lat,
                                       p.heading_deg, p.kind,
@@ -382,6 +392,23 @@ def _num(x: float, places: int) -> str:
     return f"{x:.{places}f}"
 
 
+def _body_row(toks: _t.Sequence[str], b: _t.Any, def_index: int) -> str:
+    """One body's row.  On-ground, unless the plan says the body KEEPS the
+    author's lift (owner RULINGS 2026-10-14g (1), ``Body.lift_m``): then
+    ``OBJECT_AGL`` with the authored row's elevation token copied verbatim
+    — which must be the lift the plan decided on."""
+    head = (KIND_ON_GROUND, str(def_index), _num(b.anchor.lon, 9),
+            _num(b.anchor.lat, 9))
+    hdg = _num(b.anchor.heading_deg, 6)
+    lift = float(getattr(b, "lift_m", 0.0) or 0.0)
+    if not lift:
+        return " ".join(head + (hdg,))
+    if toks[0] != KIND_AGL or len(toks) < 5 or abs(float(toks[4]) - lift) > 1e-6:
+        raise ValueError(f"body {b.new_resource}: plan keeps lift {lift} but the "
+                         f"dump row is {' '.join(toks[:5])!r}")
+    return " ".join((KIND_AGL,) + head[1:] + (toks[4], hdg))
+
+
 def _mark_row_at(lines: _t.Sequence[str]) -> int:
     """Where the ownership mark goes: AFTER the last ``PROPERTY`` row.
     ``-1`` when the dump has no property atom at all (then no mark is
@@ -482,11 +509,8 @@ def edit_dump(text: str, plan: PlacementPlan,
                                   _num(m.lat, 9), _num(m.elevation, 4),
                                   _num(m.heading_deg, 6))) + eol]
         elif o in spl:
-            s = spl[o]
-            edits[i] = [" ".join((KIND_ON_GROUND, str(new_index[b.new_resource]),
-                                  _num(b.anchor.lon, 9), _num(b.anchor.lat, 9),
-                                  _num(b.anchor.heading_deg, 6))) + eol
-                        for b in s.bodies]
+            edits[i] = [_body_row(toks, b, new_index[b.new_resource]) + eol
+                        for b in spl[o].bodies]
 
     mark_at = _mark_row_at(lines)
     mark = (f"PROPERTY {_bs.OWNERSHIP_PROPERTY} "

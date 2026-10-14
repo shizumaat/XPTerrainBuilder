@@ -37,7 +37,7 @@ import typing as _t
 
 __all__ = ["SEAT_AUTHORED", "SEAT_RESEATED", "lifted_by_own_depth", "anchor_family_key", "crest_over",
            "crest_in_band", "rim_over", "rim_in_band", "stated_height",
-           "pack_proud_height", "kept_ids", "kept_rows"]
+           "pack_proud_height", "kept_ids", "kept_rows", "reseated_rows"]
 
 #: The two values a seat record carries (the plan's ``seat`` column).
 SEAT_AUTHORED = "authored (cut)"
@@ -135,6 +135,20 @@ def kept_ids(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> set[str]:
             out.add(str(r.get("id")))
             out.update(str(m) for m in r.get("members") or ())
     return out
+
+
+def reseated_rows(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> frozenset[int]:
+    """The pristine dump's ROW of every §18 RE-SEATED placement (the
+    record's own id; ``dsf:obj<i>`` is row ``i``).  Its seat is the law's,
+    so owner RULINGS 2026-10-14g (1)'s kept lift does not apply to it: the
+    row converts and its bodies are written on-ground, as before."""
+    out = set()
+    for r in records:
+        oid = str(r.get("id"))
+        if r.get("seat") == SEAT_RESEATED and oid.startswith("dsf:obj") \
+                and oid[7:].isdigit():
+            out.add(int(oid[7:]))
+    return frozenset(out)
 
 
 def kept_rows(records: _t.Iterable[_t.Mapping[str, _t.Any]]) -> frozenset[int]:

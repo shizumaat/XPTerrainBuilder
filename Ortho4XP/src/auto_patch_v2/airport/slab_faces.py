@@ -29,7 +29,7 @@ import typing as _t
 
 import numpy as np
 
-from ..geom.base_slab import FaceFacts
+from ..geom.base_slab import FaceFacts, register_face_reader
 from . import obj8 as _obj8
 
 __all__ = ["face_facts", "up_faces", "faces_for", "witness_faces", "tri_normals_y"]
@@ -108,3 +108,6 @@ def witness_faces(lw: _t.Any) -> "_t.Callable | None":
     disarmed."""
     ny = float(getattr(lw, "plate_ny_min", 0.0) or 0.0)
     return faces_for(ny) if ny > 0.0 and lw.armed else None
+
+
+register_face_reader(witness_faces)

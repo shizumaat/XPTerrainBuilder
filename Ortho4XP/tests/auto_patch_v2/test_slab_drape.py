@@ -82,7 +82,7 @@ def test_the_draped_cut_keeps_the_top_drops_the_kerbs_and_keeps_the_wall(tmp_pat
     by = {f.body_id: f for f in res.files}
     for f in res.files:
         q = tmp_path / f"b{f.body_id}.obj"
-        q.write_text(f.text, encoding="latin-1")
+        q.write_text(f.text, encoding="latin-1", newline="")
         g = obj8.parse_obj8(str(q))
         if f.body_id == 0:
             # the parse-back twin: draped = the slab's top, solid 0
@@ -108,7 +108,7 @@ def test_one_body_with_a_draped_slab_is_written_and_lod_holds_the_block(tmp_path
     i = cmds.index("ATTR_LOD\t0 2000")
     assert cmds[i + 1] == "ATTR_draped" and cmds[i + 3] == "ATTR_no_draped"
     q = tmp_path / "one.obj"
-    q.write_text(f.text, encoding="latin-1")
+    q.write_text(f.text, encoding="latin-1", newline="")
     g = obj8.parse_obj8(str(q))
     assert g.draped.shape[0] == 2 and g.solid.shape[0] == 12
 

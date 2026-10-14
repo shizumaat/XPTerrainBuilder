@@ -83,7 +83,24 @@ from shapely.strtree import STRtree
 
 from .cluster_outline import _parts, deck_shades, with_shade
 
-__all__ = ["Slab", "FaceFacts", "base_slabs", "slab_polygons", "pad_shades"]
+__all__ = ["Slab", "FaceFacts", "base_slabs", "slab_polygons", "pad_shades",
+           "register_face_reader", "registered_faces"]
+
+#: THE FACE READER's maker, registered by the layer that owns the OBJ8
+#: reader (``airport/slab_faces`` registers ``witness_faces`` at import) so
+#: a layer that may not import ``airport`` — ``constraints/cluster_pad``'s
+#: pad census — reads the SAME witness the gap mint and the pad mint read.
+_FACE_READER: list = []
+
+
+def register_face_reader(make: _t.Callable) -> None:
+    """Register ``make(slab_law) -> faces | None`` (the one reader)."""
+    _FACE_READER[:] = [make]
+
+
+def registered_faces(lw: _t.Any) -> "_t.Callable | None":
+    """The registered face reader for ``lw``; None where none is."""
+    return _FACE_READER[0](lw) if _FACE_READER and lw is not None else None
 
 
 class FaceFacts(_t.NamedTuple):

@@ -150,7 +150,8 @@ def _unclaimed(cell: Cell) -> bool:
     return is_gap_apron_ref(getattr(cell, "ref", "")) or is_rim_strip(cell)
 
 
-def runway_end_breaks(cells: tuple[Cell, ...], law: Law) -> list[LineString]:
+def runway_end_breaks(cells: tuple[Cell, ...], law: Law,
+                      runways: tuple = ()) -> list[LineString]:
     """THE BREAKLINE AT THE STRIP'S END (owner RULINGS 2026-10-12q (1) (a);
     ``tables.runway_end_profile``): per runway, the line across the end
     band perpendicular to the runway's long axis at ``EndProfile.break_m``
@@ -171,10 +172,13 @@ def runway_end_breaks(cells: tuple[Cell, ...], law: Law) -> list[LineString]:
             continue
         by_ref.setdefault(c.ref, []).append(Polygon(c.ring, c.holes))
         cls.setdefault(c.ref, (c.code_number, c.code_letter))
+    # the runway's INSTRUMENT STATUS (RULINGS 2026-10-15k): the strip's end
+    # length is read by it (``overlay._runway_records``' last slot)
+    ins_of = {r[0]: bool(r[6]) for r in runways if len(r) >= 7}
     out: list[LineString] = []
     for ref, polys in by_ref.items():
         cn, cl = cls[ref]
-        prof = runway_end_profile(law, cn, cl)
+        prof = runway_end_profile(law, cn, cl, ins_of.get(ref, False))
         brk = prof.break_m
         if not brk:
             continue
@@ -344,7 +348,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     claimed = everything
     out: list[ZoneRegion] = []
     counters: dict[tuple, int] = {}
-    breaks = runway_end_breaks(cells, law)
+    breaks = runway_end_breaks(cells, law, runways)
     for key in sorted(groups, key=rank):
         fam, cn, cl = key
         u = unary_union(groups[key])
@@ -479,9 +483,10 @@ def _runway_band(u, ref: str, cn: int | None, cl: str | None, law: Law,
         ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
         # each end's own length: the RSA, or the top of a drop (15g (C);
         # ``airport/end_area``, carried in the record)
-        rsa = runway_safety_area_length_m(law, cn, cl)
-        la, lb = (float(rec[4]), float(rec[5])) if rec is not None and len(rec) >= 6 \
-            else (rsa, rsa)
+        ins = bool(rec[6]) if rec is not None and len(rec) >= 7 else False
+        rsa = runway_safety_area_length_m(law, cn, cl, ins)
+        la, lb = (float(rec[4]), float(rec[5])) \
+            if rec is not None and len(rec) >= 6 and rec[4] is not None else (rsa, rsa)
         axis = LineString([(a[0] - ux * la, a[1] - uy * la),
                            (b[0] + ux * lb, b[1] + uy * lb)])
         outer = unary_union([outer, axis.buffer(hw, cap_style="flat")])

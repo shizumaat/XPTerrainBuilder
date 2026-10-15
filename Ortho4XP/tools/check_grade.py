@@ -2990,7 +2990,8 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     from auto_patch_v2.constraints.strips import (end_transect_foot,
                                                   end_transect_pairs)
     from auto_patch_v2.verify.strips import (end_chord_foot, end_excess_m,
-                                             end_exempt_geometry, published_slabs)
+                                             end_exempt_geometry, published_instrument,
+                                             published_slabs)
     from shapely.geometry import Point as _Pt
     slabs = published_slabs(runway_axes_ll, ll_to_m)
     law, profile_of = _runway_end_profile_law()
@@ -3077,7 +3078,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     # pairs``): every end-band node against the nearest node inward on
     # its own line, across every strip way
     for ref, rings, axis, code, length, letter in groups:
-        prof = profile_of(law, code, letter)
+        prof = profile_of(law, code, letter, published_instrument(runway_axes_ll, ref))
         ux, uy = axis
         frame = end_edges_by_ref.get(ref)
         if frame is None:
@@ -3141,7 +3142,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     for w, closed, nn, pts, zs in strip_ways:
         allow = max(_pair_quant_noise_m(w), q)
         for ref, rings, axis, code, length, letter in groups:
-            prof = profile_of(law, code, letter)
+            prof = profile_of(law, code, letter, published_instrument(runway_axes_ll, ref))
             ux, uy = axis
             frame = end_edges_by_ref.get(ref)
             for ring_idx in (1, 2):
@@ -4004,9 +4005,22 @@ def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
         if len(pts) < 3:
             continue
         groups.setdefault(w.ref or w.wid, []).extend(pts)
+    # THE RUNWAY'S OWN SLAB where the sidecar publishes it (``runway_axes``,
+    # ``verify.strips.published_slabs``) — the generator's strip footprint
+    # (``constraints.strips.runway_groups``, §40 (1)), never a fit to the
+    # runway-role rings.  Measured CYXY (lane rwyzone15c phase 5): 14L/32R's
+    # rings fit 90.2 m wide and 29.5 m off its centreline (on main as on
+    # the branch), so this footprint read strip stations the generator's
+    # rect never holds (a ``strip_arc`` row at 60.717927, -135.071538 on a
+    # taxi-C lip vertex 85 m off the centreline).  The fit stays the fallback
+    # for a patch without the key.
+    slabs: Dict[str, tuple] = {}
+    if _ACTIVE_RUNWAY_AXES:
+        from auto_patch_v2.verify.strips import published_slabs
+        slabs = published_slabs(_ACTIVE_RUNWAY_AXES, ll_to_m)
     out = []
-    for pts in groups.values():
-        grp = _strip_group_of_axis(_runway_axis_and_width(pts), ll_to_m)
+    for ref, pts in groups.items():
+        grp = _strip_group_of_axis(slabs.get(ref) or _runway_axis_and_width(pts), ll_to_m)
         if grp is not None:
             out.append(grp)
     return out

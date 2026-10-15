@@ -73,6 +73,11 @@ class Runway:
     ends: tuple[RunwayEnd, RunwayEnd]
     code_number: int | None
     code_letter: str | None
+    #: THE INSTRUMENT STATUS (owner RULINGS 2026-10-15k (3)): a CIFP
+    #: ``APPCH:`` procedure is flown to one of its ends
+    #: (``airport/cifp.read_cifp_approach_runways``); none -> non-instrument.
+    #: The law tables read the RESA and the strip's end length by it.
+    instrument: bool = False
 
     @property
     def length_m(self) -> float:

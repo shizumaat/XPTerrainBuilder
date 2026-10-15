@@ -76,7 +76,7 @@ def test_faa_profile_is_the_near_end_rule_then_five_percent(faa):
     assert prof.rise_m(30.0) == 0.0
     assert prof.rise_m(61.0) == 0.0
     # beyond it the departure surface (40:1 from the DER, no setback)
-    assert prof.rise_m(80.0) == pytest.approx(rs.eat.slope * 80.0)
+    assert prof.rise_m(80.0) == pytest.approx(rs.eat.slope.value(4) * 80.0)
     # the grade-change rate is stated and read
     assert rs.end_skirt.rate_provisional is False
     assert prof.rate == pytest.approx(0.02 / 30.5)
@@ -89,8 +89,9 @@ def test_icao_rising_ground_is_the_takeoff_climb_surface(icao):
     prof = runway_end_profile(icao, 3, "D")
     # level with the end for the first setback_m, then the slope
     assert prof.rise_m(0.0) == 0.0
-    assert prof.rise_m(rs.eat.setback_m) == 0.0
-    assert prof.rise_m(rs.eat.setback_m + 100.0) == pytest.approx(rs.eat.slope * 100.0)
+    assert prof.rise_m(rs.eat.setback_m.value(3)) == 0.0
+    assert prof.rise_m(rs.eat.setback_m.value(3) + 100.0) == pytest.approx(
+        rs.eat.slope.value(3) * 100.0)
 
 
 def test_pair_bounds_are_one_sided_in_each_direction(icao):

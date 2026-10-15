@@ -38,7 +38,10 @@ def strip_keepout(classification: Classification, law: Law):
         half = zone2_half_width_m(law, "runway", c.code_number, c.code_letter) or 0.0
         # the RSA length (owner RULINGS 2026-10-15c (2)), from the slab end:
         # a keep-out may overshoot the band by the overrun, never fall short
-        end = runway_safety_area_length_m(law, c.code_number, c.code_letter)
+        # a cell carries no instrument status (RULINGS 2026-10-15k): the
+        # longer of the two, so the keep-out never falls short of the band
+        end = max(runway_safety_area_length_m(law, c.code_number, c.code_letter, ins)
+                  for ins in (False, True))
         ab = long_axis(rotated_rectangle(poly))
         if ab is None:
             polys.append(poly.buffer(half))

@@ -116,6 +116,10 @@ class StripLaw:
     #: ``None`` = the authority states no strip beyond the end (FAA: the
     #: RSA near-end rule, ``EndSkirtLaw.near_zone_m``, governs instead).
     end_length_m: CodeTable | None = None
+    #: ... on an INSTRUMENT runway (owner RULINGS 2026-10-15k (1); Annex 14
+    #: §3.4.2: 60 m at every code), where the authority states a separate
+    #: figure; ``None`` = the instrument runway reads ``end_length_m``
+    end_length_instrument_m: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -135,6 +139,9 @@ class EndSkirtLaw:
     #: = the authority builds it from the strip end length + the RESA
     #: (``tables.runway_safety_area_length_m``)
     rsa_length_m: CodeTable | None = None
+    #: the RESA on an INSTRUMENT runway (owner RULINGS 2026-10-15k (1);
+    #: Annex 14 §3.5.2-3.5.4); ``None`` = it reads ``corridor_length_m``
+    corridor_length_instrument_m: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)

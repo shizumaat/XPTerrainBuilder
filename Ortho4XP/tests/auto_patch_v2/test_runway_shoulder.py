@@ -429,7 +429,7 @@ def _end_lobe_airport(depth_m: float = 20.0):
 
 def _end_len(law) -> float:
     # the RSA length from the runway end (RULINGS 2026-10-15c (2)): ICAO
-    # code 2 = the strip's 60 m + the RESA's 90 m
+    # code 2 NON-instrument = the strip's 60 m + the RESA's 30 m (15k (1))
     from auto_patch_v2.law.tables import runway_safety_area_length_m
     return runway_safety_area_length_m(law, 2, "C")
 
@@ -446,7 +446,7 @@ def test_the_shoulder_band_runs_the_strip_s_end_corridor_beyond_the_threshold(la
     from auto_patch_v2.classify.roles import shoulder_band
     rw = _synthetic(gate=True).runways[0]
     ext = _end_len(law)
-    assert ext == 150.0, ext                     # ICAO code 2: 60 + 90 (Annex 14 §3.4.2 / §3.5.3)
+    assert ext == 90.0, ext                      # ICAO code 2 non-instrument: 60 + 30 (Annex 14 §3.4.2 / §3.5.4; 15k)
     on = shoulder_band(rw, law)
     off = shoulder_band(rw, law, end_cap=False)
     x0, y0, x1, y1 = on.bounds

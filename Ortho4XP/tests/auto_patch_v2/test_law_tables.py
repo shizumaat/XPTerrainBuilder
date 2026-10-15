@@ -226,14 +226,17 @@ def _common_checks(c: Checks, t) -> None:
          eat.rect_max_along_m)
     c.eq("common.eat.min_runway_code_number", v1.EAT_MIN_RUNWAY_CODE_NUMBER,
          eat.min_runway_code_number)
+    # the surfaces BY CODE since RULINGS 2026-10-15k (2): v1 carried the
+    # code 3/4 figure (the only codes the EAT family reads,
+    # ``min_runway_code_number``); FAA states one surface for every code
     c.eq("faa.eat.slope", v1.EAT_FAA_DEPARTURE_SLOPE,
-         t.rulesets["faa"].eat.slope)
+         t.rulesets["faa"].eat.slope.value(4))
     c.eq("faa.eat.setback_m", v1.EAT_FAA_SETBACK_M,
-         t.rulesets["faa"].eat.setback_m)
+         t.rulesets["faa"].eat.setback_m.value(4))
     c.eq("icao.eat.slope", v1.EAT_EASA_TAKEOFF_CLIMB_SLOPE,
-         t.rulesets["icao"].eat.slope)
+         t.rulesets["icao"].eat.slope.value(4))
     c.eq("icao.eat.setback_m", v1.EAT_EASA_SETBACK_M,
-         t.rulesets["icao"].eat.setback_m)
+         t.rulesets["icao"].eat.setback_m.value(4))
     c.eq("icao stand == apron", v1.ICAO_RULESET.stand_max_grade,
          roles["apron"].longitudinal)
     c.eq("faa stand == apron", v1.FAA_RULESET.stand_max_grade,

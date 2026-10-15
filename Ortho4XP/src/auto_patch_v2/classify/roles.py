@@ -1415,7 +1415,8 @@ def shoulder_band(rw, law: Law, *, end_cap: bool = True):
         return None
     if end_cap:
         # the RSA length from the runway END (owner RULINGS 2026-10-15c (2))
-        ext = runway_safety_area_length_m(law, rw.code_number, rw.code_letter)
+        ext = runway_safety_area_length_m(law, rw.code_number, rw.code_letter,
+                                          bool(getattr(rw, "instrument", False)))
         if ext > 0.0:
             length = math.hypot(b[0] - a[0], b[1] - a[1])
             ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length

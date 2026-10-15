@@ -257,9 +257,11 @@ def corners(patch, icao):
 
 
 def _axes_from_sidecar(patch):
-    """``[(ref, (lat0, lon0), (lat1, lon1), width_m, code_number, code_letter)]``
+    """``[(ref, (lat0, lon0), (lat1, lon1), width_m, code_number, code_letter,
+    instrument)]``
     from the patch's own sidecar (``runway_axes`` + ``runway_caps``) — the
     build's axis, never a second fit."""
+    from auto_patch_v2.verify.strips import published_instrument
     side = Path(str(patch) + ".axes.json")
     if not side.is_file():
         return None, None
@@ -270,7 +272,9 @@ def _axes_from_sidecar(patch):
         ref, lat0, lon0, lat1, lon1, width = row[:6]    # [6:] the overruns
         c = caps.get(ref) or {}
         out.append((ref, (lat0, lon0), (lat1, lon1), float(width),
-                    c.get("code_number"), c.get("code_letter")))
+                    c.get("code_number"), c.get("code_letter"),
+                    # RULINGS 2026-10-15k (3): the published instrument status
+                    published_instrument([row], ref)))
     return out, str(d.get("ruleset") or "icao")
 
 
@@ -299,8 +303,8 @@ def profile(patch, corridor_m=8.0, law_dir=None):
                 continue
             pts.setdefault(nid, (nodes[nid], float(e), set()))[2].add(w.role)
     out = []
-    for ref, (la0, lo0), (la1, lo1), width, cn, cl in axes:
-        prof = runway_end_profile(law, cn, cl)
+    for ref, (la0, lo0), (la1, lo1), width, cn, cl, ins in axes:
+        prof = runway_end_profile(law, cn, cl, ins)
         cos0 = math.cos(math.radians(la0))
         ux = (lo1 - lo0) * math.pi / 180.0 * R_EARTH * cos0
         uy = (la1 - la0) * math.pi / 180.0 * R_EARTH

@@ -225,18 +225,19 @@ def test_a_ribbon_leaving_the_patch_onto_a_shelf_reaches_the_terrain(law):
     last ring vertex is ON the terrain); a way far from the patch mints
     nothing (the brief's 'a road far from the patch is untouched')."""
     far = ((600.0, -40.0), (1400.0, -40.0))
-    # the synthetic's zone-2 envelopes reach x = 1150 (the code-2 RSA, 150 m
-    # past the runway end, RULINGS 2026-10-15c (2)) and its airside x = 1060:
-    # the shelf starts past both, inside the hold window, so the mouth reads 100 m
-    shelf = _ShelfDem(5.0, edge=1155.0)
+    # the synthetic's zone-2 envelopes reach x = 1090 (the code-2
+    # NON-instrument RSA, the strip's 60 m + the RESA's 30 m past the runway
+    # end, RULINGS 2026-10-15c (2) / 15k (1)) and its airside x = 1060: the
+    # shelf starts past both, inside the hold window
+    shelf = _ShelfDem(5.0, edge=1095.0)
     a = _dc.replace(_with(_way(-3, far, highway="tertiary")), dem=shelf)
     cl = classify(a, law)
     rib = _ribbons(cl)
     assert [c.ref for c in rib] == ["small_roads:-3"]
     xmax = max(x for x, _y in rib[0].ring)
     cap = float(law.tables.common.road_max_grade)
-    assert xmax >= 1155.0 + 5.0 / cap
-    assert xmax <= 1155.0 + 5.0 / cap + 12.0
+    assert xmax >= 1095.0 + 5.0 / cap
+    assert xmax <= 1095.0 + 5.0 / cap + 12.0
     off = _dc.replace(_with(_way(-9, ((600.0, -3000.0), (1400.0, -3000.0)),
                                 highway="tertiary")), dem=shelf)
     assert _ribbons(classify(off, law)) == []

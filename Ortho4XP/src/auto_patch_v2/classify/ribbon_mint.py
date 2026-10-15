@@ -29,7 +29,7 @@ __all__ = ["mint_osm_ribbons", "mint_pad_roads", "ribbon_extent", "bridge_gaps",
 
 
 
-def _rsa_rect(poly, law: Law, cn, cl, hw: float, ends=None):
+def _rsa_rect(poly, law: Law, cn, cl, hw: float, ends=None, instrument: bool = False):
     """The RSA rectangle beyond a runway's ends (owner RULINGS 2026-10-15c
     (2)): the band ``planar/zones`` grades runs the RSA length past the
     runway END (``ends``: the apt.dat ends, ``planar/zones._runway_band``'s
@@ -46,7 +46,7 @@ def _rsa_rect(poly, law: Law, cn, cl, hw: float, ends=None):
     if L <= 0.0:
         return Polygon()
     ux, uy = (bx - ax) / L, (by - ay) / L
-    r = runway_safety_area_length_m(law, cn, cl)
+    r = runway_safety_area_length_m(law, cn, cl, instrument)
     return LineString([(ax - ux * r, ay - uy * r), (bx + ux * r, by + uy * r)]
                       ).buffer(hw, cap_style="flat")
 
@@ -69,9 +69,10 @@ def ribbon_extent(cells, law: Law, pavement_union, runways=()):
             parts.append(Polygon(c.ring, c.holes).buffer(hw, join_style="mitre",
                                                          mitre_limit=2.0))
         if hw and c.role in RUNWAY_FAMILY_ROLES:
-            ends = next(((r.ends[0].xy, r.ends[1].xy) for r in runways if r.id == c.ref), None)
+            rw = next((r for r in runways if r.id == c.ref), None)
+            ends = (rw.ends[0].xy, rw.ends[1].xy) if rw is not None else None
             parts.append(_rsa_rect(Polygon(c.ring), law, c.code_number, c.code_letter, hw,
-                                   ends))
+                                   ends, bool(getattr(rw, "instrument", False))))
     return unary_union(parts) if parts else Polygon()
 
 

@@ -235,3 +235,21 @@ def test_the_projection_holds_the_end_profile_over_a_zone_floor(law):
     out = _z_of(base, x)
     assert out[0] == pytest.approx(0.14)
     assert ZONE_GENERATOR == "zones"
+
+
+
+def test_a_taxiway_s_own_lip_in_an_end_area_takes_no_end_row(synthetic, law):
+    """RULINGS 2026-10-15j: inside a runway end area the adjacent ground
+    within a non-runway pavement's lip follows that pavement — the end
+    laws state no row on it (``constraints.end_lip``, the one predicate),
+    and the zone end box leaves it to the pavement's own band."""
+    from auto_patch_v2.constraints.end_lip import end_lip_vertices
+    airport, pm = synthetic
+    vw = view(pm, law)
+    groups = strips.runway_groups(vw, airport)
+    lip = end_lip_vertices(vw, groups)
+    assert lip, "the junction across 12L's end must carry lip ground in the end area"
+    ends = strips.end_corridor_longitudinal(pm, law, airport)
+    bad = [r for r in ends if any(v in lip for v, _c in r.terms)]
+    assert not bad, f"{len(bad)} end rows bind the junction's own lip"
+    assert not (lip & strips.end_band_vertices(vw, groups))

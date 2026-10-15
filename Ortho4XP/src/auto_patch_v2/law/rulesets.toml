@@ -124,10 +124,21 @@ arc_rate_provisional = true
 # are expressible.  The band's own LENGTH stays the zone-2 half-width (NOT
 # ruled: the RESA length is not built).
 end_length_m = { by_code = { "1" = 30.0, "2" = 60.0, "3" = 60.0, "4" = 60.0 }, default = 60.0 }
+# ... on an INSTRUMENT runway (owner RULINGS 2026-10-15k (1); Annex 14 §3.4.2:
+# 60 m at every code).  Instrument status is the runway's witnessed CIFP
+# approaches (`airport/cifp.read_cifp_approach_runways`; none -> non-instrument).
+end_length_instrument_m = { by_code = { "1" = 60.0, "2" = 60.0, "3" = 60.0, "4" = 60.0 }, default = 60.0 }
 
 [icao.end_skirt]
 max_down_grade = 0.05                                     # beyond the strip's end (Doc 9157 §5.4.13 / CS C.230(a)(2); reg-set 08-08): FALLING ground only (RULINGS 2026-10-12q (1) (c)) — rising ground is bound by the take-off climb surface, `[icao.eat]` below with no tail height (`tables.runway_end_profile`)
-corridor_length_m = { by_code = { "1" = 60.0, "2" = 90.0, "3" = 150.0, "4" = 240.0 }, default = 240.0 }  # governed end corridor beyond each end (Annex 14 §3.5.3 RESA length; RUNWAY_END_CLEARANCE_LENGTH_BY_CODE)
+# THE RESA beyond the strip's end, by code AND instrument status (owner RULINGS
+# 2026-10-15k (1)): Annex 14 §3.5.2 requires a RESA at code 3/4 and at a code
+# 1/2 INSTRUMENT runway, §3.5.3 at least 90 m; §3.5.4 recommends 240 m at code
+# 3/4 (kept where the table already used it: code 4) and, for a code 1/2
+# NON-INSTRUMENT runway, 30 m.  Until 15k this read 60 / 90 / 150 / 240 at
+# every status (code 1 cited §3.5.3, which states no code-1 figure).
+corridor_length_m = { by_code = { "1" = 30.0, "2" = 30.0, "3" = 90.0, "4" = 240.0 }, default = 240.0 }  # non-instrument
+corridor_length_instrument_m = { by_code = { "1" = 90.0, "2" = 90.0, "3" = 90.0, "4" = 240.0 }, default = 240.0 }
 rate           = { grade = 0.02, per_m = 30.5 }           # PROVISIONAL — Doc 9157 §5.4.13 / CS C.230(a)(2) are QUALITATIVE ("as gradual as practicable"); read by NOTHING while provisional (RULINGS 2026-10-12q (1): no number invented for ICAO)
 rate_provisional = true
 
@@ -140,11 +151,13 @@ half_width_m     = 60.0
 max_grade_change = { grade = 0.02, per_m = 30.0 }
 
 [icao.eat]
-# EASA CS-ADR-DSN H.435 / Table J-2 + J.480(e) take-off climb surface, code
-# 3/4: 2 % from an inner edge 60 m beyond the runway end (v1
-# `config.py:5909-5913 EAT_EASA_TAKEOFF_CLIMB_SLOPE / EAT_EASA_SETBACK_M`).
-slope     = 0.02
-setback_m = 60.0
+# THE TAKE-OFF CLIMB SURFACE BY CODE (owner RULINGS 2026-10-15k (2); Annex 14
+# Vol I Table 4-2): code 1 5 % from an inner edge 30 m beyond the runway end,
+# code 2 4 % from 60 m, code 3/4 2 % from 60 m (EASA CS-ADR-DSN H.435 /
+# Table J-2 + J.480(e) the same; v1 `config.py:5909-5913` carried code 3/4's
+# figure for every code, as this table did until 15k).
+slope     = { by_code = { "1" = 0.05, "2" = 0.04, "3" = 0.02, "4" = 0.02 }, default = 0.02 }
+setback_m = { by_code = { "1" = 30.0, "2" = 60.0, "3" = 60.0, "4" = 60.0 }, default = 60.0 }
 
 [icao.drainage]
 # ICAO states no apron drainage minimum: the family is a no-op (08-13b/14).

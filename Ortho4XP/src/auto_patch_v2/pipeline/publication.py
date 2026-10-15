@@ -482,7 +482,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                  # RULINGS 2026-10-15g (C): each END AREA's length from the
                  # runway end (the RSA, or the top of a drop, read from the
                  # DEM by ``model/end_area``) — the census reads it
-                 *(round(float(x), 3) for x in _end_lens.get(rw.id, ()))]
+                 *(round(float(x), 3) for x in _end_lens.get(rw.id, (0.0, 0.0))),
+                 # RULINGS 2026-10-15k (3): the INSTRUMENT STATUS (1 / 0) the
+                 # law tables read the strip's end and the RESA by — verify
+                 # and the census read the same status here
+                 1 if getattr(rw, "instrument", False) else 0]
                 for rw in airport.runways],
             "shoulder_transverse_max":
                 float(law.ruleset.runway.shoulder_transverse_max),

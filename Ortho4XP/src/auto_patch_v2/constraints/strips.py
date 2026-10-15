@@ -103,6 +103,8 @@ class RunwayGroup:
     code_number: int
     code_letter: str | None
     rings: tuple[list[XY], ...]          # lateral rect, approach end, departure end
+    #: the runway's INSTRUMENT STATUS (RULINGS 2026-10-15k; ``Runway.instrument``)
+    instrument: bool = False
 
 
 def runway_code_number(length_m: float, law: Law) -> int:
@@ -142,6 +144,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         if rw.id in pts_by_ref:
             pts_by_ref[rw.id] = list(rw.slab_corners)
     letter_of = {rw.id: rw.code_letter for rw in airport.runways}
+    instrument_of = {rw.id: bool(getattr(rw, "instrument", False)) for rw in airport.runways}
     ends_of = {rw.id: (rw.ends[0].xy, rw.ends[1].xy) for rw in airport.runways}
     end_len = end_area_lengths(airport, law)
     out: list[RunwayGroup] = []
@@ -165,7 +168,8 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         # ...or to the top of a drop (RULINGS 2026-10-15g (C);
         # ``model/end_area``): each end its own length, end 0 / end 1 matched
         # to the slab side its END stands on
-        rsa = runway_safety_area_length_m(law, code, letter)
+        ins = instrument_of.get(ref, False)
+        rsa = runway_safety_area_length_m(law, code, letter, ins)
         len_a = len_b = rsa
         if ref in ends_of:
             ss = [(p[0] - a[0]) * unit[0] + (p[1] - a[1]) * unit[1] for p in ends_of[ref]]
@@ -180,7 +184,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         rings = (rect_ring(a, b, -m, length + m, strip_half + m),
                  rect_ring(a, b, -len_a - m, m, end_half + m),
                  rect_ring(a, b, length - m, length + len_b + m, end_half + m))
-        out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings))
+        out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings, ins))
     return out
 
 
@@ -516,7 +520,7 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     # the pavement leads that ground, the end profile governs the rest
     road_cap = _end_yields(vw)
     for g in runway_groups(vw, airport):
-        prof = runway_end_profile(law, g.code_number, g.code_letter)
+        prof = runway_end_profile(law, g.code_number, g.code_letter, g.instrument)
         src = Source(GEN, END_PROFILE_PAIR_RULING, (f"rwy:{g.ref}",))
         chord_src = Source(GEN, END_PROFILE_RULING, (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):

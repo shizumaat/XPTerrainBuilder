@@ -220,9 +220,13 @@ def groups(p: Patch):
         if sh.role == "runway":
             pts_by_ref.setdefault(sh.ref, []).extend(sh.xy)
             letter.setdefault(sh.ref, sh.code_letter)
+    # the runway's own SLAB where published (§40 (1); ``published_slabs``),
+    # the generator's footprint — a fit to the runway-role rings is the
+    # fallback (CYXY 14L/32R's rings fit 29.5 m off its centreline)
+    slabs = published_slabs(p.publication.get("runway_axes"), p.to_m)
     out = []
     for ref, pts in pts_by_ref.items():
-        ax = principal_axis(pts)
+        ax = slabs.get(ref) or principal_axis(pts)
         if ax is None:
             continue
         a, b, width = ax
@@ -240,6 +244,18 @@ def groups(p: Patch):
     return out
 
 
+def published_instrument(rows, ref: str | None) -> bool:
+    """THE RUNWAY'S INSTRUMENT STATUS as the sidecar publishes it
+    (``runway_axes`` slot 10, RULINGS 2026-10-15k (3)) — the ONE read both
+    readers make, so the census and verify price the strip's end and the
+    RESA by the status the generator did.  ``False`` (non-instrument) for a
+    ref the rows do not carry, or a row written before the status."""
+    for r in rows or ():
+        if len(r) >= 11 and str(r[0]) == str(ref):
+            return bool(r[10])
+    return False
+
+
 def rsa_end_lengths(p: Patch, ref: str | None, a, b, code, letter
                     ) -> tuple[float, float]:
     """``(beyond a, beyond b)``: the RSA length (owner RULINGS 2026-10-15c
@@ -247,7 +263,8 @@ def rsa_end_lengths(p: Patch, ref: str | None, a, b, code, letter
     past the slab end less that end's published overrun — the generator's
     ``constraints.strips.runway_groups`` reading, the slab end matched to
     the nearer of ``a`` / ``b``."""
-    rsa = runway_safety_area_length_m(p.law, code, letter)
+    rsa = runway_safety_area_length_m(p.law, code, letter, published_instrument(
+        p.publication.get("runway_axes"), ref))
     for r in p.publication.get("runway_axes") or ():
         if len(r) < 8 or str(r[0]) != str(ref):
             continue
@@ -560,7 +577,8 @@ def runway_end_skirt(p: Patch) -> list[Row]:
     out: list[Row] = []
     seen: set = set()
     for ref, rings, unit, code, L, letter, a0, _b in end_groups(p):
-        prof = runway_end_profile(law, code, letter)
+        prof = runway_end_profile(law, code, letter,
+                                  published_instrument(p.publication.get("runway_axes"), ref))
         ux, uy = unit
 
         def beyond(xy, ring_idx):

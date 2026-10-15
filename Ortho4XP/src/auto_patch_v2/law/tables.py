@@ -435,25 +435,38 @@ def runway_zone_edge_offset_m(law: Law, code_number: int | None,
 
 
 def runway_safety_area_length_m(law: Law, code_number: int | None = None,
-                                code_letter: str | None = None) -> float:
+                                code_letter: str | None = None,
+                                instrument: bool = False) -> float:
     """THE GRADED AREA'S LENGTH beyond each runway end, measured from the
     runway END with the blast pad inside it (owner RULINGS 2026-10-15c (2)
     "Full safety-area length"): FAA — the RSA length by design group
     (``[faa.end_skirt] rsa_length_m``: AC 150/5300-13B App. G dim R through
     the letter proxy); ICAO — the strip's end length plus the RESA
     (``strip.end_length_m`` + ``end_skirt.corridor_length_m``; Annex 14
-    §3.5.3 measures the RESA from the strip's end; master 2026-10-15 Q1)."""
+    §3.5.3 measures the RESA from the strip's end; master 2026-10-15 Q1),
+    each read BY CODE AND INSTRUMENT STATUS (RULINGS 2026-10-15k (1);
+    ``instrument`` is the runway's witnessed CIFP approach,
+    ``model.airport.Runway.instrument``)."""
     rs = law.ruleset
     sk = rs.end_skirt
     if sk.rsa_length_m is not None:
         v = sk.rsa_length_m.value(code_number, code_letter)
         if v:
             return float(v)
-    el = rs.strip.end_length_m
-    strip_end = (el.value(code_number, code_letter) if el is not None else 0.0) or 0.0
-    cl = sk.corridor_length_m
-    resa = (cl.value(code_number, code_letter) if cl is not None else 0.0) or 0.0
+    strip_end = _by_status(rs.strip.end_length_m, rs.strip.end_length_instrument_m,
+                           instrument, code_number, code_letter) or 0.0
+    resa = _by_status(sk.corridor_length_m, sk.corridor_length_instrument_m,
+                      instrument, code_number, code_letter) or 0.0
     return float(strip_end) + float(resa)
+
+
+def _by_status(table, instrument_table, instrument: bool,
+               code_number: int | None, code_letter: str | None) -> float | None:
+    """A value the standard states by INSTRUMENT STATUS (RULINGS
+    2026-10-15k): the instrument table on an instrument runway where the
+    ruleset carries one, else the table itself; ``None`` with neither."""
+    t = instrument_table if instrument and instrument_table is not None else table
+    return None if t is None else t.value(code_number, code_letter)
 
 
 def zone_bounds(law: Law, role: str, d_m: float,
@@ -608,17 +621,19 @@ class EndProfile:
 
 
 def runway_end_profile(law: Law, code_number: int | None = None,
-                       code_letter: str | None = None) -> EndProfile:
+                       code_letter: str | None = None,
+                       instrument: bool = False) -> EndProfile:
     """:class:`EndProfile` for a runway of this class under the law's
-    ruleset — the strip's end length and cap where the authority states
-    them, else the end skirt's near zone; the skirt's max down-grade
-    beyond; the climb surface from the ruleset's ``eat`` table."""
+    ruleset — the strip's end length (by code and instrument status,
+    RULINGS 2026-10-15k (1)) and cap where the authority states them, else
+    the end skirt's near zone; the skirt's max down-grade beyond; the climb
+    surface from the ruleset's ``eat`` table BY CODE (15k (2))."""
     rs = law.ruleset
     sk = rs.end_skirt
     segs: list[tuple[float, float]] = []
     hold = 0.0
-    el = rs.strip.end_length_m
-    end_len = el.value(code_number, code_letter) if el is not None else None
+    end_len = _by_status(rs.strip.end_length_m, rs.strip.end_length_instrument_m,
+                         instrument, code_number, code_letter)
     strip_cap = rs.strip.longitudinal.value(code_number, code_letter)
     if end_len and strip_cap is not None:
         segs.append((float(end_len), float(strip_cap)))
@@ -629,8 +644,9 @@ def runway_end_profile(law: Law, code_number: int | None = None,
     eat = rs.eat
     rate = None if sk.rate_provisional else sk.rate.per_metre
     return EndProfile(tuple(segs), hold,
-                      None if eat is None else float(eat.slope),
-                      0.0 if eat is None else float(eat.setback_m), rate)
+                      None if eat is None else float(eat.slope.value(code_number, code_letter)),
+                      0.0 if eat is None else float(eat.setback_m.value(code_number, code_letter)),
+                      rate)
 
 
 def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:

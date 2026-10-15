@@ -48,9 +48,47 @@ def test_the_rsa_length_is_the_authority_s_own(faa, icao):
     assert runway_safety_area_length_m(faa, 4, "B") == pytest.approx(300 * FT, abs=0.05)
     for letter in "CDEF":
         assert runway_safety_area_length_m(faa, 4, letter) == pytest.approx(1000 * FT, abs=0.05)
-    # ICAO: the strip's 60 m past the end + the RESA from the strip's end
+    # ICAO: the strip's end + the RESA from the strip's end, BY CODE AND
+    # INSTRUMENT STATUS (RULINGS 2026-10-15k (1), Annex 14 §3.4.2 / §3.5.2-4)
     assert runway_safety_area_length_m(icao, 4, "C") == pytest.approx(60.0 + 240.0)
-    assert runway_safety_area_length_m(icao, 1, "A") == pytest.approx(30.0 + 60.0)
+    assert runway_safety_area_length_m(icao, 4, "C", True) == pytest.approx(60.0 + 240.0)
+    assert runway_safety_area_length_m(icao, 3, "C") == pytest.approx(60.0 + 90.0)
+    # code 1/2 NON-instrument: the strip's 30 / 60 m + the recommended 30 m
+    assert runway_safety_area_length_m(icao, 1, "A") == pytest.approx(30.0 + 30.0)
+    assert runway_safety_area_length_m(icao, 2, "B") == pytest.approx(60.0 + 30.0)
+    # code 1/2 INSTRUMENT: the strip's 60 m + the mandatory 90 m
+    assert runway_safety_area_length_m(icao, 1, "A", True) == pytest.approx(60.0 + 90.0)
+    assert runway_safety_area_length_m(icao, 2, "B", True) == pytest.approx(60.0 + 90.0)
+    # FAA's RSA is by design group, never by instrument status here
+    assert runway_safety_area_length_m(faa, 4, "B", True) == pytest.approx(300 * FT, abs=0.05)
+
+
+def test_the_take_off_climb_surface_is_read_by_code(icao):
+    """RULINGS 2026-10-15k (2), Annex 14 Table 4-2: code 1 5 % from 30 m,
+    code 2 4 % from 60 m, code 3/4 2 % from 60 m."""
+    from auto_patch_v2.law.tables import runway_end_profile
+    for code, slope, setback in ((1, 0.05, 30.0), (2, 0.04, 60.0), (3, 0.02, 60.0),
+                                 (4, 0.02, 60.0)):
+        prof = runway_end_profile(icao, code, "B")
+        assert (prof.climb_slope, prof.climb_setback_m) == pytest.approx((slope, setback))
+    # the strip's end length by status: code 1 30 m, instrument 60 m
+    assert runway_end_profile(icao, 1, "B").break_m == pytest.approx(30.0)
+    assert runway_end_profile(icao, 1, "B", True).break_m == pytest.approx(60.0)
+
+
+def test_the_instrument_witness_is_a_cifp_approach_to_the_runway(tmp_path):
+    """RULINGS 2026-10-15k (3): an ``APPCH:`` procedure flown TO a runway
+    makes it instrument; a circling procedure names no runway."""
+    from auto_patch_v2.airport.cifp import read_cifp_approach_runways
+    f = tmp_path / "ZZZZ.dat"
+    f.write_text("RWY:RW14L,+0432,      ,02277, ,    , ,   ;N60431814,W135043590,0000;\n"
+                 "APPCH:010,A,I32LY,RETEV,RETEV,CY,P,C,E  A, ,   ,IF;\n"
+                 "APPCH:010,A,R14L,OBSIS,OBSIS,CY,P,C,E  A, ,   ,IF;\n"
+                 "APPCH:010,N,N25,,WF,NL,P,C,E  A, ,   ,IF;\n"
+                 "APPCH:010,A,VDM-A,ABC,ABC,CY,P,C,E  A, ,   ,IF;\n",
+                 encoding="utf-8", newline="\n")
+    assert read_cifp_approach_runways(str(f)) == {"32L", "14L", "25"}
+    assert read_cifp_approach_runways(str(tmp_path / "none.dat")) == frozenset()
 
 
 def test_faa_runway_band_falls_at_five_percent_icao_at_three(faa, icao):

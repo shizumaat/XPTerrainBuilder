@@ -958,12 +958,14 @@ def seam_bands(airport: Airport, regions: list[Region], half_width_m: float
 
 
 def _runway_records(airport, law) -> tuple:
-    """``(ref, end_a, end_b, width_m, end_len_a, end_len_b)`` per runway —
-    the zone band's own reading (``planar/zones._runway_band``): the end
-    areas' lengths from the DEM (``model/end_area``, RULINGS 15g (C))."""
+    """``(ref, end_a, end_b, width_m, end_len_a, end_len_b, instrument)``
+    per runway — the zone band's own reading (``planar/zones._runway_band``):
+    the end areas' lengths from the DEM (``model/end_area``, RULINGS 15g
+    (C)) and the runway's instrument status (15k)."""
     runways = tuple(getattr(airport, "runways", ()) or ())
     if not runways:
         return ()
     lens = end_area_lengths(airport, law)
-    return tuple((r.id, r.ends[0].xy, r.ends[1].xy, r.width_m) + tuple(lens.get(r.id, ()))
+    return tuple((r.id, r.ends[0].xy, r.ends[1].xy, r.width_m) + tuple(lens.get(r.id, (None, None)))
+                 + (bool(getattr(r, "instrument", False)),)
                  for r in runways)

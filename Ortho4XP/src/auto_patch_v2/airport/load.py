@@ -293,6 +293,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     runways: list[Runway] = []
     tol = float(law.tables.emit.identity.cifp_threshold_join_m)
     recs, missing, joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
+    approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else frozenset())
     for _log_line in joins:
         _log.info(_log_line)
     for i, rw in enumerate(apt.runways):
@@ -302,9 +303,13 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp,
                                   over, rec.elevation_m if rec else None,
                                   rec.source if rec else ""))
+        # 15k (3): instrument when an approach is flown to either end — the
+        # end's CIFP record as the join found it (designator or threshold)
+        instrument = any(recs[(i, k)] is not None
+                         and recs[(i, k)].designator in approaches for k in (0, 1))
         r = Runway(f"{ends[0].name}/{ends[1].name}", rw.width_m,
                    normalise_surface(rw.surface), (ends[0], ends[1]), None,
-                   runway_code_letter(rw.width_m))
+                   runway_code_letter(rw.width_m), instrument)
         runways.append(_dc.replace(r, code_number=runway_code_number(r.length_m)))
     rep.cifp_missing_ends = tuple(missing)
     rep.cifp_coordinate_joins = tuple(joins)

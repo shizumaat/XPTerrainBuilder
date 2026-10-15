@@ -14,9 +14,10 @@ ceiling; the projection took the empty band's midpoint (1726.56 m).
 The twins, on a synthetic pair of code-4 parallels (FAA: 4D and 4B) with
 a junction across the 4D runway's end:
 
-* the class join reaches no farther than a zone face can
-  (``planar.zones.ZONE_MITRE_LIMIT`` half-widths): no zone row of a
-  vertex beyond runway A's end names a vertex of runway B;
+* the class join stops at its runway's end: joined to the NEAREST edge of
+  its class, a vertex beyond runway A's end takes nothing from it (the
+  end corridor governs) — and no zone row of such a vertex names a vertex
+  of runway B;
 * in the end box the taxi class floors only (no ceiling row);
 * the projection holds the end profile SENIOR: a zone floor above the
   end profile's ceiling yields to it (``solve.project.senior_band``).

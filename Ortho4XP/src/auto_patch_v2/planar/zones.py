@@ -34,15 +34,10 @@ from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
 __all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
-           "SHORE_WALL_TAGS", "shore_wedge_m", "runway_end_breaks", "ZONE_MITRE_LIMIT"]
+           "SHORE_WALL_TAGS", "shore_wedge_m", "runway_end_breaks"]
 
 RUNWAY_FAMILY = ("runway", "runway_crossing")
-#: The zone buffers' mitre limit: a zone face's outer ring stands at most
-#: this many half-widths from the pavement it is buffered from (a convex
-#: corner's mitre spike) — the reach the corridor rows' class join reads
-#: (``constraints/zones``), never farther.
-ZONE_MITRE_LIMIT = 2.0
-_MITRE = dict(join_style="mitre", mitre_limit=ZONE_MITRE_LIMIT)
+_MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 
 def shore_region(cells: tuple[Cell, ...], dem):

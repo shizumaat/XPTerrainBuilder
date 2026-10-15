@@ -79,7 +79,6 @@ from ..law.tables import (airside_stage_roles, is_value_role, role_side, strip_t
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
-from ..planar.zones import ZONE_MITRE_LIMIT
 from .precedence import View, view
 from .roads import road_family_roles
 from .strips import end_band_vertices, runway_groups
@@ -383,30 +382,29 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
                 if strip or v not in tie_pop:
                     tie_pop[v] = f.id if strip else tie_pop.get(v, -1)
 
-    # THE CLASS JOIN REACHES NO FARTHER THAN THE ZONE FACE CAN (RULINGS
-    # 2026-10-15c, the master's bug (b)): a zone vertex's own class is
-    # searched for the mitred overshoot of ITS face — at most
-    # ``ZONE_MITRE_LIMIT`` half-widths from the pavement the face was
-    # buffered from.  Unbounded, the class key (``("runway", 4, None)``)
-    # joined a vertex beyond one runway's END — where that runway's own
-    # edges are not abeam — to a PARALLEL runway of the same code 250–330 m
-    # away, whose clamped corridor floor then held the end box up to 2.4 m
-    # over its ceiling (measured KBJC 12L: v7391 / v7395 / v918 floored
-    # from 12R/30L at 1728.1 m, the empty band projected to its midpoint).
-    def mitred(e: tuple) -> float:
-        return ZONE_MITRE_LIMIT * (half_of(e) or 0.0)
-
+    # THE CLASS JOIN STOPS AT ITS RUNWAY'S END (RULINGS 2026-10-15c, the
+    # master's bug (b)): a zone vertex's own class is joined to the NEAREST
+    # edge of that class, abeam or not; where that edge is a runway's and
+    # the vertex lies beyond its END, the class contributes nothing — the
+    # end corridor governs there (the LATERAL LAW ONLY, above).  Filtering
+    # the non-abeam edges out first and searching on joined a vertex beyond
+    # one runway's end, by the class key (``("runway", 4, None)``), to a
+    # PARALLEL runway of the same code 250–330 m away, whose clamped
+    # corridor floor then held the end box up to 3.1 m over its ceiling
+    # (measured KBJC 12L: v7391 / v7395 / v918 floored from 12R/30L at
+    # 1728.1 m; the projection took the empty band's midpoint).
     def _found(v: int, classes: set) -> list:
         found: list[tuple[float, int, float, float]] = []   # (d_eff, k, t, d)
+        own: set[int] = set()        # the class join's edges
         for cls in classes:
             g = by_class.get(cls)
             if not g:
                 continue
-            near = _nearest_edge(vw, v, edges, g, cell, mitred, reach * ZONE_MITRE_LIMIT,
-                                 lambda k: abeam(v, k))
-            if near is None:
+            near = _nearest_edge(vw, v, edges, g, cell, lambda e: 1e9, reach * 2.0)
+            if near is None or not abeam(v, near[0]):
                 continue
             k, t, d = near
+            own.add(k)
             half = half_of(edges[k]) or 0.0
             found.append((min(d, half), k, t, d))
         # THE NEAREST PAVEMENT BY TRUE DISTANCE, its band clamped to its
@@ -445,8 +443,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         # vertex above the runway's mandatory-down — an IIS of five rows)
         found = [f_ for rank, f_ in enumerate(found)
                  if rank == 0 or f_[3] <= (half_of(edges[f_[1]]) or 0.0)
-                 or (any(_face_class_of(edges[f_[1]]) == c for c in classes)
-                     and f_[3] <= mitred(edges[f_[1]]))]
+                 or f_[1] in own]
         return found
 
     natural = _in_wedges(vw, natural - quay,

@@ -1156,6 +1156,8 @@ def _place_objects(plan_, law, mesh_sample, tile, patch_dir: str,
         # links a unit — a floor slab, a plate, a deck or a canopy is a
         # LEAF, seated on its own ground and never a link.
         chain_min_height_m=law.tables.structures.placement.chain_min_height_m,
+        # RULINGS 2026-10-14p (3) (#709): a building's small pieces ride its walls
+        piece_reach_m=law.tables.structures.placement.piece_reach_m,
         # S6 CONTENTS (issue #30 / #10): a leaf inside a walled host is the
         # host's CONTENTS and rides the host's unit (never decomposed apart)
         contents_min_fraction=(law.tables.structures.placement

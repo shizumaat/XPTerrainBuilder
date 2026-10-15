@@ -89,6 +89,7 @@ import O4_Qt_Boundary_Dialog as QTBOUND
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
+import O4_Qt_Patch_Editor as QTPATCH
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -743,6 +744,8 @@ class MainWindow(QMainWindow):
             EV.RunDone: self._on_run_done,
             EV.BoundaryAirportsReady: self._on_boundary_airports_ready,
             EV.PackMissingArt: self._on_pack_missing_art,
+            # Patch editor (#46): pack_objects completes through this.
+            EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -946,6 +949,13 @@ class MainWindow(QMainWindow):
         self.map.active_changed.connect(self._active_changed)
         self.map.hover_ll.connect(self._hover)
         self.map.status_message.connect(self._status)
+        # The 2D patch editor (#46): its layer and toolbar on the map, its
+        # box below Activity.
+        self.patch_editor = QTPATCH.PatchEditor(
+            self, self.map, self._session, lambda: self._built,
+            prefs=self.prefs, save_prefs=save_prefs)
+        self.patch_editor.controller.rebuild = self.rebuild_patch_tile
+        self.patch_editor.controller.is_building = lambda: self._building
 
         panel = QWidget()
         pv = QVBoxLayout(panel)
@@ -1249,6 +1259,7 @@ class MainWindow(QMainWindow):
         # shows (_set_activity_box_visible), otherwise the spacer keeps
         # its share and the box stops growing with the window.
         pv.addWidget(self.activity_group, 1)
+        pv.addWidget(self.patch_editor.panel)
         pv.addStretch(1)
         self._panel_layout = pv
         self._panel_spacer_index = pv.count() - 1
@@ -1319,10 +1330,16 @@ class MainWindow(QMainWindow):
         settings_action.setShortcut(QKeySequence.Preferences)
         settings_action.triggered.connect(self.open_settings)
         file_menu.addAction(settings_action)
+        patch_actions = self.patch_editor.menu_actions(self)
+        file_menu.addAction(patch_actions["save"])
         quit_action = QAction("Quit", self)
         quit_action.setShortcut(QKeySequence.Quit)
         quit_action.triggered.connect(self.close)
         file_menu.addAction(quit_action)
+
+        edit_menu = self.menuBar().addMenu("&Edit")
+        edit_menu.addAction(patch_actions["undo"])
+        edit_menu.addAction(patch_actions["redo"])
 
         view_menu = self.menuBar().addMenu("&View")
         refresh_action = QAction("Refresh tiles", self)
@@ -4162,7 +4179,28 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message, 8000)
 
     # ------------------------------------------------------------------
+    def rebuild_patch_tile(self, tile_key):
+        """The patch box's "Rebuild tile": select the tile and build it
+        through the Build box's own path (its recorded source and zoom);
+        the sentence why not, or None."""
+        tile = FNAMES.parse_tile_key(tile_key)
+        if tile is None:
+            return None
+        self.map.set_active(tile[0], tile[1])      # selects it, syncs source / ZL
+        blocked = self.xplane_block_reason()
+        if blocked:
+            return blocked
+        if self.chk_skip_built.isChecked() and tuple(tile) in self._built:
+            return ("This tile can't be rebuilt now. Turn off “Skip already-built "
+                    "tiles” and try again.")
+        self.start_build()
+        return None
+
     def closeEvent(self, event):
+        # Unsaved patch edits ask first (Save / Don't Save / Cancel).
+        if not self.patch_editor.confirm_quit():
+            event.ignore()
+            return
         if self._building:
             answer = QMessageBox.question(
                 self,

@@ -66,6 +66,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..law.tables import frontage_roles, role_side
 from ..geom.cluster_outline import THIN_PIECE_WIDTH_M
+from ..geom.parts import nonempty_polygon_parts as _parts
 from ..model.planar import COLLAR_SUFFIX, SHELF_PREFIX
 
 __all__ = ["SHELVES", "shelf_regions"]
@@ -73,15 +74,6 @@ __all__ = ["SHELVES", "shelf_regions"]
 #: the last arrangement's shelves: ``{ref: record}`` (published by the
 #: arrangement counts; read by the twin)
 SHELVES: dict[str, dict[str, _t.Any]] = {}
-
-
-def _parts(g) -> list[Polygon]:
-    if g is None or g.is_empty:
-        return []
-    if isinstance(g, Polygon):
-        return [g]
-    return [q for q in getattr(g, "geoms", ()) if isinstance(q, Polygon)
-            and not q.is_empty]
 
 
 def _outlines(airport, law: Law, min_m2: float):

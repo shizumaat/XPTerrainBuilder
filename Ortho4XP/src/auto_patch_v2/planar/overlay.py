@@ -82,6 +82,8 @@ class Region:
     shore_wedge: _t.Any = None
     #: §37 (11) THE SHORE DECISION (29a): ``ZoneRegion.shore``.
     shore: _t.Any = None
+    #: a runway band's own runway: ``ZoneRegion.runway_ref``
+    runway_ref: str | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -236,7 +238,8 @@ def build_arrangement(airport: Airport, classification: Classification,
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone, z.edge_kind, z.quay,
-                              z.natural_shore, z.shore_wedge, z.shore))
+                              z.natural_shore, z.shore_wedge, z.shore,
+                              runway_ref=z.runway_ref))
         edge_lines.extend(z.edge_lines)
 
     # §16g (10) (12) (1) THE AIRSIDE CELLS ARE NODED BEFORE ANY PAD EXISTS

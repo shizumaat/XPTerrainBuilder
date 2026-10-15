@@ -136,6 +136,11 @@ class ZoneRegion:
     #: — ``quay`` / ``natural_shore`` above are its kind; the witness and
     #: the height ride along for the report.  ``None`` = no contact.
     shore: ShoreVerdict | None = None
+    #: THE RUNWAY whose band this region is (RULINGS 2026-10-15c (1), lane
+    #: rwyzone15c phase 4): the band is built per runway, so its membership
+    #: join is that runway's edges — never another runway of the same code
+    #: (``constraints/zones``).  ``None`` for a taxi region.
+    runway_ref: str | None = None
 
 
 def _unclaimed(cell: Cell) -> bool:
@@ -421,7 +426,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                 out.append(ZoneRegion(f"adjacent_ground:{fam}:{cls}:zone{zone}#{k}",
                                       g, zone, fam, cn, None if fam == "runway" else cl,
                                       clip.kind if mine else "none", mine, quay,
-                                      natural, wedge, verdict))
+                                      natural, wedge, verdict,
+                                      cl[len(_RUNWAY_KEY):] if fam == "runway" else None))
                 k += 1
             counters[(fam, cls, zone)] = k
         claimed = unary_union([claimed, outer])

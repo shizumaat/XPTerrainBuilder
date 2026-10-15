@@ -597,6 +597,11 @@ class PlanarMap:
     #: each region, by region ref (``crest`` / ``road``).
     terrain_edges: tuple[tuple[tuple[float, float], ...], ...] = ()
     edge_kind_of_ref: _t.Mapping[str, str] = _dc.field(default_factory=dict)
+    #: THE RUNWAY of each runway adjacent-ground region, by region ref
+    #: (``planar/zones.ZoneRegion.runway_ref``): the zone law joins a zone
+    #: vertex to ITS runway's edges.  Empty on a map pickled before it —
+    #: the join then falls back to the code-number class.
+    zone_runway_of_ref: _t.Mapping[str, str] = _dc.field(default_factory=dict)
     #: §37 (11) (2) THE QUAY (owner RULINGS 2026-09-15f item 2): the refs
     #: of the adjacent-ground regions that REACH the coastline.  Their
     #: land is narrower than lip + half-width by construction, so it is

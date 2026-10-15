@@ -637,15 +637,20 @@ def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:
     """THE RUNWAY-END PROFILE'S TOLERANCE — the ONE key
     ``emit.instrument.strip_edge_noise_m`` (#620: the owner's open choice
     between today's value and pricing the first strip length at the cap
-    exactly, which is this key at 0).  The GENERATOR prices its rows with
-    the key less the materiality floor, never below zero; a READER
-    (``reader=True``) forgives the key itself, never less than the
-    per-node rounding a pair of emitted altitudes carries."""
+    exactly, which is this key at 0).  A READER (``reader=True``) forgives
+    the key itself, never less than the per-node rounding a pair of
+    emitted altitudes carries; the GENERATOR prices its rows with the key
+    less that same rounding envelope, never below zero — the envelope
+    the solver's held residual (``design.hard_tol_m``) and the two emitted
+    altitudes' rounding are sized under, so a row the solve holds at its
+    tolerance reads inside the reader's forgiveness.  Less the materiality
+    floor alone, a row held at the solver's tolerance read as a breach
+    (lane rwyzone15c phase 4, measured at CYXY: two end pairs held within
+    the tolerance read a few millimetres over the reader's bound)."""
     ins = law.tables.emit.instrument
     if reader:
         return max(float(ins.strip_edge_noise_m), float(ins.rounding_noise_m))
-    return max(0.0, float(ins.strip_edge_noise_m)
-               - float(law.tables.emit.materiality.elevation_m))
+    return max(0.0, float(ins.strip_edge_noise_m) - float(ins.rounding_noise_m))
 
 
 def runway_end_zone_length_m(law: Law, runway_length_m: float) -> float:

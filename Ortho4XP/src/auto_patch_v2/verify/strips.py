@@ -533,6 +533,15 @@ def end_excess_m(prof, d_in: float, d_out: float, z_in: float, z_out: float,
 
 
 def runway_end_skirt(p: Patch) -> list[Row]:
+    """The runway-end profile read IN THE ENGINE'S METRIC
+    (:meth:`Patch.in_metric_frame`): its bounds are functions of plan
+    distance beyond the end, which the census frame reads 0.1-0.7 %
+    short or long (lane rwyzone15c, the CYXY chord rows); every row's
+    points go back to the census frame."""
+    p, back = p.in_metric_frame()
+
+    def end_row(family, roles, side, mag, grade, cap, d, a, b, *rest):
+        return row(family, roles, side, mag, grade, cap, d, back(a), back(b), *rest)
     law = p.law
     q = end_profile_noise_m(law, reader=True)
     qc = law.tables.emit.instrument.coarse_noise_m
@@ -584,7 +593,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 if ex <= 0.0:
                     continue
                 ds = st[vo][0] - st[vi][0]
-                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                p.side("graded_strip"), ex, 100 * (st[vo][2] - st[vi][2]) / ds,
                                100 * prof.down_cap_at(st[vo][0]), ds,
                                st[vi][3], st[vo][3], st[vi][4], st[vo][4]))
@@ -600,7 +609,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 ex = end_excess_m(prof, de, d, zf, z, q)
                 if ex <= 0.0:
                     continue
-                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
+                out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
                                pair_side(p, "graded_strip", "runway"), ex,
                                100 * (z - zf) / (d - de), 100 * prof.down_cap_at(d), d - de,
                                xy, xy, key, key))
@@ -626,7 +635,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                         if ex <= 0.0:
                             continue
                         dz = abs(sh.z[j] - sh.z[i])
-                        out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                        out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                        p.side("graded_strip"), ex, 100 * dz / ds,
                                        100 * prof.down_cap_at(max(di, dj)), ds,
                                        sh.xy[i], sh.xy[j], sh.key, sh.key))
@@ -641,7 +650,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                             if site in seen or any(sh.ids[k] in pav for k in (A, B, C)):
                                 continue      # a pavement station: that pavement's own
                             seen.add(site)
-                            out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                            out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                            p.side("graded_strip"), abs(sh.z[C] - sh.z[A]),
                                            100 * change, None, 0.5 * (dp + dn),
                                            sh.xy[A], sh.xy[C], sh.key, sh.key))
@@ -662,7 +671,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 ex = end_excess_m(prof, 0.0, d, zf, sh.z[k], q)
                 if ex <= 0.0:
                     continue
-                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
+                out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
                                pair_side(p, "graded_strip", "runway"), ex,
                                100 * (sh.z[k] - zf) / d, 100 * prof.down_cap_at(d), d,
                                sh.xy[k], sh.xy[k], sh.key, sh.key))

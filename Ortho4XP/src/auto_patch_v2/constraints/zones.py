@@ -92,7 +92,8 @@ GEN = "zones"
 def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | None, str]]:
     """The ring EDGES of every runway-family / taxi-family face, each
     with the family and class the zone law keys by, and the face's ref
-    (a runway's band is measured from ITS centreline, 2026-10-15c (1))."""
+    (a runway's band is measured from ITS centreline, 2026-10-15c (1); a
+    crossing's ``A+B`` whole — :func:`_edge_runways`)."""
     p = vw.law.tables.precedence
     fam_of: dict[str, str] = {}
     for r in p.runway_family.members:
@@ -111,7 +112,7 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
                 # a shared edge keeps the senior family (runway first)
                 if cur is None or (cur[2] == "taxi" and fam == "runway"):
                     out[key] = (key[0], key[1], fam, f.code_number, f.code_letter,
-                                str(f.ref).split("+")[0])
+                                str(f.ref))
     return [out[k] for k in sorted(out)]
 
 
@@ -164,6 +165,24 @@ def _zone_class(fam: str, cn: int | None, cl: str | None
     zone-2 outer ring alternated 3.6 m (banded) / 12.7 m (DEM) along the
     service road north of 07/25, which the road draped as a cliff."""
     return (fam, cn, None) if fam == "runway" else (fam, None, cl)
+
+
+def _edge_runways(e: tuple) -> tuple[str, ...]:
+    """The runway refs a runway-family edge record belongs to (a
+    crossing's every ref); ``()`` for a taxi edge."""
+    return tuple(str(e[5]).split("+")) if e[2] == "runway" else ()
+
+
+def _runway_class(ref: str) -> tuple[str, str, str]:
+    """THE CLASS OF ONE RUNWAY'S BAND (lane rwyzone15c phase 4): the band
+    is built per runway (``planar/zones._runway_band``), so its vertices
+    join THAT runway's edges.  Keyed by code number, a vertex in 14L/32R's
+    end area joined 14R/32L's edge 251 m away — a parallel runway of the
+    same code, abeam where 14L/32R is not — and its clamped corridor floor
+    held the ground 2 m over its DEM and over 14L/32R's end profile
+    (measured CYXY v3909: floor 703.68 m against the end pair's ceiling,
+    0.064 m ``runway_end_skirt``)."""
+    return ("runway", "@", ref)
 
 
 def _face_class_of(e: tuple) -> tuple[str, int | None, str | None]:
@@ -256,10 +275,11 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         (ax, ay), (bx, by) = vw.xy[e[0]], vw.xy[e[1]]
         x0, x1 = sorted((ax, bx))
         y0, y1 = sorted((ay, by))
-        cls = _face_class_of(e)
+        classes = (_face_class_of(e),) + tuple(map(_runway_class, _edge_runways(e)))
         for gx in range(int(x0 // cell), int(x1 // cell) + 1):
             for gy in range(int(y0 // cell), int(y1 // cell) + 1):
-                by_class.setdefault(cls, {}).setdefault((gx, gy), []).append(k)
+                for cls in classes:
+                    by_class.setdefault(cls, {}).setdefault((gx, gy), []).append(k)
                 by_family[e[2]].setdefault((gx, gy), []).append(k)
 
     # THE RUNWAY BAND FROM THE CENTRELINE (owner RULINGS 2026-10-15c (1)): a
@@ -269,8 +289,9 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     rw_half = {rw.id: 0.5 * float(rw.width_m) for rw in airport.runways}
 
     def half_of(e: tuple) -> float | None:
-        if e[2] == "runway" and e[5] in rw_half:
-            return runway_zone_edge_offset_m(law, e[3], e[4], rw_half[e[5]])
+        ref = _edge_runways(e)[0] if e[2] == "runway" else None
+        if ref in rw_half:
+            return runway_zone_edge_offset_m(law, e[3], e[4], rw_half[ref])
         return zone2_half_width_m(law, "runway" if e[2] == "runway" else "junction",
                                   e[3], e[4])
 
@@ -290,6 +311,9 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     # breaklines make vertical from the ring the patch ends at.
     quay_refs = frozenset(getattr(planar, "quay_refs", ()) or ())
     natural_refs = frozenset(getattr(planar, "natural_shore_refs", ()) or ())
+    # a runway band's own runway (``_runway_class``); a map pickled before
+    # the key joins by the code-number class as before
+    runway_of = dict(getattr(planar, "zone_runway_of_ref", None) or {})
     quay: set[int] = set()
     natural: set[int] = set()
     for f in vw.faces_of_role(("graded_strip",)):
@@ -302,6 +326,8 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         cls = _face_class(f)
         if cls is None:
             continue
+        if f.ref in runway_of:
+            cls = _runway_class(runway_of[f.ref])
         # outer ring AND holes: a pad inside the strip is a hole of the
         # zone face, and its rim vertices are strip vertices (KCLT
         # building26, 2026-09-05 — see the rigid-pad note below)

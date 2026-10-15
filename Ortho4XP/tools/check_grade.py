@@ -535,6 +535,41 @@ def _ll_to_m_factory(nodes: Dict[str, Tuple[float, float]],
     return _f
 
 
+
+def _engine_metric(ll_to_m):
+    """``(to_m, to_census)`` — :func:`auto_patch_v2.verify.frame.
+    metric_frame` (THE ENGINE'S transverse-Mercator metric) centred at
+    this frame's origin, and the map taking one of its points back to
+    ``ll_to_m``'s frame: a node exactly, another point through lat/lon.
+
+    A family whose bound is a function of PLAN DISTANCE reads in this
+    metric (lane rwyzone15c, RULINGS 2026-10-15h: the census frame is a
+    spherical equirectangular, off the ellipsoid by 0.1-0.7 %; CYXY's
+    runway-end chord rows sat exactly at the generator's bound at the
+    engine's 128.34 m and read as breaches at the census's 128.17 m).
+    Its rows' points go back through ``to_census`` so every join on the
+    census frame (the senior-role stamp, the relaxed rows) is unchanged.
+    A frame with no inverse (no nodes) is returned as it is."""
+    inv = getattr(ll_to_m, "inverse", None)
+    if inv is None:
+        return ll_to_m, (lambda pt: pt)
+    from auto_patch_v2.verify.frame import metric_frame
+    fwd, to_ll = metric_frame(*inv(0.0, 0.0))
+    memo: Dict[Tuple[float, float], Tuple[float, float]] = {}
+    census: Dict[Tuple[float, float], Tuple[float, float]] = {}
+
+    def to_m(lat: float, lon: float) -> Tuple[float, float]:
+        got = memo.get((lat, lon))
+        if got is None:
+            got = memo[(lat, lon)] = fwd(lat, lon)
+            census[got] = ll_to_m(lat, lon)
+        return got
+
+    def to_census(pt):
+        got = census.get(pt)
+        return got if got is not None else ll_to_m(*to_ll(*pt))
+    return to_m, to_census
+
 #: The sidecar key that carries the BUILDER's projection anchor WHEN THE
 #: PATCH HAS ONE.  v1 wrote it; v2's register
 #: (``auto_patch_v2.emit.osm_adapter.SIDECAR_KEYS``) deliberately does
@@ -2947,6 +2982,9 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     emitted and judged nothing (the "0 rows judged" of #620)."""
     if _runway_axis_and_width is None:
         return []
+    # THE ENGINE'S METRIC (``_engine_metric``): the profile's bounds are
+    # functions of plan distance; the rows' points go back at the end
+    ll_to_m, to_census = _engine_metric(ll_to_m)
     from auto_patch_v2.verify.no_step import rate_breaches
     from auto_patch_v2.constraints.strips import (end_transect_foot,
                                                   end_transect_pairs)
@@ -3185,6 +3223,8 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                         de_m=abs(float(zs[k]) - zf), way_a=w, way_b=w,
                         pt_a=pts[k], pt_b=pts[k], elev_a=zf, elev_b=float(zs[k]),
                         cap_pct=100.0 * prof.down_cap_at(d)))
+    for v in out:
+        v.pt_a, v.pt_b = to_census(v.pt_a), to_census(v.pt_b)
     out.sort(key=lambda v: -abs(v.excess_pct))
     return out
 

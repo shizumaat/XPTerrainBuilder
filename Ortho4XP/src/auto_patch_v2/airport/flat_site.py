@@ -51,6 +51,7 @@ from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.ops import unary_union
 
 from ..law import Law
+from ..law.inset_class import dem_source_class
 from ..law.tables import (FLAT_CLASS_COARSE, FLAT_CLASS_LIDAR, flat_declared,
                           flat_relief_floor_m, flat_site, flat_source_class)
 from ..model.airport import Airport, FlatVerdict
@@ -263,17 +264,9 @@ def dem_relief(dem, geom, *, z0: float | None, floor_m: float | None,
             "dsm_cutoff_m": cutoff}
 
 
-def _source_class(dem, law: Law) -> tuple[str | None, float | None, str]:
-    """``(class, pixel_m, whence)``: the production sampler states the
-    finest source that baked (``source_pixel_m``); a sampler stating
-    nothing is an unknown class."""
-    fn = getattr(dem, "source_pixel_m", None)
-    if not callable(fn):
-        return None, None, "unknown"
-    pixel, whence = fn()
-    if pixel is None:
-        return (FLAT_CLASS_COARSE if whence == "base_tier" else None), None, whence
-    return flat_source_class(law, pixel), float(pixel), whence
+#: the S2 source class — ONE reading, ``law/inset_class`` (also asked by
+#: ``planar/channel`` and ``constraints/eat``)
+_source_class = dem_source_class
 
 
 # ── S4: the pack's seats ─────────────────────────────────────────────────

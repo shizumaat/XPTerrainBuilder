@@ -304,7 +304,7 @@ cockpit   = "step"
 # and not a slope; §31 reads it as REPORT, and the crossing's own steps and
 # grades are still read by their own families.
 [eat_ceiling]
-measures  = "end-around-taxiway pavement standing above its departure-surface ceiling (the pinned rect, sidecar `eat_rects`)"
+measures  = "end-around-taxiway pavement standing above its departure-surface ceiling (the pinned rect, or on a credible lidar inset the report-only rect the ground is priced against — owner RULINGS 2026-10-15e (2); sidecar `eat_rects`)"
 parameter = "ruleset.eat.slope"
 roles     = ["taxi_family", "apron"]
 pairs     = "within"

@@ -106,8 +106,7 @@ def _corner_vertices(vw, g):
     half = zone2_half_width_m(vw.law, "runway", g.code_number, g.code_letter)
     ux, uy = g.unit
     out = []
-    for f in [f for f in vw.faces_of_role(("graded_strip",))
-              if not f.ref.startswith("zone_bank:")]:   # the bank is not strip (15c (3))
+    for f in vw.faces_of_role(("graded_strip",)):
         for v in vw.rings[f.id]:
             x, y = vw.xy[v]
             s = (x - g.axis_a[0]) * ux + (y - g.axis_a[1]) * uy
@@ -283,8 +282,7 @@ def test_an_abeam_vertex_is_unchanged_by_the_clamp(synthetic, law):
     rows = {r.terms[0][0]: r for r in strips.end_corridor_longitudinal(pm, law, airport)
             if isinstance(r, Linear) and len(r.terms) == 3 and r.terms[0][1] == 1.0}
     seen = 0
-    for f in [f for f in vw.faces_of_role(("graded_strip",))
-              if not f.ref.startswith("zone_bank:")]:   # the bank is not strip (15c (3))
+    for f in vw.faces_of_role(("graded_strip",)):
         for v in vw.rings[f.id]:
             x, y = vw.xy[v]
             s = (x - g.axis_a[0]) * ux + (y - g.axis_a[1]) * uy

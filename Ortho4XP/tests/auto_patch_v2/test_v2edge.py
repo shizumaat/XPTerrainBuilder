@@ -69,11 +69,7 @@ def _cells():
 
 
 def _regions(law, dem=None, roads=(), rep=None):
-    """The ZONE regions — the terrain edge's population; the 1:3 banks
-    beyond them (RULINGS 2026-10-15c (3), ``planar/zone_bank``) are the
-    bank law's, read by its own twin."""
-    return [r for r in zone_regions(_cells(), law, (), dem, roads, rep)
-            if not r.ref.startswith("zone_bank:")]
+    return zone_regions(_cells(), law, (), dem, roads, rep)
 
 
 def _outer(regions) -> float:

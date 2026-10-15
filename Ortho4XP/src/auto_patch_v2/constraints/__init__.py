@@ -20,7 +20,7 @@ from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
                no_step, pad_frontage_gs, pad_fronting, pads, pavement_cap,
                platform,
                proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_profile,
-               seams, strips, zone_bank,
+               seams, strips,
                channel,
                structures,
                taxi, transverse, water, zones)
@@ -82,8 +82,6 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("reach_bands", no_step.reach_bands),
     ("zone_bands", zones.zone_bands),
     ("strip_transverse", zones.strip_transverse),
-    # owner RULINGS 2026-10-15c (3): the zone meets raw terrain on a 1:3 bank
-    ("zone_bank", zone_bank.zone_bank_rows),
     ("strip_longitudinal", strips.strip_longitudinal),
     ("strip_arc", strips.strip_arc),
     ("resa_transverse", strips.resa_transverse),

@@ -56,6 +56,7 @@ __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_ban
 #: before the slice, and ``classify`` may not import ``planar``.
 from ..classify.sources import ENCLOSED_MIN_FRAC  # noqa: E402,F401
 from ..geom.union_find import find_root
+from ..model.end_area import end_area_lengths
 
 
 @_dc.dataclass(frozen=True)
@@ -231,8 +232,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                           shore_declarations(getattr(airport, "osm_ways", ())),
                           shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
                           pack_shore_walls(airport),
-                          tuple((r.id, r.ends[0].xy, r.ends[1].xy, r.width_m)
-                                for r in getattr(airport, "runways", ()))):
+                          _runway_records(airport, law)):
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone, z.edge_kind, z.quay,
@@ -952,3 +952,15 @@ def seam_bands(airport: Airport, regions: list[Region], half_width_m: float
         out.append(_band([(float(L), lat_lo + (lat_hi - lat_lo) * k / (n - 1))
                           for k in range(n)], False))
     return [b for b in out if not b.is_empty and b.geom_type == "Polygon"]
+
+
+def _runway_records(airport, law) -> tuple:
+    """``(ref, end_a, end_b, width_m, end_len_a, end_len_b)`` per runway —
+    the zone band's own reading (``planar/zones._runway_band``): the end
+    areas' lengths from the DEM (``model/end_area``, RULINGS 15g (C))."""
+    runways = tuple(getattr(airport, "runways", ()) or ())
+    if not runways:
+        return ()
+    lens = end_area_lengths(airport, law)
+    return tuple((r.id, r.ends[0].xy, r.ends[1].xy, r.width_m) + tuple(lens.get(r.id, ()))
+                 for r in runways)

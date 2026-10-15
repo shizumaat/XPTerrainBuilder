@@ -33,7 +33,6 @@ from ..model.planar import is_gap_apron_ref, is_late_ref
 from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
                     shore_declarations, shore_verdict)
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
-from .zone_bank import BankReport, zone_banks
 
 __all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
            "SHORE_WALL_TAGS", "shore_wedge_m", "runway_end_breaks"]
@@ -211,8 +210,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  edge_report: EdgeReport | None = None,
                  declared: tuple = (),
                  shore_wedge_m: float | None = None,
-                 pack_walls: tuple = (), runways: tuple = (),
-                 bank_report: "BankReport | None" = None) -> list[ZoneRegion]:
+                 pack_walls: tuple = (), runways: tuple = ()) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -280,6 +278,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
     letters: dict[str, str | None] = {}
+    rw_polys: dict[str, list] = {}
+    rw_class: dict[str, tuple] = {}
     for c in cells:
         # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
         # zone band — it inherits its host runway's, which it lies inside
@@ -291,13 +291,27 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             # band is measured from the runway's own CENTRELINE and runs the
             # RSA length past its own ends, so it is built per runway ref
             # (:func:`_runway_band`); the third slot carries the ref
-            key = ("runway", c.code_number, _RUNWAY_KEY + c.ref)
-            letters.setdefault(c.ref, c.code_letter)
+            # a CROSSING piece (ref ``a+b``) is pavement of BOTH runways: it
+            # joins each one's group — alone it was a group of its own whose
+            # fallback axis (a few metres square) swung the RSA rectangle
+            # out 300 m across the field (measured CYXY replay: a code-4
+            # zone2 vertex 300-500 m from every runway, 34 m over its DEM)
+            for ref in str(c.ref).split("+"):
+                rw_polys.setdefault(ref, []).append(Polygon(c.ring, c.holes))
+                if c.role == "runway" or ref not in rw_class:
+                    rw_class[ref] = (c.code_number, c.code_letter)
+            continue
         elif c.role in TAXI_FAMILY:
             key = ("taxi", None, c.code_letter)
         else:
             continue
         groups.setdefault(key, []).append(Polygon(c.ring, c.holes))
+    # each runway's group under ITS OWN class (a crossing piece carries the
+    # senior's code)
+    for ref, polys in rw_polys.items():
+        cn, cl = rw_class[ref]
+        groups[("runway", cn, _RUNWAY_KEY + ref)] = polys
+        letters[ref] = cl
 
     def letter_of(key: tuple[str, int | None, str | None]) -> str | None:
         fam, _cn, cl = key
@@ -411,17 +425,6 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                 k += 1
             counters[(fam, cls, zone)] = k
         claimed = unary_union([claimed, outer])
-    # THE ZONE BANK (owner RULINGS 2026-10-15c (3)): last, over what no cell,
-    # zone or the water claims (``planar/zone_bank``)
-    pav: dict[tuple, list] = {}
-    for key, polys in groups.items():
-        fam, cn, cl = key
-        pav.setdefault((fam, cn, None) if fam == "runway" else key, []).extend(polys)
-    taken = claimed if water is None else unary_union([claimed, water])
-    cells_taken = everything if water is None else unary_union([everything, water])
-    for ref, g, z in zone_banks(out, taken, {k: unary_union(v) for k, v in pav.items()},
-                                dem, law, bank_report, cells_taken):
-        out.append(ZoneRegion(ref, g, 3, z.family, z.code_number, z.code_letter))
     return out
 
 
@@ -444,7 +447,8 @@ def _runway_band(u, ref: str, cn: int | None, cl: str | None, law: Law,
       304.8 m past the threshold (the band was 183 m wide, ending 76.2 m
       past the pad's far edge).
 
-    ``runways`` are ``(ref, end_a_xy, end_b_xy, width_m)``; a ref without
+    ``runways`` are ``(ref, end_a_xy, end_b_xy, width_m[, len_a, len_b])``
+    (the end areas' lengths, ``airport/end_area``); a ref without
     one (synthetic fixtures) reads the pavement's own rectangle — the slab
     ends and its width."""
     hw = zone2_half_width_m(law, "runway", cn, cl)
@@ -467,9 +471,13 @@ def _runway_band(u, ref: str, cn: int | None, cl: str | None, law: Law,
     outer = u.buffer(off, **_MITRE)
     if L > 0.0:
         ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        # each end's own length: the RSA, or the top of a drop (15g (C);
+        # ``airport/end_area``, carried in the record)
         rsa = runway_safety_area_length_m(law, cn, cl)
-        axis = LineString([(a[0] - ux * rsa, a[1] - uy * rsa),
-                           (b[0] + ux * rsa, b[1] + uy * rsa)])
+        la, lb = (float(rec[4]), float(rec[5])) if rec is not None and len(rec) >= 6 \
+            else (rsa, rsa)
+        axis = LineString([(a[0] - ux * la, a[1] - uy * la),
+                           (b[0] + ux * lb, b[1] + uy * lb)])
         outer = unary_union([outer, axis.buffer(hw, cap_style="flat")])
     return inner, outer
 

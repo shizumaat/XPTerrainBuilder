@@ -139,6 +139,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 from ..solve.ground_band import ground_envelope
+from ..model.end_area import end_area_lengths
 
 __all__ = ["gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
@@ -459,6 +460,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                 if key not in seen and (key[1], key[0]) not in seen:
                     seen.add(key)
                     taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
+    _end_lens = end_area_lengths(airport, law)
     _doc = {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             # §40 (2) as amended (owner RULINGS 2026-09-13dd): per runway
             # ``[ref, lat_a, lon_a, lat_b, lon_b, half_width_m]`` — the
@@ -476,7 +478,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                  # published_slabs``); a reader that fitted the runway
                  # RINGS measured from a shoulder's far edge instead
                  round(float(rw.ends[0].overrun_m), 4),
-                 round(float(rw.ends[1].overrun_m), 4)]
+                 round(float(rw.ends[1].overrun_m), 4),
+                 # RULINGS 2026-10-15g (C): each END AREA's length from the
+                 # runway end (the RSA, or the top of a drop, read from the
+                 # DEM by ``model/end_area``) — the census reads it
+                 *(round(float(x), 3) for x in _end_lens.get(rw.id, ()))]
                 for rw in airport.runways],
             "shoulder_transverse_max":
                 float(law.ruleset.runway.shoulder_transverse_max),

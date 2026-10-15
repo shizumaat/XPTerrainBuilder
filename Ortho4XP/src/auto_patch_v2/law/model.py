@@ -232,13 +232,12 @@ class AdjacentGround:
     shore_profile_run_m: float
     runway: ZoneClass
     taxi: ZoneClass
-    #: THE ZONE BANK (owner RULINGS 2026-10-15c (3) "1:3 bank"): where the
-    #: graded zone meets raw terrain with a fill or cut over
-    #: ``bank_foot_tol_m`` it ties in on ``emit.design.bank_slope``, the
-    #: bank minted at most ``bank_cap_width_m`` wide (``planar/zone_bank``)
-    bank_foot_tol_m: float
-    bank_cap_width_m: float
-    bank_estimate_margin_m: float
+    #: THE END AREA STOPS AT THE TOP OF A DROP (owner RULINGS 2026-10-15g
+    #: (C); ``model/end_area``): the raw ground along the extended
+    #: centreline stands ``emit.design.edge_min_drop_m`` below the end
+    #: profile's lawful fall AND falls steeper than this over
+    #: ``emit.design.edge_probe_m`` — PROPOSED, for the owner's ratification
+    end_drop_min_grade: float
 
 
 @_dc.dataclass(frozen=True)

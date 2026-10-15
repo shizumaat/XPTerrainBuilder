@@ -254,8 +254,12 @@ def rsa_end_lengths(p: Patch, ref: str | None, a, b, code, letter
         pa, pb = p.to_m(float(r[1]), float(r[2])), p.to_m(float(r[3]), float(r[4]))
         same = math.dist(pa, a) + math.dist(pb, b)
         flip = math.dist(pb, a) + math.dist(pa, b)
+        # the END AREA's own length where published (RULINGS 2026-10-15g (C):
+        # the RSA, or the top of a drop — ``airport/end_area``)
+        la, lb = (float(r[8]), float(r[9])) if len(r) >= 10 else (rsa, rsa)
         oa, ob = (float(r[6]), float(r[7])) if same <= flip else (float(r[7]), float(r[6]))
-        return max(0.01, rsa - oa), max(0.01, rsa - ob)
+        la, lb = (la, lb) if same <= flip else (lb, la)
+        return max(0.01, la - oa), max(0.01, lb - ob)
     return rsa, rsa
 
 
@@ -334,15 +338,8 @@ def end_groups(p: Patch):
     return out
 
 
-def _strips(p: Patch, banks: bool = False) -> list[Shape]:
-    """The graded-strip shapes.  A zone BANK (2026-10-15c (3)) is no strip
-    LAW's ground (the longitudinal, arc, RESA, end and RAOA readers skip it,
-    as the generator mints it no strip row), nor the in-face step readers
-    (the census reads those on adjacent_ground refs only); the CROSS-shape
-    seam reader reads it with every other ground face — a bank steeper than
-    its 1:3 is a tear the census reads too (``banks=True``)."""
-    return [sh for sh in p.shapes if sh.role == "graded_strip" and len(sh.ids) >= 2
-            and (banks or not str(sh.ref).startswith("zone_bank:"))]
+def _strips(p: Patch) -> list[Shape]:
+    return [sh for sh in p.shapes if sh.role == "graded_strip" and len(sh.ids) >= 2]
 
 
 def _pavement_ids(p: Patch) -> frozenset[int]:
@@ -780,7 +777,7 @@ def _cockpit(p: Patch):
 
 
 def strip_seam_tear(p: Patch) -> list[Row]:
-    strips = _strips(p, banks=True)
+    strips = _strips(p)
     pts: list[tuple[float, float, float, int, int]] = []
     for sh in strips:
         for k, vid in enumerate(sh.ids):

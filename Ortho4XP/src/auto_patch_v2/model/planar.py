@@ -40,7 +40,7 @@ from .structures import Basin, Channel, Tunnel
 
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
-           "COLLAR_SUFFIX", "is_collar_ref", "ZONE_BANK_REF_PREFIX", "is_zone_bank_ref", "platform_ref_of", "BLOCK_SEP",
+           "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
@@ -58,17 +58,6 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
 #: as the same pad; the readers that must tell the two apart (the plate,
 #: the collar rows, ``pad_flat``) ask :func:`is_collar_ref`.
 COLLAR_SUFFIX = "#collar"
-
-
-#: THE ZONE BANK's ref prefix (owner RULINGS 2026-10-15c (3); minted by
-#: ``planar/zone_bank``): ``zone_bank:<zone ref>`` — the 1:3 tie-in beyond a
-#: graded zone, ``graded_strip`` ground that is never strip law's.
-ZONE_BANK_REF_PREFIX = "zone_bank:"
-
-
-def is_zone_bank_ref(ref: object) -> bool:
-    """Is ``ref`` a zone bank's (:data:`ZONE_BANK_REF_PREFIX`)?"""
-    return str(ref).startswith(ZONE_BANK_REF_PREFIX)
 
 
 def is_collar_ref(ref: object) -> bool:

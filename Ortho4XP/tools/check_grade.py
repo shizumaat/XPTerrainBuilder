@@ -3016,7 +3016,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                 -(pt[0] - a0[0]) * u[1] + (pt[1] - a0[1]) * u[0])
 
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
         closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
         nn = w.nids[:-1] if closed else w.nids
@@ -3998,14 +3998,17 @@ def _rsa_end_lengths(axis, code, letter, ll_to_m=None):
             pb = ll_to_m(float(r[3]), float(r[4]))
             same = math.hypot(pa[0] - ax, pa[1] - ay) + math.hypot(pb[0] - bx, pb[1] - by)
             flip = math.hypot(pb[0] - ax, pb[1] - ay) + math.hypot(pa[0] - bx, pa[1] - by)
-            cand = (min(same, flip), float(r[6]), float(r[7])) if same <= flip else \
-                (flip, float(r[7]), float(r[6]))
+            # the END AREA's own length where published (RULINGS 2026-10-15g (C))
+            la, lb = (float(r[8]), float(r[9])) if len(r) >= 10 else (rsa, rsa)
+            cand = (min(same, flip), float(r[6]), float(r[7]), la, lb) if same <= flip else \
+                (flip, float(r[7]), float(r[6]), lb, la)
             if best is None or cand[0] < best[0]:
                 best = cand
         # a slab end lies ~one overrun from the runway-ring end: a match is
         # within a few hundred metres, never another runway's
         if best is not None and best[0] < 1000.0:
             oa, ob = best[1], best[2]
+            return (max(_MIN_END_LEN_M, best[3] - oa), max(_MIN_END_LEN_M, best[4] - ob))
     # an overrun as long as the RSA leaves no corridor beyond the slab: a
     # 1 cm ring (the readers' rectangle tests divide by its sides)
     return (max(_MIN_END_LEN_M, rsa - oa), max(_MIN_END_LEN_M, rsa - ob))
@@ -4095,15 +4098,7 @@ def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
 # full decimetre of quantization; that is the allowance granted (the same
 # constant the sloped-quad / weld-hub classes take).
 _STRIP_LONGITUDINAL_ROLE = "graded_strip"
-#: The ZONE BANK's ref prefix (owner RULINGS 2026-10-15c (3);
-#: ``auto_patch_v2.planar.zone_bank.BANK_REF_PREFIX``): a bank is the 1:3
-#: tie-in BEYOND the strip, never strip ground — no strip / RESA / end
-#: reader judges it (the generator mints it no strip row either).
-_ZONE_BANK_REF_PREFIX = "zone_bank:"
 
-
-def _is_zone_bank(w) -> bool:
-    return str(w.ref or "").startswith(_ZONE_BANK_REF_PREFIX)
 # The PAVEMENT roles whose nodes a band welds to (the weld-row skip above).
 # NOTE (blast role-literal hazard): renaming a role VALUE in
 # auto_patch/layout.py silently empties this set.
@@ -4150,7 +4145,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
     hit_ways: set = set()
     seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
         closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
         nn = w.nids[:-1] if closed else w.nids
@@ -4323,7 +4318,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     hit_ways: set = set()
     seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
         closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
         nn = w.nids[:-1] if closed else w.nids
@@ -4429,7 +4424,7 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
     n_pairs = 0
     hit_ways: set = set()
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
         nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
               else w.nids)
@@ -4535,7 +4530,7 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
     hit_ways: set = set()
     seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
+        if w.role != _STRIP_LONGITUDINAL_ROLE:
             continue
         nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
               else w.nids)

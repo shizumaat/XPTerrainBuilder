@@ -6,7 +6,8 @@ spec ``docs/specs/runway-zone-15c-spec.md``).
     half-width) past the edge;
 (2) "Full safety-area length": the end band runs the RSA length from the
     runway END (FAA by letter 240 / 300 / 1,000 ft, ICAO strip 60 m + RESA);
-(3) "1:3 bank": a graded zone over or under raw terrain ties in on a bank;
+(3) WITHDRAWN (RULINGS 2026-10-15g (B)): no bank — the zone goes straight
+    to raw DEM at its outer edge;
 (4) "5% for FAA": the runway band's max fall under the FAA ruleset.
 """
 from __future__ import annotations
@@ -14,14 +15,9 @@ from __future__ import annotations
 import pytest
 
 from auto_patch_v2.classify.roles import Cell
-from auto_patch_v2.constraints import strips
-from auto_patch_v2.constraints.precedence import view
-from auto_patch_v2.constraints.zone_bank import TOE_RULING, zone_bank_rows
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import (runway_safety_area_length_m, runway_zone_edge_offset_m,
                                       zone_bounds)
-from auto_patch_v2.model.constraints import Band
-from auto_patch_v2.model.planar import is_zone_bank_ref
 from auto_patch_v2.planar.zones import zone_regions
 
 FT = 0.3048
@@ -97,8 +93,7 @@ RUNWAYS = (("09/27", (-1000.0, 0.0), (1000.0, 0.0), 30.0),)
 
 
 def test_the_planar_band_is_the_rsa_rectangle(faa):
-    regs = [r for r in zone_regions(_runway_cells(), faa, runways=RUNWAYS)
-            if not is_zone_bank_ref(r.ref)]
+    regs = zone_regions(_runway_cells(), faa, runways=RUNWAYS)
     from shapely.ops import unary_union
     x0, y0, x1, y1 = unary_union([r.polygon for r in regs if r.zone == 2]).bounds
     # 76.2 m from the CENTRELINE, 304.8 m past each runway END
@@ -106,44 +101,57 @@ def test_the_planar_band_is_the_rsa_rectangle(faa):
     assert (x0, x1) == pytest.approx((-1000.0 - 304.8, 1000.0 + 304.8), abs=0.01)
 
 
-def test_a_falling_ground_mints_a_wider_bank_than_level_ground(faa):
-    # level ground: the band's own mandatory fall is the only step (about a
-    # metre at a 76 m band's outer edge) — a narrow bank; falling ground a
-    # wide one
-    flat = [r for r in zone_regions(_runway_cells(), faa, dem=_Flat(), runways=RUNWAYS)
-            if is_zone_bank_ref(r.ref)]
-    fall = [r for r in zone_regions(_runway_cells(), faa, dem=_Falling(), runways=RUNWAYS)
-            if is_zone_bank_ref(r.ref)]
-    assert fall, "the falling south side needs its 1:3 bank"
-    south = [r for r in fall if r.polygon.bounds[1] < -76.2]
-    assert south
-    cap = faa.tables.zones.adjacent_ground.bank_cap_width_m
-    assert all(r.polygon.bounds[1] >= -76.2 - cap - 1.0 for r in fall)
-    assert sum(r.polygon.area for r in fall) > sum(r.polygon.area for r in flat)
 
 
-def test_the_bank_holds_its_toe_on_the_dem(faa):
-    from auto_patch_v2.classify.roles import Classification
-    from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
-    from auto_patch_v2.model.frame import Frame
-    from auto_patch_v2.planar.build import build
-    ll = (39.9, -105.1)
-    rw = Runway("09/27", 30.0, 1, (RunwayEnd("09", (-1000.0, 0.0), ll, 0.0, 0.0, 100.0, "f"),
-                                  RunwayEnd("27", (1000.0, 0.0), ll, 0.0, 0.0, 100.0, "f")),
-                4, "D")
-    airport = Airport("ZZZZ", "Synthetic", Frame("ZZZZ", origin=ll, identity_dp=11), 100.0,
-                      (rw,), (), (), {}, (), (), (), (), (), (), (),
-                      SceneryPack("f", "apt.dat", "0", (), ()), _Falling(), faa.ruleset_key)
-    pm, _st = build(airport, Classification(_runway_cells(), (), {}, ()), faa)
-    banks = [f for f in pm.faces.values() if is_zone_bank_ref(f.ref)]
-    assert banks and all(f.role == "graded_strip" for f in banks)
-    rows = zone_bank_rows(pm, faa, airport)
-    assert rows and all(isinstance(r, Band) for r in rows)
-    assert all(r.source.ruling.startswith(TOE_RULING) and r.lo == r.hi for r in rows)
-    # on the DEM, and never on a vertex another face touches (airside is king)
-    other = {v for f in pm.faces.values() if not is_zone_bank_ref(f.ref)
-             for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)}
-    assert all(r.lo == pm.vertices[r.v].dem_z and r.v not in other for r in rows)
-    # the strip law never reads the bank
-    vw = view(pm, faa)
-    assert not any(is_zone_bank_ref(vw.pm.faces[fid].ref) for fid, _i, _x in strips._strip_rings(vw))
+# ── RULINGS 2026-10-15g (C): the end area stops at the top of a drop ──────
+
+class _Profile:
+    """Level to ``x = 1000 + top`` beyond the 27 end, then falling ``grade``."""
+    provenance = {"synthetic": "end profile"}
+
+    def __init__(self, top: float, grade: float):
+        self.top, self.grade = top, grade
+
+    def z(self, x: float, y: float) -> float:
+        return 100.0 - self.grade * max(0.0, x - 1000.0 - self.top)
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def test_an_escarpment_ends_the_end_area_at_its_top(faa):
+    from auto_patch_v2.model.end_area import end_area_length
+    rsa = runway_safety_area_length_m(faa, 4, "D")
+    # level ground: the full RSA
+    assert end_area_length(_Profile(1e9, 0.0), (1000.0, 0.0), (1.0, 0.0), faa, 4, "D") \
+        == pytest.approx(rsa)
+    # ordinary down-slope ground under the fill (KBJC's steepest end ground
+    # is 10.5 %): the full RSA, filled to the profile
+    assert end_area_length(_Profile(0.0, 0.08), (1000.0, 0.0), (1.0, 0.0), faa, 4, "D") \
+        == pytest.approx(rsa)
+    # an escarpment (CYXY's: 25-52 %) 150 m out: the end area stops at its top
+    got = end_area_length(_Profile(150.0, 0.45), (1000.0, 0.0), (1.0, 0.0), faa, 4, "D")
+    step = faa.tables.emit.design.edge_grid_m
+    assert 150.0 - step <= got <= 150.0 + step
+
+
+def test_a_crossing_piece_mints_no_band_of_its_own(icao):
+    """A runway_crossing cell (ref ``a+b``) belongs to both runways' bands —
+    alone it carried an RSA rectangle off its own few-metre axis (CYXY)."""
+    ring_a = ((-1000.0, -15.0), (-15.0, -15.0), (-15.0, 15.0), (-1000.0, 15.0))
+    ring_x = ((-15.0, -15.0), (15.0, -15.0), (15.0, 15.0), (-15.0, 15.0))
+    ring_b = ((15.0, -15.0), (1000.0, -15.0), (1000.0, 15.0), (15.0, 15.0))
+    ring_c = ((-15.0, 15.0), (15.0, 15.0), (15.0, 800.0), (-15.0, 800.0))
+    cells = (Cell(0, "runway", "09/27", ring_a, (), 4, "D", "airside", "runway", {}),
+             Cell(1, "runway_crossing", "09/27+18/36", ring_x, (), 4, "D", "airside",
+                  "runway", {}),
+             Cell(2, "runway", "09/27", ring_b, (), 4, "D", "airside", "runway", {}),
+             Cell(3, "runway", "18/36", ring_c, (), 4, "D", "airside", "runway", {}))
+    runways = (("09/27", (-1000.0, 0.0), (1000.0, 0.0), 30.0),
+               ("18/36", (0.0, -15.0), (0.0, 800.0), 30.0))
+    from shapely.ops import unary_union
+    regs = zone_regions(cells, icao, runways=runways)
+    x0, y0, x1, y1 = unary_union([r.polygon for r in regs]).bounds
+    rsa = runway_safety_area_length_m(icao, 4, "D")
+    assert x0 >= -1000.0 - rsa - 1.0 and x1 <= 1000.0 + rsa + 1.0
+    assert y0 >= -15.0 - rsa - 1.0 and y1 <= 800.0 + rsa + 1.0

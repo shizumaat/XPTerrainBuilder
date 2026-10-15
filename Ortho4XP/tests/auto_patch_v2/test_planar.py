@@ -79,10 +79,7 @@ def test_faces_cover_the_classified_pavement(cyxy_map):
         assert f.role in law.tables.precedence.roles
         assert f.side == law.tables.precedence.roles[f.role].side
     strips = [f for f in pm.faces.values() if f.role == "graded_strip"]
-    # a graded-strip face is a zone (``adjacent_ground:``) or its 1:3 bank
-    # (``zone_bank:``, RULINGS 2026-10-15c (3))
-    assert strips and all(f.ref.startswith(("adjacent_ground:", "zone_bank:"))
-                          for f in strips)
+    assert strips and all(f.ref.startswith("adjacent_ground:") for f in strips)
     assert any(f.code_number == 4 for f in strips) and any(f.code_letter for f in strips)
 
 

@@ -1069,6 +1069,17 @@ flat_line_max_width_m = 1.0
 # (33,392 + 21,316 -> 54,714 m2 across its 2.06 m gap); HECA 86 / KCLT 39
 # pads unchanged; HECA's 2.72 m lace gap stays open.  0 disarms.
 post_bridge_gap_m     = 1.25
+# THE APRON-EDGE SHELF (owner RULINGS 2026-10-14n D2, #709, lane
+# apronedge709): a walled cluster under cluster_pad_min_m2 with at least
+# this share of its closed outline on the apron it fronts STANDS ON that
+# apron; where its outline (posts included) reaches past the apron's edge,
+# the ground under that part is a flat groundside SHELF at the apron's edge
+# level (a §20 pad: one-way, the apron never moves) inside a 1:3 bank
+# (the landing collar's rows, [building_pad] platform_collar_max_m).  0.5 =
+# the majority reading §49 (2) [deck] on_fraction already uses for "stands
+# on" (a proposed value, not separately ruled).  KASE Atlantic FBO
+# unit:121#4: 86 % on apron pav7.  0 disarms.
+apron_shelf_min_share = 0.5
 
 # issue #516 (owner RULINGS 2026-09-13bi "sink into the ground so its ramp
 # meets DEM", 13cm "the top deck meeting the sloping terrain at the ramp

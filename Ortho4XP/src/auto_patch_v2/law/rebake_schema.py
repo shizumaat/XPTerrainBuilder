@@ -364,6 +364,12 @@ class Placement:
     #: up to twice this (owner RULINGS 2026-09-29c / 29g: 1.25 = a 2.5 m
     #: plan gap, OTHH unit:24#0 one pad).  0 disarms.
     post_bridge_gap_m: float = 1.25
+    #: THE APRON-EDGE SHELF (owner RULINGS 2026-10-14n D2, #709): a walled
+    #: cluster under ``cluster_pad_min_m2`` that STANDS ON an apron — at
+    #: least this share of its closed outline on the pavement it fronts —
+    #: and reaches past the apron's edge gets the ground under that part
+    #: graded to the apron's level (``planar/apron_shelf``).  0 disarms.
+    apron_shelf_min_share: float = 0.5
     #: issue #516 (owner RULINGS 2026-09-13bi / 13cm): A RAMP END SINKS
     #: INTO THE GROUND — the ground under a unit member's sloped deck that
     #: rises through the natural ground is not the pad's

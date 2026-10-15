@@ -524,7 +524,11 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
     geom = _ar.BodyGeometry(
         tuple((p.lat, p.lon, p.base_y,
                tuple((f[0], f[1], f[2]) for f in p.feet)) for p in parts),
-        u.anchor[0], u.anchor[1])
+        u.anchor[0], u.anchor[1],
+        solids=(tuple((float(p.base_y) + float(p.height_m),
+                       float(p.area_m2), _plan_box_span_m(p.box))
+                      for p in parts)
+                if any(float(p.height_m) > 0.0 for p in parts) else ()))
     a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m,
                        deck_own_ground_m=deck_own_ground_m,       # 30g (3)
                        datum=_ar.datum_of(                       # §16e

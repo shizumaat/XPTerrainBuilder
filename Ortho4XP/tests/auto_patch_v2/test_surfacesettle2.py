@@ -206,6 +206,7 @@ def test_the_published_join_takes_the_patch_level_and_says_so():
 @_dc.dataclass(frozen=True)
 class _SeedPM:
     road_reach_seed: dict
+    faces: dict = _dc.field(default_factory=dict)   # no apron shelves (#730)
 
 
 def _ramp_cs(vs, t):

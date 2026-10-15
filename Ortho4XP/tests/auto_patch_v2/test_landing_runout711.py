@@ -211,14 +211,19 @@ def test_the_collar_banks_the_strips_sides(monkeypatch):
     pm = types.SimpleNamespace(faces={
         1: types.SimpleNamespace(ref="u/landing0"),
         2: types.SimpleNamespace(ref="u/landing0#collar"),
-        3: types.SimpleNamespace(ref="runout:u/landing0")})
+        3: types.SimpleNamespace(ref="runout:u/landing0"),
+        4: types.SimpleNamespace(ref="runout:u/landing0#collar")})
     MP.LANDING_RUNOUTS.clear()
     MP.LANDING_RUNOUTS["runout:u/landing0"] = {"landing": "u/landing0"}
     try:
         got = CP._with_runouts(pm, [("u/landing0", (2,), (1,)), ("v/b0", (7,), (8,))])
     finally:
         MP.LANDING_RUNOUTS.clear()
-    assert got == [("u/landing0", (2,), (1, 3)), ("v/b0", (7,), (8,))]
+    # the landing's collar banks off the strip's first metres; the strip's
+    # own side bank (its own ref, never folded into the landing by the
+    # object stage) banks off the strip
+    assert got == [("u/landing0", (2,), (1, 3)), ("v/b0", (7,), (8,)),
+                   ("runout:u/landing0", (4,), (3,))]
 
 
 def test_a_mapped_road_on_the_strip_rides_it():

@@ -144,11 +144,20 @@ def _with_runouts(planar: PlanarMap, pairs: list) -> list:
     if not LANDING_RUNOUTS:
         return pairs
     by: dict[str, list[int]] = {}
+    strip: dict[str, list[int]] = {}
+    bank: dict[str, list[int]] = {}
     for fid in sorted(planar.faces):
-        rec = LANDING_RUNOUTS.get(str(planar.faces[fid].ref))
+        ref = str(planar.faces[fid].ref)
+        rec = LANDING_RUNOUTS.get(ref)
         if rec is not None:
             by.setdefault(rec["landing"], []).append(fid)
-    return [(r, cs, tuple(ps) + tuple(by.get(r, ()))) for r, cs, ps in pairs]
+            strip.setdefault(ref, []).append(fid)
+        elif is_collar_ref(ref) and platform_ref_of(ref) in LANDING_RUNOUTS:
+            bank.setdefault(platform_ref_of(ref), []).append(fid)
+    # the landing's collar banks off the strip's first metres too; the
+    # strip's own side bank (``<run-out>#collar``) banks off the strip
+    return ([(r, cs, tuple(ps) + tuple(by.get(r, ()))) for r, cs, ps in pairs]
+            + [(r, tuple(bank[r]), tuple(strip[r])) for r in sorted(bank) if r in strip])
 
 
 def block_strip_rows(planar: PlanarMap, law: Law,

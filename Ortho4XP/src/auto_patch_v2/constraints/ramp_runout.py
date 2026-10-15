@@ -138,11 +138,21 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
     toward the ground at ``g``, or closing the landing's offset over a
     ground ``dG`` falling away beside it), nor steeper than the road's own
     cap.  Linear in ``D``, so the strip follows the SOLVED landing wherever
-    the solve holds its block; the ground objective lays it on its DEM
-    once the bound has passed under it.  Like the landing's, a stage-2 row:
+    the solve holds its block.  ONE ceiling (a ``Band``)::
+
+        z_v  <=  max(dem_axis(s), z_hi + profile(s)) + visual_m
+
+    — the same profile off the HIGHEST level the solve may hold the landing
+    at (``z_hi``: the predicted datum + its widest reach band + ``y``,
+    ``planar/landing_runout``), or the raw ground on the strip's AXIS at
+    that station once that profile has met it: the strip comes down onto
+    its DEM by its end (the ground objective alone held HECA's strip end
+    1.5 m over it, MEASURED, no row binding).  And the strip's own CHORDS
+    (:func:`_chord_rows`).  Like the landing's, a stage-2 row:
     ``D`` is stage 1's constant, nothing airside follows the strip.  A
-    vertex of a rigid face other than the landing's own collar (the
-    landing platform, another pad) is not the strip's."""
+    vertex of a rigid face other than a bank of its own (the landing's
+    collar, the strip's side bank ``<run-out>#collar``) — the landing
+    platform, another pad — is not the strip's."""
     from ..law.tables import is_rigid_role
     from ..model.platform import LANDING_RUNOUTS, datum_vertices
     from ..model.planar import COLLAR_SUFFIX
@@ -167,7 +177,7 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
             n_none += 1
             continue
         n += 1
-        bank = rec["landing"] + COLLAR_SUFFIX
+        banks = {rec["landing"] + COLLAR_SUFFIX, str(f.ref) + COLLAR_SUFFIX}
         (x0, y0), (dx, dy) = rec["lip"], rec["dir"]
         g, cap, y = float(rec["g"]), float(rec["cap"]), float(rec["y"])
         w = float(rec.get("width_m", 0.0))
@@ -177,7 +187,7 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
                      (f"face:{f.id}", str(f.ref), f"landing:{rec['landing']}"))
         for v in sorted(face_vertex_set(planar, f)):
             if v in seen or v == dv or any(
-                    q in F and is_rigid_role(law, F[q].role) and str(F[q].ref) != bank
+                    q in F and is_rigid_role(law, F[q].role) and str(F[q].ref) not in banks
                     for q in planar.vertices[v].incident_faces):
                 continue
             seen.add(v)

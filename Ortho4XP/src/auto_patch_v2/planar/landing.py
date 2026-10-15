@@ -219,25 +219,36 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     from .landing_runout import landing_runouts
     LANDING_RUNOUTS.update(landing_runouts(plats, HELD, airport, law, taken,
                                            reach + grid, grid, counts))
-    sides: dict[str, list] = {}
     for rec in LANDING_RUNOUTS.values():
         taken = unary_union([taken, *rec["polys"]])
-        # the strip's SIDES (flat caps: its end meets what lies ahead)
-        sides.setdefault(rec["landing"], []).append(
-            rec["axis"].buffer(0.5 * rec["width_m"] + collar_m, cap_style=2, join_style=2))
     # PASS 2: the collars, over what no platform, pad or airside holds
     held_c = taken
+    tmpls: dict[str, _t.Any] = {}
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
-        C = unary_union([Lu.buffer(collar_m, join_style=2), *sides.get(ref, ())]
-                        ).difference(held_c)
+        C = Lu.buffer(collar_m, join_style=2).difference(held_c)
         cparts = [q for q in _parts(C) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
+        tmpls[ref] = tmpl
         added.extend(_dc.replace(tmpl, ref=ref, polygon=q) for q in Ls)
         added.extend(_dc.replace(tmpl, ref=ref + COLLAR_SUFFIX, polygon=q)
                      for q in cparts)
         LANDINGS[ref] = {"block": bref, "y": round(y_land, 4), "deck": key,
                          "voters": voters, "area_m2": round(Lu.area, 1),
                          "collar_m2": round(sum(q.area for q in cparts), 1)}
+    # PASS 3 (#711): the RUN-OUT's own 1:3 bank along its SIDES (flat caps:
+    # its end meets what lies ahead), ``runout:<landing>#collar`` — NOT the
+    # landing's collar: the object stage seats a body over a landing's
+    # collar at the landing's level (``placement_read._banks_as_platform``),
+    # and a bank of a ref with no pad face is no pad there (MEASURED, HECA:
+    # named as the landing's, Hangar_Tower bodies 60 m down the strip were
+    # seated on the landing at 101.78 m, +10.91 m)
+    for rref, rec in sorted(LANDING_RUNOUTS.items()):
+        band = rec["axis"].buffer(0.5 * rec["width_m"] + collar_m, cap_style=2, join_style=2)
+        cparts = [q for q in _parts(band.difference(held_c)) if q.area >= max(grid * grid, 1.0)]
+        held_c = unary_union([held_c, *cparts])
+        tmpl = tmpls[rec["landing"]]
+        added.extend(_dc.replace(tmpl, ref=rref + COLLAR_SUFFIX, polygon=q) for q in cparts)
+        rec["bank_m2"] = round(sum(q.area for q in cparts), 1)
     counts["landings"] = len(LANDINGS)
     if LANDINGS:
         counts["landing_list"] = "; ".join(
@@ -275,7 +286,8 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
     from ..law.tables import role_side
     strips = unary_union([q for rec in LANDING_RUNOUTS.values() for q in rec["polys"]])
     L = unary_union([r.polygon for r in pad_regions
-                     if pad_base_ref(r.ref) in LANDINGS
+                     if (pad_base_ref(r.ref) in LANDINGS
+                         or pad_base_ref(r.ref) in LANDING_RUNOUTS)
                      and r.polygon is not None] + [strips])
     if L.is_empty:
         return base_regions

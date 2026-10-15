@@ -157,6 +157,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     Kept in one place so an unknown command is a lookup miss (a clean
     ``ok=false`` reply) rather than an attribute error.
     """
+    # Imported here, after the hello is written: the patch commands pull in
+    # the emitter and the law tables (~0.25 s), which the handshake must
+    # not wait for.
+    from . import patch_commands
     return {
         "scan": session.scan,
         "build": session.build,
@@ -202,6 +206,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # link directly in a Custom Scenery folder — never its target,
         # never a folder; a refusal is ok=false with the user's sentence.
         "remove_scenery_link": UNMOUNTED.remove_link,
+        # Patch editor (protocol 1.12, #46, spec patch-editor-20261015
+        # §2): read / write one airport's patch in a tile's Patches
+        # folder.  Synchronous file work, no session state.
+        "patch_list": patch_commands.patch_list,
+        "patch_load": patch_commands.patch_load,
+        "patch_save": patch_commands.patch_save,
+        "patch_revert": patch_commands.patch_revert,
         # Patch editor 3D preview (protocol 1.12, #46): the DEM grid under
         # the patch, from the data repo's caches only.  Synchronous.
         "terrain_sample": terrain_sample,

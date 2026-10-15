@@ -23,6 +23,7 @@ import O4_Unpatched_Airports as UNPATCHED
 from auto_patch import driver as AUTOPATCH
 from auto_patch import selection as _SELECTION
 from auto_patch import osm_aeroway as OSMAERO
+from auto_patch.build_support import is_user_edited_patch as _is_user_edited_patch
 # The road grade cap, one constant for the whole engine (census #115),
 # read from the V2 LAW TABLE since 2026-09-17 (lane ``v1retire`` round 1,
 # session ruling (c)): the user knob ``road_grade_limit`` defaults to the
@@ -1985,16 +1986,7 @@ def derive_auto_patch_selection(tile):
 
 def manual_patch_icaos(tile):
     """The ICAO prefixes the tile's Patches dir already covers by hand."""
-    patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
-    out = set()
-    if not os.path.isdir(patch_dir):
-        return out
-    for fname in os.listdir(patch_dir):
-        if fname.endswith(".patch.osm") and "_auto.patch.osm" not in fname:
-            out.add(fname[:-10].split("_")[0].upper())
-        elif os.path.isdir(os.path.join(patch_dir, fname)):
-            out.add(fname.upper())
-    return out
+    return FNAMES.manual_patch_icaos_in(FNAMES.patch_dir(tile.lat, tile.lon))
 
 
 def manual_patch_files_for(patch_dir, icao):
@@ -2005,8 +1997,8 @@ def manual_patch_files_for(patch_dir, icao):
         return []
     return sorted(
         f for f in os.listdir(patch_dir)
-        if f.endswith(".patch.osm") and "_auto.patch.osm" not in f
-        and f[:-10].split("_")[0].upper() == icao.upper())
+        if FNAMES.is_manual_patch_name(f)
+        and FNAMES.patch_file_icao(f) == icao.upper())
 
 
 def auto_patch_not_applied(tile, icao, patch_dir=None):
@@ -3947,11 +3939,7 @@ def include_patches(vector_map, tile):
     manual_patches = [f for f in all_patch_files if "_auto.patch.osm" not in f]
     auto_patches = [f for f in all_patch_files if "_auto.patch.osm" in f]
     # Track which ICAO codes are covered by manual patches
-    manual_icao_codes = set()
-    for f in manual_patches:
-        base = f[:-10]  # strip .patch.osm
-        icao_prefix = base.split("_")[0].upper()
-        manual_icao_codes.add(icao_prefix)
+    manual_icao_codes = {FNAMES.patch_file_icao(f) for f in manual_patches}
     # Honor the auto_patch mode when LOADING, not just when generating
     # (user 2026-05-22): the setting governs which auto-patches are
     # APPLIED, so changing it takes effect even when auto-patch files
@@ -3997,7 +3985,13 @@ def include_patches(vector_map, tile):
                 # ``OTHH.patch.osm`` that silently replaced the auto patch
                 # (and the selector never built OTHH at all) — the only
                 # trace was this line at verbosity 1.
-                manual = manual_patch_files_for(patch_dir, auto_icao)
+                # A5 (spec patch-editor-20261015 §1.3): a file the patch
+                # editor wrote is LABELLED — its grade law is not checked
+                # (A3) and nothing fails on it.  One root-line read.
+                manual = [
+                    f + (" (user-edited)" if _is_user_edited_patch(
+                        os.path.join(patch_dir, f)) else "")
+                    for f in manual_patch_files_for(patch_dir, auto_icao)]
                 UI.vprint(
                     0,
                     "   %s: using the MANUAL patch %s — %s is NOT applied "

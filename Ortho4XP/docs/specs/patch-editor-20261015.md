@@ -24,7 +24,7 @@ buildings, live while editing. Mac first, then Qt parity.
 | A7 | Object re-seating with an edited patch | "Yes" (stays off) — plus: show the pack's buildings in the 3D view. |
 | A8 | 3D placement | "3D view only as a separate window." |
 | A9 | 3D extent | "Yes": patch bbox + 500 m, 5 m spacing. |
-| A10 | Near-coincident nodes | "I only meant in the editor, that when the user is moving nodes, within 0.5m they snap together" — §3.3: a node being moved snaps onto (merges with) a node closer than the law's own spacing (`emit.identity.min_distinct_spacing_m` = 0.5, RULINGS 2026-09-13cg (iii)). No merge pass at save. |
+| A10 | Near-coincident nodes | "I only meant in the editor, that when the user is moving nodes, within 0.5m they snap together" — and: the pointer snaps the dragged node to a node within 0.5 m, dragging away releases it, and it merges only on release while snapped (§3.3). Snap radius: "8 pt on screen" (owner, 2026-10-15 — at airport zoom 0.5 m of ground is under 0.1 pt). No merge pass at save. |
 
 Relevant law: RULINGS 2026-09-13cg (iii) (sub-spacing merge), 05e (no
 airport-specific code), 30l (consumer census — §1.3 below).
@@ -39,11 +39,15 @@ the first `_` is the ICAO is a MANUAL patch and replaces the auto patch
 
 1.2 Save target: `<ICAO>_edited.patch.osm`, written atomically (temp file +
 `os.replace`). Header (root `<osm>` attributes): every `o4_*` freshness stamp
-of the patch the edit started from, re-keyed `o4_edited_from_<stamp>`, plus
+of the patch the edit started from, re-keyed without their `o4_` prefix as `o4_edited_from_<name>` (e.g.
+`o4_cfg` → `o4_edited_from_cfg`; the stamp readers are unanchored, so
+`o4_edited_from_o4_cfg` would read as a live stamp), plus
 `o4_user_edited="1"`. Revert renames it to `<ICAO>_edited.patch.osm.disabled`
 (never deletes). If a DIFFERENT manual patch already exists for the ICAO (a
 JOSM file), the editor loads that one and saves back to IT (same path); A6
-names only the editor's own new files.
+names only the editor's own new files. Such a file has no "Revert to auto"
+(the pane says it was made outside the editor; undo still works within the
+session); `patch_revert` refuses it.
 
 1.3 Consumer census (30l) of the saved file — every reader of a manual patch:
 `include_patches` (geometry; `alt_abs` per node is taken as-is),
@@ -54,8 +58,9 @@ the app's "modified airports" / reanchor status (unchanged). L1 confirms this
 list by grep and reports any reader it adds.
 
 1.4 Staleness: `patch_load` compares the recorded `o4_edited_from_*` stamps
-with the stamps the current inputs would produce (the computation
-`driver._auto_patch_is_current` already does — call it, don't copy it).
+with the stamps the current inputs would produce, through
+`driver.auto_patch_stale_inputs` (extracted by L1 from
+`_auto_patch_is_current`, which now calls it).
 Different → `stale: true` + the names of the inputs that moved.
 
 ## 2. Wire protocol 1.12 (frozen interface)
@@ -125,7 +130,7 @@ implementations cannot drift.
 
 3.1 Operations: `move(ids, dlat, dlon)`, `set_position(id, lat, lon)`,
 `set_alt(ids, alt)`, `offset_alt(ids, d)`, `delete_nodes(ids)`,
-`insert_on_edge(a, b)`.
+`insert_on_edge(a, b)`, `merge_nodes(source, target)` (§3.3).
 
 3.2 Topology rules. Delete removes the node from every way. After any op,
 consecutive duplicate refs collapse; a closed way (first == last) left with
@@ -134,20 +139,34 @@ the same step. `insert_on_edge` places the node at the midpoint, alt = mean of
 the two endpoints (null if either is null), into EVERY way in which `a`, `b`
 are consecutive in either direction (shared edges stay welded).
 
-3.3 Snap while moving (A10). Only `move` and `set_position` snap, and only
-for the node(s) being moved. Distance is metric on the local plane used by
-the engine's `emit/osm_adapter._local_metres` at the document origin; "closer
-than" means strictly less than `min_distinct_spacing_m` (served by
-`patch_load`, never hard-coded). A moved node that ends closer than the
-spacing to another, non-moved node merges INTO it: the non-moved node
-survives with its position and elevation; refs are replaced; 3.2 applies.
-Several candidates: nearest wins, ties by the engine's `survivor_key`
-(import it, don't copy it). The merge is part of the move's undo step and is
-drawn as a snap highlight during the drag. Nothing else merges: inserts,
-elevation edits, deletes and `patch_save` never merge, and untouched geometry
-is never changed — twin-tested: `patch_load` → `patch_save` with no edits
-rewrites the same nodes and ways (HECA has 1,003 node pairs at 0.499–0.500 m
-that must stay as they are).
+3.3 Snap while dragging (A10, owner clarification 2026-10-15: "when dragging
+a node the mouse comes within 0.5m of another node it should try and snap to
+that node, if the user does not release the mouse button and drags away it
+moves away, only merging if the user releases the mouse button over the
+snapped nodes"). This is drag-time UI plus ONE explicit operation:
+- During a drag, when the POINTER comes within the snap radius of another
+  (non-dragged) node, the grabbed node is drawn AT that node (snap
+  highlight); the rest of a multi-selection keeps following the pointer
+  delta. Dragging back out of the radius releases the snap and the node
+  follows the pointer again. Nothing is merged while the button is down.
+- On release while snapped: one undo step = `move` of the selection to the
+  release position + `merge_nodes(grabbed, target)`. On release while not
+  snapped: `move` only.
+- `merge_nodes(source, target)` (added to §3.1): the TARGET survives with
+  its position and elevation; every ref to `source` becomes `target`; 3.2
+  applies (consecutive duplicates collapse, degenerate ways go). It checks
+  no distance — the UI decided.
+- Snap radius (owner, 2026-10-15): 8 pt ON SCREEN from the pointer to the
+  node, at any zoom — the same radius as clicking a node. Several
+  candidates: nearest on screen wins, ties by the engine's `survivor_key`
+  (the fixture's `ui_snap_reference` documents it). `min_distinct_spacing_m`
+  is still served by `patch_load` (for display and future checks); the snap
+  does not use it.
+Nothing else merges: `move`, inserts, elevation edits, deletes and
+`patch_save` never merge, and untouched geometry is never changed —
+twin-tested: `patch_load` → `patch_save` with no edits rewrites the same nodes
+and ways (real patches carry node pairs at 0.499–0.500 m — 125 in the data-repo
+HECA patch of 2026-10-15 — that must stay as they are).
 
 ## 4. Mac app
 

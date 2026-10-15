@@ -11748,3 +11748,42 @@ def test_importing_the_guard_never_puts_the_engines_src_on_sys_path(
 # fixtures share one code path, twin-asserted in section 1):
 # ``test_the_acceptance_gate_reads_the_one_law_frame``,
 # ``test_the_faa_fixture_is_in_the_acceptance_battery``.
+
+
+# ---------------------------------------------------------------------------
+# A5 (spec patch-editor-20261015 §1.3): a USER-EDITED patch is reported,
+# never failed — the exemption lives in the shared reader, not a wrapper.
+# ---------------------------------------------------------------------------
+_EDITED_OSM = (
+    "<?xml version='1.0' encoding='UTF-8'?>\n"
+    "<osm version='0.6' generator='auto_patch_v2'{mark}>\n"
+    "  <node id='-1' lat='30.0' lon='31.0'><tag k='alt_abs' v='10' /></node>\n"
+    "  <node id='-2' lat='30.0' lon='31.001'><tag k='alt_abs' v='20' /></node>\n"
+    "  <node id='-3' lat='30.001' lon='31.0'><tag k='alt_abs' v='10' /></node>\n"
+    "  <way id='-10'><nd ref='-1' /><nd ref='-2' /><nd ref='-3' />"
+    "<nd ref='-1' /><tag k='role' v='apron' /></way>\n"
+    "</osm>\n")
+
+
+def test_a_user_edited_patch_without_a_frame_is_reported_not_refused(
+        cg, census_mod, tmp_path, capsys):
+    osm = tmp_path / "HECA_edited.patch.osm"
+    osm.write_text(_EDITED_OSM.format(mark=" o4_user_edited='1'"))
+    assert cg.user_edited_label(osm) == cg.USER_EDITED_LABEL == "user-edited"
+    with pytest.raises(cg.UserEditedPatchUnjudged):
+        cg.law_context_from_sidecar(osm)
+    # still a FileNotFoundError: every other caller refuses exactly as before
+    assert issubclass(cg.UserEditedPatchUnjudged, FileNotFoundError)
+    assert census_mod.main([str(osm), "--no-cache"]) == 0
+    assert "USER-EDITED" in capsys.readouterr().out
+
+
+def test_an_unmarked_patch_without_a_frame_still_refuses(cg, census_mod, tmp_path):
+    osm = tmp_path / "HECA.patch.osm"
+    osm.write_text(_EDITED_OSM.format(mark=""))
+    assert cg.user_edited_label(osm) is None
+    with pytest.raises(FileNotFoundError) as info:
+        cg.law_context_from_sidecar(osm)
+    assert not isinstance(info.value, cg.UserEditedPatchUnjudged)
+    with pytest.raises(SystemExit):
+        census_mod.main([str(osm), "--no-cache"])

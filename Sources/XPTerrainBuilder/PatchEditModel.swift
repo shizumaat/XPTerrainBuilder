@@ -8,7 +8,7 @@ import SceneryKit
 /// and `PatchInspector`; owned by `BuildModel` (the engine session's owner).
 ///
 /// View mode only (lane L2). `mode`, `selection` and the document's
-/// mutation are L3's: its §3 ops edit `document`, then `documentChanged()`
+/// mutation are L3's: its §3 ops edit `document`, then `documentChanged(_:)`
 /// rebuilds the derived grid and map geometry.
 @MainActor
 final class PatchEditModel: ObservableObject {
@@ -227,6 +227,7 @@ final class PatchEditModel: ObservableObject {
                 self.selection = []
                 self.loadingKey = nil
                 self.setState(.loaded)
+                self.changes.send(.all)
             } catch {
                 guard let self, !Task.isCancelled, self.loadingKey == key else { return }
                 self.loadingKey = nil
@@ -235,13 +236,20 @@ final class PatchEditModel: ObservableObject {
         }
     }
 
-    /// L3: after an edit to `document`, rebuild what is derived from it.
-    func documentChanged() {
+    /// Every edit, undo and redo announces what it touched, so views that
+    /// keep their own derived geometry (the 3D preview) rebuild only that.
+    /// A load or a revert sends `.everything`.
+    let changes = PassthroughSubject<PatchChange, Never>()
+
+    /// L3: after an edit to `document`, rebuild what is derived from it and
+    /// announce `change`.
+    func documentChanged(_ change: PatchChange) {
         guard var doc = document else { return }
         doc.reindex()
         document = doc
         grid = PatchSpatialGrid(document: doc)
         geometry = PatchMapGeometry(document: doc)
+        changes.send(change)
     }
 
     private func setState(_ new: LoadState) {

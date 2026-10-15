@@ -214,6 +214,18 @@ floating, as it would in the sim (re-seating is off for an edited patch).
 LAST BUILD: `mesh_crop`, refreshed after a rebuild only. Read-only: no
 picking or editing in 3D.
 
+Ruled after L6a (2026-10-15): (1) a closed patch way nested inside another
+surface is a HOLE of its direct parent unless it lies inside one of the
+parent's `gap_interior_ring`s (the emitter writes no hole that inner faces
+cover — HECA 179, LEMD 213, KUAO 137 nested faces). (2) Above the 4 M-sample
+cap the client coarsens the spacing in 0.5 m steps and the chip shows the
+spacing used. (3) The terrain should be the one the mesh drapes on: use the
+tile's composed production DEM (`dem_frame="production"`) when it is
+readable from cache, else the authored base + inset (`load_dem`), with the
+inset feather from the tile's cfg; the chip names which (6b). (4)
+`terrain_sample` runs on the engine's read loop (~0.25 s for HECA's 1.95 M
+samples).
+
 ## 6. Qt (L5, L7)
 
 The same overlay, inspector and 3D window in `O4_Qt_Map.py` (+ new modules,

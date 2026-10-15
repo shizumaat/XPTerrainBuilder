@@ -920,6 +920,21 @@ def why_hard(icao, pm, law, cs, z, limit: int = 40, out=print,
             "by_generator": by_gen, "rows": recs}
 
 
+def _ridge_stations(pm, rw, chains, z):
+    """``(above_chord_m, vertex, station_m)`` for every crown-ridge vertex of
+    runway ``rw``: the station along the threshold-to-threshold axis and
+    ``z`` above the straight threshold chord at that station."""
+    e0, e1 = rw.ends
+    L = math.dist(e0.xy, e1.xy)
+    ux, uy = (e1.xy[0] - e0.xy[0]) / L, (e1.xy[1] - e0.xy[1]) / L
+    for ch in chains.get(rw.id) or []:
+        for v in ch:
+            x, y = pm.vertices[v].xy
+            s = (x - e0.xy[0]) * ux + (y - e0.xy[1]) * uy
+            line = e0.threshold_elev_m + (e1.threshold_elev_m - e0.threshold_elev_m) * s / L
+            yield z[v] - line, v, s
+
+
 def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
               out=print, relax: list[str] | None = None, vertex: int | None = None,
               fixed: dict | None = None) -> dict:
@@ -934,30 +949,31 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
     from v2_why_solve import Prepared, bindings, chain_trace, solve_with_pressure, _vname, _row_desc
     hump: list[int] = []
     best = None
+    chains = ridge_chains(view(pm, law))
     if vertex is not None:
-        best = (float("nan"), vertex, float("nan"))
+        # a NAMED vertex (--why-vertex / --why-at) carries no runway: its
+        # station and chord are read on the runway whose ridge holds it,
+        # and a vertex on no ridge has neither (issue #738: both were NaN)
         hump = [vertex]
+        hit = next(((rw, st) for rw in airport.runways
+                    for st in _ridge_stations(pm, rw, chains, z) if st[1] == vertex),
+                   None)
+        runway, best = (hit[0].id, hit[1]) if hit else ("", (None, vertex, None))
     else:
         rw = next(r for r in airport.runways if r.id == runway)
-        e0, e1 = rw.ends
-        L = math.dist(e0.xy, e1.xy)
-        ux, uy = (e1.xy[0] - e0.xy[0]) / L, (e1.xy[1] - e0.xy[1]) / L
-        chains = ridge_chains(view(pm, law))
-        for ch in chains.get(rw.id) or []:
-            for v in ch:
-                x, y = pm.vertices[v].xy
-                s = (x - e0.xy[0]) * ux + (y - e0.xy[1]) * uy
-                if not (s0 <= s <= s1):
-                    continue
-                hump.append(v)
-                line = e0.threshold_elev_m + (e1.threshold_elev_m - e0.threshold_elev_m) * s / L
-                if best is None or z[v] - line > best[0]:
-                    best = (z[v] - line, v, s)
+        for above, v, s in _ridge_stations(pm, rw, chains, z):
+            if not (s0 <= s <= s1):
+                continue
+            hump.append(v)
+            if best is None or above > best[0]:
+                best = (above, v, s)
     if best is None:
         out(f"[{icao}] why-hump: no ridge vertex of {runway} in s {s0}..{s1}")
         return {}
     above, v, s = best
-    out(f"[{icao}] why-hump {runway}: ridge vertex v{v} at s={s:.0f}  z {z[v]:.2f}  chord+{above:.2f}  "
+    where = (f"ridge vertex v{v} at s={s:.0f}  z {z[v]:.2f}  chord+{above:.2f}" if runway
+             else f"vertex v{v} (on no runway ridge: no station, no chord)  z {z[v]:.2f}")
+    out(f"[{icao}] why {runway or 'vertex'}: {where}  "
         f"DEM {pm.vertices[v].dem_z:.2f} (z-DEM {z[v] - pm.vertices[v].dem_z:+.2f}); pressure solve ...")
     t = time.perf_counter()
     sol2, drep, press = solve_with_pressure(pm, cs, law, fixed)
@@ -1014,8 +1030,9 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
             out(f"      {fam_name:22s} -{rr.rows_dropped:6d} rows  {rr.status:8s}  dz median {rr.dz_median:+.3f}  "
                 f"min {rr.dz_min:+.3f}  max {rr.dz_max:+.3f}  ({time.perf_counter() - t:.0f} s)")
     return {"vertex": v, "relax_arms": arms, "hump_vertices": len(hump),
-            "station_m": None if s != s else round(s), "z": round(float(z[v]), 2),
-            "above_chord_m": None if above != above else round(float(above), 2),
+            "runway": runway or None,
+            "station_m": None if s is None else round(s), "z": round(float(z[v]), 2),
+            "above_chord_m": None if above is None else round(float(above), 2),
             "z_dem": round(float(z[v] - pm.vertices[v].dem_z), 2),
             "families": {k: {"rows": r["rows"], "sum_abs_dual": round(r["sum_abs_dual"], 2), "example": r["example"]}
                          for k, r in fam.items()}, "trace": trace}

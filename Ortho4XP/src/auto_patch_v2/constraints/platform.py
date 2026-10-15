@@ -127,12 +127,28 @@ def flat_held_refs(planar: PlanarMap, law: Law) -> frozenset[str]:
 
 def platform_collar_rows(planar: PlanarMap, law: Law,
                          airport: Airport | None = None) -> list[Row]:
-    """The collar bank rows (module docstring).  A generator."""
+    """The collar bank rows (module docstring).  A generator.  A landing's
+    collar banks the sides of its RUN-OUT too (#711): the strip's faces
+    stand beside the landing's platform faces as the bank's inner set."""
     STATS.clear()
-    rows, st = _bank_rows(planar, law, collar_faces(planar, law))
+    rows, st = _bank_rows(planar, law, _with_runouts(planar, collar_faces(planar, law)))
     if st is not None:
         STATS["platform_collar_rows"] = st
     return rows
+
+
+def _with_runouts(planar: PlanarMap, pairs: list) -> list:
+    """``pairs`` with each landing's run-out faces (``model.platform.
+    LANDING_RUNOUTS``, issue #711) joined to its platform faces."""
+    from ..model.platform import LANDING_RUNOUTS
+    if not LANDING_RUNOUTS:
+        return pairs
+    by: dict[str, list[int]] = {}
+    for fid in sorted(planar.faces):
+        rec = LANDING_RUNOUTS.get(str(planar.faces[fid].ref))
+        if rec is not None:
+            by.setdefault(rec["landing"], []).append(fid)
+    return [(r, cs, tuple(ps) + tuple(by.get(r, ()))) for r, cs, ps in pairs]
 
 
 def block_strip_rows(planar: PlanarMap, law: Law,

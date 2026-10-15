@@ -19,7 +19,8 @@ from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
                junction_mesh,
                no_step, pad_frontage_gs, pad_fronting, pads, pavement_cap,
                platform,
-               proximity, road_ramp, roads, routes, runway_chord, runway_profile, seams, strips,
+               proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_profile,
+               seams, strips,
                channel,
                structures,
                taxi, transverse, water, zones)
@@ -100,6 +101,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING held at
     # its block's datum + the deck's y — a stage-2 row
     ("landing_level", platform.landing_rows),
+    # issue #711 (RULINGS 2026-10-14c (5) at a landing): the RUN-OUT off
+    # a ramp foot on a landing, at road grade from the landing's level
+    ("landing_runout", ramp_runout.landing_runout_rows),
     # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the plane is CONTACT-LED —
     # one one-way level row per welded collar contact, at the plane there
     ("platform_level", platform.platform_level_rows),
@@ -193,6 +197,11 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
     rows, n_eat = eat.withdraw_against_senior(rows)
     counts["eat_pin_withdrawn_senior"] = n_eat
     walls["eat_pin_withdrawn_senior"] = 0.0
+    # #711: a mapped road on a landing's run-out rides it (its §37 ramp
+    # rows withdrawn where the strip holds the vertex)
+    rows, n_runout = ramp_runout.runout_exempt(rows, planar)
+    counts["road_ramp_withdrawn_on_runout"] = n_runout
+    walls["road_ramp_withdrawn_on_runout"] = 0.0
     # THE 5 % CEILING (owner RULINGS 2026-09-09b (4)): a POST-PASS over the
     # law set — one hard twin at the ceiling per pavement DIFFERENCE row
     # (``constraints/ceiling.py``), never a second reading of the geometry.

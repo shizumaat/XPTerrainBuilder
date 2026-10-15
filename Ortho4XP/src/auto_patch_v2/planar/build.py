@@ -40,6 +40,7 @@ from .basins import BasinStats, build_basins, read_objects
 from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
+from .covered_ground import CoveredGround, covered_ground
 from .structure_approach import wall_field
 from .structure_road import mouth_pair_roads
 from ..airport.tunnel_objects import TunnelObjectStats
@@ -83,6 +84,7 @@ class BuildStats:
     seam_vertices: int = 0
     dropped_seam_faces: int = 0
     structures: StructureStats = _dc.field(default_factory=StructureStats)
+    covered_ground: CoveredGround = _dc.field(default_factory=CoveredGround)
     basins: BasinStats = _dc.field(default_factory=BasinStats)
     weld: WeldStats = _dc.field(default_factory=WeldStats)
     tunnel_objects: TunnelObjectStats = _dc.field(default_factory=TunnelObjectStats)
@@ -349,6 +351,11 @@ def build(airport: Airport, classification: Classification, law: Law,
     zs = _sample(airport, xs, ys)
     # a tunnel ramp's target is its designed profile (``ramp_targets``)
     targets = ramp_targets(tunnels, law, faces, edge_list, vertices_xy, zs)
+    # #714: over a mapped bore under airside pavement the ground is the
+    # ground BESIDE the cover, not the road floor a bare-earth DEM carries
+    zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs)
+    if stats.covered_ground.rings:
+        print(f"  [planar] {stats.covered_ground.line()}")
     dp = frame.identity_dp
     vertices: dict[int, Vertex] = {}
     for v, p in enumerate(vertices_xy):

@@ -297,6 +297,14 @@ class Tunnel:
     #: mapped road's END may stand from a structure MOUTH and still be
     #: the ROAD BETWEEN TWO MOUTHS (`planar/structure_road`).
     mouth_pair_m: float
+    #: THE GROUND OVER A COVERED ROAD (issue #714, ``planar/covered_ground``):
+    #: past the covered footprint's edge, how far the ground BESIDE the
+    #: cover is read (its highest DEM sample) on each side of a bore.
+    covered_side_probe_m: float
+    #: ... the cut's RIM is where the DEM first climbs this fraction of
+    #: the way from the floor to the highest ground within the search.
+    covered_rim_rise_frac: float
+    covered_rim_search_m: float
 
     @property
     def mouth_depth_m(self) -> float:

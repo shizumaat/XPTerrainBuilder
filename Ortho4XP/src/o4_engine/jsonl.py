@@ -150,12 +150,25 @@ def _ortho4xp_version() -> str:
         return ""
 
 
+#: Commands completed by an event that names the command: their handler
+#: is given the command's ``id`` as ``request``.
+_TAKES_REQUEST_ID = frozenset({"pack_objects"})
+
+
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     """Map command names 1:1 onto session methods.
 
     Kept in one place so an unknown command is a lookup miss (a clean
     ``ok=false`` reply) rather than an attribute error.
     """
+    # Imported here, after the hello is written: the patch commands pull in
+    # the emitter and the law tables (~0.25 s), which the handshake must
+    # not wait for.
+    from . import patch_commands
+    from .pack_objects import start_pack_objects
+    from .pack_outlines import pack_outlines
+    from .mesh_commands import mesh_crop
+    from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
         "build": session.build,
@@ -201,7 +214,33 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # link directly in a Custom Scenery folder — never its target,
         # never a folder; a refusal is ok=false with the user's sentence.
         "remove_scenery_link": UNMOUNTED.remove_link,
+        # Patch editor (protocol 1.12, #46, spec patch-editor-20261015
+        # §2): read / write one airport's patch in a tile's Patches
+        # folder.  Synchronous file work, no session state.
+        "patch_list": patch_commands.patch_list,
+        "patch_load": patch_commands.patch_load,
+        "patch_save": patch_commands.patch_save,
+        "patch_revert": patch_commands.patch_revert,
+        # Patch editor 3D preview (protocol 1.12, #46): the DEM grid under
+        # the patch, from the data repo's caches only.  Synchronous.
+        "terrain_sample": terrain_sample,
+        # ... and the airport pack's buildings over it, from cached dumps:
+        # replies {"status": "started"}; a worker thread completes it with
+        # PackObjectsReady carrying this command's id (_TAKES_REQUEST_ID).
+        "pack_objects": lambda **kw: start_pack_objects(session._emit, **kw),
+        # ... and the pack's own apt.dat pavement and boundary, as the
+        # map's dashed reference outlines.  Synchronous, cache-only.
+        "pack_outlines": pack_outlines,
+        # ... and the last build's mesh there ("Last build"); synchronous.
+        "mesh_crop": mesh_crop,
     }
+
+
+def command_table(session: EngineSession) -> Dict[str, Callable]:
+    """The command name → handler table this transport serves, for an
+    in-process client (the Qt app calls the SAME functions, never
+    re-spelled; a command this engine lacks is simply absent)."""
+    return _build_handlers(session)
 
 
 def _initialize_pipeline_registries() -> None:
@@ -474,6 +513,8 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             arguments = {
                 k: v for k, v in message.items() if k not in ("cmd", "id")
             }
+            if command in _TAKES_REQUEST_ID:
+                arguments["request"] = call_id
             # build's tiles arrive as JSON arrays; the session keys estimate
             # dicts by tile, so they must be hashable tuples again.
             if (command in ("build", "enqueue_build")

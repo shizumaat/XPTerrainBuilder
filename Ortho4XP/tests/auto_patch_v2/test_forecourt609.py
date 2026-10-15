@@ -99,3 +99,22 @@ def test_without_the_clearance_the_roof_joins_the_terminal():
     PO.place_orphans(st, 100.0, None, counts)
     assert counts.get("orphan_components_joined") == 1
     assert st.groups == [[0, 1, 2]]
+
+
+def test_an_elevated_part_is_no_group_and_does_not_hold_a_roof():
+    """#708 (KCLT 1.0.394, 35.2235549, -80.944007): the roof plate's box
+    touches only an ELEVATED part (in no ground group — §15's search seats
+    it).  It is clear of every part it could JOIN, so it is its own body
+    and takes the same search instead of joining the nearest ground group
+    on another level."""
+    part_a = types.SimpleNamespace(comp=0)
+    part_e = types.SimpleNamespace(comp=3)
+    raw = [([part_a], "other", None, (), False, (), (), 210.0),
+           ([part_e], "other", None, (), True, (), (), 210.0)]
+    under_roof = _box(6, 104, 10, 108)               # inside ROOF's box
+    st = types.SimpleNamespace(raw=raw, groups=[[0]],
+                               part_boxes=[[WING_A], [under_roof]])
+    assert PO._clear_of_parts(st, [ROOF], 0.5) == [True]
+    # a member with no ground groups keeps reading every part (footless)
+    st.groups = []
+    assert PO._clear_of_parts(st, [ROOF], 0.5) == [False]

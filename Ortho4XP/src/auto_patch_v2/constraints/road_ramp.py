@@ -15,6 +15,7 @@ row binding it.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import typing as _t
 
 from ..geom.ramp_grade import built_grade, least_grade
@@ -29,7 +30,7 @@ __all__ = ["GEN", "RULING", "RULING_CEILING", "JOIN_RULING",
            "road_contact_rows", "reach_seed_rewrite", "BANK_RULING",
            "between_levels_rewrite", "airside_joins", "welded_join_release",
            "terrace_rewrite", "terrace_profile", "wall_terrace_rows",
-           "wall_release", "pad_weld_release", "WALL_LOT_RULING"]
+           "wall_release", "pad_weld_release", "WALL_LOT_RULING", "WALL_STEP_RULING"]
 
 GEN = "road_ramp"
 #: The ruling HEAD of the DESIGN TARGET (everything before the first
@@ -157,6 +158,13 @@ WALL_LOT_RULING = ("structures.wall_terrace lot level "
                    "(owner 2026-10-03c; issue #291)")
 
 
+#: OWNER RULINGS 2026-10-15a (2) (#715; issue #507): THE STEP ACROSS A
+#: RETAINING WALL IS THE WALL — the ground below never stands more than the
+#: wall's height under the level above (one-way: the lower vertex follows).
+WALL_STEP_RULING = ("structures.wall_terrace step "
+                    "(owner 2026-10-15a (2); issues #715, #507)")
+
+
 def wall_terrace_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """OWNER RULINGS 2026-10-03c: per declared wall terrace
     (``PlanarMap.road_terrace['wall']``, derived once by
@@ -177,6 +185,33 @@ def wall_terrace_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
             seen.add(lv)
             rows.append(Linear(((int(lv), 1.0), (int(pv), -1.0)), 0.0, 0.0,
                                Source("wall_terrace", WALL_LOT_RULING,
+                                      (f"vertex:{lv}", str(rec.get("label", "")))),
+                               follows=(int(lv),)))
+    rows.extend(_wall_step_rows(planar, walls))
+    return rows
+
+
+def _wall_step_rows(planar: PlanarMap, walls: _t.Mapping[int, _t.Mapping]) -> list[Row]:
+    """15a (2): at a wall that RETAINS ITS HEIGHT (a road among its lower
+    vertices: ``airport/road_ramp.wall_terraces`` admits one only there),
+    one ONE-WAY floor per lower vertex, ``z[lower] - z[upper] >= -h``
+    against its nearest upper vertex — the step across the line is at most
+    the wall (the publication declares ``min(h, emitted)``).  MEASURED KATL
+    (harness ``katlwall_KATL2``): without it the step at ``muro_concreto5``
+    read 11.155 m over a 10.65 m wall."""
+    rows: list[Row] = []
+    for k in sorted(walls):
+        rec = walls[k]
+        up, lo = list(rec.get("upper") or ()), list(rec.get("lower") or ())
+        if not up or not lo or not rec.get("retains"):
+            continue
+        h = float(rec.get("height_m") or 0.0)
+        for lv in lo:
+            x, y = planar.vertices[lv].xy
+            uv = min(up, key=lambda q: (math.hypot(planar.vertices[q].xy[0] - x,
+                                                   planar.vertices[q].xy[1] - y), q))
+            rows.append(Linear(((int(lv), 1.0), (int(uv), -1.0)), -h, None,
+                               Source("wall_terrace", WALL_STEP_RULING,
                                       (f"vertex:{lv}", str(rec.get("label", "")))),
                                follows=(int(lv),)))
     return rows
@@ -235,6 +270,9 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
         return False
     diffs = []
     for r in cs.diffs:
+        if r.source.generator == "wall_terrace":
+            diffs.append(r)             # the wall's own rows ARE the step
+            continue
         if r.a in xy and r.b in xy and crosses((r.a, r.b)):
             rep["released"] += 1
             continue
@@ -242,7 +280,8 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     linears = []
     for r in cs.linears:
         vs = [v for v, _c in r.terms]
-        if len(vs) >= 2 and sum(v in xy for v in vs) >= 2 and crosses(vs):
+        if r.source.generator != "wall_terrace" and len(vs) >= 2 and \
+                sum(v in xy for v in vs) >= 2 and crosses(vs):
             rep["released"] += 1
             continue
         linears.append(r)

@@ -12,8 +12,10 @@ released, a road at the foot of an 8 m wall stood 3.5 m over its ground,
 carried up by the bending stencils of the strip faces spanning the wall.
 
 :func:`wall_cut_edges` is the set of mesh edges the bending skips: an edge
-with exactly one end on a wall's LOWER side whose segment touches the
-wall's outline (the same test ``wall_release`` applies to a pair row)."""
+with exactly one end on the LOWER side of a wall that retains its height
+(the record's ``retains``; a 10-03c lot terrace at a thin wall is
+unchanged) whose segment touches the wall's outline (the same test
+``wall_release`` applies to a pair row)."""
 from __future__ import annotations
 
 import typing as _t
@@ -34,7 +36,7 @@ def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
     from shapely.strtree import STRtree
     polys, low = [], set()
     for _k, r in sorted(walls.items()):
-        if len(r.get("line") or ()) >= 4 and r.get("lower"):
+        if len(r.get("line") or ()) >= 4 and r.get("lower") and r.get("retains"):
             g = Polygon(r["line"])
             polys.append(g if g.is_valid else g.buffer(0.0))
             low.update(int(v) for v in r["lower"])

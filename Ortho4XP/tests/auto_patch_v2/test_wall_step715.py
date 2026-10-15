@@ -93,7 +93,11 @@ def test_the_step_is_declared_at_the_wall_and_the_airside_is_untouched(arms):
     (pm0, sol0, _r0), _thin, (pm2, sol2, _r2) = arms
     law = Law.for_airport("SYNT")
     j = wall_terrace_joints(pm2, law, sol2.z)
-    assert len(j) == 1 and 7.0 <= j[0]["emitted_step_m"] <= 8.0 + 0.6
+    # the step is the wall, never more (15a (2); #507): the one-way floor
+    assert len(j) == 1 and 7.0 <= j[0]["emitted_step_m"] <= 8.0 + 0.02
+    from auto_patch_v2.constraints.road_ramp import WALL_STEP_RULING, wall_terrace_rows
+    assert any(r.source.ruling == WALL_STEP_RULING
+               for r in wall_terrace_rows(pm2, law, None))
     z0 = {pm0.vertices[v].xy: sol0.z[v] for v in airside_stage_vertices(pm0, law)}
     at2 = {pm2.vertices[v].xy: v for v in pm2.vertices}
     assert z0 and all(abs(sol2.z[at2[xy]] - zz) <= 1e-6 for xy, zz in z0.items()

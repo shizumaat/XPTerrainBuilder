@@ -1476,7 +1476,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
             pairs.append((lv, nearest(lv, list(dict.fromkeys(
                 pm.ring_vertices(pm.faces[pf].ring))))))
         out[k] = {"line": [tuple(c) for c in ring], "height_m": w.height_m,
-                  "label": w.label, "upper": upper, "lower": lower,
+                  "label": w.label, "retains": bool(w.retains),
+                  "upper": upper, "lower": lower,
                   "lots": lots, "pairs": pairs}
     return out
 

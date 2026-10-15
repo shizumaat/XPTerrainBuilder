@@ -65,7 +65,7 @@ struct PatchEditorTests {
         #expect(objects.facades.first?.heightM == 8.5)
         let outlines = try decode("pack_outlines", as: O4PackOutlines.self)
         #expect(outlines.pavement.first?.rings.first?.count == 3)
-        #expect(outlines.footprints.first?.role == "hangar")
+        #expect(outlines.pavement.last?.kind == "boundary" && outlines.pavement.last?.rings.count == 2)
     }
 
     @Test func refusedCommandCarriesTheEngineSentence() {

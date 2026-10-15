@@ -929,15 +929,24 @@ extension OrthoEngineClient {
         try await request("pack_outlines", ["tile": tile, "icao": icao])
     }
 
+    /// `buildDir`: the tile's build folder as the scan reported it
+    /// (`O4TileInfo.buildDir`; spec §2 amendment (b)) — where the built DEM
+    /// is looked for; nil = the engine's default `Tiles/` folder.
     public func terrainSample(tile: String, icao: String, bbox: O4LatLonBox,
-                              spacingM: Double) async throws -> O4TerrainSample {
-        try await request("terrain_sample", [
+                              spacingM: Double, buildDir: String? = nil) async throws -> O4TerrainSample {
+        var arguments: [String: Any] = [
             "tile": tile, "icao": icao, "bbox": bbox.wireArray, "spacing_m": spacingM,
-        ])
+        ]
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("terrain_sample", arguments)
     }
 
-    public func meshCrop(tile: String, bbox: O4LatLonBox) async throws -> O4MeshCrop {
-        try await request("mesh_crop", ["tile": tile, "bbox": bbox.wireArray])
+    /// The last build's mesh around `bbox` ("Last build"); `buildDir` as
+    /// for `terrainSample`.
+    public func meshCrop(tile: String, bbox: O4LatLonBox, buildDir: String? = nil) async throws -> O4MeshCrop {
+        var arguments: [String: Any] = ["tile": tile, "bbox": bbox.wireArray]
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("mesh_crop", arguments)
     }
 
     /// Asynchronous on the engine side (spec §5): the reply is

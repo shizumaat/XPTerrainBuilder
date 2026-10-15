@@ -12,7 +12,8 @@ import simd
 /// elevation there.
 public struct PatchSurfaceLocator: Sendable {
     private struct Entry: Sendable {
-        let way: Int64
+        /// The patch shape, or nil for a cell of the last build's mesh.
+        let way: Int64?
         let minX, minY, maxX, maxY: Double
         /// Triangles as metric corners + elevations (nil = from terrain).
         let tris: [(SIMD2<Double>, SIMD2<Double>, SIMD2<Double>, Double?, Double?, Double?)]
@@ -44,6 +45,36 @@ public struct PatchSurfaceLocator: Sendable {
         entries = out
     }
 
+    /// The last build's surface (spec §5 "Last build": buildings stand on
+    /// the mesh), bucketed into a grid of cells so a lookup scans a few
+    /// thousand boxes, not every triangle.
+    public init(meshCrop: O4MeshCrop, frame: PatchLocalFrame, cells: Int = 64) {
+        self.frame = frame
+        let v = meshCrop.vertices
+        let pts: [SIMD2<Double>] = stride(from: 0, to: v.count - 2, by: 3).map {
+            let m = frame.metres(lat: v[$0 + 1], lon: v[$0])
+            return SIMD2(m.x, m.y)
+        }
+        let z: [Double] = stride(from: 2, to: v.count, by: 3).map { v[$0] }
+        guard var lo = pts.first else { entries = []; return }
+        var hi = lo
+        for p in pts { lo = simd_min(lo, p); hi = simd_max(hi, p) }
+        let size = simd_max((hi - lo) / Double(cells), SIMD2(1e-6, 1e-6))
+        var buckets: [Int: [(SIMD2<Double>, SIMD2<Double>, SIMD2<Double>, Double?, Double?, Double?)]] = [:]
+        let t = meshCrop.triangles
+        for k in stride(from: 0, to: t.count - 2, by: 3) {
+            let a = Int(t[k]), b = Int(t[k + 1]), c = Int(t[k + 2])
+            let centre = (pts[a] + pts[b] + pts[c]) / 3
+            let cell = simd_clamp(SIMD2<Int>((centre - lo) / size), SIMD2(0, 0), SIMD2(cells - 1, cells - 1))
+            buckets[cell.y * cells + cell.x, default: []].append((pts[a], pts[b], pts[c], z[a], z[b], z[c]))
+        }
+        entries = buckets.keys.sorted().map { key in
+            let tris = buckets[key]!
+            let xs = tris.flatMap { [$0.0.x, $0.1.x, $0.2.x] }, ys = tris.flatMap { [$0.0.y, $0.1.y, $0.2.y] }
+            return Entry(way: nil, minX: xs.min()!, minY: ys.min()!, maxX: xs.max()!, maxY: ys.max()!, tris: tris)
+        }
+    }
+
     /// The shape under (lat, lon) and the surface elevation there; off the
     /// patch, the terrain's (or `space.base` before the terrain arrives).
     public func surface(lat: Double, lon: Double, space: PatchPreviewSpace) -> (way: Int64?, z: Double) {
@@ -63,7 +94,7 @@ public struct PatchSurfaceLocator: Sendable {
     /// Whether (lat, lon) lies in the bounding box of one of `ways`.
     func nearAny(_ ways: Set<Int64>, lat: Double, lon: Double) -> Bool {
         let m = frame.metres(lat: lat, lon: lon)
-        return entries.contains { ways.contains($0.way) && m.x >= $0.minX && m.x <= $0.maxX
+        return entries.contains { $0.way.map(ways.contains) == true && m.x >= $0.minX && m.x <= $0.maxX
             && m.y >= $0.minY && m.y <= $0.maxY }
     }
 
@@ -124,6 +155,20 @@ public struct PatchBuildingSeats: Sendable {
             poses.append(PatchBuildingPose(anchorLat: p.lat, anchorLon: p.lon, headingDeg: p.headingDeg,
                                            aglM: p.aglM, surfaceZ: s.z, space: space))
         }
+    }
+
+    /// Re-seat every placement on another surface (Preview ↔ Last build);
+    /// returns the indices moved.
+    public mutating func reseatAll(locator: PatchSurfaceLocator, space: PatchPreviewSpace) -> [Int] {
+        var moved: [Int] = []
+        for (i, p) in placements.enumerated() {
+            let s = locator.surface(lat: p.lat, lon: p.lon, space: space)
+            shapeOf[i] = s.way
+            let pose = PatchBuildingPose(anchorLat: p.lat, anchorLon: p.lon, headingDeg: p.headingDeg,
+                                         aglM: p.aglM, surfaceZ: s.z, space: space)
+            if pose != poses[i] { poses[i] = pose; moved.append(i) }
+        }
+        return moved
     }
 
     /// Re-seat after `changedShapes` changed; returns the indices moved.

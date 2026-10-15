@@ -170,10 +170,10 @@ def test_overhang_past_the_built_tile_reads_the_authored_dem(dem_roots):
 
 def test_no_built_raster_falls_back_to_authored_with_the_cfg_feather(dem_roots, monkeypatch):
     seen = {}
-    real = TS._tile_config
+    real = TS.tile_config
 
-    def cfg(lat, lon):
-        t = real(lat, lon)
+    def cfg(lat, lon, build_dir=None):
+        t = real(lat, lon, build_dir)
         t.airport_elevation_inset_feather_m = 17.0
         return t
 
@@ -184,7 +184,7 @@ def test_no_built_raster_falls_back_to_authored_with_the_cfg_feather(dem_roots, 
         seen["feather"] = feather_m
         return load(frame, root, icao, feather_m)
 
-    monkeypatch.setattr(TS, "_tile_config", cfg)
+    monkeypatch.setattr(TS, "tile_config", cfg)
     monkeypatch.setattr(_dem, "load_dem", spy)
     r = TC.terrain_sample(TILE, "ZZZZ", [45.2, -122.8, 45.21, -122.79], 50.0)
     assert r["sources"]["frame"] == "authored" and r["sources"]["base"].endswith("N45W123.hgt")

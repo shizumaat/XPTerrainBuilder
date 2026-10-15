@@ -167,6 +167,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from . import patch_commands
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
+    from .mesh_commands import mesh_crop
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -230,6 +231,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # ... and the pack's own apt.dat pavement and boundary, as the
         # map's dashed reference outlines.  Synchronous, cache-only.
         "pack_outlines": pack_outlines,
+        # ... and the last build's mesh there ("Last build"); synchronous.
+        "mesh_crop": mesh_crop,
     }
 
 

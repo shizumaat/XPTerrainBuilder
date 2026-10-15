@@ -54,8 +54,26 @@ private struct TerrainPreviewContent: View {
         }
     }
 
+    private var modeBinding: Binding<PatchLastBuildState.Mode> {
+        Binding(get: { model.lastBuildState.mode }, set: { model.selectMode($0) })
+    }
+
     private var toolbar: some View {
         HStack(spacing: 10) {
+            Picker("", selection: modeBinding) {
+                Text("Preview").tag(PatchLastBuildState.Mode.preview)
+                Text("Last build").tag(PatchLastBuildState.Mode.lastBuild)
+                    .disabled(!model.lastBuildState.canShowLastBuild)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .help(model.lastBuildState.unavailableReason
+                  ?? "Preview follows your edits; Last build is the mesh X-Plane loads, refreshed after a rebuild.")
+            Divider().frame(height: 16)
+            Toggle("Imagery", isOn: $model.showImagery)
+                .toggleStyle(.checkbox)
+                .help("Drape the map's imagery over the ground (the tiles the map has cached).")
             Toggle("Buildings", isOn: $model.showBuildings)
                 .toggleStyle(.checkbox)
                 .help("The airport pack's buildings as grey massing, standing where X-Plane seats them.")
@@ -110,7 +128,12 @@ private struct TerrainPreviewContent: View {
                         .foregroundStyle(.orange)
                         .lineLimit(3)
                 }
-                if !model.chip.isEmpty { Text(model.chip + buildingsChip) }
+                if !model.chip.isEmpty {
+                    Text(model.chip + buildingsChip + model.drapeChip + model.lastBuildChip)
+                }
+                if case .loading = model.lastBuildState.mesh {
+                    Text("Reading the last build's mesh…")
+                }
                 if case .failed(let text) = model.buildingStatus {
                     Label(text, systemImage: "building.2").foregroundStyle(.orange).lineLimit(3)
                 }

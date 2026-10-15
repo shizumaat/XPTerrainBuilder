@@ -72,8 +72,9 @@ def grid_shape(bbox: Sequence[float], spacing_m: float) -> tuple[int, int, float
 
 
 def terrain_sample(tile: str, icao: str, bbox: Sequence[float],
-                   spacing_m: float) -> Dict[str, Any]:
-    """The §2 reply: the DEM over ``bbox`` at ``spacing_m``."""
+                   spacing_m: float, build_dir: str | None = None) -> Dict[str, Any]:
+    """The §2 reply: the DEM over ``bbox`` at ``spacing_m``; the built DEM
+    is looked up in ``build_dir`` (the app's tile folder) or ``Tiles/``."""
     from auto_patch_v2.airport import dem as _dem      # local: engine start stays light
 
     from . import terrain_source as _src
@@ -100,20 +101,24 @@ def terrain_sample(tile: str, icao: str, bbox: Sequence[float],
     lons = box[1] + np.arange(cols, dtype=np.float64) * dlon
     lat_grid, lon_grid = np.meshgrid(lats, lons, indexing="ij")
     la, lo = lat_grid.ravel(), lon_grid.ravel()
-    source = _src.production_source(lat0, lon0)
+    try:
+        cfg = _src.tile_config(lat0, lon0, build_dir)
+    except Exception:              # a cfg the core cannot read: defaults
+        cfg = None
+    source = _src.production_source(lat0, lon0, cfg) if cfg is not None else None
     if source is None and not have_hgt:
         raise ValueError(
             f"No elevation data for tile {tile} ({_dem.hgt_name(lat0, lon0)}.hgt is not in "
             "the data folder). Build the tile or refresh its elevation data first; the 3D "
             "preview never downloads.")
     if source is None:
-        source = _src.authored_source(lat0, lon0, str(icao), root)
+        source = _src.authored_source(lat0, lon0, str(icao), root, cfg)
     z = source.z(la, lo)
     gaps = ~np.isfinite(z)
     if source.sources["frame"] == "production" and gaps.any() and have_hgt:
         # the built raster covers its own tile only: the box's overhang
         # into a neighbour reads the authored DEM
-        z[gaps] = _src.authored_source(lat0, lon0, str(icao), root).z(la[gaps], lo[gaps])
+        z[gaps] = _src.authored_source(lat0, lon0, str(icao), root, cfg).z(la[gaps], lo[gaps])
     payload = np.asarray(z, dtype="<f4").tobytes()
     return {
         "bbox": list(box), "rows": rows, "cols": cols, "spacing_m": spacing,

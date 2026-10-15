@@ -40,7 +40,7 @@ import O4_File_Names as FNAMES
 
 from . import pack_massing as _mass
 
-__all__ = ["pack_objects", "start_pack_objects"]
+__all__ = ["pack_objects", "start_pack_objects", "b64_array"]
 
 #: Session cache: (dsf path, dsf mtime, dump path, icao, bbox) -> reply.
 _CACHE: dict[tuple, dict] = {}
@@ -66,7 +66,8 @@ def _tile(tile: _t.Any) -> tuple[int, int]:
     return parsed
 
 
-def _b64(a: np.ndarray, dtype: str) -> str:
+def b64_array(a: np.ndarray, dtype: str) -> str:
+    """A packed little-endian array as the wire's base64 (spec §2)."""
     return base64.b64encode(np.ascontiguousarray(a, dtype=dtype).tobytes()).decode("ascii")
 
 
@@ -193,8 +194,8 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
     for path, hs in hulls.items():
         if hs:
             v, t = _mass.pack_model(hs)
-            out["models"].append({"key": path, "vertices_f32_b64": _b64(v, "<f4"),
-                                  "triangles_u32_b64": _b64(t, "<u4")})
+            out["models"].append({"key": path, "vertices_f32_b64": b64_array(v, "<f4"),
+                                  "triangles_u32_b64": b64_array(t, "<u4")})
     drawn = {m["key"] for m in out["models"]}
     out["placements"] = [p for p in placements if p["model"] in drawn]
 

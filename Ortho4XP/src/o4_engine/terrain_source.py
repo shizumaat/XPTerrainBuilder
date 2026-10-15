@@ -3,7 +3,8 @@
 read from cache, else the authored one.
 
 * ``production`` — the tile's composed production DEM as the last build
-  wrote it: ``Data<tile>.alt`` in the tile's build folder with its frame
+  wrote it: ``Data<tile>.alt`` in the tile's build folder (the request's
+  ``build_dir``, else ``Tiles/``) with its frame
   sidecar (``O4_DEM_Utils.resolve_alt_frame``, #238), queried with the
   mesh's own bilinear (``dem_production._BakedTile.sample``, which is
   ``DEM.alt_vec_baked``).  Composing the production DEM afresh is a
@@ -23,7 +24,7 @@ import numpy as np
 
 import O4_File_Names as FNAMES
 
-__all__ = ["TerrainSource", "production_source", "authored_source"]
+__all__ = ["TerrainSource", "tile_config", "production_source", "authored_source"]
 
 
 class TerrainSource(_t.NamedTuple):
@@ -34,10 +35,12 @@ class TerrainSource(_t.NamedTuple):
     sources: dict
 
 
-def _tile_config(lat: int, lon: int):
-    """The tile's layered settings (the same reader a build uses)."""
+def tile_config(lat: int, lon: int, build_dir: str | None = None):
+    """The tile's layered settings (the same reader a build uses), its
+    ``build_dir`` the folder the app says the tile was built in (spec §2
+    amendment (b)) or, absent, the default ``Tiles/`` one."""
     import O4_Config_Utils as CFG
-    tile = CFG.Tile(lat, lon, "")
+    tile = CFG.Tile(lat, lon, build_dir or "")
     tile.read_from_config()
     return tile
 
@@ -48,7 +51,7 @@ def production_source(lat: int, lon: int, tile=None) -> TerrainSource | None:
     import O4_DEM_Utils as DEM_UTILS
     from auto_patch_v2.airport.dem_production import _BakedTile
     try:
-        tile = tile if tile is not None else _tile_config(lat, lon)
+        tile = tile if tile is not None else tile_config(lat, lon)
         path = FNAMES.alt_file(tile)
     except Exception:              # no readable cfg: no build to read either
         return None
@@ -84,7 +87,7 @@ def authored_source(lat: int, lon: int, icao: str, root: str,
     from auto_patch_v2.model.frame import Frame
     feather = 60.0
     try:
-        tile = tile if tile is not None else _tile_config(lat, lon)
+        tile = tile if tile is not None else tile_config(lat, lon)
         feather = float(getattr(tile, "airport_elevation_inset_feather_m", feather))
     except Exception:              # a cfg the core cannot read: the default
         pass

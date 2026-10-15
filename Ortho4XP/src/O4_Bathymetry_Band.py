@@ -1384,6 +1384,9 @@ def _ensure_bathymetry_band_now(
         return None
 
     geometries = _band_geometry(tile)
+    if geometries is None and UI.red_flag:
+        # Stopped, not failed: no warning (#704).
+        return None
     if geometries is None:
         UI.lvprint(
             0,

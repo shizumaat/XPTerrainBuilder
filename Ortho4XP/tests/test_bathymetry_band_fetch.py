@@ -505,3 +505,16 @@ def test_ONE_failed_cell_among_no_coverage_is_still_a_WARNING(
     output = _captured(capsys)
     assert "WARNING" in output
     assert "no bathymetry here" not in output
+
+
+def test_coastline_download_stopped_by_the_user_is_not_a_WARNING(
+        monkeypatch, capsys):
+    """#704: a coastline fetch that ended because the user pressed Stop
+    is a cancellation — the band ends quietly, no 'failed' warning."""
+    def _stopped_geometry(tile):
+        UI.red_flag = True
+        return None
+
+    monkeypatch.setattr(BATHYBAND, "_band_geometry", _stopped_geometry)
+    assert BATHYBAND._ensure_bathymetry_band_now(_tile()) is None
+    assert "WARNING" not in _captured(capsys)

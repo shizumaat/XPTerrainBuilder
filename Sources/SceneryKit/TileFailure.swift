@@ -257,8 +257,6 @@ public struct O4FailureReport: Sendable, Equatable {
     /// The command exists from protocol 1.10: an older engine answers
     /// "unknown command", so the buttons are not offered to it.
     public static func supported(protocolVersion: String) -> Bool {
-        let parts = protocolVersion.split(separator: ".").map { Int($0) ?? 0 }
-        guard parts.count >= 2 else { return false }
-        return (parts[0], parts[1]) >= (1, 10)
+        O4ProtocolVersion.isAtLeast(protocolVersion, 1, 10)
     }
 }

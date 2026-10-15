@@ -543,6 +543,10 @@ public final class OrthoEngineClient: @unchecked Sendable {
     private var stderrBuffer = Data()
     private var nextID = 1
     private var pendingReplies: [Int: @Sendable (O4Reply) -> Void] = [:]
+    /// Commands completed by an EVENT naming their id (`request`), keyed by
+    /// that id: the event goes to its waiter, never to `onEvent`. nil =
+    /// the engine exited first.
+    private var eventWaiters: [Int: @Sendable (O4JSON?) -> Void] = [:]
 
     private let onEvent: @Sendable (O4Event) -> Void
     private let onExit: @Sendable (Int32) -> Void
@@ -600,9 +604,14 @@ public final class OrthoEngineClient: @unchecked Sendable {
                 self.pendingReplies = [:]
                 return Array(handlers)
             }
+            let eventWaiters = self.lock.withLock {
+                defer { self.eventWaiters = [:] }
+                return Array(self.eventWaiters.values)
+            }
             for handler in waiting {
                 handler(O4Reply(ok: false, result: nil, error: "engine exited"))
             }
+            for waiter in eventWaiters { waiter(nil) }
             self.onExit(proc.terminationStatus)
         }
         try process.run()
@@ -612,18 +621,32 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// Events the command triggers arrive through onEvent as usual.
     public func send(command: String, arguments: [String: Any] = [:],
                      completion: (@Sendable (O4Reply) -> Void)? = nil) {
+        send(command: command, arguments: arguments, completion: completion, completionEvent: nil)
+    }
+
+    /// `send`, for a command an EVENT completes: `completionEvent` receives
+    /// that event's JSON (registered before the line is written, so an
+    /// event that beats the reply is not lost). An `ok: false` reply
+    /// removes the waiter; the reply completion reports the error.
+    func send(command: String, arguments: [String: Any],
+              completion: (@Sendable (O4Reply) -> Void)?,
+              completionEvent: (@Sendable (O4JSON?) -> Void)?) {
         var message: [String: Any] = ["cmd": command]
         let id: Int = lock.withLock {
             let id = nextID
             nextID += 1
             if let completion { pendingReplies[id] = completion }
+            if let completionEvent { eventWaiters[id] = completionEvent }
             return id
         }
         message["id"] = id
         for (key, value) in arguments { message[key] = value }
         guard let data = try? JSONSerialization.data(withJSONObject: message),
               process.isRunning else {
-            _ = lock.withLock { pendingReplies.removeValue(forKey: id) }
+            _ = lock.withLock {
+                eventWaiters.removeValue(forKey: id)
+                return pendingReplies.removeValue(forKey: id)
+            }
             completion?(O4Reply(ok: false, result: nil, error: "engine not running"))
             return
         }
@@ -841,15 +864,141 @@ public final class OrthoEngineClient: @unchecked Sendable {
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
         else { return }
         if let replyID = (object["reply"] as? NSNumber)?.intValue {
-            let handler = lock.withLock { pendingReplies.removeValue(forKey: replyID) }
+            let ok = (object["ok"] as? NSNumber)?.boolValue ?? false
+            let handler = lock.withLock {
+                if !ok { eventWaiters.removeValue(forKey: replyID) }
+                return pendingReplies.removeValue(forKey: replyID)
+            }
             handler?(O4Reply(
                 ok: (object["ok"] as? NSNumber)?.boolValue ?? false,
                 result: object["result"].map { O4JSON.from($0) },
                 error: object["error"] as? String))
             return
         }
+        // A STRING LITERAL match (see O4Event.parse): it is `class
+        // PackObjectsReady` in Ortho4XP/src/o4_engine/events.py, the
+        // completion of the `pack_objects` command whose id is `request`.
+        switch object["event"] as? String {
+        case "PackObjectsReady":
+            if let request = (object["request"] as? NSNumber)?.intValue,
+               let waiter = lock.withLock({ eventWaiters.removeValue(forKey: request) }) {
+                waiter(O4JSON.from(object))
+                return
+            }
+        default:
+            break
+        }
         if let event = O4Event.parse(object: object) {
             onEvent(event)
+        }
+    }
+}
+
+// MARK: - Patch editor (protocol 1.12, issue #46)
+
+/// The eight commands of the patch-editor spec §2
+/// (`Ortho4XP/docs/specs/patch-editor-20261015.md`). The command names and
+/// argument keys are STRING LITERALS matched against `o4_engine/jsonl.py`.
+/// Each throws `O4CommandError` carrying the engine's sentence on an
+/// `ok: false` reply; an engine older than 1.12 answers "unknown command",
+/// which callers gate on `O4ProtocolVersion.supportsPatchEditor` first.
+/// Replies are decoded on the reader thread, never the main actor.
+extension OrthoEngineClient {
+    public func patchList(tile: String) async throws -> O4PatchList {
+        try await request("patch_list", ["tile": tile])
+    }
+
+    public func patchLoad(tile: String, icao: String) async throws -> O4PatchLoad {
+        try await request("patch_load", ["tile": tile, "icao": icao])
+    }
+
+    /// Nodes and ways are written in the order given; tags unchanged.
+    public func patchSave(tile: String, icao: String, basePath: String,
+                          nodes: [O4PatchNodeRow], ways: [O4PatchWayRow]) async throws -> O4PatchSaveReply {
+        try await request("patch_save", [
+            "tile": tile, "icao": icao, "base_path": basePath,
+            "nodes": nodes.map(\.wireArray), "ways": ways.map(\.wireObject),
+        ])
+    }
+
+    public func patchRevert(tile: String, icao: String) async throws -> O4PatchRevertReply {
+        try await request("patch_revert", ["tile": tile, "icao": icao])
+    }
+
+    public func packOutlines(tile: String, icao: String) async throws -> O4PackOutlines {
+        try await request("pack_outlines", ["tile": tile, "icao": icao])
+    }
+
+    /// `buildDir`: the tile's build folder as the scan reported it
+    /// (`O4TileInfo.buildDir`; spec §2 amendment (b)) — where the built DEM
+    /// is looked for; nil = the engine's default `Tiles/` folder.
+    public func terrainSample(tile: String, icao: String, bbox: O4LatLonBox,
+                              spacingM: Double, buildDir: String? = nil) async throws -> O4TerrainSample {
+        var arguments: [String: Any] = [
+            "tile": tile, "icao": icao, "bbox": bbox.wireArray, "spacing_m": spacingM,
+        ]
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("terrain_sample", arguments)
+    }
+
+    /// The last build's mesh around `bbox` ("Last build"); `buildDir` as
+    /// for `terrainSample`.
+    public func meshCrop(tile: String, bbox: O4LatLonBox, buildDir: String? = nil) async throws -> O4MeshCrop {
+        var arguments: [String: Any] = ["tile": tile, "bbox": bbox.wireArray]
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("mesh_crop", arguments)
+    }
+
+    /// Asynchronous on the engine side (spec §5): the reply is
+    /// `{"status": "started"}` and the `PackObjectsReady` event naming this
+    /// command's id carries the result or the error.
+    public func packObjects(tile: String, icao: String, bbox: O4LatLonBox) async throws -> O4PackObjects {
+        let once = O4ResumeOnce<O4PackObjects>()
+        return try await withCheckedThrowingContinuation { continuation in
+            once.set(continuation)
+            send(command: "pack_objects",
+                 arguments: ["tile": tile, "icao": icao, "bbox": bbox.wireArray],
+                 completion: { reply in
+                     if !reply.ok {
+                         once.resume(.failure(O4CommandError(reply.error ?? "The engine refused pack_objects.")))
+                     }
+                 },
+                 completionEvent: { event in once.resume(Self.decodePackObjectsReady(event)) })
+        }
+    }
+
+    /// One `PackObjectsReady` event → the typed result or its error.
+    static func decodePackObjectsReady(_ event: O4JSON?) -> Result<O4PackObjects, Error> {
+        guard let event else { return .failure(O4CommandError("The engine exited before the buildings were read.")) }
+        if case .string(let text)? = event["error"], !text.isEmpty {
+            return .failure(O4CommandError(text))
+        }
+        guard let result = event["result"], result != .null else {
+            return .failure(O4CommandError("The engine sent no buildings."))
+        }
+        return Result { try result.decode(O4PackObjects.self) }
+    }
+
+    private func request<T: Decodable & Sendable>(_ command: String,
+                                                  _ arguments: [String: Any]) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            send(command: command, arguments: arguments) { reply in
+                continuation.resume(with: Self.decodeReply(reply, command: command))
+            }
+        }
+    }
+
+    /// One reply → the typed result or the engine's error sentence.
+    static func decodeReply<T: Decodable>(_ reply: O4Reply, command: String) -> Result<T, Error> {
+        guard reply.ok else {
+            return .failure(O4CommandError(reply.error ?? "The engine refused \(command)."))
+        }
+        guard let result = reply.result else {
+            return .failure(O4CommandError("The engine sent no result for \(command)."))
+        }
+        do { return .success(try result.decode(T.self)) } catch {
+            return .failure(error as? O4CommandError
+                ?? O4CommandError("The engine's \(command) reply could not be read: \(error)"))
         }
     }
 }

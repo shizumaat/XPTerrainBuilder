@@ -37,9 +37,8 @@ because recognition that silently narrows is indistinguishable from
 recognition that broke; every refusal is NAMED in :data:`RECTS`):
 
 * the runway is transport-category (``min_runway_code_number``);
-* ``s ≥ min_crossing_m`` (300 m) and ``|q| ≤`` the runway's declared half
-  width — closer in, the pavement is an ordinary runway-end connector and
-  the ceiling would be violently infeasible (−18.6 m at 60 m, code E);
+* governed vertices lie BEYOND the end (``s > 0``) with ``|q| ≤`` the
+  runway's declared half width; the distance gate is on the ROUTE, below;
 * ONE crossing per cluster by along-corridor gap (``segment_gap_m``); a
   rect — or a whole FACE — longer than ``rect_max_along_m`` along ``s``
   RUNS ALONG the corridor and is another facility, refused whole;
@@ -52,6 +51,18 @@ recognition that broke; every refusal is NAMED in :data:`RECTS`):
   different input) must cross the extended centreline within the rect's own
   extent widened by ``segment_gap_m``.  An apron lying under a projected
   centreline is not an end-around taxiway (LEMD's 149 false pins);
+* THE 1,500 FT CROSSING (owner RULINGS 2026-10-15e (1); AC 150/5300-13B
+  Chg 1 §4.12 std 1): that route crossing lies at ``min_crossing_m`` =
+  457.2 m or beyond.  Nearer, the taxiway is an ordinary ATC-controlled
+  crossing of the departure area with no depth requirement (KDEN 17R /
+  34R at 415-419 m and KCLT 18C at 448 m were pinned 9-11 m under
+  credible lidar by v1's engine-chosen 300 m);
+* clause 4, CREDIBLE LIDAR IS THE WITNESS (owner RULINGS 2026-10-15e (2),
+  the §45 (19)(b) precedent): where the inset is credible lidar (the ONE
+  reading, ``law/inset_class.lidar_credible``) a recognised rect is
+  REPORT-ONLY — never stamped, published by :func:`eat_report_rects` so
+  the census prices the ground against the value.  The pin works only for
+  a recognised EAT on a coarse DEM;
 * clause 3, CUT-ONLY: the rect is stamped at ONE value, so "does it cut?"
   is a question about the RECT.  Where that value sits ABOVE the
   pavement's unconstrained reference (its DEM sample) EVERYWHERE it would
@@ -88,7 +99,7 @@ from ..model.planar import PlanarMap
 from .precedence import view
 from .runway_chord import _chords, _with_knots, runway_crossings
 
-__all__ = ["eat_pins", "eat_rects", "withdraw_against_senior", "eat_ceiling_offset",
+__all__ = ["eat_pins", "eat_rects", "eat_report_rects", "withdraw_against_senior", "eat_ceiling_offset",
            "eat_clear_distance", "eat_reach_plan", "withdraw_trend_over_reach",
            "GEN", "RULING", "RECTS", "STATS"]
 
@@ -256,14 +267,29 @@ def _crossing_stations(airport: Airport, spec: dict) -> list[float]:
     return out
 
 
-def eat_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """One hard ``Pin`` per governed EAT vertex, at the regulation value of
-    the rect it belongs to (module docstring)."""
+def _lidar_witness(airport: Airport, law: Law) -> bool:
+    """Whether the inset is CREDIBLE lidar — clause 4's witness, read
+    through the ONE derivation (``law/inset_class.lidar_credible``, the
+    §45 (3) (ii) reading ``planar/channel`` also asks), never a second
+    pixel-size rule.  Read through the module so a twin that states the
+    inset's class states it once."""
+    from ..law import inset_class
+    return bool(inset_class.lidar_credible(airport, law))
+
+
+def _recognise(planar: PlanarMap, law: Law, airport: Airport
+               ) -> list[tuple[dict, list[int], float]]:
+    """EVERY RECOGNISED END-AROUND TAXIWAY on this map: ``(row, vertices,
+    value)`` per rect, where ``row`` is its :data:`RECTS` record.  A rect
+    the clauses refuse is recorded in :data:`RECTS` and not returned; a
+    returned rect is either ACCEPTED (pinned) or, on credible lidar,
+    ``report_only`` (clause 4: published for the census, never stamped)."""
     RECTS.clear()
     STATS["eat_pins"] = stats = {
         "ends": 0, "runways_below_code": 0, "ends_without_anchor": 0,
-        "runways_without_letter": 0, "rects_accepted": 0,
-        "refused_far_bound": 0, "refused_no_wrap": 0, "refused_no_cut": 0,
+        "runways_without_letter": 0, "rects_accepted": 0, "report_only": 0,
+        "refused_far_bound": 0, "refused_no_wrap": 0,
+        "refused_near_crossing": 0, "refused_no_cut": 0,
         "refused_along_corridor": 0, "runway_vertices_excluded": 0, "pins": 0,
     }
     surface = getattr(law.ruleset, "eat", None)
@@ -296,130 +322,207 @@ def eat_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     stats["runways_without_letter"] = n_no_letter
     if not specs:
         return []
+    lidar = _lidar_witness(airport, law)
+    excluded: set[int] = set()     # runway vertices inside a corridor
+    out: list[tuple[dict, list[int], float]] = []
+    for spec in specs:
+        members = _corridor_members(spec, faces, vw, rwy_vertices,
+                                    excluded, rec, stats)
+        out.extend(_judge_clusters(spec, members, planar, airport, surface,
+                                   rec, lidar, stats))
+    stats["runway_vertices_excluded"] = len(excluded)
+    return out
 
+
+def _corridor_members(spec: dict, faces, vw, rwy_vertices, excluded: set,
+                      rec, stats: dict) -> list[tuple[float, int]]:
+    """The ``(s, vertex)`` of every taxi-family / apron vertex BEYOND the
+    end inside the corridor at the runway's declared half width.
+
+    THE VERTEX IS NOT GATED BY ``min_crossing_m`` (owner RULINGS
+    2026-10-15e (1)): the 1,500 ft standard measures the taxiway's ROUTE
+    crossing, and a 23 m-wide taxiway whose centreline crosses at 461 m
+    has pavement at 450 m — a vertex gate would cut the rect mid-taxiway.
+    Pavement nearer the end forms its own cluster (``segment_gap_m``) and
+    is refused by the crossing clause in :func:`_judge_clusters`."""
+    half = spec["half_width_m"]
+    max_along = float(rec.rect_max_along_m)
+    members: list[tuple[float, int]] = []
+    seen: set[int] = set()
+    for f in faces:
+        got: list[tuple[float, int]] = []
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            for v in ring:
+                # A RUNWAY'S VERTEX IS NEVER GOVERNED (``EXTRA_ROLES``:
+                # "the runway profile is senior — an EAT ceiling must
+                # never bend it").  The roles exclude runway FACES; a
+                # taxi-family face that shares its vertices with a
+                # runway face — the connector where it meets the
+                # runway's edge — would otherwise pin the runway's own
+                # surface at the ceiling (#555: three vertices of a
+                # runway edge 327 m beyond another runway's end pinned
+                # 9.12 m under the ground; the ridge built a 9 m V)
+                s, q = _project(spec, *vw.xy[v])
+                if s <= 0.0 or abs(q) > half:
+                    continue
+                if v in rwy_vertices:
+                    excluded.add(v)
+                    continue
+                if v not in seen:
+                    got.append((s, v))
+        if not got:
+            continue
+        # a FACE whose governed vertices span more than the crossing
+        # cap RUNS ALONG the corridor (a decimated long rect carries
+        # vertices only at its far-apart ends, so the cluster check
+        # alone would read it as two short crossings)
+        span = max(s for s, _v in got) - min(s for s, _v in got)
+        if span > max_along:
+            stats["refused_along_corridor"] += 1
+            RECTS.append({"end": spec["end"], "runway": spec["runway"],
+                          "face": f.id, "accepted": False,
+                          "reason": "the FACE runs along the corridor "
+                                    f"({span:.0f} m > rect_max_along_m "
+                                    f"{max_along:.0f})"})
+            continue
+        seen.update(v for _s, v in got)
+        members.extend(got)
+    members.sort()
+    return members
+
+
+def _judge_clusters(spec: dict, members, planar: PlanarMap,
+                    airport: Airport, surface, rec, lidar: bool,
+                    stats: dict) -> list[tuple[dict, list[int], float]]:
+    """Cluster one end's corridor vertices into rects and apply the
+    clauses (module docstring) to each, in order: along-corridor, the far
+    bound, the routed wrap, the 1,500 ft crossing, then clause 4 (credible
+    lidar ⇒ report-only) or clause 3 (cut-only)."""
+    if not members:
+        return []
     min_s = float(rec.min_crossing_m)
     gap = float(rec.segment_gap_m)
     max_along = float(rec.rect_max_along_m)
     cut_tol = 0.01                 # the anchor envelope's own materiality
-
-    pins: dict[int, float] = {}
-    excluded: set[int] = set()     # runway vertices inside a corridor
-    rect_of: dict[int, tuple[int, str, str]] = {}
-    for spec in specs:
-        half = spec["half_width_m"]
-        d_clear = eat_clear_distance(surface.slope, surface.setback_m,
-                                     spec["tail_height_m"])
-        cap = float(rec.max_crossing_m)
-        d_far, far_rule = ((d_clear, "D_clear") if d_clear <= cap
-                           else (cap, "max_crossing_m"))
-        cross_s = _crossing_stations(airport, spec)
-        members: list[tuple[float, int]] = []
-        seen: set[int] = set()
-        for f in faces:
-            got: list[tuple[float, int]] = []
-            for ring in [vw.rings[f.id], *vw.holes[f.id]]:
-                for v in ring:
-                    # A RUNWAY'S VERTEX IS NEVER GOVERNED (``EXTRA_ROLES``:
-                    # "the runway profile is senior — an EAT ceiling must
-                    # never bend it").  The roles exclude runway FACES; a
-                    # taxi-family face that shares its vertices with a
-                    # runway face — the connector where it meets the
-                    # runway's edge — would otherwise pin the runway's own
-                    # surface at the ceiling (#555: three vertices of a
-                    # runway edge 327 m beyond another runway's end pinned
-                    # 9.12 m under the ground; the ridge built a 9 m V)
-                    s, q = _project(spec, *vw.xy[v])
-                    if s < min_s or abs(q) > half:
-                        continue
-                    if v in rwy_vertices:
-                        excluded.add(v)
-                        continue
-                    if v not in seen:
-                        got.append((s, v))
-            if not got:
-                continue
-            # a FACE whose governed vertices span more than the crossing
-            # cap RUNS ALONG the corridor (a decimated long rect carries
-            # vertices only at its far-apart ends, so the cluster check
-            # below alone would read it as two short crossings)
-            if max(s for s, _v in got) - min(s for s, _v in got) > max_along:
-                stats["refused_along_corridor"] += 1
-                RECTS.append({"end": spec["end"], "runway": spec["runway"],
-                              "face": f.id, "accepted": False,
-                              "reason": "the FACE runs along the corridor "
-                                        f"({max(s for s, _v in got) - min(s for s, _v in got):.0f} m "
-                                        f"> rect_max_along_m {max_along:.0f})"})
-                continue
-            seen.update(v for _s, v in got)
-            members.extend(got)
-        if not members:
+    d_clear = eat_clear_distance(surface.slope, surface.setback_m,
+                                 spec["tail_height_m"])
+    cap = float(rec.max_crossing_m)
+    d_far, far_rule = ((d_clear, "D_clear") if d_clear <= cap
+                       else (cap, "max_crossing_m"))
+    cross_s = _crossing_stations(airport, spec)
+    out: list[tuple[dict, list[int], float]] = []
+    start = 0
+    for k in range(1, len(members) + 1):
+        if k < len(members) and members[k][0] - members[k - 1][0] <= gap:
             continue
-        members.sort()
-        start = 0
-        for k in range(1, len(members) + 1):
-            if k < len(members) and members[k][0] - members[k - 1][0] <= gap:
-                continue
-            seg, start = members[start:k], k
-            s_lo, s_hi = seg[0][0], seg[-1][0]
-            d_mid = 0.5 * (s_lo + s_hi)
-            value = spec["end_z"] + eat_ceiling_offset(
-                d_mid, surface.slope, surface.setback_m, spec["tail_height_m"])
-            row = {"end": spec["end"], "runway": spec["runway"],
-                   "anchor": spec["anchor"],
-                   "d_lo": round(s_lo, 1), "d_hi": round(s_hi, 1),
-                   "d_mid": round(d_mid, 1), "vertices": len(seg),
-                   "value_m": round(value, 3), "end_z_m": round(spec["end_z"], 3),
-                   "accepted": True, "reason": ""}
-            if s_hi - s_lo > max_along:
-                stats["refused_along_corridor"] += 1
-                row.update(accepted=False,
-                           reason=f"runs along the corridor ({s_hi - s_lo:.0f} m "
-                                  f"> rect_max_along_m {max_along:.0f})")
-                RECTS.append(row)
-                continue
-            if s_lo > d_far:
-                stats["refused_far_bound"] += 1
-                row.update(accepted=False,
-                           reason=(f"beyond {far_rule} = {d_far:.0f} m "
-                                   f"(rect starts at {s_lo:.0f} m)"))
-                RECTS.append(row)
-                continue
-            if not any(s_lo - gap <= c <= s_hi + gap for c in cross_s):
-                stats["refused_no_wrap"] += 1
-                row.update(accepted=False,
-                           reason=("no routed wrap: "
-                                   f"{len(cross_s)} taxi-route crossing(s) at "
-                                   f"this end, none within "
-                                   f"[{s_lo - gap:.0f},{s_hi + gap:.0f}] m"))
-                RECTS.append(row)
-                continue
+        seg, start = members[start:k], k
+        s_lo, s_hi = seg[0][0], seg[-1][0]
+        d_mid = 0.5 * (s_lo + s_hi)
+        value = spec["end_z"] + eat_ceiling_offset(
+            d_mid, surface.slope, surface.setback_m, spec["tail_height_m"])
+        wrap = [c for c in cross_s if s_lo - gap <= c <= s_hi + gap]
+        row = {"end": spec["end"], "runway": spec["runway"],
+               "anchor": spec["anchor"],
+               "d_lo": round(s_lo, 1), "d_hi": round(s_hi, 1),
+               "d_mid": round(d_mid, 1), "vertices": len(seg),
+               "crossing_m": round(max(wrap), 1) if wrap else None,
+               "value_m": round(value, 3), "end_z_m": round(spec["end_z"], 3),
+               "accepted": True, "report_only": False, "reason": ""}
+        refusal = None
+        if s_hi - s_lo > max_along:
+            refusal = ("refused_along_corridor",
+                       f"runs along the corridor ({s_hi - s_lo:.0f} m "
+                       f"> rect_max_along_m {max_along:.0f})")
+        elif s_lo > d_far:
+            refusal = ("refused_far_bound",
+                       f"beyond {far_rule} = {d_far:.0f} m "
+                       f"(rect starts at {s_lo:.0f} m)")
+        elif not wrap:
+            refusal = ("refused_no_wrap",
+                       "no routed wrap: "
+                       f"{len(cross_s)} taxi-route crossing(s) at this end, "
+                       f"none within [{s_lo - gap:.0f},{s_hi + gap:.0f}] m")
+        elif max(wrap) < min_s:
+            refusal = ("refused_near_crossing",
+                       f"the taxi route crosses at {max(wrap):.1f} m < "
+                       f"min_crossing_m {min_s:.1f} (AC 150/5300-13B §4.12 "
+                       "std 1: an EAT's centreline is ≥ 1,500 ft from the "
+                       "departure end; nearer it is an ATC-controlled "
+                       "crossing with no depth requirement)")
+        elif lidar:
+            stats["report_only"] += 1
+            row.update(accepted=False, report_only=True,
+                       reason=("credible lidar inset: report-only "
+                               "(owner RULINGS 2026-10-15e (2)); the "
+                               "census prices the ground against the value"))
+            RECTS.append(row)
+            out.append((row, [v for _s, v in seg], float(value)))
+            continue
+        else:
             refs = [planar.vertices[v].dem_z for _s, v in seg
                     if planar.vertices[v].dem_z is not None]
             if refs and value >= max(refs) - cut_tol:
-                stats["refused_no_cut"] += 1
-                row.update(accepted=False,
-                           reason=("the regulation is ABOVE the reference "
-                                   f"everywhere (+{value - max(refs):.1f} m: "
-                                   f"value {value:.2f} vs highest DEM "
-                                   f"{max(refs):.2f} over {len(refs)} node(s))"))
-                RECTS.append(row)
-                continue
-            stats["rects_accepted"] += 1
+                refusal = ("refused_no_cut",
+                           "the regulation is ABOVE the reference "
+                           f"everywhere (+{value - max(refs):.1f} m: "
+                           f"value {value:.2f} vs highest DEM "
+                           f"{max(refs):.2f} over {len(refs)} node(s))")
+        if refusal is not None:
+            stats[refusal[0]] += 1
+            row.update(accepted=False, reason=refusal[1])
             RECTS.append(row)
-            rid = stats["rects_accepted"]
-            for _s, v in seg:
-                prev = pins.get(v)
-                if prev is None or value < prev:
-                    pins[v] = float(value)
-                    rect_of[v] = (rid, spec["end"], spec["runway"])
-    stats["pins"] = len(pins)
-    stats["runway_vertices_excluded"] = len(excluded)
+            continue
+        stats["rects_accepted"] += 1
+        RECTS.append(row)
+        out.append((row, [v for _s, v in seg], float(value)))
+    return out
+
+
+def eat_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
+    """One hard ``Pin`` per governed vertex of every ACCEPTED rect, at its
+    regulation value (module docstring).  A report-only rect (credible
+    lidar, clause 4) pins nothing."""
+    pins: dict[int, float] = {}
+    rect_of: dict[int, tuple[int, str, str]] = {}
+    rid = 0
+    for row, verts, value in _recognise(planar, law, airport):
+        if row["report_only"]:
+            continue
+        rid += 1
+        for v in verts:
+            prev = pins.get(v)
+            if prev is None or value < prev:
+                pins[v] = value
+                rect_of[v] = (rid, row["end"], row["runway"])
+    STATS["eat_pins"]["pins"] = len(pins)
     return [Pin(v, z, Source(GEN, RULING,
                              (f"vertex:{v}", f"rect:{rect_of[v][0]}",
                               f"end:{rect_of[v][1]}",
                               f"runway:{rect_of[v][2]}",
                               f"value:{z:.3f}")))
             for v, z in sorted(pins.items())]
+
+
+def eat_report_rects(planar: PlanarMap, law: Law, airport: Airport
+                     ) -> list[dict[str, _t.Any]]:
+    """THE REPORT-ONLY RECTS, FOR THE CENSUS (clause 4; joined into the
+    sidecar key ``eat_rects`` beside :func:`eat_rects`).  Same record
+    shape, plus ``report_only: true``: nothing pinned them, so the census
+    prices the emitted ground — the lidar — against the regulation value,
+    and an EAT whose ground stands above the 40:1 surface less a tail is
+    REPORTED, never silenced.  Empty off credible lidar (one cheap read)."""
+    if not _lidar_witness(airport, law):
+        return []
+    out: list[dict[str, _t.Any]] = []
+    for k, (row, verts, value) in enumerate(
+            _recognise(planar, law, airport), start=1):
+        if not row["report_only"]:
+            continue
+        out.append({"rect": f"report{k}", "end": row["end"],
+                    "runway": row["runway"], "value_m": round(value, 4),
+                    "report_only": True,
+                    "vertices": [[planar.vertices[v].key[0], planar.vertices[v].key[1]] for v in verts]})
+    return out
 
 
 def eat_rects(planar: PlanarMap, cs) -> list[dict[str, _t.Any]]:

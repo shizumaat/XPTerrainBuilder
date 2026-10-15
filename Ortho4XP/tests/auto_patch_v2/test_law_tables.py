@@ -215,8 +215,9 @@ def _common_checks(c: Checks, t) -> None:
         c.eq(f"common.eat.tail_height_m[{L}]",
              v1.TAIL_HEIGHT_BY_CODE_LETTER[L],
              eat.tail_height_m.value(code_letter=L))
-    c.eq("common.eat.min_crossing_m", v1.EAT_MIN_CROSSING_DIST_M,
-         eat.min_crossing_m)
+    # owner RULINGS 2026-10-15e (1): the AC's 1,500 ft at the route
+    # crossing replaced v1's engine-chosen 300 m — no longer v1's value
+    c.eq("common.eat.min_crossing_m", 1500 * 0.3048, eat.min_crossing_m)
     c.eq("common.eat.max_crossing_m", v1.EAT_MAX_CROSSING_DIST_M,
          eat.max_crossing_m)
     c.eq("common.eat.segment_gap_m", v1.EAT_RECT_SEGMENT_GAP_M,

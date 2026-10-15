@@ -6483,6 +6483,25 @@ build then derives its DSF text dumps in the same lane-local overlay as every
 other derived cache.  `explain` and the replay tool still refuse — the same
 line in `default_inputs` — and that half is left to the chip.
 
+### §36 AMENDED — RECOGNISED AS THE FAA DEFINES IT; CREDIBLE LIDAR IS THE WITNESS (owner RULINGS 2026-10-15e; lane `eat15e`)
+
+1. **THE 1,500 FT CROSSING** (AC 150/5300-13B Chg 1 §4.12 std 1): a rect is an
+   EAT only when its 1202 TAXI-ROUTE crossing of the extended centreline lies at
+   `[common.eat] min_crossing_m` = 457.2 m or beyond — measured at the ROUTE, never
+   at a vertex (governed vertices only need `s > 0`; nearer pavement clusters
+   apart and is refused as `refused_near_crossing`, naming the crossing). This
+   replaces v1's engine-chosen 300 m: KDEN 17R (414.8 m), KDEN 34R (418.8 m) and
+   KCLT 18C taxiway T (448.4 m) are ordinary ATC-controlled crossings with no
+   depth requirement and are no longer pinned (13j item 2 superseded for KCLT).
+2. **CLAUSE 4, REPORT-ONLY ON CREDIBLE LIDAR** (the §45 (19)(b) precedent): where
+   `planar/channel._lidar_credible` reads the inset as credible lidar, a
+   recognised rect is never stamped; `eat_report_rects` publishes it into the
+   sidecar's `eat_rects` with `report_only: true`, so the `eat_ceiling` census
+   family prices the emitted ground against the value and an EAT whose ground
+   stands above the 40:1 surface less a tail is REPORTED, never silenced. The
+   pin keeps working only for a recognised EAT on a coarse DEM. KATL Victor
+   (08R, 461.7 m) is the one recognised EAT on the captures: report-only.
+
 ## §37 A ROAD KEEPS ITS OWN LONGITUDINAL LAW; A ROAD FLIPS BY SHARE; THE BANK IS EMITTED WHERE IT IS LOAD-BEARING (Fable 2026-09-13; RULINGS 2026-09-13q, KCLT items 5, 7, 8; CYXY item 2) — lane `v2roadcap`
 
 Scout `v2kclt1t`: (5) the service road down to KCLT's east access road falls 1.4 %

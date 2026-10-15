@@ -40,7 +40,9 @@ class EatRecognition:
 
     #: maximum aircraft TAIL height by code letter (v1 ``TAIL_HEIGHT_BY_CODE_LETTER``)
     tail_height_m: CodeTable
-    #: minimum along-centreline distance beyond the end at which the ceiling binds
+    #: minimum distance beyond the end of the TAXI-ROUTE CROSSING of the
+    #: extended centreline for the taxiway to be an EAT (AC 150/5300-13B
+    #: §4.12 std 1, 1,500 ft; owner RULINGS 2026-10-15e (1))
     min_crossing_m: float
     #: the RECOGNITION cap (owner 2026-08-25d): a wrap beyond this is the
     #: taxi network crossing a projected line, not a loop built for it

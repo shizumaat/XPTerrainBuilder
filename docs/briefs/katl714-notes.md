@@ -157,3 +157,60 @@ pack's portal walls as the terrace), the same mechanism #715 needs.
   row is released. After #725 the lower side is roads + zones: the fix needs
   the wall terrace to hold for a ROAD at the foot (10-03c reads lots only) —
   a spec question, not a threshold.
+
+# katlwall — "the wall is the step" (RULINGS 2026-10-15a (1)/(2), #715 + #714 residual)
+
+Lane `katlwall`, branch `claude/katlwall` (contains `claude/katl714` = PR #727
+and the `katl715-wip` witness, rewritten).
+
+## CONSUMER CENSUS (RULINGS 2026-08-30l) — every pass that holds roads, lots and airside across a line
+
+The change adds no shape, role or region: it adds ONE flag
+(`WallComponent.retains` / `WallPiece.retains`, derived once in
+`airport/wall_class`) and ONE published channel (`PlanarMap.mouth_walls`,
+derived once in `planar/covered_ground`, read as retaining `WallPiece`s by
+`airport/road_ramp.mouth_wall_pieces`). Every reader of the wall pieces and
+every pass that couples the two sides of a wall line:
+
+| pass | what it does across the line | ruling under 15a (2) |
+|---|---|---|
+| `airport/road_ramp.road_terrace` `foot` / `pad` (10-03b, the free-road / bordered-run rule) | a road vertex in a pavement's adjacent ground takes that pavement's stage-1 level | CHANGED: a foot whose way from the road vertex crosses (or starts in) a retaining wall is refused — the road below is not bordered by the pavement above (`_across_retaining`) |
+| `road_ramp_targets` mouths (§37 (6)) | a road vertex shared with airside is a MOUTH; the ramp descends from it | CHANGED: a mouth ON a retaining wall (within 0.5 m) is no mouth (`_on_retaining`) — measured KATL: the ramp from the shared apron vertices held small_roads:-12997 at 297 m |
+| `reach_contacts` (§37 (10)) | a road end within reach of an airside edge takes its level (a row) | CHANGED: a contact whose way crosses a retaining wall is dropped (`reach_contacts_across_retaining_wall`) |
+| `wall_terraces` (10-03c) | declares upper / lower across a wall; `pairs` lot→pad | CHANGED at a retaining wall only: road vertices are lower too (and a road vertex inside the wall); no lot needed. Thin non-retaining walls unchanged |
+| `constraints/road_ramp.wall_release` | withdraws stage-2 pair rows straddling the line with one end lower | UNCHANGED code; now sees the roads in `lower` |
+| `solve/design_assemble` bending (`rows._cotangent_laplacian`) | the thin-plate stencil spans faces across the wall | CHANGED: edges across a declared wall carry no weight (`solve/wall_cut.wall_cut_edges`) — measured on the twin: with every pair row released the road stood 3.5 m over its ground, carried by the strip's bending |
+| `constraints/road_ramp.wall_terrace_rows` | lot → pad level | unchanged (no pad below at KATL) |
+| `pipeline/publication.wall_terrace_joints` → `terrace_joints_ll` | the declared joint (step = min(wall height, emitted)) | unchanged; the census reads the declared step |
+| `[cutout.wall_corridor]` (structures cutouts) | tunnel wall corridors | not read: the portal objects are refused as corridors (roofed); unchanged |
+| `planar/weld.py` | sliver weld, same side only (airside never welds groundside) | not involved: the KATL shared vertices are the ribbon mint's kerb, not the weld; geometry unchanged |
+| pass-C ribbon welds (`pad read` `ribbon_welded`) | ribbon rims welded to pads | not involved at the sites (no pad at the wall or mouths) |
+| zone corridor rows (`constraints/zones.zone_bands`, `solve/project` zone projection) | ground vertex vs pavement edge, 3-term rows | stage-2 Linear rows: released by `wall_release` where they cross with a lower end; road kerb vertices carry none |
+| `classify/retaining_wall` (§47), `planar/shore` | read `wall_class_components` | a thick retaining wall is now wall-class for them too (the WIP's measured scope: KATL 2 components) |
+| `pipeline/terrace_witness` | report only | unchanged |
+
+## THE WITNESS (airport/wall_class._retains_its_height)
+
+Slender (width ≤ 0.5 × height) AND the ground stepping 0.75–1.25 × height
+ACROSS the wall: every 2 m round a ring max(3 m, height) outside the
+footprint, each point against the point as far out on the far side, the
+90th percentile of |difference|. The WIP's ring 10th–90th spread admitted 56
+thin HECA strips (a long wall on a slope rises along itself) — refuted and
+replaced. Dry census (registered captures): KATL 4 retaining
+(`muro_concreto5` 10.65 m, `muro_concreto` 12.01 m, `muro_27R` 19.99 m,
+`terminal_F/Vidrios.obj` comp 17 12.51 m), 2 declared wall terraces;
+HECA 0, OTHH 0, SPJC 0, KPDX 0, CYXY 0, NLWF 0, KASE 0 (the far-off city
+building of the WIP no longer qualifies); KCLT 4 thin pieces (2.2–2.7 m)
+retaining, 0 terraces, road-terrace feet unchanged (1482).
+
+## THE MOUTH (planar/covered_ground._mouth_walls)
+
+Per mouth (the covered deck's edge at the pavement's end) where a pack object
+whose solid reaches the mouth depth (7.5 m) under its own zero stands in the
+cut: one piece = that edge (0.5 m strip) ∪ the open cut beyond it off the
+pavement, as wide as the cut's own section there (rim to rim). KATL:
+tunel_A ×2, tunel_B, tunel_C (depth 23.74 / 25.43 / 25.87 m), 30 pieces over
+the 8 bores. A first cut (the portal's plan box off the pavement) missed the
+NE mouths (the road between the runway and taxiway decks lies outside every
+portal box) and RAISED NE1's road 293.7 → 301.7 (its foot moved to the
+taxiway); refuted and replaced.

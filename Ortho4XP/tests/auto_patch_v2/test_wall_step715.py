@@ -16,7 +16,7 @@ import dataclasses as _dc
 from types import SimpleNamespace as NS
 
 import pytest
-from shapely.geometry import LineString, box
+from shapely.geometry import LineString, Polygon, box
 
 from auto_patch_v2.law import Law
 
@@ -109,15 +109,19 @@ def test_a_mouth_wall_is_the_deck_edge_under_a_deep_pack_object():
     # caller hands it) and the cut's ribbon clipped to it
     pav = box(0.0, 0.0, 100.0, 50.0).buffer(0.5)
     rib = box(40.0, -5.0, 60.0, 55.0).intersection(pav)
-    cuts = [(None, None, rib, None)]
+    from auto_patch_v2.planar.covered_ground import _Section
+    secs = [_Section(0.0, (50.0, 0.0), (1.0, 0.0), 10.0, 10.0, 100.0, 100.0)]
+    cuts = [(None, secs, rib, None)]
 
     def obj(depth):
         return NS(plan_bbox=box(35.0, -10.0, 65.0, 5.0), anchor_z=100.0,
                   agl_m=0.0, solid_min_z=100.0 - depth, path="portal.obj")
     got = _mouth_walls(cuts, pav, [obj(23.7)], 7.5)
     assert got and all(d == 23.7 for _r, d, _p in got)
+    # the open cut beyond the edge, off the pavement, is in the piece
+    from shapely.geometry import Point
+    assert any(Polygon(r).contains(Point(50.0, -6.0)) for r, _d, _p in got)
     edge = LineString([(40.0, 0.0), (60.0, 0.0)])
-    from shapely.geometry import Polygon
     assert any(Polygon(r).intersects(edge) for r, _d, _p in got)
     assert not any(Polygon(r).intersects(LineString([(40.0, 50.0), (60.0, 50.0)]))
                    for r, _d, _p in got)

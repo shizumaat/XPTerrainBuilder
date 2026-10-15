@@ -238,12 +238,13 @@ _EDGE_HALF_M = _PAVEMENT_TOL_M
 
 
 def _mouth_walls(cuts, pav, objects, depth_min: float):
-    """The walled mouths: per pack object reaching ``depth_min`` under its
-    own zero (a portal) whose plan extent stands over the deck's edge at
-    the pavement's end, ONE piece — that edge (a strip the identity
-    tolerance wide: the deck's last vertices stand in it) and the portal's
-    plan extent off the pavement (the open cut between its walls, where
-    the road runs at its floor): ``[(ring, depth, resource)]``."""
+    """The walled mouths: per mouth (the deck's edge at the pavement's end)
+    where a pack object reaching ``depth_min`` under its own zero (a
+    portal) stands within the cut, ONE piece — that edge (a strip the
+    identity tolerance wide: the deck's last vertices stand in it) and the
+    OPEN CUT beyond it off the pavement, as wide as the cut's own section
+    there (rim to rim, :class:`_Section`): the road in it runs at its
+    floor.  ``[(ring, depth, resource)]``."""
     deep = []
     for o in objects or ():
         box = getattr(o, "plan_bbox", None)
@@ -256,20 +257,25 @@ def _mouth_walls(cuts, pav, objects, depth_min: float):
     if not deep:
         return []
     end = pav.boundary.buffer(0.1)
-    mouths = [m for m in (rib.boundary.intersection(end) for _b, _s, rib, _p in cuts)
-              if not m.is_empty]
     out = []
-    for box, depth, path in deep:
-        segs = [g for g in (m.intersection(box) for m in mouths)
-                if not g.is_empty and g.length >= 1.0]
-        if not segs:
-            continue
-        piece = unary_union([g.buffer(_EDGE_HALF_M) for g in segs] + [box.difference(pav)])
-        for g in getattr(piece, "geoms", [piece]):
-            if g.geom_type == "Polygon" and g.area > 0.0 and \
-                    any(g.intersects(q) for q in segs):
-                out.append(([(round(x, 2), round(y, 2)) for x, y in g.exterior.coords],
-                            round(depth, 2), path))
+    for _b, secs, rib, _pr in cuts:
+        mouth = rib.boundary.intersection(end)
+        for seg in getattr(mouth, "geoms", [mouth]):
+            if seg.is_empty or seg.length < 1.0:
+                continue
+            sec = min(secs, key=lambda c: seg.distance(Point(c.foot))) if secs else None
+            reach = max(sec.dl, sec.dr) if sec is not None else 0.0
+            cut = seg.buffer(reach).difference(pav) if reach > 0.0 else None
+            walls = [(d, p) for box, d, p in deep
+                     if box.intersects(seg) or (cut is not None and box.intersects(cut))]
+            if not walls:
+                continue
+            depth, path = max(walls)
+            piece = unary_union([seg.buffer(_EDGE_HALF_M)] + ([cut] if cut is not None else []))
+            for g in getattr(piece, "geoms", [piece]):
+                if g.geom_type == "Polygon" and g.area > 0.0 and g.intersects(seg):
+                    out.append(([(round(x, 2), round(y, 2)) for x, y in g.exterior.coords],
+                                round(depth, 2), path))
     return out
 
 

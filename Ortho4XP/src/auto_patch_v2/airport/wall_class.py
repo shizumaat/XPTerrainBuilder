@@ -136,7 +136,7 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
     facade or a building on level ground has no step; a building on a
     slope is not slender.  MEASURED (dry census, registered captures):
     KATL ``muro_concreto5`` 10.65 m and ``muro_concreto`` 12.01 m admitted
-    (#715); see ``docs/briefs/katlwall-notes.md`` for the sweep airports."""
+    (#715); see ``docs/briefs/katl714-notes.md`` (#715) for the sweep airports."""
     per = getattr(cfg, "retaining_wall_thick_width_per_height", None)
     lo = getattr(cfg, "retaining_wall_step_min_fraction", None)
     hi = getattr(cfg, "retaining_wall_step_max_fraction", None)

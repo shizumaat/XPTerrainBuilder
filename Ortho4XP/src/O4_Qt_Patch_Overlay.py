@@ -28,15 +28,19 @@ def _hex(rgb: int, alpha: float = 1.0) -> QColor:
     return QColor((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF, round(alpha * 255))
 
 
-#: The mockup's colours per class: (fill, stroke, width, halo).
+#: The mockup's colours per class: (fill, stroke, width, halo).  Widths
+#: are the mockup's × 1.5 (owner, #759: "increase the line weight about
+#: 50%"); node squares and hit radii are unchanged.
 STYLES = {
-    "runway": (_hex(0x8A8F99, 0.28), _hex(0xD6DAE2), 1.6, None),
-    "taxiway": (_hex(0xD2B14A, 0.22), _hex(0xE6C95C), 1.4, None),
-    "apron": (_hex(0x5AA0E0, 0.22), _hex(0x7DB8EF), 1.6, None),
-    "building": (_hex(0xB07AD0, 0.25), _hex(0xC497E0), 1.3, None),
-    "road": (_hex(0x9FD18B, 0.18), _hex(0x9FD18B), 1.2, _hex(0x9FD18B, 0.35)),
-    "ground": (None, _hex(0x9AA4B5, 0.55), 0.8, None),
+    "runway": (_hex(0x8A8F99, 0.28), _hex(0xD6DAE2), 2.4, None),
+    "taxiway": (_hex(0xD2B14A, 0.22), _hex(0xE6C95C), 2.1, None),
+    "apron": (_hex(0x5AA0E0, 0.22), _hex(0x7DB8EF), 2.4, None),
+    "building": (_hex(0xB07AD0, 0.25), _hex(0xC497E0), 1.95, None),
+    "road": (_hex(0x9FD18B, 0.18), _hex(0x9FD18B), 1.8, _hex(0x9FD18B, 0.35)),
+    "ground": (None, _hex(0x9AA4B5, 0.55), 1.2, None),
 }
+#: The road halo's width (× 1.5 with the strokes).
+HALO_WIDTH = 7.5
 NODE_FILL = _hex(0x0B0D12)
 NODE_STROKE = _hex(0xE7EBF2)
 SELECTION = QColor("#FFD60A")
@@ -66,7 +70,7 @@ def paint_styled(painter, shapes: _t.Iterable[tuple[str, bool, QPainterPath]]) -
                 painter.fillPath(path, fill)
             painter.setBrush(Qt.NoBrush)
             if halo is not None:
-                pen = QPen(halo, 5)
+                pen = QPen(halo, HALO_WIDTH)
                 pen.setCosmetic(True)
                 painter.strokePath(path, pen)
             pen = QPen(stroke, width)

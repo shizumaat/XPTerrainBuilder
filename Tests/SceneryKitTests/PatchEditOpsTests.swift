@@ -52,6 +52,7 @@ struct PatchEditOpsTests {
         case "set_alt": try doc.setAlt(ids(args["ids"]), alt: number(args["alt"]))
         case "offset_alt": try doc.offsetAlt(ids(args["ids"]), by: number(args["d"])!)
         case "delete_nodes": try doc.deleteNodes(ids(args["ids"]))
+        case "delete_ways": try doc.deleteWays(ids(args["way_ids"]))
         case "insert_on_edge": try doc.insertOnEdge(int("a"), int("b"))
         case "merge_nodes": try doc.mergeNodes(source: int("source"), target: int("target"))
         default: Issue.record("unknown op \(op["op"] ?? "nil")")

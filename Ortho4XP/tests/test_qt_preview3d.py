@@ -24,11 +24,13 @@ pytest.importorskip("PySide6")
 pytest.importorskip("PySide6.QtQuick3D")
 
 import numpy as np  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import O4_Qt_Preview3D_Buildings as BLD  # noqa: E402
 import O4_Qt_Preview3D_Drape as DRP  # noqa: E402
+import O4_Qt_Preview3D_Scene as SC  # noqa: E402
 import O4_Qt_Preview3D_Shapes as SHP  # noqa: E402
 import O4_Qt_Preview3D_Terrain as TER  # noqa: E402
 from O4_Qt_Patch_Engine import PatchEngine  # noqa: E402
@@ -381,3 +383,45 @@ def test_the_window_speaks_the_mac_words(qapp):
     assert not window.mode_buttons[DRP.LAST_BUILD].isEnabled()
     window.close()
     assert not math.isnan(window.scene.orbit.distance)
+
+
+# ─── camera feel (owner 2026-10-15: less sensitive; X-Plane's view keys) ─────
+
+def test_x_plane_keys_shift_fast_control_slow():
+    slow, plain, fast = SC.Orbit(), SC.Orbit(), SC.Orbit()
+    for o in (slow, plain, fast):
+        o.frame((0.0, 0.0, 0.0), 1000.0)
+    slow.hold({"rotate_left"}, "slow", 0.5)
+    plain.hold({"rotate_left"}, "normal", 0.5)
+    fast.hold({"rotate_left"}, "fast", 0.5)
+    assert 0 < slow.yaw_deg and plain.yaw_deg == pytest.approx(slow.yaw_deg * 4)
+    assert fast.yaw_deg == pytest.approx(plain.yaw_deg * 4)
+    o = SC.Orbit(); o.frame((0.0, 0.0, 0.0), 1000.0)
+    o.hold({"forward"}, "normal", 1.0)
+    assert o.target[2] < 0                       # north, the way the camera looks
+    o = SC.Orbit(); o.frame((0.0, 0.0, 0.0), 1000.0); d = o.distance
+    o.hold({"zoom_in"}, "normal", 1.0)
+    assert o.distance < d
+    o = SC.Orbit(); o.frame((0.0, 0.0, 0.0), 1000.0)
+    o.hold({"tilt_up"}, "fast", 100.0)
+    assert o.pitch_deg == SC.Orbit.MAX_PITCH
+
+
+def test_the_shown_camera_eases_instead_of_jumping():
+    o = SC.Orbit(); o.frame((0.0, 0.0, 0.0), 1000.0)
+    o.orbit(200.0, 0.0)
+    goal = o.yaw_deg
+    o.step(1 / 60)
+    assert 0 < abs(o.shown[2]) < abs(goal) * 0.5
+    frames = 0
+    while o.step(1 / 60):
+        frames += 1
+    assert o.shown == o._goal() and frames < 120
+    assert abs(goal) < 200 * 0.4 / 2             # a third of the first cut's 0.4°/px
+
+
+def test_key_speed_reads_shift_and_the_platforms_control():
+    import O4_Qt_Preview3D_Window as W
+    assert W.key_speed(Qt.ShiftModifier) == "fast"
+    assert W.key_speed(W._SLOW) == "slow"
+    assert W.key_speed(Qt.NoModifier) == "normal"

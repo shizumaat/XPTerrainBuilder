@@ -283,7 +283,7 @@ class PreviewModel(QObject):
         if self.space is None or doc is None:
             self.scene.set_markers(np.zeros((0, 3), np.float32))
             return
-        rows = [doc.nodes[i] for i in sorted(self.patch.selection) if i in doc.nodes]
+        rows = [doc.nodes[i] for i in sorted(self.patch.marked_nodes) if i in doc.nodes]
         self.scene.set_markers(self.space.node_positions(rows))
 
     # ─── buildings ─────────────────────────────────────────────────────

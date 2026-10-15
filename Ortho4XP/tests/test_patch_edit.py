@@ -70,3 +70,19 @@ def test_insert_on_a_non_edge_is_refused():
         PE.move(doc, [-99], 0.0, 0.0)
     with pytest.raises(ValueError):
         PE.merge_nodes(doc, -3, -3)
+
+
+def test_delete_ways_topology():
+    """#759: a whole shape goes with the nodes only it used; shared nodes
+    stay, loose nodes are untouched, unknown ids are refused, and the result
+    is a new document."""
+    case = next(c for c in DATA["cases"] if c["name"] == "delete_ways_shared_edge_keeps_shared_nodes")
+    doc = PE.PatchDoc.from_wire(case["doc"]["nodes"], case["doc"]["ways"])
+    before = doc.to_wire()
+    out = PE.delete_ways(doc, [-102, -102])
+    assert doc.to_wire() == before
+    assert -6 not in out.nodes and -7 not in out.nodes
+    assert {-2, -3, -9} <= set(out.nodes)
+    assert [w.id for w in out.ways] == [-101, -103]
+    with pytest.raises(KeyError):
+        PE.delete_ways(doc, [-999])

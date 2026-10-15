@@ -385,12 +385,18 @@ class WorkPool:
     ``workers`` defaults to :func:`budget`; the processes start on the
     first :meth:`try_map` that has work, so a stage that revives its
     product from a cache pays nothing for having opened one.  Use as a
-    context manager; :meth:`close` is bounded and idempotent."""
+    context manager; :meth:`close` is bounded and idempotent.
+
+    ``isolate=True`` is a pool that answers with ONE worker too: a caller
+    that moves work OUT of its own process (a GUI keeping its interpreter
+    lock free, issue #753), not one dividing it.  Such a pool records
+    nothing on the build's pulse — it is not a build stage."""
 
     def __init__(self, setup: _t.Callable | None = None,
                  setup_args: tuple = (), *, workers: int | None = None,
                  out: _t.Callable[[str], None] = print,
-                 stall_s: float = STALL_S, bound: str | None = None) -> None:
+                 stall_s: float = STALL_S, bound: str | None = None,
+                 isolate: bool = False) -> None:
         allowed, why = budget_bound()
         self.workers = allowed if workers is None else max(1, int(workers))
         #: the bound that decided ``workers`` (:func:`budget_bound`'s, or
@@ -401,11 +407,12 @@ class WorkPool:
             self.workers = min(self.workers, WINDOWS_MAX_WORKERS)
         self._setup, self._args = setup, tuple(setup_args)
         self._out, self._stall = out, float(stall_s)
+        self._isolate = bool(isolate)
         self._ex: _cf.ProcessPoolExecutor | None = None
         self._dead = False
         #: why no pool answers (``""`` while one does): the budget, or what
         #: made it give up — said through ``out`` AND kept for the report
-        self.reason = "" if self.workers > 1 else "budget 1"
+        self.reason = "" if self.workers > 1 or self._isolate else "budget 1"
         self.fell_back = False
         #: seconds spent waiting on workers, and tasks answered by them
         self.wall_s = 0.0
@@ -415,7 +422,7 @@ class WorkPool:
     @property
     def parallel(self) -> bool:
         """Will the next map be answered by workers?"""
-        return self.workers > 1 and not self._dead
+        return (self.workers > 1 or self._isolate) and not self._dead
 
     def __enter__(self) -> "WorkPool":
         return self
@@ -484,6 +491,11 @@ class WorkPool:
         if ex is None:
             return
         procs = list((getattr(ex, "_processes", None) or {}).values())
+        # ``shutdown(wait=False)`` forgets its manager thread, which keeps
+        # the workers' ``Process`` objects — and on Windows their process
+        # HANDLES, so the pid stays openable — until it has joined them
+        # (#753, PR #765 windows CI: a closed worker's pid still answered).
+        manager = getattr(ex, "_executor_manager_thread", None)
         try:
             ex.shutdown(wait=False, cancel_futures=True)
         except Exception:
@@ -500,6 +512,8 @@ class WorkPool:
             self._out(f"[pool] teardown: worker pid(s) {[p.pid for p in left]} still "
                       f"running {SIGNAL_S:.0f} s after terminate and again after "
                       f"kill — abandoned")
+        elif manager is not None and manager is not threading.current_thread():
+            manager.join(SIGNAL_S)         # its workers are gone: it ends promptly
 
     # ── the map ──────────────────────────────────────────────────────────
     def try_map(self, fn: _t.Callable, tasks: _t.Sequence, *,
@@ -551,10 +565,11 @@ class WorkPool:
         out: list = [None] * p.n
         prev = _pulse.current()
         what, unit, futs = p.what, p.unit, p.futs
+        tick = (lambda *_a: None) if self._isolate else _pulse.tick
         try:
             pending, done_n, last = set(futs), 0, time.monotonic()
             while pending:
-                _pulse.tick(what or "pool", done_n, p.n, unit)
+                tick(what or "pool", done_n, p.n, unit)
                 done, pending = _cf.wait(pending, timeout=TICK_S,
                                          return_when=_cf.FIRST_COMPLETED)
                 if not done:
@@ -576,7 +591,8 @@ class WorkPool:
             self.close()                           # never leave workers behind
             raise
         finally:
-            _pulse.tick(*prev) if prev else _pulse.clear()
+            if not self._isolate:
+                _pulse.tick(*prev) if prev else _pulse.clear()
             self.wall_s += time.perf_counter() - t0
         self.tasks_done += p.n
         return out

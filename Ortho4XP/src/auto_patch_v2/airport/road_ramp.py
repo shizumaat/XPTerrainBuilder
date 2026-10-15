@@ -1192,18 +1192,28 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
              for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
     out["own"] = {v: True for v in vs if v not in rib_v}
     rtree = STRtree(list(retaining)) if retaining else None
+    out["below_wall"] = {}
     for v in vs:
         r, s_, _t_ = frame[v]
         out["station"][v] = (int(r), float(s_))
         if feet is None:
             continue
         fs = feet(pm.vertices[v].xy)
-        if rtree is not None:
-            # 15a (2): the PAVEMENT above (stage 1) across a retaining wall
-            # borders no road below it; a pad's frontage is the pad's own
-            fs = {ref: f_ for ref, f_ in fs.items()
-                  if feet.role_of.get(ref) not in stage1
-                  or not _across_retaining(pm, v, f_, retaining, rtree)}
+        if rtree is not None and any(
+                feet.role_of.get(ref) in stage1
+                and _across_retaining(pm, v, f_, retaining, rtree)
+                for ref, f_ in fs.items()):
+            # 15a (2): a road vertex with the airside PAVEMENT above it
+            # across a retaining wall is BELOW the wall — it leaves the
+            # terrace whole (no foot, no pad, no station: no straight run
+            # links it to a bordered level beyond) and sits at its own
+            # ground.  MEASURED KATL (NE I-285 mouth): keeping the next
+            # pavement's foot put the road in the cut on the taxiway deck's
+            # level (293.7 -> 301.7 m), and a station kept it linked
+            # straight between two decks (target 301.5 m over a 290 m floor)
+            out["station"].pop(v, None)
+            out["below_wall"][v] = True
+            continue
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
         if lev:
@@ -1645,6 +1655,11 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     road_caps = [role_cap(law, r).longitudinal for r in _road_roles(law)
                  if role_cap(law, r)]
     terr, left = wall_keyed(terr, min(road_caps) if road_caps else None)
+    # 15a (2): a road BELOW a retaining wall is between no two levels (29x
+    # would hand it the lower of the two decks it stands between)
+    below = terr.get("below_wall") or {}
+    if below and bl.get("road"):
+        bl = {**bl, "road": {v: x for v, x in bl["road"].items() if v not in below}}
     if report is not None:
         report["terrace_own_left"] = left
         report["terrace_stations"] = len(terr.get("station", {}))
@@ -1652,6 +1667,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report["terrace_pad"] = len(terr.get("pad", {}))
         report["terrace_walled"] = len(terr.get("walled", {}))
         report["wall_terraces"] = len(terr.get("wall", {}))
+        report["terrace_below_wall"] = len(below)
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,

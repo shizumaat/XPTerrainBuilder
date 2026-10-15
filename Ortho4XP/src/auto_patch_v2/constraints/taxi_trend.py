@@ -75,6 +75,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
 __all__ = ["TaxiTrendReport", "taxi_trend_targets", "with_taxi_trend",
+           "stage_one_retarget",
            "taxi_trend_block", "taxi_chains", "chain_of_face",
            "taxi_xsec_feet", "TAXI_CENTERLINE"]
 
@@ -109,8 +110,14 @@ class TaxiTrendReport(_t.TypedDict, total=False):
     held_worst_m: float       # the largest such clip
     held_worst_ll: list       # where it was
     contacts_contradicted: int  # targets whose contacts' reach is empty
+    retarget_moved: int       # second pass: targets moved past the materiality
+    retarget_worst_m: float   # second pass: the largest such move
     hold_passes: int          # passes the pair projection took
     hold_residual_m: float    # the worst pair excess it left
+    hold_stalled: bool        # it stopped on no progress, not on settling
+    short_connectors: list    # contact pairs too close to lose their height at the cap
+    contacts: int             # runway (+ stage-1 apron) values the targets reach
+    extra_contacts: int       # of those, the stage-1 apron levels
     by_chain: list            # [{"chain", "ll", "vertices", "pins", "length_m"}]
 
 
@@ -324,7 +331,8 @@ def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
 
 
 def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
-                       report: TaxiTrendReport | None = None
+                       report: TaxiTrendReport | None = None,
+                       extra_contacts: _t.Mapping[int, float] | None = None
                        ) -> dict[int, float]:
     """Vertex id -> the TARGET PROFILE at its station (module docstring).
 
@@ -372,6 +380,10 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
         if v not in contacts and any(pm.faces[f].role in rwy
                                      for f in pm.vertices[v].incident_faces):
             contacts[v] = float(z)
+    # the second pass's APRON LEVELS (RULINGS 2026-10-15i (3)): stage 1's
+    # answer, JUNIOR to the runway's values (``held_by_contacts``)
+    junior = {int(v): float(z) for v, z in (extra_contacts or {}).items()
+              if int(v) not in contacts}
     for c in chains:
         samples = [(s, float(pm.vertices[v].dem_z))
                    for v, s in zip(c.vertices, c.stations)
@@ -421,7 +433,7 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
     # THE TARGET IS HELD TO THE TAXI LAW across the network (owner
     # 2026-10-15g; ``constraints/taxi_trend_cap``): into the route reach of
     # every runway contact, so no target asks a grade the law forbids.
-    out, held = held_by_contacts(pm, law, airport, out, contacts)
+    out, held = held_by_contacts(pm, law, airport, out, contacts, junior)
     for v, t in out.items():
         dem = pm.vertices[v].dem_z
         if dem is not None:
@@ -434,7 +446,11 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
                       held_worst_ll=held["worst_ll"],
                       contacts_contradicted=held["contradicted"],
                       hold_passes=held["passes"],
-                      hold_residual_m=held["residual_m"])
+                      hold_residual_m=held["residual_m"],
+                      hold_stalled=held["stalled"],
+                      short_connectors=held["short_connectors"],
+                      contacts=len(contacts),
+                      extra_contacts=len(junior))
         report.update(chains=n_ok, chains_without=n_no, vertices=len(out),
                       centerline_vertices=n_center, face_vertices=len(face),
                       face_out_of_reach=far, face_reach_m=reach,
@@ -513,6 +529,37 @@ def taxi_xsec_feet(pm: PlanarMap, law: Law,
             xsec_pin_const=pin_const, xsec_far=far,
             xsec_no_chain=len(no_chain))
     return out
+
+
+def stage_one_retarget(pm: PlanarMap, law: Law, airport: Airport,
+                       levels: _t.Mapping[int, float],
+                       report: TaxiTrendReport | None = None
+                       ) -> dict[int, float] | None:
+    """THE SECOND PASS (owner RULINGS 2026-10-15i (3), option (b)): the
+    taxi trend targets again, with the APRON LEVELS STAGE 1 SOLVED as
+    contacts beside the runway's values (``taxi_trend_cap
+    .stage_one_contacts``), so a taxiway meeting an apron its pads hold
+    low starts its descent early enough to meet it within the cap.
+
+    Restricted to the vertices ``pm`` already prices (a target the EAT
+    reach withdrew stays withdrawn).  ``None`` when nothing moves by the
+    elevation materiality — the first pass stands and nothing is
+    re-solved."""
+    from .taxi_trend_cap import stage_one_contacts
+    have = pm.taxi_trend_z
+    if not have:
+        return None
+    extra = stage_one_contacts(pm, law, levels)
+    if not extra:
+        return None
+    rep: TaxiTrendReport = {} if report is None else report
+    new = taxi_trend_targets(pm, law, airport, rep, extra_contacts=extra)
+    out = {v: new.get(v, t) for v, t in have.items()}
+    tol = float(law.tables.emit.materiality.elevation_m)
+    moved = [abs(out[v] - t) for v, t in have.items()]
+    rep["retarget_moved"] = sum(1 for d in moved if d > tol)
+    rep["retarget_worst_m"] = round(max(moved, default=0.0), 3)
+    return out if rep["retarget_moved"] else None
 
 
 def with_taxi_trend(pm: PlanarMap, law: Law, airport: Airport,

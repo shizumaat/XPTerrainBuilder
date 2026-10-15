@@ -1167,11 +1167,36 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     if _s1 is not None:
         _s1.bind(pm)
         _say(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {_s1.report}", out)
+    # OWNER RULINGS 2026-10-15i (3), option (b): the taxi trend's SECOND
+    # PASS — the apron levels stage 1 solved become trend contacts, bound
+    # here because ``solve`` may not import ``constraints``
+    from ..constraints.taxi_trend import stage_one_retarget
+    tt2_rep: TaxiTrendReport = {}
     sol, design_rep = solve_design(
         pm, cs, law, cfg.options, size_out=size, strips=strips,
         stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
-        hold=hold_pass(pm, law, airport), stage1=_s1)
+        hold=hold_pass(pm, law, airport), stage1=_s1,
+        trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
+                                                          lv, tt2_rep))
     wall["solve"] = time.perf_counter() - t
+    if tt2_rep:
+        lrep.taxi_trend["second_pass"] = {
+            k: tt2_rep.get(k) for k in ("retarget_moved", "retarget_worst_m",
+                                        "extra_contacts", "short_connectors",
+                                        "hold_passes", "hold_residual_m",
+                                        "hold_stalled")}
+        _say(f"[{icao}] taxi trend second pass (15i (3)): "
+             f"{tt2_rep.get('extra_contacts', 0)} apron levels as contacts, "
+             f"{tt2_rep.get('retarget_moved', 0)} targets moved (worst "
+             f"{tt2_rep.get('retarget_worst_m', 0.0):.2f} m)"
+             + ("" if tt2_rep.get("retarget_moved") else " — first pass stands")
+             + f"; {len(tt2_rep.get('short_connectors') or ())} short connector(s)", out)
+        for r in (tt2_rep.get("short_connectors") or ())[:20]:
+            _say(f"[{icao}] SHORT CONNECTOR at {r['ll'][0]:.7f},{r['ll'][1]:.7f}: "
+                 f"run {r['run_m']:.1f} m, height {r['height_m']:.2f} m needs "
+                 f"{r['grade_needed_pct']:.2f} % against {r['grade_allowed_pct']:.2f} % "
+                 f"(high contact {r['high_ll'][0]:.7f},{r['high_ll'][1]:.7f}, "
+                 f"low {r['low_ll'][0]:.7f},{r['low_ll'][1]:.7f})", out)
     _pin_yield = list(design_rep.pin_yield or ())
     _late_report: dict | None = None
     if cl_gaps is not None:

@@ -2454,6 +2454,14 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         _kw["stage2_rewrite"] = _rewrite
     except ImportError:
         pass
+    _tt2: dict = {}
+    try:
+        # owner RULINGS 2026-10-15i (3): the build's taxi-trend second pass
+        from auto_patch_v2.constraints.taxi_trend import stage_one_retarget
+        _kw["trend_rewrite"] = (lambda pm_x, lv: stage_one_retarget(
+            pm_x, law, airport, lv, _tt2))
+    except ImportError:
+        pass
     try:
         # flat-pad spec v2 §1 / §2: the build's own hold binding
         from auto_patch_v2.constraints.no_step import hold_pass
@@ -2498,6 +2506,18 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                 method=method, strips=strips, **_kw)
     if late_from is None and prob.get("stage1") is not None:
         print(f"[{icao}] stage 1 map (#100 (c)): {rep.stages.get('stage1_map')}")
+    if _tt2:
+        print(f"[{icao}] taxi trend second pass (15i (3)): "
+              f"{_tt2.get('extra_contacts', 0)} apron levels as contacts, "
+              f"{_tt2.get('retarget_moved', 0)} targets moved (worst "
+              f"{_tt2.get('retarget_worst_m', 0.0):.2f} m); hold "
+              f"{_tt2.get('hold_passes')} passes, residual "
+              f"{_tt2.get('hold_residual_m')} m"
+              + (" (stalled)" if _tt2.get("hold_stalled") else ""))
+        for _r in (_tt2.get("short_connectors") or ())[:20]:
+            print(f"    SHORT CONNECTOR at {_r['ll'][0]:.7f},{_r['ll'][1]:.7f}: run "
+                  f"{_r['run_m']:.1f} m, height {_r['height_m']:.2f} m needs "
+                  f"{_r['grade_needed_pct']:.2f} % against {_r['grade_allowed_pct']:.2f} %")
     wall = round(time.perf_counter() - t, 1)
     # the rows stage 2 SOLVED are the ones --why-hard / --verify must read
     # (a seeded ramp ceiling read at its pre-seed value is a false row)
@@ -2735,6 +2755,8 @@ def _null_twin(_null, held: dict, trace, sol, rep, law, strips, n: int, method: 
         else:
             cs_x = _null.with_bands(cs, bands)
         kw["stage2_rewrite"] = lambda lv: reach_seed_rewrite(pm, law, cs_x, lv)
+        from auto_patch_v2.constraints.taxi_trend import stage_one_retarget
+        kw["trend_rewrite"] = lambda pm_x, lv: stage_one_retarget(pm_x, law, None, lv)
         return solve_design(pm, cs_x, law, Options(verbose=verbose), method=method,
                             strips=strips, **kw)
     t = time.perf_counter()

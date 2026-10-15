@@ -178,3 +178,96 @@ def test_two_chains_meeting_out_of_reach_are_made_to_agree(law):
     assert rep["capped_chains"] == 0
     assert 0 < rep["agreed"] < 0.2 * rep["vertices"], rep
     assert rep["held_worst_m"] < 0.25, rep
+
+
+# ── THE SECOND PASS: stage 1's apron levels as contacts (RULINGS 15i (3)) ──
+
+@pytest.fixture(scope="module")
+def apron_problem(law):
+    """An apron, the 1 km parallel and the 101 m link stub between them
+    (``test_v2valley.stub_problem``'s geometry), before any solve."""
+    from auto_patch_v2.classify.roles import Cell, Classification, CutLine
+    from auto_patch_v2.constraints import generate
+    from auto_patch_v2.constraints.runway_chord import with_runway_chord
+    from auto_patch_v2.planar.build import build
+    from tests.auto_patch_v2.test_crown import HALF_WIDTH, _rect
+    airport, r = T._airport(law, T._RampDem())
+    cells = (
+        Cell(0, "runway", "09/27", _rect(r, -T.RUN_LEN / 2, -HALF_WIDTH,
+                                         T.RUN_LEN / 2, HALF_WIDTH), (), 3,
+             "D", "airside", "runway", {}),
+        Cell(1, "apron", "apronW", _rect(r, -520.0, 60.0, -320.0, 110.0), (),
+             None, "D", "airside", "apron", {}),
+        Cell(2, "primary_parallel", "pavT",
+             _rect(r, -T.TAXI_LEN / 2, 200.0, T.TAXI_LEN / 2, 223.0), (),
+             None, "D", "airside", "taxi", {}),
+        Cell(3, "stub", "linkW", _rect(r, -431.5, 110.0, -408.5, 200.0), (),
+             None, "D", "airside", "taxi", {}),
+    )
+    cuts = (CutLine("taxi_centerline", "pavT",
+                    (r((-T.TAXI_LEN / 2, 211.5)), r((T.TAXI_LEN / 2, 211.5)))),
+            CutLine("taxi_centerline", "linkW",
+                    (r((-420.0, 110.0)), r((-420.0, 211.5)))))
+    pm, _st = build(airport, Classification(cells, cuts, {}, ()), law)
+    pm = tt.with_taxi_trend(with_runway_chord(pm, law, airport), law, airport)
+    cs, _c, _w = generate(pm, law, airport)
+    return pm, cs, airport
+
+
+def _apron_vertices(pm, law):
+    from auto_patch_v2.law.tables import apron_roles
+    roles = apron_roles(law)
+    return [v for v, vx in pm.vertices.items()
+            if any(pm.faces[f].role in roles for f in vx.incident_faces)]
+
+
+HELD_LOW_M = 2.0     # the apron stage 1 solved this far under its ground
+
+
+def test_a_held_low_apron_pulls_the_trend_within_the_cap(apron_problem, law):
+    """Option (b): the apron's stage-1 levels are contacts, so every target
+    the no-step law pairs with an apron vertex stands inside that pair's
+    route budget of the apron's level — the taxiway starts its descent
+    early enough to meet it."""
+    from auto_patch_v2.constraints.routes import route_neighbours, routes
+    pm, _cs, airport = apron_problem
+    levels = {v: float(pm.vertices[v].dem_z) - HELD_LOW_M
+              for v in _apron_vertices(pm, law)}
+    rep: dict = {}
+    new = tt.stage_one_retarget(pm, law, airport, levels, rep)
+    assert new is not None and rep["retarget_moved"] > 0, rep
+    assert set(new) == set(pm.taxi_trend_z)
+    g = routes(pm, law, airport)
+    ns = law.tables.emit.no_step
+    worst = 0.0
+    for a, b, _d, bud in route_neighbours(g, levels, float(ns.window_m),
+                                          4 * int(ns.k), targets=set(new)):
+        u, v = (a, b) if a in levels else (b, a)
+        if u in levels and v in new:
+            worst = max(worst, abs(new[v] - levels[u]) - bud)
+    assert worst <= SETTLED_M + 1e-6, f"a target stands {worst:.4f} m off its apron"
+
+
+def test_an_apron_at_its_first_pass_level_moves_nothing(apron_problem, law):
+    """The identity: levels the first-pass targets already reach within
+    budget change nothing, and nothing is re-solved."""
+    pm, _cs, airport = apron_problem
+    # an apron exactly on the ground the trend follows (the ramp's own DEM)
+    levels = {v: float(pm.vertices[v].dem_z) for v in _apron_vertices(pm, law)}
+    rep: dict = {}
+    got = tt.stage_one_retarget(pm, law, airport, levels, rep)
+    assert got is None or rep["retarget_worst_m"] <= 0.05, rep
+
+
+def test_the_second_pass_is_one_extra_stage_one_solve(apron_problem, law):
+    """``solve_design(trend_rewrite=...)`` reads stage 1's levels ONCE: the
+    rewrite is called once, never in a loop."""
+    from auto_patch_v2.solve import solve_design
+    pm, cs, airport = apron_problem
+    calls = []
+
+    def rewrite(pm_x, lv):
+        calls.append(len(lv))
+        return tt.stage_one_retarget(pm_x, law, airport, lv)
+    sol, _rep = solve_design(pm, cs, law, trend_rewrite=rewrite)
+    assert sol.z and len(calls) == 1, calls

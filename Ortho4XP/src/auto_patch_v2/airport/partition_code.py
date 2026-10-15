@@ -89,6 +89,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.placement_family",
     "auto_patch_v2.airport.placement_file",
     "auto_patch_v2.airport.placement_geom",
+    "auto_patch_v2.airport.placement_leaves",
     "auto_patch_v2.airport.placement_motion",
     "auto_patch_v2.airport.placement_orphan",
     "auto_patch_v2.airport.placement_plan",

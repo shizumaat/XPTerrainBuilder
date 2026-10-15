@@ -189,3 +189,48 @@ def test_object_resource_surface_code_unchanged():
     the abbreviation is a ``.pol`` reading only."""
     assert S.pavement_surface_code("objects/conc_pad.obj") == 1
     assert S.pavement_surface_code("objects/concrete_pad.obj") == 2
+
+
+# ── #719: a ground photograph's SURFACE is no pavement witness ───────────
+
+def _photo(root, rel, surface="concrete", texture="TEXTURE_NOWRAP piso1.png",
+           layer="LAYER_GROUP\tbeaches +3"):
+    """KATL ``Orthophotos/piso1.pol``'s own rows (Nimbus V3.5)."""
+    path = os.path.join(str(root), rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    rows = ["A", "850", "DRAPED_POLYGON",
+            "DECAL_LIB lib/g10/decals/maquify_2_green_key.dcl", "", layer,
+            texture, "#TEXTURE_LIT_NOWRAP piso1_LIT.png",
+            "SCALE 25.000000 25.000000", f"SURFACE {surface}"]
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(rows) + "\n")
+    return path
+
+
+@pytest.mark.parametrize("layer", ["LAYER_GROUP\tbeaches +3", "LAYER_GROUP TERRAIN 2"])
+def test_orthophoto_under_the_field_is_not_a_gap_sheet(tmp_path, layer):
+    """Issue #719 (KATL): an orthophoto drawn under every pavement layer
+    declares ``SURFACE concrete`` for the physics of the whole picture; it
+    is refused."""
+    path = _photo(tmp_path, "Orthophotos/piso1.pol", layer=layer)
+    decl = S.pol_declaration(path)
+    assert decl.image and decl.layer in S.GROUND_LAYER_GROUPS
+    assert S.ground_photograph(decl)
+    assert _gate(tmp_path)("Orthophotos/piso1.pol") == (None, "concrete")
+
+
+def test_either_witness_alone_still_admits(tmp_path):
+    # a TILED material in a ground layer is a sheet, as §60 built it
+    # (KATL ``poligonos/piso_hangares.pol``: TEXTURE + SCALE 12, beaches +4)
+    _photo(tmp_path, "poligonos/piso_hangares.pol",
+           texture="TEXTURE piso_hangares.png", layer="LAYER_GROUP beaches +4")
+    assert _gate(tmp_path)("poligonos/piso_hangares.pol") == (S.SHEET, "concrete")
+    # a pavement PHOTOGRAPH in a pavement layer is a sheet
+    _photo(tmp_path, "pavement/tarmac_01.pol", layer="LAYER_GROUP runways +5")
+    assert _gate(tmp_path)("pavement/tarmac_01.pol") == (S.SHEET, "concrete")
+    # the conc word still stands on a ground photograph (step 5)
+    _photo(tmp_path, "g/conc_photo.pol")
+    assert _gate(tmp_path)("g/conc_photo.pol") == (S.SOURCE, "concrete")
+    # a commented-out image row is no image
+    p = _photo(tmp_path, "g/tiled.pol", texture="TEXTURE t.png")
+    assert S.pol_declaration(p).image is False

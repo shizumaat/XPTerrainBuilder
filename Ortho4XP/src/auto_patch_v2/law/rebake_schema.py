@@ -213,12 +213,34 @@ class Placement:
     #: entirely (every FEET body stays vertical, the pre-10-01k reading).
     seat_tilt_max_deg: float = 1.5
 
+    #: A SHARED FRAME TILTS AS ONE (owner RULINGS 2026-10-14p (1), #708):
+    #: the bodies of one written frame (a §16c (7) bind, a carry on one
+    #: anchor) are rotated TOGETHER by the plane fitted to the whole
+    #: group's feet only up to this total tilt; past it the group stays
+    #: level and rigid.  Owner: *"If it's a very gentle slope, then just
+    #: tilting the group might be acceptable, but we can't have buildings
+    #: leaning at an unlikely angle."*  Proposed 1.0 deg (1.75 %), under
+    #: ``seat_tilt_max_deg``'s apron reading (1.22 deg): a walled building
+    #: leaning more than that reads as wrong.  0 keeps every shared frame
+    #: level.
+    frame_tilt_max_deg: float = 1.0
+
     #: THE AUTHORED PLACEMENT IS KEPT (owner RULINGS 2026-10-14g (2)/(3);
     #: ``airport/authored_landing``).  An ``OBJECT_AGL`` row whose written
     #: ``OBJECT_MSL`` would equal its drape within this stays AGL, and a
     #: placement whose bodies would all land within this of the authored
     #: seat is not split.  The owner's own figure (0.05 m); 0 disarms both.
     authored_keep_tol_m: float = 0.05
+
+    #: A BUILDING'S SMALL PIECES RIDE ITS WALLS (owner RULINGS 2026-10-14p
+    #: (3), #709; ``airport/placement_leaves``): inside one placement, a
+    #: LEAF ground group (no part ``chain_min_height_m`` tall) within this
+    #: plan gap of a walled group — directly or through other leaves —
+    #: joins it and seats with it as one rigid unit.  Proposed 2.5 m: a
+    #: doorway (KASE's garage leaves 0.6 m between its panels and
+    #: 1.8–2.3 m across its doors), the same figure as the wall height
+    #: that makes a part a wall.  0 disarms.
+    piece_reach_m: float = 2.5
 
     #: §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo,
     #: interviewed): "We always want to keep objects covering the same

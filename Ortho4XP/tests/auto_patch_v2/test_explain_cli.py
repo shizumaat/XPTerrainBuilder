@@ -117,3 +117,38 @@ def test_the_tile_spelling_is_the_tile_builds_own():
     assert M._patch_rel("heca", 30, 31) == str(REL)
     assert M._patch_rel("LEMD", 40, -4) == str(
         Path("Patches") / "+40-010" / "+40-004" / "LEMD_auto.patch.osm")
+
+
+def test_the_airport_load_runs_under_the_shared_repo_guard(monkeypatch, tmp_path):
+    """The load runs the DEM prelude, which on a cold corpus writes the
+    shared data repo: ``main`` arms THE write guard around it, as
+    ``v2_why.py`` does (RULINGS e9daef5).  Offline: the guard is a
+    recording stand-in and the load a stub that stops the run."""
+    import contextlib
+    import importlib
+    LOAD = importlib.import_module("auto_patch_v2.airport.load")
+    import auto_patch_v2.pipeline.__main__ as PIPE
+    state = {"armed": False, "seen": None}
+
+    @contextlib.contextmanager
+    def guard():
+        state["armed"] = True
+        try:
+            yield
+        finally:
+            state["armed"] = False
+
+    class _Stop(Exception):
+        pass
+
+    def load(*_a, **_k):
+        state["seen"] = state["armed"]
+        raise _Stop
+
+    monkeypatch.setattr(PIPE, "shared_repo_guard", guard)
+    monkeypatch.setattr(LOAD, "load_with_report", load)
+    monkeypatch.setattr(M, "default_inputs", lambda *a, **k: None)
+    monkeypatch.setattr(M, "ENGINE_DIR", tmp_path)
+    with pytest.raises(_Stop):
+        M.main(["HECA", "--roles"])
+    assert state["seen"] is True and state["armed"] is False

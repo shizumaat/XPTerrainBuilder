@@ -311,6 +311,7 @@ def main(argv: list[str] | None = None) -> int:
     from auto_patch_v2.classify import classify, load_rules
     from auto_patch_v2.classify.evidence import build_evidence
     from auto_patch_v2.law import Law
+    from auto_patch_v2.pipeline.__main__ import shared_repo_guard
     args = build_parser().parse_args(argv)
     os.chdir(ENGINE_DIR)   # the core's resource/data contract
     if args.shape is not None and args.at is not None:
@@ -323,11 +324,15 @@ def main(argv: list[str] | None = None) -> int:
     inputs = default_inputs(args.xplane_root, args.cifp_dir, args.data_root,
                             60.0, args.dem_frame, True)
     law = Law.for_airport(icao)
-    airport, load_rep = load_with_report(icao, inputs, law)
-    rules = load_rules()
-    cl = classify(airport, law, rules)
-    ev = build_evidence(airport, rules, law.tables.structures.building_pad.min_area_m2,
-                        law)
+    # The airport load runs the DEM prelude: on a cold corpus it would write
+    # the shared data repo, so it runs under THE write guard (RULINGS
+    # e9daef5), as ``v2_why.py`` does.
+    with shared_repo_guard():
+        airport, load_rep = load_with_report(icao, inputs, law)
+        rules = load_rules()
+        cl = classify(airport, law, rules)
+        ev = build_evidence(airport, rules,
+                            law.tables.structures.building_pad.min_area_m2, law)
     print(f"[{icao}] {len(cl.cells)} cells; sources: "
           + ", ".join(f"{k} {v}" for k, v in sorted(
               {c: sum(1 for r in cl.sources if r.cls == c) for c in ("strip", "lot", "open")}.items())))

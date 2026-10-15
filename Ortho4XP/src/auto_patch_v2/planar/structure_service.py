@@ -71,19 +71,28 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     (d) An OSM ``tunnel`` bore lying INSIDE THE AIRPORT BOUNDARY is a
     terrain tunnel on its own (owner RULINGS 2026-09-27a (4), issue #5:
     SPJC's -5724 builds its two mouths).
-    (e) THE PACK'S OPEN PASSAGE OUTRANKS COVER, A CROSSING, A RISE AND
-    THE FENCE (owner RULINGS 2026-10-10q, issue #548; extends 10i (1) /
-    10k, issue #522): where an ELEVATED pack part stands over a mapped
+    (e) THE PACK'S OPEN PASSAGE OUTRANKS COVER, A CROSSING, A RISE, A
+    NEGATIVE LAYER AND THE FENCE (owner RULINGS 2026-10-10q, issue #548;
+    extends 10i (1) / 10k, issue #522; the layer since #710): where an ELEVATED pack part stands over a mapped
     bore's carriageway with clear space beneath and no pack part at
     grade covers its line (:meth:`_PackBuildings.passage`), the tag is
     the road's passage under that part, at grade, and nothing is cut —
-    asked FIRST, after (a), of every mapped bore whose ``layer`` does not
-    say it runs below ground.  The ``layer`` witness alone is senior to
-    it.  MEASURED at KCLT: a 313 m ``service`` bore under the terminal
-    read 273.0 m of cover (the terminal's own pad) and +0.55 .. +0.82 m
-    of ground over its mouth chord, under a road deck 6 m over the
-    terminal's zero with nothing at grade; three HECA bores report a
-    passage too and are real tunnels by ``layer`` -1.
+    asked FIRST, after (a), of every mapped bore.  MEASURED at KCLT: a
+    313 m ``service`` bore under the terminal read 273.0 m of cover (the
+    terminal's own pad) and +0.55 .. +0.82 m of ground over its mouth
+    chord, under a road deck 6 m over the terminal's zero with nothing at
+    grade.
+    A NEGATIVE ``layer`` IS NOT SENIOR TO IT (owner sim read of app
+    1.0.394, issue #710, narrowing 10q's layer clause): OSM's ``layer`` is
+    relative to what the way crosses, and under an elevated part with
+    clear space beneath ``layer=-1`` says only that the road runs below
+    THAT part.  MEASURED at HECA: -20899 / -19181 / -3949 (``layer`` -1,
+    under ``T3_road``'s viaduct, ``concrete_2`` 2.63 m over the
+    carriageway, nothing at grade) were built as one 7.5 m trench at
+    30.1127618, 31.3974461 where the owner reads "the road is on the
+    ground, going below an elevated road deck, not below ground"; no
+    other bore at the seven sweep airports reads both a passage and a
+    negative layer.
 
     THE LAST TWO ARE §34 (12) (4)'S OWN WITNESSES, in the form a BORE
     takes them: (4) (i) reads a tag, (4) (ii) reads the DEM against the
@@ -179,9 +188,10 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         below = lay is not None and lay <= tn.terrain_layer_max
         rise = _rise_m(airport, ln)
         # THE PACK'S OPEN PASSAGE IS ASKED FIRST (owner RULINGS 2026-10-10q):
-        # over the cover witness and the rise witness, under the map's own
-        # statement that the bore runs below ground (its ``layer``)
-        if not below and _osm_tunnel(bore, tn.admitted_values):
+        # over the cover, crossing, rise and layer witnesses — a negative
+        # ``layer`` under an elevated part says only that the road runs
+        # below that part (#710)
+        if _osm_tunnel(bore, tn.admitted_values):
             width = max(carriageway_width_m(w.tags or {}, law) for w in bore.ways)
             over = pack_bldg.passage(ln, width, tn.terrain_cover_min_m)
             if over is not None:
@@ -195,7 +205,8 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"stands over its carriageway with {base:.1f} m of "
                                f"clear space beneath and no pack part at grade: the "
                                f"tag is the road's passage under it, not a terrain "
-                               f"tunnel (§34 (12) (5), owner RULINGS 2026-10-10q)")
+                               f"tunnel (§34 (12) (5), owner RULINGS 2026-10-10q, "
+                               f"#710)")
         if cover >= tn.terrain_cover_min_m:
             return True, f"under the classified cover for {cover:.1f} m"
         if below:

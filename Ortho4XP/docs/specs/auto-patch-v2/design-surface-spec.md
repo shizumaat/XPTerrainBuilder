@@ -14519,6 +14519,40 @@ ruling's own acceptance keeps -5724, so the witness that separates the
 two is the one the ruling names as "not cover": the elevated pack part.
 It is read here as the positive reason for the refusal.
 
+## §34 (12) (5) (e) NARROWED — A NEGATIVE LAYER IS NOT SENIOR TO THE PACK'S OPEN PASSAGE (owner sim read of app 1.0.394, issue #710; narrows RULINGS 2026-10-10q's layer clause and 13a (10)) — lane `hecatunnel710`
+
+10q asked the pack-passage reading (`_PackBuildings.passage`: an
+elevated pack building part over the bore's carriageway, nothing at
+grade over its line) of every mapped bore WHOSE `layer` did not say it
+runs below ground; a `layer` at or under `terrain_layer_max` stayed
+senior, and the ruling named HECA -20899, -19181 and -3949 as real
+tunnels by `layer -1`.  The owner read those three in the sim: "There
+should be no tunnel here: 30.1127816, 31.3975313. The road is on the
+ground, going below an elevated road deck, not below ground."
+
+OSM's `layer` is RELATIVE to what the way crosses.  Under an elevated
+part with clear space beneath, `layer=-1` says that the road runs below
+THAT PART — which the passage already shows — and nothing about the
+ground.  So the passage is asked of every mapped bore, after (a), and
+outranks cover, a crossing, a rise, the fence AND a negative layer.
+Where the pack shows no passage (no pack, a pack part at grade over the
+line) the layer witness speaks exactly as before.
+
+No new law key; ONE derivation site, unchanged (`terrain_tunnel_witness`,
+read once in `mouths()`).
+
+MEASURED (`tools/bore_table.py run` on all seven sweep airports, base =
+main 367e84cae, branch `claude/hecatunnel710`): the ONLY verdict changes
+are HECA -20899 (31 m `service`, cover 4.0 m, rise +0.00), -19181
+(64 m `tertiary`, cover 8.4, rise +0.88) and -3949 (63 m `tertiary`,
+cover 7.8, rise +1.06) — all `layer -1`, all under `Airport/T23/
+concrete_2.obj` 2.63 m over the carriageway beside `T3_road`'s viaduct —
+BUILT -> REFUSED; together they were the bore `tunnel:-19181+-3949@0`
+(mouth 30.1127618, 31.3974461, its ramp top 30.1138926, 31.3970239).
+Every other bore at NLWF (0), CYXY (1), KASE (3), SPJC (7), KCLT (17),
+HECA (7 more) and OTHH (10) keeps its verdict and reason; no other bore
+reads both a passage and a negative layer.
+
 ## §34 (12) (4) AMENDED (2) — WITNESS (i) READS THE CORRIDOR, NOT THE SPAN (owner RULINGS 2026-09-16f: shapes 981 and 988 span real cuts; conditional on (5)) — lane `v2vmmcbore`
 
 The owner checked the two decks §34 (12) (4) dropped (shape 981 =

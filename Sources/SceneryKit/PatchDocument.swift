@@ -222,3 +222,10 @@ public struct PatchDocument: Equatable, Sendable {
         return box
     }
 }
+
+extension O4PatchListEntry {
+    /// The listing after `patch_save` wrote the airport's patch to `path`.
+    public func savedAs(path: String) -> O4PatchListEntry {
+        O4PatchListEntry(icao: icao, source: .manual, path: path, bbox: bbox, nodes: nodes, ways: ways)
+    }
+}

@@ -178,7 +178,7 @@ struct PatchEditOpsTests {
     }
 
     @Test func snapTiesGoToTheLowestSurvivorKey() {
-        let north = PatchSnap.Candidate(id: -1, x: 104, y: 100, lat: 45.000000000002, lon: -122.5)
+        let north = PatchSnap.Candidate(id: -1, x: 104, y: 100, lat: 45.00000002, lon: -122.5)
         let south = PatchSnap.Candidate(id: -2, x: 96, y: 100, lat: 45.0, lon: -122.4)
         #expect(PatchSnap.target(pointerX: 100, pointerY: 100, candidates: [north, south], identityDp: 11) == -2)
         // Equal at the identity precision: lon decides.

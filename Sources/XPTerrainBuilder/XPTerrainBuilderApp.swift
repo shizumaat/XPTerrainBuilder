@@ -73,6 +73,11 @@ struct AppCommands: Commands {
             .keyboardShortcut("f", modifiers: .command)
         }
 
+        // The patch editor's ⌘S (#46): saves the edited patch.
+        CommandGroup(replacing: .saveItem) {
+            PatchSaveCommand(model: buildModel.patchEdit)
+        }
+
         CommandGroup(after: .toolbar) {
             Button("3D Preview") {
                 openWindow(id: TerrainPreview.windowID, value: TerrainPreview.windowValue)
@@ -131,5 +136,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    /// Unsaved patch edits (#46) ask in the map before the app quits.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated { PatchEditModel.current?.shouldTerminate() ?? .terminateNow }
     }
 }

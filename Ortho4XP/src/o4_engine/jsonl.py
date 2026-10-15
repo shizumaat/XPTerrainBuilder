@@ -160,6 +160,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
     from . import patch_commands
+    from .pack_objects import pack_objects
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -216,6 +217,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # Patch editor 3D preview (protocol 1.12, #46): the DEM grid under
         # the patch, from the data repo's caches only.  Synchronous.
         "terrain_sample": terrain_sample,
+        # ... and the airport pack's buildings over it, from cached dumps.
+        "pack_objects": pack_objects,
     }
 
 

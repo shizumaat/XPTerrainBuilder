@@ -193,13 +193,17 @@ final class TerrainPreviewModel: ObservableObject {
                             chip: chipText(sample))
     }
 
-    /// "Preview · 3.0 km × 2.2 km · DEM base + airport inset · 5 m grid".
+    /// "Preview · 3.0 km × 2.2 km · DEM of the last build · 5 m grid" (or
+    /// "DEM base + airport inset" / "DEM base only" when no build's DEM
+    /// could be read).
     nonisolated static func chipText(_ s: O4TerrainSample) -> String {
         let midLat = (s.bbox.minLat + s.bbox.maxLat) / 2
         let w = (s.bbox.maxLon - s.bbox.minLon) * PatchLocalFrame.metresPerDegreeLat * cos(midLat * .pi / 180)
         let h = (s.bbox.maxLat - s.bbox.minLat) * PatchLocalFrame.metresPerDegreeLat
+        // §5 ruling 3: the engine reads the last build's DEM when it can
         let inset = (s.sources["inset"] ?? nil) != nil
-        let dem = inset ? "DEM base + airport inset" : "DEM base only"
+        let dem = (s.sources["frame"] ?? nil) == "production" ? "DEM of the last build"
+            : inset ? "DEM base + airport inset" : "DEM base only"
         let spacing = s.spacingM.truncatingRemainder(dividingBy: 1) == 0
             ? String(Int(s.spacingM)) : String(format: "%.1f", s.spacingM)
         return String(format: "Preview · %.1f km × %.1f km · ", w / 1000, h / 1000) + "\(dem) · \(spacing) m grid"

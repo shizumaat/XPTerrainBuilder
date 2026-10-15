@@ -131,11 +131,14 @@ def _face_triangles(pm: PlanarMap, fid: int) -> list[tuple[int, int, int]]:
 
 
 def _cotangent_laplacian(pm: PlanarMap, tris: _t.Sequence[tuple[int, int, int]],
-                         n: int) -> tuple[sp.csr_matrix, np.ndarray]:
+                         n: int, cut: _t.AbstractSet[tuple[int, int]] = frozenset()
+                         ) -> tuple[sp.csr_matrix, np.ndarray]:
     """The assembled cotangent Laplacian over ``tris`` and the barycentric
     vertex areas.  A row is ``Σ_j w_ij (z_i − z_j)`` — metres of integrated
     curvature; the caller scales it by ``1/√area`` so the energy is the
-    thin-plate one and mesh-density independent."""
+    thin-plate one and mesh-density independent.  An edge in ``cut``
+    (``(min, max)`` pairs — ``solve/wall_cut.wall_cut_edges``, the edges
+    across a declared wall) carries no weight: the step is the wall's."""
     rows: list[int] = []
     cols: list[int] = []
     vals: list[float] = []
@@ -152,6 +155,8 @@ def _cotangent_laplacian(pm: PlanarMap, tris: _t.Sequence[tuple[int, int, int]],
             w = float(u @ v) / (4.0 * cross)
             if w <= 0.0:
                 continue                    # obtuse: clamp (keeps the operator PSD)
+            if cut and (min(i, j), max(i, j)) in cut:
+                continue                    # 15a (2): the wall is the step
             rows += [i, i, j, j]
             cols += [i, j, j, i]
             vals += [w, -w, w, -w]

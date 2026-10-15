@@ -976,9 +976,19 @@ def wall_terrace_joints(planar: PlanarMap, law: Law,
                 (_p, zl) = min(lo, key=lambda t: math.hypot(t[0][0] - vx, t[0][1] - vy))
                 step_e = max(step_e, float(z[v]) - zl)
         # the declared riser is the WALL, never more than the solve put
-        # there: an emitted step under the wall's height declares itself
-        declared = round((h if step_e is None else min(h, max(step_e, 0.0)))
-                         + _EMIT_Z_ROUND_M, 4)
+        # there: an emitted step under the wall's height declares itself.
+        # A wall that RETAINS ITS HEIGHT declares the wall itself (owner
+        # RULINGS 2026-10-15a (2): "the step across the wall line equal to
+        # the wall's height") — its lower side is bounded at it by
+        # ``constraints/road_ramp._wall_step_rows``, and the step its pairs
+        # read is one stretch of a wall that retains along its whole run.
+        # A walled MOUTH's outline bounds the open cut as well: it declares
+        # only the step it carries
+        if rec.get("retains") and not rec.get("mouth"):
+            declared = round(h + _EMIT_Z_ROUND_M, 4)
+        else:
+            declared = round((h if step_e is None else min(h, max(step_e, 0.0)))
+                             + _EMIT_Z_ROUND_M, 4)
         r = {"points": [list(to_ll(x, y)) for x, y in line],
              "step_m": declared, "declared_step_m": declared, "faced": False,
              "kind": "wall_terrace", "faces": [], "shapes": [str(rec.get("label", ""))],

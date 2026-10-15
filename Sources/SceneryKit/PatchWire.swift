@@ -365,3 +365,22 @@ private struct O4WireKey: Decodable {
         else { value = String(try c.decode(Int64.self)) }
     }
 }
+
+/// Resumes a continuation exactly once, whichever of a command's reply
+/// and its completion event gets there first (`packObjects`).
+final class O4ResumeOnce<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+
+    func set(_ continuation: CheckedContinuation<T, Error>) {
+        lock.withLock { self.continuation = continuation }
+    }
+
+    func resume(_ result: Result<T, Error>) {
+        let c: CheckedContinuation<T, Error>? = lock.withLock {
+            defer { continuation = nil }
+            return continuation
+        }
+        c?.resume(with: result)
+    }
+}

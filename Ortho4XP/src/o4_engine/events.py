@@ -15,7 +15,7 @@ the session at emission time, never by producers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 # 1.1 (2026-07-16, additive): AutoPatchBegin/AutoPatchProgress carry
 # lat/lon so parallel builds (docs/specs/parallel-tile-builds.md) stay
@@ -73,7 +73,9 @@ from typing import Optional
 # 1.12 (2026-10-15, additive): the patch editor's commands ``patch_list``,
 # ``patch_load``, ``patch_save``, ``patch_revert`` (``o4_engine.
 # patch_commands``; spec patch-editor-20261015 §2, #46) — commands and
-# replies only, no new event.
+# replies only.  Within 1.12 (2026-10-15, additive): ``terrain_sample``,
+# ``pack_objects`` and its completion event PackObjectsReady (spec §5,
+# ruled after the massing measurement).
 PROTOCOL_VERSION = "1.12"
 
 
@@ -493,6 +495,26 @@ class PackMissingArt(EngineEvent):
     first_paths: list = field(default_factory=list)
     can_omit: bool = False
     state: str = "found"
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PackObjectsReady(EngineEvent):
+    """The completion half of the ``pack_objects`` command (protocol 1.12,
+    patch-editor spec §2 and §5): the command replies
+    ``{"status": "started"}`` and the pack is read on a worker thread,
+    because a command handler runs on the transport's read loop.
+
+    ``request`` is the ``id`` of the command it answers; ``result`` is the
+    §2 reply (``models``, ``placements``, ``facades``, ``missing``) or
+    ``None``, with ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    result: Any = None
     error: str = ""
 
 

@@ -7,29 +7,45 @@ Reuses the object stage's readers, read-only:
   ``auto_patch/engine_v2`` makes for the pack dump);
 * the placements: the cached text dump of the pack's tile DSF, located by
   ``airport/dsf.find_text_dump`` in the object stage's read frame
-  (``dsf_write.pristine_dsf_path``) and parsed by ``dsf.read_dump``;
-* the models: ``airport/obj8`` — ``resolve_resource`` (pack-relative,
-  then the cached library index), ``ResourceCache.geometry``
-  (``parse_obj8``);
+  (``dsf_write.pristine_dsf_path``, ruled right for an edited patch) and
+  parsed by ``dsf.read_dump``;
+* the models: ``airport/obj8.resolve_resource`` (pack-relative, then the
+  cached library index) and ``ResourceCache``, sent as GREY MASSING
+  (``pack_massing``: one convex hull per solid component);
 * the facades: ``airport/facade.read_facade`` and ``floor_for``.
 
-Each model is sent once, solid NON-ANIMATED triangles only (draped
-decals and moving parts dropped), its vertices compacted to the ones
-those triangles use.  Placements carry ``agl_m`` (``OBJECT`` = 0,
-``OBJECT_AGL`` = its offset).  Nothing is regenerated: a missing dump,
-library index or file is a sentence in ``missing``.
+Placements carry ``agl_m`` (``OBJECT`` = 0, ``OBJECT_AGL`` = its offset).
+Nothing is regenerated: a missing dump, library index or file is a
+sentence in ``missing``.
+
+ASYNCHRONOUS (spec §5): reading a pack takes seconds, and a command
+handler runs on the transport's read loop, so the command replies
+``{"status": "started"}`` and a worker thread completes it with ONE
+:class:`~o4_engine.events.PackObjectsReady` carrying the command's id.
+The worker touches no secret store (the ``secret_broker`` threading
+contract only forbids blocking the read loop).  Results are kept for the
+session, keyed by the pack DSF's path and mtime (and the request), so
+reopening the 3D window answers at once.
 """
 from __future__ import annotations
 
 import base64
 import os
+import threading
 import typing as _t
 
 import numpy as np
 
 import O4_File_Names as FNAMES
 
-__all__ = ["pack_objects"]
+from . import pack_massing as _mass
+
+__all__ = ["pack_objects", "start_pack_objects"]
+
+#: Session cache: (dsf path, dsf mtime, dump path, icao, bbox) -> reply.
+_CACHE: dict[tuple, dict] = {}
+_CACHE_LOCK = threading.Lock()
+_CACHE_SIZE = 4
 
 
 def _box(bbox: _t.Any) -> tuple[float, float, float, float]:
@@ -41,6 +57,13 @@ def _box(bbox: _t.Any) -> tuple[float, float, float, float]:
     if not (s < n and w < e):
         raise ValueError(f"pack_objects: bbox {[s, w, n, e]} is empty.")
     return s, w, n, e
+
+
+def _tile(tile: _t.Any) -> tuple[int, int]:
+    parsed = FNAMES.parse_tile_key(tile)
+    if parsed is None:
+        raise ValueError(f"pack_objects: {tile!r} is not a tile key like +45-123.")
+    return parsed
 
 
 def _b64(a: np.ndarray, dtype: str) -> str:
@@ -59,72 +82,6 @@ def xplane_root_for(lat: int, lon: int) -> str | None:
     return xplane_root_from_cifp_path(cifp_dir) if cifp_dir else None
 
 
-#: Spec §5 (ruled after 6b): a component under this size in EVERY
-#: dimension is clutter, not massing, and is not sent.
-MIN_COMPONENT_M = 2.0
-
-
-def component_hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
-    """The 3-D convex hull of one component's points: ``(vertices,
-    triangles)`` wound outward, or ``None`` when no hull exists.  A flat
-    component (a wall plate) is joggled into a thin hull."""
-    from scipy.spatial import ConvexHull, QhullError
-    pts = np.unique(np.asarray(points, dtype=np.float64), axis=0)
-    if pts.shape[0] < 4:
-        return None
-    try:
-        hull = ConvexHull(pts)
-    except QhullError:
-        try:
-            hull = ConvexHull(pts, qhull_options="QJ")
-        except QhullError:
-            return None
-    used, inverse = np.unique(hull.simplices.reshape(-1), return_inverse=True)
-    verts = pts[used]
-    tris = inverse.reshape(-1, 3)
-    # outward: each face's normal points away from the hull's centre
-    centre = verts.mean(axis=0)
-    a, b, c = verts[tris[:, 0]], verts[tris[:, 1]], verts[tris[:, 2]]
-    inward = np.einsum("ij,ij->i", np.cross(b - a, c - a), a - centre) < 0
-    tris[inward] = tris[inward][:, [0, 2, 1]]
-    return verts, tris
-
-
-def model_payload(cache, path: str) -> tuple[np.ndarray, np.ndarray, int] | None:
-    """Grey massing of one model (spec §5, ruled after 6b): the convex hull
-    of each solid, non-animated connected component
-    (``obj8.solid_components``, welded to 1 mm), components under
-    :data:`MIN_COMPONENT_M` in every dimension dropped.  ``(vertices (k, 3)
-    float32, triangles (m, 3) uint32, components dropped)``, or ``None``
-    when nothing is left."""
-    geom = cache.geometry(path)
-    if geom is None:
-        return None
-    verts: list[np.ndarray] = []
-    tris: list[np.ndarray] = []
-    dropped = 0
-    base = 0
-    for comp in cache.components(path):
-        if comp.animated:
-            continue
-        pts = geom.vertices[comp.tris.reshape(-1)]
-        if (pts.max(axis=0) - pts.min(axis=0) < MIN_COMPONENT_M).all():
-            dropped += 1
-            continue
-        hull = component_hull(pts)
-        if hull is None:
-            dropped += 1
-            continue
-        verts.append(hull[0])
-        tris.append(hull[1] + base)
-        base += hull[0].shape[0]
-    if not verts:
-        return None if not dropped else (np.zeros((0, 3), np.float32),
-                                         np.zeros((0, 3), np.uint32), dropped)
-    return (np.concatenate(verts).astype(np.float32),
-            np.concatenate(tris).astype(np.uint32), dropped)
-
-
 def facade_height(def_path: str, param: int, root: str, index) -> float | None:
     """A roofed facade's wall height (the floor X-Plane picks for the
     DSF's height param), ``None`` when the file gives none."""
@@ -139,17 +96,19 @@ def facade_height(def_path: str, param: int, root: str, index) -> float | None:
     return floor.top if floor is not None and floor.top > 0 else None
 
 
+def _list(names: set[str]) -> str:
+    return ", ".join(sorted(names)[:5]) + (", …" if len(names) > 5 else "")
+
+
 def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
-    """The §2 reply for the placements inside ``bbox``."""
+    """The §2 result for the placements inside ``bbox`` (synchronous; the
+    command runs it through :func:`start_pack_objects`)."""
     from auto_patch_v2.airport import dsf as _dsf
     from auto_patch_v2.airport import dsf_write as _dw
     from auto_patch_v2.airport import obj8 as _obj8
     from auto_patch_v2.airport import pack as _pack
 
-    parsed = FNAMES.parse_tile_key(tile)
-    if parsed is None:
-        raise ValueError(f"pack_objects: {tile!r} is not a tile key like +45-123.")
-    lat, lon = parsed
+    lat, lon = _tile(tile)
     s, w, n, e = _box(bbox)
     out: dict = {"models": [], "placements": [], "facades": [], "missing": []}
     missing: list[str] = out["missing"]
@@ -177,6 +136,13 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
                        f"{os.path.basename(pristine)} has no readable cached dump "
                        f"({reason}). Building the tile makes it.")
         return out
+    key = (pristine, os.path.getmtime(pristine), dump_path, str(icao).upper(),
+           tuple(round(v, 7) for v in (s, w, n, e)))
+    with _CACHE_LOCK:
+        hit = _CACHE.get(key)
+    if hit is not None:
+        return hit
+
     index = _obj8.read_library_index(_obj8.library_index_path(mod_root, xroot))
     if index is None:
         missing.append("The X-Plane library index is not cached yet, so objects from "
@@ -187,60 +153,88 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
         return s <= la <= n and w <= lo <= e
 
     cache = _obj8.ResourceCache(0.0)
-    keys: dict[str, str | None] = {}      # def path -> model key (None = not drawn)
+    hulls: dict[str, list[_mass.Hull]] = {}
     unresolved: set[str] = set()
-    msl = 0
-    dropped = 0
+    seen: set[str] = set()
+    placements: list[dict] = []
+    msl = clutter = 0
     for pl in dump.placements:
         if not pl.def_path.lower().endswith(".obj") or not inside(pl.lat, pl.lon):
             continue
         if pl.kind == "OBJECT_MSL":
             msl += 1
             continue
-        if pl.def_path not in keys:
-            keys[pl.def_path] = None
+        if pl.def_path not in seen:
+            seen.add(pl.def_path)
             phys = _obj8.resolve_resource(pl.def_path, sel.root, index)
-            payload = model_payload(cache, phys) if phys else None
-            if phys is None or cache.geometry(phys) is None:
+            read = _mass.model_hulls(cache, phys) if phys else None
+            if read is None:
                 unresolved.add(pl.def_path)
-            elif payload is not None:
-                dropped += payload[2]
-            if payload is not None and payload[0].shape[0]:
-                keys[pl.def_path] = pl.def_path
-                out["models"].append({"key": pl.def_path,
-                                      "vertices_f32_b64": _b64(payload[0], "<f4"),
-                                      "triangles_u32_b64": _b64(payload[1], "<u4")})
-        if keys[pl.def_path] is None:
-            continue
+            else:
+                hulls[pl.def_path], dropped = read
+                clutter += dropped
         agl = float(pl.elevation) if pl.kind == "OBJECT_AGL" and pl.elevation is not None else 0.0
-        out["placements"].append({"model": pl.def_path, "lat": pl.lat, "lon": pl.lon,
-                                  "heading_deg": pl.heading_deg, "agl_m": agl})
-    if unresolved:
-        missing.append(f"{len(unresolved)} object file(s) could not be found or read: "
-                       + ", ".join(sorted(unresolved)[:5])
-                       + (", …" if len(unresolved) > 5 else ""))
-    if dropped:
-        missing.append(f"{dropped} object part(s) smaller than {MIN_COMPONENT_M:g} m in every "
-                       "direction are left out of the grey massing.")
-    if msl:
-        missing.append(f"{msl} object(s) placed at a fixed sea-level elevation are not shown.")
+        placements.append({"model": pl.def_path, "lat": pl.lat, "lon": pl.lon,
+                           "heading_deg": pl.heading_deg, "agl_m": agl})
 
     heightless: set[str] = set()
     for poly in dump.polygons:
         ring = poly.windings[0]
-        clat = sum(p[1] for p in ring) / len(ring)
-        clon = sum(p[0] for p in ring) / len(ring)
-        if not inside(clat, clon):
+        if not inside(sum(p[1] for p in ring) / len(ring), sum(p[0] for p in ring) / len(ring)):
             continue
         h = facade_height(poly.def_path, poly.param, sel.root, index)
         if h is None:
             heightless.add(poly.def_path)
             continue
         out["facades"].append({"ring": [[p[1], p[0]] for p in ring], "height_m": h})
+
+    capped = _mass.fit_to_cap(hulls, 120 * len(placements)
+                              + sum(40 * len(f["ring"]) + 40 for f in out["facades"]))
+    for path, hs in hulls.items():
+        if hs:
+            v, t = _mass.pack_model(hs)
+            out["models"].append({"key": path, "vertices_f32_b64": _b64(v, "<f4"),
+                                  "triangles_u32_b64": _b64(t, "<u4")})
+    drawn = {m["key"] for m in out["models"]}
+    out["placements"] = [p for p in placements if p["model"] in drawn]
+
+    if unresolved:
+        missing.append(f"{len(unresolved)} object file(s) could not be found or read: "
+                       + _list(unresolved))
+    if clutter:
+        missing.append(f"{clutter} object part(s) smaller than {_mass.MIN_COMPONENT_M:g} m in "
+                       "every direction are left out of the grey massing.")
+    if capped:
+        missing.append(f"{capped} of the smallest object part(s) are left out to keep the "
+                       f"buildings under {_mass.MAX_REPLY_BYTES // 1_000_000} MB.")
+    if msl:
+        missing.append(f"{msl} object(s) placed at a fixed sea-level elevation are not shown.")
     if heightless:
         missing.append(f"{len(heightless)} facade type(s) have no readable building height "
                        "(fences, open lots or unreadable files) and are not shown: "
-                       + ", ".join(sorted(heightless)[:5])
-                       + (", …" if len(heightless) > 5 else ""))
+                       + _list(heightless))
+    with _CACHE_LOCK:
+        _CACHE[key] = out
+        while len(_CACHE) > _CACHE_SIZE:
+            _CACHE.pop(next(iter(_CACHE)))
     return out
 
+
+def start_pack_objects(emit: _t.Callable[[_t.Any], None], tile: str, icao: str,
+                       bbox: _t.Sequence[float], request: _t.Any = None) -> dict:
+    """The command: arguments are checked here (a bad one is an ``ok:false``
+    reply), the pack is read on a worker thread, and ``PackObjectsReady``
+    with ``request`` = the command's id completes it."""
+    from .events import PackObjectsReady
+    _tile(tile)
+    _box(bbox)
+
+    def work() -> None:
+        try:
+            event = PackObjectsReady(request=request, result=pack_objects(tile, icao, bbox))
+        except Exception as error:      # the event carries it; the session lives on
+            event = PackObjectsReady(request=request, error=str(error))
+        emit(event)
+
+    threading.Thread(target=work, daemon=True, name="o4-pack-objects").start()
+    return {"status": "started"}

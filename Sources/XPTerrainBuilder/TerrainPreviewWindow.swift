@@ -56,6 +56,9 @@ private struct TerrainPreviewContent: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
+            Toggle("Buildings", isOn: $model.showBuildings)
+                .toggleStyle(.checkbox)
+                .help("The airport pack's buildings as grey massing, standing where X-Plane seats them.")
             Toggle("Wireframe", isOn: $model.wireframe)
                 .toggleStyle(.checkbox)
             Divider().frame(height: 16)
@@ -78,6 +81,7 @@ private struct TerrainPreviewContent: View {
         VStack(alignment: .leading, spacing: 3) {
             legendRow(TerrainPreviewScene.terrainColor, "DEM terrain")
             legendRow(TerrainPreviewScene.patchColor, "patch surface")
+            legendRow(TerrainPreviewScene.buildingColor, "pack buildings")
             legendRow(TerrainPreviewScene.markerColor, "selected node")
         }
         .font(.caption)
@@ -106,15 +110,34 @@ private struct TerrainPreviewContent: View {
                         .foregroundStyle(.orange)
                         .lineLimit(3)
                 }
-                if !model.chip.isEmpty { Text(model.chip) }
+                if !model.chip.isEmpty { Text(model.chip + buildingsChip) }
+                if case .failed(let text) = model.buildingStatus {
+                    Label(text, systemImage: "building.2").foregroundStyle(.orange).lineLimit(3)
+                }
             }
             .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.white.opacity(0.75))
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
             .frame(maxWidth: 520, alignment: .leading)
+            .help(buildingsNotes)
             .padding(10)
         }
+    }
+
+    /// " · 142 pack objects" / " · loading buildings…".
+    private var buildingsChip: String {
+        switch model.buildingStatus {
+        case .loading: return " · Loading buildings…"
+        case .ready(let n, _): return " · \(n.formatted()) pack objects"
+        case .none, .failed: return ""
+        }
+    }
+
+    /// What the engine could not show (`pack_objects` `missing`), on hover.
+    private var buildingsNotes: String {
+        if case .ready(_, let missing) = model.buildingStatus { return missing.joined(separator: "\n") }
+        return ""
     }
 
     private var resetButton: some View {

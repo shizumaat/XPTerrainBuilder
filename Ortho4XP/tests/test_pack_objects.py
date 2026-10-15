@@ -196,3 +196,80 @@ def test_a_raster_without_its_frame_is_not_read(dem_roots):
     os.remove(str(path) + ".frame.json")          # 101-square: not the viewfinder grid
     r = TC.terrain_sample(TILE, "ZZZZ", [45.2, -122.8, 45.21, -122.79], 50.0)
     assert r["sources"]["frame"] == "authored"
+
+
+# ── asynchronous command, session cache, reply cap ──────────────────────
+
+def test_the_command_replies_started_and_one_event_completes_it(pack):
+    import io
+    import threading
+    import time
+    from o4_engine import jsonl
+
+    class Capture(io.StringIO):
+        def __init__(self):
+            super().__init__()
+            self.lock = threading.Lock()
+
+        def write(self, text):
+            with self.lock:
+                return super().write(text)
+
+        def objects(self):
+            with self.lock:
+                return [json.loads(x) for x in self.getvalue().splitlines() if x.strip()]
+
+    r_fd, w_fd = os.pipe()
+    stdin, writer = os.fdopen(r_fd, "r"), os.fdopen(w_fd, "w")
+    out = Capture()
+    server = threading.Thread(target=jsonl.serve, args=(stdin, out), daemon=True)
+    server.start()
+    writer.write(json.dumps({"cmd": "pack_objects", "id": 41, "tile": TILE, "icao": "ZZZZ",
+                             "bbox": BBOX}) + "\n")
+    writer.flush()
+    deadline = time.time() + 30
+    ready = []
+    while time.time() < deadline and not ready:
+        ready = [o for o in out.objects() if o.get("event") == "PackObjectsReady"]
+        time.sleep(0.05)
+    writer.write(json.dumps({"cmd": "shutdown", "id": 42}) + "\n")
+    writer.flush()
+    server.join(30)
+    replies = {o["reply"]: o for o in out.objects() if "reply" in o}
+    assert replies[41] == {"reply": 41, "ok": True, "result": {"status": "started"}}
+    assert len(ready) == 1 and ready[0]["request"] == 41 and ready[0]["error"] == ""
+    assert [m["key"] for m in ready[0]["result"]["models"]] == ["objects/box.obj"]
+
+
+def test_a_bad_argument_is_refused_before_any_thread(pack):
+    events = []
+    with pytest.raises(ValueError, match="tile key"):
+        PO.start_pack_objects(events.append, "45-123", "ZZZZ", BBOX, request=1)
+    assert events == []
+
+
+def test_a_second_request_is_answered_from_the_session_cache(pack, monkeypatch):
+    from o4_engine import pack_massing as PM
+    first = PO.pack_objects(TILE, "ZZZZ", BBOX)
+    monkeypatch.setattr(PM, "model_hulls", lambda *a: pytest.fail("pack re-read"))
+    assert PO.pack_objects(TILE, "ZZZZ", BBOX) is first
+    # a changed pack DSF is a new key: read again
+    dsf = [p for p in PO._CACHE][-1][0]
+    os.utime(dsf, (os.path.getmtime(dsf) + 5,) * 2)
+    os.utime(pack, (os.path.getmtime(dsf) + 10,) * 2)
+    with pytest.raises(pytest.fail.Exception):
+        PO.pack_objects(TILE, "ZZZZ", BBOX)
+
+
+def test_over_the_cap_the_smallest_parts_go_first():
+    from o4_engine import pack_massing as PM
+
+    def hull(size):
+        return PM.Hull(np.zeros((8, 3)), np.zeros((12, 3), dtype=int), size)
+
+    models = {"a": [hull(5.0), hull(30.0)], "b": [hull(2.5), hull(9.0)]}
+    each = hull(1).wire_bytes
+    assert PM.fit_to_cap(models, 0, cap=4 * each) == 0
+    dropped = PM.fit_to_cap(models, 0, cap=2 * each)
+    assert dropped == 2
+    assert [h.size_m for h in models["a"]] == [30.0] and [h.size_m for h in models["b"]] == [9.0]

@@ -344,6 +344,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     from . import footprint_connector as _fc
     _st29q = _fc.verdicts_of(plan) if connector_span_m > 0.0 else None
     _cut29q = _fc.linear_pids(_st29q) if _st29q else frozenset()   # 29v
+    # #609: what a part-less component stands on, plan-wide (§16d (1))
+    _on_feet = _orphan.foreign_feet(plan, contents_min_fraction,
+                                    split_tol_m)
     for ui, u in enumerate(plan.units):
         # ── PASS 1: every member's bodies ────────────────────────────
         # §14a (2): each basin ring's DEPTH, read ONCE per unit — a pit is
@@ -511,7 +514,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # below like any other, and on its own ground where the search
         # accepts nothing (§16 (3)).
         for st in staged:
-            _orphan.place_orphans(st, coarsen_reach_m, surface, counts)
+            _orphan.place_orphans(st, coarsen_reach_m, surface, counts,
+                                  over=_on_feet)
 
         # ── §16c (7): THE UNIT BINDS BY CONTACT ──────────────────────
         # The bodies of the unit the plan's own ε-contact graph links —

@@ -116,7 +116,11 @@ boundary, beziers flattened by `auto_patch_v2/airport/apt_dat.py`) and
 the `pack_objects` result (the plan outline of each placed model's hulls),
 so buildings are read once, by one command. (b) `terrain_sample` and
 `mesh_crop` take an optional `build_dir` (the tile's build folder as the app
-knows it); absent → the default `Tiles/` folder.
+knows it); absent → the default `Tiles/` folder. (c) After L4: `pack_outlines` stays synchronous; its one
+measured stall is the first call per engine session for an airport served
+only by Global Airports (2.5 s, the 383 MB apt.dat block index; custom packs
+0.5 s cold, ≤ 0.08 s warm). Accepted for v1; make it async like
+`pack_objects` if it shows up in use.
 
 Node ids are the file's (negative) ids. The client allocates new node ids
 below the document's minimum id; way ids are kept. `patch_save` writes ways

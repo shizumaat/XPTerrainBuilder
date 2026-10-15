@@ -59,17 +59,70 @@ def xplane_root_for(lat: int, lon: int) -> str | None:
     return xplane_root_from_cifp_path(cifp_dir) if cifp_dir else None
 
 
-def model_payload(geom) -> tuple[np.ndarray, np.ndarray] | None:
-    """``(vertices (k, 3) float32, triangles (m, 3) uint32)`` of a parsed
-    OBJ8's solid, non-animated triangles, or ``None`` when there are none."""
-    tris = geom.solid
-    if geom.animated.shape[0]:
-        tris = tris[~geom.animated]
-    if tris.shape[0] == 0:
+#: Spec §5 (ruled after 6b): a component under this size in EVERY
+#: dimension is clutter, not massing, and is not sent.
+MIN_COMPONENT_M = 2.0
+
+
+def component_hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+    """The 3-D convex hull of one component's points: ``(vertices,
+    triangles)`` wound outward, or ``None`` when no hull exists.  A flat
+    component (a wall plate) is joggled into a thin hull."""
+    from scipy.spatial import ConvexHull, QhullError
+    pts = np.unique(np.asarray(points, dtype=np.float64), axis=0)
+    if pts.shape[0] < 4:
         return None
-    used, inverse = np.unique(tris.reshape(-1), return_inverse=True)
-    return (geom.vertices[used].astype(np.float32),
-            inverse.reshape(-1, 3).astype(np.uint32))
+    try:
+        hull = ConvexHull(pts)
+    except QhullError:
+        try:
+            hull = ConvexHull(pts, qhull_options="QJ")
+        except QhullError:
+            return None
+    used, inverse = np.unique(hull.simplices.reshape(-1), return_inverse=True)
+    verts = pts[used]
+    tris = inverse.reshape(-1, 3)
+    # outward: each face's normal points away from the hull's centre
+    centre = verts.mean(axis=0)
+    a, b, c = verts[tris[:, 0]], verts[tris[:, 1]], verts[tris[:, 2]]
+    inward = np.einsum("ij,ij->i", np.cross(b - a, c - a), a - centre) < 0
+    tris[inward] = tris[inward][:, [0, 2, 1]]
+    return verts, tris
+
+
+def model_payload(cache, path: str) -> tuple[np.ndarray, np.ndarray, int] | None:
+    """Grey massing of one model (spec §5, ruled after 6b): the convex hull
+    of each solid, non-animated connected component
+    (``obj8.solid_components``, welded to 1 mm), components under
+    :data:`MIN_COMPONENT_M` in every dimension dropped.  ``(vertices (k, 3)
+    float32, triangles (m, 3) uint32, components dropped)``, or ``None``
+    when nothing is left."""
+    geom = cache.geometry(path)
+    if geom is None:
+        return None
+    verts: list[np.ndarray] = []
+    tris: list[np.ndarray] = []
+    dropped = 0
+    base = 0
+    for comp in cache.components(path):
+        if comp.animated:
+            continue
+        pts = geom.vertices[comp.tris.reshape(-1)]
+        if (pts.max(axis=0) - pts.min(axis=0) < MIN_COMPONENT_M).all():
+            dropped += 1
+            continue
+        hull = component_hull(pts)
+        if hull is None:
+            dropped += 1
+            continue
+        verts.append(hull[0])
+        tris.append(hull[1] + base)
+        base += hull[0].shape[0]
+    if not verts:
+        return None if not dropped else (np.zeros((0, 3), np.float32),
+                                         np.zeros((0, 3), np.uint32), dropped)
+    return (np.concatenate(verts).astype(np.float32),
+            np.concatenate(tris).astype(np.uint32), dropped)
 
 
 def facade_height(def_path: str, param: int, root: str, index) -> float | None:
@@ -137,6 +190,7 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
     keys: dict[str, str | None] = {}      # def path -> model key (None = not drawn)
     unresolved: set[str] = set()
     msl = 0
+    dropped = 0
     for pl in dump.placements:
         if not pl.def_path.lower().endswith(".obj") or not inside(pl.lat, pl.lon):
             continue
@@ -146,11 +200,12 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
         if pl.def_path not in keys:
             keys[pl.def_path] = None
             phys = _obj8.resolve_resource(pl.def_path, sel.root, index)
-            geom = cache.geometry(phys) if phys else None
-            payload = model_payload(geom) if geom is not None else None
-            if phys is None or geom is None:
+            payload = model_payload(cache, phys) if phys else None
+            if phys is None or cache.geometry(phys) is None:
                 unresolved.add(pl.def_path)
             elif payload is not None:
+                dropped += payload[2]
+            if payload is not None and payload[0].shape[0]:
                 keys[pl.def_path] = pl.def_path
                 out["models"].append({"key": pl.def_path,
                                       "vertices_f32_b64": _b64(payload[0], "<f4"),
@@ -164,6 +219,9 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
         missing.append(f"{len(unresolved)} object file(s) could not be found or read: "
                        + ", ".join(sorted(unresolved)[:5])
                        + (", …" if len(unresolved) > 5 else ""))
+    if dropped:
+        missing.append(f"{dropped} object part(s) smaller than {MIN_COMPONENT_M:g} m in every "
+                       "direction are left out of the grey massing.")
     if msl:
         missing.append(f"{msl} object(s) placed at a fixed sea-level elevation are not shown.")
 

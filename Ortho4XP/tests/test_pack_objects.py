@@ -21,30 +21,23 @@ from o4_engine import terrain_source as TS  # noqa: E402
 TILE = "+45-123"
 BBOX = [45.19, -122.96, 45.21, -122.92]
 
-# one static triangle and one animated triangle; vertex 6 unused
-OBJ8 = """I
-800
-OBJ
+# a 10 x 6 x 4 m tetrahedron (static), a 1 m one (static clutter) and the
+# large one again, animated; vertex 12 unused
+_TET = [(0, 0, 0), (10, 0, 0), (0, 6, 0), (0, 0, 4)]
+_SMALL = [(20, 0, 0), (21, 0, 0), (20, 1, 0), (20, 0, 1)]
+_FACES = [(0, 2, 1), (0, 1, 3), (0, 3, 2), (1, 2, 3)]
 
-POINT_COUNTS 7 0 0 6
-VT 0 0 0 0 1 0 0 0
-VT 10 0 0 0 1 0 0 0
-VT 0 6 0 0 1 0 0 0
-VT 0 0 0 0 1 0 0 0
-VT 2 0 0 0 1 0 0 0
-VT 0 2 0 0 1 0 0 0
-VT 99 99 99 0 1 0 0 0
-IDX 0
-IDX 1
-IDX 2
-IDX 3
-IDX 4
-IDX 5
-TRIS 0 3
-ANIM_begin
-TRIS 3 3
-ANIM_end
-"""
+
+def _obj8():
+    moved = [(x + 50, y, z) for x, y, z in _TET]       # apart, or the weld joins them
+    vt = [f"VT {x} {y} {z} 0 1 0 0 0" for x, y, z in _TET + _SMALL + moved + [(99, 99, 99)]]
+    idx = [f"IDX {base + i}" for base in (0, 4, 8) for f in _FACES for i in f]
+    return "\n".join(["I", "800", "OBJ", "", f"POINT_COUNTS {len(vt)} 0 0 {len(idx)}"]
+                      + vt + idx + ["TRIS 0 24", "ANIM_begin", "TRIS 24 12",
+                                    "ANIM_end", ""])
+
+
+OBJ8 = _obj8()
 
 DUMP = """OBJECT_DEF objects/box.obj
 OBJECT_DEF objects/missing.obj
@@ -88,14 +81,19 @@ def test_each_model_once_static_triangles_only(pack):
     m = r["models"][0]
     tris = _arr(m["triangles_u32_b64"], "<u4", 3)
     verts = _arr(m["vertices_f32_b64"], "<f4", 3)
-    assert tris.tolist() == [[0, 1, 2]]          # the animated triangle is dropped
-    assert verts.tolist() == [[0, 0, 0], [10, 0, 0], [0, 6, 0]]   # compacted
+    # grey massing: the hull of the one static >= 2 m component only
+    assert sorted(map(tuple, verts.tolist())) == sorted(map(tuple, map(lambda p: map(float, p), _TET)))
+    assert len(tris) == 4
+    centre = verts.mean(axis=0)
+    for a, b, c in verts[tris]:
+        assert np.dot(np.cross(b - a, c - a), a - centre) > 0     # wound outward
     pl = r["placements"]
     assert [(p["lon"], p["heading_deg"], p["agl_m"]) for p in pl] == [
         (-122.95, 90.0, 0.0), (-122.94, 0.0, 0.0), (-122.93, 180.0, 3.5)]
     assert all(p["model"] == "objects/box.obj" for p in pl)
     text = " ".join(r["missing"])
     assert "objects/missing.obj" in text and "sea-level" in text
+    assert "1 object part(s) smaller than 2 m" in text
     assert "library index" in text                 # none cached: said, not built
     json.dumps(r)                                  # wire-safe
 

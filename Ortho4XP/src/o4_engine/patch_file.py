@@ -183,7 +183,16 @@ def write_atomic(path: str, text: str) -> None:
     """Write *text* to *path* through a temporary file and ``os.replace``."""
     folder = os.path.dirname(path) or "."
     fd, tmp = tempfile.mkstemp(prefix=".patch_edit_", suffix=".tmp", dir=folder)
+    # mkstemp creates the file 0600; a patch is an ordinary file like the
+    # auto patch beside it: keep the replaced file's mode, else the umask's.
     try:
+        mode = os.stat(path).st_mode & 0o777
+    except OSError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
+    try:
+        os.fchmod(fd, mode)
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
         os.replace(tmp, path)

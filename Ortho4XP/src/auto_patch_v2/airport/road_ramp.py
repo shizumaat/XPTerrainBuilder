@@ -763,9 +763,18 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # contact — the road at the wall's foot does not meet the top edge
     if retaining:
         from shapely.strtree import STRtree
+        from ..law.tables import airside_stage_roles
+        stage1 = airside_stage_roles(law)
         rtree = STRtree(list(retaining))
+
+        def _on_pavement(a: int) -> bool:
+            # the airside PAVEMENT above (§20b stage 1), never a pad: a
+            # building's own wall is its facade, not a terrace for the road
+            # that reaches its frontage (KCLT ``building57``'s hangar wall)
+            return any(pm.faces[f].role in stage1 for f in pm.vertices[a].incident_faces)
         cut = {v for v, (a, b, u, _s) in contact.items()
-               if _way_crosses(pm, v, a, b, u, retaining, rtree)}
+               if _on_pavement(a) and _on_pavement(b)
+               and _way_crosses(pm, v, a, b, u, retaining, rtree)}
         contact = {v: c for v, c in contact.items() if v not in cut}
         gaps = {v: g_ for v, g_ in gaps.items() if v not in cut}
         rep["reach_contacts_across_retaining_wall"] = len(cut)
@@ -1190,8 +1199,11 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             continue
         fs = feet(pm.vertices[v].xy)
         if rtree is not None:
+            # 15a (2): the PAVEMENT above (stage 1) across a retaining wall
+            # borders no road below it; a pad's frontage is the pad's own
             fs = {ref: f_ for ref, f_ in fs.items()
-                  if not _across_retaining(pm, v, f_, retaining, rtree)}
+                  if feet.role_of.get(ref) not in stage1
+                  or not _across_retaining(pm, v, f_, retaining, rtree)}
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
         if lev:

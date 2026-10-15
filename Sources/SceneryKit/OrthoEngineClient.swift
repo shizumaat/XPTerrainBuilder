@@ -543,6 +543,10 @@ public final class OrthoEngineClient: @unchecked Sendable {
     private var stderrBuffer = Data()
     private var nextID = 1
     private var pendingReplies: [Int: @Sendable (O4Reply) -> Void] = [:]
+    /// Commands completed by an EVENT naming their id (`request`), keyed by
+    /// that id: the event goes to its waiter, never to `onEvent`. nil =
+    /// the engine exited first.
+    private var eventWaiters: [Int: @Sendable (O4JSON?) -> Void] = [:]
 
     private let onEvent: @Sendable (O4Event) -> Void
     private let onExit: @Sendable (Int32) -> Void
@@ -600,9 +604,14 @@ public final class OrthoEngineClient: @unchecked Sendable {
                 self.pendingReplies = [:]
                 return Array(handlers)
             }
+            let eventWaiters = self.lock.withLock {
+                defer { self.eventWaiters = [:] }
+                return Array(self.eventWaiters.values)
+            }
             for handler in waiting {
                 handler(O4Reply(ok: false, result: nil, error: "engine exited"))
             }
+            for waiter in eventWaiters { waiter(nil) }
             self.onExit(proc.terminationStatus)
         }
         try process.run()
@@ -612,18 +621,32 @@ public final class OrthoEngineClient: @unchecked Sendable {
     /// Events the command triggers arrive through onEvent as usual.
     public func send(command: String, arguments: [String: Any] = [:],
                      completion: (@Sendable (O4Reply) -> Void)? = nil) {
+        send(command: command, arguments: arguments, completion: completion, completionEvent: nil)
+    }
+
+    /// `send`, for a command an EVENT completes: `completionEvent` receives
+    /// that event's JSON (registered before the line is written, so an
+    /// event that beats the reply is not lost). An `ok: false` reply
+    /// removes the waiter; the reply completion reports the error.
+    func send(command: String, arguments: [String: Any],
+              completion: (@Sendable (O4Reply) -> Void)?,
+              completionEvent: (@Sendable (O4JSON?) -> Void)?) {
         var message: [String: Any] = ["cmd": command]
         let id: Int = lock.withLock {
             let id = nextID
             nextID += 1
             if let completion { pendingReplies[id] = completion }
+            if let completionEvent { eventWaiters[id] = completionEvent }
             return id
         }
         message["id"] = id
         for (key, value) in arguments { message[key] = value }
         guard let data = try? JSONSerialization.data(withJSONObject: message),
               process.isRunning else {
-            _ = lock.withLock { pendingReplies.removeValue(forKey: id) }
+            _ = lock.withLock {
+                eventWaiters.removeValue(forKey: id)
+                return pendingReplies.removeValue(forKey: id)
+            }
             completion?(O4Reply(ok: false, result: nil, error: "engine not running"))
             return
         }
@@ -841,12 +864,29 @@ public final class OrthoEngineClient: @unchecked Sendable {
               let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
         else { return }
         if let replyID = (object["reply"] as? NSNumber)?.intValue {
-            let handler = lock.withLock { pendingReplies.removeValue(forKey: replyID) }
+            let ok = (object["ok"] as? NSNumber)?.boolValue ?? false
+            let handler = lock.withLock {
+                if !ok { eventWaiters.removeValue(forKey: replyID) }
+                return pendingReplies.removeValue(forKey: replyID)
+            }
             handler?(O4Reply(
                 ok: (object["ok"] as? NSNumber)?.boolValue ?? false,
                 result: object["result"].map { O4JSON.from($0) },
                 error: object["error"] as? String))
             return
+        }
+        // A STRING LITERAL match (see O4Event.parse): it is `class
+        // PackObjectsReady` in Ortho4XP/src/o4_engine/events.py, the
+        // completion of the `pack_objects` command whose id is `request`.
+        switch object["event"] as? String {
+        case "PackObjectsReady":
+            if let request = (object["request"] as? NSNumber)?.intValue,
+               let waiter = lock.withLock({ eventWaiters.removeValue(forKey: request) }) {
+                waiter(O4JSON.from(object))
+                return
+            }
+        default:
+            break
         }
         if let event = O4Event.parse(object: object) {
             onEvent(event)
@@ -900,8 +940,34 @@ extension OrthoEngineClient {
         try await request("mesh_crop", ["tile": tile, "bbox": bbox.wireArray])
     }
 
+    /// Asynchronous on the engine side (spec §5): the reply is
+    /// `{"status": "started"}` and the `PackObjectsReady` event naming this
+    /// command's id carries the result or the error.
     public func packObjects(tile: String, icao: String, bbox: O4LatLonBox) async throws -> O4PackObjects {
-        try await request("pack_objects", ["tile": tile, "icao": icao, "bbox": bbox.wireArray])
+        let once = O4ResumeOnce<O4PackObjects>()
+        return try await withCheckedThrowingContinuation { continuation in
+            once.set(continuation)
+            send(command: "pack_objects",
+                 arguments: ["tile": tile, "icao": icao, "bbox": bbox.wireArray],
+                 completion: { reply in
+                     if !reply.ok {
+                         once.resume(.failure(O4CommandError(reply.error ?? "The engine refused pack_objects.")))
+                     }
+                 },
+                 completionEvent: { event in once.resume(Self.decodePackObjectsReady(event)) })
+        }
+    }
+
+    /// One `PackObjectsReady` event → the typed result or its error.
+    static func decodePackObjectsReady(_ event: O4JSON?) -> Result<O4PackObjects, Error> {
+        guard let event else { return .failure(O4CommandError("The engine exited before the buildings were read.")) }
+        if case .string(let text)? = event["error"], !text.isEmpty {
+            return .failure(O4CommandError(text))
+        }
+        guard let result = event["result"], result != .null else {
+            return .failure(O4CommandError("The engine sent no buildings."))
+        }
+        return Result { try result.decode(O4PackObjects.self) }
     }
 
     private func request<T: Decodable & Sendable>(_ command: String,

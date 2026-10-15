@@ -26,10 +26,17 @@ final class TerrainPreviewModel: ObservableObject {
         didSet { scene.setExaggeration(Float(exaggeration)) }
     }
     @Published var wireframe = false { didSet { scene.setWireframe(wireframe) } }
+    @Published var showBuildings = true { didSet { scene.setBuildingsVisible(showBuildings) } }
+    @Published private(set) var buildingStatus: TerrainPreviewBuildings.Status = .none
     /// Bumped by "Reset view"; the scene view frames the extent again.
     @Published private(set) var resetCount = 0
 
     let scene = TerrainPreviewScene()
+    private lazy var buildings: TerrainPreviewBuildings = {
+        let b = TerrainPreviewBuildings(scene: scene)
+        b.onStatus = { [weak self] in self?.buildingStatus = $0 }
+        return b
+    }()
 
     /// A9: the terrain reaches this far past the patch's bbox …
     nonisolated static let marginM = 500.0
@@ -89,7 +96,9 @@ final class TerrainPreviewModel: ObservableObject {
         if change.topology || !change.ways.isEmpty {
             retriangulate(doc, changedNodes: change.nodes)
         } else if !change.nodes.isEmpty {
-            rebuildBuffers(index.shapes(using: change.nodes), doc)
+            let ways = index.shapes(using: change.nodes)
+            rebuildBuffers(ways, doc)
+            if let space { buildings.reseat(changedShapes: ways, meshes: meshes, document: doc, space: space) }
             scheduleCut()
         }
         updateMarkers()
@@ -100,6 +109,7 @@ final class TerrainPreviewModel: ObservableObject {
         documentKey = nil
         space = nil; surface = nil; meshes = [:]; index = PatchPreviewIndex(meshes: [:])
         cutTask?.cancel()
+        buildings.clear()
         scene.removeAll()
         icao = nil; chip = ""
         status = .noPatch
@@ -193,13 +203,17 @@ final class TerrainPreviewModel: ObservableObject {
                             chip: chipText(sample))
     }
 
-    /// "Preview · 3.0 km × 2.2 km · DEM base + airport inset · 5 m grid".
+    /// "Preview · 3.0 km × 2.2 km · DEM of the last build · 5 m grid" (or
+    /// "DEM base + airport inset" / "DEM base only" when no build's DEM
+    /// could be read).
     nonisolated static func chipText(_ s: O4TerrainSample) -> String {
         let midLat = (s.bbox.minLat + s.bbox.maxLat) / 2
         let w = (s.bbox.maxLon - s.bbox.minLon) * PatchLocalFrame.metresPerDegreeLat * cos(midLat * .pi / 180)
         let h = (s.bbox.maxLat - s.bbox.minLat) * PatchLocalFrame.metresPerDegreeLat
+        // §5 ruling 3: the engine reads the last build's DEM when it can
         let inset = (s.sources["inset"] ?? nil) != nil
-        let dem = inset ? "DEM base + airport inset" : "DEM base only"
+        let dem = (s.sources["frame"] ?? nil) == "production" ? "DEM of the last build"
+            : inset ? "DEM base + airport inset" : "DEM base only"
         let spacing = s.spacingM.truncatingRemainder(dividingBy: 1) == 0
             ? String(Int(s.spacingM)) : String(format: "%.1f", s.spacingM)
         return String(format: "Preview · %.1f km × %.1f km · ", w / 1000, h / 1000) + "\(dem) · \(spacing) m grid"
@@ -218,6 +232,10 @@ final class TerrainPreviewModel: ObservableObject {
         chip = built.chip
         status = .ready(terrainError: terrainError)
         updateMarkers()
+        if let box = doc.bbox {
+            buildings.load(client: build?.patchEditorClient(), document: doc,
+                           box: Self.terrainRequest(around: box).0, space: built.space, meshes: meshes)
+        }
         resetCount += 1
     }
 
@@ -255,7 +273,12 @@ final class TerrainPreviewModel: ObservableObject {
             for (way, mesh) in changed { self.meshes[way] = mesh }
             self.index = PatchPreviewIndex(meshes: self.meshes)
             self.rebuildBuffers(Set(changed.keys), current, retriangulated: true)
-            self.rebuildBuffers(self.index.shapes(using: changedNodes).subtracting(changed.keys), current)
+            let moved = self.index.shapes(using: changedNodes).subtracting(changed.keys)
+            self.rebuildBuffers(moved, current)
+            if let space = self.space {
+                self.buildings.reseat(changedShapes: moved.union(changed.keys), meshes: self.meshes,
+                                      document: current, space: space)
+            }
             self.scheduleCut()
             self.updateMarkers()
         }

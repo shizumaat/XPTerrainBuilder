@@ -13,6 +13,12 @@ final class TerrainPreviewScene {
     let scene = SCNScene()
     private let world = SCNNode()
     private let markerRoot = SCNNode()
+    /// Outside `world`: buildings keep their true height; only their seat
+    /// follows the exaggeration.
+    private let buildingRoot = SCNNode()
+    private var buildingNodes: [SCNNode] = []
+    private var buildingPoses: [PatchBuildingPose] = []
+    private var facadeNodes: [(node: SCNNode, baseY: Float)] = []
     private var terrainNode: SCNNode?
     private var terrainSources: [SCNGeometrySource] = []
     private var shapeNodes: [Int64: SCNNode] = [:]
@@ -25,11 +31,13 @@ final class TerrainPreviewScene {
 
     static let terrainColor = NSColor(srgbRed: 0x7a / 255, green: 0x8a / 255, blue: 0x6a / 255, alpha: 1)
     static let patchColor = NSColor(srgbRed: 0xd6 / 255, green: 0xda / 255, blue: 0xe2 / 255, alpha: 1)
+    static let buildingColor = NSColor(srgbRed: 0xb9 / 255, green: 0xbe / 255, blue: 0xc8 / 255, alpha: 1)
     static let markerColor = NSColor(srgbRed: 1.0, green: 0.84, blue: 0.04, alpha: 1)   // #FFD60A
     static let background = NSColor(srgbRed: 0x0b / 255, green: 0x0d / 255, blue: 0x12 / 255, alpha: 1)
 
     private let terrainMaterial = TerrainPreviewScene.material(terrainColor)
     private let patchMaterial = TerrainPreviewScene.material(patchColor)
+    private let buildingMaterial = TerrainPreviewScene.material(buildingColor)
     private let markerGeometry: SCNGeometry = {
         let sphere = SCNSphere(radius: 1.8)
         let m = SCNMaterial()
@@ -43,6 +51,7 @@ final class TerrainPreviewScene {
         scene.background.contents = Self.background
         scene.rootNode.addChildNode(world)
         scene.rootNode.addChildNode(markerRoot)
+        scene.rootNode.addChildNode(buildingRoot)
         world.scale = SCNVector3(1, CGFloat(exaggeration), 1)
 
         let sun = SCNNode()
@@ -114,6 +123,7 @@ final class TerrainPreviewScene {
         terrainNode?.removeFromParentNode(); terrainNode = nil; terrainSources = []
         for way in Array(shapeNodes.keys) { removeShape(way) }
         setMarkers([])
+        removeBuildings()
     }
 
     // MARK: - Selection, exaggeration, wireframe
@@ -135,15 +145,89 @@ final class TerrainPreviewScene {
         for (node, p) in zip(markerRoot.childNodes, markerPoints) {
             node.position = Self.vector(SIMD3(p.x, p.y * value, p.z))
         }
+        for i in buildingNodes.indices { seat(i) }
+        for f in facadeNodes { f.node.position.y = CGFloat(f.baseY * value) }
     }
 
     func setWireframe(_ on: Bool) {
-        for m in [terrainMaterial, patchMaterial] { m.fillMode = on ? .lines : .fill }
+        for m in [terrainMaterial, patchMaterial, buildingMaterial] { m.fillMode = on ? .lines : .fill }
+    }
+
+    // MARK: - Buildings (spec §5: grey massing, shared geometry + clones)
+
+    /// One shared geometry per model; one node per placement.
+    func setBuildings(models: [String: SCNGeometry], placements: [String],
+                      poses: [PatchBuildingPose], facades: [(SCNGeometry, Float)]) {
+        removeBuildings()
+        for geometry in models.values { geometry.materials = [buildingMaterial] }
+        for (key, pose) in zip(placements, poses) {
+            guard let geometry = models[key] else { continue }
+            let node = SCNNode(geometry: geometry)
+            buildingRoot.addChildNode(node)
+            buildingNodes.append(node)
+            buildingPoses.append(pose)
+            seat(buildingNodes.count - 1)
+        }
+        for (geometry, baseY) in facades {
+            geometry.materials = [buildingMaterial]
+            let node = SCNNode(geometry: geometry)
+            node.position = SCNVector3(0, CGFloat(baseY * exaggeration), 0)
+            buildingRoot.addChildNode(node)
+            facadeNodes.append((node, baseY))
+        }
+    }
+
+    /// New poses for some placements (an edit moved their ground).
+    func reseatBuildings(_ indices: [Int], poses: [PatchBuildingPose]) {
+        for i in indices where i < buildingNodes.count {
+            buildingPoses[i] = poses[i]
+            seat(i)
+        }
+    }
+
+    func setBuildingsVisible(_ on: Bool) { buildingRoot.isHidden = !on }
+
+    private func seat(_ i: Int) {
+        let pose = buildingPoses[i]
+        buildingNodes[i].position = Self.vector(SIMD3(pose.position.x, pose.position.y * exaggeration,
+                                                      pose.position.z))
+        buildingNodes[i].eulerAngles = SCNVector3(0, CGFloat(pose.yaw), 0)
+    }
+
+    private func removeBuildings() {
+        buildingRoot.childNodes.forEach { $0.removeFromParentNode() }
+        buildingNodes = []; buildingPoses = []; facadeNodes = []
+    }
+
+    /// A model's grey massing as one geometry (flat-shaded hulls).
+    nonisolated static func modelGeometry(vertices: [Float], triangles: [UInt32]) -> SCNGeometry {
+        var p: [SIMD3<Float>] = []
+        p.reserveCapacity(triangles.count)
+        for i in triangles { let k = Int(i) * 3; p.append(SIMD3(vertices[k], vertices[k + 1], vertices[k + 2])) }
+        let flat = Array(0..<UInt32(p.count))
+        return SCNGeometry(sources: [source(p, .vertex), source(PatchPreviewNormals.of(positions: p, indices: flat), .normal)],
+                           elements: [element(flat)])
+    }
+
+    /// A facade as a prism: walls from 0 to `height` over the ring (in
+    /// preview metres, relative to its base), and a flat roof.
+    nonisolated static func facadeGeometry(ring: [SIMD2<Float>], height: Float) -> SCNGeometry {
+        var p: [SIMD3<Float>] = []
+        for i in ring.indices {
+            let a = ring[i], b = ring[(i + 1) % ring.count]
+            let q = [SIMD3(a.x, 0, a.y), SIMD3(b.x, 0, b.y), SIMD3(b.x, height, b.y), SIMD3(a.x, height, a.y)]
+            p += [q[0], q[1], q[2], q[0], q[2], q[3]]
+        }
+        let roof = PatchTriangulator.triangulate(coordinates: ring.flatMap { [Double($0.x), Double(-$0.y)] })
+        for i in roof { p.append(SIMD3(ring[i].x, height, ring[i].y)) }
+        let idx = Array(0..<UInt32(p.count))
+        return SCNGeometry(sources: [source(p, .vertex), source(PatchPreviewNormals.of(positions: p, indices: idx), .normal)],
+                           elements: [element(idx)])
     }
 
     // MARK: - Buffers
 
-    private static func source(_ v: [SIMD3<Float>], _ semantic: SCNGeometrySource.Semantic) -> SCNGeometrySource {
+    private nonisolated static func source(_ v: [SIMD3<Float>], _ semantic: SCNGeometrySource.Semantic) -> SCNGeometrySource {
         let stride = MemoryLayout<SIMD3<Float>>.stride
         let data = v.withUnsafeBytes { Data($0) }
         return SCNGeometrySource(data: data, semantic: semantic, vectorCount: v.count,
@@ -151,7 +235,7 @@ final class TerrainPreviewScene {
                                  bytesPerComponent: MemoryLayout<Float>.size, dataOffset: 0, dataStride: stride)
     }
 
-    private static func element(_ indices: [UInt32]) -> SCNGeometryElement {
+    private nonisolated static func element(_ indices: [UInt32]) -> SCNGeometryElement {
         SCNGeometryElement(data: indices.withUnsafeBytes { Data($0) }, primitiveType: .triangles,
                            primitiveCount: indices.count / 3, bytesPerIndex: MemoryLayout<UInt32>.size)
     }

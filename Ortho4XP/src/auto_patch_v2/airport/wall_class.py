@@ -3,7 +3,10 @@
 A pack component is WALL-CLASS when it is thin, tall and long enough
 (``[service] retaining_wall_max_width_m`` / ``_min_height_m`` /
 ``_min_length_m``, read from the ``cfg`` the CALLER supplies), and its
-resource does not name a fence (RULINGS 2026-09-29h, Q-72b).
+resource does not name a fence (RULINGS 2026-09-29h, Q-72b).  A THICK
+component is wall-class too where it retains its own height — slender for
+its height and the ground stepping across it by that height (#715,
+:func:`_retains_its_height`).
 
 THE ONE implementation, read by three layers: ``classify/retaining_wall``
 (§47's wall along a road edge), ``planar/shore`` (RULINGS 2026-09-29a (2):
@@ -92,10 +95,48 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 # the COMPONENT is judged thin and long; its PIECES are
                 # judged against the road (or the shore) one by one
                 wide = 2.0 * whole.area / whole.length
-                if wide > float(cfg.retaining_wall_max_width_m) or \
-                        sum(g.length for g in polys) / 2.0 < \
+                if sum(g.length for g in polys) / 2.0 < \
                         float(cfg.retaining_wall_min_length_m):
+                    continue
+                if wide > float(cfg.retaining_wall_max_width_m) and not \
+                        _retains_its_height(airport, whole, wide, float(p.height_m), cfg):
                     continue
                 out.append(WallComponent(tuple(polys), float(p.height_m),
                                          m.resource, int(p.comp)))
     return out
+
+
+def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg) -> bool:
+    """A THICK WALL THAT RETAINS ITS OWN HEIGHT (issue #715): a component
+    wider than ``retaining_wall_max_width_m`` is still WALL-CLASS when it is
+    slender for its height (``wide <= height x
+    retaining_wall_thick_width_per_height``: a 10.65 m concrete retaining
+    wall is 3.46 m thick) AND the ground steps across it by its own height
+    — the 10th / 90th percentile DEM on a ring ``retaining_wall_step_ring_m``
+    outside its footprint differ by ``retaining_wall_step_min_fraction`` .. ``_max_fraction`` of the
+    height (the step equals the wall: #507, RULINGS 2026-10-03c).  A thick
+    facade or a building on level ground has no step; a building on a slope
+    is not slender.  MEASURED (dry census over the registered captures):
+    KATL ``muro_concreto5`` 10.65 m / step 12.14, ``muro_concreto`` 12.01 /
+    11.10; nothing at HECA, OTHH, SPJC, CYXY, NLWF, KPDX, KCLT; at KASE two
+    components of one hillside city building (8.74 m, steps 8.21 / 7.83)."""
+    per = getattr(cfg, "retaining_wall_thick_width_per_height", None)
+    lo = getattr(cfg, "retaining_wall_step_min_fraction", None)
+    hi = getattr(cfg, "retaining_wall_step_max_fraction", None)
+    ring_m = getattr(cfg, "retaining_wall_step_ring_m", None)
+    dem = getattr(airport, "dem", None)
+    if per is None or lo is None or hi is None or ring_m is None or dem is None:
+        return False
+    if wide > height * float(per):
+        return False
+    import numpy as np
+    from .dem import dem_z_many
+    grown = whole.buffer(float(ring_m))
+    pts = [g.exterior.interpolate(float(t)) for g in getattr(grown, "geoms", [grown])
+           for t in np.arange(0.0, g.exterior.length, 2.0)]
+    z = dem_z_many(dem, np.array([q.x for q in pts]), np.array([q.y for q in pts]))
+    z = z[np.isfinite(z)]
+    if z.size < 4:
+        return False
+    step = float(np.percentile(z, 90) - np.percentile(z, 10))
+    return float(lo) * height <= step <= float(hi) * height

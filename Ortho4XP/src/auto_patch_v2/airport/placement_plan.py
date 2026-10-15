@@ -876,6 +876,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # puts a carrier before whatever rides it, so this map is
         # populated by the time the carried body asks.
         file_of: dict[tuple[int, int], str] = {}
+        # #708: the frames more than one body is written in, never tilted alone
+        tilt_shared = _pst.shared_frames(staged)
         deps = {st.mi: {c.member for _g, c, _w in st.carried
                         if c.member != st.mi} for st in staged}
         for mi in _pc.cut_order(deps):
@@ -927,8 +929,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             bodies = [_pst.seat_tilt(b, u, m, surface=surface,
                                      max_total_deg=seat_tilt_max_deg,
                                      foot_tol_m=split_tol_m,
-                                     band_m=foot_band_m, counts=counts)
-                      for b in bodies]
+                                     band_m=foot_band_m, counts=counts,
+                                     shared=(st.mi, _k) in tilt_shared)
+                      for _k, b in enumerate(bodies)]
             # 14at: the GROUP bodies are this member's candidates, in
             # candidate order — what a body riding one of them is
             # ``merged_into``

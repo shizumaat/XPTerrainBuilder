@@ -65,6 +65,15 @@ WHAT IS NEVER TILTED
   by station, and a rotation would fight it.
 * A body on a DATUM, a unit seat or a connector (§16e / §16g): its zero is
   another body's and the rotation would break the pair.
+* A body whose FRAME IS SHARED (issue #708): another body of the unit is
+  written on the same anchor and zero — a §16c (7) bound sibling, the
+  senior it is bound to, or a body carried on it (§14 / §16a).  Those
+  bodies are one rigid frame, and a rotation fitted to ONE body's feet
+  turns that body alone: a 1.2° tilt over a 60 m hangar lifts its far end
+  1.2 m off the level walls and roof that share its zero (KASE 1.0.394:
+  12 airport bodies, every hangar, the tower and the tanks).  The same
+  reason as the datum / unit-seat row above — the rotation would break
+  the pair.  :func:`shared_frames` is the one derivation of the set.
 * A body with fewer than three feet on the surface — three points is what
   a plane takes — or one every foot of which already stands within
   tolerance (there is nothing to seat).
@@ -97,9 +106,11 @@ import numpy as np
 from . import anchor_rule as _ar
 from . import obj8_grade as _og
 from . import obj8_split as _split
+from . import placement_carrier as _pc
 from .placement_motion import feet_in_band, foot_float
 
-__all__ = ["SeatTilt", "SEAT_REASON", "SEAT_TILT_MIN_DEG", "fit", "seat_tilt"]
+__all__ = ["SeatTilt", "SEAT_REASON", "SEAT_TILT_MIN_DEG", "fit", "seat_tilt",
+           "shared_frames"]
 
 #: The prefix an anchor-reason-style note carries so a reader can tell the
 #: seat tilt from every other reason without parsing a number.
@@ -255,19 +266,58 @@ def fit(pts: _t.Sequence[_t.Tuple[float, float, float]],
                    f"tolerance (REPORTED, no block cut)" if over else "")))
 
 
+def frame_key(a: _t.Any) -> tuple:
+    """The written FRAME of an anchor: the point its row stands on and the
+    zero its file bakes.  Two bodies with one key move as one."""
+    return (a.lat, a.lon, a.surface_z, a.y_zero)
+
+
+def shared_frames(staged: _t.Iterable[_t.Any]) -> frozenset[tuple[int, int]]:
+    """``(member, body)`` slots of one unit whose frame another body shares
+    (issue #708), read before any body is cut so the carrier — cut first —
+    already knows it carries.
+
+    ``staged`` are the unit's :class:`placement_record.Staged` members
+    after the binds (pass 3): body ``k`` of a member takes the anchor of
+    its group's senior, exactly as ``placement_file._group_bodies``
+    forms it.  A slot is shared when another slot has its frame key (a
+    §16c (7) bind copies the senior's whole anchor) or when any body is
+    carried on it (``Staged.carried``'s candidate names the carrier's
+    member and group)."""
+    keys: dict[tuple, list[tuple[int, int]]] = {}
+    shared: set[tuple[int, int]] = set()
+    for st in staged:
+        for k, grp in enumerate(st.groups):
+            if grp:
+                a = st.raw[_pc.senior_of(st.raw, grp)][2]
+                keys.setdefault(frame_key(a), []).append((st.mi, k))
+        for _grp, c, _why in st.carried:
+            shared.add((c.member, c.group))
+    for slots in keys.values():
+        if len(slots) > 1:
+            shared.update(slots)
+    return frozenset(shared)
+
+
 def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
               surface: "_ar.Surface | None",
               max_total_deg: float, foot_tol_m: float, band_m: float,
-              counts: dict[str, int]) -> _t.Any:
+              counts: dict[str, int], shared: bool = False) -> _t.Any:
     """The body with its :class:`SeatTilt` decided, or the body unchanged.
 
     ``u`` / ``m`` are the plan's Unit / Member — the authored frame the
     offset is spelled in and the carrier of the member's own
     ``base_profile`` verdict.  Mirrors ``placement_deck.deck_seat``: one
     pure per-body step the plan applies after the bodies are formed, so
-    nothing upstream has to know about the seat.
+    nothing upstream has to know about the seat.  ``shared``: this body's
+    frame is another body's too (:func:`shared_frames`) — it is not
+    rotated alone (issue #708).
     """
     if max_total_deg <= 0.0 or surface is None or not body.feet:
+        return body
+    if shared:
+        counts["seat_tilt_shared_frame"] = \
+            counts.get("seat_tilt_shared_frame", 0) + 1
         return body
     a = body.anchor
     if (body.body_class in _NEVER or body.merged_into or body.elevated

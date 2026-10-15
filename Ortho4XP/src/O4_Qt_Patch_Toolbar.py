@@ -1,6 +1,7 @@
 """The map's patch toolbar for the Qt app (mockup, top left; the Mac app's
-``PatchModeToolbar``): the View | Edit segmented control, Undo / Redo and
-the "Pack outlines" check box.  Shown while the patch layer is drawn;
+``PatchModeToolbar`` and ``TerrainPreviewButton``): the View | Edit
+segmented control, Undo / Redo, the "Pack outlines" check box and "3D"
+(the 3D preview window).  Shown while the patch layer is drawn;
 pinned to the viewport's top-left corner (viewport children are dragged
 along by scrolling, so the map re-pins it through :meth:`place`).
 """
@@ -17,7 +18,7 @@ __all__ = ["PatchToolbar"]
 class PatchToolbar(QFrame):
     """View | Edit, ↶ ↷, Pack outlines."""
 
-    def __init__(self, viewport, controller, outlines=None):
+    def __init__(self, viewport, controller, outlines=None, open_preview=None):
         super().__init__(viewport)
         self.controller = controller
         self.model = controller.model
@@ -60,6 +61,14 @@ class PatchToolbar(QFrame):
             self.outlines_box.toggled.connect(outlines.set_enabled)
             outlines.changed.connect(self.refresh)
             row.addWidget(self.outlines_box)
+        self.preview_button = None
+        if open_preview is not None:
+            from O4_Qt_Preview3D_Window import BUTTON_HELP
+            self.preview_button = QToolButton(self)
+            self.preview_button.setText("3D")
+            self.preview_button.setToolTip(BUTTON_HELP)
+            self.preview_button.clicked.connect(open_preview)
+            row.addWidget(self.preview_button)
         self.model.status_changed.connect(self.refresh)
         controller.state_changed.connect(self.refresh)
         self.refresh()

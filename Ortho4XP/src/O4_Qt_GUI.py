@@ -1342,6 +1342,7 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(patch_actions["redo"])
 
         view_menu = self.menuBar().addMenu("&View")
+        view_menu.addAction(patch_actions["preview"])
         refresh_action = QAction("Refresh tiles", self)
         refresh_action.setShortcut(QKeySequence.Refresh)
         refresh_action.triggered.connect(self.refresh_tiles)

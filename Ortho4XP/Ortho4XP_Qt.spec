@@ -199,6 +199,11 @@ a = Analysis(
                    # LAZ point clouds (USGS LPC rung, #153): laspy finds
                    # its Rust backend at run time, never by import.
                    + collect_submodules('lazrs')
+                   # the 3D preview window is imported lazily (on Ctrl/⌘3),
+                   # and its scene is QML: name the Qt Quick 3D modules.
+                   + ['O4_Qt_Preview3D_Window', 'PySide6.QtQuick',
+                      'PySide6.QtQuickWidgets', 'PySide6.QtQml',
+                      'PySide6.QtQuick3D']
                    + ['O4_LERC_Decode', 'O4_Scenery_Packs',
                       # imported inside a function (O4_Proj_Runtime, #121)
                       'truststore']) + [
@@ -219,7 +224,10 @@ a = Analysis(
         # Qt modules the app does not use — keeps the bundle smaller.
         'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets',
         'PySide6.Qt3DCore', 'PySide6.Qt3DRender', 'PySide6.QtCharts',
-        'PySide6.QtMultimedia', 'PySide6.QtQuick', 'PySide6.QtQml',
+        # QtQuick / QtQml are NOT excluded: the patch editor's 3D preview
+        # (#46, spec patch-editor-20261015 §6) is Qt Quick 3D in a
+        # QQuickWidget, imported inside ``PatchEditor.open_preview``.
+        'PySide6.QtMultimedia',
         'PySide6.QtPdf', 'PySide6.QtDesigner', 'PySide6.QtTest',
         'tkinter',
     ],

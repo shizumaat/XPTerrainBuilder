@@ -236,6 +236,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     }
 
 
+def command_table(session: EngineSession) -> Dict[str, Callable]:
+    """The command name → handler table this transport serves, for an
+    in-process client (the Qt app calls the SAME functions, never
+    re-spelled; a command this engine lacks is simply absent)."""
+    return _build_handlers(session)
+
+
 def _initialize_pipeline_registries() -> None:
     """Load the imagery provider/extent/filter registries a build needs.
 

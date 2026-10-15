@@ -59,8 +59,10 @@ import typing as _t
 
 import numpy as np
 
+from .precedence import view
 from .runway_chord import dem_degraded
 from .trend import shift_through, trend_of
+from ..geom.core_clamp import core_vector_utils
 from ..law import Law
 from ..law.tables import is_value_role
 from ..model.airport import Airport
@@ -307,6 +309,81 @@ def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
     return out, far, worst
 
 
+def _chain_caps(c: _Chain, pm: PlanarMap, law: Law,
+                caps_of: dict) -> list[float] | None:
+    """Per SEGMENT of ``c``, the strictest longitudinal cap of the taxi
+    faces at its two vertices (the cap the taxi law grades it at; a runway
+    contact's runway face is not the chain's own and is skipped).  ``None``
+    when a segment has no governed taxi face (nothing to hold it to)."""
+    taxi = set(law.tables.precedence.taxi_family.members)
+    per_v: list[float | None] = []
+    for v in c.vertices:
+        best = None
+        for fid in pm.vertices[v].incident_faces:
+            if pm.faces[fid].role not in taxi:
+                continue
+            cap = caps_of.get(fid)
+            if cap is not None:
+                best = cap[0] if best is None else min(best, cap[0])
+        per_v.append(best)
+    out: list[float] = []
+    for a, b in zip(per_v, per_v[1:]):
+        got = [x for x in (a, b) if x is not None]
+        if not got:
+            return None
+        out.append(min(got))
+    return out
+
+
+def _lawful(at: _t.Callable[[float], float | None], c: _Chain,
+            pm: PlanarMap, law: Law, caps_of: dict
+            ) -> _t.Callable[[float], float | None]:
+    """THE TREND IS A LAWFUL TARGET (owner RULINGS 2026-10-15e follow-up,
+    lane ``eat15e``): the fit read at the chain's own stations, CLAMPED to
+    the chain's taxi longitudinal cap by the core's cap-Lipschitz clamp
+    (``O4_Vector_Utils.cap_lipschitz_profile``, the minimum intervention,
+    the identity wherever the trend already holds the cap) with the
+    runway contacts as exact pins, then read back linearly between
+    stations.
+
+    WHY: the trend is WEAK (``[design] taxi_trend``) and the taxi cap is a
+    ``law`` row (one-sided quadratic), so a trend steeper than the cap is a
+    standing pull AGAINST the law that the solve settles by trade — over
+    a valley the loop crosses (KCLT taxiway V/T, a 2.5-3.6 % trend under a
+    1.5 % cap) that trade leaves rows the law forbids.  Clamped, the
+    target says where the ground is going AT A GRADE A TAXIWAY MAY RUN,
+    and the law and the target no longer disagree.  A chain whose trend is
+    unreadable at any station, or which has no governed taxi segment, is
+    returned unchanged."""
+    caps = _chain_caps(c, pm, law, caps_of)
+    if not caps:
+        return at
+    st = np.asarray(c.stations, dtype=float)
+    vals = [at(s) for s in c.stations]
+    if any(v is None for v in vals):
+        return at
+    pin_idx = [k for k, v in enumerate(c.vertices) if v in set(c.pins)]
+    VECT = core_vector_utils()
+    z = np.asarray(vals, dtype=float)
+    if pin_idx:
+        clamped, _rep = VECT.cap_lipschitz_profile(
+            st, z, np.asarray(caps, dtype=float), pin_idx,
+            [float(z[k]) for k in pin_idx])
+    else:
+        clamped = VECT.cap_lipschitz_profile(st, z,
+                                             np.asarray(caps, dtype=float))
+    clamped = np.asarray(clamped, dtype=float)
+    if float(np.abs(clamped - z).max()) <= 1e-9:
+        return at
+
+    def lawful_at(q: float) -> float | None:
+        if q < st[0] or q > st[-1]:
+            return at(q)
+        return float(np.interp(q, st, clamped))
+
+    return lawful_at
+
+
 def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
                        report: TaxiTrendReport | None = None
                        ) -> dict[int, float]:
@@ -337,6 +414,7 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
     fitted: list[_Chain] = []
     ats: list[_t.Callable[[float], float | None]] = []
     pinned_all: set[int] = set()
+    caps_of = view(pm, law).caps
     for c in chains:
         samples = [(s, float(pm.vertices[v].dem_z))
                    for v, s in zip(c.vertices, c.stations)
@@ -351,7 +429,7 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
             z = pm.preferred_z.get(v, pm.vertices[v].dem_z)
             if z is not None:
                 pins.append((st_of[v], float(z)))
-        at = shift_through(tr, pins)
+        at = _lawful(shift_through(tr, pins), c, pm, law, caps_of)
         fitted.append(c)
         ats.append(at)
         pinned = set(c.pins)

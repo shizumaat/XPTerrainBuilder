@@ -109,6 +109,10 @@ public struct O4LatLonBox: Codable, Equatable, Sendable {
     /// The wire form, for command arguments.
     public var wireArray: [Double] { [minLat, minLon, maxLat, maxLon] }
 
+    public func contains(_ other: O4LatLonBox) -> Bool {
+        minLat <= other.minLat && minLon <= other.minLon && maxLat >= other.maxLat && maxLon >= other.maxLon
+    }
+
     public func intersects(_ other: O4LatLonBox) -> Bool {
         minLat <= other.maxLat && other.minLat <= maxLat
             && minLon <= other.maxLon && other.minLon <= maxLon
@@ -218,6 +222,10 @@ public struct O4LatLon: Codable, Equatable, Sendable {
     public let lat: Double
     public let lon: Double
 
+    public init(lat: Double, lon: Double) {
+        self.lat = lat; self.lon = lon
+    }
+
     public init(from decoder: Decoder) throws {
         var c = try decoder.unkeyedContainer()
         lat = try c.decode(Double.self)
@@ -230,20 +238,18 @@ public struct O4LatLon: Codable, Equatable, Sendable {
     }
 }
 
+/// The pack's own apt.dat pavement (row 110) and boundary (row 130), as
+/// amended before L4: no `footprints` — the map draws buildings from
+/// `pack_objects` (`PackFootprints`).
 public struct O4PackOutlines: Codable, Equatable, Sendable {
     public struct Pavement: Codable, Equatable, Sendable {
         /// "pavement" or "boundary".
         public let kind: String
-        public let rings: [[O4LatLon]]
-    }
-
-    public struct Footprint: Codable, Equatable, Sendable {
-        public let role: String
+        /// Exterior first, then the holes.
         public let rings: [[O4LatLon]]
     }
 
     public let pavement: [Pavement]
-    public let footprints: [Footprint]
     public let missing: [String]
 }
 

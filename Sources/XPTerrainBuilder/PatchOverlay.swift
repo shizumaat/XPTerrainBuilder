@@ -86,11 +86,16 @@ struct PatchOverlay: View {
                 Self.draw(geometry, camera: camera.value, skip: skip, in: context, size: size)
             }
             .allowsHitTesting(false)
+            .background {
+                if let outlines = model.build?.packOutlines {
+                    PatchPackOutlineLayer(outlines: outlines, camera: camera)
+                }
+            }
             .overlay {
                 if model.mode == .edit { PatchEditLayer(model: model, drag: model.drag, camera: camera) }
             }
             .overlay(alignment: .topTrailing) {
-                PatchLegend().padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
+                PatchLegend(outlines: model.build?.packOutlines).padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
             }
             .overlay(alignment: .bottomLeading) {
                 Text(Self.chipText(document))
@@ -227,6 +232,8 @@ struct PatchStyle {
 }
 
 private struct PatchLegend: View {
+    let outlines: PatchPackOutlines?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             ForEach([PatchStyleClass.runway, .taxiway, .apron, .building, .road, .ground], id: \.self) { style in
@@ -237,10 +244,29 @@ private struct PatchLegend: View {
                     Text(PatchStyle.label(style))
                 }
             }
+            if let outlines { PackOutlineLegendRow(outlines: outlines) }
         }
         .font(.caption)
         .foregroundStyle(.white.opacity(0.85))
         .padding(.horizontal, 9).padding(.vertical, 6)
         .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// The mockup's "pack apt.dat" row: a dashed swatch, shown while the
+/// outlines are on.
+private struct PackOutlineLegendRow: View {
+    @ObservedObject var outlines: PatchPackOutlines
+
+    var body: some View {
+        if outlines.enabled {
+            HStack(spacing: 6) {
+                RoundedRectangle(cornerRadius: 2)
+                    .strokeBorder(PatchPackOutlineLayer.stroke,
+                                  style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .frame(width: 14, height: 8)
+                Text("pack apt.dat")
+            }
+        }
     }
 }

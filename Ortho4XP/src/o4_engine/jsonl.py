@@ -166,6 +166,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # not wait for.
     from . import patch_commands
     from .pack_objects import start_pack_objects
+    from .pack_outlines import pack_outlines
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -226,6 +227,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # replies {"status": "started"}; a worker thread completes it with
         # PackObjectsReady carrying this command's id (_TAKES_REQUEST_ID).
         "pack_objects": lambda **kw: start_pack_objects(session._emit, **kw),
+        # ... and the pack's own apt.dat pavement and boundary, as the
+        # map's dashed reference outlines.  Synchronous, cache-only.
+        "pack_outlines": pack_outlines,
     }
 
 

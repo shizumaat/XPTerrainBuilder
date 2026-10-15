@@ -660,6 +660,32 @@ def _build_one(airport: Airport, law: Law, cid: str, grp: list[_Cand], union,
             f"bore-with-mouths model; §45 (1) (a) is a witness only in company "
             f"(§45 (13) (a)). Ways {'+'.join(str(int(c.way.id)) for c in grp)}")
         return None
+    # §45 (21) PROPOSED (lane `kden`, #742): A SURVEY THAT SEES NO CUT
+    # REFUTES A NECK.  A neck states only that the airside pavement
+    # crosses the road; the DEPTH under it is inferred by (3) (iii).
+    # Where the airport's inset is CREDIBLE lidar (the inset's own class,
+    # :func:`_lidar_credible`) and that lidar reads NO cut along the
+    # corridor (:func:`channel_geometry._lidar_cut` false — the same
+    # reading that makes it the floor witness (3) (ii) where it does),
+    # the survey shows the road at grade between its crossings: it is a
+    # road crossing taxiways AT GRADE, not a channel under decks.  Only a
+    # neck-ONLY group is refuted — a pack wall/floor object (1) (c) or an
+    # aeroway bridge (1) (a) states the structure itself, and a coarse
+    # DEM (KPHX's 30 m Copernicus, §45 (7)) is never read against one.
+    # Measured at KDEN: way -3675 (highway=unclassified) crosses taxiways
+    # E-EC and E-ED at grade 920 m apart; the 1 m 3DEP DTM reads the road
+    # 1635.8-1639.7 m with no bank either side, and (3) (iii) built a
+    # 950 m `tunnel_trench` with 1:2 banks the owner read as a tunnel.
+    if (datum == DATUM_CLEARANCE and _wits(grp) == {WITNESS_NECK}
+            and not half_walls and _lidar_credible(airport, law)):
+        stats.refused.append(
+            f"{cid}: witnessed by a paved neck alone and the airport's CREDIBLE lidar "
+            f"inset reads NO cut along the corridor — the survey shows the road at "
+            f"grade between its {len(decks)} crossing(s): a road crossing the airside "
+            f"pavement at grade, not a channel (§45 (21) proposed). Ways "
+            f"{'+'.join(str(int(c.way.id)) for c in grp)} at {ll(axis_fn(ss[0]))} -> "
+            f"{ll(axis_fn(ss[-1]))}")
+        return None
     # §45 (12): a channel with NO DEPTH WITNESS — no pack walls (3) (i),
     # no credible lidar (3) (ii), so the floor is (3) (iii)'s "Cut the
     # road down" — needs more than one crossing, WHATEVER witnessed it.

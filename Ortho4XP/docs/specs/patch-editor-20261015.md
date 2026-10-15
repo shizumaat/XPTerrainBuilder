@@ -226,34 +226,17 @@ inset feather from the tile's cfg; the chip names which (6b). (4)
 `terrain_sample` runs on the engine's read loop (~0.25 s for HECA's 1.95 M
 samples).
 
-## 6. Qt (L5, L7)
-
-The same overlay, inspector and 3D window in `O4_Qt_Map.py` (+ new modules,
-not appends), `QUndoStack`, calling `patch_edit.py` directly; 3D via
-pyqtgraph's OpenGL widget.
-
-## 7. Not in v1
-
-Grade checking (A3); patch-only generation (A2); delta overlay (A1); new
-shapes, tag editing, way split/join; elevation colour ramp; editing in 3D;
-live exact remesh.
-
-## 8. Lanes (Opus, moderate; the spawner owns the merge into `claude/patch-editor`)
-
-| Lane | Scope | Order |
-|---|---|---|
-| L1 | Engine: protocol 1.12, `patch_list/load/save/revert`, `patch_edit.py`, the §3.3 shared merge helper, the twin fixture, A5 label, tests | first |
-| L2 | Mac read-only render: wrappers, `PatchDocument`, overlay, View-mode inspector | parallel with L1 against §2 |
-| L3 | Mac Edit mode (§4 interaction, undo, save/revert) | after L1 + L2 |
-| L4 | `pack_outlines` + drawing (Mac; Qt in L5) | after L1 |
-| L5 | Qt parity of L2–L4 | after L3 |
-| L6 | 3D (Mac): 6a `terrain_sample` + triangulator + window + live preview; 6b `pack_objects` + buildings; 6c imagery drape + `mesh_crop` / Last build | 6a after L2, alongside L3 |
-| L7 | 3D (Qt) | after L5 + 6a |
-
-Closing test (once, at the end): on one built airport, edit a few nodes, save,
-rebuild the tile; the build log says "using the MANUAL patch" and the mesh
-reads the new elevations at those points. No sweep: auto patches are
-unchanged unless an edited file exists.
-
-Build-time impact: none on the build path (commands run on demand; the A5
-label is a header read). No airport-specific code anywhere (05e).
+Ruled after 6b's size stop (2026-10-15): full pack meshes are too heavy for
+the preview (HECA: 460 models, 3,118 placements, 2.75 M solid triangles,
+176 MB reply, ~5 s). BUILDINGS ARE GREY MASSING, as the mockup says: each
+model is sent as the CONVEX HULL of each of its solid connected components
+(`airport/obj8.solid_components`, already position-welded to 1 mm),
+components under 2 m in every dimension dropped. Bar: HECA reply ≤ 10 MB. If
+the command still takes more than 1 s, it replies `{status: "started"}` and
+completes through ONE new event, `PackObjectsReady {request: <cmd id>,
+result | error}`, from a worker thread — the `airport_index` /
+`AirportIndexReady` pattern; the event class name is the wire name on both
+sides (`events.py` ↔ `OrthoEngineClient.swift`). The pristine DSF is right:
+with an edited patch, re-seating is off and the pack's authored placements
+are what X-Plane draws. Custom build folders get the authored DEM until
+`terrain_sample` learns the tile's build folder (6c).

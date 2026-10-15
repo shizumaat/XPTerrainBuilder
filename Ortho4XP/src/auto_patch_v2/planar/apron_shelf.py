@@ -315,6 +315,13 @@ def shelf_regions(base_regions: _t.Sequence, pad_regions: _t.Sequence,
         Lu = unary_union(Ls)
         C = (Lu.buffer(collar_m, join_style=2).difference(no_collar)
              if collar_m > 0.0 else Polygon())
+        if keep_m > 0.0 and not C.is_empty:
+            # no collar narrower than the narrowest bank ([design]
+            # bank_min_width_m): a sliver of it beside a shelf corner is a
+            # cliff, not a bank (MEASURED, KASE replay: a 0.5 m collar
+            # sliver dropped 1.56 m from the shelf to the ground)
+            C = C.buffer(-0.5 * keep_m, join_style=2).buffer(
+                0.5 * keep_m, join_style=2).intersection(C)
         cparts = [q for q in _parts(_clean(C, pitch)) if q.area >= min_piece
                   and q.distance(Lu) <= 0.5 * max(grid, 0.0) + 1e-6]
         no_collar = unary_union([no_collar, *cparts])

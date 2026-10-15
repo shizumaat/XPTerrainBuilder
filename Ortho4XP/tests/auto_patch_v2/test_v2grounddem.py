@@ -183,7 +183,14 @@ def lawful_no_datum(law):                                    # noqa: F811
 
 
 def _ground(pm, law):                                        # noqa: F811
-    return ground_datum_vertices(pm, law)
+    """The ZONE's ground-datum vertices — never a 1:3 bank's (RULINGS
+    2026-10-15c (3)): the bank ties the law line to the DEM beyond it."""
+    def _vs(pred):
+        return {v for f in pm.faces.values() if pred(f)
+                for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)}
+    bank = _vs(lambda f: f.ref.startswith("zone_bank:"))
+    zone = _vs(lambda f: f.role == "graded_strip" and not f.ref.startswith("zone_bank:"))
+    return frozenset(v for v in ground_datum_vertices(pm, law) if v not in bank - zone)
 
 
 def _abeam(pm, v) -> bool:

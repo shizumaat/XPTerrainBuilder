@@ -1,9 +1,9 @@
 # Runway zone 2 and the runway end — spec and consumer census (RULINGS 2026-10-15c)
 
-Status: PROPOSAL for the master's read (lane `rwyzone15c`, 2026-10-15).
-Nothing in §3–§6 is implemented. Phase 1 (the two current-law bugs at
-KBJC 12L) is a separate PR, and §1 summarises it because the new law is
-built on top of it.
+Status: IMPLEMENTED (lane `rwyzone15c`, 2026-10-15, branch
+`claude/rwyzone15c-p2`). The master answered §8's questions the same day
+(Q1 (a) 300 m; Q2 (a) estimate + cap; Q3 yes; Q4 yes); §9 records what
+was built where it differs from the proposal. Phase 1 (#750) is §1.
 
 Owner rulings this spec implements (RULINGS 2026-10-15c, verbatim choices):
 (1) "From the centreline", (2) "Full safety-area length", (3) "1:3 bank",
@@ -171,7 +171,7 @@ same sha:
 * census law-true families before / after;
 * phase times (larger graded areas): `pass 1a`, stage 2, the emit.
 
-## 8. Questions for the owner (one decision each)
+## 8. Questions (answered by the master 2026-10-15)
 
 * **Q1 (ICAO end length).** The ruling reads "strip 60 m + RESA,
   `corridor_length_m` 240 m at code 4". (a) 60 + 240 = **300 m** beyond
@@ -196,3 +196,36 @@ same sha:
   B → A/B-II (300 ft), the same proxy `half_width_faa_m` uses. The AC's
   visibility column (< 3/4 mile raises A/B to 600 ft) is not modelled, as
   it is not for the width. Confirm.
+
+## 9. As built (deviations from §3–§5, for the reader)
+
+* **The bank's width.** The pre-solve estimate cannot see the pavement
+  standing off its DEM (KBJC: taxi up to 1.42 m, apron 1.65 m), so a station
+  over the tolerance banks `(|Δ̂| + adjacent_ground.bank_estimate_margin_m)
+  / bank_slope` wide (margin 1.0 m), capped at `bank_cap_width_m` (30 m).
+  On level ground the band's own mandatory fall (about 1 m at a 76 m band's
+  outer edge) is itself a step over the tolerance, so most zone rings bank.
+* **The toe.** The weak §23 ground datum alone let the bending term float
+  the bank's outer ring (KBJC replay: 177 patch-edge vertices over 1 m), so
+  each bank vertex on the coverage edge carries a `Band` at its DEM sample
+  (`zones.adjacent_ground zone bank toe`); the 1:3 cone rows run against
+  the 3 nearest vertices of ANY zone (a bank trimmed against a neighbour
+  zone stands beside it too).
+* **Readers.** The bank (`graded_strip`, ref `zone_bank:<zone ref>`,
+  `model.planar.is_zone_bank_ref`) is read by no strip-law reader
+  (longitudinal, arc, RESA, end, RAOA; generator `_strip_rings`, verify
+  `_strips`, census `_is_zone_bank`) and by the cross-shape seam reader in
+  both instruments (a bank steeper than 1:2 is a tear). No census family
+  for the bank's own slope was added (not done).
+* **Keep-outs unchanged.** `planar/structures` strip keep-out, the
+  ramp-in-strip and wall-in-strip readers keep the half-width buffered
+  from the edge — the wider, conservative footprint — so they stay
+  lockstep with each other; only the graded band narrows.
+* **The census frame.** The census end corridors read the RSA length less
+  each end's published overrun (`check_grade._rsa_end_lengths` from the
+  sidecar's `runway_axes`), and the census tie reads the declared runway
+  width (`runway_axes` half_m) for the edge offset.
+* **FAA letters in planar.** The runway band is built per runway REF with
+  the runway's own letter, closing the letter-less 76.2 m planar width of
+  FAA A/B runways (KBJC 12R/30L and 03/21 were 76.2 m in planar, 22.9 m in
+  the law).

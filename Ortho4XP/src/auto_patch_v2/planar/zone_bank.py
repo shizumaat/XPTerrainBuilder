@@ -201,7 +201,10 @@ def zone_banks(zones: list, claimed, pavement_by_class: dict, dem, law: Law,
                  and g.distance(z.polygon) <= snap]
         if not parts:
             continue
-        geom = unary_union(parts)
+        # densified like every pavement ring (the planar build's chord cap):
+        # the opened, simplified bank keeps long straight runs
+        chord = 0.5 * float(law.tables.emit.chords.pavement_max_chord_m)
+        geom = shapely.segmentize(unary_union(parts), chord)
         taken = unary_union([taken, geom])
         for k, g in enumerate(shapely.get_parts(geom)):
             if g.geom_type != "Polygon" or g.area < 1.0:

@@ -93,12 +93,6 @@ def test_below_a_retaining_wall_the_road_sits_at_the_lower_ground(arms):
     assert set(rec["lower"]) & road and rec["upper"]
 
 
-@pytest.mark.xfail(strict=False, reason=(
-    "RULINGS 2026-10-15c (1) (lane rwyzone15c, REPORTED to the master): the strip "
-    "now ends 25 m off this code-2 runway's edge (40 m from the centreline), so "
-    "the road at y = -30 stands 4-6 m inside the band's OUTER edge instead of "
-    "deep in it; it carries no target of its own and settles at 95.0-96.4 m "
-    "between the band and its 92 m ground (the twin's bar: within 1 m of 92)"))
 def test_the_step_is_declared_at_the_wall_and_the_airside_is_untouched(arms):
     from auto_patch_v2.pipeline.publication import wall_terrace_joints
     from auto_patch_v2.solve.design_roles import airside_stage_vertices

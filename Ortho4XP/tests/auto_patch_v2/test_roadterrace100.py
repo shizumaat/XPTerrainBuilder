@@ -15,7 +15,12 @@ from auto_patch_v2.constraints.road_ramp import terrace_profile
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar.build import build as planar_build
 
-from test_roadmint100 import SOUTH, _SlopeDem, _way, _with
+from test_roadmint100 import _SlopeDem, _way, _with
+
+#: the road INSIDE the strip: 30 m off the centreline (the code-2 strip
+#: ends 40 m from it, RULINGS 2026-10-15c (1) — the 40 m road of
+#: ``test_roadmint100.SOUTH`` now stands on the strip's outer edge)
+SOUTH = ((600.0, -30.0), (900.0, -30.0))
 
 CAP = 0.08
 
@@ -137,7 +142,7 @@ def _solve(airport, law):
 
 
 def test_a_ribbon_in_the_runway_strip_on_a_hillside_stays_at_the_runway_level(law):
-    """THE NLWF CLASS, synthetic: a tertiary road 40 m south of the runway
+    """THE NLWF CLASS, synthetic: a tertiary road 30 m south of the runway
     (inside its strip) on a hillside rising 0.5 m per metre south of
     y = -20 (the DEM under the road stands ~10 m above the runway).  Every
     ribbon vertex is BORDERED by the runway (``road_terrace``), the stage-2
@@ -155,7 +160,7 @@ def test_a_ribbon_in_the_runway_strip_on_a_hillside_stays_at_the_runway_level(la
            for v in pm1.ring_vertices(f.ring)}
     gov = set(terr["station"]) & rib
     assert gov and set(terr["foot"]) >= {v for v in gov
-                                         if -48.0 <= pm1.vertices[v].xy[1] <= -32.0
+                                         if -38.0 <= pm1.vertices[v].xy[1] <= -22.0
                                          and 600.0 < pm1.vertices[v].xy[0] < 900.0}
     assert {terr["foot"][v][3] for v in terr["foot"]} == {"09/27"}
     tr = rep1.reach_seed.get("terrace", {})
@@ -192,7 +197,7 @@ def test_a_fence_along_a_bordered_run_is_recorded_as_the_terrace_witness(law, tm
             out.append(f"POLYGON_POINT {lon:.9f} {lat:.9f}")
         return out + ["END_WINDING", "END_POLYGON"]
     lines = ["POLYGON_DEF objects/vele_fence.fac", "POLYGON_DEF objects/other_fence.fac"]
-    lines += poly(0, [(620.0, -47.0), (750.0, -47.0), (880.0, -47.0)])
+    lines += poly(0, [(620.0, -37.0), (750.0, -37.0), (880.0, -37.0)])
     lines += poly(1, [(620.0, -110.0), (750.0, -110.0), (880.0, -110.0)])
     dump = tmp_path / "x.dsf.txt"
     dump.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
@@ -200,7 +205,7 @@ def test_a_fence_along_a_bordered_run_is_recorded_as_the_terrace_witness(law, tm
     assert [w["object"] for w in wit] == ["objects/vele_fence.fac"]
     w = wit[0]
     assert w["along_share"] >= 0.8 and w["refs"] == ["09/27"]
-    assert w["dem_m"]["min"] == pytest.approx(113.5, abs=0.6)
+    assert w["dem_m"]["min"] == pytest.approx(108.5, abs=0.6)    # the DEM at y = -37
     assert w["agreement_m"]["road_minus_dem_min"] < -5.0     # the road is in the cut
     assert "road_terrace_witness" in SIDECAR_KEYS
 

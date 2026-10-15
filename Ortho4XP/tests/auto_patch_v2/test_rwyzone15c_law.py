@@ -16,11 +16,11 @@ import pytest
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.constraints import strips
 from auto_patch_v2.constraints.precedence import view
-from auto_patch_v2.constraints.zone_bank import BANK_RULING, TOE_RULING, zone_bank_rows
+from auto_patch_v2.constraints.zone_bank import TOE_RULING, zone_bank_rows
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import (runway_safety_area_length_m, runway_zone_edge_offset_m,
                                       zone_bounds)
-from auto_patch_v2.model.constraints import Band, Diff
+from auto_patch_v2.model.constraints import Band
 from auto_patch_v2.model.planar import is_zone_bank_ref
 from auto_patch_v2.planar.zones import zone_regions
 
@@ -122,7 +122,7 @@ def test_a_falling_ground_mints_a_wider_bank_than_level_ground(faa):
     assert sum(r.polygon.area for r in fall) > sum(r.polygon.area for r in flat)
 
 
-def test_the_bank_rows_follow_the_zone_and_hold_the_toe_on_the_dem(faa):
+def test_the_bank_holds_its_toe_on_the_dem(faa):
     from auto_patch_v2.classify.roles import Classification
     from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
     from auto_patch_v2.model.frame import Frame
@@ -138,11 +138,12 @@ def test_the_bank_rows_follow_the_zone_and_hold_the_toe_on_the_dem(faa):
     banks = [f for f in pm.faces.values() if is_zone_bank_ref(f.ref)]
     assert banks and all(f.role == "graded_strip" for f in banks)
     rows = zone_bank_rows(pm, faa, airport)
-    cones = [r for r in rows if isinstance(r, Diff)]
-    toes = [r for r in rows if isinstance(r, Band)]
-    assert cones and toes
-    assert all(r.source.ruling.startswith(BANK_RULING) and r.follows == (r.a,) for r in cones)
-    assert all(r.source.ruling.startswith(TOE_RULING) and r.lo == r.hi for r in toes)
+    assert rows and all(isinstance(r, Band) for r in rows)
+    assert all(r.source.ruling.startswith(TOE_RULING) and r.lo == r.hi for r in rows)
+    # on the DEM, and never on a vertex another face touches (airside is king)
+    other = {v for f in pm.faces.values() if not is_zone_bank_ref(f.ref)
+             for ring in (f.ring, *f.holes) for v in pm.ring_vertices(ring)}
+    assert all(r.lo == pm.vertices[r.v].dem_z and r.v not in other for r in rows)
     # the strip law never reads the bank
     vw = view(pm, faa)
     assert not any(is_zone_bank_ref(vw.pm.faces[fid].ref) for fid, _i, _x in strips._strip_rings(vw))

@@ -117,8 +117,12 @@ def test_the_zone_ring_follows_the_pavement_not_the_terrain(taxi_map, law):  # n
     every such vertex is filled, the smallest fill 0.70 m (was 1.06 m)."""
     pm, _cs, sol, _rep = taxi_map[:4]
     z = np.asarray(sol.z, float)
+    # the ZONE's vertices — never its 1:3 bank's, whose toe IS the terrain
+    # (RULINGS 2026-10-15c (3))
     strip = [v for v, vx in pm.vertices.items()
-             if any(pm.faces[f].role == "graded_strip" for f in vx.incident_faces)
+             if any(pm.faces[f].role == "graded_strip" and not pm.faces[f].ref.startswith("zone_bank:")
+                    for f in vx.incident_faces)
+             and not any(pm.faces[f].ref.startswith("zone_bank:") for f in vx.incident_faces)
              and vx.dem_z is not None and vx.dem_z < 690.0]
     assert strip, "the fixture's valley must reach the graded strip"
     # RE-FOUNDED, NOT WEAKENED (lane ``v2stagepop`` r2, §20b (3) AMENDED,

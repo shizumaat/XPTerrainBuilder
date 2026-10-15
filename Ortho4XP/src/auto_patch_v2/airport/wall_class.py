@@ -37,12 +37,17 @@ __all__ = ["WallComponent", "NOT_WALL_RESOURCE_WORDS", "wall_class_components"]
 @_dc.dataclass(frozen=True)
 class WallComponent:
     """One WALL-CLASS pack component (module docstring: thin, tall, long):
-    its footprint pieces (frame xy), its solid height and its source."""
+    its footprint pieces (frame xy), its solid height and its source.
+    ``retains`` — the component RETAINS ITS OWN HEIGHT
+    (:func:`_retains_its_height`): owner RULINGS 2026-10-15a (2) — "the
+    wall is the step", a declared terrace for the roads and lots below it
+    (``airport/road_ramp``)."""
 
     pieces: tuple
     height_m: float
     resource: str
     comp: int
+    retains: bool = False
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -98,28 +103,40 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 if sum(g.length for g in polys) / 2.0 < \
                         float(cfg.retaining_wall_min_length_m):
                     continue
-                if wide > float(cfg.retaining_wall_max_width_m) and not \
-                        _retains_its_height(airport, whole, wide, float(p.height_m), cfg):
+                retains = _retains_its_height(airport, whole, wide,
+                                              float(p.height_m), cfg)
+                if wide > float(cfg.retaining_wall_max_width_m) and not retains:
                     continue
                 out.append(WallComponent(tuple(polys), float(p.height_m),
-                                         m.resource, int(p.comp)))
+                                         m.resource, int(p.comp), retains))
     return out
 
 
+#: the share of a wall's outline that must step by its height: the 90th
+#: percentile of the across-wall steps (a retaining wall's ends and returns
+#: retain nothing; KATL ``muro_concreto5`` steps 7-9 m over its south run)
+ACROSS_PERCENTILE = 90.0
+
+
 def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg) -> bool:
-    """A THICK WALL THAT RETAINS ITS OWN HEIGHT (issue #715): a component
-    wider than ``retaining_wall_max_width_m`` is still WALL-CLASS when it is
-    slender for its height (``wide <= height x
-    retaining_wall_thick_width_per_height``: a 10.65 m concrete retaining
-    wall is 3.46 m thick) AND the ground steps across it by its own height
-    — the 10th / 90th percentile DEM on a ring ``retaining_wall_step_ring_m``
-    outside its footprint differ by ``retaining_wall_step_min_fraction`` .. ``_max_fraction`` of the
-    height (the step equals the wall: #507, RULINGS 2026-10-03c).  A thick
-    facade or a building on level ground has no step; a building on a slope
-    is not slender.  MEASURED (dry census over the registered captures):
-    KATL ``muro_concreto5`` 10.65 m / step 12.14, ``muro_concreto`` 12.01 /
-    11.10; nothing at HECA, OTHH, SPJC, CYXY, NLWF, KPDX, KCLT; at KASE two
-    components of one hillside city building (8.74 m, steps 8.21 / 7.83)."""
+    """A WALL THAT RETAINS ITS OWN HEIGHT (owner RULINGS 2026-10-15a (2),
+    issue #715): slender for its height (``wide <= height x
+    retaining_wall_thick_width_per_height``: KATL's 10.65 m concrete
+    retaining wall is 3.46 m thick) AND the ground stepping ACROSS it by
+    ``retaining_wall_step_min_fraction`` .. ``_max_fraction`` of its height
+    (the step equals the wall: #507, RULINGS 2026-10-03c) — read every 2 m
+    round a ring outside its footprint, half its height out (at least
+    ``retaining_wall_step_ring_m``: a lidar DEM smears a 10 m step over
+    3-5 m either side): each ring point against the point as far out on the
+    FAR side of the wall (through its nearest wall point, ``wide`` across),
+    the :data:`ACROSS_PERCENTILE` of the absolute differences — the wall's
+    retaining run, not its ends.  ACROSS, never round the ring: a long wall
+    on a slope rises along itself without retaining anything (the ring's
+    10th-90th percentile spread admitted 56 thin HECA strips that way).  A
+    facade or a building on level ground has no step; a building on a
+    slope is not slender.  MEASURED (dry census, registered captures):
+    KATL ``muro_concreto5`` 10.65 m and ``muro_concreto`` 12.01 m admitted
+    (#715); see ``docs/briefs/katlwall-notes.md`` for the sweep airports."""
     per = getattr(cfg, "retaining_wall_thick_width_per_height", None)
     lo = getattr(cfg, "retaining_wall_step_min_fraction", None)
     hi = getattr(cfg, "retaining_wall_step_max_fraction", None)
@@ -129,14 +146,32 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
         return False
     if wide > height * float(per):
         return False
+    step = _step_across(dem, whole, wide, max(float(ring_m), height))
+    return step is not None and float(lo) * height <= step <= float(hi) * height
+
+
+def _step_across(dem, whole, wide: float, ring_m: float) -> float | None:
+    """The median DEM step across ``whole`` (see :func:`_retains_its_height`)."""
     import numpy as np
+    from shapely.ops import nearest_points
     from .dem import dem_z_many
-    grown = whole.buffer(float(ring_m))
-    pts = [g.exterior.interpolate(float(t)) for g in getattr(grown, "geoms", [grown])
-           for t in np.arange(0.0, g.exterior.length, 2.0)]
-    z = dem_z_many(dem, np.array([q.x for q in pts]), np.array([q.y for q in pts]))
-    z = z[np.isfinite(z)]
-    if z.size < 4:
-        return False
-    step = float(np.percentile(z, 90) - np.percentile(z, 10))
-    return float(lo) * height <= step <= float(hi) * height
+    grown = whole.buffer(ring_m)
+    near, far = [], []
+    for g in getattr(grown, "geoms", [grown]):
+        for t in np.arange(0.0, g.exterior.length, 2.0):
+            p = g.exterior.interpolate(float(t))
+            q = nearest_points(whole, p)[0]
+            dx, dy = q.x - p.x, q.y - p.y
+            n = (dx * dx + dy * dy) ** 0.5
+            if n <= 1e-9:
+                continue
+            k = (wide + ring_m) / n
+            near.append((p.x, p.y))
+            far.append((q.x + dx * k, q.y + dy * k))
+    if len(near) < 4:
+        return None
+    a = dem_z_many(dem, np.array([x for x, _ in near]), np.array([y for _, y in near]))
+    b = dem_z_many(dem, np.array([x for x, _ in far]), np.array([y for _, y in far]))
+    d = np.abs(a - b)
+    d = d[np.isfinite(d)]
+    return float(np.percentile(d, ACROSS_PERCENTILE)) if d.size >= 4 else None

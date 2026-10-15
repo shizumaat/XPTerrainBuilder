@@ -202,7 +202,8 @@ def assemble(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 if cur is None or rank[cls] < rank[cur]:
                     v_class[v] = cls
     rep.bend_rows_by_class = {c: 0 for c in BEND_CLASSES}
-    L, area = _cotangent_laplacian(planar, tris, n)
+    from .wall_cut import wall_cut_edges
+    L, area = _cotangent_laplacian(planar, tris, n, wall_cut_edges(planar, tris))
     L = L.tocsr()
     for i in range(n):
         s, e = L.indptr[i], L.indptr[i + 1]

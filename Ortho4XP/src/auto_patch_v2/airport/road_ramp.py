@@ -78,7 +78,7 @@ __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
            "road_route_frame", "reach_contacts", "merge_routes",
            "with_road_ramp", "RampTargets", "between_levels",
            "road_terrace", "wall_pieces", "wall_terraces", "WallPiece",
-           "wall_midline"]
+           "wall_midline", "mouth_wall_pieces"]
 
 class RampTargets(_t.NamedTuple):
     """The derivation's product: ``targets`` vertex id -> the ramp target,
@@ -355,6 +355,19 @@ def _contacts(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law
                 if z is not None:
                     out[v] = z
     return out
+
+
+def _on_retaining(pm: PlanarMap, vs: _t.Iterable[int],
+                  retaining: _t.Sequence) -> frozenset[int]:
+    """The vertices of ``vs`` standing on (within the identity grid's half
+    metre of) a wall that retains its own height (15a (2))."""
+    if not retaining:
+        return frozenset()
+    from shapely.geometry import Point
+    from shapely.strtree import STRtree
+    tree = STRtree(list(retaining))
+    return frozenset(v for v in vs if len(tree.query(Point(pm.vertices[v].xy),
+                                                     predicate="dwithin", distance=0.5)))
 
 
 def _graph(pm: PlanarMap, nodes: _t.AbstractSet[int]
@@ -664,7 +677,7 @@ def _ramp_figures(ramps: _t.Sequence[_t.Mapping[str, _t.Any]], design: float,
 
 
 def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
-                      profiles=None) -> RampTargets:
+                      profiles=None, retaining: _t.Sequence = ()) -> RampTargets:
     """§37 (6)'s target for every groundside-road vertex, AS A FUNCTION OF
     (ROUTE, STATION) ALONE — §37 (8)'s "the ramp target is the road's
     CENTRELINE profile per station" (owner RULINGS 2026-09-13bb).
@@ -698,14 +711,23 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     (:func:`road_ramp_rows`) reads that channel.  ``profiles`` is the road
     profile set ``preferred_road_z`` already built for this map (same cap,
     same lane width); it is rebuilt here when absent.
+
+    ``retaining`` — the plan polygons of the walls that RETAIN THEIR OWN
+    HEIGHT (owner RULINGS 2026-10-15a (2), "the wall is the step"): a road
+    vertex shared with the airside ON such a wall is no mouth — the road
+    does not leave the airside there, it runs at the wall's foot, and no
+    ramp descends from the wall's top edge.
     """
     roads = _road_roles(law)
     owned = _owned(pm, roads, law)
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
+    walled = _on_retaining(pm, mouths, retaining)
+    mouths = {v: z for v, z in mouths.items() if v not in walled}
     caps = [role_cap(law, r).longitudinal for r in roads if role_cap(law, r)]
     cap = min(caps) if caps else None
     rep: dict[str, _t.Any] = {"vertices": len(owned), "mouths": len(mouths),
+                              "mouths_on_retaining_wall": len(walled),
                               "decks_excluded": len(deck_refs(pm)),
                               "cap": cap, "targets": 0, "on_dem": 0,
                               "on_ramp": 0, "no_contact": 0, "no_route": 0,
@@ -736,6 +758,17 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     contact, reach_named = reach_contacts(pm, law, owned, mouths, frame,
                                           rc.contact_reach_m,
                                           prof_f.lane_width_m, gaps)
+    # 15a (2): a reach contact ACROSS a wall that retains its height (its
+    # edge on the wall's line, or the way to it through the wall) is no
+    # contact — the road at the wall's foot does not meet the top edge
+    if retaining:
+        from shapely.strtree import STRtree
+        rtree = STRtree(list(retaining))
+        cut = {v for v, (a, b, u, _s) in contact.items()
+               if _way_crosses(pm, v, a, b, u, retaining, rtree)}
+        contact = {v: c for v, c in contact.items() if v not in cut}
+        gaps = {v: g_ for v, g_ in gaps.items() if v not in cut}
+        rep["reach_contacts_across_retaining_wall"] = len(cut)
     rep["reach_contacts"] = len(reach_named)
     rep["reach_governed"] = len(contact)
     rep["reach_ends"] = reach_named
@@ -1005,7 +1038,8 @@ def between_levels(pm: PlanarMap, law: Law,
 
 def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                  frame: _t.Mapping[int, tuple[int, float, float]],
-                 walls: _t.Sequence = ()) -> dict[str, dict]:
+                 walls: _t.Sequence = (),
+                 retaining: _t.Sequence = ()) -> dict[str, dict]:
     """OWNER RULINGS 2026-10-03b (#100, NLWF): THE ROAD TERRACE — the
     segmentation of every groundside ROAD's course into BORDERED and BARE
     runs, from geometry alone (the levels are stage 1's and are applied
@@ -1050,7 +1084,14 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     ``airport/wall_class.wall_class_components``): a road vertex whose
     way to a groundside lot crosses one does NOT meet that lot (RULINGS
     2026-10-03c: the wall IS the step between the road at the airside level
-    and the lot at its building's level — ``wall_terrace``)."""
+    and the lot at its building's level — ``wall_terrace``).
+
+    ``retaining`` — the pieces of the walls that RETAIN THEIR OWN HEIGHT
+    (``WallPiece.retains``): owner RULINGS 2026-10-15a (2), "the wall is
+    the step" — a road vertex whose way to a pavement foot crosses one (or
+    starts inside one) is NOT bordered by that pavement: the road below a
+    retaining wall sits at the lower ground, released from the upper level
+    (:func:`_across_retaining`)."""
     from ..law.tables import airside_stage_roles
     out: dict[str, dict] = {"foot": {}, "pad": {}, "station": {}, "kerb": {},
                             "meet": {}}
@@ -1141,12 +1182,16 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
              if f.role in roads and is_osm_ribbon_ref(f.ref)
              for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
     out["own"] = {v: True for v in vs if v not in rib_v}
+    rtree = STRtree(list(retaining)) if retaining else None
     for v in vs:
         r, s_, _t_ = frame[v]
         out["station"][v] = (int(r), float(s_))
         if feet is None:
             continue
         fs = feet(pm.vertices[v].xy)
+        if rtree is not None:
+            fs = {ref: f_ for ref, f_ in fs.items()
+                  if not _across_retaining(pm, v, f_, retaining, rtree)}
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
         if lev:
@@ -1160,12 +1205,40 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     return out
 
 
+def _across_retaining(pm: PlanarMap, v: int, foot: tuple,
+                      retaining: _t.Sequence, rtree) -> bool:
+    """Owner RULINGS 2026-10-15a (2): the way from road vertex ``v`` to its
+    pavement foot ``(d, a, b, u, dir)`` (the nearest point of edge a-b)
+    crosses — or starts inside — a wall that retains its own height."""
+    _d, a, b, u, _dir = foot
+    return _way_crosses(pm, v, a, b, u, retaining, rtree)
+
+
+def _way_crosses(pm: PlanarMap, v: int, a: int, b: int, u: float,
+                 retaining: _t.Sequence, rtree) -> bool:
+    """The way from vertex ``v`` to the point ``u`` along edge a-b touches
+    one of the ``retaining`` walls (within the identity grid's half
+    metre: a vertex ON the wall's line stands in it)."""
+    from shapely.geometry import LineString
+    (ax, ay), (bx, by) = pm.vertices[a].xy, pm.vertices[b].xy
+    p = pm.vertices[v].xy
+    q = (ax + (bx - ax) * u, ay + (by - ay) * u)
+    if math.dist(p, q) < 1e-9:
+        q = (p[0] + 1e-6, p[1])
+    seg = LineString([p, q]).buffer(0.5)
+    return any(retaining[int(j)].intersects(seg)
+               for j in rtree.query(seg, predicate="intersects"))
+
+
 class WallPiece(_t.NamedTuple):
-    """One footprint piece of a wall-class pack component (frame xy)."""
+    """One footprint piece of a wall-class pack component (frame xy);
+    ``retains`` — the component retains its own height
+    (``airport/wall_class``, owner RULINGS 2026-10-15a (2))."""
 
     poly: _t.Any
     height_m: float
     label: str          # ``<resource>#comp<N>``
+    retains: bool = False
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1189,7 +1262,25 @@ def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
         for g in c.pieces:
             if _piece_length(g) >= float(c.height_m):
                 out.append(WallPiece(g, float(c.height_m),
-                                     f"{c.resource}#comp{c.comp}"))
+                                     f"{c.resource}#comp{c.comp}",
+                                     bool(c.retains)))
+    return tuple(out)
+
+
+def mouth_wall_pieces(pm: PlanarMap) -> tuple[WallPiece, ...]:
+    """THE WALLED MOUTH EDGES as wall pieces (owner RULINGS 2026-10-15a
+    (1)/(2), #714): the covered-ground deck's edge where a pack portal's
+    walls bound it (``PlanarMap.mouth_walls``, derived once in
+    ``planar/covered_ground``) — a wall that retains its height, the
+    portal's own depth tall: the road past the mouth runs at its own floor
+    and the step across the edge is declared."""
+    from shapely.geometry import Polygon as _Poly
+    out = []
+    for ring, depth, path in getattr(pm, "mouth_walls", ()) or ():
+        g = _Poly(ring)
+        g = g if g.is_valid else g.buffer(0.0)
+        if not g.is_empty and g.geom_type == "Polygon":
+            out.append(WallPiece(g, float(depth), f"{path}#mouth", True))
     return tuple(out)
 
 
@@ -1242,6 +1333,15 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
       (``constraints/road_ramp.wall_terrace_rows``): the lot at the wall's
       foot is at its building's level, the wall is the step.
 
+    OWNER RULINGS 2026-10-15a (2) (#715, KATL ``muro_concreto5``): at a
+    wall that RETAINS ITS OWN HEIGHT (``WallPiece.retains``; a walled
+    tunnel mouth, :func:`mouth_wall_pieces`, is one) the LOWER side is a
+    road's too, a road vertex inside the wall is below it, and no lot is
+    needed: the roads below sit at the lower ground, released from the
+    upper level (the road terrace no longer borders them across the wall —
+    :func:`road_terrace`'s ``retaining`` — and ``wall_release`` withdraws
+    their rows across the line; the bending skips it, ``solve/wall_cut``).
+
     MEASURED (lane roadterrace100, sw1018): apron ``objpav433`` 103.88 m
     (the wall top), lot ``objpav394`` 100.67 m at the wall foot,
     ``building8`` 100.62 m; ``concrete_3.obj`` comp 37 3.19 m tall — the
@@ -1275,7 +1375,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         elif f.role in pad_roles and len(ring) >= 3:
             g = _Poly([pm.vertices[v].xy for v in ring])
             pad_f[fid] = g if g.is_valid else g.buffer(0.0)
-    if not up_v or not (lot_f or pad_f):
+    if not up_v or not (lot_f or pad_f or any(w.retains for w in walls)):
         return out
     ids = sorted(pm.vertices)
     vtree = STRtree([Point(pm.vertices[v].xy) for v in ids])
@@ -1294,17 +1394,30 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
             continue
         zone = w.poly.buffer(reach)
         near = [ids[int(j)] for j in vtree.query(zone, predicate="intersects")]
-        near = [v for v in near if not w.poly.contains(Point(pm.vertices[v].xy))]
+        # a vertex INSIDE the wall stands on neither side — except, at a wall
+        # that retains its height, a ROAD vertex no airside face shares: it
+        # is below (15a (2); a portal's open cut, a road under the wall)
+        near = [v for v in near if not w.poly.contains(Point(pm.vertices[v].xy))
+                or (w.retains and v not in air_or_pad and any(
+                    pm.faces[g_].role in roads for g_ in pm.vertices[v].incident_faces))]
         upper_all = [v for v in near if v in up_v]
         lots = sorted({lot_ids[int(j)] for j in ltree.query(zone, predicate="intersects")}
                       if ltree is not None else set())
-        if not upper_all or not lots:
+        if not upper_all or not (lots or w.retains):
             continue
         lot_set = set(lots)
-        low_all = [v for v in near if v not in air_or_pad
-                   and any(g_ in lot_set for g_ in pm.vertices[v].incident_faces)
-                   and not any(pm.faces[g_].role in roads
-                               for g_ in pm.vertices[v].incident_faces)]
+
+        def _low(v: int) -> bool:
+            # a lot vertex (10-03c); at a wall that RETAINS ITS OWN HEIGHT
+            # a road vertex too (15a (2): "roads and lots below sit at the
+            # lower ground, released from the upper level") — a road the
+            # terrace still borders is in ``up_v`` and never here
+            inc = pm.vertices[v].incident_faces
+            on_road = any(pm.faces[g_].role in roads for g_ in inc)
+            if w.retains and on_road:
+                return True
+            return not on_road and any(g_ in lot_set for g_ in inc)
+        low_all = [v for v in near if v not in air_or_pad and _low(v)]
         if not low_all:
             continue
 
@@ -1450,7 +1563,12 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     order in ``tools/v2_solve_replay.py``): a mouth's level is read from
     the airside's own published target where it carries one.
     """
-    tg = road_ramp_targets(pm, law, airport, profiles)
+    # the pack walls first (15a (2)): a wall that retains its height takes
+    # the mouths on it away from the ramp, the feet across it from the
+    # terrace, and the rows across it from the road (``wall_release``)
+    walls = wall_pieces(airport, service) + mouth_wall_pieces(pm)
+    retaining = tuple(w.poly for w in walls if w.retains)
+    tg = road_ramp_targets(pm, law, airport, profiles, retaining)
     frame = tg.frame
     frep = tg.report.pop("_frame_report", {})
     frep.pop("_ways", None)            # the Way objects are not a report
@@ -1501,9 +1619,8 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report["between_levels_strip"] = len(bl.get("strip", {}))
     # OWNER RULINGS 2026-10-03b: the ribbon's bordered / bare segmentation
     # — geometry only; the levels are stage 1's, applied between the stages
-    walls = wall_pieces(airport, service)
     terr = road_terrace(pm, law, _owned(pm, _road_roles(law), law), frame,
-                        tuple(w.poly for w in walls))
+                        tuple(w.poly for w in walls), retaining)
     # OWNER RULINGS 2026-10-03c (#291): the wall between the airside level
     # and a lower lot is a DECLARED TERRACE — geometry only, read off the
     # terrace's own bordered set; rows ``constraints/road_ramp.

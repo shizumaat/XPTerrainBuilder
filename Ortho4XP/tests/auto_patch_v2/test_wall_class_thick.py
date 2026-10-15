@@ -65,3 +65,27 @@ def test_without_a_dem_only_the_thin_rule_stands():
     ap.dem = None
     assert wall_class_components(ap, CFG) == []
     assert len(wall_class_components(_airport(0.8, 10.65, 0.0), CFG)) == 1
+
+
+class _SlopeAlongDem:
+    """Rising 0.3 m per metre ALONG the wall (east), level across it."""
+
+    def z_many(self, xs, ys):
+        return 300.0 + 0.3 * np.asarray(xs, dtype=float)
+
+    def z(self, x, y):
+        return float(self.z_many([x], [y])[0])
+
+
+def test_a_thin_wall_retains_where_the_ground_steps_across_it():
+    got = wall_class_components(_airport(0.8, 3.0, 3.0), CFG)
+    assert len(got) == 1 and got[0].retains
+
+
+def test_a_wall_on_a_slope_along_itself_retains_nothing():
+    """15a (2): ACROSS, never round the ring — 100 m of wall up a 30 % slope
+    has 30 m of relief round it and no step across it."""
+    ap = _airport(0.8, 3.0, 0.0)
+    ap.dem = _SlopeAlongDem()
+    got = wall_class_components(ap, CFG)
+    assert len(got) == 1 and not got[0].retains

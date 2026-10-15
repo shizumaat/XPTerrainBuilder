@@ -41,7 +41,17 @@ zones — reads ``dem_z``.  Readers that ask ``airport.dem`` directly (the
 object readers, the structure stage, the emitter's outside mesh) keep the
 real ground: the trench beyond the mouths and the object seats are
 unchanged.  The consumer census is in ``docs/briefs/katl714-notes.md``
-(issue #714)."""
+(issue #714).
+
+THE MOUTH IS A DECLARED STEP WHERE PACK WALLS BOUND IT (owner RULINGS
+2026-10-15a (1)/(2), #714 residual): where a pack object whose solid
+reaches at least the mouth depth under its own zero (a portal: KATL
+``tunel_A`` / ``_B`` / ``_C``, walls 23.7-25.9 m deep) stands over the
+deck's edge at the pavement's end, that stretch of the edge is published
+(:attr:`CoveredGround.mouth_walls`, ``PlanarMap.mouth_walls``) as a wall
+that retains its height — ``airport/road_ramp`` reads it like a pack
+retaining wall: the road past the mouth is released from the deck's level
+and runs at its own floor, and the step across the edge is declared."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -84,6 +94,10 @@ class CoveredGround:
     vertices_lifted: int = 0
     max_lift_m: float = 0.0
     max_lift_xy: tuple[float, float] | None = None
+    #: the deck edge where pack walls bound it (owner RULINGS 2026-10-15a):
+    #: ``(strip ring, wall depth m, resource)`` per walled stretch
+    mouth_walls: list[tuple[list[tuple[float, float]], float, str]] = \
+        _dc.field(default_factory=list)
 
     def line(self) -> str:
         if not self.rings:
@@ -94,7 +108,8 @@ class CoveredGround:
         return (f"covered ground (#714): {len(self.bores)} bore(s) under airside pavement "
                 f"[{', '.join(self.bores[:8])}], footprint {self.area_m2:,.0f} m2; "
                 f"{self.vertices_lifted} of {self.vertices_in} vertex(es) inside take the "
-                f"ground beside the cover, max lift {self.max_lift_m:.2f} m{at}")
+                f"ground beside the cover, max lift {self.max_lift_m:.2f} m{at}; "
+                f"{len(self.mouth_walls)} walled mouth edge(s)")
 
 
 def _served(bores: list[Bore], airside: list[Polygon], min_m: float) -> list[Bore]:
@@ -217,10 +232,53 @@ def _ground_at(p: Point, ln: LineString, secs: list[_Section]) -> float | None:
     return zr + t * (zl - zr)
 
 
+#: half the width of a walled mouth edge's strip (metres): the identity
+#: grid's own tolerance, so a vertex ON the pavement's edge stands in it
+_EDGE_HALF_M = _PAVEMENT_TOL_M
+
+
+def _mouth_walls(cuts, pav, objects, depth_min: float):
+    """The walled mouths: per pack object reaching ``depth_min`` under its
+    own zero (a portal) whose plan extent stands over the deck's edge at
+    the pavement's end, ONE piece — that edge (a strip the identity
+    tolerance wide: the deck's last vertices stand in it) and the portal's
+    plan extent off the pavement (the open cut between its walls, where
+    the road runs at its floor): ``[(ring, depth, resource)]``."""
+    deep = []
+    for o in objects or ():
+        box = getattr(o, "plan_bbox", None)
+        lo = getattr(o, "solid_min_z", None)
+        if box is None or lo is None or getattr(o, "anchor_z", None) is None:
+            continue
+        depth = float(o.anchor_z) + float(getattr(o, "agl_m", 0.0) or 0.0) - float(lo)
+        if depth >= depth_min:
+            deep.append((box, depth, str(o.path)))
+    if not deep:
+        return []
+    end = pav.boundary.buffer(0.1)
+    mouths = [m for m in (rib.boundary.intersection(end) for _b, _s, rib, _p in cuts)
+              if not m.is_empty]
+    out = []
+    for box, depth, path in deep:
+        segs = [g for g in (m.intersection(box) for m in mouths)
+                if not g.is_empty and g.length >= 1.0]
+        if not segs:
+            continue
+        piece = unary_union([g.buffer(_EDGE_HALF_M) for g in segs] + [box.difference(pav)])
+        for g in getattr(piece, "geoms", [piece]):
+            if g.geom_type == "Polygon" and g.area > 0.0 and \
+                    any(g.intersects(q) for q in segs):
+                out.append(([(round(x, 2), round(y, 2)) for x, y in g.exterior.coords],
+                            round(depth, 2), path))
+    return out
+
+
 def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.ndarray,
-                   zs: np.ndarray) -> tuple[np.ndarray, CoveredGround]:
+                   zs: np.ndarray, objects=()) -> tuple[np.ndarray, CoveredGround]:
     """``zs`` with every vertex inside the covered footprint lifted to the
-    ground beside the cover (never lowered), and the report."""
+    ground beside the cover (never lowered), and the report (with the
+    walled mouth edges, :func:`_mouth_walls`, read off ``objects`` —
+    ``planar/basins.read_objects``)."""
     rep = CoveredGround()
     dem = getattr(airport, "dem", None)
     tn = law.tables.structures.tunnel
@@ -254,6 +312,7 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
     rep.rings = [[(round(x, 2), round(y, 2)) for x, y in g.exterior.coords]
                  for g in getattr(fp, "geoms", [fp]) if g.geom_type == "Polygon"]
     rep.bores = ["+".join(str(w.id) for w in b.ways) for b, *_r in cuts]
+    rep.mouth_walls = _mouth_walls(cuts, pav, objects, float(tn.mouth_depth_m))
     out = np.array(zs, dtype=float, copy=True)
     minx, miny, maxx, maxy = fp.bounds
     box = (xs >= minx) & (xs <= maxx) & (ys >= miny) & (ys <= maxy)

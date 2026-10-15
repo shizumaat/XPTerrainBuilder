@@ -353,7 +353,8 @@ def build(airport: Airport, classification: Classification, law: Law,
     targets = ramp_targets(tunnels, law, faces, edge_list, vertices_xy, zs)
     # #714: over a mapped bore under airside pavement the ground is the
     # ground BESIDE the cover, not the road floor a bare-earth DEM carries
-    zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs)
+    zs, stats.covered_ground = covered_ground(airport, classification, law, xs, ys, zs,
+                                              objects)
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
     dp = frame.identity_dp
@@ -371,6 +372,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                    terrain_edges=tuple(tuple(ln.coords) for ln in arr.terrain_edges),
                    seam_band_rings=tuple(tuple(b.exterior.coords)
                                          for b in arr.seam_bands),
+                   mouth_walls=tuple((tuple(r), d, p_) for r, d, p_
+                                     in stats.covered_ground.mouth_walls),
                    edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
                                      if r.edge_kind != "none"},
                    quay_refs=frozenset(r.ref for r in arr.regions

@@ -68,6 +68,18 @@ retaining_wall_along_fraction = 0.8
 # 0.96 / 2.59 m off the corridor, with 97-100 % of their area inside 8 m and
 # 49-55 % inside 4 m.  DEVIATION from "one lane width" for the spec author.
 retaining_wall_reach_m        = 8.0
+# #715 / RULINGS 2026-10-15a (2) A WALL THAT RETAINS ITS OWN HEIGHT (thin
+# or thick: a thick one is wall-class only so): its width is at most this
+# share of its height AND the ground steps ACROSS it (each point of a ring
+# its height out — at least retaining_wall_step_ring_m — against the point
+# as far out on the far side; the 90th percentile) by this band of its
+# height — the step equals the wall (#507, RULINGS 2026-10-03c).  Such a
+# wall is a declared terrace for the roads and lots below it
+# (airport/road_ramp).  KATL muro_concreto5: 10.65 m tall, 3.46 m thick.
+retaining_wall_thick_width_per_height = 0.5
+retaining_wall_step_min_fraction = 0.75
+retaining_wall_step_max_fraction = 1.25
+retaining_wall_step_ring_m    = 3.0
 
 [osm_roads]                    # OSM highway=* ways as ground-vehicle centrelines beside the 1206 routes (RULINGS 2026-08-15: the mapped road IS the spine where nothing better exists; owner 2026-09-04j evidence)
 enabled   = true

@@ -655,6 +655,12 @@ class PlanarMap:
     #: edge vertices are ``seam_vertices``, and ``emit/bank.py`` derives no
     #: bank inside it and unions it into the coverage before the collar.
     seam_band_rings: tuple[tuple[tuple[float, float], ...], ...] = ()
+    #: THE WALLED MOUTH EDGES (owner RULINGS 2026-10-15a (1)/(2), #714): the
+    #: covered-ground deck's edge where a pack portal's walls bound it, as
+    #: ``(strip ring, wall depth m, resource)`` — derived ONCE in
+    #: ``planar/covered_ground``; ``airport/road_ramp`` reads each as a wall
+    #: that retains its height (the road past the mouth at its own floor).
+    mouth_walls: tuple[tuple[tuple[tuple[float, float], ...], float, str], ...] = ()
 
     def __setstate__(self, state: dict) -> None:
         """A map PICKLED BEFORE A FIELD EXISTED reads that field's default

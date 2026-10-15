@@ -71,7 +71,6 @@ from . import failure_report
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
-from .terrain_commands import terrain_sample
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +160,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
     from . import patch_commands
+    from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
         "build": session.build,

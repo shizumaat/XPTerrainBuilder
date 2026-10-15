@@ -32,6 +32,14 @@ struct XPTerrainBuilderApp: App {
             AppCommands(controller: controller, buildModel: buildModel)
         }
 
+        // The patch editor's 3D preview (#46, spec §5): one window,
+        // opened by the map's "3D" button or ⌘3.
+        WindowGroup("3D Preview", id: TerrainPreview.windowID, for: String.self) { _ in
+            TerrainPreviewWindow()
+                .environmentObject(buildModel)
+        }
+        .defaultSize(width: 1000, height: 640)
+
         // Analysis Report and Modifications windows removed — the scenery
         // doctor is planned as a separate app.
         Settings {
@@ -44,6 +52,7 @@ struct XPTerrainBuilderApp: App {
 struct AppCommands: Commands {
     @ObservedObject var controller: AnalysisController
     @ObservedObject var buildModel: BuildModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         // The stock About panel shows the app version alone; a beta report
@@ -62,6 +71,13 @@ struct AppCommands: Commands {
                                                 object: nil)
             }
             .keyboardShortcut("f", modifiers: .command)
+        }
+
+        CommandGroup(after: .toolbar) {
+            Button("3D Preview") {
+                openWindow(id: TerrainPreview.windowID, value: TerrainPreview.windowValue)
+            }
+            .keyboardShortcut("3", modifiers: .command)
         }
     }
 }

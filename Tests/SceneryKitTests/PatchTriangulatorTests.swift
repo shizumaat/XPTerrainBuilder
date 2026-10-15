@@ -218,4 +218,42 @@ struct PatchTriangulatorTests {
             #expect(abs(g.lon - (pa.x + pb.x + pc.x) / 3) < 1e-12 && abs(g.lat - (pa.y + pb.y + pc.y) / 3) < 1e-12)
         }
     }
+
+    // MARK: - Preview buffers
+
+    @Test func aNodeEditRebuildsOnlyTheShapesThatUseIt() throws {
+        let doc = try nestedDocument(gapShapeID: "7")
+        let meshes = Dictionary(uniqueKeysWithValues: PatchShapeAssembly.shapes(of: doc).map {
+            ($0.wayID, PatchShapeMesh(shape: $0, document: doc))
+        })
+        let index = PatchPreviewIndex(meshes: meshes)
+        #expect(index.shapes(using: [-9]) == [-101, -103])     // the building is also the apron's hole
+        #expect(index.shapes(using: [-1]) == [-101])
+        #expect(index.shapes(using: [-5]) == [-101])
+        let space = PatchPreviewSpace(frame: doc.frame, base: 90, terrain: nil)
+        let mesh = try #require(meshes[-103])
+        #expect(mesh.indices.count == 3 && Set(mesh.vertexIDs) == [-9, -10, -11])
+        let p = mesh.positions(document: doc, space: space)
+        #expect(p.allSatisfy { abs($0.y - 10) < 1e-4 })             // alt 100 above base 90
+        let n = PatchPreviewNormals.of(positions: p, indices: mesh.indices)
+        #expect(n.allSatisfy { abs($0.y - 1) < 1e-5 })             // flat and facing up
+    }
+
+    @Test func aNodeWithoutElevationStandsOnTheTerrain() throws {
+        let json: [String: Any] = [
+            "bbox": [45.0, -123.0, 45.01, -122.99], "rows": 2, "cols": 2, "spacing_m": 5.0,
+            "dlat": 0.01, "dlon": 0.01,
+            "elev_f32_b64": [Float(100), 110, 120, Float.nan].withUnsafeBytes { Data($0) }.base64EncodedString(),
+            "sources": ["base": "x.hgt", "inset": NSNull()],
+        ]
+        let sample = try O4JSON.from(json).decode(O4TerrainSample.self)
+        let surface = PatchTerrainSurface(sample: sample)
+        #expect(surface.elevations[3] == 110)                    // NaN filled with the mean
+        #expect(abs(surface.elevation(lat: 45.005, lon: -122.995) - 110) < 1e-9)
+        let space = PatchPreviewSpace(frame: PatchLocalFrame(originLat: 45.005, originLon: -122.995),
+                                      base: 100, terrain: surface)
+        let p = space.position(of: PatchNode(id: -1, lat: 45.0, lon: -123.0, alt: nil))
+        #expect(abs(p.y) < 1e-4)
+        #expect(p.z > 0 && p.x < 0)                              // south-west: +z is south
+    }
 }

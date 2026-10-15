@@ -62,6 +62,7 @@ struct MapCanvasView: View {
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }
+            .overlay(alignment: .topLeading) { TerrainPreviewButton(model: buildModel.patchEdit) }
             .overlay(alignment: .bottomTrailing) {
                 VStack(alignment: .trailing, spacing: 6) {
                     ScanProgressChip()

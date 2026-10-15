@@ -220,7 +220,18 @@ def test_the_strip_equals_the_natural_ground_where_the_ground_is_lawful(lawful, 
     g = [v for v in _ground(pm, law) if _abeam(pm, v)]
     assert g, "the fixture must have adjacent ground"
     off = [abs(z[v] - float(pm.vertices[v].dem_z)) for v in g]
-    assert max(off) <= 0.05, f"worst {max(off):.3f} m off its DEM"
+    # RE-FOUNDED (lane rwyzone15c phase 6, RULINGS 2026-10-15c (1)).  No
+    # zone row is active in this fixture.  What the bar measures is the
+    # bending term's residual at the kink where the 1 % crowned edge meets
+    # the 3.06 % ground: the lip ring sags and the band's outer ring
+    # bulges.  15c (1) measures the band from the centreline, so its outer
+    # ring moved in from 97.5 m to 75 m and the same kink is spread over
+    # 50 m instead of 72.5 m.
+    #   worst offset: main 0.031 m; this branch 0.043 m (macOS) and
+    #   0.052 m (CI, Linux and Windows); this branch with the band put
+    #   back to main's width 0.036 m.
+    # The ground is still lawful; the margin is the band's new width.
+    assert max(off) <= 0.06, f"worst {max(off):.3f} m off its DEM"
 
 
 def test_the_datum_is_minted_for_every_adjacent_ground_vertex(lawful, law):  # noqa: F811

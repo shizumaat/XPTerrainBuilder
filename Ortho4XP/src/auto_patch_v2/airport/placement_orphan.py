@@ -185,8 +185,20 @@ def _clear_of_parts(st: _t.Any, boxes: _t.Sequence[tuple], clear_m: float
     """For each of ``boxes``: is it farther than ``clear_m`` (plan gap,
     metres) from every PART box of the member's own bodies?  All False
     where ``clear_m <= 0`` (disarmed) or the member has no part — the
-    nearest-part gap is :func:`_nearest_target` over the part boxes."""
-    own = [b for i, r in enumerate(st.raw) if r[0]
+    nearest-part gap is :func:`_nearest_target` over the part boxes.
+
+    A FOOTED member's parts are those of its GROUND GROUPS — the bodies
+    a component that is not clear joins (``pairs`` above).  An elevated
+    part is no group's: §15's search seats it on what it stands on, and a
+    component touching only such parts takes that search with it (#708,
+    KCLT 1.0.394 at 35.2235549, -80.944007: a 48 x 53 m roof plate at
+    y 5.01 touched one elevated part box, was "not clear", joined the
+    nearest ground group on the terminal pad and rendered 4.2 m above
+    the walls the part beside it is carried on)."""
+    groups = getattr(st, "groups", None) or ()
+    grouped = {i for g in groups for i in g} if groups else None
+    own = [b for i, r in enumerate(st.raw)
+           if r[0] and (grouped is None or i in grouped)
            for b in st.part_boxes[i]] if clear_m > 0.0 else []
     if not own:
         return [False] * len(boxes)

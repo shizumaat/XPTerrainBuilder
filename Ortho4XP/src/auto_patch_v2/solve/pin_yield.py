@@ -10,20 +10,28 @@ the RIBBON yields — its 1.0 m deviation budget (§2-SUPPLEMENT S.3) is
 exceeded so the join and the ceiling both hold.
 
 THE MECHANISM, and its scope.  A ``Pin`` whose ruling head is in ``[design]
-yielding_pin_rulings`` is held exactly, as every pin is, UNLESS stage 2's
-hard set fails to settle with it.  Then only the yielding pins the UNSETTLED
-hard rows reach — a flood over the hard rows (and rigid flats) through FREE
-columns, stopped at every constant, within :data:`HOPS` hops — are
-released: each becomes a design TARGET at its own value (the patch stays as
-near the ribbon as the hard law lets it), stage 2 is solved again, and the
-release is kept only if the hard set is better for it — settled, a worst
-row lower by at least the elevation materiality, or the released pins' OWN
-rows (:func:`own_rows`) held (issue #89: a sub-materiality change of a far
-worst row is solver noise and keeps nothing).  Every released pin
-is REPORTED (``DesignReport.pin_yield``: the ribbon's level, the patch's,
-the excess), and the pipeline publishes the level the ribbon must take
+yielding_pin_rulings`` is held exactly, as every pin is, UNLESS IT IS IN
+CONFLICT ITSELF: the stage is solved once with every such pin it may
+release re-stated as a design TARGET at its own value; a pin that trial
+moves past ``hard_tol_m`` — its own rows will not hold it — stays released
+(the patch stays as near the ribbon as the law lets it), every other pin
+is pinned again, and the stage is solved on that release
+(:func:`yield_pins`).  Every released pin is REPORTED
+(``DesignReport.pin_yield``: the ribbon's level, the patch's, the excess),
+and the pipeline publishes the level the ribbon must take
 (``emit/road_join.with_pin_yield`` → sidecar ``road_join_yield`` → the
-core clamp's join pins).  A pin that no unsettled row reaches never moves.
+core clamp's join pins).  A pin that holds never moves.
+
+ITS OWN CONFLICT, NEVER ANOTHER ROW'S SETTLING (issue #778).  Until
+2026-10-15 the yield ran only while the stage's hard set was UNSETTLED and
+released the pins a flood from the unsettled rows reached: a join's fate
+followed rows it never touched.  MEASURED (KCLT, PR #768 round 2): an
+airside-only change settled more of the airside and stage 2 released 23
+fewer joins — each of them held the patch road up to 2.24 m over the level
+its own rows set — and groundside grew +101 ``hard_conflict``, +57
+``road_cross_section``, +10 ``pavement_over_road_cap`` within 60 m of
+them.  The flood (``implicated_pins``, ``own_rows``) is deleted with that
+gate.
 
 WHICH STAGE DECIDES (issue #87; spec-author decision 2026-09-29, RULINGS
 2026-09-29d (c)): a yielding pin that a STAGE-1 row reads — a row §20b
@@ -59,15 +67,8 @@ from .api import Solution
 from .design_report import DesignReport, row_metre_scale
 from .design_roles import hard_rulings, ruling_head
 
-__all__ = ["HOPS", "row_vertices", "hard_violated", "implicated_pins",
-           "own_rows", "release_pins", "stage1_read_pins", "yield_pins"]
-
-#: The flood's reach, in hard-row hops from an unsettled row — the same
-#: horizon the infeasibility certificate floods (``design_report
-#: ._infeasible_set``'s ``limit``), so "the pin the unsettled set reaches"
-#: means the same neighbourhood the certificate reads.
-HOPS = 12
-
+__all__ = ["row_vertices", "hard_violated", "release_pins", "stage1_read_pins",
+           "yield_pins"]
 
 def row_vertices(r: Row) -> tuple[int, ...]:
     """Every vertex a row names."""
@@ -115,108 +116,6 @@ def hard_violated(cs: ConstraintSet, z: _t.Sequence[float],
             if ruling_head(r) in hard_heads and _violation_m(r, zz) > tol]
 
 
-def implicated_pins(cs: ConstraintSet, hard_heads: _t.AbstractSet[str],
-                    yield_heads: _t.AbstractSet[str],
-                    violated: _t.Sequence[Row],
-                    fixed: _t.Mapping[int, float] | _t.AbstractSet[int],
-                    hops: int = HOPS,
-                    among: _t.AbstractSet[int] | None = None) -> list[int]:
-    """The vertices of the YIELDING pins the unsettled rows reach: a
-    breadth-first flood from every vertex of ``violated`` over the hard
-    rows and the rigid flats, expanding only through FREE columns (a
-    ``fixed`` vertex — stage 1's level — and every other pin stop it), for
-    at most ``hops`` hops.  ``among`` (issue #87): only the yielding pins on
-    these vertices may be released; any other is a constant that stops
-    the flood like every pin.  Sorted."""
-    if not violated or not yield_heads:
-        return []
-    yield_v = {p.v for p in cs.pins if ruling_head(p) in yield_heads}
-    if among is not None:
-        yield_v &= set(among)
-    if not yield_v:
-        return []
-    stop = set(fixed) | {p.v for p in cs.pins if p.v not in yield_v}
-    touch: dict[int, list[Row]] = collections.defaultdict(list)
-    for r in (*cs.diffs, *cs.bands, *cs.offsets, *cs.linears):
-        if ruling_head(r) in hard_heads:
-            for v in row_vertices(r):
-                touch[v].append(r)
-    for f in cs.flats:
-        for v in f.group:
-            touch[v].append(f)
-    out: set[int] = set()
-    seen: set[int] = set()
-    frontier: list[int] = []
-    for r in violated:
-        for v in row_vertices(r):
-            if v not in seen:
-                seen.add(v)
-                frontier.append(v)
-    for _hop in range(hops + 1):
-        nxt: list[int] = []
-        for v in frontier:
-            if v in yield_v:
-                out.add(v)
-                continue
-            if v in stop:
-                continue
-            for r in touch.get(v, ()):
-                for w in row_vertices(r):
-                    if w not in seen:
-                        seen.add(w)
-                        nxt.append(w)
-        if not nxt:
-            break
-        frontier = nxt
-    return sorted(out)
-
-
-def own_rows(cs: ConstraintSet, hard_heads: _t.AbstractSet[str],
-             violated: _t.Sequence[Row], pins: _t.Iterable[int],
-             fixed: _t.Mapping[int, float] | _t.AbstractSet[int],
-             hops: int = HOPS) -> list[Row]:
-    """The released pins' OWN rows (issue #89): the rows of ``violated``
-    whose flood (:func:`implicated_pins`) reaches one of ``pins`` — the
-    same flood run BACKWARD from the pins over the hard rows and rigid
-    flats, expanding only through free columns (a ``fixed`` vertex and
-    every other pin stop it), within ``hops`` hops.  These are the rows a
-    release answers; the keep test judges the release on them, not on a
-    global worst row the release never reached."""
-    pv = set(pins)
-    if not pv or not violated:
-        return []
-    by_v: dict[int, list[int]] = collections.defaultdict(list)
-    for i, r in enumerate(violated):
-        for v in row_vertices(r):
-            by_v[v].append(i)
-    stop = set(fixed) | {p.v for p in cs.pins if p.v not in pv}
-    touch: dict[int, list[Row]] = collections.defaultdict(list)
-    for r in (*cs.diffs, *cs.bands, *cs.offsets, *cs.linears):
-        if ruling_head(r) in hard_heads:
-            for v in row_vertices(r):
-                touch[v].append(r)
-    for f in cs.flats:
-        for v in f.group:
-            touch[v].append(f)
-    hit: set[int] = set()
-    seen = set(pv)
-    frontier = sorted(pv)
-    for _hop in range(hops + 1):
-        nxt: list[int] = []
-        for v in frontier:
-            hit.update(by_v.get(v, ()))
-            if v in stop:
-                continue
-            for r in touch.get(v, ()):
-                for w in row_vertices(r):
-                    if w not in seen:
-                        seen.add(w)
-                        nxt.append(w)
-        if not nxt:
-            break
-        frontier = nxt
-    return [violated[i] for i in sorted(hit)]
-
 
 def release_pins(cs: ConstraintSet, verts: _t.Iterable[int],
                  yield_heads: _t.AbstractSet[str]) -> ConstraintSet:
@@ -262,76 +161,55 @@ def stage1_read_pins(cs: ConstraintSet, yield_heads: _t.AbstractSet[str],
 
 def yield_pins(planar: PlanarMap, cs: ConstraintSet, law: Law,
                 sol: Solution, rep: DesignReport,
-                stop: _t.Mapping[int, float] | _t.AbstractSet[int],
                 solve: _t.Callable[[ConstraintSet],
                                    tuple[Solution, DesignReport]], *,
-                among: _t.AbstractSet[int] | None = None,
-                keep_row: _t.Callable[[_t.Any], bool] | None = None
+                among: _t.AbstractSet[int] | None = None
                 ) -> tuple[Solution, DesignReport, list[dict], ConstraintSet]:
-    """One §20b stage AGAIN with the yielding pins its unsettled hard rows
-    reach released (this module; owner RULINGS 2026-09-27a
-    (10)).  ``solve`` re-solves THE SAME stage on a constraint set; ``stop``
-    is that stage's constants (the flood stops there); ``among`` the pins
-    this stage may release (issue #87: stage 1 releases only the pins it
-    reads, stage 2 only the others); ``keep_row`` filters the violated rows
-    to the stage's own (stage 1 drops every row with a foreign vertex).
-    Returns the stage's solution and report — the re-solve's when its hard
-    set is better (settled, a worst violation smaller by at least the
-    elevation materiality, or the released pins' own rows held — issue
-    #89), else the
-    original's — the release records (empty when nothing was kept) and the
-    constraint set the kept solution solved."""
+    """One §20b stage AGAIN with the yielding pins IN CONFLICT released —
+    EACH PIN DECIDED BY ITS OWN CONFLICT (issue #778, this module's
+    docstring), never by whether the stage's hard set happened to settle.
+
+    THE TRIAL: every yielding pin this stage may release (``among``, issue
+    #87) is re-stated as a design target at its own value
+    (:func:`release_pins`) and the stage is solved once.  A pin the trial
+    moves by more than ``hard_tol_m`` is FORCED — its own rows (hard, or
+    the law rows priced at the target's own weight) will not hold it — and
+    stays released; every other pin is PINNED AGAIN and the stage solved on
+    that narrower release (skipped when every candidate is forced).  The
+    release is kept unless it leaves the hard set worse than the pinned
+    answer by the elevation materiality.  Returns the stage's solution and report, the release records (empty
+    when no pin is in conflict) and the constraint set the kept solution
+    solved."""
     d = design_law(law)
     yield_heads = frozenset(getattr(d, "yielding_pin_rulings", ()) or ())
-    if not yield_heads:
+    if not yield_heads or not sol.z:
         return sol, rep, [], cs
-    heads = hard_rulings(law)
-    bad = hard_violated(cs, sol.z, heads, float(d.hard_tol_m))
-    if keep_row is not None:
-        bad = [r for r in bad if keep_row(r)]
-    verts = implicated_pins(cs, heads, yield_heads, bad, stop, among=among)
-    if not verts:
+    cands = sorted({p.v for p in cs.pins if ruling_head(p) in yield_heads
+                    and (among is None or p.v in among)})
+    if not cands:
         return sol, rep, [], cs
-    pinned = {p.v: float(p.z) for p in cs.pins if p.v in set(verts)}
-    cs_y = release_pins(cs, verts, yield_heads)
-    sol_y, rep_y = solve(cs_y)
-    # THE KEEP TEST (issue #89; spec-author decision 2026-09-29): a release
-    # is KEPT when the hard set settles, when the worst hard violation
-    # drops by at least the elevation MATERIALITY (a global change under it
-    # is solver noise on a row the release may never have reached — HECA:
-    # worst 3.9474 m unchanged to 4 dp decided 7-11 joins), or when the
-    # released pins' OWN rows (the violated rows whose flood reaches them,
-    # ``pin_yield.own_rows``) all fall within ``hard_tol_m``.
+    pinned = {p.v: float(p.z) for p in cs.pins if p.v in set(cands)}
     tol = float(d.hard_tol_m)
     mat = float(law.tables.emit.materiality.elevation_m)
-    better = False
-    if sol_y.z:
-        if rep_y.hard_settled and not rep.hard_settled:
-            better = True
-        elif (rep.hard_max_violation_m - rep_y.hard_max_violation_m) >= mat:
-            better = True
-        else:
-            own = own_rows(cs, heads, bad, verts, stop)
-            if own:
-                zy = np.asarray(sol_y.z, dtype=float)
-                better = all(_violation_m(r, zy) <= tol for r in own)
-    if not better:
+    cs_t = release_pins(cs, cands, yield_heads)
+    sol_t, rep_t = solve(cs_t)
+    if not sol_t.z:
         return sol, rep, [], cs
-    # ONLY WHERE FORCED: a released pin the re-solve left within
-    # ``hard_tol_m`` of its own value was reached by the flood but not
-    # forced by it — it is PINNED AGAIN, and the narrower release is kept
-    # when the hard set is no worse for it (GEML: 6 reached, 2 forced)
-    loose = [v for v in verts if abs(float(sol_y.z[v]) - pinned[v]) > tol]
-    if loose and len(loose) < len(verts):
-        cs_n = release_pins(cs, loose, yield_heads)
-        sol_n, rep_n = solve(cs_n)
-        if sol_n.z and (rep_n.hard_settled or not rep_y.hard_settled) and (
-                rep_n.hard_max_violation_m
-                <= max(rep_y.hard_max_violation_m, tol)):
-            sol_y, rep_y, verts, cs_y = sol_n, rep_n, loose, cs_n
+    forced = [v for v in cands if abs(float(sol_t.z[v]) - pinned[v]) > tol]
+    if not forced:
+        return sol, rep, [], cs
+    sol_y, rep_y, cs_y = sol_t, rep_t, cs_t
+    if len(forced) < len(cands):
+        cs_y = release_pins(cs, forced, yield_heads)
+        sol_y, rep_y = solve(cs_y)
+        if not sol_y.z:
+            return sol, rep, [], cs
+    if not rep_y.hard_settled and (
+            rep_y.hard_max_violation_m - rep.hard_max_violation_m) >= mat:
+        return sol, rep, [], cs
     recs = [{"v": int(v), "xy": tuple(float(c) for c in planar.vertices[v].xy),
              "pinned_m": round(pinned[v], 4),
              "z_m": round(float(sol_y.z[v]), 4),
              "excess_m": round(float(sol_y.z[v]) - pinned[v], 4)}
-            for v in verts]
+            for v in forced]
     return sol_y, rep_y, recs, cs_y

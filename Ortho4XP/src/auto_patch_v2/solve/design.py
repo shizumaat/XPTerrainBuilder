@@ -267,13 +267,13 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     sol2, rep2 = _solve_stage(planar, cs, law, options, size_out=size_out,
                               method=method, low_rank=low_rank, fixed=levels)
     yielded: list[dict] = []
-    if not rep2.hard_settled and sol2.z and yield_heads:
+    if sol2.z and yield_heads:     # issue #778: each pin by its own conflict
         def _stage2(cs_x: ConstraintSet):
             return _solve_stage(planar, cs_x, law, options, size_out=size_out,
                                 method=method, low_rank=low_rank, fixed=levels)
         among2 = {p.v for p in cs.pins} - set(s1_read)
         sol2, rep2, yielded, _cs2 = _yield_pins(planar, cs, law, sol2, rep2,
-                                                levels, _stage2, among=among2)
+                                                _stage2, among=among2)
         for r in yielded:
             r["stage"] = 2
     rep2.reach_seed = seed_rep

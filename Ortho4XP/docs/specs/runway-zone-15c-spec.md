@@ -332,3 +332,36 @@ rows lie along the runway band's outer ring at |t| = 75 m. Since 15c (1)
 that ring IS the strip footprint's edge. Along it, the zone reference flips
 from vertex to vertex between the runway's mandatory-down and a parallel
 taxiway's floor (pav28, pav9, pav25), giving steps of up to 3.9 m.
+
+## 14. Phase 6: the band's outer ring held by two corridors (refuted arm)
+
+**The arm.** It was an intervention at the single derivation site: in
+`constraints/zones.zone_bands`, a runway-band outer-ring vertex that a
+second corridor also holds took EVERY holding reference's floor and
+ceiling, in place of nearest-reference-wins. It was replayed once on the
+registered CYXY capture.
+
+**Result.** The census got worse against main:
+
+| Family | Main | Arm |
+|---|---|---|
+| `strip_longitudinal` | 0 | 46 |
+| `strip_arc` | 1 | 50 |
+| `strip_transverse` | 0 | 7 |
+| `adjacent_ground_step` | 0 | 4 |
+| critical_visual | — | +6 |
+
+**Why.** 56 vertices are held by both. In 40 of them the floor stands over
+the ceiling: the taxiways (pav28, pav9, pav25, pav24, and 02/20's band)
+stand 0.06–2.13 m above the runway band's mandatory-down. The solve then
+splits each conflict.
+
+- Total gap: 37.38 m. Of that, 25.20 m is the runway band's 1.5 %
+  minimum fall beyond the lip, which the audit marks engine-invented.
+- In 22 of the 40 cases the whole gap is that minimum fall.
+- Worst: v3553 (60.705077, −135.058567). Floor 700.18 m from pav28
+  (d 3.0); ceiling 698.05 m from 14L/32R (d 59.8); gap 2.13 m, of which
+  0.85 m is the minimum fall.
+
+The arm was deleted, and the pocket rule stands. The full list is in the
+lane report.

@@ -14,7 +14,6 @@ Fetched tiles are cached on disk under Previews/livemap/<provider>/.
 
 import math
 import os
-import re
 import threading
 import time
 from collections import deque
@@ -104,9 +103,8 @@ SCENERY_FILTER_LABELS = (
 )
 
 # Canonical tile key ("+48-006"): the spelling built-tile folders and the
-# console already use.  One spelling, one parser — the persisted selection
-# is written in it and nothing else.
-_TILE_KEY_RE = re.compile(r"^[+-]\d{2}[+-]\d{3}$")
+# console already use.  One spelling, one parser (``FNAMES.parse_tile_key``)
+# — the persisted selection is written in it and nothing else.
 
 
 def livemap_cache_dir():
@@ -118,31 +116,7 @@ def tile_key(lat, lon):
     return FNAMES.short_latlon(lat, lon)
 
 
-def parse_tile_key(key):
-    """(lat, lon) from a canonical tile key, or None.
-
-    The reader half of :func:`tile_key`, strict on both shape and range:
-    anything that is not a well-formed on-globe key is refused here so
-    callers restoring stored keys can simply drop what does not parse.
-    """
-    if not isinstance(key, str) or not _TILE_KEY_RE.match(key):
-        return None
-    lat, lon = int(key[:3]), int(key[3:])
-    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-        return None
-    return (lat, lon)
-
-
-# Mixed-imagery-source audit (docs/specs/qt-backlog-parity2-spec.md §QB3).
-# Ortho4XP names every texture "{y}_{x}_{Provider}{ZL}.dds", and a tile's
-# DSF references textures from ONE source — its config's default_website.
-# Files carrying any other provider token are dead weight from an earlier
-# build with a different source.  Imagery zones legitimately mix ZOOM
-# LEVELS, so only the provider token decides foreignness; masks and other
-# non-.dds files are ignored.  The two-digit ZL anchor is what lets a
-# provider code that itself ends in digits ("USA_2" -> "…_USA_216.dds")
-# parse correctly.
-_TEXTURE_DDS_RE = re.compile(r"\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$")
+parse_tile_key = FNAMES.parse_tile_key
 
 
 def texture_provider(name):

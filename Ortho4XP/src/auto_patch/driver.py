@@ -369,6 +369,82 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
     }
 
 
+def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
+                            icao: str, *, tile=None,
+                            cifp_file: str | None = None,
+                            apt_dat_now: str | None = None
+                            ) -> list[tuple[str, object, object]]:
+    """Every recorded build input (inputs 1-7 of
+    :func:`_auto_patch_is_current`) whose value TODAY differs from the one
+    *meta* recorded, as ``(stamp key, recorded, now)`` in the gate's order —
+    empty when all are current.
+
+    *meta* is :func:`build_support.read_patch_source`'s dict: the auto
+    patch's own stamps for the reuse gate, or — for the patch editor's
+    staleness note (spec patch-editor-20261015 §1.4) — the stamps an edited
+    patch recorded from the patch it started from.  *patch_file* is the
+    file the stamps came from (the mtime fallback of an un-timed apt.dat).
+    Logs nothing: the gate names the first, the editor all of them.
+    """
+    if apt_dat_now is None:
+        from .build_support import _pick_best_apt_dat_against_osm
+        apt_dat_now = _pick_best_apt_dat_against_osm(xp_root, icao)
+    apt_now = apt_dat_now
+    if not apt_now:
+        return [("o4_apt_dat", meta.get("apt_dat"), apt_now)]
+    stale: list[tuple[str, object, object]] = []
+    if os.path.realpath(apt_now) != os.path.realpath(meta["apt_dat"]):
+        stale.append(("o4_apt_dat", meta["apt_dat"], apt_now))
+    else:
+        try:
+            mtime_now: float | None = os.path.getmtime(apt_now)
+        except OSError:
+            mtime_now = None
+        stored = meta.get("apt_dat_mtime")
+        if mtime_now is None:
+            stale.append(("o4_apt_dat", meta["apt_dat"], None))
+        elif stored is None:
+            # Stamp carries a path but no mtime (apt.dat was unreadable
+            # at emit time): fall back to file-date ordering against the
+            # patch itself.
+            try:
+                if mtime_now > os.path.getmtime(patch_file):
+                    stale.append(("o4_apt_dat_mtime", None, mtime_now))
+            except OSError:
+                stale.append(("o4_apt_dat_mtime", None, mtime_now))
+        # Exact-match, not newer-than: replacing an airport with an OLDER
+        # apt.dat (pack downgrade / restore) must also trigger a rebuild.
+        elif abs(mtime_now - stored) >= 1e-6:
+            stale.append(("o4_apt_dat_mtime", stored, mtime_now))
+
+    # ── Input 1b: §44's BORROWED Global Airports apt.dat ───────────────────
+    # STAT ONLY.  The borrow DECISION is not re-derived here (no Global-block
+    # parse, no coverage union — the gate is stat()s by construction): the
+    # patch names the file it borrowed from, and the only question asked is
+    # whether THAT file still has the mtime it had at emit time.  A patch
+    # that borrowed nothing (or pre-dates §44) carries "" and is untouched by
+    # this block — no mass invalidation.
+    borrowed = meta.get("apt_dat_borrowed") or ""
+    if borrowed:
+        b_stored = meta.get("apt_dat_borrowed_mtime")
+        try:
+            b_now: float | None = os.path.getmtime(borrowed)
+        except OSError:
+            b_now = None
+        if b_stored is None or b_now is None or abs(b_now - b_stored) >= 1e-6:
+            stale.append(("o4_apt_dat_borrowed_mtime", b_stored, b_now))
+
+    # ── Inputs 2-7 ────────────────────────────────────────────────────────
+    stamped = meta.get("freshness") or {}
+    live = _freshness_stamps_now(tile, xp_root, icao, apt_now, cifp_file)
+    live["o4_dsf"] = _dsf_identities_now(
+        apt_now, stamped.get("o4_dsf_tiles", "?"))
+    from . import provenance as _prov
+    stale.extend((key, stamped.get(key), live.get(key))
+                 for key in _prov.freshness_mismatches(stamped, live))
+    return stale
+
+
 def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
                            icao: str, *, tile=None,
                            cifp_file: str | None = None,
@@ -443,77 +519,14 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     if not meta:
         _rebuild_reason(icao, "no build-input stamps on the existing patch")
         return False
-    # ``apt_dat_now`` is the selection the patch SELECTOR already made for
-    # this airport (spec section A.3); passing it keeps the apt.dat scan at
-    # ONE call per airport per build, where the pre-selector driver paid two
-    # for every airport it rebuilt.
-    if apt_dat_now is None:
-        from .build_support import _pick_best_apt_dat_against_osm
-        apt_dat_now = _pick_best_apt_dat_against_osm(xp_root, icao)
-    apt_now = apt_dat_now
-    if not apt_now:
-        _rebuild_reason(icao, "o4_apt_dat")
-        return False
-    if os.path.realpath(apt_now) != os.path.realpath(meta["apt_dat"]):
-        _rebuild_reason(icao, "o4_apt_dat")
-        return False
-    try:
-        mtime_now = os.path.getmtime(apt_now)
-    except OSError:
-        _rebuild_reason(icao, "o4_apt_dat")
-        return False
-    stored = meta.get("apt_dat_mtime")
-    if stored is None:
-        # Stamp carries a path but no mtime (apt.dat was unreadable
-        # at emit time): fall back to file-date ordering against the
-        # patch itself.
-        try:
-            if mtime_now > os.path.getmtime(auto_patch_file):
-                _rebuild_reason(icao, "o4_apt_dat_mtime")
-                return False
-        except OSError:
-            _rebuild_reason(icao, "o4_apt_dat_mtime")
-            return False
-    # Exact-match, not newer-than: replacing an airport with an OLDER
-    # apt.dat (pack downgrade / restore) must also trigger a rebuild.
-    elif abs(mtime_now - stored) >= 1e-6:
-        _rebuild_reason(icao, "o4_apt_dat_mtime")
-        return False
-
-    # ── Input 1b: §44's BORROWED Global Airports apt.dat ───────────────────
-    # STAT ONLY.  The borrow DECISION is not re-derived here (no Global-block
-    # parse, no coverage union — the gate is stat()s by construction): the
-    # patch names the file it borrowed from, and the only question asked is
-    # whether THAT file still has the mtime it had at emit time.  A patch
-    # that borrowed nothing (or pre-dates §44) carries "" and is untouched by
-    # this block — no mass invalidation.
-    borrowed = meta.get("apt_dat_borrowed") or ""
-    if borrowed:
-        b_stored = meta.get("apt_dat_borrowed_mtime")
-        try:
-            b_now: float | None = os.path.getmtime(borrowed)
-        except OSError:
-            b_now = None
-        if b_stored is None or b_now is None or abs(b_now - b_stored) >= 1e-6:
-            _rebuild_reason(icao, "o4_apt_dat_borrowed_mtime")
-            UI.vprint(2, "   Auto-patch:", icao,
-                      "rebuild — borrowed apt.dat", borrowed,
-                      "changed (was", repr(b_stored),
-                      ", now", repr(b_now) + ").")
-            return False
-
-    # ── Inputs 2-7 ────────────────────────────────────────────────────────
-    stamped = meta.get("freshness") or {}
-    live = _freshness_stamps_now(tile, xp_root, icao, apt_now, cifp_file)
-    live["o4_dsf"] = _dsf_identities_now(
-        apt_now, stamped.get("o4_dsf_tiles", "?"))
-    from . import provenance as _prov
-    changed = _prov.freshness_mismatch(stamped, live)
-    if changed is not None:
-        _rebuild_reason(icao, changed)
-        UI.vprint(2, "   Auto-patch:", icao, "rebuild —", changed,
-                  "changed (was", repr(stamped.get(changed)),
-                  ", now", repr(live.get(changed)) + ").")
+    stale = auto_patch_stale_inputs(meta, auto_patch_file, xp_root, icao,
+                                    tile=tile, cifp_file=cifp_file,
+                                    apt_dat_now=apt_dat_now)
+    if stale:
+        key, was, now = stale[0]
+        _rebuild_reason(icao, key)
+        UI.vprint(2, "   Auto-patch:", icao, "rebuild —", key,
+                  "changed (was", repr(was), ", now", repr(now) + ").")
         return False
     # ── Input 8: the object plan can still be built ───────────────────────
     # The rebake plan is built AFTER the mesh from the partition this
@@ -1525,18 +1538,7 @@ def generate_auto_patches(tile, cifp_path: str,
     patch_dir = FNAMES.patch_dir(tile_lat, tile_lon)
 
     # Discover which manual patches already exist
-    manual_patches = set()
-    if os.path.exists(patch_dir):
-        for fname in os.listdir(patch_dir):
-            if fname.endswith(".patch.osm") and "_auto.patch.osm" not in fname:
-                # Extract probable ICAO code from filename
-                base = fname[:-10]  # strip .patch.osm
-                # The ICAO prefix is the part before any underscore, or the
-                # whole base name if no underscore
-                icao_prefix = base.split("_")[0].upper()
-                manual_patches.add(icao_prefix)
-            elif os.path.isdir(os.path.join(patch_dir, fname)):
-                manual_patches.add(fname.upper())
+    manual_patches = FNAMES.manual_patch_icaos_in(patch_dir)
 
     auto_patched: list[str] = []
     reused: list[str] = []

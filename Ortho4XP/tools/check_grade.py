@@ -11979,6 +11979,30 @@ SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
 )
 
 
+#: The label a user-edited patch's census carries (spec
+#: patch-editor-20261015 §1.3, owner A5: "violations are reported, never
+#: fail the build, result labelled 'user-edited'").
+USER_EDITED_LABEL = "user-edited"
+
+
+class UserEditedPatchUnjudged(FileNotFoundError):
+    """A user-edited patch (``o4_user_edited="1"``) with no law frame of its
+    own: the patch editor writes no sidecar, and grade checking of edits is
+    ruled out (owner A3) — the census REPORTS it under
+    :data:`USER_EDITED_LABEL` instead of refusing.  A subclass of
+    ``FileNotFoundError`` so every other caller still refuses a
+    context-free run exactly as before."""
+
+
+def user_edited_label(osm_path) -> Optional[str]:
+    """:data:`USER_EDITED_LABEL` when the patch's root carries
+    ``o4_user_edited="1"`` (the patch editor's mark), else ``None`` — the
+    ONE predicate the census and the build log read
+    (``auto_patch.build_support.is_user_edited_patch``)."""
+    from auto_patch.build_support import is_user_edited_patch
+    return USER_EDITED_LABEL if is_user_edited_patch(str(osm_path)) else None
+
+
 def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     """Read the patch's ``.axes.json`` sidecar and return the ``run_checks``
     law keywords it declares — THE single sidecar reader.
@@ -11997,6 +12021,11 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     """
     import json as _json
     side = Path(str(osm_path) + ".axes.json")
+    if not side.exists() and user_edited_label(osm_path):
+        raise UserEditedPatchUnjudged(
+            f"{osm_path} is a user-edited patch (o4_user_edited=1) with no "
+            f"law frame — its grade law is not judged (owner A3); it is "
+            f"reported, never failed (A5).")
     if not side.exists():
         raise FileNotFoundError(
             f"no axes sidecar for {osm_path} — refusing a context-free run. "

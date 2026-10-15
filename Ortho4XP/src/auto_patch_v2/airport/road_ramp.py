@@ -1261,6 +1261,9 @@ class WallPiece(_t.NamedTuple):
     height_m: float
     label: str          # ``<resource>#comp<N>``
     retains: bool = False
+    #: a walled tunnel MOUTH's piece (:func:`mouth_wall_pieces`): its outline
+    #: bounds the open cut too, so it declares only the step it carries
+    mouth: bool = False
 
 
 def wall_pieces(airport: Airport | None, cfg=None) -> tuple[WallPiece, ...]:
@@ -1302,7 +1305,7 @@ def mouth_wall_pieces(pm: PlanarMap) -> tuple[WallPiece, ...]:
         g = _Poly(ring)
         g = g if g.is_valid else g.buffer(0.0)
         if not g.is_empty and g.geom_type == "Polygon":
-            out.append(WallPiece(g, float(depth), f"{path}#mouth", True))
+            out.append(WallPiece(g, float(depth), f"{path}#mouth", True, True))
     return tuple(out)
 
 
@@ -1477,6 +1480,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                 pm.ring_vertices(pm.faces[pf].ring))))))
         out[k] = {"line": [tuple(c) for c in ring], "height_m": w.height_m,
                   "label": w.label, "retains": bool(w.retains),
+                  "mouth": bool(w.mouth),
                   "upper": upper, "lower": lower,
                   "lots": lots, "pairs": pairs}
     return out

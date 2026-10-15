@@ -56,15 +56,15 @@ def pack(tmp_path, monkeypatch):
     root = xp / "Custom Scenery" / "ZZ Pack"
     (root / "Earth nav data" / "+40-130").mkdir(parents=True)
     (root / "Earth nav data" / "apt.dat").write_text(
-        "I\n1100 Version\n\n1 200 0 0 ZZZZ Synthetic\n99\n")
+        "I\n1100 Version\n\n1 200 0 0 ZZZZ Synthetic\n99\n", encoding="utf-8", newline="\n")
     dsf = root / "Earth nav data" / "+40-130" / "+45-123.dsf"
     dsf.write_bytes(b"XPLNEDSF")
     (root / "objects").mkdir()
-    (root / "objects" / "box.obj").write_text(OBJ8)
+    (root / "objects" / "box.obj").write_text(OBJ8, encoding="utf-8", newline="\n")
     cache = tmp_path / "Airport_mod_cache"
     (cache / "ZZ Pack").mkdir(parents=True)
     dump = cache / "ZZ Pack" / "+45-123.dsf.text"
-    dump.write_text(DUMP)
+    dump.write_text(DUMP, encoding="utf-8", newline="\n")
     os.utime(dump, (dsf.stat().st_mtime + 10,) * 2)
     monkeypatch.setattr(PO, "xplane_root_for", lambda lat, lon: str(xp))
     monkeypatch.setattr(FNAMES, "airport_mod_cache_root", lambda: str(cache))
@@ -141,7 +141,7 @@ def _write_alt(build_dir, side=101):
     alt.tofile(path)
     (build_dir / "Data+45-123.alt.frame.json").write_text(json.dumps({
         "schema": "o4.alt.frame/1", "x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0,
-        "nxdem": side, "nydem": side, "epsg": 4326}))
+        "nxdem": side, "nydem": side, "epsg": 4326}), encoding="utf-8", newline="\n")
     return path
 
 

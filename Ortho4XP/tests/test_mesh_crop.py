@@ -35,7 +35,7 @@ def _write_mesh(folder):
     lines += ["Normals", "0", "Triangles", str(len(TRIS))]
     lines += [f"{a} {b} {c} 0" for a, b, c in TRIS]
     path = folder / "Data+45-123.mesh"
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return path
 
 
@@ -87,7 +87,7 @@ def test_terrain_sample_reads_the_built_dem_in_build_dir(tmp_path, monkeypatch):
     (700 + 10 * y + 0 * np.arange(side)[None, :]).astype(np.float32).tofile(folder / "Data+45-123.alt")
     (folder / "Data+45-123.alt.frame.json").write_text(json.dumps({
         "schema": "o4.alt.frame/1", "x0": 0.0, "y0": 0.0, "x1": 1.0, "y1": 1.0,
-        "nxdem": side, "nydem": side}))
+        "nxdem": side, "nydem": side}), encoding="utf-8", newline="\n")
     reply = TC.terrain_sample(TILE, "ZZZZ", [45.2, -122.8, 45.21, -122.79], 100.0, str(folder))
     assert reply["sources"]["frame"] == "production"
     assert reply["sources"]["base"] == str(folder / "Data+45-123.alt")

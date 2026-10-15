@@ -11768,7 +11768,7 @@ _EDITED_OSM = (
 def test_a_user_edited_patch_without_a_frame_is_reported_not_refused(
         cg, census_mod, tmp_path, capsys):
     osm = tmp_path / "HECA_edited.patch.osm"
-    osm.write_text(_EDITED_OSM.format(mark=" o4_user_edited='1'"))
+    osm.write_text(_EDITED_OSM.format(mark=" o4_user_edited='1'"), encoding="utf-8", newline="\n")
     assert cg.user_edited_label(osm) == cg.USER_EDITED_LABEL == "user-edited"
     with pytest.raises(cg.UserEditedPatchUnjudged):
         cg.law_context_from_sidecar(osm)
@@ -11780,7 +11780,7 @@ def test_a_user_edited_patch_without_a_frame_is_reported_not_refused(
 
 def test_an_unmarked_patch_without_a_frame_still_refuses(cg, census_mod, tmp_path):
     osm = tmp_path / "HECA.patch.osm"
-    osm.write_text(_EDITED_OSM.format(mark=""))
+    osm.write_text(_EDITED_OSM.format(mark=""), encoding="utf-8", newline="\n")
     assert cg.user_edited_label(osm) is None
     with pytest.raises(FileNotFoundError) as info:
         cg.law_context_from_sidecar(osm)

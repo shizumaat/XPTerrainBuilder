@@ -121,7 +121,7 @@ def test_revert_renames_and_never_deletes(heca, patches):
 
 def test_a_hand_made_patch_is_saved_back_to_itself(patches):
     path = os.path.join(patches, "LXYZ.patch.osm")
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(_JOSM)
     doc = PC.patch_load(TILE, "lxyz")
     assert doc["source"] == "manual" and doc["path"] == path and doc["stale"] is False
@@ -138,7 +138,7 @@ def test_a_hand_made_patch_is_saved_back_to_itself(patches):
 
 def test_save_refuses_a_way_whose_node_is_missing_and_a_foreign_base(patches):
     path = os.path.join(patches, "LXYZ.patch.osm")
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(_JOSM)
     doc = PC.patch_load(TILE, "LXYZ")
     with pytest.raises(ValueError, match="references node -3"):
@@ -192,7 +192,7 @@ class _Capture(io.StringIO):
 
 def test_the_four_commands_round_trip_through_the_jsonl_transport(patches):
     path = os.path.join(patches, "LXYZ.patch.osm")
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(_JOSM)
     load = PC.patch_load(TILE, "LXYZ")
     commands = [

@@ -44,7 +44,7 @@ def xp(tmp_path, monkeypatch):
     xp = tmp_path / "X-Plane"
     ned = xp / "Custom Scenery" / "ZZ Pack" / "Earth nav data"
     ned.mkdir(parents=True)
-    (ned / "apt.dat").write_text(APT)
+    (ned / "apt.dat").write_text(APT, encoding="utf-8", newline="\n")
     monkeypatch.setattr(PO, "xplane_root_for", lambda lat, lon: str(xp))
     return xp
 

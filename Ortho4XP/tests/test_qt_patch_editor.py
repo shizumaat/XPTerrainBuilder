@@ -63,7 +63,7 @@ def patches(tmp_path, monkeypatch):
     monkeypatch.setattr(PC, "_staleness", lambda tile, icao, doc, source: (False, []))
     directory = FNAMES.patch_dir(30, 31)
     os.makedirs(directory)
-    with open(os.path.join(directory, "ZZZZ_auto.patch.osm"), "w", encoding="utf-8") as f:
+    with open(os.path.join(directory, "ZZZZ_auto.patch.osm"), "w", encoding="utf-8", newline="\n") as f:
         f.write(_AUTO)
     return directory
 
@@ -273,7 +273,7 @@ def test_unsaved_edits_ask_before_quitting_and_revert_moves_the_file_aside(edito
 def test_hand_made_patch_saves_back_to_itself(editor, patches):
     ed, view = editor
     hand = os.path.join(patches, "ZZZZ_runways.patch.osm")
-    with open(hand, "w", encoding="utf-8") as f:
+    with open(hand, "w", encoding="utf-8", newline="\n") as f:
         f.write(_AUTO)
     ed.controller.evaluate()
     ed.controller.evaluate()

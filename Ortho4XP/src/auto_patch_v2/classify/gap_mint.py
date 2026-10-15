@@ -35,7 +35,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..airport.slab_faces import witness_faces
-from ..geom.base_slab import slab_polygons
+from ..geom.base_slab import base_slabs
 from ..geom.proportions import road_proportioned
 from ..law.tables import base_slab_law, gap_standoff_m, snap_margin_m
 from ..model.airport import Airport
@@ -117,8 +117,12 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     # (``geom.base_slab`` — the reading that took it off the pads)
     _part = getattr(airport, "partition", None)
     _lw = base_slab_law(law)
-    slabs = (slab_polygons(_part, airport.frame.entry(), _lw, witness_faces(_lw))
-             if _part is not None else [])
+    _slabs = (base_slabs(_part, airport.frame.entry(), _lw, witness_faces(_lw))
+              if _part is not None else ())
+    slabs = [s.open for s in _slabs]
+    # an ELEVATED deck's ground (rule 7) is pavement under it, never the
+    # slab's own surface: the slab weld (#712) skips its pieces
+    _deck = unary_union([s.open for s in _slabs if s.elevated])
     stats["base_slab_sheets"] = len(slabs)
     stats["base_slab_sheet_m2"] = round(sum(g.area for g in slabs), 1)
     stats["gap_pieces_base_slab"] = 0
@@ -288,6 +292,8 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
             role = ROLE
             if k in slabby:
                 evid["base_slab"] = 1.0
+                if not _deck.is_empty and part.intersection(_deck).area > 0.5 * part.area:
+                    evid["base_slab_deck"] = 1.0
                 role = slab_role(part, rules)
                 stats["gap_pieces_base_slab_lot"] = \
                     stats.get("gap_pieces_base_slab_lot", 0) + int(role == LOT_ROLE)

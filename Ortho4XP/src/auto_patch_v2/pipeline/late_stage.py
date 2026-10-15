@@ -354,6 +354,12 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         f"rows with no unknown dropped {dropped}")
     grows, grep = ([], {"rows": 0, "conflicts": [], "declared": []}) if roads_only \
         else gap_follow_rows(pm, law, fixed, part_stations, BEHIND_STEP)
+    if not roads_only:
+        # #712 (10o (B)): a base slab meets the pack pavement beside it at
+        # one level across the stand-off — both are this stage's unknowns
+        from ..constraints.slab_weld import slab_weld_rows
+        wrows, grep["slab_weld"] = slab_weld_rows(pm, law, cl_cut, fixed)
+        grows = [*grows, *wrows]
     cs = ConstraintSet.from_rows([*cs.rows(), *grows])
     cs_full = ConstraintSet.from_rows([*cs_all.rows(), *grows])
     # the lot SITS at its road's level: the one published-target channel

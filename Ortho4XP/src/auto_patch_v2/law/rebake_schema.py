@@ -213,6 +213,18 @@ class Placement:
     #: entirely (every FEET body stays vertical, the pre-10-01k reading).
     seat_tilt_max_deg: float = 1.5
 
+    #: A SHARED FRAME TILTS AS ONE (owner RULINGS 2026-10-14p (1), #708):
+    #: the bodies of one written frame (a §16c (7) bind, a carry on one
+    #: anchor) are rotated TOGETHER by the plane fitted to the whole
+    #: group's feet only up to this total tilt; past it the group stays
+    #: level and rigid.  Owner: *"If it's a very gentle slope, then just
+    #: tilting the group might be acceptable, but we can't have buildings
+    #: leaning at an unlikely angle."*  Proposed 1.0 deg (1.75 %), under
+    #: ``seat_tilt_max_deg``'s apron reading (1.22 deg): a walled building
+    #: leaning more than that reads as wrong.  0 keeps every shared frame
+    #: level.
+    frame_tilt_max_deg: float = 1.0
+
     #: THE AUTHORED PLACEMENT IS KEPT (owner RULINGS 2026-10-14g (2)/(3);
     #: ``airport/authored_landing``).  An ``OBJECT_AGL`` row whose written
     #: ``OBJECT_MSL`` would equal its drape within this stays AGL, and a

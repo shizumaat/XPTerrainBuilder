@@ -69,3 +69,66 @@ def test_a_lone_body_keeps_its_tilt_the_shelters_case():
               _staged(1, [_anchor(39.2283684, -106.8688225, y0=-0.5)])]
     # one point, two zeros: two frames, neither shared
     assert PST.shared_frames(staged) == frozenset()
+
+
+# ── RULINGS 2026-10-14p (1): the shared frame tilts AS ONE, gently ──────
+
+def _frame_staged(grade_feet):
+    """Two members bound into ONE frame (a senior and a sibling sharing its
+    whole anchor): each a post base whose feet span the shelter's length."""
+    from test_objtilt162 import FOOT_Y, LAT, LON, Z0
+    from auto_patch_v2.airport import obj8_grade as OG
+    a = AR.Anchor(AR.BUILDING, LAT, LON, FOOT_Y, "median foot", Z0)
+    sts = []
+    for mi in (0, 1):
+        m = types.SimpleNamespace(heading_deg=0.0, resource=f"objects/x{mi}.obj",
+                                  base_profile={"verdict": OG.FEET})
+        sts.append(types.SimpleNamespace(
+            mi=mi, m=m, raw=[([object()], AR.BUILDING, a, grade_feet[mi], False)],
+            groups=[[0]], carried=[]))
+    return sts
+
+
+def _frame(grade: float, frame_max: float):
+    from test_objtilt162 import BAND_M, CAP_DEG, TOL_M, _U, _feet, _surface
+    feet = _feet()
+    half = len(feet) // 2
+    sts = _frame_staged([feet[:half], feet[half:]])      # each its own half
+    counts: dict[str, int] = {}
+    seats = PST.frame_tilts(sts, _U(), _surface(grade), max_total_deg=CAP_DEG,
+                            frame_max_deg=frame_max, foot_tol_m=TOL_M,
+                            band_m=BAND_M, counts=counts)
+    return seats, counts
+
+
+def test_a_gentle_shared_frame_tilts_as_one_by_the_whole_groups_plane():
+    """1.36 % = 0.78 deg, under the 1.0 deg frame cap: ONE seat for the
+    frame, fitted to BOTH members' feet, every foot within tolerance."""
+    import math
+    from test_objtilt162 import APRON_GRADE, TOL_M
+    seats, counts = _frame(APRON_GRADE, 1.0)
+    assert len(seats) == 1 and counts["frame_tilt_applied"] == 1
+    (seat,) = seats.values()
+    assert seat.applied and seat.feet == 44            # both halves' feet
+    assert abs(seat.total_deg - math.degrees(math.atan(APRON_GRADE))) < 1e-6
+    assert seat.residual_max_m <= TOL_M
+
+
+def test_a_steep_shared_frame_stays_level_and_rigid():
+    """Past ``frame_tilt_max_deg`` nothing tilts: the group stays level."""
+    seats, counts = _frame(0.0136, 0.5)
+    assert seats == {} and counts["frame_tilt_over_cap"] == 1
+    seats, _c = _frame(0.0136, 0.0)                    # 0 keeps every frame level
+    assert seats == {}
+
+
+def test_every_body_of_the_frame_takes_the_one_seat():
+    from test_objtilt162 import _body, _feet, _M, _U, _surface, BAND_M, TOL_M
+    seats, _c = _frame(0.0136, 1.0)
+    (seat,) = seats.values()
+    b = _body(_feet())
+    out = PST.seat_tilt(b, _U(), _M(), surface=_surface(), max_total_deg=1.5,
+                        foot_tol_m=TOL_M, band_m=BAND_M, counts={},
+                        shared=True, frame_seat=seat)
+    assert out.seat is seat and out.new_resource != b.new_resource
+    assert PST.with_frame_seat(b, _M(), None) is b

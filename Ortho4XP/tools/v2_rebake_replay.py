@@ -458,6 +458,8 @@ def cmd_plan(args: argparse.Namespace) -> int:
                              "under_m", None),
         seat_tilt_max_deg=getattr(law.tables.structures.placement,
                                   "seat_tilt_max_deg", None),
+        frame_tilt_max_deg=getattr(law.tables.structures.placement,
+                                   "frame_tilt_max_deg", None),
         authored_keep_tol_m=getattr(law.tables.structures.placement,
                                     "authored_keep_tol_m", None),
         jetway_strips=tuple((_gdoc.get("provenance") or {})

@@ -110,7 +110,7 @@ from . import placement_carrier as _pc
 from .placement_motion import feet_in_band, foot_float
 
 __all__ = ["SeatTilt", "SEAT_REASON", "SEAT_TILT_MIN_DEG", "fit", "seat_tilt",
-           "shared_frames"]
+           "shared_frames", "frame_tilts", "with_frame_seat", "frame_key"]
 
 #: The prefix an anchor-reason-style note carries so a reader can tell the
 #: seat tilt from every other reason without parsing a number.
@@ -266,10 +266,14 @@ def fit(pts: _t.Sequence[_t.Tuple[float, float, float]],
                    f"tolerance (REPORTED, no block cut)" if over else "")))
 
 
-def frame_key(a: _t.Any) -> tuple:
+def frame_key(a: _t.Any) -> "tuple | None":
     """The written FRAME of an anchor: the point its row stands on and the
-    zero its file bakes.  Two bodies with one key move as one."""
-    return (a.lat, a.lon, a.surface_z, a.y_zero)
+    zero its file's authored origin renders at (``surface_z - y_zero``).
+    Two bodies with one key move as one; ``None`` off the surface."""
+    if a.surface_z is None:
+        return None
+    return (round(float(a.lat), 9), round(float(a.lon), 9),
+            round(float(a.surface_z) - float(a.y_zero), 3))
 
 
 def shared_frames(staged: _t.Iterable[_t.Any]) -> frozenset[tuple[int, int]]:
@@ -289,8 +293,9 @@ def shared_frames(staged: _t.Iterable[_t.Any]) -> frozenset[tuple[int, int]]:
     for st in staged:
         for k, grp in enumerate(st.groups):
             if grp:
-                a = st.raw[_pc.senior_of(st.raw, grp)][2]
-                keys.setdefault(frame_key(a), []).append((st.mi, k))
+                key = frame_key(st.raw[_pc.senior_of(st.raw, grp)][2])
+                if key is not None:
+                    keys.setdefault(key, []).append((st.mi, k))
         for _grp, c, _why in st.carried:
             shared.add((c.member, c.group))
     for slots in keys.values():
@@ -299,10 +304,117 @@ def shared_frames(staged: _t.Iterable[_t.Any]) -> frozenset[tuple[int, int]]:
     return frozenset(shared)
 
 
+def _excluded(body_class: str, a: _t.Any, merged: bool, elevated: bool) -> bool:
+    """The bodies 10-01k Q1 never rotates (module doc)."""
+    return bool(body_class in _NEVER or merged or elevated or a.datum
+                or a.family or a.connector_of or a.unit_seat)
+
+
+def _verdict(m: _t.Any) -> str:
+    return str((getattr(m, "base_profile", None) or {}).get("verdict") or "")
+
+
+def _foot_rows(feet: _t.Iterable, a: _t.Any, offset: _t.Sequence[float],
+               u: _t.Any, m: _t.Any, surface: _t.Any, band_m: float
+               ) -> tuple[list, list, int]:
+    """``(pts, rise, off_surface)``: the feet in the body's own authored
+    frame (after the writer's translation by ``offset``) and how much
+    higher each must render to meet the surface — :func:`fit`'s input."""
+    from .placement_plan import authored_offset   # circular at import time
+    za, y0 = float(a.surface_z), float(a.y_zero)
+    dx, dy, dz = (float(q) for q in offset)
+    pts: list[tuple[float, float, float]] = []
+    rise: list[float] = []
+    off = 0
+    for f in feet_in_band(feet, band_m):
+        lat, lon, fy = float(f[0]), float(f[1]), float(f[2])
+        zf = surface(lat, lon)
+        if zf is None:
+            off += 1
+            continue
+        ax, _ay, az = authored_offset(lat, lon, fy, u.anchor[0], u.anchor[1],
+                                      m.heading_deg)
+        pts.append((ax - dx, fy - dy, az - dz))
+        rise.append(foot_float(float(zf), za, fy, y0))
+    return pts, rise, off
+
+
+def frame_tilts(staged: _t.Sequence[_t.Any], u: _t.Any, surface: _t.Any, *,
+                max_total_deg: float, frame_max_deg: float, foot_tol_m: float,
+                band_m: float, counts: dict[str, int],
+                shared: "frozenset[tuple[int, int]] | None" = None
+                ) -> dict[tuple, SeatTilt]:
+    """THE SHARED FRAME TILTS AS ONE (owner RULINGS 2026-10-14p (1), #708):
+    for every frame :func:`shared_frames` names, ONE plane fitted to the
+    feet of every body written in it, applied to all of them — or none.
+
+    The group tilts when at least one of its bodies is one 10-01k Q1 would
+    tilt (a post-feet base, none of the never-tilted classes or seats),
+    every member it holds is placed at one heading (one rotation is one
+    gradient pair only in one authored frame), and the fitted total tilt
+    is within ``frame_max_deg`` (``[placement] frame_tilt_max_deg``) and
+    the seat cap.  Otherwise it stays level and rigid, counted.  Returns
+    ``{frame key: the applied seat}``; a frame absent is level."""
+    cap = min(float(max_total_deg), float(frame_max_deg))
+    if surface is None or cap <= 0.0:
+        return {}
+    shared = shared if shared is not None else shared_frames(staged)
+    from .placement_plan import authored_offset   # circular at import time
+    groups: dict[tuple, list] = {}
+    for st in staged:
+        for k, grp in enumerate(st.groups):
+            if not grp or (st.mi, k) not in shared:
+                continue
+            a = st.raw[_pc.senior_of(st.raw, grp)][2]
+            key = frame_key(a)
+            if key is None:
+                continue
+            feet = tuple(f for i in grp if not st.raw[i][4] for f in st.raw[i][3])
+            elevated = all(st.raw[i][4] for i in grp)
+            groups.setdefault(key, []).append((st, a, feet, elevated))
+    out: dict[tuple, SeatTilt] = {}
+    for key, slots in groups.items():
+        if any(_excluded(a.body_class, a, False, False) for _st, a, _f, _e in slots):
+            continue
+        if not any(_verdict(st.m) == _og.FEET and not el and feet
+                   for st, _a, feet, el in slots):
+            continue
+        if len({round(float(st.m.heading_deg), 6) for st, *_r in slots}) > 1:
+            counts["frame_tilt_mixed_heading"] = \
+                counts.get("frame_tilt_mixed_heading", 0) + 1
+            continue
+        st0, a0 = slots[0][0], slots[0][1]
+        off = authored_offset(a0.lat, a0.lon, a0.y_zero, u.anchor[0],
+                              u.anchor[1], st0.m.heading_deg)
+        pts: list = []
+        rise: list = []
+        for st, a, feet, _el in slots:
+            p, r, _off = _foot_rows(feet, a, off, u, st.m, surface, band_m)
+            pts += p
+            rise += r
+        seat = fit(pts, rise, max_total_deg=cap, foot_tol_m=foot_tol_m)
+        if seat.applied:
+            out[key] = _dc.replace(seat, reason="frame " + seat.reason)
+            counts["frame_tilt_applied"] = counts.get("frame_tilt_applied", 0) + 1
+        elif seat.over_tolerance:
+            counts["frame_tilt_over_cap"] = counts.get("frame_tilt_over_cap", 0) + 1
+    return out
+
+
+def with_frame_seat(body: _t.Any, m: _t.Any, seat: "SeatTilt | None") -> _t.Any:
+    """``body`` carrying its frame's seat (:func:`frame_tilts`), its file
+    renamed for the tilt it bakes (§4.5 / 14at); unchanged with none."""
+    if seat is None or body.merged_into or not seat.applied:
+        return body
+    return _dc.replace(body, seat=seat, new_resource=_split.body_resource_name(
+        m.resource, body.body_id, body.anchor.offset, seat.grad))
+
+
 def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
               surface: "_ar.Surface | None",
               max_total_deg: float, foot_tol_m: float, band_m: float,
-              counts: dict[str, int], shared: bool = False) -> _t.Any:
+              counts: dict[str, int], shared: bool = False,
+              frame_seat: "SeatTilt | None" = None) -> _t.Any:
     """The body with its :class:`SeatTilt` decided, or the body unchanged.
 
     ``u`` / ``m`` are the plan's Unit / Member — the authored frame the
@@ -310,20 +422,20 @@ def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
     ``base_profile`` verdict.  Mirrors ``placement_deck.deck_seat``: one
     pure per-body step the plan applies after the bodies are formed, so
     nothing upstream has to know about the seat.  ``shared``: this body's
-    frame is another body's too (:func:`shared_frames`) — it is not
-    rotated alone (issue #708).
+    frame is another body's too (:func:`shared_frames`) — it is never
+    rotated alone (issue #708): it takes ``frame_seat``, the one tilt
+    :func:`frame_tilts` decided for its whole frame, or stays level.
     """
-    if max_total_deg <= 0.0 or surface is None or not body.feet:
-        return body
     if shared:
         counts["seat_tilt_shared_frame"] = \
             counts.get("seat_tilt_shared_frame", 0) + 1
+        return with_frame_seat(body, m, frame_seat)
+    if max_total_deg <= 0.0 or surface is None or not body.feet:
         return body
     a = body.anchor
-    if (body.body_class in _NEVER or body.merged_into or body.elevated
-            or a.datum or a.family or a.connector_of or a.unit_seat):
+    if _excluded(body.body_class, a, bool(body.merged_into), body.elevated):
         return body
-    verdict = str((getattr(m, "base_profile", None) or {}).get("verdict") or "")
+    verdict = _verdict(m)
     if verdict in _FLOOR_VERDICTS:
         # 10-01k Q1 tilts a POST base; a floor plane is the pad law's
         counts["seat_tilt_floor_plane"] = \
@@ -335,22 +447,8 @@ def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
         counts["seat_tilt_anchor_off_surface"] = \
             counts.get("seat_tilt_anchor_off_surface", 0) + 1
         return body
-    from .placement_plan import authored_offset   # circular at import time
-    za, y0 = float(a.surface_z), float(a.y_zero)
-    dx, dy, dz = (float(q) for q in a.offset)
-    pts: list[tuple[float, float, float]] = []
-    rise: list[float] = []
-    off_surface = 0
-    for f in feet_in_band(body.feet, band_m):
-        lat, lon, fy = float(f[0]), float(f[1]), float(f[2])
-        zf = surface(lat, lon)
-        if zf is None:
-            off_surface += 1
-            continue
-        ax, _ay, az = authored_offset(lat, lon, fy, u.anchor[0], u.anchor[1],
-                                      m.heading_deg)
-        pts.append((ax - dx, fy - dy, az - dz))
-        rise.append(foot_float(float(zf), za, fy, y0))
+    pts, rise, off_surface = _foot_rows(body.feet, a, a.offset, u, m,
+                                        surface, band_m)
     if off_surface:
         counts["seat_tilt_feet_off_surface"] = \
             counts.get("seat_tilt_feet_off_surface", 0) + off_surface

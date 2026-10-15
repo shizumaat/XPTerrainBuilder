@@ -14,6 +14,7 @@ Fetched tiles are cached on disk under Previews/livemap/<provider>/.
 
 import math
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -117,6 +118,18 @@ def tile_key(lat, lon):
 
 
 parse_tile_key = FNAMES.parse_tile_key
+
+
+# Mixed-imagery-source audit (docs/specs/qt-backlog-parity2-spec.md §QB3).
+# Ortho4XP names every texture "{y}_{x}_{Provider}{ZL}.dds", and a tile's
+# DSF references textures from ONE source — its config's default_website.
+# Files carrying any other provider token are dead weight from an earlier
+# build with a different source.  Imagery zones legitimately mix ZOOM
+# LEVELS, so only the provider token decides foreignness; masks and other
+# non-.dds files are ignored.  The two-digit ZL anchor is what lets a
+# provider code that itself ends in digits ("USA_2" -> "…_USA_216.dds")
+# parse correctly.
+_TEXTURE_DDS_RE = re.compile(r"\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$")
 
 
 def texture_provider(name):
@@ -297,6 +310,7 @@ class MapView(QGraphicsView):
     hover_ll = Signal(float, float)
     status_message = Signal(str)
     view_changed = Signal()
+    built_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -353,6 +367,11 @@ class MapView(QGraphicsView):
         # Other installed ortho/mesh packages: (name, {(lat, lon)}, dim).
         self._regions = []
         self._scenery_filter = SCENERY_FILTER_ALL
+
+        # Layers drawn over the map that take the mouse first (the patch
+        # editor): paint(painter), mouse_press/move/release(event) -> bool,
+        # viewport_moved().
+        self._layers = []
 
         # Interaction state
         self._panning = False
@@ -459,6 +478,7 @@ class MapView(QGraphicsView):
 
     def set_built(self, built):
         self._built = dict(built)
+        self.built_changed.emit()
         self.viewport().update()
 
     def set_installed(self, installed):
@@ -493,6 +513,24 @@ class MapView(QGraphicsView):
             bins.setdefault(key, []).append(row)
         self._default_airport_bins = bins
         self.viewport().update()
+
+    def airport_marks(self):
+        """Every airport mark as ``(code, lat, lon)`` (Global Airports and
+        custom packs)."""
+        return [(row[0], row[1], row[2])
+                for row in list(self._default_airports) + list(self._custom_airports)]
+
+    def add_layer(self, layer):
+        """Draw ``layer`` over the map and offer it the mouse first."""
+        self._layers.append(layer)
+
+    def pan_by(self, dx, dy):
+        """Move the map content by (dx, dy) viewport pixels."""
+        self.horizontalScrollBar().setValue(
+            self.horizontalScrollBar().value() - int(dx))
+        self.verticalScrollBar().setValue(
+            self.verticalScrollBar().value() - int(dy))
+        self._schedule_refresh()
 
     def set_custom_airports(self, airports):
         """Custom-pack airport marks: ``(code, lat, lon, dim)`` rows,
@@ -638,6 +676,9 @@ class MapView(QGraphicsView):
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
             return
+        if any(layer.mouse_press(event) for layer in self._layers):
+            event.accept()
+            return
         if event.button() == Qt.LeftButton:
             self._press_pos = event.position()
         super().mousePressEvent(event)
@@ -649,13 +690,10 @@ class MapView(QGraphicsView):
         if self._panning:
             d = event.position() - self._pan_start
             self._pan_start = event.position()
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - int(d.x())
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - int(d.y())
-            )
-            self._schedule_refresh()
+            self.pan_by(d.x(), d.y())
+            event.accept()
+            return
+        if any(layer.mouse_move(event) for layer in self._layers):
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -667,6 +705,10 @@ class MapView(QGraphicsView):
         ):
             self._panning = False
             self.unsetCursor()
+            event.accept()
+            return
+        if any(layer.mouse_release(event) for layer in self._layers):
+            self._press_pos = None
             event.accept()
             return
         if (
@@ -711,12 +753,16 @@ class MapView(QGraphicsView):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._place_scan_status()
+        for layer in self._layers:
+            layer.viewport_moved()
 
     def scrollContentsBy(self, dx, dy):
         # QAbstractScrollArea pans by scrolling the whole viewport,
         # dragging child widgets (the scan status) along — re-pin after.
         super().scrollContentsBy(dx, dy)
         self._place_scan_status()
+        for layer in self._layers:
+            layer.viewport_moved()
         self._schedule_refresh()
 
     # ------------------------------------------------------------------
@@ -977,6 +1023,8 @@ class MapView(QGraphicsView):
         # radius-1e-5 ellipses through that transform costs an order of
         # magnitude more than stroking the same dots at screen scale.
         self._draw_airports(painter)
+        for layer in self._layers:
+            layer.paint(painter)
         self._draw_zoom_badge(painter)
         painter.end()
 

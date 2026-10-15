@@ -68,6 +68,7 @@ __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
            "pavement_ring_vertices", "strip_longitudinal_pairs",
            "strip_longitudinal", "strip_arc", "resa_transverse",
            "end_corridor_longitudinal", "end_corridor_rate", "end_pair_bounds",
+           "end_band_vertices",
            "end_transect_pairs", "end_transect_foot",
            "END_PROFILE_RULING", "END_PROFILE_PAIR_RULING", "END_RATE_RULING",
            "END_RATE_PAIR_RULING", "raoa"]
@@ -571,6 +572,21 @@ def _end_stations(vw: View, g: RunwayGroup, ring_idx: int) -> dict[int, tuple[fl
                 continue
             t = -(x - g.axis_a[0]) * uy + (y - g.axis_a[1]) * ux
             out[v] = (d, t)
+    return out
+
+
+def end_band_vertices(vw: View, groups: _t.Iterable[RunwayGroup]) -> set[int]:
+    """THE END BOX (RULINGS 2026-10-15c, the master's bug (b)): every strip
+    vertex the runway-end profile governs — inside an end corridor beyond
+    the pavement end (:func:`_end_stations`), less the vertices no end row
+    binds (:func:`_unbound_end_vertices`).  There the RUNWAY's end profile
+    is the ground's ceiling and a taxi class contributes its floor only
+    (``constraints/zones.zone_bands``)."""
+    unbound = _unbound_end_vertices(vw)
+    out: set[int] = set()
+    for g in groups:
+        for ring_idx in (1, 2):
+            out.update(v for v in _end_stations(vw, g, ring_idx) if v not in unbound)
     return out
 
 

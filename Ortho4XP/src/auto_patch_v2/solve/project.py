@@ -835,10 +835,27 @@ ZONE_RULING = "zones.adjacent_ground"
 #: dependency_direction``): the strips generator's name and head are
 #: spelled here as the zone pair is, and ``tests/auto_patch_v2/
 #: test_runway_end_profile.py`` holds them equal to the generator's own.
+#: The end profile's chord head: the SENIOR corridor row (:func:`senior_band`).
+END_PROFILE_HEAD = "rulesets.end_skirt runway-end profile chord"
 CORRIDOR_RULINGS: tuple[tuple[str, str], ...] = (
     (ZONE_GENERATOR, ZONE_RULING),
-    ("strips", "rulesets.end_skirt runway-end profile chord"),
+    ("strips", END_PROFILE_HEAD),
 )
+
+
+def senior_band(lo_s: np.ndarray, hi_s: np.ndarray, lo_j: np.ndarray,
+                hi_j: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """THE CORRIDOR BAND with the RUNWAY-END PROFILE SENIOR (RULINGS
+    2026-10-15c): the junior zone band ``[lo_j, hi_j]`` is clipped INTO the
+    senior end-profile band ``[lo_s, hi_s]`` — where both hold, their
+    intersection; where they conflict the end profile stands and the zone
+    row yields (measured KBJC 12L, base: a zone floor 2.35 m over the end
+    profile's ceiling and the clamp took the midpoint, +0.88–1.09 m in 3 m
+    beyond the blast pad against the FAA near-end rule).  An empty senior
+    band (its own rows in conflict) is left to the midpoint rule."""
+    lo = np.maximum(lo_s, np.minimum(lo_j, hi_s))
+    hi = np.minimum(hi_s, np.maximum(hi_j, lo_s))
+    return lo, hi
 
 
 def zone_band_sides(base: _t.Any) -> list[int]:
@@ -943,11 +960,18 @@ def project_zone_bands(planar: PlanarMap, law: Law, base: _t.Any,
         c = int(col[v])
         return float(x[c]) if c >= 0 else float(red.value[v])
 
-    lo = np.full(red.n_cols, -np.inf)
-    hi = np.full(red.n_cols, np.inf)
+    # THE END PROFILE IS SENIOR (RULINGS 2026-10-15c, the master's bug
+    # (a)): a zone floor caps at the end profile's ceiling, never the reverse
+    # (:func:`senior_band`)
+    lo_j = np.full(red.n_cols, -np.inf)
+    hi_j = np.full(red.n_cols, np.inf)
+    lo_s = np.full(red.n_cols, -np.inf)
+    hi_s = np.full(red.n_cols, np.inf)
     before = 0.0
     for k in sides:
         terms, bound, _row = base.one[k]
+        senior = _row.source.ruling.split(" (")[0].strip() == END_PROFILE_HEAD
+        lo, hi = (lo_s, hi_s) if senior else (lo_j, hi_j)
         val = 0.0
         for v, c_ in terms:
             val += c_ * zof(v)
@@ -972,6 +996,7 @@ def project_zone_bands(planar: PlanarMap, law: Law, base: _t.Any,
         else:
             lo[cc] = max(lo[cc], b)
     rep.before_m = max(0.0, before)
+    lo, hi = senior_band(lo_s, hi_s, lo_j, hi_j)
 
     bounded = np.isfinite(lo) | np.isfinite(hi)
     idx = np.flatnonzero(bounded)

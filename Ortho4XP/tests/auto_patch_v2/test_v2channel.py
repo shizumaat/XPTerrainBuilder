@@ -208,9 +208,34 @@ def test_3ii_a_credible_inset_is_no_depth_witness_without_a_cut(law, monkeypatch
     monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: True)
     ap = _airport(law, [_pavement_with_corridor()], [_road()], dem=_SlopeDem())
     chans, st = identify_channels(ap, Classification(tuple(_cells()), (), {}, ()), law)
-    assert len(chans) == 1, (st.refused, st.notes)
-    assert chans[0].datum_source == DATUM_CLEARANCE
-    assert "lidar" not in chans[0].width_source
+    # §45 (21) proposed (#742): with the neck its ONLY witness, the
+    # credible survey that reads no cut REFUTES the channel by name —
+    # never a lidar-floored or lidar-widened one
+    assert chans == [], [(c.id, c.datum_source, c.width_source) for c in chans]
+    assert any("reads NO cut" in r for r in st.refused), st.refused
+
+
+def test_21_a_neck_only_road_at_grade_under_credible_lidar_is_no_channel(law,
+                                                                       monkeypatch):
+    """§45 (21) proposed (lane ``kden``, #742): A SURVEY THAT SEES NO CUT
+    REFUTES A NECK.  KDEN way -3675 crosses two taxiways at grade 920 m
+    apart; the 1 m 3DEP DTM reads the road at the field's own level, yet
+    (3) (iii) built a 950 m trench with 1:2 banks.  The same two-neck
+    fixture on flat ground: under a CREDIBLE lidar inset it is refused by
+    name; under a coarse DEM (§45 (7): the DEM is not a witness against a
+    channel — KPHX's 30 m Copernicus) the neck still states it."""
+    import auto_patch_v2.planar.channel as chmod
+    cls = Classification(tuple(_cells()), (), {}, ())
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: False)
+    chans, st = identify_channels(
+        _airport(law, [_pavement_with_corridor()], [_road()]), cls, law)
+    assert len(chans) == 1 and chans[0].datum_source == DATUM_CLEARANCE, st.refused
+    monkeypatch.setattr(chmod, "_lidar_credible", lambda _a, _l: True)
+    chans, st = identify_channels(
+        _airport(law, [_pavement_with_corridor()], [_road()]), cls, law)
+    assert chans == [], [c.id for c in chans]
+    refusal = [r for r in st.refused if "reads NO cut" in r]
+    assert refusal and "-500" in refusal[0], st.refused
 
 
 def test_19_the_bank_toe_is_the_first_rise_not_the_cap(law, monkeypatch):

@@ -1030,9 +1030,14 @@ def freshness_mismatch(stamped: dict, live: dict) -> str | None:
     a gate that could not compute a live value all rebuild rather than being
     compared as "both absent, therefore equal".
     """
-    for key in FRESHNESS_COMPARED_KEYS:
-        if key not in stamped or key not in live:
-            return key
-        if stamped[key] != live[key]:
-            return key
-    return None
+    changed = freshness_mismatches(stamped, live)
+    return changed[0] if changed else None
+
+
+def freshness_mismatches(stamped: dict, live: dict) -> list[str]:
+    """EVERY stamp key whose stamped value is missing or differs, in
+    ``FRESHNESS_COMPARED_KEYS`` order (:func:`freshness_mismatch` is its
+    first) — the patch editor names all the inputs that moved."""
+    return [key for key in FRESHNESS_COMPARED_KEYS
+            if key not in stamped or key not in live
+            or stamped[key] != live[key]]

@@ -70,7 +70,11 @@ from typing import Optional
 # Custom Scenery folder is a link to a drive that is not mounted
 # (``output_link_unmounted``) names the link, and a front end may offer
 # to remove it and build on the computer's own drive (issue #668).
-PROTOCOL_VERSION = "1.11"
+# 1.12 (2026-10-15, additive): the patch editor's commands ``patch_list``,
+# ``patch_load``, ``patch_save``, ``patch_revert`` (``o4_engine.
+# patch_commands``; spec patch-editor-20261015 §2, #46) — commands and
+# replies only, no new event.
+PROTOCOL_VERSION = "1.12"
 
 
 @dataclass(frozen=True)

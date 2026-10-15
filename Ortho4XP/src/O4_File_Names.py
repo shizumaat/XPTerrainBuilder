@@ -289,6 +289,27 @@ def short_latlon(lat, lon):
     return strlat + strlon
 
 
+# The reader half of :func:`short_latlon` ("+48-006").  One spelling, one
+# parser: the Qt map's persisted selection and the engine's patch commands
+# both read tile keys through it.
+_TILE_KEY_RE = re.compile(r"^[+-]\d{2}[+-]\d{3}$")
+
+
+def parse_tile_key(key):
+    """(lat, lon) from a canonical tile key, or None.
+
+    Strict on both shape and range: anything that is not a well-formed
+    on-globe key is refused here so callers restoring stored keys can
+    simply drop what does not parse.
+    """
+    if not isinstance(key, str) or not _TILE_KEY_RE.match(key):
+        return None
+    lat, lon = int(key[:3]), int(key[3:])
+    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+        return None
+    return (lat, lon)
+
+
 def round_latlon(lat, lon):
     strlatround = "{:+.0f}".format(floor(lat / 10) * 10).zfill(3)
     strlonround = "{:+.0f}".format(floor(lon / 10) * 10).zfill(4)
@@ -384,6 +405,52 @@ def mask_dir(lat, lon):
 
 def patch_dir(lat, lon):
     return os.path.join(Patch_dir, long_latlon(lat, lon))
+
+
+# Patch file names (``Patches/<10 deg>/<1 deg>/``).  The auto patch is
+# ``<ICAO>_auto.patch.osm``; any other ``*.patch.osm`` is a MANUAL patch of
+# the ICAO before its first ``_`` and replaces the auto patch (the build's
+# ``include_patches``, the driver's skip and the patch editor all read
+# names through these, never a spelling of their own).
+PATCH_SUFFIX = ".patch.osm"
+AUTO_PATCH_SUFFIX = "_auto" + PATCH_SUFFIX
+
+
+def auto_patch_name(icao):
+    """``<ICAO>_auto.patch.osm``."""
+    return str(icao).upper() + AUTO_PATCH_SUFFIX
+
+
+def edited_patch_name(icao):
+    """``<ICAO>_edited.patch.osm`` — the patch editor's own manual patch."""
+    return str(icao).upper() + "_edited" + PATCH_SUFFIX
+
+
+def patch_file_icao(fname):
+    """The ICAO a ``*.patch.osm`` file name covers (upper-cased prefix
+    before the first ``_``), or None for a name that is not a patch."""
+    if not fname.endswith(PATCH_SUFFIX):
+        return None
+    return fname[: -len(PATCH_SUFFIX)].split("_")[0].upper()
+
+
+def is_manual_patch_name(fname):
+    """True for a ``*.patch.osm`` name that is not an auto patch."""
+    return fname.endswith(PATCH_SUFFIX) and AUTO_PATCH_SUFFIX not in fname
+
+
+def manual_patch_icaos_in(directory):
+    """The ICAOs a patch directory covers by hand: every manual
+    ``*.patch.osm`` file's ICAO, plus every sub-directory's name."""
+    out = set()
+    if not os.path.isdir(directory):
+        return out
+    for fname in os.listdir(directory):
+        if is_manual_patch_name(fname):
+            out.add(patch_file_icao(fname))
+        elif os.path.isdir(os.path.join(directory, fname)):
+            out.add(fname.upper())
+    return out
 
 
 def input_node_file(tile):

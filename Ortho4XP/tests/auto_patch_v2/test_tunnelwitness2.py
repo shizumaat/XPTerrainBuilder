@@ -293,17 +293,29 @@ def test_a_RISE_of_the_ground_does_not_outrank_the_passage(law):
         assert len(_refusals(st)) == 1 and "PASSES UNDER AN ELEVATED PACK PART" in _refusals(st)[0]
 
 
-def test_a_NEGATIVE_LAYER_is_senior_to_the_passage(law):
-    """HECA -20899 / -19181 / -3949: a pack passage over the carriageway
-    AND ``layer=-1`` — the map says the bore runs below ground, and it is
-    built, with cover, with a rise and with neither."""
+def test_a_NEGATIVE_LAYER_does_not_outrank_the_passage(law):
+    """#710 (owner sim read of app 1.0.394, narrowing 10q's layer clause):
+    HECA -20899 / -19181 / -3949 — a pack passage over the carriageway AND
+    ``layer=-1``.  The layer says the road runs below the elevated part,
+    not below ground: refused, with cover, with a rise and with neither."""
+    for lay in ("-1", "-2", "0"):
+        tags = dict(SPJC_TAGS, layer=lay)
+        for kw in ({}, {"extra_cells": (APRON,)}, {"dem": _hill(0.7)}):
+            _cl, tunnels, st = _spjc(law, partition=_link(), tags=tags, **kw)
+            assert st.tunnels == 0 and not tunnels, (lay, kw, st.mouths_off_field_nearest)
+            named = _refusals(st)
+            assert len(named) == 1 and "PASSES UNDER AN ELEVATED PACK PART" in named[0]
+            assert "#710" in named[0]
+
+
+def test_a_NEGATIVE_LAYER_with_NO_passage_still_builds_the_bore(law):
+    """The layer witness is untouched where the pack shows no passage: no
+    pack at all, and a pack part at grade over the line (cover)."""
+    over = _part(0.0, 6.0, _ll_ring(310, -110, 325, -90))      # holds neither end
     tags = dict(SPJC_TAGS, layer="-1")
-    for kw in ({}, {"extra_cells": (APRON,)}, {"dem": _hill(0.7)}):
-        _cl, _t, st = _spjc(law, partition=_link(), tags=tags, **kw)
-        assert st.tunnels == 2 and not _refusals(st), (kw, st.mouths_off_field_nearest)
-    # a layer at or above ground states nothing of the kind
-    _cl, _t, st = _spjc(law, partition=_link(), tags=dict(SPJC_TAGS, layer="0"))
-    assert st.tunnels == 0 and len(_refusals(st)) == 1
+    for part in (None, _link(over)):
+        _cl, _t, st = _spjc(law, partition=part, tags=tags)
+        assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
 
 
 def test_COVER_or_a_RISE_with_NO_passage_still_builds_the_bore(law):

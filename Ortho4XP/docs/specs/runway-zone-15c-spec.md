@@ -205,12 +205,17 @@ same sha:
   / bank_slope` wide (margin 1.0 m), capped at `bank_cap_width_m` (30 m).
   On level ground the band's own mandatory fall (about 1 m at a 76 m band's
   outer edge) is itself a step over the tolerance, so most zone rings bank.
-* **The toe.** The weak §23 ground datum alone let the bending term float
-  the bank's outer ring (KBJC replay: 177 patch-edge vertices over 1 m), so
-  each bank vertex on the coverage edge carries a `Band` at its DEM sample
-  (`zones.adjacent_ground zone bank toe`); the 1:3 cone rows run against
-  the 3 nearest vertices of ANY zone (a bank trimmed against a neighbour
-  zone stands beside it too).
+* **The toe, no cone.** The weak §23 ground datum alone let the bending
+  term float the bank's outer ring (KBJC replay: 177 patch-edge vertices
+  over 1 m), so each bank vertex on the coverage edge carries a `Band` at
+  its DEM sample (`zones.adjacent_ground zone bank toe`, law weight). The
+  §5 cone rows were BUILT AND REFUTED on the CYXY replay: one-way (zone
+  leading) the lag did not settle (4,557 of 11,580 one-way rows moving
+  after 3 rounds, worst leader move 8.5 m); two-way they dragged zone
+  rings off their law line and, through an apron lip vertex, lifted
+  `dsf:pol19` 1.88 m. Toe only, the lag settles (the base's 23 rows) and
+  the census reads the same as with cones. No bank row touches a vertex
+  another face shares (airside is king).
 * **Readers.** The bank (`graded_strip`, ref `zone_bank:<zone ref>`,
   `model.planar.is_zone_bank_ref`) is read by no strip-law reader
   (longitudinal, arc, RESA, end, RAOA; generator `_strip_rings`, verify
@@ -229,3 +234,21 @@ same sha:
   the runway's own letter, closing the letter-less 76.2 m planar width of
   FAA A/B runways (KBJC 12R/30L and 03/21 were 76.2 m in planar, 22.9 m in
   the law).
+
+## 10. Findings for the master (not ruled here)
+
+* **CYXY, the RSA over the escarpment.** The 300 m ICAO end band crosses
+  the plateau edge; filled to the end profile it stands up to 11.9 m off
+  the profile (`runway_end_skirt` 1 → 23 rows on the replay without banks)
+  and a zone face carries a 34 m in-face step (`adjacent_ground_step`) where
+  the terrain-edge clip leaves a piece. The standard and the terrain
+  disagree there; the owner's to decide (clip the RSA at the crest, or fill).
+* **Airside movement.** The narrower runway band moves pavement through two
+  channels: the runway-edge tie (06p) no longer reaches pavement beyond the
+  new zone (and under FAA ties at 5 %), and the new zone/bank rings re-node
+  pavement edges. Measured per airport in the PR.
+* **#715 twin.** A road 4–6 m inside a code-2 band's outer edge below a
+  retaining wall settles 3–4.4 m over its lower ground
+  (`test_wall_step715`, marked xfail with the numbers).
+* **Rim road.** With the RSA ends a band runs round a rim road's governing
+  stretch and a sliver beyond the road stays connected (`test_v2edge`).

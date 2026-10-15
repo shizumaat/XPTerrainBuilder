@@ -79,9 +79,10 @@ from ..law.tables import (airside_stage_roles, is_value_role, role_side, strip_t
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
+from ..planar.zones import ZONE_MITRE_LIMIT
 from .precedence import View, view
 from .roads import road_family_roles
-from .strips import runway_groups
+from .strips import end_band_vertices, runway_groups
 
 __all__ = ["zone_bands", "strip_transverse"]
 
@@ -204,6 +205,9 @@ class _Context:
     #: §37 (11) (7): the NATURAL-SHORE vertices (the band falls at up to
     #: the bank slope, 1:3, to the water line — owner RULINGS 2026-09-27a (7))
     natural: set[int] = _dc.field(default_factory=set)
+    #: THE END BOX (RULINGS 2026-10-15c; ``strips.end_band_vertices``): the
+    #: vertices the runway-end profile governs — a taxi class floors them only
+    end_box: set[int] = _dc.field(default_factory=set)
 
 
 def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
@@ -218,6 +222,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     # only where the vertex lies abeam the runway's own extent; beyond an
     # end the end-corridor rows (``strips.py``) govern.
     groups = {g.ref: g for g in runway_groups(vw, airport)}
+    end_box = end_band_vertices(vw, groups.values())
     face_of_edge: dict[int, int] = {}
     for e in planar.edges.values():
         for fid in (e.left_face, e.right_face):
@@ -378,13 +383,26 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
                 if strip or v not in tie_pop:
                     tie_pop[v] = f.id if strip else tie_pop.get(v, -1)
 
+    # THE CLASS JOIN REACHES NO FARTHER THAN THE ZONE FACE CAN (RULINGS
+    # 2026-10-15c, the master's bug (b)): a zone vertex's own class is
+    # searched for the mitred overshoot of ITS face — at most
+    # ``ZONE_MITRE_LIMIT`` half-widths from the pavement the face was
+    # buffered from.  Unbounded, the class key (``("runway", 4, None)``)
+    # joined a vertex beyond one runway's END — where that runway's own
+    # edges are not abeam — to a PARALLEL runway of the same code 250–330 m
+    # away, whose clamped corridor floor then held the end box up to 2.4 m
+    # over its ceiling (measured KBJC 12L: v7391 / v7395 / v918 floored
+    # from 12R/30L at 1728.1 m, the empty band projected to its midpoint).
+    def mitred(e: tuple) -> float:
+        return ZONE_MITRE_LIMIT * (half_of(e) or 0.0)
+
     def _found(v: int, classes: set) -> list:
         found: list[tuple[float, int, float, float]] = []   # (d_eff, k, t, d)
         for cls in classes:
             g = by_class.get(cls)
             if not g:
                 continue
-            near = _nearest_edge(vw, v, edges, g, cell, lambda e: 1e9, reach * 2.0,
+            near = _nearest_edge(vw, v, edges, g, cell, mitred, reach * ZONE_MITRE_LIMIT,
                                  lambda k: abeam(v, k))
             if near is None:
                 continue
@@ -427,14 +445,15 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         # vertex above the runway's mandatory-down — an IIS of five rows)
         found = [f_ for rank, f_ in enumerate(found)
                  if rank == 0 or f_[3] <= (half_of(edges[f_[1]]) or 0.0)
-                 or any(_face_class_of(edges[f_[1]]) == c for c in classes)]
+                 or (any(_face_class_of(edges[f_[1]]) == c for c in classes)
+                     and f_[3] <= mitred(edges[f_[1]]))]
         return found
 
     natural = _in_wedges(vw, natural - quay,
                          getattr(planar, "natural_shore_wedges", ()) or (), law)
     return _Context(vw, edges, by_family, cell, reach, half_of, abeam, member, own_law,
                     quay, wall_vertices, pad_rim, _found, tie_pop, rigid_rims,
-                    natural)
+                    natural, end_box)
 
 
 def _in_wedges(vw, ids: set[int], rings, law: Law) -> set[int]:
@@ -527,6 +546,15 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 continue
             if rank > 0 and v not in quay:
                 hi = None            # a farther pavement: floor only
+            elif fam == "taxi" and v in ctx.end_box and v not in quay:
+                # THE END BOX (RULINGS 2026-10-15c): beyond a runway's end
+                # the RUNWAY's end profile is the ceiling
+                # (``strips.end_corridor_longitudinal``); the nearest taxi
+                # class contributes its floor only — measured KBJC 12L, the
+                # blast-pad junction's mandatory-down held the end band
+                # against the near-end rule.  The projection lets the end
+                # profile's ceiling cap that floor (``solve/project``).
+                hi = None
             if v in pad_rim and pad_nearest.get(pad_rim[v]) != v:
                 continue             # a pad's far rim: no row (the Flat carries the level)
             if t <= 0.0:

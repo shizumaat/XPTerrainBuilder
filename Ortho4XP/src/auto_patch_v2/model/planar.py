@@ -92,6 +92,20 @@ def is_strip_ref(ref: object) -> bool:
     return str(ref).endswith(STRIP_SUFFIX)
 
 
+#: owner RULINGS 2026-10-14n D2 (#709): the ref of an APRON-EDGE SHELF face,
+#: ``shelf<k>`` (its bank ``shelf<k>#collar``; ``planar/apron_shelf``).  A
+#: shelf is the GROUND under a building's overhang graded to the apron's
+#: level — a §20 pad to the solve, never a building pad to the object stage
+#: (``airport/placement_read``), which seats the building on it as ground.
+SHELF_PREFIX = "shelf"
+
+
+def is_shelf_ref(ref: object) -> bool:
+    """Is this face ref an apron-edge shelf (its flat face or its collar)?"""
+    r = str(ref).split("#", 1)[0]
+    return r.startswith(SHELF_PREFIX) and r[len(SHELF_PREFIX):].isdigit()
+
+
 def is_bank_ref(ref: object) -> bool:
     """Is this face a 1:3 BANK of a pad — a collar or an inter-block strip?
     The readers that skip one (over every cap by law) skip the other."""

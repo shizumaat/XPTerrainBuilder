@@ -214,3 +214,34 @@ the 8 bores. A first cut (the portal's plan box off the pavement) missed the
 NE mouths (the road between the runway and taxiway decks lies outside every
 portal box) and RAISED NE1's road 293.7 → 301.7 (its foot moved to the
 taxiway); refuted and replaced.
+
+## MEASURED — closing harness build `katlwall_KATL4` (8467dd64e, ledger dce4ffc81aa5) vs main control `katlwall_base` (e5f799bb3, ledger 8edab3a042b5)
+
+* Runway 10/28 (as #727): crown at the owner site 33.6200754, -84.4307614
+  294.30 → 301.22 m; binned ridge min 294.83 → 300.22, BOW −9.62 → −4.33,
+  max |grade| 2.30 → 0.82 %, max grade change 2.48 → 0.42 %/100 m.
+* I-285 mouths — highest road node within 50 m out (5 m bins): SW1
+  294.44 → 281.95, SW2 281.50 → 280.88, NE1 294.33 → 290.17, NE2
+  295.96 → 288.90 m (road floor DEM 280.5-290).
+* muro_concreto5 (#715): apron above 299.96-300.05 (unchanged); roads
+  below the south run (8-26 m north of 33.6412038, -84.4211416) 291.45-299.97
+  → 291.45-294.85 m; at 33.641131, -84.420841 the nearest road node
+  299.97 → 292.46. Declared step 10.66 m, emitted 10.655 m (agreement
+  +0.005). Residual: kerb vertices shared with the taxi zone-1 strip at the
+  wall foot stand 1.5-3.5 m over the 291 m floor (294.5 / 292.8 at the
+  owner site).
+* Airside stage-1 movers vs the #727 arm (same capture, replay): 0. Vs main:
+  #727's own (10/28 +6.97, pav15 +6.50, pav17 +6.92, stub +5.05, pav9 +2.55,
+  connectors ≤ 0.40, other runways ≤ 0.04, pav14 ≤ 0.20 m).
+* Census (law-true, adjudicated): main 13073 → arm 11566. Of the arm's own
+  share (replay arms on one capture: #727 13360 → this lane 13054): NEW
+  terrace_joint_strip 17 (the mouth joints stand inside runway 10/28's strip —
+  the I-285 cut is there), adjacent_ground_step +28 / mid_edge_step +11 /
+  strip_seam_tear +7 at the mouths and +4 / +9 / +5 at the wall (the zone
+  strips that follow the road into the cut / to the wall foot); fewer
+  within_shape (−434), hard_conflict (−40), road_cross_section (−27).
+* Sweep airports (dry, registered captures): HECA OTHH SPJC KPDX CYXY NLWF
+  KASE — 0 retaining walls, 0 covered-ground cuts: nothing reads the new
+  rule. KCLT — 4 thin pieces retain, 0 wall terraces; harness build
+  `katlwall_KCLT` (c61ccd03e) vs `katlwall_KCLTbase` (main): patch and rebake
+  plan BYTE-IDENTICAL.

@@ -140,6 +140,7 @@ def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airp
                      "lip": (float(lx), float(ly)), "dir": (float(dx), float(dy)),
                      "width_m": float(f.width_m), "z0_pred": round(z0, 3),
                      "reach_m": round(reach_hi, 3), "g": g, "cap": cap,
+                     "dem0": round(ground(0.0), 4),
                      # the raw ground along the run, relative to the lip's
                      "ground": [(float(s_), round(ground(s_) - ground(0.0), 4))
                                 for s_, _z in prof[::2] + prof[-1:]],

@@ -163,7 +163,8 @@ def test_the_strip_is_held_relative_to_its_blocks_datum(law, monkeypatch):
     monkeypatch.setattr(MP, "datum_vertices", lambda _p, _l: {"u": 9})
     MP.LANDING_RUNOUTS.clear()
     rec = {"landing": "u/landing0", "block": "u", "y": -0.2, "lip": (10.0, 5.0),
-           "dir": (1.0, 0.0), "g": 0.05, "cap": 0.10, "z0_pred": 105.8, "reach_m": 0.5}
+           "dir": (1.0, 0.0), "g": 0.05, "cap": 0.10, "z0_pred": 105.8, "reach_m": 0.5,
+           "dem0": 100.0}
     ceilings: dict = {}
     try:
         def bounds(ground):

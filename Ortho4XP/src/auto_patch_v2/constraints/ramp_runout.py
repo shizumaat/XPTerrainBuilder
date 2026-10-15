@@ -183,15 +183,20 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
             seen.add(v)
             x, yy = planar.vertices[v].xy
             s = max(0.0, (x - x0) * dx + (yy - y0) * dy)
-            prof = max(-cap * s, min(-g * s, _dz_at(rec["ground"], s) - g * s))
+            dg = _dz_at(rec["ground"], s)
+            prof = max(-cap * s, min(-g * s, dg - g * s))
             rows.append(Linear(((v, 1.0), (dv, -1.0)), y + prof, y, src))
             # the ceiling: the same profile off the HIGHEST level the solve
             # may hold the landing at, or the vertex's own ground where that
             # profile has met it — so the strip comes down onto its DEM by
             # its end however the solved datum falls inside its reach band
-            dem = planar.vertices[v].dem_z
+            # the ground the ceiling reads is the AXIS's at this station
+            # (``ground``), never the vertex's own: the cross-fall cap holds
+            # the two sides together and a ceiling off each side's DEM
+            # contested it (MEASURED, HECA: 0.26-0.43 m cross rows relaxed)
+            dem = rec.get("dem0")
             if dem is not None:
-                hi = max(float(dem), z_hi + prof) + band
+                hi = max(float(dem) + dg, z_hi + prof) + band
                 rows.append(Band(v, None, hi, src))
             t = -(x - x0) * dy + (yy - y0) * dx
             if abs(t) >= 0.25 * w:

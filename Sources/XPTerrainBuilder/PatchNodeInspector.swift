@@ -18,7 +18,7 @@ struct PatchNodeInspector: View {
         let ids = model.selection.sorted()
         VStack(alignment: .leading, spacing: 6) {
             if ids.isEmpty {
-                note("Click a node to select it; ⇧-click or ⇧-drag to select several.")
+                note("Click a node or a line to select it (a line selects its whole shape); ⇧-click or ⇧-drag to select several.")
             } else if ids.count == 1, let node = doc.nodes[ids[0]] {
                 single(node)
             } else {

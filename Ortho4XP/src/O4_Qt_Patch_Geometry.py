@@ -177,10 +177,12 @@ class PatchScreenIndex:
         return self.edges[k] if d[k] <= radius else None
 
     def handles(self, selection: _t.Collection[int], hover: tuple[int, int] | None,
-                width: float, height: float) -> list[tuple[tuple[int, int], float, float]]:
+                width: float, height: float,
+                shapes: _t.Collection[int] = ()) -> list[tuple[tuple[int, int], float, float]]:
         """"+" handles ``((a, b), x, y)``: every edge of the selected
-        nodes' shapes (up to 200 selected nodes) and the hovered edge, long
-        enough on screen and inside the view."""
+        nodes' shapes (up to 200 selected nodes), of the selected shapes
+        (way ids), and the hovered edge, long enough on screen and inside
+        the view."""
         seen: set[tuple[int, int]] = set()
         out = []
 
@@ -196,7 +198,9 @@ class PatchScreenIndex:
                 out.append((key, mx, my))
 
         if len(selection) <= MAX_HANDLE_SELECTION:
-            ways = sorted({w for n in selection for w in self.ways_by_node.get(n, ())})
+            ways = {w for n in selection for w in self.ways_by_node.get(n, ())}
+            ways |= {w for w, way in enumerate(self.doc.ways) if way.id in shapes} if shapes else set()
+            ways = sorted(ways)
             for w in ways:
                 refs = self.doc.ways[w].refs
                 for a, b in zip(refs, refs[1:]):

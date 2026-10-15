@@ -709,6 +709,21 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     part_attrs = _work.part_attrs_ahead(
         pool, placed, line_members, scatter_members, _basin_band,
         rb.foot_samples_max, rb.body_feet_span_m, rb.line_object_stations_max)
+    # D1 (owner RULINGS 2026-10-14n): a scatter member standing on walls is
+    # a structure — out of the class before the contact pass reads it
+    standing = _scatter.standing_members(
+        placed, scatter_members, part_attrs,
+        float(law.tables.structures.placement.chain_min_height_m),
+        (_basin_band, rb.foot_samples_max, rb.body_feet_span_m,
+         rb.line_object_stations_max))
+    counts["scatter_standing_members"] = len(standing)
+    for mi in standing:
+        scatter_members.discard(mi)
+        _key, _path, _oid = member_ref[mi]
+        units_by_key[_key][_path] = _dc.replace(units_by_key[_key][_path],
+                                                scatter=False)
+        if part_attrs is not None:
+            part_attrs[mi] = None        # re-read as a structure's parts
     part = _contact.partition(placed, rb.contact_epsilon_m, rb.contact_weld_m,
                               rb.contact_narrow_budget, rb.pool_overlap_m,
                               rb.contact_batch_rows,

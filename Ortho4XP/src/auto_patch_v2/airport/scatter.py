@@ -70,7 +70,8 @@ import typing as _t
 from . import line_object as _line
 from . import obj8 as _obj8
 
-__all__ = ["ScatterReading", "ScatterLaw", "component_diag_m", "read", "is_scatter"]
+__all__ = ["ScatterReading", "ScatterLaw", "component_diag_m", "read", "is_scatter",
+           "standing_members"]
 
 
 @_dc.dataclass(frozen=True)
@@ -181,3 +182,36 @@ def read(cache: _obj8.ResourceCache, resolved: str, law: _t.Any) -> ScatterReadi
 def is_scatter(cache: _obj8.ResourceCache, resolved: str, law: _t.Any) -> bool:
     """:func:`read`'s verdict alone."""
     return read(cache, resolved, law).scatter
+
+
+def standing_members(placed: _t.Sequence[_t.Any], scatter_members: _t.Collection[int],
+                     attrs: "_t.Sequence[_t.Any] | None", chain_min_height_m: float,
+                     params: tuple) -> set[int]:
+    """THE STRUCTURE EXEMPTION (owner RULINGS 2026-10-14n, D1; #709):
+    the scatter members that STAND ON WALLS — one of whose parts has a
+    ground foot and a solid height of at least ``chain_min_height_m`` —
+    and so are a structure, not scatter: they partition, unit and cluster
+    like any building.
+
+    The predicate above reads the FILE (many small components) and cannot
+    tell a garage drawn as 83 wall panels of 10 m or less (KASE
+    ``Garage_1``, 13 x 45 m, 4.8 m tall: five pieces seated 1.30 m apart)
+    from a hillside of bushes; the placed parts can.  A bush or a leaf
+    clump is under ``chain_min_height_m`` or stands on nothing.
+
+    ``placed`` / ``attrs`` are ``contact.partition``'s own inputs (``attrs``
+    may be ``None`` or hold ``None`` for a member: its parts are then read
+    here, as a scatter member, exactly as the partition would read them);
+    ``params`` is ``(foot_band_m, foot_samples_max, station_span_m,
+    stations_max)``.  ``chain_min_height_m <= 0`` disarms it."""
+    if chain_min_height_m <= 0.0:
+        return set()
+    from .contact import member_attrs              # contact is the heavier import
+    out: set[int] = set()
+    for mi in sorted(scatter_members):
+        rows = attrs[mi] if attrs is not None and attrs[mi] is not None \
+            else member_attrs(placed[mi], False, True, *params)
+        if any(feet is not None and len(feet) and solid_h >= chain_min_height_m
+               for feet, _rings, solid_h in rows):
+            out.add(mi)
+    return out

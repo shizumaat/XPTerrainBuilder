@@ -9,7 +9,8 @@ the shared twin ``tests/fixtures/patch_edit_ops.json`` so they cannot drift.
 THE RULES (§3.1-§3.3):
 
 * Operations: :func:`move`, :func:`set_position`, :func:`set_alt`,
-  :func:`offset_alt`, :func:`delete_nodes`, :func:`insert_on_edge`.
+  :func:`offset_alt`, :func:`delete_nodes`, :func:`insert_on_edge`,
+  :func:`delete_ways` (#759: deleting a whole shape).
 * Topology (§3.2): a deleted node leaves every way.  After any operation,
   consecutive duplicate refs collapse (cyclically on a closed way, whose
   ``refs`` repeat the first node last); a closed way left with fewer than 3
@@ -34,7 +35,7 @@ import dataclasses as _dc
 import typing as _t
 
 __all__ = ["Node", "Way", "PatchDoc", "move", "set_position", "set_alt",
-           "offset_alt", "delete_nodes", "insert_on_edge", "merge_nodes",
+           "offset_alt", "delete_nodes", "delete_ways", "insert_on_edge", "merge_nodes",
            "next_node_id", "apply_op"]
 
 
@@ -187,6 +188,25 @@ def delete_nodes(doc: PatchDoc, ids: _t.Iterable[int]) -> PatchDoc:
     return _dc.replace(doc, nodes=nodes, ways=_rewrite_ways(doc.ways, {}, gone))
 
 
+def delete_ways(doc: PatchDoc, way_ids: _t.Iterable[int]) -> PatchDoc:
+    """Remove the ways (whole shapes, #759) and every node of theirs that no
+    remaining way uses; nodes shared with a remaining way stay, and nodes
+    the removed ways never used are untouched."""
+    present = {w.id for w in doc.ways}
+    gone: list[int] = []
+    for i in way_ids:
+        i = int(i)
+        if i not in present:
+            raise KeyError(f"way {i} is not in the patch")
+        if i not in gone:
+            gone.append(i)
+    kept = tuple(w for w in doc.ways if w.id not in gone)
+    used = {r for w in kept for r in w.refs}
+    orphans = {r for w in doc.ways if w.id in gone for r in w.refs} - used
+    nodes = {k: v for k, v in doc.nodes.items() if k not in orphans}
+    return _dc.replace(doc, nodes=nodes, ways=kept)
+
+
 def next_node_id(doc: PatchDoc) -> int:
     """The id a new node gets: one below the document's minimum id (and
     never above -1 — patch ids are negative)."""
@@ -240,7 +260,7 @@ def merge_nodes(doc: PatchDoc, source: int, target: int) -> PatchDoc:
 
 _OPS: dict[str, _t.Callable[..., PatchDoc]] = {
     "move": move, "set_position": set_position, "set_alt": set_alt,
-    "offset_alt": offset_alt, "delete_nodes": delete_nodes,
+    "offset_alt": offset_alt, "delete_nodes": delete_nodes, "delete_ways": delete_ways,
     "insert_on_edge": insert_on_edge, "merge_nodes": merge_nodes,
 }
 

@@ -183,6 +183,16 @@ twin-tested: `patch_load` → `patch_save` with no edits rewrites the same nodes
 and ways (real patches carry node pairs at 0.499–0.500 m — 125 in the data-repo
 HECA patch of 2026-10-15 — that must stay as they are).
 
+Amended 2026-10-15 (#759, by the spec author): §3.1 gains
+`delete_ways(way_ids)` — it removes the ways (whole shapes) and every node
+of theirs that no remaining way uses; nodes shared with a remaining way
+stay, nodes the removed ways never used are untouched; an unknown way id is
+refused. Python `patch_edit.delete_ways` (+ `apply_op`), Swift
+`PatchDocument.deleteWays`, ≥ 4 twin-fixture cases. Its `PatchChange` /
+step carries the removed ways (`topology = true`). Deleting a mixed
+selection (shapes + nodes) is a UI composition — `delete_ways` then
+`delete_nodes` on the nodes still present, one undo step — not a new op.
+
 ## 4. Mac app
 
 Files (new unless noted): `SceneryKit/PatchDocument.swift` (model, §3 ops,
@@ -213,6 +223,31 @@ auto…" (confirmation inside the pane), Save; after save "Rebuild tile" and the
 re-seating note; a stale edited patch shows the stale note. Unsaved edits
 prompt on airport switch and quit. Hand-made patches whose nodes carry no
 `alt_abs` show "elevation from the mesh".
+
+Amended 2026-10-15 (#759, owner: "increase the line weight about 50%" and
+"allow clicking on a line to select that shape, like JOSM"), Mac and Qt:
+1. Line weight: every patch stroke width and the road halo × 1.5, both
+   modes; node squares and hit radii (8 pt) unchanged.
+2. Click a line (Edit mode): a click within 8 pt of an edge, with no node
+   within 8 pt and not on a "+" handle, selects the SHAPE (way) the edge
+   belongs to. Precedence: node > "+" handle > edge > empty map. ⇧-click
+   adds/removes the shape. An edge several shapes share: the first click
+   picks the smallest plan area (ties by way id); clicking the same spot
+   again (within 4 pt, no move) cycles to the next shape on that edge.
+   Box select stays node-only.
+3. A selected shape is drawn with its full outline in the selection colour
+   at 2× its stroke width over a light selection-tinted fill, its nodes
+   drawn as selected; the 3D window marks its nodes (the existing selection
+   markers). Inspector "Shape": role, `ref` if any, node count, plan area
+   (m²), perimeter (m; "Length" for an open way), elevation range, "Used by"
+   (other shapes sharing its nodes, a count), "Delete shape".
+4. Move: a drag pressed on a selected shape's line or one of its nodes
+   moves ALL its nodes (and any selected nodes) by the pointer delta — one
+   undo step; shared nodes move, so neighbours stretch. The snap does not
+   apply to a shape drag. A drag on an UNselected line pans (as on empty
+   map); its click selects.
+5. Delete: ⌫/⌦ or "Delete shape" → `delete_ways` (§3), mixed selection
+   as §3's amendment, one undo step.
 
 ## 5. 3D preview (separate window, A8)
 

@@ -66,6 +66,8 @@ struct PatchOverlay: View {
 
     /// Node squares closer than this on screen are thinned out.
     static let nodeSpacing: CGFloat = 6
+    /// The road halo's width (×1.5 with the strokes, #759).
+    static let haloWidth: CGFloat = 7.5
     static let nodeSize: CGFloat = 6
 
     var body: some View {
@@ -157,7 +159,7 @@ struct PatchOverlay: View {
                 context.fill(entry.fill, with: .color(fill))
             }
             if let halo = look.halo {
-                context.stroke(entry.stroke, with: .color(halo), lineWidth: 5)
+                context.stroke(entry.stroke, with: .color(halo), lineWidth: Self.haloWidth)
             }
             context.stroke(entry.stroke, with: .color(look.stroke), lineWidth: look.width)
         }
@@ -213,15 +215,17 @@ struct PatchStyle {
     static let nodeFill = hex(0x0B0D12)
     static let nodeStroke = hex(0xE7EBF2)
 
+    /// Widths are the mockup's × 1.5 (owner, #759: "increase the line
+    /// weight about 50%"); node squares and hit radii are unchanged.
     static func of(_ style: PatchStyleClass) -> PatchStyle {
         switch style {
-        case .runway: PatchStyle(fill: hex(0x8A8F99, 0.28), stroke: hex(0xD6DAE2), width: 1.6, halo: nil)
-        case .taxiway: PatchStyle(fill: hex(0xD2B14A, 0.22), stroke: hex(0xE6C95C), width: 1.4, halo: nil)
-        case .apron: PatchStyle(fill: hex(0x5AA0E0, 0.22), stroke: hex(0x7DB8EF), width: 1.6, halo: nil)
-        case .building: PatchStyle(fill: hex(0xB07AD0, 0.25), stroke: hex(0xC497E0), width: 1.3, halo: nil)
-        case .road: PatchStyle(fill: hex(0x9FD18B, 0.18), stroke: hex(0x9FD18B), width: 1.2,
+        case .runway: PatchStyle(fill: hex(0x8A8F99, 0.28), stroke: hex(0xD6DAE2), width: 2.4, halo: nil)
+        case .taxiway: PatchStyle(fill: hex(0xD2B14A, 0.22), stroke: hex(0xE6C95C), width: 2.1, halo: nil)
+        case .apron: PatchStyle(fill: hex(0x5AA0E0, 0.22), stroke: hex(0x7DB8EF), width: 2.4, halo: nil)
+        case .building: PatchStyle(fill: hex(0xB07AD0, 0.25), stroke: hex(0xC497E0), width: 1.95, halo: nil)
+        case .road: PatchStyle(fill: hex(0x9FD18B, 0.18), stroke: hex(0x9FD18B), width: 1.8,
                                halo: hex(0x9FD18B, 0.35))
-        case .ground: PatchStyle(fill: nil, stroke: hex(0x9AA4B5, 0.55), width: 0.8, halo: nil)
+        case .ground: PatchStyle(fill: nil, stroke: hex(0x9AA4B5, 0.55), width: 1.2, halo: nil)
         }
     }
 

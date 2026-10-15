@@ -37,7 +37,8 @@ extension PatchEditModel {
     /// Move the selection by (dlat, dlon); `merge` = the snap held at
     /// release: the grabbed node then merges into its target (§3.3).
     func moveSelection(_ ids: [Int64], dlat: Double, dlon: Double, merge: (source: Int64, target: Int64)?) {
-        let name = merge == nil ? "Move" : "Move and Merge"
+        let name = merge != nil ? "Move and Merge" : shapeSelection.isEmpty ? "Move"
+            : shapeSelection.count == 1 ? "Move Shape" : "Move Shapes"
         let done = perform(name) { doc in
             try doc.move(ids, dlat: dlat, dlon: dlon)
             if let merge { try doc.mergeNodes(source: merge.source, target: merge.target) }
@@ -48,18 +49,11 @@ extension PatchEditModel {
         }
     }
 
-    func deleteSelection() {
-        let ids = selection.sorted()
-        guard !ids.isEmpty else { return }
-        if perform(ids.count == 1 ? "Delete Node" : "Delete Nodes", { try $0.deleteNodes(ids) }) {
-            selection = []
-        }
-    }
-
     /// The "+" handle on edge a–b: the new node becomes the selection.
     func insertNode(_ a: Int64, _ b: Int64) {
         var newID: Int64?
         if perform("Insert Node", { newID = try $0.insertOnEdge(a, b) }), let newID {
+            selectShapes([])
             selection = [newID]
         }
     }
@@ -104,6 +98,7 @@ extension PatchEditModel {
             let gone = selection.filter { doc.nodes[$0] == nil }
             if !gone.isEmpty { selection.subtract(gone) }
         }
+        dropVanishedShapes()
         recountUnsaved()
         documentChanged(PatchChange(nodes: step.movedNodes, ways: step.changedWays, topology: step.topology))
     }

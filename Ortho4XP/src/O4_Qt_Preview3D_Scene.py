@@ -29,7 +29,7 @@ from PySide6.QtGui import QColor, QVector3D
 from PySide6.QtQuick3D import QQuick3DGeometry, QQuick3DInstancing, QQuick3DTextureData
 
 __all__ = ["TERRAIN_COLOR", "PATCH_COLOR", "BUILDING_COLOR", "MARKER_COLOR", "BACKGROUND",
-           "MeshGeometry", "PoseInstancing", "Orbit", "PreviewScene", "SCENE_QML"]
+           "MeshGeometry", "PoseInstancing", "Orbit", "KEYS", "SPEED", "PreviewScene", "SCENE_QML"]
 
 TERRAIN_COLOR = QColor(0x7a, 0x8a, 0x6a)
 PATCH_COLOR = QColor(0xd6, 0xda, 0xe2)
@@ -106,52 +106,129 @@ class PoseInstancing(QQuick3DInstancing):
         return QByteArray(self._table.tobytes()), len(self._table)
 
 
+#: X-Plane's view commands as its default ``X-Plane Keys.prf`` binds them
+#: (the Mac's ``OrbitCamera.Key``): ← → sideways, ↑ ↓ up/down, ``.`` ``,``
+#: forward/back, ``=`` ``-`` zoom, Q E rotate, R F tilt.
+KEYS = ("left", "right", "up", "down", "forward", "backward",
+        "zoom_in", "zoom_out", "rotate_left", "rotate_right", "tilt_up", "tilt_down")
+#: Plain is slow, Shift fast, Control slower (X-Plane's _fast / _slow).
+SPEED = {"slow": 0.25, "normal": 1.0, "fast": 4.0}
+
+
 @_dc.dataclass
 class Orbit:
     """The orbit camera: a target on the ground, a distance, a yaw (0 =
-    looking north from the south) and a pitch above the horizon."""
+    looking north from the south) and a pitch above the horizon.
+
+    Input moves these GOAL values; :meth:`step` eases the SHOWN camera
+    toward them, so neither a jerky mouse nor a held key makes the view
+    jump (owner 2026-10-15: "too jumpy with the mouse"). Same rates as the
+    Mac's ``OrbitCamera``."""
 
     target: tuple[float, float, float] = (0.0, 0.0, 0.0)
     distance: float = 2000.0
     yaw_deg: float = 0.0
     pitch_deg: float = 35.0
+    shown: tuple | None = None          # (target, distance, yaw, pitch) on screen
 
     MIN_PITCH: _t.ClassVar[float] = 3.0
     MAX_PITCH: _t.ClassVar[float] = 89.0
+    DRAG_DEG_PER_PX: _t.ClassVar[float] = 0.17       # ≈ 0.003 rad, the Mac's
+    ZOOM_PER_NOTCH: _t.ClassVar[float] = 0.96
+    PAN_PER_PX: _t.ClassVar[float] = 1.2              # × distance / view height
+    KEY_ROTATE_DEG: _t.ClassVar[float] = 20.0         # per second, normal speed
+    KEY_TILT_DEG: _t.ClassVar[float] = 15.0
+    KEY_MOVE_FRACTION: _t.ClassVar[float] = 0.25      # of the distance per second
+    KEY_ZOOM_PER_S: _t.ClassVar[float] = 1.6
+    EASING: _t.ClassVar[float] = 0.25                 # of the way per 1/60 s
+
+    def _goal(self) -> tuple:
+        return (tuple(self.target), self.distance, self.yaw_deg, self.pitch_deg)
+
+    def _view(self) -> tuple:
+        return self.shown if self.shown is not None else self._goal()
 
     def frame(self, centre: _t.Sequence[float], radius: float) -> None:
-        """Frame the extent from the south ("Reset view")."""
+        """Frame the extent from the south ("Reset view"), at once."""
         self.target = tuple(float(v) for v in centre)
         self.distance = max(radius, 50.0) * 2.2
         self.yaw_deg, self.pitch_deg = 0.0, 35.0
+        self.shown = self._goal()
 
     def position(self) -> tuple[float, float, float]:
-        p, y = math.radians(self.pitch_deg), math.radians(self.yaw_deg)
-        tx, ty, tz = self.target
-        d = self.distance
+        (tx, ty, tz), d, yaw, pitch = self._view()
+        p, y = math.radians(pitch), math.radians(yaw)
         return (tx + d * math.cos(p) * math.sin(y), ty + d * math.sin(p),
                 tz + d * math.cos(p) * math.cos(y))
 
     def rotation(self) -> tuple[float, float, float]:
         """Euler degrees: the camera (looking down −z) turned to the target."""
-        return (-self.pitch_deg, self.yaw_deg, 0.0)
+        _t3, _d, yaw, pitch = self._view()
+        return (-pitch, yaw, 0.0)
 
+    def view_distance(self) -> float:
+        return self._view()[1]
+
+    # ─── input (moves the goal) ─────────────────────────────────────────
     def orbit(self, dx_px: float, dy_px: float) -> None:
-        self.yaw_deg = (self.yaw_deg - dx_px * 0.4) % 360
-        self.pitch_deg = min(self.MAX_PITCH, max(self.MIN_PITCH, self.pitch_deg + dy_px * 0.3))
+        self.yaw_deg -= dx_px * self.DRAG_DEG_PER_PX      # unbounded: easing never spins
+        self.pitch_deg = min(self.MAX_PITCH, max(self.MIN_PITCH,
+                                                 self.pitch_deg + dy_px * self.DRAG_DEG_PER_PX))
 
     def zoom(self, steps: float) -> None:
-        self.distance = min(200_000.0, max(20.0, self.distance * 0.88 ** steps))
+        self.distance = min(200_000.0, max(20.0, self.distance * self.ZOOM_PER_NOTCH ** steps))
 
     def pan(self, dx_px: float, dy_px: float, view_height_px: float) -> None:
         """Move the target in the ground plane, by screen pixels."""
-        k = self.distance * 1.2 / max(view_height_px, 1.0)
+        k = self.distance * self.PAN_PER_PX / max(view_height_px, 1.0)
+        self._slide(-dx_px * k, dy_px * k)
+
+    def _slide(self, right_m: float, ahead_m: float, up_m: float = 0.0) -> None:
         y = math.radians(self.yaw_deg)
         right = (math.cos(y), -math.sin(y))
         ahead = (-math.sin(y), -math.cos(y))
         tx, ty, tz = self.target
-        self.target = (tx - (dx_px * right[0] - dy_px * ahead[0]) * k, ty,
-                       tz - (dx_px * right[1] - dy_px * ahead[1]) * k)
+        self.target = (tx + right_m * right[0] + ahead_m * ahead[0], ty + up_m,
+                       tz + right_m * right[1] + ahead_m * ahead[1])
+
+    def hold(self, keys: _t.Collection[str], speed: str, dt: float) -> None:
+        """Advance the goal by ``dt`` seconds of the held X-Plane keys."""
+        if not keys or dt <= 0:
+            return
+        m = SPEED[speed] * dt
+
+        def axis(plus: str, minus: str) -> float:
+            return float(plus in keys) - float(minus in keys)
+
+        self.yaw_deg += axis("rotate_left", "rotate_right") * self.KEY_ROTATE_DEG * m
+        self.pitch_deg = min(self.MAX_PITCH, max(self.MIN_PITCH, self.pitch_deg
+                             + axis("tilt_up", "tilt_down") * self.KEY_TILT_DEG * m))
+        step = self.distance * self.KEY_MOVE_FRACTION * m
+        self._slide(axis("right", "left") * step, axis("forward", "backward") * step,
+                    axis("up", "down") * step)
+        z = axis("zoom_in", "zoom_out")
+        if z:
+            self.distance = min(200_000.0, max(20.0, self.distance * self.KEY_ZOOM_PER_S ** (-z * m)))
+
+    # ─── easing ─────────────────────────────────────────────────────────
+    def step(self, dt: float) -> bool:
+        """Ease the shown camera toward the goal; whether it still moves."""
+        goal = self._goal()
+        if self.shown is None:
+            self.shown = goal
+            return False
+        a = 1.0 - (1.0 - self.EASING) ** (max(dt, 0.0) * 60.0)
+        (sx, sy, sz), sd, syaw, spitch = self.shown
+        (gx, gy, gz), gd, gyaw, gpitch = goal
+        nd = sd + (gd - sd) * a
+        self.shown = ((sx + (gx - sx) * a, sy + (gy - sy) * a, sz + (gz - sz) * a),
+                      nd, syaw + (gyaw - syaw) * a, spitch + (gpitch - spitch) * a)
+        tol = max(0.001 * nd, 0.01)
+        settled = (math.dist(self.shown[0], goal[0]) < tol and abs(gd - nd) < tol
+                   and abs(gyaw - self.shown[2]) < 0.005 and abs(gpitch - self.shown[3]) < 0.005)
+        if settled:
+            self.shown = goal
+        return not settled
 
 
 class PreviewScene(QObject):
@@ -206,7 +283,7 @@ class PreviewScene(QObject):
                               notify=camera_changed)
     cameraRotation = Property(QVector3D, lambda self: QVector3D(*self.orbit.rotation()),
                               notify=camera_changed)
-    cameraFar = Property(float, lambda self: max(10_000.0, self.orbit.distance * 6 + self.extent[1] * 4),
+    cameraFar = Property(float, lambda self: max(10_000.0, self.orbit.view_distance() * 6 + self.extent[1] * 4),
                          notify=camera_changed)
 
     # ─── terrain, patch, last build ────────────────────────────────────
@@ -345,17 +422,55 @@ class PreviewScene(QObject):
         self.orbit.frame(centre, radius)
         self.camera_changed.emit()
 
+    def _wake(self) -> None:
+        """Run the 60 Hz ease while a key is held or the camera has not
+        reached its goal."""
+        from PySide6.QtCore import QElapsedTimer, QTimer
+        if getattr(self, "_ticker", None) is None:
+            self._ticker = QTimer(self)
+            self._ticker.setInterval(16)
+            self._ticker.timeout.connect(self._tick)
+            self._clock = QElapsedTimer()
+        if not self._ticker.isActive():
+            self._clock.start()
+            self._ticker.start()
+
+    def _tick(self) -> None:
+        dt = min(self._clock.restart() / 1000.0, 0.1)
+        held = getattr(self, "_held", set())
+        self.orbit.hold(held, getattr(self, "_speed", "normal"), dt)
+        moving = self.orbit.step(dt)
+        self.camera_changed.emit()
+        if not moving and not held:
+            self._ticker.stop()
+
     def orbit_by(self, dx: float, dy: float) -> None:
         self.orbit.orbit(dx, dy)
-        self.camera_changed.emit()
+        self._wake()
 
     def zoom_by(self, steps: float) -> None:
         self.orbit.zoom(steps)
-        self.camera_changed.emit()
+        self._wake()
 
     def pan_by(self, dx: float, dy: float, height: float) -> None:
         self.orbit.pan(dx, dy, height)
-        self.camera_changed.emit()
+        self._wake()
+
+    def key(self, name: str, down: bool, speed: str) -> None:
+        """An X-Plane view key (``KEYS``) pressed or released."""
+        held = self.__dict__.setdefault("_held", set())
+        self._speed = speed
+        if down:
+            held.add(name)
+            self._wake()
+        else:
+            held.discard(name)
+
+    def set_speed(self, speed: str) -> None:
+        self._speed = speed
+
+    def release_keys(self) -> None:
+        self.__dict__.setdefault("_held", set()).clear()
 
     def handle_mouse(self, kind: str, pos: QPointF, buttons, modifiers, height: float,
                      wheel_degrees: float = 0.0) -> bool:

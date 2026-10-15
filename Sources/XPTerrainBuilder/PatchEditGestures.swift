@@ -6,7 +6,10 @@ import SceneryKit
 // table): click selects (8 pt), ⇧-click toggles, ⇧-drag box-selects, a
 // drag on a node moves the selection (snapping the grabbed node while the
 // pointer is within 8 pt of another node), a drag on empty map pans, a
-// click on a "+" handle inserts a node. A drag never edits the document
+// click on a "+" handle inserts a node. A click on a LINE selects its whole
+// shape (#759, `PatchShapeSelection.swift`; node > "+" > line > empty map),
+// and a drag on a selected shape's line or nodes moves the whole shape
+// without snapping. A drag never edits the document
 // per frame: the moved shapes are drawn here from the pointer delta, and
 // ONE edit commits on mouse-up.
 
@@ -43,6 +46,8 @@ final class PatchDragState: ObservableObject {
     var dlat = 0.0
     var dlon = 0.0
     var pressedHandle: PatchEditScreen.Handle?
+    /// The line the press landed on (no node, no handle there).
+    var pressedEdge: PatchEdgeKey?
 }
 
 /// The document as seen through the map camera: screen ↔ ground, and the
@@ -102,8 +107,9 @@ struct PatchEditScreen {
     }
 
     /// "+" handles: every edge of the selected nodes' shapes (up to 200
-    /// selected nodes) and the hovered edge, long enough on screen.
-    func handles(selection: Set<Int64>, hover: PatchEdgeKey?) -> [Handle] {
+    /// selected nodes), of the selected shapes, and the hovered edge, long
+    /// enough on screen.
+    func handles(selection: Set<Int64>, shapes: Set<Int64> = [], hover: PatchEdgeKey?) -> [Handle] {
         var seen = Set<PatchEdgeKey>()
         var out: [Handle] = []
         let bounds = CGRect(origin: .zero, size: size)
@@ -116,7 +122,8 @@ struct PatchEditScreen {
             out.append(Handle(edge: key, point: mid))
         }
         if selection.count <= 200 {
-            let ways = Set(selection.flatMap { doc.wayIndicesByNode[$0] ?? [] })
+            var ways = Set(selection.flatMap { doc.wayIndicesByNode[$0] ?? [] })
+            if !shapes.isEmpty { ways.formUnion(doc.ways.indices.filter { shapes.contains(doc.ways[$0].id) }) }
             for w in ways.sorted() {
                 let refs = doc.ways[w].refs
                 for i in refs.indices.dropLast() { add(refs[i], refs[i + 1]) }
@@ -155,11 +162,11 @@ struct PatchEditLayer: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let selection = model.selection, skip = model.dragSkip
+            let selection = model.selection, shapes = model.shapeSelection, skip = model.dragSkip
             Canvas(rendersAsynchronously: false) { context, size in
                 guard let doc = model.document else { return }
                 let screen = PatchEditScreen(doc: doc, camera: camera.value, size: size)
-                draw(screen, selection: selection, skip: skip, in: context)
+                draw(screen, selection: selection, shapes: shapes, skip: skip, in: context)
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
@@ -183,7 +190,11 @@ struct PatchEditLayer: View {
         case .idle:
             begin(at: value.startLocation, screen: screen, grid: grid)
         case .pending:
-            if moved { drag.kind = .pan(anchor: camera.value); pan(value, size: size) }
+            if moved {
+                model.lastShapeClick = nil
+                drag.kind = .pan(anchor: camera.value)
+                pan(value, size: size)
+            }
         case .pan:
             pan(value, size: size)
         case .nodes(_, let ids):
@@ -196,7 +207,8 @@ struct PatchEditLayer: View {
             let a = screen.coordinate(drag.start), b = screen.coordinate(value.location)
             drag.dlat = b.lat - a.lat
             drag.dlon = b.lon - a.lon
-            let target = screen.nodeHit(at: value.location, grid: grid, excluding: Set(ids))
+            let target = model.shapeSelection.isEmpty  // a shape drag never snaps (#759)
+                ? screen.nodeHit(at: value.location, grid: grid, excluding: Set(ids)) : nil
             if drag.snapTarget != target { drag.snapTarget = target }
             drag.current = value.location
         case .box:
@@ -210,17 +222,27 @@ struct PatchEditLayer: View {
         drag.hoverEdge = nil
         if NSEvent.modifierFlags.contains(.shift) { drag.kind = .box; return }
         let node = screen.nodeHit(at: p, grid: grid)
-        let handle = screen.handleHit(at: p, in: screen.handles(selection: model.selection, hover: nil)
-                                       + screen.handles(selection: [], hover: screen.hoverEdge(at: p, grid: grid)))
-        let nodeDistance = node.flatMap { screen.doc.nodes[$0] }.map { Self.distance(screen.point($0), p) } ?? .infinity
-        if let handle, Self.distance(handle.point, p) < nodeDistance {
+        let edge = node == nil ? screen.hoverEdge(at: p, grid: grid) : nil
+        let handle = node != nil ? nil
+            : screen.handleHit(at: p, in: screen.handles(selection: model.selection, shapes: model.shapeSelection,
+                                                         hover: nil)
+                                    + screen.handles(selection: [], hover: edge))
+        switch PatchShapePick.target(node: node, onHandle: handle != nil, onEdge: edge != nil) {
+        case .node(let id):
+            if !model.markedNodes.contains(id) { model.selectShapes([]); model.selection = [id] }
+            drag.kind = .nodes(grabbed: id, ids: model.dragNodes)
+        case .handle:
             drag.pressedHandle = handle
             drag.kind = .pending
-            return
+        case .edge:
+            drag.pressedEdge = edge
+            guard let edge, !model.shapeSelection.isDisjoint(with: PatchShapePick.shapes(onEdge: edge.a, edge.b,
+                                                                                         in: screen.doc))
+            else { drag.kind = .pending; return }
+            drag.kind = .nodes(grabbed: edge.a, ids: model.dragNodes) // a selected shape's line: drag it
+        case .empty:
+            drag.kind = .pending
         }
-        guard let node else { drag.kind = .pending; return }
-        if !model.selection.contains(node) { model.selection = [node] }
-        drag.kind = .nodes(grabbed: node, ids: model.selection.sorted())
     }
 
     private func ended(_ value: DragGesture.Value, size: CGSize) {
@@ -230,9 +252,13 @@ struct PatchEditLayer: View {
         switch drag.kind {
         case .nodes(let grabbed, let ids):
             if model.dragSkip != nil {
+                model.lastShapeClick = nil
                 model.moveSelection(ids, dlat: drag.dlat, dlon: drag.dlon,
                                     merge: drag.snapTarget.map { (source: grabbed, target: $0) })
-            } else if model.selection != [grabbed] {
+            } else if let edge = drag.pressedEdge {
+                model.clickEdge(edge.a, edge.b, x: drag.start.x, y: drag.start.y, toggle: false)
+            } else if model.selection != [grabbed] || !model.shapeSelection.isEmpty {
+                model.selectShapes([])
                 model.selection = [grabbed]
             }
         case .box:
@@ -243,12 +269,16 @@ struct PatchEditLayer: View {
                 model.selection.formUnion(screen.nodes(in: rect, grid: grid))
             } else if let node = screen.nodeHit(at: drag.start, grid: grid) {
                 if model.selection.contains(node) { model.selection.remove(node) } else { model.selection.insert(node) }
+            } else if let edge = screen.hoverEdge(at: drag.start, grid: grid) {
+                model.clickEdge(edge.a, edge.b, x: drag.start.x, y: drag.start.y, toggle: true)
             }
         case .pending:
             if let handle = drag.pressedHandle {
                 model.insertNode(handle.edge.a, handle.edge.b)
-            } else if !model.selection.isEmpty {
-                model.selection = []
+            } else if let edge = drag.pressedEdge {
+                model.clickEdge(edge.a, edge.b, x: drag.start.x, y: drag.start.y, toggle: false)
+            } else {
+                model.clearSelection()
             }
         case .pan, .idle:
             break
@@ -259,6 +289,7 @@ struct PatchEditLayer: View {
         drag.kind = .idle
         drag.snapTarget = nil
         drag.pressedHandle = nil
+        drag.pressedEdge = nil
         drag.dlat = 0
         drag.dlon = 0
         if model.dragSkip != nil { model.dragSkip = nil }
@@ -285,8 +316,8 @@ struct PatchEditLayer: View {
 
     // MARK: - Drawing
 
-    private func draw(_ screen: PatchEditScreen, selection: Set<Int64>, skip: PatchDragSkip?,
-                      in context: GraphicsContext) {
+    private func draw(_ screen: PatchEditScreen, selection: Set<Int64>, shapes: Set<Int64>,
+                      skip: PatchDragSkip?, in context: GraphicsContext) {
         let doc = screen.doc
         var moving: (grabbed: Int64, ids: Set<Int64>)?
         if case .nodes(let grabbed, let ids) = drag.kind, skip != nil { moving = (grabbed, Set(ids)) }
@@ -312,10 +343,24 @@ struct PatchEditLayer: View {
             }
             PatchOverlay.paint(paths, in: context)
         }
-        // Selected nodes.
+        // Selected shapes: the full outline in the selection colour at twice
+        // the stroke width, over a light selection tint (#759).
+        for way in doc.ways where shapes.contains(way.id) {
+            let points = way.refs.compactMap(at)
+            guard points.count > 1 else { continue }
+            var outline = Path()
+            outline.addLines(points)
+            if way.isClosed {
+                outline.closeSubpath()
+                context.fill(outline, with: .color(Self.selectionColor.opacity(0.18)))
+            }
+            context.stroke(outline, with: .color(Self.selectionColor),
+                           style: StrokeStyle(lineWidth: 2 * PatchStyle.of(way.style).width, lineJoin: .round))
+        }
+        // Selected nodes, and the selected shapes' nodes.
         let bounds = CGRect(origin: .zero, size: screen.size).insetBy(dx: -8, dy: -8)
         var squares = Path()
-        for id in selection {
+        for id in selection.union(model.shapeNodes) {
             guard let p = at(id), bounds.contains(p) else { continue }
             squares.addRect(CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8))
         }
@@ -329,7 +374,7 @@ struct PatchEditLayer: View {
         }
         // "+" handles (not during a drag).
         if drag.kind == .idle || drag.kind == .pending {
-            for handle in screen.handles(selection: selection, hover: drag.hoverEdge) {
+            for handle in screen.handles(selection: selection, shapes: shapes, hover: drag.hoverEdge) {
                 Self.drawHandle(at: handle.point, in: context)
             }
         }

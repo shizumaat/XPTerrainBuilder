@@ -14,6 +14,7 @@ import Foundation
 /// Why an edit operation refused (the engine raises the same cases).
 public enum PatchEditError: Error, Equatable, CustomStringConvertible {
     case unknownNode(Int64)
+    case unknownWay(Int64)
     case notAnEdge(Int64, Int64)
     case nodeExists(Int64)
     case mergeIntoItself(Int64)
@@ -21,6 +22,7 @@ public enum PatchEditError: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .unknownNode(let id): return "node \(id) is not in the patch"
+        case .unknownWay(let id): return "way \(id) is not in the patch"
         case .notAnEdge(let a, let b): return "nodes \(a) and \(b) are not an edge of any way"
         case .nodeExists(let id): return "node \(id) already exists"
         case .mergeIntoItself(let id): return "cannot merge node \(id) into itself"
@@ -62,6 +64,22 @@ extension PatchDocument {
         for id in gone { nodes[id] = nil }
         nodeOrder.removeAll { gone.contains($0) }
         ways = Self.rewrite(ways, remap: [:], dropped: gone)
+        reindex()
+    }
+
+    /// Remove the ways (whole shapes, #759) and every node of theirs that no
+    /// remaining way uses; nodes shared with a remaining way stay, and nodes
+    /// the removed ways never used are untouched.
+    public mutating func deleteWays(_ wayIDs: [Int64]) throws {
+        let present = Set(ways.map(\.id))
+        for id in wayIDs where !present.contains(id) { throw PatchEditError.unknownWay(id) }
+        let gone = Set(wayIDs)
+        let kept = ways.filter { !gone.contains($0.id) }
+        let used = Set(kept.flatMap(\.refs))
+        let orphans = Set(ways.filter { gone.contains($0.id) }.flatMap(\.refs)).subtracting(used)
+        ways = kept
+        for id in orphans { nodes[id] = nil }
+        nodeOrder.removeAll { orphans.contains($0) }
         reindex()
     }
 

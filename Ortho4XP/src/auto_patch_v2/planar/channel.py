@@ -250,20 +250,10 @@ def _lidar_credible(airport: Airport, law: Law) -> bool:
     """§45 (3) (ii): whether THIS airport's inset is a CREDIBLE lidar one
     — the inset's OWN class, read through the flat-site detector's single
     derivation (``law.tables.flat_site.detector.lidar_credible_max_m``),
-    never a second pixel-size rule.  A refresh (``--refresh-data dem``,
-    the owner's act) moves a site from (iii) to (ii) with no law change:
-    this is the only place that reading lives."""
-    fv = getattr(airport, "flat_site", None)
-    if fv is not None:
-        klass = (fv.signals or {}).get("s2_source_class")
-        if klass:
-            return str(klass) == "lidar"
-    try:
-        from ..airport.flat_site import _source_class
-        klass, _pixel, _whence = _source_class(airport.dem, law)
-    except Exception:                          # pragma: no cover - fixtures
-        return False
-    return str(klass) == "lidar"
+    never a second pixel-size rule.  The reading itself lives in
+    ``law/inset_class.lidar_credible`` (also asked by ``constraints/eat``)."""
+    from ..law import inset_class
+    return inset_class.lidar_credible(airport, law)
 
 
 # ── the derivation ───────────────────────────────────────────────────────

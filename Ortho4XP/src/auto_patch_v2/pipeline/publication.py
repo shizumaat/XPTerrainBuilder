@@ -91,6 +91,7 @@ import typing as _t
 
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
+from ..constraints.eat import eat_report_rects as _eat_report_rects
 
 
 def _renode_rows(airport) -> "list | None":
@@ -647,8 +648,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the census prices exactly what the solve pinned.  Empty where
             # the airport has no EAT by recognition, and absent (never
             # invented) when the caller hands no constraint set.
+            # A CREDIBLE LIDAR INSET adds the REPORT-ONLY rects (owner
+            # RULINGS 2026-10-15e (2)): nothing pinned them, so the census
+            # prices the emitted ground against the regulation value.
             "eat_rects": ([] if cs is None
-                          else _eat_rects(planar, cs)),
+                          else _eat_rects(planar, cs)
+                          + _eat_report_rects(planar, law, airport)),
             "tunnel_objects": tunnel_objects(planar, airport),
             # THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i):
             # one record per channel the map carries — the FLOOR the

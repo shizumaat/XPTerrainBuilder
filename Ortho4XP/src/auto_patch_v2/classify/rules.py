@@ -83,6 +83,12 @@ class Service:
     retaining_wall_max_width_m: float = 1.0
     retaining_wall_along_fraction: float = 0.8
     retaining_wall_reach_m: float = 8.0
+    #: #715 A THICK WALL THAT RETAINS ITS OWN HEIGHT (``airport/wall_class``):
+    #: slender for its height, and the ground stepping across it by it.
+    retaining_wall_thick_width_per_height: float = 0.5
+    retaining_wall_step_min_fraction: float = 0.75
+    retaining_wall_step_max_fraction: float = 1.25
+    retaining_wall_step_ring_m: float = 3.0
 
 
 @_dc.dataclass(frozen=True)

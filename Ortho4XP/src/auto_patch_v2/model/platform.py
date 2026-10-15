@@ -13,7 +13,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["structure_vertices", "Platform", "PLATFORMS", "HELD", "LANDINGS", "LANDING_SEP",
+__all__ = ["structure_vertices", "Platform", "PLATFORMS", "HELD", "LANDINGS", "LANDING_RUNOUTS", "LANDING_SEP",
            "is_landing_ref", "PLATEAUS", "plateau_vertices",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
@@ -113,6 +113,15 @@ def install_hold_report(report: "_t.Mapping[str, dict]") -> int:
 #: spelling is NOT a block's (``model.planar.block_of`` reads ``/b<k>``):
 #: a landing is never a block of its unit.
 LANDINGS: dict[str, dict[str, _t.Any]] = {}
+
+#: issue #711 (RULINGS 2026-10-14c (5) at a 10-03e landing): the last
+#: arrangement's LANDING RUN-OUTS — ``runout:<landing ref>`` -> ``{"landing",
+#: "block", "y", "lip", "dir", "width_m", "z0_pred", "profile", "run_m"}``:
+#: a road strip off a ramp foot on a landing, held in stage 2 at the block's
+#: datum + ``y`` + the long section ``profile`` (``[(s, dz)]``,
+#: ``constraints/ramp_runout.landing_runout_rows``).  Minted by
+#: ``planar/landing_runout`` from ``planar/landing.landing_regions``.
+LANDING_RUNOUTS: dict[str, dict[str, _t.Any]] = {}
 
 #: the landing ref's separator (``<unit ref>/landing<k>``)
 LANDING_SEP = "/landing"

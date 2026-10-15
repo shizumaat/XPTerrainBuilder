@@ -17,6 +17,7 @@ import typing as _t
 from ..law import Law
 from ..model.constraints import ConstraintSet, Linear, Row, Source
 from ..model.planar import PlanarMap
+from ..geom.ramp_profile import ramp_delta  # re-exported: the one ramp law
 from .road_ramp import GEN, JOIN_RULING, RULING, RULING_CEILING
 
 __all__ = ["PAD_RAMP_RULING", "pad_ramp_rewrite", "ramp_delta", "stand_off_m"]
@@ -163,20 +164,6 @@ def _pad_road_unknowns(planar: PlanarMap, law: Law, levels: _t.Mapping[int, floa
         for v in planar.ring_vertices(cyc) if v not in levels
         and not any(q in F and is_rigid_role(law, F[q].role)
                     for q in planar.vertices[v].incident_faces))
-
-
-def ramp_delta(dv: float, zr: float, dr: float, g: float, d: float) -> float:
-    """The ramp's rise from its leader at level ``zr`` (ground ``dr``) to a
-    vertex ``d`` along the road over ground ``dv``, at the design grade
-    ``g``.  Two profiles leave the leader: toward the ground never past it
-    (the level-ground ramp), and closing the leader's own offset over its
-    ground (the ramp on a slope falling away, which the first never brings
-    down) — the road takes the one nearer its ground."""
-    toward = max(-g * d, min(g * d, dv - zr))
-    off = zr - dr
-    left = max(0.0, abs(off) - g * d)
-    closing = dv + (left if off > 0.0 else -left) - zr
-    return min((toward, closing), key=lambda t: (abs(zr + t - dv), t))
 
 
 def pad_ramp_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,

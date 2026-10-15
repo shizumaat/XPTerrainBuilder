@@ -726,18 +726,19 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     cl_gaps, _cl_base = None, gap_free(cl)
     if _cl_base is not None:
         cl_gaps, cl = cl, _cl_base
+    # issue #669 / #711: the object ramps' feet — for the planar stage's
+    # landing run-outs (``planar/landing_runout``) and the last stage's
+    # run-outs — read HERE, on the run's ResourceCache (one parse per
+    # resource: the planar stage reads the same cache)
+    from ..airport.ramp_feet import REPORT as _feet_rep, attach_ramp_feet
+    airport = attach_ramp_feet(airport, law, ocache)
+    wall["ramp_feet"] = _feet_rep.get("s", 0.0)
+    _say(f"[{icao}] ramp feet (14c (5)): {_feet_rep}", out)
     t = time.perf_counter()
     objects_out: list = []
     pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
                               objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
-    # issue #669: the object ramps' feet for the last stage's run-outs —
-    # read HERE, on the run's ResourceCache, once classify and the planar
-    # stage have parsed the pack's objects (no second parse)
-    from ..airport.ramp_feet import REPORT as _feet_rep, attach_ramp_feet
-    airport = attach_ramp_feet(airport, law, ocache)
-    wall["ramp_feet"] = _feet_rep.get("s", 0.0)
-    _say(f"[{icao}] ramp feet (14c (5)): {_feet_rep}", out)
     # §37 (11) (7) (issue #72): the shore the zones were cut against —
     # quay faces stand on a DECLARED shore (or a pavement edge that IS
     # the coast), natural faces slope to the water.

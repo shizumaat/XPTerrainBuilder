@@ -296,3 +296,39 @@ e11e531c5; both are registered.
 | -10194 (0.008), -10237 (0.004) | instrument | **Tolerance composition.** The generator's slack was the key less materiality (0.01). The solver holds a row only within `design.hard_tol_m` (0.02), and each emitted altitude rounds to 0.01. | Generator slack = key − `rounding_noise_m`, the envelope `hard_tol_m` is sized under. The reader's forgiveness is unchanged. |
 | -10237 (0.064) | real ground | **Class join by code number.** v3909 lies 270 m beyond 14L/32R's end. It was joined to 14R/32L's edge, 251 m away and of the same code. That floor held it 2 m over its DEM and over 14L/32R's end pair. | Each zone region carries its runway (`ZoneRegion.runway_ref` → `PlanarMap.zone_runway_of_ref`). A runway band's vertex joins that runway's edges only (`constraints/zones._runway_class`). |
 | -10098 ×2 (0.36), -10097 (0.29) | real ground, **law conflict** | v2132 is 64 m beyond 02/20's end and 5 m beside the parallel taxiway pav9. Under 15c (2) the code-1 end area grew from 60 m to 90 m, which brought v2132 inside it. pav9 climbs 1.21 m within 72 m of the end. The end profile allows the ground +0.14 m there: the 2 % climb surface from a 60 m setback, at the 0.12 m generator slack. pav9 leads the ground through the one-way pavement pair and taxi D's floor. Two pavements lead the same ground, and no surface satisfies both. The same site carries the 3 new `raoa` rows and the 1 critical-motion row. | **Not fixed. Owner ruling needed** on which lead wins inside an end area. |
+
+## 13. Phase 5 (RULINGS 2026-10-15j, 2026-10-15k)
+
+**15j: a pavement's own lip follows that pavement.** The predicate is
+`constraints/end_lip.end_lip_vertices`: strip ground within the zone-1 lip
+width of any non-runway airside pavement face. Every reader takes it from
+there:
+
+- the end-profile, RESA-transverse, end-rate and RAOA generators state no
+  row on it;
+- the zone end box leaves it out, so the pavement's own band binds it;
+- the build and the replay publish it as sidecar `end_profile_yields`;
+- both readers skip it (`verify.strips.end_exempt_geometry`).
+
+**15k: the tables read by code and instrument status.**
+
+| Item | Rule | Source |
+|---|---|---|
+| ICAO RESA, code 1/2 non-instrument | 30 m | Annex 14 §3.5.2-3.5.4 |
+| ICAO RESA, code 3 and code 1/2 instrument | 90 m | same |
+| ICAO RESA, code 4 | 240 m (unchanged) | same |
+| Strip end, instrument runway | 60 m | §3.4.2 |
+| Take-off climb surface | by code | Table 4-2 |
+| Instrument status | a CIFP `APPCH:` procedure is flown to an end | `airport/cifp.read_cifp_approach_runways`, through the existing designator or threshold join; published in `runway_axes` slot 10; read by `verify.strips.published_instrument` |
+
+CYXY 02/20 (code 1, no approach): the end area goes from 90 m to 60 m.
+
+**Reader fix.** Both strip readers now take the footprint from the published
+slab instead of a fit to the runway rings. At CYXY, 14L/32R's ring fit was
+29.5 m off its centreline, on main too.
+
+**Open (owner ruling needed).** 13 `strip_longitudinal` and 4 `strip_arc`
+rows lie along the runway band's outer ring at |t| = 75 m. Since 15c (1)
+that ring IS the strip footprint's edge. Along it, the zone reference flips
+from vertex to vertex between the runway's mandatory-down and a parallel
+taxiway's floor (pav28, pav9, pav25), giving steps of up to 3.9 m.

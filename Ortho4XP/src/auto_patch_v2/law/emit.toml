@@ -858,7 +858,6 @@ hard_rulings = [
   "tunnel.mouth_depth_m",                                 # §33 (5) (Fable 2026-09-15; RULINGS 2026-09-15h): the mouth's floor is `rim - mouth_depth_m` HOWEVER its station was taken.  MEASURED soft at LEMD tunnel:-15327@0 (owner 15e item 5, "doesn't seem to be providing the right depth"): the datum equality LOST 2.17 m - floor 599.25 against its own 597.08, under a rim solving 602.16 = the DEM it is pinned at - and the census named it 32 times (`tunnel_mouth_canonical`).  A weight contest is not a law
   "gap_piece follows its standing neighbour across the stand-off",   # spec §53 (13): a Band on a piece vertex against a CONSTANT of the earlier stages (last stage only)
   "gap lot terrace holds the road's level across",                   # spec §55 (3) 4 (owner RULINGS 2026-10-06d): a lot vertex within the road law's own lateral window of the nearest road's level (last stage only)
-  "gap slab welds to the pavement beside it across the stand-off",   # issue #712 (owner RULINGS 2026-10-10o (B)): a base-slab piece and the pack gap piece beside it meet at one level along the shared edge (constraints/slab_weld) — MEASURED unwelded at HECA: steps to 1.86 m across the 1.6 m stand-off
   "rulesets.common.pavement_max_grade ceiling, last stage",          # spec §55 (5): the ceiling between two LAST-STAGE unknowns, widened by the terrace floor over its chord by `pipeline/stage_one_map.late_constraints` (§55 (14) Q-F: `cap + pad_terrace_floor_m / d`, the cut's own pair test; the law is the head above)
   "rulesets.common.road_max_grade pavement fallback, last stage",    # the same
 ]
@@ -903,7 +902,6 @@ hard_conflict_ranks = [
    "roads.ramp_runout landing run-out at road grade",                 # #711: groundside, with the road ramp ceiling
    "gap_piece follows its standing neighbour across the stand-off",    # §53 (13): groundside, the last stage's own
    "gap lot terrace holds the road's level across",                    # §55 (3) 4
-   "gap slab welds to the pavement beside it across the stand-off",   # #712: with the follow rows
    "rulesets.common.pavement_max_grade ceiling, last stage",           # §55 (5): below the follow and lot rows — bounded by the terrace floor the cut welds
    "rulesets.common.road_max_grade pavement fallback, last stage"],
 ]

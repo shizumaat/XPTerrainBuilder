@@ -153,7 +153,11 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
     def inside(la: float, lo: float) -> bool:
         return s <= la <= n and w <= lo <= e
 
-    cache = _obj8.ResourceCache(0.0)
+    # The build reads packs through the §51 (6) input quantum; the preview
+    # shows what the build reads, so it enters through the same one.
+    from auto_patch_v2.airport import frame_entry as _fe
+    from auto_patch_v2.law.tables import load_default
+    cache = _obj8.ResourceCache(0.0, _fe.quantum(load_default()))
     hulls: dict[str, list[_mass.Hull]] = {}
     unresolved: set[str] = set()
     seen: set[str] = set()

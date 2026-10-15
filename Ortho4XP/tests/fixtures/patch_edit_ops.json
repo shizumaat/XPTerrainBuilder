@@ -16,7 +16,7 @@
   "merge_nodes": "{source, target}: target keeps its position and alt; every ref to source becomes target; source leaves the document. No distance check (the UI decided)."
  },
  "topology": "after every op: consecutive duplicate refs collapse (cyclically on a closed way); a closed way with < 3 distinct nodes or an open way with < 2 is removed; nodes a removed way leaves behind are kept.",
- "ui_snap_reference": "NOT exercised here (UI-only, L3): the drag snap radius is patch_load's min_distinct_spacing_m (strictly less than), measured on the local plane at the document origin = centre of the loaded nodes' bbox ((min lat + max lat) / 2, (min lon + max lon) / 2), fixed for the document's life; metres per degree lat = 111320.0, per degree lon = 111320.0 * max(cos(origin lat), 1e-6) (osm_adapter._local_metres); ties go to the lowest survivor_key = (round(lat, identity_dp), round(lon, identity_dp)).",
+ "ui_snap_reference": "NOT exercised here (UI-only, L3): the drag snap radius is 8 pt ON SCREEN from the pointer to the node, inclusive (owner ruling 2026-10-15, spec 3.3); nearest on screen wins; ties go to the lowest survivor_key = (round(lat, identity_dp), round(lon, identity_dp)), then the lowest id. The document origin (for metric work) is the centre of the loaded nodes' bbox ((min lat + max lat) / 2, (min lon + max lon) / 2), fixed for the document's life; metres per degree lat = 111320.0, per degree lon = 111320.0 * max(cos(origin lat), 1e-6) (osm_adapter._local_metres).",
  "cases": [
   {
    "name": "move_single_no_neighbour",

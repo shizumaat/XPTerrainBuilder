@@ -7,9 +7,9 @@ import SceneryKit
 /// load state the "Patch · ICAO" box reports. Shared by `PatchOverlay`
 /// and `PatchInspector`; owned by `BuildModel` (the engine session's owner).
 ///
-/// View mode only (lane L2). `mode`, `selection` and the document's
-/// mutation are L3's: its §3 ops edit `document`, then `documentChanged(_:)`
-/// rebuilds the derived grid and map geometry.
+/// Edit mode (L3) lives in `PatchEditActions.swift` (edits, undo, save,
+/// revert, the unsaved-edits prompt) and `PatchEditGestures.swift` (the
+/// map interaction); every edit, undo and redo ends in `documentChanged(_:)`.
 @MainActor
 final class PatchEditModel: ObservableObject {
     enum Mode: String, CaseIterable { case view = "View", edit = "Edit" }
@@ -30,17 +30,57 @@ final class PatchEditModel: ObservableObject {
     static let maxViewSpanDegrees = 0.08
 
     @Published private(set) var state: LoadState = .hidden
-    @Published private(set) var document: PatchDocument?
+    @Published var document: PatchDocument?
     /// Hit-testing for L3's selection and "+" handles.
     @Published private(set) var grid: PatchSpatialGrid?
     /// The document projected for drawing (one entry per shape).
     @Published private(set) var geometry: PatchMapGeometry?
     /// The patch file's modification date (the source line's "built …").
-    @Published private(set) var fileDate: Date?
-    /// L3: the View / Edit segmented control. Always `.view` in L2.
+    @Published var fileDate: Date?
+    /// The View / Edit segmented control on the map.
     @Published var mode: Mode = .view
-    /// L3: selected node ids.
+    /// Selected node ids (Edit mode; the 3D preview mirrors it).
     @Published var selection: Set<Int64> = []
+
+    // MARK: Edit-mode state (PatchEditActions.swift)
+
+    /// The map window's undo manager (set by `PatchOverlay` from the
+    /// SwiftUI environment), so Edit ▸ Undo / Redo and ⌘Z / ⇧⌘Z work.
+    weak var undoManager: UndoManager?
+    /// "● N unsaved edits".
+    @Published var unsavedEdits = 0
+    @Published var isSaving = false
+    /// The last refused edit, save or revert, in the engine's words.
+    @Published var editError: String?
+    /// Switching airport or quitting with unsaved edits asks first.
+    @Published var prompt: UnsavedPrompt?
+    /// Tiles whose patch was saved or reverted since their last build.
+    @Published var tilesNeedingRebuild: Set<String> = []
+    /// The live drag (its own object: drag frames redraw the map layer,
+    /// never the inspector).
+    let drag = PatchDragState()
+    /// What the base layer leaves to the edit layer while a drag moves
+    /// nodes (set at drag start and end only).
+    @Published var dragSkip: PatchDragSkip?
+    /// Node values as loaded ("was 62.40 m").
+    var loadedNodes: [Int64: PatchNode] = [:]
+    /// Undo depth now and at the last save; `savedReachable` false once an
+    /// edit branched off below the saved depth.
+    var undoLevel = 0
+    var savedLevel = 0
+    var savedReachable = true
+    /// Bumped on every load, so an undo registered for an older document
+    /// never touches the new one.
+    var documentGeneration = 0
+    /// A switch the user chose to postpone ("Keep editing"): not asked again.
+    var dismissedSwitchKey: String?
+    /// The model the app delegate asks before quitting.
+    static weak var current: PatchEditModel?
+
+    enum UnsavedPrompt: Equatable {
+        case switchAirport(icao: String, key: String)
+        case quit
+    }
 
     /// Whether the map draws the layer now (loaded and zoomed in).
     var isShowing: Bool { state == .loaded && document != nil }
@@ -54,22 +94,23 @@ final class PatchEditModel: ObservableObject {
     }
 
     /// One built tile's `patch_list` answer; `entries` nil while pending.
-    private struct Listing {
+    struct Listing {
         let info: O4TileInfo
         var entries: [O4PatchListEntry]?
     }
 
-    private weak var build: BuildModel?
+    weak var build: BuildModel?
     private var viewport: Viewport?
-    private var listings: [BuildModel.TileCoord: Listing] = [:]
+    var listings: [BuildModel.TileCoord: Listing] = [:]
     private var loadTask: Task<Void, Never>?
     private var loadingKey: String?
-    private var reloadDocument = false
+    var reloadDocument = false
     private var evaluateScheduled = false
     private var subscriptions: Set<AnyCancellable> = []
 
     init(build: BuildModel) {
         self.build = build
+        Self.current = self
         build.$built.dropFirst().sink { [weak self] _ in self?.scheduleEvaluate() }
             .store(in: &subscriptions)
         build.$protocolHello.dropFirst().sink { [weak self] _ in self?.scheduleEvaluate() }
@@ -112,7 +153,7 @@ final class PatchEditModel: ObservableObject {
         return best.map { ($0.icao, $0.lat, $0.lon) }
     }
 
-    private func scheduleEvaluate() {
+    func scheduleEvaluate() {
         guard !evaluateScheduled else { return }
         evaluateScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -133,6 +174,9 @@ final class PatchEditModel: ObservableObject {
         var pending = false
         for coord in tiles {
             guard let info = build.built[coord] else { continue }
+            if let old = listings[coord], old.info != info {
+                tilesNeedingRebuild.remove(coord.key) // the tile was built again
+            }
             if listings[coord]?.info != info {
                 if coord.key == document?.tile { reloadDocument = true }
                 listings[coord] = Listing(info: info, entries: nil)
@@ -206,6 +250,10 @@ final class PatchEditModel: ObservableObject {
             setState(.loaded)
             return
         }
+        if holdForUnsavedEdits(switchingTo: entry.icao, key: key) {
+            setState(.loaded)
+            return
+        }
         guard loadingKey != key else { return }
         reloadDocument = false
         loadTask?.cancel()
@@ -225,6 +273,7 @@ final class PatchEditModel: ObservableObject {
                 self.fileDate = (try? FileManager.default.attributesOfItem(
                     atPath: reply.path))?[.modificationDate] as? Date
                 self.selection = []
+                self.documentLoaded()
                 self.loadingKey = nil
                 self.setState(.loaded)
                 self.changes.send(.all)

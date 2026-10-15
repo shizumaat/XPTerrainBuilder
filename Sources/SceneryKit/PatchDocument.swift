@@ -3,8 +3,8 @@ import Foundation
 // The patch an airport's tile build uses, as the patch editor holds it
 // (Ortho4XP/docs/specs/patch-editor-20261015.md §2–§4). Loaded from a
 // `patch_load` reply; saved back through `patch_save` in the same order.
-// The §3 edit operations (L3) are `mutating` members added in their own
-// file against the shared fixture `Ortho4XP/tests/fixtures/patch_edit_ops.json`;
+// The §3 edit operations are `mutating` members in `PatchEditOps.swift`,
+// twin-tested against `Ortho4XP/tests/fixtures/patch_edit_ops.json`;
 // after each op they call `reindex()` so `waysUsing` and `bbox` stay true.
 
 public struct PatchNode: Equatable, Sendable {
@@ -107,14 +107,15 @@ public struct PatchDocument: Equatable, Sendable {
     // What the file is (from `patch_load`).
     public let tile: String
     public let icao: String
-    public let source: O4PatchSource
-    public let path: String
+    /// `source`, `path` and `header` change only through `markSaved(path:)`.
+    public private(set) var source: O4PatchSource
+    public private(set) var path: String
     public let stale: Bool
     public let staleInputs: [String]
     /// The law's own snap distance (§3.3) — served, never hard-coded.
     public let minDistinctSpacingM: Double
     public let identityDp: Int
-    public let header: [String: String]
+    public private(set) var header: [String: String]
 
     // The geometry. `nodeOrder` is the file's order, which `patch_save`
     // keeps; L3's ops edit `nodes`/`ways` and then call `reindex()`.
@@ -171,6 +172,25 @@ public struct PatchDocument: Equatable, Sendable {
     /// hand-made manual patch or the auto patch.
     public var isUserEdited: Bool { header["o4_user_edited"] == "1" }
 
+    /// The editor's own file name for this airport (§1.2, A6).
+    public static func editedFileName(icao: String) -> String { "\(icao)_edited.patch.osm" }
+
+    /// A manual patch the editor did not name (a JOSM file): it saves back
+    /// to itself and has no "Revert to auto" (`patch_revert` refuses it).
+    /// Read from the file NAME — `patch_save` stamps `o4_user_edited` into
+    /// such a file too.
+    public var isHandMade: Bool {
+        source == .manual && (path as NSString).lastPathComponent != Self.editedFileName(icao: icao)
+    }
+
+    /// After `patch_save` wrote the document to `path`: it is now that
+    /// manual patch, carrying the editor's header mark.
+    public mutating func markSaved(path: String) {
+        self.path = path
+        source = .manual
+        header["o4_user_edited"] = "1"
+    }
+
     /// Nodes the build takes from the mesh (no `alt_abs`).
     public var nodesWithoutElevation: Int { nodes.values.reduce(0) { $0 + ($1.alt == nil ? 1 : 0) } }
 
@@ -200,5 +220,12 @@ public struct PatchDocument: Equatable, Sendable {
             }
         }
         return box
+    }
+}
+
+extension O4PatchListEntry {
+    /// The listing after `patch_save` wrote the airport's patch to `path`.
+    public func savedAs(path: String) -> O4PatchListEntry {
+        O4PatchListEntry(icao: icao, source: .manual, path: path, bbox: bbox, nodes: nodes, ways: ways)
     }
 }

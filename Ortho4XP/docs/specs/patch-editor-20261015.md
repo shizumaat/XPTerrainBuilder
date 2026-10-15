@@ -47,7 +47,9 @@ of the patch the edit started from, re-keyed without their `o4_` prefix as `o4_e
 JOSM file), the editor loads that one and saves back to IT (same path); A6
 names only the editor's own new files. Such a file has no "Revert to auto"
 (the pane says it was made outside the editor; undo still works within the
-session); `patch_revert` refuses it.
+session); `patch_revert` refuses it. "Hand-made" is decided by FILE NAME: any manual
+patch other than `<ICAO>_edited.patch.osm` (saving stamps
+`o4_user_edited` on both, since both are the user's edits).
 
 1.3 Consumer census (30l) of the saved file — every reader of a manual patch:
 `include_patches` (geometry; `alt_abs` per node is taken as-is),
@@ -250,3 +252,34 @@ is ASYNCHRONOUS (`{status: "started"}` + `PackObjectsReady`), and the engine
 keeps the result in memory for the session keyed by pack DSF path and mtime,
 so reopening the window is instant. The 3D window shows the terrain and patch
 at once and adds the buildings when they arrive ("Loading buildings…").
+## 6. Qt (L5, L7)
+
+The same overlay, inspector and 3D window in `O4_Qt_Map.py` (+ new modules,
+not appends), `QUndoStack`, calling `patch_edit.py` directly; 3D via
+pyqtgraph's OpenGL widget.
+
+## 7. Not in v1
+
+Grade checking (A3); patch-only generation (A2); delta overlay (A1); new
+shapes, tag editing, way split/join; elevation colour ramp; editing in 3D;
+live exact remesh.
+
+## 8. Lanes (Opus, moderate; the spawner owns the merge into `claude/patch-editor`)
+
+| Lane | Scope | Order |
+|---|---|---|
+| L1 | Engine: protocol 1.12, `patch_list/load/save/revert`, `patch_edit.py`, the §3.3 shared merge helper, the twin fixture, A5 label, tests | first |
+| L2 | Mac read-only render: wrappers, `PatchDocument`, overlay, View-mode inspector | parallel with L1 against §2 |
+| L3 | Mac Edit mode (§4 interaction, undo, save/revert) | after L1 + L2 |
+| L4 | `pack_outlines` + drawing (Mac; Qt in L5) | after L1 |
+| L5 | Qt parity of L2–L4 | after L3 |
+| L6 | 3D (Mac): 6a `terrain_sample` + triangulator + window + live preview; 6b `pack_objects` + buildings; 6c imagery drape + `mesh_crop` / Last build | 6a after L2, alongside L3 |
+| L7 | 3D (Qt) | after L5 + 6a |
+
+Closing test (once, at the end): on one built airport, edit a few nodes, save,
+rebuild the tile; the build log says "using the MANUAL patch" and the mesh
+reads the new elevations at those points. No sweep: auto patches are
+unchanged unless an edited file exists.
+
+Build-time impact: none on the build path (commands run on demand; the A5
+label is a header read). No airport-specific code anywhere (05e).

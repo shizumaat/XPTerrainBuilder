@@ -965,6 +965,8 @@ final class BuildModel: ObservableObject {
 
     /// The patch layer (map overlay + "Patch · ICAO" box).
     lazy var patchEdit = PatchEditModel(build: self)
+    /// The pack reference outlines under it (spec §0 A4).
+    lazy var packOutlines = PatchPackOutlines(patch: patchEdit)
 
     /// The engine session for the patch commands, or nil when the engine
     /// is not running or predates them (protocol < 1.12): the patch layer

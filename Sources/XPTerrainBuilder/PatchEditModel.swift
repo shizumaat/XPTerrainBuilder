@@ -176,6 +176,7 @@ final class PatchEditModel: ObservableObject {
             guard let info = build.built[coord] else { continue }
             if let old = listings[coord], old.info != info {
                 tilesNeedingRebuild.remove(coord.key) // the tile was built again
+                PackBuildingsStore.shared.invalidate(tile: coord.key) // objects may be re-seated
             }
             if listings[coord]?.info != info {
                 if coord.key == document?.tile { reloadDocument = true }

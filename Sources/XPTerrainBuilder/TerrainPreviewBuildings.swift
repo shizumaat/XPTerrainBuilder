@@ -44,7 +44,9 @@ final class TerrainPreviewBuildings {
         set(.loading)
         Task { [weak self] in
             do {
-                let objects = try await client.packObjects(tile: doc.tile, icao: doc.icao, bbox: box)
+                // Shared with the map's footprints (one request, one answer).
+                let objects = try await PackBuildingsStore.shared.objects(
+                    client: client, tile: doc.tile, icao: doc.icao, box: box)
                 let built = await Task.detached(priority: .userInitiated) {
                     Self.build(objects, document: doc, space: space, meshes: meshes)
                 }.value

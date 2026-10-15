@@ -109,6 +109,15 @@ string. The DOCUMENT ORIGIN (§3.3) is the centre of the document's bbox at
 load time (mean of min/max lat and of min/max lon), fixed for the document's
 life.
 
+Amended 2026-10-15 before L4/6c (additive or narrowing, by the spec
+author): (a) `pack_outlines` returns `pavement` (rows 110 pavement and 130
+boundary, beziers flattened by `auto_patch_v2/airport/apt_dat.py`) and
+`missing`; `footprints` is DROPPED — the map draws building footprints from
+the `pack_objects` result (the plan outline of each placed model's hulls),
+so buildings are read once, by one command. (b) `terrain_sample` and
+`mesh_crop` take an optional `build_dir` (the tile's build folder as the app
+knows it); absent → the default `Tiles/` folder.
+
 Node ids are the file's (negative) ids. The client allocates new node ids
 below the document's minimum id; way ids are kept. `patch_save` writes ways
 and nodes in the order given; tags are written back unchanged.

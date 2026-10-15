@@ -272,19 +272,46 @@ def read_patch_source(path: str) -> dict | None:
     standalone tool — which the driver's gate reads as "inputs
     unverifiable" and rebuilds.
     """
-    import urllib.parse
+    line = patch_root_line(path)
+    return None if line is None else parse_patch_source(line)
 
+
+def patch_root_line(path: str) -> str | None:
+    """The ``<osm …>`` root line of a patch file, or ``None`` when the file
+    is missing, unreadable or has none in its first two lines.
+
+    The root element is line 1 or 2 (after the XML declaration) — the same
+    convention O4_OSM_Utils relies on.  Every writer of a patch (the v2
+    emitter, the patch editor) keeps the root attributes on that ONE line.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
-            # The root element is line 1 or 2 (after the XML
-            # declaration) — same convention O4_OSM_Utils relies on.
             line = f.readline()
             if "<osm " not in line:
                 line = f.readline()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
-    if "<osm " not in line:
-        return None
+    return line if "<osm " in line else None
+
+
+#: The patch editor's mark on a MANUAL patch it wrote (spec
+#: patch-editor-20261015 §1.2, owner A5): the airport's grade violations
+#: are reported, never fail anything, and are labelled "user-edited".
+USER_EDITED_ATTR = "o4_user_edited"
+_USER_EDITED_RE = re.compile(r"\s" + USER_EDITED_ATTR + r"=(['\"])1\1")
+
+
+def is_user_edited_patch(path: str) -> bool:
+    """True when the patch's root carries ``o4_user_edited="1"`` — one
+    root-line read, no parse."""
+    line = patch_root_line(path)
+    return bool(line and _USER_EDITED_RE.search(line))
+
+
+def parse_patch_source(line: str) -> dict | None:
+    """:func:`read_patch_source` over a root line already in hand."""
+    import urllib.parse
+
     m = _PATCH_SOURCE_APT_RE.search(line)
     if not m:
         return None

@@ -16,6 +16,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -313,6 +314,16 @@ def test_a_pid_handed_to_another_process_is_not_this_runs_orphan():
     by somebody born at another time."""
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
+        # A child read in the instant between fork and exec has no command
+        # line yet (PR #754 CI, ubuntu + windows: ``[born, '', role]``); a
+        # pool worker is stamped only once it has answered, so wait for the
+        # same state here — bounded, never a hang.
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            now = SC.identity(child.pid)
+            if now is not None and now[1]:
+                break
+            time.sleep(0.05)
         procs = SC.stamp({}, [child.pid], "worker of the 'spawn' pool")
         born, command, role = procs[str(child.pid)]
         assert born is not None and command, procs    # this OS can say who a pid is

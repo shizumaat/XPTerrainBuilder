@@ -1854,6 +1854,8 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
 def print_report(rep: dict, top: int, cg=None) -> None:
     lt = rep["lawtrue"]
     print(f"\n=== CENSUS {rep['patch']} ===")
+    if rep.get("label"):
+        print(f"  [{rep['label'].upper()}] reported, never failed (owner A5)")
     # THE COCKPIT BLOCK FIRST (owner RULINGS 2026-09-12x/12y; §31 (6):
     # "Every spec's MEASURED block from now on quotes the cockpit block
     # first").  Printed from ``check_grade``'s own lines function — never a
@@ -2661,6 +2663,10 @@ def main(argv=None) -> int:
                                      site_visibility_m=args.site_visibility,
                                      sites_out=sites_out,
                                      want_class=args.row_class)
+            except cg.UserEditedPatchUnjudged as exc:
+                # A5: REPORTED under the label, never a refusal or a fail.
+                print(f"[census] {cg.USER_EDITED_LABEL.upper()}: {exc}")
+                continue
             except FileNotFoundError as exc:
                 raise SystemExit(
                     f"REFUSING: {exc}\n"
@@ -2689,6 +2695,8 @@ def main(argv=None) -> int:
         # The inset ladder-fill header (spec las-tile §12): read fresh on
         # a hit and a miss alike -- never part of the cached report.
         rep["inset_fill"] = inset_fill_record(osm, rep.get("provenance"))
+        # A5 (spec patch-editor-20261015 §1.3): read fresh, like the fill.
+        rep["label"] = cg.user_edited_label(osm)
         reports.append(rep)
         if not args.quiet:
             print_report(rep, args.top, cg)

@@ -1,0 +1,435 @@
+<title>Patch Editor Design</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,600&display=swap">
+<style>
+/* Layout: one reading column; the mockup breaks wider in its own scroll box. App frame always uses the app's night-chart palette. */
+:root {
+  --bg: #f5f6f8; --surface: #ffffff; --fg: #1b2230; --muted: #5d6778; --rule: #d9dee6; --accent: #b8366f;
+  --code-bg: #eceff4;
+  /* app frame (fixed dark: it is a picture of the app) */
+  --ocean: #0b0d12; --land: #1e2229; --chrome: #23272f; --chrome2: #2b3039; --chrome-fg: #e7ebf2; --chrome-muted: #9aa4b5;
+  --sel: #ffd60a; --node: #e7ebf2; --mag: #c74078;
+  --display: "Fraunces", Georgia, serif; --body: "IBM Plex Sans", -apple-system, system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12151b; --surface: #191d24; --fg: #e4e8ef; --muted: #9aa3b2; --rule: #2c323c; --accent: #e0699c; --code-bg: #20252e; color-scheme: dark } }
+:root[data-theme="dark"] { --bg: #12151b; --surface: #191d24; --fg: #e4e8ef; --muted: #9aa3b2; --rule: #2c323c; --accent: #e0699c; --code-bg: #20252e; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; }
+.col { max-width: 760px; }
+h1 { font-family: var(--display); font-size: 2.1rem; line-height: 1.15; margin: 0 0 6px; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: 1.35rem; margin: 44px 0 10px; text-wrap: balance; }
+h3 { font-size: 1rem; margin: 22px 0 6px; }
+p, li { margin: 0 0 8px; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+code, .mono { font-family: var(--mono); font-size: .88em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+a { color: var(--accent); }
+.decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 18px 0 0; }
+.decision { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.decision b { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 500; }
+.scroll { overflow-x: auto; margin: 18px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--rule); }
+th { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+td:first-child { white-space: nowrap; }
+kbd { font-family: var(--mono); font-size: 12px; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); }
+
+/* ---- app mockup ---- */
+.app { min-width: 1000px; border-radius: 10px; overflow: hidden; border: 1px solid #000; box-shadow: 0 12px 40px rgba(0,0,0,.35); background: var(--chrome); color: var(--chrome-fg); font-family: -apple-system, "SF Pro Text", var(--body); font-size: 12px; }
+.titlebar { height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--chrome2); border-bottom: 1px solid #000; }
+.dot { width: 12px; height: 12px; border-radius: 50%; }
+.titlebar .t { margin-left: 10px; font-weight: 600; }
+.titlebar .search { margin-left: auto; width: 200px; height: 22px; border-radius: 6px; background: #1a1d23; color: var(--chrome-muted); display: flex; align-items: center; padding: 0 8px; }
+.body { display: grid; grid-template-columns: 1fr 300px; height: 620px; }
+.map { position: relative; background: var(--ocean); overflow: hidden; }
+.map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.toolbar { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; align-items: center; background: rgba(35,39,47,.92); border: 1px solid #000; border-radius: 8px; padding: 4px 6px; }
+.seg { display: flex; background: #15181d; border-radius: 6px; padding: 2px; }
+.seg span { padding: 2px 10px; border-radius: 5px; color: var(--chrome-muted); }
+.seg span.on { background: var(--mag); color: #fff; }
+.tb { padding: 2px 7px; border-radius: 5px; color: var(--chrome-fg); }
+.tb.dim { color: #5d6573; }
+.sep { width: 1px; height: 16px; background: #3a404b; }
+.check { display: flex; gap: 5px; align-items: center; color: var(--chrome-fg); }
+.box { width: 11px; height: 11px; border-radius: 3px; background: var(--mag); display: inline-block; }
+.chip { position: absolute; bottom: 10px; left: 10px; background: rgba(35,39,47,.92); border: 1px solid #000; border-radius: 6px; padding: 3px 8px; color: var(--chrome-muted); font-family: var(--mono); font-size: 11px; }
+.zoomchip { position: absolute; bottom: 10px; right: 10px; background: rgba(35,39,47,.92); border-radius: 6px; padding: 3px 8px; color: var(--chrome-muted); }
+.legend { position: absolute; top: 10px; right: 10px; background: rgba(35,39,47,.92); border: 1px solid #000; border-radius: 8px; padding: 6px 9px; display: grid; gap: 3px; }
+.legend i { display: inline-block; width: 14px; height: 8px; margin-right: 6px; border-radius: 2px; vertical-align: middle; }
+.pane { background: var(--chrome); border-left: 1px solid #000; display: flex; flex-direction: column; min-width: 0; }
+.pane .head { padding: 8px 10px; border-bottom: 1px solid #000; }
+.pane .head b { font-size: 13px; display: block; }
+.pane .head span { color: var(--chrome-muted); font-size: 11px; }
+.pane .scrollp { padding: 10px; display: grid; gap: 10px; overflow: hidden; flex: 1; align-content: start; }
+.gbox { background: var(--chrome2); border-radius: 8px; padding: 8px 10px; }
+.gbox h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--chrome-muted); font-weight: 600; }
+.gbox.new { outline: 2px solid var(--mag); outline-offset: 2px; }
+.row { display: flex; justify-content: space-between; gap: 8px; }
+.row .k { color: var(--chrome-muted); }
+.mono2 { font-family: var(--mono); font-size: 11px; }
+.bar { height: 4px; background: #15181d; border-radius: 2px; margin-top: 4px; }
+.bar i { display: block; height: 100%; width: 100%; background: #2e9e5b; border-radius: 2px; }
+.field { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+.input { flex: 1; background: #15181d; border: 1px solid var(--mag); border-radius: 5px; padding: 3px 7px; font-family: var(--mono); font-size: 12px; color: #fff; }
+.unit { color: var(--chrome-muted); }
+.btn { display: inline-block; padding: 3px 9px; border-radius: 5px; background: #3a404b; color: var(--chrome-fg); }
+.btn.pri { background: var(--mag); color: #fff; }
+.btn.danger { color: #ff8a80; }
+.badge { display: inline-block; padding: 0 6px; border-radius: 9px; font-size: 10.5px; background: #3a404b; color: var(--chrome-fg); margin: 2px 3px 0 0; }
+.note { color: var(--chrome-muted); font-size: 11px; line-height: 1.4; margin-top: 6px; }
+.bottom { border-top: 1px solid #000; padding: 8px 10px; display: flex; gap: 6px; align-items: center; }
+.bottom .u { color: var(--sel); margin-right: auto; font-size: 11px; }
+.callouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 14px; }
+.callout { border-left: 3px solid var(--accent); padding: 2px 0 2px 10px; min-width: 0; }
+.callout b { display: block; }
+.mini { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 14px; }
+.mini .gbox { color: var(--chrome-fg); font-family: -apple-system, "SF Pro Text", var(--body); font-size: 12px; background: var(--chrome2); border: 1px solid #000; }
+.mini .cap { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.phase { display: grid; grid-template-columns: 54px 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.phase .n { font-family: var(--mono); color: var(--accent); font-size: 13px; padding-top: 2px; }
+.phase .c { min-width: 0; }
+.open { background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 16px; }
+@media (max-width: 600px) { h1 { font-size: 1.6rem; } .phase { grid-template-columns: 1fr; gap: 2px; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="col">
+    <div class="eyebrow">XPTerrainBuilder · issue #46 · branch claude/patch-editor</div>
+    <h1>Patch editor: design and plan</h1>
+    <p>When the map is zoomed in on one airport, draw the patch the engine will build. In Edit mode you can select, move, delete and insert nodes, change their elevation, and undo. Saving writes a manual patch, and the engine already prefers a manual patch over the auto patch. A 3D preview shows the terrain with the patch applied, and you can orbit it while you edit.</p>
+    <div class="decisions">
+      <div class="decision"><b>Save model</b>Full manual patch, <code>&lt;ICAO&gt;_edited.patch.osm</code></div>
+      <div class="decision"><b>Source</b>Patches from a built tile only</div>
+      <div class="decision"><b>Grade law</b>Not checked. What you edit is what gets built.</div>
+      <div class="decision"><b>v1 extras</b>Multi-select with offset, pack reference outlines, Qt parity</div>
+      <div class="decision"><b>3D preview</b>Its own lane (L6), in a separate window. It follows your edits live, shows the pack's buildings, and is read-only.</div>
+    </div>
+  </div>
+
+  <h2>Mockup</h2>
+  <p class="col" style="color:var(--muted)">Example: an airport tile that has already been built, zoomed in to about 1:4,000. One node is selected on the apron edge, which the apron shares with the parallel taxiway. The pack's apt.dat pavement is drawn dashed underneath for reference.</p>
+  <div class="scroll">
+  <div class="app" role="img" aria-label="Mockup of the map in Edit mode with the patch drawn and a node inspector in the side panel">
+    <div class="titlebar">
+      <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+      <span class="t">XPTerrainBuilder</span>
+      <span class="search">⌕ KHIO</span>
+    </div>
+    <div class="body">
+      <div class="map">
+        <svg viewBox="0 0 700 620" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs>
+            <pattern id="img" width="40" height="40" patternUnits="userSpaceOnUse">
+              <rect width="40" height="40" fill="#2a3127"/>
+              <rect x="0" y="0" width="20" height="20" fill="#2d352a"/>
+              <rect x="20" y="20" width="20" height="20" fill="#283024"/>
+            </pattern>
+          </defs>
+          <rect width="700" height="620" fill="url(#img)"/>
+          <!-- pack reference outlines (dashed, offset slightly) -->
+          <g fill="none" stroke="#9aa4b5" stroke-width="1.2" stroke-dasharray="5 4" opacity=".7">
+            <path d="M58 132 L652 300 L640 344 L46 176 Z"/>
+            <path d="M262 362 L500 430 L470 540 L232 472 Z"/>
+            <path d="M520 470 L600 492 L586 540 L506 518 Z"/>
+          </g>
+          <!-- patch: runway -->
+          <path d="M60 128 L650 296 L638 338 L48 170 Z" fill="#8a8f99" fill-opacity=".28" stroke="#d6dae2" stroke-width="1.6"/>
+          <!-- primary parallel taxiway -->
+          <path d="M70 210 L600 360 L594 382 L64 232 Z" fill="#d2b14a" fill-opacity=".22" stroke="#e6c95c" stroke-width="1.4"/>
+          <!-- connectors -->
+          <path d="M150 182 L172 188 L160 236 L138 230 Z" fill="#d2b14a" fill-opacity=".22" stroke="#e6c95c" stroke-width="1.2"/>
+          <path d="M470 270 L492 276 L480 326 L458 320 Z" fill="#d2b14a" fill-opacity=".22" stroke="#e6c95c" stroke-width="1.2"/>
+          <!-- apron (shares edge 260,358 - 500,426 with taxiway band) -->
+          <path d="M260 358 L380 392 L500 426 L472 534 L232 466 Z" fill="#5aa0e0" fill-opacity=".22" stroke="#7db8ef" stroke-width="1.6"/>
+          <!-- building -->
+          <path d="M518 474 L598 496 L584 544 L504 522 Z" fill="#b07ad0" fill-opacity=".25" stroke="#c497e0" stroke-width="1.3"/>
+          <!-- service road -->
+          <path d="M232 466 L170 560 L160 610" fill="none" stroke="#9fd18b" stroke-width="5" stroke-opacity=".35"/>
+          <path d="M232 466 L170 560 L160 610" fill="none" stroke="#9fd18b" stroke-width="1.2"/>
+          <!-- nodes -->
+          <g fill="#0b0d12" stroke="#e7ebf2" stroke-width="1.2">
+            <rect x="57" y="125" width="6" height="6"/><rect x="647" y="293" width="6" height="6"/><rect x="635" y="335" width="6" height="6"/><rect x="45" y="167" width="6" height="6"/>
+            <rect x="67" y="207" width="6" height="6"/><rect x="597" y="357" width="6" height="6"/><rect x="591" y="379" width="6" height="6"/><rect x="61" y="229" width="6" height="6"/>
+            <rect x="147" y="179" width="6" height="6"/><rect x="169" y="185" width="6" height="6"/><rect x="157" y="233" width="6" height="6"/><rect x="135" y="227" width="6" height="6"/>
+            <rect x="467" y="267" width="6" height="6"/><rect x="489" y="273" width="6" height="6"/><rect x="477" y="323" width="6" height="6"/><rect x="455" y="317" width="6" height="6"/>
+            <rect x="257" y="355" width="6" height="6"/><rect x="497" y="423" width="6" height="6"/><rect x="469" y="531" width="6" height="6"/><rect x="229" y="463" width="6" height="6"/>
+            <rect x="515" y="471" width="6" height="6"/><rect x="595" y="493" width="6" height="6"/><rect x="581" y="541" width="6" height="6"/><rect x="501" y="519" width="6" height="6"/>
+            <rect x="167" y="557" width="6" height="6"/>
+          </g>
+          <!-- "+" insert handles on the selected node's segments -->
+          <g font-family="-apple-system, sans-serif" font-size="11" font-weight="700" text-anchor="middle">
+            <circle cx="320" cy="375" r="7" fill="#23272f" stroke="#c74078" stroke-width="1.4"/><text x="320" y="379" fill="#fff">+</text>
+            <circle cx="440" cy="409" r="7" fill="#23272f" stroke="#c74078" stroke-width="1.4"/><text x="440" y="413" fill="#fff">+</text>
+            <circle cx="486" cy="480" r="7" fill="#23272f" stroke="#c74078" stroke-width="1.4"/><text x="486" y="484" fill="#fff">+</text>
+          </g>
+          <!-- selected node -->
+          <circle cx="380" cy="392" r="9" fill="none" stroke="#ffd60a" stroke-width="2"/>
+          <rect x="376" y="388" width="8" height="8" fill="#ffd60a" stroke="#0b0d12" stroke-width="1"/>
+          <!-- hover tooltip -->
+          <g font-family="IBM Plex Mono, Menlo, monospace" font-size="10.5">
+            <rect x="392" y="356" width="118" height="22" rx="4" fill="#23272f" stroke="#000"/>
+            <text x="400" y="371" fill="#e7ebf2">−1287 · 62.70 m</text>
+          </g>
+        </svg>
+        <div class="toolbar">
+          <div class="seg"><span>View</span><span class="on">Edit</span></div>
+          <span class="sep"></span>
+          <span class="tb" title="Undo">↶</span><span class="tb dim" title="Redo">↷</span>
+          <span class="sep"></span>
+          <span class="check"><span class="box"></span>Pack outlines</span>
+        </div>
+        <div class="legend">
+          <span><i style="background:#d6dae2"></i>runway</span>
+          <span><i style="background:#e6c95c"></i>taxiway</span>
+          <span><i style="background:#7db8ef"></i>apron</span>
+          <span><i style="background:#c497e0"></i>building</span>
+          <span><i style="background:#9fd18b"></i>road</span>
+          <span><i style="background:transparent;border:1px dashed #9aa4b5"></i>pack apt.dat</span>
+        </div>
+        <div class="chip">KHIO · auto patch · 4,576 nodes · 392 shapes</div>
+        <div class="zoomchip">1 : 4,000</div>
+      </div>
+      <div class="pane">
+        <div class="head"><b>Ortho4XP Build</b><span>Engine ready</span></div>
+        <div class="scrollp">
+          <div class="gbox"><h4>Selection</h4><div class="row"><span>+45−123</span><span class="k">built · ZL 17</span></div></div>
+          <div class="gbox"><h4>Build</h4><div class="row"><span class="k">Rebuild selected tile</span><span class="btn">Build</span></div></div>
+          <div class="gbox"><h4>Activity</h4>
+            <div class="row"><span>+45−123</span><span class="k">done</span></div><div class="bar"><i></i></div></div>
+          <div class="gbox new"><h4>Patch · KHIO</h4>
+            <div class="row"><span class="k">Source</span><span>Auto patch, built 12 Oct</span></div>
+            <div style="height:8px"></div>
+            <div class="row"><span><b>Node −1287</b></span><span class="k">1 selected</span></div>
+            <div class="row mono2"><span class="k">lat</span><span>45.540812063</span></div>
+            <div class="row mono2"><span class="k">lon</span><span>−122.951034177</span></div>
+            <div class="field"><span class="k" style="color:var(--chrome-muted)">Elevation</span><span class="input">62.70</span><span class="unit">m</span></div>
+            <div class="row mono2"><span class="k"></span><span class="k">205.7 ft · was 62.40 m</span></div>
+            <div style="margin-top:6px"><span class="k" style="color:var(--chrome-muted)">Used by</span><br><span class="badge">apron</span><span class="badge">primary_parallel</span></div>
+            <div style="margin-top:8px; display:flex; gap:6px"><span class="btn danger">Delete node</span></div>
+          </div>
+        </div>
+        <div class="bottom"><span class="u">● 4 unsaved edits</span><span class="btn">Revert to auto…</span><span class="btn pri">Save</span></div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <div class="callouts">
+    <div class="callout"><b>Patch box, below Activity</b>It appears whenever a patch is drawn. In View mode it shows only the source line and counts.</div>
+    <div class="callout"><b>Shared edges stay welded</b>Moving or deleting a node changes every shape that uses it. A "+" on an edge two shapes share inserts the node into both, so the mesh has no gap.</div>
+    <div class="callout"><b>Save bar</b>Save is enabled when there are unsaved edits. Revert asks for confirmation, then moves the edited file aside to <code>.disabled</code> rather than deleting it.</div>
+  </div>
+
+  <h3>Other side-panel states</h3>
+  <div class="mini">
+    <div>
+      <div class="cap">Several nodes (shift-click or box-select)</div>
+      <div class="gbox"><h4>Patch · KHIO</h4>
+        <div class="row"><span><b>5 nodes</b></span><span class="k">61.90 – 63.10 m</span></div>
+        <div class="field"><span style="color:var(--chrome-muted)">Set to</span><span class="input" style="border-color:#3a404b;color:var(--chrome-muted)">—</span><span class="unit">m</span><span class="btn">Apply</span></div>
+        <div class="field"><span style="color:var(--chrome-muted)">Offset</span><span class="input">+0.50</span><span class="unit">m</span><span class="btn">Apply</span></div>
+        <div style="margin-top:6px"><span class="btn danger">Delete 5 nodes</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="cap">After saving</div>
+      <div class="gbox"><h4>Patch · KHIO</h4>
+        <div class="row"><span class="k">Source</span><span>Edited · KHIO_edited.patch.osm</span></div>
+        <div class="note">The tile is out of date until you rebuild it. Object re-seating is off for this airport while the edited patch is in use.</div>
+        <div style="margin-top:8px"><span class="btn pri">Rebuild tile</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="cap">Edited patch whose auto inputs have changed</div>
+      <div class="gbox"><h4>Patch · KHIO</h4>
+        <div class="row"><span class="k">Source</span><span>Edited</span></div>
+        <div class="note" style="color:#f29419">The engine, DEM or airport data has changed since this patch was edited. The auto patch would now be different, but your edited patch is still used.</div>
+        <div style="margin-top:8px"><span class="btn">Revert to auto…</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>3D preview</h2>
+  <p class="col" style="color:var(--muted)">A separate window, opened with the toolbar's 3D button or <kbd>⌘3</kbd>, that shows the same airport as the map. You can place it next to the map or on a second display. Drag to orbit, scroll to zoom, and <kbd>⌥</kbd>-drag to pan. The nodes selected on the map are shown here too, and each edit appears in the next frame. The installed airport pack's buildings stand on the terrain as grey massing models, so you can find areas to adjust by the buildings around them.</p>
+  <div class="scroll">
+  <div class="app" role="img" aria-label="Mockup of the 3D preview window showing terrain with the patch applied, pack buildings, and a selected node">
+    <div class="titlebar">
+      <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
+      <span class="t">3D Preview · KHIO</span>
+    </div>
+    <div class="map" style="height:360px; background:#0b0d12">
+      <canvas id="terrain3d" width="1000" height="360" style="position:absolute; inset:0; width:100%; height:100%"></canvas>
+      <div class="toolbar">
+        <div class="seg"><span class="on">Preview</span><span>Last build</span></div>
+        <span class="sep"></span>
+        <span class="check"><span class="box"></span>Imagery</span>
+        <span class="check"><span class="box"></span>Buildings</span>
+        <span class="check"><span class="box" style="background:#3a404b"></span>Wireframe</span>
+        <span class="sep"></span>
+        <span style="color:var(--chrome-muted)">Vertical ×</span><span class="tb mono2">3.0</span>
+        <span style="display:inline-block; width:70px; height:4px; background:#15181d; border-radius:2px; position:relative"><i style="position:absolute; left:0; top:0; height:4px; width:30%; background:var(--mag); border-radius:2px"></i></span>
+      </div>
+      <div class="legend">
+        <span><i style="background:#7a8a6a"></i>DEM terrain</span>
+        <span><i style="background:#d6dae2"></i>patch surface</span>
+        <span><i style="background:#b9bec8"></i>pack buildings</span>
+        <span><i style="background:#ffd60a"></i>selected node</span>
+      </div>
+      <div class="chip">Preview · 3 km × 2.2 km · DEM 5 m inset + 30 m base · 142 pack objects</div>
+      <div class="zoomchip">⟲ Reset view</div>
+    </div>
+  </div>
+  </div>
+  <div class="callouts">
+    <div class="callout"><b>Preview (live)</b>The DEM the build reads (base plus insets), with the DEM under the patch cut away and the patch shapes triangulated at their node elevations. Moving a node or changing its elevation updates its vertex in place. Inserting or deleting a node re-triangulates only that shape.</div>
+    <div class="callout"><b>Last build (exact)</b>The tile mesh from the last build, cropped to the airport. This is the surface X-Plane actually loads. It does not follow your edits until you rebuild. If the build's cleaning level removed the mesh, the "Last build" option is greyed out with a note saying why.</div>
+    <div class="callout"><b>Where they differ</b>At the edges of the patch, where the mesh stage blends the patch into the terrain, and wherever the mesh stage simplifies triangles. That is why the live view is labelled "Preview".</div>
+    <div class="callout"><b>Buildings sit as X-Plane draws them</b>Each object stands on the terrain at its anchor point, plus its authored height. With an edited patch, object re-seating is off, so lowering the ground under a hangar leaves it floating in the preview, just as it would in the sim. Moving parts (jetway animations) are left out.</div>
+  </div>
+
+  <h2>Interaction</h2>
+  <div class="scroll"><table>
+    <tr><th>Action</th><th>View mode</th><th>Edit mode</th></tr>
+    <tr><td>Zoom in on a built airport</td><td>The patch appears once the view is narrower than about 0.08° and the patch's bounding box is in view. Nodes are drawn only when they are at least 6 pt apart on screen.</td><td>Same</td></tr>
+    <tr><td>Click</td><td>Tile selection, as now</td><td>Select the node under the pointer (8 pt hit radius). Click on empty map to clear the selection.</td></tr>
+    <tr><td><kbd>⇧</kbd>-click / <kbd>⇧</kbd>-drag</td><td>—</td><td>Add or remove a node from the selection / box-select</td></tr>
+    <tr><td>Drag</td><td>Pan</td><td>On a node, move the selection; elevations stay as they are. On empty map, pan.</td></tr>
+    <tr><td>Snap while moving</td><td>—</td><td>While you drag, the node jumps onto any other node within 8 pt of the pointer, and the target is highlighted. Drag away and it lets go. Releasing the mouse while it is snapped merges the two into one shared node, which keeps the other node's position and elevation. One ⌘Z undoes both the move and the merge. Nothing else merges, and saving never merges nodes.</td></tr>
+    <tr><td>"+" on an edge</td><td>—</td><td>Shown on the edges of selected nodes' shapes (and on hover). Inserts a node at the midpoint with the elevation interpolated between its neighbours, into every shape that shares that edge.</td></tr>
+    <tr><td><kbd>⌫</kbd> / <kbd>⌦</kbd></td><td>—</td><td>Delete the selected nodes from every shape. A shape left with fewer than 3 distinct nodes (2 for a road line) is removed in the same undo step.</td></tr>
+    <tr><td><kbd>⌘Z</kbd> / <kbd>⇧⌘Z</kbd></td><td>—</td><td>Undo or redo through the window's undo manager, so the Edit menu items work. History is unlimited for the session and survives a save.</td></tr>
+    <tr><td><kbd>⌘S</kbd></td><td>—</td><td>Save the edited patch</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>—</td><td>Clear the selection</td></tr>
+  </table></div>
+
+  <h2>Architecture</h2>
+  <div class="col">
+    <p><b>The engine owns the files; each front end owns the interaction.</b> Reading and writing patches, the staleness stamps and the pack outlines are handled by JSONL commands, so the Mac and Qt apps get the same behaviour. Selection, dragging and undo happen locally in each app, because a round trip to the engine on every drag frame would be too slow.</p>
+    <h3>New engine commands (protocol 1.10, reply only; no new event classes, so the event-name wire hazard is not touched)</h3>
+    <ul>
+      <li><code>patch_load {tile, icao}</code> returns the source (<code>auto</code> / <code>manual</code>), path, nodes <code>[id, lat, lon, alt_abs?]</code>, ways <code>[id, refs, tags]</code>, bounding box and <code>stale</code>. It reads the same file <code>include_patches</code> would pick, so the map shows what the engine will build. Hand-made JOSM patches load too; nodes without <code>alt_abs</code> show "elevation from the mesh".</li>
+      <li><code>patch_list {tile}</code> returns the airports in the tile that have a patch and their bounding boxes, so the map knows where patches exist.</li>
+      <li><code>patch_save {tile, icao, nodes, ways}</code> writes <code>&lt;ICAO&gt;_edited.patch.osm</code> with all tags kept and the auto patch's freshness stamps recorded as <code>o4_edited_from_*</code>. It writes atomically (temp file, then rename).</li>
+      <li><code>patch_revert {tile, icao}</code> renames the edited file to <code>.disabled</code>.</li>
+      <li><code>pack_outlines {tile, icao}</code> returns the apt.dat pavement and boundary rings (Bézier curves flattened) and the object footprints the engine already reads for re-seating.</li>
+      <li><code>terrain_sample {tile, icao, bbox, spacing_m}</code> returns an elevation grid as base64 float32. It reuses <code>auto_patch_v2/airport/dem.load_dem</code>, so it reads the same base and insets the airport solve reads. It never downloads: if the DEM is missing, it replies with an error that says so.</li>
+      <li><code>mesh_crop {tile, bbox}</code> returns the triangles of the built <code>Data&lt;tile&gt;.mesh</code> that fall inside the box. It reuses the parser in <code>auto_patch/mesh_sampler.py</code>.</li>
+      <li><code>pack_objects {tile, icao, bbox}</code> returns each distinct object's solid, non-animated triangles once, plus its placements (lon, lat, heading, height mode). It reuses the pack DSF placement reader (<code>auto_patch_v2/airport/dsf.py</code>) and the OBJ8 parser with library resolution (<code>airport/obj8.py</code>, <code>ResourceCache</code>). It reads the caches only: a pack whose DSF dump or library index isn't cached is reported, never regenerated. Facades are drawn as their outline raised to the facade's height.</li>
+    </ul>
+    <h3>Edit operations: one specification, two implementations, one twin test</h3>
+    <p>The operations are move, set elevation, offset elevation, delete nodes and split an edge. They live in <code>o4_engine/patch_edit.py</code>, which the Qt app imports directly, and in <code>SceneryKit/PatchDocument.swift</code>. A shared JSON fixture of operation sequences and expected results runs in both pytest and <code>swift test</code>, so the two cannot drift.</p>
+    <h3>Mac files</h3>
+    <ul>
+      <li><code>SceneryKit/PatchDocument.swift</code>: the model, the edit operations and a spatial grid for hit-testing</li>
+      <li><code>XPTerrainBuilder/PatchEditModel.swift</code>: the ObservableObject that holds the document, selection, mode and undo registration</li>
+      <li><code>XPTerrainBuilder/PatchOverlay.swift</code>: drawing and gestures, called from <code>MapCanvasView</code> with a few lines, so that file does not grow</li>
+      <li><code>XPTerrainBuilder/PatchInspector.swift</code>: the Patch box, added to <code>BuildPane</code> below Activity</li>
+      <li><code>OrthoEngineClient.swift</code>: the eight command wrappers</li>
+      <li><code>SceneryKit/PatchTriangulator.swift</code>: ear-clipping triangulation with hole support, per shape (patch shapes carry <code>gap_interior_ring</code> holes)</li>
+      <li><code>XPTerrainBuilder/TerrainPreviewWindow.swift</code>: a separate window holding a SceneKit view with an orbit camera. Each patch shape is its own geometry, so an edit rebuilds a single buffer. It also holds the terrain grid, the imagery drape from the map's cached tiles, and the pack buildings as shared-geometry clones, so one hangar model is stored once no matter how many times it is placed.</li>
+    </ul>
+    <h3>Performance</h3>
+    <p>The largest patch on disk is 12k nodes (KPDX), and OTHH-class patches may be several times that. Drawing is culled to the viewport. Nodes are drawn only when they are far enough apart on screen. During a drag only the moved nodes' shapes are rebuilt, and the patch draws into its own layer so the base map isn't redrawn every frame.</p>
+  </div>
+
+  <h2>Plan</h2>
+  <div class="col">
+    <div class="phase"><div class="n">L1</div><div class="c"><b>Engine: commands and edit operations.</b> <code>patch_list/load/save/revert</code>, <code>patch_edit.py</code>, the twin fixture, and tests for load → save → load identity and for <code>include_patches</code> picking the edited file and turning re-seating off. Opus lane, runs first.</div></div>
+    <div class="phase"><div class="n">L2</div><div class="c"><b>Mac: read-only render.</b> Client wrappers, <code>PatchDocument</code>, the overlay and the View-mode Patch box. Can start in parallel with L1, using a fixture reply.</div></div>
+    <div class="phase"><div class="n">L3</div><div class="c"><b>Mac: Edit mode.</b> Select, multi-select, drag, delete, insert, elevation field, offset, undo/redo, save, revert, the unsaved-edits prompt and Rebuild tile. Comes after L2.</div></div>
+    <div class="phase"><div class="n">L4</div><div class="c"><b>Pack reference outlines.</b> <code>pack_outlines</code> in the engine and drawing in both apps. Runs independently once L1's command scaffolding has landed.</div></div>
+    <div class="phase"><div class="n">L5</div><div class="c"><b>Qt parity.</b> The same overlay and panel in <code>O4_Qt_Map.py</code> using QUndoStack, calling <code>patch_edit.py</code> directly. Comes after L3, so it copies the settled behaviour.</div></div>
+    <div class="phase"><div class="n">L6</div><div class="c"><b>3D preview (Mac).</b> Takes two rounds. <i>6a:</i> <code>terrain_sample</code>, <code>PatchTriangulator</code> (with a twin test against the engine's own triangulation of a fixture shape), and <code>TerrainPreviewView</code> with an orbit camera, a vertical exaggeration control, live updates from <code>PatchEditModel</code> and selection highlighting. <i>6b:</i> <code>pack_objects</code> and the buildings, which re-seat on the preview surface as you edit. <i>6c:</i> the imagery drape, <code>mesh_crop</code> and the "Last build" option. 6a starts once L2 has landed <code>PatchDocument</code>, and runs alongside L3. The preview reads the edit model and never writes to it, so L3 and L6 touch different files.</div></div>
+    <div class="phase"><div class="n">L7</div><div class="c"><b>3D preview (Qt).</b> The same view in the Qt app, using pyqtgraph's OpenGL widget. Its sampling and triangulation come straight from the engine modules in Python. Comes after L5 and 6a.</div></div>
+    <div class="phase"><div class="n">✓</div><div class="c"><b>Closing test.</b> On one built airport: edit a few nodes, save, rebuild the tile, then confirm that the build log says "using the MANUAL patch" and that the DSF reads the new elevations at those points. No sweep is needed, because auto patches are unchanged unless an edited file exists.</div></div>
+  </div>
+
+  <h2>Not in v1</h2>
+  <div class="col">
+    <ul>
+      <li>Grade-law checking of edits (your choice). The census can be added on save later.</li>
+      <li>Generating a patch without a tile build</li>
+      <li>A delta overlay that re-applies edits to new auto patches</li>
+      <li>Drawing new shapes, editing tags, splitting or joining ways</li>
+      <li>An elevation colour ramp</li>
+      <li>Selecting or dragging nodes in the 3D view. All editing stays in the 2D map, and the 3D view is for looking.</li>
+      <li>Rebuilding the exact mesh live. "Last build" refreshes only after a tile rebuild.</li>
+    </ul>
+  </div>
+
+  <h2>Owner answers, 2026-10-15</h2>
+  <div class="open col">
+    <ol style="margin:0; padding-left:20px">
+      <li><b>Zero-violation acceptance.</b> A tile whose airport uses an edited patch reports grade violations without failing, and the result is labelled "user-edited". L1 checks how a build treats a manual patch today and makes it behave this way.</li>
+      <li><b>File name.</b> <code>&lt;ICAO&gt;_edited.patch.osm</code>, the convention the engine already recognises.</li>
+      <li><b>Object re-seating.</b> Stays off while the edited patch is in use. Added: the 3D preview shows the pack's buildings, to help find areas to adjust (L6, round 6b).</li>
+      <li><b>3D placement.</b> A separate window only.</li>
+      <li><b>Preview extent.</b> The patch's bounding box plus 500 m, at 5 m spacing.</li>
+    </ol>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Illustrative wireframe heightfield: rolling terrain with a graded airport
+  // plateau and a runway strip; one highlighted node. Drawn once, static.
+  var cv = document.getElementById('terrain3d');
+  if (!cv || !cv.getContext) return;
+  var ctx = cv.getContext('2d');
+  var W = cv.width, H = cv.height, N = 46;
+  function terrain(x, y) {
+    var h = 18 * Math.sin(x * 0.19 + 0.6) * Math.cos(y * 0.15) + 10 * Math.sin(x * 0.07 + y * 0.11) + 6 * Math.cos(x * 0.33 - y * 0.21);
+    var ax = (x - N / 2) / 15, ay = (y - N / 2) / 7.5;
+    var d = Math.max(Math.abs(ax), Math.abs(ay));
+    var t = Math.min(1, Math.max(0, (d - 0.85) / 0.35));
+    var plateau = 4 + 1.5 * (x - N / 2) / 15;
+    return { h: plateau * (1 - t) + h * t, inPatch: d < 0.85, runway: Math.abs(ay + 0.2 * ax) < 0.18 && Math.abs(ax) < 0.8 };
+  }
+  function proj(x, y, h) {
+    var a = -0.62, ca = Math.cos(a), sa = Math.sin(a);
+    var u = (x - N / 2) * ca - (y - N / 2) * sa, v = (x - N / 2) * sa + (y - N / 2) * ca;
+    var sx = W / 2 + u * 15, sy = H * 0.56 + v * 5.4 - h * 2.3;
+    return [sx, sy];
+  }
+  ctx.fillStyle = '#0b0d12'; ctx.fillRect(0, 0, W, H);
+  var g = [];
+  for (var y = 0; y <= N; y++) { g[y] = []; for (var x = 0; x <= N; x++) { var t = terrain(x, y); g[y][x] = { p: proj(x, y, t.h), t: t }; } }
+  // filled quads back to front
+  for (var y2 = 0; y2 < N; y2++) {
+    for (var x2 = 0; x2 < N; x2++) {
+      var q = [g[y2][x2], g[y2][x2 + 1], g[y2 + 1][x2 + 1], g[y2 + 1][x2]];
+      var inP = q.every(function (c) { return c.t.inPatch; });
+      var rw = inP && q.every(function (c) { return c.t.runway; });
+      var shade = 0.75 + 0.25 * Math.sin((x2 + y2) * 0.3);
+      ctx.beginPath(); ctx.moveTo(q[0].p[0], q[0].p[1]);
+      for (var k = 1; k < 4; k++) ctx.lineTo(q[k].p[0], q[k].p[1]);
+      ctx.closePath();
+      ctx.fillStyle = rw ? 'rgba(160,165,175,' + (0.85 * shade) + ')' : inP ? 'rgba(120,128,140,' + (0.75 * shade) + ')' : 'rgba(92,110,80,' + (0.8 * shade) + ')';
+      ctx.fill();
+      ctx.strokeStyle = inP ? 'rgba(214,218,226,0.55)' : 'rgba(150,170,130,0.22)';
+      ctx.lineWidth = inP ? 0.8 : 0.6;
+      ctx.stroke();
+    }
+  }
+  // pack buildings: grey prisms standing on the terrain at their anchors
+  function prism(x0, y0, w, d, hgt) {
+    var base = terrain(x0 + w / 2, y0 + d / 2).h;
+    function P(x, y, z) { return proj(x, y, z); }
+    var b = [P(x0, y0, base), P(x0 + w, y0, base), P(x0 + w, y0 + d, base), P(x0, y0 + d, base)];
+    var t = [P(x0, y0, base + hgt), P(x0 + w, y0, base + hgt), P(x0 + w, y0 + d, base + hgt), P(x0, y0 + d, base + hgt)];
+    var faces = [[b[0], b[1], t[1], t[0], '#8d939d'], [b[1], b[2], t[2], t[1], '#a7adb7'], [b[3], b[0], t[0], t[3], '#7c828c'], [b[2], b[3], t[3], t[2], '#959ba5'], [t[0], t[1], t[2], t[3], '#c4c9d2']];
+    faces.forEach(function (f) {
+      ctx.beginPath(); ctx.moveTo(f[0][0], f[0][1]); ctx.lineTo(f[1][0], f[1][1]); ctx.lineTo(f[2][0], f[2][1]); ctx.lineTo(f[3][0], f[3][1]); ctx.closePath();
+      ctx.fillStyle = f[4]; ctx.fill(); ctx.strokeStyle = 'rgba(11,13,18,0.55)'; ctx.lineWidth = 0.7; ctx.stroke();
+    });
+  }
+  [[14, 27, 4, 2.5, 5], [19, 28, 3, 2, 4], [23, 29, 5, 2.5, 6], [29, 27.5, 3, 3, 9], [33, 26, 2.5, 2, 3.5]].forEach(function (p) { prism(p[0], p[1], p[2], p[3], p[4]); });
+  var s = g[Math.round(N / 2) + 3][Math.round(N / 2) + 6].p;
+  ctx.beginPath(); ctx.arc(s[0], s[1], 8, 0, Math.PI * 2); ctx.strokeStyle = '#ffd60a'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#ffd60a'; ctx.fillRect(s[0] - 3.5, s[1] - 3.5, 7, 7);
+  ctx.font = '11px "IBM Plex Mono", Menlo, monospace';
+  ctx.fillStyle = '#23272f'; ctx.fillRect(s[0] + 12, s[1] - 24, 124, 20);
+  ctx.fillStyle = '#e7ebf2'; ctx.fillText('−1287 · 62.70 m', s[0] + 19, s[1] - 10);
+})();
+</script>

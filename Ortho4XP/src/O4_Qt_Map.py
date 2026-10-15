@@ -104,9 +104,8 @@ SCENERY_FILTER_LABELS = (
 )
 
 # Canonical tile key ("+48-006"): the spelling built-tile folders and the
-# console already use.  One spelling, one parser — the persisted selection
-# is written in it and nothing else.
-_TILE_KEY_RE = re.compile(r"^[+-]\d{2}[+-]\d{3}$")
+# console already use.  One spelling, one parser (``FNAMES.parse_tile_key``)
+# — the persisted selection is written in it and nothing else.
 
 
 def livemap_cache_dir():
@@ -118,19 +117,7 @@ def tile_key(lat, lon):
     return FNAMES.short_latlon(lat, lon)
 
 
-def parse_tile_key(key):
-    """(lat, lon) from a canonical tile key, or None.
-
-    The reader half of :func:`tile_key`, strict on both shape and range:
-    anything that is not a well-formed on-globe key is refused here so
-    callers restoring stored keys can simply drop what does not parse.
-    """
-    if not isinstance(key, str) or not _TILE_KEY_RE.match(key):
-        return None
-    lat, lon = int(key[:3]), int(key[3:])
-    if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
-        return None
-    return (lat, lon)
+parse_tile_key = FNAMES.parse_tile_key
 
 
 # Mixed-imagery-source audit (docs/specs/qt-backlog-parity2-spec.md §QB3).
@@ -323,6 +310,7 @@ class MapView(QGraphicsView):
     hover_ll = Signal(float, float)
     status_message = Signal(str)
     view_changed = Signal()
+    built_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -379,6 +367,11 @@ class MapView(QGraphicsView):
         # Other installed ortho/mesh packages: (name, {(lat, lon)}, dim).
         self._regions = []
         self._scenery_filter = SCENERY_FILTER_ALL
+
+        # Layers drawn over the map that take the mouse first (the patch
+        # editor): paint(painter), mouse_press/move/release(event) -> bool,
+        # viewport_moved().
+        self._layers = []
 
         # Interaction state
         self._panning = False
@@ -480,11 +473,18 @@ class MapView(QGraphicsView):
     def display_code(self):
         return self._display_code
 
+    def imagery_cache(self):
+        """``(cache folder, source code, max zoom)`` of the tiles the map
+        draws — what the 3D preview drapes from (its cached files only)."""
+        return (livemap_cache_dir(), self._display_code,
+                min(self._provider_max_zl, FETCH_MAX_ZL))
+
     def zoom_level(self):
         return self._zoom
 
     def set_built(self, built):
         self._built = dict(built)
+        self.built_changed.emit()
         self.viewport().update()
 
     def set_installed(self, installed):
@@ -519,6 +519,24 @@ class MapView(QGraphicsView):
             bins.setdefault(key, []).append(row)
         self._default_airport_bins = bins
         self.viewport().update()
+
+    def airport_marks(self):
+        """Every airport mark as ``(code, lat, lon)`` (Global Airports and
+        custom packs)."""
+        return [(row[0], row[1], row[2])
+                for row in list(self._default_airports) + list(self._custom_airports)]
+
+    def add_layer(self, layer):
+        """Draw ``layer`` over the map and offer it the mouse first."""
+        self._layers.append(layer)
+
+    def pan_by(self, dx, dy):
+        """Move the map content by (dx, dy) viewport pixels."""
+        self.horizontalScrollBar().setValue(
+            self.horizontalScrollBar().value() - int(dx))
+        self.verticalScrollBar().setValue(
+            self.verticalScrollBar().value() - int(dy))
+        self._schedule_refresh()
 
     def set_custom_airports(self, airports):
         """Custom-pack airport marks: ``(code, lat, lon, dim)`` rows,
@@ -664,6 +682,9 @@ class MapView(QGraphicsView):
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
             return
+        if any(layer.mouse_press(event) for layer in self._layers):
+            event.accept()
+            return
         if event.button() == Qt.LeftButton:
             self._press_pos = event.position()
         super().mousePressEvent(event)
@@ -675,13 +696,10 @@ class MapView(QGraphicsView):
         if self._panning:
             d = event.position() - self._pan_start
             self._pan_start = event.position()
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - int(d.x())
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - int(d.y())
-            )
-            self._schedule_refresh()
+            self.pan_by(d.x(), d.y())
+            event.accept()
+            return
+        if any(layer.mouse_move(event) for layer in self._layers):
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -693,6 +711,10 @@ class MapView(QGraphicsView):
         ):
             self._panning = False
             self.unsetCursor()
+            event.accept()
+            return
+        if any(layer.mouse_release(event) for layer in self._layers):
+            self._press_pos = None
             event.accept()
             return
         if (
@@ -737,12 +759,16 @@ class MapView(QGraphicsView):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._place_scan_status()
+        for layer in self._layers:
+            layer.viewport_moved()
 
     def scrollContentsBy(self, dx, dy):
         # QAbstractScrollArea pans by scrolling the whole viewport,
         # dragging child widgets (the scan status) along — re-pin after.
         super().scrollContentsBy(dx, dy)
         self._place_scan_status()
+        for layer in self._layers:
+            layer.viewport_moved()
         self._schedule_refresh()
 
     # ------------------------------------------------------------------
@@ -1003,6 +1029,8 @@ class MapView(QGraphicsView):
         # radius-1e-5 ellipses through that transform costs an order of
         # magnitude more than stroking the same dots at screen scale.
         self._draw_airports(painter)
+        for layer in self._layers:
+            layer.paint(painter)
         self._draw_zoom_badge(painter)
         painter.end()
 

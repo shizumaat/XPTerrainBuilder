@@ -176,3 +176,49 @@ def test_the_object_stage_reads_a_shelf_as_ground():
     assert [p.ref for p in pads] == ["building1"]
     assert is_shelf_ref("shelf12") and is_shelf_ref("shelf3#collar")
     assert not is_shelf_ref("shelfX") and not is_shelf_ref("building1")
+
+
+# ---------------------------------------------------------------- stage 2
+from auto_patch_v2.constraints.apron_shelf import shelf_release  # noqa: E402
+from auto_patch_v2.model.constraints import ConstraintSet, Linear, Source  # noqa: E402
+
+
+@_dc.dataclass
+class _F:
+    ref: str
+    ring: tuple
+    holes: tuple = ()
+
+
+@_dc.dataclass
+class _V:
+    dem_z: float
+
+
+class _Map:
+    def __init__(self, dem):
+        self.faces = {0: _F("shelf1", (0, 1, 2)), 1: _F("shelf1#collar", (2, 3, 4)),
+                      2: _F("pavA", (5, 6, 7))}
+        self.vertices = {v: _V(dem) for v in range(8)}
+
+    @staticmethod
+    def ring_vertices(ring):
+        return list(ring)
+
+
+def _level_row():
+    # the §20 frontage level: the shelf's mean against the apron's leaders
+    terms = tuple((v, 1.0 / 3.0) for v in (0, 1, 2)) + ((5, -0.5), (6, -0.5))
+    return Linear(terms, 0.0, 0.0, Source(
+        "pads", "structures.building_pad frontage_level (test)", ("face:0", "shelf1")))
+
+
+@pytest.mark.parametrize("dem, kept", [(99.0, True), (100.2, False), (107.0, False)])
+def test_a_shelf_fills_it_never_cuts(law, dem, kept):
+    """Stage 1 put the apron at 100 m: a shelf over ground 1 m below keeps
+    its level row (it fills); one within ``split_tol_m`` or above it (a cut)
+    is released and keeps its own ground."""
+    cs = ConstraintSet(linears=(_level_row(),))
+    out, recs = shelf_release(_Map(dem), law, cs, {5: 100.0, 6: 100.0, 7: 100.0})
+    assert [r["kept"] for r in recs] == [kept]
+    assert len(out.linears) == (1 if kept else 0)

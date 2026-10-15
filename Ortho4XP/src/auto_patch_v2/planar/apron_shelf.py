@@ -36,7 +36,11 @@ shares no vertex with the airside, so stage 1 never sees it (MEASURED, KASE
 replay: welded to the rim it minted one pav7 vertex through the noding's
 snap-rounding and stage 1 moved 63 airside nodes by up to 0.04 m; priced as
 a pad over its three apron contacts its 1 % ceiling relaxed 21 hard rows).
-It is minted AFTER the conforming-hold register (``platform_split``), so it
+It FILLS, never cuts: between the stages ``constraints/apron_shelf.
+shelf_release`` releases the level rows of a shelf whose apron (stage 1's
+level) does not stand above its ground by ``[placement] split_tol_m`` — the
+witness's "the ground below the apron level", which no mint-time reading
+can ask.  It is minted AFTER the conforming-hold register (``platform_split``), so it
 is never a held block whose frontage brings the apron to it.  Around it a
 ``#collar`` face out to ``[building_pad] platform_collar_max_m`` over ground
 nobody holds carries the 1:3 bank (``constraints/platform.

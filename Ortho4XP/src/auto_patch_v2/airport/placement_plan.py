@@ -511,7 +511,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # below like any other, and on its own ground where the search
         # accepts nothing (§16 (3)).
         for st in staged:
-            _orphan.place_orphans(st, coarsen_reach_m, surface, counts)
+            _orphan.place_orphans(st, coarsen_reach_m, surface, counts,
+                                  clear_m=touch_m)
 
         # ── §16c (7): THE UNIT BINDS BY CONTACT ──────────────────────
         # The bodies of the unit the plan's own ε-contact graph links —

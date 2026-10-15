@@ -29,8 +29,18 @@ reach is measured against must exist, and a component beyond every one of
 them is a body the search must still place.  It lives apart from
 ``placement_plan`` for the 1,000-line law only.
 
-NO LAW CONSTANT LIVES HERE: the reach is ``[placement] coarsen_reach_m``,
-handed in by the caller.
+#609 (owner RULINGS 2026-10-14l (2)): THE REACH IS MEASURED TO THE
+NEAREST PART.  A component with CLEAR SPACE to every part of its own
+placement — farther than ``[placement] footprint_touch_m`` from each part
+box — is seated as its own object by §15's search, however near the
+group's HULL: KCLT's toll-plaza roof lay inside the terminal's 300 x 600 m
+hull (gap 0) and 42 m from its nearest part, joined the terminal's group
+and was written at the terminal's zero, +3.45 m over the plaza canopy it
+is authored on (app 1.0.392).
+
+NO LAW CONSTANT LIVES HERE: the reach is ``[placement] coarsen_reach_m``
+and the clearance ``[placement] footprint_touch_m``, handed in by the
+caller.
 """
 from __future__ import annotations
 
@@ -45,7 +55,7 @@ __all__ = ["place_orphans"]
 
 
 def place_orphans(st: _t.Any, reach_m: float, surface: _t.Any,
-                  counts: dict) -> None:
+                  counts: dict, clear_m: float = 0.0) -> None:
     """§16d (1): give every component the member's bodies do not own a
     body whose box will contain it.
 
@@ -69,7 +79,13 @@ def place_orphans(st: _t.Any, reach_m: float, surface: _t.Any,
     component lands in exactly one file however its vertices are shared.
     It carries NO parts and NO feet: it is footless by construction
     (§16 (1)'s own sentence), never a carrier candidate (pass 2 is over),
-    and never senior in its group."""
+    and never senior in its group.
+
+    #609 (RULINGS 2026-10-14l (2)): with ``clear_m > 0`` a component
+    farther than ``clear_m`` from EVERY part box of this member is its
+    own footless body whatever the hull reach says — clear space to every
+    part of its own resource; the group a touching component joins is
+    unchanged.  ``clear_m <= 0`` disarms it (the hull reach alone)."""
     cutter = getattr(st, "cutter", None)
     if cutter is None:
         return
@@ -119,7 +135,14 @@ def place_orphans(st: _t.Any, reach_m: float, surface: _t.Any,
     # sampling per component — at OTHH that is tens of thousands of them.
     joined: dict[int, list] = {}
     near = _nearest_target(pairs, [b for _c, _t_, b in orphans])
-    for (ci, tris, box), (gap, best) in zip(orphans, near):
+    clear = _clear_of_parts(st, [b for _c, _t_, b in orphans], clear_m)
+    for (ci, tris, box), (gap, best), apart in zip(orphans, near, clear):
+        if best is not None and apart:
+            # #609: clear of every part of its own placement — its own
+            # object, whatever the hull reach (RULINGS 2026-10-14l (2))
+            counts["orphan_clear_of_own_parts"] = \
+                counts.get("orphan_clear_of_own_parts", 0) + 1
+            best = None
         # ``reach_m <= 0`` DISARMS the reach, the convention every other
         # plan-contiguity key takes (``coarsen``'s own, ``--coarsen-reach
         # 0``): the component then joins the nearest body, which is what
@@ -155,6 +178,20 @@ def place_orphans(st: _t.Any, reach_m: float, surface: _t.Any,
         # question of; a FOOTLESS member's targets are read off ``raw``
         # and need no register
         st.elevated = st.elevated | frozenset(freed)
+
+
+def _clear_of_parts(st: _t.Any, boxes: _t.Sequence[tuple], clear_m: float
+                    ) -> list[bool]:
+    """For each of ``boxes``: is it farther than ``clear_m`` (plan gap,
+    metres) from every PART box of the member's own bodies?  All False
+    where ``clear_m <= 0`` (disarmed) or the member has no part — the
+    nearest-part gap is :func:`_nearest_target` over the part boxes."""
+    own = [b for i, r in enumerate(st.raw) if r[0]
+           for b in st.part_boxes[i]] if clear_m > 0.0 else []
+    if not own:
+        return [False] * len(boxes)
+    return [g > clear_m for g, _j in
+            _nearest_target([(None, b, None) for b in own], boxes)]
 
 
 #: how many orphan boxes are matched against the target boxes at a time.

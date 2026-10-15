@@ -9,6 +9,8 @@ the Mac window's words.
 """
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import QEvent, QObject, Qt, QUrl
 from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QFrame, QHBoxLayout, QLabel,
@@ -30,6 +32,11 @@ IMAGERY_HELP = "Drape the map's imagery over the ground (the tiles the map has c
 BUILDINGS_HELP = "The airport pack's buildings as grey massing, standing where X-Plane seats them."
 EXAGGERATION_HELP = "Vertical exaggeration of the terrain and the patch (×1 is true scale)."
 RESET_HELP = "Frame the airport again from the south."
+#: The camera controls (the Mac's ``TerrainPreviewWindow.controlsHelp``).
+CONTROLS_HELP = ("Keys (as in X-Plane): Q E rotate · R F tilt · ← → move sideways · "
+                 "↑ ↓ move up and down · , . move back and forward · - = zoom. "
+                 "Hold Shift for fast, Control for slow.\n"
+                 "Mouse: drag to orbit · Alt-drag or right-drag to pan · scroll to zoom.")
 LEGEND = ((SC.TERRAIN_COLOR, "DEM terrain"), (SC.PATCH_COLOR, "patch surface"),
           (SC.BUILDING_COLOR, "pack buildings"), (SC.MARKER_COLOR, "selected node"))
 
@@ -44,24 +51,69 @@ def _divider(parent) -> QFrame:
     return line
 
 
+#: X-Plane's default view keys (``X-Plane Keys.prf``) → ``SC.KEYS``.
+_XP_KEYS = {
+    Qt.Key_Left: "left", Qt.Key_Right: "right", Qt.Key_Up: "up", Qt.Key_Down: "down",
+    Qt.Key_Period: "forward", Qt.Key_Greater: "forward",
+    Qt.Key_Comma: "backward", Qt.Key_Less: "backward",
+    Qt.Key_Equal: "zoom_in", Qt.Key_Plus: "zoom_in",
+    Qt.Key_Minus: "zoom_out", Qt.Key_Underscore: "zoom_out",
+    Qt.Key_Q: "rotate_left", Qt.Key_E: "rotate_right",
+    Qt.Key_R: "tilt_up", Qt.Key_F: "tilt_down",
+}
+# On macOS Qt reports ⌘ as Control and the Control key as Meta.
+_SLOW = Qt.MetaModifier if sys.platform == "darwin" else Qt.ControlModifier
+_MENU = Qt.ControlModifier if sys.platform == "darwin" else Qt.NoModifier
+
+
+def key_speed(modifiers) -> str:
+    """Shift fast, Control slow, otherwise X-Plane's plain (slow) rate."""
+    if modifiers & Qt.ShiftModifier:
+        return "fast"
+    if modifiers & _SLOW:
+        return "slow"
+    return "normal"
+
+
 class _MouseFilter(QObject):
-    """Orbit / zoom / pan from the 3D view's mouse (read-only: no picking)."""
+    """Orbit / zoom / pan from the 3D view's mouse, and X-Plane's view keys
+    from its keyboard (read-only: no picking)."""
 
     def __init__(self, scene: SC.PreviewScene, view: QWidget):
         super().__init__(view)
         self.scene, self.view = scene, view
 
     def eventFilter(self, _obj, event) -> bool:          # noqa: N802 (Qt override)
+        t = event.type()
+        if t in (QEvent.KeyPress, QEvent.KeyRelease):
+            return self._key(event, t == QEvent.KeyPress)
+        if t == QEvent.FocusOut:
+            self.scene.release_keys()
+            return False
         kind = {QEvent.MouseButtonPress: "press", QEvent.MouseMove: "move",
-                QEvent.Wheel: "wheel"}.get(event.type())
+                QEvent.Wheel: "wheel"}.get(t)
         if kind is None:
             return False
         h = self.view.height()
         if kind == "wheel":
             return self.scene.handle_mouse("wheel", None, None, None, h,
                                            event.angleDelta().y() / 8.0)
+        if kind == "press":
+            self.view.setFocus(Qt.MouseFocusReason)
         return self.scene.handle_mouse(kind, event.position(), event.buttons(),
                                        event.modifiers(), h)
+
+    def _key(self, event, down: bool) -> bool:
+        name = _XP_KEYS.get(event.key())
+        if event.key() in (Qt.Key_Shift, Qt.Key_Control, Qt.Key_Meta):
+            self.scene.set_speed(key_speed(event.modifiers()))
+            return False
+        if name is None or (_MENU != Qt.NoModifier and event.modifiers() & _MENU):
+            return False                       # ⌘ chords stay menu shortcuts
+        if event.isAutoRepeat():
+            return True                        # held keys run on the camera's own clock
+        self.scene.key(name, down, key_speed(event.modifiers()))
+        return True
 
 
 class PreviewWindow(QWidget):
@@ -88,7 +140,7 @@ class PreviewWindow(QWidget):
                                 " padding: 3px 8px; }" % _PANEL)
         self.reset_button = QToolButton(self)
         self.reset_button.setText("↺ Reset view")
-        self.reset_button.setToolTip(RESET_HELP)
+        self.reset_button.setToolTip(RESET_HELP + "\n\n" + CONTROLS_HELP)
         self.reset_button.setStyleSheet("QToolButton { %s padding: 4px 8px; }" % _PANEL)
         self.reset_button.clicked.connect(self.scene.reset_view)
         self.model.changed.connect(self.refresh)
@@ -109,6 +161,7 @@ class PreviewWindow(QWidget):
         self.qml_errors = [e.toString() for e in self._component.errors()]
         if self._root is not None:
             view.setContent(url, self._component, self._root)
+        view.setFocusPolicy(Qt.StrongFocus)
         view.installEventFilter(_MouseFilter(self.scene, view))
         return view
 

@@ -282,3 +282,17 @@ same sha:
     * CYXY after the crossing fix: 96 / 77 solve-owned nodes differ; taxi 0.27 m, runway 0.05 m (one vertex).
     * HECA: 84 / 111 nodes; apron 1,135 at 0.25 m, taxi 0.37 m, runway 0.12 m.
   * **Refuted remedy:** noding zones after the airside, through the pads' clip and rim snap. Against a pass-B control at CYXY it still differs at 137 / 137 nodes, with 93 movers and the apron at 0.35 m. Deleted.
+
+## 12. Phase 4 (RULINGS 2026-10-15h): the nine CYXY `runway_end_skirt` rows
+
+Each row was attributed on replay arms of the registered capture
+`overlay156/CYXY_shared.pkl` (`--from planar`). The closing build was
+`rz5a_CYXY`, against the `--base-arm` control `rz5b_CYXY` at main
+e11e531c5; both are registered.
+
+| Rows (way, excess) | Kind | Cause | Fix |
+|---|---|---|---|
+| -10250 ×2 (0.002), -10194 (0.001); main's -10189 (0.004) | instrument | **Reader frame.** Both readers measured plan distance in a spherical equirectangular frame, which is 0.1–0.7 % off the ellipsoid. At 60.7 N the engine's 128.34 m chord read as 128.17 m, so a chord held exactly at its bound read as a breach. | The end-profile readers measure in the engine's tmerc metric (`verify.frame.metric_frame`, `Patch.in_metric_frame`, `check_grade._engine_metric`). Row points go back to the census frame, so every join is unchanged. |
+| -10194 (0.008), -10237 (0.004) | instrument | **Tolerance composition.** The generator's slack was the key less materiality (0.01). The solver holds a row only within `design.hard_tol_m` (0.02), and each emitted altitude rounds to 0.01. | Generator slack = key − `rounding_noise_m`, the envelope `hard_tol_m` is sized under. The reader's forgiveness is unchanged. |
+| -10237 (0.064) | real ground | **Class join by code number.** v3909 lies 270 m beyond 14L/32R's end. It was joined to 14R/32L's edge, 251 m away and of the same code. That floor held it 2 m over its DEM and over 14L/32R's end pair. | Each zone region carries its runway (`ZoneRegion.runway_ref` → `PlanarMap.zone_runway_of_ref`). A runway band's vertex joins that runway's edges only (`constraints/zones._runway_class`). |
+| -10098 ×2 (0.36), -10097 (0.29) | real ground, **law conflict** | v2132 is 64 m beyond 02/20's end and 5 m beside the parallel taxiway pav9. Under 15c (2) the code-1 end area grew from 60 m to 90 m, which brought v2132 inside it. pav9 climbs 1.21 m within 72 m of the end. The end profile allows the ground +0.14 m there: the 2 % climb surface from a 60 m setback, at the 0.12 m generator slack. pav9 leads the ground through the one-way pavement pair and taxi D's floor. Two pavements lead the same ground, and no surface satisfies both. The same site carries the 3 new `raoa` rows and the 1 critical-motion row. | **Not fixed. Owner ruling needed** on which lead wins inside an end area. |

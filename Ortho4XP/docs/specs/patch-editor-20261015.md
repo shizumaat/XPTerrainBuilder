@@ -240,3 +240,13 @@ sides (`events.py` ↔ `OrthoEngineClient.swift`). The pristine DSF is right:
 with an edited patch, re-seating is off and the pack's authored placements
 are what X-Plane draws. Custom build folders get the authored DEM until
 `terrain_sample` learns the tile's build folder (6c).
+
+Ruled after the massing measurement (2026-10-15; HECA 413 models, 3,071
+placements, 745 k hull triangles, 19.5 MB, 13–17 s): the 10 MB bar was a
+guess and is replaced. The component hulls stay as built (no snapping, no
+cluster merge). Limit: a reply over 50 MB drops the smallest remaining
+components first until it fits, and says how many in `missing`. The command
+is ASYNCHRONOUS (`{status: "started"}` + `PackObjectsReady`), and the engine
+keeps the result in memory for the session keyed by pack DSF path and mtime,
+so reopening the window is instant. The 3D window shows the terrain and patch
+at once and adds the buildings when they arrive ("Loading buildings…").

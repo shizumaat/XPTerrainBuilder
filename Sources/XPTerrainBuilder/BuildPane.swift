@@ -70,6 +70,7 @@ struct BuildPane: View {
                                     .environmentObject(buildModel.activity)
                             }
                         }
+                        PatchInspector(model: buildModel.patchEdit)
                     }
                     .padding(10)
                 }

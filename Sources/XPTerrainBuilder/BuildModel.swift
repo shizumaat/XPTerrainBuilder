@@ -961,6 +961,20 @@ final class BuildModel: ObservableObject {
         _ = await client.providerSignOut(sessionName: sessionName)
     }
 
+    // MARK: - Patch editor (#46)
+
+    /// The patch layer (map overlay + "Patch · ICAO" box).
+    lazy var patchEdit = PatchEditModel(build: self)
+
+    /// The engine session for the patch commands, or nil when the engine
+    /// is not running or predates them (protocol < 1.12): the patch layer
+    /// then stays hidden, without an error.
+    func patchEditorClient() -> OrthoEngineClient? {
+        connectIfNeeded()
+        guard O4ProtocolVersion.supportsPatchEditor(protocolHello?.protocolVersion ?? "") else { return nil }
+        return client
+    }
+
     // MARK: - Reanchor status (auto-patch object reseating)
 
     /// One pack the reseater modified, as the engine reports it.

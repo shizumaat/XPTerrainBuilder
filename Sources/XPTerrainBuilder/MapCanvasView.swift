@@ -49,6 +49,7 @@ struct MapCanvasView: View {
             Canvas(rendersAsynchronously: false) { context, size in
                 draw(context: context, size: size)
             }
+            .overlay { PatchOverlay(model: buildModel.patchEdit, camera: camera) }
             .background(Self.ocean)
             .gesture(pan(size: proxy.size))
             .gesture(tileSelect(size: proxy.size))
@@ -75,6 +76,8 @@ struct MapCanvasView: View {
                 }
                 canvasSize.value = proxy.size
                 controller.scheduleViewportUpdate()
+                buildModel.patchEdit.viewportChanged(camera: camera.value, size: proxy.size,
+                                                     overlays: overlays)
             }
             .onChange(of: proxy.size) {
                 canvasSize.value = proxy.size
@@ -88,6 +91,8 @@ struct MapCanvasView: View {
             // from the controller, so a drag frame redraws just the map.
             .onChange(of: camera.value) {
                 controller.scheduleViewportUpdate()
+                buildModel.patchEdit.viewportChanged(camera: camera.value, size: proxy.size,
+                                                     overlays: overlays)
             }
         }
         .clipped()

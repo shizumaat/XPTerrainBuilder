@@ -875,6 +875,13 @@ class SlabLaw(_t.NamedTuple):
     #: what makes a face a PLATE face (``[bridge]
     #: deck_plate_normal_y_min``, the near-horizontal normal)
     plate_ny_min: float = 0.0
+    #: rule 7 (issue #669): an up face stands CLEAR of the slab's foot this
+    #: high (``[bridge] deck_min_elevation_m``)...
+    deck_elev_m: float = 0.0
+    #: ...and a slab with more than this share of its up-facing area
+    #: clear is an ELEVATED DECK, never draped
+    #: (``[placement] base_slab_elevated_share_max``; 0 disarms)
+    elevated_share_max: float = 0.0
 
     @property
     def armed(self) -> bool:
@@ -901,7 +908,9 @@ def base_slab_law(law: "Law | None") -> SlabLaw:
         max_side_share=float(getattr(p, "base_slab_max_side_share", 0.0)),
         level_m=float(p.split_tol_m),
         lane_m=float(law.tables.emit.road_profile.lane_width_m),
-        plate_ny_min=float(law.tables.structures.bridge.deck_plate_normal_y_min))
+        plate_ny_min=float(law.tables.structures.bridge.deck_plate_normal_y_min),
+        deck_elev_m=float(law.tables.structures.bridge.deck_min_elevation_m),
+        elevated_share_max=float(getattr(p, "base_slab_elevated_share_max", 0.0)))
 
 
 def footprint_touch_m(law: Law) -> float:

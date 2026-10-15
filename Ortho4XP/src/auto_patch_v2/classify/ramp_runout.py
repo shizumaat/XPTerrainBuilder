@@ -30,11 +30,13 @@ the last stage, junior to every pavement it meets); its profile rows are
 ``constraints/ramp_runout``'s.  A foot whose ground already stands within
 ``[cockpit] visual_m`` of the DEM where the patch ends asks nothing.
 
-NOT YET: a 10-03e LANDING's foot (counted ``landing``) keeps its 1:3
-collar in the direction of travel.  RULINGS 2026-10-14i ("road carries the
-run-out") is not built: clearing the collar ahead let the lot ``dsf:pol10``
-weld to HECA's landing level (+5.7 m) and the mapped road ``-3963`` end
-6 m over the raw DEM (a dead end the exit walk prunes) — lane notes.
+A 10-03e LANDING's foot (counted ``landing`` here) runs out in the PLANAR
+stage instead (``planar/landing_runout``, issue #711): the lot it crosses is
+cut back from the strip there and the strip is held against the landing's
+block datum in stage 2, so the lot meets it rather than the strip meeting a
+lot already solved.  (RULINGS 2026-10-14i's "road carries the run-out" was
+tried here and withdrawn: the lot ``dsf:pol10`` welded to HECA's landing
+level, +5.7 m, and the mapped road ``-3963`` ended 6 m over the raw DEM.)
 """
 from __future__ import annotations
 

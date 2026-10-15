@@ -282,6 +282,13 @@ def build_arrangement(airport: Airport, classification: Classification,
                                             getattr(airport, "dem", None),
                                             airport=airport)
         _pad_clip.update(_plat)
+        # owner RULINGS 2026-10-14n D2 (#709): a building on an apron that
+        # reaches past its edge — the ground under that part is a shelf at
+        # the apron's level inside a 1:3 collar (never airside)
+        from .apron_shelf import shelf_regions
+        pad_regions = list(pad_regions) + shelf_regions(
+            base_regions, pad_regions, airport, law, float(grid), _pad_clip,
+            late=[Polygon(c.ring, c.holes) for c in ribbon_cells])
         # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING takes
         # its own footprint out of the groundside lot / road it lands on
         from .landing import landing_cut

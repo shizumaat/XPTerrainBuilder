@@ -322,6 +322,11 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # floor of their profiles, so the rim's rows leave after them
     cs, rep["pad_weld"] = pad_weld_release(planar, law, cs)
     rep["welded_join"] = [*rep["welded_join"], *rep["pad_weld"].pop("joins")]
+    # owner RULINGS 2026-10-14n D2 (#709): an apron-edge shelf FILLS, it
+    # never cuts — its level rows leave where stage 1's apron stands at or
+    # under its ground (``constraints/apron_shelf``)
+    from .apron_shelf import shelf_release
+    cs, rep["shelf_release"] = shelf_release(planar, law, cs, levels)
     return cs, rep
 
 

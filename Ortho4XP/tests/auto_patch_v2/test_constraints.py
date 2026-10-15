@@ -284,7 +284,10 @@ def test_assemble_solve_emit_verify_round_trip(synthetic, law, tmp_path):
                                        # (a CIFP threshold) by a counted withdrawal
                                        # instead of by the reduction's row order
                                        "seam_pin_withdrawn_senior",
-                                       "eat_pin_withdrawn_senior"}
+                                       "eat_pin_withdrawn_senior",
+                                       # #711: a mapped road on a landing's
+                                       # run-out rides it (its §37 ramp rows)
+                                       "road_ramp_withdrawn_on_runout"}
     assert "apron_within_shape.chords_outside_face" in counts
     sol = solve_design(pm, cs, law)[0]
     assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message

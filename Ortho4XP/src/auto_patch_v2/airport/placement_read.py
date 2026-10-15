@@ -16,7 +16,7 @@ import dataclasses as _dc
 import json
 import typing as _t
 
-from ..model.planar import is_bank_ref, platform_ref_of
+from ..model.planar import is_bank_ref, is_shelf_ref, platform_ref_of
 from ..model.rebake import RebakePlan
 from . import anchor_rule as _ar
 
@@ -117,7 +117,9 @@ def pads_rims_from_graded_doc(d: _t.Mapping[str, _t.Any]
                                    if i in by_id))
                  for f in d["faces"]
                  if f["role"] == PAD_FACE_ROLE and len(f["ring"]) >= 3
-                 and not is_bank_ref(f["ref"]))
+                 and not is_bank_ref(f["ref"])
+                 # 14n D2 (#709): an apron-edge shelf is GROUND here
+                 and not is_shelf_ref(f["ref"]))
     pads = pads + _banks_as_platform(d, by_id, z_id, pads)
     rims = tuple(_ar.RimRing(b["ref"],
                              tuple(by_id[i] for i in b["vertices"] if i in by_id),
@@ -147,7 +149,8 @@ def _banks_as_platform(d, by_id, z_id, pads) -> tuple[_ar.PadRing, ...]:
     for p in pads:
         plat.setdefault(p.ref, []).append(p)
     for f in d["faces"]:
-        if f["role"] != PAD_FACE_ROLE or not is_bank_ref(f["ref"]):
+        if (f["role"] != PAD_FACE_ROLE or not is_bank_ref(f["ref"])
+                or is_shelf_ref(f["ref"])):
             continue
         ref = platform_ref_of(f["ref"])
         ring = tuple(by_id[i] for i in f["ring"] if i in by_id)

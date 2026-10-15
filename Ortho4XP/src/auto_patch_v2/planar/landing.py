@@ -45,7 +45,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from ..model.planar import COLLAR_SUFFIX, pad_base_ref
-from ..model.platform import HELD, LANDING_SEP, LANDINGS
+from ..model.platform import HELD, LANDING_RUNOUTS, LANDING_SEP, LANDINGS
 
 __all__ = ["BAND_M", "landing_regions", "landing_cut"]
 
@@ -83,6 +83,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     """The landing + collar regions to add to the pad regions ``out``
     (module docstring), registering each in :data:`LANDINGS`."""
     LANDINGS.clear()
+    LANDING_RUNOUTS.clear()
     part = getattr(airport, "partition", None)
     frame = getattr(airport, "frame", None)
     if part is None or frame is None or not HELD or collar_m <= 0.0:
@@ -212,18 +213,42 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     if not plats:
         counts["landings"] = 0
         return []
+    # PASS 1b (#711, RULINGS 2026-10-14c (5) at a landing): every ramp
+    # foot's RUN-OUT ahead of its landing, before any collar — the collar
+    # banks the strip's sides, never its course (``planar/landing_runout``)
+    from .landing_runout import landing_runouts
+    LANDING_RUNOUTS.update(landing_runouts(plats, HELD, airport, law, taken,
+                                           reach + grid, grid, counts))
+    for rec in LANDING_RUNOUTS.values():
+        taken = unary_union([taken, *rec["polys"]])
     # PASS 2: the collars, over what no platform, pad or airside holds
     held_c = taken
+    tmpls: dict[str, _t.Any] = {}
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
         C = Lu.buffer(collar_m, join_style=2).difference(held_c)
         cparts = [q for q in _parts(C) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
+        tmpls[ref] = tmpl
         added.extend(_dc.replace(tmpl, ref=ref, polygon=q) for q in Ls)
         added.extend(_dc.replace(tmpl, ref=ref + COLLAR_SUFFIX, polygon=q)
                      for q in cparts)
         LANDINGS[ref] = {"block": bref, "y": round(y_land, 4), "deck": key,
                          "voters": voters, "area_m2": round(Lu.area, 1),
                          "collar_m2": round(sum(q.area for q in cparts), 1)}
+    # PASS 3 (#711): the RUN-OUT's own 1:3 bank along its SIDES (flat caps:
+    # its end meets what lies ahead), ``runout:<landing>#collar`` — NOT the
+    # landing's collar: the object stage seats a body over a landing's
+    # collar at the landing's level (``placement_read._banks_as_platform``),
+    # and a bank of a ref with no pad face is no pad there (MEASURED, HECA:
+    # named as the landing's, Hangar_Tower bodies 60 m down the strip were
+    # seated on the landing at 101.78 m, +10.91 m)
+    for rref, rec in sorted(LANDING_RUNOUTS.items()):
+        band = rec["axis"].buffer(0.5 * rec["width_m"] + collar_m, cap_style=2, join_style=2)
+        cparts = [q for q in _parts(band.difference(held_c)) if q.area >= max(grid * grid, 1.0)]
+        held_c = unary_union([held_c, *cparts])
+        tmpl = tmpls[rec["landing"]]
+        added.extend(_dc.replace(tmpl, ref=rref + COLLAR_SUFFIX, polygon=q) for q in cparts)
+        rec["bank_m2"] = round(sum(q.area for q in cparts), 1)
     counts["landings"] = len(LANDINGS)
     if LANDINGS:
         counts["landing_list"] = "; ".join(
@@ -259,9 +284,11 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
     if not LANDINGS:
         return base_regions
     from ..law.tables import role_side
+    strips = unary_union([q for rec in LANDING_RUNOUTS.values() for q in rec["polys"]])
     L = unary_union([r.polygon for r in pad_regions
-                     if pad_base_ref(r.ref) in LANDINGS
-                     and r.polygon is not None])
+                     if (pad_base_ref(r.ref) in LANDINGS
+                         or pad_base_ref(r.ref) in LANDING_RUNOUTS)
+                     and r.polygon is not None] + [strips])
     if L.is_empty:
         return base_regions
     out: list = []
@@ -278,4 +305,31 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
             out.append(_dc.replace(r, polygon=q))
     if counts is not None:
         counts["landing_cut_regions"] = n
-    return out
+    return out + _runout_regions(out, law, counts)
+
+
+def _runout_regions(base: list, law, counts: "dict | None") -> list:
+    """THE RUN-OUT STRIPS as base regions (#711, ``planar/landing_runout``):
+    a ``service_road`` region per strip, less every base region left
+    standing after the lot cut — a road, the airside, a zone keeps its
+    ground and the strip yields to it."""
+    if not LANDING_RUNOUTS or not base:
+        return []
+    from ..law.tables import role_side
+    from ..model.planar import is_late_ref
+    from .overlay import Region
+    # the LATE cells (ribbons, gap pieces) join the finished map in pass C
+    # and claim their own footprint there: the strip never reads them, so
+    # the base map and the last stage's map mint the one strip
+    standing = unary_union([r.polygon for r in base if r.polygon is not None
+                            and not is_late_ref(r.ref)])
+    side = role_side(law, "service_road")
+    got: list = []
+    for ref, rec in sorted(LANDING_RUNOUTS.items()):
+        for q in rec["polys"]:
+            for p in _parts(q.difference(standing)):
+                if p.area >= 1.0:
+                    got.append(Region("service_road", ref, p, None, None, side, "cell"))
+    if counts is not None:
+        counts["landing_runout_regions"] = len(got)
+    return got

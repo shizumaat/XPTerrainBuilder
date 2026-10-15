@@ -148,6 +148,9 @@ def test_the_airport_load_runs_under_the_shared_repo_guard(monkeypatch, tmp_path
     monkeypatch.setattr(PIPE, "shared_repo_guard", guard)
     monkeypatch.setattr(LOAD, "load_with_report", load)
     monkeypatch.setattr(M, "default_inputs", lambda *a, **k: None)
+    # main() chdirs to ENGINE_DIR: monkeypatch.chdir records the cwd so
+    # teardown restores it (a leaked cwd broke later tests under xdist)
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(M, "ENGINE_DIR", tmp_path)
     with pytest.raises(_Stop):
         M.main(["HECA", "--roles"])

@@ -71,6 +71,7 @@ from . import failure_report
 from .events import EngineHello, Error, ScanBatch
 from .secret_broker import SecretBroker
 from .session import EngineSession
+from .terrain_commands import terrain_sample
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +202,9 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # link directly in a Custom Scenery folder — never its target,
         # never a folder; a refusal is ok=false with the user's sentence.
         "remove_scenery_link": UNMOUNTED.remove_link,
+        # Patch editor 3D preview (protocol 1.12, #46): the DEM grid under
+        # the patch, from the data repo's caches only.  Synchronous.
+        "terrain_sample": terrain_sample,
     }
 
 

@@ -196,7 +196,14 @@ class DemSampler:
         """Composite elevation at frame points (NaN where no raster)."""
         lon, lat = self._inv.transform(np.asarray(xs, dtype=np.float64),
                                        np.asarray(ys, dtype=np.float64))
-        lon, lat = np.asarray(lon), np.asarray(lat)
+        return self.z_many_ll(np.asarray(lat), np.asarray(lon))
+
+    def z_many_ll(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+        """Composite elevation at WGS84 points (NaN where no raster) — the
+        same composite as :meth:`z_many`, for callers that hold degrees
+        (the patch editor's ``terrain_sample``)."""
+        lat = np.asarray(lat, dtype=np.float64)
+        lon = np.asarray(lon, dtype=np.float64)
         base = self._sample_base(lat, lon)
         if self.inset is None:
             return base

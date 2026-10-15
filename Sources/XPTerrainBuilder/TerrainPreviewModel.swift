@@ -28,13 +28,41 @@ final class TerrainPreviewModel: ObservableObject {
     @Published var wireframe = false { didSet { scene.setWireframe(wireframe) } }
     @Published var showBuildings = true { didSet { scene.setBuildingsVisible(showBuildings) } }
     @Published private(set) var buildingStatus: TerrainPreviewBuildings.Status = .none
+    /// Round 6c: drape the map's imagery (spec §5 "Imagery").
+    @Published var showImagery = false { didSet { imageryToggled() } }
+    /// Round 6c: "Preview | Last build" and whether Last build can show.
+    @Published private(set) var lastBuildState = PatchLastBuildState()
+    @Published private(set) var lastBuildChip = ""
     /// Bumped by "Reset view"; the scene view frames the extent again.
     @Published private(set) var resetCount = 0
 
     let scene = TerrainPreviewScene()
+    private lazy var drape: TerrainPreviewDrape = {
+        let d = TerrainPreviewDrape()
+        d.onImage = { [weak self] image in
+            guard let self, self.showImagery else { return }
+            self.scene.setImagery(image)
+        }
+        return d
+    }()
+    private lazy var lastBuild: TerrainPreviewLastBuild = {
+        let l = TerrainPreviewLastBuild(scene: scene)
+        l.onChange = { [weak self] in self?.lastBuildChanged() }
+        return l
+    }()
+    /// The preview extent (A9 box): the terrain, the drape and the crop.
+    private var extentBox: O4LatLonBox?
     private lazy var buildings: TerrainPreviewBuildings = {
         let b = TerrainPreviewBuildings(scene: scene)
-        b.onStatus = { [weak self] in self?.buildingStatus = $0 }
+        b.onStatus = { [weak self] status in
+            guard let self else { return }
+            self.buildingStatus = status
+            // buildings landed while Last build shows: stand them on the mesh
+            if case .ready = status, self.lastBuildState.mode == .lastBuild,
+               let locator = self.lastBuild.locator, let space = self.space {
+                self.buildings.seatAll(on: locator, space: space)
+            }
+        }
         return b
     }()
 
@@ -68,6 +96,13 @@ final class TerrainPreviewModel: ObservableObject {
         patch.$document.sink { [weak self] doc in
             DispatchQueue.main.async { self?.documentMayHaveChanged(doc) }
         }.store(in: &subscriptions)
+        // a rebuilt tile (new mesh date) refreshes Last build — never live
+        build.$built.dropFirst().sink { [weak self] _ in
+            DispatchQueue.main.async { self?.lastBuild.tileBuilt(self?.lastBuildRequest()) }
+        }.store(in: &subscriptions)
+        build.imagery.$generation.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.drape.sourceMayHaveChanged() }
+        }.store(in: &subscriptions)
     }
 
     func resetView() { resetCount += 1 }
@@ -98,7 +133,9 @@ final class TerrainPreviewModel: ObservableObject {
         } else if !change.nodes.isEmpty {
             let ways = index.shapes(using: change.nodes)
             rebuildBuffers(ways, doc)
-            if let space { buildings.reseat(changedShapes: ways, meshes: meshes, document: doc, space: space) }
+            if let space, lastBuildState.mode == .preview {
+                buildings.reseat(changedShapes: ways, meshes: meshes, document: doc, space: space)
+            }
             scheduleCut()
         }
         updateMarkers()
@@ -110,6 +147,10 @@ final class TerrainPreviewModel: ObservableObject {
         space = nil; surface = nil; meshes = [:]; index = PatchPreviewIndex(meshes: [:])
         cutTask?.cancel()
         buildings.clear()
+        lastBuild.clear()
+        drape.stop()
+        scene.setImagery(nil)
+        extentBox = nil
         scene.removeAll()
         icao = nil; chip = ""
         status = .noPatch
@@ -122,6 +163,8 @@ final class TerrainPreviewModel: ObservableObject {
         generation += 1
         let gen = generation
         documentKey = Self.key(doc)
+        // the preview extent (A9), fixed for this load: terrain, drape, crop
+        extentBox = doc.bbox.map { Self.terrainRequest(around: $0).0 }
         icao = doc.icao
         status = .loading(icao: doc.icao)
         let client = build?.patchEditorClient()
@@ -135,7 +178,8 @@ final class TerrainPreviewModel: ObservableObject {
                 let (request, spacing) = Self.terrainRequest(around: box)
                 do {
                     sample = try await client.terrainSample(tile: doc.tile, icao: doc.icao,
-                                                            bbox: request, spacingM: spacing)
+                                                            bbox: request, spacingM: spacing,
+                                                            buildDir: self?.tileInfo(doc.tile)?.buildDir)
                 } catch {
                     terrainError = "\(error)"
                 }
@@ -177,6 +221,7 @@ final class TerrainPreviewModel: ObservableObject {
     private struct BuiltTerrain: Sendable {
         let space: PatchPreviewSpace
         let mesh: PatchTerrainMesh?
+        let texcoords: [SIMD2<Float>]
         let indices: [UInt32]
         let extent: (SIMD3<Float>, Float)
         let chip: String
@@ -193,13 +238,23 @@ final class TerrainPreviewModel: ObservableObject {
         let hi = space.position(lat: box.maxLat, lon: box.maxLon, elevation: base)
         let extent = ((lo + hi) / 2, max(abs(hi.x - lo.x), abs(hi.z - lo.z)) / 2 + Float(marginM / 2))
         guard let surface, let sample else {
-            return BuiltTerrain(space: space, mesh: nil, indices: [], extent: extent, chip: "Preview · no terrain")
+            return BuiltTerrain(space: space, mesh: nil, texcoords: [], indices: [], extent: extent,
+                                chip: "Preview · no terrain")
         }
         let mesh = PatchTerrainMesh(surface: surface, space: space)
         let covered = PatchTerrainCut.coveredTriangles(grid: surface.grid, shapes: shapes.map(\.shape),
                                                        document: doc)
         let indices = PatchTerrainCut.keptIndices(grid: surface.grid, covered: covered)
-        return BuiltTerrain(space: space, mesh: mesh, indices: indices, extent: extent,
+        let g = surface.grid
+        var uv: [SIMD2<Float>] = []
+        uv.reserveCapacity(g.rows * g.cols)
+        for r in 0..<g.rows {
+            for c in 0..<g.cols {
+                uv.append(PatchDrapePlan.uv(lat: g.south + Double(r) * g.dlat, lon: g.west + Double(c) * g.dlon,
+                                            box: sample.bbox))
+            }
+        }
+        return BuiltTerrain(space: space, mesh: mesh, texcoords: uv, indices: indices, extent: extent,
                             chip: chipText(sample))
     }
 
@@ -223,7 +278,9 @@ final class TerrainPreviewModel: ObservableObject {
                          terrainError: String?) {
         space = built.space
         surface = built.space.terrain
-        if let mesh = built.mesh { scene.setTerrain(mesh, indices: built.indices, extent: built.extent) }
+        if let mesh = built.mesh {
+            scene.setTerrain(mesh, texcoords: built.texcoords, indices: built.indices, extent: built.extent)
+        }
         self.meshes = meshes
         index = PatchPreviewIndex(meshes: meshes)
         rebuildBuffers(Set(meshes.keys), doc, retriangulated: true)
@@ -232,10 +289,12 @@ final class TerrainPreviewModel: ObservableObject {
         chip = built.chip
         status = .ready(terrainError: terrainError)
         updateMarkers()
-        if let box = doc.bbox {
+        if let box = extentBox {
             buildings.load(client: build?.patchEditorClient(), document: doc,
-                           box: Self.terrainRequest(around: box).0, space: built.space, meshes: meshes)
+                           box: box, space: built.space, meshes: meshes)
         }
+        if showImagery { imageryToggled() }
+        lastBuild.tileBuilt(lastBuildRequest())
         resetCount += 1
     }
 
@@ -248,8 +307,12 @@ final class TerrainPreviewModel: ObservableObject {
         for way in ways {
             guard let mesh = meshes[way] else { scene.removeShape(way); continue }
             let p = mesh.positions(document: doc, space: space)
+            let box = extentBox ?? O4LatLonBox(minLat: 0, minLon: 0, maxLat: 1, maxLon: 1)
+            let uv = mesh.vertexIDs.map { id in
+                doc.nodes[id].map { PatchDrapePlan.uv(lat: $0.lat, lon: $0.lon, box: box) } ?? .zero
+            }
             scene.setShape(way, positions: p, normals: PatchPreviewNormals.of(positions: p, indices: mesh.indices),
-                           indices: retriangulated ? mesh.indices : nil)
+                           texcoords: uv, indices: retriangulated ? mesh.indices : nil)
         }
     }
 
@@ -275,7 +338,7 @@ final class TerrainPreviewModel: ObservableObject {
             self.rebuildBuffers(Set(changed.keys), current, retriangulated: true)
             let moved = self.index.shapes(using: changedNodes).subtracting(changed.keys)
             self.rebuildBuffers(moved, current)
-            if let space = self.space {
+            if let space = self.space, self.lastBuildState.mode == .preview {
                 self.buildings.reseat(changedShapes: moved.union(changed.keys), meshes: self.meshes,
                                       document: current, space: space)
             }
@@ -300,6 +363,52 @@ final class TerrainPreviewModel: ObservableObject {
             }.value
             guard !Task.isCancelled, self.generation == gen else { return }
             self.scene.setTerrainIndices(indices)
+        }
+    }
+
+    // MARK: - Imagery and Last build (round 6c)
+
+    private func imageryToggled() {
+        guard showImagery, let box = extentBox, let imagery = build?.imagery else {
+            drape.stop()
+            scene.setImagery(nil)
+            return
+        }
+        drape.start(box: box, imagery: imagery)
+    }
+
+    /// The drape texture's size, for the chip ("" when off).
+    var drapeChip: String {
+        guard showImagery, let plan = drape.plan else { return "" }
+        return " · imagery \(plan.width) × \(plan.height) px (ZL \(plan.zoom))"
+    }
+
+    func selectMode(_ mode: PatchLastBuildState.Mode) {
+        lastBuild.select(mode, request: lastBuildRequest())
+    }
+
+    private func tileInfo(_ tile: String) -> O4TileInfo? {
+        build?.built.first { $0.key.key == tile }?.value
+    }
+
+    private func lastBuildRequest() -> TerrainPreviewLastBuild.Request? {
+        guard let doc = patch?.document, let box = extentBox, let space,
+              let client = build?.patchEditorClient() else { return nil }
+        let info = tileInfo(doc.tile)
+        return .init(client: client, tile: doc.tile, box: box, buildDir: info?.buildDir,
+                     meshDate: info?.meshDate, space: space, drapeBox: box)
+    }
+
+    private func lastBuildChanged() {
+        let wasLast = lastBuildState.mode == .lastBuild && lastBuildState.mesh == .available
+        lastBuildState = lastBuild.state
+        let isLast = lastBuildState.mode == .lastBuild && lastBuildState.mesh == .available
+        lastBuildChip = isLast ? " · last build mesh \(lastBuild.triangleCount.formatted()) triangles" : ""
+        guard wasLast != isLast, let space else { return }
+        if isLast, let locator = lastBuild.locator {
+            buildings.seatAll(on: locator, space: space)
+        } else if let doc = patch?.document {
+            buildings.seatAll(on: PatchSurfaceLocator(meshes: meshes, document: doc), space: space)
         }
     }
 

@@ -166,6 +166,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # not wait for.
     from . import patch_commands
     from .pack_objects import start_pack_objects
+    from .mesh_commands import mesh_crop
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -226,6 +227,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # replies {"status": "started"}; a worker thread completes it with
         # PackObjectsReady carrying this command's id (_TAKES_REQUEST_ID).
         "pack_objects": lambda **kw: start_pack_objects(session._emit, **kw),
+        # ... and the last build's mesh there ("Last build"); synchronous.
+        "mesh_crop": mesh_crop,
     }
 
 

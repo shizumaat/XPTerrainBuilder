@@ -70,6 +70,15 @@ final class TerrainPreviewBuildings {
         scene.reseatBuildings(moved, poses: seats.poses)
     }
 
+    /// Seat every placement on `locator`'s surface (the window switched
+    /// between Preview and Last build).
+    func seatAll(on locator: PatchSurfaceLocator, space: PatchPreviewSpace) {
+        guard var seats else { return }
+        let moved = seats.reseatAll(locator: locator, space: space)
+        self.seats = seats
+        scene.reseatBuildings(moved, poses: seats.poses)
+    }
+
     private func set(_ s: Status) {
         status = s
         onStatus?(s)

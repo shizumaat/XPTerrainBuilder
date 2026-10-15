@@ -12,6 +12,10 @@ import simd
 final class TerrainPreviewScene {
     let scene = SCNScene()
     private let world = SCNNode()
+    /// Under `world`: the PREVIEW surface (terrain + patch shapes) and the
+    /// LAST BUILD mesh, one shown at a time.
+    private let previewRoot = SCNNode()
+    private let lastBuildRoot = SCNNode()
     private let markerRoot = SCNNode()
     /// Outside `world`: buildings keep their true height; only their seat
     /// follows the exaggeration.
@@ -50,6 +54,9 @@ final class TerrainPreviewScene {
     init() {
         scene.background.contents = Self.background
         scene.rootNode.addChildNode(world)
+        world.addChildNode(previewRoot)
+        world.addChildNode(lastBuildRoot)
+        lastBuildRoot.isHidden = true
         scene.rootNode.addChildNode(markerRoot)
         scene.rootNode.addChildNode(buildingRoot)
         world.scale = SCNVector3(1, CGFloat(exaggeration), 1)
@@ -77,11 +84,13 @@ final class TerrainPreviewScene {
 
     // MARK: - Terrain
 
-    func setTerrain(_ mesh: PatchTerrainMesh, indices: [UInt32], extent: (SIMD3<Float>, Float)) {
+    func setTerrain(_ mesh: PatchTerrainMesh, texcoords: [SIMD2<Float>], indices: [UInt32],
+                    extent: (SIMD3<Float>, Float)) {
         terrainNode?.removeFromParentNode()
-        terrainSources = [Self.source(mesh.positions, .vertex), Self.source(mesh.normals, .normal)]
+        terrainSources = [Self.source(mesh.positions, .vertex), Self.source(mesh.normals, .normal),
+                          Self.texcoordSource(texcoords)]
         let node = SCNNode()
-        world.addChildNode(node)
+        previewRoot.addChildNode(node)
         terrainNode = node
         self.extent = (extent.0, extent.1)
         setTerrainIndices(indices)
@@ -99,17 +108,19 @@ final class TerrainPreviewScene {
 
     /// One shape's buffer. `indices` nil keeps the shape's triangles (a
     /// node moved or changed elevation); a new list re-triangulated it.
-    func setShape(_ way: Int64, positions: [SIMD3<Float>], normals: [SIMD3<Float>], indices: [UInt32]?) {
+    func setShape(_ way: Int64, positions: [SIMD3<Float>], normals: [SIMD3<Float>],
+                  texcoords: [SIMD2<Float>], indices: [UInt32]?) {
         if let indices { shapeElements[way] = Self.element(indices) }
         guard let element = shapeElements[way] else { return }
-        let geometry = SCNGeometry(sources: [Self.source(positions, .vertex), Self.source(normals, .normal)],
+        let geometry = SCNGeometry(sources: [Self.source(positions, .vertex), Self.source(normals, .normal),
+                                             Self.texcoordSource(texcoords)],
                                    elements: [element])
         geometry.materials = [patchMaterial]
         if let node = shapeNodes[way] {
             node.geometry = geometry
         } else {
             let node = SCNNode(geometry: geometry)
-            world.addChildNode(node)
+            previewRoot.addChildNode(node)
             shapeNodes[way] = node
         }
     }
@@ -121,6 +132,7 @@ final class TerrainPreviewScene {
 
     func removeAll() {
         terrainNode?.removeFromParentNode(); terrainNode = nil; terrainSources = []
+        setLastBuild(nil)
         for way in Array(shapeNodes.keys) { removeShape(way) }
         setMarkers([])
         removeBuildings()
@@ -150,7 +162,49 @@ final class TerrainPreviewScene {
     }
 
     func setWireframe(_ on: Bool) {
-        for m in [terrainMaterial, patchMaterial, buildingMaterial] { m.fillMode = on ? .lines : .fill }
+        for m in [terrainMaterial, patchMaterial, buildingMaterial, lastBuildMaterial] {
+            m.fillMode = on ? .lines : .fill
+        }
+    }
+
+    // MARK: - Last build and imagery (round 6c)
+
+    private let lastBuildMaterial = TerrainPreviewScene.material(terrainColor)
+
+    /// The last build's mesh (preview metres + normals + drape UVs), or nil.
+    func setLastBuild(_ mesh: (positions: [SIMD3<Float>], normals: [SIMD3<Float>],
+                               texcoords: [SIMD2<Float>], indices: [UInt32])?) {
+        lastBuildRoot.childNodes.forEach { $0.removeFromParentNode() }
+        guard let mesh else { return }
+        let geometry = SCNGeometry(sources: [Self.source(mesh.positions, .vertex),
+                                             Self.source(mesh.normals, .normal),
+                                             Self.texcoordSource(mesh.texcoords)],
+                                   elements: [Self.element(mesh.indices)])
+        geometry.materials = [lastBuildMaterial]
+        lastBuildRoot.addChildNode(SCNNode(geometry: geometry))
+    }
+
+    /// Show the last build's mesh instead of the preview surface.
+    func showLastBuild(_ on: Bool) {
+        lastBuildRoot.isHidden = !on
+        previewRoot.isHidden = on
+    }
+
+    /// Drape `image` (the preview extent, top = north) over the terrain,
+    /// the patch and the last build; nil = their own colours.
+    func setImagery(_ image: CGImage?) {
+        for (m, colour) in [(terrainMaterial, Self.terrainColor), (patchMaterial, Self.patchColor),
+                            (lastBuildMaterial, Self.terrainColor)] {
+            m.diffuse.contents = image ?? colour
+        }
+    }
+
+    private nonisolated static func texcoordSource(_ uv: [SIMD2<Float>]) -> SCNGeometrySource {
+        let data = uv.withUnsafeBytes { Data($0) }
+        return SCNGeometrySource(data: data, semantic: .texcoord, vectorCount: uv.count,
+                                 usesFloatComponents: true, componentsPerVector: 2,
+                                 bytesPerComponent: MemoryLayout<Float>.size, dataOffset: 0,
+                                 dataStride: MemoryLayout<SIMD2<Float>>.stride)
     }
 
     // MARK: - Buildings (spec §5: grey massing, shared geometry + clones)

@@ -96,6 +96,12 @@ pack_objects {tile, icao, bbox}
       missing: [reason]}
 ```
 
+Clarified 2026-10-15 (after L2): `terrain_sample.sources` is
+`{base: <path>, inset: <path or null>}`; `pack_objects.models[].key` is a
+string. The DOCUMENT ORIGIN (§3.3) is the centre of the document's bbox at
+load time (mean of min/max lat and of min/max lon), fixed for the document's
+life.
+
 Node ids are the file's (negative) ids. The client allocates new node ids
 below the document's minimum id; way ids are kept. `patch_save` writes ways
 and nodes in the order given; tags are written back unchanged.

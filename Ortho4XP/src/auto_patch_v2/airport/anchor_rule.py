@@ -64,7 +64,7 @@ import typing as _t
 from ..model.placement import TOL_DEG as _TOL_DEG
 
 __all__ = ["BodyClass", "Anchor", "Datum", "PadRing", "RimRing", "classify_body",
-           "anchor_for", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
+           "anchor_for", "roof_on_posts", "datum_of", "keep_off_row", "rim_of", "ring_of_part", "rim_anchor_point",
            "pad_majority", "fold_pad_ref", "pad_contains",
            "BUILDING", "SKIRTED", "BASIN", "LINE_SEGMENT", "DECK", "PLATE_ONLY", "OTHER"]
 
@@ -818,6 +818,49 @@ class BodyGeometry:
     parts: tuple[tuple[float, float, float, tuple[tuple[float, float, float], ...]], ...]
     origin_lat: float
     origin_lon: float
+    #: per part (parallel to ``parts``) its SOLID: ``(authored top y,
+    #: plan area m2, plan span m)`` — ``base_y + Part.height_m``, the
+    #: part's area and the longer side of its plan box.  EMPTY where the
+    #: plan carries no height, and :func:`roof_on_posts` then reads
+    #: nothing (#610)
+    solids: tuple[tuple[float, float, float], ...] = ()
+
+
+def roof_on_posts(geom: BodyGeometry, tol_m: float) -> bool:
+    """#610: IS THIS BODY A ROOF CARRIED ON POSTS — a canopy on columns?
+
+    A part with no feet is one the plan judged ELEVATED (RULINGS
+    2026-09-09s (2)); :func:`anchor_for` lets it stand in for itself at
+    its own base, the pre-09s reading.  On a canopy that stand-in is a
+    roof plane, not a ground contact: read as one it spread KCLT's fuel
+    canopy over 5.6 m of "terrain" that was its own height, the low-side
+    rule took its zero on a beam (y 5.45 over posts at 0), the body read
+    elevated and rode a kiosk 40 m away, its posts 2.5-2.7 m over the
+    mesh (1.0.392).
+
+    THE SHAPE, read off the parts and nothing else: every footed part is
+    a POST — taller than its own plan span — and they reach the roof
+    (the tallest post's top within ``tol_m`` of the lowest feetless
+    base, and no feetless part below it by more than ``tol_m``); and the
+    feetless parts are the ROOF over them — more plan area than all the
+    posts together.  A wall with a pane in it, a stack of floors on a
+    plinth, a stair or a pane over a pane is not one, and reads as
+    before; so does a plan with no heights."""
+    if tol_m <= 0.0 or len(geom.solids) != len(geom.parts):
+        return False
+    posts = [sd for (_la, _lo, y, feet), sd in zip(geom.parts, geom.solids)
+             if feet]
+    roof = [(y, sd) for (_la, _lo, y, feet), sd in zip(geom.parts, geom.solids)
+            if not feet]
+    if not posts or not roof:
+        return False
+    if any(top - y <= span for (_la, _lo, y, feet), (top, _a, span)
+           in zip(geom.parts, geom.solids) if feet):
+        return False
+    top = max(sd[0] for sd in posts)
+    low = min(y for y, _sd in roof)
+    return (abs(low - top) <= tol_m
+            and sum(sd[1] for _y, sd in roof) > sum(sd[1] for sd in posts))
 
 
 def _all_on_rolled(cands: _t.Sequence[tuple[float, float, float, float]],
@@ -935,10 +978,33 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         if a is not None:
             return a
 
+    # #610: A ROOF ON ITS POSTS IS NO ANCHOR.  The pick below lets a
+    # feetless part stand in at its own base; where that is the part it
+    # lands on and the body is a roof carried on posts
+    # (:func:`roof_on_posts`), it is re-taken from the posts' feet alone.
+    # Every other body reads exactly as before.
+    a = _generic_anchor(body_class, geom, surface, pads, tol_m, roles,
+                        rolled_on, False)
+    if (roof_on_posts(geom, tol_m)
+            and any(not feet and (la, lo, base_y) == (a.lat, a.lon, a.y_zero)
+                    for la, lo, base_y, feet in geom.parts)):
+        a = _generic_anchor(body_class, geom, surface, pads, tol_m, roles,
+                            rolled_on, True)
+    return a
+
+
+def _generic_anchor(body_class: BodyClass, geom: BodyGeometry,
+                    surface: Surface, pads: _t.Sequence[PadRing], tol_m: float,
+                    roles, rolled_on, skip_standins: bool) -> Anchor:
+    """THE GENERIC RULE's own pick (11e (2)) over the body's ground
+    contacts: every part's feet, and a part with none standing in at its
+    own base unless ``skip_standins`` (#610, :func:`anchor_for`)."""
     # every GROUND-CONTACT VERTEX of the body (a part with no feet stands
     # in for itself at its own base), read against the design surface
     cands: list[tuple[float, float, float, float]] = []
     for la, lo, base_y, feet in geom.parts:
+        if skip_standins and not feet:
+            continue
         for f in (feet or ((la, lo, base_y),)):
             z = surface(f[0], f[1])
             if z is not None:

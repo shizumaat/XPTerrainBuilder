@@ -507,3 +507,44 @@ def test_zone_1_2_step_keeps_the_one_metre_floor(tmp_path):
     assert len(violations) == 1, [
         (v.de_m, v.distance_m) for v in violations]
     assert abs(violations[0].de_m - 2.0) < 1e-6
+
+
+# ── THE DECLARED WALL STEP (owner RULINGS 2026-10-15b) ─────────────
+# A pair across a declared ``wall_terrace`` line is the wall's own riser
+# read again: forgiven up to the declared step, the excess still reports,
+# and a wall line the pair does not cross forgives nothing.
+def _wall_joint(x_m: float, step_m: float, label: str = "objects/w.obj#comp0"):
+    return {"kind": "wall_terrace", "step_m": step_m, "shapes": [label],
+            "points": [[-5.0, x_m], [5.0, x_m]]}     # (lat=y, lon=x)
+
+
+def _run_walls(tmp_path: Path, ways_spec: List[Dict], joints: List[Dict]):
+    path = _write_osm(tmp_path, ways_spec)
+    nodes, ways = check_grade._parse_osm(path)
+    vertices, _edges = check_grade._build_vertex_edge_tables(
+        nodes, ways, _identity_meters)
+    walls = check_grade.DeclaredWallSteps(joints, _identity_meters)
+    return check_grade._check_strip_seam_tears(vertices, ways,
+                                               declared_walls=walls)
+
+
+def test_pair_across_a_declared_wall_within_its_step_is_the_wall(tmp_path):
+    spec = _open_pair(2.0) + [_graded_backdrop()]
+    assert _run_walls(tmp_path, spec, [_wall_joint(0.75, 3.0)]) == []
+
+
+def test_pair_across_a_declared_wall_over_its_step_still_reports(tmp_path):
+    spec = _open_pair(2.0) + [_graded_backdrop()]
+    out = _run_walls(tmp_path, spec, [_wall_joint(0.75, 1.5)])
+    assert len(out) == 1 and abs(out[0].de_m - 2.0) < 1e-6
+
+
+def test_wall_line_the_pair_does_not_cross_forgives_nothing(tmp_path):
+    spec = _open_pair(2.0) + [_graded_backdrop()]
+    assert len(_run_walls(tmp_path, spec, [_wall_joint(5.0, 3.0)])) == 1
+
+
+def test_a_non_wall_joint_is_not_a_declared_wall(tmp_path):
+    spec = _open_pair(2.0) + [_graded_backdrop()]
+    joint = dict(_wall_joint(0.75, 3.0), kind="apron_terrace")
+    assert len(_run_walls(tmp_path, spec, [joint])) == 1

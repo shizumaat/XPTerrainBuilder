@@ -3280,7 +3280,9 @@ ADJACENT_GROUND_STEP_FAMILY = "adjacent_ground_step"
 def _check_adjacent_ground_steps(ways: List[Way],
                                  nodes: Dict[str, Tuple[float, float]],
                                  ll_to_m, min_step_m: float,
-                                 cliff_grade: float) -> List[Violation]:
+                                 cliff_grade: float,
+                                 declared_walls: "Optional[DeclaredWallSteps]" = None
+                                 ) -> List[Violation]:
     """ZONES YIELD TO ROADS (spec §34 (4); Fable 2026-09-13i, RULINGS
     2026-09-13i item 8): the WELDED step INSIDE one ``adjacent_ground:*``
     face.
@@ -3308,7 +3310,11 @@ def _check_adjacent_ground_steps(ways: List[Way],
     is mostly REPORT is the instrument this repo keeps paying for.
 
     Keyed on the v2 ref prefix, so a v1 patch (whose strips are
-    ``adjacent_ground`` exactly) reads nothing."""
+    ``adjacent_ground`` exactly) reads nothing.
+
+    A welded pair ACROSS a declared wall line (``declared_walls``, owner
+    RULINGS 2026-10-15b) is the wall's own riser read again: forgiven up
+    to its declared step (:class:`DeclaredWallSteps`), the excess reports."""
     out: List[Violation] = []
     for w in ways:
         if not str(w.ref or "").startswith(V2_ADJACENT_GROUND_REF_PREFIX):
@@ -3331,6 +3337,9 @@ def _check_adjacent_ground_steps(ways: List[Way],
             grade = de / dist if dist > 1e-9 else float("inf")
             if grade <= cliff_grade:
                 continue
+            if (declared_walls is not None
+                    and de <= declared_walls.allowance(xa, ya, xb, yb)):
+                continue                     # the declared wall's riser (15b)
             out.append(Violation(
                 grade_pct=grade * 100,
                 excess_pct=grade * 100,
@@ -6042,6 +6051,7 @@ def _check_strip_seam_tears(
     min_step_m: float = STRIP_SEAM_TEAR_MIN_STEP_M,
     min_distance_m: float = STRIP_SEAM_TEAR_MIN_DISTANCE_M,
     open_boundary_floor_m: float = STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M,
+    declared_walls: "Optional[DeclaredWallSteps]" = None,
 ) -> List[Violation]:
     """DEM-free SEAM-tear sentinel BETWEEN two different ``graded_strip``
     shapes — the cross-shape twin of ``_check_adjacent_ground_edges``.
@@ -6097,6 +6107,11 @@ def _check_strip_seam_tears(
     A pair whose interior stays graded keeps ``min_step_m`` (1 m).  The
     wall exemptions above are unchanged and still run for pairs that
     clear the floor.
+
+    DECLARED WALL STEP (owner RULINGS 2026-10-15b): a pair across a
+    declared ``wall_terrace`` line (``declared_walls``) is the wall's own
+    riser read again, forgiven up to its declared step
+    (:class:`DeclaredWallSteps`); ``None`` judges as before.
 
     Runs in ~linear time via a spatial grid over the strip nodes (never an
     O(n^2) all-pairs scan — airports reach ~50k strip nodes).  Returns
@@ -6238,6 +6253,9 @@ def _check_strip_seam_tears(
                     grade = de / max(d, min_distance_m)
                     if _wall_spans(v, u):
                         continue  # deliberate retaining_wall face
+                    if (declared_walls is not None and de <= declared_walls
+                            .allowance(v.x, v.y, u.x, u.y)):
+                        continue  # the declared wall's riser (15b)
                     # The open-ground test is now BOTH the straddle
                     # exemption's precondition and the pair's step-floor
                     # selector, so compute it once.
@@ -6545,6 +6563,24 @@ def _terrace_joints_to_m(terrace_joints_ll, ll_to_m):
 #: a validator must not import solver state).
 BASIN_WALL_JOINT_KIND = "basin_trench_wall"
 
+#: ``kind`` of a declared WALL terrace (``pipeline/publication.
+#: wall_terrace_joints``; RULINGS 2026-10-03c "the wall is the step") —
+#: the emitter's literal, quoted, never imported.
+WALL_TERRACE_JOINT_KIND = "wall_terrace"
+#: the shape-label suffix of a walled tunnel MOUTH's wall terrace — the
+#: emitter's ``f"{path}#mouth"`` in ``airport/road_ramp.mouth_wall_pieces``
+#: (pinned by ``tests/test_mouth_census.py``).
+MOUTH_WALL_LABEL_SUFFIX = "#mouth"
+
+
+def _is_mouth_wall_joint(row) -> bool:
+    """A declared walled tunnel-MOUTH joint (RULINGS 2026-10-15a (1)(2)):
+    a ``wall_terrace`` record whose shape is a mouth piece."""
+    if row.get("kind") != WALL_TERRACE_JOINT_KIND:
+        return False
+    return any(str(s).endswith(MOUTH_WALL_LABEL_SUFFIX)
+               for s in (row.get("shapes") or ()))
+
 
 def _terrace_joint_carried_flags(terrace_joints_ll) -> list:
     """Per JOINT, per POINT: is this stretch of the declared step inside
@@ -6556,11 +6592,19 @@ def _terrace_joint_carried_flags(terrace_joints_ll) -> list:
     terrace joint and every patch built before the amendment is judged
     exactly as before.  The flags are the EMITTER's, off the yield
     population's own geometry; nothing here re-derives "carried".
+
+    A declared walled tunnel MOUTH (:func:`_is_mouth_wall_joint`) is
+    carried along its whole run (owner RULINGS 2026-10-15b, census option
+    1): the deck carries the ground over the portal, so the mouth is the
+    Amendment-3 case and not a wall at the runway edge (2026-08-01).
     """
     out = []
     for row in (terrace_joints_ll or []):
         pts = row.get("points") or []
         if len(pts) < 2:
+            continue
+        if _is_mouth_wall_joint(row):
+            out.append([True] * len(pts))
             continue
         flags = row.get("carried")
         if (row.get("kind") != BASIN_WALL_JOINT_KIND
@@ -6637,6 +6681,33 @@ def _terrace_step_allowance(terrace_joints_m, xa, ya, xb, yb) -> float:
     for j in cached.crossed((xa, ya), (xb, yb)):
         total += terrace_joints_m[j][1]
     return total
+
+
+class DeclaredWallSteps:
+    """THE DECLARED WALL STEP, read by the zone-strip step families (owner
+    RULINGS 2026-10-15b).  A ``wall_terrace`` joint — a pack retaining
+    wall (2026-10-03c, 15a (2)) or a walled tunnel mouth (15a (1)(2)) —
+    declares its riser; ``adjacent_ground_step`` and ``strip_seam_tear``
+    pair two nodes ACROSS that line and read the same step again.  A pair
+    whose chord crosses a declared wall line is forgiven up to the LARGEST
+    declared step it crosses (never the sum: a mouth publishes several
+    overlapping outlines, and summing them would blind the reader); the
+    excess still reports, and a pair beside the line that does not cross
+    it is ground, not the riser, and reports in full."""
+
+    def __init__(self, terrace_joints_ll, ll_to_m) -> None:
+        rows = [r for r in (terrace_joints_ll or [])
+                if r.get("kind") == WALL_TERRACE_JOINT_KIND]
+        self.joints = _terrace_joints_to_m(rows, ll_to_m)
+        self._index = _JointSegments(self.joints) if self.joints else None
+
+    def allowance(self, xa, ya, xb, yb) -> float:
+        """The declared step a chord ``a``-``b`` crosses (0.0 if none)."""
+        if self._index is None:
+            return 0.0
+        return max((self.joints[j][1]
+                    for j in self._index.crossed((xa, ya), (xb, yb))),
+                   default=0.0)
 
 
 # ── THE TUNNEL-TRENCH DECLARED-STEP LAW — the census half ───────────
@@ -13322,6 +13393,9 @@ def run_checks(
     # Index-aligned with ``terrace_joints_m`` (spec Amendment 3): the
     # emitter's own per-point "is this stretch carried?" flags.
     terrace_carried = _terrace_joint_carried_flags(terrace_joints_ll)
+    # The declared WALL steps (owner RULINGS 2026-10-15b) the zone-strip
+    # step families read across a wall line.
+    declared_walls = DeclaredWallSteps(terrace_joints_ll, ll_to_m)
     if terrace_joints_m and not quiet:
         print(f"  apron terraces: {len(terrace_joints_m)} declared "
               f"joint(s) (within-pairs crossing one are judged by the "
@@ -13727,7 +13801,8 @@ def run_checks(
     ag_step_min, ag_cliff = float(_ck["visual_m"]), float(_ck["cliff_grade"])
     ag_steps = _fam(ADJACENT_GROUND_STEP_FAMILY,
                     _check_adjacent_ground_steps(ways, nodes, ll_to_m,
-                                                 ag_step_min, ag_cliff))
+                                                 ag_step_min, ag_cliff,
+                                                 declared_walls))
     _pv(f"ADJACENT-GROUND within-face welded STEP (> {ag_step_min:.2f} m at "
         f"> {ag_cliff * 100:.0f} % between welded neighbours of ONE "
         f"adjacent_ground face; spec §34 (4))",
@@ -13757,7 +13832,9 @@ def run_checks(
     within = within + zone_pav
 
     strip_seam_tears = _fam("strip_seam_tear",
-                            _check_strip_seam_tears(vertices, ways, nodes))
+                            _check_strip_seam_tears(
+                                vertices, ways, nodes,
+                                declared_walls=declared_walls))
     _pv(f"ADJACENT-GROUND strip SEAM tear (cross-shape step, "
         f"> {STRIP_SEAM_TEAR_MIN_STEP_M:.1f}m at "
         f"> {STRIP_SEAM_TEAR_MIN_GRADE * 100:.0f}% within "

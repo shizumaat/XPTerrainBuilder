@@ -29,8 +29,18 @@ reach is measured against must exist, and a component beyond every one of
 them is a body the search must still place.  It lives apart from
 ``placement_plan`` for the 1,000-line law only.
 
-NO LAW CONSTANT LIVES HERE: the reach is ``[placement] coarsen_reach_m``,
-handed in by the caller.
+#609 (owner RULINGS 2026-10-14l (2)): THE REACH IS MEASURED TO THE
+NEAREST PART.  A component with CLEAR SPACE to every part of its own
+placement — farther than ``[placement] footprint_touch_m`` from each part
+box — is seated as its own object by §15's search, however near the
+group's HULL: KCLT's toll-plaza roof lay inside the terminal's 300 x 600 m
+hull (gap 0) and 42 m from its nearest part, joined the terminal's group
+and was written at the terminal's zero, +3.45 m over the plaza canopy it
+is authored on (app 1.0.392).
+
+NO LAW CONSTANT LIVES HERE: the reach is ``[placement] coarsen_reach_m``
+and the clearance ``[placement] footprint_touch_m``, handed in by the
+caller.
 """
 from __future__ import annotations
 
@@ -41,86 +51,11 @@ import numpy as _np
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 
-__all__ = ["place_orphans", "foreign_feet"]
-
-
-def foreign_feet(plan: _t.Any, min_fraction: float, tol_m: float
-                 ) -> "_t.Callable[[tuple, _t.Any, _t.Callable[[], float]], bool] | None":
-    """#609: is a part-less component authored ON another file's footed
-    structure?
-
-    ``(box, member, lowest_y) -> bool``: true where ``min_fraction`` of
-    ``box`` lies inside the plan box of one FOOTED part of ANOTHER
-    resource placed in the SAME AUTHORED FRAME (the same placement origin
-    and heading — a shared-datum pack, whose files' ``y`` are one frame),
-    and the component's lowest authored ``y`` (``lowest_y()``, read only
-    then) stands within that part's height (``tol_m`` either side).
-    KCLT's toll plaza is the witness: its roof planes are components of
-    the terminal's file, its canopy and booths another file's, both
-    placed at one origin.  ``None`` where ``min_fraction`` is 0
-    (disarmed) or no part has feet."""
-    if min_fraction <= 0.0:
-        return None
-    rows = [(p.box, m.resource, m.origin, float(m.heading_deg),
-             float(p.base_y), float(p.base_y) + float(p.height_m))
-            for u in getattr(plan, "units", ()) for m in u.members
-            if m.origin is not None
-            for p in m.parts if p.feet and not p.line]
-    if not rows:
-        return None
-    import shapely
-    tree = shapely.STRtree(shapely.box([r[0][1] for r in rows],
-                                       [r[0][0] for r in rows],
-                                       [r[0][3] for r in rows],
-                                       [r[0][2] for r in rows]))
-
-    def _frame(a: _t.Any, b: _t.Any, ha: float, hb: float) -> bool:
-        return (abs(float(a[0]) - float(b[0])) < 1e-7
-                and abs(float(a[1]) - float(b[1])) < 1e-7
-                and abs(ha - hb) < 1e-3)
-
-    def stands_on(box: tuple, m: _t.Any,
-                  lowest_y: _t.Callable[[], float]) -> bool:
-        la0, lo0, la1, lo1 = box
-        area = (la1 - la0) * (lo1 - lo0)
-        if area <= 0.0 or getattr(m, "origin", None) is None:
-            return False
-        hits = []
-        for k in tree.query(shapely.box(lo0, la0, lo1, la1)).tolist():
-            b, res, org, hd, y0, y1 = rows[k]
-            if (res != m.resource
-                    and _frame(org, m.origin, hd, float(m.heading_deg))
-                    and (max(0.0, min(b[2], la1) - max(b[0], la0))
-                         * max(0.0, min(b[3], lo1) - max(b[1], lo0))
-                         >= min_fraction * area)):
-                hits.append((y0, y1))
-        if not hits:
-            return False
-        y = lowest_y()
-        return any(y0 - tol_m <= y <= y1 + tol_m for y0, y1 in hits)
-    return stands_on
-
-
-def _clear_of(boxes: _t.Sequence[tuple]) -> "_t.Callable[[tuple], bool]":
-    """``box -> bool``: does ``box`` overlap NONE of ``boxes`` in plan —
-    the clear space between a component and every part of its own
-    placement.  One array per member, read once."""
-    if not boxes:
-        return lambda _box: True
-    A = _np.asarray(boxes, dtype=float)
-
-    def clear(box: tuple) -> bool:
-        return not bool(_np.any((_np.minimum(A[:, 2], box[2])
-                                 > _np.maximum(A[:, 0], box[0]))
-                                & (_np.minimum(A[:, 3], box[3])
-                                   > _np.maximum(A[:, 1], box[1]))))
-    return clear
+__all__ = ["place_orphans"]
 
 
 def place_orphans(st: _t.Any, reach_m: float, surface: _t.Any,
-                  counts: dict,
-                  over: "_t.Callable[..., bool] | None" = None
-                  ) -> None:
+                  counts: dict, clear_m: float = 0.0) -> None:
     """§16d (1): give every component the member's bodies do not own a
     body whose box will contain it.
 
@@ -146,21 +81,11 @@ def place_orphans(st: _t.Any, reach_m: float, surface: _t.Any,
     (§16 (1)'s own sentence), never a carrier candidate (pass 2 is over),
     and never senior in its group.
 
-    #609: A COMPONENT STANDING ON ANOTHER PLACEMENT'S STRUCTURE IS NOT
-    JOINED BY REACH.  The reach is measured to a group's part HULL, and a
-    terminal's hull is hundreds of metres wide: KCLT's toll-plaza roof, a
-    component of the terminal file with no part of its own, lay inside it
-    (gap 0), joined the terminal's group and was written at the
-    terminal's zero, 3.45 m over the plaza posts it is authored on
-    (1.0.392); the tower building's roof by the plaza, +4.20 m, the same.
-    Measuring the reach to the nearest PART instead does not separate
-    them: the plaza roof is 42-48 m from the terminal's nearest part,
-    inside the 100 m reach.  The witness is what it STANDS ON: where
-    ``over`` (:func:`foreign_feet`) says the component stands on a footed
-    part of another file in its own authored frame, and it overlaps no
-    part of its own placement (clear space to every one of them), it
-    becomes its own footless body and §15's search seats it on what it
-    stands over — written at that structure's zero, as authored."""
+    #609 (RULINGS 2026-10-14l (2)): with ``clear_m > 0`` a component
+    farther than ``clear_m`` from EVERY part box of this member is its
+    own footless body whatever the hull reach says — clear space to every
+    part of its own resource; the group a touching component joins is
+    unchanged.  ``clear_m <= 0`` disarms it (the hull reach alone)."""
     cutter = getattr(st, "cutter", None)
     if cutter is None:
         return
@@ -210,24 +135,18 @@ def place_orphans(st: _t.Any, reach_m: float, surface: _t.Any,
     # sampling per component — at OTHH that is tens of thousands of them.
     joined: dict[int, list] = {}
     near = _nearest_target(pairs, [b for _c, _t_, b in orphans])
-    _clear = _clear_of([b for i, r in enumerate(st.raw) if r[0]
-                        for b in st.part_boxes[i]]) if over else None
-    for (ci, tris, box), (gap, best) in zip(orphans, near):
+    clear = _clear_of_parts(st, [b for _c, _t_, b in orphans], clear_m)
+    for (ci, tris, box), (gap, best), apart in zip(orphans, near, clear):
+        if best is not None and apart:
+            # #609: clear of every part of its own placement — its own
+            # object, whatever the hull reach (RULINGS 2026-10-14l (2))
+            counts["orphan_clear_of_own_parts"] = \
+                counts.get("orphan_clear_of_own_parts", 0) + 1
+            best = None
         # ``reach_m <= 0`` DISARMS the reach, the convention every other
         # plan-contiguity key takes (``coarsen``'s own, ``--coarsen-reach
         # 0``): the component then joins the nearest body, which is what
         # ``obj8_split`` did with it before this law.
-        if (best is not None and over is not None
-                and (reach_m <= 0.0 or gap <= reach_m)
-                and _clear(box)
-                and over(box, st.m, lambda tr=tris: min(
-                    (q[2] for q in cutter.geom_points((), _tuples(tr))),
-                    default=float("nan")))):
-            # #609: it stands on another file's structure and touches
-            # none of its own: what it rests on carries it (§15)
-            counts["orphan_on_foreign_feet"] = \
-                counts.get("orphan_on_foreign_feet", 0) + 1
-            best = None
         if best is not None and (reach_m <= 0.0 or gap <= reach_m):
             joined.setdefault(best, []).append((tris, box))
             counts["orphan_components_joined"] = \
@@ -259,6 +178,20 @@ def place_orphans(st: _t.Any, reach_m: float, surface: _t.Any,
         # question of; a FOOTLESS member's targets are read off ``raw``
         # and need no register
         st.elevated = st.elevated | frozenset(freed)
+
+
+def _clear_of_parts(st: _t.Any, boxes: _t.Sequence[tuple], clear_m: float
+                    ) -> list[bool]:
+    """For each of ``boxes``: is it farther than ``clear_m`` (plan gap,
+    metres) from every PART box of the member's own bodies?  All False
+    where ``clear_m <= 0`` (disarmed) or the member has no part — the
+    nearest-part gap is :func:`_nearest_target` over the part boxes."""
+    own = [b for i, r in enumerate(st.raw) if r[0]
+           for b in st.part_boxes[i]] if clear_m > 0.0 else []
+    if not own:
+        return [False] * len(boxes)
+    return [g > clear_m for g, _j in
+            _nearest_target([(None, b, None) for b in own], boxes)]
 
 
 #: how many orphan boxes are matched against the target boxes at a time.

@@ -51,6 +51,17 @@ def _dumbbell() -> dict[int, tuple[float, float]]:
     return {i: p for i, p in enumerate(ring)}
 
 
+#: The dumbbell's triangles in the vertex ORDER the retired centroid-kept
+#: Delaunay returned them (issue #752).  The triangle SET is the one
+#: ``face_triangles`` gives today; the order is pinned because the
+#: disconnection below depends on it: ``_cotangent_laplacian`` reads the
+#: angle opposite a triangle's third edge ``(c, a)`` with the wrong sign,
+#: so which edge of an acute triangle carries no weight follows the vertex
+#: order (reported with #752, not fixed here).
+_DUMBBELL_TRIS = [(7, 8, 6), (1, 2, 0), (3, 4, 5), (9, 10, 11), (8, 3, 6),
+                  (6, 3, 5), (3, 9, 2), (9, 3, 8), (9, 11, 0), (2, 9, 0)]
+
+
 class _XY:
     """The slice of ``PlanarMap`` the Laplacian reads: ``vertices[v].xy``."""
 
@@ -72,8 +83,10 @@ def test_the_triangulation_joins_a_neck_no_bending_row_crosses():
     is what §9's anchoring cannot see and what the belt closes."""
     xy = _dumbbell()
     n = len(xy)
-    tris = face_triangles(xy, list(range(n)), [])
-    assert tris, "the ring triangulates"
+    tris = _DUMBBELL_TRIS
+    assert sorted(tuple(sorted(t)) for t in tris) == sorted(
+        tuple(sorted(t)) for t in face_triangles(xy, list(range(n)), [])), \
+        "the ring's own triangulation, in the vertex order lane v2zerocrater measured"
     L, area = _cotangent_laplacian(_XY(xy), tris, n)
     L = L.tocsr()
     red = _Reduction(n)

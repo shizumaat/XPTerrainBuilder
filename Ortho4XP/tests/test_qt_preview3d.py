@@ -112,8 +112,8 @@ def test_a_face_inside_its_parents_gap_is_not_a_second_hole():
 
 
 def test_a_concave_face_is_covered_exactly():
-    # a comb (three teeth north): the engine's unconstrained face_triangles
-    # would bridge the gaps between the teeth
+    # a comb (three teeth north): the retired centroid-kept Delaunay would
+    # bridge the gaps between the teeth (issue #752)
     comb = [(0, 0), (50, 0), (50, 30), (40, 30), (40, 10), (30, 10), (30, 30), (20, 30),
             (20, 10), (10, 10), (10, 30), (0, 30)]
     xy = {i + 1: p for i, p in enumerate(comb)}

@@ -141,7 +141,7 @@ from ..planar.cluster import deck_shades as _deck_shades
 from ..solve.ground_band import ground_envelope
 from ..model.end_area import end_area_lengths
 
-__all__ = ["gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
+__all__ = ["end_profile_yields", "gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
 
 #: 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY (owner RULINGS 2026-09-30ah
@@ -829,6 +829,22 @@ def taxi_route_pairs(planar: PlanarMap, law: Law, airport: Airport,
             seen.add(key)
             out.append([ll[pp.a], ll[pp.b], round(pp.budget, 6), round(pp.dist, 4)])
     return out
+
+
+def end_profile_yields(planar: PlanarMap, law: Law, airport: Airport) -> list[list[float]]:
+    """Sidecar ``end_profile_yields`` (owner RULINGS 2026-10-15j):
+    ``[[lat, lon], ...]`` of the end-area lip of non-runway pavement
+    (``constraints.end_lip.end_lip_vertices`` inside the runway end
+    corridors), where the end laws yield and both readers read no row."""
+    from ..constraints.end_lip import end_lip_vertices
+    from ..constraints.precedence import view
+    from ..constraints.strips import runway_groups
+    vw = view(planar, law)
+    vs = end_lip_vertices(vw, runway_groups(vw, airport))
+    if not vs:
+        return []
+    to_ll = airport.frame.transformers()[1]
+    return [list(to_ll(*planar.vertices[v].xy)) for v in sorted(vs)]
 
 
 def gap_pieces(cut: _t.Mapping[str, _t.Any] | None,

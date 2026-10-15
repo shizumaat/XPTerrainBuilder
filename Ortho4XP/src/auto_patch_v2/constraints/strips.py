@@ -64,6 +64,7 @@ from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
                        principal_axis, rect_ring)
+from .end_lip import end_lip_vertices
 from .precedence import View, view
 
 __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
@@ -315,7 +316,8 @@ def resa_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # corridor's transverse rows too (NLWF 25: a strip vertex against a
     # service-road vertex on its DEM ramp, 5.6 % over 26 m once the end
     # profile lowered the strip beside it)
-    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
+    # ... and a non-runway pavement's own lip (2026-10-15j, ``_end_yields``)
+    road_cap = _end_yields(vw)
     for g in runway_groups(vw, airport):
         src = Source(GEN, "rulesets.resa.transverse_max (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
@@ -473,7 +475,19 @@ def _unbound_end_vertices(vw: View) -> set[int]:
     the wall), and under a mapped-road ribbon THE ROAD CAP GOVERNS (owner
     RULINGS 2026-10-02ag (2), #100; ``PlanarMap.ribbon_vertices``)."""
     walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
-    return walls | set(vw.pm.road_cap_vertices(airside_stage_roles(vw.law)))
+    return walls | _end_yields(vw)
+
+
+def _end_yields(vw: View) -> set[int]:
+    """The vertices whose level another law states, so that no end row of
+    any form prices them:
+
+    * the road cap (owner RULINGS 2026-10-02ag (2));
+    * a non-runway pavement's own lip (2026-10-15j, :mod:`.end_lip`).
+
+    The build publishes the two sets as ``road_cap_governs`` and
+    ``end_profile_yields``, and the readers skip both."""
+    return set(vw.pm.road_cap_vertices(airside_stage_roles(vw.law))) | end_lip_vertices(vw)
 
 
 def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
@@ -498,7 +512,9 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     # no end row of any form prices that vertex (NLWF 25: a service road
     # across the band, its DEM ramp an equality the pair row lost to by
     # 0.16 m; the readers skip the published ``road_cap_governs`` set)
-    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
+    # ... and a non-runway pavement's own lip (owner RULINGS 2026-10-15j):
+    # the pavement leads that ground, the end profile governs the rest
+    road_cap = _end_yields(vw)
     for g in runway_groups(vw, airport):
         prof = runway_end_profile(law, g.code_number, g.code_letter)
         src = Source(GEN, END_PROFILE_PAIR_RULING, (f"rwy:{g.ref}",))
@@ -749,6 +765,7 @@ def end_corridor_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
         return []
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     lip = law.tables.zones.adjacent_ground.lip_width_m
+    yields = _end_yields(vw)
     rows: list[Row] = []
     seen3: set[tuple[int, ...]] = set()
     seen: set[tuple[int, int]] = set()
@@ -770,8 +787,8 @@ def end_corridor_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                         # station on pavement (an apron edge the strip ring
                         # runs along) is that pavement's and enters no row
                         # (KBFI: three apron-edge vertices in one rate row)
-                        if any(v in vw.pavement_vertices for v in key):
-                            continue
+                        if any(v in vw.pavement_vertices or v in yields for v in key):
+                            continue      # ... and a vertex another law levels (``_end_yields``)
                         dp, dn = abs(s[k] - s[k - 1]), abs(s[k + 1] - s[k])
                         if dp < 1e-6 or dn < 1e-6:
                             continue
@@ -806,6 +823,8 @@ def raoa(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         return []
     rate = ra.max_grade_change.grade / ra.max_grade_change.per_m
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
+    # RULINGS 2026-10-15j: a non-runway pavement's own lip follows it
+    lip = end_lip_vertices(vw, runway_groups(vw, airport))   # the published set
     rows: list[Row] = []
     seen: set[tuple[int, int, int]] = set()
     for g in runway_groups(vw, airport):
@@ -840,7 +859,7 @@ def raoa(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                         continue          # a cross-width neighbour, not a profile step
                     a, b, c = src_ids[k - 1], src_ids[k], src_ids[k + 1]
                     key = (a, b, c)
-                    if key in seen or len(set(key)) < 3:
+                    if key in seen or len(set(key)) < 3 or any(v in lip for v in key):
                         continue
                     seen.add(key)
                     bound = rate * 0.5 * (dp + dn) + q * (1.0 / dp + 1.0 / dn)

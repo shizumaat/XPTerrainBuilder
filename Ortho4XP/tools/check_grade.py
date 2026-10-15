@@ -2951,7 +2951,8 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                                   nodes: Dict[str, Tuple[float, float]],
                                   ll_to_m,
                                   runway_axes_ll: Optional[list] = None,
-                                  road_cap_governs_ll: Optional[list] = None
+                                  road_cap_governs_ll: Optional[list] = None,
+                                  end_profile_yields_ll: Optional[list] = None
                                   ) -> List[Violation]:
     """THE GROUND BEYOND A RUNWAY END, as v2 emits it (owner RULINGS
     2026-10-12q (1) (d); #620): every ``graded_strip`` ring in a runway's
@@ -2989,7 +2990,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     from auto_patch_v2.constraints.strips import (end_transect_foot,
                                                   end_transect_pairs)
     from auto_patch_v2.verify.strips import (end_chord_foot, end_excess_m,
-                                             published_slabs, road_cap_geometry)
+                                             end_exempt_geometry, published_slabs)
     from shapely.geometry import Point as _Pt
     slabs = published_slabs(runway_axes_ll, ll_to_m)
     law, profile_of = _runway_end_profile_law()
@@ -2998,7 +2999,10 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): a node under a
     # mapped-road ribbon is the road's; the family reads no row on it
     # (the published set — ``verify.strips.runway_end_skirt``'s reading)
-    cap_geom = road_cap_geometry(road_cap_governs_ll, ll_to_m, law)
+    # ... and the end-area lip of non-runway pavement (RULINGS 2026-10-15j):
+    # ONE exemption with the generator and verify (``end_exempt_geometry``)
+    cap_geom = end_exempt_geometry(road_cap_governs_ll, end_profile_yields_ll,
+                                   ll_to_m, law)
 
     def road(pt) -> bool:
         return cap_geom is not None and cap_geom.covers(_Pt(pt[0], pt[1]))
@@ -3187,8 +3191,9 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                                 law.tables.emit.materiality.grade):
                             A, B, C = run[a], run[b], run[c]
                             site = ("rate",) + _site_key(pts[A], pts[B], pts[C])
-                            if site in seen or any(nn[k] in pavement_nids for k in (A, B, C)):
-                                continue      # a pavement station: that pavement's own
+                            if site in seen or any(nn[k] in pavement_nids or road(pts[k])
+                                                   for k in (A, B, C)):
+                                continue      # a pavement station, or one another law levels
                             seen.add(site)
                             out.append(Violation(
                                 grade_pct=100.0 * change, excess_pct=100.0 * change,
@@ -4429,7 +4434,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
 
 
 def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
-                                 road_cap_governs_ll: Optional[list] = None
+                                 road_cap_governs_ll: Optional[list] = None,
+                                 end_profile_yields_ll: Optional[list] = None
                                  ) -> Tuple[List[Violation], int, int]:
     """§A1 twin — the END-corridor ACROSS-corridor grade, a family
     NOTHING read before (the count therefore RISES on first sight; that
@@ -4453,11 +4459,11 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
     if not groups:
         return [], 0, 0
     cap_geom = None
-    if road_cap_governs_ll:
+    if road_cap_governs_ll or end_profile_yields_ll:
         from auto_patch_v2.law import Law
-        from auto_patch_v2.verify.strips import road_cap_geometry
-        cap_geom = road_cap_geometry(
-            road_cap_governs_ll, ll_to_m,
+        from auto_patch_v2.verify.strips import end_exempt_geometry
+        cap_geom = end_exempt_geometry(
+            road_cap_governs_ll, end_profile_yields_ll, ll_to_m,
             Law.load(ruleset=str(_ACTIVE_RULESET or _DEFAULT_RULESET).lower()))
     from shapely.geometry import Point as _Pt
     out: List[Violation] = []
@@ -4532,7 +4538,8 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
     return out, n_pairs, len(hit_ways)
 
 
-def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
+def _check_raoa_rate(ways: List[Way], nodes, ll_to_m,
+                     end_profile_yields_ll: Optional[list] = None
                      ) -> Tuple[List[Violation], int, int]:
     """§A4 twin — the RADIO ALTIMETER OPERATING AREA's rate of change
     (ICAO Annex 14 §3.8.4, ≤2 % per 30 m).
@@ -4561,6 +4568,14 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
                 rects.append((ring, inward))
     if not rects:
         return [], 0, 0
+    # RULINGS 2026-10-15j: a station on a non-runway pavement's own lip is
+    # that pavement's (``verify.strips.end_exempt_geometry``, one reading)
+    lip_geom = None
+    if end_profile_yields_ll:
+        from auto_patch_v2.verify.strips import end_exempt_geometry
+        lip_geom = end_exempt_geometry(None, end_profile_yields_ll, ll_to_m,
+                                       _runway_end_profile_law()[0])
+    from shapely.geometry import Point as _LipPt
     from auto_patch.config import get_ruleset as _get_ruleset
     rate = _get_ruleset(_ACTIVE_RULESET).raoa_max_grade_change_per_m
     if not rate:
@@ -4616,6 +4631,9 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
                 change = abs((z[k + 1] - z[k]) / dn - (z[k] - z[k - 1]) / dp)
                 allowed = rate * 0.5 * (dp + dn)
                 if change - allowed <= _rate_reader_blind_spot(w, dp, dn):
+                    continue
+                if lip_geom is not None and any(
+                        lip_geom.covers(_LipPt(*pts[src[j]])) for j in (k - 1, k, k + 1)):
                     continue
                 _site = _site_key(pts[src[k - 1]], pts[src[k]],
                                   pts[src[k + 1]])
@@ -11675,6 +11693,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "natural_shore": "natural_shore_ll",
     # OWNER RULINGS 2026-10-02ag (2): the strip tie withdrawn under a ribbon
     "road_cap_governs": "road_cap_governs_ll",
+    # RULINGS 2026-10-15j: a non-runway pavement's own lip in an end area
+    "end_profile_yields": "end_profile_yields_ll",
     # §33 (6): the object cuts the emitted patch must answer to
     "object_cuts": "object_cuts_ll",
     "mesh_edges": "mesh_edges_ll",
@@ -12163,6 +12183,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["shore_edges_ll"] = data.get("shore_edges") or None
     ctx["natural_shore_ll"] = data.get("natural_shore") or None
     ctx["road_cap_governs_ll"] = data.get("road_cap_governs") or None
+    ctx["end_profile_yields_ll"] = data.get("end_profile_yields") or None
     # §33 (6) (owner RULINGS 2026-09-15e/15g): the object cuts
     ctx["object_cuts_ll"] = data.get("object_cuts") or None
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
@@ -13287,6 +13308,8 @@ def run_checks(
     natural_shore_ll: Optional[list] = None,
     # OWNER RULINGS 2026-10-02ag (2): the strip tie withdrawn under a ribbon
     road_cap_governs_ll: Optional[list] = None,
+    # RULINGS 2026-10-15j: the end-area lip vertices the end laws yield on
+    end_profile_yields_ll: Optional[list] = None,
     # §33 (6): per signature-B corridor, the object's wall line (lat/lon
     # ring) and its AUTHORED floor — the witness both new families price
     object_cuts_ll: Optional[list] = None,
@@ -13691,7 +13714,8 @@ def run_checks(
     skirt_edges = _fam("runway_end_skirt",
                        _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
                                                      runway_axes_ll,
-                                                     road_cap_governs_ll))
+                                                     road_cap_governs_ll,
+                                                     end_profile_yields_ll))
     _pv("RUNWAY-END PROFILE: ground beyond a runway end outside the "
         "ruleset's end profile (strip cap / near-end cap, 5 % beyond, the "
         "climb surface above, the FAA rate) — RULINGS 2026-10-12q (1)",
@@ -14135,7 +14159,7 @@ def run_checks(
 
     # ── §A1 — the END-corridor TRANSVERSE law ────────────────────────
     resa_tr, n_rt_pairs, n_rt_ways = _check_resa_transverse_grade(
-        ways, nodes, ll_to_m, road_cap_governs_ll)
+        ways, nodes, ll_to_m, road_cap_governs_ll, end_profile_yields_ll)
     _fam("resa_transverse", resa_tr)
     _pv("RESA / END-CORRIDOR TRANSVERSE grade > the per-authority cap "
         "(FAA Table 3-6 S-3 inside 61 m, Fig 3-35 ±5% beyond; ICAO "
@@ -14147,7 +14171,8 @@ def run_checks(
     within = within + resa_tr
 
     # ── §A4 — the RADIO ALTIMETER OPERATING AREA ─────────────────────
-    raoa, n_ra_st, n_ra_ways = _check_raoa_rate(ways, nodes, ll_to_m)
+    raoa, n_ra_st, n_ra_ways = _check_raoa_rate(ways, nodes, ll_to_m,
+                                                end_profile_yields_ll)
     _fam("raoa", raoa)
     _pv("RAOA grade-change rate > 2%/30 m (ICAO Annex 14 §3.8.4; no FAA "
         "equivalent exists — a no-op under the FAA ruleset)",

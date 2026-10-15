@@ -409,7 +409,8 @@ def resa_transverse(p: Patch) -> list[Row]:
     rs = law.ruleset
     out: list[Row] = []
     # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): the published set
-    cap_geom = road_cap_geometry(p.publication.get("road_cap_governs"), p.to_m, law)
+    cap_geom = end_exempt_geometry(p.publication.get("road_cap_governs"),
+                                   p.publication.get("end_profile_yields"), p.to_m, law)
     for rings, unit, code, L, letter, a0, _b in groups(p):
         ux, uy = unit
         px, py = -uy, ux
@@ -550,7 +551,8 @@ def runway_end_skirt(p: Patch) -> list[Row]:
     # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): a vertex under a
     # mapped-road ribbon is the road's — the generator states no end row
     # on it and the family reads none (the published set, one reading)
-    cap_geom = road_cap_geometry(p.publication.get("road_cap_governs"), p.to_m, law)
+    cap_geom = end_exempt_geometry(p.publication.get("road_cap_governs"),
+                                   p.publication.get("end_profile_yields"), p.to_m, law)
 
     def road(xy) -> bool:
         return cap_geom is not None and cap_geom.covers(_ShPoint(xy[0], xy[1]))
@@ -647,8 +649,9 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                                 law.tables.emit.materiality.grade):
                             A, B, C = run[a], run[b], run[c]
                             site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[k]) for k in (A, B, C)))
-                            if site in seen or any(sh.ids[k] in pav for k in (A, B, C)):
-                                continue      # a pavement station: that pavement's own
+                            if site in seen or any(sh.ids[k] in pav or road(sh.xy[k])
+                                                   for k in (A, B, C)):
+                                continue      # a pavement station, or one another law levels
                             seen.add(site)
                             out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                            p.side("graded_strip"), abs(sh.z[C] - sh.z[A]),
@@ -685,6 +688,9 @@ def raoa(p: Patch) -> list[Row]:
         return []
     rate = ra.max_grade_change.grade / ra.max_grade_change.per_m
     q = law.tables.emit.instrument.coarse_noise_m
+    # RULINGS 2026-10-15j: a station on a non-runway pavement's own lip is
+    # that pavement's — the generator states no row on it (one reading)
+    lip = end_exempt_geometry(None, p.publication.get("end_profile_yields"), p.to_m, law)
     out: list[Row] = []
     seen: set = set()
     for rings, unit, code, L, letter, a0, b0 in groups(p):
@@ -718,6 +724,9 @@ def raoa(p: Patch) -> list[Row]:
                     change = abs((z2 - z1) / dn - (z1 - z0) / dp)
                     allowed = rate * 0.5 * (dp + dn)
                     if change - allowed <= q * (1.0 / dp + 1.0 / dn):
+                        continue
+                    if lip is not None and any(lip.covers(_ShPoint(*sh.xy[i]))
+                                               for i in (src[k - 1], src[k], src[k + 1])):
                         continue
                     site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[i])
                                         for i in (src[k - 1], src[k], src[k + 1])))
@@ -923,6 +932,16 @@ def road_cap_geometry(points_ll, to_m, law):
     r = float(law.tables.emit.identity.min_distinct_spacing_m)
     pts = [_ShPoint(*to_m(float(a), float(b))).buffer(r) for a, b in points_ll]
     return unary_union(pts) if pts else None
+
+
+def end_exempt_geometry(road_cap_ll, lip_ll, to_m, law):
+    """THE END LAWS' EXEMPTION, the one reading both readers share: the
+    published ``road_cap_governs`` vertices (owner RULINGS 2026-10-02ag
+    (2)) and ``end_profile_yields`` — a non-runway pavement's own lip
+    inside a runway end area (2026-10-15j; ``constraints.end_lip``) — as
+    ONE geometry (:func:`road_cap_geometry`).  ``None`` with neither."""
+    pts = list(road_cap_ll or ()) + list(lip_ll or ())
+    return road_cap_geometry(pts, to_m, law)
 
 
 def natural_shore_geometry(rings_ll, to_m, law):

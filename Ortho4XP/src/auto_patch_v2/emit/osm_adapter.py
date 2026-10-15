@@ -157,6 +157,11 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # WITHDRAWN, ``[[lat, lon], ...]`` — the runway-edge tie (verify and
     # census, one core) reads no hit on them
     "road_cap_governs",
+    # OWNER RULINGS 2026-10-15j: the end-area lip of non-runway pavement,
+    # ``[[lat, lon], ...]`` — the end laws yield there (``constraints.
+    # end_lip``); the end-profile and RESA readers (verify and census, one
+    # exemption: ``verify.strips.end_exempt_geometry``) read no row on them
+    "end_profile_yields",
     # OWNER RULINGS 2026-10-03b (#100) THE ROAD TERRACE'S SECOND WITNESS,
     # REPORT ONLY (no census family reads it): per pack fence / wall line
     # along a bordered ribbon run, the object, the DEM along it, the level

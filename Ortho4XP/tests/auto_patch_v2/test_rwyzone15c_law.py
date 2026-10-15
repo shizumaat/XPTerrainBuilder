@@ -1,0 +1,148 @@
+"""THE RUNWAY'S OUTER ZONE AND ITS END (owner RULINGS 2026-10-15c (1)-(4);
+spec ``docs/specs/runway-zone-15c-spec.md``).
+
+(1) "From the centreline": the zone-2 half-width is measured from the
+    runway centreline; the band reaches max(lip, half-width − runway
+    half-width) past the edge;
+(2) "Full safety-area length": the end band runs the RSA length from the
+    runway END (FAA by letter 240 / 300 / 1,000 ft, ICAO strip 60 m + RESA);
+(3) "1:3 bank": a graded zone over or under raw terrain ties in on a bank;
+(4) "5% for FAA": the runway band's max fall under the FAA ruleset.
+"""
+from __future__ import annotations
+
+import pytest
+
+from auto_patch_v2.classify.roles import Cell
+from auto_patch_v2.constraints import strips
+from auto_patch_v2.constraints.precedence import view
+from auto_patch_v2.constraints.zone_bank import BANK_RULING, TOE_RULING, zone_bank_rows
+from auto_patch_v2.law import Law
+from auto_patch_v2.law.tables import (runway_safety_area_length_m, runway_zone_edge_offset_m,
+                                      zone_bounds)
+from auto_patch_v2.model.constraints import Band, Diff
+from auto_patch_v2.model.planar import is_zone_bank_ref
+from auto_patch_v2.planar.zones import zone_regions
+
+FT = 0.3048
+
+
+@pytest.fixture(scope="module")
+def faa():
+    return Law.load(ruleset="faa")
+
+
+@pytest.fixture(scope="module")
+def icao():
+    return Law.load(ruleset="icao")
+
+
+def test_the_band_is_measured_from_the_centreline(faa, icao):
+    # FAA C/D/E RSA 500 ft wide: a 30.5 m runway's band reaches 60.95 m past the edge
+    assert runway_zone_edge_offset_m(faa, 4, "D", 15.25) == pytest.approx(76.2 - 15.25)
+    assert runway_zone_edge_offset_m(faa, 4, "B", 11.5) == pytest.approx(22.9 - 11.5)
+    assert runway_zone_edge_offset_m(icao, 4, "C", 22.5) == pytest.approx(75.0 - 22.5)
+    # never less than the lip
+    lip = icao.tables.zones.adjacent_ground.lip_width_m
+    assert runway_zone_edge_offset_m(icao, 1, "A", 40.0) == pytest.approx(lip)
+
+
+def test_the_rsa_length_is_the_authority_s_own(faa, icao):
+    assert runway_safety_area_length_m(faa, 4, "A") == pytest.approx(240 * FT, abs=0.05)
+    assert runway_safety_area_length_m(faa, 4, "B") == pytest.approx(300 * FT, abs=0.05)
+    for letter in "CDEF":
+        assert runway_safety_area_length_m(faa, 4, letter) == pytest.approx(1000 * FT, abs=0.05)
+    # ICAO: the strip's 60 m past the end + the RESA from the strip's end
+    assert runway_safety_area_length_m(icao, 4, "C") == pytest.approx(60.0 + 240.0)
+    assert runway_safety_area_length_m(icao, 1, "A") == pytest.approx(30.0 + 60.0)
+
+
+def test_faa_runway_band_falls_at_five_percent_icao_at_three(faa, icao):
+    lip = icao.tables.zones.adjacent_ground.lip_width_m
+    d = 50.0
+    lo_f, _ = zone_bounds(faa, "runway", d, 4, "D", half_m=60.0)
+    lo_i, _ = zone_bounds(icao, "runway", d, 4, "D", half_m=60.0)
+    fall_lip = icao.tables.zones.adjacent_ground.lip_max_down * lip
+    assert -lo_f == pytest.approx(fall_lip + 0.05 * (d - lip))
+    assert -lo_i == pytest.approx(fall_lip + 0.03 * (d - lip))
+
+
+class _Falling:
+    """Flat at 100 m over the runway, falling 10 % south of y = -20."""
+    provenance = {"synthetic": "falling south"}
+
+    def z(self, x: float, y: float) -> float:
+        return 100.0 - 0.10 * max(0.0, -20.0 - y)
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+class _Flat:
+    provenance = {"synthetic": "flat"}
+
+    def z(self, x: float, y: float) -> float:
+        return 100.0
+
+    def bounds(self):
+        return (-5000.0, -5000.0, 5000.0, 5000.0)
+
+
+def _runway_cells():
+    ring = ((-1000.0, -15.0), (1000.0, -15.0), (1000.0, 15.0), (-1000.0, 15.0))
+    return (Cell(0, "runway", "09/27", ring, (), 4, "D", "airside", "runway", {}),)
+
+
+RUNWAYS = (("09/27", (-1000.0, 0.0), (1000.0, 0.0), 30.0),)
+
+
+def test_the_planar_band_is_the_rsa_rectangle(faa):
+    regs = [r for r in zone_regions(_runway_cells(), faa, runways=RUNWAYS)
+            if not is_zone_bank_ref(r.ref)]
+    from shapely.ops import unary_union
+    x0, y0, x1, y1 = unary_union([r.polygon for r in regs if r.zone == 2]).bounds
+    # 76.2 m from the CENTRELINE, 304.8 m past each runway END
+    assert (y0, y1) == pytest.approx((-76.2, 76.2), abs=0.01)
+    assert (x0, x1) == pytest.approx((-1000.0 - 304.8, 1000.0 + 304.8), abs=0.01)
+
+
+def test_a_falling_ground_mints_a_wider_bank_than_level_ground(faa):
+    # level ground: the band's own mandatory fall is the only step (about a
+    # metre at a 76 m band's outer edge) — a narrow bank; falling ground a
+    # wide one
+    flat = [r for r in zone_regions(_runway_cells(), faa, dem=_Flat(), runways=RUNWAYS)
+            if is_zone_bank_ref(r.ref)]
+    fall = [r for r in zone_regions(_runway_cells(), faa, dem=_Falling(), runways=RUNWAYS)
+            if is_zone_bank_ref(r.ref)]
+    assert fall, "the falling south side needs its 1:3 bank"
+    south = [r for r in fall if r.polygon.bounds[1] < -76.2]
+    assert south
+    cap = faa.tables.zones.adjacent_ground.bank_cap_width_m
+    assert all(r.polygon.bounds[1] >= -76.2 - cap - 1.0 for r in fall)
+    assert sum(r.polygon.area for r in fall) > sum(r.polygon.area for r in flat)
+
+
+def test_the_bank_rows_follow_the_zone_and_hold_the_toe_on_the_dem(faa):
+    from auto_patch_v2.classify.roles import Classification
+    from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
+    from auto_patch_v2.model.frame import Frame
+    from auto_patch_v2.planar.build import build
+    ll = (39.9, -105.1)
+    rw = Runway("09/27", 30.0, 1, (RunwayEnd("09", (-1000.0, 0.0), ll, 0.0, 0.0, 100.0, "f"),
+                                  RunwayEnd("27", (1000.0, 0.0), ll, 0.0, 0.0, 100.0, "f")),
+                4, "D")
+    airport = Airport("ZZZZ", "Synthetic", Frame("ZZZZ", origin=ll, identity_dp=11), 100.0,
+                      (rw,), (), (), {}, (), (), (), (), (), (), (),
+                      SceneryPack("f", "apt.dat", "0", (), ()), _Falling(), faa.ruleset_key)
+    pm, _st = build(airport, Classification(_runway_cells(), (), {}, ()), faa)
+    banks = [f for f in pm.faces.values() if is_zone_bank_ref(f.ref)]
+    assert banks and all(f.role == "graded_strip" for f in banks)
+    rows = zone_bank_rows(pm, faa, airport)
+    cones = [r for r in rows if isinstance(r, Diff)]
+    toes = [r for r in rows if isinstance(r, Band)]
+    assert cones and toes
+    assert all(r.source.ruling.startswith(BANK_RULING) and r.follows == (r.a,) for r in cones)
+    assert all(r.source.ruling.startswith(TOE_RULING) and r.lo == r.hi for r in toes)
+    # the strip law never reads the bank
+    vw = view(pm, faa)
+    assert not any(is_zone_bank_ref(vw.pm.faces[fid].ref) for fid, _i, _x in strips._strip_rings(vw))

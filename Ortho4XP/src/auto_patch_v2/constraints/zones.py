@@ -74,8 +74,9 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (airside_stage_roles, is_value_role, role_side, strip_transverse_bound,
-                          snap_margin_m, zone2_half_width_m, zone_bounds)
+from ..law.tables import (airside_stage_roles, is_value_role, role_side,
+                          runway_zone_edge_offset_m, snap_margin_m, strip_transverse_bound,
+                          zone2_half_width_m, zone_bounds)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -88,16 +89,17 @@ __all__ = ["zone_bands", "strip_transverse"]
 GEN = "zones"
 
 
-def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | None]]:
+def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | None, str]]:
     """The ring EDGES of every runway-family / taxi-family face, each
-    with the family and class the zone law keys by."""
+    with the family and class the zone law keys by, and the face's ref
+    (a runway's band is measured from ITS centreline, 2026-10-15c (1))."""
     p = vw.law.tables.precedence
     fam_of: dict[str, str] = {}
     for r in p.runway_family.members:
         fam_of[r] = "runway"
     for r in p.taxi_family.members:
         fam_of[r] = "taxi"
-    out: dict[tuple[int, int], tuple[int, int, str, int | None, str | None]] = {}
+    out: dict[tuple[int, int], tuple[int, int, str, int | None, str | None, str]] = {}
     for f in vw.faces_of_role(tuple(fam_of)):
         fam = fam_of[f.role]
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:
@@ -108,7 +110,8 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
                 cur = out.get(key)
                 # a shared edge keeps the senior family (runway first)
                 if cur is None or (cur[2] == "taxi" and fam == "runway"):
-                    out[key] = (key[0], key[1], fam, f.code_number, f.code_letter)
+                    out[key] = (key[0], key[1], fam, f.code_number, f.code_letter,
+                                str(f.ref).split("+")[0])
     return [out[k] for k in sorted(out)]
 
 
@@ -259,7 +262,15 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
                 by_class.setdefault(cls, {}).setdefault((gx, gy), []).append(k)
                 by_family[e[2]].setdefault((gx, gy), []).append(k)
 
+    # THE RUNWAY BAND FROM THE CENTRELINE (owner RULINGS 2026-10-15c (1)): a
+    # runway edge's corridor reaches its runway's edge offset, read with that
+    # runway's own half-width (``tables.runway_zone_edge_offset_m``) — the
+    # one the planar band was buffered by (``planar/zones._runway_band``)
+    rw_half = {rw.id: 0.5 * float(rw.width_m) for rw in airport.runways}
+
     def half_of(e: tuple) -> float | None:
+        if e[2] == "runway" and e[5] in rw_half:
+            return runway_zone_edge_offset_m(law, e[3], e[4], rw_half[e[5]])
         return zone2_half_width_m(law, "runway" if e[2] == "runway" else "junction",
                                   e[3], e[4])
 
@@ -519,7 +530,7 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         # (:func:`strip_transverse`) is what binds them.  Where a taxi
         # floor and the runway tie truly conflict the strip tier relaxes.
         for rank, (d_eff, k, t, _d) in enumerate(found):
-            a, b, fam, cn, cl = edges[k]
+            a, b, fam, cn, cl, _ref = edges[k]
             role = "runway" if fam == "runway" else "junction"
             if v in quay:
                 # §37 (11) (2): ONE PLANE at the pavement edge's level.
@@ -536,9 +547,11 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 # FALL relaxes; the lip and the mandatory-down ceiling stand.
                 lo, hi = zone_bounds(law, role, d_eff, cn, cl,
                                      band_max_down=float(
-                                         law.tables.emit.design.bank_slope))
+                                         law.tables.emit.design.bank_slope),
+                                     half_m=ctx.half_of(edges[k]))
             else:
-                lo, hi = zone_bounds(law, role, d_eff, cn, cl)
+                lo, hi = zone_bounds(law, role, d_eff, cn, cl,
+                                     half_m=ctx.half_of(edges[k]))
             if lo is None and hi is None:
                 continue
             if rank > 0 and v not in quay:
@@ -656,8 +669,8 @@ def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
             if found and found[0][1] == k and found[0][0] <= (ctx.half_of(edges[k]) or 0.0):
                 continue
             floor_stated = any(f_[1] == k for f_ in found)
-        a, b, _fam, cn, cl = edges[k]
-        bound = strip_transverse_bound(law, d, cn, cl)
+        a, b, _fam, cn, cl, _ref = edges[k]
+        bound = strip_transverse_bound(law, d, cn, cl, half_m=ctx.half_of(edges[k]))
         if bound is None or d <= 0.0:
             continue
         if t <= 0.0:

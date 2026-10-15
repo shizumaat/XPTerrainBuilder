@@ -12,7 +12,8 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..law import Law
-from ..law.tables import role_cap, snap_margin_m, zone2_half_width_m
+from ..law.tables import (role_cap, runway_safety_area_length_m, snap_margin_m,
+                          zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.planar import OSM_RIBBON_FEEDS
 from .evidence import Evidence, polygon_parts
@@ -28,7 +29,29 @@ __all__ = ["mint_osm_ribbons", "mint_pad_roads", "ribbon_extent", "bridge_gaps",
 
 
 
-def ribbon_extent(cells, law: Law, pavement_union):
+def _rsa_rect(poly, law: Law, cn, cl, hw: float, ends=None):
+    """The RSA rectangle beyond a runway's ends (owner RULINGS 2026-10-15c
+    (2)): the band ``planar/zones`` grades runs the RSA length past the
+    runway END (``ends``: the apt.dat ends, ``planar/zones._runway_band``'s
+    own reading), and the patch a road is ribboned in covers it.  Without
+    the ends, the cell's own rectangle (the slab ends)."""
+    from shapely.geometry import LineString
+    from ..geom.rotated_rect import long_axis, rotated_rectangle
+    ab = ends if ends is not None else (
+        long_axis(rotated_rectangle(poly)) if not poly.is_empty else None)
+    if ab is None:
+        return Polygon()
+    (ax, ay), (bx, by) = ab
+    L = ((bx - ax) ** 2 + (by - ay) ** 2) ** 0.5
+    if L <= 0.0:
+        return Polygon()
+    ux, uy = (bx - ax) / L, (by - ay) / L
+    r = runway_safety_area_length_m(law, cn, cl)
+    return LineString([(ax - ux * r, ay - uy * r), (bx + ux * r, by + uy * r)]
+                      ).buffer(hw, cap_style="flat")
+
+
+def ribbon_extent(cells, law: Law, pavement_union, runways=()):
     """THE PATCH a mapped road is ribboned inside (30e (2)): the pavement
     and every airside band's zone-2 envelope — the regions
     ``planar/zones.zone_regions`` draws, read at their un-trimmed extent
@@ -45,6 +68,10 @@ def ribbon_extent(cells, law: Law, pavement_union):
         if hw:
             parts.append(Polygon(c.ring, c.holes).buffer(hw, join_style="mitre",
                                                          mitre_limit=2.0))
+        if hw and c.role in RUNWAY_FAMILY_ROLES:
+            ends = next(((r.ends[0].xy, r.ends[1].xy) for r in runways if r.id == c.ref), None)
+            parts.append(_rsa_rect(Polygon(c.ring), law, c.code_number, c.code_letter, hw,
+                                   ends))
     return unary_union(parts) if parts else Polygon()
 
 
@@ -343,7 +370,7 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     ways = _ribbon_ways(airport, rules)
     if not ways:
         return 0, 0.0
-    extent = ribbon_extent(cells, law, ev.pavement_union)
+    extent = ribbon_extent(cells, law, ev.pavement_union, getattr(airport, "runways", ()))
     if extent.is_empty:
         return 0, 0.0
     cover = _cover(ev, rules)

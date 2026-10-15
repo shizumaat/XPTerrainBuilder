@@ -56,10 +56,12 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
-                          runway_end_profile, zone2_half_width_m)
+                          runway_end_profile, runway_safety_area_length_m,
+                          zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
+from ..model.planar import is_zone_bank_ref
 from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
                        principal_axis, rect_ring)
 from .precedence import View, view
@@ -139,6 +141,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         if rw.id in pts_by_ref:
             pts_by_ref[rw.id] = list(rw.slab_corners)
     letter_of = {rw.id: rw.code_letter for rw in airport.runways}
+    ends_of = {rw.id: (rw.ends[0].xy, rw.ends[1].xy) for rw in airport.runways}
     out: list[RunwayGroup] = []
     for ref, pts in pts_by_ref.items():
         ax = principal_axis(pts)
@@ -153,23 +156,33 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         letter = letter_of.get(ref)
         strip_half = zone2_half_width_m(law, "runway", code, letter) or 0.0
         end_half = max(width, strip_half)
-        cl = law.ruleset.end_skirt.corridor_length_m
-        end_len = cl.value(code, letter) if cl is not None else 0.0
-        end_len = end_len or 0.0
+        # THE RSA LENGTH FROM THE RUNWAY END (owner RULINGS 2026-10-15c (2)):
+        # the corridor runs ``runway_safety_area_length_m`` past the runway's
+        # own END (``RunwayEnd.xy``), the blast pad inside it — so past the
+        # SLAB end it runs that length less the end's overrun
+        rsa = runway_safety_area_length_m(law, code, letter)
+        len_a = len_b = rsa
+        if ref in ends_of:
+            ss = [(p[0] - a[0]) * unit[0] + (p[1] - a[1]) * unit[1] for p in ends_of[ref]]
+            len_a = max(0.0, rsa - max(0.0, min(ss)))
+            len_b = max(0.0, rsa - max(0.0, length - max(ss)))
         # inflated by the identity spacing: the census fits its own axis in
         # its own (equirectangular) frame, ~0.03 % off this one, and a
         # vertex on the footprint boundary must be bound on both readings
         m = law.tables.emit.identity.min_distinct_spacing_m
         rings = (rect_ring(a, b, -m, length + m, strip_half + m),
-                 rect_ring(a, b, -end_len - m, m, end_half + m),
-                 rect_ring(a, b, length - m, length + end_len + m, end_half + m))
+                 rect_ring(a, b, -len_a - m, m, end_half + m),
+                 rect_ring(a, b, length - m, length + len_b + m, end_half + m))
         out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings))
     return out
 
 
 def _strip_rings(vw: View) -> list[tuple[int, list[int], list[XY]]]:
+    """The strip GROUND's rings — every ``graded_strip`` face but a zone
+    BANK (2026-10-15c (3): the 1:3 tie-in beyond the strip carries its own
+    rows, ``constraints/zone_bank``, never the strip's)."""
     return [(f.id, vw.rings[f.id], [vw.xy[v] for v in vw.rings[f.id]])
-            for f in vw.faces_of_role(("graded_strip",))]
+            for f in vw.faces_of_role(("graded_strip",)) if not is_zone_bank_ref(f.ref)]
 
 
 def _along(u: XY, p: XY, q: XY) -> float:

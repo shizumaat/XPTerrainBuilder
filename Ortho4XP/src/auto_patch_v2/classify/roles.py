@@ -90,7 +90,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..law.tables import (is_value_role, role_side, snap_margin_m,
-                          zone2_half_width_m)
+                          runway_safety_area_length_m, zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
@@ -1414,9 +1414,8 @@ def shoulder_band(rw, law: Law, *, end_cap: bool = True):
     if a == b:
         return None
     if end_cap:
-        cl = law.ruleset.end_skirt.corridor_length_m
-        ext = (cl.value(rw.code_number, rw.code_letter)
-               if cl is not None else 0.0) or 0.0
+        # the RSA length from the runway END (owner RULINGS 2026-10-15c (2))
+        ext = runway_safety_area_length_m(law, rw.code_number, rw.code_letter)
         if ext > 0.0:
             length = math.hypot(b[0] - a[0], b[1] - a[1])
             ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length

@@ -129,6 +129,12 @@ class EndSkirtLaw:
     near_zone_m: float | None = None
     near_max_down_grade: float | None = None
     corridor_length_m: CodeTable | None = None
+    #: THE RSA LENGTH beyond each runway end, measured from the runway END
+    #: with the blast pad inside it (owner RULINGS 2026-10-15c (2)): the FAA
+    #: states it by design group (AC 150/5300-13B App. G dim R); ``None``
+    #: = the authority builds it from the strip end length + the RESA
+    #: (``tables.runway_safety_area_length_m``)
+    rsa_length_m: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -200,6 +206,9 @@ class ZoneClass:
     band_min_down: float
     band_max_down: CodeTable
     half_width_faa_m: CodeTable | None = None
+    #: the zone-2 band's maximum fall under the FAA ruleset (owner RULINGS
+    #: 2026-10-15c (4); ``None`` = the ``band_max_down`` table everywhere)
+    band_max_down_faa: float | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -223,6 +232,13 @@ class AdjacentGround:
     shore_profile_run_m: float
     runway: ZoneClass
     taxi: ZoneClass
+    #: THE ZONE BANK (owner RULINGS 2026-10-15c (3) "1:3 bank"): where the
+    #: graded zone meets raw terrain with a fill or cut over
+    #: ``bank_foot_tol_m`` it ties in on ``emit.design.bank_slope``, the
+    #: bank minted at most ``bank_cap_width_m`` wide (``planar/zone_bank``)
+    bank_foot_tol_m: float
+    bank_cap_width_m: float
+    bank_estimate_margin_m: float
 
 
 @_dc.dataclass(frozen=True)

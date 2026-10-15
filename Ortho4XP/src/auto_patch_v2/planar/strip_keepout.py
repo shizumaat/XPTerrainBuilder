@@ -14,7 +14,7 @@ from shapely.ops import unary_union
 
 from ..classify.roles import Classification, is_runway_shoulder
 from ..law import Law
-from ..law.tables import zone2_half_width_m
+from ..law.tables import runway_safety_area_length_m, zone2_half_width_m
 from ..geom.rotated_rect import long_axis, rotated_rectangle
 
 __all__ = ["strip_keepout"]
@@ -26,7 +26,6 @@ def strip_keepout(classification: Classification, law: Law):
     zone-2 (strip) half width — a joint touching it is never declared."""
     polys = []
     rw_roles = set(law.tables.precedence.runway_family.members)
-    cl = law.ruleset.end_skirt.corridor_length_m
     for c in classification.cells:
         # §40 (4): a SHOULDER manufactures no region (the same rule the
         # strip keep-out in ``planar/structures`` and the zone bands
@@ -37,7 +36,9 @@ def strip_keepout(classification: Classification, law: Law):
         if poly.is_empty or poly.area <= 0.0:
             continue
         half = zone2_half_width_m(law, "runway", c.code_number, c.code_letter) or 0.0
-        end = (cl.value(c.code_number, c.code_letter) if cl is not None else 0.0) or 0.0
+        # the RSA length (owner RULINGS 2026-10-15c (2)), from the slab end:
+        # a keep-out may overshoot the band by the overrun, never fall short
+        end = runway_safety_area_length_m(law, c.code_number, c.code_letter)
         ab = long_axis(rotated_rectangle(poly))
         if ab is None:
             polys.append(poly.buffer(half))

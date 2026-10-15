@@ -27,11 +27,13 @@ from ..classify.pad_touch import is_rim_strip
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
 from ..geom.rotated_rect import long_axis, rotated_rectangle
 from ..law import Law
-from ..law.tables import runway_end_profile, snap_margin_m, zone2_half_width_m
+from ..law.tables import (runway_end_profile, runway_safety_area_length_m,
+                          runway_zone_edge_offset_m, snap_margin_m, zone2_half_width_m)
 from ..model.planar import is_gap_apron_ref, is_late_ref
 from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
                     shore_declarations, shore_verdict)
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
+from .zone_bank import BankReport, zone_banks
 
 __all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
            "SHORE_WALL_TAGS", "shore_wedge_m", "runway_end_breaks"]
@@ -209,7 +211,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  edge_report: EdgeReport | None = None,
                  declared: tuple = (),
                  shore_wedge_m: float | None = None,
-                 pack_walls: tuple = ()) -> list[ZoneRegion]:
+                 pack_walls: tuple = (), runways: tuple = (),
+                 bank_report: "BankReport | None" = None) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -276,6 +279,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
+    letters: dict[str, str | None] = {}
     for c in cells:
         # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
         # zone band — it inherits its host runway's, which it lies inside
@@ -283,18 +287,27 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         # zone-2 band the shoulders minted).  The spec's §40 (4) MEASURED
         # table is the census of every RUNWAY_FAMILY reader.
         if c.role in RUNWAY_FAMILY and not is_runway_shoulder(c):
-            key = ("runway", c.code_number, None)
+            # ONE RUNWAY, ONE BAND (owner RULINGS 2026-10-15c (1)/(2)): the
+            # band is measured from the runway's own CENTRELINE and runs the
+            # RSA length past its own ends, so it is built per runway ref
+            # (:func:`_runway_band`); the third slot carries the ref
+            key = ("runway", c.code_number, _RUNWAY_KEY + c.ref)
+            letters.setdefault(c.ref, c.code_letter)
         elif c.role in TAXI_FAMILY:
             key = ("taxi", None, c.code_letter)
         else:
             continue
         groups.setdefault(key, []).append(Polygon(c.ring, c.holes))
 
-    def rank(key: tuple[str, int | None, str | None]) -> tuple[int, float]:
+    def letter_of(key: tuple[str, int | None, str | None]) -> str | None:
+        fam, _cn, cl = key
+        return letters.get(cl[len(_RUNWAY_KEY):]) if fam == "runway" else cl
+
+    def rank(key: tuple[str, int | None, str | None]) -> tuple[int, float, str]:
         fam, cn, cl = key
         hw = zone2_half_width_m(law, "runway" if fam == "runway" else "junction",
-                                cn, cl) or 0.0
-        return (0 if fam == "runway" else 1, -hw)
+                                cn, letter_of(key)) or 0.0
+        return (0 if fam == "runway" else 1, -hw, str(cl))
 
     # §37 (11) (1) THE SHORE TRIMS THE ZONES, at this single derivation
     # site and never as a per-consumer veto (owner RULINGS 2026-08-30l).
@@ -311,16 +324,23 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     water = shore_region(cells, dem)
     claimed = everything
     out: list[ZoneRegion] = []
+    counters: dict[tuple, int] = {}
     breaks = runway_end_breaks(cells, law)
     for key in sorted(groups, key=rank):
         fam, cn, cl = key
-        role = "runway" if fam == "runway" else "junction"
-        hw = zone2_half_width_m(law, role, cn, cl)
-        if hw is None or hw <= 0:
-            continue
         u = unary_union(groups[key])
-        inner = u.buffer(min(lip, hw), **_MITRE)
-        outer = u.buffer(hw, **_MITRE)
+        if fam == "runway":
+            band = _runway_band(u, cl[len(_RUNWAY_KEY):], cn, letter_of(key), law,
+                                runways)
+            if band is None:
+                continue
+            inner, outer = band
+        else:
+            hw = zone2_half_width_m(law, "junction", cn, cl)
+            if hw is None or hw <= 0:
+                continue
+            inner = u.buffer(min(lip, hw), **_MITRE)
+            outer = u.buffer(hw, **_MITRE)
         z1 = inner.difference(claimed)
         z2 = outer.difference(inner).difference(claimed)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
@@ -359,7 +379,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             if breaks and fam == "runway" and zone == 2:
                 parts = [p for g0 in parts if g0.geom_type == "Polygon"
                          for p in _break_pieces(g0, breaks)]
-            k = 0
+            k = counters.get((fam, cls, zone), 0)
             for g in parts:
                 if g.geom_type != "Polygon" or g.is_empty or g.area < 1.0:
                     continue
@@ -385,12 +405,73 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                     if natural and shore_wedge_m is not None:
                         wedge = g.intersection(water.buffer(shore_wedge_m, **_MITRE))
                 out.append(ZoneRegion(f"adjacent_ground:{fam}:{cls}:zone{zone}#{k}",
-                                      g, zone, fam, cn, cl,
+                                      g, zone, fam, cn, None if fam == "runway" else cl,
                                       clip.kind if mine else "none", mine, quay,
                                       natural, wedge, verdict))
                 k += 1
+            counters[(fam, cls, zone)] = k
         claimed = unary_union([claimed, outer])
+    # THE ZONE BANK (owner RULINGS 2026-10-15c (3)): last, over what no cell,
+    # zone or the water claims (``planar/zone_bank``)
+    pav: dict[tuple, list] = {}
+    for key, polys in groups.items():
+        fam, cn, cl = key
+        pav.setdefault((fam, cn, None) if fam == "runway" else key, []).extend(polys)
+    taken = claimed if water is None else unary_union([claimed, water])
+    cells_taken = everything if water is None else unary_union([everything, water])
+    for ref, g, z in zone_banks(out, taken, {k: unary_union(v) for k, v in pav.items()},
+                                dem, law, bank_report, cells_taken):
+        out.append(ZoneRegion(ref, g, 3, z.family, z.code_number, z.code_letter))
     return out
+
+
+#: The runway group key's third slot: the runway REF behind this prefix (a
+#: taxi key carries its letter there).
+_RUNWAY_KEY = "@"
+
+
+def _runway_band(u, ref: str, cn: int | None, cl: str | None, law: Law,
+                 runways: tuple) -> "tuple[Polygon, Polygon] | None":
+    """``(zone-1 outer, zone-2 outer)`` of ONE runway (owner RULINGS
+    2026-10-15c (1) "From the centreline", (2) "Full safety-area length"):
+
+    * zone 1 is the lip, ``lip_width_m`` from the pavement edge;
+    * zone 2 reaches ``tables.runway_zone_edge_offset_m`` from the edge
+      (the half-width measured from the CENTRELINE) and, beyond each end,
+      the RSA rectangle — the centreline ± the half-width from the runway
+      END (``RunwayEnd.xy``, the blast pad inside) out
+      ``tables.runway_safety_area_length_m``.  KBJC 12L: 152.4 m wide,
+      304.8 m past the threshold (the band was 183 m wide, ending 76.2 m
+      past the pad's far edge).
+
+    ``runways`` are ``(ref, end_a_xy, end_b_xy, width_m)``; a ref without
+    one (synthetic fixtures) reads the pavement's own rectangle — the slab
+    ends and its width."""
+    hw = zone2_half_width_m(law, "runway", cn, cl)
+    if hw is None or hw <= 0 or u.is_empty:
+        return None
+    lip = float(law.tables.zones.adjacent_ground.lip_width_m)
+    rec = next((r for r in runways if r[0] == ref), None)
+    if rec is not None:
+        a, b, width = rec[1], rec[2], float(rec[3])
+    else:
+        ab = long_axis(rotated_rectangle(u.convex_hull))
+        if ab is None:
+            return None
+        a, b = ab
+        L0 = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+        width = u.area / L0 if L0 > 0 else 0.0
+    off = runway_zone_edge_offset_m(law, cn, cl, 0.5 * width)
+    L = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
+    inner = u.buffer(min(lip, off), **_MITRE)
+    outer = u.buffer(off, **_MITRE)
+    if L > 0.0:
+        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        rsa = runway_safety_area_length_m(law, cn, cl)
+        axis = LineString([(a[0] - ux * rsa, a[1] - uy * rsa),
+                           (b[0] + ux * rsa, b[1] + uy * rsa)])
+        outer = unary_union([outer, axis.buffer(hw, cap_style="flat")])
+    return inner, outer
 
 
 #: §37 (11) (7): the head room a natural-shore wedge is sized with above the

@@ -142,6 +142,7 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     ("runway_profile", "end_zone", "runway_end_zone"),
     ("runway_profile", "", "runway_profile"),
     ("zones", "strip tie", "strip_transverse"),
+    ("zone_bank", "", "zone_bank"),          # RULINGS 2026-10-15c (3): the 1:3 tie-in
     ("zones", "", "zone_bands"),
     ("strips", "strip.longitudinal", "strip_longitudinal"),
     ("strips", "arc_rate", "strip_arc"),

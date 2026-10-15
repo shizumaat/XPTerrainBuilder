@@ -31,8 +31,9 @@ from auto_patch_v2.law.tables import snap_margin_m
 from auto_patch_v2.planar.terrain_edge import EdgeReport, road_lines
 from auto_patch_v2.planar.zones import zone_regions
 
-#: The pavement: a runway body whose zone 2 reaches ``x = +75`` (code 4).
-PAV = ((-400.0, -500.0), (0.0, -500.0), (0.0, 500.0), (-400.0, 500.0))
+#: The pavement: a 40 m runway body whose zone 2 reaches ``x = +55`` (code 4:
+#: 75 m from the CENTRELINE at ``x = −20``, RULINGS 2026-10-15c (1)).
+PAV = ((-40.0, -500.0), (0.0, -500.0), (0.0, 500.0), (-40.0, 500.0))
 #: Where the fixture's plateau lip stands.
 LIP = 50.0
 
@@ -68,7 +69,11 @@ def _cells():
 
 
 def _regions(law, dem=None, roads=(), rep=None):
-    return zone_regions(_cells(), law, (), dem, roads, rep)
+    """The ZONE regions — the terrain edge's population; the 1:3 banks
+    beyond them (RULINGS 2026-10-15c (3), ``planar/zone_bank``) are the
+    bank law's, read by its own twin."""
+    return [r for r in zone_regions(_cells(), law, (), dem, roads, rep)
+            if not r.ref.startswith("zone_bank:")]
 
 
 def _outer(regions) -> float:
@@ -105,7 +110,7 @@ def test_plateau_ends_at_the_crest(law):
     — never beyond the lip, and within one forward probe of it."""
     d = law.tables.emit.design
     base = _regions(law)
-    assert _outer(base) == pytest.approx(75.0, abs=0.01)   # zone 2, code 4
+    assert _outer(base) == pytest.approx(55.0, abs=0.01)   # zone 2, code 4
     rep = EdgeReport()
     over = _regions(law, _Dem(drop=20.0), (), rep)
     out = _outer(over)
@@ -128,12 +133,19 @@ def test_rim_road_ends_the_region_at_its_outer_edge(law):
     corridor, and a rim road governs here exactly as §19.2 (2) ruled.)"""
     half = (law.tables.emit.road_profile.lane_width_m
             + law.tables.zones.adjacent_ground.groundside_cutback_m)
-    road = LineString([(42.0, -600.0), (42.0, 600.0)])
+    road = LineString([(42.0, -900.0), (42.0, 900.0)])   # past the RSA ends (2026-10-15c (2))
     rep = EdgeReport()
     over = _regions(law, _Dem(drop=20.0), (road,), rep)
     assert rep.roads_governing >= 1 and rep.trimmed_road >= 1
-    assert _outer(over) == pytest.approx(42.0 + half, abs=law.tables.emit
-                                         .road_profile.lane_width_m)
+    # the ABEAM band (the piece on the pavement side, spanning the runway)
+    # ends at the road.  FINDING (lane rwyzone15c, 2026-10-15): with the RSA
+    # length the end bands run round the road's governing stretch, and a
+    # sliver beyond the road abeam stays connected through them — reported,
+    # not ruled here
+    abeam = [r for r in over if r.polygon.bounds[0] < 0.0
+             and r.polygon.bounds[1] <= -400.0 and r.polygon.bounds[3] >= 400.0]
+    assert _outer(abeam) == pytest.approx(42.0 + half, abs=law.tables.emit
+                                          .road_profile.lane_width_m)
     cut = [r for r in over if r.edge_kind != "none"]
     assert cut and all(r.edge_kind == "road" for r in cut)
 

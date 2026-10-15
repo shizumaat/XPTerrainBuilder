@@ -56,8 +56,9 @@ from ..constraints.strips import (end_pair_bounds, end_transect_foot, end_transe
                                   pavement_ring_vertices, strip_longitudinal_pairs)
 from shapely.geometry import Point as _ShPoint
 
-from ..law.tables import (end_profile_noise_m, runway_end_profile, snap_margin_m,
-                          strip_transverse_bound, zone2_half_width_m,
+from ..law.tables import (end_profile_noise_m, runway_end_profile,
+                          runway_safety_area_length_m, runway_zone_edge_offset_m,
+                          snap_margin_m, strip_transverse_bound, zone2_half_width_m,
                           zone_bounds)
 from .frame import Patch, Row, Shape, pair_side, row
 from .no_step import rate_breaches
@@ -149,9 +150,14 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
             for dy in (-1, 0, 1):
                 for k in grid.get((cx + dx, cy + dy), ()):
                     a, b, ref, cn, cl = edges[k]
-                    key = (cn, cl)
+                    key = (cn, cl, ref)
                     if key not in half_of:
-                        half_of[key] = zone2_half_width_m(law, "runway", cn, cl)
+                        # FROM THE CENTRELINE (2026-10-15c (1)): an axis that
+                        # carries the runway's width reads the edge offset
+                        ax4 = axes.get(ref)
+                        half_of[key] = (runway_zone_edge_offset_m(law, cn, cl, 0.5 * ax4[3])
+                                        if ax4 is not None and len(ax4) > 3
+                                        else zone2_half_width_m(law, "runway", cn, cl))
                     half = half_of[key]
                     if half is None:
                         continue
@@ -163,7 +169,7 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
                         continue
                     ax_ = axes.get(ref)
                     if ax_ is not None:
-                        (a0x, a0y), (ux, uy), L = ax_
+                        (a0x, a0y), (ux, uy), L = ax_[:3]
                         s_ = (x - a0x) * ux + (y - a0y) * uy
                         if not (0.0 <= s_ <= L):
                             continue
@@ -173,14 +179,15 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
         if best is None:
             continue
         d, z_foot, ref, cn, cl, foot = best
-        bound = strip_transverse_bound(law, d, cn, cl)
+        bound = strip_transverse_bound(law, d, cn, cl, half_m=half_of.get((cn, cl, ref)))
         if bound is None:
             continue
         dz = z - z_foot
         if dz < 0.0 and natural_shore is not None and \
                 natural_shore.covers(_ShPoint(x, y)):
             lo, _hi = zone_bounds(law, "runway", d, cn, cl,
-                                  band_max_down=float(law.tables.emit.design.bank_slope))
+                                  band_max_down=float(law.tables.emit.design.bank_slope),
+                                  half_m=half_of.get((cn, cl, ref)))
             if lo is not None:
                 bound = max(bound, -lo)
         # TWO-WAY for every point (RULINGS 2026-09-06q (2)): neither above
@@ -226,11 +233,50 @@ def groups(p: Patch):
         code = _code(L)
         half = zone2_half_width_m(law, "runway", code, letter.get(ref)) or 0.0
         end_half = max(width, half)
-        cl = law.ruleset.end_skirt.corridor_length_m
-        end_len = (cl.value(code, letter.get(ref)) if cl is not None else 0.0) or 0.0
-        rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -end_len, 0.0, end_half),
-                 rect_ring(a, b, L, L + end_len, end_half))
+        len_a, len_b = rsa_end_lengths(p, ref, a, b, code, letter.get(ref))
+        rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -len_a, 0.0, end_half),
+                 rect_ring(a, b, L, L + len_b, end_half))
         out.append((rings, unit, code, L, letter.get(ref), a, b))
+    return out
+
+
+def rsa_end_lengths(p: Patch, ref: str | None, a, b, code, letter
+                    ) -> tuple[float, float]:
+    """``(beyond a, beyond b)``: the RSA length (owner RULINGS 2026-10-15c
+    (2); ``tables.runway_safety_area_length_m``) from the runway END, i.e.
+    past the slab end less that end's published overrun — the generator's
+    ``constraints.strips.runway_groups`` reading, the slab end matched to
+    the nearer of ``a`` / ``b``."""
+    rsa = runway_safety_area_length_m(p.law, code, letter)
+    for r in p.publication.get("runway_axes") or ():
+        if len(r) < 8 or str(r[0]) != str(ref):
+            continue
+        pa, pb = p.to_m(float(r[1]), float(r[2])), p.to_m(float(r[3]), float(r[4]))
+        same = math.dist(pa, a) + math.dist(pb, b)
+        flip = math.dist(pb, a) + math.dist(pa, b)
+        oa, ob = (float(r[6]), float(r[7])) if same <= flip else (float(r[7]), float(r[6]))
+        return max(0.01, rsa - oa), max(0.01, rsa - ob)
+    return rsa, rsa
+
+
+def _runway_widths(p: Patch) -> dict[str, float]:
+    """``{ref: width_m}`` — each runway's DECLARED width where the sidecar
+    publishes it (``runway_axes`` ``half_m``: the width the generator's
+    edge offset reads, ``Runway.width_m``), else off its own rings
+    (:func:`geometry.principal_axis`, the frame :func:`groups` fits)."""
+    pub = {str(r[0]): 2.0 * float(r[5]) for r in p.publication.get("runway_axes") or ()
+           if len(r) >= 6}
+    pts: dict[str, list] = {}
+    for sh in p.shapes:
+        if sh.role == "runway":
+            pts.setdefault(sh.ref, []).extend(sh.xy)
+    out = {}
+    for ref, xs in pts.items():
+        ax = principal_axis(xs)
+        if ref in pub:
+            out[ref] = pub[ref]
+        elif ax is not None:
+            out[ref] = float(ax[2])
     return out
 
 
@@ -280,17 +326,23 @@ def end_groups(p: Patch):
             unit = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
             code = _code(L)
             half = zone2_half_width_m(law, "runway", code, letter) or 0.0
-            cl = law.ruleset.end_skirt.corridor_length_m
-            end_len = (cl.value(code, letter) if cl is not None else 0.0) or 0.0
+            len_a, len_b = rsa_end_lengths(p, ref, a, b, code, letter)
             end_half = max(width, half)
-            rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -end_len, 0.0, end_half),
-                     rect_ring(a, b, L, L + end_len, end_half))
+            rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -len_a, 0.0, end_half),
+                     rect_ring(a, b, L, L + len_b, end_half))
         out.append((ref, rings, unit, code, L, letter, a, b))
     return out
 
 
-def _strips(p: Patch) -> list[Shape]:
-    return [sh for sh in p.shapes if sh.role == "graded_strip" and len(sh.ids) >= 2]
+def _strips(p: Patch, banks: bool = False) -> list[Shape]:
+    """The graded-strip shapes.  A zone BANK (2026-10-15c (3)) is no strip
+    LAW's ground (the longitudinal, arc, RESA, end and RAOA readers skip it,
+    as the generator mints it no strip row), nor the in-face step readers
+    (the census reads those on adjacent_ground refs only); the CROSS-shape
+    seam reader reads it with every other ground face — a bank steeper than
+    its 1:3 is a tear the census reads too (``banks=True``)."""
+    return [sh for sh in p.shapes if sh.role == "graded_strip" and len(sh.ids) >= 2
+            and (banks or not str(sh.ref).startswith("zone_bank:"))]
 
 
 def _pavement_ids(p: Patch) -> frozenset[int]:
@@ -728,7 +780,7 @@ def _cockpit(p: Patch):
 
 
 def strip_seam_tear(p: Patch) -> list[Row]:
-    strips = _strips(p)
+    strips = _strips(p, banks=True)
     pts: list[tuple[float, float, float, int, int]] = []
     for sh in strips:
         for k, vid in enumerate(sh.ids):
@@ -812,8 +864,10 @@ def strip_transverse(p: Patch) -> list[Row]:
     # ABEAM is along the axis only (the generator's ``abeam``: 0 ≤ s ≤ L);
     # the lateral extent is the class's own zone-2 half width
     axes: dict[str, tuple] = {}
+    widths = {ref: w for ref, w in _runway_widths(p).items()}
     for rings, unit, _code, L, _letter, a, _b in groups(p):
-        axes[_ref_of(p, rings)] = (a, unit, L)
+        ref_ = _ref_of(p, rings)
+        axes[ref_] = (a, unit, L, widths.get(ref_, 0.0))
     edges: list[TieEdge] = []
     for sh in p.shapes:
         if sh.role not in RUNWAY_FAMILY:

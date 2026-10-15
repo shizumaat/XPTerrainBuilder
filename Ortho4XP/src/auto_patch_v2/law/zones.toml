@@ -7,7 +7,11 @@
 #           sloping down between `band_min_down` and the class' max;
 #   zone 3  beyond zone 2: the DEM, untouched (`beyond_zone2 = "dem"`).
 # All bounds accumulate across zone boundaries (continuous corridor).
-# Grades are fractions; widths are metres from the PAVEMENT EDGE.
+# Grades are fractions; widths are metres from the PAVEMENT EDGE — EXCEPT the
+# RUNWAY family's `half_width_m` / `half_width_faa_m`, which are measured
+# from the runway CENTRELINE (owner RULINGS 2026-10-15c (1) "From the
+# centreline"): the zone's edge offset is max(lip_width_m, half-width −
+# runway half-width) (`tables.runway_zone_edge_offset_m`).
 
 [adjacent_ground]
 beyond_zone2   = "dem"      # zone 3 IS the DEM — never graded (08-01; only "dem" is lawful here)
@@ -17,6 +21,9 @@ lip_max_down   = 0.05       # zone-1 maximum down-slope
 ungraded_max_up = 0.05      # rising ground beyond the graded strip may rise at most this (§4 row 9)
 shore_profile_drop_m = 3.5  # §37 (11) SHORE DECISION (owner RULINGS 2026-09-29a (4), CALIBRATED 29h: 2.0 -> 3.5 — VMMC 6.10 m wall, NLWF 2.03-2.69 m natural): a drop of at least this, taken steeper than the bank slope, across the last shore_profile_run_m before the water line is a BUILT edge -> wall (planar/shore)
 shore_profile_run_m  = 10.0 # §37 (11) SHORE DECISION (29a (4)): the run of land before the water line the terrain profile reads
+bank_foot_tol_m  = 0.15     # owner RULINGS 2026-10-15c (3) "1:3 bank": a graded zone meeting raw terrain with a fill/cut over this ties in on the 1:3 bank (emit.design.bank_slope); under it the bare step stays lawful (2026-08-01). = emit.instrument.strip_edge_noise_m, the end profile's own tolerance (13a (4))
+bank_estimate_margin_m = 1.0  # the bank's width is estimated BEFORE the solve from the DEM with the pavement on its DEM; the pavement stands off it (measured KBJC replay: taxi 1.42 m, apron 1.65 m, runway 1.09 m max), so every estimate carries this much more step — the solve places the toe inside the wider bank (master 2026-10-15, spec Q2 (a) with (b)'s toe)
+bank_cap_width_m = 30.0     # the widest bank planar mints (a 10 m fill/cut at 1:3); a bigger estimated step mints at the cap and reports it (planar/zone_bank)
 groundside_cutback_m = 0.6  # an airside zone band is cut back this far from GROUNDSIDE pavement (roads, lots) so the two never share a vertex: the stand-off terraces (groundside terrace law; the mixed-pad precedent 09-01i; measured CYXY 2026-09-04: a road strip's DEM climb tore a taxi zone band 3.03 m in 5.6 m through one shared corner vertex)
 
 # zone 2 for the RUNWAY family (runway, runway_crossing): keyed by code NUMBER
@@ -24,7 +31,8 @@ groundside_cutback_m = 0.6  # an airside zone band is cut back this far from GRO
 half_width_m   = { by_code = { "1" = 30.0, "2" = 40.0, "3" = 75.0, "4" = 75.0 }, default = 75.0 }  # ICAO graded strip (Annex 14 §3.4.8)
 half_width_faa_m = { by_letter = { "A" = 18.3, "B" = 22.9, "C" = 76.2, "D" = 76.2, "E" = 76.2, "F" = 76.2 }, default = 76.2 }  # FAA RSA half-width by RDC letter
 band_min_down  = 0.015      # FAA RSA minimum
-band_max_down  = { by_code = { "1" = 0.05, "2" = 0.05, "3" = 0.03, "4" = 0.03 }, default = 0.03 }  # 3 % code 3/4, 5 % code 1/2
+band_max_down  = { by_code = { "1" = 0.05, "2" = 0.05, "3" = 0.03, "4" = 0.03 }, default = 0.03 }  # 3 % code 3/4, 5 % code 1/2 (ICAO; FAA below)
+band_max_down_faa = 0.05    # owner RULINGS 2026-10-15c (4) "5% for FAA": the runway band's max transverse fall under the FAA ruleset = AC 150/5300-13B Table 3-6 RSA transverse 1.5-5 % (`[faa.resa] transverse_max`); ICAO keeps the table above
 
 # zone 2 for the TAXI family (parallels, stub, cross_connector, junction): keyed by code LETTER
 [adjacent_ground.taxi]

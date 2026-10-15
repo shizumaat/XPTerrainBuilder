@@ -2989,7 +2989,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
         ax = slabs.get(ref) or (_runway_axis_and_width(pts) if len(pts) >= 3 else None)
         if ax is None:
             continue
-        grp = _strip_group_of_axis(ax)
+        grp = _strip_group_of_axis(ax, ll_to_m)
         if grp is None:
             continue
         groups.append((ref,) + grp)
@@ -3016,7 +3016,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                 -(pt[0] - a0[0]) * u[1] + (pt[1] - a0[1]) * u[0])
 
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE:
+        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
             continue
         closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
         nn = w.nids[:-1] if closed else w.nids
@@ -3652,7 +3652,13 @@ def runway_edge_tie_frame(ways: List[Way], nodes: Dict[str, Tuple[float, float]]
             (ax0, ay0), (bx, by), _w = ax
             L = math.hypot(bx - ax0, by - ay0)
             if L >= 1.0:
-                axes[ref] = ((ax0, ay0), ((bx - ax0) / L, (by - ay0) / L), L)
+                # the 4th slot: the runway's DECLARED width (the published
+                # ``runway_axes`` half_m, the generator's own), else the fit —
+                # the tie's zone is measured from the CENTRELINE (2026-10-15c (1))
+                declared = {str(r[0]): 2.0 * float(r[5]) for r in (_ACTIVE_RUNWAY_AXES or ())
+                            if len(r) >= 6}
+                axes[ref] = ((ax0, ay0), ((bx - ax0) / L, (by - ay0) / L), L,
+                             declared.get(ref, float(_w)))
     first: Dict[str, Tuple[Way, int]] = {}
     roles_at: Dict[str, set] = {}
     for w in ways:
@@ -3955,13 +3961,57 @@ def _runway_strip_groups(ways: List[Way], nodes, ll_to_m):
         groups.setdefault(w.ref or w.wid, []).extend(pts)
     out = []
     for pts in groups.values():
-        grp = _strip_group_of_axis(_runway_axis_and_width(pts))
+        grp = _strip_group_of_axis(_runway_axis_and_width(pts), ll_to_m)
         if grp is not None:
             out.append(grp)
     return out
 
 
-def _strip_group_of_axis(axis):
+#: The sidecar's ``runway_axes`` rows of this run (the slabs and their
+#: overruns, ``verify.strips.published_slabs``): the RSA length is measured
+#: from the runway END (owner RULINGS 2026-10-15c (2)), and only these rows
+#: say how far a slab end stands past it.  Installed by ``run_checks``.
+_ACTIVE_RUNWAY_AXES: Optional[list] = None
+_MIN_END_LEN_M = 0.01
+
+
+def _rsa_end_lengths(axis, code, letter, ll_to_m=None):
+    """``(beyond axis a, beyond axis b)`` — the generator's RSA length
+    (``auto_patch_v2.law.tables.runway_safety_area_length_m``) less each
+    end's published overrun, the end matched to the slab end nearer it
+    (``constraints.strips.runway_groups``' own rule).  ``None`` without the
+    v2 law (the v1 table then stands)."""
+    try:
+        from auto_patch_v2.law.tables import runway_safety_area_length_m
+        law, _p = _runway_end_profile_law()
+    except Exception:                                   # pragma: no cover
+        return None
+    rsa = runway_safety_area_length_m(law, code, letter)
+    oa = ob = 0.0
+    if _ACTIVE_RUNWAY_AXES and ll_to_m is not None:
+        (ax, ay), (bx, by), _w = axis
+        best = None
+        for r in _ACTIVE_RUNWAY_AXES:
+            if len(r) < 8:
+                continue
+            pa = ll_to_m(float(r[1]), float(r[2]))
+            pb = ll_to_m(float(r[3]), float(r[4]))
+            same = math.hypot(pa[0] - ax, pa[1] - ay) + math.hypot(pb[0] - bx, pb[1] - by)
+            flip = math.hypot(pb[0] - ax, pb[1] - ay) + math.hypot(pa[0] - bx, pa[1] - by)
+            cand = (min(same, flip), float(r[6]), float(r[7])) if same <= flip else \
+                (flip, float(r[7]), float(r[6]))
+            if best is None or cand[0] < best[0]:
+                best = cand
+        # a slab end lies ~one overrun from the runway-ring end: a match is
+        # within a few hundred metres, never another runway's
+        if best is not None and best[0] < 1000.0:
+            oa, ob = best[1], best[2]
+    # an overrun as long as the RSA leaves no corridor beyond the slab: a
+    # 1 cm ring (the readers' rectangle tests divide by its sides)
+    return (max(_MIN_END_LEN_M, rsa - oa), max(_MIN_END_LEN_M, rsa - ob))
+
+
+def _strip_group_of_axis(axis, ll_to_m=None):
     """``(rings, axis_unit, code_number, length_m, code_letter)`` for one
     runway axis ``((ax, ay), (bx, by), width_m)`` — the strip footprint a
     ``_runway_strip_groups`` record carries, or ``None`` for no axis.
@@ -3977,10 +4027,11 @@ def _strip_group_of_axis(axis):
         return None
     letter = (_runway_code_letter(width_m)
               if _runway_code_letter is not None else None)
-    rings = _runway_strip_wall_keepout_rings(
-        (ax, ay), (bx, by), width_m, letter, _ACTIVE_RULESET)
     code = (_runway_code_number(length)
             if _runway_code_number is not None else 4)
+    rings = _runway_strip_wall_keepout_rings(
+        (ax, ay), (bx, by), width_m, letter, _ACTIVE_RULESET,
+        end_len_m=_rsa_end_lengths(axis, code, letter, ll_to_m))
     return (rings, ((bx - ax) / length, (by - ay) / length), code, length, letter)
 
 
@@ -4044,6 +4095,15 @@ def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
 # full decimetre of quantization; that is the allowance granted (the same
 # constant the sloped-quad / weld-hub classes take).
 _STRIP_LONGITUDINAL_ROLE = "graded_strip"
+#: The ZONE BANK's ref prefix (owner RULINGS 2026-10-15c (3);
+#: ``auto_patch_v2.planar.zone_bank.BANK_REF_PREFIX``): a bank is the 1:3
+#: tie-in BEYOND the strip, never strip ground — no strip / RESA / end
+#: reader judges it (the generator mints it no strip row either).
+_ZONE_BANK_REF_PREFIX = "zone_bank:"
+
+
+def _is_zone_bank(w) -> bool:
+    return str(w.ref or "").startswith(_ZONE_BANK_REF_PREFIX)
 # The PAVEMENT roles whose nodes a band welds to (the weld-row skip above).
 # NOTE (blast role-literal hazard): renaming a role VALUE in
 # auto_patch/layout.py silently empties this set.
@@ -4090,7 +4150,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
     hit_ways: set = set()
     seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE:
+        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
             continue
         closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
         nn = w.nids[:-1] if closed else w.nids
@@ -4263,7 +4323,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     hit_ways: set = set()
     seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE:
+        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
             continue
         closed = len(w.nids) > 1 and w.nids[0] == w.nids[-1]
         nn = w.nids[:-1] if closed else w.nids
@@ -4369,7 +4429,7 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
     n_pairs = 0
     hit_ways: set = set()
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE:
+        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
             continue
         nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
               else w.nids)
@@ -4475,7 +4535,7 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m
     hit_ways: set = set()
     seen_sites: set = set()     # one row per physical site (see _site_key)
     for w in ways:
-        if w.role != _STRIP_LONGITUDINAL_ROLE:
+        if w.role != _STRIP_LONGITUDINAL_ROLE or _is_zone_bank(w):
             continue
         nn = (w.nids[:-1] if len(w.nids) > 1 and w.nids[0] == w.nids[-1]
               else w.nids)
@@ -13231,6 +13291,8 @@ def run_checks(
     # applied to authority).  A patch predating the split has no key; the
     # default then applies and is announced.
     _active = _set_active_ruleset(ruleset)
+    global _ACTIVE_RUNWAY_AXES
+    _ACTIVE_RUNWAY_AXES = runway_axes_ll
 
     # PER-FAMILY CENSUS (see ``LAW_FAMILIES``).  When ``family_out`` is a
     # dict, every family records its OWN rows here as it is produced — so a

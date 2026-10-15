@@ -23,6 +23,7 @@ __all__ = [
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
+    "runway_zone_edge_offset_m", "runway_safety_area_length_m",
     "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "end_profile_noise_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "gap_standoff_m",
@@ -415,10 +416,51 @@ def zone2_half_width_m(law: Law, role: str, code_number: int | None = None,
     return zc.half_width_m.value(code_number, code_letter)
 
 
+def runway_zone_edge_offset_m(law: Law, code_number: int | None,
+                              code_letter: str | None, runway_half_m: float
+                              ) -> float | None:
+    """THE RUNWAY ZONE'S OUTER EDGE, as an offset from the PAVEMENT EDGE
+    (owner RULINGS 2026-10-15c (1) "From the centreline"): the zone-2
+    half-width is a CENTRELINE figure (``zones.toml`` FAA RSA by letter,
+    ICAO strip by code), so the band reaches ``max(lip_width_m, half-width
+    − runway_half_m)`` beyond the edge — never less than the lip.  Before
+    the ruling the band was buffered by the whole half-width from the edge
+    (KBJC 12L: wider than its RSA by the runway's width).  ``None`` where
+    the class states no strip."""
+    hw = zone2_half_width_m(law, "runway", code_number, code_letter)
+    if hw is None:
+        return None
+    lip = float(law.tables.zones.adjacent_ground.lip_width_m)
+    return max(lip, float(hw) - max(0.0, float(runway_half_m)))
+
+
+def runway_safety_area_length_m(law: Law, code_number: int | None = None,
+                                code_letter: str | None = None) -> float:
+    """THE GRADED AREA'S LENGTH beyond each runway end, measured from the
+    runway END with the blast pad inside it (owner RULINGS 2026-10-15c (2)
+    "Full safety-area length"): FAA — the RSA length by design group
+    (``[faa.end_skirt] rsa_length_m``: AC 150/5300-13B App. G dim R through
+    the letter proxy); ICAO — the strip's end length plus the RESA
+    (``strip.end_length_m`` + ``end_skirt.corridor_length_m``; Annex 14
+    §3.5.3 measures the RESA from the strip's end; master 2026-10-15 Q1)."""
+    rs = law.ruleset
+    sk = rs.end_skirt
+    if sk.rsa_length_m is not None:
+        v = sk.rsa_length_m.value(code_number, code_letter)
+        if v:
+            return float(v)
+    el = rs.strip.end_length_m
+    strip_end = (el.value(code_number, code_letter) if el is not None else 0.0) or 0.0
+    cl = sk.corridor_length_m
+    resa = (cl.value(code_number, code_letter) if cl is not None else 0.0) or 0.0
+    return float(strip_end) + float(resa)
+
+
 def zone_bounds(law: Law, role: str, d_m: float,
                 code_number: int | None = None,
                 code_letter: str | None = None,
-                band_max_down: float | None = None
+                band_max_down: float | None = None,
+                half_m: float | None = None
                 ) -> tuple[float | None, float | None]:
     """Signed ``(floor, ceiling)`` offset from the pavement-edge elevation
     at lateral distance ``d_m`` — the accumulated two-zone corridor, or
@@ -431,7 +473,11 @@ def zone_bounds(law: Law, role: str, d_m: float,
     2026-09-27a (7)); the lip and the ceiling are unchanged."""
     ag = law.tables.zones.adjacent_ground
     zc = zone_class(law, role)
-    half = zone2_half_width_m(law, role, code_number, code_letter)
+    # ``half_m``: the zone's outer bound FROM THE EDGE where the caller knows
+    # the pavement (a runway's :func:`runway_zone_edge_offset_m`); the table
+    # half-width otherwise
+    half = half_m if half_m is not None else zone2_half_width_m(
+        law, role, code_number, code_letter)
     if zc is None or half is None or d_m > half:
         return (None, None)
     lip = min(d_m, ag.lip_width_m)
@@ -439,6 +485,8 @@ def zone_bounds(law: Law, role: str, d_m: float,
     ceil = -ag.lip_min_down * lip
     band = max(0.0, d_m - ag.lip_width_m)
     bmax = zc.band_max_down.value(code_number, code_letter)
+    if law.ruleset.authority == "FAA" and zc.band_max_down_faa is not None:
+        bmax = float(zc.band_max_down_faa)      # 2026-10-15c (4) "5% for FAA"
     if band_max_down is not None:
         bmax = max(float(band_max_down), bmax or 0.0)
     if band > 0 and bmax is not None:
@@ -476,7 +524,8 @@ def runway_vertical_curve_bound(law: Law, spacing_m: float,
 
 
 def strip_transverse_bound(law: Law, d_m: float, code_number: int | None = None,
-                           code_letter: str | None = None) -> float | None:
+                           code_letter: str | None = None,
+                           half_m: float | None = None) -> float | None:
     """THE STRIP TIE (RULINGS 2026-09-06b law 2; spec §3): how far (m) a
     graded-strip vertex ``d_m`` off a runway-family edge may stand from
     the edge, EITHER way — the runway zone class's own transverse cap
@@ -484,7 +533,8 @@ def strip_transverse_bound(law: Law, d_m: float, code_number: int | None = None,
     over zone 1, ``zones.adjacent_ground.runway.band_max_down`` by code
     over zone 2: the magnitude of :func:`zone_bounds`' floor, the ONE
     derivation site of the corridor, 08-30l).  ``None`` in zone 3."""
-    floor, _ceil = zone_bounds(law, "runway", d_m, code_number, code_letter)
+    floor, _ceil = zone_bounds(law, "runway", d_m, code_number, code_letter,
+                               half_m=half_m)
     return None if floor is None else -floor
 
 

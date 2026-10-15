@@ -230,7 +230,9 @@ def build_arrangement(airport: Airport, classification: Classification,
                           road_lines(getattr(airport, "osm_ways", ())), erep,
                           shore_declarations(getattr(airport, "osm_ways", ())),
                           shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
-                          pack_shore_walls(airport)):
+                          pack_shore_walls(airport),
+                          tuple((r.id, r.ends[0].xy, r.ends[1].xy, r.width_m)
+                                for r in getattr(airport, "runways", ()))):
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone, z.edge_kind, z.quay,

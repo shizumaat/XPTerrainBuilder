@@ -4236,6 +4236,8 @@ class MainWindow(QMainWindow):
         save_prefs(self.prefs)
         self._closed = True
         self._cancel_deferred()
+        # The 3D preview's building reader runs in a worker process (#753).
+        self.patch_editor.engine.close()
         event.accept()
 
 

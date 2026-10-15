@@ -148,6 +148,9 @@ class Slab(_t.NamedTuple):
 
 
 def _ring_poly(part: _t.Any, to_xy) -> "Polygon | None":
+    got = getattr(part, "poly_xy", None)     # a thin plate (``airport/slab_plates``)
+    if got is not None:
+        return got
     ps: list[Polygon] = []
     for r in getattr(part, "rings", ()) or ():
         if len(r) < 3:
@@ -224,6 +227,16 @@ def base_slabs(partition: _t.Any, to_xy, lw: _t.Any,
                     cands.append((u, m, q))
                 else:
                     rest.append(q)
+    # THE THIN PLATES (#712): the components the partition's thickness
+    # gate dropped, read by the face reader's owner (``airport/
+    # slab_plates``) — candidates judged by the same rules as a part
+    plates = getattr(faces, "plates", None)
+    if plates is not None:
+        for u in (getattr(partition, "units", ()) or ()):
+            for m in u.members:
+                for q in plates(u, m, to_xy, lw):
+                    if _is_candidate(q, lw) and _box_m2(tuple(q.box)) >= lw.min_m2:
+                        cands.append((u, m, q))
     if not cands:
         _MEMO.append((partition, lw, faces, ()))
         return ()

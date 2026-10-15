@@ -98,10 +98,6 @@ def faces_for(ny_min: float, elev_m: float = 0.0) -> _t.Callable:
     def faces(member: _t.Any, comp: int) -> "FaceFacts | None":
         return face_facts(str(getattr(member, "authored_path", "") or ""),
                           int(comp), float(ny_min), float(elev_m))
-    # the thin plates the partition dropped (#712), read by the same owner
-    # of the OBJ8 reader: ``geom/base_slab`` asks ``faces.plates``
-    from .slab_plates import thin_plates
-    faces.plates = thin_plates
     return faces
 
 

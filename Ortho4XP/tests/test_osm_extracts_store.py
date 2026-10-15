@@ -443,8 +443,9 @@ class TestOverpassWiring:
 
 class TestDownloadCancellation:
     """Pressing Stop must silence extract downloads promptly: the chunk
-    loop aborts, the partial file is removed, and the region is
-    re-queued as wanted so a later rescan retries it."""
+    loop aborts and the partial file is removed.  The region is NOT
+    re-queued (#704): the engine the app respawns after a hard stop
+    would start that download right after the stop."""
 
     class _FakeResponse:
         def __init__(self, red_flag_after):
@@ -470,7 +471,7 @@ class TestDownloadCancellation:
                     UI.red_flag = True
                 yield b"x" * 1024
 
-    def test_red_flag_aborts_removes_partial_and_requeues(
+    def test_red_flag_aborts_removes_partial_and_does_not_requeue(
             self, store, monkeypatch):
         import O4_UI_Utils as UI
 
@@ -485,8 +486,8 @@ class TestDownloadCancellation:
         assert not os.path.isfile(
             EXTRACTS._region_file("portugal") + ".tmp")
         assert not os.path.isfile(EXTRACTS._region_file("portugal"))
-        with open(os.path.join(store, "wanted.json"), encoding="utf-8") as wanted_file:
-            assert json.load(wanted_file) == ["portugal"]
+        assert EXTRACTS._read_json(
+            os.path.join(store, "wanted.json")) in (None, [])
 
     def test_without_red_flag_download_completes(self, store, monkeypatch):
         import O4_UI_Utils as UI

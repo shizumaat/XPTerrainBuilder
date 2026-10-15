@@ -620,6 +620,10 @@ def _OSM_queries_to_OSM_layer_serialized(
         except Exception:
             response = None
             extract_alternative_source = None
+        if response is None and UI.red_flag:
+            # A stop (e.g. one that cancelled the extract download) is a
+            # cancellation: no Overpass fallback (#704).
+            return 0
         if response is None:
             response = get_overpass_data(
                 statements_to_download,
@@ -1108,6 +1112,10 @@ def get_overpass_data(query, bbox, request_description="",
 
     failed_server_keys = set()
     for tentative in range(1, max_osm_tentatives + 1):
+        if UI.red_flag:
+            # Stop: no new query is sent — every Overpass caller (vector
+            # layers, bathymetry band, airport insets) ends here (#704).
+            return 0
         if alternative_source is not None:
             produced_bytes = _alternative_source_bytes(
                 alternative_source, alternative_source_poll_state

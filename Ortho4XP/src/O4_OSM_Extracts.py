@@ -482,7 +482,9 @@ def osm_xml_from_local_extracts(statements, bounding_box,
     the extracts cannot serve this request — backend disabled, region
     index absent, extracts not downloaded yet (they are recorded as
     wanted for the maintenance thread), or any failure — in which case
-    the caller proceeds to Overpass exactly as before.
+    the caller proceeds to Overpass exactly as before.  Under a stop
+    (``UI.red_flag``) it is also ``None``, with nothing queued: the
+    caller ends its request there instead of falling back (#704).
 
     ``bounding_box`` may also be a LIST of boxes: the pbf filtering cost
     is dominated by reading the whole extract file, so serving N disjoint
@@ -525,6 +527,12 @@ def osm_xml_from_local_extracts(statements, bounding_box,
             if _ensure_extracts_foreground(
                     [r for r in regions if r[0] in missing_set]):
                 missing = _stored_regions_missing(regions)
+        if missing and UI.red_flag:
+            # Stop is a cancellation, not "not stored yet": nothing is
+            # queued (a stopped build must not start a download after
+            # the stop — a fresh engine's maintenance thread would drain
+            # the want at once, #704) and nothing announces a fallback.
+            return None
         if missing:
             record_wanted_regions(missing)
             UI.vprint(
@@ -557,6 +565,8 @@ def osm_xml_from_local_extracts(statements, bounding_box,
             boxes,
         )
     except Exception as error:
+        if UI.red_flag:
+            return None
         UI.vprint(
             1, "      Regional extract filtering failed",
             "(" + str(error) + "); using Overpass.",
@@ -616,9 +626,12 @@ def _download_extract(region_id: str, pbf_url: str,
                 for chunk in response.iter_content(DOWNLOAD_CHUNK_BYTES):
                     if UI.red_flag:
                         # The user pressed Stop: the network goes quiet
-                        # NOW, background or not.  The region stays
-                        # wanted, so the rescan loop retries once the
-                        # flag clears (next build or next start).
+                        # NOW, background or not.  The region is NOT
+                        # re-queued: the app respawns an engine right
+                        # after a hard stop, and its maintenance thread
+                        # would start the download again after the stop
+                        # (#704).  The next build that needs the region
+                        # acquires it in the foreground or queues it.
                         cancelled = True
                         break
                     extract_file.write(chunk)
@@ -647,11 +660,10 @@ def _download_extract(region_id: str, pbf_url: str,
                         next_report += DOWNLOAD_PROGRESS_EVERY_BYTES
         if cancelled:
             os.remove(temporary_path)
-            record_wanted_regions([region_id])
             UI.vprint(
                 0,
                 "   OSM regional extract download for", region_id,
-                "stopped with the build; it will retry later.",
+                "stopped with the build.",
             )
             return False
         if not _file_looks_like_pbf(temporary_path):

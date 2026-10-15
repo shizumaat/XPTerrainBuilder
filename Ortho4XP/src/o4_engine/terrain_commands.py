@@ -22,7 +22,6 @@ from __future__ import annotations
 import base64
 import math
 import os
-import re
 from typing import Any, Dict, Sequence
 
 import numpy as np
@@ -39,14 +38,12 @@ MAX_SAMPLES = 4_000_000
 #: (``emit/osm_adapter._local_metres``), which the client draws in.
 _M_PER_DEG_LAT = 111320.0
 
-_TILE_KEY = re.compile(r"^[+-]\d{2}[+-]\d{3}$")
-
-
 def _tile_of(key: Any) -> tuple[int, int]:
     """``(lat, lon)`` of a ``+45-123`` tile key, or a refusal sentence."""
-    if not isinstance(key, str) or not _TILE_KEY.match(key):
+    tile = FNAMES.parse_tile_key(key)
+    if tile is None:
         raise ValueError(f"terrain_sample: {key!r} is not a tile key like +45-123.")
-    return int(key[:3]), int(key[3:])
+    return tile
 
 
 def _box(bbox: Any) -> tuple[float, float, float, float]:

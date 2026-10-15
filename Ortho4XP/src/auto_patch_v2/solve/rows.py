@@ -150,8 +150,13 @@ def _cotangent_laplacian(pm: PlanarMap, tris: _t.Sequence[tuple[int, int, int]],
         if cross <= 0.0:
             continue
         area[[a, b, c]] += cross / 3.0
-        # cot of the angle OPPOSITE each edge = (u·v) / (2 * area)
-        for (i, j, u, v) in ((a, b, -ca, bc), (b, c, ab, -ca), (c, a, bc, ab)):
+        # cot of the angle OPPOSITE each edge = (u·v) / (2 * area), where
+        # u, v are the two edge vectors LEAVING the opposite vertex (at c:
+        # c->a, c->b; at a: a->b, a->c; at b: b->c, b->a).  The weight is
+        # half of it.  Issue #762: the third pair read ``ab`` (a->b) for
+        # b->a, so every acute triangle lost its (c, a) weight and which
+        # edge was lost followed the triangle's vertex order.
+        for (i, j, u, v) in ((a, b, -ca, bc), (b, c, ab, -ca), (c, a, bc, -ab)):
             w = float(u @ v) / (4.0 * cross)
             if w <= 0.0:
                 continue                    # obtuse: clamp (keeps the operator PSD)

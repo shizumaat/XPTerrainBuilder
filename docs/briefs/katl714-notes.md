@@ -98,12 +98,26 @@ HECA, OTHH, SPJC, CYXY, NLWF, KPDX, KASE, KCLT — **no bore qualifies; nothing
 lifts**. (Before the mouth-depth rule SPJC lifted a runway 1.15 m and KCLT an
 apron 4.63 m; the rule removed both.)
 
+## CLOSING HARNESS BUILD (rebased on main d30332185)
+
+Control `katl714_base2` (main d30332185, rc 0, 859 s, artifact ledger
+ab5c43e68946) vs arm `katl714_arm2` (rc 0, 560 s; ledger store refused
+CONTAMINATED-KEY because this notes file was edited during the build — no
+code moved). Planar log: `covered ground (#714): 8 bore(s) … footprint
+65,817 m2; 114 of 114 vertex(es) … max lift 20.01 m`. Runway 10/28 binned:
+ridge min 294.83 → 300.22, BOW −9.62 → −4.33 (the field's own sag at
+s=1125), max |grade| 2.30 → 0.82 %, max grade change 2.48 → 0.42 %/100 m;
+crown spine at the owner site 294.55 → 301.52. Airside movers identical to
+the replay (10/28 +6.97, pav15 +6.50, pav17 +6.92, pav9 +2.55, all at the
+cover; elsewhere ≤ 0.06 m).
+
 ## RESIDUAL — THE PORTAL (not fixed here)
 
 At the SW mouths the road ribbons that stand inside the patch for 10-30 m past
 the deck edge (big_roads:-7388 / -2194, small_roads:-30824/-30827) share the
 deck edge's vertices (free-road rule) and climb from it at the road cap: base
-291-293 m, arm 296-298 m, against the road floor 281-282 m. The step to the
+291-293 m, arm 296-298 m (harness: road ribbons within 50 m of the SW mouth
+max 294.31 → 299.99), against the road floor 281-282 m. The step to the
 real road happens at the patch's terrain edge instead of at the portal. The
 cure is a declared step at the deck edge over a covered bore's mouth (the
 pack's portal walls as the terrace), the same mechanism #715 needs.
@@ -122,11 +136,24 @@ pack's portal walls as the terrace), the same mechanism #715 needs.
   small_roads:-12997/-12996 and groundside `gap:5` — is held at 298.5-299.7 m
   against DEM 290.8-291.1 (+8 m), sharing vertices with the apron along the
   wall line; no terrace is declared (`wall_terrace 0`).
-* Why: `airport/wall_class.wall_class_components` rejects the wall — its
+* Why (1): `airport/wall_class.wall_class_components` rejects the wall — its
   footprint ring is 1,192 m² over a 689 m perimeter, mean width 3.46 m >
   `[service] retaining_wall_max_width_m` 1.0 — so `wall_terraces` (10-03c)
-  never sees it. A width-per-height relaxation (≤ 0.35 × height) would admit
-  it but also 205 other KATL components (facades, aircraft): not a rule.
-  Proposal: an owner/Fable question — what separates a retaining wall from a
-  building facade when it is thick (candidates: the DEM step across it equals
-  its height within a tolerance; its zero on the upper side's ground).
+  never sees it. A width-per-height relaxation alone (≤ 0.35 × height) admits
+  205 other KATL components (facades, aircraft): not a rule.
+* A witness that IS selective: the DEM on a 3 m ring round the component steps
+  (10th..90th percentile) by 0.75-1.25 × its height, and it is ≤ 0.5 × height
+  thick. Dry census over the registered captures: KATL `muro_concreto5`
+  (10.65 m, step 12.14) and `muro_concreto` (12.01 m, step 11.10) — 590 → 592
+  wall-class; HECA OTHH SPJC CYXY NLWF KPDX KCLT 0 new; KASE 2 parts of one
+  city building 6 km off the field (39.1854,-106.8177).
+* Why (2) — MEASURED, the classifier is NOT enough: with it (branch
+  `claude/katl715-wip`, replay `--from classify`) the site is unchanged
+  (apron 299.8-300.4, roads -12997/-12996 298.4-299.9 against DEM 291): the
+  lower side at the wall is `gap:5` (a §53 gap piece — lane katlgap719 / PR
+  #725 removes it: it was minted from the pack's `poligonos/muro_contension.pol`
+  wall PHOTO) and service roads that SHARE the apron's vertices along the wall
+  line (free-road weld), so no lot vertex stands across the wall and no pair
+  row is released. After #725 the lower side is roads + zones: the fix needs
+  the wall terrace to hold for a ROAD at the foot (10-03c reads lots only) —
+  a spec question, not a threshold.

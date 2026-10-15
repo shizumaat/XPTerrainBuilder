@@ -22,7 +22,7 @@ import dataclasses as _dc
 import typing as _t
 
 from ..law import Law
-from ..model.constraints import Band, ConstraintSet, Linear, Source
+from ..model.constraints import Band, ConstraintSet, Diff, Linear, Source
 from ..model.planar import PlanarMap, face_vertex_set
 from .pad_ramp import ramp_delta
 
@@ -95,6 +95,33 @@ def _dz_at(profile: _t.Sequence[tuple[float, float]], s: float) -> float:
     return float(profile[-1][1])
 
 
+def _chord_rows(planar: PlanarMap, sides: _t.Mapping[bool, list], cap: float,
+                xcap: float, src) -> list:
+    """The strip's own CHORDS: along each side, consecutive vertices by
+    station at the road cap; across, a vertex and the other side's vertex
+    at its station (within one metre) at the cross-fall cap.  The level
+    rows bound the strip against its landing; these bound it between its
+    own vertices (MEASURED, HECA: a 19.6 % chord inside the bounds)."""
+    import math
+    xy = planar.vertices
+    rows: list = []
+
+    def d(a: int, b: int) -> float:
+        (ax, ay), (bx, by) = xy[a].xy, xy[b].xy
+        return math.hypot(ax - bx, ay - by)
+    for pts in sides.values():
+        pts = sorted(pts)
+        rows.extend(Diff(a, b, cap, d(a, b), src) for (_s0, a), (_s1, b) in zip(pts, pts[1:])
+                    if d(a, b) > 0.0)
+    if xcap > 0.0 and len(sides) == 2:
+        other = sorted(sides[False])
+        for s0, a in sides[True]:
+            near = min(other, key=lambda q: abs(q[0] - s0))
+            if abs(near[0] - s0) <= 1.0 and d(a, near[1]) > 0.0:
+                rows.append(Diff(a, near[1], xcap, d(a, near[1]), src))
+    return rows
+
+
 def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
     """THE LANDING'S RUN-OUT COMES DOWN AT ROAD GRADE (issue #711; owner
     RULINGS 2026-10-14c (5) at a 10-03e landing).  Every vertex of a run-out
@@ -124,6 +151,9 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
         return []
     held = datum_vertices(planar, law)
     band = float(law.tables.emit.cockpit.visual_m)
+    from ..law.tables import role_cap
+    rc = role_cap(law, "service_road")
+    xcap = float(rc.transverse) if rc is not None else 0.0
     F = planar.faces
     rows: list = []
     seen: set[int] = set()
@@ -140,6 +170,8 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
         bank = rec["landing"] + COLLAR_SUFFIX
         (x0, y0), (dx, dy) = rec["lip"], rec["dir"]
         g, cap, y = float(rec["g"]), float(rec["cap"]), float(rec["y"])
+        w = float(rec.get("width_m", 0.0))
+        sides: dict[bool, list[tuple[float, int]]] = {}
         z_hi = float(rec["z0_pred"]) + float(rec.get("reach_m", 0.0))
         src = Source(GEN, LANDING_RUNOUT_RULING,
                      (f"face:{f.id}", str(f.ref), f"landing:{rec['landing']}"))
@@ -161,6 +193,10 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
             if dem is not None:
                 hi = max(float(dem), z_hi + prof) + band
                 rows.append(Band(v, None, hi, src))
+            t = -(x - x0) * dy + (yy - y0) * dx
+            if abs(t) >= 0.25 * w:
+                sides.setdefault(t > 0.0, []).append((s, v))
+        rows.extend(_chord_rows(planar, sides, cap, xcap, src))
     STATS["landing_runout_rows"] = {"runouts": n, "runouts_no_datum": n_none,
                                     "rows": len(rows)}
     return rows

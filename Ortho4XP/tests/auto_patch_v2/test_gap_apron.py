@@ -310,7 +310,10 @@ def test_the_class_table_read_on_a_real_map():
     # RE-RECORDED (lane drape229, owner RULINGS 2026-10-14d (4)): the
     # level plates touching no wall are slabs on the drape side, and the
     # kerb ring `T23/door` comp 9 is not a plate — 10 -> 18
-    assert n_slab == 18
+    # RE-RECORDED (lane hecalandings, issue #712): the thin paved plates the
+    # partition's thickness gate drops are slabs too (``airport/
+    # slab_plates``) — 18 -> 21, the pack's 38 pieces and refs unchanged
+    assert n_slab == 21
     assert len(pieces) + len(aprons) == 38 + n_slab == cl.stats["gap_pieces"]
     assert sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("base_slab")) == list(range(38, 38 + n_slab))

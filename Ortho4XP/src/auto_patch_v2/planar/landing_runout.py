@@ -42,6 +42,8 @@ import typing as _t
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
+from ..geom.parts import nonempty_polygon_parts as _parts
+
 __all__ = ["RUNOUT_REF_PREFIX", "runout_ref", "landing_runouts"]
 
 #: the strip's ref: ``runout:<landing ref>`` (the last stage's object-ramp
@@ -54,14 +56,6 @@ MAX_RUN_M = 400.0
 
 def runout_ref(landing_ref: str) -> str:
     return f"{RUNOUT_REF_PREFIX}{landing_ref}"
-
-
-def _parts(g) -> list[Polygon]:
-    if g is None or g.is_empty:
-        return []
-    if isinstance(g, Polygon):
-        return [g]
-    return [q for q in getattr(g, "geoms", ()) if isinstance(q, Polygon) and not q.is_empty]
 
 
 def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airport, law,

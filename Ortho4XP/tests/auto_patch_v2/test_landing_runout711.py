@@ -169,8 +169,13 @@ def test_the_strip_is_held_relative_to_its_blocks_datum(law, monkeypatch):
         def bounds(ground):
             MP.LANDING_RUNOUTS["runout:u/landing0"] = {**rec, "ground": ground}
             rows = landing_runout_rows(_Planar(), law)
-            assert len(rows) == 8
             assert all(r.source.ruling == LANDING_RUNOUT_RULING for r in rows)
+            # the strip's own chords: along each side at the road cap, across
+            # at each paired station at the cross-fall cap
+            chords = sorted((tuple(sorted((r.a, r.b))), r.cap) for r in rows if hasattr(r, "cap"))
+            assert chords == [((0, 1), 0.1), ((0, 3), 0.02), ((1, 2), 0.02), ((2, 3), 0.1)]
+            rows = [r for r in rows if not hasattr(r, "cap")]
+            assert len(rows) == 8
             out, cap = {}, {}
             for r in rows:
                 if hasattr(r, "terms"):

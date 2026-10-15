@@ -33,7 +33,8 @@ import math
 
 __all__ = ["DsfPolygon", "DsfPlacement", "DsfDump", "find_text_dump",
            "content_keyed_dump",
-           "read_dump", "PolDeclaration", "pol_declaration", "pavement_verdict",
+           "read_dump", "PolDeclaration", "pol_declaration", "ground_photograph",
+           "pavement_verdict",
            "is_pavement_def", "pavement_gate", "building_role_for_def", "read_footprint_cache",
            "mod_cache_dir"]
 
@@ -442,13 +443,37 @@ SOURCE = "source"
 SHEET = "sheet"
 
 
+#: THE GROUND PHOTOGRAPH (issue #719): a ``.pol`` whose texture row is
+#: ``TEXTURE_NOWRAP`` stretches ONE image over the polygon by its own UV
+#: coordinates (a picture pinned to the ground, not a material tiled at
+#: ``SCALE``), and one drawn in a GROUND layer group (``terrain`` /
+#: ``beaches``) lies UNDER every pavement layer.  Both together are an
+#: orthophoto laid under the field: its ``SURFACE`` is the physics of the
+#: whole picture — grass, forest, buildings and pavement alike — so it is
+#: no pavement witness.  MEASURED (KATL, Nimbus V3.5): eleven
+#: ``Orthophotos/piso<n>.pol`` pages, ``TEXTURE_NOWRAP piso<n>.png``,
+#: ``LAYER_GROUP beaches +3``, ``SURFACE concrete``, 29.2 km2 under the
+#: whole field, were gap sheets and minted 17.9 km2 of "groundside
+#: pavement" over buildings and forest.  Either witness alone is not one:
+#: a hangar floor tiles its texture in ``beaches +4`` (KATL
+#: ``piso_hangares.pol``) and a pavement photograph is drawn in the
+#: pavement layers (``TEXTURE_NOWRAP`` in ``runways +5``).  Every sheet
+#: admitted at the seven sweep airports tiles its texture in ``taxiways``
+#: or ``runways``.
+IMAGE_TEXTURE_ROWS = ("TEXTURE_NOWRAP", "TEXTURE_LIT_NOWRAP")
+GROUND_LAYER_GROUPS = ("terrain", "beaches")
+
+
 class PolDeclaration(_t.NamedTuple):
     """What a ``.pol`` file says of itself: its first ``SURFACE`` value
     and its first ``LAYER_GROUP`` name (both lower-cased, ``None`` when
-    absent); ``layer`` is :data:`PAINT` when ANY row names a paint group."""
+    absent); ``layer`` is :data:`PAINT` when ANY row names a paint group;
+    ``image`` when a texture row is a photograph's
+    (:data:`IMAGE_TEXTURE_ROWS`)."""
 
     surface: str | None = None
     layer: str | None = None
+    image: bool = False
 
 
 def pol_declaration(physical_path: str | None) -> PolDeclaration:
@@ -458,6 +483,7 @@ def pol_declaration(physical_path: str | None) -> PolDeclaration:
         return PolDeclaration()
     surface: str | None = None
     layer: str | None = None
+    image = False
     try:
         with open(physical_path, "r", encoding="utf-8", errors="ignore") as fh:
             for line in fh:
@@ -465,7 +491,9 @@ def pol_declaration(physical_path: str | None) -> PolDeclaration:
                 if len(toks) < 2:
                     continue
                 kw = toks[0].upper()
-                if kw == "SURFACE" and surface is None:
+                if kw in IMAGE_TEXTURE_ROWS:
+                    image = True
+                elif kw == "SURFACE" and surface is None:
                     surface = toks[1].lower()
                 elif kw == "LAYER_GROUP":
                     if toks[1].lower() in PAINT_LAYER_GROUPS:
@@ -474,7 +502,14 @@ def pol_declaration(physical_path: str | None) -> PolDeclaration:
                         layer = toks[1].lower()
     except OSError:
         return PolDeclaration()
-    return PolDeclaration(surface, layer)
+    return PolDeclaration(surface, layer, image)
+
+
+def ground_photograph(decl: PolDeclaration) -> bool:
+    """Whether a ``.pol`` declares itself an orthophoto laid under the
+    field: an image texture (:data:`IMAGE_TEXTURE_ROWS`) drawn in a ground
+    layer group (:data:`GROUND_LAYER_GROUPS`)."""
+    return decl.image and decl.layer in GROUND_LAYER_GROUPS
 
 
 def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | None:
@@ -494,7 +529,9 @@ def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | Non
        when the file names its own non-paint layer group (the word
        stands only against a file that names no layer) — as a SOURCE
        when the name alone already said so (step 5), else as a SHEET;
-       a soft surface refuses;
+       a soft surface refuses; a GROUND PHOTOGRAPH's surface (an image
+       in a ground layer group, :func:`ground_photograph`, issue #719)
+       is no declaration at all — step 5 decides;
     5. no surface declared, or no file (04d (2)): the ``conc`` word with
        no paint/sign word in the name is a source."""
     p = path.lower()
@@ -510,7 +547,7 @@ def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | Non
     if decl is not None:
         if decl.layer == PAINT:
             return None
-        if decl.surface is not None:
+        if decl.surface is not None and not ground_photograph(decl):
             if decl.surface not in HARD_SURFACES or (
                     decl.layer is None and decorative):
                 return None

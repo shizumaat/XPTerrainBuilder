@@ -1185,6 +1185,13 @@ seat_tilt_max_deg   = 1.5
 # authored seat.  The owner's figure; 0 disarms both.
 authored_keep_tol_m = 0.05
 
+# A BUILDING'S SMALL PIECES RIDE ITS WALLS (owner RULINGS 2026-10-14p (3), #709):
+# inside one placement, a leaf ground group (no part chain_min_height_m tall)
+# within this plan gap of a walled group, directly or through other leaves,
+# joins it and seats with it as one rigid unit.  2.5 m: a doorway (KASE's
+# garage: 0.6 m between panels, 1.8-2.3 m across its doors).  0 disarms.
+piece_reach_m       = 2.5
+
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec
 # design-surface-spec.md §49).  The emitted `bridge_deck:*` face is a datum

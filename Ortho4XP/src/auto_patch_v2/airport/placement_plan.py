@@ -99,6 +99,7 @@ __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "plan_units_with", 
 # feed live next door (the 1,000-line law); they are re-exported here
 # because every caller and every twin reads them as this module's.
 from . import placement_seat_tilt as _pst  # noqa: E402
+from . import placement_leaves as _leaves  # noqa: E402
 from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
                             GROUND_CELL_M, _atom_targets, _bodies_of,
                             _carrier_pieces, _footless_targets,
@@ -135,6 +136,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  cluster_min_m2: float = 0.0, touch_m: float = 0.0,
                  connector_span_m: float = 0.0,
                  chain_min_height_m: float = 0.0,
+                 # RULINGS 2026-10-14p (3) (#709): ``[placement]
+                 # piece_reach_m`` — a building's small pieces ride its
+                 # walls within this; 0 disarms
+                 piece_reach_m: float = 0.0,
                  # S6 CONTENTS (issue #30 / #10): a leaf inside a walled
                  # host rides the host's unit; 0 disarms
                  contents_min_fraction: float = 0.0,
@@ -447,6 +452,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if n_split:
                     counts["groups_split_by_unit"] = \
                         counts.get("groups_split_by_unit", 0) + n_split
+            # 14p (3) (#709): a building's small pieces ride its walls
+            bound = _leaves.attach_leaves(bound, raw, part_boxes,
+                                          reach_m=piece_reach_m,
+                                          chain_min_height_m=chain_min_height_m,
+                                          counts=counts)
             st.groups = bound
             if len(bound) < len(raw) - len(st.elevated):
                 counts["placements_coarsened"] = \
@@ -878,6 +888,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         file_of: dict[tuple[int, int], str] = {}
         deps = {st.mi: {c.member for _g, c, _w in st.carried
                         if c.member != st.mi} for st in staged}
+        # 14p (3) (#709): a one-body CARRIER whose row is more than
+        # authored_keep_tol_m off its anchor's zero is written at its anchor:
+        # the rider takes the anchor's zero, and a row up to split_tol_m off
+        # it parted them (the garage's roof 0.23 m)
+        carriers = {c.member for st in staged for _g, c, _w in st.carried
+                    if c.member != st.mi}
         for mi in _pc.cut_order(deps):
             st = by_mi[mi]
             m = st.m
@@ -1004,6 +1020,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     z_row, bodies[0].anchor if bodies else None, split_tol_m)
                 if off_row and len(bodies) < 2:
                     counts["one_body_off_row"] = counts.get("one_body_off_row", 0) + 1
+                if (not off_row and len(bodies) < 2 and mi in carriers
+                        and _ar.keep_off_row(z_row, bodies[0].anchor if bodies
+                                             else None, authored_keep_tol_m)):
+                    off_row = True
+                    counts["one_body_carrier_written"] = \
+                        counts.get("one_body_carrier_written", 0) + 1
                 record = _lifted(record, rows, reseated)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=_lands(record, rows, surface,

@@ -220,6 +220,16 @@ class Placement:
     #: seat is not split.  The owner's own figure (0.05 m); 0 disarms both.
     authored_keep_tol_m: float = 0.05
 
+    #: A BUILDING'S SMALL PIECES RIDE ITS WALLS (owner RULINGS 2026-10-14p
+    #: (3), #709; ``airport/placement_leaves``): inside one placement, a
+    #: LEAF ground group (no part ``chain_min_height_m`` tall) within this
+    #: plan gap of a walled group — directly or through other leaves —
+    #: joins it and seats with it as one rigid unit.  Proposed 2.5 m: a
+    #: doorway (KASE's garage leaves 0.6 m between its panels and
+    #: 1.8–2.3 m across its doors), the same figure as the wall height
+    #: that makes a part a wall.  0 disarms.
+    piece_reach_m: float = 2.5
+
     #: §16g (1) THE FOOTPRINT UNIT (owner RULINGS 2026-09-13bo,
     #: interviewed): "We always want to keep objects covering the same
     #: footprint together when changing their seat."  Two bodies whose

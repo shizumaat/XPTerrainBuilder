@@ -268,8 +268,10 @@ at once and adds the buildings when they arrive ("Loading buildings…").
 ## 6. Qt (L5, L7)
 
 The same overlay, inspector and 3D window in `O4_Qt_Map.py` (+ new modules,
-not appends), `QUndoStack`, calling `patch_edit.py` directly; 3D via
-pyqtgraph's OpenGL widget.
+not appends), `QUndoStack`, calling `patch_edit.py` directly. 3D (amended before L7): with
+PySide6's own Qt Quick 3D (procedural `QQuick3DGeometry`) or Qt3D — no new
+dependency (`pyqtgraph` is not in the venv); the frozen Qt app must carry
+the module (`Ortho4XP_Qt.spec`).
 
 ## 7. Not in v1
 

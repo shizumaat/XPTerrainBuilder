@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 /// Edit mode's keys on the map window (patch-editor spec §4): ⌫ / ⌦ delete
-/// the selected nodes, Esc clears the selection. A local key monitor like
+/// the selected nodes and shapes, Esc clears the selection. A local key monitor like
 /// `ScrollZoomCatcher`'s, so no view needs keyboard focus; keys typed into
 /// a text field (the elevation field, the search box) are left alone.
 /// ⌘Z / ⇧⌘Z come from the Edit menu (the window's undo manager), ⌘S from
@@ -53,13 +53,13 @@ extension PatchEditModel {
 
     /// Whether Edit mode consumed the key.
     func handleKey(_ keyCode: UInt16) -> Bool {
-        guard mode == .edit, isShowing, !selection.isEmpty else { return false }
+        guard mode == .edit, isShowing, hasSelection else { return false }
         switch keyCode {
         case Self.deleteKey, Self.forwardDeleteKey:
             deleteSelection()
             return true
         case Self.escapeKey:
-            selection = []
+            clearSelection()
             return true
         default:
             return false

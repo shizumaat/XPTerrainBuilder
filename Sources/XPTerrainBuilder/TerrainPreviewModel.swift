@@ -93,6 +93,9 @@ final class TerrainPreviewModel: ObservableObject {
         patch.$selection.sink { [weak self] _ in
             DispatchQueue.main.async { self?.updateMarkers() }
         }.store(in: &subscriptions)
+        patch.$shapeSelection.sink { [weak self] _ in  // a selected shape marks its nodes (#759)
+            DispatchQueue.main.async { self?.updateMarkers() }
+        }.store(in: &subscriptions)
         patch.$document.sink { [weak self] doc in
             DispatchQueue.main.async { self?.documentMayHaveChanged(doc) }
         }.store(in: &subscriptions)
@@ -414,6 +417,6 @@ final class TerrainPreviewModel: ObservableObject {
 
     private func updateMarkers() {
         guard let space, let patch, let doc = patch.document else { scene.setMarkers([]); return }
-        scene.setMarkers(patch.selection.compactMap { doc.nodes[$0].map(space.position(of:)) })
+        scene.setMarkers(patch.markedNodes.compactMap { doc.nodes[$0].map(space.position(of:)) })
     }
 }

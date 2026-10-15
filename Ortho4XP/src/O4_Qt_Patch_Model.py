@@ -19,6 +19,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QUndoCommand, QUndoStack
 
 import O4_File_Names as FNAMES
+import O4_Qt_Patch_ShapePick as PICK
 from o4_engine import patch_edit as PE
 
 __all__ = ["LoadedPatch", "PatchEditModel", "MODE_VIEW", "MODE_EDIT"]
@@ -97,6 +98,11 @@ class PatchEditModel(QObject):
         #: Node values as loaded ("was 62.40 m").
         self.loaded_nodes: dict[int, PE.Node] = {}
         self.selection: set[int] = set()
+        #: Selected shapes, by way id (#759: a click on a line selects its
+        #: whole shape).
+        self.shape_selection: set[int] = set()
+        #: The last click on a line, for the repeat-click cycle.
+        self.last_shape_click: PICK.ShapeClick | None = None
         self.mode = MODE_VIEW
         self.is_saving = False
         #: The last refused edit, save or revert, in the engine's words.
@@ -124,6 +130,8 @@ class PatchEditModel(QObject):
         self._saved_index = 0
         self.edit_error = None
         self.selection = set()
+        self.shape_selection = set()
+        self.last_shape_click = None
         self.document_changed.emit()
         self.selection_changed.emit()
         self.status_changed.emit()
@@ -136,6 +144,8 @@ class PatchEditModel(QObject):
         self.patch, self.doc = None, None
         self.undo_stack.clear()
         self.selection = set()
+        self.shape_selection = set()
+        self.last_shape_click = None
         self.document_changed.emit()
         self.selection_changed.emit()
         self.status_changed.emit()
@@ -173,6 +183,68 @@ class PatchEditModel(QObject):
     def toggle(self, nid: int) -> None:
         self.set_selection(self.selection ^ {nid})
 
+    # ─── shapes (#759) ─────────────────────────────────────────────────
+    def set_shape_selection(self, way_ids: _t.Iterable[int]) -> None:
+        way_ids = set(way_ids)
+        if way_ids != self.shape_selection:
+            self.shape_selection = way_ids
+            self.selection_changed.emit()
+
+    def select_shapes(self, way_ids: _t.Iterable[int]) -> None:
+        """Make ``way_ids`` the whole selection (no nodes)."""
+        self.set_selection(())
+        self.set_shape_selection(way_ids)
+
+    def select_node(self, nid: int) -> None:
+        """One node, no shapes."""
+        self.set_shape_selection(())
+        self.set_selection({nid})
+
+    def clear_selection(self) -> None:
+        """Esc, a click on empty map: nothing selected."""
+        self.set_selection(())
+        self.set_shape_selection(())
+        self.last_shape_click = None
+
+    @property
+    def has_selection(self) -> bool:
+        return bool(self.selection or self.shape_selection)
+
+    @property
+    def shape_nodes(self) -> set[int]:
+        """The nodes of the selected shapes."""
+        if self.doc is None or not self.shape_selection:
+            return set()
+        return {r for w in self.doc.ways if w.id in self.shape_selection for r in w.refs}
+
+    @property
+    def marked_nodes(self) -> set[int]:
+        """Every node drawn as selected (and marked in 3D)."""
+        return self.selection | self.shape_nodes
+
+    def click_edge(self, a: int, b: int, x: float, y: float, toggle: bool = False) -> int | None:
+        """A click on the edge a–b at viewport point (x, y): ``toggle``
+        (Shift) adds or removes the edge's smallest shape; otherwise the
+        shape replaces the selection, and a repeat click on the same spot
+        steps to the next shape on that edge.  Returns the chosen way id."""
+        if self.doc is None:
+            return None
+        candidates = PICK.shapes_on_edge(self.doc, a, b)
+        if toggle:
+            if not candidates:
+                return None
+            self.last_shape_click = None
+            self.set_shape_selection(self.shape_selection ^ {candidates[0]})
+            return candidates[0]
+        last = self.last_shape_click
+        previous = last if last is not None and self.shape_selection == {last.chosen} else None
+        click = PICK.choose_shape(candidates, x, y, previous)
+        if click is None:
+            return None
+        self.last_shape_click = click
+        self.select_shapes({click.chosen})
+        return click.chosen
+
     # ─── edits ─────────────────────────────────────────────────────────
     def perform(self, name: str, edit: _t.Callable[[PE.PatchDoc], PE.PatchDoc]) -> bool:
         """Apply one edit as one undo step named ``name``.  A refused edit
@@ -196,8 +268,11 @@ class PatchEditModel(QObject):
         selection and announce the change."""
         self.doc = doc
         gone = {n for n in self.selection if n not in doc.nodes}
-        if gone:
+        present = {w.id for w in doc.ways}
+        gone_shapes = self.shape_selection - present
+        if gone or gone_shapes:
             self.selection -= gone
+            self.shape_selection -= gone_shapes
             self.selection_changed.emit()
         self.document_changed.emit()
         self.status_changed.emit()
@@ -209,19 +284,33 @@ class PatchEditModel(QObject):
         def edit(doc: PE.PatchDoc) -> PE.PatchDoc:
             doc = PE.move(doc, ids, dlat, dlon)
             return PE.merge_nodes(doc, *merge) if merge else doc
-        done = self.perform("Move and Merge" if merge else "Move", edit)
+        n = len(self.shape_selection)
+        name = ("Move and Merge" if merge else "Move" if not n
+                else "Move Shape" if n == 1 else "Move Shapes")
+        done = self.perform(name, edit)
         if done and merge:
             self.set_selection((self.selection - {merge[0]}) | {merge[1]})
         return done
 
     def delete_selection(self) -> bool:
-        ids = sorted(self.selection)
-        if not ids:
+        """Delete the selected shapes (``delete_ways``), then the selected
+        nodes still there (``delete_nodes``) — ONE undo step."""
+        ways, ids = sorted(self.shape_selection), sorted(self.selection)
+        if not ways and not ids:
             return False
-        done = self.perform("Delete Node" if len(ids) == 1 else "Delete Nodes",
-                            lambda doc: PE.delete_nodes(doc, ids))
+
+        def edit(doc: PE.PatchDoc) -> PE.PatchDoc:
+            if ways:
+                doc = PE.delete_ways(doc, ways)
+            left = [i for i in ids if i in doc.nodes]
+            return PE.delete_nodes(doc, left) if left else doc
+        if ways:
+            name = "Delete Shape" if len(ways) == 1 else "Delete Shapes"
+        else:
+            name = "Delete Node" if len(ids) == 1 else "Delete Nodes"
+        done = self.perform(name, edit)
         if done:
-            self.set_selection(())
+            self.clear_selection()
         return done
 
     def insert_node(self, a: int, b: int) -> bool:
@@ -229,7 +318,7 @@ class PatchEditModel(QObject):
         new_id = PE.next_node_id(self.doc) if self.doc is not None else None
         done = self.perform("Insert Node", lambda doc: PE.insert_on_edge(doc, a, b, new_id))
         if done:
-            self.set_selection({new_id})
+            self.select_node(new_id)
         return done
 
     def set_selection_alt(self, alt: float) -> bool:

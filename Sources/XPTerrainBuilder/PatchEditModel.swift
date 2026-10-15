@@ -41,6 +41,11 @@ final class PatchEditModel: ObservableObject {
     @Published var mode: Mode = .view
     /// Selected node ids (Edit mode; the 3D preview mirrors it).
     @Published var selection: Set<Int64> = []
+    /// Selected shapes, by way id (#759: a click on a line selects its
+    /// whole shape; `PatchShapeSelection.swift`).
+    @Published var shapeSelection: Set<Int64> = []
+    /// The last click on a line, for the repeat-click cycle.
+    var lastShapeClick: PatchShapePick.Click?
 
     // MARK: Edit-mode state (PatchEditActions.swift)
 
@@ -274,6 +279,8 @@ final class PatchEditModel: ObservableObject {
                 self.fileDate = (try? FileManager.default.attributesOfItem(
                     atPath: reply.path))?[.modificationDate] as? Date
                 self.selection = []
+                self.shapeSelection = []
+                self.lastShapeClick = nil
                 self.documentLoaded()
                 self.loadingKey = nil
                 self.setState(.loaded)

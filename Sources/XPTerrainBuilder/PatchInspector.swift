@@ -65,7 +65,11 @@ struct PatchInspector: View {
         }
         if model.mode == .edit {
             Divider()
-            PatchNodeInspector(model: model, doc: doc)
+            if model.shapeSelection.isEmpty {
+                PatchNodeInspector(model: model, doc: doc)
+            } else {
+                PatchShapeInspector(model: model, doc: doc)
+            }
         }
         if model.mode == .edit || model.unsavedEdits > 0 || model.tilesNeedingRebuild.contains(doc.tile)
             || model.editError != nil {

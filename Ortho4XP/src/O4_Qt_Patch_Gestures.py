@@ -5,7 +5,11 @@ Click selects (8 px), Shift-click toggles, Shift-drag box-selects, a drag
 on a node moves the selection — snapping the grabbed node while the
 POINTER is within 8 px of another node, merging only on release while
 snapped — a left drag on empty map pans, a click on a "+" handle inserts a
-node, Delete / Backspace delete, Esc clears.  A drag never edits the
+node, Delete / Backspace delete, Esc clears.  A click on a LINE selects
+its whole shape (#759, ``O4_Qt_Patch_ShapePick``; node > "+" > line > empty
+map; a repeat click on the same spot cycles the shapes sharing that edge;
+Shift-click toggles one), and a drag on a selected shape's line or nodes
+moves the whole shape without snapping.  A drag never edits the
 document per frame: the moved shapes are drawn here from the pointer
 delta, and ONE edit commits on release.
 """
@@ -17,8 +21,9 @@ import typing as _t
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QKeySequence, QPen, QShortcut
 
+import O4_Qt_Patch_ShapePick as PICK
 from O4_Qt_Patch_Geometry import SNAP_RADIUS_PX, style_class
-from O4_Qt_Patch_Overlay import NODE_FILL, SELECTION, paint_styled
+from O4_Qt_Patch_Overlay import NODE_FILL, SELECTION, STYLES, paint_styled
 
 __all__ = ["PatchGestures", "DragSkip", "CLICK_SLOP_PX"]
 
@@ -51,6 +56,8 @@ class PatchGestures:
         self.snap_target: int | None = None
         self.hover_edge: tuple[int, int] | None = None
         self.pressed_handle: tuple[int, int] | None = None
+        #: The line the press landed on (no node, no handle there).
+        self.pressed_edge: tuple[int, int] | None = None
         self.skip: DragSkip | None = None
         overlay.gestures = self
 
@@ -66,7 +73,8 @@ class PatchGestures:
         return vp.width(), vp.height()
 
     def _handles(self, index, hover):
-        return index.handles(self.model.selection, hover, *self._size())
+        return index.handles(self.model.selection, hover, *self._size(),
+                             shapes=self.model.shape_selection)
 
     @staticmethod
     def _moved(a: QPointF, b: QPointF) -> bool:
@@ -86,23 +94,29 @@ class PatchGestures:
             self.kind = self.BOX
             return True
         node = index.node_at(p.x(), p.y())
-        handles = (self._handles(index, None)
-                   + index.handles((), index.edge_at(p.x(), p.y()), *self._size()))
-        best = min(((math.hypot(x - p.x(), y - p.y()), edge) for edge, x, y in handles),
-                   default=None)
-        node_d = math.hypot(*(a - b for a, b in zip(index.screen(node), (p.x(), p.y())))) \
-            if node is not None else math.inf
-        if best is not None and best[0] <= SNAP_RADIUS_PX and best[0] < node_d:
-            self.pressed_handle = best[1]
-            self.kind = self.PENDING
-            return True
+        edge = index.edge_at(p.x(), p.y()) if node is None else None
+        best = None
         if node is None:
-            self.kind = self.PENDING
-            return True
-        if node not in self.model.selection:
-            self.model.set_selection({node})
-        self.grabbed, self.ids = node, sorted(self.model.selection)
-        self.kind = self.NODES
+            handles = self._handles(index, None) + index.handles((), edge, *self._size())
+            best = min(((math.hypot(x - p.x(), y - p.y()), e) for e, x, y in handles), default=None)
+            if best is not None and best[0] > SNAP_RADIUS_PX:
+                best = None
+        target = PICK.click_target(node, best is not None, edge is not None)
+        m = self.model
+        self.kind = self.PENDING
+        if target[0] == "node":
+            if node not in m.marked_nodes:
+                m.select_node(node)
+            self.grabbed, self.ids = node, sorted(m.marked_nodes)
+            self.kind = self.NODES
+        elif target[0] == "handle":
+            self.pressed_handle = best[1]
+        elif target[0] == "edge":
+            self.pressed_edge = edge
+            if m.shape_selection.intersection(PICK.shapes_on_edge(m.doc, *edge)):
+                # a selected shape's line: drag the whole shape
+                self.grabbed, self.ids = edge[0], sorted(m.marked_nodes)
+                self.kind = self.NODES
         return True
 
     def move(self, event) -> bool:
@@ -112,6 +126,7 @@ class PatchGestures:
             return False                  # the map still reports the pointer
         moved = self._moved(self.start, p)
         if self.kind == self.PENDING and moved:
+            self.model.last_shape_click = None
             self.kind = self.PAN
         if self.kind == self.PAN:
             d = p - self.last
@@ -124,7 +139,9 @@ class PatchGestures:
             a = self.overlay.lat_lon(self.start)
             b = self.overlay.lat_lon(p)
             self.dlat, self.dlon = b[0] - a[0], b[1] - a[1]
-            self.snap_target = index.node_at(p.x(), p.y(), excluding=set(self.ids))
+            # a shape drag never snaps (#759)
+            self.snap_target = (index.node_at(p.x(), p.y(), excluding=set(self.ids))
+                                if not self.model.shape_selection else None)
         self.current = self.last = p
         self.overlay.update()
         return True
@@ -140,29 +157,37 @@ class PatchGestures:
             if self.kind == self.NODES:
                 if self.skip is not None:
                     merge = (self.grabbed, self.snap_target) if self.snap_target is not None else None
+                    self.model.last_shape_click = None
                     self.model.move_selection(self.ids, self.dlat, self.dlon, merge)
-                elif self.model.selection != {self.grabbed}:
-                    self.model.set_selection({self.grabbed})
+                elif self.pressed_edge is not None:
+                    self.model.click_edge(*self.pressed_edge, self.start.x(), self.start.y())
+                else:
+                    self.model.select_node(self.grabbed)
             elif self.kind == self.BOX:
                 if self._moved(self.start, p):
                     found = index.nodes_in_rect(self.start.x(), self.start.y(), p.x(), p.y())
                     self.model.set_selection(self.model.selection | set(found))
                 else:
                     node = index.node_at(self.start.x(), self.start.y())
+                    edge = index.edge_at(self.start.x(), self.start.y())
                     if node is not None:
                         self.model.toggle(node)
+                    elif edge is not None:
+                        self.model.click_edge(*edge, self.start.x(), self.start.y(), toggle=True)
             elif self.kind == self.PENDING:
                 if self.pressed_handle is not None:
                     self.model.insert_node(*self.pressed_handle)
-                elif self.model.selection:
-                    self.model.set_selection(())
+                elif self.pressed_edge is not None:
+                    self.model.click_edge(*self.pressed_edge, self.start.x(), self.start.y())
+                else:
+                    self.model.clear_selection()
             return True
         finally:
             self.reset()
 
     def reset(self) -> None:
         self.kind = self.IDLE
-        self.snap_target = self.pressed_handle = self.grabbed = None
+        self.snap_target = self.pressed_handle = self.pressed_edge = self.grabbed = None
         self.ids = []
         self.dlat = self.dlon = 0.0
         self.skip = None
@@ -191,12 +216,12 @@ class PatchGestures:
 
     def key(self, which: str) -> bool:
         """Whether Edit mode consumed the key."""
-        if not (self.overlay._editing() and self.model.selection):
+        if not (self.overlay._editing() and self.model.has_selection):
             return False
         if which == "delete":
             return self.model.delete_selection()
         if which == "escape":
-            self.model.set_selection(())
+            self.model.clear_selection()
             return True
         return False
 
@@ -226,10 +251,11 @@ class PatchGestures:
                     if path is not None:
                         shapes.append((style_class(way.tags), way.closed, path))
             paint_styled(painter, shapes)
+        self._paint_shapes(painter, doc)
         width, height = self._size()
         painter.setPen(QPen(NODE_FILL, 1))
         painter.setBrush(SELECTION)
-        for nid in self.model.selection:
+        for nid in self.model.marked_nodes:
             p = self._at(nid)
             if p is not None and -8 <= p.x() <= width + 8 and -8 <= p.y() <= height + 8:
                 painter.drawRect(QRectF(p.x() - 4, p.y() - 4, 8, 8))
@@ -248,6 +274,23 @@ class PatchGestures:
             pen.setDashPattern([4, 3])
             painter.setPen(pen)
             painter.drawRect(rect)
+
+    def _paint_shapes(self, painter, doc) -> None:
+        """Selected shapes: the full outline in the selection colour at
+        twice the stroke width, over a light selection tint (#759)."""
+        tint = QColor(SELECTION)
+        tint.setAlpha(46)
+        for way in doc.ways:
+            if way.id not in self.model.shape_selection:
+                continue
+            path = self.overlay.way_path(way.refs, self._at)
+            if path is None:
+                continue
+            if way.closed:
+                painter.fillPath(path, tint)
+            pen = QPen(SELECTION, 2 * STYLES[style_class(way.tags)][2])
+            pen.setJoinStyle(Qt.RoundJoin)
+            painter.strokePath(path, pen)
 
     @staticmethod
     def _paint_handle(painter, p: QPointF) -> None:

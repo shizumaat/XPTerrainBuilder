@@ -376,3 +376,101 @@ def test_the_3d_button_and_ctrl_3_open_one_preview_window(editor):
     action.trigger()
     assert ed.preview is window                     # one window, raised
     window.close()
+
+
+# ─── a line selects its whole shape (#759) ────────────────────────────────
+
+def test_shape_pick_rules_are_pure():
+    import O4_Qt_Patch_ShapePick as PICK
+    assert PICK.click_target(-5, True, True) == ("node", -5)
+    assert PICK.click_target(None, True, True) == ("handle",)
+    assert PICK.click_target(None, False, True) == ("edge",)
+    assert PICK.click_target(None, False, False) == ("empty",)
+    case = next(c for c in CASES if c["name"] == "delete_ways_shared_edge_keeps_shared_nodes")
+    doc = PE.PatchDoc.from_wire(case["doc"]["nodes"], case["doc"]["ways"])
+    # two equal squares share -2/-3: equal area goes to the lower way id
+    assert PICK.shapes_on_edge(doc, -3, -2) == [-102, -101]
+    assert PICK.shapes_on_edge(doc, -1, -3) == []
+    first = PICK.choose_shape([-102, -101], 10, 10, None)
+    second = PICK.choose_shape([-102, -101], 13, 10, first)
+    assert (first.chosen, second.chosen) == (-102, -101)
+    assert PICK.choose_shape([-102, -101], 13, 10, second).chosen == -102
+    assert PICK.choose_shape([-102, -101], 14.5, 10, first).chosen == -102
+    st = PICK.shape_stats(doc, -101)
+    assert st.node_count == 4 and st.neighbours == 2 and (st.min_alt, st.max_alt) == (100.0, 106.0)
+    assert st.area_m2 == pytest.approx(108.7 * 94.2, rel=0.01)
+    assert PICK.shape_stats(doc, -103).area_m2 == 0.0
+
+
+_TRIANGLE = '  <way id="-12"><nd ref="-2"/><nd ref="-3"/><nd ref="-5"/><nd ref="-2"/>' \
+            '<tag k="building" v="yes"/><tag k="role" v="building"/></way>\n</osm>'
+
+
+def _along(ed, a, b, t):
+    pa, pb = _screen(ed, a), _screen(ed, b)
+    return pa + (pb - pa) * t
+
+
+def _click(view, pos, mods=Qt.NoModifier):
+    _mouse(view, QEvent.MouseButtonPress, pos, mods=mods)
+    _mouse(view, QEvent.MouseButtonRelease, pos, buttons=Qt.NoButton, mods=mods)
+
+
+def test_click_line_selects_cycles_drags_and_deletes_the_shape(editor, patches):
+    ed, view = editor
+    with open(os.path.join(patches, "ZZZZ_auto.patch.osm"), "w", encoding="utf-8", newline="\n") as f:
+        f.write(_AUTO.replace("</osm>", _TRIANGLE.split("\n</osm>")[0] + "\n</osm>"))
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    assert len(ed.model.doc.ways) == 3
+    # a click on the shared edge -2/-3 picks the smaller shape, repeats cycle
+    spot = _along(ed, -2, -3, 0.25)
+    _click(view, spot)
+    assert ed.model.shape_selection == {-12} and ed.model.selection == set()
+    _click(view, spot + QPointF(2, 0))
+    assert ed.model.shape_selection == {-10}
+    _click(view, spot)
+    assert ed.model.shape_selection == {-12}
+    assert not ed.panel.shape_box.isHidden() and ed.panel.delete_shapes.text() == "Delete shape"
+    view.viewport().grab()                          # outline, tint, node squares, "+" handles
+    spot = _along(ed, -2, -3, 0.25)                 # the first paint lays the view out anew
+    # Shift-click on another line adds its shape; a node click is a node again
+    _click(view, _along(ed, -1, -2, 0.25), mods=Qt.ShiftModifier)
+    assert ed.model.shape_selection == {-12, -10}
+    _click(view, _screen(ed, -4))
+    assert ed.model.shape_selection == set() and ed.model.selection == {-4}
+    # drag the selected triangle by its line: every node moves, one step, no snap
+    _click(view, spot)
+    assert ed.model.shape_selection == {-12}
+    before = dict(ed.model.doc.nodes)
+    press = _along(ed, -2, -3, 0.75)
+    _mouse(view, QEvent.MouseButtonPress, press)
+    _mouse(view, QEvent.MouseMove, press + QPointF(10, 0))
+    _mouse(view, QEvent.MouseMove, _screen(ed, -4))   # over a node: a shape drag never snaps
+    assert ed.gestures.snap_target is None
+    _mouse(view, QEvent.MouseButtonRelease, _screen(ed, -4), buttons=Qt.NoButton)
+    assert ed.model.undo_stack.count() == 1 and ed.model.undo_stack.undoText() == "Move Shape"
+    moved = {n for n in before if ed.model.doc.nodes[n] != before[n]}
+    assert moved == {-2, -3, -5}                       # shared -2/-3 stretch the apron
+    # Delete: the triangle goes, the apron keeps its (shared) nodes; one step
+    assert ed.gestures.key("delete")
+    assert [w.id for w in ed.model.doc.ways] == [-10, -11]
+    assert -5 in ed.model.doc.nodes                    # still the service road's
+    assert ed.model.undo_stack.undoText() == "Delete Shape" and ed.model.shape_selection == set()
+    ed.model.undo_stack.undo()
+    assert len(ed.model.doc.ways) == 3
+
+
+def test_mixed_selection_deletes_shapes_then_nodes_in_one_step(editor):
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    ed.model.select_shapes({-11})
+    ed.model.set_selection({-1})
+    assert ed.model.delete_selection()
+    assert [w.id for w in ed.model.doc.ways] == [-10]
+    assert -5 not in ed.model.doc.nodes and -1 not in ed.model.doc.nodes and -3 in ed.model.doc.nodes
+    assert ed.model.undo_stack.count() == 1
+    assert ed.model.undo_stack.undoText() == "Delete Shape"

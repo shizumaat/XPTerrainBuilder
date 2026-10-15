@@ -6,7 +6,8 @@ words).
 View mode: the source line, counts, the stale note, and "Build this tile
 first" when the zoomed airport has no patch.  Edit mode adds the node
 inspector (one node: lat/lon, elevation, "Used by", Delete; several: the
-range, "Set to", "Offset", Delete N).  The save bar shows in Edit mode and
+range, "Set to", "Offset", Delete N; a selected shape, #759: role, ref,
+nodes, area, perimeter, elevation range, "Used by", "Delete shape").  The save bar shows in Edit mode and
 whenever there is something to save or rebuild; "Revert to auto…" confirms
 inside the box.  The widgets are built once and refreshed in place, so a
 field being typed in keeps its focus.
@@ -19,6 +20,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QVBoxLayout, QWidget)
 
+import O4_Qt_Patch_ShapePick as PICK
 from O4_Qt_Patch_Controller import PatchController, built_date_text
 from O4_Qt_Patch_Geometry import role_name
 
@@ -143,7 +145,8 @@ class PatchPanel(QGroupBox):
         v.setContentsMargins(0, 4, 0, 0)
         v.setSpacing(6)
         m = self.model
-        self.hint = _note("Click a node to select it; ⇧-click or ⇧-drag to select several.")
+        self.hint = _note("Click a node or a line to select it (a line selects its whole shape); "
+                          "⇧-click or ⇧-drag to select several.")
         v.addWidget(self.hint)
         # one node
         self.single = QWidget()
@@ -192,7 +195,37 @@ class PatchPanel(QGroupBox):
         self.delete_many.clicked.connect(m.delete_selection)
         u.addWidget(self.delete_many)
         v.addWidget(self.multi)
+        v.addWidget(self._make_shape_inspector())
         return box
+
+    def _make_shape_inspector(self) -> QWidget:
+        """Selected shapes (#759; the Mac's ``PatchShapeInspector``)."""
+        self.shape_box = QWidget()
+        s = QVBoxLayout(self.shape_box)
+        s.setContentsMargins(0, 0, 0, 0)
+        head = QHBoxLayout()
+        self.shape_title = QLabel()
+        self.shape_title.setStyleSheet("font-weight: 600;")
+        self.shape_id = _note()
+        head.addWidget(self.shape_title)
+        head.addStretch(1)
+        head.addWidget(self.shape_id)
+        s.addLayout(head)
+        self.shape_rows = {}
+        for key in ("ref", "Nodes", "Area", "Perimeter", "Elevation", "Used by"):
+            row, value = _row(key)
+            self.shape_rows[key] = (row, row.layout().itemAt(0).widget(), value)
+            s.addWidget(row)
+        self.shape_mesh_note = _note()
+        self.shape_extra_note = _note()
+        s.addWidget(self.shape_mesh_note)
+        s.addWidget(self.shape_extra_note)
+        s.addWidget(_note("Drag a selected shape to move it; nodes it shares with other "
+                          "shapes move too."))
+        self.delete_shapes = QPushButton()
+        self.delete_shapes.clicked.connect(self.model.delete_selection)
+        s.addWidget(self.delete_shapes)
+        return self.shape_box
 
     def _make_save_bar(self) -> QWidget:
         bar = QWidget()
@@ -296,6 +329,14 @@ class PatchPanel(QGroupBox):
     def _refresh_inspector(self) -> None:
         m, doc = self.model, self.model.doc
         ids = sorted(i for i in m.selection if i in doc.nodes)
+        shapes = bool(m.shape_selection)
+        self.shape_box.setVisible(shapes)
+        if shapes:
+            self.hint.setVisible(False)
+            self.single.setVisible(False)
+            self.multi.setVisible(False)
+            self._refresh_shapes(len(ids))
+            return
         self.hint.setVisible(not ids)
         self.single.setVisible(len(ids) == 1)
         self.multi.setVisible(len(ids) > 1)
@@ -332,6 +373,43 @@ class PatchPanel(QGroupBox):
                                     "leaves those alone." % format(lacking, ","))
             self.multi_note.setVisible(lacking > 0)
             self.delete_many.setText("Delete %s nodes" % format(len(ids), ","))
+
+    def _refresh_shapes(self, extra_nodes: int) -> None:
+        m, doc = self.model, self.model.doc
+        ways = [w for w in doc.ways if w.id in m.shape_selection]
+        one = len(ways) == 1
+        for row, _key, _value in self.shape_rows.values():
+            row.setVisible(one)
+        self.shape_mesh_note.setVisible(False)
+        if one:
+            way = ways[0]
+            st = PICK.shape_stats(doc, way.id)
+            self.shape_title.setText(role_name(way.tags) or "shape")
+            self.shape_id.setText("Way %d" % way.id)
+            values = {
+                "ref": way.tags.get("ref"),
+                "Nodes": format(st.node_count, ","),
+                "Area": "%s m²" % format(round(st.area_m2), ",") if way.closed else None,
+                "Perimeter": "%s m" % format(round(st.perimeter_m), ","),
+                "Elevation": ("%.2f – %.2f m" % (st.min_alt, st.max_alt)
+                              if st.min_alt is not None else None),
+                "Used by": "1 other shape" if st.neighbours == 1
+                else "%s other shapes" % format(st.neighbours, ","),
+            }
+            for key, (row, label, value) in self.shape_rows.items():
+                row.setVisible(values[key] is not None)
+                value.setText(values[key] or "")
+            self.shape_rows["Perimeter"][1].setText("Perimeter" if way.closed else "Length")
+            self.shape_mesh_note.setText("%s nodes: elevation from the mesh."
+                                         % format(st.nodes_without_elevation, ","))
+            self.shape_mesh_note.setVisible(st.nodes_without_elevation > 0)
+        else:
+            self.shape_title.setText(_plural(len(ways), "shape"))
+            self.shape_id.setText(_plural(len(m.shape_nodes), "node"))
+        self.shape_extra_note.setText("Also %s, deleted with the shapes."
+                                      % _plural(extra_nodes, "selected node"))
+        self.shape_extra_note.setVisible(extra_nodes > 0)
+        self.delete_shapes.setText("Delete shape" if one else "Delete %s shapes" % format(len(ways), ","))
 
     def _refresh_save_bar(self, n: int) -> None:
         c, m, p = self.controller, self.model, self.model.patch

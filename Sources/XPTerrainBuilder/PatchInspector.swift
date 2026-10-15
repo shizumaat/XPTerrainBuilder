@@ -4,8 +4,9 @@ import SceneryKit
 /// The "Patch · ICAO" box in `BuildPane`, below Activity (patch-editor
 /// spec §4; mockup side panel). View mode: the source line, counts, the
 /// stale note, and "Build this tile first" when the zoomed airport has no
-/// patch. L3 adds the node inspector and the save bar. Renders nothing
-/// while the patch layer is hidden.
+/// patch. Edit mode adds the node inspector (`PatchNodeInspector`); the
+/// save bar (`PatchSaveBar`) shows in Edit mode and whenever there is
+/// something to save or rebuild. Renders nothing while the layer is hidden.
 struct PatchInspector: View {
     @ObservedObject var model: PatchEditModel
 
@@ -62,6 +63,15 @@ struct PatchInspector: View {
                  color: MapCanvasView.badgeStopped)
                 .help(doc.staleInputs.joined(separator: ", "))
         }
+        if model.mode == .edit {
+            Divider()
+            PatchNodeInspector(model: model, doc: doc)
+        }
+        if model.mode == .edit || model.unsavedEdits > 0 || model.tilesNeedingRebuild.contains(doc.tile)
+            || model.editError != nil {
+            Divider()
+            PatchSaveBar(model: model, doc: doc)
+        }
     }
 
     /// "Auto patch, built 12 Oct" / "Edited · KHIO_edited.patch.osm" /
@@ -73,7 +83,7 @@ struct PatchInspector: View {
             guard let date = model.fileDate else { return "Auto patch" }
             return "Auto patch, built \(date.formatted(.dateTime.day().month(.abbreviated)))"
         case .manual:
-            return doc.isUserEdited ? "Edited · \(file)" : "Manual · \(file)"
+            return doc.isHandMade ? "Manual · \(file)" : "Edited · \(file)"
         }
     }
 

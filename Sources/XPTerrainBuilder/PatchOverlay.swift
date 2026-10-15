@@ -56,23 +56,41 @@ struct PatchMapGeometry: Sendable {
 /// by role, node squares where nodes are ≥ 6 pt apart, the legend and the
 /// bottom-left chip. Its own view, observing only the patch model and the
 /// camera, so the base map never redraws for it. Hit-testing is off in
-/// View mode; L3 adds the Edit-mode gestures.
+/// View mode; in Edit mode `PatchEditLayer` (PatchEditGestures.swift) sits
+/// on top and takes the clicks and drags. Shapes and nodes a drag is moving
+/// are skipped here and drawn by that layer.
 struct PatchOverlay: View {
     @ObservedObject var model: PatchEditModel
     @ObservedObject var camera: ViewState<MapCamera>
+    @Environment(\.undoManager) private var undoManager
 
     /// Node squares closer than this on screen are thinned out.
     static let nodeSpacing: CGFloat = 6
     static let nodeSize: CGFloat = 6
 
     var body: some View {
+        ZStack {
+            layer
+            PatchUnsavedPromptCard(model: model)
+            PatchKeyCatcher(model: model)
+        }
+        .onAppear { model.undoManager = undoManager }
+        .onChange(of: undoManager) { model.undoManager = undoManager }
+    }
+
+    @ViewBuilder
+    private var layer: some View {
         if model.isShowing, let geometry = model.geometry, let document = model.document {
+            let skip = model.dragSkip
             Canvas(rendersAsynchronously: false) { context, size in
-                Self.draw(geometry, camera: camera.value, in: context, size: size)
+                Self.draw(geometry, camera: camera.value, skip: skip, in: context, size: size)
             }
             .allowsHitTesting(false)
+            .overlay {
+                if model.mode == .edit { PatchEditLayer(model: model, drag: model.drag, camera: camera) }
+            }
             .overlay(alignment: .topTrailing) {
-                PatchLegend().padding(.top, 44).padding(.trailing, 8)
+                PatchLegend().padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
             }
             .overlay(alignment: .bottomLeading) {
                 Text(Self.chipText(document))
@@ -81,21 +99,21 @@ struct PatchOverlay: View {
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
                     .padding(8)
+                    .allowsHitTesting(false)
             }
-            .allowsHitTesting(false)
         }
     }
 
     /// "KHIO · auto patch · 4,576 nodes · 392 shapes".
     static func chipText(_ doc: PatchDocument) -> String {
         let source = doc.source == .auto ? "auto patch"
-            : doc.isUserEdited ? "edited patch" : "manual patch"
+            : doc.isHandMade ? "manual patch" : "edited patch"
         return "\(doc.icao) · \(source) · \(doc.nodes.count.formatted()) nodes · \(doc.ways.count.formatted()) shapes"
     }
 
     // MARK: - Drawing
 
-    private static func draw(_ geometry: PatchMapGeometry, camera: MapCamera,
+    private static func draw(_ geometry: PatchMapGeometry, camera: MapCamera, skip: PatchDragSkip?,
                              in context: GraphicsContext, size: CGSize) {
         let scale = camera.scale
         let cx = camera.centerLon, cy = MapCamera.mercatorY(lat: camera.centerLat)
@@ -107,6 +125,7 @@ struct PatchOverlay: View {
 
         var paths: [PatchStyleClass: (fill: Path, stroke: Path)] = [:]
         for shape in geometry.shapes {
+            if let skip, skip.ways.contains(shape.way) { continue }
             guard shape.maxX >= view.minX, shape.minX <= view.maxX,
                   shape.maxY >= view.minY, shape.minY <= view.maxY else { continue }
             var entry = paths[shape.style] ?? (Path(), Path())
@@ -119,6 +138,13 @@ struct PatchOverlay: View {
             entry.stroke.addPath(outline)
             paths[shape.style] = entry
         }
+        paint(paths, in: context)
+        drawNodes(geometry, view: view, skip: skip?.nodes ?? [], screen: screen, in: context)
+    }
+
+    /// Fill and stroke per style class, in draw order (also the edit
+    /// layer's moved shapes).
+    static func paint(_ paths: [PatchStyleClass: (fill: Path, stroke: Path)], in context: GraphicsContext) {
         for style in PatchMapGeometry.drawOrder {
             guard let entry = paths[style] else { continue }
             let look = PatchStyle.of(style)
@@ -130,13 +156,13 @@ struct PatchOverlay: View {
             }
             context.stroke(entry.stroke, with: .color(look.stroke), lineWidth: look.width)
         }
-        drawNodes(geometry, view: view, screen: screen, in: context)
     }
 
     /// Small squares, thinned so no two drawn squares are closer than
     /// `nodeSpacing` on screen.
     private static func drawNodes(_ geometry: PatchMapGeometry,
                                   view: (minX: Double, maxX: Double, minY: Double, maxY: Double),
+                                  skip: Set<Int64>,
                                   screen: (CGPoint) -> CGPoint, in context: GraphicsContext) {
         let cell = nodeSpacing
         var taken: [Int64: CGPoint] = [:]
@@ -144,7 +170,7 @@ struct PatchOverlay: View {
         func key(_ i: Int, _ j: Int) -> Int64 { (Int64(i) << 32) | Int64(UInt32(truncatingIfNeeded: j)) }
         for node in geometry.nodes {
             guard node.x >= view.minX, node.x <= view.maxX,
-                  node.y >= view.minY, node.y <= view.maxY else { continue }
+                  node.y >= view.minY, node.y <= view.maxY, !skip.contains(node.id) else { continue }
             let p = screen(CGPoint(x: node.x, y: node.y))
             let i = Int((p.x / cell).rounded(.down)), j = Int((p.y / cell).rounded(.down))
             var clear = true

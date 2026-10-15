@@ -473,6 +473,12 @@ class MapView(QGraphicsView):
     def display_code(self):
         return self._display_code
 
+    def imagery_cache(self):
+        """``(cache folder, source code, max zoom)`` of the tiles the map
+        draws — what the 3D preview drapes from (its cached files only)."""
+        return (livemap_cache_dir(), self._display_code,
+                min(self._provider_max_zl, FETCH_MAX_ZL))
+
     def zoom_level(self):
         return self._zoom
 

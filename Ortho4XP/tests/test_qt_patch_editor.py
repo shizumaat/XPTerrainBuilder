@@ -353,3 +353,26 @@ def test_pack_outlines_follow_the_patch_through_pack_objects_ready(editor):
     assert "The pack draws no boundary." in ed.outlines.help_text
     assert ed.overlay.toolbar.outlines_box.isChecked()
     view.viewport().grab()                          # paints every layer once
+
+
+def test_the_3d_button_and_ctrl_3_open_one_preview_window(editor):
+    ed, view = editor
+    table = ed.engine._table()
+    table["pack_objects"] = lambda **kw: {"status": "started"}
+
+    def no_dem(**kw):
+        raise ValueError("No elevation data for tile +30+031.")
+    table["terrain_sample"] = no_dem
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    button = ed.overlay.toolbar.preview_button
+    assert button.text() == "3D" and "3D preview" in button.toolTip()
+    button.click()
+    window = ed.preview
+    assert window.isVisible() and window.windowTitle() == "3D Preview · ZZZZ"
+    assert "No elevation data for tile +30+031." in window.chip_text()
+    action = ed.menu_actions(view)["preview"]
+    assert action.shortcut().toString() == "Ctrl+3"
+    action.trigger()
+    assert ed.preview is window                     # one window, raised
+    window.close()

@@ -3,7 +3,7 @@ patch-editor-20261015 §2, protocol 1.12).
 
 The Qt app runs the engine in-process (``EngineSession``); it calls the SAME
 functions the JSON-lines transport maps — looked up in the transport's own
-command table (``o4_engine.jsonl._build_handlers``), never re-spelled — so a
+command table (``o4_engine.jsonl.command_table``), never re-spelled — so a
 command the engine does not have (``pack_outlines`` before its lane lands)
 is simply absent (:meth:`PatchEngine.has`).
 
@@ -12,7 +12,12 @@ stall the map, so :meth:`PatchEngine.call` runs each on a worker thread and
 hands ``callback(result, error)`` back on the GUI thread.  ``pack_objects``
 is asynchronous in the engine itself: it replies ``{"status": "started"}``
 and completes through the ``PackObjectsReady`` event, which the window
-routes to :meth:`PatchEngine.on_pack_objects_ready`.
+routes to :meth:`PatchEngine.on_pack_objects_ready`.  One box is asked
+for once: the map's pack outlines and the 3D preview ask for the same box
+(A9) and share the request and its answer (the last box's answer is kept).
+
+:meth:`PatchEngine.run` is the same worker-thread round trip for the 3D
+preview's own number crunching (triangulation, the terrain cut-out).
 """
 from __future__ import annotations
 
@@ -38,7 +43,9 @@ class PatchEngine(QObject):
         self._run_async = run_async
         self._handlers: dict | None = None
         self._lock = threading.Lock()
-        self._pending: dict[str, Callback] = {}
+        self._pending: dict[str, tuple] = {}
+        #: The last ``pack_objects`` box: key → {"callbacks": [...], "reply": (result, error) | None}.
+        self._pack: dict[tuple, dict] = {}
         self._tokens = itertools.count(1)
         self._finished.connect(self._deliver)
 
@@ -46,7 +53,7 @@ class PatchEngine(QObject):
         with self._lock:
             if self._handlers is None:
                 from o4_engine import jsonl
-                self._handlers = jsonl._build_handlers(self._session)
+                self._handlers = jsonl.command_table(self._session)
             return self._handlers
 
     def has(self, name: str) -> bool:
@@ -64,6 +71,21 @@ class PatchEngine(QObject):
         except Exception as exc:              # the engine's sentence
             return None, str(exc) or type(exc).__name__
 
+    def run(self, work: _t.Callable[[], _t.Any], callback: Callback) -> None:
+        """``work()`` on a worker thread; ``callback(result, None)`` or
+        ``callback(None, error sentence)`` on the GUI thread."""
+        def task() -> None:
+            try:
+                reply = (work(), None)
+            except Exception as exc:          # the sentence, not a crash
+                reply = (None, str(exc) or type(exc).__name__)
+            self._finished.emit(callback, *reply)
+
+        if self._run_async:
+            threading.Thread(target=task, daemon=True, name="o4-qt-work").start()
+        else:
+            task()
+
     def call(self, name: str, callback: Callback, **kwargs) -> None:
         """Run the command with ``kwargs``; ``callback(result, None)`` or
         ``callback(None, error sentence)`` on the GUI thread."""
@@ -78,24 +100,47 @@ class PatchEngine(QObject):
     def pack_objects(self, tile: str, icao: str, bbox: _t.Sequence[float],
                      callback: Callback) -> None:
         """``pack_objects`` (async in the engine): ``callback(result,
-        error)`` once its ``PackObjectsReady`` arrives."""
+        error)`` once its ``PackObjectsReady`` arrives.  A box already asked
+        for is not asked again: the callback joins the request, or gets the
+        kept answer at once."""
+        key = (tile, icao, tuple(round(float(v), 9) for v in bbox))
+        entry = self._pack.get(key)
+        if entry is not None and entry["reply"] is not None:
+            callback(*entry["reply"])
+            return
+        if entry is not None:
+            entry["callbacks"].append(callback)
+            return
+        self._pack = {key: {"callbacks": [callback], "reply": None}}
         token = f"qt-pack-{next(self._tokens)}"
-        self._pending[token] = callback
+        self._pending[token] = key
 
         def started(_reply, error):
             if error is not None and self._pending.pop(token, None) is not None:
-                callback(None, error)
+                self._answer(key, None, error)
 
         self.call("pack_objects", started, tile=tile, icao=icao,
                   bbox=list(bbox), request=token)
 
+    def _answer(self, key: tuple, result, error) -> None:
+        entry = self._pack.get(key)
+        if entry is None:
+            return
+        callbacks, entry["callbacks"] = entry["callbacks"], []
+        if error is None:
+            entry["reply"] = (result, None)
+        else:                                 # a refusal is not kept: ask again next time
+            self._pack.pop(key, None)
+        for callback in callbacks:
+            callback(result, error)
+
     def on_pack_objects_ready(self, event) -> None:
         """The window's handler for ``PackObjectsReady``."""
-        callback = self._pending.pop(getattr(event, "request", None), None)
-        if callback is not None:
+        key = self._pending.pop(getattr(event, "request", None), None)
+        if key is not None:
             error = None if event.result is not None else (
                 event.error or "The pack's buildings could not be read.")
-            callback(event.result, error)
+            self._answer(key, event.result, error)
 
     @staticmethod
     def _deliver(callback: Callback, result, error) -> None:

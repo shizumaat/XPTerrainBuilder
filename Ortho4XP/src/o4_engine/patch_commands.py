@@ -12,7 +12,7 @@ What is reused, never re-spelled: patch file names and manual-patch
 detection (``O4_File_Names``, the names the build's ``include_patches`` and
 the driver read), the reuse gate's staleness computation
 (``auto_patch.driver.auto_patch_stale_inputs``, §1.4), the law's identity
-frame (``patch_edit.law_identity``) and the emitter's writing conventions
+frame (the law table's ``emit.identity``) and the emitter's writing conventions
 (``patch_file``).
 """
 from __future__ import annotations
@@ -23,9 +23,18 @@ import typing as _t
 import O4_File_Names as FNAMES
 
 from . import patch_file as PF
-from .patch_edit import law_identity
 
-__all__ = ["patch_list", "patch_load", "patch_save", "patch_revert"]
+
+__all__ = ["patch_list", "patch_load", "patch_save", "patch_revert", "law_identity"]
+
+
+def law_identity() -> tuple[float, int]:
+    """``(min_distinct_spacing_m, coordinate_dp)`` from the checked-in law
+    table — served by ``patch_load`` (the UI's snap radius, §3.3) and the
+    precision ``patch_save`` writes lat/lon at; never spelled here."""
+    from auto_patch_v2.law.tables import load_default
+    identity = load_default().tables.emit.identity
+    return float(identity.min_distinct_spacing_m), int(identity.coordinate_dp)
 
 
 def _tile(tile: str) -> tuple[int, int]:

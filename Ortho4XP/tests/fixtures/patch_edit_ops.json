@@ -1,28 +1,25 @@
 {
- "about": "Twin fixture of the patch editor's edit operations (spec Ortho4XP/docs/specs/patch-editor-20261015.md section 3). Run by pytest (tests/test_patch_edit.py over o4_engine/patch_edit.py) and by swift test (SceneryKit/PatchDocument.swift). Each case: start from doc, apply ops in order, compare with expect.",
- "schema": "{cases: [{name, origin, doc: {nodes, ways}, ops: [{op, args}], expect: {nodes, ways}}]}; a node is [id, lat, lon, alt|null] (degrees, metres MSL), a way {id, refs, tags}; a closed way repeats its first ref last.",
+ "about": "Twin fixture of the patch editor's edit operations (spec Ortho4XP/docs/specs/patch-editor-20261015.md section 3, as amended ddcb64314). Run by pytest (tests/test_patch_edit.py over o4_engine/patch_edit.py) and by swift test (SceneryKit/PatchDocument.swift). Each case: start from doc, apply ops in order, compare with expect.",
+ "schema": "{cases: [{name, doc: {nodes, ways}, ops: [{op, args}], expect: {nodes, ways}}]}; a node is [id, lat, lon, alt|null] (degrees, metres MSL), a way {id, refs, tags}; a closed way repeats its first ref last.",
  "compare": "nodes and ways in order; ids and refs exactly; lat/lon within tolerance.deg; alt within tolerance.m (null equals only null); tags exactly.",
  "tolerance": {
   "deg": 1e-09,
   "m": 1e-06
  },
- "min_distinct_spacing_m": 0.5,
- "identity_dp": 11,
- "rules": {
-  "origin": "the centre of the bbox of the doc's nodes AS LOADED: ((min lat + max lat) / 2, (min lon + max lon) / 2), fixed for the document's life (each case states it as origin).",
-  "local_plane": "metres per degree lat = 111320.0; metres per degree lon = 111320.0 * max(cos(origin lat in radians), 1e-6) (osm_adapter._local_metres); distance = hypot(dlat * m_lat, dlon * m_lon).",
-  "snap": "only move and set_position snap, only the moved nodes: a moved node whose distance to a NON-moved node is strictly less than min_distinct_spacing_m merges into the nearest one (that node keeps its position and alt; refs are replaced); an exact distance tie goes to the lowest survivor_key = (round(lat, identity_dp), round(lon, identity_dp)) compared lexicographically.",
-  "topology": "after every op: consecutive duplicate refs collapse (cyclically on a closed way); a closed way with < 3 distinct nodes or an open way with < 2 is removed; nodes it leaves behind are kept.",
-  "insert_on_edge": "new node at the midpoint, alt = mean of the ends (null if either is null), id = min(0, min node id) - 1, appended after the existing nodes, inserted into every way where a and b are consecutive in either direction; never snaps.",
-  "offset_alt": "a node with alt null keeps null."
+ "ops": {
+  "move": "{ids, dlat, dlon}: add the offset to each node. Never merges, however close the nodes end up.",
+  "set_position": "{id, lat, lon}. Never merges.",
+  "set_alt": "{ids, alt}: alt may be null (clears it).",
+  "offset_alt": "{ids, d}: add d metres; a node with alt null keeps null.",
+  "delete_nodes": "{ids}: remove the nodes from the document and from every way.",
+  "insert_on_edge": "{a, b}: new node at the midpoint, alt = mean of the ends (null if either is null), id = min(0, min node id) - 1, appended after the existing nodes, inserted into every way where a and b are consecutive in either direction. Never merges.",
+  "merge_nodes": "{source, target}: target keeps its position and alt; every ref to source becomes target; source leaves the document. No distance check (the UI decided)."
  },
+ "topology": "after every op: consecutive duplicate refs collapse (cyclically on a closed way); a closed way with < 3 distinct nodes or an open way with < 2 is removed; nodes a removed way leaves behind are kept.",
+ "ui_snap_reference": "NOT exercised here (UI-only, L3): the drag snap radius is patch_load's min_distinct_spacing_m (strictly less than), measured on the local plane at the document origin = centre of the loaded nodes' bbox ((min lat + max lat) / 2, (min lon + max lon) / 2), fixed for the document's life; metres per degree lat = 111320.0, per degree lon = 111320.0 * max(cos(origin lat), 1e-6) (osm_adapter._local_metres); ties go to the lowest survivor_key = (round(lat, identity_dp), round(lon, identity_dp)).",
  "cases": [
   {
    "name": "move_single_no_neighbour",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -158,10 +155,6 @@
   },
   {
    "name": "set_position_single",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -295,10 +288,6 @@
   },
   {
    "name": "set_alt_multi",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -434,10 +423,6 @@
   },
   {
    "name": "set_alt_clear_single",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -572,10 +557,6 @@
   },
   {
    "name": "offset_alt_multi_keeps_null",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -712,10 +693,6 @@
   },
   {
    "name": "delete_inside_ring",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -842,10 +819,6 @@
   },
   {
    "name": "delete_first_node_of_ring_keeps_it_closed",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -972,10 +945,6 @@
   },
   {
    "name": "delete_collapses_closed_way_below_3",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -1084,10 +1053,6 @@
   },
   {
    "name": "delete_collapses_open_way_below_2",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -1205,10 +1170,6 @@
   },
   {
    "name": "insert_on_shared_edge_both_ways",
-   "origin": [
-    30.00048828125,
-    31.0009765625
-   ],
    "doc": {
     "nodes": [
      [
@@ -1367,10 +1328,6 @@
   },
   {
    "name": "insert_null_alt_end",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [
@@ -1509,11 +1466,7 @@
    }
   },
   {
-   "name": "move_snaps_onto_neighbour_survivor_keeps_position_and_alt",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
+   "name": "move_within_spacing_does_not_merge",
    "doc": {
     "nodes": [
      [
@@ -1601,6 +1554,377 @@
       102.0
      ],
      [
+      -3,
+      30.0009765625,
+      31.000002,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      30.001953125,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -4,
+       -5
+      ],
+      "tags": {
+       "o4_feature": "crown_spine"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "set_position_onto_a_node_does_not_merge",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      30.001953125,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -4,
+       -5
+      ],
+      "tags": {
+       "o4_feature": "crown_spine"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "set_position",
+     "args": {
+      "id": -5,
+      "lat": 30.0009765625,
+      "lon": 31.0
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      30.0009765625,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -4,
+       -5
+      ],
+      "tags": {
+       "o4_feature": "crown_spine"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "merge_plain",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      70.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      71.0
+     ],
+     [
+      -3,
+      30.0,
+      31.000980377197266,
+      72.0
+     ],
+     [
+      -4,
+      30.0,
+      31.001953125,
+      73.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -501,
+      "refs": [
+       -1,
+       -2
+      ],
+      "tags": {
+       "aeroway": "taxiway"
+      }
+     },
+     {
+      "id": -502,
+      "refs": [
+       -3,
+       -4
+      ],
+      "tags": {
+       "aeroway": "apron"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "merge_nodes",
+     "args": {
+      "source": -3,
+      "target": -2
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      70.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      71.0
+     ],
+     [
+      -4,
+      30.0,
+      31.001953125,
+      73.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -501,
+      "refs": [
+       -1,
+       -2
+      ],
+      "tags": {
+       "aeroway": "taxiway"
+      }
+     },
+     {
+      "id": -502,
+      "refs": [
+       -2,
+       -4
+      ],
+      "tags": {
+       "aeroway": "apron"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "merge_collapses_a_ring_edge",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      30.001953125,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -4,
+       -5
+      ],
+      "tags": {
+       "o4_feature": "crown_spine"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "merge_nodes",
+     "args": {
+      "source": -3,
+      "target": -4
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
       -4,
       30.0009765625,
       31.0,
@@ -1641,11 +1965,188 @@
    }
   },
   {
-   "name": "move_snap_collapses_consecutive_duplicate",
-   "origin": [
-    30.0009765625,
-    31.00048828125
+   "name": "merge_in_a_triangle_removes_the_way",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      80.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      81.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0,
+      82.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -601,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "merge_nodes",
+     "args": {
+      "source": -2,
+      "target": -3
+     }
+    }
    ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      80.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0,
+      82.0
+     ]
+    ],
+    "ways": []
+   }
+  },
+  {
+   "name": "merge_collapses_an_open_way_below_2",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      30.001953125,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -4,
+       -5
+      ],
+      "tags": {
+       "o4_feature": "crown_spine"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "merge_nodes",
+     "args": {
+      "source": -5,
+      "target": -4
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "move_then_merge_is_the_release_while_snapped",
    "doc": {
     "nodes": [
      [
@@ -1711,10 +2212,18 @@
      "op": "move",
      "args": {
       "ids": [
-       -5
+       -3,
+       -2
       ],
-      "dlat": -0.0009755625,
-      "dlon": 0.0
+      "dlat": 0.0,
+      "dlon": -0.0009745625
+     }
+    },
+    {
+     "op": "merge_nodes",
+     "args": {
+      "source": -3,
+      "target": -4
      }
     }
    ],
@@ -1729,20 +2238,20 @@
      [
       -2,
       30.0,
-      31.0009765625,
+      31.000002,
       102.0
-     ],
-     [
-      -3,
-      30.0009765625,
-      31.0009765625,
-      104.0
      ],
      [
       -4,
       30.0009765625,
       31.0,
       106.0
+     ],
+     [
+      -5,
+      30.001953125,
+      31.0,
+      null
      ]
     ],
     "ways": [
@@ -1751,7 +2260,6 @@
       "refs": [
        -1,
        -2,
-       -3,
        -4,
        -1
       ],
@@ -1759,120 +2267,22 @@
        "aeroway": "apron",
        "role": "apron"
       }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -4,
+       -5
+      ],
+      "tags": {
+       "o4_feature": "crown_spine"
+      }
      }
     ]
    }
   },
   {
-   "name": "snap_tie_broken_by_survivor_key",
-   "origin": [
-    30.00048828125,
-    31.24999988079071
-   ],
-   "doc": {
-    "nodes": [
-     [
-      -2,
-      30.0,
-      31.00000023841858,
-      120.0
-     ],
-     [
-      -1,
-      30.0,
-      30.99999976158142,
-      121.0
-     ],
-     [
-      -3,
-      30.0,
-      31.5,
-      122.0
-     ],
-     [
-      -4,
-      30.0009765625,
-      31.0,
-      123.0
-     ]
-    ],
-    "ways": [
-     {
-      "id": -201,
-      "refs": [
-       -2,
-       -3,
-       -1
-      ],
-      "tags": {}
-     },
-     {
-      "id": -202,
-      "refs": [
-       -1,
-       -4
-      ],
-      "tags": {}
-     }
-    ]
-   },
-   "ops": [
-    {
-     "op": "set_position",
-     "args": {
-      "id": -3,
-      "lat": 30.0,
-      "lon": 31.0
-     }
-    }
-   ],
-   "expect": {
-    "nodes": [
-     [
-      -2,
-      30.0,
-      31.00000023841858,
-      120.0
-     ],
-     [
-      -1,
-      30.0,
-      30.99999976158142,
-      121.0
-     ],
-     [
-      -4,
-      30.0009765625,
-      31.0,
-      123.0
-     ]
-    ],
-    "ways": [
-     {
-      "id": -201,
-      "refs": [
-       -2,
-       -1
-      ],
-      "tags": {}
-     },
-     {
-      "id": -202,
-      "refs": [
-       -1,
-       -4
-      ],
-      "tags": {}
-     }
-    ]
-   }
-  },
-  {
-   "name": "insert_does_not_snap",
-   "origin": [
-    30.00048828125,
-    31.000003814697266
-   ],
+   "name": "insert_does_not_merge",
    "doc": {
     "nodes": [
      [
@@ -1957,11 +2367,7 @@
    }
   },
   {
-   "name": "alt_edits_do_not_snap",
-   "origin": [
-    30.00048828125,
-    31.000001907348633
-   ],
+   "name": "alt_edits_do_not_merge",
    "doc": {
     "nodes": [
      [
@@ -2050,11 +2456,7 @@
    }
   },
   {
-   "name": "moved_nodes_never_merge_with_each_other",
-   "origin": [
-    30.00048828125,
-    31.000001907348633
-   ],
+   "name": "moving_two_close_nodes_together_does_not_merge",
    "doc": {
     "nodes": [
      [
@@ -2137,10 +2539,6 @@
   },
   {
    "name": "sequence_move_then_delete",
-   "origin": [
-    30.0009765625,
-    31.00048828125
-   ],
    "doc": {
     "nodes": [
      [

@@ -21,23 +21,19 @@ TOL_DEG = DATA["tolerance"]["deg"]
 TOL_M = DATA["tolerance"]["m"]
 
 
-def test_fixture_states_the_law_it_was_written_under():
-    """The fixture's identity frame IS the law table's, and the local
-    plane it describes is the emitter's own."""
-    spacing, dp = PE.law_identity()
-    assert DATA["min_distinct_spacing_m"] == spacing
-    assert DATA["identity_dp"] == dp
+def test_fixture_ui_snap_reference_is_the_emitters_plane():
+    """The snap note the UI reads names the emitter's own local plane."""
     m_lat, m_lon = osm_adapter._local_metres((30.0, 31.0))
     assert m_lat == 111320.0
     assert m_lon == pytest.approx(111320.0 * math.cos(math.radians(30.0)), rel=1e-15)
+    assert "111320.0" in DATA["ui_snap_reference"]
     assert len(DATA["cases"]) >= 12
+    assert set(DATA["ops"]) == {c["op"] for case in DATA["cases"] for c in case["ops"]}
 
 
 @pytest.mark.parametrize("case", DATA["cases"], ids=[c["name"] for c in DATA["cases"]])
 def test_fixture_case(case):
-    doc = PE.PatchDoc.from_wire(case["doc"]["nodes"], case["doc"]["ways"],
-                                DATA["min_distinct_spacing_m"], DATA["identity_dp"])
-    assert list(doc.origin) == pytest.approx(case["origin"], abs=TOL_DEG)
+    doc = PE.PatchDoc.from_wire(case["doc"]["nodes"], case["doc"]["ways"])
     for op in case["ops"]:
         doc = PE.apply_op(doc, op["op"], op["args"])
     got = doc.to_wire()
@@ -53,8 +49,7 @@ def test_fixture_case(case):
 
 def _doc(case_name):
     case = next(c for c in DATA["cases"] if c["name"] == case_name)
-    return PE.PatchDoc.from_wire(case["doc"]["nodes"], case["doc"]["ways"],
-                                 DATA["min_distinct_spacing_m"], DATA["identity_dp"])
+    return PE.PatchDoc.from_wire(case["doc"]["nodes"], case["doc"]["ways"])
 
 
 def test_operations_are_pure():
@@ -63,6 +58,7 @@ def test_operations_are_pure():
     PE.move(doc, [-3], 0.001, 0.0)
     PE.delete_nodes(doc, [-1])
     PE.insert_on_edge(doc, -1, -2)
+    PE.merge_nodes(doc, -3, -4)
     assert doc.to_wire() == before
 
 
@@ -72,3 +68,5 @@ def test_insert_on_a_non_edge_is_refused():
         PE.insert_on_edge(doc, -1, -3)
     with pytest.raises(KeyError):
         PE.move(doc, [-99], 0.0, 0.0)
+    with pytest.raises(ValueError):
+        PE.merge_nodes(doc, -3, -3)

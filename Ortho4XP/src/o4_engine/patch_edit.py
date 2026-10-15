@@ -16,31 +16,26 @@ THE RULES (§3.1-§3.3):
   distinct nodes, or an open way with fewer than 2, is removed in the same
   step.  Nodes a removed way leaves behind are kept (untouched geometry is
   never changed).
-* Snap (§3.3, owner A10): only :func:`move` and :func:`set_position` snap,
-  and only the node(s) being moved.  A moved node that ends STRICTLY closer
-  than ``min_distinct_spacing_m`` to a node that was not moved merges INTO
-  it: the other node survives with its position and elevation, refs are
-  replaced, the topology rules apply.  Nearest wins; an exact tie is broken
-  by the engine's :func:`survivor_key` (the lowest key survives, as in
-  ``merge_sub_spacing``).  Distance is metric on the engine's own local
-  plane (``osm_adapter._local_metres``) at the document's ``origin``.
-  Nothing else merges — inserts, elevation edits and deletes never do.
+* Merge (§3.3, owner A10 as clarified 2026-10-15): snapping is a
+  drag-time preview in the UI; the engine has ONE explicit operation for
+  its result, :func:`merge_nodes` — the target survives with its own
+  position and elevation, every ref to the source becomes the target, the
+  topology rules apply.  It checks no distance (the UI decided).  Nothing
+  else merges: :func:`move`, :func:`set_position`, inserts, elevation edits
+  and deletes never do, however close two nodes end up.
 
-The spacing and the identity precision are the law's
-(``emit.identity.min_distinct_spacing_m`` / ``coordinate_dp``): ``patch_load``
-serves them and :func:`law_identity` reads them; nothing here spells them.
+The snap radius (the law's ``emit.identity.min_distinct_spacing_m``, served
+by ``patch_load``) and its ``survivor_key`` tie-break are the UI's, not
+this module's.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
-import math
 import typing as _t
 
-from auto_patch_v2.emit.osm_adapter import _local_metres, survivor_key
-
-__all__ = ["Node", "Way", "PatchDoc", "law_identity", "origin_of",
-           "move", "set_position", "set_alt", "offset_alt", "delete_nodes",
-           "insert_on_edge", "next_node_id", "apply_op"]
+__all__ = ["Node", "Way", "PatchDoc", "move", "set_position", "set_alt",
+           "offset_alt", "delete_nodes", "insert_on_edge", "merge_nodes",
+           "next_node_id", "apply_op"]
 
 
 #: One node: ``(id, lat, lon, alt or None)`` — the §2 wire shape.
@@ -64,33 +59,19 @@ class Way:
 @_dc.dataclass(frozen=True)
 class PatchDoc:
     """The edited patch: nodes keyed by id (insertion order is the file's
-    order), ways in file order, and the law's identity frame.
-
-    ``origin`` ``(lat, lon)`` is where the local plane snapping measures in
-    is taken: the centre of the bbox of the nodes AS LOADED
-    (:func:`origin_of`), fixed for the document's lifetime so an edit never
-    moves the frame.
-    """
+    order) and ways in file order."""
 
     nodes: _t.Mapping[int, Node]
     ways: tuple[Way, ...]
-    min_distinct_spacing_m: float
-    identity_dp: int
-    origin: tuple[float, float]
 
     @classmethod
-    def from_wire(cls, nodes: _t.Iterable[_t.Sequence], ways: _t.Iterable[_t.Mapping],
-                  min_distinct_spacing_m: float, identity_dp: int,
-                  origin: _t.Sequence[float] | None = None) -> "PatchDoc":
+    def from_wire(cls, nodes: _t.Iterable[_t.Sequence],
+                  ways: _t.Iterable[_t.Mapping]) -> "PatchDoc":
         """From the §2 wire lists (``[id, lat, lon, alt|null]`` and
         ``{id, refs, tags}``)."""
-        table = {int(n[0]): _node(n) for n in nodes}
-        doc_ways = tuple(Way(int(w["id"]), tuple(int(r) for r in w["refs"]),
-                             dict(w.get("tags") or {})) for w in ways)
-        if origin is None:
-            origin = origin_of(table.values())
-        return cls(table, doc_ways, float(min_distinct_spacing_m),
-                   int(identity_dp), (float(origin[0]), float(origin[1])))
+        return cls({int(n[0]): _node(n) for n in nodes},
+                   tuple(Way(int(w["id"]), tuple(int(r) for r in w["refs"]),
+                             dict(w.get("tags") or {})) for w in ways))
 
     def to_wire(self) -> dict:
         """``{"nodes": [[id, lat, lon, alt|null]…], "ways": [{id, refs,
@@ -104,26 +85,6 @@ def _node(n: _t.Sequence) -> Node:
     alt = n[3] if len(n) > 3 else None
     return (int(n[0]), float(n[1]), float(n[2]),
             None if alt is None else float(alt))
-
-
-def law_identity() -> tuple[float, int]:
-    """``(min_distinct_spacing_m, coordinate_dp)`` from the checked-in law
-    table — what ``patch_load`` serves as ``min_distinct_spacing_m`` /
-    ``identity_dp``."""
-    from auto_patch_v2.law.tables import load_default
-    identity = load_default().tables.emit.identity
-    return float(identity.min_distinct_spacing_m), int(identity.coordinate_dp)
-
-
-def origin_of(nodes: _t.Iterable[Node]) -> tuple[float, float]:
-    """The centre of the nodes' bbox — ``((min lat + max lat) / 2, (min lon
-    + max lon) / 2)``; ``(0, 0)`` for no nodes."""
-    nodes = list(nodes)
-    if not nodes:
-        return (0.0, 0.0)
-    lats = [n[1] for n in nodes]
-    lons = [n[2] for n in nodes]
-    return ((min(lats) + max(lats)) / 2.0, (min(lons) + max(lons)) / 2.0)
 
 
 # ─── topology (§3.2) ───────────────────────────────────────────────────────
@@ -166,43 +127,11 @@ def _rewrite_ways(ways: _t.Iterable[Way], remap: _t.Mapping[int, int],
     return tuple(out)
 
 
-# ─── snap (§3.3) ───────────────────────────────────────────────────────────
-
-def _snap_target(doc: PatchDoc, node: Node, moved: _t.AbstractSet[int]) -> int | None:
-    """The non-moved node *node* merges into, or ``None``."""
-    m_lat, m_lon = _local_metres(doc.origin)
-    best: tuple[float, tuple[float, float], int] | None = None
-    for other in doc.nodes.values():
-        if other[0] in moved:
-            continue
-        d = math.hypot((other[1] - node[1]) * m_lat, (other[2] - node[2]) * m_lon)
-        if d >= doc.min_distinct_spacing_m:
-            continue
-        cand = (d, survivor_key((other[1], other[2]), doc.identity_dp), other[0])
-        if best is None or cand[:2] < best[:2]:
-            best = cand
-    return None if best is None else best[2]
-
-
 def _place(doc: PatchDoc, placed: _t.Mapping[int, tuple[float, float]]) -> PatchDoc:
-    """Set the positions in *placed*, then snap each moved node (in the
-    order given) onto its nearest non-moved neighbour."""
     nodes = dict(doc.nodes)
     for nid, (lat, lon) in placed.items():
-        old = nodes[nid]
-        nodes[nid] = (nid, float(lat), float(lon), old[3])
-    doc = _dc.replace(doc, nodes=nodes)
-    moved = set(placed)
-    remap: dict[int, int] = {}
-    for nid in placed:
-        target = _snap_target(doc, nodes[nid], moved)
-        if target is not None:
-            remap[nid] = target
-    if not remap:
-        return doc
-    for nid in remap:
-        del nodes[nid]
-    return _dc.replace(doc, nodes=nodes, ways=_rewrite_ways(doc.ways, remap, set()))
+        nodes[nid] = (nid, float(lat), float(lon), nodes[nid][3])
+    return _dc.replace(doc, nodes=nodes)
 
 
 def _known(doc: PatchDoc, ids: _t.Iterable[int]) -> list[int]:
@@ -219,21 +148,20 @@ def _known(doc: PatchDoc, ids: _t.Iterable[int]) -> list[int]:
 # ─── operations (§3.1) ─────────────────────────────────────────────────────
 
 def move(doc: PatchDoc, ids: _t.Iterable[int], dlat: float, dlon: float) -> PatchDoc:
-    """Move the nodes by ``(dlat, dlon)`` degrees; snaps (§3.3)."""
+    """Move the nodes by ``(dlat, dlon)`` degrees.  Never merges."""
     ids = _known(doc, ids)
     return _place(doc, {i: (doc.nodes[i][1] + float(dlat), doc.nodes[i][2] + float(dlon))
                         for i in ids})
 
 
 def set_position(doc: PatchDoc, id: int, lat: float, lon: float) -> PatchDoc:
-    """Put one node at ``(lat, lon)``; snaps (§3.3)."""
+    """Put one node at ``(lat, lon)``.  Never merges."""
     (i,) = _known(doc, [id])
     return _place(doc, {i: (float(lat), float(lon))})
 
 
 def set_alt(doc: PatchDoc, ids: _t.Iterable[int], alt: float | None) -> PatchDoc:
-    """Set the nodes' elevation (metres MSL; ``None`` clears it).  Never
-    snaps."""
+    """Set the nodes' elevation (metres MSL; ``None`` clears it)."""
     nodes = dict(doc.nodes)
     for i in _known(doc, ids):
         n = nodes[i]
@@ -243,7 +171,7 @@ def set_alt(doc: PatchDoc, ids: _t.Iterable[int], alt: float | None) -> PatchDoc
 
 def offset_alt(doc: PatchDoc, ids: _t.Iterable[int], d: float) -> PatchDoc:
     """Add ``d`` metres to the nodes' elevation; a node with no elevation
-    keeps none.  Never snaps."""
+    keeps none."""
     nodes = dict(doc.nodes)
     for i in _known(doc, ids):
         n = nodes[i]
@@ -269,7 +197,7 @@ def insert_on_edge(doc: PatchDoc, a: int, b: int, id: int | None = None) -> Patc
     """Insert a node at the midpoint of edge ``a``-``b`` — alt the mean of
     the ends, ``None`` if either has none — into EVERY way in which ``a``
     and ``b`` are consecutive in either direction (shared edges stay
-    welded).  ``id`` defaults to :func:`next_node_id`.  Never snaps."""
+    welded).  ``id`` defaults to :func:`next_node_id`."""
     if int(a) == int(b):
         raise ValueError(f"an edge needs two nodes, got {a} twice")
     a, b = _known(doc, [a, b])
@@ -296,10 +224,24 @@ def insert_on_edge(doc: PatchDoc, a: int, b: int, id: int | None = None) -> Patc
     return _dc.replace(doc, nodes=nodes, ways=tuple(ways))
 
 
+def merge_nodes(doc: PatchDoc, source: int, target: int) -> PatchDoc:
+    """Merge *source* INTO *target* (§3.3): the target keeps its position
+    and elevation, every ref to the source becomes the target, the source
+    leaves the document, and the topology rules apply.  No distance is
+    checked — the UI decided."""
+    source, target = int(source), int(target)
+    if source == target:
+        raise ValueError(f"cannot merge node {source} into itself")
+    _known(doc, [source, target])
+    nodes = {k: v for k, v in doc.nodes.items() if k != source}
+    return _dc.replace(doc, nodes=nodes,
+                       ways=_rewrite_ways(doc.ways, {source: target}, set()))
+
+
 _OPS: dict[str, _t.Callable[..., PatchDoc]] = {
     "move": move, "set_position": set_position, "set_alt": set_alt,
     "offset_alt": offset_alt, "delete_nodes": delete_nodes,
-    "insert_on_edge": insert_on_edge,
+    "insert_on_edge": insert_on_edge, "merge_nodes": merge_nodes,
 }
 
 

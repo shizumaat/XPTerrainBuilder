@@ -853,3 +853,77 @@ public final class OrthoEngineClient: @unchecked Sendable {
         }
     }
 }
+
+// MARK: - Patch editor (protocol 1.12, issue #46)
+
+/// The eight commands of the patch-editor spec §2
+/// (`Ortho4XP/docs/specs/patch-editor-20261015.md`). The command names and
+/// argument keys are STRING LITERALS matched against `o4_engine/jsonl.py`.
+/// Each throws `O4CommandError` carrying the engine's sentence on an
+/// `ok: false` reply; an engine older than 1.12 answers "unknown command",
+/// which callers gate on `O4ProtocolVersion.supportsPatchEditor` first.
+/// Replies are decoded on the reader thread, never the main actor.
+extension OrthoEngineClient {
+    public func patchList(tile: String) async throws -> O4PatchList {
+        try await request("patch_list", ["tile": tile])
+    }
+
+    public func patchLoad(tile: String, icao: String) async throws -> O4PatchLoad {
+        try await request("patch_load", ["tile": tile, "icao": icao])
+    }
+
+    /// Nodes and ways are written in the order given; tags unchanged.
+    public func patchSave(tile: String, icao: String, basePath: String,
+                          nodes: [O4PatchNodeRow], ways: [O4PatchWayRow]) async throws -> O4PatchSaveReply {
+        try await request("patch_save", [
+            "tile": tile, "icao": icao, "base_path": basePath,
+            "nodes": nodes.map(\.wireArray), "ways": ways.map(\.wireObject),
+        ])
+    }
+
+    public func patchRevert(tile: String, icao: String) async throws -> O4PatchRevertReply {
+        try await request("patch_revert", ["tile": tile, "icao": icao])
+    }
+
+    public func packOutlines(tile: String, icao: String) async throws -> O4PackOutlines {
+        try await request("pack_outlines", ["tile": tile, "icao": icao])
+    }
+
+    public func terrainSample(tile: String, icao: String, bbox: O4LatLonBox,
+                              spacingM: Double) async throws -> O4TerrainSample {
+        try await request("terrain_sample", [
+            "tile": tile, "icao": icao, "bbox": bbox.wireArray, "spacing_m": spacingM,
+        ])
+    }
+
+    public func meshCrop(tile: String, bbox: O4LatLonBox) async throws -> O4MeshCrop {
+        try await request("mesh_crop", ["tile": tile, "bbox": bbox.wireArray])
+    }
+
+    public func packObjects(tile: String, icao: String, bbox: O4LatLonBox) async throws -> O4PackObjects {
+        try await request("pack_objects", ["tile": tile, "icao": icao, "bbox": bbox.wireArray])
+    }
+
+    private func request<T: Decodable & Sendable>(_ command: String,
+                                                  _ arguments: [String: Any]) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            send(command: command, arguments: arguments) { reply in
+                continuation.resume(with: Self.decodeReply(reply, command: command))
+            }
+        }
+    }
+
+    /// One reply → the typed result or the engine's error sentence.
+    static func decodeReply<T: Decodable>(_ reply: O4Reply, command: String) -> Result<T, Error> {
+        guard reply.ok else {
+            return .failure(O4CommandError(reply.error ?? "The engine refused \(command)."))
+        }
+        guard let result = reply.result else {
+            return .failure(O4CommandError("The engine sent no result for \(command)."))
+        }
+        do { return .success(try result.decode(T.self)) } catch {
+            return .failure(error as? O4CommandError
+                ?? O4CommandError("The engine's \(command) reply could not be read: \(error)"))
+        }
+    }
+}

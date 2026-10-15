@@ -1,0 +1,324 @@
+{
+ "patch_list": {
+  "airports": [
+   {
+    "icao": "ZZZZ",
+    "source": "auto",
+    "path": "/Patches/+40-130/+45-123/ZZZZ_auto.patch.osm",
+    "bbox": [
+     45.539,
+     -122.95,
+     45.5425,
+     -122.938
+    ],
+    "nodes": 14,
+    "ways": 7
+   }
+  ]
+ },
+ "patch_load": {
+  "icao": "ZZZZ",
+  "source": "auto",
+  "path": "/Patches/+40-130/+45-123/ZZZZ_auto.patch.osm",
+  "stale": false,
+  "stale_inputs": [],
+  "min_distinct_spacing_m": 0.5,
+  "identity_dp": 11,
+  "header": {
+   "generator": "auto_patch_v2",
+   "o4_icao": "ZZZZ",
+   "o4_engine": "1.50.1815",
+   "o4_fresh_v": "3"
+  },
+  "nodes": [
+   [
+    -1,
+    45.54,
+    -122.95,
+    62.4
+   ],
+   [
+    -2,
+    45.54,
+    -122.94,
+    62.5
+   ],
+   [
+    -3,
+    45.5405,
+    -122.94,
+    62.6
+   ],
+   [
+    -4,
+    45.5405,
+    -122.95,
+    62.7
+   ],
+   [
+    -5,
+    45.541,
+    -122.95,
+    62.8
+   ],
+   [
+    -6,
+    45.541,
+    -122.94,
+    62.9
+   ],
+   [
+    -7,
+    45.542,
+    -122.948,
+    63.0
+   ],
+   [
+    -8,
+    45.542,
+    -122.947,
+    null
+   ],
+   [
+    -9,
+    45.5421,
+    -122.9479,
+    63.1
+   ],
+   [
+    -10,
+    45.5421,
+    -122.9475,
+    63.1
+   ],
+   [
+    -11,
+    45.5425,
+    -122.9475,
+    63.1
+   ],
+   [
+    -12,
+    45.539,
+    -122.95,
+    61.9
+   ],
+   [
+    -13,
+    45.539,
+    -122.94,
+    61.9
+   ],
+   [
+    -14,
+    45.5395,
+    -122.938,
+    62.0
+   ]
+  ],
+  "ways": [
+   {
+    "id": -101,
+    "refs": [
+     -1,
+     -2,
+     -3,
+     -4,
+     -1
+    ],
+    "tags": {
+     "aeroway": "runway",
+     "role": "runway",
+     "ref": "15/33"
+    }
+   },
+   {
+    "id": -102,
+    "refs": [
+     -4,
+     -3,
+     -6,
+     -5,
+     -4
+    ],
+    "tags": {
+     "aeroway": "taxiway",
+     "role": "primary_parallel"
+    }
+   },
+   {
+    "id": -103,
+    "refs": [
+     -5,
+     -6,
+     -8,
+     -7,
+     -5
+    ],
+    "tags": {
+     "aeroway": "apron",
+     "role": "apron",
+     "ref": "pav7"
+    }
+   },
+   {
+    "id": -104,
+    "refs": [
+     -9,
+     -10,
+     -11,
+     -9
+    ],
+    "tags": {
+     "aeroway": "apron",
+     "role": "building",
+     "ref": "building3"
+    }
+   },
+   {
+    "id": -105,
+    "refs": [
+     -12,
+     -13,
+     -2,
+     -1,
+     -12
+    ],
+    "tags": {
+     "aeroway": "apron",
+     "role": "graded_strip",
+     "ref": "adjacent_ground"
+    }
+   },
+   {
+    "id": -106,
+    "refs": [
+     -13,
+     -14
+    ],
+    "tags": {
+     "role": "service_road",
+     "highway": "service"
+    }
+   },
+   {
+    "id": -107,
+    "refs": [
+     -12,
+     -1
+    ],
+    "tags": {
+     "o4_feature": "crown_spine"
+    }
+   }
+  ]
+ },
+ "terrain_sample": {
+  "bbox": [
+   45.539,
+   -122.95,
+   45.5425,
+   -122.938
+  ],
+  "rows": 2,
+  "cols": 3,
+  "spacing_m": 5.0,
+  "dlat": 4.5e-05,
+  "dlon": 6.4e-05,
+  "elev_f32_b64": "AAB2QgAAeEIAAHlCAAB8QgAAwL8ACHpE",
+  "sources": {
+   "base": "N45W123.hgt",
+   "inset": null
+  }
+ },
+ "mesh_crop": {
+  "mesh_path": "/Tiles/zOrtho4XP_+45-123/Data+45-123.mesh",
+  "vertices_f64_b64": "zczMzMy8XsCF61G4HsVGQDMzMzMzM09AXI/C9Si8XsB3vp8aL8VGQJqZmZmZWU9A",
+  "triangles_u32_b64": "AAAAAAEAAAAAKGvu"
+ },
+ "pack_objects": {
+  "models": [
+   {
+    "key": 7,
+    "vertices_f32_b64": "AACAPwAAIEAAAEDA",
+    "triangles_u32_b64": "AAAAAAAAAAAAAAAA"
+   }
+  ],
+  "placements": [
+   {
+    "model": 7,
+    "lat": 45.541,
+    "lon": -122.949,
+    "heading_deg": 90.0,
+    "agl_m": 0.0
+   }
+  ],
+  "facades": [
+   {
+    "ring": [
+     [
+      45.541,
+      -122.949
+     ],
+     [
+      45.5411,
+      -122.949
+     ],
+     [
+      45.5411,
+      -122.9489
+     ]
+    ],
+    "height_m": 8.5
+   }
+  ],
+  "missing": [
+   "no DSF dump for pack X"
+  ]
+ },
+ "pack_outlines": {
+  "pavement": [
+   {
+    "kind": "pavement",
+    "rings": [
+     [
+      [
+       45.54,
+       -122.95
+      ],
+      [
+       45.5405,
+       -122.95
+      ],
+      [
+       45.5405,
+       -122.94
+      ]
+     ]
+    ]
+   }
+  ],
+  "footprints": [
+   {
+    "role": "hangar",
+    "rings": [
+     [
+      [
+       45.541,
+       -122.949
+      ],
+      [
+       45.5411,
+       -122.949
+      ],
+      [
+       45.5411,
+       -122.9489
+      ]
+     ]
+    ]
+   }
+  ],
+  "missing": []
+ }
+}

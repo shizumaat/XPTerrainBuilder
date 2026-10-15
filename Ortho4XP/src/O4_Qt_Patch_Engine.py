@@ -18,6 +18,15 @@ for once: the map's pack outlines and the 3D preview ask for the same box
 
 :meth:`PatchEngine.run` is the same worker-thread round trip for the 3D
 preview's own number crunching (triangulation, the terrain cut-out).
+
+A worker THREAD still shares the GUI's interpreter lock, so the commands
+that hold it for seconds (``o4_engine.command_process.COMMANDS``:
+``pack_objects``, measured at HECA) run in ONE worker PROCESS instead
+(issue #753): the thread only waits on its pipe, the answer comes back
+through the same ``callback`` (no ``PackObjectsReady`` round trip), and
+the read's session cache lives in that process.  It starts on the first
+such call and stops in :meth:`PatchEngine.close` (the window's quit) or
+with the app — never an orphan.
 """
 from __future__ import annotations
 
@@ -25,7 +34,10 @@ import itertools
 import threading
 import typing as _t
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QCoreApplication, QObject, Signal
+
+from o4_engine.command_process import COMMANDS as PROCESS_COMMANDS
+from o4_engine.command_process import CommandProcess
 
 __all__ = ["PatchEngine"]
 
@@ -37,7 +49,10 @@ class PatchEngine(QObject):
 
     _finished = Signal(object, object, object)   # callback, result, error
 
-    def __init__(self, session, parent=None, run_async: bool = True):
+    def __init__(self, session, parent=None, run_async: bool = True,
+                 isolate: bool | None = None):
+        """``isolate`` (default: ``run_async``) answers
+        ``PROCESS_COMMANDS`` in the worker process (module doc)."""
         super().__init__(parent)
         self._session = session
         self._run_async = run_async
@@ -48,6 +63,17 @@ class PatchEngine(QObject):
         self._pack: dict[tuple, dict] = {}
         self._tokens = itertools.count(1)
         self._finished.connect(self._deliver)
+        #: The worker process for ``PROCESS_COMMANDS`` (``None``: in this process).
+        self.process = CommandProcess() if (run_async if isolate is None else isolate) else None
+        app = QCoreApplication.instance()
+        if self.process is not None and app is not None:
+            app.aboutToQuit.connect(self.close)
+
+    def close(self) -> None:
+        """Stop the worker process (bounded, idempotent; a later call
+        starts a new one)."""
+        if self.process is not None:
+            self.process.close()
 
     def _table(self) -> dict:
         with self._lock:
@@ -64,6 +90,8 @@ class PatchEngine(QObject):
         """Run the command on THIS thread: ``(result, None)`` or ``(None,
         error sentence)`` (the unsaved-edits prompt's Save, at quit)."""
         try:
+            if self.process is not None and name in PROCESS_COMMANDS:
+                return self.process.call(name, **kwargs), None
             handler = self._table().get(name)
             if handler is None:
                 raise ValueError(f"This engine has no {name} command; update the app.")
@@ -112,6 +140,12 @@ class PatchEngine(QObject):
             entry["callbacks"].append(callback)
             return
         self._pack = {key: {"callbacks": [callback], "reply": None}}
+        if self.process is not None:          # answered by the process: no event
+            def read():                       # skipped if the box moved on meanwhile
+                return self.process.call("pack_objects", still_wanted=lambda: key in self._pack,
+                                         tile=tile, icao=icao, bbox=list(bbox))
+            self.run(read, lambda r, e: self._answer(key, r, e))
+            return
         token = f"qt-pack-{next(self._tokens)}"
         self._pending[token] = key
 

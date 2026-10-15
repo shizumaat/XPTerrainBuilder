@@ -252,3 +252,33 @@ same sha:
   (`test_wall_step715`, marked xfail with the numbers).
 * **Rim road.** With the RSA ends a band runs round a rim road's governing
   stretch and a sliver beyond the road stays connected (`test_v2edge`).
+
+## 11. Phase 3 (RULINGS 2026-10-15g (B), (C))
+
+* **(B) No banks.** `planar/zone_bank`, `constraints/zone_bank`, the bank keys and every bank skip in the readers are deleted. The zone and its end area are graded by their own law and meet raw DEM at their outer edge. No census family reads a zone's outer boundary against the raw DEM — the census reads the patch alone — so that step is uncounted by construction. In-face steps (`adjacent_ground_step`) and steps against pavement (`groundside_cutback` against a road) still count.
+* **(B) Groundside below a declared wall.** `road_ramp.wall_release` now releases a zone-law row (`zones`, `strips`) whose ground vertex stands across a declared wall from its pavement foot, whichever side holds a road. The released zone vertex, if no other face shares it, is held at its DEM (`zones.adjacent_ground beyond the wall`). On the #715 twin, the road's max |z − 92| is 0.215 m (bar 1.0). With claude/tri752 d32275871 merged it is 0.243 m.
+* **(C) The end area stops at the top of a drop** (`model/end_area.py`, PROPOSED threshold for ratification). Stations run every `edge_grid_m` (5 m) along the extended centreline and the band's two side lines; the shortest of the three wins. A DROP needs both:
+  * the ground stands more than `edge_min_drop_m` (2 m) below the end profile's lawful fall;
+  * the ground falls steeper than `end_drop_min_grade` (0.20) over `edge_probe_m` (15 m).
+
+  The end area ends at the crest of that steep run.
+
+  | Airport | Steepest end ground (15 m) | End-area lengths |
+  |---|---|---|
+  | CYXY | 24.8 / 51.5 / 44.9 % | 14R/32L 145 / 80 m, 14L/32R 165 / 300 m, 02/20 90 / 90 m |
+  | KBJC | ≤ 10.5 %, no 2 m deficit | 304.8 m at 12L/30R |
+  | KDEN | ≤ 2.4 % | 304.8 m at every end |
+
+  The lengths are published in the sidecar's `runway_axes` rows [8], [9] for the census.
+* **Crossing pieces.** A `runway_crossing` cell (ref `a+b`) used to form a band group of its own. Its fallback axis, a few metres square, swung an RSA rectangle 300 m across CYXY (a 34 m in-face step). It now joins both runways' groups under each runway's own class.
+* **Airside attribution.** Each airport ran replays of base, arm, and arm with the old corridor reach (`--from planar`).
+
+  | Airport | Banks (phase 2) | 06p tie / (4) | Re-noding |
+  |---|---|---|---|
+  | CYXY | `dsf:pol19` 1.88 m, apron 0.36 m | 0 | the rest: arm and old-reach arm identical |
+  | HECA | apron 1.00 → 0.25 m once removed | 0 | the rest: arm and old-reach arm identical |
+
+  * **Re-noding:** the zone rings meet pavement edges at new points.
+    * CYXY after the crossing fix: 96 / 77 solve-owned nodes differ; taxi 0.27 m, runway 0.05 m (one vertex).
+    * HECA: 84 / 111 nodes; apron 1,135 at 0.25 m, taxi 0.37 m, runway 0.12 m.
+  * **Refuted remedy:** noding zones after the airside, through the pads' clip and rim snap. Against a pass-B control at CYXY it still differs at 137 / 137 nodes, with 93 movers and the apron at 0.35 m. Deleted.

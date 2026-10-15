@@ -491,6 +491,11 @@ class WorkPool:
         if ex is None:
             return
         procs = list((getattr(ex, "_processes", None) or {}).values())
+        # ``shutdown(wait=False)`` forgets its manager thread, which keeps
+        # the workers' ``Process`` objects — and on Windows their process
+        # HANDLES, so the pid stays openable — until it has joined them
+        # (#753, PR #765 windows CI: a closed worker's pid still answered).
+        manager = getattr(ex, "_executor_manager_thread", None)
         try:
             ex.shutdown(wait=False, cancel_futures=True)
         except Exception:
@@ -507,6 +512,8 @@ class WorkPool:
             self._out(f"[pool] teardown: worker pid(s) {[p.pid for p in left]} still "
                       f"running {SIGNAL_S:.0f} s after terminate and again after "
                       f"kill — abandoned")
+        elif manager is not None and manager is not threading.current_thread():
+            manager.join(SIGNAL_S)         # its workers are gone: it ends promptly
 
     # ── the map ──────────────────────────────────────────────────────────
     def try_map(self, fn: _t.Callable, tasks: _t.Sequence, *,

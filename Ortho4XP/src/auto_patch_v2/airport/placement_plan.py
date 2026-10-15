@@ -99,6 +99,7 @@ __all__ = ["Body", "Split", "Kept", "SplitSet", "read_plan", "plan_units_with", 
 # feed live next door (the 1,000-line law); they are re-exported here
 # because every caller and every twin reads them as this module's.
 from . import placement_seat_tilt as _pst  # noqa: E402
+from . import placement_leaves as _leaves  # noqa: E402
 from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
                             GROUND_CELL_M, _atom_targets, _bodies_of,
                             _carrier_pieces, _footless_targets,
@@ -135,6 +136,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  cluster_min_m2: float = 0.0, touch_m: float = 0.0,
                  connector_span_m: float = 0.0,
                  chain_min_height_m: float = 0.0,
+                 # RULINGS 2026-10-14p (3) (#709): ``[placement]
+                 # piece_reach_m`` — a building's small pieces ride its
+                 # walls within this; 0 disarms
+                 piece_reach_m: float = 0.0,
                  # S6 CONTENTS (issue #30 / #10): a leaf inside a walled
                  # host rides the host's unit; 0 disarms
                  contents_min_fraction: float = 0.0,
@@ -163,6 +168,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # apron is seated by TILTING THE BODY, capped here
                  # (``[placement] seat_tilt_max_deg``); 0 disarms the seat
                  seat_tilt_max_deg: float = 0.0,
+                 # RULINGS 2026-10-14p (1) (#708): a SHARED FRAME tilts as one
+                 # up to ``[placement] frame_tilt_max_deg``; 0 keeps it level
+                 frame_tilt_max_deg: float = 0.0,
                  # owner RULINGS 2026-10-14g (3): the pack DSF's rows (the
                  # authored kind and elevation of each placement) and
                  # ``[placement] authored_keep_tol_m`` — a placement whose
@@ -447,6 +455,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if n_split:
                     counts["groups_split_by_unit"] = \
                         counts.get("groups_split_by_unit", 0) + n_split
+            # 14p (3) (#709): a building's small pieces ride its walls
+            bound = _leaves.attach_leaves(bound, raw, part_boxes,
+                                          reach_m=piece_reach_m,
+                                          chain_min_height_m=chain_min_height_m,
+                                          counts=counts)
             st.groups = bound
             if len(bound) < len(raw) - len(st.elevated):
                 counts["placements_coarsened"] = \
@@ -876,8 +889,21 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # puts a carrier before whatever rides it, so this map is
         # populated by the time the carried body asks.
         file_of: dict[tuple[int, int], str] = {}
+        # #708: the frames more than one body is written in, never tilted alone
+        tilt_shared = _pst.shared_frames(staged)
+        # 14p (1): ...but the whole frame tilts as one when gently enough
+        frame_seats = _pst.frame_tilts(
+            staged, u, surface, max_total_deg=seat_tilt_max_deg,
+            frame_max_deg=frame_tilt_max_deg, foot_tol_m=split_tol_m,
+            band_m=foot_band_m, counts=counts, shared=tilt_shared)
         deps = {st.mi: {c.member for _g, c, _w in st.carried
                         if c.member != st.mi} for st in staged}
+        # 14p (3) (#709): a one-body CARRIER whose row is more than
+        # authored_keep_tol_m off its anchor's zero is written at its anchor:
+        # the rider takes the anchor's zero, and a row up to split_tol_m off
+        # it parted them (the garage's roof 0.23 m)
+        carriers = {c.member for st in staged for _g, c, _w in st.carried
+                    if c.member != st.mi}
         for mi in _pc.cut_order(deps):
             st = by_mi[mi]
             m = st.m
@@ -927,8 +953,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             bodies = [_pst.seat_tilt(b, u, m, surface=surface,
                                      max_total_deg=seat_tilt_max_deg,
                                      foot_tol_m=split_tol_m,
-                                     band_m=foot_band_m, counts=counts)
-                      for b in bodies]
+                                     band_m=foot_band_m, counts=counts,
+                                     shared=(st.mi, _k) in tilt_shared,
+                                     frame_seat=frame_seats.get(
+                                         _pst.frame_key(b.anchor)))
+                      for _k, b in enumerate(bodies)]
             # 14at: the GROUP bodies are this member's candidates, in
             # candidate order — what a body riding one of them is
             # ``merged_into``
@@ -964,6 +993,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                      else by_mi[c.member].m.resource), cw,
                     len(bodies), counts, by_class, st.part_boxes, st.bridge,
                     st.geom_boxes))
+            # 14p (1): a body carried on a frame that tilts as one tilts with it
+            if frame_seats:
+                bodies = [b if b.seat is not None else _pst.with_frame_seat(
+                    b, m, frame_seats.get(_pst.frame_key(b.anchor)))
+                    for b in bodies]
             counts["bodies"] += len(bodies)
             record = Split(_index_of(m.id), m.id, m.resource, m.authored_path,
                            u.anchor[0], u.anchor[1], m.heading_deg, tuple(bodies))
@@ -1004,6 +1038,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     z_row, bodies[0].anchor if bodies else None, split_tol_m)
                 if off_row and len(bodies) < 2:
                     counts["one_body_off_row"] = counts.get("one_body_off_row", 0) + 1
+                if (not off_row and len(bodies) < 2 and mi in carriers
+                        and _ar.keep_off_row(z_row, bodies[0].anchor if bodies
+                                             else None, authored_keep_tol_m)):
+                    off_row = True
+                    counts["one_body_carrier_written"] = \
+                        counts.get("one_body_carrier_written", 0) + 1
                 record = _lifted(record, rows, reseated)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
                               landed=_lands(record, rows, surface,

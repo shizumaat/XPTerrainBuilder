@@ -1179,11 +1179,26 @@ evidence_min_coverage    = 0.0
 # (247 m over the 1.36 % the cap carries in pav7) need 0.81 deg; KASE's cut-slope
 # staircase reads 17 % = 9.6 deg and is what the cap refuses.  0 disarms the seat.
 seat_tilt_max_deg   = 1.5
+
+# A SHARED FRAME TILTS AS ONE (owner RULINGS 2026-10-14p (1), #708): the bodies
+# written in one frame (a §16c (7) bind, a carry on one anchor) rotate together
+# by the plane fitted to the whole group's feet, but only up to this total tilt;
+# past it the group stays level and rigid.  "We can't have buildings leaning at
+# an unlikely angle": 1.0 deg (1.75 %), under the 1.22 deg apron plane above.
+# 0 keeps every shared frame level.
+frame_tilt_max_deg  = 1.0
 # THE AUTHORED PLACEMENT IS KEPT (owner RULINGS 2026-10-14g (2)/(3)).  An
 # OBJECT_AGL row is not re-expressed as OBJECT_MSL when that changes nothing,
 # and a placement is not split when every body would land within this of its
 # authored seat.  The owner's figure; 0 disarms both.
 authored_keep_tol_m = 0.05
+
+# A BUILDING'S SMALL PIECES RIDE ITS WALLS (owner RULINGS 2026-10-14p (3), #709):
+# inside one placement, a leaf ground group (no part chain_min_height_m tall)
+# within this plan gap of a walled group, directly or through other leaves,
+# joins it and seats with it as one rigid unit.  2.5 m: a doorway (KASE's
+# garage: 0.6 m between panels, 1.8-2.3 m across its doors).  0 disarms.
+piece_reach_m       = 2.5
 
 # ─────────────────────────────────────────────────────────────────────────
 # §49 A PARAPET RIDES THE DECK (owner RULINGS 2026-09-17u-2 / 17x (2); spec

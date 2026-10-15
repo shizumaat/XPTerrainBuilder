@@ -432,6 +432,40 @@ def cmd_plan(args: argparse.Namespace) -> int:
                                 "abutment_sample_step_m", None),
         abutment_walk_max_m=getattr(law.tables.structures.bridge,
                                     "abutment_walk_max_m", None),
+        # issue #708 (lane kasesplit): EVERY key the shipped call in
+        # ``engine_v2`` passes, through the same dropper.  Until then this
+        # entry left roof_bind / contents / sheet chains / the low side /
+        # hard_tol / decks / seat tilt / 14g's authored keep at their
+        # disarmed defaults, and its plan was not the app's (KASE 1.0.394:
+        # 110 splits replayed against the app's 94).
+        roof_bind_m=getattr(getattr(law.tables.emit, "terrace", None),
+                            "pad_terrace_floor_m", None),
+        contents_min_fraction=getattr(law.tables.structures.placement,
+                                      "contents_min_fraction", None),
+        sheet_chain_min_fraction=getattr(law.tables.structures.placement,
+                                         "sheet_chain_min_fraction", None),
+        low_side=bool(getattr(law.tables.structures.placement,
+                              "pad_between_aprons", False)),
+        hard_tol_m=getattr(getattr(law.tables.emit, "design", None),
+                           "hard_tol_m", None),
+        decks=(_pp.decks_from_graded_doc(_gdoc)
+               if hasattr(_pp, "decks_from_graded_doc") else None),
+        deck_on_fraction=getattr(getattr(law.tables.structures, "deck", None),
+                                 "on_fraction", None),
+        deck_edge_m=getattr(getattr(law.tables.structures, "deck", None),
+                            "edge_m", None),
+        deck_under_m=getattr(getattr(law.tables.structures, "deck", None),
+                             "under_m", None),
+        seat_tilt_max_deg=getattr(law.tables.structures.placement,
+                                  "seat_tilt_max_deg", None),
+        frame_tilt_max_deg=getattr(law.tables.structures.placement,
+                                   "frame_tilt_max_deg", None),
+        authored_keep_tol_m=getattr(law.tables.structures.placement,
+                                    "authored_keep_tol_m", None),
+        jetway_strips=tuple((_gdoc.get("provenance") or {})
+                            .get("jetway_strips") or ()),
+        jetway_strip_m=getattr(getattr(law.tables.emit, "design", None),
+                               "jetway_strip_m", None),
         pads=pads, rims=rims, engine_version="", law_digest="",
         write_cuts=False)
     import inspect
@@ -464,6 +498,20 @@ def cmd_plan(args: argparse.Namespace) -> int:
         _w = getattr(surface, "water", None)
         if _w is not None:
             watched.water = _w
+        # owner RULINGS 2026-10-14d (1): the base slabs that DRAPE, read off
+        # the same surface the shipped path hands ``drape_for_graded``
+        # (#708: without it KCLT replayed 36 splits against the app's 34)
+        if "drape" in accepted:
+            try:
+                from auto_patch_v2.airport import slab_drape as _sd
+                keywords["drape"], keywords["drape_law"], _dr = \
+                    _sd.drape_for_graded(plan_, _gdoc, law, watched)
+                if run == 0 and _dr:
+                    print("  base slabs read for the drape: %d (%d draped)"
+                          % (len(_dr), sum(1 for r in _dr if r.drape)))
+            except Exception as exc:          # as the shipped path: none drape
+                keywords["drape"], keywords["drape_law"] = {}, None
+                print("  base-slab drape read failed (%s) — no slab drapes" % exc)
         started = time.perf_counter()
         out_plan, files, _ = _pw.build_plan(plan_, dump, watched, **keywords)
         elapsed = time.perf_counter() - started

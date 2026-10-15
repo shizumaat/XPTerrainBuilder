@@ -1179,6 +1179,14 @@ evidence_min_coverage    = 0.0
 # (247 m over the 1.36 % the cap carries in pav7) need 0.81 deg; KASE's cut-slope
 # staircase reads 17 % = 9.6 deg and is what the cap refuses.  0 disarms the seat.
 seat_tilt_max_deg   = 1.5
+
+# A SHARED FRAME TILTS AS ONE (owner RULINGS 2026-10-14p (1), #708): the bodies
+# written in one frame (a §16c (7) bind, a carry on one anchor) rotate together
+# by the plane fitted to the whole group's feet, but only up to this total tilt;
+# past it the group stays level and rigid.  "We can't have buildings leaning at
+# an unlikely angle": 1.0 deg (1.75 %), under the 1.22 deg apron plane above.
+# 0 keeps every shared frame level.
+frame_tilt_max_deg  = 1.0
 # THE AUTHORED PLACEMENT IS KEPT (owner RULINGS 2026-10-14g (2)/(3)).  An
 # OBJECT_AGL row is not re-expressed as OBJECT_MSL when that changes nothing,
 # and a placement is not split when every body would land within this of its

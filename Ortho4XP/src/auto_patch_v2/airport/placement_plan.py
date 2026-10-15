@@ -163,6 +163,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                  # apron is seated by TILTING THE BODY, capped here
                  # (``[placement] seat_tilt_max_deg``); 0 disarms the seat
                  seat_tilt_max_deg: float = 0.0,
+                 # RULINGS 2026-10-14p (1) (#708): a SHARED FRAME tilts as one
+                 # up to ``[placement] frame_tilt_max_deg``; 0 keeps it level
+                 frame_tilt_max_deg: float = 0.0,
                  # owner RULINGS 2026-10-14g (3): the pack DSF's rows (the
                  # authored kind and elevation of each placement) and
                  # ``[placement] authored_keep_tol_m`` — a placement whose
@@ -876,6 +879,13 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # puts a carrier before whatever rides it, so this map is
         # populated by the time the carried body asks.
         file_of: dict[tuple[int, int], str] = {}
+        # #708: the frames more than one body is written in, never tilted alone
+        tilt_shared = _pst.shared_frames(staged)
+        # 14p (1): ...but the whole frame tilts as one when gently enough
+        frame_seats = _pst.frame_tilts(
+            staged, u, surface, max_total_deg=seat_tilt_max_deg,
+            frame_max_deg=frame_tilt_max_deg, foot_tol_m=split_tol_m,
+            band_m=foot_band_m, counts=counts, shared=tilt_shared)
         deps = {st.mi: {c.member for _g, c, _w in st.carried
                         if c.member != st.mi} for st in staged}
         for mi in _pc.cut_order(deps):
@@ -927,8 +937,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             bodies = [_pst.seat_tilt(b, u, m, surface=surface,
                                      max_total_deg=seat_tilt_max_deg,
                                      foot_tol_m=split_tol_m,
-                                     band_m=foot_band_m, counts=counts)
-                      for b in bodies]
+                                     band_m=foot_band_m, counts=counts,
+                                     shared=(st.mi, _k) in tilt_shared,
+                                     frame_seat=frame_seats.get(
+                                         _pst.frame_key(b.anchor)))
+                      for _k, b in enumerate(bodies)]
             # 14at: the GROUP bodies are this member's candidates, in
             # candidate order — what a body riding one of them is
             # ``merged_into``
@@ -964,6 +977,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                      else by_mi[c.member].m.resource), cw,
                     len(bodies), counts, by_class, st.part_boxes, st.bridge,
                     st.geom_boxes))
+            # 14p (1): a body carried on a frame that tilts as one tilts with it
+            if frame_seats:
+                bodies = [b if b.seat is not None else _pst.with_frame_seat(
+                    b, m, frame_seats.get(_pst.frame_key(b.anchor)))
+                    for b in bodies]
             counts["bodies"] += len(bodies)
             record = Split(_index_of(m.id), m.id, m.resource, m.authored_path,
                            u.anchor[0], u.anchor[1], m.heading_deg, tuple(bodies))

@@ -1511,7 +1511,8 @@ def _main() -> int:
         for r in _drows:
             print(f"  {'DRAPE' if r.drape else 'rigid'}  {r.resource} c{r.comp}  "
                   f"{r.open_m2:7,.0f} m2  relief {r.relief_m:5.2f} m  "
-                  f"{r.lat:.6f}, {r.lon:.6f}" + ("" if r.touches else "  (no wall)"))
+                  f"{r.lat:.6f}, {r.lon:.6f}" + ("" if r.touches else "  (no wall)")
+                  + ("  (elevated deck)" if getattr(r, "elevated", False) else ""))
         _extra.update(drape=_dr, drape_law=_dl)
     _t0 = time.perf_counter()
     # 14g (3): the split is judged against the pack's own rows where the

@@ -325,6 +325,11 @@ class Placement:
     #: slab component whose SIDE faces carry more than this share of its
     #: face area is a kerb ring or a dock, not a plate.  0 disarms.
     base_slab_max_side_share: float = 0.5
+    #: issue #669 (lane deck669): a slab with more than this share of its
+    #: up-facing area standing ``[bridge] deck_min_elevation_m`` clear of
+    #: its own foot is an ELEVATED DECK — pavement under it, never draped.
+    #: 0 disarms.
+    base_slab_elevated_share_max: float = 0.5
 
     #: S6 THE RIGID BUILDING UNIT — CONTENTS (spec
     #: ``pack-read-once-fast-spec.md`` §F.2 / F.9 R1; issues #30, #10): a

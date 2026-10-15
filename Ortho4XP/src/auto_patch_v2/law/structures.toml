@@ -1023,6 +1023,15 @@ base_slab_leaves_pads     = false
 # walled part (top relief <= split_tol_m, holds a lane disc): HECA twenty
 # `OB-asphalt` plates.  0 disarms both.
 base_slab_max_side_share  = 0.5
+# AN ELEVATED DECK IS NOT DRAPED (issue #669; lane deck669): a slab whose
+# up-facing faces stand [bridge] deck_min_elevation_m or more over its own
+# lowest y across more than this share of their area is a deck reaching the
+# ground only at its feet — pavement under it (the gap mint, as before), but
+# never draped (airport/slab_drape): it stays rigid as authored.  "Most of its
+# plan".  MEASURED (sw33 plans): KCLT techos_1 c8 (departures roadway) and
+# HECA T23/T3_road c0 (the T3 viaduct, 10-03e) and its side_walk; every
+# ground plate reads 0.  0 disarms.
+base_slab_elevated_share_max = 0.5
 
 # S6 THE RIGID BUILDING UNIT — CONTENTS (pack-read spec §F.2 / F.9 R1;
 # issues #30, #10): a LEAF whose plan footprint lies at least this share

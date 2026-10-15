@@ -146,3 +146,67 @@ def test_a_slab_over_sloping_ground_drapes_and_over_level_ground_stays_rigid():
     d1, r1 = SD.drape_plan(part, ident, to_ll, LAW, slope)
     assert d0 == {} and len(r0) == 1 and r0[0].relief_m <= 2 * tol
     assert d1 == {"dsf:obj7": frozenset({1})} and r1[0].relief_m == pytest.approx(1.8, abs=0.05)
+
+
+def _sheet(tmp_path, name, lift):
+    """A single-sided road sheet 60 m x 10 m whose TOP stands ``lift`` m
+    over its zero between x = 10 and x = 50 and ramps down to it at both
+    ends (issue #669's departures roadway: KCLT ``techos_1`` comp 8), with
+    four 1 m square piers under the lifted span when ``lift`` > 0; a
+    sheet with ``lift`` 0 is a ground plate.  Returns ``(path, comp of
+    the sheet)``."""
+    xs = (0.0, 10.0, 50.0, 60.0)
+    ys = (0.0, lift, lift, 0.0)
+    v = [(x, y, z) for x, y in zip(xs, ys) for z in (0.0, 10.0)]
+    t = []
+    for i in range(3):                    # up under the OBJ8 clockwise winding
+        a, b, c, d = 2 * i, 2 * i + 1, 2 * i + 2, 2 * i + 3
+        t += [(a, c, d), (a, d, b)]
+    if lift > 0.0:
+        for px in (15.0, 25.0, 35.0, 45.0):
+            pv, pt = _wall(px, len(v), side=1.0, h=lift - 0.5)
+            v += pv
+            t += pt
+    p = _write(tmp_path / name, v, t)
+    comps = obj8.solid_components(obj8.parse_obj8(p))
+    sheet = next(i for i, c in enumerate(comps) if 0 in np.asarray(c.tris))
+    return p, sheet
+
+
+def test_an_elevated_deck_reads_clear_of_its_foot_and_a_ground_sheet_does_not(tmp_path):
+    """Rule 7's fact (issue #669): the share of the sheet's up-facing area
+    standing ``[bridge] deck_min_elevation_m`` over its own lowest ``y``."""
+    elev = LAW.tables.structures.bridge.deck_min_elevation_m
+    ny = LAW.tables.structures.bridge.deck_plate_normal_y_min
+    p, c = _sheet(tmp_path, "deck.obj", 6.0)
+    ff = SF.face_facts(p, c, ny, elev)
+    assert ff.elevated_share > 0.75 and ff.top_relief_m == pytest.approx(6.0)
+    g, cg = _sheet(tmp_path, "ground.obj", 0.0)
+    assert SF.face_facts(g, cg, ny, elev).elevated_share == 0.0
+    assert SF.face_facts(p, c, ny).elevated_share == 0.0       # disarmed
+
+
+def test_an_elevated_deck_on_piers_never_drapes_and_a_ground_sheet_still_does(tmp_path):
+    """Issue #669: an elevated sloped deck on piers over sloping ground is
+    marked ELEVATED and stays rigid (the gap mint still reads it); a ground
+    sheet over the same ground drapes."""
+    slope = lambda lat, lon: 100.0 + 0.03 * lon        # noqa: E731 — 1.8 m
+    ident = lambda lon, lat: (lon, lat)               # noqa: E731 — metres
+    to_ll = lambda x, y: (y, x)                       # noqa: E731
+    got = {}
+    for name, lift in (("deck.obj", 6.0), ("ground.obj", 0.0)):
+        path, comp = _sheet(tmp_path, name, lift)
+        wall = _part(0, box(0, 0, 40, 40), 12.0)
+        slab = Part(comp, comp, 20.0, 70.0, 0.0, 2400.0, (0.0, 40.0, 40.0, 100.0),
+                    feet=((20.0, 70.0, 0.0),),
+                    rings=(tuple((y, x) for x, y in tuple(box(40, 0, 100, 40).exterior.coords)[:-1]),),
+                    height_m=0.3)
+        m = Member("dsf:" + name, "pack/" + name, path, path, 0.0, (wall, slab))
+        part = types.SimpleNamespace(units=(Unit("unit:0", (0.0, 0.0), 0.0, (m,)),))
+        got[name] = SD.drape_plan(part, ident, to_ll, LAW, slope)
+    d, rows = got["deck.obj"]
+    assert d == {} and len(rows) == 1 and rows[0].elevated and not rows[0].drape
+    assert rows[0].relief_m > 2 * LAW.tables.structures.placement.split_tol_m
+    d, rows = got["ground.obj"]
+    assert d == {"dsf:ground.obj": frozenset({rows[0].comp})}
+    assert not rows[0].elevated and rows[0].drape

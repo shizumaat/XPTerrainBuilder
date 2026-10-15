@@ -16,7 +16,6 @@ the DSF is written, ``O4_Tile_Utils``).  Read-only.
 """
 from __future__ import annotations
 
-import base64
 import os
 import typing as _t
 
@@ -24,11 +23,9 @@ import numpy as np
 
 import O4_File_Names as FNAMES
 
+from .pack_objects import b64_array as _b64
+
 __all__ = ["mesh_crop"]
-
-
-def _b64(a: np.ndarray, dtype: str) -> str:
-    return base64.b64encode(np.ascontiguousarray(a, dtype=dtype).tobytes()).decode("ascii")
 
 
 def _missing_reason(tile: str, build_dir: str, lat: int, lon: int) -> str:

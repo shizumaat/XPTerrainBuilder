@@ -49,11 +49,13 @@ from tests.auto_patch_v2.test_v2grounddem import (_LawfulDem, _X0, _X1, _Y0, _Y1
                                                   _lawful_z)
 from tests.auto_patch_v2.test_v2smooth import _airport, law  # noqa: F401
 
-#: the colonnade: nine column feet on a line 7 m apart, out on the south
-#: strip where the ground is lawful and falls away from the runway edge
-_PITCH = 7.0
+#: the colonnade: nine column feet on a line 5 m apart, out on the south
+#: strip where the ground is lawful and falls away from the runway edge —
+#: inside the strip measured from the CENTRELINE (RULINGS 2026-10-15c (1):
+#: the band ends half-width − runway half-width past the edge, 52.5 m here)
+_PITCH = 5.0
 _FEET_X = -200.0
-_FEET_Y0 = _Y0 - 12.0
+_FEET_Y0 = _Y0 - 6.0
 
 
 def _apron_cell(r):
@@ -264,9 +266,9 @@ def test_a_matched_body_is_feasible_however_steep_the_ground(law):  # noqa: F811
 
     def groups(a, r):
         pts = [(_FEET_X, _FEET_Y0 - i * _PITCH) for i in range(9)]
-        return [_group("stair", _feet(a, r, pts, [0.7 * i for i in range(9)]))]
-    # the ground falls 0.1 x 7 = 0.70 m per bay and the columns rise
-    # 0.70 m per bay: the pair residual is 0 at every neighbour
+        return [_group("stair", _feet(a, r, pts, [0.1 * _PITCH * i for i in range(9)]))]
+    # the ground falls 0.1 x the pitch per bay and the columns rise
+    # the same per bay: the pair residual is 0 at every neighbour
     _a, _r, _pm, _cs, _sol, _rep, _counts = _arm(law, _Stair(), groups)
     st = FR.STATS["foot_rows"]
     assert st["infeasible"] == 0 and st["bare"] == 1, st
@@ -384,7 +386,7 @@ def test_the_pair_bar_reads_the_slope_between_neighbouring_feet(law):  # noqa: F
 
     bank = float(law.tables.emit.design.bank_slope)
     pts = [(_FEET_X, _FEET_Y0 - i * _PITCH) for i in range(9)]
-    ys = [0.7 * i for i in range(9)]
+    ys = [0.1 * _PITCH * i for i in range(9)]
 
     from auto_patch_v2.model.frame import Frame
     fr = Frame(icao="TEST", origin=(0.0, 0.0), identity_dp=11)
@@ -396,7 +398,7 @@ def test_the_pair_bar_reads_the_slope_between_neighbouring_feet(law):  # noqa: F
 
     ok = _fit(feet, 0.0, sample(_Falling()), bank, pairs=neighbour_pairs)
     assert ok is not None and ok.feasible and ok.residual_m <= 0.01, ok
-    # the pair bar over a 7 m bay is 0.33 x 7 = 2.31 m
+    # the pair bar over a bay is 0.33 x the pitch
     assert ok.limit_m == pytest.approx(bank * _PITCH, rel=0.05)
     # 0.7 m over a 7 m bay is 1:10 — a BANK.  On flat ground the same
     # colonnade is still feasible, which is the half round 6 got wrong.

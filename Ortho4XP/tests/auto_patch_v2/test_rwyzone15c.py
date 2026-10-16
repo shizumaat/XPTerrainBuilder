@@ -147,6 +147,61 @@ def test_the_end_box_takes_no_ceiling_from_a_taxi_class(synthetic, law):
     assert {r.follows for r in rows} <= capped
 
 
+
+@pytest.fixture(scope="module")
+def synthetic_far(law):
+    """Runway B closer (y = 200) and running 400 m past runway A's west
+    end, so a vertex deep in A's end area is NEARER B's edge than A's own
+    end edge — the CYXY 14L/32R v3909 geometry (251 m to 14R/32L, 270 m
+    beyond 14L/32R's end)."""
+    frame = Frame("ZZZZ", origin=(39.9, -105.1), identity_dp=11)
+    ll = (39.9, -105.1)
+    ra = Runway("12L/30R", 30.0, 1,
+                (RunwayEnd("12L", (-A_END, 0.0), ll, 0.0, 0.0, 1700.0, "fixture"),
+                 RunwayEnd("30R", (A_END, 0.0), ll, 0.0, 0.0, 1700.0, "fixture")),
+                4, "D")
+    rb = Runway("12R/30L", 23.0, 1,
+                (RunwayEnd("12R", (-1400.0, 200.0), ll, 0.0, 0.0, 1700.0, "fixture"),
+                 RunwayEnd("30L", (A_END, 200.0), ll, 0.0, 0.0, 1700.0, "fixture")),
+                4, "B")
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    airport = Airport("ZZZZ", "Synthetic", frame, 1700.0, (ra, rb), (), (), {}, (),
+                      (), (), (), (), (), (), pack, _FlatDem(), law.ruleset_key)
+    cells = (
+        Cell(0, "runway", "12L/30R", _rect(-A_END, -15.0, A_END, 15.0), (), 4,
+             "D", "airside", "runway", {}),
+        Cell(1, "runway", "12R/30L", _rect(-1400.0, 188.5, A_END, 211.5),
+             (), 4, "B", "airside", "runway", {}),
+    )
+    pm, _stats = build(airport, Classification(cells, (), {}, ()), law)
+    return airport, pm
+
+
+def test_a_runway_band_joins_its_own_runway_not_a_nearer_parallel(synthetic_far, law):
+    """THE CLASS JOIN IS THE RUNWAY'S OWN (lane rwyzone15c phase 4): the
+    band is built per runway, so a vertex of runway A's zone deep in its
+    end area — nearer runway B's edge than A's end edge, and abeam B — is
+    joined to A's edges, where it is beyond the end and takes nothing.
+    Keyed by code number it was joined to B and floored from B's lip."""
+    airport, pm = synthetic_far
+    vw = view(pm, law)
+    assert pm.zone_runway_of_ref, "the planar map names each runway band's runway"
+    deep = set()
+    for f in vw.faces_of_role(("graded_strip",)):
+        if pm.zone_runway_of_ref.get(f.ref) != "12L/30R":
+            continue
+        for ring in [vw.rings[f.id], *vw.holes[f.id]]:
+            for v in ring:
+                x, y = vw.xy[v]
+                if x < -A_END - 150.0 and v not in vw.pavement_vertices:
+                    deep.add(v)
+    assert deep, "the fixture must carry A-band vertices 150 m beyond A's end"
+    rb = {v for f in vw.faces_of_role(("runway",)) if f.ref == "12R/30L"
+          for v in vw.rings[f.id]}
+    bad = [r for r in zones.zone_bands(pm, law, airport)
+           if r.follows in deep and any(v in rb for v, _c in r.terms)]
+    assert not bad, f"{len(bad)} zone rows of 12L's end area name 12R/30L"
+
 def _end_chord(v, foot, lo, hi):
     return Linear(((v, 1.0), (foot, -1.0)), lo, hi,
                   Source("strips", END_PROFILE_HEAD + " (owner RULINGS 2026-10-12q (1))",
@@ -180,3 +235,21 @@ def test_the_projection_holds_the_end_profile_over_a_zone_floor(law):
     out = _z_of(base, x)
     assert out[0] == pytest.approx(0.14)
     assert ZONE_GENERATOR == "zones"
+
+
+
+def test_a_taxiway_s_own_lip_in_an_end_area_takes_no_end_row(synthetic, law):
+    """RULINGS 2026-10-15j: inside a runway end area the adjacent ground
+    within a non-runway pavement's lip follows that pavement — the end
+    laws state no row on it (``constraints.end_lip``, the one predicate),
+    and the zone end box leaves it to the pavement's own band."""
+    from auto_patch_v2.constraints.end_lip import end_lip_vertices
+    airport, pm = synthetic
+    vw = view(pm, law)
+    groups = strips.runway_groups(vw, airport)
+    lip = end_lip_vertices(vw, groups)
+    assert lip, "the junction across 12L's end must carry lip ground in the end area"
+    ends = strips.end_corridor_longitudinal(pm, law, airport)
+    bad = [r for r in ends if any(v in lip for v, _c in r.terms)]
+    assert not bad, f"{len(bad)} end rows bind the junction's own lip"
+    assert not (lip & strips.end_band_vertices(vw, groups))

@@ -19,11 +19,34 @@ from ..emit.surface import GradedSurface
 from ..law import Law
 from ..constraints.precedence import taxi_cap_for
 from ..law.tables import is_rigid_role, role_cap, role_family, role_side
+from ..model.frame import Frame
 from ..model.planar import face_vertex_ids
 
-__all__ = ["R_EARTH", "Shape", "Patch", "Row", "row", "noise_m"]
+__all__ = ["R_EARTH", "Shape", "Patch", "Row", "row", "noise_m", "metric_frame"]
 
 R_EARTH = 6_378_137.0
+
+
+def metric_frame(lat0: float, lon0: float
+                 ) -> tuple[_t.Callable[[float, float], tuple[float, float]],
+                            _t.Callable[[float, float], tuple[float, float]]]:
+    """``(to_m(lat, lon), to_ll(x, y))`` in THE ENGINE'S OWN METRIC — the
+    transverse-Mercator :class:`model.frame.Frame` the generators state
+    their rows in, centred at the reader's origin.
+
+    WHY A READER NEEDS IT (lane rwyzone15c, RULINGS 2026-10-15h).  The
+    census frame above is a SPHERICAL equirectangular: against the
+    ellipsoid its plan distances are off by 0.1-0.7 % (CYXY at 60.7 N
+    reads a 128.34 m engine chord as 128.17 m).  A law priced by plan
+    DISTANCE at its bound — the runway-end profile's chord, the fall
+    stated at the vertex's own distance — then reads as a breach the
+    generator never made.  A family whose bound is a function of distance
+    reads in this frame; the row's points go back to the census frame
+    for every join.  Plan distances are origin-independent to ~1e-8 at
+    airport scale (tmerc scale error), so any nearby origin is the
+    engine's distance."""
+    to_xy, to_ll = Frame("", (float(lat0), float(lon0)), 11).transformers()
+    return (lambda lat, lon: to_xy(lon, lat)), to_ll
 
 
 @_dc.dataclass(frozen=True)
@@ -88,8 +111,36 @@ class Patch:
     shapes: tuple[Shape, ...]          # role-carrying rings
     features: tuple[Shape, ...]        # holes, crown spines
     publication: _t.Mapping[str, _t.Any]
+    #: ``(to_m, to_ll)`` when this patch is read in :func:`metric_frame`
+    #: (:meth:`in_metric_frame`); ``None`` — the census frame
+    metric: _t.Any = _dc.field(default=None, compare=False)
+
+    def in_metric_frame(self) -> "tuple[Patch, _t.Callable]":
+        """``(patch, back)``: this patch with every coordinate in
+        :func:`metric_frame`, and ``back(xy)`` taking one of its points to
+        THIS patch's census frame (a vertex exactly; another point
+        through lat/lon) — so a row's ``site_m`` joins as before.  A patch
+        built in metres with no lat/lon (a synthetic twin) is its own
+        metric: it comes back unchanged."""
+        if not self.ll or any(v not in self.ll for v in self.xy):
+            return self, (lambda pt: pt)
+        fwd, inv = metric_frame(self.lat0, self.lon0)
+        xy = {v: fwd(*ll) for v, ll in self.ll.items()}
+        census = {xy[v]: self.xy[v] for v in xy if v in self.xy}
+
+        def back(pt):
+            got = census.get(pt)
+            return got if got is not None else self.to_m(*inv(*pt))
+
+        def move(sh: Shape) -> Shape:
+            return _dc.replace(sh, xy=tuple(xy[i] for i in sh.ids))
+        return (_dc.replace(self, xy=xy, shapes=tuple(map(move, self.shapes)),
+                            features=tuple(map(move, self.features)),
+                            metric=(fwd, inv)), back)
 
     def to_m(self, lat: float, lon: float) -> tuple[float, float]:
+        if self.metric is not None:
+            return self.metric[0](lat, lon)
         cos0 = math.cos(math.radians(self.lat0))
         return (math.radians(lon - self.lon0) * R_EARTH * cos0,
                 math.radians(lat - self.lat0) * R_EARTH)
@@ -101,6 +152,8 @@ class Patch:
         point, a projection foot) needs it to stamp the row's own ``lat`` /
         ``lon``: #106/#107 was 20 families leaving them unset and falling
         through to the ring CENTROID."""
+        if self.metric is not None:
+            return self.metric[1](x, y)
         cos0 = math.cos(math.radians(self.lat0))
         return (self.lat0 + math.degrees(y / R_EARTH),
                 self.lon0 + math.degrees(x / (R_EARTH * cos0)))

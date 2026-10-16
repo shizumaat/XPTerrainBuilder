@@ -215,6 +215,7 @@ def _ends(airport: Airport, law: Law, chords, rec, planar: PlanarMap, vw,
                 "outward": (dx / n, dy / n),
                 "half_width_m": float(rw.width_m) / 2.0,
                 "tail_height_m": float(tail),
+                "code_number": int(code),
                 "end_z": end_z,
                 "anchor": anchor,
             })
@@ -404,8 +405,10 @@ def _judge_clusters(spec: dict, members, planar: PlanarMap,
     gap = float(rec.segment_gap_m)
     max_along = float(rec.rect_max_along_m)
     cut_tol = 0.01                 # the anchor envelope's own materiality
-    d_clear = eat_clear_distance(surface.slope, surface.setback_m,
-                                 spec["tail_height_m"])
+    # the departure surface BY RUNWAY CODE (owner RULINGS 2026-10-15k (2))
+    slope = float(surface.slope.value(spec["code_number"]))
+    setback = float(surface.setback_m.value(spec["code_number"]))
+    d_clear = eat_clear_distance(slope, setback, spec["tail_height_m"])
     cap = float(rec.max_crossing_m)
     d_far, far_rule = ((d_clear, "D_clear") if d_clear <= cap
                        else (cap, "max_crossing_m"))
@@ -419,7 +422,7 @@ def _judge_clusters(spec: dict, members, planar: PlanarMap,
         s_lo, s_hi = seg[0][0], seg[-1][0]
         d_mid = 0.5 * (s_lo + s_hi)
         value = spec["end_z"] + eat_ceiling_offset(
-            d_mid, surface.slope, surface.setback_m, spec["tail_height_m"])
+            d_mid, slope, setback, spec["tail_height_m"])
         wrap = [c for c in cross_s if s_lo - gap <= c <= s_hi + gap]
         row = {"end": spec["end"], "runway": spec["runway"],
                "anchor": spec["anchor"],

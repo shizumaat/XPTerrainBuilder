@@ -327,6 +327,9 @@ EXCEPTION_CODES = {
     # caught before the worker / never raised by an app build
     "AutoPatchBuildFailure": UNMAPPED_AIRPORT,
     "ExternalWriteRefused": UNMAPPED,
+    # o4_engine.command_process (#753): a queued preview read nobody wants
+    # any more is skipped, never shown — never a build failure
+    "Superseded": UNMAPPED,
     # O4_Unmounted_Links (#668) names its code with ``failure_code``
     "UnmountedLink": "output_link_unmounted",
     "LoginError": UNMAPPED,

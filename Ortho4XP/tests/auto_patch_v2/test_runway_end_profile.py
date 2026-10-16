@@ -76,7 +76,7 @@ def test_faa_profile_is_the_near_end_rule_then_five_percent(faa):
     assert prof.rise_m(30.0) == 0.0
     assert prof.rise_m(61.0) == 0.0
     # beyond it the departure surface (40:1 from the DER, no setback)
-    assert prof.rise_m(80.0) == pytest.approx(rs.eat.slope * 80.0)
+    assert prof.rise_m(80.0) == pytest.approx(rs.eat.slope.value(4) * 80.0)
     # the grade-change rate is stated and read
     assert rs.end_skirt.rate_provisional is False
     assert prof.rate == pytest.approx(0.02 / 30.5)
@@ -89,8 +89,9 @@ def test_icao_rising_ground_is_the_takeoff_climb_surface(icao):
     prof = runway_end_profile(icao, 3, "D")
     # level with the end for the first setback_m, then the slope
     assert prof.rise_m(0.0) == 0.0
-    assert prof.rise_m(rs.eat.setback_m) == 0.0
-    assert prof.rise_m(rs.eat.setback_m + 100.0) == pytest.approx(rs.eat.slope * 100.0)
+    assert prof.rise_m(rs.eat.setback_m.value(3)) == 0.0
+    assert prof.rise_m(rs.eat.setback_m.value(3) + 100.0) == pytest.approx(
+        rs.eat.slope.value(3) * 100.0)
 
 
 def test_pair_bounds_are_one_sided_in_each_direction(icao):
@@ -283,13 +284,14 @@ def test_the_readers_frame_is_the_published_slab(icao):
 
 def test_the_tolerance_is_one_key(icao):
     """#620: ``emit.instrument.strip_edge_noise_m`` is the generator's
-    slack (less materiality, never negative) and the readers' forgiveness
-    (never under the rounding a pair carries) — 0 prices the cap exactly."""
+    slack (less the rounding envelope a held pair carries, never negative)
+    and the readers' forgiveness (never under that rounding) — 0 prices
+    the cap exactly."""
     import dataclasses as dc
     from auto_patch_v2.law.tables import end_profile_noise_m
     ins = icao.tables.emit.instrument
     assert end_profile_noise_m(icao) == pytest.approx(
-        ins.strip_edge_noise_m - icao.tables.emit.materiality.elevation_m)
+        ins.strip_edge_noise_m - ins.rounding_noise_m)
     assert end_profile_noise_m(icao, reader=True) == pytest.approx(ins.strip_edge_noise_m)
     emit0 = dc.replace(icao.tables.emit, instrument=dc.replace(ins, strip_edge_noise_m=0.0))
     exact = dc.replace(icao, tables=dc.replace(icao.tables, emit=emit0))
@@ -315,3 +317,38 @@ def test_no_two_way_end_row_holds_a_pavement_vertex(synthetic, icao, faa):  # no
                 assert r.follows is not None and r.follows not in vw.pavement_vertices
             else:
                 assert not {v for v, _c in r.terms} & vw.pavement_vertices
+
+
+def test_the_end_profile_readers_measure_in_the_engines_metric():
+    """THE READERS' FRAME (lane rwyzone15c phase 4, RULINGS 2026-10-15h):
+    the end profile's bounds are functions of plan distance, so both
+    readers measure it in the engine's transverse-Mercator metric, not the
+    census's spherical equirectangular — at CYXY's 60.7 N the latter read
+    the engine's 128.34 m chord 0.17 m short and a chord held exactly at
+    its bound as a breach.  The rows' points go back to the census frame."""
+    import math
+    import sys
+    from pathlib import Path
+    from auto_patch_v2.model.frame import Frame
+    from auto_patch_v2.verify.frame import Patch, metric_frame
+    lat0, lon0 = 60.72, -135.07
+    a, b = (60.7215, -135.0710), (60.7225, -135.0726)
+    to_xy, _ = Frame("", (lat0, lon0), 11).transformers()
+    engine = math.dist(to_xy(a[1], a[0]), to_xy(b[1], b[0]))
+    fwd, _inv = metric_frame(lat0, lon0)
+    assert math.dist(fwd(*a), fwd(*b)) == pytest.approx(engine, abs=1e-6)
+    law = Law.load(ruleset="icao")
+    p = Patch(law, lat0, lon0, {}, {}, {1: a, 2: b}, (), (), {})
+    census = {1: p.to_m(*a), 2: p.to_m(*b)}
+    p = Patch(law, lat0, lon0, census, {1: 0.0, 2: 0.0}, {1: a, 2: b}, (), (), {})
+    assert abs(math.dist(census[1], census[2]) - engine) > 0.1   # the defect's size
+    pm, back = p.in_metric_frame()
+    assert math.dist(pm.xy[1], pm.xy[2]) == pytest.approx(engine, abs=1e-6)
+    assert back(pm.xy[1]) == census[1] and back(pm.xy[2]) == census[2]
+    # the census side: the same metric, and its points back exactly
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import check_grade as cg
+    ll_to_m = cg._ll_to_m_factory({}, anchor=(lat0, lon0))
+    to_m, to_census = cg._engine_metric(ll_to_m)
+    assert math.dist(to_m(*a), to_m(*b)) == pytest.approx(engine, abs=1e-6)
+    assert to_census(to_m(*a)) == ll_to_m(*a)

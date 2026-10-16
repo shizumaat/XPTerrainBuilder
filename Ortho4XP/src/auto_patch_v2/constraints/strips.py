@@ -56,12 +56,15 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
-                          runway_end_profile, zone2_half_width_m)
+                          runway_end_profile, runway_safety_area_length_m,
+                          zone2_half_width_m)
 from ..model.airport import Airport
+from ..model.end_area import end_area_lengths
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
                        principal_axis, rect_ring)
+from .end_lip import end_lip_vertices, nonrunway_pavement_roles, pavement_edge_junction
 from .precedence import View, view
 
 __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
@@ -100,6 +103,8 @@ class RunwayGroup:
     code_number: int
     code_letter: str | None
     rings: tuple[list[XY], ...]          # lateral rect, approach end, departure end
+    #: the runway's INSTRUMENT STATUS (RULINGS 2026-10-15k; ``Runway.instrument``)
+    instrument: bool = False
 
 
 def runway_code_number(length_m: float, law: Law) -> int:
@@ -139,6 +144,9 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         if rw.id in pts_by_ref:
             pts_by_ref[rw.id] = list(rw.slab_corners)
     letter_of = {rw.id: rw.code_letter for rw in airport.runways}
+    instrument_of = {rw.id: bool(getattr(rw, "instrument", False)) for rw in airport.runways}
+    ends_of = {rw.id: (rw.ends[0].xy, rw.ends[1].xy) for rw in airport.runways}
+    end_len = end_area_lengths(airport, law)
     out: list[RunwayGroup] = []
     for ref, pts in pts_by_ref.items():
         ax = principal_axis(pts)
@@ -153,17 +161,30 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         letter = letter_of.get(ref)
         strip_half = zone2_half_width_m(law, "runway", code, letter) or 0.0
         end_half = max(width, strip_half)
-        cl = law.ruleset.end_skirt.corridor_length_m
-        end_len = cl.value(code, letter) if cl is not None else 0.0
-        end_len = end_len or 0.0
+        # THE RSA LENGTH FROM THE RUNWAY END (owner RULINGS 2026-10-15c (2)):
+        # the corridor runs ``runway_safety_area_length_m`` past the runway's
+        # own END (``RunwayEnd.xy``), the blast pad inside it — so past the
+        # SLAB end it runs that length less the end's overrun
+        # ...or to the top of a drop (RULINGS 2026-10-15g (C);
+        # ``model/end_area``): each end its own length, end 0 / end 1 matched
+        # to the slab side its END stands on
+        ins = instrument_of.get(ref, False)
+        rsa = runway_safety_area_length_m(law, code, letter, ins)
+        len_a = len_b = rsa
+        if ref in ends_of:
+            ss = [(p[0] - a[0]) * unit[0] + (p[1] - a[1]) * unit[1] for p in ends_of[ref]]
+            e0, e1 = end_len.get(ref, (rsa, rsa))
+            near_a = (e0, e1) if ss[0] <= ss[1] else (e1, e0)
+            len_a = max(0.0, near_a[0] - max(0.0, min(ss)))
+            len_b = max(0.0, near_a[1] - max(0.0, length - max(ss)))
         # inflated by the identity spacing: the census fits its own axis in
         # its own (equirectangular) frame, ~0.03 % off this one, and a
         # vertex on the footprint boundary must be bound on both readings
         m = law.tables.emit.identity.min_distinct_spacing_m
         rings = (rect_ring(a, b, -m, length + m, strip_half + m),
-                 rect_ring(a, b, -end_len - m, m, end_half + m),
-                 rect_ring(a, b, length - m, length + end_len + m, end_half + m))
-        out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings))
+                 rect_ring(a, b, -len_a - m, m, end_half + m),
+                 rect_ring(a, b, length - m, length + len_b + m, end_half + m))
+        out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings, ins))
     return out
 
 
@@ -197,14 +218,17 @@ def pavement_ring_vertices(faces: _t.Iterable[tuple[object, _t.Sequence[int]]]
 
 
 def strip_longitudinal_pairs(ids: _t.Sequence[int], xy: _t.Sequence[XY], unit: XY,
-                             rect: _t.Sequence[XY], pavement: _t.Container[int]
+                             rect: _t.Sequence[XY], pavement: _t.Container[int],
+                             owned: _t.Container[int] = frozenset()
                              ) -> list[tuple[int, int, float]]:
     """THE STRIP-LONGITUDINAL PAIR POPULATION of one strip ring (RULINGS
     2026-09-05ae(3): the generator prices every pair the reader reads):
     consecutive vertices of an along-axis run inside the lateral
     rectangle (:func:`geometry.longitudinal_runs`), not both pavement,
-    at least ``MIN_ALONG_M`` apart along the axis — as ``(i, j, ds)``
-    ring indices with the along-axis distance."""
+    at least ``MIN_ALONG_M`` apart along the axis, and not a pavement-edge
+    junction with non-runway pavement (``owned``; :func:`end_lip.
+    pavement_edge_junction`) — as ``(i, j, ds)`` ring indices with the
+    along-axis distance."""
     inside = [point_in_rect_ring(x, y, rect) for x, y in xy]
     if not any(inside):
         return []
@@ -212,6 +236,8 @@ def strip_longitudinal_pairs(ids: _t.Sequence[int], xy: _t.Sequence[XY], unit: X
     for run in longitudinal_runs(xy, unit, inside):
         for i, j in zip(run, run[1:]):
             if ids[i] in pavement and ids[j] in pavement:
+                continue
+            if pavement_edge_junction((ids[i], ids[j]), owned):
                 continue
             ds = _along(unit, xy[i], xy[j])
             if ds < MIN_ALONG_M:
@@ -231,15 +257,16 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     seen: set[tuple[int, int]] = set()
     # the reader's population helper, on the reader's pavement (05ae-3)
     pav = pavement_ring_vertices((vw.caps[fid], vw.rings[fid]) for fid in planar.faces)
+    owned = _nonrunway_pavement_vertices(vw)
+    q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     for g in runway_groups(vw, airport):
         cap = law.ruleset.strip.longitudinal.value(g.code_number, g.code_letter)
         if cap is None:
             continue
-        q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
         src = Source(GEN, "rulesets.strip.longitudinal (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):
-            for i, j, ds in strip_longitudinal_pairs(ids, xy, g.unit, g.rings[0], pav):
+            for i, j, ds in strip_longitudinal_pairs(ids, xy, g.unit, g.rings[0], pav, owned):
                 a, b = ids[i], ids[j]
                 key = (min(a, b), max(a, b))
                 if key in seen:
@@ -255,6 +282,7 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     r = law.ruleset.strip.arc_rate
     rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
+    owned = _nonrunway_pavement_vertices(vw)
     rows: list[Row] = []
     seen: set[tuple[int, int, int]] = set()
     for g in runway_groups(vw, airport):
@@ -269,7 +297,7 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 for k in range(1, len(run) - 1):
                     a, b, c = ids[run[k - 1]], ids[run[k]], ids[run[k + 1]]
                     key = tuple(sorted((a, b, c)))
-                    if key in seen or len(set(key)) < 3:
+                    if key in seen or len(set(key)) < 3 or pavement_edge_junction(key, owned):
                         continue
                     dp, dn = abs(s[k] - s[k - 1]), abs(s[k + 1] - s[k])
                     if dp < 1e-6 or dn < 1e-6:
@@ -279,6 +307,14 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     terms = ((c, 1.0 / dn), (b, -(1.0 / dn + 1.0 / dp)), (a, 1.0 / dp))
                     rows.append(Linear(terms, -bound, bound, src))
     return rows
+
+
+def _nonrunway_pavement_vertices(vw: View) -> frozenset[int]:
+    """The vertices of every non-runway pavement face (``end_lip.
+    nonrunway_pavement_roles``) — the ``owned`` set of
+    :func:`end_lip.pavement_edge_junction`."""
+    return frozenset(v for f in vw.faces_of_role(tuple(nonrunway_pavement_roles(vw.law)))
+                     for v in vw.face_vertices(f.id))
 
 
 def _resa_max(law: Law, beyond: float, letter: str | None) -> float | None:
@@ -299,7 +335,8 @@ def resa_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # corridor's transverse rows too (NLWF 25: a strip vertex against a
     # service-road vertex on its DEM ramp, 5.6 % over 26 m once the end
     # profile lowered the strip beside it)
-    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
+    # ... and a non-runway pavement's own lip (2026-10-15j, ``_end_yields``)
+    road_cap = _end_yields(vw)
     for g in runway_groups(vw, airport):
         src = Source(GEN, "rulesets.resa.transverse_max (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
@@ -457,7 +494,19 @@ def _unbound_end_vertices(vw: View) -> set[int]:
     the wall), and under a mapped-road ribbon THE ROAD CAP GOVERNS (owner
     RULINGS 2026-10-02ag (2), #100; ``PlanarMap.ribbon_vertices``)."""
     walls = {v for f in vw.faces_of_role(("retaining_wall",)) for v in vw.rings[f.id]}
-    return walls | set(vw.pm.road_cap_vertices(airside_stage_roles(vw.law)))
+    return walls | _end_yields(vw)
+
+
+def _end_yields(vw: View) -> set[int]:
+    """The vertices whose level another law states, so that no end row of
+    any form prices them:
+
+    * the road cap (owner RULINGS 2026-10-02ag (2));
+    * a non-runway pavement's own lip (2026-10-15j, :mod:`.end_lip`).
+
+    The build publishes the two sets as ``road_cap_governs`` and
+    ``end_profile_yields``, and the readers skip both."""
+    return set(vw.pm.road_cap_vertices(airside_stage_roles(vw.law))) | end_lip_vertices(vw)
 
 
 def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
@@ -482,9 +531,11 @@ def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     # no end row of any form prices that vertex (NLWF 25: a service road
     # across the band, its DEM ramp an equality the pair row lost to by
     # 0.16 m; the readers skip the published ``road_cap_governs`` set)
-    road_cap = vw.pm.road_cap_vertices(airside_stage_roles(vw.law))
+    # ... and a non-runway pavement's own lip (owner RULINGS 2026-10-15j):
+    # the pavement leads that ground, the end profile governs the rest
+    road_cap = _end_yields(vw)
     for g in runway_groups(vw, airport):
-        prof = runway_end_profile(law, g.code_number, g.code_letter)
+        prof = runway_end_profile(law, g.code_number, g.code_letter, g.instrument)
         src = Source(GEN, END_PROFILE_PAIR_RULING, (f"rwy:{g.ref}",))
         chord_src = Source(GEN, END_PROFILE_RULING, (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):
@@ -733,6 +784,7 @@ def end_corridor_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
         return []
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     lip = law.tables.zones.adjacent_ground.lip_width_m
+    yields = _end_yields(vw)
     rows: list[Row] = []
     seen3: set[tuple[int, ...]] = set()
     seen: set[tuple[int, int]] = set()
@@ -754,8 +806,8 @@ def end_corridor_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
                         # station on pavement (an apron edge the strip ring
                         # runs along) is that pavement's and enters no row
                         # (KBFI: three apron-edge vertices in one rate row)
-                        if any(v in vw.pavement_vertices for v in key):
-                            continue
+                        if any(v in vw.pavement_vertices or v in yields for v in key):
+                            continue      # ... and a vertex another law levels (``_end_yields``)
                         dp, dn = abs(s[k] - s[k - 1]), abs(s[k + 1] - s[k])
                         if dp < 1e-6 or dn < 1e-6:
                             continue
@@ -790,6 +842,8 @@ def raoa(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         return []
     rate = ra.max_grade_change.grade / ra.max_grade_change.per_m
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
+    # RULINGS 2026-10-15j: a non-runway pavement's own lip follows it
+    lip = end_lip_vertices(vw, runway_groups(vw, airport))   # the published set
     rows: list[Row] = []
     seen: set[tuple[int, int, int]] = set()
     for g in runway_groups(vw, airport):
@@ -824,7 +878,7 @@ def raoa(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                         continue          # a cross-width neighbour, not a profile step
                     a, b, c = src_ids[k - 1], src_ids[k], src_ids[k + 1]
                     key = (a, b, c)
-                    if key in seen or len(set(key)) < 3:
+                    if key in seen or len(set(key)) < 3 or any(v in lip for v in key):
                         continue
                     seen.add(key)
                     bound = rate * 0.5 * (dp + dn) + q * (1.0 / dp + 1.0 / dn)

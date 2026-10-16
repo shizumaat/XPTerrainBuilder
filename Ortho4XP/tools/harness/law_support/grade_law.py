@@ -322,7 +322,7 @@ def runway_axis_and_width(points) -> "Optional[tuple]":
 def runway_strip_wall_keepout_rings(
         axis_a: tuple[float, float], axis_b: tuple[float, float],
         runway_width_m: float, code_letter=None,
-        ruleset=None) -> list[list[tuple[float, float]]]:
+        ruleset=None, end_len_m=None) -> list[list[tuple[float, float]]]:
     """THE runway-STRIP footprint inside which a ``retaining_wall`` face is
     INADMISSIBLE (owner ruling 2026-08-01, runway-edge terrain law: "retaining
     walls are NEVER lawful at a runway edge — runway surroundings must grade
@@ -363,6 +363,12 @@ def runway_strip_wall_keepout_rings(
     end_half = runway_end_corridor_half_width_m(
         runway_width_m, length, code_letter, ruleset)
     end_len = float(RUNWAY_END_CLEARANCE_LENGTH_BY_CODE[code])
+    # ``end_len_m`` = ``(beyond axis_a, beyond axis_b)``: the v2 RSA length
+    # (owner RULINGS 2026-10-15c (2)) the caller read from the generator's
+    # own law (``auto_patch_v2.law.tables.runway_safety_area_length_m``,
+    # less each end's overrun); the v1 table when the caller states none
+    len_a, len_b = (end_len, end_len) if end_len_m is None else (
+        float(end_len_m[0]), float(end_len_m[1]))
 
     def _rect(s0, s1, half):
         """Closed ring of the axis-aligned band ``s ∈ [s0, s1]``, ``|t| ≤
@@ -373,8 +379,8 @@ def runway_strip_wall_keepout_rings(
         return ring + [ring[0]]
 
     return [_rect(0.0, length, strip_half),
-            _rect(-end_len, 0.0, end_half),
-            _rect(length, length + end_len, end_half)]
+            _rect(-len_a, 0.0, end_half),
+            _rect(length, length + len_b, end_half)]
 
 
 def runway_strip_max_longitudinal_slope(code_number: int,

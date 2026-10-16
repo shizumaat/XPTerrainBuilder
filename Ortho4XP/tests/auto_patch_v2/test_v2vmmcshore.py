@@ -385,10 +385,12 @@ def test_no_ramp_or_rim_stands_on_the_water(law):
 # ── §37 (11) (1)/(2): the shore trims the zones; the quay ────────────────
 
 def _zone_cells():
-    """A code-E junction whose south edge stands 10 m from the shore — the
-    land runs out well inside lip + half-width (code E: 3 m lip + 19 m
-    band), which is VMMC's own geometry."""
-    return (Cell(0, "junction", "pav5", _rect(-200, -20, 200, 120), (),
+    """A code-E junction whose south edge stands 6 m from the shore — the
+    land runs out inside the zone's reach (code E: 7.5 m past the edge,
+    the graded strip from the CENTRELINE, RULINGS 2026-10-15l (1); 10 m
+    against the 19 m edge-measured band before), which is VMMC's own
+    geometry."""
+    return (Cell(0, "junction", "pav5", _rect(-200, -24, 200, 120), (),
                  None, "E", "airside", "junction", {}),)
 
 

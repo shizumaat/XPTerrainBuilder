@@ -130,22 +130,32 @@ def test_no_zone_row_beyond_an_end_reaches_the_parallel_runway(synthetic, law):
 
 def test_the_end_box_takes_no_ceiling_from_a_taxi_class(synthetic, law):
     """In the end box (``strips.end_band_vertices``) the runway's end
-    profile is the ceiling; the junction across the end floors only."""
+    profile is the ceiling.  AMENDED by owner RULINGS 2026-10-16c ("Whole
+    graded strip"): the ground of the junction's own graded strip (zones 1
+    and 2) is the junction's — it is published in ``end_lip`` and left out
+    of the end box, and the junction bands it in full (floor and ceiling);
+    the end profile governs the rest of the end area."""
+    from auto_patch_v2.constraints.end_lip import end_lip_vertices
     airport, pm = synthetic
     vw = view(pm, law)
-    box = strips.end_band_vertices(vw, strips.runway_groups(vw, airport))
+    groups = strips.runway_groups(vw, airport)
+    box = strips.end_band_vertices(vw, groups)
     assert box
     taxi = {v for f in vw.faces_of_role(("junction",)) for v in vw.rings[f.id]}
+    band = {v for f in vw.faces_of_role(("graded_strip",))
+            if str(f.ref).startswith("adjacent_ground:taxi:")
+            for v in vw.face_vertices(f.id)} - vw.pavement_vertices
+    lip = end_lip_vertices(vw, groups)
+    assert band & lip, "the junction's graded strip inside the end area is its own"
+    assert not (band & box), "the end box never holds the junction's graded strip"
     rows = [r for r in zones.zone_bands(pm, law, airport)
-            if r.follows in box and any(v in taxi for v, _c in r.terms)]
-    assert rows, "the junction must band the end box (its floor)"
-    assert all(r.hi is None and r.lo is not None for r in rows)
-    # and the end profile's chord does carry a ceiling for every one
+            if r.follows in (band & lip) and any(v in taxi for v, _c in r.terms)]
+    assert rows and any(r.hi is not None for r in rows)
+    # and no end-profile row prices that ground
     ends = strips.end_corridor_longitudinal(pm, law, airport)
-    capped = {r.follows for r in ends if isinstance(r, Linear)
-              and r.source.ruling.startswith(END_PROFILE_HEAD) and r.hi is not None}
-    assert {r.follows for r in rows} <= capped
-
+    priced = {r.follows for r in ends if isinstance(r, Linear)
+              and r.source.ruling.startswith(END_PROFILE_HEAD)}
+    assert not (priced & band & lip)
 
 
 @pytest.fixture(scope="module")

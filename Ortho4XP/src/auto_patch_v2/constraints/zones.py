@@ -74,7 +74,7 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (airside_stage_roles, is_value_role, role_side,
+from ..law.tables import (airside_stage_roles, apron_roles, is_value_role, role_side,
                           runway_zone_edge_offset_m, snap_margin_m, strip_transverse_bound,
                           zone_bounds, zone_edge_offset_m)
 from ..model.airport import Airport
@@ -88,14 +88,28 @@ __all__ = ["zone_bands", "strip_transverse"]
 
 GEN = "zones"
 
+#: an APRON edge's family in the reference set (:func:`_pavement_edges`):
+#: a lip reference only — it states zone 1 and no band
+_APRON = "apron"
+#: which family a shared reference edge keeps
+_SENIORITY = {"runway": 0, "taxi": 1, _APRON: 2}
+
 
 def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | None, str]]:
-    """The ring EDGES of every runway-family / taxi-family face, each
-    with the family and class the zone law keys by, and the face's ref
-    (a runway's band is measured from ITS centreline, 2026-10-15c (1); a
-    crossing's ``A+B`` whole — :func:`_edge_runways`)."""
+    """THE ZONE LAW'S REFERENCES: the ring EDGES of every runway-family /
+    taxi-family face, and of every APRON face (master's reading (i) under
+    RULINGS 2026-10-16c: graded ground is flush at every pavement edge,
+    Annex 14 §3.4.16 / §3.11.5 — an apron edge is a LIP reference, its
+    corridor the lip, :func:`_APRON`), each with the family and class the
+    zone law keys by, and the face's ref (a runway's band is measured from
+    ITS centreline, 2026-10-15c (1); a crossing's ``A+B`` whole —
+    :func:`_edge_runways`).  Measured on #788: a taxi F zone-2 vertex 1 m
+    off an apron referenced the taxiway 25 m away and stood 1.73 m over the
+    apron edge (KCLT 35.214120, −80.937444)."""
     p = vw.law.tables.precedence
     fam_of: dict[str, str] = {}
+    for r in apron_roles(vw.law):
+        fam_of[r] = _APRON
     for r in p.runway_family.members:
         fam_of[r] = "runway"
     for r in p.taxi_family.members:
@@ -109,8 +123,8 @@ def _pavement_edges(vw: View) -> list[tuple[int, int, str, int | None, str | Non
                 a, b = ring[k], ring[(k + 1) % n]
                 key = (a, b) if a < b else (b, a)
                 cur = out.get(key)
-                # a shared edge keeps the senior family (runway first)
-                if cur is None or (cur[2] == "taxi" and fam == "runway"):
+                # a shared edge keeps the senior family (runway, taxi, apron)
+                if cur is None or _SENIORITY[fam] < _SENIORITY[cur[2]]:
                     out[key] = (key[0], key[1], fam, f.code_number, f.code_letter,
                                 str(f.ref))
     return [out[k] for k in sorted(out)]
@@ -270,7 +284,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
 
     cell = 50.0
     by_class: dict[tuple, dict[tuple[int, int], list[int]]] = {}
-    by_family: dict[str, dict[tuple[int, int], list[int]]] = {"runway": {}, "taxi": {}}
+    by_family: dict[str, dict[tuple[int, int], list[int]]] = {"runway": {}, "taxi": {}, _APRON: {}}
     for k, e in enumerate(edges):
         (ax, ay), (bx, by) = vw.xy[e[0]], vw.xy[e[1]]
         x0, x1 = sorted((ax, bx))
@@ -288,7 +302,11 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     # one the planar band was buffered by (``planar/zones._runway_band``)
     rw_half = {rw.id: 0.5 * float(rw.width_m) for rw in airport.runways}
 
+    lip_m = float(law.tables.zones.adjacent_ground.lip_width_m)
+
     def half_of(e: tuple) -> float | None:
+        if e[2] == _APRON:
+            return lip_m                 # an apron edge: the lip only
         ref = _edge_runways(e)[0] if e[2] == "runway" else None
         if ref in rw_half:
             return runway_zone_edge_offset_m(law, e[3], e[4], rw_half[ref])
@@ -469,6 +487,8 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
                 found.append((near[2], near[0], near[1], near[2]))
         if found:
             for fam, g in by_family.items():
+                if fam == _APRON:
+                    continue     # an apron references only the ground its lip holds
                 near = _nearest_edge(vw, v, edges, g, cell, lambda e: 1e9,
                                      reach * 2.0, lambda k: abeam(v, k))
                 if near is not None and all(near[0] != f_[1] for f_ in found):
@@ -594,11 +614,23 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             else:
                 lo, hi = zone_bounds(law, role, d_eff, cn, cl,
                                      half_m=ctx.half_of(edges[k]))
+            blend = (_blend_partner(ctx, v, k, t, _d) if rank == 0 and v not in quay
+                     else None)
+            if blend is not None:
+                # THE REFERENCE BLENDS ACROSS A NEAREST-EDGE SWITCH ALONG ONE
+                # PAVEMENT (master's reading (ii) under RULINGS 2026-10-16c):
+                # the band's bounds are read at the blended distance
+                k2, t2, d2, w2 = blend
+                d_eff = (1.0 - w2) * d_eff + w2 * min(d2, ctx.half_of(edges[k2]) or d2)
+                lo, hi = zone_bounds(law, role, d_eff, cn, cl,
+                                     half_m=ctx.half_of(edges[k]))
+                if lo is None and hi is None:
+                    continue
             if lo is None and hi is None:
                 continue
             if rank > 0 and v not in quay:
                 hi = None            # a farther pavement: floor only
-            elif fam == "taxi" and v in ctx.end_box and v not in quay:
+            elif fam != "runway" and v in ctx.end_box and v not in quay:
                 # THE END BOX (RULINGS 2026-10-15c): beyond a runway's end
                 # the RUNWAY's end profile is the ceiling
                 # (``strips.end_corridor_longitudinal``); the nearest taxi
@@ -609,12 +641,12 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 hi = None
             if v in pad_rim and pad_nearest.get(pad_rim[v]) != v:
                 continue             # a pad's far rim: no row (the Flat carries the level)
-            if t <= 0.0:
-                terms: tuple[tuple[int, float], ...] = ((v, 1.0), (a, -1.0))
-            elif t >= 1.0:
-                terms = ((v, 1.0), (b, -1.0))
+            if blend is None:
+                terms = ((v, 1.0),) + _foot(a, b, t, 1.0)
             else:
-                terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
+                k2, t2, _d2, w2 = blend
+                terms = _merge(((v, 1.0),) + _foot(a, b, t, 1.0 - w2)
+                               + _foot(edges[k2][0], edges[k2][1], t2, w2))
             # ONE-WAY (owner RULINGS 2026-09-09b (3)): the corridor row
             # governs the GROUND vertex ``v``; the pavement foot is its
             # leader, never dragged down to the ground it shapes.
@@ -623,6 +655,78 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if beyond is not None:
             rows.append(beyond)
     return rows
+
+
+def _foot(a: int, b: int, t: float, w: float) -> tuple[tuple[int, float], ...]:
+    """The foot ``(1 − t)·z_a + t·z_b`` at weight ``w``, as negative terms."""
+    if t <= 0.0:
+        return ((a, -w),)
+    if t >= 1.0:
+        return ((b, -w),)
+    return ((a, -w * (1.0 - t)), (b, -w * t))
+
+
+def _merge(terms: tuple[tuple[int, float], ...]) -> tuple[tuple[int, float], ...]:
+    """``terms`` with one coefficient per vertex (a shared corner)."""
+    out: dict[int, float] = {}
+    for v, c in terms:
+        out[v] = out.get(v, 0.0) + c
+    return tuple((v, c) for v, c in out.items() if c != 0.0)
+
+
+def _blend_partner(ctx: "_Context", v: int, k: int, t: float, d: float
+                   ) -> tuple[int, float, float, float] | None:
+    """THE OTHER EDGE OF THE SAME PAVEMENT a vertex is almost as near to
+    (master's reading (ii) under RULINGS 2026-10-16c): the zone's
+    reference foot jumps where the nearest edge switches between two edges
+    of one pavement whose feet stand at different levels — measured KDEN
+    39.858136, −104.663917: two taxi F zone-2 vertices 2 m apart
+    referenced pav139's road-welded corner (1636.41) and its far edge
+    (1638.5), a 1.31 m step.  Within ``reference_blend_m`` of the switch
+    the reference is blended: ``(k2, t2, d2, w2)`` with
+    ``w2 = ½ (1 − (d2 − d) / reference_blend_m)``, so at the switch both
+    feet weigh ½ and the band is continuous; ``None`` past it, where the
+    partner's foot is the nearest foot itself (a shared corner), or where
+    the pavement has no other edge near."""
+    blend_m = float(ctx.vw.law.tables.zones.adjacent_ground.reference_blend_m)
+    if blend_m <= 0.0:
+        return None
+    vw, edges = ctx.vw, ctx.edges
+    e = edges[k]
+    grid = ctx.by_family.get(e[2])
+    if not grid:
+        return None
+    x, y = vw.xy[v]
+    (ax, ay), (bx, by) = vw.xy[e[0]], vw.xy[e[1]]
+    f1 = (ax + t * (bx - ax), ay + t * (by - ay))
+    tol = float(ctx.vw.law.tables.emit.identity.min_distinct_spacing_m)
+    cx, cy = int(x // ctx.cell), int(y // ctx.cell)
+    span = int(math.ceil((d + blend_m) / ctx.cell)) + 1
+    best: tuple[int, float, float] | None = None
+    for dx in range(-span, span + 1):
+        for dy in range(-span, span + 1):
+            for k2 in grid.get((cx + dx, cy + dy), ()):
+                e2 = edges[k2]
+                if k2 == k or e2[5] != e[5]:
+                    continue
+                (px, py), (qx, qy) = vw.xy[e2[0]], vw.xy[e2[1]]
+                ux, uy = qx - px, qy - py
+                l2 = ux * ux + uy * uy
+                t2 = 0.0 if l2 < 1e-18 else max(0.0, min(
+                    1.0, ((x - px) * ux + (y - py) * uy) / l2))
+                fx, fy = px + t2 * ux, py + t2 * uy
+                if math.hypot(fx - f1[0], fy - f1[1]) <= tol:
+                    continue         # the same foot (a shared corner)
+                d2 = math.hypot(x - fx, y - fy)
+                if d2 - d >= blend_m:
+                    continue
+                if best is None or d2 < best[2]:
+                    best = (k2, t2, d2)
+    if best is None:
+        return None
+    k2, t2, d2 = best
+    w2 = 0.5 * (1.0 - max(0.0, d2 - d) / blend_m)
+    return (k2, t2, d2, w2) if w2 > 0.0 else None
 
 
 def _beyond_graded_ceiling(ctx: "_Context", law: Law, v: int, found: list,

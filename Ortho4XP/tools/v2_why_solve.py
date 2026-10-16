@@ -127,6 +127,7 @@ _FAMILY_KEYS: tuple[tuple[str, str, str], ...] = (
     ("apron", "chain", "apron_chain"),
     ("apron", "preferred tier", "apron_preference"),
     ("runway_profile", "vertical_curve", "runway_vertical_curve"),
+    ("runway_mean_slope", "", "runway_mean_slope"),   # Annex 14 §3.1.13 (audit §4 M1)
     ("runway_profile", "chain", "runway_chain"),
     ("taxi", "longitudinal centreline", "taxi_centreline"),
     ("taxi", "plane_gradient", "plane_gradient"),

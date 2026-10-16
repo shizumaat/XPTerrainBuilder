@@ -10,13 +10,17 @@ mean_slope_station_m``) as ALL-PAIRS ``Diff`` rows ``|z_i - z_j| <= m · L``
 (spec §4: no auxiliary columns), HARD in the runway tier beside the
 longitudinal cap.
 
-THE CAP YIELDS TO ITS PINS (the §50.1 (3) class, owner RULINGS
-2026-09-18d (3)): where the runway's own hard pins — its thresholds (CIFP
-or apt.dat datum) and its §38 seam DEM pins — already stand further apart
-than ``m · L``, the effective cap is their spread over ``L`` plus
-``[design] runway_yield_margin``.  :func:`mean_slope_caps` is the ONE
-derivation; the sidecar ``runway_axes`` slot 19 publishes it and v2 verify
-(``verify.runway_mean_slope``) reads it back.
+THE PINS GOVERN (the §50.1 (3) class, owner RULINGS 2026-09-18d (3)):
+where the runway's own hard pins — its thresholds (CIFP or apt.dat datum),
+its §17 crossing anchors and its §38 seam DEM pins (``runway_yield.
+_pin_sources``) — stand within ``[design] runway_yield_margin`` of
+``m · L`` apart or further, or its longitudinal cap yielded to them, the
+mean slope is the pins' and no row is stated: a yielded cap here met the
+vertical-curve rows and the yield envelope as a hard conflict (the
+crossing fixture of ``test_v2cyxy``).  :func:`mean_slope_caps` is the ONE
+derivation; the sidecar ``runway_axes`` slot 19 publishes it (``None``
+where the pins govern) and v2 verify (``verify.runway_mean_slope``) reads
+it back.
 """
 from __future__ import annotations
 
@@ -26,7 +30,8 @@ from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import view
-from .runway_profile import _axis, curve_stations, ridge_chains, threshold_pins
+from .runway_profile import _axis, curve_stations, ridge_chains
+from .runway_yield import _pin_sources
 
 __all__ = ["RULING", "mean_slope_caps", "runway_mean_slope"]
 
@@ -60,24 +65,38 @@ def mean_slope_caps(planar: PlanarMap, law: Law, airport: Airport
                     ) -> dict[str, float]:
     """Runway ref -> its EFFECTIVE mean-slope cap (module docstring), for
     every runway the authority states a cap for."""
-    vw = view(planar, law)
-    chains = ridge_chains(vw)
-    margin = float(law.tables.emit.design.runway_yield_margin)
-    pins = threshold_pins(planar, law, airport)
-    seam = getattr(planar, "seam_vertices", None) or ()
+    key = (id(planar), id(law), id(airport))
+    if _LAST and _LAST[0] == key:
+        return dict(_LAST[1])
+    rws = [rw for rw in airport.runways
+           if runway_mean_slope_max(law, rw.code_number, rw.code_letter) is not None
+           and rw.length_m > 0.0]
     out: dict[str, float] = {}
-    for rw in airport.runways:
-        m = runway_mean_slope_max(law, rw.code_number, rw.code_letter)
-        chs = chains.get(rw.id)
-        if m is None or not chs or rw.length_m <= 0.0:
-            continue
-        ridge = {v for ch in chs for v in ch}
-        zs = [float(z) for v, z in pins.items() if v in ridge]
-        zs += [float(planar.vertices[v].dem_z) for v in ridge
-               if v in seam and v not in pins and planar.vertices[v].dem_z is not None]
-        spread = (max(zs) - min(zs)) / rw.length_m if len(zs) >= 2 else 0.0
-        out[rw.id] = max(float(m), spread + margin) if spread > float(m) else float(m)
+    if rws:
+        vw = view(planar, law)
+        chains = ridge_chains(vw)
+        margin = float(law.tables.emit.design.runway_yield_margin)
+        # every HARD PIN on the ridge (threshold, crossing anchor, seam DEM;
+        # the §50.1 (3) derivation's own reading)
+        pins = _pin_sources(planar, law, airport, vw, chains)
+        for rw in rws:
+            m = float(runway_mean_slope_max(law, rw.code_number, rw.code_letter))
+            chs = chains.get(rw.id)
+            if not chs:
+                continue
+            ridge = {v for ch in chs for v in ch}
+            zs = [float(p.z) for v, p in pins.items() if v in ridge]
+            spread = (max(zs) - min(zs)) / rw.length_m if len(zs) >= 2 else 0.0
+            rc = (getattr(planar, "runway_caps", None) or {}).get(rw.id)
+            if spread + margin > m or (rc is not None and getattr(rc, "yielded", False)):
+                continue              # THE PINS GOVERN (module docstring)
+            out[rw.id] = m
+    _LAST[:] = [key, dict(out)]
     return out
+
+
+#: the last derivation (the generator and the publication read one map)
+_LAST: list = []
 
 
 def runway_mean_slope(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

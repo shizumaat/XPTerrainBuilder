@@ -94,15 +94,14 @@ def test_row13_end_zone_rows_only_at_the_cat_ii_iii_end(synthetic, law):  # noqa
 
 def test_m1_mean_slope_rows_and_their_pin_yield(synthetic, law):  # noqa: F811
     """Annex 14 §3.1.13: |z_i - z_j| <= 1 % x L over the code-3 ridge; the
-    cap yields to pins that already stand further apart."""
+    pins that already stand further apart govern, and no row is stated."""
     airport, pm, _ = synthetic
     rows = runway_mean_slope(pm, law, airport)
     assert rows and all(isinstance(r, Diff) and r.cap == pytest.approx(0.01)
                         and r.d == pytest.approx(1200.0) for r in rows)
     rw = airport.runways[0]
     steep = dc.replace(rw, ends=(rw.ends[0], dc.replace(rw.ends[1], threshold_elev_m=724.0)))
-    cap = mean_slope_caps(pm, law, dc.replace(airport, runways=(steep,)))["09/27"]
-    assert cap == pytest.approx(24.0 / 1200.0 + law.tables.emit.design.runway_yield_margin)
+    assert "09/27" not in mean_slope_caps(pm, law, dc.replace(airport, runways=(steep,)))
 
 
 def test_row10_stand_face_is_hard_at_one_percent(synthetic, law):  # noqa: F811

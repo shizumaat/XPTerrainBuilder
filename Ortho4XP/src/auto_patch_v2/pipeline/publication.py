@@ -287,8 +287,8 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
     # an apron face holding a gate or tie-down carries the 1 % the solve held
     # it to — the bare cap tag, which the census composes as a MINIMUM with
     # the apron's own; v2 verify reads the sidecar ``stand_faces``
-    cap = apron_stand_cap(law)
-    if airport is not None and cap is not None:
+    cap = apron_stand_cap(law) if airport is not None else None
+    if cap is not None:
         for fid in stand_face_ids(planar, law, airport):
             out.setdefault(fid, {})["o4_grade_law_cap"] = f"{cap:g}"
     return out

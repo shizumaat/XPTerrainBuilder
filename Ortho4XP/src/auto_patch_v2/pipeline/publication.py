@@ -125,7 +125,7 @@ from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
 from ..constraints.runway_mean_slope import mean_slope_caps
-from ..constraints.stand_faces import stand_face_ids
+from ..constraints.shoulder_crossing import crossed_shoulder_caps
 from ..constraints.runway_profile import crown_drops, runway_half_widths
 from ..constraints.runway_yield import RunwayCap as _RunwayCap
 from ..constraints.runway_yield import TaxiYield as _TaxiYield
@@ -135,7 +135,6 @@ from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
 from ..constraints.transverse import axes
 from ..law import Law
-from ..law.tables import apron_stand_cap
 from ..constraints.cluster_pad import pad_cluster_mismatch as _pad_cluster_mismatch
 from ..constraints.pad_relief import pad_relief_offsets
 from ..model.airport import Airport
@@ -283,14 +282,6 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
         kind = kinds.get(f.ref)
         if kind:
             out.setdefault(fid, {})["o4_edge"] = kind
-    # THE STAND CAP (owner RULINGS 2026-10-15l (3) / 15m (4); audit row 10):
-    # an apron face holding a gate or tie-down carries the 1 % the solve held
-    # it to — the bare cap tag, which the census composes as a MINIMUM with
-    # the apron's own; v2 verify reads the sidecar ``stand_faces``
-    cap = apron_stand_cap(law) if airport is not None else None
-    if cap is not None:
-        for fid in stand_face_ids(planar, law, airport):
-            out.setdefault(fid, {})["o4_grade_law_cap"] = f"{cap:g}"
     return out
 
 
@@ -480,9 +471,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # to the rings a §40 shoulder fattens), so the v1 census reads
             # the same shoulder line the generator priced at, plus the
             # shoulder cap itself
-            # THE STAND FACES (RULINGS 2026-10-15m (4)): the apron faces the
-            # solve held at the stand cap (``constraints/stand_faces``)
-            "stand_faces": sorted(stand_face_ids(planar, law, airport)),
+            # RULINGS 2026-10-16a (i): the shoulder vertices a taxi route
+            # crosses and the taxiway cap that governs them
+            # (``constraints/shoulder_crossing``), ``[lat, lon, cap]``
+            "shoulder_taxi_crossings": [
+                [planar.vertices[v].key[0], planar.vertices[v].key[1], round(c, 6)]
+                for v, c in sorted(crossed_shoulder_caps(planar, law, airport).items())],
             "runway_axes": [
                 [rw.id, round(rw.ends[0].ll[0], 11), round(rw.ends[0].ll[1], 11),
                  round(rw.ends[1].ll[0], 11), round(rw.ends[1].ll[1], 11),

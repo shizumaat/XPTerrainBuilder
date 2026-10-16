@@ -95,9 +95,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # census reads the line the generator drew and never re-derives it
     # from the runway RINGS, which a shoulder fattens.
     "runway_axes", "shoulder_transverse_max",
-    # RULINGS 2026-10-15m (4): the apron faces held at the 1 % stand cap —
-    # LAW INPUT for v2 verify (``verify.frame.Patch.cap``)
-    "stand_faces",
+    # RULINGS 2026-10-16a (i): shoulder vertices a taxi route crosses —
+    # LAW INPUT for v2 verify and the census
+    "shoulder_taxi_crossings",
     # §50.1 (4) (owner RULINGS 2026-09-18d (3) / 18f): the EFFECTIVE
     # longitudinal cap per runway — the cap the build PRICED, yielded to
     # its own pins or the table's.  LAW INPUT (``check_grade.

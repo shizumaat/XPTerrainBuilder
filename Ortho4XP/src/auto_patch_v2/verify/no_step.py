@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 
+from ..constraints.no_step import turn_cos
 from ..constraints.routes import route_roles
 from ..law.tables import airside_rate_per_m
 from .frame import Patch, Row, noise_m, row
@@ -101,7 +102,9 @@ def rate_breaches(pts, zs, closed: bool, rate: float, q: float, floor: float = 0
         if dp < 1e-6 or dn < 1e-6:
             continue
         change = abs((zs[c] - zs[b]) / dn - (zs[b] - zs[a]) / dp)
-        allowed = rate * 0.5 * (dp + dn)
+        r = rate(turn_cos(pts[idx[k - 1]], pts[idx[k]], pts[idx[k + 1]])) \
+            if callable(rate) else rate
+        allowed = r * 0.5 * (dp + dn)
         if change - allowed <= q * (1.0 / dp + 1.0 / dn) + floor:
             continue
         out.append((a, b, c, change, allowed, dp, dn))
@@ -119,7 +122,8 @@ def no_step_rate(p: Patch) -> list[Row]:
     for sh in p.shapes:
         if sh.role not in roles or len(sh.ids) < 3:
             continue
-        rate = airside_rate_per_m(law, sh.role, sh.code_letter)
+        def rate(tc, _r=sh.role, _l=sh.code_letter):
+            return airside_rate_per_m(law, _r, _l, tc)
         for a, b, c, change, allowed, dp, dn in rate_breaches(sh.xy, sh.z, True, rate, q, floor):
             if joints and (joints.allowance(sh.xy[a], sh.xy[b]) > 0.0
                            or joints.allowance(sh.xy[b], sh.xy[c]) > 0.0):

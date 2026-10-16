@@ -546,9 +546,11 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
     the last resort never relaxes it; a taxiway sharing the edge conforms
     and carries the relief into its body at its own cap (owner 03k/04i).
     Crossing-ring vertices are exempt (§3.1.19; the verify scope)."""
+    from .shoulder_crossing import crossed_shoulder_caps
     vw = view(planar, law)
     chains = ridge_chains(vw)
     half_of = runway_half_widths(airport)
+    crossed = crossed_shoulder_caps(planar, law, airport)   # 16a (i)
     xing: set[int] = set()
     for f in vw.faces_of_role(("runway_crossing",)):
         xing.update(vw.face_vertices(f.id))
@@ -576,7 +578,7 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
             # metres (``law.tables.runway_transverse_bound``), the reading
             # the verify prices through as well
             bound = runway_transverse_bound(law, d, half, f.code_letter,
-                                            f.code_number)
+                                            f.code_number, crossed.get(v))
             if bound is None:
                 continue
             if t <= 0.0:

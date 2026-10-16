@@ -9,12 +9,10 @@ import dataclasses as dc
 
 import pytest
 
-from auto_patch_v2.constraints import apron, no_step, precedence, runway_profile, strips
+from auto_patch_v2.constraints import no_step, precedence, runway_profile, strips
 from auto_patch_v2.constraints.runway_mean_slope import mean_slope_caps, runway_mean_slope
-from auto_patch_v2.constraints.stand_faces import stand_face_ids
 from auto_patch_v2.law import Law
 from auto_patch_v2.law import tables as T
-from auto_patch_v2.model.airport import Startup
 from auto_patch_v2.model.constraints import Diff, Linear
 
 from tests.auto_patch_v2.test_constraints import law, synthetic  # noqa: F401  (fixtures)
@@ -102,23 +100,6 @@ def test_m1_mean_slope_rows_and_their_pin_yield(synthetic, law):  # noqa: F811
     rw = airport.runways[0]
     steep = dc.replace(rw, ends=(rw.ends[0], dc.replace(rw.ends[1], threshold_elev_m=724.0)))
     assert "09/27" not in mean_slope_caps(pm, law, dc.replace(airport, runways=(steep,)))
-
-
-def test_row10_stand_face_is_hard_at_one_percent(synthetic, law):  # noqa: F811
-    airport, pm, _ = synthetic
-    assert stand_face_ids(pm, law, airport) == frozenset()
-    on_apron = dc.replace(airport, startups=(Startup("A1", (0.0, 150.0), 0.0, "gate"),))
-    hangar = dc.replace(airport, startups=(Startup("H", (0.0, 150.0), 0.0, "hangar"),))
-    assert stand_face_ids(pm, law, hangar) == frozenset()
-    ids = stand_face_ids(pm, law, on_apron)
-    assert len(ids) == 1 and pm.faces[next(iter(ids))].role == "apron"
-
-    def hard_caps(ap):
-        return {round(r.cap, 4) for r in apron.apron_within_shape(pm, law, ap)
-                if isinstance(r, Diff) and r.soft is None
-                and r.source.ruling.startswith("common.roles.apron ring edge")}
-    assert hard_caps(airport) == {0.015}
-    assert hard_caps(on_apron) == {0.01}
 
 
 def test_row2_rate_rows_read_the_face_letter(synthetic, law):  # noqa: F811

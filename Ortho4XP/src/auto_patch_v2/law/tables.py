@@ -32,7 +32,7 @@ __all__ = [
     "role_preferred_cap",
     "runway_transverse_max", "runway_transverse_bound", "runway_shoulder_cap",
     "runway_vertical_curve_bound", "strip_transverse_bound",
-    "taxi_half_width_m", "airside_rate_per_m", "apron_stand_cap",
+    "taxi_half_width_m", "airside_rate_per_m",
     "runway_end_zone_cap", "runway_end_zone_grade_change", "runway_mean_slope_max",
     "flat_site", "flat_datum_group", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "design",
@@ -245,33 +245,28 @@ def taxi_half_width_m(law: Law, code_letter: str | None) -> float | None:
     return None if w is None else float(w) / 2
 
 
-def airside_rate_per_m(law: Law, role: str, code_letter: str | None = None) -> float:
+def airside_rate_per_m(law: Law, role: str, code_letter: str | None = None,
+                       turn_cos: float | None = None) -> float:
     """THE AIRSIDE GRADE-CHANGE RATE along a ring of ``role`` (grade change
     per metre; owner RULINGS 2026-10-15l (1), audit row 2): a TAXI-family
     face reads its own letter's vertical curve (``<ruleset>.taxi.curve_k_m``
     — Annex 14 §3.9.9; AC 150/5300-13B §4.14.1 (3)(b)), every other
     airside ring the strip's
     ``arc_rate`` (the runway family's; the apron's is engine-invented,
-    audit §3).  ONE accessor: the generator (``constraints.no_step.
-    no_step_rate``), v2 verify (``verify.no_step``) and the census read it."""
+    audit §3).  ``turn_cos`` is the cosine of the turn at the station: a
+    triple turning by more than ``emit.no_step.rate_profile_turn_max_deg``
+    is a ring corner, not the taxiway's profile, and keeps the strip rate.
+    ONE accessor: the generator (``constraints.no_step.no_step_rate``), v2
+    verify (``verify.no_step``) and the census read it."""
     k = law.ruleset.taxi.curve_k_m
-    if k is not None and role_family(law, role) == "taxi":
+    turn = law.tables.emit.no_step.rate_profile_turn_max_deg
+    corner = (turn_cos is not None and turn is not None
+              and turn_cos < math.cos(math.radians(float(turn))))
+    if k is not None and not corner and role_family(law, role) == "taxi":
         km = k.value(None, code_letter)
         if km:
             return float(law.tables.common.vertical_curve_k_grade_unit) / float(km)
     return float(law.ruleset.strip.arc_rate.per_metre)
-
-
-def apron_stand_cap(law: Law) -> float | None:
-    """THE STAND CAP (owner RULINGS 2026-10-15l (3) / 15m (4); ICAO Annex
-    14 §3.13.5, FAA AC 150/5300-13B §5.9.2): the HARD longitudinal cap of
-    an apron face that contains a stand (``constraints/stand_faces``),
-    never looser than the apron's own; ``None`` where the table states none."""
-    v = law.tables.common.apron_stand_max
-    if v is None:
-        return None
-    rc = law.tables.common.roles.get("apron")
-    return float(v) if rc is None else min(float(v), float(rc.longitudinal))
 
 
 def runway_end_zone_cap(law: Law, code_number: int | None,
@@ -337,7 +332,8 @@ def runway_shoulder_cap(law: Law, code_letter: str | None,
 
 def runway_transverse_bound(law: Law, lateral_m: float, half_width_m: float,
                             code_letter: str | None,
-                            code_number: int | None = None) -> float | None:
+                            code_number: int | None = None,
+                            shoulder_cap: float | None = None) -> float | None:
     """THE ONE READING of the lawful transverse fall (or rise, 05o) of a
     runway-family vertex at lateral distance ``d = lateral_m`` from its
     own ridge, in METRES (§40 (2) as amended by 2026-09-13dd; RULINGS
@@ -358,14 +354,18 @@ def runway_transverse_bound(law: Law, lateral_m: float, half_width_m: float,
     (``verify.runway.runway_transverse``) both call it; no side predicate.
 
     ``half_width_m <= 0`` (no runway geometry) prices the whole ``d`` at
-    the runway cap; ``None`` where the authority states no runway cap."""
+    the runway cap; ``None`` where the authority states no runway cap.
+    ``shoulder_cap`` replaces the shoulder's slope where a taxi route
+    crosses it (owner RULINGS 2026-10-16a (i): the taxiway's law governs
+    the pavement it crosses; ``constraints/shoulder_crossing``)."""
     cap = law.ruleset.runway.transverse_max.value(code_number, code_letter)
     if cap is None:
         return None
     d = max(0.0, float(lateral_m))
     if half_width_m <= 0.0 or d <= half_width_m:
         return cap * d
-    sh = runway_shoulder_cap(law, code_letter, code_number)
+    sh = runway_shoulder_cap(law, code_letter, code_number) if shoulder_cap is None \
+        else max(cap, float(shoulder_cap))
     return cap * half_width_m + sh * (d - half_width_m)
 
 

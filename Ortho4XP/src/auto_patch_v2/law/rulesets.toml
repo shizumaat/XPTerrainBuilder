@@ -36,16 +36,6 @@ groundside_pavement = { longitudinal = 0.100, transverse = 0.020 }  # 0.080 -> 0
 parking_lot         = { longitudinal = 0.050, transverse = 0.020 }  # owner 2026-09-04j: lots 5 %; transverse = the road law's lateral 2 % until the owner states otherwise
 
 [common]
-# THE STAND CAP (owner RULINGS 2026-10-15l (3) / 15m (4); audit row 10): ICAO
-# Annex 14 §3.13.5 "the slope on an aircraft stand ... should not exceed 1 %",
-# FAA AC 150/5300-13B §5.9.2 1 % at aircraft parking positions.  HARD on the
-# apron rows of every apron FACE that contains a stand — an apt.dat 1300
-# startup of one of `stand_kinds` — (`constraints/stand_faces.py`); every
-# other apron face keeps `common.roles.apron` (1.5 % hard, 1 % preferred).
-# A 1 % cap on EVERY apron face was refuted on the HECA replay (spec §6: hard
-# rows violated 102 -> 141 and a runway_transverse row), hence 15m (4).
-apron_stand_max = 0.010
-stand_kinds = ["gate", "tie_down"]   # apt.dat 1300 location types that are aircraft stands (gate, tie-down); `hangar` / `misc` are not
 apron_fan_ramp_max = 0.050          # the BACK-EDGE class between adjacent pads (owner 08-24; 06w (3): hard, with the apron preference) — v2 models no zone yet (owed, lane v2routecap round 3)
 road_transverse_axis_min_deg = 45.0 # ring pair ≥ this off the road axis is ACROSS (08-25g)
 runway_crown_transverse = 0.010     # declared crown drop each side of the runway spine (08-05)

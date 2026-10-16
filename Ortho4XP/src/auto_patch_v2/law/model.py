@@ -225,10 +225,6 @@ class CommonLaw:
     #: THE RUNWAY CODE NUMBER / LETTER classifier's table (regulation-
     #: conformance spec §3.1/§3.2; ``reference_code``)
     reference_code: ReferenceCode
-    #: THE STAND CAP (RULINGS 2026-10-15l (3) / 15m (4)): HARD on an apron
-    #: face that contains a startup of one of ``stand_kinds``
-    apron_stand_max: float | None = None
-    stand_kinds: tuple[str, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -625,6 +621,9 @@ class NoStep:
     window_m: float
     k: int
     metric: str
+    #: the turn beyond which a ring triple is not a travel profile (the
+    #: taxiway curve rate's reach; ``tables.airside_rate_per_m``)
+    rate_profile_turn_max_deg: float | None = None
 
 
 @_dc.dataclass(frozen=True)

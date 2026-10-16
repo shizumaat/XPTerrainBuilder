@@ -98,7 +98,7 @@ from .runway_profile import threshold_pins
 
 __all__ = ["route_roles", "no_step_pairs",
            "no_step_rate", "no_step_edges", "pad_contacts",
-           "pad_pavement_edges", "rate_rows_for_chain", "reach_bands",
+           "pad_pavement_edges", "rate_rows_for_chain", "reach_bands", "turn_cos",
            "reach_band_values", "runway_family_routes", "adjacent_taxi_vertices", "hold_interval", "hold_pass", "HoldPass",
            "HoldInterval", "pair_graph", "runway_membership", "RUNWAY_FLEX",
            "FLEX_RULING"]
@@ -1245,10 +1245,22 @@ def no_step_pairs(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                for a, b, cap, d in pad_pavement_edges(planar, law, pav, airport)])
 
 
-def rate_rows_for_chain(vw: View, chain: list[int], rate: float, src: Source,
+def turn_cos(pa, pb, pc) -> float | None:
+    """The cosine of the turn a walk ``pa -> pb -> pc`` makes at ``pb``
+    (1 straight on, -1 straight back); ``None`` for a degenerate step.
+    ONE helper for the generator and both readers of the airside rate."""
+    ux, uy = pb[0] - pa[0], pb[1] - pa[1]
+    vx, vy = pc[0] - pb[0], pc[1] - pb[1]
+    n = math.hypot(ux, uy) * math.hypot(vx, vy)
+    return None if n <= 1e-12 else (ux * vx + uy * vy) / n
+
+
+def rate_rows_for_chain(vw: View, chain: list[int], rate, src: Source,
                         closed: bool, q: float = 0.0) -> list[Row]:
     """Three-term rate rows over consecutive triples of ``chain``; ``q``
-    is the reader's rounding quantum (its blind spot ``q·(1/dp+1/dn)``)."""
+    is the reader's rounding quantum (its blind spot ``q·(1/dp+1/dn)``).
+    ``rate`` is a number or ``rate(turn_cos)`` (the taxiway's profile
+    rate on a straight-on triple, ``tables.airside_rate_per_m``)."""
     idx = list(range(len(chain)))
     if closed:
         idx = idx + [0, 1]
@@ -1260,7 +1272,8 @@ def rate_rows_for_chain(vw: View, chain: list[int], rate: float, src: Source,
         dp, dn = vw.dist(a, b), vw.dist(b, c)
         if dp < 1e-6 or dn < 1e-6:
             continue
-        bound = rate * 0.5 * (dp + dn) + q * (1.0 / dp + 1.0 / dn)
+        r = rate(turn_cos(vw.xy[a], vw.xy[b], vw.xy[c])) if callable(rate) else rate
+        bound = r * 0.5 * (dp + dn) + q * (1.0 / dp + 1.0 / dn)
         terms = ((c, 1.0 / dn), (b, -(1.0 / dn + 1.0 / dp)), (a, 1.0 / dp))
         rows.append(Linear(terms, -bound, bound, src))
     return rows
@@ -1276,7 +1289,8 @@ def no_step_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     rows: list[Row] = []
     for f in vw.faces_of_role(route_roles(law)):
-        rate = airside_rate_per_m(law, f.role, f.code_letter)
+        def rate(tc, _r=f.role, _l=f.code_letter):
+            return airside_rate_per_m(law, _r, _l, tc)
         src = Source(GEN, "airside_no_step §1.2 rate (2026-08-27)",
                      (f"face:{f.id}", f.ref))
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:

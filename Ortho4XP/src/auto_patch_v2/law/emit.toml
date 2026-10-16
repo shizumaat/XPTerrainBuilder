@@ -33,6 +33,15 @@ runway_step_m           = 0.10   # §40 (5) (4) THE MATERIALITY FLOOR OF `runway
 metric                  = "route"  # the pair metric: along the taxi network through airside pavement (04o)
 window_m                = 150.0  # airside no-step window, ROUTE metres (08-27 constant, 04o metric; AIRSIDE_NO_STEP_WINDOW_M)
 k                       = 16     # law pairs per airside vertex: its K nearest BY ROUTE DISTANCE (AIRSIDE_NO_STEP_K)
+# THE TAXIWAY CURVE RATE IS A PROFILE LAW (Annex 14 §3.9.9 / AC §4.14.1
+# (3)(b): the change of LONGITUDINAL slope along the taxiway; audit row 2,
+# RULINGS 2026-10-15l (1)).  A ring triple that TURNS by more than this is
+# the instrument's walk round a corner — across a crowned cross-section —
+# not a travel path; it keeps the strip rate it had.  MEASURED on PR #789:
+# 9 of 14 (CYXY), 58 of 69 (KBJC), 27 of 35 (SPJC) of the rows the letter
+# rate added turned by more than 37 deg.  An ENGINE value (the regulation
+# states a profile, not a ring walk); `tables.airside_rate_per_m`.
+rate_profile_turn_max_deg = 30.0
 
 [transect]
 # THE TRANSECT WALK (owner 2026-08-21, spec transverse-hyperplane-solve-spec.md

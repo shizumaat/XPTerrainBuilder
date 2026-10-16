@@ -2151,7 +2151,7 @@ def strip_longitudinal_breaches(stations_s, stations_z, max_slope,
 _V2_RULESET_LAWS: dict = {}
 
 
-def airside_rate_per_m_for(role, code_letter=None, ruleset=None):
+def airside_rate_per_m_for(role, code_letter=None, ruleset=None, turn_cos=None):
     """THE AIRSIDE GRADE-CHANGE RATE of one ring (audit row 2, owner
     RULINGS 2026-10-15l (1)): the generator's own accessor
     (``auto_patch_v2.law.tables.airside_rate_per_m``) under the run's
@@ -2165,7 +2165,7 @@ def airside_rate_per_m_for(role, code_letter=None, ruleset=None):
         law = _V2_RULESET_LAWS[key] = Law.load(ruleset=key)
     from auto_patch_v2.law.tables import airside_rate_per_m
     try:
-        return airside_rate_per_m(law, str(role), code_letter)
+        return airside_rate_per_m(law, str(role), code_letter, turn_cos)
     except KeyError:
         return airside_arc_rate_per_m(ruleset)
 

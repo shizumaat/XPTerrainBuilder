@@ -5521,8 +5521,10 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
         # taxi-family way its letter's curve — through the generator's
         # accessor (``grade_law.airside_rate_per_m_for``)
         if _airside_rate_per_m_for is not None:
+            # the strictest rate the ring can carry: the breach scan is a
+            # superset, each triple is then judged at its own rate below
             rate = _airside_rate_per_m_for(w.tags.get("class") or w.tags.get("role"),
-                                           w.tags.get("code_letter"), _ACTIVE_RULESET)
+                                           w.tags.get("code_letter"), _ACTIVE_RULESET, 1.0)
         idx = list(range(len(pts)))
         if closed:
             # The cyclic sequence, walked once with its two wrap triples.
@@ -5550,7 +5552,16 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
                 continue                    # a declared step, read by its joint
             change = abs((float(zs[c]) - float(zs[b])) / dn
                          - (float(zs[b]) - float(zs[a])) / dp)
-            allowed = rate * 0.5 * (dp + dn)
+            # audit row 2: the taxiway's profile rate on a straight-on
+            # triple, the strip rate round a ring corner (the generator's
+            # own predicate, ``tables.airside_rate_per_m``)
+            r_k = rate
+            if _airside_rate_per_m_for is not None:
+                from auto_patch_v2.constraints.no_step import turn_cos as _turn_cos
+                r_k = _airside_rate_per_m_for(
+                    w.tags.get("class") or w.tags.get("role"), w.tags.get("code_letter"),
+                    _ACTIVE_RULESET, _turn_cos(pts[a], pts[b], pts[c]))
+            allowed = r_k * 0.5 * (dp + dn)
             if change - allowed <= _rate_reader_blind_spot(w, dp, dn):
                 continue                    # PASS-with-residual
             site = _site_key(pts[a], pts[b], pts[c])
@@ -11821,6 +11832,9 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # §40 (2) as amended: the runway/shoulder line and the shoulder cap
     "runway_axes": "runway_axes_ll",
     "shoulder_transverse_max": "shoulder_transverse_max",
+    # RULINGS 2026-10-16a (i): the shoulder vertices a taxi route crosses
+    # (the taxiway's law governs them, not the shoulder's)
+    "shoulder_taxi_crossings": "shoulder_taxi_crossings_ll",
     # §50.1 (4) THE RUNWAY'S EFFECTIVE LONGITUDINAL CAP (owner RULINGS
     # 2026-09-18d (3), answered 18f): one record per runway — the code,
     # the ruleset, the TABLE's cap and the cap the build actually priced
@@ -12308,6 +12322,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     # §40 (2) as amended (owner RULINGS 2026-09-13dd)
     ctx["runway_axes_ll"] = data.get("runway_axes") or None
     ctx["shoulder_transverse_max"] = data.get("shoulder_transverse_max")
+    ctx["shoulder_taxi_crossings_ll"] = data.get("shoulder_taxi_crossings") or None
     # §50.1 (4) (owner RULINGS 2026-09-18d (3) / 18f)
     ctx["runway_caps"] = data.get("runway_caps") or None
     # THE PAD'S RELIEF TARGET (11l (2)): absent on any patch built before
@@ -13416,6 +13431,7 @@ def run_checks(
     # line the SOLVE drew between runway and shoulder
     runway_axes_ll: Optional[list] = None,
     shoulder_transverse_max: Optional[float] = None,
+    shoulder_taxi_crossings_ll: Optional[list] = None,
     # §50.1 (4) (owner RULINGS 2026-09-18d (3) / 18f): per runway, the
     # EFFECTIVE longitudinal cap the build priced it at
     runway_caps: Optional[list] = None,
@@ -13629,6 +13645,14 @@ def run_checks(
         str(r["ref"]): float(r["cap"]) for r in (runway_caps or [])
         if isinstance(r, dict) and r.get("ref") and r.get("cap") is not None}
     _shoulder_nids = shoulder_nids(ways, nodes, ll_to_m, runway_axes_ll)
+    # RULINGS 2026-10-16a (i): a shoulder vertex a taxi route crosses is
+    # the taxiway's pavement — the shoulder's slope does not reach it (the
+    # published ``shoulder_taxi_crossings``, the generator's own set)
+    if _shoulder_nids and shoulder_taxi_crossings_ll:
+        _crossed = {(round(float(a), 9), round(float(b), 9))
+                    for a, b, *_c in shoulder_taxi_crossings_ll}
+        _shoulder_nids = {n for n in _shoulder_nids
+                          if (round(nodes[n][0], 9), round(nodes[n][1], 9)) not in _crossed}
     if _shoulder_nids and not quiet:
         print(f"  runway shoulders (§40 (2)): {len(_shoulder_nids)} vertex(es) "
               f"beyond their runway's half width, priced at "

@@ -513,33 +513,6 @@ def _in_wedges(vw, ids: set[int], rings, law: Law) -> set[int]:
     return {v for v in ids if wedges.covers(Point(vw.xy[v]))}
 
 
-def _held_by_both(found: list, edges: list, half_of: _t.Callable, margin: float
-                  ) -> frozenset[int]:
-    """THE RUNWAY BAND'S OUTER RING HELD BY ANOTHER CORRIDOR (the master's
-    call on #763 phases 6/7, under RULINGS 2026-10-15k/15l: both
-    regulations apply to that ground; with the regulation's band law the
-    two overlap — measured CYXY, 0 of 56 such vertices in conflict, where
-    the engine-invented ICAO minimum fall left 40).
-
-    A vertex at its runway band's outer edge (a runway-family reference
-    at ``d >= half - margin``) that some OTHER pavement's corridor also
-    holds (``d <= half + margin`` of that reference) satisfies EVERY such
-    reference at once: max of the floors, min of the ceilings, every vertex
-    alike.  The edges returned here contribute their ceilings as well as
-    their floors.  Nearest-reference-wins flipped from vertex to vertex
-    along the ring, which is now the strip footprint's edge (15c (1)):
-    measured CYXY 14L/32R t = +75 m, the runway's mandatory-down against
-    taxiway pav28's floor, steps of 3.9 m over 57 m (13 ``strip_
-    longitudinal`` + 4 ``strip_arc`` rows).  Elsewhere the pocket rule
-    stands: the farther pavement floors only."""
-    holding = [(k, d) for _de, k, _t, d in found if d <= (half_of(edges[k]) or 0.0) + margin]
-    at_edge = any(edges[k][2] == "runway" and d >= (half_of(edges[k]) or 0.0) - margin
-                  for _de, k, _t, d in found)
-    if not at_edge or len({edges[k][5] for k, _d in holding}) < 2:
-        return frozenset()
-    return frozenset(k for k, _d in holding)
-
-
 def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """The corridor rows per graded-strip vertex.
 
@@ -564,7 +537,6 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     quay = ctx.quay
     wall_vertices, pad_rim, _found = ctx.wall_vertices, ctx.pad_rim, ctx.found
     rows: list[Row] = []
-    margin = snap_margin_m(law)
     pad_nearest: dict[int, int] = {}      # rigid face id -> its nearest rim vertex
     pad_d: dict[int, float] = {}
     for v, fid in pad_rim.items():
@@ -595,7 +567,6 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         # own-law hole vertices with NO taxi floor: the tie's FALL side
         # (:func:`strip_transverse`) is what binds them.  Where a taxi
         # floor and the runway tie truly conflict the strip tier relaxes.
-        both = _held_by_both(found, edges, ctx.half_of, margin)
         for rank, (d_eff, k, t, _d) in enumerate(found):
             a, b, fam, cn, cl, _ref = edges[k]
             role = "runway" if fam == "runway" else "junction"
@@ -621,7 +592,7 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                                      half_m=ctx.half_of(edges[k]))
             if lo is None and hi is None:
                 continue
-            if rank > 0 and v not in quay and k not in both:
+            if rank > 0 and v not in quay:
                 hi = None            # a farther pavement: floor only
             elif fam == "taxi" and v in ctx.end_box and v not in quay:
                 # THE END BOX (RULINGS 2026-10-15c): beyond a runway's end

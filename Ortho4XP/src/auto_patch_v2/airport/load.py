@@ -38,7 +38,7 @@ from . import riders as _riders
 
 _log = logging.getLogger(__name__)
 
-__all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp",
+__all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp", "instrument_markings",
            "normalise_surface", "runway_code_number", "runway_code_letter"]
 
 #: ICAO Annex 14 Vol I Table 1-1: aerodrome reference code NUMBER by
@@ -303,10 +303,16 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp,
                                   over, rec.elevation_m if rec else None,
                                   rec.source if rec else ""))
-        # 15k (3): instrument when an approach is flown to either end — the
-        # end's CIFP record as the join found it (designator or threshold)
-        instrument = any(recs[(i, k)] is not None
-                         and recs[(i, k)].designator in approaches for k in (0, 1))
+        # INSTRUMENT (owner RULINGS 2026-10-15m (2), replacing 15k (3)'s
+        # CIFP-only witness): either end shows ANY approach — apt.dat row-100
+        # markings 2-5 (``instrument_markings``), or a CIFP approach flown to
+        # it (the end's CIFP record as the join found it, designator or
+        # threshold).  ``Runway.instrument`` is a runway-level status: it is
+        # what the RESA and the strip's end length are read by
+        instrument = any(
+            (recs[(i, k)] is not None and recs[(i, k)].designator in approaches)
+            or instrument_markings(getattr(rw, "markings", (0, 0))[k])
+            for k in (0, 1))
         r = Runway(f"{ends[0].name}/{ends[1].name}", rw.width_m,
                    normalise_surface(rw.surface), (ends[0], ends[1]), None,
                    runway_code_letter(rw.width_m), instrument)
@@ -697,6 +703,13 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
+
+def instrument_markings(code: int) -> bool:
+    """apt.dat row-100 MARKINGS that witness an approach (owner RULINGS
+    2026-10-15m (2)): 2 non-precision, 3 precision, 4 UK non-precision,
+    5 UK precision.  0 (none) and 1 (visual) witness none."""
+    return int(code) in (2, 3, 4, 5)
 
 
 def join_cifp(icao: str, runways: _t.Sequence[_t.Any],

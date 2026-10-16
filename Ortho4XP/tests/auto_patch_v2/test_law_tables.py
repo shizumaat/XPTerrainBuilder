@@ -172,8 +172,10 @@ def _ruleset_checks(c: Checks, key: str, rs, v1rs, zones) -> None:
          ag.ungraded_max_up)
     c.eq(f"{key}.zones.runway.band_min_down", v1rs.strip_band_min_down_slope,
          ag.runway.band_min_down)
-    c.table(f"{key}.zones.runway.band_max_down", v1rs.strip_band_max_down_slope,
-            ag.runway.band_max_down, CODES)
+    # the runway band's transverse law DEPARTS from v1 by owner ruling
+    # (RULINGS 2026-10-15l (2) / (4)): ICAO Annex 14 §3.4.15 magnitude by
+    # code, FAA Table 3-6 S-3 by AAC — asserted against the regulation in
+    # ``test_rwyzone15c_law.test_the_runway_band_is_the_regulation_s_transverse_law``
     if v1rs.strip_half_width_m.by_code is not None:
         c.table(f"{key}.zones.runway.half_width_m", v1rs.strip_half_width_m,
                 ag.runway.half_width_m, CODES)
@@ -605,7 +607,9 @@ def test_accessors(tables):
     assert T.senior_role(law, ["building", "apron", "runway"]) == "runway"
     assert T.authority_rank(law, "boundary") == len(tables.precedence.order)
     lo, hi = T.zone_bounds(law, "runway", 10.0, code_number=3)
-    assert lo < hi < 0
+    assert lo < hi            # ICAO: a magnitude beyond the lip (15l (4))
+    lo, hi = T.zone_bounds(law, "runway", 2.0, code_number=3)
+    assert lo < hi < 0        # the lip stays mandatory-down
     assert T.zone_bounds(law, "runway", 1000.0, code_number=3) == (None, None)
     assert T.zone_bounds(law, "apron", 1.0) == (None, None)
     assert T.chord_cap_m(law, "apron") <= T.chord_cap_m(law, "junction")

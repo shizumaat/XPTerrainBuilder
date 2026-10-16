@@ -204,3 +204,18 @@ def test_a_crossing_piece_mints_no_band_of_its_own(icao):
     rsa = runway_safety_area_length_m(icao, 4, "D")
     assert x0 >= -1000.0 - rsa - 1.0 and x1 <= 1000.0 + rsa + 1.0
     assert y0 >= -15.0 - rsa - 1.0 and y1 <= 800.0 + rsa + 1.0
+
+
+def test_the_instrument_witness_reads_the_apt_dat_markings_too():
+    """RULINGS 2026-10-15m (2): an end is INSTRUMENT when apt.dat row 100
+    gives it markings 2-5 OR CIFP lists an approach to it.  The markings
+    come off the row the loader already parses (``apt_dat._runway``)."""
+    from auto_patch_v2.airport.apt_dat import _runway
+    from auto_patch_v2.airport.load import instrument_markings
+    row = ("100 30.00 1 0 0.25 1 2 1 "
+           "02 60.71195640 -135.07178769 0 0 2 0 0 0 "
+           "20 60.71513697 -135.06737621 0 0 1 0 0 0").split()
+    rw = _runway(row)
+    assert rw is not None and rw.markings == (2, 1)
+    assert [instrument_markings(c) for c in range(7)] == [False, False, True, True,
+                                                          True, True, False]

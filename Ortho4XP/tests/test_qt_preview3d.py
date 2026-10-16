@@ -29,6 +29,7 @@ from PySide6.QtGui import QColor, QImage  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import O4_Qt_Preview3D_Buildings as BLD  # noqa: E402
+import O4_Qt_Preview3D_Camera as CAM  # noqa: E402
 import O4_Qt_Preview3D_Drape as DRP  # noqa: E402
 import O4_Qt_Preview3D_Scene as SC  # noqa: E402
 import O4_Qt_Preview3D_Shapes as SHP  # noqa: E402
@@ -374,6 +375,8 @@ def test_the_window_speaks_the_mac_words(qapp):
     patch.load(LoadedPatch(tile="+30+031", icao="ZZZZ", source="auto", path="/x", header={}), doc)
     assert window.windowTitle() == "3D Preview · ZZZZ"
     assert window.chip_text().startswith("Preview · 1.4 km × 1.1 km · DEM base only · 5 m grid")
+    floor = window.model._ground_y(0.0, 0.0)              # the camera's floor is the terrain
+    assert floor is not None and window.scene.camera.position()[1] > floor
     assert [t for _c, t in LEGEND] == ["DEM terrain", "patch surface", "pack buildings",
                                        "selected node"]
     assert [b.text() for b in window.mode_buttons.values()] == ["Preview", "Last build"]
@@ -382,42 +385,127 @@ def test_the_window_speaks_the_mac_words(qapp):
     window.model.select_mode(DRP.LAST_BUILD)                     # this engine has no mesh
     assert not window.mode_buttons[DRP.LAST_BUILD].isEnabled()
     window.close()
-    assert not math.isnan(window.scene.orbit.distance)
+    assert not any(math.isnan(v) for v in window.scene.camera.position())
 
 
-# ─── camera feel (owner 2026-10-15: less sensitive; X-Plane's view keys) ─────
+# ─── the free-look camera (#794: the scene is fixed, the eye looks around) ───
+# Twin of the Mac's Tests/SceneryKitTests/FreeLookCameraTests.swift.
+
+def _cam(ground=None) -> CAM.FreeLook:
+    c = CAM.FreeLook(ground)
+    c.frame((0.0, 0.0, 0.0), 1000.0)
+    return c
+
+
+def test_the_first_view_is_above_and_outside_the_box_aimed_at_its_centre():
+    c = _cam()
+    x, y, z = c.position()
+    assert y > 1000 and z > 1000                 # above, south of the box
+    n = math.dist((x, y, z), (0, 0, 0))
+    to_centre = (-x / n, -y / n, -z / n)
+    assert sum(a * b for a, b in zip(c.look_direction(), to_centre)) > 0.9999
+
+
+def test_a_drag_turns_the_view_and_never_moves_the_eye():
+    c = _cam()
+    eye, pitch = c.goal.eye, c.goal.pitch
+    c.look(100.0, 0.0)
+    assert c.goal.eye == eye and c.goal.pitch == pitch
+    assert c.goal.heading > 0                    # dragging right turns right
+    while c.step(1 / 60):
+        pass
+    assert c.shown.eye == eye and c.look_direction()[0] > 0     # looking a little east
+    c.look(0.0, -50.0)                           # drag up looks up
+    assert c.goal.pitch > pitch and c.goal.eye == eye
+
+
+def test_forward_moves_the_eye_along_the_heading():
+    c = _cam()
+    c.look(300.0, 0.0)
+    eye, h = c.goal.eye, c.goal.heading
+    c.hold({"forward"}, "normal", 1.0)
+    dx, dy, dz = (a - b for a, b in zip(c.goal.eye, eye))
+    assert abs(dy) < 1e-6                        # ↑ stays level
+    assert math.degrees(math.atan2(dx, -dz)) == pytest.approx(h)
+    c = _cam(); e0 = c.goal.eye
+    c.hold({"view_forward"}, "normal", 1.0)      # `.` follows the view, down
+    assert c.goal.eye[1] < e0[1] and c.goal.eye[2] < e0[2]
+    c = _cam(); c.hold({"right"}, "normal", 1.0)
+    assert c.goal.eye[0] > 0
+    c = _cam(); c.scroll(3.0)                    # the wheel moves along the view
+    assert c.goal.eye[1] < e0[1] and c.goal.eye[2] < e0[2] and c.goal.fov == c.home.fov
+
+
+def test_zoom_keys_change_the_field_of_view_only():
+    c = _cam(); eye = c.goal.eye
+    c.hold({"zoom_in"}, "normal", 1.0)
+    assert c.goal.fov < CAM.FreeLook.DEFAULT_FOV and c.goal.eye == eye
+    c.hold({"zoom_out"}, "fast", 10.0)
+    assert c.goal.fov == CAM.FreeLook.MAX_FOV
+
 
 def test_x_plane_keys_shift_fast_control_slow():
-    slow, plain, fast = SC.Orbit(), SC.Orbit(), SC.Orbit()
-    for o in (slow, plain, fast):
-        o.frame((0.0, 0.0, 0.0), 1000.0)
-    slow.hold({"rotate_left"}, "slow", 0.5)
-    plain.hold({"rotate_left"}, "normal", 0.5)
-    fast.hold({"rotate_left"}, "fast", 0.5)
-    assert 0 < slow.yaw_deg and plain.yaw_deg == pytest.approx(slow.yaw_deg * 4)
-    assert fast.yaw_deg == pytest.approx(plain.yaw_deg * 4)
-    o = SC.Orbit(); o.frame((0.0, 0.0, 0.0), 1000.0)
-    o.hold({"forward"}, "normal", 1.0)
-    assert o.target[2] < 0                       # north, the way the camera looks
-    o = SC.Orbit(); o.frame((0.0, 0.0, 0.0), 1000.0); d = o.distance
-    o.hold({"zoom_in"}, "normal", 1.0)
-    assert o.distance < d
-    o = SC.Orbit(); o.frame((0.0, 0.0, 0.0), 1000.0)
-    o.hold({"tilt_up"}, "fast", 100.0)
-    assert o.pitch_deg == SC.Orbit.MAX_PITCH
+    slow, plain, fast = _cam(), _cam(), _cam()
+    slow.hold({"turn_left"}, "slow", 0.5)
+    plain.hold({"turn_left"}, "normal", 0.5)
+    fast.hold({"turn_left"}, "fast", 0.5)
+    assert slow.goal.heading < 0                 # Q turns left
+    assert plain.goal.heading == pytest.approx(slow.goal.heading * 4)
+    assert fast.goal.heading == pytest.approx(plain.goal.heading * 4)
+    c = _cam(); c.hold({"turn_left", "turn_right"}, "fast", 1.0)
+    assert c.goal.heading == 0                   # opposite keys cancel
+
+
+def test_pitch_clamps_at_89_degrees():
+    c = _cam()
+    c.hold({"tilt_up"}, "fast", 100.0)
+    assert c.goal.pitch == CAM.FreeLook.MAX_PITCH
+    c.look(0.0, 100_000.0)
+    assert c.goal.pitch == -CAM.FreeLook.MAX_PITCH
+
+
+def test_the_eye_stays_above_the_terrain():
+    def hill(_x, z):                             # rising to the north
+        return max(-z, 0.0) * 0.5
+    c = _cam(hill)
+    for _ in range(600):
+        c.hold({"view_forward"}, "fast", 1 / 60)
+        c.step(1 / 60)
+        x, y, z = c.shown.eye
+        assert y >= hill(x, z) + CAM.FreeLook.MIN_CLEARANCE - 1e-6
+    assert c.shown.eye[2] < 0                    # it went over the hill, not into it
+
+
+def test_reset_restores_the_first_view():
+    c = _cam()
+    first = c.shown
+    c.look(400.0, 80.0)
+    c.hold({"forward", "zoom_in", "tilt_up"}, "fast", 1.0)
+    c.step(0.5)
+    c.go_home()
+    assert c.shown == first and c.goal == first
 
 
 def test_the_shown_camera_eases_instead_of_jumping():
-    o = SC.Orbit(); o.frame((0.0, 0.0, 0.0), 1000.0)
-    o.orbit(200.0, 0.0)
-    goal = o.yaw_deg
-    o.step(1 / 60)
-    assert 0 < abs(o.shown[2]) < abs(goal) * 0.5
+    c = _cam()
+    c.look(200.0, 0.0)
+    goal = c.goal.heading
+    c.step(1 / 60)
+    assert 0 < c.shown.heading < goal * 0.5
     frames = 0
-    while o.step(1 / 60):
+    while c.step(1 / 60):
         frames += 1
-    assert o.shown == o._goal() and frames < 120
+    assert c.shown == c.goal and frames < 120
     assert abs(goal) < 200 * 0.4 / 2             # a third of the first cut's 0.4°/px
+
+
+def test_the_cameras_floor_is_the_terrain_under_the_eye():
+    from O4_Qt_Preview3D_Shapes import LocalFrame
+    frame = LocalFrame(30.0, 31.0)
+    lat, lon = frame.lat_lon(120.0, -80.0)
+    assert np.allclose(frame.metres(lat, lon), (120.0, -80.0))
+    space = TER.PreviewSpace(frame, 10.0, None)
+    assert space.ground_y(0.0, 0.0) is None      # before the terrain arrives
 
 
 def test_key_speed_reads_shift_and_the_platforms_control():

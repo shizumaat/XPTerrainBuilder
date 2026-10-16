@@ -193,6 +193,7 @@ class PreviewModel(QObject):
         self.index = SHP.ShapeIndex(self.meshes)
         self._rebuild_buffers(set(self.meshes), doc)
         self.scene.set_exaggeration(self.exaggeration)
+        self.scene.set_ground(self._ground_y)
         self.scene.set_wireframe(self.wireframe)
         self.scene.set_buildings_visible(self.show_buildings)
         self.chip = built["chip"]
@@ -352,9 +353,16 @@ class PreviewModel(QObject):
             self._push_tables(self._seats.reseat_all(locator, self.space))
 
     # ─── toggles ───────────────────────────────────────────────────────
+    def _ground_y(self, x: float, z: float) -> float | None:
+        """The terrain's scene y under (x, z) at the current exaggeration."""
+        space = self.space
+        y = space.ground_y(x, z) if space is not None else None
+        return None if y is None else y * self.exaggeration
+
     def set_exaggeration(self, value: float) -> None:
         self.exaggeration = min(10.0, max(1.0, float(value)))
         self.scene.set_exaggeration(self.exaggeration)
+        self.scene.set_ground(self._ground_y)          # the ground may rise through the eye
         if self._seats is not None:
             self._push_tables(range(len(self._seats.placements)))
             self.scene.set_facades(self._facade_positions())

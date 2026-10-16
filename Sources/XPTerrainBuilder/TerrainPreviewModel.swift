@@ -110,6 +110,14 @@ final class TerrainPreviewModel: ObservableObject {
 
     func resetView() { resetCount += 1 }
 
+    /// The terrain's scene y under a scene (x, z) at the current vertical
+    /// exaggeration: the free-look camera's floor (nil before the terrain).
+    var groundSampler: ((Float, Float) -> Float?)? {
+        guard let space, space.terrain != nil else { return nil }
+        let ex = Float(exaggeration)
+        return { x, z in space.groundY(x: x, z: z).map { $0 * ex } }
+    }
+
     // MARK: - Changes
 
     private static func key(_ doc: PatchDocument) -> String { "\(doc.tile)|\(doc.icao)|\(doc.path)" }

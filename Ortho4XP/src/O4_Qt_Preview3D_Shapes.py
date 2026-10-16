@@ -72,6 +72,11 @@ class LocalFrame:
         return ((np.asarray(lon) - self.origin_lon) * self.m_per_deg_lon,
                 (np.asarray(lat) - self.origin_lat) * METRES_PER_DEG_LAT)
 
+    def lat_lon(self, x, y):
+        """The inverse of :meth:`metres`: (lat, lon) of (east, north) metres."""
+        return (self.origin_lat + np.asarray(y) / METRES_PER_DEG_LAT,
+                self.origin_lon + np.asarray(x) / self.m_per_deg_lon)
+
 
 @_dc.dataclass(frozen=True)
 class PreviewShape:

@@ -31,12 +31,15 @@ MODE_HELP = ("Preview follows your edits; Last build is the mesh X-Plane loads, 
 IMAGERY_HELP = "Drape the map's imagery over the ground (the tiles the map has cached)."
 BUILDINGS_HELP = "The airport pack's buildings as grey massing, standing where X-Plane seats them."
 EXAGGERATION_HELP = "Vertical exaggeration of the terrain and the patch (×1 is true scale)."
-RESET_HELP = "Frame the airport again from the south."
+RESET_HELP = "Back to the first view: above the airport from the south (Home or 0)."
 #: The camera controls (the Mac's ``TerrainPreviewWindow.controlsHelp``).
-CONTROLS_HELP = ("Keys (as in X-Plane): Q E rotate · R F tilt · ← → move sideways · "
-                 "↑ ↓ move up and down · , . move back and forward · - = zoom. "
-                 "Hold Shift for fast, Control for slow.\n"
-                 "Mouse: drag to orbit · Alt-drag or right-drag to pan · scroll to zoom.")
+CONTROLS_HELP = ("The scene stays still; you move and turn the viewpoint.\n"
+                 "Keys (as in X-Plane): Q E turn left and right · R F tilt up and down · "
+                 "← → move sideways · ↑ ↓ move forward and back · "
+                 ", . move back and forward along the view · - = zoom · "
+                 "Home or 0 back to the first view. Hold Shift for fast, Control for slow.\n"
+                 "Mouse: drag to look around · scroll to move along the view · "
+                 "Alt-drag or right-drag to move over the ground.")
 LEGEND = ((SC.TERRAIN_COLOR, "DEM terrain"), (SC.PATCH_COLOR, "patch surface"),
           (SC.BUILDING_COLOR, "pack buildings"), (SC.MARKER_COLOR, "selected node"))
 
@@ -53,14 +56,16 @@ def _divider(parent) -> QFrame:
 
 #: X-Plane's default view keys (``X-Plane Keys.prf``) → ``SC.KEYS``.
 _XP_KEYS = {
-    Qt.Key_Left: "left", Qt.Key_Right: "right", Qt.Key_Up: "up", Qt.Key_Down: "down",
-    Qt.Key_Period: "forward", Qt.Key_Greater: "forward",
-    Qt.Key_Comma: "backward", Qt.Key_Less: "backward",
+    Qt.Key_Left: "left", Qt.Key_Right: "right", Qt.Key_Up: "forward", Qt.Key_Down: "backward",
+    Qt.Key_Period: "view_forward", Qt.Key_Greater: "view_forward",
+    Qt.Key_Comma: "view_backward", Qt.Key_Less: "view_backward",
     Qt.Key_Equal: "zoom_in", Qt.Key_Plus: "zoom_in",
     Qt.Key_Minus: "zoom_out", Qt.Key_Underscore: "zoom_out",
-    Qt.Key_Q: "rotate_left", Qt.Key_E: "rotate_right",
+    Qt.Key_Q: "turn_left", Qt.Key_E: "turn_right",
     Qt.Key_R: "tilt_up", Qt.Key_F: "tilt_down",
 }
+#: Back to the first view.
+_RESET_KEYS = (Qt.Key_Home, Qt.Key_0)
 # On macOS Qt reports ⌘ as Control and the Control key as Meta.
 _SLOW = Qt.MetaModifier if sys.platform == "darwin" else Qt.ControlModifier
 _MENU = Qt.ControlModifier if sys.platform == "darwin" else Qt.NoModifier
@@ -76,8 +81,8 @@ def key_speed(modifiers) -> str:
 
 
 class _MouseFilter(QObject):
-    """Orbit / zoom / pan from the 3D view's mouse, and X-Plane's view keys
-    from its keyboard (read-only: no picking)."""
+    """Look / move from the 3D view's mouse, and X-Plane's view keys from
+    its keyboard (read-only: no picking)."""
 
     def __init__(self, scene: SC.PreviewScene, view: QWidget):
         super().__init__(view)
@@ -108,8 +113,14 @@ class _MouseFilter(QObject):
         if event.key() in (Qt.Key_Shift, Qt.Key_Control, Qt.Key_Meta):
             self.scene.set_speed(key_speed(event.modifiers()))
             return False
-        if name is None or (_MENU != Qt.NoModifier and event.modifiers() & _MENU):
+        if _MENU != Qt.NoModifier and event.modifiers() & _MENU:
             return False                       # ⌘ chords stay menu shortcuts
+        if event.key() in _RESET_KEYS:
+            if down and not event.isAutoRepeat():
+                self.scene.go_home()
+            return True
+        if name is None:
+            return False
         if event.isAutoRepeat():
             return True                        # held keys run on the camera's own clock
         self.scene.key(name, down, key_speed(event.modifiers()))

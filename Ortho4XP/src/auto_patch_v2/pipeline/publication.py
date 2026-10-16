@@ -142,6 +142,7 @@ from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 from ..solve.ground_band import ground_envelope
 from ..model.end_area import end_area_lengths
+from ..model.threshold_datum import threshold_datums
 
 __all__ = ["end_profile_yields", "gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
@@ -511,7 +512,10 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                  # slot 19: the EFFECTIVE mean-slope cap (Annex 14 §3.1.13,
                  # yielded to the pins; ``constraints/runway_mean_slope``),
                  # ``None`` where the authority states none
-                 _mean_caps.get(rw.id)]
+                 _mean_caps.get(rw.id),
+                 # slots 20 / 21: each end's THRESHOLD height over the end,
+                 # the approach surface's datum (``model.threshold_datum``)
+                 *(round(v, 3) for v in threshold_datums(rw))]
                 for rw in airport.runways],
             "shoulder_transverse_max":
                 float(law.ruleset.runway.shoulder_transverse_max),

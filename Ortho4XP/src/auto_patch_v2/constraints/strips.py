@@ -62,6 +62,7 @@ from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.end_area import end_area_lengths
+from ..model.threshold_datum import threshold_datums
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
@@ -114,6 +115,8 @@ class RunwayGroup:
     #: (``RunwayEnd.displaced_m``): the FAA approach surface is measured
     #: from the threshold (RULINGS 2026-10-15m (1); audit row 5)
     end_displaced_m: tuple[float, float] = (0.0, 0.0)
+    #: each end's threshold height over the end (``model.threshold_datum``)
+    end_datum_m: tuple[float, float] = (0.0, 0.0)
 
 
 def end_profiles(law: Law, g: RunwayGroup) -> dict[int, EndProfile]:
@@ -122,7 +125,8 @@ def end_profiles(law: Law, g: RunwayGroup) -> dict[int, EndProfile]:
     runway_end_profile`` with the end's approach class and displaced
     length (owner RULINGS 2026-10-15m (1), the FAA approach surface)."""
     return {k: runway_end_profile(law, g.code_number, g.code_letter, g.instrument,
-                                  g.end_classes[k - 1], g.end_displaced_m[k - 1])
+                                  g.end_classes[k - 1], g.end_displaced_m[k - 1],
+                                  g.end_datum_m[k - 1])
             for k in (1, 2)}
 
 
@@ -158,6 +162,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
                 for rw in airport.runways}
     disp_of = {rw.id: tuple(float(e.displaced_m or 0.0) for e in rw.ends)
                for rw in airport.runways}
+    datum_of = {rw.id: threshold_datums(rw) for rw in airport.runways}
     instrument_of = {rw.id: bool(getattr(rw, "instrument", False)) for rw in airport.runways}
     ends_of = {rw.id: (rw.ends[0].xy, rw.ends[1].xy) for rw in airport.runways}
     end_len = end_area_lengths(airport, law)
@@ -186,7 +191,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         rsa = runway_safety_area_length_m(law, code, letter, ins)
         len_a = len_b = rsa
         classes = (VISUAL, VISUAL)
-        disp = (0.0, 0.0)
+        disp = datum = (0.0, 0.0)
         if ref in ends_of:
             ss = [(p[0] - a[0]) * unit[0] + (p[1] - a[1]) * unit[1] for p in ends_of[ref]]
             e0, e1 = end_len.get(ref, (rsa, rsa))
@@ -195,6 +200,8 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
             classes = (c0, c1) if ss[0] <= ss[1] else (c1, c0)
             d0, d1 = disp_of.get(ref, disp)
             disp = (d0, d1) if ss[0] <= ss[1] else (d1, d0)
+            t0, t1 = datum_of.get(ref, datum)
+            datum = (t0, t1) if ss[0] <= ss[1] else (t1, t0)
             len_a = max(0.0, near_a[0] - max(0.0, min(ss)))
             len_b = max(0.0, near_a[1] - max(0.0, length - max(ss)))
         # inflated by the identity spacing: the census fits its own axis in
@@ -205,7 +212,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
                  rect_ring(a, b, -len_a - m, m, end_half + m),
                  rect_ring(a, b, length - m, length + len_b + m, end_half + m))
         out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings, ins,
-                               classes, disp))
+                               classes, disp, datum))
     return out
 
 

@@ -116,8 +116,9 @@ def test_row2_rate_rows_read_the_face_letter(synthetic, law):  # noqa: F811
         (c, kn), (b, _kb), (a, kp) = r.terms
         dn, dp = 1.0 / kn, 1.0 / kp
         q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
-        assert r.hi == pytest.approx(0.01 / 30 * 0.5 * (dp + dn) + q * (kn + kp))
-        seen += 1
+        rate = T.airside_rate_per_m(law, "stub", "D", no_step.turn_cos(vw.xy[a], vw.xy[b], vw.xy[c]))
+        assert r.hi == pytest.approx(rate * 0.5 * (dp + dn) + q * (kn + kp))
+        seen += rate == pytest.approx(0.01 / 30)
     assert seen
 
 
@@ -128,3 +129,71 @@ def test_row5_runway_groups_carry_each_ends_displacement(synthetic, law):  # noq
         dc.replace(rw.ends[0], displaced_m=120.0), rw.ends[1])),))
     g = strips.runway_groups(precedence.view(pm, law), ap)[0]
     assert sorted(g.end_displaced_m) == [0.0, 120.0]
+
+
+def test_row5_datum_term_lifts_the_surface_by_the_threshold_height():
+    """The approach surface starts at the THRESHOLD's elevation: a datum of
+    z_thr - z_end shifts every approach surface, never the 40:1."""
+    p0 = T.runway_end_profile(FAA, 4, "E", True, "pa", 0.0, 0.0)
+    p1 = T.runway_end_profile(FAA, 4, "E", True, "pa", 0.0, 0.5)
+    assert p1.rise_m(100.0) == pytest.approx(p0.rise_m(100.0) + 0.5)
+    assert T.runway_end_profile(FAA, 4, "E", True, None, 0.0, 1.5).rise_m(100.0) == \
+        pytest.approx(100.0 / 40)
+
+
+def test_row5_threshold_datums_follow_the_cifp_line(synthetic):  # noqa: F811
+    from auto_patch_v2.model.threshold_datum import threshold_datums
+    airport, _pm, _ = synthetic
+    rw = airport.runways[0]                       # 700 -> 706 over 1200 m
+    assert threshold_datums(rw) == (0.0, 0.0)
+    disp = dc.replace(rw, ends=(dc.replace(rw.ends[0], displaced_m=200.0), rw.ends[1]))
+    da, db = threshold_datums(disp)
+    assert da == pytest.approx(6.0 / 1000.0 * 200.0) and db == 0.0
+
+
+def test_row2_rate_reads_the_profile_not_the_ring_corner():
+    """A ring triple turning more than ``emit.no_step.rate_profile_turn_max_deg``
+    is the instrument's walk round a corner: it keeps the strip rate."""
+    import math
+    from auto_patch_v2.constraints.no_step import turn_cos
+    assert turn_cos((0, 0), (1, 0), (2, 0)) == pytest.approx(1.0)
+    corner = turn_cos((0, 0), (1, 0), (1, 1))
+    assert corner == pytest.approx(0.0, abs=1e-12)
+    strip = ICAO.ruleset.strip.arc_rate.per_metre
+    assert T.airside_rate_per_m(ICAO, "stub", "D", corner) == pytest.approx(strip)
+    assert T.airside_rate_per_m(ICAO, "stub", "D", math.cos(math.radians(20))) == \
+        pytest.approx(0.01 / 30)
+
+
+def test_16a_i_a_taxi_route_crossing_the_shoulder_takes_the_taxi_cap(synthetic, law):  # noqa: F811
+    """RULINGS 2026-10-16a (i): the shoulder vertices the stub's corridor
+    crosses are priced at the taxiway's longitudinal cap beyond the half
+    width, every other shoulder vertex at the shoulder's own."""
+    from auto_patch_v2.constraints.shoulder_crossing import crossed_shoulder_caps
+    airport, pm, _ = synthetic
+    narrow = dc.replace(airport, runways=(dc.replace(airport.runways[0], width_m=30.0),))
+    got = crossed_shoulder_caps(pm, law, narrow)
+    vw = precedence.view(pm, law)
+    assert got and all(abs(vw.xy[v][0]) <= 9.0 + 1e-6 for v in got)
+    assert all(c == pytest.approx(0.015) for c in got.values())
+    assert T.runway_transverse_bound(law, 20.0, 15.0, "D", 3, 0.015) == \
+        pytest.approx(0.015 * 15.0 + 0.015 * 5.0)
+    assert T.runway_transverse_bound(law, 20.0, 15.0, "D", 3) == \
+        pytest.approx(0.015 * 15.0 + 0.025 * 5.0)
+
+
+def test_16b_a_declared_jetway_joins_the_pad_it_serves(tmp_path, synthetic, law):  # noqa: F811
+    """RULINGS 2026-10-16b (1): an apt.dat 1500 jetway rooted at the pad's
+    facade grows the pad by its own footprint."""
+    from shapely.geometry import Polygon as P
+    from auto_patch_v2.classify import evidence as E
+    airport, _pm, _ = synthetic
+    pad = P([(-60, 200), (60, 200), (60, 250), (-60, 250)])
+    lat, lon = airport.frame.transformers()[1](0.0, 200.0)
+    apt = tmp_path / "apt.dat"
+    apt.write_text(f"I\n1200\n1 700 0 0 ZZZZ Synthetic\n1500 {lat:.9f} {lon:.9f} 180.0 1 1 180.0 15.0 180.0\n")
+    ap = dc.replace(airport, pack=dc.replace(airport.pack, apt_dat_path=str(apt)))
+    out = E._with_jetways([pad], ap, law, None, P())
+    assert E.JETWAY_PADS["found"] == 1 and E.JETWAY_PADS["attached"] == 1
+    grown = E.JETWAY_PADS["grown_m2"][0]
+    assert grown == pytest.approx(19.0 * 4.0, rel=0.05) and out[0].area > pad.area

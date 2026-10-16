@@ -277,7 +277,8 @@ def _axes_from_sidecar(patch):
                     # RULINGS 2026-10-15m (1): each end's class and displaced
                     # length (slots 13 / 14, 17 / 18), end a first
                     tuple((row[13 + k] if len(row) > 14 else None,
-                           float(row[17 + k]) if len(row) > 18 else 0.0)
+                           float(row[17 + k]) if len(row) > 18 else 0.0,
+                           float(row[20 + k]) if len(row) > 21 else 0.0)
                           for k in (0, 1))))
     return out, str(d.get("ruleset") or "icao")
 
@@ -308,7 +309,7 @@ def profile(patch, corridor_m=8.0, law_dir=None):
             pts.setdefault(nid, (nodes[nid], float(e), set()))[2].add(w.role)
     out = []
     for ref, (la0, lo0), (la1, lo1), width, cn, cl, ins, ends in axes:
-        profs = [runway_end_profile(law, cn, cl, ins, c, dm) for c, dm in ends]
+        profs = [runway_end_profile(law, cn, cl, ins, c, dm, t) for c, dm, t in ends]
         cos0 = math.cos(math.radians(la0))
         ux = (lo1 - lo0) * math.pi / 180.0 * R_EARTH * cos0
         uy = (la1 - la0) * math.pi / 180.0 * R_EARTH

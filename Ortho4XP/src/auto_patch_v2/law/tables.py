@@ -662,6 +662,9 @@ class EndProfile:
     climb_setback_m: float
     rate: float | None
     approach: tuple[tuple[float, float], ...] = ()
+    #: the THRESHOLD's height over the end (``model.threshold_datum``):
+    #: every approach surface starts at the threshold's elevation
+    approach_datum_m: float = 0.0
 
     @property
     def break_m(self) -> float | None:
@@ -687,7 +690,8 @@ class EndProfile:
         d = max(0.0, float(d_m))
         if d <= self.hold_m:
             return 0.0
-        lims = [max(0.0, d - edge) * slope for slope, edge in self.approach]
+        lims = [max(0.0, d - edge) * slope + self.approach_datum_m
+                for slope, edge in self.approach]
         if self.climb_slope is not None:
             lims.append(max(0.0, d - self.climb_setback_m) * self.climb_slope)
         return min(lims) if lims else None
@@ -706,7 +710,8 @@ def runway_end_profile(law: Law, code_number: int | None = None,
                        code_letter: str | None = None,
                        instrument: bool = False,
                        approach_class: str | None = None,
-                       displaced_m: float = 0.0) -> EndProfile:
+                       displaced_m: float = 0.0,
+                       datum_m: float = 0.0) -> EndProfile:
     """:class:`EndProfile` for a runway of this class under the law's
     ruleset — the strip's end length (by code and instrument status,
     RULINGS 2026-10-15k (1)) and cap where the authority states them, else
@@ -715,8 +720,9 @@ def runway_end_profile(law: Law, code_number: int | None = None,
     the END whose ``approach_class`` (``RunwayEnd.approach``) and displaced
     threshold length are given, the authority's approach surfaces for that
     class (``end_skirt.approach_surface``, RULINGS 2026-10-15m (1); audit
-    row 5).  ``approach_class=None`` reads no approach surface (a reader
-    with no published class)."""
+    row 5), its inner edge at the THRESHOLD's elevation (``datum_m`` =
+    z_thr - z_end, ``model.threshold_datum``).  ``approach_class=None``
+    reads no approach surface (a reader with no published class)."""
     rs = law.ruleset
     sk = rs.end_skirt
     segs: list[tuple[float, float]] = []
@@ -739,7 +745,8 @@ def runway_end_profile(law: Law, code_number: int | None = None,
                       None if eat is None else float(eat.slope.value(code_number, code_letter)),
                       0.0 if eat is None else float(eat.setback_m.value(code_number, code_letter)),
                       rate,
-                      tuple((float(a.slope), float(a.from_threshold_m) - disp) for a in surfaces))
+                      tuple((float(a.slope), float(a.from_threshold_m) - disp) for a in surfaces),
+                      float(datum_m or 0.0) if surfaces else 0.0)
 
 
 def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:

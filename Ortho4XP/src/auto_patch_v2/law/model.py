@@ -479,6 +479,12 @@ class BuildingPad:
     frontage_hold_margin_m: float
     #: flat-pad spec §2 (4) (e) / §6 Q4: a unit needing more blocks STOPS
     frontage_blocks_max: int
+    #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
+    #: ``airport/jetways.py``): ``None`` = no expansion
+    jetway_root_reach_m: float | None = None
+    jetway_half_width_m: float | None = None
+    jetway_cab_m: float | None = None
+    jetway_token: str | None = None
 
 
 @_dc.dataclass(frozen=True)

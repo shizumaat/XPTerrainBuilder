@@ -24,6 +24,7 @@ __all__ = ["published_row", "published_code_number", "published_code_letter",
 #: ``runway_axes`` slots (``pipeline/publication.py``)
 _CODE, _LETTER, _CLASS_A, _CLASS_B = 11, 12, 13, 14
 _DISP_A, _DISP_B = 17, 18
+_DATUM_A, _DATUM_B = 20, 21
 
 
 def published_row(rows, ref: str | None) -> list | None:
@@ -87,8 +88,10 @@ def published_end_profiles(law: Law, rows, ref: str | None, a, b,
     r = published_row(rows, ref)
     disp = ((float(r[_DISP_A] or 0.0), float(r[_DISP_B] or 0.0))
             if r is not None and len(r) > _DISP_B else (0.0, 0.0))
+    datum = ((float(r[_DATUM_A] or 0.0), float(r[_DATUM_B] or 0.0))
+             if r is not None and len(r) > _DATUM_B else (0.0, 0.0))
     pa, pb = to_m(float(r[1]), float(r[2])), to_m(float(r[3]), float(r[4]))
     if math.dist(pa, a) + math.dist(pb, b) > math.dist(pb, a) + math.dist(pa, b):
-        disp = (disp[1], disp[0])
-    return tuple(runway_end_profile(law, code_number, code_letter, instrument, c, d)
-                 for c, d in zip(cls, disp))
+        disp, datum = (disp[1], disp[0]), (datum[1], datum[0])
+    return tuple(runway_end_profile(law, code_number, code_letter, instrument, c, d, t)
+                 for c, d, t in zip(cls, disp, datum))

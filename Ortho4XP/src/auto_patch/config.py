@@ -182,7 +182,6 @@ __all__ = [
     "EAT_RECT_MAX_ALONG_M",
     "EAT_FAA_ICAO_PREFIXES",
     "eat_surface_slope_and_setback",
-    "runway_code_letter",
     "ADJACENT_GROUND_LIP_WIDTH_M",
     "ADJACENT_GROUND_LIP_MIN_DOWN_SLOPE",
     "ADJACENT_GROUND_LIP_MAX_DOWN_SLOPE",
@@ -205,9 +204,6 @@ __all__ = [
     "APRON_SHOULDER_MIN_DOWN_SLOPE",
     "APRON_SHOULDER_MAX_DOWN_SLOPE",
     "APRON_EDGE_WALL_MIN_DROP_M",
-    "runway_code_number",
-    "runway_end_clearance_length_m",
-    "runway_end_approach_class",
     "OLS_CUT_ENABLED",
     "OLS_APPROACH_FIRST_SECTION_SLOPE",
     "OLS_ROAD_REGRADE_ENABLED",
@@ -218,10 +214,6 @@ __all__ = [
     "TUNNEL_FLOOR_BELOW_OBJECT_DECK_M",
     "BRIDGE_ROAD_CLEARANCE_M",
     "BRIDGE_ROAD_CLEARANCE_MINIMUM_M",
-    "PRECISION_APPROACH_LIGHT_CODES",
-    "PRECISION_MARKINGS_CODES",
-    "NON_PRECISION_MARKINGS_CODES",
-    "VISUAL_MARKINGS_CODE",
     # ── region rulesets (phase B) ──
     "CodeTable",
     "Ruleset",
@@ -3305,32 +3297,9 @@ def eat_surface_slope_and_setback(icao) -> tuple:
     return (EAT_EASA_TAKEOFF_CLIMB_SLOPE, EAT_EASA_SETBACK_M)
 
 
-def runway_code_letter(width_m: float) -> str:
-    """ICAO code LETTER of the design aircraft a RUNWAY is built for,
-    inferred from its declared width (m).
-
-    ``taxiway_code_letter`` above is the TAXIWAY table and must not be
-    reused here — runway width standards are a different table.  FAA AC
-    150/5300-13B Table 3-3 runway widths by ADG: I 18.3 m, II 22.9 m,
-    III 30.5 m, IV/V 45.7 m, VI 61.0 m (ICAO Annex 14 Table 3-1 agrees
-    at code 4: C/D/E 45 m, F 60 m).  ADG IV and V share the 150 ft width,
-    so a 45 m runway is ambiguous between letters D and E; it resolves to
-    **E**, the taller tail — for a CEILING law the taller aircraft is the
-    conservative reading (a lower ceiling), and 45 m runways at
-    ADG-V airports (KCLT, KATL) are the case this law exists for.
-    """
-    w = float(width_m or 0.0)
-    if w >= 55.0:
-        return "F"
-    if w >= 42.0:
-        return "E"
-    if w >= 28.0:
-        return "D"
-    if w >= 21.0:
-        return "C"
-    if w >= 15.0:
-        return "B"
-    return "A"
+# THE RUNWAY CODE LETTER and NUMBER classifiers are ONE, in the v2 law
+# (``auto_patch_v2.law.reference_code``, regulation-conformance spec §3.1 /
+# §3.2): the census reads the build's stamp from the sidecar.
 
 
 # ── Adjacent-ground grade law — lateral corridor off a pavement edge ──
@@ -3711,59 +3680,10 @@ RUNWAY_STRIP_MAX_LONGITUDINAL_SLOPE_FAA = RUNWAY_MAX_GRADE
 STRIP_PRECEDENCE_ENABLED = True
 
 
-def runway_code_number(length_m: float) -> int:
-    """ICAO Annex 14 aerodrome reference code NUMBER from runway
-    length: 1 (<800 m), 2 (800–1199), 3 (1200–1799), 4 (≥1800)."""
-    if length_m >= 1800.0:
-        return 4
-    if length_m >= 1200.0:
-        return 3
-    if length_m >= 800.0:
-        return 2
-    return 1
-
-
-def runway_end_clearance_length_m(length_m: float) -> float:
-    """RESA / runway-end graded distance (m) beyond the runway end."""
-    return RUNWAY_END_CLEARANCE_LENGTH_BY_CODE[runway_code_number(length_m)]
-
-
-# Approach-lighting systems (apt.dat row-100 end field) that imply a
-# precision instrument approach: ALSF-I (1), ALSF-II (2), Calvert (3),
-# Calvert ILS Cat II/III (4), SSALR (5), MALSR (8).  The remaining
-# codes (SSALF/SALS/MALSF/MALS/ODALS/RAIL) also serve non-precision
-# approaches, so they do not upgrade the class on their own.
-PRECISION_APPROACH_LIGHT_CODES = frozenset((1, 2, 3, 4, 5, 8))
-
-# apt.dat row-100 runway markings codes (per end): 0 none, 1 visual,
-# 2 non-precision, 3 precision, 4 UK non-precision, 5 UK precision.
-PRECISION_MARKINGS_CODES = frozenset((3, 5))
-NON_PRECISION_MARKINGS_CODES = frozenset((2, 4))
-VISUAL_MARKINGS_CODE = 1
-
-
-def runway_end_approach_class(
-        markings_code: int, approach_lights_code: int) -> str:
-    """Approach class of ONE runway end: ``"visual"``,
-    ``"non_precision"`` or ``"precision"``.
-
-    Classification ladder: explicit precision markings, else a
-    precision-grade approach lighting system, else explicit
-    non-precision / visual markings.  Gateway apt.dat data frequently
-    leaves both fields 0 on runways that plainly have instrument
-    approaches, so a blank row defaults to ``"non_precision"`` — never
-    let missing data pick the SHORT end-clearance footprint; only an
-    explicit visual marking does that.
-    """
-    if markings_code in PRECISION_MARKINGS_CODES:
-        return "precision"
-    if approach_lights_code in PRECISION_APPROACH_LIGHT_CODES:
-        return "precision"
-    if markings_code in NON_PRECISION_MARKINGS_CODES:
-        return "non_precision"
-    if markings_code == VISUAL_MARKINGS_CODE:
-        return "visual"
-    return "non_precision"
+# THE APPROACH CLASS of a runway end is the v2 witness (``auto_patch_v2.
+# airport.approach``, owner RULINGS 2026-10-15m (2) / 15n), published per end
+# in the sidecar ``runway_axes``; the v1 markings-and-lights ladder that
+# stood here is deleted with its only reader (``grade_law.raoa_applies``).
 
 
 # ── Size-dependent taxiway grade cap (ICAO Annex 14) ──────────────────
@@ -5241,7 +5161,7 @@ def ruleset_runway_end_grade(code_number=None, code_letter=None,
     ICAO applies the 0.8 % limit unconditionally at code 4 but at code 3
     only on a PRECISION APPROACH CATEGORY II OR III runway (§3.1.14);
     ``approach_class`` is the per-end class from
-    :func:`runway_end_approach_class`.  Passing ``None`` for it means
+    the v1 vocabulary (``"precision"`` / other).  Passing ``None`` for it means
     "unknown", which resolves to the CAP APPLYING — missing data must
     never buy the permissive reading.
     """

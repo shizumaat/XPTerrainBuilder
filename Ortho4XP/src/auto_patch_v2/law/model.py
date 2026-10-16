@@ -37,6 +37,8 @@ from .model_types import CodeTable, Rate, RoleCap  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 # the END-AROUND TAXIWAY schema (spec §36) likewise beside this module
 from .eat_schema import EatRecognition, EatSurface  # noqa: F401
+# the runway witnesses' table (regulation-conformance spec §3) likewise
+from .reference_code import ReferenceCode  # noqa: F401
 from .terrace_schema import Terrace, check_terrace as _check_terrace  # noqa: F401
 from .design_schema import Design, check_design as _check_design  # noqa: F401
 from .cockpit_schema import COCKPIT_CLASSES, Cockpit, check_cockpit as _check_cockpit  # noqa: E501,F401  the [cockpit] frame, 12x/12y
@@ -44,7 +46,7 @@ from .cockpit_schema import COCKPIT_CLASSES, Cockpit, check_cockpit as _check_co
 from .airports_schema import Resolution, resolve_ruleset  # noqa: F401
 
 __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "StripLaw",
-    "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "EatSurface", "EatRecognition",
+    "EndSkirtLaw", "ResaLaw", "RaoaLaw", "DrainageLaw", "EatSurface", "EatRecognition", "ReferenceCode",
     "Ruleset", "CommonLaw", "Resolution",
     "ZoneClass", "AdjacentGround", "Pockets", "Zones", "Tunnel", "TunnelObject", "Bridge",
     "BuildingPad", "Skirt", "Basin", "RetainingWall", "Rebake", "Placement",
@@ -203,6 +205,9 @@ class CommonLaw:
     vertical_curve_k_grade_unit: float     # vertical_curve_k_m is metres per THIS much grade
     #: THE END-AROUND TAXIWAY's recognition constants (spec §36)
     eat: EatRecognition
+    #: THE RUNWAY CODE NUMBER / LETTER classifier's table (regulation-
+    #: conformance spec §3.1/§3.2; ``reference_code``)
+    reference_code: ReferenceCode
 
 
 @_dc.dataclass(frozen=True)

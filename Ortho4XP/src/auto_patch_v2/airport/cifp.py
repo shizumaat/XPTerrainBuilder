@@ -15,6 +15,8 @@ from __future__ import annotations
 import dataclasses as _dc
 import re
 
+from ..law.reference_code import NPA, stronger_class
+
 FT_TO_M = 0.3048
 
 __all__ = ["CifpRunway", "read_cifp_runways", "read_cifp_approach_runways",
@@ -90,20 +92,28 @@ def read_cifp_runways(path: str) -> dict[str, CifpRunway]:
 #: the runway number and side, then an optional multiple-approach suffix
 #: (``I32LY``, ``R14L``, ``N25``).  A circling procedure (``VOR-A``) names
 #: no runway and witnesses none.
-_APPROACH_RUNWAY = re.compile(r"^[A-Z](\d{2}[LRC]?)(?:[A-Z-]?|-[A-Z])$")
+_APPROACH_RUNWAY = re.compile(r"^([A-Z])(\d{2}[LRC]?)(?:[A-Z-]?|-[A-Z])$")
+#: THE ARINC 424 ROUTE TYPE (the ident's first letter) -> approach class
+#: (regulation-conformance spec §3.4; owner RULINGS 2026-10-15m (2)):
+#: ILS (I), GLS (J), MLS (M / W / Y) are PRECISION; RNAV (R) and RNP (H)
+#: carry vertical guidance (APV); every other procedure is non-precision.
+_ROUTE_TYPE_CLASS = {"I": "pa", "J": "pa", "M": "pa", "W": "pa", "Y": "pa",
+                     "R": "apv", "H": "apv"}
 
 
-def read_cifp_approach_runways(path: str) -> frozenset[str]:
-    """THE INSTRUMENT WITNESS (owner RULINGS 2026-10-15k (3)): the bare
-    designators (``RWY:`` keys of :func:`read_cifp_runways`) that some
-    ``APPCH:`` procedure of this airport's CIFP file is flown TO.  A runway
-    with none is a NON-instrument runway.  An unreadable file witnesses
-    nothing (an empty set)."""
-    out: set[str] = set()
+def read_cifp_approach_runways(path: str) -> dict[str, str]:
+    """THE CIFP HALF OF THE APPROACH WITNESS (owner RULINGS 2026-10-15k
+    (3), 15m (2)): ``{bare designator: approach class}`` (``RWY:`` keys of
+    :func:`read_cifp_runways`) for every runway some ``APPCH:`` procedure
+    of this airport's CIFP file is flown TO, the strongest class of its
+    procedures (``pa`` > ``apv`` > ``npa``; ``law.reference_code``).  A
+    runway absent from it has no procedure.  An unreadable file witnesses
+    nothing (an empty mapping)."""
+    out: dict[str, str] = {}
     try:
         fh = open(path, "r", encoding="utf-8", errors="replace")
     except OSError:
-        return frozenset()
+        return {}
     with fh:
         for raw in fh:
             if not raw.startswith("APPCH:"):
@@ -113,8 +123,9 @@ def read_cifp_approach_runways(path: str) -> frozenset[str]:
                 continue
             m = _APPROACH_RUNWAY.match(fields[2].strip())
             if m:
-                out.add(m.group(1))
-    return frozenset(out)
+                cls = _ROUTE_TYPE_CLASS.get(m.group(1), NPA)
+                out[m.group(2)] = stronger_class(out.get(m.group(2)), cls)
+    return out
 
 
 def match_designator(apt_desig: str, cifp: dict[str, CifpRunway]

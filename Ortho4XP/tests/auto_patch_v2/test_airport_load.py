@@ -20,8 +20,8 @@ from auto_patch_v2.airport import dsf as S
 from auto_patch_v2.airport import osm as O
 from auto_patch_v2.airport import pack as P
 from auto_patch_v2.airport.load import (Inputs, load_with_report,
-                                        normalise_surface, runway_code_letter,
-                                        runway_code_number)
+                                        normalise_surface)
+from auto_patch_v2.law.reference_code import runway_code_letter, runway_code_number
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Surface
 from auto_patch_v2.model.frame import Frame
@@ -84,8 +84,9 @@ def test_surface_normalisation():
     assert normalise_surface(53) == Surface.CONCRETE
     assert normalise_surface(2) == Surface.CONCRETE
     assert normalise_surface(13) == Surface.WATER
-    assert runway_code_number(799) == 1 and runway_code_number(1800) == 4
-    assert runway_code_letter(30.48) == "D" and runway_code_letter(45.72) == "E"
+    law = Law.load()
+    assert runway_code_number(law, 799) == 1 and runway_code_number(law, 1800) == 4
+    assert runway_code_letter(law, 30.48) == "C" and runway_code_letter(law, 45.72) == "E"
 
 
 def test_bezier_flattening_bounds():

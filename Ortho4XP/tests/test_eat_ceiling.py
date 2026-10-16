@@ -94,13 +94,18 @@ def test_region_selection(icao, expected):
     assert cfg.eat_surface_slope_and_setback(icao) == expected
 
 
-def test_runway_code_letter_resolves_a_45m_runway_to_E():
+def test_runway_code_letter_resolves_150ft_to_E():
     """ADG IV and V share the 150 ft width; a ceiling law takes the
-    taller tail (E), which is what KCLT/KATL actually are."""
-    assert cfg.runway_code_letter(45.0) == "E"
-    assert cfg.runway_code_letter(60.0) == "F"
-    assert cfg.runway_code_letter(30.0) == "D"
-    assert cfg.runway_code_letter(23.0) == "C"
+    taller tail (E), which is what KCLT/KATL actually are.  ONE classifier
+    (``auto_patch_v2.law.reference_code``, regulation-conformance spec
+    §3.1): 0.5 m tolerance over the App. G widths, F at Annex 14's 60 m."""
+    from auto_patch_v2.law import load_default
+    from auto_patch_v2.law.reference_code import runway_code_letter
+    law = load_default()
+    assert runway_code_letter(law, 45.72) == "E"
+    assert runway_code_letter(law, 60.0) == "F"
+    assert runway_code_letter(law, 30.48) == "C"
+    assert runway_code_letter(law, 22.86) == "B"
 
 
 # ── the anchor-rect pin builder ──────────────────────────────────────

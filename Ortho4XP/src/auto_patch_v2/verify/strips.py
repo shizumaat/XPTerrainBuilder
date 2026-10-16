@@ -57,11 +57,14 @@ from ..constraints.strips import (end_pair_bounds, end_transect_foot, end_transe
                                   pavement_ring_vertices, strip_longitudinal_pairs)
 from shapely.geometry import Point as _ShPoint
 
+from ..law.reference_code import PA, raoa_applies
 from ..law.tables import (end_profile_noise_m, runway_end_profile,
                           runway_safety_area_length_m, runway_zone_edge_offset_m,
                           snap_margin_m, strip_transverse_bound, zone2_half_width_m,
                           zone_bounds)
 from .frame import Patch, Row, Shape, pair_side, row
+from .runway_witness import (published_code_letter, published_code_number,
+                             published_end_classes)
 from .no_step import rate_breaches
 
 __all__ = ["groups", "published_slabs", "end_groups", "strip_longitudinal", "strip_arc", "resa_transverse",
@@ -208,10 +211,6 @@ TEAR_MAX_EDGE_M = 1.0
 TEAR_MIN_JUMP_M = 1.0
 
 
-def _code(length: float) -> int:
-    return 4 if length >= 1800 else 3 if length >= 1200 else 2 if length >= 800 else 1
-
-
 def groups(p: Patch):
     """``[(rings, unit, code, length, letter, axis_a, axis_b)]`` per runway."""
     law = p.law
@@ -235,13 +234,16 @@ def groups(p: Patch):
         if L < 1.0:
             continue
         unit = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
-        code = _code(L)
-        half = zone2_half_width_m(law, "runway", code, letter.get(ref)) or 0.0
+        # the LOADER'S code and letter as published (``runway_witness``)
+        rows = p.publication.get("runway_axes")
+        code = published_code_number(rows, ref, L, law)
+        lt = published_code_letter(rows, ref, letter.get(ref))
+        half = zone2_half_width_m(law, "runway", code, lt) or 0.0
         end_half = max(width, half)
-        len_a, len_b = rsa_end_lengths(p, ref, a, b, code, letter.get(ref))
+        len_a, len_b = rsa_end_lengths(p, ref, a, b, code, lt)
         rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -len_a, 0.0, end_half),
                  rect_ring(a, b, L, L + len_b, end_half))
-        out.append((rings, unit, code, L, letter.get(ref), a, b))
+        out.append((rings, unit, code, L, lt, a, b))
     return out
 
 
@@ -346,7 +348,7 @@ def end_groups(p: Patch):
             a, b, width = slab
             L = math.hypot(b[0] - a[0], b[1] - a[1])
             unit = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
-            code = _code(L)
+            code = published_code_number(p.publication.get("runway_axes"), ref, L, law)
             half = zone2_half_width_m(law, "runway", code, letter) or 0.0
             len_a, len_b = rsa_end_lengths(p, ref, a, b, code, letter)
             end_half = max(width, half)
@@ -722,8 +724,15 @@ def raoa(p: Patch) -> list[Row]:
     lip = end_exempt_geometry(None, p.publication.get("end_profile_yields"), p.to_m, law)
     out: list[Row] = []
     seen: set = set()
-    for rings, unit, code, L, letter, a0, b0 in groups(p):
-        for thr, inward in ((a0, unit), (b0, (-unit[0], -unit[1]))):
+    for ref, rings, unit, code, L, letter, a0, b0 in end_groups(p):
+        # Annex 14 §3.8.1: before a PRECISION approach end only — the
+        # generator's filter (``reference_code.raoa_applies``) on the
+        # published class; a patch predating the class binds every end
+        cls = published_end_classes(p.publication.get("runway_axes"), ref, a0, b0, p.to_m)
+        for thr, inward, c in ((a0, unit, cls[0] if cls else PA),
+                               (b0, (-unit[0], -unit[1]), cls[1] if cls else PA)):
+            if not raoa_applies(law, c):
+                continue
             ux, uy = inward
             px, py = -uy, ux
             Lr, W = ra.length_m, ra.half_width_m

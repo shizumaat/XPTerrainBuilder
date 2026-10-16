@@ -50,6 +50,12 @@ window-length fit along a route, never a per-vertex DEM pull (08t (1)) —
 the same statement §21.2 (5) makes for the runway.  Extending it across
 the face changes NOTHING about that: the value handed to an edge vertex
 is the same window-length fit, read at the same station.
+
+THE TARGET IS HELD TO THE TAXI LAW (owner decision 2026-10-15g, issue
+#742; ``constraints/taxi_trend_cap``): each chain's trend is clamped to its
+longitudinal cap by the core's clamp, and the published targets are then
+made to agree over the routes and with every runway contact's reach — so a
+long valley can no longer pull a taxiway beyond its law.
 """
 from __future__ import annotations
 
@@ -59,7 +65,9 @@ import typing as _t
 
 import numpy as np
 
+from .precedence import view
 from .runway_chord import dem_degraded
+from .taxi_trend_cap import capped_chain, held_by_contacts
 from .trend import shift_through, trend_of
 from ..law import Law
 from ..law.tables import is_value_role
@@ -67,6 +75,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 
 __all__ = ["TaxiTrendReport", "taxi_trend_targets", "with_taxi_trend",
+           "stage_one_retarget",
            "taxi_trend_block", "taxi_chains", "chain_of_face",
            "taxi_xsec_feet", "TAXI_CENTERLINE"]
 
@@ -95,6 +104,20 @@ class TaxiTrendReport(_t.TypedDict, total=False):
     xsec_pin_const: int       # of their chain ends, runway contacts (constants)
     xsec_far: int             # owned by a chain, foot past the face reach
     xsec_no_chain: int        # on taxi faces no chain owns
+    capped_chains: int        # chains whose trend the cap clamp changed
+    agreed: int               # targets moved to agree with their neighbours' reach
+    held: int                 # targets clipped into the contacts' route reach
+    held_worst_m: float       # the largest such clip
+    held_worst_ll: list       # where it was
+    contacts_contradicted: int  # targets whose contacts' reach is empty
+    retarget_moved: int       # second pass: targets moved past the materiality
+    retarget_worst_m: float   # second pass: the largest such move
+    hold_passes: int          # passes the pair projection took
+    hold_residual_m: float    # the worst pair excess it left
+    hold_stalled: bool        # it stopped on no progress, not on settling
+    short_connectors: list    # contact pairs too close to lose their height at the cap
+    contacts: int             # runway (+ stage-1 apron) values the targets reach
+    extra_contacts: int       # of those, the stage-1 apron levels
     by_chain: list            # [{"chain", "ll", "vertices", "pins", "length_m"}]
 
 
@@ -308,7 +331,8 @@ def _face_extension(pm: PlanarMap, law: Law, chains: list[_Chain],
 
 
 def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
-                       report: TaxiTrendReport | None = None
+                       report: TaxiTrendReport | None = None,
+                       extra_contacts: _t.Mapping[int, float] | None = None
                        ) -> dict[int, float]:
     """Vertex id -> the TARGET PROFILE at its station (module docstring).
 
@@ -333,10 +357,33 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
     out: dict[int, float] = {}
     above = below = 0.0
     by_chain: list[dict[str, _t.Any]] = []
-    n_ok = n_no = n_pins = 0
+    n_ok = n_no = n_pins = n_capped = 0
     fitted: list[_Chain] = []
     ats: list[_t.Callable[[float], float | None]] = []
     pinned_all: set[int] = set()
+    caps_of = view(pm, law).caps
+    # THE RUNWAY'S VALUES the targets must reach: every chain's runway
+    # contacts (fitted or not — a short chain with no trend of its own
+    # still has a contact the targets around it must reach), then every
+    # runway vertex the runway profile valued (``preferred_z``): a taxi
+    # face meets the runway along its whole mouth, not only where a
+    # centreline crosses it (HECA: a stub's targets 31 m from its mouth
+    # stood 4 m over the runway's value with only the chain pins held)
+    contacts: dict[int, float] = {}
+    for c in chains:
+        for v in c.pins:
+            z = pm.preferred_z.get(v, pm.vertices[v].dem_z)
+            if z is not None:
+                contacts.setdefault(v, float(z))
+    rwy = frozenset(law.tables.precedence.runway_family.members)
+    for v, z in pm.preferred_z.items():
+        if v not in contacts and any(pm.faces[f].role in rwy
+                                     for f in pm.vertices[v].incident_faces):
+            contacts[v] = float(z)
+    # the second pass's APRON LEVELS (RULINGS 2026-10-15i (3)): stage 1's
+    # answer, JUNIOR to the runway's values (``held_by_contacts``)
+    junior = {int(v): float(z) for v, z in (extra_contacts or {}).items()
+              if int(v) not in contacts}
     for c in chains:
         samples = [(s, float(pm.vertices[v].dem_z))
                    for v, s in zip(c.vertices, c.stations)
@@ -346,12 +393,10 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
             n_no += 1
             continue
         st_of = dict(zip(c.vertices, c.stations))
-        pins = []
-        for v in c.pins:
-            z = pm.preferred_z.get(v, pm.vertices[v].dem_z)
-            if z is not None:
-                pins.append((st_of[v], float(z)))
-        at = shift_through(tr, pins)
+        pins = [(st_of[v], contacts[v]) for v in c.pins if v in contacts]
+        raw = shift_through(tr, pins)
+        at = capped_chain(raw, c, pm, law, caps_of)
+        n_capped += at is not raw
         fitted.append(c)
         ats.append(at)
         pinned = set(c.pins)
@@ -368,10 +413,6 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
             # would make the target depend on breakline id order
             out.setdefault(v, float(t))
             n += 1
-            dem = pm.vertices[v].dem_z
-            if dem is not None:
-                above = max(above, t - float(dem))
-                below = max(below, float(dem) - t)
         if n:
             n_ok += 1
             n_pins += len(pins)
@@ -388,13 +429,28 @@ def taxi_trend_targets(pm: PlanarMap, law: Law, airport: Airport,
     n_center = len(out)
     face, far, foot = _face_extension(pm, law, fitted, ats,
                                       set(out) | pinned_all, reach, window)
-    for v, t in face.items():
-        out[v] = t
+    out.update(face)
+    # THE TARGET IS HELD TO THE TAXI LAW across the network (owner
+    # 2026-10-15g; ``constraints/taxi_trend_cap``): into the route reach of
+    # every runway contact, so no target asks a grade the law forbids.
+    out, held = held_by_contacts(pm, law, airport, out, contacts, junior)
+    for v, t in out.items():
         dem = pm.vertices[v].dem_z
         if dem is not None:
             above = max(above, t - float(dem))
             below = max(below, float(dem) - t)
     if report is not None:
+        report.update(capped_chains=n_capped, agreed=held["agreed"],
+                      held=held["held"],
+                      held_worst_m=held["worst_m"],
+                      held_worst_ll=held["worst_ll"],
+                      contacts_contradicted=held["contradicted"],
+                      hold_passes=held["passes"],
+                      hold_residual_m=held["residual_m"],
+                      hold_stalled=held["stalled"],
+                      short_connectors=held["short_connectors"],
+                      contacts=len(contacts),
+                      extra_contacts=len(junior))
         report.update(chains=n_ok, chains_without=n_no, vertices=len(out),
                       centerline_vertices=n_center, face_vertices=len(face),
                       face_out_of_reach=far, face_reach_m=reach,
@@ -473,6 +529,37 @@ def taxi_xsec_feet(pm: PlanarMap, law: Law,
             xsec_pin_const=pin_const, xsec_far=far,
             xsec_no_chain=len(no_chain))
     return out
+
+
+def stage_one_retarget(pm: PlanarMap, law: Law, airport: Airport,
+                       levels: _t.Mapping[int, float],
+                       report: TaxiTrendReport | None = None
+                       ) -> dict[int, float] | None:
+    """THE SECOND PASS (owner RULINGS 2026-10-15i (3), option (b)): the
+    taxi trend targets again, with the APRON LEVELS STAGE 1 SOLVED as
+    contacts beside the runway's values (``taxi_trend_cap
+    .stage_one_contacts``), so a taxiway meeting an apron its pads hold
+    low starts its descent early enough to meet it within the cap.
+
+    Restricted to the vertices ``pm`` already prices (a target the EAT
+    reach withdrew stays withdrawn).  ``None`` when nothing moves by the
+    elevation materiality — the first pass stands and nothing is
+    re-solved."""
+    from .taxi_trend_cap import stage_one_contacts
+    have = pm.taxi_trend_z
+    if not have:
+        return None
+    extra = stage_one_contacts(pm, law, levels)
+    if not extra:
+        return None
+    rep: TaxiTrendReport = {} if report is None else report
+    new = taxi_trend_targets(pm, law, airport, rep, extra_contacts=extra)
+    out = {v: new.get(v, t) for v, t in have.items()}
+    tol = float(law.tables.emit.materiality.elevation_m)
+    moved = [abs(out[v] - t) for v, t in have.items()]
+    rep["retarget_moved"] = sum(1 for d in moved if d > tol)
+    rep["retarget_worst_m"] = round(max(moved, default=0.0), 3)
+    return out if rep["retarget_moved"] else None
 
 
 def with_taxi_trend(pm: PlanarMap, law: Law, airport: Airport,

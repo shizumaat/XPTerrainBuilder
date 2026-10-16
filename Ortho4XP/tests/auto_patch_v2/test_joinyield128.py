@@ -67,11 +67,14 @@ def test_a_join_on_an_apron_vertex_is_withheld_and_the_apron_holds_its_cap(
     on_v = ConstraintSet.from_rows([r for r in cs.rows()
                                     if v in _vertices(r)])
     assert not hard_violated(on_v, sol.z, hard_rulings(lw), tol)
-    # the counterfactual: the same join PINNED drags the vertex 5 m down
+    # the counterfactual: the same join PINNED is in conflict with the
+    # apron's own rows, so it YIELDS by that conflict (issue #778) — it no
+    # longer drags the vertex the 5 m down to the ribbon, settled or not
     pinned = ConstraintSet.from_rows(
         [*cs.rows(), Pin(v, z_road, Source(GEN, JOIN_RULING, (f"vertex:{v}",)))])
-    sol_p, _ = solve_design(pm_j, pinned, lw)
-    assert abs(float(sol_p.z[v]) - z_road) <= tol
+    sol_p, rep_p = solve_design(pm_j, pinned, lw)
+    assert abs(float(sol_p.z[v]) - z_road) > tol
+    assert v in {int(r["v"]) for r in rep_p.pin_yield}
     # the ribbon yields to the airside's level (the sidecar's road_join_yield)
     out = with_pin_yield(pm_j, [], 0.01, withheld=airside_joins(pm_j, lw),
                          z=sol.z)

@@ -37,8 +37,8 @@ from auto_patch_v2.law.tables import family, role_cap  # noqa: E402
 from auto_patch_v2.model.constraints import (Band, ConstraintSet, Diff,  # noqa: E402
                                              Linear, Pin, Source)
 from auto_patch_v2.solve.design_roles import ruling_head  # noqa: E402
-from auto_patch_v2.solve.pin_yield import (hard_violated, implicated_pins,  # noqa: E402
-                                           release_pins, stage1_read_pins)
+from auto_patch_v2.solve.pin_yield import (release_pins,  # noqa: E402
+                                           stage1_read_pins, yield_pins)
 
 CEIL = "rulesets.common.pavement_max_grade ceiling (owner 2026-09-09b (4))"
 HARD = frozenset({ruling_head(Diff(0, 1, 0.0, 0.0, Source("x", CEIL)))})
@@ -58,26 +58,71 @@ def _cs_geml_like():
     return ConstraintSet(pins=pins, diffs=diffs)
 
 
-def test_only_the_join_the_unsettled_rows_reach_is_released():
+def test_release_restates_the_pin_as_a_target_at_its_own_value():
     cs = _cs_geml_like()
-    z = numpy.array([50.84, 51.84, 52.84, 56.46, 0, 0, 0, 0, 40.2, 40.0])
-    bad = hard_violated(cs, z, HARD, 0.02)
-    assert [(r.a, r.b) for r in bad] == [(2, 3)]          # 3.62 m over 20 m
-    got = implicated_pins(cs, HARD, YIELD, bad, fixed={0: 50.84})
-    assert got == [3]                                     # v9 never moves
-    out = release_pins(cs, got, YIELD)
+    out = release_pins(cs, [3], YIELD)
     assert [p.v for p in out.pins] == [9]
     (t,) = [r for r in out.linears if r.terms == ((3, 1.0),)]
     assert t.lo == t.hi == pytest.approx(56.46)           # a target at its own value
     assert t.source.ruling == JOIN_RULING                 # same source: named the same
 
 
-def test_a_constant_stops_the_flood():
-    """Stage 1's level is a constant: a join beyond it is not reached."""
+# ISSUE #778: EACH PIN BY ITS OWN CONFLICT.  The trial releases every
+# yielding pin the stage may release; a pin the trial moves past
+# ``hard_tol_m`` stays released, every other is pinned again — whatever the
+# stage's hard set did elsewhere.
+
+
+def _yield_arm(z_trial, z_narrow=None, settled=True, worst_after=0.0,
+               among=None):
+    """``yield_pins`` on the GEML shape with the stage's solve stubbed:
+    the trial (every candidate released) returns ``z_trial``, the narrowed
+    re-solve ``z_narrow``; ``calls`` records which pins each solve had
+    released."""
+    from types import SimpleNamespace as NS
+    law = Law.load()
     cs = _cs_geml_like()
-    z = numpy.array([50.84, 51.84, 52.84, 56.46, 0, 0, 0, 0, 40.2, 40.0])
-    bad = [r for r in cs.diffs if (r.a, r.b) == (0, 1)]
-    assert implicated_pins(cs, HARD, YIELD, bad, fixed={1: 51.84}) == []
+    z0 = (50.84, 51.84, 52.84, 56.46, 0, 0, 0, 0, 40.2, 40.0)
+    planar = NS(vertices=[NS(xy=(float(i), 0.0)) for i in range(10)])
+    rep0 = NS(hard_max_violation_m=0.0, hard_settled=settled)
+    calls: list = []
+
+    def solve(cs_x):
+        released = sorted(v for r in cs_x.linears for v, _c in r.terms)
+        calls.append(released)
+        z = z_trial if len(calls) == 1 else (z_narrow or z_trial)
+        return NS(z=tuple(z)), NS(hard_max_violation_m=worst_after,
+                                  hard_settled=worst_after <= 0.02)
+    out = yield_pins(planar, cs, law, NS(z=z0), rep0, solve, among=among)
+    return out, calls
+
+
+def test_a_join_in_conflict_is_released_whether_or_not_the_stage_settled():
+    """v3's own ceiling will not hold it at the ribbon: the trial moves it
+    2.62 m.  v9 holds at its value.  The release is the same with the
+    stage's hard set settled or not (the airside's settling decides
+    nothing)."""
+    z = (50.84, 51.84, 52.84, 53.84, 0, 0, 0, 0, 40.2, 40.0)
+    for settled in (True, False):
+        (sol, _rep, recs, cs_y), calls = _yield_arm(z, settled=settled)
+        assert [r["v"] for r in recs] == [3]
+        assert recs[0]["excess_m"] == pytest.approx(-2.62)
+        assert calls == [[3, 9], [3]]           # trial, then v9 pinned again
+        assert [p.v for p in cs_y.pins] == [9]
+
+
+def test_a_join_that_holds_is_never_released():
+    z = (50.84, 51.84, 52.84, 56.46, 0, 0, 0, 0, 40.2, 40.005)
+    (sol, _rep, recs, cs_y), calls = _yield_arm(z)
+    assert recs == [] and calls == [[3, 9]]
+    assert sorted(p.v for p in cs_y.pins) == [3, 9]
+
+
+def test_a_release_that_worsens_the_hard_set_is_not_kept():
+    z = (50.84, 51.84, 52.84, 53.84, 0, 0, 0, 0, 40.2, 40.0)
+    (_sol, _rep, recs, _cs), _calls = _yield_arm(z, settled=False,
+                                                 worst_after=0.5)
+    assert recs == []
 
 
 # ISSUE #87 (RULINGS 2026-09-29d (c); spec-author: the yield is decided from
@@ -101,80 +146,14 @@ def test_a_join_a_stage_1_row_reads_is_stage_ones():
 
 
 def test_stage_2_cannot_release_a_join_stage_1_read():
-    """The platform-on arm at the site: stage 2's unsettled row reaches the
-    join, but the join is stage 1's (``among`` excludes it) — it is a
-    constant that stops the flood, and nothing is released.  The join
-    stage 1 never read still yields (GEML, 27a (10), is unchanged)."""
-    cs = _cs_geml_like()
-    z = numpy.array([50.84, 51.84, 52.84, 56.46, 0, 0, 0, 0, 40.2, 40.0])
-    bad = hard_violated(cs, z, HARD, 0.02)
-    all_pins = {p.v for p in cs.pins}
-    assert implicated_pins(cs, HARD, YIELD, bad, fixed={0: 50.84},
-                           among=all_pins - {3}) == []
-    assert implicated_pins(cs, HARD, YIELD, bad, fixed={0: 50.84},
-                           among=all_pins - {9}) == [3]
-    assert implicated_pins(cs, HARD, YIELD, bad, fixed={0: 50.84},
-                           among=None) == [3]
-
-
-# ISSUE #89 (spec-author decision 2026-09-29): the keep test.  At HECA the
-# stage-2 worst hard row (3.9474 m, far from every join) moved under 1e-4 m
-# between the arms, and ``rep_y.worst < rep.worst`` kept 7-11 join releases
-# on that noise.  A release is kept only if the worst drops by at least the
-# elevation materiality, or the released pins' OWN rows are held.
-
-
-def _keep_arm(z_after, worst_before, worst_after):
-    """``design._yield_pins`` on the GEML shape plus a FAR violated hard
-    row (v5-v6, 3.9474 m over, reached by no join), with the re-solve
-    stubbed to return ``z_after`` / ``worst_after``."""
-    from types import SimpleNamespace as NS
-
-    from auto_patch_v2.solve.design import _yield_pins
-    law = Law.load()
-    assert CEIL.split(" (")[0] in law.tables.emit.design.hard_rulings
-    cs = _cs_geml_like()
-    cs = _dc.replace(cs, diffs=cs.diffs + (
-        Diff(5, 6, 0.05, 20.0, Source("pavement_ceiling", CEIL)),))
-    z0 = (50.84, 51.84, 52.84, 56.46, 0, 0.0, 4.9474, 0, 40.2, 40.0)
-    planar = NS(vertices=[NS(xy=(float(i), 0.0)) for i in range(10)])
-    rep0 = NS(hard_max_violation_m=worst_before, hard_settled=False)
-    rep1 = NS(hard_max_violation_m=worst_after, hard_settled=False)
-    return _yield_pins(planar, cs, law, NS(z=z0), rep0, {0: 50.84},
-                       lambda _cs: (NS(z=tuple(z_after)), rep1))
-
-
-def test_a_noise_level_global_improvement_keeps_no_release():
-    """The join's own row is still violated after the release and the far
-    worst row moved 5e-5 m: nothing is kept (it was, before #89)."""
-    z = (50.84, 51.84, 52.84, 56.40, 0, 0.0, 4.94735, 0, 40.2, 40.0)
-    sol, rep, recs, _cs = _keep_arm(z, 3.9474, 3.94735)
-    assert recs == []
-    assert rep.hard_max_violation_m == 3.9474           # the original kept
-    assert sol.z[3] == 56.46
-
-
-def test_a_real_local_improvement_keeps_the_release():
-    """The worst far row is unchanged, but the released join's own row
-    (2, 3) is now held: the release is kept and reported."""
-    z = (50.84, 51.84, 52.84, 53.84, 0, 0.0, 4.9474, 0, 40.2, 40.0)
-    sol, rep, recs, _cs = _keep_arm(z, 3.9474, 3.9474)
-    assert [r["v"] for r in recs] == [3]
-    assert recs[0]["excess_m"] == pytest.approx(-2.62)
-    assert sol.z[3] == 53.84
-
-
-def test_a_material_global_improvement_keeps_the_release():
-    """A worst row lower by more than the materiality (0.01 m) keeps the release even
-    where the join's own row is not yet held; 0.009 m does not."""
-    z = (50.84, 51.84, 52.84, 56.40, 0, 0.0, 4.9364, 0, 40.2, 40.0)
-    assert [r["v"] for r in _keep_arm(z, 3.9474, 3.9364)[2]] == [3]
-    assert _keep_arm(z, 3.9474, 3.9384)[2] == []
-
-
-def test_no_violation_releases_nothing():
-    cs = _cs_geml_like()
-    assert implicated_pins(cs, HARD, YIELD, [], fixed={}) == []
+    """The platform-on arm at the site (#87): the join is stage 1's
+    (``among`` excludes it) — it is never a candidate, and only v9 is
+    tried.  The join stage 1 never read still yields (27a (10))."""
+    z = (50.84, 51.84, 52.84, 53.84, 0, 0, 0, 0, 40.2, 40.0)
+    (_sol, _rep, recs, _cs), calls = _yield_arm(z, among={9})
+    assert recs == [] and calls == [[9]]
+    (_sol, _rep, recs, _cs), calls = _yield_arm(z, among={3})
+    assert [r["v"] for r in recs] == [3] and calls == [[3]]
 
 
 def test_the_law_names_the_join_as_the_pin_that_yields():

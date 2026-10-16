@@ -64,6 +64,7 @@ import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely.strtree import STRtree
 
+from ..geom.core_clamp import ENGINE_DIR, core_vector_utils
 from ..geom.coverage import coverage_polygon
 from ..law import Law
 from ..model.frame import rotated_rectangle
@@ -77,21 +78,13 @@ __all__ = ["Way", "Answer", "RoadProfiles", "stations", "clamp_profile",
            "road_family_vertices", "core_profiles", "preferred_road_z",
            "ENGINE_DIR"]
 
-#: The engine tree (``src/auto_patch_v2/airport``): the core lives in
-#: ``<engine>/src``.
-ENGINE_DIR = Path(__file__).resolve().parents[3]
-
 OSM, ROUTE, AXIS = "osm", "route", "axis"
 
 
 def _core_vector_utils():
-    """``O4_Vector_Utils`` — the core's clamp.  The ONLY core import v2
-    makes for roads, and it is made here."""
-    d = str(ENGINE_DIR / "src")
-    if d not in sys.path:
-        sys.path.append(d)
-    import O4_Vector_Utils as VECT  # noqa: WPS433 (core adapter)
-    return VECT
+    """``O4_Vector_Utils`` — the core's clamp, through the one adapter
+    (``geom/core_clamp``)."""
+    return core_vector_utils()
 
 
 @_dc.dataclass(frozen=True)

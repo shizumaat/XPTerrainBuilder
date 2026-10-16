@@ -74,16 +74,16 @@ def yield_stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, got: tuple,
                     solve1: _t.Callable[[PlanarMap, ConstraintSet], tuple]
                     ) -> tuple[ConstraintSet, tuple, list[dict]]:
     """THE PINS STAGE 1 READS YIELD IN STAGE 1 (issue #87): ``got`` (one
-    ``solve1`` answer) re-solved with the yielding pins its unsettled hard
-    rows reach released — ``(cs, got, release records)``, the input itself
+    ``solve1`` answer) re-solved with the yielding pins it reads that are in
+    conflict themselves released (issue #778, ``pin_yield.yield_pins``) — ``(cs, got, release records)``, the input itself
     when nothing is released.  Decided from stage 1's own hard set, so
     nothing stage 2 carries can change the problem stage 1 solved."""
     from ..law.tables import design as design_law
-    from .pin_yield import row_vertices, stage1_read_pins, yield_pins
+    from .pin_yield import stage1_read_pins, yield_pins
     heads = frozenset(getattr(design_law(law), "yielding_pin_rulings", ()) or ())
     sol, rep, drop, foreign, _lv, _sz = got
     among = stage1_read_pins(cs, heads, drop) if heads else frozenset()
-    if not (among and not rep.hard_settled and sol.z):
+    if not (among and sol.z):     # issue #778: each pin by its own conflict
         return cs, got, []
     last: dict[int, tuple] = {}
 
@@ -91,9 +91,8 @@ def yield_stage_one(planar: PlanarMap, cs: ConstraintSet, law: Law, got: tuple,
         out = solve1(planar, cs_x)
         last[id(out[1])] = out
         return out[0], out[1]
-    _s, rep_y, recs, cs_y = yield_pins(
-        planar, cs, law, sol, rep, foreign, _again, among=among,
-        keep_row=lambda r: not any(v in drop for v in row_vertices(r)))
+    _s, rep_y, recs, cs_y = yield_pins(planar, cs, law, sol, rep, _again,
+                                       among=among)
     if not recs:
         return cs, got, []
     for r in recs:

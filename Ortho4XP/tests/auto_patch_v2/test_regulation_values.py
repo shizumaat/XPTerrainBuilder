@@ -171,7 +171,11 @@ def test_16a_i_a_taxi_route_crossing_the_shoulder_takes_the_taxi_cap(synthetic, 
     width, every other shoulder vertex at the shoulder's own."""
     from auto_patch_v2.constraints.shoulder_crossing import crossed_shoulder_caps
     airport, pm, _ = synthetic
-    narrow = dc.replace(airport, runways=(dc.replace(airport.runways[0], width_m=30.0),))
+    from auto_patch_v2.model.airport import TaxiEdge, TaxiNode
+    narrow = dc.replace(airport, runways=(dc.replace(airport.runways[0], width_m=30.0),),
+                        taxi_nodes={1: TaxiNode(1, (0.0, 91.5), "both"),
+                                    2: TaxiNode(2, (0.0, 0.0), "both")},
+                        taxi_edges=(TaxiEdge(1, 2, "B", False, False, "D"),))
     got = crossed_shoulder_caps(pm, law, narrow)
     vw = precedence.view(pm, law)
     assert got and all(abs(vw.xy[v][0]) <= 9.0 + 1e-6 for v in got)

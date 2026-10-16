@@ -5,9 +5,11 @@ the TAXIWAY's law governs the pavement it crosses; the shoulder's own
 transverse slope (``runway.shoulder_transverse_max``, FAA Table 3-6 S-2's
 5 %) applies only to shoulder no taxi route crosses.
 
-ONE predicate at the derivation site: a shoulder vertex within the
-crossing chain's own pavement half-width (``tables.taxi_half_width_m`` by
-the chain's letter) of a ``taxi_centerline`` breakline takes that
+ONE predicate at the derivation site: a shoulder vertex within the route
+edge's own pavement half-width (``tables.taxi_half_width_m`` by its 1202
+width class) of an apt.dat 1202 TAXI ROUTE edge — the route itself, which
+runs on across the shoulder where the taxiway's centreline breakline stops
+at its own face — takes that
 taxiway's LONGITUDINAL cap as its slope beyond the half-width (the route
 runs across the shoulder, so the taxiway's along-route grade is the law
 there).  The generator reads it (``runway_profile.runway_transverse``);
@@ -40,15 +42,15 @@ def crossed_shoulder_caps(planar: PlanarMap, law: Law, airport: Airport
     half_of = runway_half_widths(airport)
     axes = {rw.id: rw for rw in airport.runways}
     lines, caps = [], []
-    for bid, b in planar.breaklines.items():
-        if b.kind != "taxi_centerline":
+    nodes = getattr(airport, "taxi_nodes", None) or {}
+    for e in getattr(airport, "taxi_edges", None) or ():
+        if e.is_runway or e.a not in nodes or e.b not in nodes:
             continue
-        ch = vw.chains.get(bid) or []
-        hw = taxi_half_width_m(law, b.code_letter)
-        rc = role_cap(law, "primary_parallel", None, b.code_letter)
-        if len(ch) < 2 or not hw or rc is None:
+        hw = taxi_half_width_m(law, e.width_class)
+        rc = role_cap(law, "primary_parallel", None, e.width_class)
+        if not hw or rc is None:
             continue
-        lines.append(LineString([vw.xy[v] for v in ch]).buffer(float(hw)))
+        lines.append(LineString([nodes[e.a].xy, nodes[e.b].xy]).buffer(float(hw)))
         caps.append(float(rc.longitudinal))
     out: dict[int, float] = {}
     if lines:

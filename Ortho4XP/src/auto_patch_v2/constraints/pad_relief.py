@@ -56,9 +56,8 @@ from __future__ import annotations
 from shapely.geometry import Point
 from shapely.strtree import STRtree
 
-from ..airport.jetways import is_jetway_resource
 from ..law import Law
-from ..law.tables import role_side
+from ..law.tables import is_jetway_resource, role_side
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 

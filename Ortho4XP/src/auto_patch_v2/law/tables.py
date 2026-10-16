@@ -18,6 +18,7 @@ from .model import (Cockpit, Declared, Family, FlatSite, Law,
                     RoleCap, ZoneClass, load_tables, resolve_ruleset)
 
 __all__ = [
+    "is_jetway_resource",
     "footprint_touch_m",
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
@@ -85,6 +86,14 @@ def group_span_max_m(law: Law) -> float:
 
 
 # ── roles ────────────────────────────────────────────────────────────────
+
+def is_jetway_resource(path, law: Law) -> bool:
+    """A pack resource whose path names ``[building_pad] jetway_token``
+    (case-free) is a jetway — THE one token test (``airport/jetways.declared_jetways``,
+    ``constraints/pad_relief``)."""
+    tok = law.tables.structures.building_pad.jetway_token
+    return bool(tok) and str(tok).lower() in str(path or "").lower()
+
 
 def role_family(law: Law, role: str) -> str:
     """``runway`` / ``taxi`` / ``common`` / ``none`` for ``role``; an

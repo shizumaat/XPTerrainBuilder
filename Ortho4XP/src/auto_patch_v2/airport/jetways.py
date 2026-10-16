@@ -23,7 +23,9 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-__all__ = ["DeclaredJetway", "declared_jetways", "is_jetway_resource", "JETWAYS"]
+from ..law.tables import is_jetway_resource
+
+__all__ = ["DeclaredJetway", "declared_jetways", "JETWAYS"]
 
 XY = tuple[float, float]
 
@@ -89,14 +91,6 @@ def _obj_extent(cache, o) -> tuple[XY, ...] | None:
            for x, z in geom.vertices[:, [0, 2]].tolist()]
     hull = MultiPoint(pts).convex_hull
     return tuple(hull.exterior.coords)[:-1] if hull.geom_type == "Polygon" else None
-
-
-def is_jetway_resource(path, law) -> bool:
-    """A pack resource whose path names ``[building_pad] jetway_token``
-    (case-free) is a jetway — THE one token test (``declared_jetways``,
-    ``constraints/pad_relief``)."""
-    tok = law.tables.structures.building_pad.jetway_token
-    return bool(tok) and str(tok).lower() in str(path or "").lower()
 
 
 def declared_jetways(airport, law, cache=None) -> list[DeclaredJetway]:

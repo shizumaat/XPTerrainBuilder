@@ -628,6 +628,13 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     continue
             if lo is None and hi is None:
                 continue
+            if rank > 0 and edges[found[0][1]][2] == _APRON:
+                # FLUSH AT THE APRON EDGE (master's reading (i) under RULINGS
+                # 2026-10-16c): inside an apron's lip the apron is the level;
+                # a farther taxiway's floor would hold the lip off the apron
+                # edge (measured KCLT 35.214120, −80.937444: an apron 2 m
+                # under taxi F's band, the floor kept a 0.86 m step)
+                continue
             if rank > 0 and v not in quay:
                 hi = None            # a farther pavement: floor only
             elif fam != "runway" and v in ctx.end_box and v not in quay:

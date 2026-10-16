@@ -110,6 +110,9 @@ public struct PatchDocument: Equatable, Sendable {
     /// `source`, `path` and `header` change only through `markSaved(path:)`.
     public private(set) var source: O4PatchSource
     public private(set) var path: String
+    /// The file this document was opened from: a save moves `path` (an
+    /// auto patch saves as the editor's manual file), never this.
+    public let openedPath: String
     public let stale: Bool
     public let staleInputs: [String]
     /// The law's own snap distance (§3.3) — served, never hard-coded.
@@ -135,6 +138,7 @@ public struct PatchDocument: Equatable, Sendable {
         icao = load.icao
         source = load.source
         path = load.path
+        openedPath = load.path
         stale = load.stale
         staleInputs = load.staleInputs
         minDistinctSpacingM = load.minDistinctSpacingM
@@ -182,6 +186,12 @@ public struct PatchDocument: Equatable, Sendable {
     public var isHandMade: Bool {
         source == .manual && (path as NSString).lastPathComponent != Self.editedFileName(icao: icao)
     }
+
+    /// Which open this is, for views that load per document (pack
+    /// outlines, pack objects, the 3D terrain): a save keeps it, so saving
+    /// never re-requests them (owner 1.0.398: a save re-fetched the pack's
+    /// tens-of-MB `pack_objects` answer).
+    public var openKey: String { "\(tile)|\(icao)|\(openedPath)" }
 
     /// After `patch_save` wrote the document to `path`: it is now that
     /// manual patch, carrying the editor's header mark.

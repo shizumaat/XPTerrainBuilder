@@ -539,8 +539,8 @@ public final class OrthoEngineClient: @unchecked Sendable {
     private let stderrPipe = Pipe()
 
     private let lock = NSLock()
-    private var stdoutBuffer = Data()
-    private var stderrBuffer = Data()
+    private var stdoutLines = LineSplitter()
+    private var stderrLines = LineSplitter()
     private var nextID = 1
     private var pendingReplies: [Int: @Sendable (O4Reply) -> Void] = [:]
     /// Commands completed by an EVENT naming their id (`request`), keyed by
@@ -834,29 +834,23 @@ public final class OrthoEngineClient: @unchecked Sendable {
     // MARK: - Stream handling
 
     private func consumeStdout(_ data: Data) {
-        for line in splitLines(&stdoutBuffer, appending: data) {
+        for line in splitLines(&stdoutLines, appending: data) {
             handleProtocolLine(line)
         }
     }
 
     private func consumeStderr(_ data: Data) {
-        for line in splitLines(&stderrBuffer, appending: data) where !line.isEmpty {
+        for line in splitLines(&stderrLines, appending: data) where !line.isEmpty {
             onEvent(.stderr(line))
             EngineStderrLog.shared.append(line)
         }
     }
 
-    private func splitLines(_ buffer: inout Data, appending data: Data) -> [String] {
-        lock.lock()
-        buffer.append(data)
-        var lines: [String] = []
-        while let nl = buffer.firstIndex(of: UInt8(ascii: "\n")) {
-            let lineData = buffer.subdata(in: buffer.startIndex..<nl)
-            buffer.removeSubrange(buffer.startIndex...nl)
-            lines.append(String(decoding: lineData, as: UTF8.self))
-        }
-        lock.unlock()
-        return lines
+    /// Linear in the bytes received (LineSplitter): a 50 MB reply line no
+    /// longer re-scans its own head on every 64 KB chunk (owner 1.0.398:
+    /// a patch save queued behind a PackObjectsReady line at 99 % CPU).
+    private func splitLines(_ splitter: inout LineSplitter, appending data: Data) -> [String] {
+        lock.withLock { splitter.append(data) }
     }
 
     private func handleProtocolLine(_ line: String) {

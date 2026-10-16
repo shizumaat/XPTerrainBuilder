@@ -355,6 +355,28 @@ def test_pack_outlines_follow_the_patch_through_pack_objects_ready(editor):
     view.viewport().grab()                          # paints every layer once
 
 
+def test_a_save_never_asks_for_pack_objects_again(editor):
+    """Owner 1.0.398: a save moves the patch's path (auto → edited file);
+    the outlines ask ``pack_objects`` once per open, never on a save or
+    the edits after it."""
+    ed, view = editor
+    calls = []
+    table = ed.engine._table()
+    table["pack_objects"] = lambda **kw: calls.append(kw) or {"status": "started"}
+    table["pack_outlines"] = lambda tile, icao: {"pavement": [], "missing": []}
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.outlines.set_enabled(True)
+    assert len(calls) == 1
+    ed.model.set_selection([-1])
+    ed.model.set_selection_alt(99.5)
+    ed.controller.save()
+    assert ed.model.patch.path.endswith("ZZZZ_edited.patch.osm")
+    north = max(ed.model.doc.nodes.values(), key=lambda n: n[1])[0]
+    assert ed.model.move_selection([north], 0.001, 0.0)   # an edit after it grows the box
+    assert len(calls) == 1
+
+
 def test_the_3d_button_and_ctrl_3_open_one_preview_window(editor):
     ed, view = editor
     table = ed.engine._table()

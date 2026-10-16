@@ -166,6 +166,17 @@ struct PatchEditOpsTests {
         #expect(doc.isHandMade)
     }
 
+    /// Owner 1.0.398: the pack outlines and the 3D preview load per
+    /// `openKey`; a save (auto → edited file) must not change it, or every
+    /// save re-fetches the pack's `pack_objects` answer.
+    @Test func aSaveKeepsTheOpenKey() throws {
+        var doc = try smallDoc()
+        let opened = doc.openKey
+        doc.markSaved(path: "/p/ZZZZ_edited.patch.osm")
+        #expect(doc.path == "/p/ZZZZ_edited.patch.osm")
+        #expect(doc.openKey == opened)
+    }
+
     // MARK: - Snap (§3.3)
 
     @Test func snapPicksTheNearestOnScreenWithinEightPoints() {

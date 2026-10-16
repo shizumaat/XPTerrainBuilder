@@ -64,7 +64,7 @@ from ..law.tables import (end_profile_noise_m, runway_end_profile,
                           zone_bounds)
 from .frame import Patch, Row, Shape, pair_side, row
 from .runway_witness import (published_code_letter, published_code_number,
-                             published_end_classes)
+                             published_end_classes, published_end_profiles)
 from .no_step import rate_breaches
 
 __all__ = ["groups", "published_slabs", "end_groups", "strip_longitudinal", "strip_arc", "resa_transverse",
@@ -589,9 +589,14 @@ def runway_end_skirt(p: Patch) -> list[Row]:
 
     out: list[Row] = []
     seen: set = set()
-    for ref, rings, unit, code, L, letter, a0, _b in end_groups(p):
-        prof = runway_end_profile(law, code, letter,
-                                  published_instrument(p.publication.get("runway_axes"), ref))
+    axes = p.publication.get("runway_axes")
+    for ref, rings, unit, code, L, letter, a0, b0 in end_groups(p):
+        # each END its own profile: the FAA approach surface by the end's
+        # published class and displaced length (RULINGS 2026-10-15m (1))
+        profs = dict(zip((1, 2), published_end_profiles(
+            law, axes, ref, a0, b0, p.to_m, code, letter,
+            published_instrument(axes, ref))))
+        prof = profs[1]                   # the end-independent ``rate``
         ux, uy = unit
 
         def beyond(xy, ring_idx):
@@ -622,13 +627,13 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 if site in seen:
                     continue
                 seen.add(site)
-                ex = end_excess_m(prof, st[vi][0], st[vo][0], st[vi][2], st[vo][2], q)
+                ex = end_excess_m(profs[ring_idx], st[vi][0], st[vo][0], st[vi][2], st[vo][2], q)
                 if ex <= 0.0:
                     continue
                 ds = st[vo][0] - st[vi][0]
                 out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                p.side("graded_strip"), ex, 100 * (st[vo][2] - st[vi][2]) / ds,
-                               100 * prof.down_cap_at(st[vo][0]), ds,
+                               100 * profs[ring_idx].down_cap_at(st[vo][0]), ds,
                                st[vi][3], st[vo][3], st[vi][4], st[vo][4]))
             # the TRANSECT FEET (``constraints.strips.end_transect_foot``):
             # the ground behind runway pavement that continues past the end
@@ -639,12 +644,12 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                     continue
                 k, tau, de = hit
                 zf = pedges[k][2] + tau * (pedges[k][3] - pedges[k][2])
-                ex = end_excess_m(prof, de, d, zf, z, q)
+                ex = end_excess_m(profs[ring_idx], de, d, zf, z, q)
                 if ex <= 0.0:
                     continue
                 out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
                                pair_side(p, "graded_strip", "runway"), ex,
-                               100 * (z - zf) / (d - de), 100 * prof.down_cap_at(d), d - de,
+                               100 * (z - zf) / (d - de), 100 * profs[ring_idx].down_cap_at(d), d - de,
                                xy, xy, key, key))
         for sh in _strips(p):
             for ring_idx in (1, 2):
@@ -664,13 +669,14 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                         seen.add(site)
                         di, dj = beyond(sh.xy[i], ring_idx), beyond(sh.xy[j], ring_idx)
                         (vi, vo) = (i, j) if di <= dj else (j, i)
-                        ex = end_excess_m(prof, min(di, dj), max(di, dj), sh.z[vi], sh.z[vo], q)
+                        ex = end_excess_m(profs[ring_idx], min(di, dj), max(di, dj),
+                                          sh.z[vi], sh.z[vo], q)
                         if ex <= 0.0:
                             continue
                         dz = abs(sh.z[j] - sh.z[i])
                         out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                        p.side("graded_strip"), ex, 100 * dz / ds,
-                                       100 * prof.down_cap_at(max(di, dj)), ds,
+                                       100 * profs[ring_idx].down_cap_at(max(di, dj)), ds,
                                        sh.xy[i], sh.xy[j], sh.key, sh.key))
                     if prof.rate is not None:
                         pts = [(sh.xy[i][0] * ux + sh.xy[i][1] * uy, 0.0) for i in run]
@@ -697,17 +703,17 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 foot = end_chord_foot(x, y, edges, rect_of)
                 if foot is None or foot[0] < 1.0:
                     continue
-                d, zf, _end = foot
+                d, zf, end = foot
                 site = ("chord", tuple(round(c, 3) for c in sh.xy[k]))
                 if site in seen:
                     continue
                 seen.add(site)
-                ex = end_excess_m(prof, 0.0, d, zf, sh.z[k], q)
+                ex = end_excess_m(profs[end], 0.0, d, zf, sh.z[k], q)
                 if ex <= 0.0:
                     continue
                 out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
                                pair_side(p, "graded_strip", "runway"), ex,
-                               100 * (sh.z[k] - zf) / d, 100 * prof.down_cap_at(d), d,
+                               100 * (sh.z[k] - zf) / d, 100 * profs[end].down_cap_at(d), d,
                                sh.xy[k], sh.xy[k], sh.key, sh.key))
     return out
 

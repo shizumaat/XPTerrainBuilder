@@ -128,7 +128,7 @@ class PackOutlines(QObject):
         self._remember = remember
         #: The engine's sentences about what could not be read.
         self.missing: list[str] = []
-        self._loaded = None                 # (generation, tile, icao, path)
+        self._loaded = None                 # (generation, tile, icao)
         self._pavement = QPainterPath()
         self._footprints = QPainterPath()
         model.document_changed.connect(self._reload_if_needed)
@@ -148,8 +148,11 @@ class PackOutlines(QObject):
         self.changed.emit()
 
     def _key(self):
+        """Which open this is: a load bumps ``generation``; a save moves
+        ``path`` (auto → edited file) but is the same open, so it never
+        asks again (owner 1.0.398: saves re-fetched ``pack_objects``)."""
         p = self.model.patch
-        return None if p is None else (self.model.generation, p.tile, p.icao, p.path)
+        return None if p is None else (self.model.generation, p.tile, p.icao)
 
     def _reload_if_needed(self) -> None:
         """Every edit announces the document; only a new one reloads."""

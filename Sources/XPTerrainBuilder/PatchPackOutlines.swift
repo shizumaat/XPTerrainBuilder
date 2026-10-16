@@ -42,7 +42,7 @@ final class PatchPackOutlines: ObservableObject {
     }
 
     private func key(_ doc: PatchDocument) -> String {
-        "\(patch?.documentGeneration ?? 0)|\(doc.tile)|\(doc.icao)|\(doc.path)"
+        "\(patch?.documentGeneration ?? 0)|\(doc.openKey)"
     }
 
     private func reloadIfNeeded() {

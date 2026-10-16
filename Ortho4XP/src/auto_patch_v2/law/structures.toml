@@ -494,6 +494,15 @@ weld_to_touching_pavement = true   # contact = value (09-01g)
 footprint_outside_pad_m   = 0.0    # NO footprint outside the pad — outline close retired (09-01g)
 groundside_cutback_m      = 0.6    # mixed pad: welds airside, groundside cut back and may differ (09-01i, 01e standoff)
 min_area_m2               = 250.0  # tiny pads fold into their host (08-24 :1687; PAD_MIN_AREA_M2)
+# THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1)): a pad
+# is expanded by the footprints of the jetways the scenery DECLARES that serve
+# it (`airport/jetways.py`): the airport's apt.dat 1500 rows, else the pack's
+# own jetway placements (a resource path naming `jetway_token`).  ENGINE values
+# (proposed for ratification, lane regL2):
+jetway_root_reach_m       = 10.0   # a jetway serves the pad whose outline stands within this of its root (an apt.dat 1500 root is the rotunda at the facade; a pack object's anchor sits at or near it)
+jetway_half_width_m       = 2.0    # an apt.dat 1500 jetway's plan half-width: the tunnel is ~2.5-3 m wide, the cab ~3.5-4 m (4 m / 2)
+jetway_cab_m              = 4.0    # ... and the cab beyond the tunnel's declared length (the 1500 row states the tunnel)
+jetway_token              = "jetway"   # a pack resource whose path names this (case-free) is a jetway the pack declares
 in_basin_sits_at_floor    = true   # a pad inside a basin sits at the basin floor (08-25 :1771)
 step_exemption_pad_to_pad = true   # two pads may sit at different floors (06-20 STEP_EXEMPTIONS)
 frontage_near_miss_m      = 1.0    # a soft-pavement ring edge within this of a pad, unshared with it, is a FRONTAGE across a sliver: each endpoint holds the apron cap over its own distance to the pad (BUILDING_FRONTAGE_NEAR_MISS_M; 08-08, cycle-5 item 6; SPJC building29 0.68 m source offset)

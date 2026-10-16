@@ -124,10 +124,10 @@ class TerrainSurface:
         r0 = np.minimum(fr.astype(int), g.rows - 2)
         c0 = np.minimum(fc.astype(int), g.cols - 2)
         tr, tc = fr - r0, fc - c0
-        z = self.elevations.astype(np.float64)
+        z = self.elevations
 
         def at(r, c):
-            return z[r * g.cols + c]
+            return z[r * g.cols + c].astype(np.float64)
         return ((1 - tr) * ((1 - tc) * at(r0, c0) + tc * at(r0, c0 + 1))
                 + tr * ((1 - tc) * at(r0 + 1, c0) + tc * at(r0 + 1, c0 + 1)))
 
@@ -153,6 +153,15 @@ class PreviewSpace:
         if self.terrain is None:
             return np.full(np.shape(lat), self.base, dtype=float)
         return self.terrain.elevation(lat, lon)
+
+    def ground_y(self, x: float, z: float) -> float | None:
+        """The terrain's y (metres above ``base``, before exaggeration)
+        under a preview (x, z), or None before the terrain — the 3D
+        camera's floor."""
+        if self.terrain is None:
+            return None
+        lat, lon = self.frame.lat_lon(x, -z)
+        return float(self.terrain.elevation(lat, lon)) - self.base
 
     def node_positions(self, nodes: _t.Sequence[tuple]) -> np.ndarray:
         """Node tuples ``(id, lat, lon, alt|None)``: a node without elevation

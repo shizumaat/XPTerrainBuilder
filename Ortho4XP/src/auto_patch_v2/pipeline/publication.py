@@ -124,6 +124,8 @@ def _renode_rows(airport) -> "list | None":
 from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
+from ..constraints.runway_mean_slope import mean_slope_caps
+from ..constraints.shoulder_crossing import crossed_shoulder_caps
 from ..constraints.runway_profile import crown_drops, runway_half_widths
 from ..constraints.runway_yield import RunwayCap as _RunwayCap
 from ..constraints.runway_yield import TaxiYield as _TaxiYield
@@ -140,6 +142,7 @@ from ..model.planar import PlanarMap
 from ..planar.cluster import deck_shades as _deck_shades
 from ..solve.ground_band import ground_envelope
 from ..model.end_area import end_area_lengths
+from ..model.threshold_datum import threshold_datums
 
 __all__ = ["end_profile_yields", "gap_pieces", "pad_touch", "late_stage", "publication", "face_tags", "lifted_caps", "LIFTED_CAP_TAG",
            "RAMP_ROLES", "TAXI_YIELD_CAP_TAG", "TAXI_YIELD_REF_TAG"]
@@ -461,6 +464,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                     seen.add(key)
                     taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
     _end_lens = end_area_lengths(airport, law)
+    _mean_caps = {k: round(v, 6) for k, v in mean_slope_caps(planar, law, airport).items()}
     _doc = {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             # §40 (2) as amended (owner RULINGS 2026-09-13dd): per runway
             # ``[ref, lat_a, lon_a, lat_b, lon_b, half_width_m]`` — the
@@ -468,6 +472,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # to the rings a §40 shoulder fattens), so the v1 census reads
             # the same shoulder line the generator priced at, plus the
             # shoulder cap itself
+            # RULINGS 2026-10-16a (i): the shoulder vertices a taxi route
+            # crosses and the taxiway cap that governs them
+            # (``constraints/shoulder_crossing``), ``[lat, lon, cap]``
+            "shoulder_taxi_crossings": [
+                [planar.vertices[v].key[0], planar.vertices[v].key[1], round(c, 6)]
+                for v, c in sorted(crossed_shoulder_caps(planar, law, airport).items())],
             "runway_axes": [
                 [rw.id, round(rw.ends[0].ll[0], 11), round(rw.ends[0].ll[1], 11),
                  round(rw.ends[1].ll[0], 11), round(rw.ends[1].ll[1], 11),
@@ -494,7 +504,18 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                  # approach class, 15 / 16 its Cat II/III status (end a, b)
                  rw.code_number, rw.code_letter,
                  *(str(getattr(e, "approach", "visual")) for e in rw.ends),
-                 *(1 if getattr(e, "cat_ii_iii", False) else 0 for e in rw.ends)]
+                 *(1 if getattr(e, "cat_ii_iii", False) else 0 for e in rw.ends),
+                 # slots 17 / 18: each end's DISPLACED THRESHOLD length — the
+                 # FAA approach surface is measured from the threshold
+                 # (RULINGS 2026-10-15m (1); ``tables.runway_end_profile``)
+                 *(round(float(e.displaced_m or 0.0), 3) for e in rw.ends),
+                 # slot 19: the EFFECTIVE mean-slope cap (Annex 14 §3.1.13,
+                 # yielded to the pins; ``constraints/runway_mean_slope``),
+                 # ``None`` where the authority states none
+                 _mean_caps.get(rw.id),
+                 # slots 20 / 21: each end's THRESHOLD height over the end,
+                 # the approach surface's datum (``model.threshold_datum``)
+                 *(round(v, 3) for v in threshold_datums(rw))]
                 for rw in airport.runways],
             "shoulder_transverse_max":
                 float(law.ruleset.runway.shoulder_transverse_max),

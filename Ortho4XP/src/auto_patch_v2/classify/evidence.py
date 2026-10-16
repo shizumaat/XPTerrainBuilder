@@ -741,6 +741,11 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     parts = _absorb_enclosed(
         parts, float(law.tables.emit.identity.weld_spacing_m)
         if law is not None else 0.0)
+    # THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1)):
+    # every jetway the scenery declares joins the pad it serves — here, at
+    # the ONE derivation site, so the arrangement's apron cut (23a) and
+    # every pad consumer inherit the expanded outline
+    parts = _with_jetways(parts, airport, law, cache, runway_union)
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
     # RULINGS 2026-09-14ax: THE PAD CLIP IS THE ARRANGEMENT'S, NOT THIS
     # SITE'S.  Round 1 clipped every pad here by ``runway_union |
@@ -925,6 +930,62 @@ def _absorb_enclosed(parts: list, weld_m: float = 0.0) -> list:
         if not changed:
             break
     return [q for q in alive if q is not None]
+
+
+#: what the last :func:`_with_jetways` did (the report): jetways found and
+#: their source, attached, and the area each pad grew by
+JETWAY_PADS: dict[str, _t.Any] = {}
+
+
+def _with_jetways(parts: list, airport: Airport, law, cache, runway_union) -> list:
+    """Each pad part unioned with the declared jetways it serves (owner
+    RULINGS 2026-10-16b (1); ``airport/jetways``): a jetway serves the part
+    whose outline is nearest its ROOT, within ``[building_pad]
+    jetway_root_reach_m``.  A jetway never takes runway ground (14ah)."""
+    from ..airport.jetways import JETWAYS, declared_jetways
+    JETWAY_PADS.clear()
+    bp = law.tables.structures.building_pad if law is not None else None
+    reach = None if bp is None else bp.jetway_root_reach_m
+    if not parts or reach is None:
+        return parts
+    jets = declared_jetways(airport, law, cache)
+    JETWAY_PADS.update({"found": len(jets), "source": JETWAYS.get("source"),
+                        "no_footprint": JETWAYS.get("no_footprint", 0),
+                        "attached": 0, "grown_m2": []})
+    if not jets:
+        return parts
+    tree = STRtree(parts)
+    add: dict[int, list] = {}
+    for j in jets:
+        root = Point(j.root)
+        near = [int(k) for k in tree.query(root.buffer(float(reach)))]
+        if not near:
+            continue
+        k = min(near, key=lambda i: parts[i].distance(root))
+        if parts[k].distance(root) > float(reach):
+            continue
+        g = Polygon(j.ring)
+        if not g.is_valid:
+            g = g.buffer(0.0)
+        # the root's own gap to the outline joins with it (a pack anchor a
+        # few metres off the facade must not leave the jetway an island)
+        from shapely.ops import nearest_points
+        q = nearest_points(parts[k].boundary, root)[0]
+        half = float(bp.jetway_half_width_m or 0.0)
+        if q.distance(root) > 0.0 and half > 0.0:
+            g = g.union(LineString([q, root]).buffer(half, cap_style=2))
+        add.setdefault(k, []).append(g)
+        JETWAY_PADS["attached"] += 1
+    out = list(parts)
+    for k, gs in add.items():
+        grown = unary_union([out[k], *gs])
+        if runway_union is not None and not runway_union.is_empty:
+            grown = grown.difference(runway_union)
+        grown = max(polygon_parts(grown), key=lambda q: q.area) \
+            if grown.geom_type != "Polygon" else grown
+        JETWAY_PADS["grown_m2"].append(round(grown.area - out[k].area, 1))
+        out[k] = grown
+    return out
 
 
 def _drop_skirted(airport: Airport, law, cache, pads: list[tuple[str, Polygon]],

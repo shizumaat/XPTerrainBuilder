@@ -54,6 +54,7 @@ from .steps import _edges, _step_rows
 from .within import crown_by_vertex
 
 __all__ = ["runway_crown", "runway_transverse", "runway_vertical_curve",
+           "crossed_shoulder_caps_of",
            "runway_step"]
 
 FAMILY_TRANSVERSE = "runway_transverse"
@@ -183,6 +184,7 @@ def runway_transverse(p: Patch) -> list[Row]:
     # the runway cap, exactly as before.
     half_of = {str(r[0]): float(r[5])
                for r in (p.publication.get("runway_axes") or []) if len(r) >= 6}
+    crossed = crossed_shoulder_caps_of(p)       # RULINGS 2026-10-16a (i)
     for sh in p.shapes:
         if sh.role != "runway":
             continue
@@ -199,7 +201,7 @@ def runway_transverse(p: Patch) -> list[Row]:
             if ridge_z is None or dist <= 0.0:
                 continue
             bound = runway_transverse_bound(law, dist, half, sh.code_letter,
-                                            sh.code_number)
+                                            sh.code_number, crossed.get(v))
             if bound is None:
                 continue
             cap = bound / dist
@@ -214,6 +216,20 @@ def runway_transverse(p: Patch) -> list[Row]:
                       "direction": "fall" if fall > 0.0 else "rise"})
             out.append(r)
     return out
+
+
+def crossed_shoulder_caps_of(p: Patch) -> dict[int, float]:
+    """Vertex id -> the taxiway cap governing a shoulder vertex a taxi
+    route crosses: the published ``shoulder_taxi_crossings`` (owner RULINGS
+    2026-10-16a (i); ``constraints/shoulder_crossing``), joined at the
+    canonical lat/lon identity."""
+    recs = p.publication.get("shoulder_taxi_crossings") or ()
+    if not recs:
+        return {}
+    dp = int(p.law.tables.emit.identity.coordinate_dp)
+    want = {(round(float(a), dp), round(float(b), dp)): float(c) for a, b, c in recs}
+    return {v: want[k] for v, (la, lo) in p.ll.items()
+            if (k := (round(la, dp), round(lo, dp))) in want}
 
 
 def runway_vertical_curve(p: Patch) -> list[Row]:

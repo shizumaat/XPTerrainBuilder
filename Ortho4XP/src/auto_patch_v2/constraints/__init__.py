@@ -19,7 +19,8 @@ from . import (apron, ceiling, cluster_pad, eat, flat_site, foot_rows,
                junction_mesh,
                no_step, pad_frontage_gs, pad_fronting, pads, pavement_cap,
                platform,
-               proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_profile,
+               proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_mean_slope,
+               runway_profile,
                seams, strips,
                channel,
                structures,
@@ -35,6 +36,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("runway_crown", runway_profile.runway_crown),
     ("runway_transverse", runway_profile.runway_transverse),
     ("runway_vertical_curve", runway_profile.runway_vertical_curve),
+    # THE MEAN RUNWAY SLOPE (Annex 14 §3.1.13; audit §4 M1, RULINGS
+    # 2026-10-15l (1)): all-pairs rows over each runway's ridge stations
+    ("runway_mean_slope", runway_mean_slope.runway_mean_slope),
     ("runway_within_shape", runway_profile.runway_within_shape),
     # THE NEAREST-THRESHOLD CROSSING ANCHOR (owner RULINGS 2026-09-09z (1),
     # spec §17): the crossing node is a hard Pin on the runway that GRADES

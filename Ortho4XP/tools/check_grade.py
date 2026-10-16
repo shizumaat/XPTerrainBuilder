@@ -213,6 +213,7 @@ try:
         # one both resolve the aerodrome's vertical-curve rate through
         # ``grade_law``, never a private number here.
         airside_arc_rate_per_m as _airside_arc_rate_per_m,
+        airside_rate_per_m_for as _airside_rate_per_m_for,
         resa_transverse_band as _resa_transverse_band,
         raoa_footprint_ring as _raoa_footprint_ring,
         raoa_applies as _raoa_applies,
@@ -282,6 +283,7 @@ except Exception:
     _strip_longitudinal_law = None
     _strip_longitudinal_breaches = None
     _airside_arc_rate_per_m = None
+    _airside_rate_per_m_for = None
     _resa_transverse_band = None
     _raoa_footprint_ring = None
     _raoa_applies = None
@@ -3073,14 +3075,31 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     # the TRANSECT pairs (``auto_patch_v2.constraints.strips.end_transect_
     # pairs``): every end-band node against the nearest node inward on
     # its own line, across every strip way
+    from auto_patch_v2.verify.runway_witness import published_end_profiles
+
+    def _profiles(ref, code, letter):
+        """Each END's profile (RULINGS 2026-10-15m (1): the FAA approach
+        surface by the end's published class and displaced length), keyed
+        by corridor ring — ``verify.strips.runway_end_skirt``'s reading."""
+        ins = published_instrument(runway_axes_ll, ref)
+        fr = end_edges_by_ref.get(ref)
+        if fr is None:
+            one = profile_of(law, code, letter, ins)
+            return {1: one, 2: one}
+        (x0, y0), (vx, vy), LL, _e = fr
+        return dict(zip((1, 2), published_end_profiles(
+            law, runway_axes_ll, ref, (x0, y0), (x0 + vx * LL, y0 + vy * LL),
+            ll_to_m, code, letter, ins)))
+
     for ref, rings, axis, code, length, letter in groups:
-        prof = profile_of(law, code, letter, published_instrument(runway_axes_ll, ref))
+        profs = _profiles(ref, code, letter)
         ux, uy = axis
         frame = end_edges_by_ref.get(ref)
         if frame is None:
             continue
         a0, u, L, _edges = frame
         for ring_idx in (1, 2):
+            prof = profs[ring_idx]
             st: Dict[str, tuple] = {}
             for w, closed, nn, pts, zs in strip_ways:
                 for k, nid in enumerate(nn):
@@ -3138,12 +3157,14 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     for w, closed, nn, pts, zs in strip_ways:
         allow = max(_pair_quant_noise_m(w), q)
         for ref, rings, axis, code, length, letter in groups:
-            prof = profile_of(law, code, letter, published_instrument(runway_axes_ll, ref))
+            profs = _profiles(ref, code, letter)
+            prof = profs[1]
             ux, uy = axis
             frame = end_edges_by_ref.get(ref)
             for ring_idx in (1, 2):
                 if ring_idx >= len(rings):
                     continue
+                prof = profs[ring_idx]
                 ring = rings[ring_idx]
                 inside = [_strip_station_inside(px, py, ring) for px, py in pts]
                 if not any(inside):
@@ -3212,6 +3233,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                     if foot is None or foot[0] < 1.0:
                         continue
                     d, zf, _end = foot
+                    prof = profs.get(_end, prof)
                     site = ("chord",) + _site_key(pts[k])
                     if site in seen:
                         continue
@@ -5495,6 +5517,14 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
     inf = float("inf")
     for (w, pts, zs, closed) in _no_step_polylines(
             ways, feature_ways, nodes, ll_to_m):
+        # audit row 2 (RULINGS 2026-10-15l (1)): the ring's OWN rate — a
+        # taxi-family way its letter's curve — through the generator's
+        # accessor (``grade_law.airside_rate_per_m_for``)
+        if _airside_rate_per_m_for is not None:
+            # the strictest rate the ring can carry: the breach scan is a
+            # superset, each triple is then judged at its own rate below
+            rate = _airside_rate_per_m_for(w.tags.get("class") or w.tags.get("role"),
+                                           w.tags.get("code_letter"), _ACTIVE_RULESET, 1.0)
         idx = list(range(len(pts)))
         if closed:
             # The cyclic sequence, walked once with its two wrap triples.
@@ -5522,7 +5552,16 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
                 continue                    # a declared step, read by its joint
             change = abs((float(zs[c]) - float(zs[b])) / dn
                          - (float(zs[b]) - float(zs[a])) / dp)
-            allowed = rate * 0.5 * (dp + dn)
+            # audit row 2: the taxiway's profile rate on a straight-on
+            # triple, the strip rate round a ring corner (the generator's
+            # own predicate, ``tables.airside_rate_per_m``)
+            r_k = rate
+            if _airside_rate_per_m_for is not None:
+                from auto_patch_v2.constraints.no_step import turn_cos as _turn_cos
+                r_k = _airside_rate_per_m_for(
+                    w.tags.get("class") or w.tags.get("role"), w.tags.get("code_letter"),
+                    _ACTIVE_RULESET, _turn_cos(pts[a], pts[b], pts[c]))
+            allowed = r_k * 0.5 * (dp + dn)
             if change - allowed <= _rate_reader_blind_spot(w, dp, dn):
                 continue                    # PASS-with-residual
             site = _site_key(pts[a], pts[b], pts[c])
@@ -11803,6 +11842,9 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     # §40 (2) as amended: the runway/shoulder line and the shoulder cap
     "runway_axes": "runway_axes_ll",
     "shoulder_transverse_max": "shoulder_transverse_max",
+    # RULINGS 2026-10-16a (i): the shoulder vertices a taxi route crosses
+    # (the taxiway's law governs them, not the shoulder's)
+    "shoulder_taxi_crossings": "shoulder_taxi_crossings_ll",
     # §50.1 (4) THE RUNWAY'S EFFECTIVE LONGITUDINAL CAP (owner RULINGS
     # 2026-09-18d (3), answered 18f): one record per runway — the code,
     # the ruleset, the TABLE's cap and the cap the build actually priced
@@ -12290,6 +12332,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     # §40 (2) as amended (owner RULINGS 2026-09-13dd)
     ctx["runway_axes_ll"] = data.get("runway_axes") or None
     ctx["shoulder_transverse_max"] = data.get("shoulder_transverse_max")
+    ctx["shoulder_taxi_crossings_ll"] = data.get("shoulder_taxi_crossings") or None
     # §50.1 (4) (owner RULINGS 2026-09-18d (3) / 18f)
     ctx["runway_caps"] = data.get("runway_caps") or None
     # THE PAD'S RELIEF TARGET (11l (2)): absent on any patch built before
@@ -13398,6 +13441,7 @@ def run_checks(
     # line the SOLVE drew between runway and shoulder
     runway_axes_ll: Optional[list] = None,
     shoulder_transverse_max: Optional[float] = None,
+    shoulder_taxi_crossings_ll: Optional[list] = None,
     # §50.1 (4) (owner RULINGS 2026-09-18d (3) / 18f): per runway, the
     # EFFECTIVE longitudinal cap the build priced it at
     runway_caps: Optional[list] = None,
@@ -13611,6 +13655,14 @@ def run_checks(
         str(r["ref"]): float(r["cap"]) for r in (runway_caps or [])
         if isinstance(r, dict) and r.get("ref") and r.get("cap") is not None}
     _shoulder_nids = shoulder_nids(ways, nodes, ll_to_m, runway_axes_ll)
+    # RULINGS 2026-10-16a (i): a shoulder vertex a taxi route crosses is
+    # the taxiway's pavement — the shoulder's slope does not reach it (the
+    # published ``shoulder_taxi_crossings``, the generator's own set)
+    if _shoulder_nids and shoulder_taxi_crossings_ll:
+        _crossed = {(round(float(a), 9), round(float(b), 9))
+                    for a, b, *_c in shoulder_taxi_crossings_ll}
+        _shoulder_nids = {n for n in _shoulder_nids
+                          if (round(nodes[n][0], 9), round(nodes[n][1], 9)) not in _crossed}
     if _shoulder_nids and not quiet:
         print(f"  runway shoulders (§40 (2)): {len(_shoulder_nids)} vertex(es) "
               f"beyond their runway's half width, priced at "

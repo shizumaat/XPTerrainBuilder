@@ -334,8 +334,11 @@ def test_the_ring_walk_generator_and_verify_price_one_bound():
     assert len(rows) > 400 and not bw["verify_only"]
     near = [r for r in rows if abs(r["d_minus_half"]) <= 1.0]
     assert len(near) > 100
-    assert max(r["diff_m"] for r in near) < 0.001
     sh = T.runway_shoulder_cap(Law.for_airport("KASE"), "D", 4)
+    # the bar is the Lipschitz frame term at 1 m: 1 mm at the 2.5 % shoulder
+    # this twin was written under, scaling with the FAA shoulder cap (AC
+    # Table 3-6 S-2's 5 %, RULINGS 2026-10-15l (3); audit row 11)
+    assert max(r["diff_m"] for r in near) < 0.04 * sh
     for r in rows:
         assert r["diff_m"] <= sh * abs(r["d_gen"] - r["d_verify"]) + 1e-9, r
         assert r["diff_m"] < 0.03, r

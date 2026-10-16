@@ -219,12 +219,16 @@ vertical_curve_k_m = { by_letter = { "A" = 91.4, "B" = 91.4, "C" = 305.0, "D" = 
 vertical_curve_min_change = { by_letter = { "A" = 0.004, "B" = 0.004 }, default = 0.0 }  # below this no curve (AAC A/B, §3.16.1.1); 0 = always
 transverse_max    = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }
 transverse_min    = 0.010
-# THE FAA SHOULDER (owner RULINGS 2026-10-15l (3) "Follow regulations",
-# superseding 13dd's 2.5 %; audit row 11): AC 150/5300-13B Table 3-6 S-2,
-# runway shoulder transverse grade 1.5-5.0 %.  The cap is beyond the runway
-# half-width (`tables.runway_transverse_bound`); the minimum fall is RECORDED
-# like the crown's `transverse_min` — the transverse rows bound a magnitude.
-shoulder_transverse_max = 0.05
+# THE FAA SHOULDER (owner RULINGS 2026-10-15l (3) "Follow regulations";
+# audit row 11): AC 150/5300-13B Table 3-6 S-2, runway shoulder transverse
+# grade 1.5-5.0 %.  2.5 % is CHOSEN WITHIN that range (master 2026-10-16, the
+# stricter end) until the airside no-step check reads shoulders: at 5 % its
+# centreline-to-shoulder route pairs, priced at the runway cross-fall, read
+# KASE +78 rows over the bar (PR #789), and pricing them at the shoulder law
+# moved other airside.  The cap is beyond the runway half-width
+# (`tables.runway_transverse_bound`); the 1.5 % minimum is RECORDED like the
+# crown's `transverse_min` — the transverse rows bound a magnitude.
+shoulder_transverse_max = 0.025
 shoulder_transverse_min = 0.015
 # NO GRADE CHANGE IN THE END ZONES (AC 150/5300-13B §3.16.1, AAC C/D/E
 # standard 2; audit §4 missing law M2, RULINGS 2026-10-15l (1)): within the

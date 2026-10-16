@@ -40,7 +40,7 @@ def test_row9_faa_taxi_lip_and_row11_shoulder():
     assert (lo, hi) == (pytest.approx(-0.15), pytest.approx(-0.09))
     assert T.zone_bounds(FAA, "runway", 3.0, 4, "E", half_m=60.0) == \
         (pytest.approx(-0.15), pytest.approx(-0.09))
-    assert T.runway_shoulder_cap(FAA, "E", 4) == pytest.approx(0.05)
+    assert T.runway_shoulder_cap(FAA, "E", 4) == pytest.approx(0.025)
     assert FAA.ruleset.runway.shoulder_transverse_min == pytest.approx(0.015)
     assert T.runway_shoulder_cap(ICAO, "E", 4) == pytest.approx(0.025)
 

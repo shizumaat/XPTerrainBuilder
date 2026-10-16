@@ -52,12 +52,14 @@ import typing as _t
 
 from ..constraints.geometry import (longitudinal_runs, point_in_rect_ring,
                                     principal_axis, rect_ring)
+from ..constraints.end_lip import nonrunway_pavement_roles, pavement_edge_junction
 from ..constraints.strips import (end_pair_bounds, end_transect_foot, end_transect_pairs,
                                   pavement_ring_vertices, strip_longitudinal_pairs)
 from shapely.geometry import Point as _ShPoint
 
-from ..law.tables import (end_profile_noise_m, runway_end_profile, snap_margin_m,
-                          strip_transverse_bound, zone2_half_width_m,
+from ..law.tables import (end_profile_noise_m, runway_end_profile,
+                          runway_safety_area_length_m, runway_zone_edge_offset_m,
+                          snap_margin_m, strip_transverse_bound, zone2_half_width_m,
                           zone_bounds)
 from .frame import Patch, Row, Shape, pair_side, row
 from .no_step import rate_breaches
@@ -149,9 +151,14 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
             for dy in (-1, 0, 1):
                 for k in grid.get((cx + dx, cy + dy), ()):
                     a, b, ref, cn, cl = edges[k]
-                    key = (cn, cl)
+                    key = (cn, cl, ref)
                     if key not in half_of:
-                        half_of[key] = zone2_half_width_m(law, "runway", cn, cl)
+                        # FROM THE CENTRELINE (2026-10-15c (1)): an axis that
+                        # carries the runway's width reads the edge offset
+                        ax4 = axes.get(ref)
+                        half_of[key] = (runway_zone_edge_offset_m(law, cn, cl, 0.5 * ax4[3])
+                                        if ax4 is not None and len(ax4) > 3
+                                        else zone2_half_width_m(law, "runway", cn, cl))
                     half = half_of[key]
                     if half is None:
                         continue
@@ -163,7 +170,7 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
                         continue
                     ax_ = axes.get(ref)
                     if ax_ is not None:
-                        (a0x, a0y), (ux, uy), L = ax_
+                        (a0x, a0y), (ux, uy), L = ax_[:3]
                         s_ = (x - a0x) * ux + (y - a0y) * uy
                         if not (0.0 <= s_ <= L):
                             continue
@@ -173,14 +180,15 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
         if best is None:
             continue
         d, z_foot, ref, cn, cl, foot = best
-        bound = strip_transverse_bound(law, d, cn, cl)
+        bound = strip_transverse_bound(law, d, cn, cl, half_m=half_of.get((cn, cl, ref)))
         if bound is None:
             continue
         dz = z - z_foot
         if dz < 0.0 and natural_shore is not None and \
                 natural_shore.covers(_ShPoint(x, y)):
             lo, _hi = zone_bounds(law, "runway", d, cn, cl,
-                                  band_max_down=float(law.tables.emit.design.bank_slope))
+                                  band_max_down=float(law.tables.emit.design.bank_slope),
+                                  half_m=half_of.get((cn, cl, ref)))
             if lo is not None:
                 bound = max(bound, -lo)
         # TWO-WAY for every point (RULINGS 2026-09-06q (2)): neither above
@@ -213,9 +221,13 @@ def groups(p: Patch):
         if sh.role == "runway":
             pts_by_ref.setdefault(sh.ref, []).extend(sh.xy)
             letter.setdefault(sh.ref, sh.code_letter)
+    # the runway's own SLAB where published (§40 (1); ``published_slabs``),
+    # the generator's footprint — a fit to the runway-role rings is the
+    # fallback (CYXY 14L/32R's rings fit 29.5 m off its centreline)
+    slabs = published_slabs(p.publication.get("runway_axes"), p.to_m)
     out = []
     for ref, pts in pts_by_ref.items():
-        ax = principal_axis(pts)
+        ax = slabs.get(ref) or principal_axis(pts)
         if ax is None:
             continue
         a, b, width = ax
@@ -226,11 +238,67 @@ def groups(p: Patch):
         code = _code(L)
         half = zone2_half_width_m(law, "runway", code, letter.get(ref)) or 0.0
         end_half = max(width, half)
-        cl = law.ruleset.end_skirt.corridor_length_m
-        end_len = (cl.value(code, letter.get(ref)) if cl is not None else 0.0) or 0.0
-        rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -end_len, 0.0, end_half),
-                 rect_ring(a, b, L, L + end_len, end_half))
+        len_a, len_b = rsa_end_lengths(p, ref, a, b, code, letter.get(ref))
+        rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -len_a, 0.0, end_half),
+                 rect_ring(a, b, L, L + len_b, end_half))
         out.append((rings, unit, code, L, letter.get(ref), a, b))
+    return out
+
+
+def published_instrument(rows, ref: str | None) -> bool:
+    """THE RUNWAY'S INSTRUMENT STATUS as the sidecar publishes it
+    (``runway_axes`` slot 10, RULINGS 2026-10-15k (3)) — the ONE read both
+    readers make, so the census and verify price the strip's end and the
+    RESA by the status the generator did.  ``False`` (non-instrument) for a
+    ref the rows do not carry, or a row written before the status."""
+    for r in rows or ():
+        if len(r) >= 11 and str(r[0]) == str(ref):
+            return bool(r[10])
+    return False
+
+
+def rsa_end_lengths(p: Patch, ref: str | None, a, b, code, letter
+                    ) -> tuple[float, float]:
+    """``(beyond a, beyond b)``: the RSA length (owner RULINGS 2026-10-15c
+    (2); ``tables.runway_safety_area_length_m``) from the runway END, i.e.
+    past the slab end less that end's published overrun — the generator's
+    ``constraints.strips.runway_groups`` reading, the slab end matched to
+    the nearer of ``a`` / ``b``."""
+    rsa = runway_safety_area_length_m(p.law, code, letter, published_instrument(
+        p.publication.get("runway_axes"), ref))
+    for r in p.publication.get("runway_axes") or ():
+        if len(r) < 8 or str(r[0]) != str(ref):
+            continue
+        pa, pb = p.to_m(float(r[1]), float(r[2])), p.to_m(float(r[3]), float(r[4]))
+        same = math.dist(pa, a) + math.dist(pb, b)
+        flip = math.dist(pb, a) + math.dist(pa, b)
+        # the END AREA's own length where published (RULINGS 2026-10-15g (C):
+        # the RSA, or the top of a drop — ``airport/end_area``)
+        la, lb = (float(r[8]), float(r[9])) if len(r) >= 10 else (rsa, rsa)
+        oa, ob = (float(r[6]), float(r[7])) if same <= flip else (float(r[7]), float(r[6]))
+        la, lb = (la, lb) if same <= flip else (lb, la)
+        return max(0.01, la - oa), max(0.01, lb - ob)
+    return rsa, rsa
+
+
+def _runway_widths(p: Patch) -> dict[str, float]:
+    """``{ref: width_m}`` — each runway's DECLARED width where the sidecar
+    publishes it (``runway_axes`` ``half_m``: the width the generator's
+    edge offset reads, ``Runway.width_m``), else off its own rings
+    (:func:`geometry.principal_axis`, the frame :func:`groups` fits)."""
+    pub = {str(r[0]): 2.0 * float(r[5]) for r in p.publication.get("runway_axes") or ()
+           if len(r) >= 6}
+    pts: dict[str, list] = {}
+    for sh in p.shapes:
+        if sh.role == "runway":
+            pts.setdefault(sh.ref, []).extend(sh.xy)
+    out = {}
+    for ref, xs in pts.items():
+        ax = principal_axis(xs)
+        if ref in pub:
+            out[ref] = pub[ref]
+        elif ax is not None:
+            out[ref] = float(ax[2])
     return out
 
 
@@ -280,11 +348,10 @@ def end_groups(p: Patch):
             unit = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
             code = _code(L)
             half = zone2_half_width_m(law, "runway", code, letter) or 0.0
-            cl = law.ruleset.end_skirt.corridor_length_m
-            end_len = (cl.value(code, letter) if cl is not None else 0.0) or 0.0
+            len_a, len_b = rsa_end_lengths(p, ref, a, b, code, letter)
             end_half = max(width, half)
-            rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -end_len, 0.0, end_half),
-                     rect_ring(a, b, L, L + end_len, end_half))
+            rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -len_a, 0.0, end_half),
+                     rect_ring(a, b, L, L + len_b, end_half))
         out.append((ref, rings, unit, code, L, letter, a, b))
     return out
 
@@ -299,10 +366,18 @@ def _pavement_ids(p: Patch) -> frozenset[int]:
     return pavement_ring_vertices((p.cap(sh), sh.ids) for sh in p.shapes)
 
 
+def _nonrunway_pavement_ids(p: Patch) -> frozenset[int]:
+    """The ``owned`` set of ``constraints.end_lip.pavement_edge_junction``
+    in the census frame: every vertex of a non-runway pavement shape."""
+    roles = nonrunway_pavement_roles(p.law)
+    return frozenset(v for sh in p.shapes if sh.role in roles for v in sh.vertex_ids)
+
+
 def strip_longitudinal(p: Patch) -> list[Row]:
     law = p.law
     q = law.tables.emit.instrument.coarse_noise_m
     pav = _pavement_ids(p)
+    owned = _nonrunway_pavement_ids(p)
     out: list[Row] = []
     seen: set = set()
     for rings, unit, code, L, letter, _a, _b in groups(p):
@@ -311,7 +386,7 @@ def strip_longitudinal(p: Patch) -> list[Row]:
             continue
         for sh in _strips(p):
             # ONE population with the generator (05ae-3)
-            for i, j, ds in strip_longitudinal_pairs(sh.ids, sh.xy, unit, rings[0], pav):
+            for i, j, ds in strip_longitudinal_pairs(sh.ids, sh.xy, unit, rings[0], pav, owned):
                 site = tuple(sorted((tuple(round(c, 3) for c in sh.xy[i]),
                                      tuple(round(c, 3) for c in sh.xy[j]))))
                 if site in seen:
@@ -331,6 +406,7 @@ def strip_arc(p: Patch) -> list[Row]:
     r = law.ruleset.strip.arc_rate
     rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m
+    owned = _nonrunway_pavement_ids(p)
     out: list[Row] = []
     seen: set = set()
     for rings, unit, code, L, letter, _a, _b in groups(p):
@@ -345,7 +421,8 @@ def strip_arc(p: Patch) -> list[Row]:
                                                                         p.law.tables.emit.materiality.grade):
                     A, B, C = run[a], run[b], run[c]
                     site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[i]) for i in (A, B, C)))
-                    if site in seen:
+                    if site in seen or pavement_edge_junction(
+                            (sh.ids[A], sh.ids[B], sh.ids[C]), owned):
                         continue
                     seen.add(site)
                     out.append(row("strip_arc", ("graded_strip",) * 2, p.side("graded_strip"),
@@ -360,7 +437,8 @@ def resa_transverse(p: Patch) -> list[Row]:
     rs = law.ruleset
     out: list[Row] = []
     # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): the published set
-    cap_geom = road_cap_geometry(p.publication.get("road_cap_governs"), p.to_m, law)
+    cap_geom = end_exempt_geometry(p.publication.get("road_cap_governs"),
+                                   p.publication.get("end_profile_yields"), p.to_m, law)
     for rings, unit, code, L, letter, a0, _b in groups(p):
         ux, uy = unit
         px, py = -uy, ux
@@ -484,6 +562,15 @@ def end_excess_m(prof, d_in: float, d_out: float, z_in: float, z_out: float,
 
 
 def runway_end_skirt(p: Patch) -> list[Row]:
+    """The runway-end profile read IN THE ENGINE'S METRIC
+    (:meth:`Patch.in_metric_frame`): its bounds are functions of plan
+    distance beyond the end, which the census frame reads 0.1-0.7 %
+    short or long (lane rwyzone15c, the CYXY chord rows); every row's
+    points go back to the census frame."""
+    p, back = p.in_metric_frame()
+
+    def end_row(family, roles, side, mag, grade, cap, d, a, b, *rest):
+        return row(family, roles, side, mag, grade, cap, d, back(a), back(b), *rest)
     law = p.law
     q = end_profile_noise_m(law, reader=True)
     qc = law.tables.emit.instrument.coarse_noise_m
@@ -492,7 +579,8 @@ def runway_end_skirt(p: Patch) -> list[Row]:
     # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): a vertex under a
     # mapped-road ribbon is the road's — the generator states no end row
     # on it and the family reads none (the published set, one reading)
-    cap_geom = road_cap_geometry(p.publication.get("road_cap_governs"), p.to_m, law)
+    cap_geom = end_exempt_geometry(p.publication.get("road_cap_governs"),
+                                   p.publication.get("end_profile_yields"), p.to_m, law)
 
     def road(xy) -> bool:
         return cap_geom is not None and cap_geom.covers(_ShPoint(xy[0], xy[1]))
@@ -500,7 +588,8 @@ def runway_end_skirt(p: Patch) -> list[Row]:
     out: list[Row] = []
     seen: set = set()
     for ref, rings, unit, code, L, letter, a0, _b in end_groups(p):
-        prof = runway_end_profile(law, code, letter)
+        prof = runway_end_profile(law, code, letter,
+                                  published_instrument(p.publication.get("runway_axes"), ref))
         ux, uy = unit
 
         def beyond(xy, ring_idx):
@@ -535,7 +624,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 if ex <= 0.0:
                     continue
                 ds = st[vo][0] - st[vi][0]
-                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                p.side("graded_strip"), ex, 100 * (st[vo][2] - st[vi][2]) / ds,
                                100 * prof.down_cap_at(st[vo][0]), ds,
                                st[vi][3], st[vo][3], st[vi][4], st[vo][4]))
@@ -551,7 +640,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 ex = end_excess_m(prof, de, d, zf, z, q)
                 if ex <= 0.0:
                     continue
-                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
+                out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
                                pair_side(p, "graded_strip", "runway"), ex,
                                100 * (z - zf) / (d - de), 100 * prof.down_cap_at(d), d - de,
                                xy, xy, key, key))
@@ -577,7 +666,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                         if ex <= 0.0:
                             continue
                         dz = abs(sh.z[j] - sh.z[i])
-                        out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                        out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                        p.side("graded_strip"), ex, 100 * dz / ds,
                                        100 * prof.down_cap_at(max(di, dj)), ds,
                                        sh.xy[i], sh.xy[j], sh.key, sh.key))
@@ -589,10 +678,11 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                                 law.tables.emit.materiality.grade):
                             A, B, C = run[a], run[b], run[c]
                             site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[k]) for k in (A, B, C)))
-                            if site in seen or any(sh.ids[k] in pav for k in (A, B, C)):
-                                continue      # a pavement station: that pavement's own
+                            if site in seen or any(sh.ids[k] in pav or road(sh.xy[k])
+                                                   for k in (A, B, C)):
+                                continue      # a pavement station, or one another law levels
                             seen.add(site)
-                            out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
+                            out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip",) * 2,
                                            p.side("graded_strip"), abs(sh.z[C] - sh.z[A]),
                                            100 * change, None, 0.5 * (dp + dn),
                                            sh.xy[A], sh.xy[C], sh.key, sh.key))
@@ -613,7 +703,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
                 ex = end_excess_m(prof, 0.0, d, zf, sh.z[k], q)
                 if ex <= 0.0:
                     continue
-                out.append(row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
+                out.append(end_row(FAMILY_RUNWAY_END_SKIRT, ("graded_strip", "runway"),
                                pair_side(p, "graded_strip", "runway"), ex,
                                100 * (sh.z[k] - zf) / d, 100 * prof.down_cap_at(d), d,
                                sh.xy[k], sh.xy[k], sh.key, sh.key))
@@ -627,6 +717,9 @@ def raoa(p: Patch) -> list[Row]:
         return []
     rate = ra.max_grade_change.grade / ra.max_grade_change.per_m
     q = law.tables.emit.instrument.coarse_noise_m
+    # RULINGS 2026-10-15j: a station on a non-runway pavement's own lip is
+    # that pavement's — the generator states no row on it (one reading)
+    lip = end_exempt_geometry(None, p.publication.get("end_profile_yields"), p.to_m, law)
     out: list[Row] = []
     seen: set = set()
     for rings, unit, code, L, letter, a0, b0 in groups(p):
@@ -660,6 +753,9 @@ def raoa(p: Patch) -> list[Row]:
                     change = abs((z2 - z1) / dn - (z1 - z0) / dp)
                     allowed = rate * 0.5 * (dp + dn)
                     if change - allowed <= q * (1.0 / dp + 1.0 / dn):
+                        continue
+                    if lip is not None and any(lip.covers(_ShPoint(*sh.xy[i]))
+                                               for i in (src[k - 1], src[k], src[k + 1])):
                         continue
                     site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[i])
                                         for i in (src[k - 1], src[k], src[k + 1])))
@@ -812,8 +908,10 @@ def strip_transverse(p: Patch) -> list[Row]:
     # ABEAM is along the axis only (the generator's ``abeam``: 0 ≤ s ≤ L);
     # the lateral extent is the class's own zone-2 half width
     axes: dict[str, tuple] = {}
+    widths = {ref: w for ref, w in _runway_widths(p).items()}
     for rings, unit, _code, L, _letter, a, _b in groups(p):
-        axes[_ref_of(p, rings)] = (a, unit, L)
+        ref_ = _ref_of(p, rings)
+        axes[ref_] = (a, unit, L, widths.get(ref_, 0.0))
     edges: list[TieEdge] = []
     for sh in p.shapes:
         if sh.role not in RUNWAY_FAMILY:
@@ -863,6 +961,16 @@ def road_cap_geometry(points_ll, to_m, law):
     r = float(law.tables.emit.identity.min_distinct_spacing_m)
     pts = [_ShPoint(*to_m(float(a), float(b))).buffer(r) for a, b in points_ll]
     return unary_union(pts) if pts else None
+
+
+def end_exempt_geometry(road_cap_ll, lip_ll, to_m, law):
+    """THE END LAWS' EXEMPTION, the one reading both readers share: the
+    published ``road_cap_governs`` vertices (owner RULINGS 2026-10-02ag
+    (2)) and ``end_profile_yields`` — a non-runway pavement's own lip
+    inside a runway end area (2026-10-15j; ``constraints.end_lip``) — as
+    ONE geometry (:func:`road_cap_geometry`).  ``None`` with neither."""
+    pts = list(road_cap_ll or ()) + list(lip_ll or ())
+    return road_cap_geometry(pts, to_m, law)
 
 
 def natural_shore_geometry(rings_ll, to_m, law):

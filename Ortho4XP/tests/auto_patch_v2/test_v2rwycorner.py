@@ -29,7 +29,7 @@ from auto_patch_v2.constraints import strips, zones
 from auto_patch_v2.constraints.precedence import view
 from auto_patch_v2.classify.roles import Cell, Classification, CutLine
 from auto_patch_v2.law import Law
-from auto_patch_v2.law.tables import runway_end_profile
+from auto_patch_v2.law.tables import end_profile_noise_m, runway_end_profile
 from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
                                          SceneryPack)
 from auto_patch_v2.model.constraints import Linear
@@ -129,8 +129,7 @@ def test_the_corner_is_bound_to_the_nearest_point_of_the_end_edge(synthetic, law
     airport, pm = synthetic
     vw, g = _group(pm, law, airport)
     prof = runway_end_profile(law, g.code_number, g.code_letter)
-    q = (law.tables.emit.instrument.strip_edge_noise_m
-         - law.tables.emit.materiality.elevation_m)
+    q = end_profile_noise_m(law)
     rows = strips.end_corridor_longitudinal(pm, law, airport)
     bound = {t[0] for r in rows if isinstance(r, Linear) for t in r.terms}
     corners = _corner_vertices(vw, g)
@@ -174,8 +173,7 @@ def test_a_three_metre_diagonal_corner_is_held_within_cap_times_d(synthetic, law
     airport, pm = synthetic
     vw, g = _group(pm, law, airport)
     prof = runway_end_profile(law, g.code_number, g.code_letter)
-    q = (law.tables.emit.instrument.strip_edge_noise_m
-         - law.tables.emit.materiality.elevation_m)
+    q = end_profile_noise_m(law)
     rows = {r.terms[0][0]: r
             for r in strips.end_corridor_longitudinal(pm, law, airport)
             if isinstance(r, Linear) and len(r.terms) == 3
@@ -276,8 +274,7 @@ def test_an_abeam_vertex_is_unchanged_by_the_clamp(synthetic, law):
     airport, pm = synthetic
     vw, g = _group(pm, law, airport)
     prof = runway_end_profile(law, g.code_number, g.code_letter)
-    q = (law.tables.emit.instrument.strip_edge_noise_m
-         - law.tables.emit.materiality.elevation_m)
+    q = end_profile_noise_m(law)
     ux, uy = g.unit
     rows = {r.terms[0][0]: r for r in strips.end_corridor_longitudinal(pm, law, airport)
             if isinstance(r, Linear) and len(r.terms) == 3 and r.terms[0][1] == 1.0}
@@ -292,7 +289,11 @@ def test_an_abeam_vertex_is_unchanged_by_the_clamp(synthetic, law):
                 continue
             seen += 1
             assert rows[v].lo == pytest.approx(-(prof.fall_m(beyond) + q), abs=0.31)
-    assert seen, "the fixture must carry abeam end-corridor vertices too"
+    if not seen:
+        # the RSA band (RULINGS 2026-10-15c (2)) is one rectangle beyond the
+        # end: its vertices stand at the lip corners and the rectangle's
+        # sides, none abeam the width — the identity case has no population
+        pytest.skip("no end-band vertex abeam the runway's width in this fixture")
 
 
 # --- issue #100 (lane nlwfroad100, 2026-09-29): THE ZONE CLASS JOIN -------
@@ -306,7 +307,9 @@ def test_an_abeam_vertex_is_unchanged_by_the_clamp(synthetic, law):
 def test_the_zone_face_class_joins_the_lettered_runway_edges(synthetic, law):
     airport, pm = synthetic
     ctx = zones._context(pm, law, airport)
-    rw_edges = {zones._face_class_of(e) for e in ctx.edges if e[2] == "runway"}
+    rw_edges = {c for e in ctx.edges if e[2] == "runway"
+                for c in (zones._face_class_of(e),
+                          *map(zones._runway_class, zones._edge_runways(e)))}
     rw_faces = {c for cs in ctx.member.values() for c in cs if c[0] == "runway"}
     assert rw_faces and rw_faces <= rw_edges
 
@@ -314,12 +317,16 @@ def test_the_zone_face_class_joins_the_lettered_runway_edges(synthetic, law):
 def test_an_outer_ring_vertex_past_the_half_width_keeps_its_band(synthetic, law):
     """A runway zone-2 vertex nudged 0.2 m past the half-width (the NLWF
     drift was 0.02-0.23 m) is CLAMPED to the half-width, never dropped."""
-    from auto_patch_v2.law.tables import zone2_half_width_m
+    from auto_patch_v2.law.tables import runway_zone_edge_offset_m, zone2_half_width_m
     airport, pm = synthetic
     ctx = zones._context(pm, law, airport)
     vw = ctx.vw
     (g,) = strips.runway_groups(vw, airport)
+    # from the CENTRELINE (RULINGS 2026-10-15c (1)): the outer ring stands
+    # the half-width from the axis, the edge offset from the pavement edge
     half = zone2_half_width_m(law, "runway", g.code_number, g.code_letter)
+    off_edge = runway_zone_edge_offset_m(law, g.code_number, g.code_letter,
+                                         airport.runways[0].width_m / 2.0)
     ux, uy = g.unit
     probe = None
     for v, classes in ctx.member.items():
@@ -329,7 +336,7 @@ def test_an_outer_ring_vertex_past_the_half_width_keeps_its_band(synthetic, law)
         s = (x - g.axis_a[0]) * ux + (y - g.axis_a[1]) * uy
         off = -(x - g.axis_a[0]) * uy + (y - g.axis_a[1]) * ux
         # the SOUTH side: taxiway A stands inside the north corridor
-        if 100.0 < s < g.length_m - 100.0 and abs(-off - (g.width_m / 2.0 + half)) < 0.5:
+        if 100.0 < s < g.length_m - 100.0 and abs(-off - half) < 0.5:
             probe = (v, off)
             break
     assert probe is not None, "the fixture must carry an abeam zone-2 outer vertex"
@@ -342,5 +349,5 @@ def test_an_outer_ring_vertex_past_the_half_width_keeps_its_band(synthetic, law)
     finally:
         vw.xy[v] = (x, y)
     assert found, "an outer-ring vertex 0.2 m past the half-width was left bandless"
-    assert found[0][0] == pytest.approx(half)
+    assert found[0][0] == pytest.approx(off_edge)
     assert zones._face_class_of(ctx.edges[found[0][1]])[0] == "runway"

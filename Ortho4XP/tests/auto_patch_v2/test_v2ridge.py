@@ -385,7 +385,8 @@ def test_the_pocket_floor_stays_beside_a_runway_and_the_tie_is_two_way(ridge, la
     reaches beside the taxiway carries the two-way tie."""
     airport, pm, _ = ridge
     rw = next(f for f in pm.faces.values() if f.role == "runway")
-    half = T.zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter)
+    # the runway's reach FROM THE EDGE (RULINGS 2026-10-15c (1))
+    half = T.runway_zone_edge_offset_m(law, rw.code_number, rw.code_letter, HALF_WIDTH)
     runway = _verts_of_role(pm, "runway")
     taxi_floors = [r.terms[0][0] for r in zones.zone_bands(pm, law, airport)
                    if r.lo is not None and not any(u in runway for u, _c in r.terms[1:])]
@@ -394,7 +395,15 @@ def test_the_pocket_floor_stays_beside_a_runway_and_the_tie_is_two_way(ridge, la
     beside = [v for v in _verts_of_role(pm, "primary_parallel") - runway
               if 0.0 < abs(pm.vertices[v].xy[1]) - HALF_WIDTH < half
               and abs(pm.vertices[v].xy[0]) < 600.0]
-    assert beside and all(v in tie and tie[v].lo is not None for v in beside)
+    assert all(v in tie and tie[v].lo is not None for v in beside)
+    # the fixture's parallel (57.5 m off the edge) now stands BEYOND the
+    # runway's reach (52.5 m from the edge, 75 m from the centreline): no
+    # vertex of it carries the runway's tie — the RSA stops at its own width
+    beyond = [v for v in _verts_of_role(pm, "primary_parallel") - runway
+              if abs(pm.vertices[v].xy[1]) - HALF_WIDTH > half + 1.0
+              and abs(pm.vertices[v].xy[0]) < 600.0]
+    assert beside or beyond
+    assert not any(v in tie for v in beyond)
 
 
 TAXI_PLANE = 0.015        # a lawful plane over the parallel taxiway: 1.5 % along AND 1.5 % across

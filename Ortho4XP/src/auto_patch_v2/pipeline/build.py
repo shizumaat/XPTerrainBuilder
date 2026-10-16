@@ -1476,6 +1476,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             _to_ll_rc = airport.frame.transformers()[1]
             pub["road_cap_governs"] = [list(_to_ll_rc(*pm.vertices[v].xy))
                                        for v in sorted(rc_vs)]
+        # OWNER RULINGS 2026-10-15j: a non-runway pavement's own lip inside a
+        # runway end area — the end laws yield there; both readers skip it
+        from .publication import end_profile_yields as _epy
+        _lip = _epy(pm, law, airport)
+        if _lip:
+            pub["end_profile_yields"] = _lip
         # OWNER RULINGS 2026-10-03b (#100): the terrace's second witness — a
         # pack fence / wall line along a bordered ribbon run (REPORT ONLY)
         from .terrace_witness import terrace_witness

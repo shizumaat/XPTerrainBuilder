@@ -89,6 +89,11 @@ class AptRunway:
     surface: int
     ends: tuple[tuple[str, float, float, float, float],
                 tuple[str, float, float, float, float]]
+    #: each end's runway MARKINGS code (row 100, 0 none, 1 visual, 2
+    #: non-precision, 3 precision, 4 UK non-precision, 5 UK precision) —
+    #: the apt.dat half of the instrument witness (owner RULINGS
+    #: 2026-10-15m (2)); ``(0, 0)`` where the row carries no number
+    markings: tuple[int, int] = (0, 0)
 
 
 @_dc.dataclass(frozen=True)
@@ -579,13 +584,15 @@ def _runway(toks: list[str]) -> AptRunway | None:
         width = float(toks[1])
         surface = int(toks[2])
         ends = []
+        marks = []
         for i in (8, 17):
             e = toks[i:i + 9]
             ends.append((e[0], float(e[1]), float(e[2]), float(e[3]),
                          float(e[4])))
+            marks.append(int(e[5]) if e[5].lstrip("-").isdigit() else 0)
     except (ValueError, IndexError):
         return None
-    return AptRunway(width, surface, (ends[0], ends[1]))
+    return AptRunway(width, surface, (ends[0], ends[1]), (marks[0], marks[1]))
 
 
 def _helipad(toks: list[str]) -> AptHelipad | None:

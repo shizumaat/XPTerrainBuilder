@@ -34,6 +34,20 @@ def spin(seconds: float) -> int:
     return n
 
 
+def burn(n: int) -> int:
+    """A FIXED amount of pure-Python work under the interpreter lock — its
+    CPU cost does not depend on how loaded the machine is (``spin`` runs to
+    a wall-clock deadline instead)."""
+    x = 0
+    for i in range(n):
+        x ^= i
+    return x
+
+
+#: about 0.7 s of one fast core (more on a CI runner): the ratio is what is judged
+BURN_N = 60_000_000
+
+
 def die() -> None:
     os._exit(3)
 
@@ -108,33 +122,45 @@ def test_the_worker_is_gone_after_close(worker_pack):
     assert worker_pack.pids() == []
 
 
-def test_the_gui_thread_stays_responsive_while_the_worker_works(qapp, worker_pack):
-    """1.5 s of interpreter-lock work in the worker: the GUI thread's 10 ms
-    timer is never more than 100 ms late (a thread would hold it ~5 ms per
-    switch interval at best and in C calls far longer — issue #753)."""
+def test_the_workers_lock_holding_work_costs_this_process_no_cpu(qapp, worker_pack):
+    """Issue #753: what the isolation guarantees is that the worker's
+    interpreter-lock work is not THIS process's — so the GUI thread never
+    waits behind it.  Measured as CPU time (``process_time``), not timer
+    lateness: a shared CI runner makes wall-clock bars flaky (main CI
+    78b88ca71, 0.182 s against 0.100), while CPU spent here is a property of
+    where the work runs.  Both arms run the same fixed work in one test:
+    in a thread here it costs this process its full CPU; through the Qt
+    door to the worker it costs a small fraction (the waiting loop)."""
+    import threading
+
+    def cpu_while(start, done) -> float:
+        t0 = time.process_time()
+        start()
+        deadline = time.monotonic() + 120
+        while not done() and time.monotonic() < deadline:
+            qapp.processEvents()
+            time.sleep(0.002)
+        assert done(), "the work did not finish"
+        return time.process_time() - t0
+
+    # in-process arm: a thread of this process does the work
+    th = threading.Thread(target=burn, args=(BURN_N,))
+    here = cpu_while(th.start, lambda: not th.is_alive())
+
+    # isolated arm: the same work through PatchEngine to the worker process
     engine = PatchEngine(object(), isolate=True)
     engine.process.close()
     engine.process = worker_pack
-    worker_pack.run(spin, seconds=0.0)               # spawned before the clock starts
-    worker_pack.call = lambda name, **kw: worker_pack.run(spin, seconds=1.5)
-    late, last, got = [], [time.perf_counter()], []
-
-    def tick():
-        now = time.perf_counter()
-        late.append(now - last[0] - 0.010)
-        last[0] = now
-    timer = QTimer()
-    timer.setInterval(10)
-    timer.timeout.connect(tick)
-    timer.start()
-    engine.pack_objects(TILE, "ZZZZ", BBOX, lambda r, e: got.append((r, e)))
-    deadline = time.monotonic() + 60
-    while not got and time.monotonic() < deadline:
-        qapp.processEvents()
-        time.sleep(0.001)
-    timer.stop()
-    assert got and got[0][1] is None and got[0][0] > 0
-    assert len(late) > 50 and max(late) < 0.100, max(late)
+    worker_pack.run(burn, n=0)                       # spawned before the clock starts
+    worker_pack.call = lambda name, **kw: worker_pack.run(burn, n=BURN_N)
+    got = []
+    there = cpu_while(
+        lambda: engine.pack_objects(TILE, "ZZZZ", BBOX, lambda r, e: got.append((r, e))),
+        lambda: bool(got))
+    engine.close()
+    assert got and got[0][1] is None
+    assert here > 0.2, here                          # the work is real (60 M steps)
+    assert there < 0.25 * here, (there, here)
 
 
 def test_the_qt_door_answers_pack_objects_through_the_process(qapp, worker_pack):
@@ -163,7 +189,10 @@ def test_a_queued_call_no_longer_wanted_is_skipped(worker_pack):
     worker_pack.run(spin, seconds=0.0)
     first = threading.Thread(target=worker_pack.run, args=(spin,), kwargs={"seconds": 1.0})
     first.start()
-    time.sleep(0.2)                                  # the first holds the worker
+    deadline = time.monotonic() + 30                 # the first holds the worker
+    while not worker_pack._lock.locked() and time.monotonic() < deadline:
+        time.sleep(0.001)
+    assert worker_pack._lock.locked()
     with pytest.raises(CP.Superseded):
         worker_pack.run(spin, still_wanted=lambda: False, seconds=5.0)
     first.join(30)
@@ -172,18 +201,28 @@ def test_a_queued_call_no_longer_wanted_is_skipped(worker_pack):
 
 def test_only_the_box_the_editor_still_wants_is_read(qapp):
     """Three boxes asked while the first is read: the middle one is skipped
-    when its turn comes (the 56 s HECA wait was three reads at once)."""
+    when its turn comes (the 56 s HECA wait was three reads at once).
+    Ordered by events, not sleeps: the first read holds the process until
+    the other two have queued behind it."""
     import threading
 
     class Process:
         def __init__(self):
             self.lock, self.read = threading.Lock(), []
+            self.arrived, self.reading = 0, threading.Event()
+            self.queued, self.gate = threading.Event(), threading.Event()
+            self.count = threading.Lock()
 
         def call(self, name, still_wanted=None, **kw):
+            with self.count:
+                self.arrived += 1
+                if self.arrived == 3:
+                    self.queued.set()
             with self.lock:
                 if still_wanted is not None and not still_wanted():
                     raise CP.Superseded("no longer wanted")
-                time.sleep(0.3)
+                self.reading.set()
+                assert self.gate.wait(30)
                 self.read.append(kw["bbox"][2])
                 return {"box": kw["bbox"][2]}
 
@@ -192,15 +231,22 @@ def test_only_the_box_the_editor_still_wants_is_read(qapp):
 
     engine = PatchEngine(object(), isolate=True)
     engine.process.close()
-    engine.process = Process()
+    proc = engine.process = Process()
     got = []
-    for top in (30.1, 30.2, 30.3):
+
+    def ask(top):
         engine.pack_objects(TILE, "ZZZZ", [30.0, 31.0, top, 31.1],
                             lambda r, e, top=top: got.append((top, r, e)))
-        time.sleep(0.05)
+
+    ask(30.1)
+    assert proc.reading.wait(30)                     # the first box is being read
+    ask(30.2)
+    ask(30.3)
+    assert proc.queued.wait(30)                      # both wait behind it
+    proc.gate.set()
     deadline = time.monotonic() + 30
     while not got and time.monotonic() < deadline:
         qapp.processEvents()
         time.sleep(0.005)
-    assert engine.process.read == [30.1, 30.3]
+    assert proc.read == [30.1, 30.3]
     assert got == [(30.3, {"box": 30.3}, None)]

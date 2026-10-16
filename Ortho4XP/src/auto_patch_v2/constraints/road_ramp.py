@@ -217,6 +217,15 @@ def _wall_step_rows(planar: PlanarMap, walls: _t.Mapping[int, _t.Mapping]) -> li
     return rows
 
 
+#: The ruling of the raw-ground row on zone ground beyond a declared wall.
+BEYOND_WALL_RULING = ("zones.adjacent_ground beyond the wall "
+                      "(owner RULINGS 2026-10-15g (B): the zone goes straight to DEM)")
+#: The generators whose rows tie a ground vertex to its pavement foot — the
+#: zone law (``constraints/zones``) and the runway end profile
+#: (``constraints/strips``) — released across a declared wall either way.
+_ZONE_LAW_GENERATORS = frozenset({"zones", "strips"})
+
+
 def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
                  ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
     """OWNER RULINGS 2026-10-03c (#291): THE WALL IS THE STEP — between
@@ -258,11 +267,11 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     # (a road's own longitudinal chord past a bent wall is not)
     low = {v for r in walls.values() for v in (r.get("lower") or ())}
 
-    def crosses(vs) -> bool:
+    def crosses(vs, any_side: bool = False) -> bool:
         vs = [v for v in vs if v in xy]
         for i, a in enumerate(vs):
             for b in vs[i + 1:]:
-                if (a in low) == (b in low):
+                if not any_side and (a in low) == (b in low):
                     continue
                 seg = LineString([xy[a], xy[b]])
                 if len(ltree.query(seg, predicate="intersects")):
@@ -278,16 +287,42 @@ def wall_release(planar: PlanarMap, law: Law, cs: ConstraintSet
             continue
         diffs.append(r)
     linears = []
+    beyond: set[int] = set()        # zone ground released across a wall
     for r in cs.linears:
         vs = [v for v, _c in r.terms]
+        # THE ZONE STOPS AT THE WALL (08-30l M4; owner RULINGS 2026-10-15g
+        # (B): the graded zone goes to raw ground at its edge, and groundside
+        # below the step keeps its own grade): a corridor row whose ground
+        # vertex stands across a declared wall from its pavement foot is
+        # released whichever side holds a road — measured on the #715 twin,
+        # the band below the wall held the road 3-4 m over its 92 m ground
+        zone_row = r.source.generator in _ZONE_LAW_GENERATORS
         if r.source.generator != "wall_terrace" and len(vs) >= 2 and \
-                sum(v in xy for v in vs) >= 2 and crosses(vs):
+                sum(v in xy for v in vs) >= 2 and crosses(vs, any_side=zone_row):
             rep["released"] += 1
+            if zone_row and isinstance(r.follows, int):
+                beyond.add(int(r.follows))
             continue
         linears.append(r)
     if not rep["released"]:
         return cs, rep
-    return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears)), rep
+    # ...and that ground IS the raw DEM (15g (B): "let it go straight to DEM
+    # after that"): a released zone vertex no other face shares is held at
+    # its DEM sample at the law's weight — the weak §23 datum alone left the
+    # band's outer ring 1.4-5 m over the twin's lower ground, and the road
+    # between them pulled up to it
+    shared = {v for f in planar.faces.values() if f.role != "graded_strip"
+              for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)} \
+        if beyond else set()
+    bands = list(cs.bands)
+    for v in sorted(beyond - shared):
+        dz = planar.vertices[v].dem_z
+        if dz is not None:
+            bands.append(Band(v, float(dz), float(dz),
+                              Source("wall_terrace", BEYOND_WALL_RULING, (f"vertex:{v}",))))
+    rep["beyond_wall_ground"] = len(bands) - len(cs.bands)
+    return _dc.replace(cs, diffs=tuple(diffs), linears=tuple(linears),
+                       bands=tuple(bands)), rep
 
 
 def airside_joins(planar: PlanarMap, law: Law) -> frozenset[int]:

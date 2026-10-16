@@ -1097,6 +1097,11 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
         _to_ll_rc = airport.frame.transformers()[1]
         pub["road_cap_governs"] = [list(_to_ll_rc(*pm.vertices[v].xy))
                                    for v in sorted(rc_vs)]
+    # OWNER RULINGS 2026-10-15j: the end-area lip the end laws yield on
+    from auto_patch_v2.pipeline.publication import end_profile_yields as _epy
+    _lip = _epy(pm, law, airport)
+    if _lip:
+        pub["end_profile_yields"] = _lip
     wedges = getattr(pm, "natural_shore_wedges", ()) or ()
     if wedges:
         _to_ll = airport.frame.transformers()[1]

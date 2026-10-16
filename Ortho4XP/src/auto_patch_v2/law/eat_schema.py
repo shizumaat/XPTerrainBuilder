@@ -20,13 +20,15 @@ class EatSurface:
     §36; v1 ``config.eat_surface_slope_and_setback``).
 
     ``slope`` is the surface's rise per metre beyond the departure end and
-    ``setback_m`` where its inner edge stands; the values and their
-    citations live in ``rulesets.toml``.  An authority with NO
+    ``setback_m`` where its inner edge stands, each BY RUNWAY CODE where
+    the authority states it by code (owner RULINGS 2026-10-15k (2): ICAO
+    Annex 14 Table 4-2) — read through ``.value(code_number)``; the values
+    and their citations live in ``rulesets.toml``.  An authority with NO
     ``[<ruleset>.eat]`` table states no surface at all and the family is a
     no-op there (the ``[icao.drainage]`` precedent)."""
 
-    slope: float
-    setback_m: float
+    slope: CodeTable
+    setback_m: CodeTable
 
 
 @_dc.dataclass(frozen=True)

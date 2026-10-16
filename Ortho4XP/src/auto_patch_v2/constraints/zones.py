@@ -76,7 +76,7 @@ import typing as _t
 from ..law import Law
 from ..law.tables import (airside_stage_roles, is_value_role, role_side,
                           runway_zone_edge_offset_m, snap_margin_m, strip_transverse_bound,
-                          zone2_half_width_m, zone_bounds)
+                          zone_bounds, zone_edge_offset_m)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -292,7 +292,11 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
         ref = _edge_runways(e)[0] if e[2] == "runway" else None
         if ref in rw_half:
             return runway_zone_edge_offset_m(law, e[3], e[4], rw_half[ref])
-        return zone2_half_width_m(law, "runway" if e[2] == "runway" else "junction",
+        # a taxi edge reaches its letter's offset from the edge (the
+        # taxiway strip from the centreline, RULINGS 2026-10-15l (1); the
+        # buffer ``planar/zones.zone_regions`` drew); a runway the airport
+        # does not list, its centreline figure
+        return zone_edge_offset_m(law, "runway" if e[2] == "runway" else "junction",
                                   e[3], e[4])
 
     reach = max((half_of(e) or 0.0) for e in edges)

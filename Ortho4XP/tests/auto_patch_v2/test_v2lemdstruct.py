@@ -109,13 +109,16 @@ def test_the_covered_extent_spans_the_cell_s_graded_strip(law):
     ``adjacent_ground:taxi:E:zone1`` — and the census read a **5.42 m**
     unbanked face, the airport's worst CRITICAL VISUAL row.  The mouth
     must open BEYOND the strip: the same cell, read as code E, extends
-    the clip by the class's own 19.0 m and by nothing else."""
-    from auto_patch_v2.law.tables import zone2_half_width_m
+    the clip by the class's own reach from the edge and by nothing else —
+    7.5 m since the strip is measured from the CENTRELINE (Annex 14
+    §3.11.4: 19.0 m less the code-E pavement's 11.5 m half-width; RULINGS
+    2026-10-15l (1)), 19.0 m before."""
+    from auto_patch_v2.law.tables import zone_edge_offset_m
     tn = law.tables.structures.tunnel
     grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
     erode = tn.wall_gap_m + tn.wall_band_width_m + grid
-    strip = zone2_half_width_m(law, "junction", None, "E")
-    assert strip == 19.0
+    strip = zone_edge_offset_m(law, "junction", None, "E")
+    assert strip == 7.5
     deck = OsmWay(-1230, "airport", ((-60.0, 0.0), (60.0, 0.0)), False,
                   {"aeroway": "taxiway", "bridge": "yes", "layer": "1"})
     road = OsmWay(-5820, "big_roads", ((0.0, -200.0), (0.0, 200.0)), False, TAGS_R)
@@ -320,22 +323,26 @@ def test_the_strip_stops_at_a_neighbours_pavement(law, neighbour_role):
 
     The SOUTH side of the very same crossing is unchanged: beyond that
     kerb is ground, so the strip stands exactly as 15h ruled it."""
-    from auto_patch_v2.law.tables import zone2_half_width_m
+    from auto_patch_v2.law.tables import zone_edge_offset_m
     tn = law.tables.structures.tunnel
     grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
     erode = tn.wall_gap_m + tn.wall_band_width_m + grid
-    strip = zone2_half_width_m(law, "junction", None, "E")
+    strip = zone_edge_offset_m(law, "junction", None, "E")
     deck_cell = Polygon([(-200.0, -16.3), (200.0, -16.3),
                          (200.0, 0.15), (-200.0, 0.15)])
+    # the neighbour's far kerb stands NEARER than its near kerb to
+    # ``kerb + strip`` (LEMD F-6's geometry, scaled to the strip: 30.6 m
+    # against the 19.0 m edge-measured strip before 15l (1))
+    far = 0.15 + 1.8 * strip
     apron = Polygon([(-200.0, 0.15), (200.0, 0.15),
-                     (200.0, 30.6), (-200.0, 30.6)])
+                     (200.0, far), (-200.0, far)])
     nb = _APRON()
     nb.role = neighbour_role
     ways, _p, notes = _f6(law, [_CE(), nb], [deck_cell, apron])
     assert len(ways) == 1, notes
     ys = sorted(q[1] for q in ways[0].points)
     # NORTH: the apron's own far kerb, less the erosion — NOT kerb + strip
-    assert ys[-1] == pytest.approx(30.6 - erode, abs=0.05)
+    assert ys[-1] == pytest.approx(far - erode, abs=0.05)
     assert abs(ys[-1] - (0.15 + strip - erode)) > 5.0, \
         "the strip is still being laid on pav188"
     # SOUTH: ground beyond the kerb, so 15h's strip stands untouched
@@ -348,11 +355,11 @@ def test_a_strip_over_ground_is_the_15h_reading_verbatim(law):
     both sides the offsets are 15h's, station for station.  This is the
     twin that fails if the walk ever stops at something that is not
     airside pavement."""
-    from auto_patch_v2.law.tables import zone2_half_width_m
+    from auto_patch_v2.law.tables import zone_edge_offset_m
     tn = law.tables.structures.tunnel
     grid = max(law.tables.emit.identity.min_distinct_spacing_m, 0.1)
     erode = tn.wall_gap_m + tn.wall_band_width_m + grid
-    strip = zone2_half_width_m(law, "junction", None, "E")
+    strip = zone_edge_offset_m(law, "junction", None, "E")
     deck_cell = Polygon([(-200.0, -16.3), (200.0, -16.3),
                          (200.0, 0.15), (-200.0, 0.15)])
     ways, _p, notes = _f6(law, [_CE()], [deck_cell])

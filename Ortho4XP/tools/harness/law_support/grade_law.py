@@ -54,13 +54,13 @@ from auto_patch.config import ruleset_strip_band_max_down_slope
 from auto_patch.config import ruleset_strip_half_width_m
 from auto_patch.config import ruleset_strip_max_longitudinal_slope
 from auto_patch.config import ruleset_taxi_transverse_max
-from auto_patch.config import taxiway_strip_graded_half_width_for_letter
 from auto_patch.config import transverse_cap_for_longitudinal_cap
 from dataclasses import dataclass
 from typing import Callable, Optional
 import auto_patch.config as _cfg
 from auto_patch_v2.law import load_default as _v2_load_default
 from auto_patch_v2.law import reference_code as _refcode
+from auto_patch_v2.law import tables as _v2_tables
 
 import math as _math
 import os
@@ -78,6 +78,27 @@ def runway_code_number(length_m: float) -> int:
     if _REFCODE_LAW is None:
         _REFCODE_LAW = _v2_load_default()
     return _refcode.runway_code_number(_REFCODE_LAW, length_m)
+
+
+#: the v2 law per ruleset key, for the zone reach (:func:`taxiway_strip_edge_offset_m`)
+_ZONE_LAWS: dict = {}
+
+
+def taxiway_strip_edge_offset_m(code_letter, rs) -> float:
+    """THE TAXIWAY STRIP'S REACH FROM THE PAVEMENT EDGE under ``rs``'s own
+    authority — v2's ``tables.zone_edge_offset_m``, the ONE accessor the
+    engine's zone regions are buffered by (spec regulation-conformance
+    §2.A A-14; RULINGS 2026-10-15l (1)): the ICAO graded portion (Annex 14
+    §3.11.4) or the FAA TSA (AC 150/5300-13B §4.5.3) is a CENTRELINE
+    half-width, reached past the letter's pavement half-width.  Before this
+    the census read the ICAO table, from the edge, under both rulesets."""
+    from auto_patch_v2.law import Law
+    key = str(getattr(rs, "key", "icao")).lower()
+    if key not in _ZONE_LAWS:
+        _ZONE_LAWS[key] = Law.load(ruleset=key)
+    letter = str(code_letter).upper() if code_letter else None
+    return float(_v2_tables.zone_edge_offset_m(_ZONE_LAWS[key], "junction",
+                                               None, letter))
 
 
 APRON_ROLE = "apron"
@@ -703,9 +724,10 @@ def adjacent_ground_envelope(
         band down-cap 3 % (code 3/4 ≈ AAC C-E) / 5 % (code 1/2 ≈ AAC A/B),
         min 1.5 % (FAA RSA minimum).  ``code_letter`` is ignored.
       * taxiway family (taxiway, parallels, stub, cross_connector, junction) —
-        taxiway strip.  Keyed by ICAO code LETTER (ruling 2): graded WIDTH =
-        OMGWS table (``taxiway_strip_graded_half_width_for_letter``); band down
-        1.5-5 %.  ``code_number`` is ignored.
+        taxiway strip.  Keyed by code LETTER (ruling 2): graded reach from the
+        edge = :func:`taxiway_strip_edge_offset_m` (the ICAO graded portion /
+        FAA TSA from the centreline, 15l (1)); band down 1.5-5 %.
+        ``code_number`` is ignored.
       * apron family (apron, stand, terminal) — a 3 m FAA-recommended shoulder
         (1-3 % down), then zone-3 semantics immediately (ceiling ≤5 % up, floor
         free).  Both code args ignored.  The retaining-wall face for a deep drop
@@ -755,10 +777,7 @@ def adjacent_ground_envelope(
             shoulder=shoulder,
             zone3_ceiling_override=rofa_back_slope_ceiling(code_letter, rs))
     if role in _ADJACENT_TAXIWAY_ROLES:
-        widths = rs.taxiway_strip_graded_half_width_m
-        half = (float(widths.get(str(code_letter).upper(), 12.5))
-                if widths and code_letter
-                else taxiway_strip_graded_half_width_for_letter(code_letter))
+        half = taxiway_strip_edge_offset_m(code_letter, rs)
         lip_w, lip_lo, lip_hi = _w2_paved_edge_lip(rs)
         return _adjacent_strip_envelope(
             half,

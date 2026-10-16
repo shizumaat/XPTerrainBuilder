@@ -182,9 +182,12 @@ def _ruleset_checks(c: Checks, key: str, rs, v1rs, zones) -> None:
     else:
         c.table(f"{key}.zones.runway.half_width_faa_m",
                 v1rs.strip_half_width_m, ag.runway.half_width_faa_m, LETTERS)
+    # the taxiway strip's reach is read by the census from v2 itself
+    # (``grade_law.taxiway_strip_edge_offset_m`` → ``tables.zone_edge_offset_m``,
+    # RULINGS 2026-10-15l (1)); v1's ICAO table stays the ICAO centreline figure
     for L in LETTERS:
         c.eq(f"{key}.zones.taxi.half_width_m[{L}]",
-             v1rs.taxiway_strip_graded_half_width_m[L],
+             v1.TAXIWAY_STRIP_GRADED_HALF_WIDTH_BY_LETTER[L],
              ag.taxi.half_width_m.value(code_letter=L))
     c.eq(f"{key}.zones.taxi.band_min_down",
          v1rs.taxiway_strip_band_min_down_slope, ag.taxi.band_min_down)

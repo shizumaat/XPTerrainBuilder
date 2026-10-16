@@ -129,7 +129,7 @@ shoulder_transverse_max = 0.025                            # §40 (2) as amended
 longitudinal = { by_letter = { "A" = 0.030, "B" = 0.030, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.10
 transverse   = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.11
 transverse_min = 0.010                                    # recorded, not bound (owner question 5)
-width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 18.0, "E" = 23.0, "F" = 25.0 }, default = 18.0 }  # taxiway pavement width, §3.9.3 (D: 18, OMGWS < 9 m) — law key of RULINGS 2026-09-06t; its corridor reading withdrawn 06v
+width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 18.0, "E" = 23.0, "F" = 25.0 }, default = 15.0 }  # taxiway pavement width, §3.9.3 (D: 18, OMGWS < 9 m) — law key of RULINGS 2026-09-06t; its corridor reading withdrawn 06v. Read by `tables.zone_edge_offset_m` (the taxi strip from the centreline, 15l (1)); the default is letter C, the same letter as `zones.toml [adjacent_ground.taxi]` defaults
 
 [icao.strip]
 longitudinal = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.0175, "4" = 0.015 }, default = 0.015 }  # §3.4.12 abeam slope (reg-set 08-08); ALSO the cap over the strip's `end_length_m` beyond each runway end (owner RULINGS 2026-10-12q (1) (a); Doc 9157 §5.3.17 / CS ADR-DSN.B.180(b): the graded portion is defined about the runway centre line "and its extended centre line")

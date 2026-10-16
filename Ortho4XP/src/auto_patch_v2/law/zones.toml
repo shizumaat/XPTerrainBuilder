@@ -8,10 +8,12 @@
 #   zone 3  beyond zone 2: the DEM, untouched (`beyond_zone2 = "dem"`).
 # All bounds accumulate across zone boundaries (continuous corridor).
 # Grades are fractions; widths are metres from the PAVEMENT EDGE — EXCEPT the
-# RUNWAY family's `half_width_m` / `half_width_faa_m`, which are measured
-# from the runway CENTRELINE (owner RULINGS 2026-10-15c (1) "From the
-# centreline"): the zone's edge offset is max(lip_width_m, half-width −
-# runway half-width) (`tables.runway_zone_edge_offset_m`).
+# zone-2 `half_width_m` / `half_width_faa_m` of BOTH families, which are
+# measured from the CENTRELINE (runway: owner RULINGS 2026-10-15c (1) "From
+# the centreline"; taxi: RULINGS 2026-10-15l (1), audit row 3 — Annex 14
+# §3.11.4, AC 150/5300-13B §4.5.3): the zone's edge offset is
+# max(lip_width_m, half-width − pavement half-width) (`tables.zone_edge_offset_m`;
+# a taxiway's pavement half-width is `rulesets.<authority>.taxi.width_m` / 2).
 
 [adjacent_ground]
 beyond_zone2   = "dem"      # zone 3 IS the DEM — never graded (08-01; only "dem" is lawful here)
@@ -46,7 +48,8 @@ band_max_down_faa = { by_letter = { "A" = 0.05, "B" = 0.05, "C" = 0.03, "D" = 0.
 
 # zone 2 for the TAXI family (parallels, stub, cross_connector, junction): keyed by code LETTER
 [adjacent_ground.taxi]
-half_width_m   = { by_letter = { "A" = 10.25, "B" = 11.0, "C" = 12.5, "D" = 18.5, "E" = 19.0, "F" = 22.0 }, default = 12.5 }  # OMGWS-derived graded strip
+half_width_m   = { by_letter = { "A" = 10.25, "B" = 11.0, "C" = 12.5, "D" = 18.5, "E" = 19.0, "F" = 22.0 }, default = 12.5 }  # ICAO graded portion of the taxiway strip FROM THE CENTRELINE (Annex 14 §3.11.4)
+half_width_faa_m = { by_letter = { "A" = 7.5, "B" = 12.0, "C" = 18.0, "D" = 26.0, "E" = 32.6, "F" = 39.9 }, default = 18.0 }  # FAA taxiway safety area half-width = half the ADG wingspan, from the centreline (AC 150/5300-13B §4.5.3; letter = ADG proxy)
 band_min_down  = 0.015
 band_max_down  = 0.05
 

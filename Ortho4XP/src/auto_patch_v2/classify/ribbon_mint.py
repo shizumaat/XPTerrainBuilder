@@ -13,7 +13,7 @@ from shapely.ops import unary_union
 
 from ..law import Law
 from ..law.tables import (role_cap, runway_safety_area_length_m, snap_margin_m,
-                          zone2_half_width_m)
+                          zone2_half_width_m, zone_edge_offset_m)
 from ..model.airport import Airport
 from ..model.planar import OSM_RIBBON_FEEDS
 from .evidence import Evidence, polygon_parts
@@ -62,7 +62,7 @@ def ribbon_extent(cells, law: Law, pavement_union, runways=()):
         if c.role in RUNWAY_FAMILY_ROLES and not is_runway_shoulder(c):
             hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter)
         elif c.role in TAXI_FAMILY:
-            hw = zone2_half_width_m(law, "junction", c.code_number, c.code_letter)
+            hw = zone_edge_offset_m(law, "junction", c.code_number, c.code_letter)
         else:
             continue
         if hw:

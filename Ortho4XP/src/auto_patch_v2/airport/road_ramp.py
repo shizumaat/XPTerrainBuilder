@@ -68,7 +68,8 @@ import typing as _t
 
 from ..law import Law
 from ..law.tables import (family, is_structure_role, is_value_role, role_cap,
-                          role_side, senior_role, zone2_half_width_m)
+                          role_side, senior_role, zone2_half_width_m,
+                          zone_edge_offset_m)
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from ..model.frame import rotated_rectangle
@@ -933,14 +934,19 @@ def _feet_index(pm: PlanarMap, law: Law, roles: _t.AbstractSet[str]
     edges: list[tuple[int, int, str, float]] = []
     role_of: dict[str, str] = {}
     seen: set[tuple[int, int]] = set()
-    # A pavement with no zone class reaches the taxi class's DEFAULT half
-    # width (``zones.toml [adjacent_ground.taxi] half_width_m.default``).
+    # A runway- or taxi-family pavement reaches its zone's edge offset
+    # (``tables.zone_edge_offset_m``: the taxiway strip is a centreline
+    # figure, RULINGS 2026-10-15l (1)).  A pavement with NO zone class (an
+    # apron) has no graded strip for row 3 to re-base: it keeps the reach it
+    # had, the taxi table's DEFAULT figure (``zones.toml
+    # [adjacent_ground.taxi] half_width_m.default``) — the #291 wall-terrace
+    # contact (``test_wallterrace291``: a 1206 route 10 m off an apron).
     taxi_default = zone2_half_width_m(law, "junction", None, None)
     for fid, f in pm.faces.items():
         if f.role not in roles:
             continue
         role = fam.get(f.role)
-        half = (zone2_half_width_m(law, role, f.code_number, f.code_letter)
+        half = (zone_edge_offset_m(law, role, f.code_number, f.code_letter)
                 if role is not None else taxi_default)
         if not half:
             continue

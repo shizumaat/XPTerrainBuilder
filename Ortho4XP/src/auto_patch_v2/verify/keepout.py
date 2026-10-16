@@ -44,7 +44,7 @@ same geometry the sidecar ``face_holes`` key is derived from.
 from __future__ import annotations
 
 from ..law.tables import (governed_roles, is_structure_role, role_family,
-                          zone2_half_width_m)
+                          zone_edge_offset_m)
 from .frame import Patch, Row, Shape, row
 from .frontage import _holed
 
@@ -84,7 +84,7 @@ OBJECT_CUT_RIM_FEATURES = frozenset({"structure_rim"})
 
 #: §34 (5) (b) / §41 (2): the strip families, as ``role_family`` names them.
 _STRIP_FAMILIES = ("runway", "taxi")
-#: The ``zone2_half_width_m`` key each strip family is declared under
+#: The ``zone_edge_offset_m`` key each strip family is declared under
 #: (``check_grade._strip_half_width_m``).
 _STRIP_KEY = {"runway": "runway", "taxi": "junction"}
 
@@ -127,15 +127,16 @@ def strip_roles(p: Patch) -> frozenset[str]:
 
 
 def strip_half_width_m(p: Patch, sh: Shape) -> float:
-    """``sh``'s zone-2 half width — the band ``planar/zones`` grades
-    (``zones.toml adjacent_ground.*half_width_m`` through the law's own
-    ``zone2_half_width_m``), falling back to the lip where the class
+    """``sh``'s zone-2 reach from its edge — the band ``planar/zones``
+    grades (``zones.toml adjacent_ground.*half_width_m`` through the law's
+    own ``zone_edge_offset_m``: a taxiway's strip is a centreline figure,
+    RULINGS 2026-10-15l (1)), falling back to the lip where the class
     declares none.  0.0 for a role that declares no strip."""
     fam = role_family(p.law, sh.role)
     key = _STRIP_KEY.get(fam) if sh.role in pavement_roles(p) else None
     if key is None:
         return 0.0
-    hw = zone2_half_width_m(p.law, key, sh.code_number, sh.code_letter)
+    hw = zone_edge_offset_m(p.law, key, sh.code_number, sh.code_letter)
     if hw and float(hw) > 0.0:
         return float(hw)
     return float(p.law.tables.zones.adjacent_ground.lip_width_m)

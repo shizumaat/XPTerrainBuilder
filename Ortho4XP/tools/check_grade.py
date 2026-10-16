@@ -8465,14 +8465,24 @@ _RAMP_IN_STRIP_TAXI_ROLES = frozenset({
     "junction",
 })
 
-#: The zone-2 half width by class — ``zones.toml adjacent_ground.*
-#: half_width_m``, read from the LAW so the census and the engine cannot
-#: drift; the literals are the no-engine fallback for the bare CLI only
-#: and they are what the twin asserts against.
+#: The zone-2 reach from the pavement edge by class — ``zones.toml
+#: adjacent_ground.*half_width_m`` through v2's ``tables.zone_edge_offset_m``
+#: (the taxiway strip is a CENTRELINE figure, RULINGS 2026-10-15l (1); spec
+#: regulation-conformance §2.A A-13), read from the LAW under the run's
+#: active ruleset so the census and the engine cannot drift; the literals
+#: are the no-engine fallback for the bare CLI only (ICAO edge offsets).
 try:                                                    # pragma: no cover
+    from auto_patch_v2.law import Law as _V2_STRIP_LAWCLS
     from auto_patch_v2.law import tables as _V2_STRIP_T
-    _V2_STRIP_LAW = _V2_STRIP_T.load_default()
-    _STRIP_LIP_M = float(_V2_STRIP_LAW.tables.zones.adjacent_ground.lip_width_m)
+    _V2_STRIP_LAWS: dict = {}
+
+    def _strip_law():
+        key = str(_ACTIVE_RULESET or _DEFAULT_RULESET).lower()
+        if key not in _V2_STRIP_LAWS:
+            _V2_STRIP_LAWS[key] = _V2_STRIP_LAWCLS.load(ruleset=key)
+        return _V2_STRIP_LAWS[key]
+
+    _STRIP_LIP_M = float(_V2_STRIP_T.load_default().tables.zones.adjacent_ground.lip_width_m)
 
     def _strip_half_width_m(role: str, code_number, code_letter) -> float:
         if role in _RAMP_IN_STRIP_RUNWAY_ROLES:
@@ -8481,20 +8491,20 @@ try:                                                    # pragma: no cover
             key = "junction"
         else:
             return 0.0
-        hw = _V2_STRIP_T.zone2_half_width_m(_V2_STRIP_LAW, key,
+        hw = _V2_STRIP_T.zone_edge_offset_m(_strip_law(), key,
                                             code_number, code_letter)
         return float(hw) if hw and hw > 0.0 else _STRIP_LIP_M
 except Exception:                                       # pragma: no cover
     _STRIP_LIP_M = 3.0
-    _STRIP_TAXI_M = {"A": 10.25, "B": 11.0, "C": 12.5, "D": 18.5,
-                     "E": 19.0, "F": 22.0}
+    _STRIP_TAXI_M = {"A": 6.5, "B": 5.75, "C": 5.0, "D": 9.5,
+                     "E": 7.5, "F": 9.5}
     _STRIP_RUNWAY_M = {1: 30.0, 2: 40.0, 3: 75.0, 4: 75.0}
 
     def _strip_half_width_m(role: str, code_number, code_letter) -> float:
         if role in _RAMP_IN_STRIP_RUNWAY_ROLES:
             return _STRIP_RUNWAY_M.get(code_number, 75.0)
         if role in _RAMP_IN_STRIP_TAXI_ROLES:
-            return _STRIP_TAXI_M.get(str(code_letter or "").upper(), 12.5)
+            return _STRIP_TAXI_M.get(str(code_letter or "").upper(), 5.0)
         return 0.0
 
 

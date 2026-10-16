@@ -3,7 +3,7 @@
 
 Around every runway-family and taxi-family face: zone 1 (the lip,
 ``lip_width_m`` out from the pavement edge) and zone 2 (the graded band
-out to ``zone2_half_width_m`` for the class); beyond zone 2 the DEM is
+out to ``zone_edge_offset_m`` from the edge for the class); beyond zone 2 the DEM is
 untouched, so no face exists there.  Zone regions are ``graded_strip``
 faces (a non-value role: they trace a lawful bound) carrying the class
 that keys the law (``code_number`` for runways, ``code_letter`` for
@@ -28,7 +28,8 @@ from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
 from ..geom.rotated_rect import long_axis, rotated_rectangle
 from ..law import Law
 from ..law.tables import (runway_end_profile, runway_safety_area_length_m,
-                          runway_zone_edge_offset_m, snap_margin_m, zone2_half_width_m)
+                          runway_zone_edge_offset_m, snap_margin_m, zone2_half_width_m,
+                          zone_edge_offset_m)
 from ..model.planar import is_gap_apron_ref, is_late_ref
 from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
                     shore_declarations, shore_verdict)
@@ -328,8 +329,10 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
 
     def rank(key: tuple[str, int | None, str | None]) -> tuple[int, float, str]:
         fam, cn, cl = key
-        hw = zone2_half_width_m(law, "runway" if fam == "runway" else "junction",
-                                cn, letter_of(key)) or 0.0
+        # wider first: the runway by its centreline figure, a taxi group by
+        # its reach from the edge (the buffer it is drawn with below)
+        hw = (zone2_half_width_m(law, "runway", cn, letter_of(key)) if fam == "runway"
+              else zone_edge_offset_m(law, "junction", cn, cl)) or 0.0
         return (0 if fam == "runway" else 1, -hw, str(cl))
 
     # §37 (11) (1) THE SHORE TRIMS THE ZONES, at this single derivation
@@ -359,7 +362,12 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                 continue
             inner, outer = band
         else:
-            hw = zone2_half_width_m(law, "junction", cn, cl)
+            # THE TAXIWAY STRIP FROM THE CENTRELINE (RULINGS 2026-10-15l (1),
+            # audit row 3; spec regulation-conformance §2.A A-1): the graded
+            # portion (ICAO Annex 14 §3.11.4) / TSA (FAA AC §4.5.3) is a
+            # centreline half-width, so the union is buffered by its reach
+            # past the letter's pavement edge — THE derivation site
+            hw = zone_edge_offset_m(law, "junction", cn, cl)
             if hw is None or hw <= 0:
                 continue
             inner = u.buffer(min(lip, hw), **_MITRE)

@@ -103,6 +103,10 @@ class Foot:
     lat: float
     lon: float
     y: float
+    #: the pack-relative resource of the member this foot belongs to
+    #: (``Member.resource``) — the pad relief reads it to know a jetway's
+    #: foot (RULINGS 2026-10-16b follow-up, ``constraints/pad_relief``).
+    resource: str = ""
 
 
 @_dc.dataclass(frozen=True)
@@ -270,14 +274,19 @@ def bodies_of_plan(plan: "RebakePlan | _t.Any"
 
 # ── the derivation ───────────────────────────────────────────────────────
 
-def _feet_of(parts: _t.Sequence[Part]) -> list[Foot]:
+def _feet_of(parts: _t.Sequence[Part], resource: str = "") -> list[Foot]:
     out: list[Foot] = []
     for p in parts:
         if p.feet:
-            out.extend(Foot(float(a), float(b), float(y)) for a, b, y in p.feet)
+            out.extend(Foot(float(a), float(b), float(y), resource) for a, b, y in p.feet)
         else:
-            out.append(Foot(float(p.lat), float(p.lon), float(p.base_y)))
+            out.append(Foot(float(p.lat), float(p.lon), float(p.base_y), resource))
     return out
+
+
+def _body_feet(key: BODY_KEY, bodies, part_of, members) -> list[Foot]:
+    """The feet of one body, each carrying its member's resource."""
+    return _feet_of([part_of[q] for q in bodies[key]], members[key[:2]].resource)
 
 
 def _relief_slope(feet: _t.Sequence[Foot]) -> float:
@@ -467,16 +476,16 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
     seen: set[BODY_KEY] = set()
     for s, juniors in sorted(by_senior.items()):
         keys = (s, *sorted(juniors))
-        feet = [f for k in keys for f in _feet_of([part_of[q] for q in bodies[k]])]
+        feet = [f for k in keys for f in _body_feet(k, bodies, part_of, members)]
         if not feet:
             continue
-        senior_feet = _feet_of([part_of[q] for q in bodies[s]])
+        senior_feet = _body_feet(s, bodies, part_of, members)
         y_zero = min(f.y for f in (senior_feet or feet))
         span = _span_m(feet)
         # §11a (1): the span law binds a BODY's connecting span, never the
         # group's footprint diagonal.  Only a junior whose OWN body is long
         # is the HECA railway class, and only it may ever be released.
-        bspan = tuple(_span_m(_feet_of([part_of[q] for q in bodies[k]])) for k in keys)
+        bspan = tuple(_span_m(_body_feet(k, bodies, part_of, members)) for k in keys)
         long_of = {k: (span_max_m > 0.0 and sp > span_max_m)
                    for k, sp in zip(keys, bspan)}
         rel = tuple(k for k in sorted(juniors) if long_of[k])
@@ -487,10 +496,10 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
             # THE LONG SPAN LETS GO (§11 (4)): the released juniors leave
             # the group, and each becomes its own object below.
             keys = tuple(k for k in keys if k not in set(released))
-            feet = [f for k in keys for f in _feet_of([part_of[q] for q in bodies[k]])]
+            feet = [f for k in keys for f in _body_feet(k, bodies, part_of, members)]
             if not feet:
                 continue
-            bspan = tuple(_span_m(_feet_of([part_of[q] for q in bodies[k]])) for k in keys)
+            bspan = tuple(_span_m(_body_feet(k, bodies, part_of, members)) for k in keys)
             span = _span_m(feet)
             slope, _inf2, fit_level, fit_res, fit_lim = _verdict(feet, y_zero)
         groups.append(Group(gid=_gid(members[s[:2]], s), bodies=keys, senior=s,
@@ -513,7 +522,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
     for k in sorted(bodies):
         if k in seen or not _eligible(members[k[:2]]):
             continue
-        feet = _feet_of([part_of[q] for q in bodies[k]])
+        feet = _body_feet(k, bodies, part_of, members)
         if not feet:
             continue
         sp = _span_m(feet)
@@ -533,7 +542,7 @@ def derive(plan: "RebakePlan | _t.Any", span_max_m: float = 0.0,
     # a RELEASED junior is its own object: it never reached ``seen``
     for g in list(groups):
         for k in g.released:
-            feet = _feet_of([part_of[q] for q in bodies[k]])
+            feet = _body_feet(k, bodies, part_of, members)
             if not feet or k in seen:
                 continue
             sp = _span_m(feet)

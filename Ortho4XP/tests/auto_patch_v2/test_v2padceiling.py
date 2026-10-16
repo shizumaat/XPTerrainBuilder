@@ -196,8 +196,9 @@ def test_a_flat_footed_body_is_the_identity_for_both(law, monkeypatch):
 # ── (2) PAVEMENT SENIORITY IS BY VERTEX ─────────────────────────────────
 
 class _Foot:
-    def __init__(self, lat, lon, y):
+    def __init__(self, lat, lon, y, resource="objects/terminal.obj"):
         self.lat, self.lon, self.y = lat, lon, y
+        self.resource = resource
 
 
 class _Group:
@@ -213,22 +214,22 @@ class _Groups:
         self.groups = groups
 
 
-def _with_feet(airport, pm, vertices, y):
+def _with_feet(airport, pm, vertices, y, resource="objects/terminal.obj"):
     """A body whose feet sit exactly ON the named pad vertices, authored
     ``y`` below the pad's zero — the T4S body."""
     _to_xy, to_ll = airport.frame.transformers()
     feet = []
     for v in vertices:
         key = pm.vertices[v].key
-        feet.append(_Foot(key[0], key[1], y))
+        feet.append(_Foot(key[0], key[1], y, resource))
     # one extra zero foot so ``y_zero`` is 0 and the offsets read ``y``
     return _Groups([_Group(tuple(feet))])
 
 
-def _offsets(pm, law, airport, vertices, y=-2.20):
+def _offsets(pm, law, airport, vertices, y=-2.20, resource="objects/terminal.obj"):
     import dataclasses as _dc
     from auto_patch_v2.constraints.pad_relief import pad_relief_offsets
-    ap = _dc.replace(airport, groups=_with_feet(airport, pm, vertices, y))
+    ap = _dc.replace(airport, groups=_with_feet(airport, pm, vertices, y, resource))
     return pad_relief_offsets(pm, law, ap)
 
 
@@ -278,6 +279,26 @@ def test_a_pad_only_vertex_still_takes_its_foot(law):
     off = _offsets(pm, law, airport, own)
     assert off and min(off.values()) == pytest.approx(-2.20, abs=1e-6)
     assert set(off) <= set(own)          # nothing on the fronting pad
+
+
+def test_a_jetway_foot_inside_a_grown_pad_founds_no_relief(law):
+    """16b follow-up: 16b grew the terminal pad over its jetways, so a
+    jetway's foot (a placement whose resource names ``[building_pad]
+    jetway_token``) now stands inside a pad.  It is an elevated bridge
+    whose wheels reach below its group's zero — no relief (OTHH B6 read a
+    false -5.58 m).  The same foot under a normal resource still does."""
+    cells = _cells("apron") + [Cell(3, "building", "padB", PAD_B, (), None, None,
+                                    "airside", "pad", {})]
+    pm, airport = _pm(law, cells)
+    f = next(f for f in pm.faces.values() if f.ref == "padB")
+    own = sorted(set(pm.ring_vertices(f.ring)))
+    tok = law.tables.structures.building_pad.jetway_token
+    assert tok
+    jet = _offsets(pm, law, airport, own, y=-5.58,
+                   resource=f"objects/{tok.upper()}_gate_1.obj")
+    assert jet == {}
+    off = _offsets(pm, law, airport, own, y=-5.58)
+    assert off and min(off.values()) == pytest.approx(-5.58, abs=1e-6)
 
 
 def test_a_groundside_face_is_not_senior_here(law):

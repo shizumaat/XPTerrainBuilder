@@ -56,6 +56,7 @@ from __future__ import annotations
 from shapely.geometry import Point
 from shapely.strtree import STRtree
 
+from ..airport.jetways import is_jetway_resource
 from ..law import Law
 from ..law.tables import role_side
 from ..model.airport import Airport
@@ -115,6 +116,13 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
             # up its own structure.  The group keeps today's flat pad.
             continue
         for f in g.feet:
+            if is_jetway_resource(f.resource, law):
+                # A JETWAY'S FOOT IS NO RELIEF (16b follow-up): 16b grew
+                # the terminal pad over its jetways, so their feet now
+                # fall inside a pad.  A jetway is an elevated bridge whose
+                # wheels reach down below its group's zero — not a body
+                # authored for sloping ground (11j).  It founds no target.
+                continue
             x, y = to_xy(f.lon, f.lat)
             feet.append((x, y, float(f.y) - float(g.y_zero)))
     if not feet:

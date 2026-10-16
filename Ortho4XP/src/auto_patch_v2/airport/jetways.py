@@ -23,7 +23,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-__all__ = ["DeclaredJetway", "declared_jetways", "JETWAYS"]
+__all__ = ["DeclaredJetway", "declared_jetways", "is_jetway_resource", "JETWAYS"]
 
 XY = tuple[float, float]
 
@@ -91,6 +91,14 @@ def _obj_extent(cache, o) -> tuple[XY, ...] | None:
     return tuple(hull.exterior.coords)[:-1] if hull.geom_type == "Polygon" else None
 
 
+def is_jetway_resource(path, law) -> bool:
+    """A pack resource whose path names ``[building_pad] jetway_token``
+    (case-free) is a jetway — THE one token test (``declared_jetways``,
+    ``constraints/pad_relief``)."""
+    tok = law.tables.structures.building_pad.jetway_token
+    return bool(tok) and str(tok).lower() in str(path or "").lower()
+
+
 def declared_jetways(airport, law, cache=None) -> list[DeclaredJetway]:
     """Every jetway the scenery declares (module docstring)."""
     bp = law.tables.structures.building_pad
@@ -110,10 +118,9 @@ def declared_jetways(airport, law, cache=None) -> list[DeclaredJetway]:
                 float(bp.jetway_half_width_m))))
     else:
         from .riders import agp_footprint_xy
-        tok = str(bp.jetway_token).lower()
         JETWAYS["no_footprint"] = 0
         for o in getattr(airport, "dsf_objects", None) or ():
-            if tok not in str(o.path).lower() or not o.resolved_path:
+            if not is_jetway_resource(o.path, law) or not o.resolved_path:
                 continue
             ring = None
             if o.resolved_path.lower().endswith(".agp"):

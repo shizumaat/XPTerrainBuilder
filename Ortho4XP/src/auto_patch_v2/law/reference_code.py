@@ -26,7 +26,7 @@ if _t.TYPE_CHECKING:  # pragma: no cover
     from .model import Law
 
 __all__ = ["ReferenceCode", "APPROACH_CLASSES", "VISUAL", "NPA", "APV", "PA",
-           "runway_code_number", "runway_code_letter", "is_instrument",
+           "runway_code_number", "runway_code_letter", "taxi_code_letter", "is_instrument",
            "is_precision", "stronger_class", "raoa_class", "raoa_applies"]
 
 #: An end's APPROACH CLASS, weakest first (spec §3.4; RULINGS 15m (2), 15n):
@@ -49,6 +49,10 @@ class ReferenceCode:
     number_min_length_m: CodeTable
     letter_max_width_m: CodeTable
     widest_letter: str
+    #: the unit tolerance a measured TAXIWAY width is read with against its
+    #: authority's ``taxi.width_m`` table (:func:`taxi_code_letter`) — the
+    #: same 0.5 m the runway bounds above carry
+    taxi_width_tolerance_m: float = 0.5
 
 
 def runway_code_number(law: "Law", length_m: float) -> int:
@@ -62,15 +66,40 @@ def runway_code_number(law: "Law", length_m: float) -> int:
     return code
 
 
+def _first_covering(bounds: _t.Mapping[str, float], width_m: float,
+                    tolerance_m: float, widest: str) -> str:
+    """THE LETTER-BY-WIDTH READING both classifiers share: the first letter
+    (narrowest bound, then alphabetical) whose bound plus ``tolerance_m``
+    covers ``width_m``; ``widest`` above every bound."""
+    for letter, lim in sorted(bounds.items(), key=lambda kv: (float(kv[1]), kv[0])):
+        if float(width_m or 0.0) <= float(lim) + tolerance_m:
+            return str(letter)
+    return str(widest)
+
+
 def runway_code_letter(law: "Law", width_m: float) -> str:
     """The code LETTER of a runway ``width_m`` wide: the first letter whose
     bound covers it, the widest letter above every bound."""
     rc = law.tables.common.reference_code
-    for letter, lim in sorted((rc.letter_max_width_m.by_letter or {}).items(),
-                              key=lambda kv: kv[1]):
-        if float(width_m or 0.0) <= float(lim):
-            return str(letter)
-    return str(rc.widest_letter)
+    return _first_covering(rc.letter_max_width_m.by_letter or {}, width_m, 0.0,
+                           rc.widest_letter)
+
+
+def taxi_code_letter(law: "Law", width_m: float) -> str | None:
+    """The code LETTER of a TAXIWAY pavement ``width_m`` wide, where the
+    apt.dat 1202 route states no width class (master 2026-10-16, regL3
+    round 2: a witness, not a default): the first letter whose taxiway
+    width under the airport's authority (``rulesets.<authority>.taxi
+    .width_m`` — Annex 14 §3.9.3, AC 150/5300-13B by ADG through the letter
+    proxy) plus ``taxi_width_tolerance_m`` covers it; the widest letter
+    above every bound.  ``None`` where the authority states no width."""
+    tbl = law.ruleset.taxi.width_m
+    bounds = (tbl.by_letter or {}) if tbl is not None else {}
+    if not bounds:
+        return None
+    widest = max(bounds.items(), key=lambda kv: (float(kv[1]), kv[0]))[0]
+    tol = float(law.tables.common.reference_code.taxi_width_tolerance_m)
+    return _first_covering(bounds, width_m, tol, widest)
 
 
 def _rank(cls: str | None) -> int:

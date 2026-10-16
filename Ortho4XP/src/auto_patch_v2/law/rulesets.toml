@@ -100,6 +100,10 @@ number_min_length_m = { by_code = { "2" = 800.0, "3" = 1200.0, "4" = 1800.0 } }
 # `config.runway_code_letter` (>= 15/21/28/42/55).
 letter_max_width_m = { by_letter = { "A" = 18.8, "B" = 23.4, "C" = 31.0, "D" = 45.0, "E" = 46.3 } }
 widest_letter = "F"
+# A TAXIWAY with no 1202 width class is lettered by its measured pavement
+# width against its authority's `taxi.width_m` with this unit tolerance
+# (`reference_code.taxi_code_letter`; master 2026-10-16, regL3 round 2)
+taxi_width_tolerance_m = 0.5
 
 # ── ICAO Annex 14 Vol I / EASA CS-ADR-DSN ──────────────────────────────
 [icao]

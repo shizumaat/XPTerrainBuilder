@@ -619,7 +619,57 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             # governs the GROUND vertex ``v``; the pavement foot is its
             # leader, never dragged down to the ground it shapes.
             rows.append(Linear(terms, lo, hi, src, follows=v))
+        beyond = _beyond_graded_ceiling(ctx, law, v, found, src)
+        if beyond is not None:
+            rows.append(beyond)
     return rows
+
+
+def _beyond_graded_ceiling(ctx: "_Context", law: Law, v: int, found: list,
+                           src: Source) -> Linear | None:
+    """THE RISE BEYOND A TAXIWAY STRIP'S GRADED PORTION (ICAO Annex 14
+    §3.11.6: the strip beyond the graded portion "should not exceed an
+    upward slope of 5 per cent" away from the taxiway; ``zones.toml``
+    ``ungraded_max_up``; master 2026-10-16, regL3 round 2).
+
+    A graded-strip vertex just OUTSIDE the nearest taxiway's corridor —
+    standing in another class's band, a runway's or a narrower taxiway's —
+    takes no taxi row from :func:`_found` (a pavement whose corridor does
+    not hold the vertex contributes nothing), so its ceiling jumped from
+    the taxi band's mandatory fall to the other band's at the corridor's
+    outer ring: measured SPJC −12.023762, −77.114158, a runway zone-2
+    vertex 0.1 m past taxi E's 7.5 m reach stood 1.25 m over its taxi-band
+    neighbour 1.1 m away.  The ceiling continues from the band's outer
+    edge at ``ungraded_max_up``, within ``ungraded_rise_reach_m`` of it.
+    ``None`` where a taxi edge already carries the vertex's ceiling (rank
+    0 of ``found``), or no taxiway's corridor ends near it."""
+    grid = ctx.by_family.get("taxi")
+    if not grid or (found and ctx.edges[found[0][1]][2] == "taxi"):
+        return None
+    if v in ctx.quay or v in ctx.natural or v in ctx.pad_rim:
+        return None
+    ag = law.tables.zones.adjacent_ground
+    reach = float(ag.ungraded_rise_reach_m)
+    near = _nearest_edge(ctx.vw, v, ctx.edges, grid, ctx.cell, lambda e: 1e9,
+                         ctx.reach + reach, lambda k: ctx.abeam(v, k))
+    if near is None:
+        return None
+    k, t, d = near
+    half = ctx.half_of(ctx.edges[k])
+    if half is None or d <= half or d - half > reach:
+        return None
+    a, b, _fam, cn, cl, _ref = ctx.edges[k]
+    _lo, hi = zone_bounds(law, "junction", half, cn, cl, half_m=half)
+    if hi is None:
+        return None
+    hi += float(ag.ungraded_max_up) * (d - half)
+    if t <= 0.0:
+        terms: tuple[tuple[int, float], ...] = ((v, 1.0), (a, -1.0))
+    elif t >= 1.0:
+        terms = ((v, 1.0), (b, -1.0))
+    else:
+        terms = ((v, 1.0), (a, -(1.0 - t)), (b, -t))
+    return Linear(terms, None, hi, src, follows=v)
 
 
 def strip_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

@@ -89,6 +89,9 @@ class Evidence:
     #: placements cover it and the relief is inside their skirt — the
     #: pad's would-be ref, its area, relief and the skirt depth ``s``.
     skirted_pads: list[str] = _dc.field(default_factory=list)
+    #: the taxi chains per letter source (``classify/taxi_letter``):
+    #: ``1202`` / ``width`` / ``default``
+    taxi_letter_sources: dict[str, int] = _dc.field(default_factory=dict)
 
 
 # ── names (the author's own word for a page) ────────────────────────────
@@ -292,6 +295,11 @@ def build_evidence(airport: Airport, rules: Rules,
         for c in taxi_chains]
     taxi_chains += _osm_taxiways(airport, taxi_chains, pavement_union,
                                  runway_union, rules, len(taxi_chains) + len(truck_chains))
+    # a chain whose 1202 route states no width class is lettered by its
+    # pavement's own width (master 2026-10-16, regL3 round 2)
+    from .taxi_letter import letter_chains_by_width
+    taxi_chains, letter_counts = letter_chains_by_width(taxi_chains, pavement_union,
+                                                        law, runway_union)
     road_chains = _osm_roads(airport, truck_chains, pavement_union, rules,
                              len(taxi_chains) + len(truck_chains))
     parking = [(f"osm:{w.id}", p) for w in airport.osm_ways
@@ -308,7 +316,7 @@ def build_evidence(airport: Airport, rules: Rules,
     return Evidence(runway_polys, runway_union, pav, pavement_union,
                     taxi_chains, truck_chains, pads, pad_union, boundary,
                     terminal, dropped, leadins, len(dsf_pav), dsf_dropped,
-                    road_chains, parking, skirted)
+                    road_chains, parking, skirted, letter_counts)
 
 
 def _network_reach(edges: _t.Sequence[tuple[int, int, str | None, str]],

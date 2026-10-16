@@ -636,6 +636,14 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules,
                           [c.line for c in ev.truck_chains])
+    # ── the taxiway letter where the 1202 route states none: the chains
+    # were lettered by their pavement width (``build_evidence``); a face no
+    # lettered chain reaches takes its lettered neighbours' (master
+    # 2026-10-16, regL3 round 2)
+    from .taxi_letter import letter_faces_by_neighbour
+    stats.update({f"taxi_chains_{k}": v for k, v in ev.taxi_letter_sources.items()})
+    stats.update({f"taxi_faces_{k}": v for k, v in
+                  letter_faces_by_neighbour(final, TAXI_FAMILY).items()})
     for role, ref, face, letter, evid, kind in final:
         add(role, ref, face, kind, None, letter, evid)
 

@@ -376,6 +376,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                                      in stats.covered_ground.mouth_walls),
                    edge_kind_of_ref={r.ref: r.edge_kind for r in arr.regions
                                      if r.edge_kind != "none"},
+                   zone_runway_of_ref={r.ref: r.runway_ref for r in arr.regions
+                                       if getattr(r, "runway_ref", None)},
                    quay_refs=frozenset(r.ref for r in arr.regions
                                        if getattr(r, "quay", False)),
                    natural_shore_refs=frozenset(

@@ -17,8 +17,8 @@ import re
 
 FT_TO_M = 0.3048
 
-__all__ = ["CifpRunway", "read_cifp_runways", "parse_lat", "parse_lon",
-           "match_designator", "match_threshold"]
+__all__ = ["CifpRunway", "read_cifp_runways", "read_cifp_approach_runways",
+           "parse_lat", "parse_lon", "match_designator", "match_threshold"]
 
 
 @_dc.dataclass(frozen=True)
@@ -83,6 +83,38 @@ def read_cifp_runways(path: str) -> dict[str, CifpRunway]:
                 key, lat, lon, int(elev) * FT_TO_M,
                 int(disp) * FT_TO_M if disp.isdigit() else 0.0, path)
     return out
+
+
+#: an ``APPCH:`` procedure identifier naming its runway: one type letter
+#: (``I`` ILS, ``R`` RNAV, ``L`` LOC, ``N`` NDB, ``V`` VOR, ``D`` VOR/DME …),
+#: the runway number and side, then an optional multiple-approach suffix
+#: (``I32LY``, ``R14L``, ``N25``).  A circling procedure (``VOR-A``) names
+#: no runway and witnesses none.
+_APPROACH_RUNWAY = re.compile(r"^[A-Z](\d{2}[LRC]?)(?:[A-Z-]?|-[A-Z])$")
+
+
+def read_cifp_approach_runways(path: str) -> frozenset[str]:
+    """THE INSTRUMENT WITNESS (owner RULINGS 2026-10-15k (3)): the bare
+    designators (``RWY:`` keys of :func:`read_cifp_runways`) that some
+    ``APPCH:`` procedure of this airport's CIFP file is flown TO.  A runway
+    with none is a NON-instrument runway.  An unreadable file witnesses
+    nothing (an empty set)."""
+    out: set[str] = set()
+    try:
+        fh = open(path, "r", encoding="utf-8", errors="replace")
+    except OSError:
+        return frozenset()
+    with fh:
+        for raw in fh:
+            if not raw.startswith("APPCH:"):
+                continue
+            fields = raw[6:].split(",")
+            if len(fields) < 3:
+                continue
+            m = _APPROACH_RUNWAY.match(fields[2].strip())
+            if m:
+                out.add(m.group(1))
+    return frozenset(out)
 
 
 def match_designator(apt_desig: str, cifp: dict[str, CifpRunway]

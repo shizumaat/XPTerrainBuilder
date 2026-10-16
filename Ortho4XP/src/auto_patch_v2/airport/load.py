@@ -38,7 +38,7 @@ from . import riders as _riders
 
 _log = logging.getLogger(__name__)
 
-__all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp",
+__all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp", "instrument_markings",
            "normalise_surface", "runway_code_number", "runway_code_letter"]
 
 #: ICAO Annex 14 Vol I Table 1-1: aerodrome reference code NUMBER by
@@ -293,6 +293,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     runways: list[Runway] = []
     tol = float(law.tables.emit.identity.cifp_threshold_join_m)
     recs, missing, joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
+    approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else frozenset())
     for _log_line in joins:
         _log.info(_log_line)
     for i, rw in enumerate(apt.runways):
@@ -302,9 +303,19 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp,
                                   over, rec.elevation_m if rec else None,
                                   rec.source if rec else ""))
+        # INSTRUMENT (owner RULINGS 2026-10-15m (2), replacing 15k (3)'s
+        # CIFP-only witness): either end shows ANY approach — apt.dat row-100
+        # PRECISION markings (3/5, ``instrument_markings``; 15n), or a CIFP approach flown to
+        # it (the end's CIFP record as the join found it, designator or
+        # threshold).  ``Runway.instrument`` is a runway-level status: it is
+        # what the RESA and the strip's end length are read by
+        instrument = any(
+            (recs[(i, k)] is not None and recs[(i, k)].designator in approaches)
+            or instrument_markings(getattr(rw, "markings", (0, 0))[k])
+            for k in (0, 1))
         r = Runway(f"{ends[0].name}/{ends[1].name}", rw.width_m,
                    normalise_surface(rw.surface), (ends[0], ends[1]), None,
-                   runway_code_letter(rw.width_m))
+                   runway_code_letter(rw.width_m), instrument)
         runways.append(_dc.replace(r, code_number=runway_code_number(r.length_m)))
     rep.cifp_missing_ends = tuple(missing)
     rep.cifp_coordinate_joins = tuple(joins)
@@ -692,6 +703,15 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
+
+def instrument_markings(code: int) -> bool:
+    """apt.dat row-100 MARKINGS that witness an approach (owner RULINGS
+    2026-10-15n, amending 15m (2)): PRECISION markings only — 3 precision,
+    5 UK precision.  Non-precision markings (2, 4) alone do not make a
+    runway instrument: scenery authors paint them on visual runways
+    (CYXY 02/20, KBJC 03/21 have no CIFP approach)."""
+    return int(code) in (3, 5)
 
 
 def join_cifp(icao: str, runways: _t.Sequence[_t.Any],

@@ -22,7 +22,8 @@ __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
-    "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
+    "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds", "generator_slack_m",
+    "runway_zone_edge_offset_m", "runway_safety_area_length_m",
     "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "end_profile_noise_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "gap_standoff_m",
@@ -415,10 +416,64 @@ def zone2_half_width_m(law: Law, role: str, code_number: int | None = None,
     return zc.half_width_m.value(code_number, code_letter)
 
 
+def runway_zone_edge_offset_m(law: Law, code_number: int | None,
+                              code_letter: str | None, runway_half_m: float
+                              ) -> float | None:
+    """THE RUNWAY ZONE'S OUTER EDGE, as an offset from the PAVEMENT EDGE
+    (owner RULINGS 2026-10-15c (1) "From the centreline"): the zone-2
+    half-width is a CENTRELINE figure (``zones.toml`` FAA RSA by letter,
+    ICAO strip by code), so the band reaches ``max(lip_width_m, half-width
+    − runway_half_m)`` beyond the edge — never less than the lip.  Before
+    the ruling the band was buffered by the whole half-width from the edge
+    (KBJC 12L: wider than its RSA by the runway's width).  ``None`` where
+    the class states no strip."""
+    hw = zone2_half_width_m(law, "runway", code_number, code_letter)
+    if hw is None:
+        return None
+    lip = float(law.tables.zones.adjacent_ground.lip_width_m)
+    return max(lip, float(hw) - max(0.0, float(runway_half_m)))
+
+
+def runway_safety_area_length_m(law: Law, code_number: int | None = None,
+                                code_letter: str | None = None,
+                                instrument: bool = False) -> float:
+    """THE GRADED AREA'S LENGTH beyond each runway end, measured from the
+    runway END with the blast pad inside it (owner RULINGS 2026-10-15c (2)
+    "Full safety-area length"): FAA — the RSA length by design group
+    (``[faa.end_skirt] rsa_length_m``: AC 150/5300-13B App. G dim R through
+    the letter proxy); ICAO — the strip's end length plus the RESA
+    (``strip.end_length_m`` + ``end_skirt.corridor_length_m``; Annex 14
+    §3.5.3 measures the RESA from the strip's end; master 2026-10-15 Q1),
+    each read BY CODE AND INSTRUMENT STATUS (RULINGS 2026-10-15k (1);
+    ``instrument`` is the runway's witnessed CIFP approach,
+    ``model.airport.Runway.instrument``)."""
+    rs = law.ruleset
+    sk = rs.end_skirt
+    if sk.rsa_length_m is not None:
+        v = sk.rsa_length_m.value(code_number, code_letter)
+        if v:
+            return float(v)
+    strip_end = _by_status(rs.strip.end_length_m, rs.strip.end_length_instrument_m,
+                           instrument, code_number, code_letter) or 0.0
+    resa = _by_status(sk.corridor_length_m, sk.corridor_length_instrument_m,
+                      instrument, code_number, code_letter) or 0.0
+    return float(strip_end) + float(resa)
+
+
+def _by_status(table, instrument_table, instrument: bool,
+               code_number: int | None, code_letter: str | None) -> float | None:
+    """A value the standard states by INSTRUMENT STATUS (RULINGS
+    2026-10-15k): the instrument table on an instrument runway where the
+    ruleset carries one, else the table itself; ``None`` with neither."""
+    t = instrument_table if instrument and instrument_table is not None else table
+    return None if t is None else t.value(code_number, code_letter)
+
+
 def zone_bounds(law: Law, role: str, d_m: float,
                 code_number: int | None = None,
                 code_letter: str | None = None,
-                band_max_down: float | None = None
+                band_max_down: float | None = None,
+                half_m: float | None = None
                 ) -> tuple[float | None, float | None]:
     """Signed ``(floor, ceiling)`` offset from the pavement-edge elevation
     at lateral distance ``d_m`` — the accumulated two-zone corridor, or
@@ -431,19 +486,31 @@ def zone_bounds(law: Law, role: str, d_m: float,
     2026-09-27a (7)); the lip and the ceiling are unchanged."""
     ag = law.tables.zones.adjacent_ground
     zc = zone_class(law, role)
-    half = zone2_half_width_m(law, role, code_number, code_letter)
+    # ``half_m``: the zone's outer bound FROM THE EDGE where the caller knows
+    # the pavement (a runway's :func:`runway_zone_edge_offset_m`); the table
+    # half-width otherwise
+    half = half_m if half_m is not None else zone2_half_width_m(
+        law, role, code_number, code_letter)
     if zc is None or half is None or d_m > half:
         return (None, None)
     lip = min(d_m, ag.lip_width_m)
     floor = -ag.lip_max_down * lip
     ceil = -ag.lip_min_down * lip
     band = max(0.0, d_m - ag.lip_width_m)
-    bmax = zc.band_max_down.value(code_number, code_letter)
+    faa = law.ruleset.authority == "FAA"
+    # THE BAND BY AUTHORITY (RULINGS 2026-10-15l (2) / (4); ``zones.toml``):
+    # FAA falls 1.5 % to the AAC's maximum (Table 3-6 S-3); ICAO is bounded
+    # in MAGNITUDE only where the class states a rise (Annex 14 §3.4.15)
+    if faa and zc.band_max_down_faa is not None:
+        bmax = zc.band_max_down_faa.value(code_number, code_letter)
+    else:
+        bmax = zc.band_max_down.value(code_number, code_letter)
+    rise = None if faa or zc.band_max_up is None else zc.band_max_up.value(code_number, code_letter)
     if band_max_down is not None:
         bmax = max(float(band_max_down), bmax or 0.0)
     if band > 0 and bmax is not None:
         floor -= bmax * band
-        ceil -= zc.band_min_down * band
+        ceil = ceil + rise * band if rise is not None else ceil - zc.band_min_down * band
     return (floor, ceil)
 
 
@@ -476,7 +543,8 @@ def runway_vertical_curve_bound(law: Law, spacing_m: float,
 
 
 def strip_transverse_bound(law: Law, d_m: float, code_number: int | None = None,
-                           code_letter: str | None = None) -> float | None:
+                           code_letter: str | None = None,
+                           half_m: float | None = None) -> float | None:
     """THE STRIP TIE (RULINGS 2026-09-06b law 2; spec §3): how far (m) a
     graded-strip vertex ``d_m`` off a runway-family edge may stand from
     the edge, EITHER way — the runway zone class's own transverse cap
@@ -484,7 +552,8 @@ def strip_transverse_bound(law: Law, d_m: float, code_number: int | None = None,
     over zone 1, ``zones.adjacent_ground.runway.band_max_down`` by code
     over zone 2: the magnitude of :func:`zone_bounds`' floor, the ONE
     derivation site of the corridor, 08-30l).  ``None`` in zone 3."""
-    floor, _ceil = zone_bounds(law, "runway", d_m, code_number, code_letter)
+    floor, _ceil = zone_bounds(law, "runway", d_m, code_number, code_letter,
+                               half_m=half_m)
     return None if floor is None else -floor
 
 
@@ -558,17 +627,19 @@ class EndProfile:
 
 
 def runway_end_profile(law: Law, code_number: int | None = None,
-                       code_letter: str | None = None) -> EndProfile:
+                       code_letter: str | None = None,
+                       instrument: bool = False) -> EndProfile:
     """:class:`EndProfile` for a runway of this class under the law's
-    ruleset — the strip's end length and cap where the authority states
-    them, else the end skirt's near zone; the skirt's max down-grade
-    beyond; the climb surface from the ruleset's ``eat`` table."""
+    ruleset — the strip's end length (by code and instrument status,
+    RULINGS 2026-10-15k (1)) and cap where the authority states them, else
+    the end skirt's near zone; the skirt's max down-grade beyond; the climb
+    surface from the ruleset's ``eat`` table BY CODE (15k (2))."""
     rs = law.ruleset
     sk = rs.end_skirt
     segs: list[tuple[float, float]] = []
     hold = 0.0
-    el = rs.strip.end_length_m
-    end_len = el.value(code_number, code_letter) if el is not None else None
+    end_len = _by_status(rs.strip.end_length_m, rs.strip.end_length_instrument_m,
+                         instrument, code_number, code_letter)
     strip_cap = rs.strip.longitudinal.value(code_number, code_letter)
     if end_len and strip_cap is not None:
         segs.append((float(end_len), float(strip_cap)))
@@ -579,23 +650,44 @@ def runway_end_profile(law: Law, code_number: int | None = None,
     eat = rs.eat
     rate = None if sk.rate_provisional else sk.rate.per_metre
     return EndProfile(tuple(segs), hold,
-                      None if eat is None else float(eat.slope),
-                      0.0 if eat is None else float(eat.setback_m), rate)
+                      None if eat is None else float(eat.slope.value(code_number, code_letter)),
+                      0.0 if eat is None else float(eat.setback_m.value(code_number, code_letter)),
+                      rate)
 
 
 def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:
     """THE RUNWAY-END PROFILE'S TOLERANCE — the ONE key
     ``emit.instrument.strip_edge_noise_m`` (#620: the owner's open choice
     between today's value and pricing the first strip length at the cap
-    exactly, which is this key at 0).  The GENERATOR prices its rows with
-    the key less the materiality floor, never below zero; a READER
-    (``reader=True``) forgives the key itself, never less than the
-    per-node rounding a pair of emitted altitudes carries."""
+    exactly, which is this key at 0).  A READER (``reader=True``) forgives
+    the key itself, never less than the per-node rounding a pair of
+    emitted altitudes carries; the GENERATOR prices its rows with the key
+    less that same rounding envelope, never below zero — the envelope
+    the solver's held residual (``design.hard_tol_m``) and the two emitted
+    altitudes' rounding are sized under, so a row the solve holds at its
+    tolerance reads inside the reader's forgiveness.  Less the materiality
+    floor alone, a row held at the solver's tolerance read as a breach
+    (lane rwyzone15c phase 4, measured at CYXY: two end pairs held within
+    the tolerance read a few millimetres over the reader's bound)."""
     ins = law.tables.emit.instrument
     if reader:
         return max(float(ins.strip_edge_noise_m), float(ins.rounding_noise_m))
-    return max(0.0, float(ins.strip_edge_noise_m)
-               - float(law.tables.emit.materiality.elevation_m))
+    return generator_slack_m(law, float(ins.strip_edge_noise_m))
+
+
+def generator_slack_m(law: Law, reader_allowance_m: float) -> float:
+    """THE GENERATOR'S SLACK under a reader's allowance (lane rwyzone15c
+    phases 4 / 8): the allowance less ``emit.instrument.rounding_noise_m``,
+    never below zero.  That envelope is what the solver's held residual
+    (``design.hard_tol_m``) and two emitted altitudes' rounding are sized
+    under, so a row the solve holds at its tolerance reads inside the
+    reader's allowance.  Less the materiality floor alone, rows the solve
+    held a few centimetres over the generator's bound read as breaches
+    (CYXY: the end profile).  ONE helper for every family that prices its
+    rows this way.  NOT applied to the strip's longitudinal / arc rows:
+    their residuals are strip ground far under the visual tolerance
+    (owner RULINGS 2026-09-12y, restated on #763 phase 8)."""
+    return max(0.0, float(reader_allowance_m) - float(law.tables.emit.instrument.rounding_noise_m))
 
 
 def runway_end_zone_length_m(law: Law, runway_length_m: float) -> float:

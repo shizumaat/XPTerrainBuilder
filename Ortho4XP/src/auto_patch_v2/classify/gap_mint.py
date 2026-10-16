@@ -165,7 +165,7 @@ def mint_gap_pieces(airport: Airport, ev: Evidence, cells: list, law: Law,
     # ``ribbon_mint.ribbon_extent``'s envelope (the zone table's
     # half-widths), stood off like a standing cell.
     from .ribbon_mint import ribbon_extent
-    bands = ribbon_extent(cells, law, Polygon())
+    bands = ribbon_extent(cells, law, Polygon(), getattr(airport, "runways", ()))
     band_knife = off(bands) if not bands.is_empty else Polygon()
     aprons = [q for c, q in polys if c.role == "apron"]
     rolled = [q for c, q in polys if c.role in rolling]

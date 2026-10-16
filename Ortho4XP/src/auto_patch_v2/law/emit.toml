@@ -115,7 +115,7 @@ ask_reach_m = 150.0
 rounding_noise_m   = 0.03  # per-node alt_abs at 0.01 m: a pair carries this (ELEV_ROUNDING_NOISE_M)
 coarse_noise_m     = 0.1   # junction-family weld hubs / sloped quads (SLOPED_QUAD_ROUNDING_NOISE_M); also every rate reader's quantum
 coarse_noise_roles = ["junction", "service_junction"]  # the weld-hub roles the coarse envelope applies to (check_grade._WELD_HUB_ROLES = JUNCTION_ROLES)
-strip_edge_noise_m = 0.15  # THE RUNWAY-END PROFILE'S TOLERANCE, the one key (`tables.end_profile_noise_m`; skirt_edge_noise_m): the generator prices every end row (pairs, transects, chords) with this less the materiality floor and both readers forgive it. #620 OPEN OWNER CHOICE: 0.15 lets the first strip length read up to cap + 0.14 m (CYCG 15: 1.99 % over 60 m against 1.75 %); 0 prices it at the cap exactly (the readers then forgive `rounding_noise_m` only). Not changed without the owner's answer.
+strip_edge_noise_m = 0.15  # THE RUNWAY-END PROFILE'S TOLERANCE, the one key (`tables.end_profile_noise_m`; skirt_edge_noise_m): the generator prices every end row (pairs, transects, chords) with this less rounding_noise_m (the envelope a held pair carries) and both readers forgive it. #620 OPEN OWNER CHOICE: 0.15 lets the first strip length read up to cap + 0.14 m (CYCG 15: 1.99 % over 60 m against 1.75 %); 0 prices it at the cap exactly (the readers then forgive `rounding_noise_m` only). Not changed without the owner's answer.
 step_contact_tol_m = 1.0   # a vertex touches a foreign edge within this (_STEP_CONTACT_TOL_M)
 edge_search_m      = 5.0   # step readers look this far for a foreign edge (LAW_TRUE_KNOBS edge_search_m)
 tile_seam_zone_m   = 400.0 # nodes within this of a crossed tile line are seam-zone (TILE_SEAM_ZONE_M)

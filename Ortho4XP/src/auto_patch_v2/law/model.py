@@ -116,6 +116,10 @@ class StripLaw:
     #: ``None`` = the authority states no strip beyond the end (FAA: the
     #: RSA near-end rule, ``EndSkirtLaw.near_zone_m``, governs instead).
     end_length_m: CodeTable | None = None
+    #: ... on an INSTRUMENT runway (owner RULINGS 2026-10-15k (1); Annex 14
+    #: §3.4.2: 60 m at every code), where the authority states a separate
+    #: figure; ``None`` = the instrument runway reads ``end_length_m``
+    end_length_instrument_m: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -129,6 +133,15 @@ class EndSkirtLaw:
     near_zone_m: float | None = None
     near_max_down_grade: float | None = None
     corridor_length_m: CodeTable | None = None
+    #: THE RSA LENGTH beyond each runway end, measured from the runway END
+    #: with the blast pad inside it (owner RULINGS 2026-10-15c (2)): the FAA
+    #: states it by design group (AC 150/5300-13B App. G dim R); ``None``
+    #: = the authority builds it from the strip end length + the RESA
+    #: (``tables.runway_safety_area_length_m``)
+    rsa_length_m: CodeTable | None = None
+    #: the RESA on an INSTRUMENT runway (owner RULINGS 2026-10-15k (1);
+    #: Annex 14 §3.5.2-3.5.4); ``None`` = it reads ``corridor_length_m``
+    corridor_length_instrument_m: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -200,6 +213,15 @@ class ZoneClass:
     band_min_down: float
     band_max_down: CodeTable
     half_width_faa_m: CodeTable | None = None
+    #: the zone-2 band's maximum fall under the FAA ruleset, by the AAC's
+    #: runway-width letter proxy (RULINGS 2026-10-15l (2), AC 150/5300-13B
+    #: Table 3-6 S-3); ``None`` = the ``band_max_down`` table everywhere
+    band_max_down_faa: CodeTable | None = None
+    #: the zone-2 band's maximum RISE where the authority bounds the
+    #: transverse slope in MAGNITUDE only (RULINGS 2026-10-15l (4), ICAO
+    #: Annex 14 §3.4.15: no minimum fall beyond the lip); ``None`` = the band
+    #: falls by at least ``band_min_down``
+    band_max_up: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -223,6 +245,12 @@ class AdjacentGround:
     shore_profile_run_m: float
     runway: ZoneClass
     taxi: ZoneClass
+    #: THE END AREA STOPS AT THE TOP OF A DROP (owner RULINGS 2026-10-15g
+    #: (C); ``model/end_area``): the raw ground along the extended
+    #: centreline stands ``emit.design.edge_min_drop_m`` below the end
+    #: profile's lawful fall AND falls steeper than this over
+    #: ``emit.design.edge_probe_m`` — PROPOSED, for the owner's ratification
+    end_drop_min_grade: float
 
 
 @_dc.dataclass(frozen=True)

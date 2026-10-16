@@ -7,7 +7,11 @@
 #           sloping down between `band_min_down` and the class' max;
 #   zone 3  beyond zone 2: the DEM, untouched (`beyond_zone2 = "dem"`).
 # All bounds accumulate across zone boundaries (continuous corridor).
-# Grades are fractions; widths are metres from the PAVEMENT EDGE.
+# Grades are fractions; widths are metres from the PAVEMENT EDGE — EXCEPT the
+# RUNWAY family's `half_width_m` / `half_width_faa_m`, which are measured
+# from the runway CENTRELINE (owner RULINGS 2026-10-15c (1) "From the
+# centreline"): the zone's edge offset is max(lip_width_m, half-width −
+# runway half-width) (`tables.runway_zone_edge_offset_m`).
 
 [adjacent_ground]
 beyond_zone2   = "dem"      # zone 3 IS the DEM — never graded (08-01; only "dem" is lawful here)
@@ -17,14 +21,28 @@ lip_max_down   = 0.05       # zone-1 maximum down-slope
 ungraded_max_up = 0.05      # rising ground beyond the graded strip may rise at most this (§4 row 9)
 shore_profile_drop_m = 3.5  # §37 (11) SHORE DECISION (owner RULINGS 2026-09-29a (4), CALIBRATED 29h: 2.0 -> 3.5 — VMMC 6.10 m wall, NLWF 2.03-2.69 m natural): a drop of at least this, taken steeper than the bank slope, across the last shore_profile_run_m before the water line is a BUILT edge -> wall (planar/shore)
 shore_profile_run_m  = 10.0 # §37 (11) SHORE DECISION (29a (4)): the run of land before the water line the terrain profile reads
+end_drop_min_grade = 0.20   # owner RULINGS 2026-10-15g (C) "the band stops at the top of the drop": PROPOSED by lane rwyzone15c for ratification. A DROP along a runway end's extended centreline is raw ground standing emit.design.edge_min_drop_m (2 m) below the end profile's lawful fall AND falling steeper than this over emit.design.edge_probe_m (15 m); the end area ends at the last station before it where the ground is on or above the lawful line (model/end_area). Measured: CYXY's escarpment ends 24.8 / 51.5 / 44.9 %, deficit > 2 m at 175 / 170 / 200 m; KBJC's steepest end ground 10.5 % with no 2 m deficit anywhere
 groundside_cutback_m = 0.6  # an airside zone band is cut back this far from GROUNDSIDE pavement (roads, lots) so the two never share a vertex: the stand-off terraces (groundside terrace law; the mixed-pad precedent 09-01i; measured CYXY 2026-09-04: a road strip's DEM climb tore a taxi zone band 3.03 m in 5.6 m through one shared corner vertex)
 
 # zone 2 for the RUNWAY family (runway, runway_crossing): keyed by code NUMBER
 [adjacent_ground.runway]
 half_width_m   = { by_code = { "1" = 30.0, "2" = 40.0, "3" = 75.0, "4" = 75.0 }, default = 75.0 }  # ICAO graded strip (Annex 14 §3.4.8)
 half_width_faa_m = { by_letter = { "A" = 18.3, "B" = 22.9, "C" = 76.2, "D" = 76.2, "E" = 76.2, "F" = 76.2 }, default = 76.2 }  # FAA RSA half-width by RDC letter
-band_min_down  = 0.015      # FAA RSA minimum
-band_max_down  = { by_code = { "1" = 0.05, "2" = 0.05, "3" = 0.03, "4" = 0.03 }, default = 0.03 }  # 3 % code 3/4, 5 % code 1/2
+# THE BAND'S TRANSVERSE LAW BY AUTHORITY (RULINGS 2026-10-15l (2) / (4), audit
+# `docs/findings/law-table-audit-20261015.md` rows 1 and 4; lane rwyzone15c
+# phase 7).  ICAO Annex 14 §3.4.15: beyond the 3 m lip (zone 1, up to 5 %
+# down, as above) the strip's transverse slope "should not exceed" 2.5 % at
+# code 3/4 and 3 % at code 1/2 — a MAGNITUDE, rising or falling, with NO
+# minimum fall: `band_max_down` and `band_max_up` below.  The engine-invented
+# ICAO minimum of 1.5 % (the mandatory-down ceiling) is deleted.  FAA AC
+# 150/5300-13B Table 3-6 S-3 (§3.10 RSA, transverse grade): 1.5-3.0 % at AAC
+# C-E and 1.5-5 % at A/B, falling away from the runway — `band_min_down`
+# (the regulated 1.5 % minimum) and `band_max_down_faa` by the runway-width
+# letter proxy for the AAC (15l (2): "until a real witness exists").
+band_min_down  = 0.015      # FAA Table 3-6 S-3 minimum fall (read under the FAA ruleset only: ICAO states none)
+band_max_down  = { by_code = { "1" = 0.03, "2" = 0.03, "3" = 0.025, "4" = 0.025 }, default = 0.025 }  # ICAO §3.4.15 magnitude, falling
+band_max_up    = { by_code = { "1" = 0.03, "2" = 0.03, "3" = 0.025, "4" = 0.025 }, default = 0.025 }  # ICAO §3.4.15 magnitude, rising
+band_max_down_faa = { by_letter = { "A" = 0.05, "B" = 0.05, "C" = 0.03, "D" = 0.03, "E" = 0.03, "F" = 0.03 }, default = 0.03 }  # FAA Table 3-6 S-3 by AAC (letter proxy)
 
 # zone 2 for the TAXI family (parallels, stub, cross_connector, junction): keyed by code LETTER
 [adjacent_ground.taxi]

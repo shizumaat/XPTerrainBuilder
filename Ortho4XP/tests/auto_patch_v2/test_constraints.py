@@ -202,7 +202,9 @@ def test_zone_bands_are_relative_and_pocket_ruled(synthetic, law):
     for r in rows:
         assert isinstance(r, Linear) and r.terms[0][1] == 1.0
         assert r.lo is None or r.lo < 0.0
-        assert r.hi is None or r.hi < 0.0                  # mandatory down
+        # the ceiling is mandatory-down within the lip only: beyond it the
+        # ICAO band may rise (RULINGS 2026-10-15l (4), Annex 14 §3.4.15)
+        assert r.hi is None or r.lo is None or r.hi > r.lo
     strip = {v for f in pm.faces.values() if f.role == "graded_strip"
              for v in pm.ring_vertices(f.ring)}
     bound = {r.terms[0][0] for r in rows}

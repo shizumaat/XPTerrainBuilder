@@ -1563,7 +1563,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
                want_sites: bool = False,
                site_visibility_m: Optional[float] = None,
                sites_out: Optional[Path] = None,
-               want_class: bool = False) -> dict:
+               want_class: bool = False, cockpit_top: int = 5) -> dict:
     """The census of ONE patch.  Returns the report dict; prints nothing.
 
     ``want_class`` adds ``row_classes`` — every adjudicated row bucketed
@@ -1662,7 +1662,7 @@ def census_one(osm: Path, cg, *, want_bare: bool = False,
     # it REFUSES if its buckets do not add up to the population handed in.
     cockpit = cg.cockpit_block(
         {k: rows for k, (_t, _b, rows) in rows_by_family.items()},
-        geometry=families.get("_cockpit_geometry"))
+        geometry=families.get("_cockpit_geometry"), worst=cockpit_top)
 
     all_rows = [(k, r) for k, (_t, _b, rs) in rows_by_family.items()
                 for r in rs]
@@ -2489,6 +2489,11 @@ def main(argv=None) -> int:
                     help="write the full report(s) here as JSON")
     ap.add_argument("--top", type=int, default=10,
                     help="worst-N rows to print (default 10)")
+    ap.add_argument("--cockpit-top", type=int, default=5,
+                    help="rows itemised per COCKPIT bucket in the report and "
+                         "its JSON (default 5); a large N lists every "
+                         "critical row, so two arms' critical rows can be "
+                         "joined by site")
     ap.add_argument("--bare", action="store_true",
                     help="also run the context-free frame (overcounts; "
                          "for the record only)")
@@ -2599,6 +2604,7 @@ def main(argv=None) -> int:
     cache_options = {
         "bare": bool(args.bare),
         "top": int(args.top),
+        "cockpit_top": int(args.cockpit_top),
         "zone_split": bool(args.zone_split),
         "band_edges": (list(band_edges) if band_edges is not None else None),
         "frame": args.frame,
@@ -2662,7 +2668,8 @@ def main(argv=None) -> int:
                                      rows_out=rows_out, want_sites=args.sites,
                                      site_visibility_m=args.site_visibility,
                                      sites_out=sites_out,
-                                     want_class=args.row_class)
+                                     want_class=args.row_class,
+                                     cockpit_top=args.cockpit_top)
             except cg.UserEditedPatchUnjudged as exc:
                 # A5: REPORTED under the label, never a refusal or a fail.
                 print(f"[census] {cg.USER_EDITED_LABEL.upper()}: {exc}")

@@ -246,7 +246,10 @@ def test_the_pavement_does_not_feel_the_ground_it_shapes(taxi_map, law):  # noqa
         # REDUCED COLUMNS the split keeps (10y — a pad plane's follower is
         # a set), not a vertex id.
         cols = set(A1.indices[A1.indptr[k]:A1.indptr[k + 1]].tolist())
-        foot = {int(base.red.col[u]) for u, _c in base.one[k][2].terms
+        row = base.one[k][2]
+        # a one-way DIFF (the zone bank, RULINGS 2026-10-15c (3)) is the pair
+        terms = getattr(row, "terms", None) or ((row.a, 1.0), (row.b, -1.0))
+        foot = {int(base.red.col[u]) for u, _c in terms
                 if int(base.red.col[u]) not in keep and base.red.col[u] >= 0}
         # the row DOES carry its feet before the split; the split is the
         # solve's own (``solve_design``), and every follower column is in

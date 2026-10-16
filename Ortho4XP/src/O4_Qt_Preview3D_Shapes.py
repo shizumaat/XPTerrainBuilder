@@ -20,12 +20,10 @@ apron, building, graded strip …).  Its holes are
 Structure rims, crown spines and other ``o4_feature`` ways are not surfaces.
 
 Each surface is triangulated in NODE IDS, so a moved node updates its
-vertex without re-triangulating.  The triangulator is GEOS's constrained
-Delaunay (shapely, already in the app), not the engine's
-``geom.triangulate.face_triangles``: that one is an UNconstrained Delaunay
-kept by centroid, and on HECA's patch it covers 183 of 1,147 surfaces
-wrongly (a concave face loses up to 52 % of its area); the constrained one
-covers every surface of HECA, KCLT, OTHH, KUAO, CYXY and KASE to 1e-6.
+vertex without re-triangulating.  The triangulator is the engine's one
+face triangulation, ``auto_patch_v2.geom.triangulate.face_triangles``
+(GEOS's constrained Delaunay, which covers a concave face or a face with
+holes exactly — issue #752); this module keeps no copy of it.
 """
 from __future__ import annotations
 
@@ -38,6 +36,7 @@ import numpy as np
 from o4_engine import patch_edit as PE
 
 from O4_Qt_Pack_Outlines import METRES_PER_DEG_LAT
+from auto_patch_v2.geom.triangulate import face_triangles
 
 __all__ = ["HOLE_FEATURE", "LocalFrame", "PreviewShape", "ShapeMesh", "ShapeIndex", "triangulate",
            "DocChange", "is_surface", "is_gap_ring", "assemble", "mesh_shapes",
@@ -220,36 +219,8 @@ def assemble(doc: PE.PatchDoc, frame: LocalFrame | None = None) -> list[PreviewS
     return [PreviewShape(w.id, r.ids, tuple(h)) for (w, r), h in zip(surfaces, holes)]
 
 
-def triangulate(xy: _t.Mapping[int, tuple[float, float]], outer: _t.Sequence[int],
-                holes: _t.Sequence[_t.Sequence[int]] = ()) -> list[tuple[int, int, int]]:
-    """One surface's triangles as node-id triples: GEOS's constrained
-    Delaunay triangulation (shapely), which keeps every ring edge, so a
-    concave face or a face with holes is covered exactly.  A polygon whose
-    hole touches its outer ring (a nested face sharing an edge with its
-    parent) is made valid first; a triangle corner that is no node (a ring
-    self-crossing) drops that triangle.  Never raises: a ring GEOS refuses
-    gives no triangles."""
-    import shapely
-    from shapely.geometry import Polygon
-
-    def ring(ids):
-        return [xy[i] for i in ids if i in xy]
-    lut = {xy[i]: i for r in (outer, *holes) for i in r if i in xy}
-    try:
-        hole_rings = [ring(h) for h in holes if len(ring(h)) >= 3]
-        poly = Polygon(ring(outer), hole_rings)
-        if not poly.is_valid:        # the outer ring minus the holes' union
-            poly = shapely.make_valid(Polygon(ring(outer))).difference(
-                shapely.union_all([shapely.make_valid(Polygon(h)) for h in hole_rings]))
-        tris = shapely.constrained_delaunay_triangles(poly)
-    except (shapely.errors.GEOSException, ValueError):
-        return []
-    out = []
-    for t in shapely.get_parts(tris):
-        corners = [lut.get(c) for c in t.exterior.coords[:3]]
-        if None not in corners:
-            out.append(tuple(corners))
-    return out
+#: One surface's triangles as node-id triples (the engine's own rule).
+triangulate = face_triangles
 
 
 @_dc.dataclass(frozen=True)

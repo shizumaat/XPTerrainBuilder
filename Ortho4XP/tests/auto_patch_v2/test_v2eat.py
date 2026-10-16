@@ -135,8 +135,8 @@ def test_the_value_is_the_law_and_is_not_clamped(law):
     NEGATIVE, and only the SURFACE's own rise is floored."""
     rs = law.ruleset.eat
     tail = law.tables.common.eat.tail_height_m.value(code_letter="E")
-    got = eat.eat_ceiling_offset(400.0, rs.slope, rs.setback_m, tail)
-    assert got == pytest.approx(400.0 * rs.slope - tail)
+    got = eat.eat_ceiling_offset(400.0, rs.slope.value(4), rs.setback_m.value(4), tail)
+    assert got == pytest.approx(400.0 * rs.slope.value(4) - tail)
     assert got < 0.0                        # the depression IS the law
     # inside the setback the surface reads its inner-edge height, never a
     # fictitious below-end surface
@@ -158,7 +158,7 @@ def test_the_pin_is_the_law_at_the_rect_mid_distance(law):
     rows = eat.eat_pins(pm, law, ap)
     rs = law.ruleset.eat
     tail = law.tables.common.eat.tail_height_m.value(code_letter="E")
-    want = DEM_Z + eat.eat_ceiling_offset(485.0, rs.slope, rs.setback_m, tail)
+    want = DEM_Z + eat.eat_ceiling_offset(485.0, rs.slope.value(4), rs.setback_m.value(4), tail)
     assert rows and all(isinstance(r, Pin) for r in rows)
     assert {round(r.z, 6) for r in rows} == {round(want, 6)}
     assert eat.STATS["eat_pins"]["rects_accepted"] == 1
@@ -297,7 +297,7 @@ def test_the_pin_is_cut_only(law):
     tail = law.tables.common.eat.tail_height_m.value(code_letter="E")
     # the value at D 485 is end_z - 8.0 m; put the pavement's DEM well
     # under it and the rect stops cutting
-    low = DEM_Z + eat.eat_ceiling_offset(485.0, rs.slope, rs.setback_m, tail) - 5.0
+    low = DEM_Z + eat.eat_ceiling_offset(485.0, rs.slope.value(4), rs.setback_m.value(4), tail) - 5.0
     pm = _map([_crossing()], dem_z=low)
     assert eat.eat_pins(pm, law, ap) == []
     assert eat.STATS["eat_pins"]["refused_no_cut"] == 1

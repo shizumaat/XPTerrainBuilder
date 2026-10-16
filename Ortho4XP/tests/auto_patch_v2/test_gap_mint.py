@@ -115,7 +115,7 @@ def test_a_piece_along_a_runway_or_taxi_face_and_no_apron_is_not_minted(monkeypa
     running along it and touching no apron is listed, not minted; with a
     band the piece is trimmed off it instead (the band twin below)."""
     from auto_patch_v2.classify import ribbon_mint
-    monkeypatch.setattr(ribbon_mint, "ribbon_extent", lambda cells, law, pu: Polygon())
+    monkeypatch.setattr(ribbon_mint, "ribbon_extent", lambda cells, law, pu, runways=(): Polygon())
     taxi = _cell(0, "junction", "pav9", box(0, 0, 100, 30))
     out, stats, notes = _mint(_airport(box(0, 30, 100, 60)), [taxi])
     assert out == [] and stats["gap_pieces_unminted_airside"] == 1

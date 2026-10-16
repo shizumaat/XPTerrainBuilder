@@ -253,8 +253,10 @@ def test_strip_reader_flags_a_vertex_standing_over_the_cap(diagonal, law, solved
     vw = view(pm, law)
     rw = next(f for f in pm.faces.values() if f.role == "runway")
     rings = [vw.rings[f.id] for f in pm.faces.values() if f.role in ("runway", "runway_crossing")]
-    half = T.zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter)
     rwy = airport.runways[0]
+    # the corridor's outer bound FROM THE EDGE (RULINGS 2026-10-15c (1))
+    half = T.runway_zone_edge_offset_m(law, rw.code_number, rw.code_letter,
+                                       rwy.width_m / 2.0)
     a_xy, b_xy = rwy.ends[0].xy, rwy.ends[1].xy
     ux, uy = (b_xy[0] - a_xy[0]) / rwy.length_m, (b_xy[1] - a_xy[1]) / rwy.length_m
     best = None
@@ -275,7 +277,7 @@ def test_strip_reader_flags_a_vertex_standing_over_the_cap(diagonal, law, solved
             best = (d, v)
     assert best is not None
     d, v = best
-    bound = T.strip_transverse_bound(law, d, rw.code_number, rw.code_letter)
+    bound = T.strip_transverse_bound(law, d, rw.code_number, rw.code_letter, half_m=half)
     z2 = list(sol.z)
     z2[v] += 2.0 * bound + 1.0       # from under the mandatory-down to over the cap
     got = _census(diagonal, law, _dc.replace(sol, z=tuple(z2)))[FAMILY_STRIP_TRANSVERSE]

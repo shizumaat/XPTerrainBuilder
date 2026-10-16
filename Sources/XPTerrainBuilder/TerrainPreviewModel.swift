@@ -112,7 +112,7 @@ final class TerrainPreviewModel: ObservableObject {
 
     // MARK: - Changes
 
-    private static func key(_ doc: PatchDocument) -> String { "\(doc.tile)|\(doc.icao)|\(doc.path)" }
+    private static func key(_ doc: PatchDocument) -> String { doc.openKey } // a save keeps it
 
     /// A window opened on an already-loaded patch (no `.all` will come),
     /// or the layer was hidden.

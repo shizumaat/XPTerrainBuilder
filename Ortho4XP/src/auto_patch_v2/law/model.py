@@ -96,6 +96,8 @@ class RunwayLaw:
     #: THE MEAN RUNWAY SLOPE (Annex 14 §3.1.13): (max - min) / length;
     #: ``None`` = the authority states none
     mean_slope_max: CodeTable | None = None
+    #: the station spacing its rows are stated at (spec §4)
+    mean_slope_station_m: float | None = None
     #: the shoulder's minimum fall (FAA Table 3-6 S-2), RECORDED
     shoulder_transverse_min: float | None = None
     #: the largest grade change inside an END ZONE (FAA §3.16.1 C-E std 2:

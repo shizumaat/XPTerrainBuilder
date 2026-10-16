@@ -5,9 +5,10 @@ elevation of a runway, over its length, at most
 ``tables.runway_mean_slope_max`` — 1 % at code 3/4, 2 % at code 1/2.
 
 Stated on the runway's own ridge stations (``runway_profile.
-curve_stations`` between the two ends) as ALL-PAIRS ``Diff`` rows
-``|z_i - z_j| <= m · L`` (spec §4: no auxiliary columns), HARD in the
-runway tier beside the longitudinal cap.
+curve_stations`` between the two ends, thinned to ``runway.
+mean_slope_station_m``) as ALL-PAIRS ``Diff`` rows ``|z_i - z_j| <= m · L``
+(spec §4: no auxiliary columns), HARD in the runway tier beside the
+longitudinal cap.
 
 THE CAP YIELDS TO ITS PINS (the §50.1 (3) class, owner RULINGS
 2026-09-18d (3)): where the runway's own hard pins — its thresholds (CIFP
@@ -15,7 +16,7 @@ or apt.dat datum) and its §38 seam DEM pins — already stand further apart
 than ``m · L``, the effective cap is their spread over ``L`` plus
 ``[design] runway_yield_margin``.  :func:`mean_slope_caps` is the ONE
 derivation; the sidecar ``runway_axes`` slot 19 publishes it and v2 verify
-(``verify.runway.runway_mean_slope``) reads it back.
+(``verify.runway_mean_slope``) reads it back.
 """
 from __future__ import annotations
 
@@ -43,8 +44,16 @@ def _stations(vw, rw, chs, min_d: float) -> list[int]:
         x, y = vw.xy[v]
         return (x - a_xy[0]) * ux + (y - a_xy[1]) * uy
     tol = min_d
-    return [v for v in curve_stations(vw.xy, chs, along, min_d)
-            if -tol <= along(v) <= rw.length_m + tol]
+    st = [v for v in curve_stations(vw.xy, chs, along, min_d)
+          if -tol <= along(v) <= rw.length_m + tol]
+    step = vw.law.ruleset.runway.mean_slope_station_m
+    if not step or len(st) < 3:
+        return st
+    out = [st[0]]
+    for v in st[1:-1]:
+        if along(v) - along(out[-1]) >= float(step):
+            out.append(v)
+    return out + [st[-1]]
 
 
 def mean_slope_caps(planar: PlanarMap, law: Law, airport: Airport

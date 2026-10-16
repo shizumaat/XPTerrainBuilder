@@ -135,6 +135,11 @@ end_zone_precision_only_codes = [3]                       # code 3: end-zone cap
 # (`constraints/runway_mean_slope.py`; verify `runway_mean_slope`).  FAA
 # states no mean slope (absent: no rows).
 mean_slope_max    = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.010, "4" = 0.010 } }
+# ... stated between ridge stations at least this far apart (an ENGINE value,
+# spec §4 emittability): all-pairs over every station cost CYXY 45k rows and
+# doubled its solve; between stations the vertical-curve rows (K >= 150 m per
+# 1 %) hold the sag to K-rate x s^2 / 8 <= 0.02 m at 50 m, under the 12y bar
+mean_slope_station_m = 50.0
 max_grade_change  = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0.015 }, default = 0.015 }  # §3.1.15
 vertical_curve_k_m = { by_code = { "1" = 75.0, "2" = 75.0, "3" = 150.0, "4" = 300.0 }, default = 300.0 }  # m per 1 % change (§3.1.16)
 transverse_max    = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.1.18

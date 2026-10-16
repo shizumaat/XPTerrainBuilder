@@ -77,7 +77,8 @@ nothing minted here.
 from __future__ import annotations
 
 from ..law import Law
-from ..law.tables import is_rigid_role, role_cap, role_preferred_cap, snap_margin_m
+from ..law.tables import (apron_stand_cap, is_rigid_role, role_cap, role_preferred_cap,
+                          snap_margin_m)
 from ..model.airport import Airport
 from ..model.constraints import Diff, Row, Source
 from ..model.frame import rotated_rectangle
@@ -85,6 +86,7 @@ from ..model.planar import PlanarMap, is_osm_ribbon_ref
 from .geometry import (chord_midpoints_hit, chords_covered, face_cover,
                        chains_within, principal_axis)
 from .precedence import View, view
+from .stand_faces import stand_face_ids
 
 __all__ = ["apron_within_shape", "apron_edge_portions", "shared_apron_runs",
            "face_width", "STATS", "PREFERENCE_GROUP", "PREFERENCE_RULING",
@@ -219,6 +221,10 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
             if v not in strict and near(vw.xy[v]):
                 strict.add(v)
     tol = snap_margin_m(law)
+    # THE STAND CAP (owner RULINGS 2026-10-15l (3) / 15m (4); audit row 10):
+    # an apron face that contains a gate or tie-down is HARD at 1 %
+    stands = stand_face_ids(planar, law, airport)
+    stand_cap = apron_stand_cap(law)
     rows: list[Row] = []
     outside = 0
     n_pref = 0
@@ -226,11 +232,12 @@ def apron_within_shape(planar: PlanarMap, law: Law, airport: Airport
     for f in vw.faces_of_role(("apron",)):
         # 2026-10-10j: a face tied to a yielded runway is hard at ITS cap
         # and its preference is the yielded head; every other face reads
-        # the table, as before
+        # the table — the stand cap on a face with a stand
+        table = stand_cap if f.id in stands and stand_cap is not None else cap.longitudinal
         own = vw.caps[f.id][0] if vw.caps[f.id] is not None else cap.longitudinal
         tier = (_Tier(f.id, f.ref, own, pref_l, ruling=YIELDED_PREFERENCE_RULING)
                 if own > cap.longitudinal
-                else _Tier(f.id, f.ref, cap.longitudinal, pref_l))
+                else _Tier(f.id, f.ref, table, pref_l))
         src_ring = Source(GEN, "common.roles.apron ring edge (2026-08-21b)",
                           (f"face:{f.id}", f.ref))
         src_spine = Source(GEN, "common.roles.apron frontage chord (2026-08-21c)",

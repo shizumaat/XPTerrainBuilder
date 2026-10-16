@@ -32,7 +32,8 @@ __all__ = [
     "role_preferred_cap",
     "runway_transverse_max", "runway_transverse_bound", "runway_shoulder_cap",
     "runway_vertical_curve_bound", "strip_transverse_bound",
-    "taxi_half_width_m",
+    "taxi_half_width_m", "airside_rate_per_m", "apron_stand_cap",
+    "runway_end_zone_cap", "runway_end_zone_grade_change", "runway_mean_slope_max",
     "flat_site", "flat_datum_group", "flat_declared",
     "flat_source_class", "flat_relief_floor_m", "design",
     "design_weight", "sliver_area_factor", "group_span_max_m",
@@ -242,6 +243,70 @@ def taxi_half_width_m(law: Law, code_letter: str | None) -> float | None:
         return None
     w = tbl.value(None, code_letter)
     return None if w is None else float(w) / 2
+
+
+def airside_rate_per_m(law: Law, role: str, code_letter: str | None = None) -> float:
+    """THE AIRSIDE GRADE-CHANGE RATE along a ring of ``role`` (grade change
+    per metre; owner RULINGS 2026-10-15l (1), audit row 2): a TAXI-family
+    face reads its own letter's vertical curve (``<ruleset>.taxi.curve_k_m``
+    — Annex 14 §3.9.9; AC 150/5300-13B §4.14.1 (3)(b)), every other
+    airside ring the strip's
+    ``arc_rate`` (the runway family's; the apron's is engine-invented,
+    audit §3).  ONE accessor: the generator (``constraints.no_step.
+    no_step_rate``), v2 verify (``verify.no_step``) and the census read it."""
+    k = law.ruleset.taxi.curve_k_m
+    if k is not None and role_family(law, role) == "taxi":
+        km = k.value(None, code_letter)
+        if km:
+            return float(law.tables.common.vertical_curve_k_grade_unit) / float(km)
+    return float(law.ruleset.strip.arc_rate.per_metre)
+
+
+def apron_stand_cap(law: Law) -> float | None:
+    """THE STAND CAP (owner RULINGS 2026-10-15l (3) / 15m (4); ICAO Annex
+    14 §3.13.5, FAA AC 150/5300-13B §5.9.2): the HARD longitudinal cap of
+    an apron face that contains a stand (``constraints/stand_faces``),
+    never looser than the apron's own; ``None`` where the table states none."""
+    v = law.tables.common.apron_stand_max
+    if v is None:
+        return None
+    rc = law.tables.common.roles.get("apron")
+    return float(v) if rc is None else min(float(v), float(rc.longitudinal))
+
+
+def runway_end_zone_cap(law: Law, code_number: int | None,
+                        code_letter: str | None, cat_ii_iii: bool = False
+                        ) -> float | None:
+    """The END-ZONE longitudinal cap at one runway END (``<ruleset>.runway.
+    end_zone``), or ``None``: at a code in ``end_zone_precision_only_codes``
+    (ICAO code 3, Annex 14 §3.1.14: Cat II/III only; audit row 13) only at
+    an end the witness reads Cat II/III (``RunwayEnd.cat_ii_iii``, RULINGS
+    2026-10-15m (2))."""
+    rs = law.ruleset.runway
+    cap = rs.end_zone.value(code_number, code_letter)
+    if cap is None:
+        return None
+    if code_number in rs.end_zone_precision_only_codes and not cat_ii_iii:
+        return None
+    return float(cap)
+
+
+def runway_end_zone_grade_change(law: Law, code_number: int | None,
+                                 code_letter: str | None) -> float | None:
+    """The largest grade change inside a runway END ZONE (FAA AC
+    150/5300-13B §3.16.1 C/D/E standard 2: none — audit §4 M2), or ``None``
+    where the authority states no such rule (the curve bound governs)."""
+    t = law.ruleset.runway.end_zone_max_grade_change
+    return None if t is None else t.value(code_number, code_letter)
+
+
+def runway_mean_slope_max(law: Law, code_number: int | None,
+                          code_letter: str | None = None) -> float | None:
+    """THE MEAN RUNWAY SLOPE cap (Annex 14 §3.1.13; audit §4 M1): the
+    highest minus the lowest centreline elevation over the runway length;
+    ``None`` where the authority states none (FAA)."""
+    t = law.ruleset.runway.mean_slope_max
+    return None if t is None else t.value(code_number, code_letter)
 
 
 def runway_transverse_max(law: Law, code_letter: str | None,
@@ -493,11 +558,15 @@ def zone_bounds(law: Law, role: str, d_m: float,
         law, role, code_number, code_letter)
     if zc is None or half is None or d_m > half:
         return (None, None)
-    lip = min(d_m, ag.lip_width_m)
-    floor = -ag.lip_max_down * lip
-    ceil = -ag.lip_min_down * lip
-    band = max(0.0, d_m - ag.lip_width_m)
     faa = law.ruleset.authority == "FAA"
+    # THE LIP BY AUTHORITY (audit row 9): the FAA taxiway lip is 5 +/- 0.5 %
+    # (AC §4.14.2 item 4) where the class states it; the shared lip else
+    lip_lo = zc.lip_min_down_faa if faa and zc.lip_min_down_faa is not None else ag.lip_min_down
+    lip_hi = zc.lip_max_down_faa if faa and zc.lip_max_down_faa is not None else ag.lip_max_down
+    lip = min(d_m, ag.lip_width_m)
+    floor = -lip_hi * lip
+    ceil = -lip_lo * lip
+    band = max(0.0, d_m - ag.lip_width_m)
     # THE BAND BY AUTHORITY (RULINGS 2026-10-15l (2) / (4); ``zones.toml``):
     # FAA falls 1.5 % to the AAC's maximum (Table 3-6 S-3); ICAO is bounded
     # in MAGNITUDE only where the class states a rise (Annex 14 §3.4.15)
@@ -576,6 +645,11 @@ class EndProfile:
       may not stand above the take-off climb / departure surface with NO
       tail height (``[<ruleset>.eat]``; the master's note on (c)).
       ``None`` = the authority states no surface: rising ground unbound.
+    * ``approach``: the end's APPROACH SURFACES (owner RULINGS
+      2026-10-15m (1); FAA only) as ``(slope, inner edge beyond the END)``
+      — the inner edge is the table's distance from the threshold less the
+      end's displaced length.  The rising side is held under the LOWEST of
+      them and the climb surface.
     * ``rate``: grade change per metre, FAA only (``rate_provisional``
       false); ``None`` where the text is qualitative (ICAO).
     * ``break_m``: where the first segment ends — the planar stage breaks
@@ -587,6 +661,7 @@ class EndProfile:
     climb_slope: float | None
     climb_setback_m: float
     rate: float | None
+    approach: tuple[tuple[float, float], ...] = ()
 
     @property
     def break_m(self) -> float | None:
@@ -612,9 +687,10 @@ class EndProfile:
         d = max(0.0, float(d_m))
         if d <= self.hold_m:
             return 0.0
-        if self.climb_slope is None:
-            return None
-        return max(0.0, d - self.climb_setback_m) * self.climb_slope
+        lims = [max(0.0, d - edge) * slope for slope, edge in self.approach]
+        if self.climb_slope is not None:
+            lims.append(max(0.0, d - self.climb_setback_m) * self.climb_slope)
+        return min(lims) if lims else None
 
     def down_cap_at(self, d_m: float) -> float:
         """The down-grade cap in force at ``d_m`` (the segment's)."""
@@ -628,12 +704,19 @@ class EndProfile:
 
 def runway_end_profile(law: Law, code_number: int | None = None,
                        code_letter: str | None = None,
-                       instrument: bool = False) -> EndProfile:
+                       instrument: bool = False,
+                       approach_class: str | None = None,
+                       displaced_m: float = 0.0) -> EndProfile:
     """:class:`EndProfile` for a runway of this class under the law's
     ruleset — the strip's end length (by code and instrument status,
     RULINGS 2026-10-15k (1)) and cap where the authority states them, else
     the end skirt's near zone; the skirt's max down-grade beyond; the climb
-    surface from the ruleset's ``eat`` table BY CODE (15k (2))."""
+    surface from the ruleset's ``eat`` table BY CODE (15k (2)); and, for
+    the END whose ``approach_class`` (``RunwayEnd.approach``) and displaced
+    threshold length are given, the authority's approach surfaces for that
+    class (``end_skirt.approach_surface``, RULINGS 2026-10-15m (1); audit
+    row 5).  ``approach_class=None`` reads no approach surface (a reader
+    with no published class)."""
     rs = law.ruleset
     sk = rs.end_skirt
     segs: list[tuple[float, float]] = []
@@ -649,10 +732,14 @@ def runway_end_profile(law: Law, code_number: int | None = None,
     segs.append((math.inf, float(sk.max_down_grade)))
     eat = rs.eat
     rate = None if sk.rate_provisional else sk.rate.per_metre
+    surfaces = (sk.approach_surface or {}).get(str(approach_class), ()) \
+        if approach_class is not None else ()
+    disp = max(0.0, float(displaced_m or 0.0))
     return EndProfile(tuple(segs), hold,
                       None if eat is None else float(eat.slope.value(code_number, code_letter)),
                       0.0 if eat is None else float(eat.setback_m.value(code_number, code_letter)),
-                      rate)
+                      rate,
+                      tuple((float(a.slope), float(a.from_threshold_m) - disp) for a in surfaces))
 
 
 def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:

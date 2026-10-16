@@ -19,10 +19,11 @@ from ..law import Law
 from ..law.reference_code import runway_code_number
 
 __all__ = ["published_row", "published_code_number", "published_code_letter",
-           "published_end_classes"]
+           "published_end_classes", "published_end_profiles"]
 
 #: ``runway_axes`` slots (``pipeline/publication.py``)
 _CODE, _LETTER, _CLASS_A, _CLASS_B = 11, 12, 13, 14
+_DISP_A, _DISP_B = 17, 18
 
 
 def published_row(rows, ref: str | None) -> list | None:
@@ -66,3 +67,28 @@ def published_end_classes(rows, ref: str | None, a, b,
     flip = math.dist(pb, a) + math.dist(pa, b)
     ca, cb = str(r[_CLASS_A]), str(r[_CLASS_B])
     return (ca, cb) if same <= flip else (cb, ca)
+
+
+def published_end_profiles(law: Law, rows, ref: str | None, a, b,
+                           to_m: _t.Callable[[float, float], tuple[float, float]],
+                           code_number: int | None, code_letter: str | None,
+                           instrument: bool) -> tuple:
+    """``(profile beyond a, profile beyond b)`` — ``tables.
+    runway_end_profile`` for each END with the class and displaced length
+    the build published for it (slots 13 / 14, 17 / 18; RULINGS
+    2026-10-15m (1)), matched to the caller's axis points like
+    :func:`published_end_classes`.  A row without the slots reads the
+    profile with no approach surface (the pre-witness reading)."""
+    from ..law.tables import runway_end_profile
+    cls = published_end_classes(rows, ref, a, b, to_m)
+    if cls is None:
+        p = runway_end_profile(law, code_number, code_letter, instrument)
+        return p, p
+    r = published_row(rows, ref)
+    disp = ((float(r[_DISP_A] or 0.0), float(r[_DISP_B] or 0.0))
+            if r is not None and len(r) > _DISP_B else (0.0, 0.0))
+    pa, pb = to_m(float(r[1]), float(r[2])), to_m(float(r[3]), float(r[4]))
+    if math.dist(pa, a) + math.dist(pb, b) > math.dist(pb, a) + math.dist(pa, b):
+        disp = (disp[1], disp[0])
+    return tuple(runway_end_profile(law, code_number, code_letter, instrument, c, d)
+                 for c, d in zip(cls, disp))

@@ -213,6 +213,7 @@ try:
         # one both resolve the aerodrome's vertical-curve rate through
         # ``grade_law``, never a private number here.
         airside_arc_rate_per_m as _airside_arc_rate_per_m,
+        airside_rate_per_m_for as _airside_rate_per_m_for,
         resa_transverse_band as _resa_transverse_band,
         raoa_footprint_ring as _raoa_footprint_ring,
         raoa_applies as _raoa_applies,
@@ -282,6 +283,7 @@ except Exception:
     _strip_longitudinal_law = None
     _strip_longitudinal_breaches = None
     _airside_arc_rate_per_m = None
+    _airside_rate_per_m_for = None
     _resa_transverse_band = None
     _raoa_footprint_ring = None
     _raoa_applies = None
@@ -3073,14 +3075,31 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     # the TRANSECT pairs (``auto_patch_v2.constraints.strips.end_transect_
     # pairs``): every end-band node against the nearest node inward on
     # its own line, across every strip way
+    from auto_patch_v2.verify.runway_witness import published_end_profiles
+
+    def _profiles(ref, code, letter):
+        """Each END's profile (RULINGS 2026-10-15m (1): the FAA approach
+        surface by the end's published class and displaced length), keyed
+        by corridor ring — ``verify.strips.runway_end_skirt``'s reading."""
+        ins = published_instrument(runway_axes_ll, ref)
+        fr = end_edges_by_ref.get(ref)
+        if fr is None:
+            one = profile_of(law, code, letter, ins)
+            return {1: one, 2: one}
+        (x0, y0), (vx, vy), LL, _e = fr
+        return dict(zip((1, 2), published_end_profiles(
+            law, runway_axes_ll, ref, (x0, y0), (x0 + vx * LL, y0 + vy * LL),
+            ll_to_m, code, letter, ins)))
+
     for ref, rings, axis, code, length, letter in groups:
-        prof = profile_of(law, code, letter, published_instrument(runway_axes_ll, ref))
+        profs = _profiles(ref, code, letter)
         ux, uy = axis
         frame = end_edges_by_ref.get(ref)
         if frame is None:
             continue
         a0, u, L, _edges = frame
         for ring_idx in (1, 2):
+            prof = profs[ring_idx]
             st: Dict[str, tuple] = {}
             for w, closed, nn, pts, zs in strip_ways:
                 for k, nid in enumerate(nn):
@@ -3138,12 +3157,14 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     for w, closed, nn, pts, zs in strip_ways:
         allow = max(_pair_quant_noise_m(w), q)
         for ref, rings, axis, code, length, letter in groups:
-            prof = profile_of(law, code, letter, published_instrument(runway_axes_ll, ref))
+            profs = _profiles(ref, code, letter)
+            prof = profs[1]
             ux, uy = axis
             frame = end_edges_by_ref.get(ref)
             for ring_idx in (1, 2):
                 if ring_idx >= len(rings):
                     continue
+                prof = profs[ring_idx]
                 ring = rings[ring_idx]
                 inside = [_strip_station_inside(px, py, ring) for px, py in pts]
                 if not any(inside):
@@ -3212,6 +3233,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                     if foot is None or foot[0] < 1.0:
                         continue
                     d, zf, _end = foot
+                    prof = profs.get(_end, prof)
                     site = ("chord",) + _site_key(pts[k])
                     if site in seen:
                         continue
@@ -5495,6 +5517,12 @@ def _check_airside_no_step_rate(ways, feature_ways, nodes, ll_to_m,
     inf = float("inf")
     for (w, pts, zs, closed) in _no_step_polylines(
             ways, feature_ways, nodes, ll_to_m):
+        # audit row 2 (RULINGS 2026-10-15l (1)): the ring's OWN rate — a
+        # taxi-family way its letter's curve — through the generator's
+        # accessor (``grade_law.airside_rate_per_m_for``)
+        if _airside_rate_per_m_for is not None:
+            rate = _airside_rate_per_m_for(w.tags.get("class") or w.tags.get("role"),
+                                           w.tags.get("code_letter"), _ACTIVE_RULESET)
         idx = list(range(len(pts)))
         if closed:
             # The cyclic sequence, walked once with its two wrap triples.

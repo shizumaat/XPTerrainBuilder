@@ -33,7 +33,7 @@ from .base_profile_schema import BaseProfileLaw  # noqa: F401
 from .tunnel_object_schema import TunnelObject  # noqa: F401
 # the unit-sanity register (grades are fractions; RULINGS 2026-09-08n bound)
 from .units import sane as _sane  # noqa: F401
-from .model_types import CodeTable, Rate, RoleCap  # noqa: F401
+from .model_types import ApproachSurface, CodeTable, Rate, RoleCap  # noqa: F401
 from .role_cap_schema import role_cap_from_table as _role_cap_schema  # noqa: F401
 # the END-AROUND TAXIWAY schema (spec §36) likewise beside this module
 from .eat_schema import EatRecognition, EatSurface  # noqa: F401
@@ -93,6 +93,14 @@ class RunwayLaw:
     end_zone_precision_only_codes: frozenset[int] = frozenset()
     end_zone_max_length_m: float | None = None
     vertical_curve_min_change: CodeTable | None = None
+    #: THE MEAN RUNWAY SLOPE (Annex 14 §3.1.13): (max - min) / length;
+    #: ``None`` = the authority states none
+    mean_slope_max: CodeTable | None = None
+    #: the shoulder's minimum fall (FAA Table 3-6 S-2), RECORDED
+    shoulder_transverse_min: float | None = None
+    #: the largest grade change inside an END ZONE (FAA §3.16.1 C-E std 2:
+    #: none); ``None`` = the curve bound applies there too
+    end_zone_max_grade_change: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -103,6 +111,9 @@ class TaxiLaw:
     transverse: CodeTable
     transverse_min: float
     width_m: CodeTable | None = None   # pavement width by letter (2026-09-06t)
+    #: metres of vertical curve per ``common.vertical_curve_k_grade_unit``
+    #: of grade change, by letter (Annex 14 §3.9.9 / AC §4.14.1 (3)(b))
+    curve_k_m: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -144,6 +155,10 @@ class EndSkirtLaw:
     #: the RESA on an INSTRUMENT runway (owner RULINGS 2026-10-15k (1);
     #: Annex 14 §3.5.2-3.5.4); ``None`` = it reads ``corridor_length_m``
     corridor_length_instrument_m: CodeTable | None = None
+    #: THE APPROACH SURFACES beyond an end by the end's approach class
+    #: (owner RULINGS 2026-10-15m (1); AC 150/5300-13B Tables 3-2 to 3-4);
+    #: ``None`` = the authority reads the climb surface alone (ICAO)
+    approach_surface: _t.Mapping[str, tuple[ApproachSurface, ...]] | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -208,6 +223,10 @@ class CommonLaw:
     #: THE RUNWAY CODE NUMBER / LETTER classifier's table (regulation-
     #: conformance spec §3.1/§3.2; ``reference_code``)
     reference_code: ReferenceCode
+    #: THE STAND CAP (RULINGS 2026-10-15l (3) / 15m (4)): HARD on an apron
+    #: face that contains a startup of one of ``stand_kinds``
+    apron_stand_max: float | None = None
+    stand_kinds: tuple[str, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -227,6 +246,10 @@ class ZoneClass:
     #: Annex 14 §3.4.15: no minimum fall beyond the lip); ``None`` = the band
     #: falls by at least ``band_min_down``
     band_max_up: CodeTable | None = None
+    #: the zone-1 lip under the FAA ruleset where it differs (AC §4.14.2
+    #: item 4, the taxiway: 5 +/- 0.5 %); ``None`` = ``adjacent_ground``'s
+    lip_min_down_faa: float | None = None
+    lip_max_down_faa: float | None = None
 
 
 @_dc.dataclass(frozen=True)

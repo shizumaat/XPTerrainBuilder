@@ -124,6 +124,8 @@ def _renode_rows(airport) -> "list | None":
 from ..constraints.junction_mesh import mesh_edges_ll
 from ..constraints.no_step import no_step_edges, pad_pavement_edges
 from ..constraints.roads import road_law_caps
+from ..constraints.runway_mean_slope import mean_slope_caps
+from ..constraints.stand_faces import stand_face_ids
 from ..constraints.runway_profile import crown_drops, runway_half_widths
 from ..constraints.runway_yield import RunwayCap as _RunwayCap
 from ..constraints.runway_yield import TaxiYield as _TaxiYield
@@ -133,6 +135,7 @@ from ..constraints.stretches import stretches
 from ..constraints.taxi import taxi_pair_routes
 from ..constraints.transverse import axes
 from ..law import Law
+from ..law.tables import apron_stand_cap
 from ..constraints.cluster_pad import pad_cluster_mismatch as _pad_cluster_mismatch
 from ..constraints.pad_relief import pad_relief_offsets
 from ..model.airport import Airport
@@ -280,6 +283,14 @@ def face_tags(planar: PlanarMap, law: Law, airport: Airport | None = None
         kind = kinds.get(f.ref)
         if kind:
             out.setdefault(fid, {})["o4_edge"] = kind
+    # THE STAND CAP (owner RULINGS 2026-10-15l (3) / 15m (4); audit row 10):
+    # an apron face holding a gate or tie-down carries the 1 % the solve held
+    # it to — the bare cap tag, which the census composes as a MINIMUM with
+    # the apron's own; v2 verify reads the sidecar ``stand_faces``
+    cap = apron_stand_cap(law)
+    if airport is not None and cap is not None:
+        for fid in stand_face_ids(planar, law, airport):
+            out.setdefault(fid, {})["o4_grade_law_cap"] = f"{cap:g}"
     return out
 
 
@@ -461,6 +472,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                     seen.add(key)
                     taxi_pairs.append([ll[pp.a], ll[pp.b], None, None])
     _end_lens = end_area_lengths(airport, law)
+    _mean_caps = {k: round(v, 6) for k, v in mean_slope_caps(planar, law, airport).items()}
     _doc = {"axes": ax_out, "stretches": st_out, "crown_drops": drops,
             # §40 (2) as amended (owner RULINGS 2026-09-13dd): per runway
             # ``[ref, lat_a, lon_a, lat_b, lon_b, half_width_m]`` — the
@@ -468,6 +480,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # to the rings a §40 shoulder fattens), so the v1 census reads
             # the same shoulder line the generator priced at, plus the
             # shoulder cap itself
+            # THE STAND FACES (RULINGS 2026-10-15m (4)): the apron faces the
+            # solve held at the stand cap (``constraints/stand_faces``)
+            "stand_faces": sorted(stand_face_ids(planar, law, airport)),
             "runway_axes": [
                 [rw.id, round(rw.ends[0].ll[0], 11), round(rw.ends[0].ll[1], 11),
                  round(rw.ends[1].ll[0], 11), round(rw.ends[1].ll[1], 11),
@@ -494,7 +509,15 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                  # approach class, 15 / 16 its Cat II/III status (end a, b)
                  rw.code_number, rw.code_letter,
                  *(str(getattr(e, "approach", "visual")) for e in rw.ends),
-                 *(1 if getattr(e, "cat_ii_iii", False) else 0 for e in rw.ends)]
+                 *(1 if getattr(e, "cat_ii_iii", False) else 0 for e in rw.ends),
+                 # slots 17 / 18: each end's DISPLACED THRESHOLD length — the
+                 # FAA approach surface is measured from the threshold
+                 # (RULINGS 2026-10-15m (1); ``tables.runway_end_profile``)
+                 *(round(float(e.displaced_m or 0.0), 3) for e in rw.ends),
+                 # slot 19: the EFFECTIVE mean-slope cap (Annex 14 §3.1.13,
+                 # yielded to the pins; ``constraints/runway_mean_slope``),
+                 # ``None`` where the authority states none
+                 _mean_caps.get(rw.id)]
                 for rw in airport.runways],
             "shoulder_transverse_max":
                 float(law.ruleset.runway.shoulder_transverse_max),

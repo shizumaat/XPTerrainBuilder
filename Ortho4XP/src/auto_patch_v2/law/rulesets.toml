@@ -36,6 +36,16 @@ groundside_pavement = { longitudinal = 0.100, transverse = 0.020 }  # 0.080 -> 0
 parking_lot         = { longitudinal = 0.050, transverse = 0.020 }  # owner 2026-09-04j: lots 5 %; transverse = the road law's lateral 2 % until the owner states otherwise
 
 [common]
+# THE STAND CAP (owner RULINGS 2026-10-15l (3) / 15m (4); audit row 10): ICAO
+# Annex 14 §3.13.5 "the slope on an aircraft stand ... should not exceed 1 %",
+# FAA AC 150/5300-13B §5.9.2 1 % at aircraft parking positions.  HARD on the
+# apron rows of every apron FACE that contains a stand — an apt.dat 1300
+# startup of one of `stand_kinds` — (`constraints/stand_faces.py`); every
+# other apron face keeps `common.roles.apron` (1.5 % hard, 1 % preferred).
+# A 1 % cap on EVERY apron face was refuted on the HECA replay (spec §6: hard
+# rows violated 102 -> 141 and a runway_transverse row), hence 15m (4).
+apron_stand_max = 0.010
+stand_kinds = ["gate", "tie_down"]   # apt.dat 1300 location types that are aircraft stands (gate, tie-down); `hangar` / `misc` are not
 apron_fan_ramp_max = 0.050          # the BACK-EDGE class between adjacent pads (owner 08-24; 06w (3): hard, with the apron preference) — v2 models no zone yet (owed, lane v2routecap round 3)
 road_transverse_axis_min_deg = 45.0 # ring pair ≥ this off the road axis is ACROSS (08-25g)
 runway_crown_transverse = 0.010     # declared crown drop each side of the runway spine (08-05)
@@ -118,7 +128,13 @@ longitudinal      = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0
 # Thresholds are truth; the table is the cap where the pins permit it.
 end_zone          = { by_code = { "3" = 0.008, "4" = 0.008 } }   # first/last quarter, code 3/4 only (§3.1.14); code 1/2: no rule
 end_zone_fraction = 0.25                                  # extent of each end zone, fraction of length
-end_zone_precision_only_codes = [3]                       # code 3: end-zone cap binds Cat II/III only
+end_zone_precision_only_codes = [3]                       # code 3: end-zone cap binds Cat II/III only (§3.1.14) — at an END the witness reads Cat II/III (`RunwayEnd.cat_ii_iii`: apt.dat ALSF-II / Calvert II lights with TDZ lights, RULINGS 2026-10-15m (2)); audit row 13
+# THE MEAN RUNWAY SLOPE (Annex 14 §3.1.13; audit §4 "missing law" M1, RULINGS
+# 2026-10-15l (1)): the highest minus the lowest centreline elevation, over
+# the runway length, at most 1 % at code 3/4 and 2 % at code 1/2
+# (`constraints/runway_mean_slope.py`; verify `runway_mean_slope`).  FAA
+# states no mean slope (absent: no rows).
+mean_slope_max    = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.010, "4" = 0.010 } }
 max_grade_change  = { by_code = { "1" = 0.020, "2" = 0.020, "3" = 0.015, "4" = 0.015 }, default = 0.015 }  # §3.1.15
 vertical_curve_k_m = { by_code = { "1" = 75.0, "2" = 75.0, "3" = 150.0, "4" = 300.0 }, default = 300.0 }  # m per 1 % change (§3.1.16)
 transverse_max    = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.1.18
@@ -129,6 +145,14 @@ shoulder_transverse_max = 0.025                            # §40 (2) as amended
 longitudinal = { by_letter = { "A" = 0.030, "B" = 0.030, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.10
 transverse   = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §3.9.11
 transverse_min = 0.010                                    # recorded, not bound (owner question 5)
+# THE TAXIWAY GRADE-CHANGE RATE (owner RULINGS 2026-10-15l (1); audit row 2):
+# Annex 14 §3.9.9 — a change of slope accomplished by a curved surface of at
+# least 30 m per 1 % at code C-F, 25 m per 1 % at A/B.  Metres of curve per
+# `common.vertical_curve_k_grade_unit` of change, by the face's 1202 letter;
+# read by the airside no-step RATE on taxi-family rings
+# (`tables.airside_rate_per_m`).  The un-lettered default is C-F's (the
+# stricter rate).
+curve_k_m = { by_letter = { "A" = 25.0, "B" = 25.0, "C" = 30.0, "D" = 30.0, "E" = 30.0, "F" = 30.0 }, default = 30.0 }
 width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 18.0, "E" = 23.0, "F" = 25.0 }, default = 18.0 }  # taxiway pavement width, §3.9.3 (D: 18, OMGWS < 9 m) — law key of RULINGS 2026-09-06t; its corridor reading withdrawn 06v
 
 [icao.strip]
@@ -200,12 +224,30 @@ vertical_curve_k_m = { by_letter = { "A" = 91.4, "B" = 91.4, "C" = 305.0, "D" = 
 vertical_curve_min_change = { by_letter = { "A" = 0.004, "B" = 0.004 }, default = 0.0 }  # below this no curve (AAC A/B, §3.16.1.1); 0 = always
 transverse_max    = { by_letter = { "A" = 0.020, "B" = 0.020, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }
 transverse_min    = 0.010
-shoulder_transverse_max = 0.025                            # §40 (2) as amended (RULINGS 2026-09-13dd): the shoulder cap beyond the runway half-width (FAA AC 150/5300-13B §3.13: shoulder grades to 5 %; the ICAO 2.5 % is the stricter reading v2 applies to both authorities until the owner rules otherwise)
+# THE FAA SHOULDER (owner RULINGS 2026-10-15l (3) "Follow regulations",
+# superseding 13dd's 2.5 %; audit row 11): AC 150/5300-13B Table 3-6 S-2,
+# runway shoulder transverse grade 1.5-5.0 %.  The cap is beyond the runway
+# half-width (`tables.runway_transverse_bound`); the minimum fall is RECORDED
+# like the crown's `transverse_min` — the transverse rows bound a magnitude.
+shoulder_transverse_max = 0.05
+shoulder_transverse_min = 0.015
+# NO GRADE CHANGE IN THE END ZONES (AC 150/5300-13B §3.16.1, AAC C/D/E
+# standard 2; audit §4 missing law M2, RULINGS 2026-10-15l (1)): within the
+# lesser of the end quarter and 2,500 ft (`end_zone_max_length_m`) the
+# profile changes grade by at most this (none at C-F; A/B: no rule).  The
+# runway_vertical_curve rows there carry it as a PREFERENCE, yielding to
+# the pins up to the curve bound like the end-zone cap (owner 2026-07-08).
+end_zone_max_grade_change = { by_letter = { "C" = 0.0, "D" = 0.0, "E" = 0.0, "F" = 0.0 } }
 
 [faa.taxi]
 longitudinal = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # §4 taxiway family
 transverse   = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }
 transverse_min = 0.010
+# THE TAXIWAY GRADE-CHANGE RATE (owner RULINGS 2026-10-15l (1); audit row 2):
+# AC 150/5300-13B §4.14.1 (3)(b) — vertical curves of at least 100 ft
+# (30.5 m) per 1 % of change, at every ADG; the 3 % maximum change of
+# (3)(a) is implied by the 1.5 % longitudinal cap (spec M6).
+curve_k_m = { by_letter = { "A" = 30.5, "B" = 30.5, "C" = 30.5, "D" = 30.5, "E" = 30.5, "F" = 30.5 }, default = 30.5 }
 width_m = { by_letter = { "A" = 7.5, "B" = 10.5, "C" = 15.0, "D" = 23.0, "E" = 23.0, "F" = 30.0 }, default = 15.0 }  # AC 150/5300-13B taxiway width by ADG (I 25 ft … VI 100 ft) through the letter proxy (2026-09-06t; corridor reading withdrawn 06v)
 
 [faa.strip]
@@ -235,6 +277,18 @@ near_max_down_grade  = 0.03                               # §3.16.5 item 2: 0 t
 max_down_grade       = 0.05                               # §3.16.5 item 4
 rate                 = { grade = 0.02, per_m = 30.5 }     # §3.16.5 item 5
 rate_provisional     = false
+# THE APPROACH SURFACE BEYOND THE END (owner RULINGS 2026-10-15m (1) "Lower of
+# both"; audit row 5): §3.16.5 item 3 — no part of the RSA penetrates an
+# applicable approach surface — read per END by its approach class
+# (`RunwayEnd.approach`, RULINGS 15m (2) / 15n), each surface a slope from an
+# inner edge measured from the THRESHOLD (the displaced length counts),
+# AC 150/5300-13B Tables 3-2 to 3-4: visual 20:1 from the threshold;
+# non-precision 20:1 from 200 ft (61 m); approach with vertical guidance
+# 20:1 from 200 ft and Table 3-4 surface 6, 30:1 from the threshold;
+# precision 34:1 from 200 ft (< 3/4 sm, the strict reading — no visibility
+# witness, spec Q2) and 30:1.  The ground stays under the LOWEST applicable
+# surface and under the 40:1 `[faa.eat]` surface (`tables.runway_end_profile`).
+approach_surface = { visual = [{ slope = 0.05, from_threshold_m = 0.0 }], npa = [{ slope = 0.05, from_threshold_m = 61.0 }], apv = [{ slope = 0.05, from_threshold_m = 61.0 }, { slope = 0.0333333333, from_threshold_m = 0.0 }], pa = [{ slope = 0.0294117647, from_threshold_m = 61.0 }, { slope = 0.0333333333, from_threshold_m = 0.0 }] }
 
 [faa.resa]
 transverse_near_min = { by_letter = { "A" = 0.015, "B" = 0.015, "C" = 0.015, "D" = 0.015, "E" = 0.015, "F" = 0.015 }, default = 0.015 }  # Table 3-6 S-3

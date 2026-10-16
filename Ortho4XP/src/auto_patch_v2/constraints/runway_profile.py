@@ -12,8 +12,8 @@ Rows (all from ``rulesets.<authority>.runway`` and
 * ``Diff`` along every ``runway_profile`` breakline chord at
   ``runway.longitudinal`` by code number; inside each END ZONE
   (``runway_end_zone_length_m``) at ``runway.end_zone`` where the
-  authority states one (code 3 only when precision — recorded, no CIFP
-  category is loaded, so code 3 keeps the body cap);
+  authority states one (``tables.runway_end_zone_cap``: ICAO code 3 only
+  at an end the witness reads Cat II/III, audit row 13);
 * CROWN (RULINGS 2026-08-05, family ``runway_crown``, solver mode
   ``offset``): every runway-family ring vertex off the ridge sits AT
   LEAST ``crown × lateral offset`` below the ridge's interpolation at its
@@ -64,7 +64,8 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (role_cap, runway_end_zone_length_m,
+from ..law.tables import (role_cap, runway_end_zone_cap, runway_end_zone_grade_change,
+                          runway_end_zone_length_m,
                           runway_transverse_bound,
                           runway_transverse_max, runway_vertical_curve_bound)
 from ..model.airport import Airport
@@ -135,10 +136,11 @@ def _datum_slope_cap(law: Law, rw) -> float | None:
     if cap is None:
         return None
     lim = float(cap.longitudinal)
-    rs = law.ruleset.runway
-    end_cap = rs.end_zone.value(rw.code_number, rw.code_letter)
-    if end_cap is not None and rw.code_number not in rs.end_zone_precision_only_codes:
-        lim = min(lim, float(end_cap))
+    for e in rw.ends:
+        end_cap = runway_end_zone_cap(law, rw.code_number, rw.code_letter,
+                                      bool(getattr(e, "cat_ii_iii", False)))
+        if end_cap is not None:
+            lim = min(lim, end_cap)
     return lim
 
 
@@ -275,10 +277,12 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         lon = cap_of(planar, law, rw.id, rw.code_number, rw.code_letter)
         if lon is None:
             lon = cap.longitudinal
-        rs = law.ruleset.runway
-        end_cap = rs.end_zone.value(rw.code_number, rw.code_letter)
-        if rw.code_number in rs.end_zone_precision_only_codes:
-            end_cap = None            # no CIFP category loaded: body cap
+        # EACH END ITS OWN END-ZONE CAP (audit row 13): at a code the table
+        # binds at Cat II/III only (ICAO code 3, §3.1.14) the cap holds at
+        # an end the witness reads Cat II/III (RULINGS 2026-10-15m (2))
+        cap_a, cap_b = (runway_end_zone_cap(law, rw.code_number, rw.code_letter,
+                                            bool(getattr(e, "cat_ii_iii", False)))
+                        for e in rw.ends)
         end_len = runway_end_zone_length_m(law, rw.length_m)
         a_xy, b_xy = rw.ends[0].xy, rw.ends[1].xy
         L = rw.length_m
@@ -310,8 +314,8 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 d = vw.dist(a, b)
                 if d > 0.0:
                     s_mid = 0.5 * (along(a) + along(b))
-                    in_end = s_mid < end_len or s_mid > L - end_len
-                    if in_end and end_cap is not None:
+                    end_cap = cap_a if s_mid < end_len else (cap_b if s_mid > L - end_len else None)
+                    if end_cap is not None:
                         rows.append(Diff(a, b, end_cap, d, src_end, soft_g, soft_hi))
                     else:
                         rows.append(Diff(a, b, lon, d, src))
@@ -321,8 +325,8 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if d <= 0.0:
                     continue
                 s_mid = 0.5 * (along(a) + along(b))
-                in_end = s_mid < end_len or s_mid > L - end_len
-                if in_end and end_cap is not None:
+                end_cap = cap_a if s_mid < end_len else (cap_b if s_mid > L - end_len else None)
+                if end_cap is not None:
                     rows.append(Diff(a, b, end_cap, d, src_end, soft_g, soft_hi))
                 else:
                     rows.append(Diff(a, b, lon, d, src))
@@ -635,6 +639,14 @@ def runway_vertical_curve(planar: PlanarMap, law: Law, airport: Airport) -> list
         st = curve_stations(vw.xy, chs, along, min_d)
         src = Source(GEN, "rulesets.runway.vertical_curve_k_m / max_grade_change "
                      "(§3.1.15-16, 2026-09-06b)", (f"rwy:{rw.id}",))
+        # NO GRADE CHANGE IN THE END ZONES (FAA AC 150/5300-13B §3.16.1 C-E
+        # std 2; audit §4 M2): a PREFERENCE under the end-zone head — hard
+        # at the curve bound, preferring ``g0`` — one escalation group per
+        # runway, as the end-zone cap (owner 2026-07-08 relaxation order)
+        g0 = runway_end_zone_grade_change(law, rw.code_number, rw.code_letter)
+        end_len = runway_end_zone_length_m(law, rw.length_m)
+        src_end = Source(GEN, "rulesets.runway.end_zone (no grade change, AC "
+                         "150/5300-13B §3.16.1)", (f"rwy:{rw.id}",))
         for p, c, n in zip(st, st[1:], st[2:]):
             d1 = vw.dist(p, c)
             d2 = vw.dist(c, n)
@@ -646,6 +658,10 @@ def runway_vertical_curve(planar: PlanarMap, law: Law, airport: Airport) -> list
                 continue
             terms = ((p, 1.0 / d1), (c, -(1.0 / d1 + 1.0 / d2)), (n, 1.0 / d2))
             rows.append(Linear(terms, -b, b, src))
+            s_c = along(c)
+            if g0 is not None and g0 < b and (s_c < end_len or s_c > L - end_len):
+                rows.append(Linear(terms, -g0, g0, src_end,
+                                   soft=f"end_zone_curve:{rw.id}", ceiling=b - g0))
     return rows
 
 

@@ -18,7 +18,7 @@ import typing as _t
 from ..emit.surface import GradedSurface
 from ..law import Law
 from ..constraints.precedence import taxi_cap_for
-from ..law.tables import is_rigid_role, role_cap, role_family, role_side
+from ..law.tables import apron_stand_cap, is_rigid_role, role_cap, role_family, role_side
 from ..model.frame import Frame
 from ..model.planar import face_vertex_ids
 
@@ -188,9 +188,23 @@ class Patch:
         got = self._runway_cap(sh)
         if got is None:
             # 30ah (1) TAXIWAYS YIELD WITH THEIR RUNWAY: a tied taxi-family
-            # shape reads its published yielded cap through THE reader
-            return taxi_cap_for(rc.longitudinal, self.taxi_yield(sh))
+            # shape reads its published yielded cap through THE reader —
+            # an apron face with a stand from the stand cap (RULINGS
+            # 2026-10-15m (4), the published ``stand_faces``)
+            return taxi_cap_for(self._stand_cap(sh, rc.longitudinal), self.taxi_yield(sh))
         return max(rc.longitudinal, got)
+
+    def _stand_cap(self, sh: Shape, table: float) -> float:
+        """The apron cap of ``sh``: ``tables.apron_stand_cap`` on a face the
+        build published under ``stand_faces``, ``table`` elsewhere."""
+        if sh.role != "apron":
+            return table
+        ids = self.__dict__.get("_stand_faces")
+        if ids is None:
+            ids = frozenset(int(v) for v in (self.publication.get("stand_faces") or ()))
+            object.__setattr__(self, "_stand_faces", ids)
+        cap = apron_stand_cap(self.law) if sh.key in ids else None
+        return table if cap is None else min(table, cap)
 
     def taxi_yield(self, sh: Shape) -> float | None:
         """30ah (1) (owner RULINGS 2026-09-30ah (1), issue #135): the

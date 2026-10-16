@@ -49,6 +49,13 @@ band_max_down_faa = { by_letter = { "A" = 0.05, "B" = 0.05, "C" = 0.03, "D" = 0.
 half_width_m   = { by_letter = { "A" = 10.25, "B" = 11.0, "C" = 12.5, "D" = 18.5, "E" = 19.0, "F" = 22.0 }, default = 12.5 }  # OMGWS-derived graded strip
 band_min_down  = 0.015
 band_max_down  = 0.05
+# THE FAA TAXIWAY LIP (audit row 9; RULINGS 2026-10-15l (1)): AC 150/5300-13B
+# §4.14.2 item 4 — the unpaved surface adjacent to a taxiway edge falls
+# 5 +/- 0.5 % over the first 10 ft (the `lip_width_m` zone 1), read under the
+# FAA ruleset for the taxi family by `tables.zone_bounds`.  ICAO states none
+# beyond §3.4.15's "up to 5 %" (the `[adjacent_ground]` lip keeps it).
+lip_min_down_faa = 0.045
+lip_max_down_faa = 0.055
 
 # enclosed pockets between graded zones FILL and drain along a spine (08-01 clarification)
 [pockets]

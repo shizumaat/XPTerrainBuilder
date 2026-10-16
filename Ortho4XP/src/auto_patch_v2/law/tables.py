@@ -497,14 +497,20 @@ def zone_bounds(law: Law, role: str, d_m: float,
     floor = -ag.lip_max_down * lip
     ceil = -ag.lip_min_down * lip
     band = max(0.0, d_m - ag.lip_width_m)
-    bmax = zc.band_max_down.value(code_number, code_letter)
-    if law.ruleset.authority == "FAA" and zc.band_max_down_faa is not None:
-        bmax = float(zc.band_max_down_faa)      # 2026-10-15c (4) "5% for FAA"
+    faa = law.ruleset.authority == "FAA"
+    # THE BAND BY AUTHORITY (RULINGS 2026-10-15l (2) / (4); ``zones.toml``):
+    # FAA falls 1.5 % to the AAC's maximum (Table 3-6 S-3); ICAO is bounded
+    # in MAGNITUDE only where the class states a rise (Annex 14 §3.4.15)
+    if faa and zc.band_max_down_faa is not None:
+        bmax = zc.band_max_down_faa.value(code_number, code_letter)
+    else:
+        bmax = zc.band_max_down.value(code_number, code_letter)
+    rise = None if faa or zc.band_max_up is None else zc.band_max_up.value(code_number, code_letter)
     if band_max_down is not None:
         bmax = max(float(band_max_down), bmax or 0.0)
     if band > 0 and bmax is not None:
         floor -= bmax * band
-        ceil -= zc.band_min_down * band
+        ceil = ceil + rise * band if rise is not None else ceil - zc.band_min_down * band
     return (floor, ceil)
 
 

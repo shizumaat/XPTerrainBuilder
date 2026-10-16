@@ -91,14 +91,25 @@ def test_the_instrument_witness_is_a_cifp_approach_to_the_runway(tmp_path):
     assert read_cifp_approach_runways(str(tmp_path / "none.dat")) == frozenset()
 
 
-def test_faa_runway_band_falls_at_five_percent_icao_at_three(faa, icao):
-    lip = icao.tables.zones.adjacent_ground.lip_width_m
+def test_the_runway_band_is_the_regulation_s_transverse_law(faa, icao):
+    """RULINGS 2026-10-15l (2) / (4).  FAA (AC 150/5300-13B Table 3-6 S-3):
+    falls 1.5 % to 3 % at AAC C-E, to 5 % at A/B (the width-letter proxy).
+    ICAO (Annex 14 §3.4.15): beyond the lip the slope is bounded in
+    MAGNITUDE only, 2.5 % at code 3/4, 3 % at code 1/2 — no minimum fall."""
+    ag = icao.tables.zones.adjacent_ground
+    lip = ag.lip_width_m
     d = 50.0
-    lo_f, _ = zone_bounds(faa, "runway", d, 4, "D", half_m=60.0)
-    lo_i, _ = zone_bounds(icao, "runway", d, 4, "D", half_m=60.0)
-    fall_lip = icao.tables.zones.adjacent_ground.lip_max_down * lip
-    assert -lo_f == pytest.approx(fall_lip + 0.05 * (d - lip))
-    assert -lo_i == pytest.approx(fall_lip + 0.03 * (d - lip))
+    band = d - lip
+    for letter, fall in (("D", 0.03), ("B", 0.05)):
+        lo, hi = zone_bounds(faa, "runway", d, 4, letter, half_m=60.0)
+        assert -lo == pytest.approx(ag.lip_max_down * lip + fall * band)
+        assert -hi == pytest.approx(ag.lip_min_down * lip + 0.015 * band)
+    for code, mag in ((4, 0.025), (3, 0.025), (2, 0.03), (1, 0.03)):
+        lo, hi = zone_bounds(icao, "runway", d, code, "D", half_m=60.0)
+        assert -lo == pytest.approx(ag.lip_max_down * lip + mag * band)
+        assert hi == pytest.approx(-ag.lip_min_down * lip + mag * band)
+    # the lip itself is unchanged under both
+    assert zone_bounds(icao, "runway", 2.0, 4, "D") == zone_bounds(faa, "runway", 2.0, 4, "D")
 
 
 class _Falling:

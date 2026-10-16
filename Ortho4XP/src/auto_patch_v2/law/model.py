@@ -213,9 +213,15 @@ class ZoneClass:
     band_min_down: float
     band_max_down: CodeTable
     half_width_faa_m: CodeTable | None = None
-    #: the zone-2 band's maximum fall under the FAA ruleset (owner RULINGS
-    #: 2026-10-15c (4); ``None`` = the ``band_max_down`` table everywhere)
-    band_max_down_faa: float | None = None
+    #: the zone-2 band's maximum fall under the FAA ruleset, by the AAC's
+    #: runway-width letter proxy (RULINGS 2026-10-15l (2), AC 150/5300-13B
+    #: Table 3-6 S-3); ``None`` = the ``band_max_down`` table everywhere
+    band_max_down_faa: CodeTable | None = None
+    #: the zone-2 band's maximum RISE where the authority bounds the
+    #: transverse slope in MAGNITUDE only (RULINGS 2026-10-15l (4), ICAO
+    #: Annex 14 §3.4.15: no minimum fall beyond the lip); ``None`` = the band
+    #: falls by at least ``band_min_down``
+    band_max_up: CodeTable | None = None
 
 
 @_dc.dataclass(frozen=True)

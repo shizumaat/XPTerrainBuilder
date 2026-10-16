@@ -28,9 +28,21 @@ groundside_cutback_m = 0.6  # an airside zone band is cut back this far from GRO
 [adjacent_ground.runway]
 half_width_m   = { by_code = { "1" = 30.0, "2" = 40.0, "3" = 75.0, "4" = 75.0 }, default = 75.0 }  # ICAO graded strip (Annex 14 §3.4.8)
 half_width_faa_m = { by_letter = { "A" = 18.3, "B" = 22.9, "C" = 76.2, "D" = 76.2, "E" = 76.2, "F" = 76.2 }, default = 76.2 }  # FAA RSA half-width by RDC letter
-band_min_down  = 0.015      # FAA RSA minimum
-band_max_down  = { by_code = { "1" = 0.05, "2" = 0.05, "3" = 0.03, "4" = 0.03 }, default = 0.03 }  # 3 % code 3/4, 5 % code 1/2 (ICAO; FAA below)
-band_max_down_faa = 0.05    # owner RULINGS 2026-10-15c (4) "5% for FAA": the runway band's max transverse fall under the FAA ruleset = AC 150/5300-13B Table 3-6 RSA transverse 1.5-5 % (`[faa.resa] transverse_max`); ICAO keeps the table above
+# THE BAND'S TRANSVERSE LAW BY AUTHORITY (RULINGS 2026-10-15l (2) / (4), audit
+# `docs/findings/law-table-audit-20261015.md` rows 1 and 4; lane rwyzone15c
+# phase 7).  ICAO Annex 14 §3.4.15: beyond the 3 m lip (zone 1, up to 5 %
+# down, as above) the strip's transverse slope "should not exceed" 2.5 % at
+# code 3/4 and 3 % at code 1/2 — a MAGNITUDE, rising or falling, with NO
+# minimum fall: `band_max_down` and `band_max_up` below.  The engine-invented
+# ICAO minimum of 1.5 % (the mandatory-down ceiling) is deleted.  FAA AC
+# 150/5300-13B Table 3-6 S-3 (§3.10 RSA, transverse grade): 1.5-3.0 % at AAC
+# C-E and 1.5-5 % at A/B, falling away from the runway — `band_min_down`
+# (the regulated 1.5 % minimum) and `band_max_down_faa` by the runway-width
+# letter proxy for the AAC (15l (2): "until a real witness exists").
+band_min_down  = 0.015      # FAA Table 3-6 S-3 minimum fall (read under the FAA ruleset only: ICAO states none)
+band_max_down  = { by_code = { "1" = 0.03, "2" = 0.03, "3" = 0.025, "4" = 0.025 }, default = 0.025 }  # ICAO §3.4.15 magnitude, falling
+band_max_up    = { by_code = { "1" = 0.03, "2" = 0.03, "3" = 0.025, "4" = 0.025 }, default = 0.025 }  # ICAO §3.4.15 magnitude, rising
+band_max_down_faa = { by_letter = { "A" = 0.05, "B" = 0.05, "C" = 0.03, "D" = 0.03, "E" = 0.03, "F" = 0.03 }, default = 0.03 }  # FAA Table 3-6 S-3 by AAC (letter proxy)
 
 # zone 2 for the TAXI family (parallels, stub, cross_connector, junction): keyed by code LETTER
 [adjacent_ground.taxi]

@@ -41,14 +41,17 @@ _TAXI = (-400.0, 60.0, 400.0, 83.0)
 #: sits this far under its spine, so the corridor a ground vertex is judged
 #: in starts from ``700 − crown·|y|``, never from the field elevation
 _CROWN = 0.010
-#: THE ONE LAWFUL UNIFORM SLOPE off a code-3 runway edge.  The corridor
-#: accumulates: at ``d`` the ground must lie in ``[−0.15 − 0.03·(d−3),
-#: −0.09 − 0.015·(d−3)]`` under the edge.  A UNIFORM fall is lawful only in
-#: ``[0.0300, 0.0308]`` — steeper than the 3 % lip minimum, gentler than the
-#: 75 m band ceiling — and a uniform fall is what the twin needs: it is
-#: AFFINE along every ray, so the bending term (``bend_strip`` 30, ten times
-#: the datum) has nothing to fight and the reading is the datum's alone.
-_SLOPE = 0.0306
+#: THE LAWFUL GROUND off a code-3 runway edge (RULINGS 2026-10-15l (4),
+#: ICAO Annex 14 §3.4.15, lane rwyzone15c phase 7): the 3 m lip falls 3-5 %
+#: and beyond it the strip's transverse slope is bounded in MAGNITUDE only
+#: (2.5 % at code 3/4) — so no uniform fall is lawful any more (the lip
+#: needs >= 3 %, the band <= ~2.6 % averaged out to 52.5 m).  The fixture
+#: falls 4 % over the lip and 1 % beyond it: a kink AT the lip ring, which
+#: is a vertex ring, so each triangle stays affine.  Until 15l the fixture
+#: fell a uniform 3.06 %, inside the engine-invented 1.5 % minimum fall.
+_LIP_SLOPE = 0.04
+_BAND_SLOPE = 0.01
+_LIP_M = 3.0
 
 
 def _near(x: float, y: float) -> tuple[float, float]:
@@ -66,7 +69,8 @@ def _edge_z(x: float, y: float) -> float:
 
 
 def _lawful_z(x: float, y: float) -> float:
-    return _edge_z(x, y) - _SLOPE * _outside(x, y)
+    d = _outside(x, y)
+    return _edge_z(x, y) - _LIP_SLOPE * min(d, _LIP_M) - _BAND_SLOPE * max(0.0, d - _LIP_M)
 
 
 class _LawfulDem:
@@ -83,14 +87,17 @@ class _LawfulDem:
 
 
 class _MoundDem(_LawfulDem):
-    """The lawful ground with a 2 m mound over one stretch of the south
-    strip's outer ring: there, and only there, the ground stands ABOVE the
-    corridor's ceiling (which at 75 m sits 1.13 m over the lawful field) and
-    the law must cut it."""
+    """The lawful ground with a 2.5 m mound over one stretch of the south
+    strip's outer band: there, and only there, the ground stands ABOVE the
+    corridor's ceiling and the law must cut it.  Since 15l the band may
+    RISE 2.5 % (Annex 14 §3.4.15), so the ceiling stands 1.59-1.76 m over
+    the lawful field across the mound's 47.5-52.5 m off the edge, and the
+    mound is 0.74-0.91 m over it (the 2 m mound over the 1.13 m ceiling of
+    the engine-invented minimum fall, before)."""
 
     provenance = {"synthetic": "lawful ground + a mound over the ceiling"}
-    MOUND = (-300.0, 300.0, -100.0, -50.0)    # x0, x1, y0, y1
-    RISE = 2.0
+    MOUND = (-300.0, 300.0, -80.0, -70.0)     # x0, x1, y0, y1
+    RISE = 2.5
 
     def z(self, x: float, y: float) -> float:
         base = super().z(x, y)
@@ -220,18 +227,16 @@ def test_the_strip_equals_the_natural_ground_where_the_ground_is_lawful(lawful, 
     g = [v for v in _ground(pm, law) if _abeam(pm, v)]
     assert g, "the fixture must have adjacent ground"
     off = [abs(z[v] - float(pm.vertices[v].dem_z)) for v in g]
-    # RE-FOUNDED (lane rwyzone15c phase 6, RULINGS 2026-10-15c (1)).  No
-    # zone row is active in this fixture.  What the bar measures is the
-    # bending term's residual at the kink where the 1 % crowned edge meets
-    # the 3.06 % ground: the lip ring sags and the band's outer ring
-    # bulges.  15c (1) measures the band from the centreline, so its outer
-    # ring moved in from 97.5 m to 75 m and the same kink is spread over
-    # 50 m instead of 72.5 m.
-    #   worst offset: main 0.031 m; this branch 0.043 m (macOS) and
-    #   0.052 m (CI, Linux and Windows); this branch with the band put
-    #   back to main's width 0.036 m.
-    # The ground is still lawful; the margin is the band's new width.
-    assert max(off) <= 0.06, f"worst {max(off):.3f} m off its DEM"
+    # RE-FOUNDED twice (lane rwyzone15c).
+    # Phase 6: under the band from the centreline (15c (1)) the uniform
+    # 3.06 % fixture read 0.043 m (macOS) / 0.052 m (CI) against main's
+    # 0.031 m — the bending residual at the edge kink, spread over a
+    # narrower band.
+    # Phase 7: the band law became the regulation's (15l (4), ICAO
+    # Annex 14 §3.4.15: magnitude 2.5 %, no minimum fall), and no uniform
+    # fall is lawful there any more.  On the 4 % lip / 1 % band fixture
+    # the worst offset is 0.030 m.
+    assert max(off) <= 0.05, f"worst {max(off):.3f} m off its DEM"
 
 
 def test_the_datum_is_minted_for_every_adjacent_ground_vertex(lawful, law):  # noqa: F811
@@ -286,8 +291,11 @@ def test_ground_over_the_ceiling_is_cut_to_the_law_line_and_nowhere_else(law):  
     over = [z[v] - _law_line(pm, law, v)[1] for v in on]
     assert max(over) <= 0.05, f"held {max(over):.3f} m over its ceiling"
     assert min(over) >= -0.10, f"cut {-min(over):.3f} m past its ceiling"
+    # the strip's longitudinal cap carries the cut ring along the axis: the
+    # ring stands 1.76 m over the lawful field at the mound (15l's rising
+    # band), so its neighbours within ~1.76 / 1.75 % = 100 m follow it
     clear = [v for v in off if _abeam(pm, v)
-             and not (x0 - 40.0 <= pm.vertices[v].xy[0] <= x1 + 40.0
+             and not (x0 - 120.0 <= pm.vertices[v].xy[0] <= x1 + 120.0
                       and pm.vertices[v].xy[1] < 0.0)]
     assert clear
     assert max(abs(z[v] - float(pm.vertices[v].dem_z)) for v in clear) <= 0.05

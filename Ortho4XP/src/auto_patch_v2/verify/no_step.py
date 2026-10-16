@@ -6,14 +6,18 @@ handed and never re-derives a chord; plus the pad contact↔pavement
 list, 04r) at
 budget + the worse endpoint's instrument envelope (the v1
 ``_check_published_law_edges``) and §1.2 the rate of change along every
-airside ring sequence (wrap triples included) at ``strip.arc_rate`` with
+airside ring sequence (wrap triples included) at the shape's rate
+(``tables.airside_rate_per_m``: a taxi-family shape its letter's curve,
+audit row 2; every other ring ``strip.arc_rate``) with
 the rate reader's blind spot ``q·(1/dp + 1/dn)`` (``_rate_reader_blind_spot``,
 ``q`` = the coarse quantum)."""
 from __future__ import annotations
 
 import math
 
+from ..constraints.no_step import turn_cos
 from ..constraints.routes import route_roles
+from ..law.tables import airside_rate_per_m
 from .frame import Patch, Row, noise_m, row
 from .steps import joint_index
 
@@ -98,7 +102,9 @@ def rate_breaches(pts, zs, closed: bool, rate: float, q: float, floor: float = 0
         if dp < 1e-6 or dn < 1e-6:
             continue
         change = abs((zs[c] - zs[b]) / dn - (zs[b] - zs[a]) / dp)
-        allowed = rate * 0.5 * (dp + dn)
+        r = rate(turn_cos(pts[idx[k - 1]], pts[idx[k]], pts[idx[k + 1]])) \
+            if callable(rate) else rate
+        allowed = r * 0.5 * (dp + dn)
         if change - allowed <= q * (1.0 / dp + 1.0 / dn) + floor:
             continue
         out.append((a, b, c, change, allowed, dp, dn))
@@ -107,8 +113,6 @@ def rate_breaches(pts, zs, closed: bool, rate: float, q: float, floor: float = 0
 
 def no_step_rate(p: Patch) -> list[Row]:
     law = p.law
-    r = law.ruleset.strip.arc_rate
-    rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m
     floor = law.tables.emit.materiality.grade
     roles = route_roles(law)
@@ -118,6 +122,8 @@ def no_step_rate(p: Patch) -> list[Row]:
     for sh in p.shapes:
         if sh.role not in roles or len(sh.ids) < 3:
             continue
+        def rate(tc, _r=sh.role, _l=sh.code_letter):
+            return airside_rate_per_m(law, _r, _l, tc)
         for a, b, c, change, allowed, dp, dn in rate_breaches(sh.xy, sh.z, True, rate, q, floor):
             if joints and (joints.allowance(sh.xy[a], sh.xy[b]) > 0.0
                            or joints.allowance(sh.xy[b], sh.xy[c]) > 0.0):

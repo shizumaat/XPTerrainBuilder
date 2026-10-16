@@ -2148,6 +2148,28 @@ def strip_longitudinal_breaches(stations_s, stations_z, max_slope,
     return sorted(set(hits))
 
 
+_V2_RULESET_LAWS: dict = {}
+
+
+def airside_rate_per_m_for(role, code_letter=None, ruleset=None, turn_cos=None):
+    """THE AIRSIDE GRADE-CHANGE RATE of one ring (audit row 2, owner
+    RULINGS 2026-10-15l (1)): the generator's own accessor
+    (``auto_patch_v2.law.tables.airside_rate_per_m``) under the run's
+    ruleset — a taxi-family ring its letter's vertical curve, every other
+    ring the strip's rate (:func:`airside_arc_rate_per_m`).  A role the v2
+    register does not know (a v1 patch's) reads the strip's rate."""
+    key = get_ruleset(ruleset).key
+    law = _V2_RULESET_LAWS.get(key)
+    if law is None:
+        from auto_patch_v2.law import Law
+        law = _V2_RULESET_LAWS[key] = Law.load(ruleset=key)
+    from auto_patch_v2.law.tables import airside_rate_per_m
+    try:
+        return airside_rate_per_m(law, str(role), code_letter, turn_cos)
+    except KeyError:
+        return airside_arc_rate_per_m(ruleset)
+
+
 def airside_arc_rate_per_m(ruleset=None):
     """THE AIRSIDE RATE-OF-CHANGE LAW — spec
     ``airside-no-step-law-spec.md`` §1.2, owner ruling RULINGS 2026-08-27

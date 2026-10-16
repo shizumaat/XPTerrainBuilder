@@ -18,6 +18,7 @@ from ..law import Law
 from .frame import Patch, Row
 from .no_step import no_step_direct, no_step_rate
 from .pads import pad_flat
+from .runway_mean_slope import FAMILY_MEAN_SLOPE, runway_mean_slope
 from .runway import (FAMILY_TRANSVERSE, FAMILY_VERTICAL_CURVE, runway_crown,
                      runway_step,
                      runway_transverse, runway_vertical_curve)
@@ -68,6 +69,8 @@ READERS: dict[str, _t.Callable[[Patch], list[Row]]] = {
     "runway_step": runway_step,
     FAMILY_TRANSVERSE: runway_transverse,
     FAMILY_VERTICAL_CURVE: runway_vertical_curve,
+    # Annex 14 §3.1.13 (audit §4 M1): the runway's mean slope, read back
+    FAMILY_MEAN_SLOPE: runway_mean_slope,
     FAMILY_STRIP_TRANSVERSE: strip_transverse,
     "stacked_nodes": stacked_nodes,
     "cross_shape": cross_shape,

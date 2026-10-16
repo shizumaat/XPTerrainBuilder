@@ -10,7 +10,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["CodeTable", "Rate", "RoleCap"]
+__all__ = ["CodeTable", "Rate", "RoleCap", "ApproachSurface"]
 
 
 @_dc.dataclass(frozen=True)
@@ -58,3 +58,13 @@ class RoleCap:
     longitudinal: float
     transverse: float
     preferred: "RoleCap | None" = None
+
+
+@_dc.dataclass(frozen=True)
+class ApproachSurface:
+    """One approach surface beyond a runway end (AC 150/5300-13B Tables
+    3-2 to 3-4): ``slope`` (rise per metre) from an inner edge
+    ``from_threshold_m`` beyond the THRESHOLD."""
+
+    slope: float
+    from_threshold_m: float

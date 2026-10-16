@@ -8,10 +8,13 @@ classifier (``law.reference_code.taxi_code_letter``):
 
 * :func:`letter_chains_by_width` — every unlettered chain is cut by a
   perpendicular every ``_STATION_M`` along it; the pavement piece under the
-  centreline is the cross-section, and the chain's width is the MEDIAN of
-  the cross-sections no wider than ``_MAX_SECTION_FACTOR`` × the widest
-  lettered taxiway (a cross-section over an apron or a junction is not a
-  taxiway width).  With no such cross-section the chain stays unlettered.
+  centreline is the cross-section, and the chain's width is the LOWER
+  QUARTILE of the cross-sections no wider than ``_MAX_SECTION_FACTOR`` ×
+  the widest lettered taxiway (a cross-section over an apron or a junction
+  is not a taxiway width, and pavement beside the taxiway only ever widens
+  a section — measured CYXY osm:-10, sections 23.2 m along most of its
+  1.66 km and 26–44 m where the apron and the runway shoulder join it:
+  the median read F, the taxiway is 23 m).  With no such cross-section the chain stays unlettered.
 * :func:`letter_faces_by_neighbour` — a taxi-family FACE no lettered chain
   reaches takes the widest letter of the taxi faces it shares an edge with
   (the taxiways it joins).
@@ -68,6 +71,13 @@ def _sections(line: LineString, pavement, half_m: float, runway=None) -> list[fl
     return out
 
 
+def _lower_quartile(values: list[float]) -> float:
+    """The lower quartile of ``values`` (one value: itself)."""
+    if len(values) < 4:
+        return min(values)
+    return float(statistics.quantiles(values, n=4)[0])
+
+
 def letter_chains_by_width(chains: _t.Sequence[Chain], pavement, law: Law | None,
                            runway=None) -> tuple[list[Chain], dict[str, int]]:
     """``chains`` with every unlettered one lettered by its pavement width,
@@ -87,7 +97,7 @@ def letter_chains_by_width(chains: _t.Sequence[Chain], pavement, law: Law | None
         secs = _sections(c.line, pavement, cap, rw) if cap > 0.0 \
             and pavement is not None and not pavement.is_empty else []
         secs = [w for w in secs if w < cap]
-        letter = taxi_code_letter(law, statistics.median(secs)) if secs else None
+        letter = taxi_code_letter(law, _lower_quartile(secs)) if secs else None
         if letter:
             counts["width"] += 1
             c = _dc.replace(c, letters=tuple(letter for _l in c.letters) or (letter,))

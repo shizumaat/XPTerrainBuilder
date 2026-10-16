@@ -61,6 +61,15 @@ public struct PatchPreviewSpace: Sendable {
         let p = frame.metres(lat: lat, lon: lon)
         return SIMD3(Float(p.x), Float(elevation - base), Float(-p.y))
     }
+
+    /// The terrain's y (metres above `base`, before exaggeration) under a
+    /// preview (x, z), or nil before the terrain has arrived — the 3D
+    /// camera's floor.
+    public func groundY(x: Float, z: Float) -> Float? {
+        guard let terrain else { return nil }
+        let ll = frame.latLon(x: Double(x), y: Double(-z))
+        return Float(terrain.elevation(lat: ll.lat, lon: ll.lon) - base)
+    }
 }
 
 /// One surface's triangles, as indices into its own vertex list. A node

@@ -163,10 +163,14 @@ private struct TerrainPreviewContent: View {
         return ""
     }
 
-    /// The camera controls, X-Plane's view keys first (OrbitCamera).
+    /// The camera controls, X-Plane's view keys first (FreeLookCamera).
     static let controlsHelp = """
-        Keys (as in X-Plane): Q E rotate · R F tilt · ← → move sideways ·         ↑ ↓ move up and down · , . move back and forward · - = zoom.         Hold Shift for fast, Control for slow.
-        Mouse: drag to orbit · ⌥-drag or right-drag to pan · scroll or pinch to zoom.
+        The scene stays still; you move and turn the viewpoint.
+        Keys (as in X-Plane): Q E turn left and right · R F tilt up and down · \
+        ← → move sideways · ↑ ↓ move forward and back · , . move back and forward along the view · \
+        - = zoom · Home or 0 back to the first view. Hold Shift for fast, Control for slow.
+        Mouse: drag to look around · scroll or pinch to move along the view · \
+        ⌥-drag or right-drag to move over the ground.
         """
 
     private var resetButton: some View {
@@ -178,7 +182,7 @@ private struct TerrainPreviewContent: View {
                 Label("Reset view", systemImage: "arrow.counterclockwise")
             }
             .buttonStyle(.borderless)
-            .help("Frame the airport again from the south.")
+            .help("Back to the first view: above the airport from the south (Home or 0).")
         }
         .padding(.horizontal, 8).padding(.vertical, 4)
         .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))

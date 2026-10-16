@@ -486,7 +486,15 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                  # RULINGS 2026-10-15k (3): the INSTRUMENT STATUS (1 / 0) the
                  # law tables read the strip's end and the RESA by — verify
                  # and the census read the same status here
-                 1 if getattr(rw, "instrument", False) else 0]
+                 1 if getattr(rw, "instrument", False) else 0,
+                 # THE RUNWAY WITNESSES (regulation-conformance spec §3;
+                 # RULINGS 2026-10-15m (2) / 15n): slot 11 the code number,
+                 # 12 the code letter — the loader's stamp, which the census
+                 # reads instead of classifying again — 13 / 14 each end's
+                 # approach class, 15 / 16 its Cat II/III status (end a, b)
+                 rw.code_number, rw.code_letter,
+                 *(str(getattr(e, "approach", "visual")) for e in rw.ends),
+                 *(1 if getattr(e, "cat_ii_iii", False) else 0 for e in rw.ends)]
                 for rw in airport.runways],
             "shoulder_transverse_max":
                 float(law.ruleset.runway.shoulder_transverse_max),

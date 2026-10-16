@@ -89,3 +89,28 @@ def test_a_real_along_approach_kink_is_still_read():
     nodes.update(na)
     rows, _n, _w = _run([rw, wa], nodes)
     assert rows and max(r.grade_pct for r in rows) > 1.0
+
+
+@pytest.mark.skipif(cg._raoa_footprint_ring is None, reason="grade_law absent")
+@pytest.mark.parametrize("cls_x0, read", [("pa", True), ("apv", False), ("npa", False),
+                                          ("visual", False)])
+def test_the_census_binds_the_raoa_before_a_precision_end_only(cls_x0, read):
+    """Annex 14 §3.8.1 (audit row 8; regulation-conformance spec §2.B): the
+    census calls the generator's end filter (``grade_law.raoa_applies``) on
+    the class the sidecar publishes (``runway_axes`` slots 13 / 14) — the
+    same kink is read before a ``pa`` end and nowhere else."""
+    rw, nodes = _runway()
+    st = [-280.0 + 20.0 * k for k in range(14)]
+    wa, na = _strip("sa", st, -30.0,
+                    lambda s: 0.02 * s if s <= -140.0 else -0.02 * s - 5.6)
+    nodes.update(na)
+    # identity ll_to_m: [ref, "lat"=x, "lon"=y, ...] (the reader's frame)
+    row = ["09/27", 0.0, 0.0, 2400.0, 0.0, 22.5, 0.0, 0.0, 240.0, 240.0, 1,
+           4, "D", cls_x0, "pa", 0, 0]
+    old = cg._ACTIVE_RUNWAY_AXES
+    cg._ACTIVE_RUNWAY_AXES = [row]
+    try:
+        rows, _n, _w = _run([rw, wa], nodes)
+    finally:
+        cg._ACTIVE_RUNWAY_AXES = old
+    assert bool(rows) is read

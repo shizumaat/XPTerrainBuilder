@@ -87,8 +87,10 @@ def test_the_instrument_witness_is_a_cifp_approach_to_the_runway(tmp_path):
                  "APPCH:010,N,N25,,WF,NL,P,C,E  A, ,   ,IF;\n"
                  "APPCH:010,A,VDM-A,ABC,ABC,CY,P,C,E  A, ,   ,IF;\n",
                  encoding="utf-8", newline="\n")
-    assert read_cifp_approach_runways(str(f)) == {"32L", "14L", "25"}
-    assert read_cifp_approach_runways(str(tmp_path / "none.dat")) == frozenset()
+    # the class per runway (regulation-conformance spec §3.4): ILS -> pa,
+    # RNAV -> apv, NDB -> npa
+    assert read_cifp_approach_runways(str(f)) == {"32L": "pa", "14L": "apv", "25": "npa"}
+    assert read_cifp_approach_runways(str(tmp_path / "none.dat")) == {}
 
 
 def test_the_runway_band_is_the_regulation_s_transverse_law(faa, icao):
@@ -212,14 +214,14 @@ def test_the_instrument_witness_reads_the_apt_dat_markings_too():
     markings (3 or 5); non-precision markings (2, 4) alone do not count.
     The markings come off the row the loader already parses."""
     from auto_patch_v2.airport.apt_dat import _runway
-    from auto_patch_v2.airport.load import instrument_markings
+    from auto_patch_v2.airport.approach import precision_markings
     row = ("100 30.00 1 0 0.25 1 2 1 "
            "02 60.71195640 -135.07178769 0 0 2 0 0 0 "
            "20 60.71513697 -135.06737621 0 0 1 0 0 0").split()
     rw = _runway(row)
     assert rw is not None and rw.markings == (2, 1)
-    assert [instrument_markings(c) for c in range(7)] == [False, False, False, True,
-                                                          False, True, False]
+    assert [precision_markings(c) for c in range(7)] == [False, False, False, True,
+                                                         False, True, False]
 
 
 def test_a_strip_pair_on_non_runway_pavement_is_the_pavement_edge_s(icao):

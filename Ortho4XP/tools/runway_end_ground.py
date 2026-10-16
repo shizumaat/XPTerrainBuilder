@@ -163,7 +163,7 @@ def corners(patch, icao):
     from check_grade import _parse_osm
     from auto_patch_v2.law import Law
     from auto_patch_v2.law.tables import runway_safety_area_length_m, zone2_half_width_m
-    from auto_patch_v2.constraints.strips import runway_code_number
+    from auto_patch_v2.law.reference_code import runway_code_letter, runway_code_number
 
     law = Law.for_airport(icao)
     cap = law.ruleset.end_skirt.max_down_grade
@@ -198,9 +198,8 @@ def corners(patch, icao):
         if ax is None:
             continue
         a, _b, (ux, uy), length, width = ax
-        code = runway_code_number(length, law)
-        from auto_patch_v2.airport.load import runway_code_letter
-        letter = runway_code_letter(width)
+        code = runway_code_number(law, length)
+        letter = runway_code_letter(law, width)
         half2 = zone2_half_width_m(law, "runway", code, letter) or 0.0
         end_len = runway_safety_area_length_m(law, code, letter)
         for end, s_end in ((1, 0.0), (2, length)):

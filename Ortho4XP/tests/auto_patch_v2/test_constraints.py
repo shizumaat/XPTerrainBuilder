@@ -551,3 +551,37 @@ def test_cyxy_pipeline_wall(tmp_path, timing_runs):
         assert res.solution.status in (Status.OPTIMAL, Status.FEASIBLE)
         return res.wall["total"]
     assert median_wall(one, timing_runs) < 22.0
+
+
+def test_raoa_rows_stand_before_precision_ends_only(synthetic, law, monkeypatch):
+    """Annex 14 §3.8.1 (audit row 8; regulation-conformance spec §2.B): the
+    generator builds the RAOA rectangle only before an end whose published
+    approach class is ``pa`` (``law.reference_code.raoa_applies``); the
+    group carries each end's class at its own axis end.  Two synthetic
+    strip profiles, one before each threshold, carry the rows."""
+    import dataclasses as dc
+    airport, pm, _ = synthetic
+    rw = airport.runways[0]
+
+    def with_classes(c09, c27):
+        ends = (dc.replace(rw.ends[0], approach=c09), dc.replace(rw.ends[1], approach=c27))
+        return dc.replace(airport, runways=(dc.replace(rw, ends=ends),))
+
+    vw = precedence.view(pm, law)
+    g = strips.runway_groups(vw, with_classes("npa", "pa"))[0]
+    at_a = "09" if math.dist(g.axis_a, rw.ends[0].xy) < math.dist(g.axis_a, rw.ends[1].xy) else "27"
+    assert g.end_classes == (("npa", "pa") if at_a == "09" else ("pa", "npa"))
+    west = [(-880.0 + 25.0 * k, -30.0) for k in range(10)]
+    east = [(-x, y) for x, y in west]
+    monkeypatch.setattr(strips, "_strip_rings", lambda _vw: [
+        (-1, list(range(10_000, 10_010)), west), (-2, list(range(20_000, 20_010)), east)])
+
+    def ends_bound(c09, c27):
+        rows = strips.raoa(pm, law, with_classes(c09, c27))
+        return {("09" if r.terms[0][0] < 20_000 else "27") for r in rows}
+
+    assert ends_bound("pa", "pa") == {"09", "27"}
+    assert ends_bound("pa", "npa") == {"09"}
+    assert ends_bound("apv", "pa") == {"27"}
+    assert ends_bound("visual", "apv") == set()
+    assert strips.raoa(pm, Law.for_airport("KZZZ"), with_classes("pa", "pa")) == []

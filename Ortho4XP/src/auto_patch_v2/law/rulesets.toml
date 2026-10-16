@@ -79,6 +79,28 @@ segment_gap_m = 75.0              # v1 EAT_RECT_SEGMENT_GAP_M: governed vertices
 rect_max_along_m = 150.0          # v1 EAT_RECT_MAX_ALONG_M: "the rect is short along the direction of EAT travel" (KCLT spans 43 m); pavement running ALONG the corridor is another facility
 min_runway_code_number = 3        # v1 EAT_MIN_RUNWAY_CODE_NUMBER: end-around taxiways exist at transport-category runways only (CYXY 02/20 aimed its corridor across the GA apron)
 
+# ── THE RUNWAY WITNESSES (regulation-conformance spec §3.1/§3.2; owner
+# RULINGS 2026-10-15k/l) — ONE classifier for engine and census
+# (`law/reference_code.py`); the loader stamps `Runway.code_number` /
+# `code_letter` once and every reader takes the stamp (the census from the
+# sidecar `runway_axes`).
+[common.reference_code]
+# ICAO Annex 14 Vol I Table 1-1: the code NUMBER by reference field length,
+# runway length as the proxy (a DEFINITION, not a tunable): the length each
+# code starts at; below the first, code 1.
+number_min_length_m = { by_code = { "2" = 800.0, "3" = 1200.0, "4" = 1800.0 } }
+# The code LETTER by runway WIDTH (the wingspan / FAA AAC-ADG proxy), the
+# widest runway each letter covers with a 0.5 m unit tolerance: FAA AC
+# 150/5300-13B App. G widths 60 ft (18.3 m) A/B-I -> A, 75 ft (22.9) A/B-II
+# -> B, 100 ft (30.5) A/B-III and C/D-I..III -> C, ICAO 45 m -> D, 150 ft
+# (45.7 m) C/D-IV, D-V -> E (the conservative ADG-V tail, the taller
+# aircraft for a ceiling law), Annex 14 Table 3-1 letter F at 60 m and
+# above.  Replaces the engine's exclusive bounds at the ICAO minimums
+# (60 ft read B, 100 ft read D, OTHH's 60 m read E) and the census's own
+# `config.runway_code_letter` (>= 15/21/28/42/55).
+letter_max_width_m = { by_letter = { "A" = 18.8, "B" = 23.4, "C" = 31.0, "D" = 45.0, "E" = 46.3 } }
+widest_letter = "F"
+
 # ── ICAO Annex 14 Vol I / EASA CS-ADR-DSN ──────────────────────────────
 [icao]
 name = "ICAO Annex 14 Vol I / EASA CS-ADR-DSN"

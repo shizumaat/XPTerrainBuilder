@@ -37,7 +37,8 @@ Rows over ``graded_strip`` rings (the ground the strip law governs):
   edge and along the corridor;
 * ``raoa`` (ICAO only, Annex 14 §3.8.4 "grade change along the
   approach"): the rate law over the strip vertices inside the
-  ``raoa.length_m × 2·half_width_m`` rectangle before each threshold, in
+  ``raoa.length_m × 2·half_width_m`` rectangle before each PRECISION
+  approach threshold (Annex 14 §3.8.1, ``reference_code.raoa_applies``), in
   along-axis order, over consecutive vertices whose step is
   predominantly ALONG the axis.  The v1 census sorts EVERY vertex of the
   120 m-wide rectangle by station and prices laterally-separated
@@ -55,6 +56,7 @@ import math
 import typing as _t
 
 from ..law import Law
+from ..law.reference_code import VISUAL, raoa_applies, runway_code_number
 from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
                           runway_end_profile, runway_safety_area_length_m,
                           zone2_half_width_m)
@@ -67,7 +69,7 @@ from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
 from .end_lip import end_lip_vertices, nonrunway_pavement_roles, pavement_edge_junction
 from .precedence import View, view
 
-__all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
+__all__ = ["RunwayGroup", "runway_groups",
            "pavement_ring_vertices", "strip_longitudinal_pairs",
            "strip_longitudinal", "strip_arc", "resa_transverse",
            "end_corridor_longitudinal", "end_corridor_rate", "end_pair_bounds",
@@ -105,19 +107,9 @@ class RunwayGroup:
     rings: tuple[list[XY], ...]          # lateral rect, approach end, departure end
     #: the runway's INSTRUMENT STATUS (RULINGS 2026-10-15k; ``Runway.instrument``)
     instrument: bool = False
-
-
-def runway_code_number(length_m: float, law: Law) -> int:
-    """ICAO aerodrome code number from runway length — the class the
-    strip tables key by (the same thresholds v1 ``runway_code_number``
-    applies: ≥ 1800 → 4, ≥ 1200 → 3, ≥ 800 → 2)."""
-    if length_m >= 1800.0:
-        return 4
-    if length_m >= 1200.0:
-        return 3
-    if length_m >= 800.0:
-        return 2
-    return 1
+    #: the APPROACH CLASS of the end at ``axis_a`` / ``axis_b``
+    #: (``RunwayEnd.approach``, RULINGS 2026-10-15m (2) / 15n)
+    end_classes: tuple[str, str] = (VISUAL, VISUAL)
 
 
 def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
@@ -144,6 +136,12 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         if rw.id in pts_by_ref:
             pts_by_ref[rw.id] = list(rw.slab_corners)
     letter_of = {rw.id: rw.code_letter for rw in airport.runways}
+    # THE LOADER'S STAMP (regulation-conformance spec §3.2): one code
+    # number per runway, from its apt.dat length — the slab's only for a
+    # ref no runway claims
+    code_of = {rw.id: rw.code_number for rw in airport.runways}
+    class_of = {rw.id: tuple(getattr(e, "approach", VISUAL) for e in rw.ends)
+                for rw in airport.runways}
     instrument_of = {rw.id: bool(getattr(rw, "instrument", False)) for rw in airport.runways}
     ends_of = {rw.id: (rw.ends[0].xy, rw.ends[1].xy) for rw in airport.runways}
     end_len = end_area_lengths(airport, law)
@@ -157,7 +155,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         if length < 1.0:
             continue
         unit = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
-        code = runway_code_number(length, law)
+        code = code_of.get(ref) or runway_code_number(law, length)
         letter = letter_of.get(ref)
         strip_half = zone2_half_width_m(law, "runway", code, letter) or 0.0
         end_half = max(width, strip_half)
@@ -171,10 +169,13 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         ins = instrument_of.get(ref, False)
         rsa = runway_safety_area_length_m(law, code, letter, ins)
         len_a = len_b = rsa
+        classes = (VISUAL, VISUAL)
         if ref in ends_of:
             ss = [(p[0] - a[0]) * unit[0] + (p[1] - a[1]) * unit[1] for p in ends_of[ref]]
             e0, e1 = end_len.get(ref, (rsa, rsa))
             near_a = (e0, e1) if ss[0] <= ss[1] else (e1, e0)
+            c0, c1 = class_of.get(ref, classes)
+            classes = (c0, c1) if ss[0] <= ss[1] else (c1, c0)
             len_a = max(0.0, near_a[0] - max(0.0, min(ss)))
             len_b = max(0.0, near_a[1] - max(0.0, length - max(ss)))
         # inflated by the identity spacing: the census fits its own axis in
@@ -184,7 +185,8 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         rings = (rect_ring(a, b, -m, length + m, strip_half + m),
                  rect_ring(a, b, -len_a - m, m, end_half + m),
                  rect_ring(a, b, length - m, length + len_b + m, end_half + m))
-        out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings, ins))
+        out.append(RunwayGroup(ref, a, b, unit, length, width, code, letter, rings, ins,
+                               classes))
     return out
 
 
@@ -849,7 +851,12 @@ def raoa(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     for g in runway_groups(vw, airport):
         src = Source(GEN, "rulesets.raoa.max_grade_change (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
-        for thr, inward in ((g.axis_a, g.unit), (g.axis_b, (-g.unit[0], -g.unit[1]))):
+        for thr, inward, cls in ((g.axis_a, g.unit, g.end_classes[0]),
+                                 (g.axis_b, (-g.unit[0], -g.unit[1]), g.end_classes[1])):
+            # Annex 14 §3.8.1: before a PRECISION approach end only (audit
+            # row 8; ``law.reference_code.raoa_applies``, the one filter)
+            if not raoa_applies(law, cls):
+                continue
             m = law.tables.emit.identity.min_distinct_spacing_m
             L, W = ra.length_m + m, ra.half_width_m + m
             ux, uy = inward

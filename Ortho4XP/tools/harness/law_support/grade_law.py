@@ -54,14 +54,30 @@ from auto_patch.config import ruleset_strip_band_max_down_slope
 from auto_patch.config import ruleset_strip_half_width_m
 from auto_patch.config import ruleset_strip_max_longitudinal_slope
 from auto_patch.config import ruleset_taxi_transverse_max
-from auto_patch.config import runway_code_number
 from auto_patch.config import taxiway_strip_graded_half_width_for_letter
 from auto_patch.config import transverse_cap_for_longitudinal_cap
 from dataclasses import dataclass
 from typing import Callable, Optional
 import auto_patch.config as _cfg
+from auto_patch_v2.law import load_default as _v2_load_default
+from auto_patch_v2.law import reference_code as _refcode
+
 import math as _math
 import os
+
+#: the law the shared runway classifier reads (``[common.reference_code]``
+#: is authority-independent, so the default ruleset's tables serve both)
+_REFCODE_LAW = None
+
+
+def runway_code_number(length_m: float) -> int:
+    """THE ONE CODE-NUMBER CLASSIFIER (regulation-conformance spec §3.2),
+    ``auto_patch_v2.law.reference_code.runway_code_number``, for the
+    readers here that hold a fitted length and no sidecar row."""
+    global _REFCODE_LAW
+    if _REFCODE_LAW is None:
+        _REFCODE_LAW = _v2_load_default()
+    return _refcode.runway_code_number(_REFCODE_LAW, length_m)
 
 
 APRON_ROLE = "apron"
@@ -2201,20 +2217,19 @@ def raoa_footprint_ring(threshold_xy, inward_axis, ruleset=None):
 
 
 def raoa_applies(approach_class, ruleset=None) -> bool:
-    """Whether the RAOA family binds for a runway END.
+    """Whether the RAOA family binds for a runway END of class
+    ``approach_class`` (``visual`` / ``npa`` / ``apv`` / ``pa``, the class
+    the sidecar publishes, ``runway_axes`` slots 13 / 14).
 
-    Annex 14 §3.8.1 scopes it to PRECISION APPROACH runways; CS
-    ADR-DSN.B.205 corroborates (Cat II/III mandatory-ish, Cat I where
-    practicable).  Bound here for ALL precision approaches — the
-    stricter CONTAINED reading, since the builder cannot know an end's
-    ILS category.  The approach class comes from the repo's ONE
-    classifier, ``config.runway_end_approach_class``; no second
-    classification is minted.
+    Annex 14 §3.8.1 scopes it to PRECISION APPROACH runways (audit row 8);
+    the end filter is the generator's own,
+    ``auto_patch_v2.law.reference_code.raoa_class`` — one predicate, the
+    census never classifies an end itself (RULINGS 2026-10-15m (2) / 15n).
     """
     rs = get_ruleset(ruleset)
     if not rs.raoa_length_m:
         return False
-    return str(approach_class) == "precision"
+    return _refcode.raoa_class(approach_class)
 
 
 def shoulder_transverse_envelope(distance_from_pavement_edge_m: float,

@@ -17,12 +17,14 @@ import typing as _t
 import zlib
 
 from ..law import Law
+from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
 from ..law.tables import identity_dp, input_quantum_m
 from ..model.airport import (GAP_SHEET_PREFIX, Airport, Boundary, Building,
                              DsfObject, FacadeRead, GroundRoute, LinearFeature, OsmWay, Pavement,
                              Runway, RunwayEnd, Startup, Surface, TaxiEdge,
                              TaxiNode)
 from ..model.frame import XY, Frame
+from . import approach as _approach
 from . import apt_dat as _apt
 from . import borrow as _borrow
 from . import cifp as _cifp
@@ -38,19 +40,9 @@ from . import riders as _riders
 
 _log = logging.getLogger(__name__)
 
-__all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp", "instrument_markings",
-           "normalise_surface", "runway_code_number", "runway_code_letter"]
+__all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp",
+           "normalise_surface"]
 
-#: ICAO Annex 14 Vol I Table 1-1: aerodrome reference code NUMBER by
-#: reference field length (a DEFINITION, not a tunable; runway length is
-#: the proxy for the reference field length).
-CODE_NUMBER_BY_LENGTH_M: tuple[tuple[float, int], ...] = (
-    (800.0, 1), (1200.0, 2), (1800.0, 3), (float("inf"), 4))
-#: Code LETTER proxy by runway width (the repo's convention: letters are
-#: wingspan / OMGWS classes, width is what apt.dat carries).
-CODE_LETTER_BY_WIDTH_M: tuple[tuple[float, str], ...] = (
-    (18.0, "A"), (23.0, "B"), (30.0, "C"), (45.0, "D"), (60.0, "E"),
-    (float("inf"), "F"))
 #: OSM tags that make a closed way a building footprint (v1
 #: ``_extract_osm_terminals`` / ``_is_building_evidence_tags``).
 BUILDING_AEROWAY_TAGS = frozenset(("terminal", "hangar", "tower"))
@@ -223,20 +215,6 @@ def normalise_surface(code: int) -> Surface:
         return Surface.ASPHALT
 
 
-def runway_code_number(length_m: float) -> int:
-    for lim, code in CODE_NUMBER_BY_LENGTH_M:
-        if length_m < lim:
-            return code
-    return 4
-
-
-def runway_code_letter(width_m: float) -> str:
-    for lim, letter in CODE_LETTER_BY_WIDTH_M:
-        if width_m <= lim:
-            return letter
-    return "F"
-
-
 def load(icao: str, inputs: Inputs, law: Law | None = None) -> Airport:
     """The airport, loaded once."""
     return load_with_report(icao, inputs, law)[0]
@@ -293,30 +271,37 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     runways: list[Runway] = []
     tol = float(law.tables.emit.identity.cifp_threshold_join_m)
     recs, missing, joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
-    approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else frozenset())
+    approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else {})
     for _log_line in joins:
         _log.info(_log_line)
     for i, rw in enumerate(apt.runways):
         ends = []
         for k, (desig, lat, lon, disp, over) in enumerate(rw.ends):
             rec = recs[(i, k)]
+            # THE APPROACH WITNESS PER END (owner RULINGS 2026-10-15m (2),
+            # 15n; ``approach.end_approach``): the CIFP class of the record
+            # the join found for this end (designator, or #119's threshold
+            # fallback), strengthened by apt.dat precision markings
+            cls, cat = _approach.end_approach(
+                approaches.get(rec.designator) if rec is not None else None,
+                *(getattr(rw, f, (0, 0))[k]
+                  for f in ("markings", "approach_lights", "tdz_lights")))
             ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp,
                                   over, rec.elevation_m if rec else None,
-                                  rec.source if rec else ""))
-        # INSTRUMENT (owner RULINGS 2026-10-15m (2), replacing 15k (3)'s
-        # CIFP-only witness): either end shows ANY approach — apt.dat row-100
-        # PRECISION markings (3/5, ``instrument_markings``; 15n), or a CIFP approach flown to
-        # it (the end's CIFP record as the join found it, designator or
-        # threshold).  ``Runway.instrument`` is a runway-level status: it is
-        # what the RESA and the strip's end length are read by
-        instrument = any(
-            (recs[(i, k)] is not None and recs[(i, k)].designator in approaches)
-            or instrument_markings(getattr(rw, "markings", (0, 0))[k])
-            for k in (0, 1))
+                                  rec.source if rec else "", cls, cat))
+        # INSTRUMENT: either end has an approach (``Runway.instrument``, the
+        # status the RESA and the strip's end length are read by)
+        instrument = any(is_instrument(e.approach) for e in ends)
         r = Runway(f"{ends[0].name}/{ends[1].name}", rw.width_m,
                    normalise_surface(rw.surface), (ends[0], ends[1]), None,
-                   runway_code_letter(rw.width_m), instrument)
-        runways.append(_dc.replace(r, code_number=runway_code_number(r.length_m)))
+                   runway_code_letter(law, rw.width_m), instrument)
+        # THE ONE CODE-NUMBER / LETTER STAMP (regulation-conformance spec
+        # §3.1/§3.2): every reader takes these, the census from the sidecar
+        runways.append(_dc.replace(r, code_number=runway_code_number(law, r.length_m)))
+        _log.info("%s %s: code %s%s, ends %s", icao, r.id, runways[-1].code_number,
+                  r.code_letter, " ".join(
+                      f"{e.name}={e.approach}{'+CatII/III' if e.cat_ii_iii else ''}"
+                      for e in ends))
     rep.cifp_missing_ends = tuple(missing)
     rep.cifp_coordinate_joins = tuple(joins)
 
@@ -703,15 +688,6 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
-
-
-def instrument_markings(code: int) -> bool:
-    """apt.dat row-100 MARKINGS that witness an approach (owner RULINGS
-    2026-10-15n, amending 15m (2)): PRECISION markings only — 3 precision,
-    5 UK precision.  Non-precision markings (2, 4) alone do not make a
-    runway instrument: scenery authors paint them on visual runways
-    (CYXY 02/20, KBJC 03/21 have no CIFP approach)."""
-    return int(code) in (3, 5)
 
 
 def join_cifp(icao: str, runways: _t.Sequence[_t.Any],

@@ -238,8 +238,6 @@ try:
         _DRAINAGE_MIN_GROUNDSIDE_ROLES as _LAW_DRAIN_MIN_GS_ROLES,
     )
     from auto_patch.config import (
-        runway_code_number as _runway_code_number,
-        runway_code_letter as _runway_code_letter,
         resolve_ruleset as _resolve_ruleset,
         DEFAULT_RULESET as _DEFAULT_RULESET,
         STRIP_PRECEDENCE_ENABLED as _STRIP_PRECEDENCE,
@@ -279,8 +277,6 @@ except Exception:
     _runway_strip_wall_keepout_rings = None
     _runway_strip_longitudinal_runs = None
     _runway_strip_long_slope = None
-    _runway_code_number = None
-    _runway_code_letter = None
     _resolve_ruleset = None
     _DEFAULT_RULESET = "icao"
     _strip_longitudinal_law = None
@@ -4034,6 +4030,57 @@ _ACTIVE_RUNWAY_AXES: Optional[list] = None
 _MIN_END_LEN_M = 0.01
 
 
+def _matched_axis_row(axis, ll_to_m=None):
+    """The sidecar ``runway_axes`` row whose two ends lie nearest the
+    fitted ``axis`` ends (either orientation), within the 1 km a slab end
+    can stand from its runway-ring end; ``None`` without one."""
+    if not _ACTIVE_RUNWAY_AXES or ll_to_m is None or axis is None:
+        return None
+    (ax, ay), (bx, by), _w = axis
+    best = None
+    for r in _ACTIVE_RUNWAY_AXES:
+        if len(r) < 5:
+            continue
+        pa = ll_to_m(float(r[1]), float(r[2]))
+        pb = ll_to_m(float(r[3]), float(r[4]))
+        d = min(math.hypot(pa[0] - ax, pa[1] - ay) + math.hypot(pb[0] - bx, pb[1] - by),
+                math.hypot(pb[0] - ax, pb[1] - ay) + math.hypot(pa[0] - bx, pa[1] - by))
+        if d < 1000.0 and (best is None or d < best[0]):
+            best = (d, r)
+    return best[1] if best else None
+
+
+def _published_code_and_letter(row, length_m, width_m):
+    """``(code_number, code_letter)`` of a runway: the sidecar row's slots
+    11 / 12 (``auto_patch_v2.verify.runway_witness``, the reader verify
+    shares), else the shared classifier on the fitted length and width."""
+    try:
+        from auto_patch_v2.law.reference_code import (runway_code_letter,
+                                                      runway_code_number)
+        from auto_patch_v2.verify.runway_witness import (published_code_letter,
+                                                         published_code_number)
+        law, _p = _runway_end_profile_law()
+    except Exception:                                   # pragma: no cover
+        return 4, None
+    rows = [row] if row is not None else []
+    ref = row[0] if row is not None else None
+    return (published_code_number(rows, ref, length_m, law),
+            published_code_letter(rows, ref, runway_code_letter(law, width_m)))
+
+
+def _published_end_classes(a_end, b_end, ll_to_m=None):
+    """``(class at a_end, class at b_end)``: the approach classes the
+    sidecar publishes for the runway whose ends these are (``runway_axes``
+    slots 13 / 14, read by ``auto_patch_v2.verify.runway_witness`` — the
+    reader verify shares); ``None`` where no row carries them (a patch
+    predating the slots)."""
+    row = _matched_axis_row((a_end, b_end, 0.0), ll_to_m)
+    if row is None:
+        return None
+    from auto_patch_v2.verify.runway_witness import published_end_classes
+    return published_end_classes([row], row[0], a_end, b_end, ll_to_m)
+
+
 def _rsa_end_lengths(axis, code, letter, ll_to_m=None):
     """``(beyond axis a, beyond axis b)`` — the generator's RSA length
     (``auto_patch_v2.law.tables.runway_safety_area_length_m``) less each
@@ -4087,10 +4134,12 @@ def _strip_group_of_axis(axis, ll_to_m=None):
     length = math.hypot(bx - ax, by - ay)
     if length < 1.0:
         return None
-    letter = (_runway_code_letter(width_m)
-              if _runway_code_letter is not None else None)
-    code = (_runway_code_number(length)
-            if _runway_code_number is not None else 4)
+    # THE LOADER'S STAMP (regulation-conformance spec §3.1/§3.2): the code
+    # and letter the build published for the runway this axis is, never a
+    # census classifier; a patch predating the slots reads the ONE shared
+    # classifier (``auto_patch_v2.law.reference_code``) on the fitted axis
+    row = _matched_axis_row(axis, ll_to_m)
+    code, letter = _published_code_and_letter(row, length, width_m)
     rings = _runway_strip_wall_keepout_rings(
         (ax, ay), (bx, by), width_m, letter, _ACTIVE_RULESET,
         end_len_m=_rsa_end_lengths(axis, code, letter, ll_to_m))
@@ -4595,7 +4644,13 @@ def _check_raoa_rate(ways: List[Way], nodes, ll_to_m,
                  rings[0][0][1] * 0.5 + rings[0][3][1] * 0.5)
         b_end = (rings[0][1][0] * 0.5 + rings[0][2][0] * 0.5,
                  rings[0][1][1] * 0.5 + rings[0][2][1] * 0.5)
-        for thr, inward in ((a_end, (ux, uy)), (b_end, (-ux, -uy))):
+        # Annex 14 §3.8.1: before a PRECISION approach end only — the
+        # generator's end filter (``grade_law.raoa_applies``) on the class
+        # the sidecar publishes; a patch predating it binds every end
+        cls = _published_end_classes(a_end, b_end, ll_to_m) or ("pa", "pa")
+        for thr, inward, c in ((a_end, (ux, uy), cls[0]), (b_end, (-ux, -uy), cls[1])):
+            if _raoa_applies is not None and not _raoa_applies(c, _ACTIVE_RULESET):
+                continue
             ring = _raoa_footprint_ring(thr, inward, _ACTIVE_RULESET)
             if ring:
                 rects.append((ring, inward))

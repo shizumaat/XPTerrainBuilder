@@ -61,6 +61,13 @@ class RunwayEnd:
     overrun_m: float
     threshold_elev_m: float | None
     cifp_source: str
+    #: THE END'S APPROACH CLASS (owner RULINGS 2026-10-15m (2) / 15n;
+    #: ``airport/approach.end_approach``): ``visual`` / ``npa`` / ``apv`` /
+    #: ``pa`` (``law.reference_code``).  The RAOA binds before a ``pa`` end.
+    approach: str = "visual"
+    #: Cat II/III: apt.dat ALSF-II / Calvert II lighting with touchdown-zone
+    #: lights at a precision end (15m (2))
+    cat_ii_iii: bool = False
 
 
 @_dc.dataclass(frozen=True)
@@ -73,10 +80,10 @@ class Runway:
     ends: tuple[RunwayEnd, RunwayEnd]
     code_number: int | None
     code_letter: str | None
-    #: THE INSTRUMENT STATUS (owner RULINGS 2026-10-15k (3)): a CIFP
-    #: ``APPCH:`` procedure is flown to one of its ends
-    #: (``airport/cifp.read_cifp_approach_runways``); none -> non-instrument.
-    #: The law tables read the RESA and the strip's end length by it.
+    #: THE INSTRUMENT STATUS (owner RULINGS 2026-10-15k (3), 15m (2), 15n):
+    #: either END has an approach (``RunwayEnd.approach`` other than
+    #: ``visual``); none -> non-instrument.  The law tables read the RESA
+    #: and the strip's end length by it.
     instrument: bool = False
 
     @property

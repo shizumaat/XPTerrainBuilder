@@ -3353,9 +3353,11 @@ RUNWAY_STRIP_BAND_MAX_DOWN_SLOPE_BY_CODE = {1: 0.05, 2: 0.05, 3: 0.03, 4: 0.03}
 # OMGWS-derived graded half-width of the taxiway strip, keyed by ICAO
 # code LETTER (ICAO Annex 14 §3.11.4 / EASA CS-ADR-DSN.D.325(b), current
 # editions): OMGWS <4.5 / 4.5–6 / 6–9 m → 10.25 / 11 / 12.5 m (letters
-# A/B/C), letters D/E/F → 18.5 / 19 / 22 m (ruling 2).  FAA's
-# TSA-wingspan width is deliberately NOT used — wingtip clearance governs
-# that envelope separately (``taxiway_clearance_half_width_*``).
+# A/B/C), letters D/E/F → 18.5 / 19 / 22 m (ruling 2), measured from the
+# CENTRELINE.  The census no longer reads it: the zone's reach under each
+# authority (the ICAO table, or the FAA TSA = half the ADG wingspan, AC
+# §4.5.3) is v2's ``law.tables.zone_edge_offset_m`` (RULINGS 2026-10-15l
+# (1), audit row 3; ``grade_law.taxiway_strip_edge_offset_m``).
 TAXIWAY_STRIP_BAND_MIN_DOWN_SLOPE = 0.015
 TAXIWAY_STRIP_BAND_MAX_DOWN_SLOPE = 0.05
 TAXIWAY_STRIP_GRADED_HALF_WIDTH_BY_LETTER = {
@@ -3978,7 +3980,6 @@ class Ruleset:
     # ── §4 row 17 — taxiway strip ────────────────────────────────────
     taxiway_strip_band_min_down_slope: float = 0.015
     taxiway_strip_band_max_down_slope: float = 0.05
-    taxiway_strip_graded_half_width_m: _Optional[_Mapping[str, float]] = None
     # ── §4 row 18 / §B1 — shoulders ──────────────────────────────────
     #: ``(min, max)`` transverse for a PAVED runway/taxiway shoulder.
     shoulder_transverse_min: _Optional[float] = None
@@ -4583,8 +4584,6 @@ ICAO_RULESET = Ruleset(
     # mandatory-down minimum rides owner question 1 with rows 7/8).
     taxiway_strip_band_min_down_slope=TAXIWAY_STRIP_BAND_MIN_DOWN_SLOPE,
     taxiway_strip_band_max_down_slope=TAXIWAY_STRIP_BAND_MAX_DOWN_SLOPE,
-    taxiway_strip_graded_half_width_m=dict(
-        TAXIWAY_STRIP_GRADED_HALF_WIDTH_BY_LETTER),
 
     # §3.2.3: "The surface of the shoulder that abuts the runway should
     # be flush with the surface of the runway and its transverse slope
@@ -4880,14 +4879,11 @@ FAA_RULESET = Ruleset(
     apron_min_drainage_grade=0.005,
     apron_max_grade_change=0.02,
 
-    # §4.14.2 item 5: TSA transverse 1.5-5 %.  The graded half-width
-    # comes from the AC's TSA width tables; until those columns are
-    # pulled per group the ICAO/EASA OMGWS widths stand (they are the
-    # repo's live geometry and are the narrower, contained reading).
+    # §4.14.2 item 5: TSA transverse 1.5-5 %.  The TSA's width (§4.5.3,
+    # half the ADG wingspan) is v2's ``zones.toml [adjacent_ground.taxi]
+    # half_width_faa_m`` (RULINGS 2026-10-15l (1)).
     taxiway_strip_band_min_down_slope=0.015,
     taxiway_strip_band_max_down_slope=0.05,
-    taxiway_strip_graded_half_width_m=dict(
-        TAXIWAY_STRIP_GRADED_HALF_WIDTH_BY_LETTER),
 
     # Table 3-6 S-2 / §4.14.2 item 3: paved shoulders 1.5-5.0 % down.
     # §4.14.2 item 2 (repeated for aprons at §5.9.1): the paved-to-

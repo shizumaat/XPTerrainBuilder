@@ -21,7 +21,7 @@ import scipy.sparse as sp
 
 from ..geom import face_triangles
 from ..law import Law
-from ..law.tables import zone2_half_width_m
+from ..law.tables import zone_edge_offset_m
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import NO_SHAPE, PlanarMap
 from ..geom.union_find import find_root
@@ -270,9 +270,10 @@ def _zone_weights(pm: PlanarMap, law: Law, pav: _t.AbstractSet[int]
     """For every vertex OUTSIDE the pavement, how deep into its zone it
     lies — 0 at the pavement edge, 1 at the zone's outer ring — by graph
     distance (metres) along the planar map from the pavement, normalised
-    by the zone-2 half width THAT pavement's own class states
-    (``law.tables.zone2_half_width_m``: a runway's strip is wide, a
-    taxiway's narrow).
+    by the zone's reach from the edge THAT pavement's own class states
+    (``law.tables.zone_edge_offset_m``: a runway's strip is wide, a
+    taxiway's narrow — a centreline figure past the letter's pavement,
+    RULINGS 2026-10-15l (1)).
 
     THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): this was
     the DEM-fit ramp and it also FIXED every vertex past the outer ring at
@@ -285,7 +286,7 @@ def _zone_weights(pm: PlanarMap, law: Law, pav: _t.AbstractSet[int]
     import heapq
     width_of: dict[int, float] = {}
     for f in pm.faces.values():
-        w = zone2_half_width_m(law, f.role, f.code_number, f.code_letter)
+        w = zone_edge_offset_m(law, f.role, f.code_number, f.code_letter)
         if not w:
             continue
         for ring in (f.ring, *f.holes):

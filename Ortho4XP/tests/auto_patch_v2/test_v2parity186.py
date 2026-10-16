@@ -63,7 +63,10 @@ _ZONE_OVERLAP_M = 2.0
 #: How far INSIDE the road ribbon / the strip / outside the wall line the
 #: three ramp vertices stand — all well over the 0.5 m weld tolerance.
 _RAMP_IN_ROAD_M = 2.0
-_RAMP_IN_STRIP_M = 6.0
+_RAMP_IN_STRIP_M = 3.0
+#: The code-E taxi strip's reach past the pavement edge (ICAO: 19.0 m from
+#: the centreline less the 11.5 m pavement half-width, RULINGS 2026-10-15l (1))
+_TAXI_E_STRIP_M = 7.5
 _OBJECT_OFFSET_M = 4.0
 #: The authored floor, and the emitted floor that misses it (bar 0.10 m).
 _OBJECT_FLOOR_M = 70.0
@@ -90,7 +93,8 @@ def _layout(*, clean: bool = False):
     is the other half of each family's twin."""
     z = _BASE_Z_M
     # the apron, and the code-E taxi rect 60 m north of it (its graded
-    # strip is 19.0 m, so a ramp 6 m out from its edge is inside it)
+    # strip reaches 7.5 m past its edge — 19.0 m from the CENTRELINE, 15l
+    # (1) — so a ramp a few metres out from its edge is inside it)
     apron = _rect(0, 0, 120, 60, z)
     taxi = _rect(0, 120, 120, 40, z)
     # the zone band north of the apron, standing 2 m ONTO it unless clean
@@ -101,9 +105,9 @@ def _layout(*, clean: bool = False):
     into = 0.0 if clean else _RAMP_IN_ROAD_M
     ramp_road = [_at(40, -45, z), _at(60, -45, z),
                  _at(60, -30 + into, z - 3.0), _at(40, -30 + into, z - 3.0)]
-    # the ramp in the taxi rect's strip: north of the rect by 6 m when dirty,
-    # by 25 m (clear of the 19.0 m strip) when clean
-    out_m = 25.0 if clean else (19.0 - _RAMP_IN_STRIP_M)
+    # the ramp in the taxi rect's strip: inside the 7.5 m reach when dirty,
+    # 25 m out (clear of it) when clean
+    out_m = 25.0 if clean else (_TAXI_E_STRIP_M - _RAMP_IN_STRIP_M)
     ramp_strip = [_at(40, 160 + out_m, z), _at(60, 160 + out_m, z),
                   _at(60, 160 + out_m + 15, z - 4.0),
                   _at(40, 160 + out_m + 15, z - 4.0)]

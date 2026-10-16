@@ -23,7 +23,7 @@ __all__ = [
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
     "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds", "generator_slack_m",
-    "runway_zone_edge_offset_m", "runway_safety_area_length_m",
+    "runway_zone_edge_offset_m", "zone_edge_offset_m", "runway_safety_area_length_m",
     "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "end_profile_noise_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
     "gap_standoff_m",
@@ -236,8 +236,9 @@ def taxi_half_width_m(law: Law, code_letter: str | None) -> float | None:
     """Half the letter's taxiway pavement width (``rulesets.<authority>.
     taxi.width_m``, Annex 14 §3.9.3 / AC 150/5300-13B by ADG); ``None``
     where the authority states no width.  The law key of round 1 (RULINGS
-    2026-09-06t); its corridor reading was withdrawn by 06v — no
-    generator reads it today (the key stays: the taxiway width is law)."""
+    2026-09-06t); its corridor reading was withdrawn by 06v.  Read by
+    :func:`zone_edge_offset_m`: the taxiway strip is a centreline figure
+    (RULINGS 2026-10-15l (1)), reached from the edge past this half-width."""
     tbl = law.ruleset.taxi.width_m
     if tbl is None:
         return None
@@ -470,9 +471,11 @@ def zone_class(law: Law, role: str) -> ZoneClass | None:
 
 def zone2_half_width_m(law: Law, role: str, code_number: int | None = None,
                        code_letter: str | None = None) -> float | None:
-    """Outer bound of zone 2 from the pavement edge.  Runway strips key
-    by code number (ICAO) or the FAA RSA table (FAA); taxi strips by
-    letter.  Beyond it is zone 3 = the DEM."""
+    """Zone 2's half-width FROM THE CENTRELINE (the table figure): runway
+    strips key by code number (ICAO) or the FAA RSA table (FAA); taxi strips
+    by letter (ICAO Annex 14 §3.11.4 graded portion; FAA AC 150/5300-13B
+    §4.5.3 TSA).  Beyond it is zone 3 = the DEM.  The zone's reach from the
+    PAVEMENT EDGE is :func:`zone_edge_offset_m`."""
     zc = zone_class(law, role)
     if zc is None:
         return None
@@ -497,6 +500,37 @@ def runway_zone_edge_offset_m(law: Law, code_number: int | None,
         return None
     lip = float(law.tables.zones.adjacent_ground.lip_width_m)
     return max(lip, float(hw) - max(0.0, float(runway_half_m)))
+
+
+def zone_edge_offset_m(law: Law, role: str, code_number: int | None = None,
+                       code_letter: str | None = None,
+                       pavement_half_m: float | None = None) -> float | None:
+    """THE ZONE'S OUTER EDGE as an offset from the PAVEMENT EDGE — the ONE
+    accessor every reader of a zone's reach goes through (spec
+    ``regulation-conformance-20261015`` §2.A).  Both families state the
+    zone-2 half-width from the CENTRELINE (:func:`zone2_half_width_m`), so
+    the band reaches ``max(lip_width_m, half-width − pavement half-width)``:
+
+    * runway family — :func:`runway_zone_edge_offset_m` over the runway's own
+      ``pavement_half_m`` (``None``: 0, the centreline figure, an upper bound
+      for a caller that does not know the runway);
+    * taxi family — the taxiway's pavement half-width is the LETTER's
+      (``rulesets.<authority>.taxi.width_m`` / 2, :func:`taxi_half_width_m`;
+      RULINGS 2026-10-15l (1), audit row 3: Annex 14 §3.11.4, AC §4.5.3).
+      ``pavement_half_m`` overrides it.
+
+    ``None`` where the role has no graded strip or the class states none."""
+    fam = role_family(law, role)
+    if fam == "runway":
+        return runway_zone_edge_offset_m(law, code_number, code_letter,
+                                         pavement_half_m or 0.0)
+    hw = zone2_half_width_m(law, role, code_number, code_letter)
+    if hw is None:
+        return None
+    pave = pavement_half_m if pavement_half_m is not None else (
+        taxi_half_width_m(law, code_letter) or 0.0)
+    lip = float(law.tables.zones.adjacent_ground.lip_width_m)
+    return max(lip, float(hw) - max(0.0, float(pave)))
 
 
 def runway_safety_area_length_m(law: Law, code_number: int | None = None,

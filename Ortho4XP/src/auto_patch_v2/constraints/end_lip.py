@@ -1,12 +1,17 @@
-"""THE PAVEMENT'S OWN LIP INSIDE A RUNWAY END AREA (owner RULINGS
-2026-10-15j, option 1).
+"""THE PAVEMENT'S OWN GRADED STRIP INSIDE A RUNWAY END AREA (owner RULINGS
+2026-10-15j, option 1; extended by 2026-10-16c "Whole graded strip").
 
 Inside a runway's end area, the adjacent ground of every non-runway pavement
-(a taxiway, a junction, an apron) FOLLOWS THAT PAVEMENT within its zone 1,
-the lip of ``zones.adjacent_ground.lip_width_m`` out from the pavement
-edge: its shoulder meets the pavement edge
-with no step.  The runway-end profile yields there and governs the rest of
-the end area.  This is a general rule for every pavement in every end area.
+(a taxiway, a junction, an apron) FOLLOWS THAT PAVEMENT over its whole
+graded strip: a taxi-family pavement's zones 1 and 2 (the
+``adjacent_ground:taxi:*`` faces ``planar/zones`` draws), and for every
+non-runway pavement — an apron has no zone class — the lip of
+``zones.adjacent_ground.lip_width_m`` out from its edge.  The runway-end
+profile yields there and governs the rest of the end area.  This is a
+general rule for every pavement in every end area.  16c measured HECA: by
+taxiway G1 beyond 05L/23R's 23R end a zone-2 vertex 4.4 m off the junction
+held the end-profile chord 3.35 m under its neighbours; by taxiway T beyond
+05C, 0.88 m.
 
 Measured at CYXY (lane rwyzone15c, phase 4).  The vertex v2132 stands 64 m
 beyond 02/20's end and 2.9 m from the parallel taxiway pav9's edge.  pav9
@@ -30,6 +35,10 @@ import typing as _t
 from .precedence import View
 
 __all__ = ["end_lip_vertices", "nonrunway_pavement_roles", "pavement_edge_junction"]
+
+#: the ref prefix of a TAXI-family zone face (``planar/zones.zone_regions``:
+#: ``adjacent_ground:<family>:<class>:zone<k>#<n>``)
+_TAXI_ZONE = "adjacent_ground:taxi:"
 
 
 def nonrunway_pavement_roles(law) -> frozenset[str]:
@@ -59,7 +68,8 @@ def end_lip_vertices(vw: View, groups: _t.Iterable | None = None) -> frozenset[i
     """Every strip vertex, pavement excluded, that stands within the lip
     width of a non-runway airside pavement face (``airside_stage_roles``
     less the runway family — a runway's own pavement past its end has the
-    transect foot).
+    transect foot), or on a TAXI-family zone face (zones 1 and 2, RULINGS
+    2026-10-16c).
 
     The lip width is read from the law, and the identity spacing is added
     so that a vertex on the lip's outer ring reads inside.
@@ -97,6 +107,9 @@ def _lip(vw: View) -> frozenset[int]:
     reach = (float(law.tables.zones.adjacent_ground.lip_width_m)
              + float(law.tables.emit.identity.min_distinct_spacing_m))
     lip = prepared.prep(unary_union(polys).buffer(reach))
-    strip = {v for f in vw.faces_of_role(("graded_strip",))
-             for v in vw.face_vertices(f.id)} - vw.pavement_vertices
-    return frozenset(v for v in strip if lip.covers(Point(*vw.xy[v])))
+    strips = vw.faces_of_role(("graded_strip",))
+    strip = {v for f in strips for v in vw.face_vertices(f.id)} - vw.pavement_vertices
+    taxi_band = {v for f in strips if str(f.ref).startswith(_TAXI_ZONE)
+                 for v in vw.face_vertices(f.id)} - vw.pavement_vertices
+    return frozenset(v for v in strip
+                     if v in taxi_band or lip.covers(Point(*vw.xy[v])))

@@ -34,7 +34,7 @@ from shapely.geometry import LineString, Polygon
 
 from ..classify.roles import TAXI_FAMILY
 from ..law import Law
-from ..law.tables import zone2_half_width_m
+from ..law.tables import zone_edge_offset_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
 from ..model.structures import UNDERPASS_NOTE as _UNDERPASS_NOTE
@@ -80,7 +80,9 @@ def strip_half_width_m(law: Law, cell) -> float:
         # groups the RUNWAY and TAXI families and nothing else), so the
         # strip it declares is the LIP the ruling names.
         return lip
-    hw = zone2_half_width_m(law, role, cell.code_number, cell.code_letter)
+    # the zone's reach from the edge (``tables.zone_edge_offset_m``: a
+    # taxiway's strip is a centreline figure, RULINGS 2026-10-15l (1))
+    hw = zone_edge_offset_m(law, role, cell.code_number, cell.code_letter)
     return float(hw) if hw and hw > 0.0 else lip
 
 #: Re-exported from the RECORD (``model/structures``), where both the

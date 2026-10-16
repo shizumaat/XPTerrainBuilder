@@ -259,6 +259,12 @@ class AdjacentGround:
     lip_min_down: float
     lip_max_down: float
     ungraded_max_up: float
+    #: beyond a taxi corridor's outer edge, the reach of the
+    #: ``ungraded_max_up`` ceiling (``constraints/zones._beyond_graded_ceiling``)
+    ungraded_rise_reach_m: float
+    #: the blend width of a zone reference across a nearest-edge switch
+    #: along one pavement (``constraints/zones._blend_partner``)
+    reference_blend_m: float
     groundside_cutback_m: float
     #: §37 (11) THE SHORE DECISION (owner RULINGS 2026-09-29a (4)): the
     #: terrain profile across the last ``shore_profile_run_m`` before the

@@ -144,7 +144,10 @@ def test_the_zone_ring_follows_the_pavement_not_the_terrain(taxi_map, law):  # n
     # -> −1.15 m.  Still under its own DEM — the staged sheet takes no level
     # from the ground — which is what this arm pins.  (The same map in
     # PIPELINE ORDER reads −1.54 m with or without §61; see ``_taxi_solve``.)
-    assert min(z[v] - pm.vertices[v].dem_z for v in strip) < -1.0, \
+    # THE STRIP FROM THE CENTRELINE (RULINGS 2026-10-15l (1)): the band now
+    # ends nearer its pavement, so its deepest vertex reads −0.56 m (was
+    # −1.15 m) — still UNDER its own DEM, which is the claim.
+    assert min(z[v] - pm.vertices[v].dem_z for v in strip) < 0.0, \
         "the staged arm: the sheet keeps no level from the ground"
     z0 = np.asarray(_solve(pm, _cs, unstaged(law))[0].z, float)
     # every such vertex is FILLED clear of its DEM sample

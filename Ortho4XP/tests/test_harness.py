@@ -10249,11 +10249,13 @@ _RIS_LON = -3.5444804
 
 
 def _ramp_strip_patch(tmp_path, *, name, ramp_gap_m, code_letter="E",
-                      hole=False):
+                      hole=False, ruleset="icao"):
     """A 40 x 20 m code-E ``junction`` with a ``tunnel_ramp`` whose near
     edge stands ``ramp_gap_m`` out from the taxiway's south kerb.  The
-    code-E graded strip is 19.0 m, so a gap under 19 m puts the ramp's
-    two near vertices inside the strip.  With ``hole`` the taxiway ring
+    code-E graded strip reaches 7.5 m past the kerb under ICAO (19.0 m
+    from the CENTRELINE, Annex 14 §3.11.4; RULINGS 2026-10-15l (1)) and
+    21.1 m under FAA (the TSA, AC §4.5.3), so a smaller gap puts the
+    ramp's two near vertices inside the strip.  With ``hole`` the taxiway ring
     is a LOOP around a 60 x 60 m void and the ramp stands in the middle
     of it — LEMD ``pav61``'s class, which is NOT a graded strip."""
     mlat = 111_320.0
@@ -10299,7 +10301,7 @@ def _ramp_strip_patch(tmp_path, *, name, ramp_gap_m, code_letter="E",
     out.append("</osm>")
     osm = tmp_path / f"{name}_auto.patch.osm"
     osm.write_text("\n".join(out) + "\n", encoding="utf-8", newline="")
-    side = {"anchor": [_RIS_LAT, _RIS_LON], "ruleset": "icao"}
+    side = {"anchor": [_RIS_LAT, _RIS_LON], "ruleset": ruleset}
     if holes:
         side["face_holes"] = {"T1": [[[lat, lon] for lat, lon in holes[0]]]}
     Path(str(osm) + ".axes.json").write_text(json.dumps(side), encoding="utf-8", newline="")
@@ -10316,35 +10318,53 @@ def test_a_ramp_beyond_the_strip_prices_no_ramp_in_strip(cg, tmp_path):
 
 
 def test_a_ramp_inside_the_strip_is_a_defect(cg, tmp_path):
-    """The owner's LEMD class (15e item 7): the trench opened 15.5 m from
-    a kerb whose code-E strip is 19.0 m."""
+    """The owner's LEMD class (15e item 7): the trench opened inside a
+    kerb's code-E strip (7.5 m past the kerb since 15l (1); 19.0 m when
+    the owner read it, measured from the edge)."""
     fo = _families(cg, _ramp_strip_patch(tmp_path, name="instrip",
-                                         ramp_gap_m=15.5))
+                                         ramp_gap_m=4.0))
     rows = fo["ramp_in_strip"]
     assert len(rows) == 2, (
-        f"the ramp's two near vertices stand 15.5 m from a 19.0 m strip's "
+        f"the ramp's two near vertices stand 4.0 m from a 7.5 m strip's "
         f"kerb; the family priced {len(rows)} row(s)")
-    # the band is 19.0 m wide and the vertex sits 15.5 m into it, so it is
+    # the band reaches 7.5 m and the vertex sits 4.0 m into it, so it is
     # 3.5 m short of the band's OUTER edge
     assert all(abs(r.de_m - 3.5) < 0.05 for r in rows), [r.de_m for r in rows]
+
+
+def test_an_faa_taxiway_s_strip_is_its_safety_area(cg, tmp_path):
+    """FAA airports stop reading the ICAO table (spec regulation-conformance
+    §2.A A-13; AC 150/5300-13B §4.5.3): a code-E (ADG V) taxiway's TSA is
+    half of 214 ft from the centreline, 21.1 m past the kerb — so a ramp
+    15.5 m out is inside it under FAA and outside it under ICAO."""
+    faa = _families(cg, _ramp_strip_patch(tmp_path, name="faastrip",
+                                          ramp_gap_m=15.5, ruleset="faa"))
+    assert len(faa["ramp_in_strip"]) == 2
+    assert all(abs(r.de_m - (21.1 - 15.5)) < 0.05 for r in faa["ramp_in_strip"])
+    icao = _families(cg, _ramp_strip_patch(tmp_path, name="icaostrip",
+                                           ramp_gap_m=15.5))
+    assert icao["ramp_in_strip"] == []
 
 
 def test_the_strip_half_width_is_the_zone_law_s_own(cg, tmp_path):
     """ONE derivation with ``planar/zones`` and with
     ``planar/structure_underpass.strip_half_width_m`` — never a number
-    spelled twice.  A code-C taxiway's strip is 12.5 m, so the same
-    15.5 m gap is LAWFUL there and a defect at code E."""
+    spelled twice: v2's ``zone_edge_offset_m`` (the strip from the
+    centreline, RULINGS 2026-10-15l (1)).  A code-C taxiway's strip
+    reaches 5.0 m past the kerb, so a 15.5 m gap is LAWFUL there."""
     from auto_patch_v2.law import tables as _T
     from auto_patch_v2.planar.structure_underpass import strip_half_width_m
     from auto_patch_v2.classify.roles import Cell
     law = _T.load_default()
+    # the census reads the RUN's ruleset (a previous run may have left FAA)
+    cg._set_active_ruleset(law.ruleset_key)
     for cl in ("A", "B", "C", "D", "E", "F"):
         cell = Cell(0, "junction", "x", (), (), None, cl, "airside", "pav", {})
         assert (cg._strip_half_width_m("junction", None, cl)
                 == strip_half_width_m(law, cell)
-                == _T.zone2_half_width_m(law, "junction", None, cl))
-    assert cg._strip_half_width_m("junction", None, "E") == 19.0
-    assert cg._strip_half_width_m("junction", None, "C") == 12.5
+                == _T.zone_edge_offset_m(law, "junction", None, cl))
+    assert cg._strip_half_width_m("junction", None, "E") == 7.5
+    assert cg._strip_half_width_m("junction", None, "C") == 5.0
     # a role no zone band is built around declares no strip at all
     assert cg._strip_half_width_m("apron", None, None) == 0.0
     assert cg._strip_half_width_m("service_road", None, None) == 0.0
@@ -10369,7 +10389,7 @@ def test_a_ramp_in_a_taxiway_loop_s_void_is_not_in_its_strip(cg, tmp_path):
 def test_a_ramp_vertex_within_the_weld_tolerance_is_on_the_strip_edge(cg, tmp_path):
     """The line is the census's OWN weld tolerance, exactly as for
     ``ramp_in_road`` — never a proximity semantic invented here."""
-    hw = 19.0
+    hw = 7.5
     fo = _families(cg, _ramp_strip_patch(
         tmp_path, name="stripweld",
         ramp_gap_m=hw - cg.SHARED_VERTEX_TOL_M * 0.5))

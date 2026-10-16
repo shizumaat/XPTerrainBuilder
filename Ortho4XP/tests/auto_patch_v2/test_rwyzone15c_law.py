@@ -227,8 +227,8 @@ def test_a_strip_pair_on_non_runway_pavement_is_the_pavement_edge_s(icao):
     taxiway / junction / apron vertex is a pavement-edge junction — the
     strip's longitudinal and arc laws skip it through ONE predicate
     (``constraints.end_lip.pavement_edge_junction``) that the generators and
-    both readers share; the generator's slack is the reader's allowance less
-    the rounding envelope (``tables.generator_slack_m``)."""
+    both readers share.  ``tables.generator_slack_m`` is the one slack
+    helper (the end profile's; not the strip families', RULINGS 09-12y)."""
     from auto_patch_v2.constraints.end_lip import (nonrunway_pavement_roles,
                                                    pavement_edge_junction)
     from auto_patch_v2.constraints.strips import strip_longitudinal_pairs

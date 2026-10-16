@@ -683,9 +683,10 @@ def generator_slack_m(law: Law, reader_allowance_m: float) -> float:
     under, so a row the solve holds at its tolerance reads inside the
     reader's allowance.  Less the materiality floor alone, rows the solve
     held a few centimetres over the generator's bound read as breaches
-    (CYXY: the end profile, then the strip's longitudinal and arc rows on
-    the band's outer ring).  ONE helper for every family that prices its
-    rows this way."""
+    (CYXY: the end profile).  ONE helper for every family that prices its
+    rows this way.  NOT applied to the strip's longitudinal / arc rows:
+    their residuals are strip ground far under the visual tolerance
+    (owner RULINGS 2026-09-12y, restated on #763 phase 8)."""
     return max(0.0, float(reader_allowance_m) - float(law.tables.emit.instrument.rounding_noise_m))
 
 

@@ -55,7 +55,7 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m, generator_slack_m,
+from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
                           runway_end_profile, runway_safety_area_length_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
@@ -258,7 +258,7 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     # the reader's population helper, on the reader's pavement (05ae-3)
     pav = pavement_ring_vertices((vw.caps[fid], vw.rings[fid]) for fid in planar.faces)
     owned = _nonrunway_pavement_vertices(vw)
-    q = generator_slack_m(law, law.tables.emit.instrument.coarse_noise_m)
+    q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     for g in runway_groups(vw, airport):
         cap = law.ruleset.strip.longitudinal.value(g.code_number, g.code_letter)
         if cap is None:
@@ -281,7 +281,7 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     vw = view(planar, law)
     r = law.ruleset.strip.arc_rate
     rate = r.grade / r.per_m
-    q = generator_slack_m(law, law.tables.emit.instrument.coarse_noise_m)
+    q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     owned = _nonrunway_pavement_vertices(vw)
     rows: list[Row] = []
     seen: set[tuple[int, int, int]] = set()

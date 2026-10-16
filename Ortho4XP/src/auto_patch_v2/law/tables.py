@@ -22,7 +22,7 @@ __all__ = [
     "DEFAULT_LAW_DIR", "load_default", "law_tables_digest", "resolve_ruleset", "role_cap",
     "role_family", "role_side", "is_value_role", "is_rigid_role", "is_structure_role",
     "pavement_roles", "pavement_fallback_cap", "authority_rank",
-    "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds",
+    "senior_role", "zone_class", "zone2_half_width_m", "zone_bounds", "generator_slack_m",
     "runway_zone_edge_offset_m", "runway_safety_area_length_m",
     "runway_end_zone_length_m", "EndProfile", "runway_end_profile", "end_profile_noise_m", "family", "families_for_role",
     "chord_cap_m", "identity_dp", "input_quantum_m", "materiality_m", "snap_margin_m",
@@ -672,7 +672,21 @@ def end_profile_noise_m(law: Law, *, reader: bool = False) -> float:
     ins = law.tables.emit.instrument
     if reader:
         return max(float(ins.strip_edge_noise_m), float(ins.rounding_noise_m))
-    return max(0.0, float(ins.strip_edge_noise_m) - float(ins.rounding_noise_m))
+    return generator_slack_m(law, float(ins.strip_edge_noise_m))
+
+
+def generator_slack_m(law: Law, reader_allowance_m: float) -> float:
+    """THE GENERATOR'S SLACK under a reader's allowance (lane rwyzone15c
+    phases 4 / 8): the allowance less ``emit.instrument.rounding_noise_m``,
+    never below zero.  That envelope is what the solver's held residual
+    (``design.hard_tol_m``) and two emitted altitudes' rounding are sized
+    under, so a row the solve holds at its tolerance reads inside the
+    reader's allowance.  Less the materiality floor alone, rows the solve
+    held a few centimetres over the generator's bound read as breaches
+    (CYXY: the end profile, then the strip's longitudinal and arc rows on
+    the band's outer ring).  ONE helper for every family that prices its
+    rows this way."""
+    return max(0.0, float(reader_allowance_m) - float(law.tables.emit.instrument.rounding_noise_m))
 
 
 def runway_end_zone_length_m(law: Law, runway_length_m: float) -> float:

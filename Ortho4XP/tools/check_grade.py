@@ -4174,6 +4174,19 @@ _STRIP_PAVEMENT_ROLES = frozenset({
 _STRIP_LONGITUDINAL_MIN_RUN_M = 1.0
 
 
+def _pavement_edge_junction_nids(ways):
+    """``(owned, predicate)``: the node ids of every non-runway pavement
+    way (``auto_patch_v2.constraints.end_lip.nonrunway_pavement_roles``)
+    and THE pavement-edge-junction predicate the generators and verify
+    use (``end_lip.pavement_edge_junction``; #763 phase 8) — a strip pair
+    or station set touching one is the pavement edge's, not the strip's."""
+    from auto_patch_v2.constraints.end_lip import (nonrunway_pavement_roles,
+                                                   pavement_edge_junction)
+    roles = nonrunway_pavement_roles(_runway_end_profile_law()[0])
+    owned = {n for w in ways if w.role in roles for n in w.nids}
+    return owned, pavement_edge_junction
+
+
 def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
                                     ) -> Tuple[List[Violation], int, int]:
     """``(violations, n_pairs, n_ways)`` — every strip-band pair whose
@@ -4199,6 +4212,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
     for w in ways:
         if w.role in _STRIP_PAVEMENT_ROLES:
             pavement_nids.update(w.nids)
+    owned, junction = _pavement_edge_junction_nids(ways)
     out: List[Violation] = []
     n_pairs = 0
     hit_ways: set = set()
@@ -4239,6 +4253,8 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
                         continue
                     if nn[a] in pavement_nids and nn[b] in pavement_nids:
                         continue
+                    if junction((nn[a], nn[b]), owned):
+                        continue      # a pavement-edge junction (end_lip, #763 phase 8)
                     ds = abs((pts[b][0] - pts[a][0]) * axis[0]
                              + (pts[b][1] - pts[a][1]) * axis[1])
                     if ds < _STRIP_LONGITUDINAL_MIN_RUN_M:
@@ -4372,6 +4388,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     groups = _runway_strip_groups(ways, nodes, ll_to_m)
     if not groups:
         return [], 0, 0
+    owned, junction = _pavement_edge_junction_nids(ways)
     out: List[Violation] = []
     n_stations = 0
     hit_ways: set = set()
@@ -4412,6 +4429,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
                     a, b, c = run[k - 1], run[k], run[k + 1]
                     if zs[a] is None or zs[b] is None or zs[c] is None:
                         continue
+                    if junction((nn[a], nn[b], nn[c]), owned):
+                        continue      # a pavement-edge junction (end_lip, #763 phase 8)
                     dp = abs(s[k] - s[k - 1])
                     dn = abs(s[k + 1] - s[k])
                     if dp < 1e-6 or dn < 1e-6:

@@ -29,7 +29,30 @@ import typing as _t
 
 from .precedence import View
 
-__all__ = ["end_lip_vertices"]
+__all__ = ["end_lip_vertices", "nonrunway_pavement_roles", "pavement_edge_junction"]
+
+
+def nonrunway_pavement_roles(law) -> frozenset[str]:
+    """THE PAVEMENT THAT OWNS GROUND INSIDE A RUNWAY'S STRIP: every airside
+    pavement role (``airside_stage_roles``) outside the runway family —
+    taxiways, junctions, aprons.  The ONE role set :func:`end_lip_vertices`
+    and :func:`pavement_edge_junction`'s callers (generators and both
+    readers) build their vertex sets from."""
+    from ..law.tables import airside_stage_roles
+    runway = set(law.tables.precedence.runway_family.members)
+    return frozenset(r for r in airside_stage_roles(law) if r not in runway)
+
+
+def pavement_edge_junction(vertices: _t.Iterable, owned: _t.Container) -> bool:
+    """A strip pair / station set that touches a NON-RUNWAY PAVEMENT vertex
+    (``owned``: the vertices of :func:`nonrunway_pavement_roles` faces) is a
+    PAVEMENT-EDGE JUNCTION (the master's call on #763 phase 8, under RULINGS
+    2026-10-15l; Annex 14 §3.4.16: the strip is flush with a pavement edge).
+    The pavement-edge no-step law judges it, not the strip's longitudinal
+    or arc law: the strip generators and both readers skip it through this
+    predicate.  Measured CYXY: 5 strip rows were pairs between strip ground
+    and a taxiway / apron vertex standing on the strip footprint's edge."""
+    return any(v in owned for v in vertices)
 
 
 def end_lip_vertices(vw: View, groups: _t.Iterable | None = None) -> frozenset[int]:
@@ -61,10 +84,8 @@ def _lip(vw: View) -> frozenset[int]:
     from shapely import prepared
     from shapely.geometry import Point, Polygon
     from shapely.ops import unary_union
-    from ..law.tables import airside_stage_roles
     law = vw.law
-    runway = set(law.tables.precedence.runway_family.members)
-    pavement = tuple(r for r in airside_stage_roles(law) if r not in runway)
+    pavement = tuple(nonrunway_pavement_roles(law))
     polys = []
     for f in vw.faces_of_role(pavement):
         ring = [vw.xy[v] for v in vw.rings[f.id]]

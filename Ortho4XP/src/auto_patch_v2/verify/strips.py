@@ -52,6 +52,7 @@ import typing as _t
 
 from ..constraints.geometry import (longitudinal_runs, point_in_rect_ring,
                                     principal_axis, rect_ring)
+from ..constraints.end_lip import nonrunway_pavement_roles, pavement_edge_junction
 from ..constraints.strips import (end_pair_bounds, end_transect_foot, end_transect_pairs,
                                   pavement_ring_vertices, strip_longitudinal_pairs)
 from shapely.geometry import Point as _ShPoint
@@ -365,10 +366,18 @@ def _pavement_ids(p: Patch) -> frozenset[int]:
     return pavement_ring_vertices((p.cap(sh), sh.ids) for sh in p.shapes)
 
 
+def _nonrunway_pavement_ids(p: Patch) -> frozenset[int]:
+    """The ``owned`` set of ``constraints.end_lip.pavement_edge_junction``
+    in the census frame: every vertex of a non-runway pavement shape."""
+    roles = nonrunway_pavement_roles(p.law)
+    return frozenset(v for sh in p.shapes if sh.role in roles for v in sh.vertex_ids)
+
+
 def strip_longitudinal(p: Patch) -> list[Row]:
     law = p.law
     q = law.tables.emit.instrument.coarse_noise_m
     pav = _pavement_ids(p)
+    owned = _nonrunway_pavement_ids(p)
     out: list[Row] = []
     seen: set = set()
     for rings, unit, code, L, letter, _a, _b in groups(p):
@@ -377,7 +386,7 @@ def strip_longitudinal(p: Patch) -> list[Row]:
             continue
         for sh in _strips(p):
             # ONE population with the generator (05ae-3)
-            for i, j, ds in strip_longitudinal_pairs(sh.ids, sh.xy, unit, rings[0], pav):
+            for i, j, ds in strip_longitudinal_pairs(sh.ids, sh.xy, unit, rings[0], pav, owned):
                 site = tuple(sorted((tuple(round(c, 3) for c in sh.xy[i]),
                                      tuple(round(c, 3) for c in sh.xy[j]))))
                 if site in seen:
@@ -397,6 +406,7 @@ def strip_arc(p: Patch) -> list[Row]:
     r = law.ruleset.strip.arc_rate
     rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m
+    owned = _nonrunway_pavement_ids(p)
     out: list[Row] = []
     seen: set = set()
     for rings, unit, code, L, letter, _a, _b in groups(p):
@@ -411,7 +421,8 @@ def strip_arc(p: Patch) -> list[Row]:
                                                                         p.law.tables.emit.materiality.grade):
                     A, B, C = run[a], run[b], run[c]
                     site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[i]) for i in (A, B, C)))
-                    if site in seen:
+                    if site in seen or pavement_edge_junction(
+                            (sh.ids[A], sh.ids[B], sh.ids[C]), owned):
                         continue
                     seen.add(site)
                     out.append(row("strip_arc", ("graded_strip",) * 2, p.side("graded_strip"),

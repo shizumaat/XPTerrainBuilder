@@ -305,7 +305,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                                   rec.source if rec else ""))
         # INSTRUMENT (owner RULINGS 2026-10-15m (2), replacing 15k (3)'s
         # CIFP-only witness): either end shows ANY approach — apt.dat row-100
-        # markings 2-5 (``instrument_markings``), or a CIFP approach flown to
+        # PRECISION markings (3/5, ``instrument_markings``; 15n), or a CIFP approach flown to
         # it (the end's CIFP record as the join found it, designator or
         # threshold).  ``Runway.instrument`` is a runway-level status: it is
         # what the RESA and the strip's end length are read by
@@ -707,9 +707,11 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
 def instrument_markings(code: int) -> bool:
     """apt.dat row-100 MARKINGS that witness an approach (owner RULINGS
-    2026-10-15m (2)): 2 non-precision, 3 precision, 4 UK non-precision,
-    5 UK precision.  0 (none) and 1 (visual) witness none."""
-    return int(code) in (2, 3, 4, 5)
+    2026-10-15n, amending 15m (2)): PRECISION markings only — 3 precision,
+    5 UK precision.  Non-precision markings (2, 4) alone do not make a
+    runway instrument: scenery authors paint them on visual runways
+    (CYXY 02/20, KBJC 03/21 have no CIFP approach)."""
+    return int(code) in (3, 5)
 
 
 def join_cifp(icao: str, runways: _t.Sequence[_t.Any],

@@ -207,9 +207,10 @@ def test_a_crossing_piece_mints_no_band_of_its_own(icao):
 
 
 def test_the_instrument_witness_reads_the_apt_dat_markings_too():
-    """RULINGS 2026-10-15m (2): an end is INSTRUMENT when apt.dat row 100
-    gives it markings 2-5 OR CIFP lists an approach to it.  The markings
-    come off the row the loader already parses (``apt_dat._runway``)."""
+    """RULINGS 2026-10-15n (amending 15m (2)): an end is INSTRUMENT when
+    CIFP lists an approach to it OR apt.dat row 100 gives it PRECISION
+    markings (3 or 5); non-precision markings (2, 4) alone do not count.
+    The markings come off the row the loader already parses."""
     from auto_patch_v2.airport.apt_dat import _runway
     from auto_patch_v2.airport.load import instrument_markings
     row = ("100 30.00 1 0 0.25 1 2 1 "
@@ -217,5 +218,31 @@ def test_the_instrument_witness_reads_the_apt_dat_markings_too():
            "20 60.71513697 -135.06737621 0 0 1 0 0 0").split()
     rw = _runway(row)
     assert rw is not None and rw.markings == (2, 1)
-    assert [instrument_markings(c) for c in range(7)] == [False, False, True, True,
-                                                          True, True, False]
+    assert [instrument_markings(c) for c in range(7)] == [False, False, False, True,
+                                                          False, True, False]
+
+
+def test_a_strip_pair_on_non_runway_pavement_is_the_pavement_edge_s(icao):
+    """#763 phase 8 (under RULINGS 2026-10-15l): a strip pair touching a
+    taxiway / junction / apron vertex is a pavement-edge junction — the
+    strip's longitudinal and arc laws skip it through ONE predicate
+    (``constraints.end_lip.pavement_edge_junction``) that the generators and
+    both readers share; the generator's slack is the reader's allowance less
+    the rounding envelope (``tables.generator_slack_m``)."""
+    from auto_patch_v2.constraints.end_lip import (nonrunway_pavement_roles,
+                                                   pavement_edge_junction)
+    from auto_patch_v2.constraints.strips import strip_longitudinal_pairs
+    from auto_patch_v2.law.tables import end_profile_noise_m, generator_slack_m
+    roles = nonrunway_pavement_roles(icao)
+    assert {"primary_parallel", "junction", "apron"} <= roles and "runway" not in roles
+    ids = [1, 2, 3, 4]
+    xy = [(0.0, 0.0), (10.0, 0.0), (20.0, 0.0), (30.0, 0.0)]
+    rect = [(-1.0, -5.0), (31.0, -5.0), (31.0, 5.0), (-1.0, 5.0), (-1.0, -5.0)]
+    every = strip_longitudinal_pairs(ids, xy, (1.0, 0.0), rect, frozenset())
+    kept = strip_longitudinal_pairs(ids, xy, (1.0, 0.0), rect, frozenset(), {3})
+    assert len(every) == 3 and [(ids[i], ids[j]) for i, j, _d in kept] == [(1, 2)]
+    assert pavement_edge_junction((1, 3), {3}) and not pavement_edge_junction((1, 2), {3})
+    ins = icao.tables.emit.instrument
+    assert generator_slack_m(icao, ins.coarse_noise_m) == pytest.approx(
+        ins.coarse_noise_m - ins.rounding_noise_m)
+    assert end_profile_noise_m(icao) == pytest.approx(generator_slack_m(icao, ins.strip_edge_noise_m))

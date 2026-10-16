@@ -55,7 +55,7 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
+from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m, generator_slack_m,
                           runway_end_profile, runway_safety_area_length_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
@@ -64,7 +64,7 @@ from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
                        principal_axis, rect_ring)
-from .end_lip import end_lip_vertices
+from .end_lip import end_lip_vertices, nonrunway_pavement_roles, pavement_edge_junction
 from .precedence import View, view
 
 __all__ = ["RunwayGroup", "runway_groups", "runway_code_number",
@@ -218,14 +218,17 @@ def pavement_ring_vertices(faces: _t.Iterable[tuple[object, _t.Sequence[int]]]
 
 
 def strip_longitudinal_pairs(ids: _t.Sequence[int], xy: _t.Sequence[XY], unit: XY,
-                             rect: _t.Sequence[XY], pavement: _t.Container[int]
+                             rect: _t.Sequence[XY], pavement: _t.Container[int],
+                             owned: _t.Container[int] = frozenset()
                              ) -> list[tuple[int, int, float]]:
     """THE STRIP-LONGITUDINAL PAIR POPULATION of one strip ring (RULINGS
     2026-09-05ae(3): the generator prices every pair the reader reads):
     consecutive vertices of an along-axis run inside the lateral
     rectangle (:func:`geometry.longitudinal_runs`), not both pavement,
-    at least ``MIN_ALONG_M`` apart along the axis — as ``(i, j, ds)``
-    ring indices with the along-axis distance."""
+    at least ``MIN_ALONG_M`` apart along the axis, and not a pavement-edge
+    junction with non-runway pavement (``owned``; :func:`end_lip.
+    pavement_edge_junction`) — as ``(i, j, ds)`` ring indices with the
+    along-axis distance."""
     inside = [point_in_rect_ring(x, y, rect) for x, y in xy]
     if not any(inside):
         return []
@@ -233,6 +236,8 @@ def strip_longitudinal_pairs(ids: _t.Sequence[int], xy: _t.Sequence[XY], unit: X
     for run in longitudinal_runs(xy, unit, inside):
         for i, j in zip(run, run[1:]):
             if ids[i] in pavement and ids[j] in pavement:
+                continue
+            if pavement_edge_junction((ids[i], ids[j]), owned):
                 continue
             ds = _along(unit, xy[i], xy[j])
             if ds < MIN_ALONG_M:
@@ -252,15 +257,16 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     seen: set[tuple[int, int]] = set()
     # the reader's population helper, on the reader's pavement (05ae-3)
     pav = pavement_ring_vertices((vw.caps[fid], vw.rings[fid]) for fid in planar.faces)
+    owned = _nonrunway_pavement_vertices(vw)
+    q = generator_slack_m(law, law.tables.emit.instrument.coarse_noise_m)
     for g in runway_groups(vw, airport):
         cap = law.ruleset.strip.longitudinal.value(g.code_number, g.code_letter)
         if cap is None:
             continue
-        q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
         src = Source(GEN, "rulesets.strip.longitudinal (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
         for fid, ids, xy in _strip_rings(vw):
-            for i, j, ds in strip_longitudinal_pairs(ids, xy, g.unit, g.rings[0], pav):
+            for i, j, ds in strip_longitudinal_pairs(ids, xy, g.unit, g.rings[0], pav, owned):
                 a, b = ids[i], ids[j]
                 key = (min(a, b), max(a, b))
                 if key in seen:
@@ -275,7 +281,8 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     vw = view(planar, law)
     r = law.ruleset.strip.arc_rate
     rate = r.grade / r.per_m
-    q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
+    q = generator_slack_m(law, law.tables.emit.instrument.coarse_noise_m)
+    owned = _nonrunway_pavement_vertices(vw)
     rows: list[Row] = []
     seen: set[tuple[int, int, int]] = set()
     for g in runway_groups(vw, airport):
@@ -290,7 +297,7 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 for k in range(1, len(run) - 1):
                     a, b, c = ids[run[k - 1]], ids[run[k]], ids[run[k + 1]]
                     key = tuple(sorted((a, b, c)))
-                    if key in seen or len(set(key)) < 3:
+                    if key in seen or len(set(key)) < 3 or pavement_edge_junction(key, owned):
                         continue
                     dp, dn = abs(s[k] - s[k - 1]), abs(s[k + 1] - s[k])
                     if dp < 1e-6 or dn < 1e-6:
@@ -300,6 +307,14 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     terms = ((c, 1.0 / dn), (b, -(1.0 / dn + 1.0 / dp)), (a, 1.0 / dp))
                     rows.append(Linear(terms, -bound, bound, src))
     return rows
+
+
+def _nonrunway_pavement_vertices(vw: View) -> frozenset[int]:
+    """The vertices of every non-runway pavement face (``end_lip.
+    nonrunway_pavement_roles``) — the ``owned`` set of
+    :func:`end_lip.pavement_edge_junction`."""
+    return frozenset(v for f in vw.faces_of_role(tuple(nonrunway_pavement_roles(vw.law)))
+                     for v in vw.face_vertices(f.id))
 
 
 def _resa_max(law: Law, beyond: float, letter: str | None) -> float | None:

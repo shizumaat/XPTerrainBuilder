@@ -8,10 +8,12 @@ production DEM reads at 217.1-218.2 m — a 90 x 65 m pit to sea level in the
 built mesh, with a 130 m skirt.  The DEM there is healthy; the DSF polygon
 carries no elevation at all.  The zero is minted by the SOLVE:
 
-* ``solve/rows._cotangent_laplacian`` CLAMPS an obtuse cotangent weight to
-  zero (it keeps the operator PSD).  The crater's only triangle to the rest
-  of the sheet is one 186 m² sliver, and both of its crater-touching edges
-  are clamped — so no row couples those 20 columns to anything;
+* ``solve/rows._cotangent_laplacian`` dropped weights it should have kept
+  (read at the time as obtuse clamping; issue #762 found the third edge's
+  angle read with the wrong sign, fixed since).  The crater's only
+  triangle to the rest of the sheet is one 186 m² sliver, and both of its
+  crater-touching edges carried no weight — so no row coupled those 20
+  columns to anything;
 * ``solve/design`` §9 ("a sheet carrying neither a pin nor a chord nor a
   zone fit floats — it takes its own DEM plane") judged connectivity on the
   TRIANGULATION, which the sliver joins.  The piece read as anchored;
@@ -64,33 +66,38 @@ class _XY:
         self.vertices = {v: _XY._V(p) for v, p in xy.items()}
 
 
-def test_the_triangulation_joins_a_neck_no_bending_row_crosses():
-    """THE MECHANISM, in isolation.  A sliver-joined region is ONE face to
-    the triangulation — and ``_sheet_components`` therefore reads it as one
-    SHEET — while the cotangent Laplacian clamps every weight across the
-    neck, so no bending row ties the two halves together at all.  That gap
-    is what §9's anchoring cannot see and what the belt closes."""
+def test_the_corrected_operator_carries_bending_across_the_neck():
+    """THE MECHANISM, RE-READ (issue #762).  Lane ``v2zerocrater`` measured
+    a sliver-joined region that the triangulation read as ONE sheet while
+    no bending row crossed the neck, and attributed it to obtuse clamping.
+    The clamp was not the cause: ``_cotangent_laplacian`` read the third
+    edge's opposite angle with the wrong sign, so an acute triangle lost
+    its ``(c, a)`` weight.  Correctly signed, a non-degenerate triangle has
+    at most one angle >= 90 degrees, so at least two of its edges carry
+    weight and all three vertices are joined: the neck is bent across in
+    EVERY vertex order.  (The belt below stays: a homogeneous block can
+    still reach the solve through rows other than bending.)"""
     xy = _dumbbell()
     n = len(xy)
-    tris = face_triangles(xy, list(range(n)), [])
-    assert tris, "the ring triangulates"
-    L, area = _cotangent_laplacian(_XY(xy), tris, n)
-    L = L.tocsr()
+    base = face_triangles(xy, list(range(n)), [])
     red = _Reduction(n)
     red.finish()
-    assert len(set(_sheet_components(tris, red).values())) == 1, \
+    assert len(set(_sheet_components(base, red).values())) == 1, \
         "the triangulation spans the neck: ONE sheet"
-    seen, stack = {0}, [0]
-    while stack:
-        i = stack.pop()
-        for j in L.indices[L.indptr[i]:L.indptr[i + 1]]:
-            j = int(j)
-            if j != i and area[i] > 0.0 and j not in seen:
-                seen.add(j)
-                stack.append(j)
-    assert 0 < len(seen) < n, \
-        ("no bending row crosses the neck: the objective's graph is in "
-         f"pieces ({len(seen)} of {n} reached)")
+    for k in range(3):
+        tris = [t[k:] + t[:k] for t in base]
+        L, area = _cotangent_laplacian(_XY(xy), tris, n)
+        L = L.tocsr()
+        seen, stack = {0}, [0]
+        while stack:
+            i = stack.pop()
+            for j in L.indices[L.indptr[i]:L.indptr[i + 1]]:
+                j = int(j)
+                if j != i and area[i] > 0.0 and j not in seen:
+                    seen.add(j)
+                    stack.append(j)
+        assert len(seen) == n, \
+            f"rotation {k}: bending reaches {len(seen)} of {n} vertices"
 
 
 # ── the level belt ─────────────────────────────────────────────────────

@@ -126,7 +126,10 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                      [_t.Mapping[int, float]],
                      tuple[ConstraintSet, dict]] | None = None,
                  hold: _t.Any = None,
-                 stage1: _t.Any = None
+                 stage1: _t.Any = None,
+                 trend_rewrite: _t.Callable[
+                     [PlanarMap, _t.Mapping[int, float]],
+                     _t.Mapping[int, float] | None] | None = None
                  ) -> tuple[Solution, DesignReport]:
     """THE DESIGN SURFACE, in ONE stage or TWO (§20b).
 
@@ -150,6 +153,15 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     (``pin_yield.stage1_read_pins``) is decided by STAGE 1's hard set alone
     — stage 2 holds it as the constant stage 1 solved against; stage 2 may
     release only the pins stage 1 never read.
+
+    ``trend_rewrite`` (owner RULINGS 2026-10-15i (3), option (b)): the
+    caller's taxi-trend retarget from a stage-1 map and its levels —
+    ``constraints/taxi_trend.stage_one_retarget`` bound to the law and
+    airport.  THE FIRST stage-1 solve's levels are read once; when the
+    rewrite returns targets, that solve is repeated on the map carrying
+    them, and every later stage-1 solve (pass 1b, a pin yield) is assembled
+    on the same targets: ONE extra pass, never a loop.  Ignored by the
+    single solve.
 
     ``[design] staged_solve`` false is the single solve this module has
     always been: one problem, one report.  True is §20b THE STAGED SOLVE
@@ -181,7 +193,24 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # caller's binding (``constraints/no_step.HoldPass`` — this layer may not
     # import ``constraints``, M0 §1); no hold row = pass 1a IS stage 1.
 
+    retarget: dict = {}
+
     def _s1(pm_x: PlanarMap, cs_x: ConstraintSet):
+        if trend_rewrite is None:
+            return _s1_once(pm_x, cs_x)
+        if "tz" in retarget:
+            if retarget["tz"] is not None:
+                pm_x = _dc.replace(pm_x, taxi_trend_z={
+                    v: retarget["tz"].get(v, t)
+                    for v, t in pm_x.taxi_trend_z.items()})
+            return _s1_once(pm_x, cs_x)
+        got = _s1_once(pm_x, cs_x)
+        retarget["tz"] = tz = trend_rewrite(pm_x, got[4])
+        if tz is None:
+            return got
+        return _s1_once(_dc.replace(pm_x, taxi_trend_z=dict(tz)), cs_x)
+
+    def _s1_once(pm_x: PlanarMap, cs_x: ConstraintSet):
         d_x, f_x = stage_split(pm_x, cs_x, law)
         lv: dict[int, float] = {}
         sz: dict = {}

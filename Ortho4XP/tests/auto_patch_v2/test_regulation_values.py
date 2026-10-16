@@ -195,7 +195,8 @@ def test_16b_a_declared_jetway_joins_the_pad_it_serves(tmp_path, synthetic, law)
     pad = P([(-60, 200), (60, 200), (60, 250), (-60, 250)])
     lat, lon = airport.frame.transformers()[1](0.0, 200.0)
     apt = tmp_path / "apt.dat"
-    apt.write_text(f"I\n1200\n1 700 0 0 ZZZZ Synthetic\n1500 {lat:.9f} {lon:.9f} 180.0 1 1 180.0 15.0 180.0\n")
+    apt.write_text(f"I\n1200\n1 700 0 0 ZZZZ Synthetic\n1500 {lat:.9f} {lon:.9f} 180.0 1 1 180.0 15.0 180.0\n",
+                   encoding="utf-8", newline="\n")
     ap = dc.replace(airport, pack=dc.replace(airport.pack, apt_dat_path=str(apt)))
     out = E._with_jetways([pad], ap, law, None, P())
     assert E.JETWAY_PADS["found"] == 1 and E.JETWAY_PADS["attached"] == 1

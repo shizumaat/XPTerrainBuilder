@@ -100,7 +100,7 @@ def declared_jetways(airport, law, cache=None) -> list[DeclaredJetway]:
         return []
     pack = getattr(airport, "pack", None)
     out: list[DeclaredJetway] = []
-    rows = _apt_rows(getattr(pack, "apt_dat_path", "") or "", airport.icao)
+    rows = _apt_rows(getattr(pack, "apt_dat_path", "") or "", getattr(airport, "icao", ""))
     if rows:
         enter = airport.frame.entry()
         for lat, lon, hdg, length in rows:
@@ -112,7 +112,7 @@ def declared_jetways(airport, law, cache=None) -> list[DeclaredJetway]:
         from .riders import agp_footprint_xy
         tok = str(bp.jetway_token).lower()
         JETWAYS["no_footprint"] = 0
-        for o in airport.dsf_objects:
+        for o in getattr(airport, "dsf_objects", None) or ():
             if tok not in str(o.path).lower() or not o.resolved_path:
                 continue
             ring = None

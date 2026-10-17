@@ -32,6 +32,13 @@ struct RunIssuesSheet: View {
             if let note { Text(note).font(.caption).foregroundStyle(.secondary) }
             HStack {
                 Spacer()
+                if !buildModel.retryTiles.isEmpty {
+                    Button("Build failed tiles again") {
+                        buildModel.buildFailedTilesAgain()
+                        dismiss()
+                    }
+                    .disabled(buildModel.isBuilding)
+                }
                 Button("OK", action: dismiss).keyboardShortcut(.defaultAction)
             }
         }

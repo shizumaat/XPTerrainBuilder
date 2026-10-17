@@ -422,13 +422,13 @@ final class BuildModel: ObservableObject {
             resolved = OrthoEngine.bundled()
             usingBundledEngine = resolved != nil
             if resolved == nil {
-                engineError = "The bundled Ortho4XP engine is missing from this copy of the app."
+                engineError = "The bundled build engine is missing from this copy of the app."
             }
         } else {
             usingBundledEngine = false
             resolved = OrthoEngine.locate(at: URL(fileURLWithPath: enginePath, isDirectory: true))
             if resolved == nil {
-                engineError = "Not recognized as an Ortho4XP folder (needs Ortho4XP.py and src/)."
+                engineError = "Not recognized as a build engine folder (needs Ortho4XP.py and src/)."
             }
         }
         guard let located = resolved else {
@@ -510,7 +510,7 @@ final class BuildModel: ObservableObject {
         do {
             try newClient.launch(engine: engine)
             client = newClient
-            console.append("Engine session started (Ortho4XP \(engine.version)).")
+            console.append("Engine session started (engine \(engine.version)).")
             rescan()
             refreshAirportIndex()
         } catch {
@@ -826,6 +826,7 @@ final class BuildModel: ObservableObject {
             // #695: the report waits for an unanswered fix choice (a sheet
             // and an alert never stack).
             let report = runIssueLog.finish()
+            keepRetryTiles()
             if linkFixes.isIdle { runIssues = report } else { deferredRunIssues = report }
             if cancelled { parts.append("stopped") }
             lastRunSummary = parts.joined(separator: ", ")
@@ -1870,19 +1871,56 @@ final class BuildModel: ObservableObject {
         let todo = resumeQueue
         guard !todo.isEmpty, usesProtocol else { return }
         resumeQueue = []
-        // Each tile carries its own run's settings; group so one batch per
-        // (source, ZL) pair goes over as one enqueue_build.
+        // Each tile carries its own run's settings.
+        startResumeRun(Self.batchedBySettings(todo.map {
+            (coord: $0, settings: activity.runSettings[$0]
+                ?? TileRunSettings(provider: buildProvider, zl: buildZL))
+        }))
+    }
+
+    /// Group tiles so one batch per (source, ZL) pair goes over as one
+    /// enqueue_build, in first-seen order.
+    static func batchedBySettings(_ tiles: [(coord: TileCoord, settings: TileRunSettings)])
+        -> [(tiles: [TileCoord], settings: TileRunSettings)] {
         var batches: [(tiles: [TileCoord], settings: TileRunSettings)] = []
-        for coord in todo {
-            let settings = activity.runSettings[coord]
-                ?? TileRunSettings(provider: buildProvider, zl: buildZL)
+        for (coord, settings) in tiles {
             if let index = batches.firstIndex(where: { $0.settings == settings }) {
                 batches[index].tiles.append(coord)
             } else {
                 batches.append((tiles: [coord], settings: settings))
             }
         }
-        startResumeRun(batches)
+        return batches
+    }
+
+    // MARK: Build failed tiles again (#821)
+
+    /// The last run's failed and never-started tiles, each with the
+    /// settings it was queued with — what "Build failed tiles again"
+    /// re-queues. Taken when the run ends, before the rows linger-clear.
+    @Published private(set) var retryTiles: [(coord: TileCoord, settings: TileRunSettings)] = []
+
+    private func keepRetryTiles() {
+        let current = TileRunSettings(provider: buildProvider, zl: buildZL)
+        retryTiles = activity.runOrder.compactMap { coord in
+            guard let state = activity.tiles[coord]?.state,
+                  state == .error || state == .queued,
+                  !resumeQueue.contains(coord) else { return nil }
+            return (coord: coord, settings: activity.runSettings[coord] ?? current)
+        }
+    }
+
+    /// Re-queue the last run's failed and not-started tiles with the same
+    /// options, through the same enqueue path a resume uses.
+    func buildFailedTilesAgain() {
+        let todo = retryTiles
+        guard !todo.isEmpty, !isBuilding else { return }
+        retryTiles = []
+        if usesProtocol {
+            startResumeRun(Self.batchedBySettings(todo))
+        } else {
+            startLegacyBuild(todo.map { $0.coord })
+        }
     }
 
     /// The Build button's own machinery (`startProtocolBuild`) without its
@@ -2355,7 +2393,7 @@ final class BuildModel: ObservableObject {
                 console.append("*** Build process exited unexpectedly (status \(status)).")
             }
             if !legacyQueue.isEmpty {
-                console.append("Remaining \(legacyQueue.count) tile(s) not started — fix the error above and build again.")
+                console.append("Remaining \(legacyQueue.count) tile(s) not started — use “Build failed tiles again” after fixing the error.")
                 legacyQueue = []
             }
         case .stopped:
@@ -2374,6 +2412,7 @@ final class BuildModel: ObservableObject {
     private func legacyFinish() {
         isBuilding = false
         isStopping = false
+        keepRetryTiles()
         if legacyDone > 0 || legacyFailed > 0 {
             var parts = ["\(legacyDone) tile\(legacyDone == 1 ? "" : "s") built"]
             if legacyFailed > 0 { parts.append("\(legacyFailed) failed") }

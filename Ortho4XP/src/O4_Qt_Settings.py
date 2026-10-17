@@ -849,7 +849,7 @@ class SettingsWindow(QDialog):
 
     def __init__(self, prefs, tiles, custom_build_dir, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Ortho4XP Settings")
+        self.setWindowTitle("Settings")
         self.resize(880, 620)
         self.prefs = dict(prefs)
         if tiles and isinstance(tiles, tuple) and isinstance(tiles[0], int):

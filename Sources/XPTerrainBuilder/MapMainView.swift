@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import SceneryKit
 
 /// The map-centric main window: toolbar (search / analyze), world map with
@@ -15,6 +16,8 @@ struct MapMainView: View {
     @StateObject private var showingPicker = ViewState(false)
     /// Why the last folder the user picked was not accepted (empty = none).
     @StateObject private var rejectedFolder = ViewState("")
+    /// X-Plane installs found on this Mac for the first-run screen (#819).
+    @StateObject private var foundInstalls = ViewState<[String]>([])
     /// Native inspector visibility, persisted manually (ViewState instead of
     /// @AppStorage — the @State-family macros are unavailable on this
     /// toolchain, see ViewState.swift).
@@ -58,17 +61,7 @@ struct MapMainView: View {
             buildModel.refreshAirportIndex()
         }
         .fileImporter(isPresented: $showingPicker.value, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                // Validated before it is accepted: an invalid folder would
-                // otherwise seed nothing and leave Build permanently off
-                // with no explanation.
-                if let problem = XPlaneInstall.problem(at: url.path) {
-                    rejectedFolder.value = problem
-                } else {
-                    rejectedFolder.value = ""
-                    controller.xplanePath = url.path
-                }
-            }
+            if case .success(let url) = result { acceptXPlaneFolder(url.path) }
         }
         // First run: where downloads and built tiles go. Presented until the
         // preference is set; committing the sheet sets it.
@@ -132,7 +125,7 @@ struct MapMainView: View {
 
     private var subtitle: String {
         guard buildModel.engine != nil else {
-            return "Ortho4XP engine not configured — see Settings"
+            return "Build engine not configured — see Settings"
         }
         // Engine version lives in Settings, not the main window chrome.
         var parts: [String] = []
@@ -197,7 +190,7 @@ struct MapMainView: View {
                       ? "line.3.horizontal.decrease.circle"
                       : "line.3.horizontal.decrease.circle.fill")
             }
-            .help("Show your Ortho4XP-built tiles, other installed ortho/mesh packages, or both")
+            .help("Show the tiles you built, other installed ortho/mesh packages, or both")
         }
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,
@@ -369,22 +362,30 @@ struct MapMainView: View {
 
     private var onboarding: some View {
         VStack(spacing: 14) {
-            Image(systemName: "stethoscope")
-                .font(.system(size: 44))
-                .foregroundStyle(.tint)
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
             Text("XPTerrainBuilder")
                 .font(.title2.weight(.semibold))
             Text("Select your X-Plane folder to get started.")
                 .foregroundStyle(.secondary)
-            Text("Ortho4XP reads X-Plane's own airport and CIFP data to grade "
+            Text("XPTerrainBuilder reads X-Plane's own airport and runway data to grade "
                  + "runways, taxiways and aprons. Without it every airport would "
                  + "drape over the raw terrain, so a build cannot start.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 440)
-            Button("Choose X-Plane Folder…") { showingPicker.value = true }
-                .buttonStyle(.borderedProminent)
+            ForEach(foundInstalls.value, id: \.self) { path in
+                Button("Found X-Plane at \(path) — Use it") { acceptXPlaneFolder(path) }
+                    .buttonStyle(.borderedProminent)
+            }
+            if foundInstalls.value.isEmpty {
+                Button("Choose X-Plane Folder…") { showingPicker.value = true }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button("Choose another…") { showingPicker.value = true }
+            }
             if !rejectedFolder.value.isEmpty {
                 Text(rejectedFolder.value)
                     .font(.callout)
@@ -397,6 +398,19 @@ struct MapMainView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { foundInstalls.value = XPlaneInstall.detectInstalls() }
+    }
+
+    /// Validated before it is accepted — the picker and the found-install
+    /// buttons alike: an invalid folder would otherwise seed nothing and
+    /// leave Build permanently off with no explanation.
+    private func acceptXPlaneFolder(_ path: String) {
+        if let problem = XPlaneInstall.problem(at: path) {
+            rejectedFolder.value = problem
+        } else {
+            rejectedFolder.value = ""
+            controller.xplanePath = path
+        }
     }
 }
 

@@ -141,3 +141,43 @@ Ortho4XP/ is GPL-3 (LICENSE, LICENSING.md:18-19): E code may be copied INTO Orth
 Sources/, tools/, scripts/ (MIT). E NOTICE adds GPL s7 attribution terms that travel with copied code.
 Triangle4XP changes stay under Triangle's licence (LICENSING.md:51). Recommendation: re-implement
 ideas from E's specs rather than copy files. ispc_texcomp / curl_cffi wheel licences unchecked.
+
+## 5. Corrections (Fable spec lane, 2026-10-17 — every claim above re-read against the code)
+
+Verified as written: §1 step reuse (`O4_Step_Reuse.py:63, 211-215, 269-274`; `provenance.py:663-678`;
+`provenance_code.py:10-16`; `driver.py:448-516`); the partition cache and its companions; the
+`engine_v2.py:70-84` time split; §2.1 the PNG save sites (`:2844`, `:2893`) and DDSTool on macOS;
+§2.2 every mesh/mask line; §2.3 timeouts, threads, 429 path (`:1247-1250` → `(0, status)` at `:1272`),
+Bing `.lay`; §2.4 DSF lines (`build_dsf` IS 1,349 lines per `tools/ratchets.py funcs`); §3 reader
+sizes, `tools/attic` (17 files, 4,108 lines), the long-function list, CI without ruff.
+
+Wrong or incomplete, corrected:
+
+1. **§1 registries.** The list is SEVEN, not five: `HELD`, `PLATEAUS`, `LANDINGS`, `LANDING_RUNOUTS`,
+   `PLATFORMS`, `TERRACES`, `PAD_AIRSIDE` (`auto_patch_v2/pipeline/capture_state.py` `REGISTRIES`).
+   The replay hazard (#208, #224) was CLOSED on 2026-10-02: `--capture` records the registries and a
+   late `--replay` installs them or refuses by field name; `pipeline/stage_one_map.py:426,490` already
+   collects/installs them as a record. What remains open is that the BUILD hands them through module
+   globals — the prerequisite of adoption 1 is "make the existing record the planar stage's return
+   value", not "invent the record".
+2. **§1 adoption 4, "check whether Ortho4XP already skips existing DDS by name".** It does:
+   `O4_DSF_Utils.py:1229-1233` queues a texture only when `DDS.is_whole(target)` is false. The gap is
+   a CONTENT-keyed cache across build dirs and neighbour tiles, not name skipping.
+3. **§2.1 converters.** Windows and Linux use `nvcompress -bc1|-bc3 -fast` (`O4_Imagery_Utils.py:
+   2915-2921`), not DDSTool; `Utils/win` has no `DDSTool.exe`. An in-process encoder unifies three
+   converters, which matters for cross-platform byte identity (the §43 cross-platform grid precedent, merge #813).
+4. **§2.3 placeholder test** is at `:1200-1206`, not `:1205-1208`; one `requests.Session()` is
+   created per orthophoto (`:1553`, `:1674`); no `HTTPAdapter`/`Retry` is mounted anywhere.
+5. **§3 coded errors.** The registry is NOT `failure_report.py:30`: it is `src/O4_Tile_Failures.py`
+   (`CATALOGUE`, `REMEDIES`, `EXCEPTION_CODES`, `STAGE_CODES`, `code_for_exception` — class/attribute/
+   errno, never message text) with registry twins in `tests/test_tile_failures.py` (every exception
+   class and error exit has an entry). `failure_report.py` renders one. What we lack against E is the
+   domain prefix, a severity, and the DEGRADED class (output produced but not as asked).
+6. **§3 `tools/attic`** is `Ortho4XP/tools/attic/` (engine tree), not the root `tools/`.
+7. **§4 licence file** is the repo-root `LICENSING.md` (§1 scope table, §2 why `auto_patch`/`o4_engine`
+   are GPL, §3 bundled binaries, §6 Triangle), not `Ortho4XP/LICENSING.md`.
+8. **Not verifiable here**: every E timing (E's machine, E's line); the OTHH 298/841 s and 26-min
+   figures are code-comment history, not current measurements; `ispc_texcomp`/`curl_cffi`/`blake3`
+   wheel licences and platform coverage remain unchecked.
+
+Plan of record: `Ortho4XP/docs/specs/beta3-build-speed-plan-20261017.md`.

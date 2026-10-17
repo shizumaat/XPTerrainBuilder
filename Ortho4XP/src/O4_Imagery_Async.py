@@ -55,8 +55,12 @@ __all__ = [
 
 
 def fetcher_choice() -> str:
-    """``"async"`` when ``O4_IMAGERY_FETCHER=async`` and curl_cffi imports, else ``"threads"``."""
-    if os.environ.get(FETCHER_ENV, "").strip().lower() != "async":
+    """``"async"`` (the default, owner RULINGS 2026-10-17e) when curl_cffi imports, else ``"threads"``.
+
+    ``O4_IMAGERY_FETCHER=threads`` opts back into the threaded fetcher; any other value,
+    unset included, is ``async``.
+    """
+    if os.environ.get(FETCHER_ENV, "").strip().lower() == "threads":
         return "threads"
     return "async" if async_available() else "threads"
 

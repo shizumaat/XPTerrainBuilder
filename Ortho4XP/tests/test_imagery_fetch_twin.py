@@ -218,10 +218,10 @@ def test_the_prefetched_answer_reads_like_a_requests_response() -> None:
 
 @pytest.mark.parametrize(
     "value, expected",
-    [(None, "threads"), ("", "threads"), ("threads", "threads"), ("ASYNC", "async"),
-     ("async ", "async"), ("bogus", "threads")],
+    [(None, "async"), ("", "async"), ("threads", "threads"), (" THREADS ", "threads"),
+     ("ASYNC", "async"), ("async ", "async"), ("bogus", "async")],
 )
-def test_the_chooser_defaults_to_threads(monkeypatch, value, expected) -> None:
+def test_the_chooser_defaults_to_async(monkeypatch, value, expected) -> None:
     if value is None:
         monkeypatch.delenv(FETCH_ASYNC.FETCHER_ENV, raising=False)
     else:

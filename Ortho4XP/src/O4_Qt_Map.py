@@ -99,7 +99,7 @@ SCENERY_FILTER_BUILT = "built"
 SCENERY_FILTER_OTHERS = "others"
 SCENERY_FILTER_LABELS = (
     (SCENERY_FILTER_ALL, "All"),
-    (SCENERY_FILTER_BUILT, "Ortho4XP tiles"),
+    (SCENERY_FILTER_BUILT, "Built tiles"),
     (SCENERY_FILTER_OTHERS, "Other ortho"),
 )
 

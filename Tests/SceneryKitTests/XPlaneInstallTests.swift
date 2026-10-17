@@ -104,4 +104,34 @@ import Foundation
             customSceneryDir: root.appendingPathComponent("Custom Scenery").path)
             == navigraph.path)
     }
+
+    /// #819: the installer breadcrumb and a common location are both found,
+    /// each once, and a folder that is not an install is not offered.
+    @Test func detectFindsBreadcrumbAndCommonLocation() throws {
+        let fm = FileManager.default
+        let home = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("xph-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: home) }
+        let elsewhere = try makeTree(cifp: true)
+        defer { try? fm.removeItem(at: elsewhere) }
+        let desktop = home.appendingPathComponent("Desktop/X-Plane 12", isDirectory: true)
+        try fm.createDirectory(at: desktop.appendingPathComponent("Custom Scenery"),
+                               withIntermediateDirectories: true)
+        try fm.createDirectory(at: desktop.appendingPathComponent("Resources/default data/CIFP"),
+                               withIntermediateDirectories: true)
+        let notAnInstall = try makeTree(cifp: false)
+        defer { try? fm.removeItem(at: notAnInstall) }
+        let prefs = home.appendingPathComponent("Library/Preferences", isDirectory: true)
+        try fm.createDirectory(at: prefs, withIntermediateDirectories: true)
+        try "\(elsewhere.path)\n\(notAnInstall.path)\n\(desktop.path)\n".write(
+            to: prefs.appendingPathComponent("x-plane_install_12.txt"),
+            atomically: true, encoding: .utf8)
+
+        let found = XPlaneInstall.detectInstalls(home: home.path)
+        let elsewherePath = URL(fileURLWithPath: elsewhere.path).standardized.path
+        let desktopPath = URL(fileURLWithPath: desktop.path).standardized.path
+        #expect(Array(found.prefix(2)) == [elsewherePath, desktopPath])
+        #expect(found.filter { $0 == desktopPath }.count == 1)
+        #expect(!found.contains(URL(fileURLWithPath: notAnInstall.path).standardized.path))
+    }
 }

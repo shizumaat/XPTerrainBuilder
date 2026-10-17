@@ -34,7 +34,7 @@ INSTRUCTIONS = (
     " need a <i>free</i> Atlas account.<br><br>"
     "<b>1.</b> Create the account in your browser: open the Atlas, click"
     " <i>Sign in → Register</i>, confirm the email they send you."
-    " Ortho4XP never sees or stores that password permanently — it is"
+    " XPTerrainBuilder never sees or stores that password permanently — it is"
     " used once per fetch to sign in, and only the session lasts.<br>"
     "<b>2.</b> Either enter your Atlas sign-in below and fetch the tile"
     " you need, or download any region/area package yourself on the"

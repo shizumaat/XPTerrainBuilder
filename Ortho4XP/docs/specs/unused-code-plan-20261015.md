@@ -156,3 +156,34 @@ Waves A–D remove or relocate roughly 13,000–15,000 lines with no change in
 output, plus whatever step 1 finds in the 28,545 new lines. Step 2 is the part
 that lasts: without it the code base regrows dead code at the rate it did
 between 2026-10-05 and 2026-10-15.
+
+## Addendum (2026-10-17, from the OrthoStudio XP comparison)
+
+Source: `docs/findings/orthostudio-xp-comparison-20261017.md` §3 and
+`docs/specs/code-quality-beta3-spec.md`. Three things the plan above did not
+cover, added as rows of the same plan — not a second plan.
+
+### Step 3 — a sixth wave
+
+| Wave | Scope | Size | Gate before deletion |
+|---|---|---|---|
+| F | the duplicate v1 readers, re-pointed to their v2 counterparts and deleted: `cifp_reader` (252 vs `airport/cifp` 168), `flat_site` (892 vs 486), `obj8_reader` (587 vs `airport/obj8` 1,518), `apt_dat_reader` (1,976 vs 823), `dsf_reader` (2,485 vs 661; the duplicate ratchet already flags `dsf_reader.py:1136` vs `airport/dsf.py:603`) | about 6,200 lines | per pair: a behaviour table of every public function and its callers (`blast.py`); a pair that differs in behaviour is an owner question; callers re-pointed (`tools/harness/build_airport.py`, `O4_Airport_Elevation_Insets.py`, `o4_engine/patch_commands.py`, `flat_site_mode.py`, `O4_Default_Terrain_Map.py`, `o4_engine/pack_objects.py`, eight `tools/` scripts); `KEEP` shrinks; sweep patches byte-identical |
+
+Wave C also takes `Ortho4XP/tools/attic/` (17 files, 4,108 lines, measured
+2026-10-17): a script no index row names and nothing imports is deleted with
+the readers it called; one that is still used is promoted with an index row.
+
+### Step 4 — named rows
+
+From `tools/ratchets.py funcs` (2026-10-17, 124 functions of 200+ lines):
+
+- `tools/check_grade.py` (14,715 lines) → package `tools/check_grade/`, one
+  module per law family, `run_checks` (1,215 lines at `:13422`) the dispatcher;
+  gate: census output byte-identical on the sweep patches, `test_harness`
+  green (spec §3).
+- `O4_DSF_Utils.py:814 build_dsf` (1,349 lines): the W7 vectorisation helpers
+  are its first cuts (`dsf-and-masks-measure-first-spec.md`).
+- `auto_patch_v2/pipeline/build.py:645 build` (1,046 lines): one function per
+  stage block, which the v2 stage cache needs anyway (`v2-stage-cache-spec.md`).
+- `auto_patch/object_anchor.py:2346 structure_deltas` (1,240 lines): wave A
+  deletes it; no split.

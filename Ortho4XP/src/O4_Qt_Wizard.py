@@ -95,7 +95,7 @@ class OnboardingWizard(QDialog):
 
     def __init__(self, prefs, provider_codes, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Welcome to Ortho4XP")
+        self.setWindowTitle("Welcome to XPTerrainBuilder")
         self.setModal(True)
         self.resize(640, 400)
         self.prefs = dict(prefs)
@@ -155,7 +155,7 @@ class OnboardingWizard(QDialog):
     def _page_welcome(self):
         page, lay = self._page("Let's get you building scenery")
         lay.addWidget(self._body(
-            "Ortho4XP turns public imagery and elevation data into\n"
+            "XPTerrainBuilder turns public imagery and elevation data into\n"
             "photo-real X-Plane scenery, one 1°×1° tile at a time.\n\n"
             "This takes under a minute and sets three things:\n"
             "  •  where X-Plane lives (so tiles install themselves),\n"
@@ -169,8 +169,8 @@ class OnboardingWizard(QDialog):
     def _page_xplane(self):
         page, lay = self._page("Where is X-Plane installed?")
         lay.addWidget(self._body(
-            "Required. Ortho4XP reads X-Plane's own airport and CIFP data\n"
-            "to grade runways, taxiways and aprons — without it every\n"
+            "Required. XPTerrainBuilder reads X-Plane's own airport and runway\n"
+            "data to grade runways, taxiways and aprons — without it every\n"
             "airport would drape over the raw terrain, so a build refuses."
         ))
         row = QHBoxLayout()
@@ -221,7 +221,7 @@ class OnboardingWizard(QDialog):
         lay.addLayout(row)
         lay.addWidget(self._body(
             "Downloaded imagery and the live-map cache stay inside the\n"
-            "Ortho4XP folder and can be cleared anytime."
+            "data folder and can be cleared anytime."
         ))
         lay.addStretch(1)
         return page

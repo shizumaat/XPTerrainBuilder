@@ -33,6 +33,7 @@ struct BuildPane: View {
     /// (gray-outlined on the map) with that tile's DSF modification date.
     @State private var otherScenery: [(name: String, dsfDate: Date?)] = []
     @State private var showingProviderMismatch = false
+    @State private var showingMissingDetails = false
     /// Airport packs whose 3-D objects the auto-patch pass reseated in
     /// the active tile ("Modified airports" row), with per-pack revert.
     @State private var modifiedAirports: [ModifiedAirportRow] = []
@@ -45,7 +46,7 @@ struct BuildPane: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Ortho4XP Build")
+                Text("Build")
                     .font(.headline)
                 Text(engineSubtitle)
                     .font(.caption)
@@ -99,7 +100,7 @@ struct BuildPane: View {
             legacyTile = legacy
             showingLegacyAlert = true
         }
-        .alert("Tile built with an older Ortho4XP",
+        .alert("Tile built with an older version",
                isPresented: $showingLegacyAlert,
                presenting: legacyTile) { legacy in
             Button("Update to Current Defaults") {
@@ -127,7 +128,7 @@ struct BuildPane: View {
         var parts: [String] = []
         if !buildModel.usesProtocol { parts.append("legacy driver") }
         if let missing = buildModel.missingPackages, !missing.isEmpty {
-            parts.append("python packages missing")
+            parts.append("engine incomplete")
         }
         return parts.isEmpty ? "Engine ready" : parts.joined(separator: " — ")
     }
@@ -137,7 +138,7 @@ struct BuildPane: View {
             Image(systemName: "globe.europe.africa")
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
-            Text("No Ortho4XP engine available. The app normally uses its bundled engine — check Settings ▸ Ortho4XP if it can't be found, or choose a custom engine folder there.")
+            Text("No build engine available. The app normally uses its bundled engine — check Settings ▸ General ▸ Build Engine if it can't be found, or choose a custom engine folder there.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -731,7 +732,7 @@ struct BuildPane: View {
     }
 
     private func legacyAlertMessage(_ legacy: BuildModel.LegacyTileSettings) -> String {
-        var parts = ["Tile \(legacy.coord.key)'s settings were written by an older or different Ortho4XP:"]
+        var parts = ["Tile \(legacy.coord.key)'s settings were written by an older version of this app or by Ortho4XP:"]
         for item in legacy.foreignEnums {
             parts.append("• \(item.key) = \(item.value) — not a setting of this version; currently interpreted conservatively. Updating sets: \(item.replacement.isEmpty ? "default" : item.replacement)")
         }
@@ -774,12 +775,24 @@ struct BuildPane: View {
     private var bottomBar: some View {
         HStack(spacing: 8) {
             if let missing = buildModel.missingPackages, !missing.isEmpty {
-                Label("Missing: \(missing.joined(separator: ", "))",
+                Label(EngineSetup.incompleteTitle,
                       systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help("The engine's python can't import these packages — run the engine setup from Settings ▸ Ortho4XP.")
+                Button("Details") { showingMissingDetails = true }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .popover(isPresented: $showingMissingDetails, arrowEdge: .top) {
+                        Text(EngineSetup.missingDetail(missing))
+                            .textSelection(.enabled)
+                            .padding(12)
+                            .frame(maxWidth: 320)
+                    }
+                if let engine = buildModel.engine {
+                    Button("Repair") { EngineSetup.run(engine) }
+                        .help("Runs the engine setup (Settings ▸ General ▸ Build Engine).")
+                }
             } else if let summary = buildModel.lastRunSummary, !buildModel.isBuilding {
                 Text(summary).foregroundStyle(.secondary)
             }

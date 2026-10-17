@@ -150,6 +150,11 @@ struct MapOverlays: Sendable {
         let info: AirportInfo
         let packName: String
         let status: PackStatus
+        /// The engine index's size class (0 = largest) and longest runway
+        /// — the map's label rank (#817). A custom airport reads them from
+        /// the index by code; one the index lacks stays "small".
+        var sizeClass: Int = AirportRank.unknownSizeClass
+        var runwayMeters: Int = 0
     }
 
     struct TintTile: Sendable {
@@ -221,6 +226,8 @@ struct MapOverlays: Sendable {
         let resolvedPath: String?
         /// (lat + 90) * 360 + (lon + 180), like PackBounds.tileKeys.
         let tileKeys: Set<Int32>
+        /// An ortho pack (its tiles carry an imagery label, #817), not a mesh.
+        let isOrtho: Bool
         /// Outer boundary: tile edges with no same-pack neighbour.
         let edges: [(a: GeoPoint, b: GeoPoint)]
     }
@@ -253,6 +260,7 @@ struct MapOverlays: Sendable {
                              contentRootPath: pack.contentRoot.path,
                              resolvedPath: pack.resolvedURL?.path,
                              tileKeys: tileKeys,
+                             isOrtho: pack.kind == .ortho,
                              edges: edges)
     }
 
@@ -279,6 +287,9 @@ struct MapOverlays: Sendable {
     var packBounds: [PackBounds] = []
     var markers: [Marker] = []
     var regions: [SceneryRegion] = []
+    /// Every tile an installed ORTHO region covers — the tiles whose
+    /// imagery label reads `imagery ?` when we did not build them (#817).
+    var orthoTileKeys: Set<Int32> = []
     /// Packs with no geographic footprint (libraries, plugin-only packs)
     /// plus Laminar packs (excluded from map DRAWING, but still part of the
     /// load order): they belong to every viewport — hiding them made the
@@ -360,6 +371,8 @@ struct MapOverlays: Sendable {
             // INST-02 finding, not in every viewport's package list.
         }
 
+        orthoTileKeys = regions.filter(\.isOrtho)
+            .reduce(into: Set<Int32>()) { $0.formUnion($1.tileKeys) }
         tintTiles = kinds.map { hash, kind in
             TintTile(lat: hash / 1000 - 90, lon: hash % 1000 - 180, kind: kind)
         }
@@ -369,9 +382,26 @@ struct MapOverlays: Sendable {
     /// custom pack already draws — a gray disc under a magenta one is just
     /// noise. Runs on the scan worker: 35k rows is nothing there, and never
     /// per frame.
+    ///
+    /// The default marks come out sorted largest class first (#817): the
+    /// canvas walks them in that order and stops at the first class its
+    /// zoom does not mark. Custom marks take their size from the index.
     func withDefaultAirports(_ index: [GlobalAirport]) -> MapOverlays {
         let custom = Set(airports.map(\.icao))
         var updated = self
+        var sizes: [String: (Int, Int)] = [:]
+        for airport in index where sizes[airport.icao] == nil {
+            sizes[airport.icao] = (airport.sizeClass ?? AirportRank.unknownSizeClass,
+                                   airport.runwayMeters ?? 0)
+        }
+        updated.airports = airports.map { airport in
+            var sized = airport
+            if let (sizeClass, runway) = sizes[airport.icao] {
+                sized.sizeClass = sizeClass
+                sized.runwayMeters = runway
+            }
+            return sized
+        }
         updated.defaultAirports = index.compactMap { airport in
             guard !custom.contains(airport.icao) else { return nil }
             return Airport(icao: airport.icao,
@@ -379,8 +409,11 @@ struct MapOverlays: Sendable {
                                              latitude: airport.latitude,
                                              longitude: airport.longitude),
                            packName: "Global Airports",
-                           status: .enabled)
+                           status: .enabled,
+                           sizeClass: airport.sizeClass ?? AirportRank.unknownSizeClass,
+                           runwayMeters: airport.runwayMeters ?? 0)
         }
+        .sorted { ($0.sizeClass, -$0.runwayMeters) < ($1.sizeClass, -$1.runwayMeters) }
         return updated
     }
 

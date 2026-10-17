@@ -5,7 +5,7 @@ import pickle
 import subprocess
 import numpy
 import math
-from math import cos, isfinite, pi
+from math import cos, pi
 import O4_Console_Encoding as CONSOLE
 import O4_DEM_Utils as DEM
 import O4_Airport_Elevation_Insets as INSETS
@@ -14,6 +14,9 @@ import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
 import O4_Geo_Utils as GEO
+import O4_Mesh_IO as MESH_IO
+import O4_Triangle_IO as TRI_IO
+import O4_Triangle_Binary as TRI_BIN
 import O4_Proj_Runtime as PROJRT
 import O4_Vector_Utils as VECT
 import O4_OSM_Utils as OSM
@@ -655,7 +658,7 @@ def build_curv_tol_weight_map(tile, weight_array):
 # be meant by it -- so the triangle gets the dummy attribute, which asks for
 # no post-treatment at all.  For a sliver whose corners are the same point to
 # within a micron that is not an approximation, it is exact.
-ATTRIBUTE_INTEGRAL_TOL = 1e-6
+ATTRIBUTE_INTEGRAL_TOL = TRI_IO.ATTRIBUTE_INTEGRAL_TOL
 
 
 def read_triangle_attribute(text):
@@ -664,18 +667,16 @@ def read_triangle_attribute(text):
     The attribute comes back as an int in both integral cases -- plain
     integer text ("16") and an integral real ("16.0").  Anything else the
     REAL column may legally hold (a fractional value like "1.4375", or a
-    non-finite one) reports the dummy attribute and False.
+    non-finite one) reports the dummy attribute and False.  The whole-column
+    form the mesh readers use is ``O4_Triangle_IO.triangle_attributes``.
     """
     try:
         return (int(text), True)
     except ValueError:
         pass
-    attribute = float(text)
-    if isfinite(attribute):
-        rounded = int(round(attribute))
-        if abs(attribute - rounded) <= ATTRIBUTE_INTEGRAL_TOL:
-            return (rounded, True)
-    return (VECT.Vector_Map.dico_attributes["DUMMY"], False)
+    (attribute, integral) = TRI_IO.triangle_attributes(
+        [float(text)], VECT.Vector_Map.dico_attributes["DUMMY"])
+    return (int(attribute[0]), bool(integral[0]))
 
 
 ################################################################################
@@ -913,21 +914,20 @@ def patch_valued_vertex_indices(tile, vertices):
     Returns ``None`` when it cannot be established.
     """
     try:
-        with open(FNAMES.input_node_file(tile)) as handle:
-            count = int(handle.readline().split()[0])
-            if count <= 0 or 6 * count > len(vertices):
-                return None
-            for index in range(count):
-                columns = handle.readline().split()
-                if (float(columns[1]) != vertices[6 * index]
-                        or float(columns[2]) != vertices[6 * index + 1]):
-                    UI.lvprint(
-                        1,
-                        "WARNING: the mesher did not preserve the input "
-                        f"vertex order at index {index} — the "
-                        "free-interior interpolation (R18-1b) is DISABLED "
-                        "for this tile and interior vertices keep the DEM.")
-                    return None
+        nodes = TRI_IO.read_node_text(FNAMES.input_node_file(tile))
+        count = nodes.n_vertices
+        if count <= 0 or 6 * count > len(vertices):
+            return None
+        moved = ((nodes.xy[:, 0] != vertices[0:6 * count:6])
+                 | (nodes.xy[:, 1] != vertices[1:6 * count:6]))
+        if moved.any():
+            UI.lvprint(
+                1,
+                "WARNING: the mesher did not preserve the input "
+                f"vertex order at index {int(moved.argmax())} — the "
+                "free-interior interpolation (R18-1b) is DISABLED "
+                "for this tile and interior vertices keep the DEM.")
+            return None
         indices = set()
         for a, b in _patch_ring_edges(tile):
             indices.add(a)
@@ -979,19 +979,19 @@ PATCH_SEGMENT_SPLIT_TOLERANCE = 1e-9
 
 def _patch_ring_edges(tile):
     """The ``PATCH_RING_MARKER`` edges of the input ``.poly`` as 0-based
-    ``(a, b)`` endpoint pairs, or ``None`` when unreadable."""
-    edges = []
-    with open(FNAMES.input_poly_file(tile)) as handle:
-        line = handle.readline()
-        while line.strip() == "" or line.startswith("0 2"):
-            line = handle.readline()
-        nbr_edges = int(line.split()[0])
-        for _ in range(nbr_edges):
-            columns = handle.readline().split()
-            if len(columns) < 4 or int(columns[3]) != PATCH_RING_MARKER:
-                continue
-            edges.append((int(columns[1]) - 1, int(columns[2]) - 1))
-    return edges
+    ``(a, b)`` endpoint pairs (raises when unreadable)."""
+    return [tuple(edge) for edge in
+            _poly_segments_marked(tile, PATCH_RING_MARKER).tolist()]
+
+
+def _poly_segments_marked(tile, marker):
+    """The 1-based ``.poly`` segments whose marker is exactly ``marker``,
+    as 0-based ``(m, 2)`` endpoints, in file order."""
+    (segments, markers) = TRI_IO.read_poly_segments(
+        FNAMES.input_poly_file(tile))
+    if markers is None:
+        return segments[:0] - 1
+    return segments[markers == marker] - 1
 
 
 def patch_segment_split_values(tile, vertices, triangles, patch_valued,
@@ -1009,8 +1009,7 @@ def patch_segment_split_values(tile, vertices, triangles, patch_valued,
     import numpy as _np
     import shapely as _sh
     try:
-        with open(FNAMES.input_node_file(tile)) as handle:
-            count = int(handle.readline().split()[0])
+        count = TRI_IO.read_node_count(FNAMES.input_node_file(tile))
         edges = _patch_ring_edges(tile)
     except Exception as error:
         UI.lvprint(
@@ -1507,17 +1506,9 @@ def interp_alt_ribbon_vertex_indices(tile):
     bare = VECT.Vector_Map.dico_attributes["INTERP_ALT"]
     indices = set()
     try:
-        with open(FNAMES.input_poly_file(tile)) as handle:
-            line = handle.readline()
-            while line.strip() == "" or line.startswith("0 2"):
-                line = handle.readline()
-            nbr_edges = int(line.split()[0])
-            for _ in range(nbr_edges):
-                columns = handle.readline().split()
-                if len(columns) < 4 or int(columns[3]) != bare:
-                    continue
-                indices.add(int(columns[1]) - 1)
-                indices.add(int(columns[2]) - 1)
+        for (a, b) in _poly_segments_marked(tile, bare).tolist():
+            indices.add(a)
+            indices.add(b)
     except Exception as error:
         UI.lvprint(
             1, "WARNING: could not read the bare-INTERP_ALT ribbon edges; "
@@ -2123,25 +2114,13 @@ def patch_coverage_polygon(tile):
         from shapely import geometry, ops
         from shapely.prepared import prep
 
-        nodes = {}
-        with open(FNAMES.input_node_file(tile)) as handle:
-            count = int(handle.readline().split()[0])
-            for _ in range(count):
-                columns = handle.readline().split()
-                nodes[int(columns[0])] = (float(columns[1]),
-                                          float(columns[2]))
-        rings = []
-        with open(FNAMES.input_poly_file(tile)) as handle:
-            line = handle.readline()
-            while line.strip() == "" or line.startswith("0 2"):
-                line = handle.readline()
-            nbr_edges = int(line.split()[0])
-            for _ in range(nbr_edges):
-                columns = handle.readline().split()
-                if len(columns) < 4 or int(columns[3]) != PATCH_RING_MARKER:
-                    continue
-                rings.append(geometry.LineString(
-                    [nodes[int(columns[1])], nodes[int(columns[2])]]))
+        table = TRI_IO.read_node_text(FNAMES.input_node_file(tile))
+        nodes = dict(zip(table.ids.tolist(),
+                         map(tuple, table.xy.tolist())))
+        rings = [
+            geometry.LineString([nodes[a + 1], nodes[b + 1]])
+            for (a, b) in _patch_ring_edges(tile)
+        ]
         if not rings:
             return (geometry.Polygon(), None)
         coverage = ops.unary_union(
@@ -2238,91 +2217,74 @@ def audit_interp_alt_extent(tile, vertices, changed_indices, coverage,
 ################################################################################
 def post_process_nodes_altitudes(tile):
     dico_attributes = VECT.Vector_Map.dico_attributes
-    f_node = open(FNAMES.output_node_file(tile), "r")
-    init_line_f_node = f_node.readline()
-    nbr_pt = int(init_line_f_node.split()[0])
-    vertices = numpy.zeros(6 * nbr_pt)
     UI.vprint(1, "-> Loading of the mesh computed by Triangle4XP.")
-    for i in range(0, nbr_pt):
-        vertices[6 * i : 6 * i + 6] = [
-            float(x) for x in f_node.readline().split()[1:7]
-        ]
-    end_line_f_node = f_node.readline()
-    f_node.close()
+    nodes = TRI_BIN.read_node(FNAMES.output_node_file(tile))
+    nbr_pt = nodes.n_vertices
+    vertices = numpy.ascontiguousarray(nodes.values[:, :6]).ravel()
     UI.vprint(1, "-> Post processing of altitudes according to vector data")
-    f_ele = open(FNAMES.output_ele_file(tile), "r")
-    nbr_tri = int(f_ele.readline().split()[0])
-    water_tris = set()
-    sea_tris = set()
-    interp_alt_tris = set()
-    # R18-1b: the vector-authored patch/road regions alone (attribute
-    # EXACTLY INTERP_ALT), which are what the free-interior
-    # interpolation governs — see its note above.
-    _interp_alt_only_tris = []
     water_bits = (
         VECT.Vector_Map.dico_attributes["WATER"]
         | VECT.Vector_Map.dico_attributes["SEA"]
         | VECT.Vector_Map.dico_attributes["SEA_EQUIV"]
     )
-    degenerate_attr_nbr = 0
-    degenerate_attr_sample = []
-    for i in range(nbr_tri):
-        line = f_ele.readline()
-        # triangle attributes are powers of 2, except for the dummy attributed
-        # which doesn't require post-treatment.  The test is on the last
-        # FIELD, hence the space in front of the zero: the bare last-character
-        # test this replaces also skipped "10" (INTERP_ALT|SEA), "20", "16.0"
-        # and any other attribute merely ending in a zero.
-        if line[-2] == "0" and line[-3] in " \t":
-            continue
-        columns = line.split()
-        (v1, v2, v3) = [int(x) - 1 for x in columns[1:4]]
-        (attr, attr_is_integral) = read_triangle_attribute(columns[4])
-        if not attr_is_integral:
-            # A degenerate triangle: dummy attribute, no post-treatment,
-            # counted for the one loud line below.
-            degenerate_attr_nbr += 1
-            if len(degenerate_attr_sample) < 3:
-                degenerate_attr_sample.append((i + 1, columns[4], v1))
-            continue
-        # WATER IS A DATUM — THE WATER BIT OUTRANKS THE SEED (owner
-        # RULINGS 2026-09-09m, mechanism 09o (3)).  This test used to be
-        # ``attr >= INTERP_ALT`` FIRST, so any water triangle an
-        # INTERP_ALT seed reached was exempt from sea levelling, copied
-        # the DEM (:968-970) and kept whatever the DEM had there.  At
-        # OTHH that is 2,180 SEA|INTERP_ALT triangles over 13.7 km2 of
-        # water, 1,692 of them carrying a 3.962 m step one triangle wide
-        # — the canal sawtooth and the "water lifted to terrain level"
-        # the owner read.  Water is a datum: a triangle carrying ANY
-        # water bit takes sea/water levelling regardless of the seed.
-        #
-        # THIS DOES NOT TOUCH PAVEMENT.  ``PATCH_RING_MARKER``
-        # (O4_Vector_Map:76) puts all four bits on the closed patch RING
-        # so the flood STOPS at the pavement boundary and the interior
-        # keeps bit 8 ALONE — segment marks never become triangle
-        # attributes.  What this reclassifies is exactly what the ring
-        # failed to fence: open water a seed reached.  The seawall
-        # (O4_Vector_Map:105-125) stays marker-8-only by design; its
-        # 0.5 m foreshore band is SEA-owned and now levels as the wall
-        # law says it should instead of freezing at the DEM.
-        if not (attr & water_bits) and attr >= dico_attributes["INTERP_ALT"]:
-            interp_alt_tris.add((v1, v2, v3))
-            if attr == dico_attributes["INTERP_ALT"]:
-                _interp_alt_only_tris.append((v1, v2, v3))
-        elif attr & dico_attributes["SEA"] and not (
-            attr & dico_attributes["WATER"]
-        ):
-            # Mapped inland water WINS over coastline sea (see
-            # O4_Mask_Utils.water_type_is_inland): a WATER|SEA triangle
-            # keeps the inland smoothing below, so a lagoon behind cut
-            # polygon rings holds its own level instead of being
-            # flattened to sea zero.
-            sea_tris.add((v1, v2, v3))
-        elif (
-            attr & dico_attributes["WATER"]
-            or attr & dico_attributes["SEA_EQUIV"]
-        ):
-            water_tris.add((v1, v2, v3))
+    # The .ele attribute column is REAL (see read_triangle_attribute): a
+    # non-integral one is a degenerate triangle -- dummy attribute, no
+    # post-treatment, counted for the one loud line below.  A dummy (0)
+    # triangle needs no post-treatment either.
+    elements = TRI_BIN.read_ele(FNAMES.output_ele_file(tile))
+    corners = elements.triangles - 1
+    (attrs, integral) = TRI_IO.triangle_attributes(
+        elements.attributes[:, 0], dico_attributes["DUMMY"])
+    degenerate = numpy.flatnonzero(~integral)
+    degenerate_attr_nbr = len(degenerate)
+    degenerate_attr_sample = [
+        (int(i) + 1, repr(float(elements.attributes[i, 0])), int(corners[i, 0]))
+        for i in degenerate[:3]
+    ]
+    # WATER IS A DATUM — THE WATER BIT OUTRANKS THE SEED (owner
+    # RULINGS 2026-09-09m, mechanism 09o (3)).  This test used to be
+    # ``attr >= INTERP_ALT`` FIRST, so any water triangle an
+    # INTERP_ALT seed reached was exempt from sea levelling, copied
+    # the DEM (:968-970) and kept whatever the DEM had there.  At
+    # OTHH that is 2,180 SEA|INTERP_ALT triangles over 13.7 km2 of
+    # water, 1,692 of them carrying a 3.962 m step one triangle wide
+    # — the canal sawtooth and the "water lifted to terrain level"
+    # the owner read.  Water is a datum: a triangle carrying ANY
+    # water bit takes sea/water levelling regardless of the seed.
+    #
+    # THIS DOES NOT TOUCH PAVEMENT.  ``PATCH_RING_MARKER``
+    # (O4_Vector_Map:76) puts all four bits on the closed patch RING
+    # so the flood STOPS at the pavement boundary and the interior
+    # keeps bit 8 ALONE — segment marks never become triangle
+    # attributes.  What this reclassifies is exactly what the ring
+    # failed to fence: open water a seed reached.  The seawall
+    # (O4_Vector_Map:105-125) stays marker-8-only by design; its
+    # 0.5 m foreshore band is SEA-owned and now levels as the wall
+    # law says it should instead of freezing at the DEM.
+    #
+    # Each class keeps the file order of its triangles, so every set below
+    # is built in the order the per-line loop built it (the smoothing
+    # loops below iterate them).
+    treated = integral & (attrs != dico_attributes["DUMMY"])
+    is_interp = (treated & ((attrs & water_bits) == 0)
+                 & (attrs >= dico_attributes["INTERP_ALT"]))
+    # Mapped inland water WINS over coastline sea (see
+    # O4_Mask_Utils.water_type_is_inland): a WATER|SEA triangle keeps the
+    # inland smoothing below, so a lagoon behind cut polygon rings holds
+    # its own level instead of being flattened to sea zero.
+    is_sea = (treated & ~is_interp & ((attrs & dico_attributes["SEA"]) != 0)
+              & ((attrs & dico_attributes["WATER"]) == 0))
+    is_water = (treated & ~is_interp & ~is_sea
+                & ((attrs & (dico_attributes["WATER"]
+                             | dico_attributes["SEA_EQUIV"])) != 0))
+    interp_alt_tris = set(map(tuple, corners[is_interp].tolist()))
+    # R18-1b: the vector-authored patch/road regions alone (attribute
+    # EXACTLY INTERP_ALT), which are what the free-interior
+    # interpolation governs — see its note above.
+    _interp_alt_only_tris = list(map(tuple, corners[
+        is_interp & (attrs == dico_attributes["INTERP_ALT"])].tolist()))
+    sea_tris = set(map(tuple, corners[is_sea].tolist()))
+    water_tris = set(map(tuple, corners[is_water].tolist()))
     # THE SHORE'S DATUM SET (owner RULINGS 2026-09-09z (3)): every vertex
     # that carries a water bit, i.e. every corner of a water or sea
     # triangle.  09o (3) made the water bit outrank the seed per TRIANGLE;
@@ -2564,19 +2526,13 @@ def post_process_nodes_altitudes(tile):
             "water altitude instead of the patch value (RULINGS "
             "2026-09-09z (3)).")
     UI.vprint(1, "-> Writing output nodes file.")
-    f_node = open(FNAMES.output_node_file(tile), "w", newline="\n")
-    f_node.write(init_line_f_node)
-    for i in range(0, nbr_pt):
-        f_node.write(
-            str(i + 1)
-            + " "
-            + " ".join(
-                ("{:.15f}".format(x) for x in vertices[6 * i : 6 * i + 6])
-            )
-            + "\n"
-        )
-    f_node.write(end_line_f_node)
-    f_node.close()
+    if nodes.header_line is None:  # read from a binary .1.node
+        TRI_BIN.write_node_binary(FNAMES.output_node_file(tile),
+                                  vertices.reshape(nbr_pt, 6))
+    else:
+        TRI_IO.write_node_text(FNAMES.output_node_file(tile),
+                               nodes.header_line, vertices.reshape(nbr_pt, 6),
+                               nodes.trailer_line)
     return vertices
 
 
@@ -2587,57 +2543,16 @@ def write_mesh_file(tile, vertices):
         1,
         "-> Writing final mesh to the file " + mesh_file_name,
     )
-    f_ele = open(FNAMES.output_ele_file(tile), "r")
-    nbr_vert = len(vertices) // 6
-    nbr_tri = int(f_ele.readline().split()[0])
-    # Neighbor tile builds (step 2.5 masks) read this file concurrently
-    # during parallel builds: write to a temporary file in the same
-    # directory and atomically rename it into place so a reader can never
-    # observe a half-written mesh.
-    temporary_mesh_file_name = (
-        mesh_file_name + ".tmp" + str(os.getpid())
-    )
-    f = open(temporary_mesh_file_name, "w", newline="\n")
-    f.write("MeshVersionFormatted 2\n")
-    f.write("Dimension 3\n\n")
-    f.write("Vertices\n")
-    f.write(str(nbr_vert) + "\n")
-    for i in range(0, nbr_vert):
-        f.write(
-            "{:.15f}".format(vertices[6 * i] + tile.lon)
-            + " "
-            + "{:.15f}".format(vertices[6 * i + 1] + tile.lat)
-            + " "
-            + "{:.15f}".format(vertices[6 * i + 2] / 100000)
-            + " 0\n"
-        )
-    f.write("\n")
-    f.write("Normals\n")
-    f.write(str(nbr_vert) + "\n")
-    for i in range(0, nbr_vert):
-        f.write(
-            "{:.2f}".format(vertices[6 * i + 3])
-            + " "
-            + "{:.2f}".format(vertices[6 * i + 4])
-            + " 0\n"
-        )
-    f.write("\n")
-    f.write("Triangles\n")
-    f.write(str(nbr_tri) + "\n")
-    for i in range(0, nbr_tri):
-        columns = f_ele.readline().split()[1:]
-        if len(columns) > 3:
-            # The .ele attribute column is REAL and a degenerate triangle
-            # can hold a float in it (post_process_nodes_altitudes reports
-            # those once, loudly); the mesh file's own column is read as an
-            # int everywhere downstream -- read_mesh_file, the mask
-            # builders, auto_patch's mesh_sampler -- so it is normalised
-            # here rather than copied over verbatim.
-            columns[3] = str(read_triangle_attribute(columns[3])[0])
-        f.write(" ".join(columns) + "\n")
-    f_ele.close()
-    f.close()
-    os.replace(temporary_mesh_file_name, mesh_file_name)
+    # The .ele attribute column is REAL and a degenerate triangle can hold a
+    # float in it (post_process_nodes_altitudes reports those once, loudly);
+    # the mesh file's own column is read as an int everywhere downstream --
+    # read_mesh_file, the mask builders, auto_patch's mesh_sampler -- so the
+    # writer normalises it rather than copying it over verbatim.  Neighbor
+    # tile builds (step 2.5 masks) read this file concurrently during
+    # parallel builds: the writer renames a temporary file into place.
+    MESH_IO.write_mesh(mesh_file_name, vertices, FNAMES.output_ele_file(tile),
+                       tile.lon, tile.lat,
+                       VECT.Vector_Map.dico_attributes["DUMMY"])
     return
 
 
@@ -2928,9 +2843,16 @@ def build_mesh(tile):
     # an ``.area`` file and exit 1 (Triangle4XP.c:11743), so the flag rides
     # with ``A`` exactly.
     regional_areas = "a" if do_refine == "A" else ""
+    # ``b`` = BINARY exchange files (mesh-io-spec §4, RULINGS 2026-10-17a
+    # Q6): opt-in through O4_TRIANGLE_IO=binary, only with a Triangle4XP
+    # that carries the switch, and never with ``-r`` (it reads a text
+    # ``.ele``; Triangle4XP refuses ``-b`` with it) — text otherwise.
+    binary_io = TRI_BIN.use_binary_io(Triangle4XP_cmd.strip(),
+                                      refine=do_refine == "r")
+    binary_switch = "b" if binary_io else ""
     Tri_option = (
         "-pq" + "{:.9g}".format(tile.min_angle) + do_refine + regional_areas +
-        "uYB" + tri_verbosity + output_poly + limit_tris
+        "uYB" + tri_verbosity + output_poly + binary_switch + limit_tris
     )
 
     weight_array = numpy.ones((1001, 1001), dtype=numpy.float32)
@@ -2973,6 +2895,8 @@ def build_mesh(tile):
     # a 2.3 M-triangle DSF X-Plane will not load.
     if not hairline_preflight(poly_file, tile):
         return 0
+    if binary_io:
+        mesh_cmd[-1] = TRI_BIN.binary_inputs(node_file, poly_file)
 
     del tile.dem  # for machines with not much RAM, we do not need it anymore
     tile.dem = None
@@ -3005,6 +2929,7 @@ def build_mesh(tile):
                 + "uYB"
                 + tri_verbosity
                 + output_poly
+                + binary_switch
                 + limit_tris
             )
             mesh_cmd[1] = Tri_option
@@ -3034,6 +2959,9 @@ def build_mesh(tile):
         UI.exit_message_and_bottom_line()
         return 0
 
+    if binary_io:
+        TRI_BIN.adopt_binary_outputs(mesh_cmd[-1], FNAMES.output_node_file(tile),
+                                     FNAMES.output_ele_file(tile))
     vertices = post_process_nodes_altitudes(tile)
 
     if UI.red_flag:
@@ -3149,51 +3077,9 @@ def triangulate(name, path_to_Ortho4XP_dir):
 
 ##############################################################################
 def read_mesh_file(mesh_file):
-    
-    f = open(mesh_file,"r")
-    mesh_version = float(f.readline().strip().split()[-1])
-    
-    # skip 3 lines 
-    for i in range(3):
-        f.readline()
-    
-    nbr_nodes = int(f.readline())
-    node_coords = numpy.zeros(5 * nbr_nodes)
-    
-    # read positions
-    for i in range(nbr_nodes):
-        node_coords[5 * i : 5 * i + 3] = [
-            float(x) for x in f.readline().split()[:3]
-        ]
-    # altitutes are encoded in .mesh files with a 100000 scaling factor
-    node_coords[2::5] *= 100000
-    
-    # skip 3 lines
-    for i in range(3):
-        f.readline()
-    
-    # read normals
-    for i in range(nbr_nodes):
-        node_coords[5 * i + 3 : 5 * i + 5] = [
-            float(x) for x in f.readline().split()[:2]
-        ]
-    
-    # skip 2 lines
-    for i in range(0, 2): 
-        f.readline()
-
-    # read nbr of tris
-    nbr_tris = int(f.readline())      
-
-    tri_idx  = numpy.zeros(3 * nbr_tris, dtype = numpy.uint32)
-    tri_types = numpy.zeros(nbr_tris, dtype = numpy.uint32)
-    for i in range(nbr_tris):
-        columns = f.readline().split()
-        (n1, n2, n3) = [int(x) - 1 for x in columns[:3]]
-        # the attribute column is REAL in the .ele this was copied from
-        tri_idx[3 * i: 3 * i + 3] = (n1, n2, n3)
-        tri_types[i] = read_triangle_attribute(columns[3])[0]
-    f.close()
-
-    return (mesh_version, nbr_nodes, node_coords, nbr_tris, tri_idx, tri_types)
+    """``(mesh_version, nbr_nodes, node_coords, nbr_tris, tri_idx,
+    tri_types)`` of a ``.mesh`` (``O4_Mesh_IO.read_mesh``'s arrays, flat):
+    ``node_coords`` five per node (lon, lat, altitude in metres, normal x,
+    normal y), ``tri_idx`` three 0-based corners per triangle."""
+    return MESH_IO.read_mesh(mesh_file).as_legacy_tuple()
 ##############################################################################

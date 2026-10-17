@@ -1,23 +1,40 @@
 import Foundation
 
-/// One airport from X-Plane's default (Global Airports) database. Position
-/// and identity only: the index carries ~35k rows, search matches on ICAO
-/// and the map labels the mark with it, so names/city/country are not
-/// parsed, cached or kept in memory.
+/// One airport from X-Plane's default (Global Airports) database: identity,
+/// name and place (the search field matches them, #543), position, extent
+/// and size.
 public struct GlobalAirport: Codable, Sendable {
     public let icao: String
+    /// Name, city and country as the index has them ("" when apt.dat
+    /// carries none).
+    public let name: String
+    public let city: String
+    public let country: String
     public let latitude: Double
     public let longitude: Double
     /// The airport's extent (boundary, runways, helipads, datum) from a
     /// v5 cache; nil from an older one — the airport is then its point.
     public let extent: AirportExtent?
+    /// Longest runway in whole metres (any surface) from a v6 cache; nil
+    /// from an older one.
+    public let runwayMeters: Int?
+    /// The engine's size class, 0 = largest (`O4_Airport_Rank.size_class`:
+    /// runway length, surface and type); nil from a pre-v6 cache.
+    public let sizeClass: Int?
 
     public init(icao: String, latitude: Double, longitude: Double,
-                extent: AirportExtent? = nil) {
+                extent: AirportExtent? = nil,
+                runwayMeters: Int? = nil, sizeClass: Int? = nil,
+                name: String = "", city: String = "", country: String = "") {
         self.icao = icao
+        self.name = name
+        self.city = city
+        self.country = country
         self.latitude = latitude
         self.longitude = longitude
         self.extent = extent
+        self.runwayMeters = runwayMeters
+        self.sizeClass = sizeClass
     }
 }
 
@@ -65,8 +82,10 @@ public enum GlobalAirportIndex {
     /// `code name city country lat lon category` rows (the trailing
     /// category column arrived in v3, so 6 and 7 columns are both
     /// accepted), then — since v5 — `min_lat min_lon max_lat max_lon`,
-    /// the airport's extent (11 columns). Columns 0/4/5 are stable since
-    /// v1 and 7–10 are read when present — but a
+    /// the airport's extent (11 columns), then — since v6 — `runway_m
+    /// size_class` (13). Columns 0/4/5 are stable since v1, 7–10 and
+    /// 11–12 are read when present, and columns past those are ignored
+    /// (a later engine may append more) — but a
     /// pre-v3 cache is rejected anyway: the engine always writes the
     /// category column now, so an older file means an older engine wrote
     /// it, and the engine is about to replace it.
@@ -84,7 +103,7 @@ public enum GlobalAirportIndex {
         airports.reserveCapacity(max(0, count))
         for line in lines.dropFirst() where !line.hasPrefix("#SRC") {
             let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
-            guard [6, 7, 11].contains(fields.count),
+            guard [6, 7].contains(fields.count) || fields.count >= 11,
                   let latitude = Double(fields[4]),
                   let longitude = Double(fields[5]),
                   // The 0/0 placeholder can't be searched or drawn.
@@ -93,7 +112,12 @@ public enum GlobalAirportIndex {
             airports.append(GlobalAirport(icao: String(fields[0]),
                                           latitude: latitude,
                                           longitude: longitude,
-                                          extent: extent(fields)))
+                                          extent: extent(fields),
+                                          runwayMeters: intField(fields, 11),
+                                          sizeClass: intField(fields, 12),
+                                          name: String(fields[1]),
+                                          city: String(fields[2]),
+                                          country: String(fields[3])))
         }
         return airports
     }
@@ -116,11 +140,17 @@ public enum GlobalAirportIndex {
     /// A v5 row's extent columns (7–10), or nil for an older row or a
     /// malformed value (the airport then falls back to its point).
     private static func extent(_ fields: [Substring]) -> AirportExtent? {
-        guard fields.count == 11 else { return nil }
+        guard fields.count >= 11 else { return nil }
         let values = fields[7...10].compactMap { Double($0) }
         guard values.count == 4 else { return nil }
         return AirportExtent(minLatitude: values[0], minLongitude: values[1],
                              maxLatitude: values[2], maxLongitude: values[3])
+    }
+
+    /// Column `index` as an integer, or nil when the row is shorter (an
+    /// older cache) or the value malformed.
+    private static func intField(_ fields: [Substring], _ index: Int) -> Int? {
+        fields.count > index ? Int(fields[index]) : nil
     }
 
     /// The row count declared by an `O4AIRPORTIDX <version> <count>` header

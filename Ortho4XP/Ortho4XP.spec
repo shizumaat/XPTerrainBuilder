@@ -132,6 +132,9 @@ highspy_datas, highspy_binaries, highspy_hidden = collect_all('highspy')
 # traceback).  collect_all pins each package, its data and its extensions.
 tifffile_datas, tifffile_binaries, tifffile_hidden = collect_all('tifffile')
 imagecodecs_datas, imagecodecs_binaries, imagecodecs_hidden = collect_all('imagecodecs')
+# ispc_texcomp: the in-process DDS encoder (O4_DDS_Encode), imported lazily
+# inside a function, so the static scan cannot see it.
+ispc_datas, ispc_binaries, ispc_hidden = collect_all('ispc_texcomp')
 for _codec in ('imagecodecs._lerc', 'imagecodecs._shared'):
     if _codec not in imagecodecs_hidden:
         imagecodecs_hidden.append(_codec)
@@ -148,7 +151,7 @@ a = Analysis(
     ['Ortho4XP.py'],
     pathex=['src'],
     binaries=highspy_binaries + tifffile_binaries + imagecodecs_binaries
-             + curl_cffi_binaries,
+             + curl_cffi_binaries + ispc_binaries,
     datas=[
         ('./Utils',               './Ortho4XP_Data/Utils'),
         ('./Extents',             './Ortho4XP_Data/Extents'),
@@ -160,7 +163,7 @@ a = Analysis(
         ('community_server.txt',  './Ortho4XP_Data/'),
         ('overpass_servers.txt',  './Ortho4XP_Data/'),
     ] + gdal_proj_datas + v2_law_datas + highspy_datas + tifffile_datas
-      + imagecodecs_datas + curl_cffi_datas,
+      + imagecodecs_datas + curl_cffi_datas + ispc_datas,
     hiddenimports=(collect_submodules('PIL') + collect_submodules('auto_patch_v2')
                    + elevation_access_hidden
                    # ``o4_engine.parallel.STEP_FETCH_SUBSYSTEMS`` resolves its
@@ -178,6 +181,7 @@ a = Analysis(
                    + curl_cffi_hidden
                    + ['O4_Imagery_Fetch', 'O4_Imagery_Certs', 'certifi',
                       'O4_Imagery_Fetch_Selfcheck']
+                   + ispc_hidden + ['O4_DDS_Encode', 'O4_DDS_Mips', 'O4_DDS_Refine']
                    # O4_Scenery_Packs is imported at TOP LEVEL by every
                    # consumer, so PyInstaller would find it anyway; named
                    # here as a belt because the whole build's honouring of

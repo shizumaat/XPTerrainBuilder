@@ -1,4 +1,5 @@
 import SwiftUI
+import SceneryKit
 
 @main
 struct XPTerrainBuilderApp: App {
@@ -76,6 +77,13 @@ struct AppCommands: Commands {
         // The patch editor's ⌘S (#46): saves the edited patch.
         CommandGroup(replacing: .saveItem) {
             PatchSaveCommand(model: buildModel.patchEdit)
+        }
+
+        // Brings the map's first-visit hint back (#828).
+        CommandGroup(after: .help) {
+            Button(MapGuidance.showTipsTitle) {
+                UserDefaults.standard.set(false, forKey: PrefKeys.mapHintDismissed)
+            }
         }
 
         CommandGroup(after: .toolbar) {

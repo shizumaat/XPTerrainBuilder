@@ -1,4 +1,6 @@
 /* Last modified : Feb 21st 2024                                             */
+/* OrthoStudio XP binary I/O (switch -b) : Sep 2026; merged for            */
+/* XPTerrainBuilder Oct 2026, see Utils/Triangle4XP-CHANGES.md              */
 /*****************************************************************************/
 /*                                                                           */
 /*                              Triangle4XP                                  */
@@ -383,6 +385,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h> /* Added for OrthoStudio XP */
 #ifndef NO_TIMER
 	#include <sys/time.h>
 #endif /* not NO_TIMER */
@@ -445,6 +448,11 @@ double curv_tol2;
 #ifndef TRILIBRARY
 char *readline(char *string, FILE *infile, char *infilename);
 char *findfield(char *string);
+/* Start of : Added for OrthoStudio XP */
+static void *osxp_malloc(size_t size, const char *what);
+static void osxp_read_exact(void *dst, size_t size, size_t count, FILE *f,
+			    const char *filename);
+/* End of : Added for OrthoStudio XP */
 #endif /* not TRILIBRARY */
 
 /* Labels that signify the result of point location.  The result of a        */
@@ -913,6 +921,9 @@ struct behavior {
 	char weight_filename[FILENAMESIZE];
 	/* End of : Added for Triangle4XP */
 #endif /* not TRILIBRARY */
+	/* Start of : Added for OrthoStudio XP */
+	int binary_io; /* -b: binary .node/.poly in, binary .node/.ele out */
+	/* End of : Added for OrthoStudio XP */
 
 }; /* End of `struct behavior'. */
 
@@ -1532,6 +1543,10 @@ void syntax()
 	#endif /* not REDUCED */
 	printf("    -Q  Quiet:  No terminal output except errors.\n");
 	printf("    -V  Verbose:  Detailed information on what I'm doing.\n");
+	/* Start of : Added for OrthoStudio XP */
+	printf("    -b  Binary I/O (OrthoStudio XP):  reads OSXPNOD1/OSXPPOL1 .node/.poly\n");
+	printf("        files and writes OSXPNOD1/OSXPELE1 .node/.ele files.  Not with -r.\n");
+	/* End of : Added for OrthoStudio XP */
 	printf("    -h  Help:  Detailed instructions for Triangle.\n");
 	triexit(0);
 }
@@ -3138,6 +3153,7 @@ void parsecommandline(int argc, char **argv, struct behavior *b)
 	b->minangle = 0.0;
 	b->maxarea = -1.0;
 	b->quiet = b->verbose = 0;
+	b->binary_io = 0; /* Added for OrthoStudio XP */
 #ifndef TRILIBRARY
 	b->innodefilename[0] = '\0';
 #endif /* not TRILIBRARY */
@@ -3312,6 +3328,11 @@ void parsecommandline(int argc, char **argv, struct behavior *b)
 					b->docheck = 1;
 				}
 #endif /* not REDUCED */
+				/* Start of : Added for OrthoStudio XP */
+				if (argv[i][j] == 'b') {
+					b->binary_io = 1;
+				}
+				/* End of : Added for OrthoStudio XP */
 				if (argv[i][j] == 'Q') {
 					b->quiet = 1;
 				}
@@ -3424,6 +3445,13 @@ void parsecommandline(int argc, char **argv, struct behavior *b)
 	#endif /* not CDT_ONLY */
 #endif	       /* not TRILIBRARY */
 	b->usesegments = b->poly || b->refine || b->quality || b->convex;
+	/* Start of : Added for OrthoStudio XP */
+	if (b->binary_io && b->refine) {
+		printf("Error:  The -b switch (binary I/O) cannot be combined with -r "
+		       "(refining a triangulation).\n");
+		triexit(1);
+	}
+	/* End of : Added for OrthoStudio XP */
 	b->goodangle = cos(b->minangle * PI / 180.0);
 	if (b->goodangle == 1.0) {
 		b->offconstant = 0.0;
@@ -13011,6 +13039,11 @@ void formskeleton(struct mesh *m, struct behavior *b, FILE *polyfile,
 #else  /* not TRILIBRARY */
 	char inputline[INPUTLINESIZE];
 	char *stringptr;
+	/* Start of : Added for OrthoStudio XP */
+	int32_t bincount[2];
+	int32_t *binsegs = (int32_t *)NULL;
+	int32_t *binmarks = (int32_t *)NULL;
+	/* End of : Added for OrthoStudio XP */
 #endif /* not TRILIBRARY */
 	vertex endpoint1, endpoint2;
 	int segmentmarkers;
@@ -13031,6 +13064,31 @@ void formskeleton(struct mesh *m, struct behavior *b, FILE *polyfile,
 		segmentmarkers = segmentmarkerlist != (int *)NULL;
 		index = 0;
 #else  /* not TRILIBRARY */
+		/* Start of : Added for OrthoStudio XP */
+		if (b->binary_io) {
+			/* Read all segments of an OSXPPOL1 file at once. */
+			osxp_read_exact(bincount, sizeof(int32_t), 2, polyfile,
+				        polyfilename);
+			m->insegments = (int)bincount[0];
+			segmentmarkers = (int)bincount[1];
+			if (m->insegments > 0) {
+				binsegs = (int32_t *)osxp_malloc(
+				    sizeof(int32_t) * 2 * (size_t)m->insegments,
+				    "segment table");
+				osxp_read_exact(binsegs, sizeof(int32_t),
+					        2 * (size_t)m->insegments, polyfile,
+					        polyfilename);
+				if (segmentmarkers) {
+					binmarks = (int32_t *)osxp_malloc(
+					    sizeof(int32_t) * (size_t)m->insegments,
+					    "segment markers");
+					osxp_read_exact(binmarks, sizeof(int32_t),
+						        (size_t)m->insegments,
+						        polyfile, polyfilename);
+				}
+			}
+		} else {
+		/* End of : Added for OrthoStudio XP */
 		/* Read the segments from a .poly file. */
 		/* Read number of segments and number of boundary markers. */
 		stringptr = readline(inputline, polyfile, polyfilename);
@@ -13041,11 +13099,17 @@ void formskeleton(struct mesh *m, struct behavior *b, FILE *polyfile,
 		} else {
 			segmentmarkers = (int)strtol(stringptr, &stringptr, 0);
 		}
+		} /* Added for OrthoStudio XP */
 #endif /* not TRILIBRARY */
 		/* If the input vertices are collinear, there is no
 		 * triangulation, */
 		/*   so don't try to insert segments. */
 		if (m->triangles.items == 0) {
+#ifndef TRILIBRARY
+			/* Added for OrthoStudio XP */
+			free(binsegs);
+			free(binmarks);
+#endif /* not TRILIBRARY */
 			return;
 		}
 
@@ -13069,6 +13133,15 @@ void formskeleton(struct mesh *m, struct behavior *b, FILE *polyfile,
 				boundmarker = segmentmarkerlist[i];
 			}
 #else  /* not TRILIBRARY */
+			/* Start of : Added for OrthoStudio XP */
+			if (b->binary_io) {
+				end1 = (int)binsegs[2 * (size_t)i];
+				end2 = (int)binsegs[2 * (size_t)i + 1];
+				if (segmentmarkers) {
+					boundmarker = (int)binmarks[i];
+				}
+			} else {
+			/* End of : Added for OrthoStudio XP */
 			stringptr =
 			    readline(inputline, polyfile, b->inpolyfilename);
 			stringptr = findfield(stringptr);
@@ -13098,6 +13171,7 @@ void formskeleton(struct mesh *m, struct behavior *b, FILE *polyfile,
 					    stringptr, &stringptr, 0);
 				}
 			}
+			} /* Added for OrthoStudio XP */
 #endif /* not TRILIBRARY */
 			if ((end1 < b->firstnumber) ||
 			    (end1 >= b->firstnumber + m->invertices)) {
@@ -13135,6 +13209,11 @@ void formskeleton(struct mesh *m, struct behavior *b, FILE *polyfile,
 				}
 			}
 		}
+#ifndef TRILIBRARY
+		/* Added for OrthoStudio XP */
+		free(binsegs);
+		free(binmarks);
+#endif /* not TRILIBRARY */
 	} else {
 		m->insegments = 0;
 	}
@@ -14591,6 +14670,426 @@ void highorder(struct mesh *m, struct behavior *b)
 
 /*****************************************************************************/
 /*                                                                           */
+/*  Start of : Added for OrthoStudio XP                                      */
+/*                                                                           */
+/*  Binary I/O (switch -b).  File layouts are documented in                  */
+/*  docs/specs/mesh-triangle-io.md of the OrthoStudio XP repository.  All    */
+/*  integers are int32 and all reals are float64, in the byte order of the   */
+/*  machine that wrote the file (little-endian on every supported platform). */
+/*                                                                           */
+/*    OSXPNOD1  header int32[5] = {n_vertices, dim, n_attrs, n_markers,     */
+/*              first_number}; float64[n_vertices][2 + n_attrs];             */
+/*              int32[n_vertices] markers if n_markers.                      */
+/*    OSXPPOL1  node header + node table as above (n_vertices may be 0:      */
+/*              vertices then come from the OSXPNOD1 .node file);            */
+/*              int32[2] = {n_segments, seg_markers};                        */
+/*              int32[n_segments][2]; int32[n_segments] markers if           */
+/*              seg_markers; int32 n_holes; float64[n_holes][2];             */
+/*              int32 n_regions; float64[n_regions][4] = {x, y, attribute,   */
+/*              max_area}.                                                   */
+/*    OSXPELE1  header int32[4] = {n_triangles, n_corners, n_attrs,          */
+/*              first_number}; int32[n_triangles][n_corners];                */
+/*              float64[n_triangles][n_attrs].                               */
+/*                                                                           */
+/*****************************************************************************/
+
+#ifndef TRILIBRARY
+
+#ifdef SINGLE
+#error "OrthoStudio XP binary I/O requires REAL == double (do not define SINGLE)"
+#endif
+
+#define OSXP_MAGIC_LEN 8
+static const char osxp_node_magic[OSXP_MAGIC_LEN + 1] = "OSXPNOD1";
+static const char osxp_poly_magic[OSXP_MAGIC_LEN + 1] = "OSXPPOL1";
+static const char osxp_ele_magic[OSXP_MAGIC_LEN + 1] = "OSXPELE1";
+
+static void *osxp_malloc(size_t size, const char *what)
+{
+	void *p = malloc(size > 0 ? size : 1);
+	if (p == NULL) {
+		printf("Error:  Out of memory while allocating %s.\n", what);
+		triexit(1);
+	}
+	return p;
+}
+
+static void osxp_read_exact(void *dst, size_t size, size_t count, FILE *f,
+			    const char *filename)
+{
+	if (count > 0 && fread(dst, size, count, f) != count) {
+		printf("  Error:  Unexpected end of file in %s.\n", filename);
+		triexit(1);
+	}
+}
+
+static void osxp_write_exact(const void *src, size_t size, size_t count,
+			     FILE *f, const char *filename)
+{
+	if (count > 0 && fwrite(src, size, count, f) != count) {
+		printf("  Error:  Cannot write to file %s.\n", filename);
+		triexit(1);
+	}
+}
+
+static void osxp_check_magic(FILE *f, const char *magic, const char *filename)
+{
+	char buf[OSXP_MAGIC_LEN];
+	osxp_read_exact(buf, 1, OSXP_MAGIC_LEN, f, filename);
+	if (memcmp(buf, magic, OSXP_MAGIC_LEN) != 0) {
+		printf("  Error:  %s does not start with the %s magic.\n",
+		       filename, magic);
+		triexit(1);
+	}
+}
+
+/*  readnodes_binary()   Binary counterpart of readnodes().  Same effects on */
+/*  the mesh and behavior structures, same error conditions.                 */
+
+void readnodes_binary(struct mesh *m, struct behavior *b, char *nodefilename,
+		      char *polyfilename, FILE **polyfile)
+{
+	FILE *infile;
+	char *infilename;
+	vertex vertexloop;
+	int32_t header[5];
+	REAL *table;
+	int32_t *markers;
+	REAL x, y;
+	int nodemarkers;
+	size_t ncols;
+	int i, j;
+
+	infile = (FILE *)NULL;
+	infilename = nodefilename;
+	if (b->poly) {
+		if (!b->quiet) {
+			printf("   Opening %s.\n", polyfilename);
+		}
+		*polyfile = fopen(polyfilename, "rb");
+		if (*polyfile == (FILE *)NULL) {
+			printf("ERROR:  Cannot access file %s.\n",
+			       polyfilename);
+			triexit(1);
+		}
+		osxp_check_magic(*polyfile, osxp_poly_magic, polyfilename);
+		osxp_read_exact(header, sizeof(int32_t), 5, *polyfile,
+			        polyfilename);
+		if (header[0] > 0) {
+			infile = *polyfile;
+			infilename = polyfilename;
+			m->readnodefile = 0;
+		} else {
+			m->readnodefile = 1;
+		}
+	} else {
+		m->readnodefile = 1;
+		*polyfile = (FILE *)NULL;
+	}
+
+	if (m->readnodefile) {
+		if (!b->quiet) {
+			printf("   Opening %s.\n", nodefilename);
+		}
+		infile = fopen(nodefilename, "rb");
+		if (infile == (FILE *)NULL) {
+			printf("ERROR:  Cannot access file %s.\n",
+			       nodefilename);
+			triexit(1);
+		}
+		osxp_check_magic(infile, osxp_node_magic, nodefilename);
+		osxp_read_exact(header, sizeof(int32_t), 5, infile,
+			        nodefilename);
+	}
+	m->invertices = header[0];
+	m->mesh_dim = header[1];
+	m->nextras = header[2];
+	nodemarkers = header[3];
+	if ((header[4] == 0) || (header[4] == 1)) {
+		b->firstnumber = header[4];
+	}
+
+	if (m->invertices < 3) {
+		printf(
+		    "ERROR:  Input must have at least three input vertices.\n");
+		triexit(1);
+	}
+	if (m->mesh_dim != 2) {
+		printf("ERROR:  Triangle only works with two-dimensional "
+		       "meshes.\n");
+		triexit(1);
+	}
+	if (m->nextras < 0) {
+		printf("ERROR:  Negative number of vertex attributes in %s.\n",
+		       infilename);
+		triexit(1);
+	}
+	if (m->nextras == 0) {
+		b->weighted = 0;
+	}
+
+	initializevertexpool(m, b);
+
+	ncols = 2 + (size_t)m->nextras;
+	table = (REAL *)osxp_malloc(sizeof(REAL) * ncols * (size_t)m->invertices,
+				    "vertex table");
+	osxp_read_exact(table, sizeof(REAL), ncols * (size_t)m->invertices,
+		        infile, infilename);
+	markers = (int32_t *)NULL;
+	if (nodemarkers) {
+		markers = (int32_t *)osxp_malloc(
+		    sizeof(int32_t) * (size_t)m->invertices, "vertex markers");
+		osxp_read_exact(markers, sizeof(int32_t), (size_t)m->invertices,
+			        infile, infilename);
+	}
+
+	for (i = 0; i < m->invertices; i++) {
+		vertexloop = (vertex)poolalloc(&m->vertices);
+		x = table[ncols * (size_t)i];
+		y = table[ncols * (size_t)i + 1];
+		vertexloop[0] = x;
+		vertexloop[1] = y;
+		for (j = 2; j < 2 + m->nextras; j++) {
+			vertexloop[j] = table[ncols * (size_t)i + (size_t)j];
+		}
+		if (nodemarkers) {
+			setvertexmark(vertexloop, (int)markers[i]);
+		} else {
+			setvertexmark(vertexloop, 0);
+		}
+		setvertextype(vertexloop, INPUTVERTEX);
+		if (i == 0) {
+			m->xmin = m->xmax = x;
+			m->ymin = m->ymax = y;
+		} else {
+			m->xmin = (x < m->xmin) ? x : m->xmin;
+			m->xmax = (x > m->xmax) ? x : m->xmax;
+			m->ymin = (y < m->ymin) ? y : m->ymin;
+			m->ymax = (y > m->ymax) ? y : m->ymax;
+		}
+	}
+	free(table);
+	if (markers != (int32_t *)NULL) {
+		free(markers);
+	}
+	if (m->readnodefile) {
+		fclose(infile);
+	}
+
+	m->xminextreme = 10 * m->xmin - 9 * m->xmax;
+}
+
+/*  readholes_binary()   Binary counterpart of readholes().                  */
+
+void readholes_binary(struct mesh *m, struct behavior *b, FILE *polyfile,
+		      char *polyfilename, REAL **hlist, int *holes,
+		      REAL **rlist, int *regions)
+{
+	REAL *regionlist;
+	int32_t count;
+	int nregions;
+
+	osxp_read_exact(&count, sizeof(int32_t), 1, polyfile, polyfilename);
+	*holes = (int)count;
+	if (*holes > 0) {
+		*hlist = (REAL *)trimalloc(2 * *holes * (int)sizeof(REAL));
+		osxp_read_exact(*hlist, sizeof(REAL), 2 * (size_t)*holes,
+			        polyfile, polyfilename);
+	} else {
+		*hlist = (REAL *)NULL;
+	}
+
+	osxp_read_exact(&count, sizeof(int32_t), 1, polyfile, polyfilename);
+	nregions = (int)count;
+	if ((b->regionattrib || b->vararea) && !b->refine) {
+		*regions = nregions;
+		if (*regions > 0) {
+			regionlist =
+			    (REAL *)trimalloc(4 * *regions * (int)sizeof(REAL));
+			*rlist = regionlist;
+			osxp_read_exact(regionlist, sizeof(REAL),
+				        4 * (size_t)*regions, polyfile,
+				        polyfilename);
+		}
+	} else {
+		/* Same as the text reader: regions are not used, so they are */
+		/*   skipped and `*regions' is zeroed to avoid a later free(). */
+		*regions = 0;
+		*rlist = (REAL *)NULL;
+	}
+
+	fclose(polyfile);
+}
+
+/*  writenodes_binary()   Binary counterpart of writenodes() for the         */
+/*  non-refining case (the -b switch rejects -r).  Writes the same values    */
+/*  that the text writer prints with %.17g, as exact doubles.                */
+
+void writenodes_binary(struct mesh *m, struct behavior *b, char *nodefilename)
+{
+	FILE *outfile;
+	vertex vertexloop;
+	long outvertices;
+	int vertexnumber;
+	int nattrs;
+	size_t ncols;
+	int32_t header[5];
+	REAL *row;
+	int32_t *markers;
+	int i;
+	double X, Y, XX, YY, z, u, v;
+
+	if (b->jettison) {
+		outvertices = m->vertices.items - m->undeads;
+	} else {
+		outvertices = m->vertices.items;
+	}
+
+	printf("   Computing altitude and normal maps.\n");
+	outfile = fopen(nodefilename, "wb");
+	if (outfile == (FILE *)NULL) {
+		printf("   Error:  Cannot create file %s.\n", nodefilename);
+		triexit(1);
+	}
+	/* Three more attributes (z, u, v) than the input nodes, as in the */
+	/*   text writer.                                                  */
+	nattrs = m->nextras + 3;
+	ncols = 2 + (size_t)nattrs;
+	header[0] = (int32_t)outvertices;
+	header[1] = (int32_t)m->mesh_dim;
+	header[2] = (int32_t)nattrs;
+	header[3] = (int32_t)(1 - b->nobound);
+	header[4] = (int32_t)b->firstnumber;
+	osxp_write_exact(osxp_node_magic, 1, OSXP_MAGIC_LEN, outfile, nodefilename);
+	osxp_write_exact(header, sizeof(int32_t), 5, outfile, nodefilename);
+
+	row = (REAL *)osxp_malloc(sizeof(REAL) * ncols, "vertex row");
+	markers = (int32_t *)NULL;
+	if (!b->nobound) {
+		markers = (int32_t *)osxp_malloc(
+		    sizeof(int32_t) * (size_t)outvertices, "vertex markers");
+	}
+
+	traversalinit(&m->vertices);
+	vertexnumber = b->firstnumber;
+	vertexloop = vertextraverse(m);
+	while (vertexloop != (vertex)NULL) {
+		if (!b->jettison || (vertextype(vertexloop) != UNDEADVERTEX)) {
+			X = vertexloop[0];
+			Y = vertexloop[1];
+			XX = X > X0 ? X : X0;
+			XX = XX < X1 ? XX : X1;
+			YY = Y > Y0 ? Y : Y0;
+			YY = YY < Y1 ? YY : Y1;
+			z = altitude(XX, YY);
+			set_normal(XX, YY, &u, &v);
+			X = X > 0 ? X : 0;
+			X = X < 1 ? X : 1;
+			Y = Y > 0 ? Y : 0;
+			Y = Y < 1 ? Y : 1;
+			row[0] = X;
+			row[1] = Y;
+			row[2] = z;
+			row[3] = u;
+			row[4] = v;
+			for (i = 0; i < m->nextras; i++) {
+				row[5 + i] = vertexloop[i + 2];
+			}
+			osxp_write_exact(row, sizeof(REAL), ncols, outfile,
+					 nodefilename);
+			if (!b->nobound) {
+				markers[vertexnumber - b->firstnumber] =
+				    (int32_t)vertexmark(vertexloop);
+			}
+			setvertexmark(vertexloop, vertexnumber);
+			vertexnumber++;
+		}
+		vertexloop = vertextraverse(m);
+	}
+	if (!b->nobound) {
+		osxp_write_exact(markers, sizeof(int32_t), (size_t)outvertices,
+				 outfile, nodefilename);
+		free(markers);
+	}
+	free(row);
+	printf("   Node file %s written to disk.\n", nodefilename);
+	fclose(outfile);
+}
+
+/*  writeelements_binary()   Binary counterpart of writeelements().          */
+
+void writeelements_binary(struct mesh *m, struct behavior *b,
+			  char *elefilename)
+{
+	FILE *outfile;
+	struct otri triangleloop;
+	vertex p1, p2, p3;
+	vertex mid1, mid2, mid3;
+	int32_t header[4];
+	int32_t *tris;
+	REAL *attrs;
+	size_t tindex, aindex;
+	int corners;
+	int i;
+
+	printf("   Tri file  %s  written to disk.\n", elefilename);
+	outfile = fopen(elefilename, "wb");
+	if (outfile == (FILE *)NULL) {
+		printf("   Error:  Cannot create file %s.\n", elefilename);
+		triexit(1);
+	}
+	corners = (b->order + 1) * (b->order + 2) / 2;
+	header[0] = (int32_t)m->triangles.items;
+	header[1] = (int32_t)corners;
+	header[2] = (int32_t)m->eextras;
+	header[3] = (int32_t)b->firstnumber;
+	osxp_write_exact(osxp_ele_magic, 1, OSXP_MAGIC_LEN, outfile, elefilename);
+	osxp_write_exact(header, sizeof(int32_t), 4, outfile, elefilename);
+
+	tris = (int32_t *)osxp_malloc(sizeof(int32_t) * (size_t)corners *
+					 (size_t)m->triangles.items,
+				      "triangle table");
+	attrs = (REAL *)osxp_malloc(sizeof(REAL) * (size_t)m->eextras *
+				       (size_t)m->triangles.items,
+				    "triangle attributes");
+	tindex = 0;
+	aindex = 0;
+	traversalinit(&m->triangles);
+	triangleloop.tri = triangletraverse(m);
+	triangleloop.orient = 0;
+	while (triangleloop.tri != (triangle *)NULL) {
+		org(triangleloop, p1);
+		dest(triangleloop, p2);
+		apex(triangleloop, p3);
+		tris[tindex++] = (int32_t)vertexmark(p1);
+		tris[tindex++] = (int32_t)vertexmark(p2);
+		tris[tindex++] = (int32_t)vertexmark(p3);
+		if (b->order != 1) {
+			mid1 = (vertex)triangleloop.tri[m->highorderindex + 1];
+			mid2 = (vertex)triangleloop.tri[m->highorderindex + 2];
+			mid3 = (vertex)triangleloop.tri[m->highorderindex];
+			tris[tindex++] = (int32_t)vertexmark(mid1);
+			tris[tindex++] = (int32_t)vertexmark(mid2);
+			tris[tindex++] = (int32_t)vertexmark(mid3);
+		}
+		for (i = 0; i < m->eextras; i++) {
+			attrs[aindex++] = elemattribute(triangleloop, i);
+		}
+		triangleloop.tri = triangletraverse(m);
+	}
+	osxp_write_exact(tris, sizeof(int32_t), tindex, outfile, elefilename);
+	osxp_write_exact(attrs, sizeof(REAL), aindex, outfile, elefilename);
+	free(tris);
+	free(attrs);
+	fclose(outfile);
+}
+
+#endif /* not TRILIBRARY */
+
+/*  End of : Added for OrthoStudio XP                                        */
+
+/*****************************************************************************/
+/*                                                                           */
 /*  readline()   Read a nonempty line from a file.                           */
 /*                                                                           */
 /*  A line is considered "nonempty" if it contains something that looks like */
@@ -14690,6 +15189,13 @@ void readnodes(struct mesh *m, struct behavior *b, char *nodefilename,
 	int nodemarkers;
 	int currentmarker;
 	int i, j;
+
+	/* Start of : Added for OrthoStudio XP */
+	if (b->binary_io) {
+		readnodes_binary(m, b, nodefilename, polyfilename, polyfile);
+		return;
+	}
+	/* End of : Added for OrthoStudio XP */
 
 	if (b->poly) {
 		/* Read the vertices from a .poly file. */
@@ -14971,6 +15477,14 @@ void readholes(struct mesh *m, struct behavior *b, FILE *polyfile,
 	int index;
 	int i;
 
+	/* Start of : Added for OrthoStudio XP */
+	if (b->binary_io) {
+		readholes_binary(m, b, polyfile, polyfilename, hlist, holes, rlist,
+				 regions);
+		return;
+	}
+	/* End of : Added for OrthoStudio XP */
+
 	/* Read the holes. */
 	stringptr = readline(inputline, polyfile, polyfilename);
 	*holes = (int)strtol(stringptr, &stringptr, 0);
@@ -15133,6 +15647,15 @@ void writenodes(struct mesh *m, struct behavior *b, char *nodefilename,
 	/* Start of : Added for Triangle4XP */
 	double X, Y, XX, YY, z, u, v;
 	/* End of : Added for Triangle4XP */
+
+#ifndef TRILIBRARY
+	/* Start of : Added for OrthoStudio XP */
+	if (b->binary_io) {
+		writenodes_binary(m, b, nodefilename);
+		return;
+	}
+	/* End of : Added for OrthoStudio XP */
+#endif /* not TRILIBRARY */
 
 	if (b->jettison) {
 		outvertices = m->vertices.items - m->undeads;
@@ -15344,6 +15867,15 @@ void writeelements(struct mesh *m, struct behavior *b, char *elefilename,
 	vertex mid1, mid2, mid3;
 	long elementnumber;
 	int i;
+
+#ifndef TRILIBRARY
+	/* Start of : Added for OrthoStudio XP */
+	if (b->binary_io) {
+		writeelements_binary(m, b, elefilename);
+		return;
+	}
+	/* End of : Added for OrthoStudio XP */
+#endif /* not TRILIBRARY */
 
 #ifdef TRILIBRARY
 	if (!b->quiet) {
@@ -16517,7 +17049,7 @@ int main(int argc, char **argv)
 #ifndef TRILIBRARY
 	FILE *polyfile;
 	/* Start of : Added for Triangle4XP */
-	int i, j, k, l, dummy;
+	int i, j, k, l;
 	long offset;
 	float aa, bb, cc, signe, w;
 	/* End of : Added for Triangle4XP */
@@ -16549,11 +17081,14 @@ int main(int argc, char **argv)
 		printf("   Error:  Cannot access file %s.\n", b.alt_filename);
 		triexit(1);
 	}
-	for (i = 0; i < nydem; i++) {
-		for (j = 0; j < nxdem; j++) {
-			dummy = fread(&alt[nxdem * i + j], 4, 1, alt_file);
-		}
+	/* Start of : Modified for OrthoStudio XP (one fread instead of one per sample) */
+	if (fread(alt, sizeof(float), (size_t)nxdem * (size_t)nydem, alt_file) !=
+	    (size_t)nxdem * (size_t)nydem) {
+		printf("   Error:  File %s holds fewer than %d x %d floats.\n",
+		       b.alt_filename, nxdem, nydem);
+		triexit(1);
 	}
+	/* End of : Modified for OrthoStudio XP */
 	fclose(alt_file);
 
 	printf("   Loading curv_tol geographic weights.\n");
@@ -16565,11 +17100,14 @@ int main(int argc, char **argv)
 		       b.weight_filename);
 		triexit(1);
 	}
-	for (i = 0; i < 1001; i++) {
-		for (j = 0; j < 1001; j++) {
-			dummy = fread(&weight[1001 * i + j], 4, 1, weight_file);
-		}
+	/* Start of : Modified for OrthoStudio XP (one fread instead of one per sample) */
+	if (fread(weight, sizeof(float), (size_t)1001 * 1001, weight_file) !=
+	    (size_t)1001 * 1001) {
+		printf("   Error:  File %s holds fewer than 1001 x 1001 floats.\n",
+		       b.weight_filename);
+		triexit(1);
 	}
+	/* End of : Modified for OrthoStudio XP */
 	fclose(weight_file);
 
 	printf("   Computing curvatures from altitudes.\n");

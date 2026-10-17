@@ -18,6 +18,7 @@ import O4_Imagery_Utils as IMG
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
 import O4_Mesh_Utils as MESH
+import O4_Mesh_IO as MESH_IO
 from O4_Parallel_Utils import parallel_execute
 
 mask_altitude_above = 0.5
@@ -1076,32 +1077,19 @@ def record_water_tris(tile):
     )
     for mesh_file_name in mesh_list:
         try:
-            f_mesh = open(mesh_file_name, "r")
+            mesh = MESH_IO.read_mesh(mesh_file_name)
             UI.vprint(1, "   * ", mesh_file_name)
-        except:
+        except OSError:
             UI.lvprint(
                 1, "Mesh file ", mesh_file_name, " could not be read. Skipped."
             )
             continue
-        mesh_version = float(f_mesh.readline().strip().split()[-1])
-        has_water = 7 if mesh_version >= 1.3 else 3
-        for i in range(3):
-            f_mesh.readline()
-        nbr_pt_in = int(f_mesh.readline())
-        pt_in = numpy.zeros(5 * nbr_pt_in, "float")
-        for i in range(0, nbr_pt_in):
-            pt_in[5 * i : 5 * i + 3] = [
-                float(x) for x in f_mesh.readline().split()[:3]
-            ]
-        for i in range(0, 3):
-            f_mesh.readline()
-        for i in range(0, nbr_pt_in):
-            pt_in[5 * i + 3 : 5 * i + 5] = [
-                float(x) for x in f_mesh.readline().split()[:2]
-            ]
-        for i in range(0, 2):  # skip 2 lines
-            f_mesh.readline()
-        nbr_tri_in = int(f_mesh.readline())  # read nbr of tris
+        has_water = 7 if mesh.version >= 1.3 else 3
+        # Only lon/lat (the first two of five) are read below.
+        pt_in = mesh.coords.ravel()
+        mesh_tris = mesh.triangles.tolist()
+        mesh_tri_types = mesh.attributes.tolist()
+        nbr_tri_in = len(mesh_tris)
         step_stones = max(1, nbr_tri_in // 100)
         percent = -1
         UI.vprint(
@@ -1117,10 +1105,8 @@ def record_water_tris(tile):
                 if UI.red_flag:
                     UI.exit_message_and_bottom_line()
                     return 0
-            (n1, n2, n3, tri_type) = [
-                int(x) - 1 for x in f_mesh.readline().split()[:4]
-            ]
-            tri_type += 1
+            (n1, n2, n3) = mesh_tris[i]
+            tri_type = mesh_tri_types[i]
             water_bits = tri_type & has_water
             if (not water_bits) or (
                 water_type_is_inland(water_bits)
@@ -1229,16 +1215,8 @@ def record_water_tris(tile):
                     dico_sea[(til_x, til_y + 16)] = [
                         (lat1, lon1, lat2, lon2, lat3, lon3)
                     ]
-        f_mesh.close()
         if not tile.use_masks_for_inland:
             UI.vprint(2, "   Taking care of inland water near shoreline")
-            f_mesh = open(mesh_file_name, "r")
-            for i in range(0, 4):
-                f_mesh.readline()
-            nbr_pt_in = int(f_mesh.readline())
-            for i in range(0, 2 * nbr_pt_in + 5):
-                f_mesh.readline()
-            nbr_tri_in = int(f_mesh.readline())  # read nbr of tris
             step_stones = max(1, nbr_tri_in // 100)
             percent = -1
             for i in range(0, nbr_tri_in):
@@ -1248,10 +1226,8 @@ def record_water_tris(tile):
                     if UI.red_flag:
                         UI.exit_message_and_bottom_line()
                         return 0
-                (n1, n2, n3, tri_type) = [
-                    int(x) - 1 for x in f_mesh.readline().split()[:4]
-                ]
-                tri_type += 1
+                (n1, n2, n3) = mesh_tris[i]
+                tri_type = mesh_tri_types[i]
                 if not water_type_is_inland(tri_type & has_water):
                     continue
                 (lon1, lat1) = pt_in[5 * n1 : 5 * n1 + 2]
@@ -1285,7 +1261,6 @@ def record_water_tris(tile):
                         dico_inland[(til_x, til_y)] = [
                             (lat1, lon1, lat2, lon2, lat3, lon3)
                         ]
-            f_mesh.close()
     
     return (dico_sea, dico_inland, coastline_sea_present)
 ################################################################################

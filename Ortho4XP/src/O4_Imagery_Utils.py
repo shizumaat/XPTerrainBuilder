@@ -17,6 +17,7 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 import requests
 
 import O4_Color_Harmonization as HARMONIZE
+import O4_DDS_Encode as DDSENC
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
@@ -29,7 +30,7 @@ import O4_Sea_Nodata_Fill as SEA_FILL
 import O4_Text_Files as TEXT
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
-from O4_Parallel_Utils import parallel_execute
+from O4_Parallel_Utils import effective_convert_slots, parallel_execute
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 
@@ -1171,6 +1172,30 @@ def has_data(
 ################################################################################
 
 ################################################################################
+def _header(headers, name):
+    """Case-insensitive header lookup (requests' dict is; a plain one is not)."""
+    for key, value in headers.items():
+        if key.lower() == name.lower():
+            return str(value)
+    return None
+
+
+def is_placeholder_tile(url, headers):
+    """True when the server sent its 'no imagery here' tile, not imagery.
+
+    Bing: the 1033-byte white camera tile, or ``X-VE-Tile-Info: no-tile``
+    (either one marks it; the header test sits BESIDE the length test,
+    imagery-fetch-spec §3.2, #835).  ArcGIS: the 2521-byte no-data tile.
+    """
+    length = _header(headers, "Content-Length")
+    if "virtualearth" in url:
+        info = (_header(headers, "X-VE-Tile-Info") or "").strip().lower()
+        return length == "1033" or info == "no-tile"
+    if "arcgisonline" in url:
+        return length == "2521"
+    return False
+
+
 def http_request_to_image(width, height, url, request_headers, http_session):
     UI.vprint(
         3, "HTTP request issued :", url, "\nRequest headers :", request_headers
@@ -1206,19 +1231,9 @@ def http_request_to_image(width, height, url, request_headers, http_session):
             status_code = str(r)
             # Bing white image with small camera or Arcgis no data yet =>
             # try to downsample to lower ZL
-            if ("Content-Length" in r.headers) and int(
-                r.headers["Content-Length"]
-            ) <= 2521:
-                if (r.headers["Content-Length"] == "1033") and (
-                    "virtualearth" in url
-                ):
-                    UI.vprint(3, url, r.headers)
-                    return (0, "[404]")
-                if (r.headers["Content-Length"] == "2521") and (
-                    "arcgisonline" in url
-                ):
-                    UI.vprint(3, url, r.headers)
-                    return (0, "[404]")
+            if is_placeholder_tile(url, r.headers):
+                UI.vprint(3, url, r.headers)
+                return (0, "[404]")
             if ("[200]" in status_code) and (
                 "image" in r.headers["Content-Type"]
             ):
@@ -2819,9 +2834,45 @@ def save_temp_png(image, path):
     image.save(path, format="PNG", compress_level=1)
 
 
+def _image_for_converter(image, png_file_name, dxt5, inproc):
+    """What the converter reads for an image built in memory: the pixels
+    themselves for the in-process encoder, else a temporary PNG (the
+    subprocess converters read files), whose path is returned."""
+    if inproc:
+        return numpy.asarray(image.convert("RGBA" if dxt5 else "RGB"))
+    path = os.path.join(FNAMES.Tmp_dir, png_file_name)
+    # Tmp_dir lives under the (possibly brand-new) data root — nothing
+    # guarantees it exists before the first texture conversion.
+    os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
+    save_temp_png(image, path)
+    return path
+
+
+def _run_converter(conv_cmd, source, dxt5, dds_partial):
+    """One conversion attempt; ``True`` when the converter succeeded.
+
+    ``conv_cmd`` ``None`` is the in-process encoder (``O4_DDS_ENCODER=
+    inproc``): ``source`` (a path or the pixels) is encoded into
+    ``dds_partial``; otherwise the subprocess converter runs."""
+    if conv_cmd is not None:
+        return not subprocess.call(
+            conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+            **UI.external_tool_keyword_arguments())
+    try:
+        DDSENC.encode_texture(source, "bc3" if dxt5 else "bc1", dds_partial,
+                              effective_convert_slots(0))
+        return True
+    except Exception as error:  # the retry loop reports and retries
+        UI.vprint(1, "   In-process DDS encoder failed:", repr(error))
+        return False
+
+
 def convert_texture(
     tile, til_x_left, til_y_top, zoomlevel, provider_code, type="dds"
 ):
+    # O4_DDS_ENCODER=inproc encodes DXT1/DXT5 in this process family
+    # (O4_DDS_Encode); the default runs DDSTool / nvcompress per texture.
+    inproc = type == "dds" and DDSENC.chosen_encoder() == "inproc"
     if type == "dds":
         out_file_name = FNAMES.dds_file_name_from_attributes(
             til_x_left, til_y_top, zoomlevel, provider_code
@@ -2931,12 +2982,9 @@ def convert_texture(
                 except:
                     pass
             dxt5 = True
-        file_to_convert = os.path.join(FNAMES.Tmp_dir, png_file_name)
-        erase_tmp_png = True
-        # Tmp_dir lives under the (possibly brand-new) data root — nothing
-        # guarantees it exists before the first texture conversion.
-        os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
-        save_temp_png(big_image, file_to_convert)
+        file_to_convert = _image_for_converter(
+            big_image, png_file_name, dxt5, inproc)
+        erase_tmp_png = not inproc
         # If one wanted to distribute jpegs instead of dds, uncomment the
         # next line.
         # big_image.convert('RGB').save(os.path.join(tile.build_dir,
@@ -2980,12 +3028,9 @@ def convert_texture(
                 except:
                     pass
             dxt5 = True
-        file_to_convert = os.path.join(FNAMES.Tmp_dir, png_file_name)
-        erase_tmp_png = True
-        # Tmp_dir lives under the (possibly brand-new) data root — nothing
-        # guarantees it exists before the first texture conversion.
-        os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
-        save_temp_png(big_image, file_to_convert)
+        file_to_convert = _image_for_converter(
+            big_image, png_file_name, dxt5, inproc)
+        erase_tmp_png = not inproc
     # finally if nothing needs to be done prior to the conversion
     else:
         file_to_convert = os.path.join(file_dir, jpeg_file_name)
@@ -2998,7 +3043,9 @@ def convert_texture(
         dds_final = os.path.join(tile.build_dir, "textures", out_file_name)
         DDS.sweep_partials(dds_final)
         dds_partial = DDS.partial_name(dds_final)
-        if "dar" in sys.platform:
+        if inproc:
+            conv_cmd = None
+        elif "dar" in sys.platform:
             conv_cmd = [
                 dds_convert_cmd,
                 "--png2dxt5" if dxt5 else "--png2dxt1",
@@ -3090,10 +3137,9 @@ def convert_texture(
             ]
     tentative = 0
     while True:
-        if not subprocess.call(
-            conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-            **UI.external_tool_keyword_arguments()
-        ) and (dds_partial is None or DDS.land(dds_partial, dds_final)):
+        if _run_converter(conv_cmd, file_to_convert, dxt5, dds_partial) and (
+            dds_partial is None or DDS.land(dds_partial, dds_final)
+        ):
             break
         tentative += 1
         if tentative == 10:

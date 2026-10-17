@@ -751,6 +751,35 @@ def _contour_joints(pm: PlanarMap, label: _t.Mapping[int, int], to_ll, extend_m:
     return out
 
 
+def _voronoi_sites(side: _t.Mapping[int, list[LineString]], tol: float
+                   ) -> tuple[list[XY], list[int]]:
+    """The Voronoi sites of the gap midline: each facing edge densified at
+    ``tol``, every site ONCE, labelled by its shape.
+
+    THE CRASH THIS EXISTS FOR (#877, KBOI): a face ring that walks an
+    antenna edge out and back lists the same segment twice, A→B and B→A.
+    ``segmentize`` of the two directions mints interior points one ulp
+    apart, and GEOS's Voronoi of a near-duplicate site pair returns cells
+    that cross themselves — the next ``intersection`` raised ``side
+    location conflict`` and the airport shipped ungraded.  Each segment is
+    therefore densified in ONE canonical direction (its lesser endpoint
+    first) and each site kept once, so the sites are exact duplicates or
+    distinct, never ulp neighbours."""
+    P: list[XY] = []
+    labs: list[int] = []
+    seen: set[XY] = set()
+    for lab, lines in side.items():
+        segs = sorted({tuple(sorted(ln.coords)) for ln in lines})
+        for seg in segs:
+            for x, y in shapely.segmentize(LineString(seg), tol).coords:
+                p = (float(x), float(y))
+                if p not in seen:
+                    seen.add(p)
+                    P.append(p)
+                    labs.append(lab)
+    return P, labs
+
+
 def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, extend_m: float,
                 start: int, stats: ShapeStats, net: frozenset[int] = frozenset()) -> list[ShapeJoint]:
     """THE GAP JOINTS (module docstring): for two shapes whose ring edges
@@ -796,13 +825,7 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
                 lb: [ring_edges[e] for e in eids if edge_label[e] == lb]}
         if not side[la] or not side[lb]:
             continue
-        P: list[XY] = []
-        labs: list[int] = []
-        for lab, lines in side.items():
-            for ln in lines:
-                for x, y in shapely.segmentize(ln, tol).coords:
-                    P.append((float(x), float(y)))
-                    labs.append(lab)
+        P, labs = _voronoi_sites(side, tol)
         if len(P) < 3:
             continue
         try:

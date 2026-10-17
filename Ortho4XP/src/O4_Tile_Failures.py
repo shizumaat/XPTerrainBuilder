@@ -311,6 +311,9 @@ EXCEPTION_CODES = {
     "BankAnnulusCollapse": "mesh_refused",
     "InterpAltLeak": "mesh_refused",
     "UnsealedInterpAltSeed": "mesh_refused",
+    # a malformed or truncated .mesh / Triangle exchange file (O4_Mesh_IO, O4_Triangle_IO)
+    "MeshFormatError": "mesh_failed",
+    "TriangleFormatError": "mesh_failed",
     # scenery packs
     "PackDumpStale": "pack_dump_stale",
     "DsfToolError": "pack_dump_failed",

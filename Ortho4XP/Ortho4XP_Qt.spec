@@ -203,7 +203,8 @@ a = Analysis(
                    + highspy_hidden + tifffile_hidden + imagecodecs_hidden
                    # O4_IMAGERY_FETCHER=async: imported inside a function
                    + curl_cffi_hidden
-                   + ['O4_Imagery_Fetch', 'O4_Imagery_Certs', 'certifi']
+                   + ['O4_Imagery_Fetch', 'O4_Imagery_Certs', 'certifi',
+                      'O4_Imagery_Fetch_Selfcheck']
                    # See Ortho4XP.spec: top-level imported, named as a belt.
                    # LAS tiles (las_tile_index, #130): imported inside
                    # the strategy, so the static scan never sees it.

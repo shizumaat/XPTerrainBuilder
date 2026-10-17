@@ -227,3 +227,10 @@ def test_the_chooser_defaults_to_threads(monkeypatch, value, expected) -> None:
     else:
         monkeypatch.setenv(FETCH_ASYNC.FETCHER_ENV, value)
     assert FETCH_ASYNC.fetcher_choice() == expected
+
+
+def test_the_fetch_selfcheck_refuses_bad_arguments(capsys) -> None:
+    import O4_Imagery_Fetch_Selfcheck as SELFCHECK
+
+    assert SELFCHECK.main(["x", "--imagery-fetch-selfcheck", "BI", "sixteen"]) == 2
+    assert "usage" in capsys.readouterr().out

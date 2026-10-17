@@ -176,7 +176,8 @@ a = Analysis(
                    + highspy_hidden + tifffile_hidden + imagecodecs_hidden
                    # O4_IMAGERY_FETCHER=async: imported inside a function
                    + curl_cffi_hidden
-                   + ['O4_Imagery_Fetch', 'O4_Imagery_Certs', 'certifi']
+                   + ['O4_Imagery_Fetch', 'O4_Imagery_Certs', 'certifi',
+                      'O4_Imagery_Fetch_Selfcheck']
                    # O4_Scenery_Packs is imported at TOP LEVEL by every
                    # consumer, so PyInstaller would find it anyway; named
                    # here as a belt because the whole build's honouring of

@@ -234,6 +234,7 @@ jobs:
           cp Ortho4XP/Licence/gpl.txt Ortho4XP/Licence/copyright.txt \
             XPTerrainBuilder/
           cp -R Ortho4XP/Utils/src/. XPTerrainBuilder/Triangle-src/
+          cp Ortho4XP/Utils/Triangle4XP-CHANGES.md XPTerrainBuilder/Triangle-src/
           if [ "$SIGNED" = "true" ]; then
             # The stapled ticket must survive the zip: assert it on the
             # STAGED copy, which is what the artifact actually carries.

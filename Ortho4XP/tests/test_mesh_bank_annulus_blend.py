@@ -373,7 +373,7 @@ BANK_REGION_MIN_FREE_VERTICES = 40      # for the 30 m band below
 # that restores the vendored binary) fails loudly instead of silently
 # putting the bank back on the ring-to-foot triangulation.  Update it in
 # the SAME commit as any deliberate Triangle4XP rebuild.
-TRIANGLE4XP_MAC_SHA1 = "7ca193114522035fb0449432431b14db02fe37e1"
+TRIANGLE4XP_MAC_SHA1 = "87dec0d0f852e4bd06e616dcabd7c7daf451aa67"
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason=(

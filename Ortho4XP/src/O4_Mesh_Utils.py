@@ -16,6 +16,7 @@ import O4_Text_Files as TEXT
 import O4_Geo_Utils as GEO
 import O4_Mesh_IO as MESH_IO
 import O4_Triangle_IO as TRI_IO
+import O4_Triangle_Binary as TRI_BIN
 import O4_Proj_Runtime as PROJRT
 import O4_Vector_Utils as VECT
 import O4_OSM_Utils as OSM
@@ -2217,7 +2218,7 @@ def audit_interp_alt_extent(tile, vertices, changed_indices, coverage,
 def post_process_nodes_altitudes(tile):
     dico_attributes = VECT.Vector_Map.dico_attributes
     UI.vprint(1, "-> Loading of the mesh computed by Triangle4XP.")
-    nodes = TRI_IO.read_node_text(FNAMES.output_node_file(tile))
+    nodes = TRI_BIN.read_node(FNAMES.output_node_file(tile))
     nbr_pt = nodes.n_vertices
     vertices = numpy.ascontiguousarray(nodes.values[:, :6]).ravel()
     UI.vprint(1, "-> Post processing of altitudes according to vector data")
@@ -2230,7 +2231,7 @@ def post_process_nodes_altitudes(tile):
     # non-integral one is a degenerate triangle -- dummy attribute, no
     # post-treatment, counted for the one loud line below.  A dummy (0)
     # triangle needs no post-treatment either.
-    elements = TRI_IO.read_ele_text(FNAMES.output_ele_file(tile))
+    elements = TRI_BIN.read_ele(FNAMES.output_ele_file(tile))
     corners = elements.triangles - 1
     (attrs, integral) = TRI_IO.triangle_attributes(
         elements.attributes[:, 0], dico_attributes["DUMMY"])
@@ -2525,8 +2526,13 @@ def post_process_nodes_altitudes(tile):
             "water altitude instead of the patch value (RULINGS "
             "2026-09-09z (3)).")
     UI.vprint(1, "-> Writing output nodes file.")
-    TRI_IO.write_node_text(FNAMES.output_node_file(tile), nodes.header_line,
-                           vertices.reshape(nbr_pt, 6), nodes.trailer_line)
+    if nodes.header_line is None:  # read from a binary .1.node
+        TRI_BIN.write_node_binary(FNAMES.output_node_file(tile),
+                                  vertices.reshape(nbr_pt, 6))
+    else:
+        TRI_IO.write_node_text(FNAMES.output_node_file(tile),
+                               nodes.header_line, vertices.reshape(nbr_pt, 6),
+                               nodes.trailer_line)
     return vertices
 
 
@@ -2837,9 +2843,16 @@ def build_mesh(tile):
     # an ``.area`` file and exit 1 (Triangle4XP.c:11743), so the flag rides
     # with ``A`` exactly.
     regional_areas = "a" if do_refine == "A" else ""
+    # ``b`` = BINARY exchange files (mesh-io-spec §4, RULINGS 2026-10-17a
+    # Q6): opt-in through O4_TRIANGLE_IO=binary, only with a Triangle4XP
+    # that carries the switch, and never with ``-r`` (it reads a text
+    # ``.ele``; Triangle4XP refuses ``-b`` with it) — text otherwise.
+    binary_io = TRI_BIN.use_binary_io(Triangle4XP_cmd.strip(),
+                                      refine=do_refine == "r")
+    binary_switch = "b" if binary_io else ""
     Tri_option = (
         "-pq" + "{:.9g}".format(tile.min_angle) + do_refine + regional_areas +
-        "uYB" + tri_verbosity + output_poly + limit_tris
+        "uYB" + tri_verbosity + output_poly + binary_switch + limit_tris
     )
 
     weight_array = numpy.ones((1001, 1001), dtype=numpy.float32)
@@ -2882,6 +2895,8 @@ def build_mesh(tile):
     # a 2.3 M-triangle DSF X-Plane will not load.
     if not hairline_preflight(poly_file, tile):
         return 0
+    if binary_io:
+        mesh_cmd[-1] = TRI_BIN.binary_inputs(node_file, poly_file)
 
     del tile.dem  # for machines with not much RAM, we do not need it anymore
     tile.dem = None
@@ -2914,6 +2929,7 @@ def build_mesh(tile):
                 + "uYB"
                 + tri_verbosity
                 + output_poly
+                + binary_switch
                 + limit_tris
             )
             mesh_cmd[1] = Tri_option
@@ -2943,6 +2959,9 @@ def build_mesh(tile):
         UI.exit_message_and_bottom_line()
         return 0
 
+    if binary_io:
+        TRI_BIN.adopt_binary_outputs(mesh_cmd[-1], FNAMES.output_node_file(tile),
+                                     FNAMES.output_ele_file(tile))
     vertices = post_process_nodes_altitudes(tile)
 
     if UI.red_flag:

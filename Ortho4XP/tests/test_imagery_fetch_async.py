@@ -529,7 +529,9 @@ def test_run_overrides_cap_in_flight_and_attempts_for_one_run(server: LocalServe
     """Spec R4: a caller's retry round runs at low concurrency and with its own attempts on the
     same fetcher (same session, window and pause state); the next run is back to the
     constructor's values."""
-    fetcher = Fetcher(max_in_flight=16, start_in_flight=16, timeout_s=0.3, max_attempts=4)
+    # timeout_s 1.0, not 0.3: on a loaded CI runner a 150 ms answer once took > 0.3 s, the
+    # timeout cut the window x0.75 (16 -> 12) and the window assertion below failed.
+    fetcher = Fetcher(max_in_flight=16, start_in_flight=16, timeout_s=1.0, max_attempts=4)
 
     async def scenario() -> tuple[float, int, FetchResult, FetchResult]:
         async with fetcher:

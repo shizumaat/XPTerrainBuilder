@@ -139,11 +139,19 @@ for _codec in ('imagecodecs._lerc', 'imagecodecs._shared'):
     if _codec not in imagecodecs_hidden:
         imagecodecs_hidden.append(_codec)
 
+# THE ASYNC IMAGERY FETCHER (imagery-fetch-spec §5, RULINGS 2026-10-17c).
+# ``O4_Imagery_Fetch`` (ported from OrthoStudio XP) and its ``curl_cffi``
+# are imported only when O4_IMAGERY_FETCHER=async, inside a function, so the
+# static scan never sees them (the highspy precedent).  collect_all pins
+# curl_cffi with its ``_wrapper`` extension, which carries libcurl itself
+# (no separate libcurl dylib/dll ships in the wheel).
+curl_cffi_datas, curl_cffi_binaries, curl_cffi_hidden = collect_all('curl_cffi')
+
 a = Analysis(
     ['Ortho4XP.py'],
     pathex=['src'],
     binaries=highspy_binaries + tifffile_binaries + imagecodecs_binaries
-             + ispc_binaries,
+             + curl_cffi_binaries + ispc_binaries,
     datas=[
         ('./Utils',               './Ortho4XP_Data/Utils'),
         ('./Extents',             './Ortho4XP_Data/Extents'),
@@ -155,7 +163,7 @@ a = Analysis(
         ('community_server.txt',  './Ortho4XP_Data/'),
         ('overpass_servers.txt',  './Ortho4XP_Data/'),
     ] + gdal_proj_datas + v2_law_datas + highspy_datas + tifffile_datas
-      + imagecodecs_datas + ispc_datas,
+      + imagecodecs_datas + curl_cffi_datas + ispc_datas,
     hiddenimports=(collect_submodules('PIL') + collect_submodules('auto_patch_v2')
                    + elevation_access_hidden
                    # ``o4_engine.parallel.STEP_FETCH_SUBSYSTEMS`` resolves its
@@ -169,6 +177,10 @@ a = Analysis(
                    # unresolvable predicate as "never cached".
                    + ['auto_patch.build_support']
                    + highspy_hidden + tifffile_hidden + imagecodecs_hidden
+                   # O4_IMAGERY_FETCHER=async: imported inside a function
+                   + curl_cffi_hidden
+                   + ['O4_Imagery_Fetch', 'O4_Imagery_Certs', 'certifi',
+                      'O4_Imagery_Fetch_Selfcheck']
                    + ispc_hidden + ['O4_DDS_Encode', 'O4_DDS_Mips', 'O4_DDS_Refine']
                    # O4_Scenery_Packs is imported at TOP LEVEL by every
                    # consumer, so PyInstaller would find it anyway; named

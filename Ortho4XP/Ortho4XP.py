@@ -80,6 +80,13 @@ if __name__ == '__main__' and '--import-selfcheck' in sys.argv:
     import O4_Proj_Runtime
     sys.exit(O4_Proj_Runtime.import_selfcheck_main(sys.argv))
 
+# Imagery fetch self-check as a CLI (imagery-fetch-spec §5): one texture
+# through download_jpeg_ortho with the fetcher O4_IMAGERY_FETCHER selects —
+# the frozen bundle's proof that the lazily imported curl_cffi path works.
+if __name__ == '__main__' and '--imagery-fetch-selfcheck' in sys.argv:
+    import O4_Imagery_Fetch_Selfcheck
+    sys.exit(O4_Imagery_Fetch_Selfcheck.main(sys.argv))
+
 # PROJ self-check as a CLI: exits 0 healthy / 1 broken, ahead of every heavy
 # import so a broken bundle is diagnosable without loading the pipeline.
 if __name__ == '__main__' and '--proj-selfcheck' in sys.argv:

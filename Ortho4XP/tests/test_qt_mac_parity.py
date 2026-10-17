@@ -672,3 +672,49 @@ def test_the_map_labels_large_airports_first_and_paints_tile_labels(
     assert sorted(candidates[i].code for i in marks) == ["BIGA", "HELI",
                                                          "SMAL"]
     assert [candidates[i].code for i, _ in labels] == ["BIGA", "HELI"]
+
+
+# ===========================================================================
+# #828: first-visit hint and empty states (Mac: MapHintOverlay, BuildPane)
+# ===========================================================================
+def test_the_map_hint_shows_until_the_first_selection_and_stays_gone(
+        make_window):
+    window = make_window()
+    # The launch selection (the window's default tile) is not the user's.
+    assert window.map.selection()
+    assert not window.map_hint.isHidden()
+    assert window.map_hint.label.text().endswith(GUI.GUIDE.HINT_TEXT)
+    window.map.set_active(10, 10)
+    assert window.map_hint.isHidden()
+    assert _prefs(make_window)[GUI.GUIDE.HINT_DISMISSED_PREF] is True
+    # Deselecting does not bring it back; a new window remembers.
+    window.map.clear_selection()
+    assert window.map_hint.isHidden()
+    assert make_window().map_hint.isHidden()
+
+
+def test_show_tips_brings_the_hint_back_and_close_dismisses_it(make_window):
+    window = make_window()
+    window.map_hint.close_button.click()
+    assert window.map_hint.isHidden()
+    assert _prefs(make_window)[GUI.GUIDE.HINT_DISMISSED_PREF] is True
+    window.show_tips()
+    assert not window.map_hint.isHidden()
+    assert _prefs(make_window)[GUI.GUIDE.HINT_DISMISSED_PREF] is False
+    titles = [a.text() for a in window.findChildren(GUI.QAction)]
+    assert GUI.GUIDE.SHOW_TIPS_TITLE in titles
+
+
+def test_the_empty_state_explains_tiles_and_how_to_start(make_window,
+                                                         tmp_path):
+    window = make_window()
+    window._scanning = False
+    window.map.clear_selection()
+    assert not window.empty_state.isHidden()
+    assert window.empty_state.text().startswith(GUI.GUIDE.EMPTY_SELECTION_TEXT)
+    assert GUI.GUIDE.NOTHING_BUILT_TEXT in window.empty_state.text()
+    window._built = {(48, -6): _tile_info(48, -6, str(tmp_path))}
+    window.map.set_active(48, -6)
+    assert window.empty_state.isHidden()
+    window.map.clear_selection()
+    assert GUI.GUIDE.NOTHING_BUILT_TEXT not in window.empty_state.text()

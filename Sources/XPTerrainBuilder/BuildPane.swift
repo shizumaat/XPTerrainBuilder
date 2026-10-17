@@ -274,9 +274,18 @@ struct BuildPane: View {
                     .controlSize(.small)
             }
         } else {
-            Text("Click a tile on the map — ⌘-click adds, ⇧-click selects a range. Or search an airport / tile key.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            // Empty state (#828): what a tile is and what a build does,
+            // then how to pick one — and how to start when nothing is built.
+            VStack(alignment: .leading, spacing: 6) {
+                Text(MapGuidance.emptySelectionText)
+                Text("Search your airport in the toolbar, or click its square on the map — ⌘-click adds, ⇧-click selects a range.")
+                if buildModel.built.isEmpty && !buildModel.isScanning {
+                    Text(MapGuidance.nothingBuiltText)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         if buildModel.isScanning {
             HStack(spacing: 6) {

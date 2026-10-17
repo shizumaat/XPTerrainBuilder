@@ -79,6 +79,7 @@ import O4_Engine_Stderr_Log as STDLOG
 import O4_Airport_Index as APT
 import O4_Airport_Batch as APTBATCH
 import O4_Airport_Rank as RANK
+import O4_Map_Guidance as GUIDE
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
 import O4_Qt_Map as QTMAP
@@ -97,10 +98,12 @@ import O4_Qt_Patch_Editor as QTPATCH
 # PyInstaller sees it without a hidden-import entry.  The underscored
 # aliases keep this file's ~20 existing call sites unchanged.
 from O4_Qt_Click_Row import ClickableRow  # noqa: E402
+from O4_Qt_Map_Hint import MapHint  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
     may_be_squeezed as _may_be_squeezed,
     never_widen as _never_widen,
+    wrap_and_never_widen as _wrap_and_never_widen,
 )
 
 PREFS_FILE = FNAMES.data_path(".qt_prefs.json")
@@ -891,6 +894,11 @@ class MainWindow(QMainWindow):
             # Nothing stored (or nothing that still parses): exactly the
             # launch this window has always had.
             self.map.set_active(lat, lon)
+        # Only now does a selection count as the USER's (#828): the
+        # launch selection above must not dismiss the first-visit hint.
+        self.map.selection_changed.connect(
+            lambda: self.map_hint.apply(
+                GUIDE.SELECTED if self.map.selection() else GUIDE.DESELECTED))
 
     # ------------------------------------------------------------------
     # Widgets
@@ -974,6 +982,11 @@ class MainWindow(QMainWindow):
         self.map.active_changed.connect(self._active_changed)
         self.map.hover_ll.connect(self._hover)
         self.map.status_message.connect(self._status)
+        # First-visit hint over the map (#828): until the first selection
+        # or its close button; Help > Show Tips brings it back.
+        self.map_hint = MapHint(
+            self.map, bool(self.prefs.get(GUIDE.HINT_DISMISSED_PREF)))
+        self.map_hint.dismissed_changed.connect(self._map_hint_dismissed)
         # The 2D patch editor (#46): its layer and toolbar on the map, its
         # box below Activity.
         self.patch_editor = QTPATCH.PatchEditor(
@@ -1096,6 +1109,15 @@ class MainWindow(QMainWindow):
         _never_widen(self.install_check)
         ig.addRow(self.install_check)
         pv.addWidget(self.info_group)
+        # Empty state (#828): shown instead of the Selection box while
+        # nothing is selected — what a tile is, what a build does, how to
+        # pick one, and how to start when nothing is built yet.
+        self.empty_state = QLabel("")
+        self.empty_state.setObjectName("empty_state")
+        self.empty_state.setStyleSheet("color: gray;")
+        _wrap_and_never_widen(self.empty_state)
+        pv.addWidget(self.empty_state)
+        self._refresh_empty_state()
 
         # The Build box always shows the options: builds no longer take
         # the panel over (progress lives in the Activity box below), so
@@ -1408,6 +1430,9 @@ class MainWindow(QMainWindow):
         # tools_menu.addAction(msfs_convert_action)
 
         help_menu = self.menuBar().addMenu("&Help")
+        tips_action = QAction(GUIDE.SHOW_TIPS_TITLE, self)
+        tips_action.triggered.connect(self.show_tips)
+        help_menu.addAction(tips_action)
         wizard_action = QAction("Run setup assistant…", self)
         wizard_action.triggered.connect(self.run_wizard)
         help_menu.addAction(wizard_action)
@@ -1831,6 +1856,7 @@ class MainWindow(QMainWindow):
             return
         (self._built, self._installed) = cached
         self.map.set_built(self._built)
+        self._refresh_empty_state()
         self.map.set_installed(self._installed)
         # The badges are part of the overlay, not of the scan: a cached
         # tile's textures folder is on disk and can be audited now — and
@@ -2249,6 +2275,7 @@ class MainWindow(QMainWindow):
         self._built.update(event.built)
         self._installed.update(event.installed)
         self.map.set_built(self._built)
+        self._refresh_empty_state()
         self.map.set_installed(self._installed)
         # The active tile stops being "(scanning…)" the moment its
         # own result streams in.
@@ -2276,6 +2303,7 @@ class MainWindow(QMainWindow):
 
     def _push_overlays(self):
         self.map.set_built(self._built)
+        self._refresh_empty_state()
         self.map.set_installed(self._installed)
         self._active_changed(self.map.active_tile())
 
@@ -2427,11 +2455,33 @@ class MainWindow(QMainWindow):
             self.build_btn.setEnabled(blocked is None)
             self.build_btn.setToolTip(blocked or "")
 
+    def _refresh_empty_state(self):
+        """The no-selection explanation (#828), with the how-to-start
+        line while nothing is built (and no scan is still looking)."""
+        text = (GUIDE.EMPTY_SELECTION_TEXT + "\n\nSearch your airport in "
+                "the toolbar, or click its square on the map — Ctrl-click "
+                "adds, Shift-click selects a range.")
+        if not self._built and not getattr(self, "_scanning", False):
+            text += "\n\n" + GUIDE.NOTHING_BUILT_TEXT
+        self.empty_state.setText(text)
+        self.empty_state.setVisible(self.map.active_tile() is None)
+
+    def _map_hint_dismissed(self, dismissed):
+        """Persist the hint's state (#828) — a dismissed hint stays
+        dismissed across launches."""
+        self.prefs[GUIDE.HINT_DISMISSED_PREF] = bool(dismissed)
+        save_prefs(self.prefs)
+
+    def show_tips(self):
+        """Help > Show Tips: the map hint again (#828)."""
+        self.map_hint.apply(GUIDE.SHOW_TIPS)
+
     def _active_changed(self, tile):
         self._selection_changed()
         self._refresh_texture_mode(tile)
         self._refresh_elevation_level(tile)
         self._refresh_airport_elevation_level(tile)
+        self._refresh_empty_state()
         if tile is None:
             self.info_group.setVisible(False)
             return

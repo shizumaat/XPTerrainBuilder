@@ -1,0 +1,18 @@
+{
+  "_doc": "Shared copy and dismissal rule for the map's first-visit hint and empty states (#828). Read by Ortho4XP/tests/test_map_guidance.py (O4_Map_Guidance) and Tests/SceneryKitTests/MapGuidanceTests.swift (SceneryKit MapGuidance).",
+  "copy": {
+    "hint": "Search your airport, or click its square on the map.",
+    "show_tips": "Show Tips",
+    "empty_selection": "Nothing is selected yet. A tile is one 1° × 1° square of the map. Building it downloads imagery and elevation for that square and fits the runways, taxiways and aprons of every airport in it to the terrain.",
+    "nothing_built": "No tiles built yet. Search your airport or click its square, then press Build.",
+    "pref_key": "map_hint_dismissed"
+  },
+  "sequences": [
+    {"dismissed": false, "events": [], "shown": []},
+    {"dismissed": false, "events": ["deselected", "selected", "deselected"], "shown": [true, false, false]},
+    {"dismissed": false, "events": ["closed", "deselected"], "shown": [false, false]},
+    {"dismissed": true, "events": ["deselected"], "shown": [false]},
+    {"dismissed": true, "events": ["show_tips", "deselected", "selected", "deselected"], "shown": [true, true, false, false]},
+    {"dismissed": true, "events": ["show_tips", "closed", "show_tips"], "shown": [true, false, true]}
+  ]
+}

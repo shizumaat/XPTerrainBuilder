@@ -1,4 +1,5 @@
 import Foundation
+import SceneryKit
 
 /// UserDefaults keys for the app's own preferences. They live in the
 /// standard preferences plist
@@ -16,4 +17,7 @@ enum PrefKeys {
     /// The build map's active tile, one canonical tile key.
     /// Absent or empty = no active tile.
     static let activeTile = "ActiveTileKey"
+    /// The map's first-visit hint was dismissed (#828) — the Qt prefs
+    /// key's string (`MapGuidance.hintDismissedKey`).
+    static let mapHintDismissed = MapGuidance.hintDismissedKey
 }

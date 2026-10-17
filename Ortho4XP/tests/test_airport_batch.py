@@ -112,13 +112,13 @@ _APT_DAT = """I
 """
 
 
-def test_index_v5_records_the_extent(tmp_path):
+def test_index_records_the_extent(tmp_path):
     apt = tmp_path / "apt.dat"
     apt.write_text(_APT_DAT, encoding="utf-8", newline="\n")
     cache = str(tmp_path / "index.tsv")
     assert AI.build_index([str(apt)], cache) == 2
     with open(cache, encoding="utf-8") as fh:
-        assert fh.readline().split()[:2] == ["O4AIRPORTIDX", "5"]
+        assert fh.readline().split()[:2] == ["O4AIRPORTIDX", "6"]
     by_code = {e.code: e for e in AI.load_index(cache)}
 
     edge = by_code["EDGE"]

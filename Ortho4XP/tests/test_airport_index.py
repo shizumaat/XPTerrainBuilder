@@ -182,7 +182,7 @@ def test_cache_header_line(apt1, tmp_path):
     with open(cache, encoding="utf-8") as fh:
         header = fh.readline().strip()
     # Cache format v4: the version integer is now 4.
-    assert header == "O4AIRPORTIDX 5 4"
+    assert header == "O4AIRPORTIDX 6 4"
 
 
 def test_field_integrity_roundtrip(apt1, tmp_path):
@@ -385,7 +385,7 @@ def test_v2_header_and_src_lines_written(apt1, tmp_path):
     cache = str(tmp_path / "index.tsv")
     AI.build_index([apt1], cache)
     lines = _read_lines(cache)
-    assert lines[0] == "O4AIRPORTIDX 5 4"
+    assert lines[0] == "O4AIRPORTIDX 6 4"
     # Exactly one source was read -> exactly one #SRC line, right after the
     # header and before the first data row.
     src_lines = [ln for ln in lines if ln.startswith("#SRC")]
@@ -555,7 +555,7 @@ def test_stale_empty_paths_v2_empty_sources_is_false(tmp_path):
     count = AI.build_index([], cache)
     assert count == 0
     lines = _read_lines(cache)
-    assert lines[0] == "O4AIRPORTIDX 5 0"
+    assert lines[0] == "O4AIRPORTIDX 6 0"
     assert not any(ln.startswith("#SRC") for ln in lines)
     assert AI.index_is_stale([], cache) is False
 

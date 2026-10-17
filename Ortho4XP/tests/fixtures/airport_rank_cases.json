@@ -1,0 +1,44 @@
+{
+  "_doc": "Shared vectors for the airport size rank (#815, #817). Read by Ortho4XP/tests/test_airport_rank.py (O4_Airport_Rank) and Tests/SceneryKitTests/AirportRankTests.swift (SceneryKit AirportRank, GlobalAirportIndex). Codes are synthetic.",
+  "size_class": [
+    {"category": "icao_airport", "longest_m": 3400, "paved_m": 3400, "class": 0},
+    {"category": "icao_airport", "longest_m": 3000, "paved_m": 3000, "class": 0},
+    {"category": "icao_airport", "longest_m": 2999, "paved_m": 2999, "class": 1},
+    {"category": "airport", "longest_m": 2100, "paved_m": 2100, "class": 1},
+    {"category": "icao_airport", "longest_m": 1500, "paved_m": 1500, "class": 2},
+    {"category": "icao_airport", "longest_m": 3200, "paved_m": 0, "class": 3},
+    {"category": "airport", "longest_m": 900, "paved_m": 900, "class": 3},
+    {"category": "airport", "longest_m": 0, "paved_m": 0, "class": 4},
+    {"category": "seaplane_base", "longest_m": 3000, "paved_m": 0, "class": 3},
+    {"category": "heliport", "longest_m": 0, "paved_m": 0, "class": 4}
+  ],
+  "index": [
+    {"code": "AAAA", "lat": 30.10, "lon": 31.40, "extent": [30.05, 31.35, 30.15, 31.45], "size_class": 0, "runway_m": 4000},
+    {"code": "BBBB", "lat": 30.50, "lon": 31.20, "extent": null, "size_class": 0, "runway_m": 3300},
+    {"code": "CCCC", "lat": 30.70, "lon": 31.70, "extent": null, "size_class": 1, "runway_m": 2500},
+    {"code": "DDDD", "lat": 30.20, "lon": 31.10, "extent": null, "size_class": 2, "runway_m": 1300},
+    {"code": "EEEE", "lat": 30.30, "lon": 31.30, "extent": null, "size_class": 2, "runway_m": 1300},
+    {"code": "FFFF", "lat": 30.40, "lon": 31.90, "extent": null, "size_class": 4, "runway_m": 0},
+    {"code": "GGGG", "lat": 30.95, "lon": 31.98, "extent": [30.90, 31.95, 31.02, 32.03], "size_class": 1, "runway_m": 2800}
+  ],
+  "largest": [
+    {"tile": [30, 31], "codes": ["AAAA", "BBBB", "GGGG", "CCCC"]},
+    {"tile": [30, 32], "codes": ["GGGG"]},
+    {"tile": [31, 31], "codes": ["GGGG"]},
+    {"tile": [31, 32], "codes": ["GGGG"]}
+  ],
+  "titles": [
+    {"largest": ["AAAA", "BBBB", "GGGG", "CCCC"], "searched": [], "codes": ["AAAA", "BBBB", "GGGG", "CCCC"]},
+    {"largest": ["AAAA", "BBBB", "GGGG", "CCCC"], "searched": ["bbbb"], "codes": ["AAAA", "BBBB", "GGGG", "CCCC"]},
+    {"largest": ["AAAA", "BBBB", "GGGG", "CCCC"], "searched": ["eeee"], "codes": ["EEEE", "AAAA", "BBBB", "GGGG"]},
+    {"largest": ["AAAA", "BBBB"], "searched": ["EEEE", "DDDD"], "codes": ["EEEE", "DDDD", "AAAA", "BBBB"]},
+    {"largest": ["AAAA"], "searched": ["AAAA"], "codes": ["AAAA"]},
+    {"largest": [], "searched": [], "codes": []},
+    {"largest": [], "searched": ["ZZZZ"], "codes": ["ZZZZ"]}
+  ],
+  "cache_rows": [
+    {"row": "AAAA\tAlpha\tCity\tCountry\t30.1\t31.4\ticao_airport\t30.05\t31.35\t30.15\t31.45\t4000\t0", "runway_m": 4000, "size_class": 0},
+    {"row": "BBBB\tBravo\t\t\t30.5\t31.2\theliport\t30.5\t31.2\t30.5\t31.2\t0\t4\tfuture", "runway_m": 0, "size_class": 4},
+    {"row": "CCCC\tCharlie\t\t\t30.7\t31.7\tairport\t30.7\t31.7\t30.7\t31.7", "runway_m": null, "size_class": null}
+  ]
+}

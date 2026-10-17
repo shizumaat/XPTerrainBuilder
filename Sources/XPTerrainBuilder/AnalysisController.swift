@@ -260,6 +260,14 @@ final class AnalysisController: ObservableObject {
         scheduleViewportUpdate()
     }
 
+    /// Frame one whole tile with a small margin (#816: its Activity row
+    /// was clicked).
+    func zoomToTile(lat: Int, lon: Int) {
+        mapCamera.value = MapCamera.framing(tileLat: lat, lon: lon,
+                                            in: mapCanvasSize.value)
+        scheduleViewportUpdate()
+    }
+
     /// Frame a set of tiles (a pack's coverage, an airport-code list).
     func zoomToTiles(_ tiles: [(lat: Int, lon: Int)]) {
         guard !tiles.isEmpty else { return }

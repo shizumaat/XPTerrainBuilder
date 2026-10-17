@@ -55,8 +55,8 @@ final class BuildActivityModel: ObservableObject {
     /// What each tile in this run was started with — the resume path's
     /// settings source (a resume must not adopt today's pickers).
     @Published var runSettings: [BuildModel.TileCoord: TileRunSettings] = [:]
-    /// The search codes that picked each row's tile, as shown after its
-    /// coordinate (#667) — taken from `BuildModel.searchTags` when queued.
+    /// The title codes after each row's coordinate: the tile's largest
+    /// airports, a searched one first (#815, #667) — stamped when queued.
     @Published var runTags: [BuildModel.TileCoord: String] = [:]
 
     func reset() {
@@ -294,7 +294,12 @@ final class BuildModel: ObservableObject {
     /// reports them. The engine OWNS the apt.dat parse
     /// (src/O4_Airport_Index.py, the `airport_index` command); this app
     /// only reads the TSV cache the engine points it at.
-    private(set) var globalAirports: [GlobalAirport] = []
+    private(set) var globalAirports: [GlobalAirport] = [] {
+        didSet { largestAirportsByTile = nil }
+    }
+    /// Each tile's largest airports (#815), built from `globalAirports`
+    /// the first time a run needs it and dropped when the index changes.
+    private var largestAirportsByTile: [AirportTile: [String]]?
     /// Where the index goes once it is read — the map controller, wired at
     /// construction (see XPTerrainBuilderApp). Setting it delivers whatever
     /// has already arrived, so an optimistic read that beat the wiring is
@@ -1090,10 +1095,16 @@ final class BuildModel: ObservableObject {
         activeTile = first
     }
 
-    /// The progress rows of `todo` carry the codes that picked them (#667).
+    /// The progress rows of `todo` name each tile's largest airports, a
+    /// searched one first when it is not among them (#815, after #667).
     private func stampRunTags(_ todo: [TileCoord]) {
+        let largest = largestAirportsByTile ?? AirportRank.largestByTile(globalAirports)
+        largestAirportsByTile = largest
         for coord in todo {
-            activity.runTags[coord] = searchTags.suffix(for: AirportTile(lat: coord.lat, lon: coord.lon))
+            let tile = AirportTile(lat: coord.lat, lon: coord.lon)
+            activity.runTags[coord] = TileSearchTags.suffix(
+                AirportRank.titleCodes(largest: largest[tile] ?? [],
+                                       searched: searchTags.codes[tile] ?? []))
         }
     }
 

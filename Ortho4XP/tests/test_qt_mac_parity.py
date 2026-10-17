@@ -211,30 +211,42 @@ def _row_labels(window, tiles):
             for t in tiles]
 
 
-def test_progress_rows_name_the_codes_that_picked_them(make_window,
-                                                       monkeypatch):
-    """#667: a tile picked by search shows its code(s) after the
-    coordinate, in the order typed; a hand-selected tile shows none; a
-    deselected tile loses its tag; a new search replaces the tags as it
-    replaces the selection."""
+def test_progress_rows_name_the_largest_airports_searched_first(
+        make_window, monkeypatch):
+    """#815 (after #667): every row names its tile's largest airports,
+    however the tile was picked; a searched code not among them goes
+    first; a tile with no airport shows only its coordinate."""
     window, _ = _batch_window(make_window, monkeypatch)
-    window._airports.append(
-        APT.AirportEntry("KJQF", "Concord", "", "", 35.39, -80.71))
-    window.search_edit.setText("KCLT, KJQF othh")
+    window._airports = [
+        APT.AirportEntry("KCLT", "Charlotte", "", "", 35.21, -80.94,
+                         runway_m=3000, size_class=0),
+        APT.AirportEntry("KJQF", "Concord", "", "", 35.39, -80.71,
+                         runway_m=2300, size_class=1),
+        APT.AirportEntry("KEQY", "Monroe", "", "", 35.02, -80.62,
+                         runway_m=2100, size_class=1),
+        APT.AirportEntry("KUZA", "Rock Hill", "", "", 35.05, -80.90,
+                         runway_m=1700, size_class=2),
+        APT.AirportEntry("NC00", "Strip", "", "", 35.50, -80.50,
+                         runway_m=600, size_class=3),
+        APT.AirportEntry("OTHH", "Hamad", "", "", 25.27, 51.61,
+                         runway_m=4800, size_class=0),
+    ]
+    # By hand: the four largest, largest first.
+    assert _row_labels(window, [(35, -81), (10, 10)]) == [
+        "+35-081 (KCLT, KJQF, KEQY, KUZA)", "+10+010"]
+    # Searched: a small field the user named goes first.
+    window.search_edit.setText("NC00, OTHH")
     window._search_accept_first()
+    window._tile_rows.clear()
     assert _row_labels(window, [(35, -81), (25, 51)]) == [
-        "+35-081 (KCLT, KJQF)", "+25+051 (OTHH)"]
-    # Deselect one: its tag goes; a hand-added tile has none.
-    window.map.set_selection([(25, 51), (10, 10)])
-    assert _row_labels(window, [(35, -81), (25, 51), (10, 10)]) == [
-        "+35-081", "+25+051 (OTHH)", "+10+010"]
-    # One airport replaces the selection and the tags (Qt replaces).
-    window.search_edit.setText("KCLT")
-    window._update_search_popup("KCLT")
+        "+35-081 (NC00, KCLT, KJQF, KEQY)", "+25+051 (OTHH)"]
+    # Searched and already among the four: the order stays by size.
+    window.search_edit.setText("KJQF")
+    window._update_search_popup("KJQF")
     window._search_accept_first()
-    assert _row_labels(window, [(35, -81), (25, 51)]) == [
-        "+35-081 (KCLT)", "+25+051"]
-
+    window._tile_rows.clear()
+    assert _row_labels(window, [(35, -81)]) == [
+        "+35-081 (KCLT, KJQF, KEQY, KUZA)"]
 
 
 def test_progress_row_title_owns_its_line_status_and_clock_share_the_next(
@@ -587,3 +599,122 @@ def test_the_four_ini_edge_rules_match_the_mac_app(tmp_path):
     #    that does not, through the same isDirectory/fileExists test.
     assert SP.enabled_pack_names(str(custom)) == {"on", "unlisted"}
     assert "fm.fileExists(atPath: url.path, isDirectory: &isDir)" in scanner
+
+
+# ===========================================================================
+# #816: clicking an Activity row shows its tile (Mac: ActivityBox.showOnMap)
+# ===========================================================================
+def _click(widget, pos=None):
+    from PySide6.QtTest import QTest
+    QTest.mouseClick(widget, GUI.Qt.LeftButton,
+                     pos=pos or widget.rect().center())
+
+
+def test_clicking_a_progress_row_selects_and_frames_its_tile(make_window):
+    window = make_window()
+    window.resize(1200, 800)
+    window.map.resize(800, 600)
+    window._setup_progress_page([(48, -6), (10, 10)])
+    window.map.set_selection([(48, -6), (10, 10)])
+    row = window._tile_rows[(10, 10)][2]
+    row.resize(260, 60)
+    _click(row)
+    assert window.map.selection() == {(10, 10)}
+    assert window.map.active_tile() == (10, 10)
+    (lat_lo, lat_hi, lon_lo, lon_hi) = window.map.visible_bounds()
+    assert lat_lo < 10 and lat_hi > 11 and lon_lo < 10 and lon_hi > 11
+    # Framed with a small margin, not left at world view.
+    assert lon_hi - lon_lo < 4
+
+
+def test_a_row_button_keeps_its_own_action(make_window, monkeypatch):
+    window = make_window()
+    window._setup_progress_page([(10, 10)])
+    window.map.set_selection([(48, -6)])
+    pressed = []
+    monkeypatch.setattr(window, "_tile_button_clicked", pressed.append)
+    _bar, _status, row, cancel, _clock = window._tile_rows[(10, 10)]
+    row.resize(260, 60)
+    # Re-wire: the lambda captured the original bound method.
+    cancel.clicked.disconnect()
+    cancel.clicked.connect(lambda _c=False: pressed.append((10, 10)))
+    _click(cancel)
+    assert pressed == [(10, 10)]
+    assert window.map.selection() == {(48, -6)}
+
+
+# ===========================================================================
+# #817: tile labels and airport labels by size (Mac: MapCanvasLabels)
+# ===========================================================================
+def test_the_map_labels_large_airports_first_and_paints_tile_labels(
+        make_window, tmp_path):
+    window = make_window()
+    window.map.resize(900, 700)
+    window.map.set_airport_sizes({"BIGA": (0, 3500), "SMAL": (3, 600),
+                                  "HELI": (4, 0)})
+    window.map.set_default_airports([("BIGA", 48.50, -5.50),
+                                     ("SMAL", 48.501, -5.499),
+                                     ("HELI", 48.20, -5.20)])
+    window.map.set_built({(48, -6): _tile_info(48, -6, str(tmp_path))})
+    window.map.set_scenery_regions([("Other", [(47, -6)], False, "ortho")])
+    assert window.map._ortho_tiles == {(47, -6)}
+    # Far out: only the major airport is marked, nothing labelled yet.
+    window.map.center_on_tile(48, -6, zoom=2.5)
+    window.map.grab()
+    (candidates, _dims, marks, labels, _r) = window.map._airport_layer._plan
+    assert [candidates[i].code for i in marks] == ["BIGA"]
+    assert labels == []
+    # Close in: all three marked; the small field's label would sit on
+    # the major one's, so only BIGA and HELI are labelled.
+    window.map.center_on_tile(48, -6, zoom=9)
+    window.map.grab()
+    (candidates, _dims, marks, labels, _r) = window.map._airport_layer._plan
+    assert sorted(candidates[i].code for i in marks) == ["BIGA", "HELI",
+                                                         "SMAL"]
+    assert [candidates[i].code for i, _ in labels] == ["BIGA", "HELI"]
+
+
+# ===========================================================================
+# #828: first-visit hint and empty states (Mac: MapHintOverlay, BuildPane)
+# ===========================================================================
+def test_the_map_hint_shows_until_the_first_selection_and_stays_gone(
+        make_window):
+    window = make_window()
+    # The launch selection (the window's default tile) is not the user's.
+    assert window.map.selection()
+    assert not window.map_hint.isHidden()
+    assert window.map_hint.label.text().endswith(GUI.GUIDE.HINT_TEXT)
+    window.map.set_active(10, 10)
+    assert window.map_hint.isHidden()
+    assert _prefs(make_window)[GUI.GUIDE.HINT_DISMISSED_PREF] is True
+    # Deselecting does not bring it back; a new window remembers.
+    window.map.clear_selection()
+    assert window.map_hint.isHidden()
+    assert make_window().map_hint.isHidden()
+
+
+def test_show_tips_brings_the_hint_back_and_close_dismisses_it(make_window):
+    window = make_window()
+    window.map_hint.close_button.click()
+    assert window.map_hint.isHidden()
+    assert _prefs(make_window)[GUI.GUIDE.HINT_DISMISSED_PREF] is True
+    window.show_tips()
+    assert not window.map_hint.isHidden()
+    assert _prefs(make_window)[GUI.GUIDE.HINT_DISMISSED_PREF] is False
+    titles = [a.text() for a in window.findChildren(GUI.QAction)]
+    assert GUI.GUIDE.SHOW_TIPS_TITLE in titles
+
+
+def test_the_empty_state_explains_tiles_and_how_to_start(make_window,
+                                                         tmp_path):
+    window = make_window()
+    window._scanning = False
+    window.map.clear_selection()
+    assert not window.empty_state.isHidden()
+    assert window.empty_state.text().startswith(GUI.GUIDE.EMPTY_SELECTION_TEXT)
+    assert GUI.GUIDE.NOTHING_BUILT_TEXT in window.empty_state.text()
+    window._built = {(48, -6): _tile_info(48, -6, str(tmp_path))}
+    window.map.set_active(48, -6)
+    assert window.empty_state.isHidden()
+    window.map.clear_selection()
+    assert GUI.GUIDE.NOTHING_BUILT_TEXT not in window.empty_state.text()

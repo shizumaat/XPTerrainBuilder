@@ -1,0 +1,81 @@
+{
+  "_doc": "Shared vectors for the map labels (#817). Read by Ortho4XP/tests/test_map_labels.py (O4_Map_Labels) and Tests/SceneryKitTests/MapLabelLayoutTests.swift (SceneryKit MapLabelLayout). Scales are screen px per degree of longitude; codes are synthetic.",
+  "gates": [
+    {"size_class": 0, "custom": false, "scale": 4, "mark": true, "label": false},
+    {"size_class": 0, "custom": false, "scale": 3.9, "mark": false, "label": false},
+    {"size_class": 2, "custom": false, "scale": 14, "mark": true, "label": false},
+    {"size_class": 2, "custom": false, "scale": 40, "mark": true, "label": true},
+    {"size_class": 4, "custom": false, "scale": 51.9, "mark": false, "label": false},
+    {"size_class": 4, "custom": true, "scale": 1, "mark": true, "label": false},
+    {"size_class": 3, "custom": true, "scale": 40, "mark": true, "label": true},
+    {"size_class": 3, "custom": false, "scale": 40, "mark": true, "label": false},
+    {"size_class": 0, "custom": true, "scale": 10, "mark": true, "label": true},
+    {"size_class": 1, "custom": true, "scale": 10, "mark": true, "label": true}
+  ],
+  "font": [
+    {"scale": 5, "size": 12},
+    {"scale": 10, "size": 12},
+    {"scale": 20, "size": 13},
+    {"scale": 30, "size": 13.5},
+    {"scale": 40, "size": 14},
+    {"scale": 80, "size": 15},
+    {"scale": 160, "size": 16},
+    {"scale": 1000, "size": 16}
+  ],
+  "radius": [
+    {"scale": 3, "radius": 2.2},
+    {"scale": 8, "radius": 2.2},
+    {"scale": 8.5, "radius": 3.5},
+    {"scale": 26, "radius": 3.5},
+    {"scale": 30, "radius": 5}
+  ],
+  "imagery": [
+    {"provider": "BI", "zl": 16, "zones": false, "text": "BI ZL16"},
+    {"provider": "GO2", "zl": 18, "zones": true, "text": "GO2 ZL18 +zones"},
+    {"provider": "ARCGIS", "zl": 17, "zones": false, "text": "ARCG ZL17"},
+    {"provider": "BI", "zl": null, "zones": false, "text": "BI ZL?"},
+    {"provider": null, "zl": 16, "zones": false, "text": "? ZL16"},
+    {"provider": "", "zl": null, "zones": false, "text": "imagery ?"},
+    {"provider": "", "zl": null, "zones": true, "text": "imagery ? +zones"}
+  ],
+  "place": [
+    {
+      "_doc": "Rank order, collisions, class gates; a custom airport outranks a default of its class.",
+      "scale": 30, "radius": 5,
+      "candidates": [
+        {"code": "AAAA", "x": 100, "y": 100, "size_class": 0, "runway_m": 4000, "custom": false},
+        {"code": "BBBB", "x": 110, "y": 100, "size_class": 1, "runway_m": 2500, "custom": false},
+        {"code": "CCCC", "x": 300, "y": 100, "size_class": 2, "runway_m": 1500, "custom": false},
+        {"code": "DDDD", "x": 300, "y": 300, "size_class": 3, "runway_m": 800, "custom": false},
+        {"code": "EEEE", "x": 500, "y": 100, "size_class": 4, "runway_m": 0, "custom": false},
+        {"code": "FFFF", "x": 105, "y": 100, "size_class": 1, "runway_m": 2000, "custom": true},
+        {"code": "GGGG", "x": 300, "y": 200, "size_class": 1, "runway_m": 1000, "custom": true},
+        {"code": "HHHH", "x": 310, "y": 200, "size_class": 1, "runway_m": 3000, "custom": false},
+        {"code": "IIII", "x": 500, "y": 300, "size_class": 4, "runway_m": 0, "custom": true}
+      ],
+      "marks": ["AAAA", "BBBB", "CCCC", "DDDD", "FFFF", "GGGG", "HHHH", "IIII"],
+      "labels": ["AAAA", "GGGG"]
+    },
+    {
+      "_doc": "Far out: only the largest class and custom airports are marked; nothing is labelled yet.",
+      "scale": 5, "radius": 2.2,
+      "candidates": [
+        {"code": "AAAA", "x": 0, "y": 0, "size_class": 0, "runway_m": 4000, "custom": false},
+        {"code": "BBBB", "x": 50, "y": 50, "size_class": 1, "runway_m": 2500, "custom": false},
+        {"code": "CCCC", "x": 90, "y": 90, "size_class": 3, "runway_m": 900, "custom": true}
+      ],
+      "marks": ["AAAA", "CCCC"],
+      "labels": []
+    },
+    {
+      "_doc": "Stacked boxes that clear each other both stay, longest runway first.",
+      "scale": 30, "radius": 5,
+      "candidates": [
+        {"code": "KKKK", "x": 100, "y": 100, "size_class": 0, "runway_m": 3200, "custom": false},
+        {"code": "LLLL", "x": 100, "y": 140, "size_class": 0, "runway_m": 3500, "custom": false}
+      ],
+      "marks": ["KKKK", "LLLL"],
+      "labels": ["LLLL", "KKKK"]
+    }
+  ]
+}

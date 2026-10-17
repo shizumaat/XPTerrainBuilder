@@ -21,6 +21,9 @@ struct MapCanvasView: View {
     }
 
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
+    /// The airport layer's last plan (#817): rebuilt only when the camera,
+    /// the viewport or the airport lists change.
+    @StateObject private var airportPlans = AirportPlanCache()
 
     // Night-chart palette (the icon's world).
     static let ocean = Color(red: 0.043, green: 0.051, blue: 0.071)
@@ -34,8 +37,8 @@ struct MapCanvasView: View {
     static let tintLandmark = Color(red: 0.30, green: 0.55, blue: 0.90) // landmark diamonds
     static let selection = Color.white
 
-    // Build mode: our built tiles are green (the ZL still shows in the
-    // center label); selection is yellow; done/error/stopped badges are
+    // Build mode: our built tiles are green (their imagery shows in the
+    // bottom-left tile label); selection is yellow; done/error/stopped badges are
     // green/red/orange; other installed ortho packages keep their gray
     // outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
@@ -202,79 +205,26 @@ struct MapCanvasView: View {
             drawGrid(context: context, size: size, cam: cam, step: 1, color: Self.grid)
         }
 
-        // Tile coordinates in the top-right corner of each tile, once tiles
-        // are big enough for the label to fit.
-        if cam.scale > 52 {
-            for lat in Int(floor(minLat))...Int(ceil(maxLat)) {
-                for lon in Int(floor(minLon))...Int(ceil(maxLon)) {
-                    guard lat >= -90, lat < 90, lon >= -180, lon < 180 else { continue }
-                    let corner = cam.point(lon: Double(lon + 1), lat: Double(lat + 1), in: size)
-                    context.draw(
-                        Text(TileMath.key(lat: lat, lon: lon))
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(Self.gridMajor),
-                        at: CGPoint(x: corner.x - 4, y: corner.y + 4),
-                        anchor: .topTrailing
-                    )
-                }
-            }
-        }
+        // Tile labels (#817): coordinate top-left on every tile, installed
+        // imagery bottom-left, each on a pill — one zoom threshold for both.
+        let bounds = (minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
+        drawTileLabels(context: context, size: size, cam: cam, bounds: bounds,
+                       built: sceneryFilter != .othersOnly ? buildModel.built : nil,
+                       orthoTiles: sceneryFilter != .builtOnly ? overlays.orthoTileKeys : nil)
 
-        // Airports: sectional dots, ICAO labels when zoomed.
+        // Airports by size (#817): large fields marked and labelled from
+        // far out, small ones as you zoom in; labels never overlap. The
+        // plan is cached per camera, so a redraw that moves nothing (an
+        // imagery tile fading in) does not lay the labels out again.
+        let overlays = self.overlays
+        let plan = airportPlans.plan(
+            for: .init(camera: cam, size: size, defaults: overlays.defaultAirports.count,
+                       customs: overlays.airports.count)
+        ) {
+            Self.makeAirportPlan(overlays: overlays, cam: cam, size: size, bounds: bounds)
+        }
+        drawAirports(plan, context: context)
         let showLabels = cam.scale > 26
-        let radius: CGFloat = cam.scale > 26 ? 5 : (cam.scale > 8 ? 3.5 : 2.2)
-        // Default (Global Airports) airports first, so a custom pack's
-        // magenta mark always sits on top. Gated with the 1° graticule —
-        // the zoom where tiles become pickable; above world view a wide
-        // viewport still holds tens of thousands of them. One color for
-        // all, so the circles batch into a single stroked path. Labels
-        // wait for the tile-key zoom: at the custom-label threshold a
-        // dense region would put thousands of Text draws in every frame.
-        if cam.scale > 14 {
-            var circles = Path()
-            var labeled: [(point: CGPoint, icao: String)] = []
-            let labelDefaults = cam.scale > 52
-            for airport in overlays.defaultAirports {
-                let lon = airport.info.longitude, lat = airport.info.latitude
-                guard lon > minLon - 1, lon < maxLon + 1,
-                      lat > minLat - 1, lat < maxLat + 1 else { continue }
-                let p = cam.point(lon: lon, lat: lat, in: size)
-                circles.addEllipse(in: CGRect(x: p.x - radius, y: p.y - radius,
-                                              width: radius * 2, height: radius * 2))
-                if labelDefaults { labeled.append((p, airport.icao)) }
-            }
-            context.stroke(circles, with: .color(Self.defaultAirport),
-                           lineWidth: max(1.4, radius * 0.4))
-            for (p, icao) in labeled {
-                context.draw(
-                    Text(icao)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Self.defaultAirport),
-                    at: CGPoint(x: p.x, y: p.y - radius - 8)
-                )
-            }
-        }
-        for airport in overlays.airports {
-            let lon = airport.info.longitude, lat = airport.info.latitude
-            guard lon > minLon - 1, lon < maxLon + 1, lat > minLat - 1, lat < maxLat + 1 else { continue }
-            let p = cam.point(lon: lon, lat: lat, in: size)
-            // Only ENABLED packs reach `overlays.airports` at all (owner
-            // 2026-09-17; SceneryPack.drawsAirportMarks), so every custom
-            // mark is a full-strength one — the old dimmed variant for
-            // uninstalled/disabled packs has nothing left to draw.
-            let color = Self.magenta.opacity(0.95)
-            let circle = Path(ellipseIn: CGRect(x: p.x - radius, y: p.y - radius,
-                                                width: radius * 2, height: radius * 2))
-            context.stroke(circle, with: .color(color), lineWidth: max(1.4, radius * 0.4))
-            if showLabels {
-                context.draw(
-                    Text(airport.icao)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(color),
-                    at: CGPoint(x: p.x, y: p.y - radius - 8)
-                )
-            }
-        }
 
         // Landmark pack marks: kind-colored diamonds at the pack's tile
         // centroid (tile-resolution until DSF placements are parsed). Only
@@ -419,24 +369,15 @@ struct MapCanvasView: View {
         }
 
         // Built tiles: green border (no fill — it obscures the imagery
-        // preview); installed adds the double (inset) border; center
-        // label once tiles are big enough.
-        let showTileLabels = cam.scale > 44
-        for (coord, info) in buildModel.built where visible(coord) {
+        // preview); installed adds the double (inset) border. The imagery
+        // label is drawn with the tile labels (MapCanvasLabels, #817).
+        for coord in buildModel.built.keys where visible(coord) {
             let r = rect(coord)
             let color = Self.builtTile
             context.stroke(Path(r), with: .color(color.opacity(0.85)), lineWidth: 2)
             if buildModel.installed.contains(coord) {
                 context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),
                                with: .color(color.opacity(0.9)), lineWidth: 1.5)
-            }
-            if showTileLabels, let zl = info.zl {
-                let provider = info.provider.isEmpty ? "?" : String(info.provider.prefix(4))
-                context.draw(
-                    Text("\(provider) \(zl)\(info.hasZones ? "*" : "")")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.85)),
-                    at: CGPoint(x: r.midX, y: r.maxY - 10))
             }
             // Mixed imagery sources: warning triangle in the top-right
             // corner so affected tiles stand out at a glance (details +
@@ -534,7 +475,7 @@ struct MapCanvasView: View {
                 MapCamera.latitude(mercatorY: yCenter + halfH))
     }
 
-    private func tileRect(lat: Int, lon: Int, cam: MapCamera, size: CGSize) -> CGRect {
+    func tileRect(lat: Int, lon: Int, cam: MapCamera, size: CGSize) -> CGRect {
         let topLeft = cam.point(lon: Double(lon), lat: Double(lat + 1), in: size)
         let bottomRight = cam.point(lon: Double(lon + 1), lat: Double(lat), in: size)
         return CGRect(x: topLeft.x, y: topLeft.y,

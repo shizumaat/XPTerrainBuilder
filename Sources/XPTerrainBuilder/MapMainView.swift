@@ -324,6 +324,9 @@ struct MapMainView: View {
                         firstMin: 300, secondMin: 180) {
             MapCanvasView(camera: controller.mapCamera,
                           canvasSize: controller.mapCanvasSize)
+                .overlay(alignment: .top) {
+                    MapHintOverlay().environmentObject(buildModel)
+                }
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)

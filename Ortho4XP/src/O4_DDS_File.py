@@ -15,6 +15,12 @@ cut) left a short file there, and the next build's "already on disk" test
   only when it is whole.  The partial keeps the ``.dds`` ending the
   converters expect; :func:`is_partial_name` is how a reader that lists
   ``*.dds`` tells it is not a texture.
+* The in-process encoder (``O4_DDS_Encode``) writes its files through
+  :func:`build_header` / :func:`assemble`, and the quality tool reads them
+  through :func:`split_levels` — the ONE header writer, ported from
+  OrthoStudio XP's ``textures/dds.py`` (see the notice above
+  :func:`full_mip_count`) and sized by the same :func:`expected_size` that
+  :func:`is_whole` reads.
 
 Standard library only.
 """
@@ -27,8 +33,10 @@ import uuid
 
 import O4_Held_File as HELD
 
-__all__ = ["HEADER_BYTES", "expected_size", "is_partial_name", "is_whole",
-           "land", "partial_name", "sweep_partials"]
+__all__ = ["BLOCK_FORMATS", "HEADER_BYTES", "assemble", "build_header",
+           "expected_size", "full_mip_count", "is_partial_name", "is_whole",
+           "land", "level_size", "mip_dims", "partial_name", "split_levels",
+           "sweep_partials"]
 
 #: ``"DDS "`` + the 124-byte ``DDS_HEADER``.
 HEADER_BYTES = 128
@@ -46,6 +54,16 @@ _FOURCC_BLOCK_BYTES = {b"DXT1": 8, b"DXT2": 16, b"DXT3": 16, b"DXT4": 16,
 _DXGI_BLOCK_BYTES = {**{f: 8 for f in (70, 71, 72, 79, 80, 81)},
                      **{f: 16 for f in (73, 74, 75, 76, 77, 78, 82, 83, 84,
                                         94, 95, 96, 97, 98, 99)}}
+#: The block formats the texture encoder writes: name -> (FourCC, bytes per
+#: 4x4 block).  ``bc1`` is DXT1 (no alpha), ``bc3`` is DXT5.
+BLOCK_FORMATS = {"bc1": (b"DXT1", 8), "bc3": (b"DXT5", 16)}
+_DDSD_CAPS, _DDSD_HEIGHT, _DDSD_WIDTH = 0x1, 0x2, 0x4
+_DDSD_PIXELFORMAT, _DDSD_LINEARSIZE = 0x1000, 0x80000
+_DDSCAPS_COMPLEX, _DDSCAPS_TEXTURE, _DDSCAPS_MIPMAP = 0x8, 0x1000, 0x400000
+#: magic, DDS_HEADER (size, flags, height, width, linear size, depth, mip
+#: count, 11 reserved), DDS_PIXELFORMAT (size, flags, FourCC, 5 masks),
+#: caps 1-4, reserved2 — 128 bytes.
+_HEADER_STRUCT = struct.Struct("<4s7I11I2I4s5I5I")
 #: What marks a converter's unfinished output: ``<texture>.<pid>.<token>``
 #: + this.
 _PARTIAL_ENDING = ".partial.dds"
@@ -146,3 +164,92 @@ def land(partial: str, final: str) -> bool:
     with contextlib.suppress(OSError):
         os.remove(partial)
     return False
+
+
+# ---------------------------------------------------------------------------
+# Writing (the in-process encoder).  Ported from OrthoStudio XP
+# ``src/orthostudio/textures/dds.py`` @ 7c028d82dcc59a27296972973aa0663ef37efddc
+# — OrthoStudio XP, Copyright (C) 2026 radioharris, GNU GPL v3; additional
+# terms in THIRD_PARTY/orthostudio-xp/NOTICE.  Modified for XPTerrainBuilder,
+# 2026-10-17: merged into this module so there is one DDS writer; the parse
+# side reuses :func:`expected_size` instead of a second header parser.
+
+
+def _check_format(fmt: str) -> tuple[bytes, int]:
+    try:
+        return BLOCK_FORMATS[fmt]
+    except KeyError:
+        raise ValueError(f"unsupported DDS format {fmt!r}, expected 'bc1' "
+                         "or 'bc3'") from None
+
+
+def full_mip_count(width: int, height: int) -> int:
+    """Levels of a full mip chain down to 1x1 (13 for 4096x4096)."""
+    if width < 1 or height < 1:
+        raise ValueError("width and height must be >= 1")
+    return max(width, height).bit_length()
+
+
+def mip_dims(width: int, height: int, count: int) -> list[tuple[int, int]]:
+    """``count`` successive level sizes, each side halved, floored at 1."""
+    return [(max(width >> k, 1), max(height >> k, 1)) for k in range(count)]
+
+
+def level_size(width: int, height: int, fmt: str) -> int:
+    """Bytes of one block-compressed level (partial 4x4 blocks count)."""
+    return ((width + 3) // 4) * ((height + 3) // 4) * _check_format(fmt)[1]
+
+
+def build_header(width: int, height: int, fmt: str, mip_count: int) -> bytes:
+    """The 128-byte header (magic included) of a 2D DXT1/DXT5 texture.
+
+    nvcompress's layout field for field except ``dwReserved1``, left zero
+    (nvtt writes 'NVTT' tags there; X-Plane ignores it)."""
+    fourcc = _check_format(fmt)[0]
+    if not 1 <= mip_count <= full_mip_count(width, height):
+        raise ValueError(f"mip_count {mip_count} out of range for "
+                         f"{width}x{height}")
+    flags = (_DDSD_CAPS | _DDSD_HEIGHT | _DDSD_WIDTH | _DDSD_PIXELFORMAT
+             | _DDSD_LINEARSIZE)
+    caps = _DDSCAPS_TEXTURE
+    if mip_count > 1:
+        flags |= _DDSD_MIPMAPCOUNT
+        caps |= _DDSCAPS_COMPLEX | _DDSCAPS_MIPMAP
+    return _HEADER_STRUCT.pack(
+        _MAGIC, 124, flags, height, width, level_size(width, height, fmt),
+        0, mip_count, *([0] * 11),
+        32, _DDPF_FOURCC, fourcc, 0, 0, 0, 0, 0,
+        caps, 0, 0, 0, 0)
+
+
+def assemble(width: int, height: int, fmt: str, levels) -> bytes:
+    """Header plus the block data of successive levels: a DDS file image."""
+    for (w, h), blob in zip(mip_dims(width, height, len(levels)), levels,
+                            strict=True):
+        if len(blob) != level_size(w, h, fmt):
+            raise ValueError(f"level {w}x{h} has {len(blob)} bytes, expected "
+                             f"{level_size(w, h, fmt)}")
+    return b"".join((build_header(width, height, fmt, len(levels)), *levels))
+
+
+def split_levels(data) -> tuple[tuple[int, int, str], list[memoryview]]:
+    """``((width, height, fmt), [a zero-copy view per mip level])`` of a
+    DXT1/DXT5 file image; ``ValueError`` on anything else or a short one."""
+    header = bytes(data[:HEADER_BYTES])
+    expected = expected_size(header)
+    fourcc = header[84:88]
+    fmt = next((name for name, (cc, _) in BLOCK_FORMATS.items()
+                if cc == fourcc), None)
+    if expected is None or fmt is None:
+        raise ValueError("not a DXT1/DXT5 DDS file")
+    if len(data) < expected:
+        raise ValueError("DDS data truncated")
+    (flags, height, width) = struct.unpack_from("<III", header, 8)
+    (mip_count,) = struct.unpack_from("<I", header, 28)
+    count = max(mip_count, 1) if flags & _DDSD_MIPMAPCOUNT else 1
+    view, offset, levels = memoryview(data), HEADER_BYTES, []
+    for w, h in mip_dims(width, height, count):
+        size = level_size(w, h, fmt)
+        levels.append(view[offset:offset + size])
+        offset += size
+    return (width, height, fmt), levels

@@ -66,6 +66,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     # ── what is printed ─────────────────────────────────────────────────
     "O4_LOG_VERBOSITY": "chatter volume",
     "O4_BUILD_PROGRESS": "progress banners",
+    "O4_DDS_ENCODER":
+        "which DDS texture encoder converts the imagery (RULINGS 2026-10-17d); "
+        "textures only, never the airport patch",
     "O4_REPORT_GRADE_AUDIT": "a warn-only audit that nothing acts on",
     # ── the stamp and its gate ──────────────────────────────────────────
     "O4_AUTO_PATCH_REBUILD":

@@ -1170,6 +1170,30 @@ def has_data(
 ################################################################################
 
 ################################################################################
+def _header(headers, name):
+    """Case-insensitive header lookup (requests' dict is; a plain one is not)."""
+    for key, value in headers.items():
+        if key.lower() == name.lower():
+            return str(value)
+    return None
+
+
+def is_placeholder_tile(url, headers):
+    """True when the server sent its 'no imagery here' tile, not imagery.
+
+    Bing: the 1033-byte white camera tile, or ``X-VE-Tile-Info: no-tile``
+    (either one marks it; the header test sits BESIDE the length test,
+    imagery-fetch-spec §3.2, #835).  ArcGIS: the 2521-byte no-data tile.
+    """
+    length = _header(headers, "Content-Length")
+    if "virtualearth" in url:
+        info = (_header(headers, "X-VE-Tile-Info") or "").strip().lower()
+        return length == "1033" or info == "no-tile"
+    if "arcgisonline" in url:
+        return length == "2521"
+    return False
+
+
 def http_request_to_image(width, height, url, request_headers, http_session):
     UI.vprint(
         3, "HTTP request issued :", url, "\nRequest headers :", request_headers
@@ -1202,19 +1226,9 @@ def http_request_to_image(width, height, url, request_headers, http_session):
             status_code = str(r)
             # Bing white image with small camera or Arcgis no data yet =>
             # try to downsample to lower ZL
-            if ("Content-Length" in r.headers) and int(
-                r.headers["Content-Length"]
-            ) <= 2521:
-                if (r.headers["Content-Length"] == "1033") and (
-                    "virtualearth" in url
-                ):
-                    UI.vprint(3, url, r.headers)
-                    return (0, "[404]")
-                if (r.headers["Content-Length"] == "2521") and (
-                    "arcgisonline" in url
-                ):
-                    UI.vprint(3, url, r.headers)
-                    return (0, "[404]")
+            if is_placeholder_tile(url, r.headers):
+                UI.vprint(3, url, r.headers)
+                return (0, "[404]")
             if ("[200]" in status_code) and (
                 "image" in r.headers["Content-Type"]
             ):

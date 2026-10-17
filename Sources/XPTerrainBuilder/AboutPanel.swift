@@ -19,6 +19,12 @@ enum AboutPanel {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Author attribution the engine's ported code requires (GPL v3 §7(b),
+    /// RULINGS 2026-10-17c (i)); the same line is in the Qt app's About.
+    /// Text only: no OrthoStudio XP code lives under `Sources/`.
+    static let thirdPartyCredit =
+        "Imagery fetcher based on OrthoStudio XP by radioharris (GPL v3)."
+
     /// The credits body, as an attributed string in the panel's own font —
     /// `orderFrontStandardAboutPanel` renders `.credits` at 12 pt Times
     /// otherwise, which reads as a bug.
@@ -27,7 +33,7 @@ enum AboutPanel {
         style.alignment = .center
         style.paragraphSpacing = 2
         return NSAttributedString(
-            string: triple.displayLines.joined(separator: "\n"),
+            string: (triple.displayLines + ["", thirdPartyCredit]).joined(separator: "\n"),
             attributes: [
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
                 .foregroundColor: NSColor.secondaryLabelColor,

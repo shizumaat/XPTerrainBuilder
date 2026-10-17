@@ -1418,8 +1418,11 @@ class MainWindow(QMainWindow):
         off the title bar cannot tell us which build broke.  In a dev tree
         the components with no artifact behind them read "dev".
         """
-        return "Ortho4XP\n%s\n\nMap-first Qt UI (preview build)." % (
-            O4_Build_Info.build_info().as_lines()
+        return "Ortho4XP\n%s\n\nMap-first Qt UI (preview build).\n\n%s" % (
+            O4_Build_Info.build_info().as_lines(),
+            # GPL v3 §7(b) attribution for ported code (RULINGS 2026-10-17c
+            # (i)); the Mac app's About carries the same line.
+            "Imagery fetcher based on OrthoStudio XP by radioharris (GPL v3).",
         )
 
     def show_about(self):

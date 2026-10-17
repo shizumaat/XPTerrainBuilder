@@ -18,6 +18,7 @@ parts named below as MIT.
 | `Ortho4XP/` (the whole vendored engine tree) | **GPL v3** | Oscar Pilote 2014–2018, and contributors |
 | `Ortho4XP/src/auto_patch/`, `Ortho4XP/src/o4_engine/` | **GPL v3** (see §2) | Noah Lieberman, 2026 |
 | `Ortho4XP/Utils/**` (binaries) | Various — see §3 | Various |
+| Files ported from OrthoStudio XP: `Ortho4XP/src/O4_Imagery_Fetch.py`, `Ortho4XP/src/O4_Imagery_Certs.py`, `Ortho4XP/tests/test_imagery_fetch_async.py`, `Ortho4XP/tests/test_imagery_certs.py` (each names its origin in its header) | **GPL v3**, plus OrthoStudio XP's GPL §7 additional terms (`Ortho4XP/THIRD_PARTY/orthostudio-xp/NOTICE`) | radioharris, 2026; modifications Noah Lieberman, 2026 |
 | `docs/`, `Ortho4XP/docs/` | Same license as the tree they document | — |
 
 The engine's own license texts ship in
@@ -54,6 +55,7 @@ releases **must** carry the notices for all of it.
 | **nvcompress** / NVIDIA Texture Tools (I. Castaño, NVIDIA) | MIT | Reproduce notice |
 | **osmium-tool** 1.19.1 + libosmium, protozero, nlohmann/json, Boost, lz4 | GPL v3 (tool); Boost/MIT/BSD (deps) | Offer source. Already documented in [`Ortho4XP/Utils/osmium-tool-NOTICE.md`](Ortho4XP/Utils/osmium-tool-NOTICE.md) with exact tags and build recipe — this is the template the other components should match |
 | Bundled wheels (`numpy`, `gdal`) | BSD-3 / MIT | Reproduce notices |
+| **OrthoStudio XP** (radioharris, <https://github.com/radioharris/orthostudio-xp>, at `7c028d82d`) — ported source, not a binary: the async imagery fetcher (`net/fetch.py`, `net/certs.py` → `O4_Imagery_Fetch.py`, `O4_Imagery_Certs.py`; RULINGS 2026-10-17c) | GPL v3 with §7 additional terms: (b) keep radioharris's copyright notice and author attribution, (c) a modified version carries its own name, (e) no trademark right in "OrthoStudio XP" | Keep each ported file's header; ship [`Ortho4XP/THIRD_PARTY/orthostudio-xp/NOTICE`](Ortho4XP/THIRD_PARTY/orthostudio-xp/NOTICE) (E's NOTICE, byte-identical); the About box of both apps credits radioharris / OrthoStudio XP. Code lands only under `Ortho4XP/` (GPL v3), never under the MIT paths |
 
 **Removed as of v1.0.0-alpha.1 — no longer in the tree, shipped by no
 artifact:** **medit** 2.3 (Pascal Frey — proprietary, APP-registered
@@ -127,6 +129,15 @@ PyInstaller embeds these, so releases redistribute them.
   `scikit-fmm`, `tifffile`, `imagecodecs` (BSD-3); `pillow` (MIT-CMU);
   `pyproj`, `Rtree`, `keyring`, `gdal`, `lazrs` (MIT); `requests` (Apache-2.0);
   `osmium`, `laspy` (BSD-2).
+- `curl_cffi` 0.16.3 — **MIT** (recorded from the installed wheel's metadata,
+  `License-Expression: MIT`, 2026-10-17). Its `_wrapper` extension carries
+  libcurl statically linked (the curl-impersonate build: curl, BoringSSL,
+  nghttp2, brotli, zstd, zlib — permissive licences; component notices to be
+  reproduced in release notices, not yet verified one by one). Pulls `cffi`
+  (MIT-0) and `pycparser` (BSD-3). Shipped for the async imagery fetcher
+  (`O4_IMAGERY_FETCHER=async`).
+- `certifi` — **MPL-2.0** (unmodified; already shipped as `requests`'
+  dependency): the CA bundle of the async imagery fetcher only.
 
 ## 5. Generated scenery is not covered
 

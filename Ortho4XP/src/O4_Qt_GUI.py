@@ -96,6 +96,7 @@ import O4_Qt_Patch_Editor as QTPATCH
 # the settings sheet and the wizard all import it.  Top-level, so
 # PyInstaller sees it without a hidden-import entry.  The underscored
 # aliases keep this file's ~20 existing call sites unchanged.
+from O4_Qt_Click_Row import ClickableRow  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
     may_be_squeezed as _may_be_squeezed,
@@ -103,6 +104,9 @@ from O4_Qt_Widgets import (  # noqa: E402
 )
 
 PREFS_FILE = FNAMES.data_path(".qt_prefs.json")
+# Margin around a tile framed from its Activity row (#816), in degrees on
+# each side — the Mac app's MapCamera.framing uses the same fraction.
+TILE_FRAME_MARGIN = 0.15
 AIRPORT_CACHE = FNAMES.airport_index_cache()
 MAX_CONSOLE_LINES = 5000
 
@@ -3572,7 +3576,12 @@ class MainWindow(QMainWindow):
                 cancel.setVisible(True)
                 self._set_row_button_mode(cancel, "stop")
                 continue
-            row = QWidget()
+            # Clicking the row (not one of its buttons) selects the tile
+            # and frames it on the map (#816).
+            row = ClickableRow()
+            row.setToolTip("Show this tile on the map")
+            row.clicked.connect(
+                lambda t=tile: self._show_tile_on_map(t))
             rl = QVBoxLayout(row)
             rl.setContentsMargins(6, 4, 6, 4)
             rl.setSpacing(2)
@@ -3635,6 +3644,13 @@ class MainWindow(QMainWindow):
                 self._rows_layout.count() - 1, row
             )
             self._tile_rows[tile] = (bar, status, row, cancel, clock)
+
+    def _show_tile_on_map(self, tile):
+        """An Activity row was clicked (#816): select its tile, as a
+        plain map click would, and frame the whole tile with a small
+        margin."""
+        self.map.set_active(*tile)
+        self.map.zoom_to_tiles([tile], margin=TILE_FRAME_MARGIN)
 
     def _on_step_progress(self, event):
         tile = (event.lat, event.lon)

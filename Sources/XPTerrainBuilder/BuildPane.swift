@@ -69,6 +69,7 @@ struct BuildPane: View {
                                 ActivityBox()
                                     .environmentObject(buildModel)
                                     .environmentObject(buildModel.activity)
+                                    .environmentObject(controller)
                             }
                         }
                         PatchInspector(model: buildModel.patchEdit)
@@ -886,6 +887,7 @@ struct BuildPane: View {
 struct ActivityBox: View {
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var activity: BuildActivityModel
+    @EnvironmentObject var controller: AnalysisController
 
     /// Point size of the per-tile stop / resume glyphs. Shared so the two
     /// buttons stay the same size as each other beside the row's small text.
@@ -985,6 +987,17 @@ struct ActivityBox: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        // Clicking the row — not its stop / resume button, which keeps
+        // its own action — selects the tile and frames it (#816).
+        .contentShape(Rectangle())
+        .onTapGesture { showOnMap(coord) }
+        .help("Show this tile on the map")
+    }
+
+    /// Select `coord` as a plain map click would, and frame the whole tile.
+    private func showOnMap(_ coord: BuildModel.TileCoord) {
+        buildModel.click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
+        controller.zoomToTile(lat: coord.lat, lon: coord.lon)
     }
 
     private func statusColor(_ state: TileProgress.State) -> Color {

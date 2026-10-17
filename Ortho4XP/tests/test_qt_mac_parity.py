@@ -599,3 +599,45 @@ def test_the_four_ini_edge_rules_match_the_mac_app(tmp_path):
     #    that does not, through the same isDirectory/fileExists test.
     assert SP.enabled_pack_names(str(custom)) == {"on", "unlisted"}
     assert "fm.fileExists(atPath: url.path, isDirectory: &isDir)" in scanner
+
+
+# ===========================================================================
+# #816: clicking an Activity row shows its tile (Mac: ActivityBox.showOnMap)
+# ===========================================================================
+def _click(widget, pos=None):
+    from PySide6.QtTest import QTest
+    QTest.mouseClick(widget, GUI.Qt.LeftButton,
+                     pos=pos or widget.rect().center())
+
+
+def test_clicking_a_progress_row_selects_and_frames_its_tile(make_window):
+    window = make_window()
+    window.resize(1200, 800)
+    window.map.resize(800, 600)
+    window._setup_progress_page([(48, -6), (10, 10)])
+    window.map.set_selection([(48, -6), (10, 10)])
+    row = window._tile_rows[(10, 10)][2]
+    row.resize(260, 60)
+    _click(row)
+    assert window.map.selection() == {(10, 10)}
+    assert window.map.active_tile() == (10, 10)
+    (lat_lo, lat_hi, lon_lo, lon_hi) = window.map.visible_bounds()
+    assert lat_lo < 10 and lat_hi > 11 and lon_lo < 10 and lon_hi > 11
+    # Framed with a small margin, not left at world view.
+    assert lon_hi - lon_lo < 4
+
+
+def test_a_row_button_keeps_its_own_action(make_window, monkeypatch):
+    window = make_window()
+    window._setup_progress_page([(10, 10)])
+    window.map.set_selection([(48, -6)])
+    pressed = []
+    monkeypatch.setattr(window, "_tile_button_clicked", pressed.append)
+    _bar, _status, row, cancel, _clock = window._tile_rows[(10, 10)]
+    row.resize(260, 60)
+    # Re-wire: the lambda captured the original bound method.
+    cancel.clicked.disconnect()
+    cancel.clicked.connect(lambda _c=False: pressed.append((10, 10)))
+    _click(cancel)
+    assert pressed == [(10, 10)]
+    assert window.map.selection() == {(48, -6)}

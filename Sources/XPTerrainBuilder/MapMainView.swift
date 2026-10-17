@@ -16,6 +16,8 @@ struct MapMainView: View {
     @StateObject private var showingPicker = ViewState(false)
     /// Why the last folder the user picked was not accepted (empty = none).
     @StateObject private var rejectedFolder = ViewState("")
+    /// X-Plane installs found on this Mac for the first-run screen (#819).
+    @StateObject private var foundInstalls = ViewState<[String]>([])
     /// Native inspector visibility, persisted manually (ViewState instead of
     /// @AppStorage — the @State-family macros are unavailable on this
     /// toolchain, see ViewState.swift).
@@ -59,17 +61,7 @@ struct MapMainView: View {
             buildModel.refreshAirportIndex()
         }
         .fileImporter(isPresented: $showingPicker.value, allowedContentTypes: [.folder]) { result in
-            if case .success(let url) = result {
-                // Validated before it is accepted: an invalid folder would
-                // otherwise seed nothing and leave Build permanently off
-                // with no explanation.
-                if let problem = XPlaneInstall.problem(at: url.path) {
-                    rejectedFolder.value = problem
-                } else {
-                    rejectedFolder.value = ""
-                    controller.xplanePath = url.path
-                }
-            }
+            if case .success(let url) = result { acceptXPlaneFolder(url.path) }
         }
         // First run: where downloads and built tiles go. Presented until the
         // preference is set; committing the sheet sets it.
@@ -384,8 +376,16 @@ struct MapMainView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 440)
-            Button("Choose X-Plane Folder…") { showingPicker.value = true }
-                .buttonStyle(.borderedProminent)
+            ForEach(foundInstalls.value, id: \.self) { path in
+                Button("Found X-Plane at \(path) — Use it") { acceptXPlaneFolder(path) }
+                    .buttonStyle(.borderedProminent)
+            }
+            if foundInstalls.value.isEmpty {
+                Button("Choose X-Plane Folder…") { showingPicker.value = true }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button("Choose another…") { showingPicker.value = true }
+            }
             if !rejectedFolder.value.isEmpty {
                 Text(rejectedFolder.value)
                     .font(.callout)
@@ -398,6 +398,19 @@ struct MapMainView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { foundInstalls.value = XPlaneInstall.detectInstalls() }
+    }
+
+    /// Validated before it is accepted — the picker and the found-install
+    /// buttons alike: an invalid folder would otherwise seed nothing and
+    /// leave Build permanently off with no explanation.
+    private func acceptXPlaneFolder(_ path: String) {
+        if let problem = XPlaneInstall.problem(at: path) {
+            rejectedFolder.value = problem
+        } else {
+            rejectedFolder.value = ""
+            controller.xplanePath = path
+        }
     }
 }
 

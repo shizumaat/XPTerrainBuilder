@@ -564,3 +564,34 @@ def test_both_apps_show_the_engines_sentence_and_word_none_themselves():
         fragment = sentence.split("— ")[1]
         for name in sources:
             assert fragment not in text[name], (name, fragment)
+
+
+def test_build_failed_tiles_again_requeues_exactly_those_tiles(make_window):
+    """#821: the run's box offers "Build failed tiles again", which
+    re-queues the failed and never-started tiles — not the built one —
+    with the settings their run was started with."""
+    import O4_Qt_Tile_Failures as QTFAIL
+    import O4_Tile_Failures as FAIL
+    from o4_engine import session as SESSION
+
+    third = (50, -6)
+    window = make_window()
+    window._start_run([TILE, OTHER, third], dict(SETTINGS))
+    window._progress_states[TILE] = ("error", "failed", 0)
+    window._progress_states[OTHER] = ("done", "done", 100)
+    window._run_issue_events = [SESSION.build_done(48, -6, False, [
+        FAIL.record("elevation_download_failed", "x")])]
+    window.imagery_combo.setCurrentText("OSM")
+    make_window.enqueued.clear()
+
+    window._on_run_done(EV.RunDone(done_count=1, error_count=1))
+    box = window._pack_art_boxes[-1]
+    [again] = [b for b in box.buttons()
+               if b.text() == QTFAIL.BUILD_AGAIN_BUTTON]
+    again.click()
+
+    assert len(make_window.enqueued) == 1
+    tiles, kwargs = make_window.enqueued[0]
+    assert tiles == sorted([TILE, third])
+    assert kwargs["provider"] == "BI" and kwargs["zoomlevel"] == 15
+    assert window._retry_tiles == []

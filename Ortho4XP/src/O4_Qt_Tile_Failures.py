@@ -24,7 +24,8 @@ import sys
 
 __all__ = ["AIRPORT_FAILED_LINE", "REPORT_BUTTON", "SAVE_REPORT_BUTTON",
            "console_lines", "report_phrase", "box_texts", "tile_report",
-           "REMOVE_LINK_BUTTON", "REQUEUED_LINE", "removable_links", "issues_box"]
+           "REMOVE_LINK_BUTTON", "REQUEUED_LINE", "BUILD_AGAIN_BUTTON",
+           "removable_links", "issues_box"]
 
 # --- copy (identical to the mac app's O4TileFailureCopy) ----------------
 REPORT_BUTTON = "Report this problem"
@@ -43,6 +44,8 @@ REMOVE_LINK_BUTTON = ("Remove the link and build on this %s drive"
 # A failure the user fixed while the run went on (#695; the mac app's
 # O4TileFailureCopy.requeuedLine).
 REQUEUED_LINE = "Fixed and re-queued."
+# #821: re-queue the run's failed and not-started tiles, same options.
+BUILD_AGAIN_BUTTON = "Build failed tiles again"
 
 # The live line for one airport, while its tile is still building.
 AIRPORT_FAILED_LINE = ("*** Tile {tile}: airport {airport} could not be "
@@ -193,12 +196,13 @@ def _save(events, parent, app_version):
 
 
 def issues_box(events, parent=None, app_version="", on_remove_link=None,
-               requeued=()):
+               requeued=(), on_build_again=None):
     """The run's one non-modal box, or ``None`` when there is nothing to
     say.  The technical detail sits behind "Show Details…".  With
     ``on_remove_link`` and a tile behind an unmounted drive's link (#668)
     it offers "Remove the link…" (``on_remove_link(event, link)``) and
-    "Cancel".  ``requeued``: see :func:`box_texts`."""
+    "Cancel".  ``requeued``: see :func:`box_texts`.  With
+    ``on_build_again`` it offers "Build failed tiles again" (#821)."""
     texts = box_texts(events, requeued)
     if texts is None:
         return None
@@ -224,6 +228,9 @@ def issues_box(events, parent=None, app_version="", on_remove_link=None,
         button.clicked.connect(
             lambda _checked=False, action=action: action(
                 with_issues, box, app_version))
+    if on_build_again is not None:
+        again = box.addButton(BUILD_AGAIN_BUTTON, QMessageBox.ActionRole)
+        again.clicked.connect(lambda _checked=False: on_build_again())
     removable = (removable_links(events, requeued) if on_remove_link
                  else [])
     if removable:

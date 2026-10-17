@@ -453,6 +453,23 @@ def enqueue_resume(tile, queue):
     return list(queue) if tile in queue else list(queue) + [tile]
 
 
+def _batched_by_settings(pairs):
+    """``(tile, settings)`` pairs as ``([tiles], settings)`` batches, one
+    per distinct settings set in first-seen order; a tile with no
+    settings (toolbar unresolved) is skipped."""
+    batches = []
+    for (tile, settings) in pairs:
+        if settings is None:
+            continue
+        for (batch_tiles, batch_settings) in batches:
+            if batch_settings == settings:
+                batch_tiles.append(tile)
+                break
+        else:
+            batches.append(([tile], dict(settings)))
+    return batches
+
+
 # ---------------------------------------------------------------------------
 # Estimate credibility (pure).  docs/specs/qt-backlog-parity2-spec.md §QB2.
 # ---------------------------------------------------------------------------
@@ -697,6 +714,9 @@ class MainWindow(QMainWindow):
         # path's settings source, so resuming a tile rebuilds it as it was
         # queued and not with whatever the toolbar says now.
         self._run_settings = {}
+        # #821: the last run's failed and never-started tiles, each with
+        # its run settings — what "Build failed tiles again" re-queues.
+        self._retry_tiles = []
         # Last (output dir, selection) the toolbar combos were synced to:
         # _sync_build_controls_to_selection runs once per selection so
         # panel refreshes never clobber a user-picked imagery source/ZL.
@@ -3416,7 +3436,10 @@ class MainWindow(QMainWindow):
         issues = QTFAIL.issues_box(issue_events, parent=self,
                                    app_version=O4_Version.version,
                                    on_remove_link=self._remove_link_and_build,
-                                   requeued=requeued)
+                                   requeued=requeued,
+                                   on_build_again=(self._build_failed_again
+                                                   if self._retry_tiles
+                                                   else None))
         if issues is not None:
             # Kept alive (non-modal) the way the missing-art boxes are.
             self._pack_art_boxes.append(issues)
@@ -3842,18 +3865,27 @@ class MainWindow(QMainWindow):
         and the rest queued into it.
         """
         todo, self._resume_queue = self._resume_queue, []
-        batches = []
-        for tile in todo:
-            settings = self._run_settings.get(tile) or self._toolbar_settings()
-            if settings is None:
-                continue
-            for batch_tiles, batch_settings in batches:
-                if batch_settings == settings:
-                    batch_tiles.append(tile)
-                    break
-            else:
-                batches.append(([tile], dict(settings)))
-        self._start_resume_batches(batches)
+        self._start_resume_batches(_batched_by_settings(
+            (tile, self._run_settings.get(tile) or self._toolbar_settings())
+            for tile in todo))
+
+    def _failed_and_unstarted(self):
+        """#821: the run's failed and never-started tiles with the settings
+        each was queued with — taken at run end, before the linger clears
+        the rows and their settings."""
+        return [
+            (tile, self._run_settings.get(tile) or self._toolbar_settings())
+            for (tile, state) in self._progress_states.items()
+            if state[0] in ("error", "queued")
+            and tile not in self._resume_queue
+        ]
+
+    def _build_failed_again(self):
+        """#821: re-queue the last run's failed and not-started tiles with
+        the same options, through the resume path's enqueue."""
+        (todo, self._retry_tiles) = (self._retry_tiles, [])
+        if not self._building:
+            self._start_resume_batches(_batched_by_settings(todo))
 
     def _start_resume_batches(self, batches):
         """Start the resume batches IN ORDER, one preflight at a time.
@@ -4040,6 +4072,7 @@ class MainWindow(QMainWindow):
         print("\n".join([summary] + detail_lines))
         self._status(summary)
         (issue_events, self._run_issue_events) = (self._run_issue_events, [])
+        self._retry_tiles = self._failed_and_unstarted()
         self._show_issues_box(issue_events)
         self.progress_title.setText("<b>%s</b>" % summary)
         UI.is_working = False

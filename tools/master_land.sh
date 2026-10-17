@@ -28,7 +28,7 @@ case "${1:-}" in
     sha="$(gh pr view "$pr" --json headRefOid --jq .headRefOid)"
     ack "$sha"
     if [ $# -gt 0 ]; then
-      gh pr merge "$pr" --merge --subject "$*" --body "Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+      gh pr merge "$pr" --merge --subject "$*" --body "Co-Authored-By: Claude"
     else
       gh pr merge "$pr" --merge
     fi

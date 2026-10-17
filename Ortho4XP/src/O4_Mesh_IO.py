@@ -26,7 +26,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from O4_Num_Text import parse_numbers, write_rows
-from O4_Triangle_IO import read_ele_text, triangle_attributes
+from O4_Triangle_Binary import read_ele
+from O4_Triangle_IO import triangle_attributes
 
 __all__ = ["MESH_Z_SCALE", "MeshArrays", "MeshFormatError", "read_mesh", "write_mesh"]
 
@@ -124,12 +125,12 @@ def read_mesh(path) -> MeshArrays:
 def write_mesh(mesh_file_name, vertices, ele_file_name, lon, lat, dummy=0) -> None:
     """Write the ``.mesh`` from Triangle4XP's post-processed ``vertices``
     (flat, six per vertex: tile-relative x, y, altitude, normal x, normal y,
-    carried altitude) and its ``.ele``.  The attribute column is normalised
+    carried altitude) and its ``.ele`` (text or binary).  The attribute column is normalised
     (a REAL degenerate attribute becomes ``dummy``).  Written to a temporary
     file in the same directory and renamed into place: neighbour tile builds
     read this file concurrently (step 2.5 masks)."""
     table = np.asarray(vertices, dtype=np.float64).reshape(-1, 6)
-    elements = read_ele_text(ele_file_name)
+    elements = read_ele(ele_file_name)
     if elements.attributes.shape[1] > 1 or elements.triangles.shape[1] != 3:
         raise MeshFormatError(
             f"{ele_file_name}: {elements.triangles.shape[1]} corners and "

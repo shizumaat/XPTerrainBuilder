@@ -57,6 +57,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_STEP_REUSE":
         "whether a tile build may skip a step whose output is current "
         "(O4_Step_Reuse, #615); a step that runs builds the same patch",
+    "O4_TRIANGLE_IO":
+        "text or binary Triangle4XP exchange files (RULINGS 2026-10-17c); "
+        "the .mesh is byte-identical either way",
     "O4_CACHE_AWARE_ADMISSION": "tile admission order in a parallel run",
     "O4_OSM_CLASS_LIMIT": "concurrent Overpass fetches",
     "O4_IMAGERY_CLASS_LIMIT": "concurrent imagery fetches",
@@ -108,6 +111,7 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_TEST_AIRPORTS": "suite: which airports the fixtures use",
     "O4_TEST_TILE": "suite: which tile the fixtures use",
     "O4_TIMING_RUNS": "suite: how many runs a timing test takes",
+    "O4_TRIANGLE4XP_TEST_BINARY": "suite: which Triangle4XP the binary twin runs",
 }
 
 #: Digested, like a gate ``config.py`` declares.  Read outside ``config.py``

@@ -671,7 +671,7 @@ def _batch_summary(batch):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Ortho4XP " + O4_Version.version)
+        self.setWindowTitle("XPTerrainBuilder " + O4_Version.version)
         self.resize(1180, 780)
 
         self.prefs = load_prefs()
@@ -1027,7 +1027,7 @@ class MainWindow(QMainWindow):
         # Legacy per-tile config affordance: a tile whose cfg an older or
         # different Ortho4XP wrote gets an offer to modernise it (mac-app
         # parity: BuildPane's "Update to Current Defaults" alert).
-        self.legacy_config_btn = QPushButton("⚠ Older Ortho4XP settings…")
+        self.legacy_config_btn = QPushButton("⚠ Settings from an older version…")
         self.legacy_config_btn.setFlat(True)
         self.legacy_config_btn.setStyleSheet(
             "QPushButton { text-align: left; color: palette(link); }"
@@ -1035,8 +1035,8 @@ class MainWindow(QMainWindow):
         self.legacy_config_btn.clicked.connect(self._show_legacy_config_dialog)
         self.legacy_config_btn.setVisible(False)
         self.legacy_config_btn.setToolTip(
-            "This tile's settings were written by an older or different "
-            "Ortho4XP — review and update them."
+            "This tile's settings were written by an older version of "
+            "this app or by Ortho4XP — review and update them."
         )
         _never_widen(self.legacy_config_btn)
         ig.addRow(self.legacy_config_btn)
@@ -1354,7 +1354,7 @@ class MainWindow(QMainWindow):
         # built tiles, other installed ortho/mesh packages, or both.
         scenery_menu = view_menu.addMenu("Scenery")
         scenery_menu.setToolTip(
-            "Show your Ortho4XP-built tiles, other installed ortho/mesh "
+            "Show the tiles you built, other installed ortho/mesh "
             "packages, or both"
         )
         self._scenery_filter_actions = {}
@@ -2915,8 +2915,8 @@ class MainWindow(QMainWindow):
         """What the offer says — one bullet per thing this engine has to
         interpret rather than take literally."""
         lines = [
-            "Tile %s's settings were written by an older or different "
-            "Ortho4XP:"
+            "Tile %s's settings were written by an older version of "
+            "this app or by Ortho4XP:"
             % FNAMES.short_latlon(legacy["lat"], legacy["lon"])
         ]
         for (key, value, replacement) in legacy["foreign_enums"]:
@@ -2951,8 +2951,8 @@ class MainWindow(QMainWindow):
             return
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Tile built with an older Ortho4XP")
-        box.setText("Tile built with an older Ortho4XP")
+        box.setWindowTitle("Tile built with an older version")
+        box.setText("Tile built with an older version")
         box.setInformativeText(self._legacy_config_message(legacy))
         update = box.addButton(
             "Update to Current Defaults", QMessageBox.AcceptRole
@@ -3614,7 +3614,7 @@ class MainWindow(QMainWindow):
         self.map.set_progress(self._progress_states)
         self._render_row_state(tile)
         self.setWindowTitle(
-            "Ortho4XP — building %s · %s · %d%%"
+            "XPTerrainBuilder — building %s · %s · %d%%"
             % (FNAMES.short_latlon(*tile), event.label, event.percent)
         )
 
@@ -4025,7 +4025,7 @@ class MainWindow(QMainWindow):
         self._elapsed_timer.stop()
         self.stop_btn.setEnabled(False)
         self.stop_btn.setText("■ Stop")
-        self.setWindowTitle("Ortho4XP " + O4_Version.version)
+        self.setWindowTitle("XPTerrainBuilder " + O4_Version.version)
         total_seconds = (
             time.time() - self._build_t0
             if self._build_t0 is not None else None

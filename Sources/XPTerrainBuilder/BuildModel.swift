@@ -422,13 +422,13 @@ final class BuildModel: ObservableObject {
             resolved = OrthoEngine.bundled()
             usingBundledEngine = resolved != nil
             if resolved == nil {
-                engineError = "The bundled Ortho4XP engine is missing from this copy of the app."
+                engineError = "The bundled build engine is missing from this copy of the app."
             }
         } else {
             usingBundledEngine = false
             resolved = OrthoEngine.locate(at: URL(fileURLWithPath: enginePath, isDirectory: true))
             if resolved == nil {
-                engineError = "Not recognized as an Ortho4XP folder (needs Ortho4XP.py and src/)."
+                engineError = "Not recognized as a build engine folder (needs Ortho4XP.py and src/)."
             }
         }
         guard let located = resolved else {
@@ -510,7 +510,7 @@ final class BuildModel: ObservableObject {
         do {
             try newClient.launch(engine: engine)
             client = newClient
-            console.append("Engine session started (Ortho4XP \(engine.version)).")
+            console.append("Engine session started (engine \(engine.version)).")
             rescan()
             refreshAirportIndex()
         } catch {

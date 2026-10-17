@@ -45,7 +45,7 @@ struct BuildPane: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Ortho4XP Build")
+                Text("Build")
                     .font(.headline)
                 Text(engineSubtitle)
                     .font(.caption)
@@ -99,7 +99,7 @@ struct BuildPane: View {
             legacyTile = legacy
             showingLegacyAlert = true
         }
-        .alert("Tile built with an older Ortho4XP",
+        .alert("Tile built with an older version",
                isPresented: $showingLegacyAlert,
                presenting: legacyTile) { legacy in
             Button("Update to Current Defaults") {
@@ -137,7 +137,7 @@ struct BuildPane: View {
             Image(systemName: "globe.europe.africa")
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
-            Text("No Ortho4XP engine available. The app normally uses its bundled engine — check Settings ▸ Ortho4XP if it can't be found, or choose a custom engine folder there.")
+            Text("No build engine available. The app normally uses its bundled engine — check Settings ▸ General ▸ Build Engine if it can't be found, or choose a custom engine folder there.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -731,7 +731,7 @@ struct BuildPane: View {
     }
 
     private func legacyAlertMessage(_ legacy: BuildModel.LegacyTileSettings) -> String {
-        var parts = ["Tile \(legacy.coord.key)'s settings were written by an older or different Ortho4XP:"]
+        var parts = ["Tile \(legacy.coord.key)'s settings were written by an older version of this app or by Ortho4XP:"]
         for item in legacy.foreignEnums {
             parts.append("• \(item.key) = \(item.value) — not a setting of this version; currently interpreted conservatively. Updating sets: \(item.replacement.isEmpty ? "default" : item.replacement)")
         }
@@ -779,7 +779,7 @@ struct BuildPane: View {
                     .foregroundStyle(.orange)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help("The engine's python can't import these packages — run the engine setup from Settings ▸ Ortho4XP.")
+                    .help("The engine's python can't import these packages — run the engine setup from Settings ▸ General ▸ Build Engine.")
             } else if let summary = buildModel.lastRunSummary, !buildModel.isBuilding {
                 Text(summary).foregroundStyle(.secondary)
             }

@@ -247,7 +247,7 @@ private struct GeneralPane: View {
                 }
                 LabeledContent("Status") {
                     if let engine = buildModel.engine {
-                        Label("Ortho4XP \(engine.version)", systemImage: "checkmark.circle.fill")
+                        Label("Engine \(engine.version)", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                     } else {
                         Label(buildModel.engineError ?? "Not recognized",
@@ -277,9 +277,9 @@ private struct GeneralPane: View {
                     }
                 }
             } header: {
-                Text("Ortho4XP")
+                Text("Build Engine")
             } footer: {
-                Text("XPTerrainBuilder ships with its own copy of the Ortho4XP engine and uses it by default. Point it at a checkout of the engine instead to run a custom version.")
+                Text("XPTerrainBuilder ships with its own build engine (derived from Ortho4XP) and uses it by default. Point it at a checkout of the engine instead to run a custom version.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

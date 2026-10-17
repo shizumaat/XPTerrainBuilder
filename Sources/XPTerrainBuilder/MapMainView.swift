@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import SceneryKit
 
 /// The map-centric main window: toolbar (search / analyze), world map with
@@ -132,7 +133,7 @@ struct MapMainView: View {
 
     private var subtitle: String {
         guard buildModel.engine != nil else {
-            return "Ortho4XP engine not configured — see Settings"
+            return "Build engine not configured — see Settings"
         }
         // Engine version lives in Settings, not the main window chrome.
         var parts: [String] = []
@@ -197,7 +198,7 @@ struct MapMainView: View {
                       ? "line.3.horizontal.decrease.circle"
                       : "line.3.horizontal.decrease.circle.fill")
             }
-            .help("Show your Ortho4XP-built tiles, other installed ortho/mesh packages, or both")
+            .help("Show the tiles you built, other installed ortho/mesh packages, or both")
         }
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,
@@ -369,14 +370,14 @@ struct MapMainView: View {
 
     private var onboarding: some View {
         VStack(spacing: 14) {
-            Image(systemName: "stethoscope")
-                .font(.system(size: 44))
-                .foregroundStyle(.tint)
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .frame(width: 64, height: 64)
             Text("XPTerrainBuilder")
                 .font(.title2.weight(.semibold))
             Text("Select your X-Plane folder to get started.")
                 .foregroundStyle(.secondary)
-            Text("Ortho4XP reads X-Plane's own airport and CIFP data to grade "
+            Text("XPTerrainBuilder reads X-Plane's own airport and runway data to grade "
                  + "runways, taxiways and aprons. Without it every airport would "
                  + "drape over the raw terrain, so a build cannot start.")
                 .font(.callout)

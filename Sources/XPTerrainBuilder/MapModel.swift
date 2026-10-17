@@ -137,7 +137,7 @@ enum MapSceneryFilter: String, CaseIterable {
     var label: String {
         switch self {
         case .all: return "All"
-        case .builtOnly: return "Ortho4XP tiles"
+        case .builtOnly: return "Built tiles"
         case .othersOnly: return "Other ortho"
         }
     }

@@ -331,7 +331,10 @@ def test_the_class_table_read_on_a_real_map():
     # (regL3 round 2: the taxi faces lettered by their pavement width move
     # the road evidence of gap:19 / gap:22 / gap:20 / gap:21 — refs only)
     assert sorted(by[False]) == [17, 22, 39]                       # no road evidence
-    assert sorted(by[True]) == [13, 15, 18, 19, 21, 24, 32, 33, 35, 36, 40]  # §37 (2)'s share
+    # (lane xplat399: the §43 opening read on ``cells.opening_grid_m`` cuts
+    # different necks/arms at HECA, so the gap pieces between them move —
+    # gap:35 -> gap:34 in the share, gap:33 grows; refs only here)
+    assert sorted(by[True]) == [13, 15, 18, 19, 21, 24, 32, 33, 34, 36, 40]  # §37 (2)'s share
     assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(14)]
     assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (14, 9)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)

@@ -344,3 +344,34 @@ def test_a_reread_arm_is_taxiway_only_on_taxi_evidence(rules):
     along = _centreline((150.0, 0.0), (500.0, 0.0))
     assert len(_neck_pieces(face, rules, ident, [], stats, None, along)) == 2
     assert len(_neck_pieces(_pav188(), rules, ident, [], {})) == 2
+
+
+# ── ONE PROGRAMME ON EVERY PLATFORM (lane ``xplat399``, §46) ──────────
+# An opening's boundary is tangent to the face's by construction, so in
+# full precision ``face - WIDE`` is a fringe of nanometre slivers whose
+# connectivity follows the last bit of GEOS's arc arithmetic — the
+# release gate saw CYXY's re-read arm 6 mm apart on macOS and on
+# Linux/Windows.  The reading is snap-rounded to ``cells.opening_grid_m``:
+# a face moved by a nanometre either way, at the tangency, reads the
+# SAME necks and cuts into the SAME pieces.
+
+
+def _necks_signature(face, rules):
+    necks = necks_of(face, rules)
+    pieces = split_at_necks(face, necks, rules)
+    return ([(n.kind, n.reread, n.n_lobes, round(n.area_m2, 6),
+              round(n.width_m, 9), n.mouth_lines) for n in necks],
+            sorted((is_neck, round(p.area, 6), tuple(sorted(
+                (round(x, 6), round(y, 6)) for x, y in p.exterior.coords)))
+                   for p, is_neck in pieces))
+
+
+@pytest.mark.parametrize("angle", [0.0, 27.0, 61.3])
+def test_a_nanometre_does_not_move_the_cut(rules, angle):
+    from shapely import affinity
+    face = affinity.rotate(_pav5(), angle, origin=(0.0, 0.0))
+    base = _necks_signature(face, rules)
+    assert base[0], "the twin must hold a cut"
+    for eps in (1e-9, -1e-9, 3e-9):
+        moved = affinity.translate(face, eps, -eps)
+        assert _necks_signature(moved, rules) == base, eps

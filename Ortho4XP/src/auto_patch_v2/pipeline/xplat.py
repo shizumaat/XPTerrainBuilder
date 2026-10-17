@@ -365,6 +365,17 @@ def stage_digests(icao: str, airport=None, classification=None, pm=None,
     return {"icao": icao, "env": environment(), "stages": stages}
 
 
+def classify_lines(icao: str, classification) -> dict:
+    """The classify stage's ring vertices EXACTLY (``float.hex``), one
+    sorted line per vertex — the digests above say THAT classify
+    disagrees, this says WHICH cell and vertex, so two platforms' files
+    diff line by line (lane ``xplat399``: CYXY differed at dp2 only)."""
+    lines = sorted("%s|%s|%d|%s|%s" % (tag, ident, k, float(x).hex(),
+                                       float(y).hex())
+                   for tag, ident, k, x, y in _classify_items(classification))
+    return {"icao": icao, "lines": lines}
+
+
 def write(path: str, payload: dict) -> str:
     import json
     with open(path, "w", encoding="utf-8", newline="\n") as handle:

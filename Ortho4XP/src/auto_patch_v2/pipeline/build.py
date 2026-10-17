@@ -1665,6 +1665,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                          stage=stage, constraints=cs, lp=size,
                          solved=sol.z or None, final_pm=pm))
         _say(f"[{icao}] cross-platform stage dump -> {icao}.xplat.json", out)
+        if _xp.get("classification") is not None:
+            _xplat.write(str(Path(out_dir) / f"{icao}.xcells.json"),
+                         _xplat.classify_lines(icao, _xp["classification"]))
         # THE EXACT PROJECTION (lane ``xplatspread``): its OWN file, so a
         # reader that only wants the stage table never parses the ~N-vertex
         # hex table, and vice versa.

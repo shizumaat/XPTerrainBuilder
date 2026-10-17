@@ -26,6 +26,7 @@ class Cells:
     min_area_m2: float
     on_tol_m: float
     min_shared_m: float
+    opening_grid_m: float
 
 
 @_dc.dataclass(frozen=True)

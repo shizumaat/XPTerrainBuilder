@@ -35,7 +35,7 @@ __all__ = ["DEFAULT_MIP_MODE", "ENCODER_ENV", "chosen_encoder", "count_three_col
            "encode_dds", "encode_file", "encode_flat_blocks", "encode_level", "encode_texture",
            "force_four_colour_mode", "ispc_available", "shutdown_pool"]
 
-#: The flag: ``inproc`` (this module) or ``tool`` (today's subprocess converter, default).
+#: The flag: ``inproc`` (this module, default) or ``tool`` (today's subprocess converter).
 ENCODER_ENV = "O4_DDS_ENCODER"
 #: The mip filter of today's converters, MEASURED (spec section 5 step 1, 2026-10-17, three
 #: real textures): DDSTool (macOS) and nvcompress -fast both filter RGB in linear light with a
@@ -55,15 +55,15 @@ def ispc_available() -> bool:
 
 
 def chosen_encoder(environ=None) -> str:
-    """``'inproc'`` when ``O4_DDS_ENCODER`` asks for it and the wheel imports, else ``'tool'``.
+    """``'inproc'`` (the default, owner RULINGS 2026-10-17d) when the wheel imports, else ``'tool'``.
 
-    ``inprocess`` is accepted as a spelling of ``inproc``; any other value, unset included,
-    is ``tool``.
+    ``O4_DDS_ENCODER=tool`` opts back into today's subprocess converter; any other value,
+    unset included, is ``inproc``.
     """
     value = (environ if environ is not None else os.environ).get(ENCODER_ENV, "")
-    if value.strip().lower() in ("inproc", "inprocess") and ispc_available():
-        return "inproc"
-    return "tool"
+    if value.strip().lower() == "tool" or not ispc_available():
+        return "tool"
+    return "inproc"
 
 
 def as_rgba(image: np.ndarray) -> np.ndarray:

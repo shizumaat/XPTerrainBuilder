@@ -247,8 +247,8 @@ def test_bc1_over_allocation_is_trimmed() -> None:
 # -- the flag and the convert site ------------------------------------------------------------
 
 @pytest.mark.parametrize("value,expected", [
-    (None, "tool"), ("", "tool"), ("tool", "tool"), ("bogus", "tool"),
-    ("inproc", "inproc"), ("INPROC", "inproc"), (" inprocess ", "inproc")])
+    (None, "inproc"), ("", "inproc"), ("tool", "tool"), (" TOOL ", "tool"),
+    ("bogus", "inproc"), ("inproc", "inproc"), ("INPROC", "inproc"), (" inprocess ", "inproc")])
 def test_flag_chooser(value, expected, monkeypatch) -> None:
     monkeypatch.setattr(encode, "ispc_available", lambda: True)
     env = {} if value is None else {encode.ENCODER_ENV: value}
@@ -258,11 +258,7 @@ def test_flag_chooser(value, expected, monkeypatch) -> None:
 def test_flag_falls_back_to_the_tool_without_the_wheel(monkeypatch) -> None:
     monkeypatch.setattr(encode, "ispc_available", lambda: False)
     assert encode.chosen_encoder({encode.ENCODER_ENV: "inproc"}) == "tool"
-
-
-def test_default_is_the_tool(monkeypatch) -> None:
-    monkeypatch.delenv(encode.ENCODER_ENV, raising=False)
-    assert encode.chosen_encoder() == "tool"
+    assert encode.chosen_encoder({}) == "tool"
 
 
 @needs_ispc

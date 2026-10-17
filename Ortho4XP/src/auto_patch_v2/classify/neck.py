@@ -126,6 +126,9 @@ class Neck:
     reread: bool = False
 
 
+_DIAG: list = []  # TEMPORARY xplat399 diagnostic
+
+
 def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
     """Every §43 cut of ``face``: a stretch of local width below
     ``corridor.max_width_m``, at least ``apron.neck_length_m`` long, that
@@ -227,6 +230,14 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
         curved = 0
         for m in mouths:
             chord, raw, is_curve = _mouth_chord(m, face, rules)
+            _DIAG.append("w=%r part=%s mouth=%s chord=%s curve=%r" % (
+                w, float(part.area).hex(),
+                ";".join("%s,%s" % (float(x).hex(), float(y).hex())
+                         for g in (m.geoms if hasattr(m, "geoms") else [m])
+                         for x, y in getattr(g, "coords", ())),
+                None if raw is None else ";".join(
+                    "%s,%s" % (float(x).hex(), float(y).hex()) for x, y in raw),
+                is_curve))
             if chord is None:
                 continue
             curved += int(is_curve)

@@ -197,10 +197,11 @@ if under ~2 MB. Acceptable in the repo, or in the data repo under `.harness/`?
 
 `Ortho4XP/` is GPL-3 (`LICENSING.md` §1–2); `Sources/`, `tools/`, `scripts/`
 are MIT. E is GPL-3 with GPL §7 attribution terms (E `NOTICE`) that travel with
-any copied material. Rule for this plan: **re-implement from E's specs; copy no
-file.** Where a design is E's (the AIMD window, the binary layouts, the linear-
-light mip rule), the spec says so and names the E document as prior art. If a
-lane ever copies E code, it may land ONLY under `Ortho4XP/` and must carry E's
+any copied material. Whether E code is ported (adapted) or re-implemented is
+OPEN for the owner: RULINGS 2026-10-17b struck an earlier "re-implement; copy no
+file" rule that was never the owner's. Where a design is E's (the AIMD window,
+the binary layouts, the linear-light mip rule), the spec says so and names the
+E document as prior art. If a lane ports E code, it may land ONLY under `Ortho4XP/` and must carry E's
 notice — never under `tools/` or `Sources/`. Triangle4XP changes stay under
 Triangle's licence (`LICENSING.md` §3). Third-party wheel licences (`curl_cffi`
 MIT, `blake3` CC0/Apache-2.0, `ispc_texcomp` MIT — to be verified by the lane

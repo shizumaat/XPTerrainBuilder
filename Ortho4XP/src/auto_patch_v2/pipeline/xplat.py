@@ -373,8 +373,7 @@ def classify_lines(icao: str, classification) -> dict:
     lines = sorted("%s|%s|%d|%s|%s" % (tag, ident, k, float(x).hex(),
                                        float(y).hex())
                    for tag, ident, k, x, y in _classify_items(classification))
-    from ..classify import neck as _neck   # TEMPORARY xplat399 diagnostic
-    return {"icao": icao, "lines": lines, "necks": list(_neck._DIAG)}
+    return {"icao": icao, "lines": lines}
 
 
 def write(path: str, payload: dict) -> str:

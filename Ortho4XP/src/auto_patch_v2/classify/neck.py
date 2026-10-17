@@ -126,9 +126,6 @@ class Neck:
     reread: bool = False
 
 
-_DIAG: list = []  # TEMPORARY xplat399 diagnostic
-
-
 def necks_of(face: Polygon, rules: Rules) -> list[Neck]:
     """Every §43 cut of ``face``: a stretch of local width below
     ``corridor.max_width_m``, at least ``apron.neck_length_m`` long, that
@@ -173,7 +170,23 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
     if w <= 0.0 or need <= 0.0 or face.area <= 0.0:
         return [], []
     half = w / 2.0
-    lobes = [b for b in polygon_parts(face.buffer(-half)) if b.area > 0.0]
+    # THE OPENING IS READ ON THE SLICE'S GRID (lane ``xplat399``, the
+    # release gate "one programme": CYXY ``pav5`` came out 1 cm apart on
+    # macOS and on Linux/Windows).  An opening's boundary is TANGENT to the
+    # face's by construction — the dilated lobe runs back onto the face
+    # edge — so ``face - WIDE`` in full precision is a fringe of slivers
+    # nanometres wide whose very connectivity follows the last bit of
+    # GEOS's arc arithmetic: MEASURED, translating one CYXY face by 1e-9 m
+    # split a 2,533 m2 component into 296 + 2,236, and the three runners'
+    # libm/FMA did the same to the re-read arm (area 2,117.001 vs
+    # 2,116.973 m2, re-read width 16.594 vs 16.578 m, mouth 6 mm apart).
+    # Snap-rounding every derived geometry to ``cells.snap_grid_m`` decides
+    # the slivers on quantised coordinates: a nanometre moves a vertex
+    # across a grid line once in ~1e7, not on every tangency.
+    grid = rules.cells.snap_grid_m
+    face_g = shapely.set_precision(face, grid)
+    lobes = [b for b in polygon_parts(
+        shapely.set_precision(face.buffer(-half), grid)) if b.area > 0.0]
     if not lobes:
         # NO WIDE LOBE AT ALL — the whole face is under the width.  §43
         # cuts an apron; it does not convert one, and such a face has
@@ -182,11 +195,13 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
         # `aeroway=apron` cover, the author's name).  Reported as a
         # deliberate narrowing of "one, two or none": see the lane report.
         return [], []
-    reach = [b.buffer(half).intersection(face) for b in lobes]
-    wide = unary_union(reach)
+    reach = [_polygonal(shapely.intersection(
+                 shapely.set_precision(b.buffer(half), grid), face_g,
+                 grid_size=grid), grid) for b in lobes]
+    wide = shapely.union_all(reach, grid_size=grid)
     out: list[Neck] = []
     refused: list[tuple[Polygon, float]] = []
-    for part in polygon_parts(face.difference(wide)):
+    for part in polygon_parts(shapely.difference(face_g, wide, grid_size=grid)):
         if part.area <= rules.cells.min_area_m2:
             continue
         if within is not None and \
@@ -230,14 +245,6 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
         curved = 0
         for m in mouths:
             chord, raw, is_curve = _mouth_chord(m, face, rules)
-            _DIAG.append("w=%r part=%s mouth=%s chord=%s curve=%r" % (
-                w, float(part.area).hex(),
-                ";".join("%s,%s" % (float(x).hex(), float(y).hex())
-                         for g in (m.geoms if hasattr(m, "geoms") else [m])
-                         for x, y in getattr(g, "coords", ())),
-                None if raw is None else ";".join(
-                    "%s,%s" % (float(x).hex(), float(y).hex()) for x, y in raw),
-                is_curve))
             if chord is None:
                 continue
             curved += int(is_curve)
@@ -249,6 +256,13 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
                         part.area, len(touching), curved, kind,
                         aspect, factor))
     return out, refused
+
+
+def _polygonal(geom, grid: float):
+    """The areal part of an overlay on the grid (a snap-rounded
+    intersection may also return the edges and points where two shapes
+    only touch)."""
+    return shapely.union_all(polygon_parts(geom), grid_size=grid)
 
 
 def _is_arm(aspect: float, mouth_factor: float, rules: Rules) -> bool:

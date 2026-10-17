@@ -26,19 +26,20 @@ see docs/specs/airport-index-engine-command-spec.md).
 The cache is a compact TSV file (see :func:`build_index`) so reloads are
 cheap and the on-disk format is easy to inspect.
 
-Cache format v5 and the freshness contract
+Cache format v6 and the freshness contract
 -------------------------------------------
-The cache header is ``O4AIRPORTIDX 5 <count>``.  Immediately after the
+The cache header is ``O4AIRPORTIDX 6 <count>``.  Immediately after the
 header, :func:`build_index` writes one ``#SRC <mtime_ns> <size_bytes>
 <path>`` line for every source ``apt.dat`` it actually read (the path is
 written last because it may contain spaces; ``mtime_ns`` comes from
 :func:`os.stat`'s ``st_mtime_ns`` for full precision, and the byte size is
 recorded as a second freshness signal).  The tab-separated data rows
-carry a trailing ``category`` column since v3 and the airport's four
+carry a trailing ``category`` column since v3, the airport's four
 extent columns since v5 (v4 changed only what gets INDEXED, not the row
-shape).  :func:`load_index`
-transparently loads v1 (no ``#SRC`` lines) through v5 caches, skipping any
-``#SRC`` lines.  :func:`index_is_stale` reads only the header and ``#SRC``
+shape) and its size -- longest runway in metres and size class
+(:mod:`O4_Airport_Rank`) -- since v6.  :func:`load_index`
+transparently loads v1 (no ``#SRC`` lines) through v6 caches, skipping any
+``#SRC`` lines, and ignores columns after the ones it knows.  :func:`index_is_stale` reads only the header and ``#SRC``
 lines to report whether the recorded sources still match the requested
 ones (same set of paths, and identical ``st_mtime_ns`` and size for each),
 so callers can rebuild only when something has actually changed on disk.
@@ -48,6 +49,8 @@ import os
 import sys
 from dataclasses import dataclass
 from typing import Iterable, Iterator, List, Optional, Tuple
+
+import O4_Airport_Rank as RANK
 
 __all__ = [
     "AirportEntry",
@@ -81,12 +84,19 @@ __all__ = [
 # max_lat max_lon`` spanning its boundary (row 130) nodes, runway ends,
 # helipads and datum -- so a code can select every tile the airport
 # touches, not only the tile of its datum point (issue #542).
+#
+# Version 6 appends two SIZE columns, ``runway_m size_class``: the
+# longest runway (metres, any surface) and the O4_Airport_Rank class the
+# map labels and the progress-row titles rank airports by (#815, #817).
 _CACHE_MAGIC = "O4AIRPORTIDX"
-_CACHE_VERSION = 5
+_CACHE_VERSION = 6
 
 # Data-row column counts load_index accepts: v1/v2 (no category), v3/v4
-# (category), v5 (category + extent).
-_ROW_WIDTHS = (6, 7, 11)
+# (category); from v5 (category + extent) on, any width of 11 or more --
+# the columns a reader knows are read, later ones ignored.
+_ROW_WIDTHS = (6, 7)
+_EXTENT_WIDTH = 11
+_SIZE_WIDTH = 13
 
 # Prefix marking a source-file provenance line in a v2+ cache.
 _SRC_PREFIX = "#SRC"
@@ -120,6 +130,10 @@ class AirportEntry:
         extent: ``(min_lat, min_lon, max_lat, max_lon)`` over the
             airport's boundary nodes, runway ends, helipads and datum, or
             ``None`` (pre-v5 rows): the airport is then its point.
+        runway_m: Longest runway, whole metres, any surface (0: none, or
+            a pre-v6 row).
+        size_class: :func:`O4_Airport_Rank.size_class` (0 = largest);
+            pre-v6 rows read :data:`O4_Airport_Rank.UNKNOWN_SIZE_CLASS`.
     """
 
     code: str
@@ -130,6 +144,8 @@ class AirportEntry:
     lon: float
     category: str = "icao_airport"
     extent: Optional[Tuple[float, float, float, float]] = None
+    runway_m: int = 0
+    size_class: int = RANK.UNKNOWN_SIZE_CLASS
 
 
 # ---------------------------------------------------------------------------
@@ -219,13 +235,15 @@ def _flush_airport(
     rwy_lon: Optional[float],
     category: str = "icao_airport",
     extent: Optional[List[float]] = None,
+    runways: Tuple[float, float] = (0.0, 0.0),
 ) -> Optional[AirportEntry]:
     """Assemble an :class:`AirportEntry` from an airport's accumulated rows.
 
     Metadata datum coordinates win over the runway/helipad fallback; the
     position is folded into ``extent`` (a ``[min_lat, min_lon, max_lat,
-    max_lon]`` accumulator, or ``None``).  Returns ``None`` when no code or no usable coordinate is available, so
-    the caller can skip the airport.
+    max_lon]`` accumulator, or ``None``).  ``runways`` is ``(longest_m,
+    longest_paved_m)``.  Returns ``None`` when no code or no usable
+    coordinate is available, so the caller can skip the airport.
     """
     if not code:
         return None
@@ -234,9 +252,24 @@ def _flush_airport(
     if lat is None or lon is None:
         return None
     extent = _extend(extent, lat, lon)
+    (longest_m, paved_m) = runways
     return AirportEntry(code=code, name=name, city=city, country=country,
                         lat=lat, lon=lon, category=category,
-                        extent=tuple(extent))
+                        extent=tuple(extent),
+                        runway_m=int(round(longest_m)),
+                        size_class=RANK.size_class(category, longest_m,
+                                                   paved_m))
+
+
+def _runway_length(row: List[str], ends: Tuple[int, int, int, int]) -> float:
+    """Metres between a runway row's two ends (fields ``ends``: lat1,
+    lon1, lat2, lon2), 0 for a short or malformed row."""
+    if len(row) <= max(ends):
+        return 0.0
+    values = [_parse_float(row[i]) for i in ends]
+    if any(v is None for v in values):
+        return 0.0
+    return RANK.runway_length_m(*values)
 
 
 def _extend(extent: Optional[List[float]], lat: float,
@@ -288,6 +321,9 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
     * ``111``-``116`` after a ``130`` boundary header -- boundary nodes;
       lat/lon are fields 1 and 2.  They, every runway end and every
       helipad grow the airport's ``extent``.
+    * Every ``100``/``101`` row's length (end to end) feeds the airport's
+      size: the longest runway, and the longest hard one (row 100 field 2
+      is the surface code).
 
     An airport with no metadata datum and no runway/helipad coordinate is
     skipped (not yielded).
@@ -306,6 +342,8 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
     rwy_lon: Optional[float] = None
     extent: Optional[List[float]] = None
     in_boundary = False
+    longest_m = 0.0
+    paved_m = 0.0
 
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
         for raw in handle:
@@ -322,7 +360,7 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
                         code, name, city, country,
                         meta_lat, meta_lon, rwy_lat, rwy_lon,
                         _airport_category(header_code, saw_icao_code),
-                        extent)
+                        extent, (longest_m, paved_m))
                     if entry is not None:
                         yield entry
                 # Reset accumulators for the new header.
@@ -337,6 +375,8 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
                 rwy_lon = None
                 extent = None
                 in_boundary = False
+                longest_m = 0.0
+                paved_m = 0.0
                 # Header layout: 1 <elev> <dep> <dep> <ID> <Name...>
                 code = row[4] if len(row) >= 5 else None
                 name = " ".join(row[5:]) if len(row) >= 6 else ""
@@ -358,9 +398,15 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
             if row_code == "100":
                 extent = _extend_from(extent, row, 9, 10)
                 extent = _extend_from(extent, row, 18, 19)
+                length = _runway_length(row, (9, 10, 18, 19))
+                longest_m = max(longest_m, length)
+                if len(row) > 2 and RANK.is_paved(row[2]):
+                    paved_m = max(paved_m, length)
             elif row_code == "101":
                 extent = _extend_from(extent, row, 4, 5)
                 extent = _extend_from(extent, row, 7, 8)
+                longest_m = max(longest_m,
+                                _runway_length(row, (4, 5, 7, 8)))
             elif row_code == "102":
                 extent = _extend_from(extent, row, 2, 3)
 
@@ -421,7 +467,8 @@ def _iter_airports(path: str) -> Iterator[AirportEntry]:
         entry = _flush_airport(
             code, name, city, country,
             meta_lat, meta_lon, rwy_lat, rwy_lon,
-            _airport_category(header_code, saw_icao_code), extent)
+            _airport_category(header_code, saw_icao_code), extent,
+            (longest_m, paved_m))
         if entry is not None:
             yield entry
 
@@ -455,13 +502,13 @@ def build_index(apt_dat_paths: Iterable[str], cache_file: str) -> int:
 
     The cache is a UTF-8 TSV file whose first line is::
 
-        O4AIRPORTIDX 5 <count>
+        O4AIRPORTIDX 6 <count>
 
     followed by one ``#SRC <mtime_ns> <size_bytes> <path>`` line per source
     file actually read, then one tab-separated ``code<TAB>name<TAB>city<TAB>
     country<TAB>lat<TAB>lon<TAB>category<TAB>min_lat<TAB>min_lon<TAB>
-    max_lat<TAB>max_lon`` row per airport (the extent of an entry without
-    one is its point).  The file is
+    max_lat<TAB>max_lon<TAB>runway_m<TAB>size_class`` row per airport (the
+    extent of an entry without one is its point).  The file is
     written atomically (to a temporary file then :func:`os.replace`).
 
     Args:
@@ -510,7 +557,8 @@ def build_index(apt_dat_paths: Iterable[str], cache_file: str) -> int:
                 repr(e.lat),
                 repr(e.lon),
                 _sanitize(e.category),
-            ) + tuple(repr(v) for v in extent)) + "\n")
+            ) + tuple(repr(v) for v in extent)
+              + (str(int(e.runway_m)), str(int(e.size_class)))) + "\n")
     os.replace(tmp_file, cache_file)
     return len(rows)
 
@@ -520,10 +568,11 @@ def load_index(cache_file: str) -> List[AirportEntry]:
 
     The cache is streamed line-by-line.  A missing file or a file without
     the expected magic header yields an empty list.  v1 (no ``#SRC``
-    lines) through v5 caches are all accepted; ``#SRC`` provenance lines
+    lines) through v6 caches are all accepted; ``#SRC`` provenance lines
     are skipped, pre-v3 rows (no category column) load with the
-    :class:`AirportEntry` category default, and pre-v5 rows (no extent)
-    with ``extent=None``.  Malformed data rows are
+    :class:`AirportEntry` category default, pre-v5 rows (no extent)
+    with ``extent=None`` and pre-v6 rows (no size) with the size
+    defaults; columns past the last known one are ignored.  Malformed data rows are
     skipped rather than raising.
 
     Args:
@@ -547,7 +596,7 @@ def load_index(cache_file: str) -> List[AirportEntry]:
                 # v2 source-provenance line -- not an airport entry.
                 continue
             parts = line.split("\t")
-            if len(parts) not in _ROW_WIDTHS:
+            if len(parts) not in _ROW_WIDTHS and len(parts) < _EXTENT_WIDTH:
                 continue
             lat = _parse_float(parts[4])
             lon = _parse_float(parts[5])
@@ -558,10 +607,22 @@ def load_index(cache_file: str) -> List[AirportEntry]:
                 country=parts[3], lat=lat, lon=lon)
             if len(parts) >= 7 and parts[6] in AIRPORT_CATEGORIES:
                 entry.category = parts[6]
-            if len(parts) == 11:
+            if len(parts) >= _EXTENT_WIDTH:
                 entry.extent = _parse_extent(parts[7:11])
+            if len(parts) >= _SIZE_WIDTH:
+                _read_size(entry, parts[11], parts[12])
             entries.append(entry)
     return entries
+
+
+def _read_size(entry: AirportEntry, runway_m: str, size_class: str) -> None:
+    """Set a v6 row's size columns on ``entry``; a malformed value keeps
+    the default."""
+    try:
+        entry.runway_m = int(runway_m)
+        entry.size_class = int(size_class)
+    except ValueError:
+        pass
 
 
 def _parse_extent(fields: List[str]
@@ -617,7 +678,7 @@ def index_is_stale(apt_dat_paths: List[str], cache_file: str) -> bool:
       source info; pre-v3 caches carry no airport categories; pre-v4
       caches were built by a parse that skipped water-only seaplane
       bases, from a smaller candidate set; pre-v5 caches carry no
-      extent);
+      extent; pre-v6 caches carry no size);
     * the set of recorded source paths differs from ``apt_dat_paths``
       (compared order-insensitively after :func:`os.path.abspath`);
     * a recorded source no longer exists on disk;

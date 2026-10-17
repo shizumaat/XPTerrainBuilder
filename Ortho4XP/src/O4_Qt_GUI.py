@@ -78,6 +78,7 @@ import O4_Build_Info
 import O4_Engine_Stderr_Log as STDLOG
 import O4_Airport_Index as APT
 import O4_Airport_Batch as APTBATCH
+import O4_Airport_Rank as RANK
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
 import O4_Qt_Map as QTMAP
@@ -1769,6 +1770,15 @@ class MainWindow(QMainWindow):
             cached = (self._airports, APTBATCH.code_lookup(self._airports))
             self._airport_lookup = cached
         return APTBATCH.resolve_codes(text, cached[1])
+
+    def _largest_airports(self):
+        """Each tile -> its largest airports' codes (O4_Airport_Rank,
+        #815), built once per loaded index, not per progress row."""
+        cached = getattr(self, "_largest_by_tile", None)
+        if cached is None or cached[0] is not self._airports:
+            cached = (self._airports, RANK.largest_by_tile(self._airports))
+            self._largest_by_tile = cached
+        return cached[1]
 
     def _select_airport_batch(self, batch):
         """Select every tile of the listed airports, then alert on the
@@ -3572,9 +3582,12 @@ class MainWindow(QMainWindow):
             # left, and the clock, right, then the stop / resume button.
             # The status elides before it reaches the clock, which never
             # shrinks (a plain QLabel's minimum is its full text).
+            # The tile's largest airports, a searched one first (#815).
             title = ElidedRowLabel(
                 FNAMES.short_latlon(*tile)
-                + APTBATCH.tile_tag(self._search_tags.get(tile, ()))
+                + APTBATCH.tile_tag(RANK.title_codes(
+                    self._largest_airports().get(tile, ()),
+                    self._search_tags.get(tile, ())))
             )
             title.setObjectName("tile_title")
             rl.addWidget(title)

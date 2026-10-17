@@ -211,30 +211,42 @@ def _row_labels(window, tiles):
             for t in tiles]
 
 
-def test_progress_rows_name_the_codes_that_picked_them(make_window,
-                                                       monkeypatch):
-    """#667: a tile picked by search shows its code(s) after the
-    coordinate, in the order typed; a hand-selected tile shows none; a
-    deselected tile loses its tag; a new search replaces the tags as it
-    replaces the selection."""
+def test_progress_rows_name_the_largest_airports_searched_first(
+        make_window, monkeypatch):
+    """#815 (after #667): every row names its tile's largest airports,
+    however the tile was picked; a searched code not among them goes
+    first; a tile with no airport shows only its coordinate."""
     window, _ = _batch_window(make_window, monkeypatch)
-    window._airports.append(
-        APT.AirportEntry("KJQF", "Concord", "", "", 35.39, -80.71))
-    window.search_edit.setText("KCLT, KJQF othh")
+    window._airports = [
+        APT.AirportEntry("KCLT", "Charlotte", "", "", 35.21, -80.94,
+                         runway_m=3000, size_class=0),
+        APT.AirportEntry("KJQF", "Concord", "", "", 35.39, -80.71,
+                         runway_m=2300, size_class=1),
+        APT.AirportEntry("KEQY", "Monroe", "", "", 35.02, -80.62,
+                         runway_m=2100, size_class=1),
+        APT.AirportEntry("KUZA", "Rock Hill", "", "", 35.05, -80.90,
+                         runway_m=1700, size_class=2),
+        APT.AirportEntry("NC00", "Strip", "", "", 35.50, -80.50,
+                         runway_m=600, size_class=3),
+        APT.AirportEntry("OTHH", "Hamad", "", "", 25.27, 51.61,
+                         runway_m=4800, size_class=0),
+    ]
+    # By hand: the four largest, largest first.
+    assert _row_labels(window, [(35, -81), (10, 10)]) == [
+        "+35-081 (KCLT, KJQF, KEQY, KUZA)", "+10+010"]
+    # Searched: a small field the user named goes first.
+    window.search_edit.setText("NC00, OTHH")
     window._search_accept_first()
+    window._tile_rows.clear()
     assert _row_labels(window, [(35, -81), (25, 51)]) == [
-        "+35-081 (KCLT, KJQF)", "+25+051 (OTHH)"]
-    # Deselect one: its tag goes; a hand-added tile has none.
-    window.map.set_selection([(25, 51), (10, 10)])
-    assert _row_labels(window, [(35, -81), (25, 51), (10, 10)]) == [
-        "+35-081", "+25+051 (OTHH)", "+10+010"]
-    # One airport replaces the selection and the tags (Qt replaces).
-    window.search_edit.setText("KCLT")
-    window._update_search_popup("KCLT")
+        "+35-081 (NC00, KCLT, KJQF, KEQY)", "+25+051 (OTHH)"]
+    # Searched and already among the four: the order stays by size.
+    window.search_edit.setText("KJQF")
+    window._update_search_popup("KJQF")
     window._search_accept_first()
-    assert _row_labels(window, [(35, -81), (25, 51)]) == [
-        "+35-081 (KCLT)", "+25+051"]
-
+    window._tile_rows.clear()
+    assert _row_labels(window, [(35, -81)]) == [
+        "+35-081 (KCLT, KJQF, KEQY, KUZA)"]
 
 
 def test_progress_row_title_owns_its_line_status_and_clock_share_the_next(

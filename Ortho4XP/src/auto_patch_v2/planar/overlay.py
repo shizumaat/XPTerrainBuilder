@@ -40,6 +40,7 @@ from .pad_cut import (_drop_rim_midpoints, _renode_counts, _SHARED_TIE_DP,
                       airside_clip, airside_union, apron_cut_to_pads,
                       build_rim)
 from .weld import WeldStats, weld_cells
+from .ridge_reach import reach_pavement_edge
 from .shore import pack_shore_walls
 from .zones import shore_declarations, shore_wedge_m, zone_regions
 
@@ -219,6 +220,12 @@ def build_arrangement(airport: Airport, classification: Classification,
     cells, weld = weld_cells(tuple(c for c in classification.cells
                                    if not is_late_cell(c)), law, ridge_ends) \
         if ribbon_cells else weld_cells(classification.cells, law, ridge_ends)
+    # #878: a same-runway rim the weld could not fold (narrower than its
+    # tolerance) takes the ridge to its far edge, so that edge has a
+    # vertex at the crown
+    ridges, _reached = reach_pavement_edge(
+        ridges, cells, law.tables.emit.identity.weld_spacing_m,
+        0.5 * law.tables.emit.identity.min_distinct_spacing_m)
     regions: list[Region] = []
     for c in cells:
         regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),

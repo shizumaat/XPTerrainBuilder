@@ -1048,6 +1048,7 @@ def run_airport(binary, repo_root, log_dir, deadline, keep, xplat_dump=None,
             copied = []
             for name in ("%s.xplat.json" % AIRPORT_ICAO,
                          "%s.xproj.json" % AIRPORT_ICAO,
+                         "%s.xcells.json" % AIRPORT_ICAO,
                          "%s.report.json" % AIRPORT_ICAO,
                          # §46 (7): the graded surface is one of the two
                          # artefacts the gate compares BYTE for byte

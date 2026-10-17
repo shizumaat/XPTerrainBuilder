@@ -9,6 +9,7 @@ snap_grid_m  = 0.01    # noding grid of the pavement slice (v1 global_slice._GRI
 min_area_m2  = 0.25    # a polygonised piece below this is noise, folded into its neighbour (v1 _MIN_PIECE_AREA)
 on_tol_m     = 1.0     # a cell whose boundary runs within this of a centreline TOUCHES it (v1 _ON_TOL_M)
 min_shared_m = 0.5     # ...and shares at least this much boundary with it (a corner graze is not contact)
+opening_grid_m = 0.001  # §43's opening (erosion, dilation, the narrow components) is snap-rounded to this grid so its tangent slivers are decided on quantised coordinates, one answer on every platform (§46; lane `xplat399`, release run 38984527809: CYXY's re-read arm 6 mm apart on macOS vs Linux/Windows). At §46's input quantum (`emit.identity.input_quantum_m`): MEASURED at CYXY, 1 cm also dropped a re-read arm (pav3, 1,012 m2, mouth factor 2.36) by merging fringe pieces 1 mm keeps apart
 
 [keyhole]                       # dead-end centrelines spur to the nearest boundary so the tip grades (v1 global_slice)
 deadend_boundary_tol_m = 3.0    # an endpoint farther than this from the pavement boundary is INTERIOR

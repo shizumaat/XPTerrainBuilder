@@ -351,7 +351,7 @@ def test_a_reread_arm_is_taxiway_only_on_taxi_evidence(rules):
 # full precision ``face - WIDE`` is a fringe of nanometre slivers whose
 # connectivity follows the last bit of GEOS's arc arithmetic — the
 # release gate saw CYXY's re-read arm 6 mm apart on macOS and on
-# Linux/Windows.  The reading is snap-rounded to ``cells.snap_grid_m``:
+# Linux/Windows.  The reading is snap-rounded to ``cells.opening_grid_m``:
 # a face moved by a nanometre either way, at the tangency, reads the
 # SAME necks and cuts into the SAME pieces.
 

@@ -170,7 +170,7 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
     if w <= 0.0 or need <= 0.0 or face.area <= 0.0:
         return [], []
     half = w / 2.0
-    # THE OPENING IS READ ON THE SLICE'S GRID (lane ``xplat399``, the
+    # THE OPENING IS READ ON A GRID (lane ``xplat399``, the
     # release gate "one programme": CYXY ``pav5`` came out 1 cm apart on
     # macOS and on Linux/Windows).  An opening's boundary is TANGENT to the
     # face's by construction — the dilated lobe runs back onto the face
@@ -180,10 +180,11 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
     # split a 2,533 m2 component into 296 + 2,236, and the three runners'
     # libm/FMA did the same to the re-read arm (area 2,117.001 vs
     # 2,116.973 m2, re-read width 16.594 vs 16.578 m, mouth 6 mm apart).
-    # Snap-rounding every derived geometry to ``cells.snap_grid_m`` decides
-    # the slivers on quantised coordinates: a nanometre moves a vertex
-    # across a grid line once in ~1e7, not on every tangency.
-    grid = rules.cells.snap_grid_m
+    # Snap-rounding every derived geometry to ``cells.opening_grid_m`` (the
+    # §46 input quantum, 1 mm) decides the slivers on quantised
+    # coordinates: a nanometre moves a vertex across a grid line once in
+    # ~1e6, not on every tangency.
+    grid = rules.cells.opening_grid_m
     face_g = shapely.set_precision(face, grid)
     lobes = [b for b in polygon_parts(
         shapely.set_precision(face.buffer(-half), grid)) if b.area > 0.0]

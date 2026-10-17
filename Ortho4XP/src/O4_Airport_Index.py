@@ -13,8 +13,9 @@ no network access, no printing):
 * :func:`load_index`    -- fast reload from that cache.
 * :func:`index_count`   -- the cache's recorded airport count (header only).
 * :func:`index_is_stale` -- decide whether the cache needs rebuilding.
-* :func:`search`        -- rank airports for a free-text query.
 * :func:`parse_coordinate_query` -- interpret a query as tile coordinates.
+
+Searching the index by code or name is :mod:`O4_Airport_Search` (#543).
 
 This module is the SINGLE airport-index implementation every front end
 uses: the Qt map consumes it in-process, and the macOS application asks
@@ -60,7 +61,6 @@ __all__ = [
     "load_index",
     "index_count",
     "index_is_stale",
-    "search",
     "parse_coordinate_query",
 ]
 
@@ -752,76 +752,6 @@ def index_is_stale(apt_dat_paths: List[str], cache_file: str) -> bool:
             return True
 
     return False
-
-
-# ---------------------------------------------------------------------------
-# Search
-# ---------------------------------------------------------------------------
-# Rank buckets (lower = better match).
-_RANK_EXACT_CODE = 0
-_RANK_CODE_PREFIX = 1
-_RANK_NAME_PREFIX = 2
-_RANK_NAME_SUBSTR = 3
-_RANK_CITY_SUBSTR = 4
-_RANK_COUNTRY_SUBSTR = 5
-
-
-def _match_rank(entry: AirportEntry, query: str) -> Optional[int]:
-    """Return the best (lowest) rank bucket for ``entry`` vs ``query``.
-
-    ``query`` must already be lower-cased.  Returns ``None`` when the entry
-    does not match at all.
-    """
-    code = entry.code.lower()
-    name = entry.name.lower()
-    city = entry.city.lower()
-    country = entry.country.lower()
-
-    if code == query:
-        return _RANK_EXACT_CODE
-    if code.startswith(query):
-        return _RANK_CODE_PREFIX
-    if name.startswith(query):
-        return _RANK_NAME_PREFIX
-    if query in name:
-        return _RANK_NAME_SUBSTR
-    if query in city:
-        return _RANK_CITY_SUBSTR
-    if query in country:
-        return _RANK_COUNTRY_SUBSTR
-    return None
-
-
-def search(entries: List[AirportEntry], query: str,
-           limit: int = 10) -> List[AirportEntry]:
-    """Return up to ``limit`` airports matching ``query``, best first.
-
-    Matching is case-insensitive and ranked in this order: exact code
-    match, code prefix, name prefix, substring within name, substring
-    within city, then substring within country.  Ties within a rank keep
-    the input order (stable sort).
-
-    Queries shorter than two characters return ``[]``.
-
-    Args:
-        entries: Airports to search (typically from :func:`load_index`).
-        query: Free-text query.
-        limit: Maximum number of results to return.
-
-    Returns:
-        The matching airports, ranked and truncated to ``limit``.
-    """
-    q = query.strip().lower()
-    if len(q) < 2:
-        return []
-    scored: List[Tuple[int, int, AirportEntry]] = []
-    for idx, entry in enumerate(entries):
-        rank = _match_rank(entry, q)
-        if rank is not None:
-            scored.append((rank, idx, entry))
-    # (rank, original index) is a total order that is stable within a rank.
-    scored.sort(key=lambda t: (t[0], t[1]))
-    return [entry for _, _, entry in scored[:max(0, limit)]]
 
 
 # ---------------------------------------------------------------------------

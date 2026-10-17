@@ -17,7 +17,8 @@ _SRC = os.path.normpath(
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
 
-import O4_Airport_Index as AI  # noqa: E402
+import O4_Airport_Index as AI
+import O4_Airport_Search as SEARCH
 
 
 # ---------------------------------------------------------------------------
@@ -252,75 +253,8 @@ def test_duplicate_first_file_wins(apt1, apt2, tmp_path):
     assert count == 5
 
 
-# ---------------------------------------------------------------------------
-# search ranking
-# ---------------------------------------------------------------------------
-def _entries():
-    return [
-        AI.AirportEntry("KJFK", "John F Kennedy Intl", "New York",
-                        "United States", 40.6, -73.8),
-        AI.AirportEntry("KJFA", "Jefferson Airfield", "Jeffrey",
-                        "United States", 39.0, -95.0),
-        AI.AirportEntry("EGLL", "London Heathrow", "London",
-                        "United Kingdom", 51.5, -0.5),
-        AI.AirportEntry("LFPG", "Charles de Gaulle Kennedy Annex", "Paris",
-                        "France", 49.0, 2.5),
-        AI.AirportEntry("ZZKJ", "Zeta Field", "Kjburg", "Kjland",
-                        1.0, 1.0),
-    ]
-
-
-def test_search_exact_code_first():
-    res = AI.search(_entries(), "KJFK")
-    assert res[0].code == "KJFK"
-
-
-def test_search_code_prefix_beats_name_substring():
-    # "KJ" is a code prefix for KJFK/KJFA, and also a name/city/country
-    # substring elsewhere; code-prefix matches must sort ahead.
-    res = AI.search(_entries(), "KJ")
-    top_two = {res[0].code, res[1].code}
-    assert top_two == {"KJFK", "KJFA"}
-
-
-def test_search_name_prefix_and_substring_order():
-    res = AI.search(_entries(), "kennedy")
-    codes = [e.code for e in res]
-    # "John F Kennedy" contains kennedy as a substring; no name STARTS with
-    # kennedy, so both KJFK and LFPG are name-substring rank, input order.
-    assert codes.index("KJFK") < codes.index("LFPG")
-
-
-def test_search_exact_beats_prefix():
-    entries = [
-        AI.AirportEntry("KJFKX", "Prefix Match", "", "", 0.0, 0.0),
-        AI.AirportEntry("KJFK", "Exact Match", "", "", 0.0, 0.0),
-    ]
-    res = AI.search(entries, "kjfk")
-    assert res[0].code == "KJFK"
-    assert res[1].code == "KJFKX"
-
-
-def test_search_limit():
-    entries = [AI.AirportEntry("AA%02d" % i, "Alpha %d" % i, "", "",
-                               0.0, 0.0) for i in range(20)]
-    res = AI.search(entries, "aa", limit=5)
-    assert len(res) == 5
-
-
-def test_search_short_query_returns_empty():
-    assert AI.search(_entries(), "k") == []
-    assert AI.search(_entries(), "") == []
-
-
-def test_search_stable_within_rank():
-    entries = [
-        AI.AirportEntry("ZZ01", "Foobar One", "", "", 0.0, 0.0),
-        AI.AirportEntry("ZZ02", "Foobar Two", "", "", 0.0, 0.0),
-        AI.AirportEntry("ZZ03", "Foobar Three", "", "", 0.0, 0.0),
-    ]
-    res = AI.search(entries, "foobar")
-    assert [e.code for e in res] == ["ZZ01", "ZZ02", "ZZ03"]
+# Search ranking lives in O4_Airport_Search (#543); its twin is
+# test_airport_search.py.
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +303,7 @@ def test_end_to_end(tmp_path):
     n = AI.build_index(paths, cache)
     assert n == 4
     entries = AI.load_index(cache)
-    hit = AI.search(entries, "AAAA")
+    hit = SEARCH.AirportSearchIndex(entries).search("AAAA")
     assert hit and hit[0].code == "AAAA"
 
 

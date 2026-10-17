@@ -1,0 +1,42 @@
+{
+  "_doc": "Shared vectors for airport search by code or name (#543, RULINGS 2026-10-17c). Read by Ortho4XP/tests/test_airport_search.py (O4_Airport_Search) and Tests/SceneryKitTests/AirportSearchTests.swift (SceneryKit AirportSearch). Codes and names are synthetic.",
+  "normalize": [
+    {"text": "Zürich-Kloten", "normal": "zurich kloten"},
+    {"text": "  MÜNCHEN  ", "normal": "munchen"},
+    {"text": "São Paulo/Guarulhos Int'l", "normal": "sao paulo guarulhos int l"},
+    {"text": "İstanbul", "normal": "istanbul"},
+    {"text": "Ｋｙｏｔｏ　Ａｉｒ", "normal": "kyoto air"},
+    {"text": "St. John's (NL)", "normal": "st john s nl"},
+    {"text": "", "normal": ""}
+  ],
+  "labels": [
+    {"code": "AAAA", "name": "Alpha International", "city": "Alphaville", "country": "Arcadia", "label": "AAAA · Alpha International · Alphaville, Arcadia"},
+    {"code": "BBBB", "name": "Bravo Field", "city": "", "country": "Arcadia", "label": "BBBB · Bravo Field · Arcadia"},
+    {"code": "CCCC", "name": "", "city": "", "country": "", "label": "CCCC"}
+  ],
+  "no_match": [
+    {"query": " qqqq zzzz ", "text": "No airport matches “qqqq zzzz”"}
+  ],
+  "index": [
+    {"code": "AAAA", "name": "Zürich Kloten International", "city": "Zürich", "country": "Helvetia", "size_class": 0, "runway_m": 3700},
+    {"code": "AABB", "name": "Kloten Gliderfield", "city": "Kloten", "country": "Helvetia", "size_class": 3, "runway_m": 600},
+    {"code": "ZURX", "name": "Zurich Heliport", "city": "Zürich", "country": "Helvetia", "size_class": 4, "runway_m": 0},
+    {"code": "CCCC", "name": "Springfield Regional", "city": "Springfield", "country": "Columbia", "size_class": 2, "runway_m": 1800},
+    {"code": "DDDD", "name": "Springfield Municipal", "city": "Springfield", "country": "Columbia", "size_class": 1, "runway_m": 2400},
+    {"code": "EEEE", "name": "Capital City Airport", "city": "Springfield", "country": "Columbia", "size_class": 0, "runway_m": 3100},
+    {"code": "AAAAX", "name": "Prefix Strip", "city": "", "country": "", "size_class": 3, "runway_m": 500}
+  ],
+  "search": [
+    {"_doc": "exact code first, then code prefix", "query": "aaaa", "codes": ["AAAA", "AAAAX"]},
+    {"_doc": "code prefix, larger first", "query": "AA", "codes": ["AAAA", "AABB", "AAAAX"]},
+    {"_doc": "accent-blind; two names start with it, so size orders them", "query": "zurich", "codes": ["AAAA", "ZURX"]},
+    {"_doc": "a name that starts with it beats a later word of a name", "query": "kloten", "codes": ["AABB", "AAAA"]},
+    {"_doc": "same tier: size class orders them; the city-only match comes last", "query": "springfield", "codes": ["DDDD", "CCCC", "EEEE"]},
+    {"_doc": "word prefixes, any order", "query": "munic spring", "codes": ["DDDD"]},
+    {"_doc": "words across name and country", "query": "springfield columbia", "codes": ["EEEE", "DDDD", "CCCC"]},
+    {"_doc": "a word inside a word is not a match", "query": "loten", "codes": []},
+    {"_doc": "no match", "query": "qqqq", "codes": []},
+    {"_doc": "too short", "query": "z", "codes": []},
+    {"_doc": "punctuation alone is too short", "query": " - ", "codes": []}
+  ]
+}

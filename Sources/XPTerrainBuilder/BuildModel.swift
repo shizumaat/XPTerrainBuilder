@@ -297,6 +297,9 @@ final class BuildModel: ObservableObject {
     private(set) var globalAirports: [GlobalAirport] = [] {
         didSet { largestAirportsByTile = nil }
     }
+    /// Code / name search over `globalAirports` (#543), rebuilt off the
+    /// main thread whenever the index is published.
+    @Published private(set) var airportSearch = AirportSearch([])
     /// Each tile's largest airports (#815), built from `globalAirports`
     /// the first time a run needs it and dropped when the index changes.
     private var largestAirportsByTile: [AirportTile: [String]]?
@@ -687,6 +690,15 @@ final class BuildModel: ObservableObject {
     private func publishGlobalAirports(_ airports: [GlobalAirport]) {
         globalAirports = airports
         onGlobalAirports?(airports)
+        // The search field's index (#543): normalised once, off the main
+        // thread; a stale build never overwrites a newer index.
+        Task { [weak self] in
+            let search = await Task.detached(priority: .userInitiated) {
+                AirportSearch(airports)
+            }.value
+            guard let self, self.globalAirports.count == airports.count else { return }
+            self.airportSearch = search
+        }
     }
 
     // MARK: - Event handling (protocol path)

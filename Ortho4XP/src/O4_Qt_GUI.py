@@ -79,6 +79,7 @@ import O4_Engine_Stderr_Log as STDLOG
 import O4_Airport_Index as APT
 import O4_Airport_Batch as APTBATCH
 import O4_Airport_Rank as RANK
+import O4_Airport_Search as SEARCH
 import O4_Map_Guidance as GUIDE
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
@@ -914,7 +915,7 @@ class MainWindow(QMainWindow):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(
-            "Search airport, city, country — or tile like +48-006"
+            "Airport code or name, or tile like +48-006"
         )
         self.search_edit.setToolTip(
             "Several airport codes (KCLT, KASE OTHH) select all their "
@@ -1746,17 +1747,26 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(_batch_summary(batch))
             item.setData(Qt.UserRole, ("batch", batch))
             self.search_popup.addItem(item)
-        for entry in ([] if batch is not None
-                      else APT.search(self._airports, text, limit=8)):
-            label = "%s — %s" % (entry.code, entry.name)
-            if entry.city:
-                label += " (%s)" % entry.city
-            item = QListWidgetItem(label)
-            item.setData(
-                Qt.UserRole,
-                ("apt", (math.floor(entry.lat), math.floor(entry.lon))),
-            )
+        # Code or name, accent- and case-blind, best match then largest
+        # first (O4_Airport_Search, #543); an airport selects every tile
+        # it touches, its datum tile first and active.
+        results = ([] if batch is not None or coord
+                   else self._airport_search().search(text))
+        for entry in results:
+            item = QListWidgetItem(SEARCH.result_label(
+                entry.code, entry.name, entry.city, entry.country))
+            datum = (math.floor(entry.lat), math.floor(entry.lon))
+            tiles = [datum] + [t for t in APTBATCH.airport_tiles(
+                entry.lat, entry.lon, entry.extent) if t != datum]
+            item.setData(Qt.UserRole, ("apt", tiles))
             item.setData(_SEARCH_CODE_ROLE, entry.code)
+            self.search_popup.addItem(item)
+        if (not self.search_popup.count()
+                and len(SEARCH.normalize(text)) >= SEARCH.MIN_QUERY_LENGTH):
+            # The no-match state: one row that says so, not an empty void.
+            item = QListWidgetItem(SEARCH.no_match_text(text))
+            item.setData(Qt.UserRole, ("none", None))
+            item.setFlags(Qt.NoItemFlags)
             self.search_popup.addItem(item)
         if not self.search_popup.count():
             self.search_popup.hide()
@@ -1782,20 +1792,37 @@ class MainWindow(QMainWindow):
 
     def _search_accept_item(self, item):
         kind, target = item.data(Qt.UserRole)
+        if kind == "none":
+            return  # the no-match row: nothing to select
         self.search_popup.hide()
         if kind == "batch":
             self._select_airport_batch(target)
             return
-        lat, lon = target
         if kind == "apt":
-            # The airport's tile replaces the selection, and its tag the
-            # tags (#667) — set before set_active prunes to the selection.
-            self._search_tags = {
-                (lat, lon): [str(item.data(_SEARCH_CODE_ROLE)).upper()]
-            }
+            # The airport's tiles replace the selection, and its code the
+            # tags (#667) — set before the selection prunes them.
+            code = str(item.data(_SEARCH_CODE_ROLE)).upper()
+            self._search_tags = {tile: [code] for tile in target}
+            self.search_edit.clear()
+            (lat, lon) = target[0]
+            self.map.center_on_tile(lat, lon, zoom=9)
+            self.map.set_selection(target)
+            self.map.set_active(lat, lon, select=False)
+            return
+        lat, lon = target
         self.search_edit.clear()
-        self.map.center_on_tile(lat, lon, zoom=9 if kind == "apt" else 8)
+        self.map.center_on_tile(lat, lon, zoom=8)
         self.map.set_active(lat, lon)
+
+    def _airport_search(self):
+        """The name/code search over the loaded index, normalised once
+        per index, not per keystroke."""
+        cached = getattr(self, "_airport_search_index", None)
+        if cached is None or cached[0] is not self._airports:
+            cached = (self._airports,
+                      SEARCH.AirportSearchIndex(self._airports))
+            self._airport_search_index = cached
+        return cached[1]
 
     def _airport_batch(self, text):
         """``text`` as a list of airport codes, or None for an ordinary

@@ -1,4 +1,4 @@
-# XPTerrainBuilder 1.0.399-beta.2
+# XPTerrainBuilder 1.0.400-beta.2
 
 **Beta 2 — a prerelease for outside testers.** The airport terrain now follows
 the published runway and taxiway design standards (FAA AC 150/5300-13B, ICAO
@@ -7,7 +7,7 @@ builds. What needs testing most is still **airport terrain**: build a tile that
 contains an airport you know well, fly or taxi there in X-Plane 12, and tell us
 where the ground or the buildings look wrong. Read *Known issues* before you
 start, and the
-[testing guide](https://github.com/shizumaat/XPTerrainBuilder/blob/v1.0.399-beta.2/docs/TESTING-GUIDE.md)
+[testing guide](https://github.com/shizumaat/XPTerrainBuilder/blob/v1.0.400-beta.2/docs/TESTING-GUIDE.md)
 for a first build, step by step.
 
 ## What this is
@@ -101,9 +101,9 @@ It is a fork and derivative of
 
 | Platform | Artifact |
 | --- | --- |
-| macOS 14+, **Apple Silicon only** | `XPTerrainBuilder-1.0.399-beta.2-mac.zip` |
-| Windows 10/11 x64 | `XPTerrainBuilder-1.0.399-beta.2-win.zip` |
-| Linux x86_64 (built on Ubuntu 22.04) | `XPTerrainBuilder-1.0.399-beta.2-linux.AppImage` (or `…-linux.tar.gz`) |
+| macOS 14+, **Apple Silicon only** | `XPTerrainBuilder-1.0.400-beta.2-mac.zip` |
+| Windows 10/11 x64 | `XPTerrainBuilder-1.0.400-beta.2-win.zip` |
+| Linux x86_64 (built on Ubuntu 22.04) | `XPTerrainBuilder-1.0.400-beta.2-linux.AppImage` (or `…-linux.tar.gz`) |
 
 **macOS.** The app is signed with a Developer ID and notarized by Apple, so
 there is nothing to bypass.
@@ -129,15 +129,15 @@ portable, not installed.
 **Linux.** Download the **AppImage**, make it executable, and run it:
 
 ```sh
-chmod +x XPTerrainBuilder-1.0.399-beta.2-linux.AppImage
-./XPTerrainBuilder-1.0.399-beta.2-linux.AppImage
+chmod +x XPTerrainBuilder-1.0.400-beta.2-linux.AppImage
+./XPTerrainBuilder-1.0.400-beta.2-linux.AppImage
 ```
 
 If your system has no working FUSE, add `--appimage-extract-and-run`. The
 **tar.gz** is the same build as a plain folder:
 
 ```sh
-tar xzf XPTerrainBuilder-1.0.399-beta.2-linux.tar.gz
+tar xzf XPTerrainBuilder-1.0.400-beta.2-linux.tar.gz
 cd XPTerrainBuilder && chmod +x XPTerrainBuilder && ./XPTerrainBuilder
 ```
 

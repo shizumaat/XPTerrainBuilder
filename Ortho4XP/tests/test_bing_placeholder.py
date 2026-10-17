@@ -75,7 +75,8 @@ def test_rule_is_host_scoped():
 
 def test_bing_layer_uses_the_https_host():
     with open(LAY, encoding="utf-8", newline="") as lay:
-        template = [line for line in lay if line.startswith("url_template=")]
+        template = [line.rstrip("\r\n") for line in lay
+                    if line.startswith("url_template=")]
     assert template == [
         "url_template=https://ecn.t{switch:0,1,2,3}.tiles.virtualearth.net"
-        "/tiles/a{quadkey}.jpeg?g=15312\n"]
+        "/tiles/a{quadkey}.jpeg?g=15312"]

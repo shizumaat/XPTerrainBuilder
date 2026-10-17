@@ -196,8 +196,8 @@ def test_a_code_list_is_one_popup_choice(make_window, monkeypatch):
 def test_a_single_code_searches_exactly_as_before(make_window, monkeypatch):
     window, statuses = _batch_window(make_window, monkeypatch)
     window._update_search_popup("KCLT")
-    kind, tile = window.search_popup.item(0).data(GUI.Qt.UserRole)
-    assert (kind, tile) == ("apt", (35, -81))
+    kind, tiles = window.search_popup.item(0).data(GUI.Qt.UserRole)
+    assert (kind, tiles) == ("apt", [(35, -81)])
     window.search_edit.setText("KCLT")
     window._search_accept_first()
     assert window.map.selection() == {(35, -81)}
@@ -718,3 +718,38 @@ def test_the_empty_state_explains_tiles_and_how_to_start(make_window,
     assert window.empty_state.isHidden()
     window.map.clear_selection()
     assert GUI.GUIDE.NOTHING_BUILT_TEXT not in window.empty_state.text()
+
+
+
+# ===========================================================================
+# #543: search by airport name (Mac: AirportSearchResults, MapMainView)
+# ===========================================================================
+def test_a_name_finds_its_airport_accent_blind_and_selects_its_tiles(
+        make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    window._airports.append(APT.AirportEntry(
+        "XZRH", "Zürich Kloten", "Zürich", "Helvetia", 47.46, 8.55,
+        extent=(47.44, 8.53, 47.48, 8.57), runway_m=3700, size_class=0))
+    window._update_search_popup("zurich klo")
+    item = window.search_popup.item(0)
+    assert item.text() == "XZRH \u00b7 Zürich Kloten \u00b7 Zürich, Helvetia"
+    window._search_accept_item(item)
+    assert window.map.selection() == {(47, 8)}
+    assert window.map.active_tile() == (47, 8)
+    # A name straddling tiles selects every tile its extent touches.
+    window._update_search_popup("edge")
+    window._search_accept_first()
+    assert window.map.selection() == {(47, 8), (47, 9), (48, 8), (48, 9)}
+    assert window.map.active_tile() == (47, 8)
+
+
+def test_no_match_says_so_and_selects_nothing(make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    before = window.map.selection()
+    window.search_edit.setText("qqqq zzzz")
+    window._update_search_popup("qqqq zzzz")
+    assert window.search_popup.count() == 1
+    assert window.search_popup.item(0).text() == (
+        "No airport matches \u201cqqqq zzzz\u201d")
+    window._search_accept_first()
+    assert window.map.selection() == before

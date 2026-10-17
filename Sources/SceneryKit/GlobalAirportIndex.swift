@@ -1,11 +1,15 @@
 import Foundation
 
-/// One airport from X-Plane's default (Global Airports) database. Position,
-/// identity and size only: the index carries ~35k rows, search matches on
-/// ICAO and the map labels the mark with it, so names/city/country are not
-/// parsed, cached or kept in memory.
+/// One airport from X-Plane's default (Global Airports) database: identity,
+/// name and place (the search field matches them, #543), position, extent
+/// and size.
 public struct GlobalAirport: Codable, Sendable {
     public let icao: String
+    /// Name, city and country as the index has them ("" when apt.dat
+    /// carries none).
+    public let name: String
+    public let city: String
+    public let country: String
     public let latitude: Double
     public let longitude: Double
     /// The airport's extent (boundary, runways, helipads, datum) from a
@@ -20,8 +24,12 @@ public struct GlobalAirport: Codable, Sendable {
 
     public init(icao: String, latitude: Double, longitude: Double,
                 extent: AirportExtent? = nil,
-                runwayMeters: Int? = nil, sizeClass: Int? = nil) {
+                runwayMeters: Int? = nil, sizeClass: Int? = nil,
+                name: String = "", city: String = "", country: String = "") {
         self.icao = icao
+        self.name = name
+        self.city = city
+        self.country = country
         self.latitude = latitude
         self.longitude = longitude
         self.extent = extent
@@ -106,7 +114,10 @@ public enum GlobalAirportIndex {
                                           longitude: longitude,
                                           extent: extent(fields),
                                           runwayMeters: intField(fields, 11),
-                                          sizeClass: intField(fields, 12)))
+                                          sizeClass: intField(fields, 12),
+                                          name: String(fields[1]),
+                                          city: String(fields[2]),
+                                          country: String(fields[3])))
         }
         return airports
     }

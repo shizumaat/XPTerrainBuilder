@@ -194,7 +194,7 @@ struct MapMainView: View {
         }
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,
-                               placeholder: "Airport or tile like +48-006",
+                               placeholder: "Airport code or name, or tile like +48-006",
                                onSubmit: performSearch)
                 .frame(width: 220)
                 .help("Several airport codes (KCLT, KASE OTHH) select all their tiles at once")
@@ -242,6 +242,12 @@ struct MapMainView: View {
             return
         }
 
+        // Code or name, best match first (#543): the list's first row.
+        if let best = buildModel.airportSearch.results(for: searchText.value, limit: 1).first {
+            selectAirport(best)
+            return
+        }
+
         // Finding an airport also selects its tile — the airport index
         // doubles as the tile picker.
         func zoomAndSelect(_ info: AirportInfo, code: String) {
@@ -256,7 +262,8 @@ struct MapMainView: View {
             buildModel.searchTags.add([tile: [code.uppercased()]])
         }
 
-        // Airports first: exact ICAO, then prefix, then name contains.
+        // Custom-pack airports the index lacks: exact ICAO, then prefix,
+        // then name contains.
         let airports = controller.mapOverlays.airports
         let match = airports.first { $0.icao.lowercased() == query }
             ?? airports.first { $0.icao.lowercased().hasPrefix(query) }
@@ -266,23 +273,42 @@ struct MapMainView: View {
             return
         }
 
-        // Then X-Plane's default airports, which have no custom pack and
-        // carry only an ICAO: any airport in the sim can be found, even
-        // where nothing is installed.
-        let defaults = controller.mapOverlays.defaultAirports
-        let defaultMatch = defaults.first { $0.icao.lowercased() == query }
-            ?? defaults.first { $0.icao.lowercased().hasPrefix(query) }
-        if let defaultMatch {
-            zoomAndSelect(defaultMatch.info, code: defaultMatch.icao)
-            return
-        }
-
         // Packages: same zoom the inspector's double-click uses.
         if let pack = controller.installationPacks.first(where: {
             $0.name.lowercased().contains(query)
         }) {
             controller.zoomToPack(pack)
         }
+    }
+
+    /// A search result was chosen (#543): select (adding, as a search
+    /// does) every tile the airport touches, its datum tile active, tag
+    /// them with its code, and frame it.
+    private func selectAirport(_ airport: GlobalAirport) {
+        let datum = AirportTile(lat: Int(floor(airport.latitude)), lon: Int(floor(airport.longitude)))
+        let tiles = [datum] + AirportCodeList.tiles(latitude: airport.latitude,
+                                                     longitude: airport.longitude,
+                                                     extent: airport.extent).filter { $0 != datum }
+        buildModel.selectTiles(tiles.map { BuildModel.TileCoord(lat: $0.lat, lon: $0.lon) })
+        buildModel.searchTags.add(Dictionary(uniqueKeysWithValues: tiles.map { ($0, [airport.icao.uppercased()]) }))
+        if tiles.count == 1 {
+            var cam = controller.mapCamera.value
+            cam.centerLon = airport.longitude
+            cam.centerLat = airport.latitude
+            cam.scale = max(cam.scale, 60)
+            cam.clamp(in: controller.mapCanvasSize.value)
+            controller.mapCamera.value = cam
+        } else {
+            controller.zoomToTiles(tiles.map { (lat: $0.lat, lon: $0.lon) })
+        }
+        searchText.value = ""
+    }
+
+    /// Text the field handles without the airport list: a tile key or a
+    /// list of codes.
+    private func searchHandledElsewhere(_ text: String) -> Bool {
+        TileMath.parse(text.trimmingCharacters(in: .whitespaces)) != nil
+            || AirportCodeList.resolve(text, lookup: airportCodeLookup()) != nil
     }
 
     /// Code → tiles for a code list: the Global Airports index (which
@@ -326,6 +352,11 @@ struct MapMainView: View {
                           canvasSize: controller.mapCanvasSize)
                 .overlay(alignment: .top) {
                     MapHintOverlay().environmentObject(buildModel)
+                }
+                .overlay(alignment: .topTrailing) {
+                    AirportSearchResults(text: searchText, search: buildModel.airportSearch,
+                                         handledElsewhere: searchHandledElsewhere,
+                                         onPick: selectAirport)
                 }
                 .environmentObject(controller)
                 .environmentObject(controller.progress)

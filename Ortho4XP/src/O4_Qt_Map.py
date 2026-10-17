@@ -47,6 +47,8 @@ from PySide6.QtWidgets import (
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
+import O4_Map_Labels as LABELS
+import O4_Qt_Map_Labels as QTLABELS
 
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
 WORLD = 2 ** SCENE_ZL * 256
@@ -75,13 +77,9 @@ BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
 STOPPED_COLOR = "#F29419"
 
 # Airport marks and other-scenery outlines (mac-app parity:
-# MapCanvasView.swift).  Its camera measures zoom in pixels per degree;
-# ours is a slippy zoom level, and px_per_degree = 256 * 2**zoom / 360,
-# so its 8 / 14 / 26 / 52 gates are these:
-AIRPORT_TINY_ZOOM = 3.5      # below: the smallest dot
-AIRPORT_MIN_ZOOM = 4.3       # below: no Global Airports at all
-AIRPORT_MARK_ZOOM = 5.2      # above: full-size marks, custom ICAO labels
-AIRPORT_DEFAULT_LABEL_ZOOM = 6.2   # above: Global Airports ICAO labels
+# MapCanvasView.swift).  Which airports are marked and labelled at which
+# zoom is O4_Map_Labels' rule, in pixels per degree like the mac camera;
+# ours is a slippy zoom level (LABELS.scale_for_slippy_zoom converts).
 
 # Sectional convention: Global Airports gray, custom packs magenta — a
 # custom mark always draws OVER the gray one it replaces.
@@ -362,10 +360,13 @@ class MapView(QGraphicsView):
         # Airport marks: (code, lat, lon) for X-Plane's Global Airports,
         # (code, lat, lon, dim) for the airports custom packs ship.
         self._default_airports = []
-        self._default_airport_bins = {}   # 10-deg cell -> its rows
         self._custom_airports = []
-        # Other installed ortho/mesh packages: (name, {(lat, lon)}, dim).
+        # Marks and labels by size, laid out per viewport change (#817).
+        self._airport_layer = QTLABELS.AirportLayer()
+        # Other installed ortho/mesh packages: (name, {(lat, lon)}, dim,
+        # kind); the tiles ORTHO packs cover carry an imagery label.
         self._regions = []
+        self._ortho_tiles = set()
         self._scenery_filter = SCENERY_FILTER_ALL
 
         # Layers drawn over the map that take the mouse first (the patch
@@ -508,16 +509,19 @@ class MapView(QGraphicsView):
             (str(code), float(lat), float(lon))
             for (code, lat, lon) in airports
         ]
-        # Binned into 10-degree cells ONCE, here, so a pan frame walks
-        # the couple of cells it can see instead of all 35 000 rows: the
-        # bare viewport cull costs ~2 ms a frame, which is a seventh of
-        # a 60 Hz budget spent before a single circle is drawn.
-        bins = {}
-        for row in self._default_airports:
-            key = (int(math.floor(row[1] / 10.0)),
-                   int(math.floor(row[2] / 10.0)))
-            bins.setdefault(key, []).append(row)
-        self._default_airport_bins = bins
+        # Binned by size class and 10-degree cell ONCE, here, so a pan
+        # frame walks only the classes its zoom marks and the cells it
+        # can see instead of all 35 000 rows (the bare cull alone cost
+        # ~2 ms a frame).  Call set_airport_sizes first.
+        self._airport_layer.set_default(self._default_airports)
+        self.viewport().update()
+
+    def set_airport_sizes(self, sizes):
+        """``code -> (size_class, runway_m)`` from the engine's airport
+        index (O4_Airport_Rank): what ranks the marks and labels (#817).
+        Hand these in before :meth:`set_default_airports`."""
+        self._airport_layer.set_sizes(sizes)
+        self._airport_layer.set_default(self._default_airports)
         self.viewport().update()
 
     def airport_marks(self):
@@ -545,15 +549,23 @@ class MapView(QGraphicsView):
             (str(code), float(lat), float(lon), bool(dim))
             for (code, lat, lon, dim) in airports
         ]
+        self._airport_layer.set_custom(self._custom_airports)
         self.viewport().update()
 
     def set_scenery_regions(self, regions):
         """Other installed ortho/mesh packages: ``(name, tiles, dim)``
-        rows, ``tiles`` an iterable of the (lat, lon) they cover."""
-        self._regions = [
-            (str(name), {(int(la), int(lo)) for (la, lo) in tiles}, bool(dim))
-            for (name, tiles, dim) in regions
-        ]
+        or ``(name, tiles, dim, kind)`` rows, ``tiles`` an iterable of the
+        (lat, lon) they cover; an ``"ortho"`` kind's tiles carry an
+        imagery label (#817)."""
+        self._regions = []
+        self._ortho_tiles = set()
+        for row in regions:
+            (name, tiles, dim) = row[:3]
+            kind = row[3] if len(row) > 3 else ""
+            covered = {(int(la), int(lo)) for (la, lo) in tiles}
+            self._regions.append((str(name), covered, bool(dim), str(kind)))
+            if kind == "ortho":
+                self._ortho_tiles |= covered
         self.viewport().update()
 
     def scenery_filter(self):
@@ -1028,6 +1040,8 @@ class MapView(QGraphicsView):
         # scene is webmercator pixels at ZL19 — stroking hundreds of
         # radius-1e-5 ellipses through that transform costs an order of
         # magnitude more than stroking the same dots at screen scale.
+        # Tile labels likewise (#817): under the airports.
+        self._draw_tile_labels(painter)
         self._draw_airports(painter)
         for layer in self._layers:
             layer.paint(painter)
@@ -1136,20 +1150,6 @@ class MapView(QGraphicsView):
                     -r.width() * 0.03, -r.height() * 0.03,
                 )
                 painter.drawRect(inset)
-            if px > 44 and built.provider:
-                label = "%s %s%s" % (
-                    built.provider[:4],
-                    built.zl if built.zl else "?",
-                    "*" if built.has_zones else "",
-                )
-                painter.setPen(QPen(QColor(255, 255, 255, 235)))
-                painter.drawText(
-                    r.translated(r.width() * 0.008, r.height() * 0.008),
-                    Qt.AlignCenter,
-                    label,
-                )
-                painter.setPen(QPen(QColor(15, 23, 32, 235)))
-                painter.drawText(r, Qt.AlignCenter, label)
             # Mixed imagery sources: a warning triangle in the top-right
             # corner so affected tiles stand out at a glance.  Only once
             # the square is big enough to carry it — below that the badge
@@ -1183,7 +1183,7 @@ class MapView(QGraphicsView):
         """
         if not self._regions:
             return
-        for (_name, tiles, dim) in self._regions:
+        for (_name, tiles, dim, _kind) in self._regions:
             color = QColor(REGION_OUTLINE_COLOR)
             if dim:
                 color.setAlpha(DIM_ALPHA)
@@ -1215,92 +1215,42 @@ class MapView(QGraphicsView):
         )
         return (lat_lo, lat_hi, lon_lo, lon_hi)
 
+    def _viewport_point(self, lat, lon):
+        (x, y) = GEO.wgs84_to_pix(lat, lon, SCENE_ZL)
+        return QPointF(self.mapFromScene(QPointF(x, y)))
+
+    def _draw_tile_labels(self, painter):
+        """Coordinate top-left and installed imagery bottom-left on every
+        tile big enough to carry them (#817, mac-app parity), honouring
+        the scenery filter."""
+        QTLABELS.paint_tile_labels(
+            painter, self._viewport_point,
+            LABELS.scale_for_slippy_zoom(self._zoom), self.visible_bounds(),
+            tile_key,
+            self._built if self._scenery_filter != SCENERY_FILTER_OTHERS
+            else None,
+            self._ortho_tiles if self._scenery_filter != SCENERY_FILTER_BUILT
+            else None)
+
     def _draw_airports(self, painter):
-        """Sectional-style airport marks (mac-app parity).
+        """Sectional-style airport marks by size (#817, mac-app parity).
 
         Gray circles for X-Plane's Global Airports, magenta for the
-        airports custom packs ship — the custom ones last, so a magenta
-        mark always sits on top.  A mark is screen-sized by definition, so
-        this paints in VIEWPORT coordinates (see :meth:`paintEvent`).
-
-        Zoom gates come straight from the mac app: the Global Airports
-        layer waits for the 1-degree graticule (above world view a wide
-        viewport holds tens of thousands of marks), and its labels wait
-        for the tile-key zoom (at the custom-label threshold a dense
-        region would put thousands of texts in every frame).
+        airports custom packs ship, on top.  Large airports are marked
+        and labelled from far out, small fields as the map zooms in, and
+        no two labels overlap (O4_Map_Labels).  The layout is cached on
+        the view's geometry, so a frame that moved nothing reuses it.
         """
         if not (self._default_airports or self._custom_airports):
             return
-        if self._zoom > AIRPORT_MARK_ZOOM:
-            radius = 5.0
-        elif self._zoom > AIRPORT_TINY_ZOOM:
-            radius = 3.5
-        else:
-            radius = 2.2
-        pen_width = max(1.4, radius * 0.4)
-        font = QFont(painter.font())
-        font.setPointSizeF(10)
-        painter.setFont(font)
-        # One-degree margin, as the mac app culls: a mark just off-screen
-        # still owns a label that reaches into it.
-        (lat_lo, lat_hi, lon_lo, lon_hi) = self.visible_bounds()
-        (lat_lo, lat_hi) = (lat_lo - 1, lat_hi + 1)
-        (lon_lo, lon_hi) = (lon_lo - 1, lon_hi + 1)
-
-        def point(lat, lon):
-            (x, y) = GEO.wgs84_to_pix(lat, lon, SCENE_ZL)
-            return self.mapFromScene(QPointF(x, y))
-
-        def label_rect(p):
-            return QRectF(p.x() - 35, p.y() - radius - 22, 70, 14)
-
-        def circle_pen(color):
-            pen = QPen(color)
-            pen.setWidthF(pen_width)
-            return pen
-
-        if self._zoom > AIRPORT_MIN_ZOOM and self._default_airport_bins:
-            # One color for all, so the pen is set once and every circle
-            # is drawn straight.  NOT batched into a QPainterPath: Qt's
-            # stroker charges ~9x for a path of hundreds of subpaths
-            # (measured 7.0 ms vs 0.8 ms for 374 marks) — the mac app's
-            # single-path reason does not survive the port.
-            labelled = []
-            label_defaults = self._zoom > AIRPORT_DEFAULT_LABEL_ZOOM
-            painter.setPen(circle_pen(DEFAULT_AIRPORT_COLOR))
-            painter.setBrush(Qt.NoBrush)
-            for lat_bin in range(int(math.floor(lat_lo / 10.0)),
-                                 int(math.floor(lat_hi / 10.0)) + 1):
-                for lon_bin in range(int(math.floor(lon_lo / 10.0)),
-                                     int(math.floor(lon_hi / 10.0)) + 1):
-                    for (code, lat, lon) in self._default_airport_bins.get(
-                            (lat_bin, lon_bin), ()):
-                        if not (lat_lo < lat < lat_hi
-                                and lon_lo < lon < lon_hi):
-                            continue
-                        p = point(lat, lon)
-                        painter.drawEllipse(QPointF(p), radius, radius)
-                        if label_defaults:
-                            labelled.append((p, code))
-            for (p, code) in labelled:
-                painter.drawText(
-                    label_rect(p), Qt.AlignHCenter | Qt.AlignBottom, code
-                )
-
-        label_custom = self._zoom > AIRPORT_MARK_ZOOM
-        for (code, lat, lon, dim) in self._custom_airports:
-            if not (lat_lo < lat < lat_hi and lon_lo < lon < lon_hi):
-                continue
-            color = QColor(CUSTOM_AIRPORT_COLOR)
-            color.setAlpha(DIM_ALPHA if dim else 242)
-            p = point(lat, lon)
-            painter.setPen(circle_pen(color))
-            painter.setBrush(Qt.NoBrush)
-            painter.drawEllipse(QPointF(p), radius, radius)
-            if label_custom:
-                painter.drawText(
-                    label_rect(p), Qt.AlignHCenter | Qt.AlignBottom, code
-                )
+        key = (round(self._zoom, 6), self.horizontalScrollBar().value(),
+               self.verticalScrollBar().value(), self.viewport().width(),
+               self.viewport().height(), id(self._default_airports),
+               id(self._custom_airports))
+        self._airport_layer.paint(
+            painter, key, LABELS.scale_for_slippy_zoom(self._zoom),
+            self.visible_bounds(), self._viewport_point,
+            DEFAULT_AIRPORT_COLOR, CUSTOM_AIRPORT_COLOR, DIM_ALPHA)
 
     def _draw_conflict_badge(self, painter, r, px, scale):
         """The mixed-imagery-source warning: a yellow triangle carrying an

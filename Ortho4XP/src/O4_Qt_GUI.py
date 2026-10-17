@@ -1690,6 +1690,13 @@ class MainWindow(QMainWindow):
             for airport in pack.airports:
                 custom.append((airport.icao, airport.lat, airport.lon, False))
                 custom_codes.add(airport.icao)
+        # Sizes rank the marks and labels (#817): the index's, by code,
+        # for the gray and the magenta marks alike.
+        if getattr(self, "_sized_airports", None) is not self._airports:
+            self._sized_airports = self._airports
+            self.map.set_airport_sizes({
+                entry.code: (entry.size_class, entry.runway_m)
+                for entry in self._airports})
         self.map.set_custom_airports(custom)
         self.map.set_default_airports(
             (entry.code, entry.lat, entry.lon)
@@ -1886,7 +1893,7 @@ class MainWindow(QMainWindow):
         # the ones that compete with our tiles for the ground.  Airport
         # and landmark packs say what they are with their own marks.
         self.map.set_scenery_regions(
-            (pack.name, pack.tiles, pack.status != "enabled")
+            (pack.name, pack.tiles, pack.status != "enabled", pack.kind)
             for pack in self._scenery_packs
             if pack.kind in ("ortho", "mesh") and pack.tiles
         )

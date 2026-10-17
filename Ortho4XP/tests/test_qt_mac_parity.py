@@ -641,3 +641,34 @@ def test_a_row_button_keeps_its_own_action(make_window, monkeypatch):
     _click(cancel)
     assert pressed == [(10, 10)]
     assert window.map.selection() == {(48, -6)}
+
+
+# ===========================================================================
+# #817: tile labels and airport labels by size (Mac: MapCanvasLabels)
+# ===========================================================================
+def test_the_map_labels_large_airports_first_and_paints_tile_labels(
+        make_window, tmp_path):
+    window = make_window()
+    window.map.resize(900, 700)
+    window.map.set_airport_sizes({"BIGA": (0, 3500), "SMAL": (3, 600),
+                                  "HELI": (4, 0)})
+    window.map.set_default_airports([("BIGA", 48.50, -5.50),
+                                     ("SMAL", 48.501, -5.499),
+                                     ("HELI", 48.20, -5.20)])
+    window.map.set_built({(48, -6): _tile_info(48, -6, str(tmp_path))})
+    window.map.set_scenery_regions([("Other", [(47, -6)], False, "ortho")])
+    assert window.map._ortho_tiles == {(47, -6)}
+    # Far out: only the major airport is marked, nothing labelled yet.
+    window.map.center_on_tile(48, -6, zoom=2.5)
+    window.map.grab()
+    (candidates, _dims, marks, labels, _r) = window.map._airport_layer._plan
+    assert [candidates[i].code for i in marks] == ["BIGA"]
+    assert labels == []
+    # Close in: all three marked; the small field's label would sit on
+    # the major one's, so only BIGA and HELI are labelled.
+    window.map.center_on_tile(48, -6, zoom=9)
+    window.map.grab()
+    (candidates, _dims, marks, labels, _r) = window.map._airport_layer._plan
+    assert sorted(candidates[i].code for i in marks) == ["BIGA", "HELI",
+                                                         "SMAL"]
+    assert [candidates[i].code for i, _ in labels] == ["BIGA", "HELI"]

@@ -1,6 +1,6 @@
 # Beta 3 build-speed plan of record (2026-10-17)
 
-Status: PROPOSAL (Fable spec lane, owner-approved launch 2026-10-17). The master
+Status: PLAN OF RECORD — owner decisions ruled 2026-10-17 (RULINGS 2026-10-17a). Written by the Fable spec lane, owner-approved launch 2026-10-17). The master
 files the issues from `beta3-build-speed-issues-20261017.md` and runs the plan one
 lane and one landing at a time. It dispatches nothing by itself.
 
@@ -139,6 +139,8 @@ for implementation (RULINGS 13c); deviations from a spec come back to a Fable
 reviewer.
 
 ## 7. Owner decisions needed
+
+**RULED 2026-10-17 (RULINGS 2026-10-17a): every question below answered with the recommended option.** Q1 data folder, capped (start 2 GB stage / 20 GB DDS); Q2 cold law, warm reported; Q3 resume yes; Q4 all three libraries, each behind a flag after measurement; Q5 flag + owner sim read; Q6 Triangle modification approved, flag off until three binaries; Q7 ADRs approved as proposed; Q8 ruff E,F,W,I,B ratchet approved; Q9 Bing https yes; Q10 fixture in this repo.
 
 Q1. **Where the v2 stage cache lives and how big it may get.** The partition
 cache writes into the pack's Ortho4XP mod-cache folder (derived, self-

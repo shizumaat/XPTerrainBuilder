@@ -20,6 +20,7 @@ import O4_Color_Harmonization as HARMONIZE
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Http_Pushback as PUSHBACK
 import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
 import O4_OSM_Utils as OSM
@@ -1175,8 +1176,12 @@ def http_request_to_image(width, height, url, request_headers, http_session):
     )
     tentative_request = 0
     tentative_image = 0
+    pushback = PUSHBACK.Pushback()
     r = False
     while True:
+        # Another thread's 429 / 503 may have paused this host.
+        if not PUSHBACK.wait_for_host(url):
+            return (0, "Stopped")
         try:
             fetch_t0 = time.time()
             if request_headers:
@@ -1237,11 +1242,25 @@ def http_request_to_image(width, height, url, request_headers, http_session):
                 UI.vprint(2, "Server said 'Forbidden' ! (IP banned?)")
                 UI.vprint(3, url, r.headers, r.content)
                 break
+            elif ("[429]" in status_code) or ("[503]" in status_code):
+                # Pushback: obey Retry-After (or back off) and hold the
+                # host for every download thread (#834).
+                UI.vprint(2, "Server asked us to slow down.", status_code)
+                wait = pushback.next_wait(r.headers, pause_url=url)
+                if wait is None:
+                    break
+                if not PUSHBACK.interruptible_sleep(wait):
+                    return (0, "Stopped")
+                continue
             elif "[5" in status_code:
                 UI.vprint(2, "Server said 'Internal Error'.", status_code)
                 if not check_tms_response:
                     break
-                time.sleep(2)
+                wait = pushback.next_wait()
+                if wait is None:
+                    break
+                if not PUSHBACK.interruptible_sleep(wait):
+                    return (0, "Stopped")
             else:
                 UI.vprint(2, "Unmanaged Server answer:", status_code)
                 UI.vprint(3, url, r.headers)
@@ -1251,14 +1270,16 @@ def http_request_to_image(width, height, url, request_headers, http_session):
             tentative_image += 1
         except requests.exceptions.RequestException as e:
             status_code = "Connection failure"
-            UI.vprint(2, "Server could not be connected, retrying in 2 secs")
+            UI.vprint(2, "Server could not be connected, retrying")
             UI.vprint(3, e)
             if not check_tms_response:
                 break
             # trying a new session ?
             http_session = requests.Session()
-            time.sleep(2)
-            if UI.red_flag:
+            wait = pushback.next_wait()
+            if wait is None:
+                break
+            if not PUSHBACK.interruptible_sleep(wait):
                 return (0, "Stopped")
             tentative_request += 1
         if (
@@ -2724,6 +2745,15 @@ def repair_sea_nodata_in_texture(
     return filled_image
 
 
+def save_temp_png(image, path):
+    """Save the converter's temporary PNG with fast zlib (#833).
+
+    PNG is lossless: compress_level only trades file size for encode time;
+    the decoded pixels, hence the DDS, are identical to a default save.
+    """
+    image.save(path, format="PNG", compress_level=1)
+
+
 def convert_texture(
     tile, til_x_left, til_y_top, zoomlevel, provider_code, type="dds"
 ):
@@ -2841,7 +2871,7 @@ def convert_texture(
         # Tmp_dir lives under the (possibly brand-new) data root — nothing
         # guarantees it exists before the first texture conversion.
         os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
-        big_image.save(file_to_convert)
+        save_temp_png(big_image, file_to_convert)
         # If one wanted to distribute jpegs instead of dds, uncomment the
         # next line.
         # big_image.convert('RGB').save(os.path.join(tile.build_dir,
@@ -2890,7 +2920,7 @@ def convert_texture(
         # Tmp_dir lives under the (possibly brand-new) data root — nothing
         # guarantees it exists before the first texture conversion.
         os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
-        big_image.save(file_to_convert)
+        save_temp_png(big_image, file_to_convert)
     # finally if nothing needs to be done prior to the conversion
     else:
         file_to_convert = os.path.join(file_dir, jpeg_file_name)

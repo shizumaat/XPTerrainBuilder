@@ -10,9 +10,11 @@ source of a design or a figure; its figures are its own measurements, never ours
 Plan: `docs/specs/beta3-build-speed-plan-20261017.md`. Dependencies use the ids
 below; "after" means the earlier landing is merged.
 
+**FILED 2026-10-17** by the master: B3-00 = #858 (tracking), B3-01…B3-25 = #833…#857 in order; comments posted on #740, #615, #622, #412. Companion usability pass: #832 (#817–#831).
+
 ---
 
-## B3-00 — umbrella
+## B3-00 — umbrella → #858
 
 **Title:** Beta 3 build speed: content-keyed caches, step reuse, imagery fetch, texture and mesh I/O (tracking)
 
@@ -36,7 +38,7 @@ B3-06, B3-07, B3-17, B3-14 → B3-15, B3-18, B3-19; code quality (B3-20…B3-25)
 
 ---
 
-## B3-01
+## B3-01 → #833
 
 **Title:** Temp PNG for filtered/masked textures saved at `compress_level=1` (byte-identical DDS)
 
@@ -53,7 +55,7 @@ texture (OrthoStudio XP measured its PNG save at ~0.75 s). Dependencies: none.
 
 ---
 
-## B3-02
+## B3-02 → #834
 
 **Title:** Imagery download honours 429/503 `Retry-After` and backs off instead of failing the piece
 
@@ -69,7 +71,7 @@ a stub session. Dependencies: none.
 
 ---
 
-## B3-03
+## B3-03 → #835
 
 **Title:** Bing imagery through the provider's https HTTP/2 host (same bytes)
 
@@ -86,7 +88,7 @@ as a range over three cold runs. Needs the owner's yes (plan Q9). Dependencies: 
 
 ---
 
-## B3-04
+## B3-04 → #836
 
 **Title:** Step reuse keys each step on its own code closure, not the whole-tree digest
 
@@ -103,7 +105,7 @@ three steps; `.mesh`/`.dsf` byte-identical. Extends #615. Dependencies: none.
 
 ---
 
-## B3-05
+## B3-05 → #837
 
 **Title:** Step reuse keys on predecessor OUTPUT content (early cutoff) and identifies outputs by digest
 
@@ -120,7 +122,7 @@ byte-identical outputs. Extends #615. Dependencies: B3-04.
 
 ---
 
-## B3-06
+## B3-06 → #838
 
 **Title:** Step records commit when the step ends (resume after a Stop); the scenery-file step becomes reusable
 
@@ -136,7 +138,7 @@ on (a) (plan Q3). Dependencies: B3-05.
 
 ---
 
-## B3-07
+## B3-07 → #839
 
 **Title:** Per-texture DDS cache keyed on content, shared across build dirs and neighbour tiles
 
@@ -153,7 +155,7 @@ zero on the second build. Owner decides the disk cap (plan Q1). Dependencies: B3
 
 ---
 
-## B3-08
+## B3-08 → #840
 
 **Title:** v2 planar stage returns its registries as an explicit output record; the build installs it
 
@@ -171,7 +173,7 @@ stage; twin T1 (AST census of module globals read across stages == declared fiel
 
 ---
 
-## B3-09
+## B3-09 → #841
 
 **Title:** Constraint generators and publication read the registries from the stage record; module globals deleted
 
@@ -187,7 +189,7 @@ Dependencies: B3-08.
 
 ---
 
-## B3-10
+## B3-10 → #842
 
 **Title:** Per-stage code identity for the v2 pipeline (`stage_code.py`, closure twin, freeze digest)
 
@@ -203,7 +205,7 @@ Dependencies: none (parallel to B3-08).
 
 ---
 
-## B3-11
+## B3-11 → #843
 
 **Title:** Content-keyed per-stage cache for the v2 pipeline with DEM and law witnesses
 
@@ -224,7 +226,7 @@ and cap (plan Q1, Q2). Dependencies: B3-09, B3-10.
 
 ---
 
-## B3-12
+## B3-12 → #844
 
 **Title:** `v2_solve_replay` reads and writes the v2 stage cache
 
@@ -239,7 +241,7 @@ Dependencies: B3-11.
 
 ---
 
-## B3-13
+## B3-13 → #845
 
 **Title:** Imagery download: adaptive per-provider concurrency (AIMD) and hedged requests in the threaded fetcher
 
@@ -255,7 +257,7 @@ session; rate and failed-piece range over three cold runs. Dependencies: B3-02.
 
 ---
 
-## B3-14
+## B3-14 → #846
 
 **Title:** Async HTTP/2 imagery fetcher behind `O4_IMAGERY_FETCHER` (per-provider cap, auth headers, placeholders kept)
 
@@ -272,7 +274,7 @@ Dependencies: B3-13.
 
 ---
 
-## B3-15
+## B3-15 → #847
 
 **Title:** In-process BC1/BC3 texture encoder with linear-light mips behind `O4_DDS_ENCODER` (owner sim read)
 
@@ -289,7 +291,7 @@ nvcompress under Rosetta; our DDSTool on arm64 is unmeasured. Dependencies: B3-0
 
 ---
 
-## B3-16
+## B3-16 → #848
 
 **Title:** One numpy reader/writer for the mesh and Triangle exchange files (text `.mesh` byte-identical)
 
@@ -306,7 +308,7 @@ Dependencies: B3-24.
 
 ---
 
-## B3-17
+## B3-17 → #849
 
 **Title:** Binary Triangle4XP I/O (`-b`) behind `O4_TRIANGLE_IO` with a text==binary twin; binaries for mac/win/linux
 
@@ -324,7 +326,7 @@ Dependencies: B3-16.
 
 ---
 
-## B3-18
+## B3-18 → #850
 
 **Title:** DSF encoder: profile `build_dsf`'s per-triangle loops, vectorise only what the profile earns (byte-identical)
 
@@ -341,7 +343,7 @@ step-4 split. Dependencies: B3-24, B3-16.
 
 ---
 
-## B3-19
+## B3-19 → #851
 
 **Title:** Masks: profile the shore-transition loop after the shared mesh reader; record the finding
 
@@ -357,7 +359,7 @@ Dependencies: B3-16.
 
 ---
 
-## B3-20
+## B3-20 → #852
 
 **Title:** Retire the duplicate v1 readers (cifp, flat_site, obj8, apt_dat, dsf) — #740 wave F
 
@@ -376,7 +378,7 @@ falls. Dependencies: #740 step 1 (measure) recommended first.
 
 ---
 
-## B3-21
+## B3-21 → #853
 
 **Title:** Failure catalogue gains severity, domain and the "degraded" class; registry twin extended (wire additive)
 
@@ -394,7 +396,7 @@ Also fixes the `ImageryDownloadsDone` wire drift `tools/blast.py` reports. Depen
 
 ---
 
-## B3-22
+## B3-22 → #854
 
 **Title:** Architecture decision records beside RULINGS (format, index twin, first five)
 
@@ -411,7 +413,7 @@ format (plan Q7). Dependencies: none.
 
 ---
 
-## B3-23
+## B3-23 → #855
 
 **Title:** `ruff check` in CI as a baseline ratchet (`tools/ratchets.py lint`; counts may fall, never rise; no reformat)
 
@@ -426,7 +428,7 @@ Owner approves the rule set (plan Q8). Dependencies: none.
 
 ---
 
-## B3-24
+## B3-24 → #856
 
 **Title:** Frozen reference fixture for the inherited vector → mesh → DSF stages (byte oracle)
 
@@ -444,7 +446,7 @@ where the fixture lives (plan Q10). Dependencies: none.
 
 ---
 
-## B3-25
+## B3-25 → #857
 
 **Title:** Split `tools/check_grade.py` (14,715 lines) into a package, one module per law family; census byte-identical
 

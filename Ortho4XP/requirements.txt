@@ -12,6 +12,7 @@ highspy==1.15.1      # HiGHS QP: the runway family's final projection (auto_patc
 networkx==3.6.1      # skeleton graph pruning/chain collapse (pav_skeleton)
 tifffile==2026.3.3   # LERC-compressed elevation tiles (New Zealand lidar)
 imagecodecs==2026.3.6  # LERC codec backing tifffile (GDAL builds lack it)
+ispc-texcomp==1.0.1  # in-process BC1/BC3 encoder (O4_DDS_Encode, O4_DDS_ENCODER=inproc, default off); abi3 wheels mac arm64/x86_64, win, manylinux; imported lazily, so the freeze must pin and collect it
 keyring==25.7.0      # platform secret store for provider sign-ins (O4_Authenticated_Sessions)
 osmium==4.3.1        # local filtering of Geofabrik regional extracts (O4_OSM_Extract_Filter)
 laspy>=2.5,<3         # LAS point-cloud tiles (las_tile_index, PITKIN1M, #130); pure python, imported lazily, so the freeze must pin it

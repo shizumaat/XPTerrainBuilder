@@ -54,6 +54,7 @@ releases **must** carry the notices for all of it.
 | **nvcompress** / NVIDIA Texture Tools (I. Castaño, NVIDIA) | MIT | Reproduce notice |
 | **osmium-tool** 1.19.1 + libosmium, protozero, nlohmann/json, Boost, lz4 | GPL v3 (tool); Boost/MIT/BSD (deps) | Offer source. Already documented in [`Ortho4XP/Utils/osmium-tool-NOTICE.md`](Ortho4XP/Utils/osmium-tool-NOTICE.md) with exact tags and build recipe — this is the template the other components should match |
 | Bundled wheels (`numpy`, `gdal`) | BSD-3 / MIT | Reproduce notices |
+| **ispc_texcomp** 1.0.1 (Python wheel, native extension; R. Kolbe's bindings of Intel's ISPCTextureCompressor) — frozen in only for the in-process DDS encoder (`O4_DDS_Encode`, flag `O4_DDS_ENCODER=inproc`, default off) | MIT (bindings: wheel `LICENSE`, Copyright (c) 2022 Rudolf Kolbe; compressor: Intel, MIT per <https://github.com/GameTechDev/ISPCTextureCompressor> — not repeated in the wheel, so our notice must carry it) | Reproduce both notices |
 
 **Removed as of v1.0.0-alpha.1 — no longer in the tree, shipped by no
 artifact:** **medit** 2.3 (Pascal Frey — proprietary, APP-registered

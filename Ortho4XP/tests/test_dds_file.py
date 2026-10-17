@@ -106,7 +106,9 @@ ATTRIBUTES = (100, 200, 16, "BI")
 @pytest.fixture
 def conversion(tmp_path, monkeypatch):
     """A tile whose texture needs nothing but the converter; returns
-    (tile, the texture's final path)."""
+    (tile, the texture's final path). These tests drive the subprocess
+    converter, so they pin it (the in-process encoder is the default)."""
+    monkeypatch.setenv("O4_DDS_ENCODER", "tool")
     tile = type("Tile", (), {})()
     (tile.lat, tile.lon) = (50, 10)
     tile.build_dir = str(tmp_path / "build")

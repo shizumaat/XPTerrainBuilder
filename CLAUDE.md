@@ -46,6 +46,10 @@ once per merged batch — `Ortho4XP/CLAUDE.md` BUILD ECONOMY). The
 spawner owns the merge. Current plan of record:
 `Ortho4XP/docs/specs/zero-airside-plan-20260903.md`.
 
+**Time (owner standing 2026-10-17), for managing subagents:** Time matters
+here: do not spend time that can be avoided, and the earlier a correct
+result is obtained, the better.
+
 ## Single master (owner standing 2026-10-02)
 
 ONE session is the project master: it alone talks to the owner, dispatches,

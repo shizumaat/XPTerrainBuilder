@@ -332,19 +332,43 @@ private struct GeneralPane: View {
                           systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 } else {
-                    Label("Missing python packages: \(missing.joined(separator: ", "))",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(EngineSetup.incompleteTitle,
+                              systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        DisclosureGroup("Details") {
+                            Text(EngineSetup.missingDetail(missing))
+                                .font(.caption)
+                                .textSelection(.enabled)
+                        }
+                        .font(.caption)
+                    }
                 }
             } else {
                 Text("Checking…").foregroundStyle(.secondary)
             }
-            Button("Setup…") { runInstallScript(engine: engine) }
+            Button(engineIncomplete ? "Repair" : "Setup…") { EngineSetup.run(engine) }
                 .help("Opens Terminal running install_mac.sh — installs Homebrew packages and the engine's python environment.")
         }
     }
 
-    private func runInstallScript(engine: OrthoEngine) {
+    private var engineIncomplete: Bool {
+        !(buildModel.missingPackages ?? []).isEmpty
+    }
+
+}
+
+/// The engine setup action (install_mac.sh in Terminal) and the plain
+/// words for an engine whose python packages are missing (#830) —
+/// shared by Settings and the Build pane's bottom bar.
+enum EngineSetup {
+    static let incompleteTitle = "The build engine is incomplete"
+
+    static func missingDetail(_ missing: [String]) -> String {
+        "Missing python packages: " + missing.joined(separator: ", ")
+    }
+
+    static func run(_ engine: OrthoEngine) {
         guard FileManager.default.fileExists(atPath: engine.installScriptURL.path) else { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")

@@ -33,6 +33,7 @@ struct BuildPane: View {
     /// (gray-outlined on the map) with that tile's DSF modification date.
     @State private var otherScenery: [(name: String, dsfDate: Date?)] = []
     @State private var showingProviderMismatch = false
+    @State private var showingMissingDetails = false
     /// Airport packs whose 3-D objects the auto-patch pass reseated in
     /// the active tile ("Modified airports" row), with per-pack revert.
     @State private var modifiedAirports: [ModifiedAirportRow] = []
@@ -127,7 +128,7 @@ struct BuildPane: View {
         var parts: [String] = []
         if !buildModel.usesProtocol { parts.append("legacy driver") }
         if let missing = buildModel.missingPackages, !missing.isEmpty {
-            parts.append("python packages missing")
+            parts.append("engine incomplete")
         }
         return parts.isEmpty ? "Engine ready" : parts.joined(separator: " — ")
     }
@@ -774,12 +775,24 @@ struct BuildPane: View {
     private var bottomBar: some View {
         HStack(spacing: 8) {
             if let missing = buildModel.missingPackages, !missing.isEmpty {
-                Label("Missing: \(missing.joined(separator: ", "))",
+                Label(EngineSetup.incompleteTitle,
                       systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .help("The engine's python can't import these packages — run the engine setup from Settings ▸ General ▸ Build Engine.")
+                Button("Details") { showingMissingDetails = true }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .popover(isPresented: $showingMissingDetails, arrowEdge: .top) {
+                        Text(EngineSetup.missingDetail(missing))
+                            .textSelection(.enabled)
+                            .padding(12)
+                            .frame(maxWidth: 320)
+                    }
+                if let engine = buildModel.engine {
+                    Button("Repair") { EngineSetup.run(engine) }
+                        .help("Runs the engine setup (Settings ▸ General ▸ Build Engine).")
+                }
             } else if let summary = buildModel.lastRunSummary, !buildModel.isBuilding {
                 Text(summary).foregroundStyle(.secondary)
             }

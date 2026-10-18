@@ -358,13 +358,15 @@ def test_k3_the_freeze_digest_is_the_checkouts(tmp_path, monkeypatch):
     import runpy
     src = ROOT / "src"
     mod_path = src / "auto_patch_v2" / "airport" / "partition_code.py"
-    # the specs run this ONE file with runpy: stdlib only, no relative import
+    # the specs run this file with runpy: stdlib only, no relative import;
+    # the shared mechanism (``O4_Code_Closure``, #842) is imported, or run
+    # by path when the specs execute this file by path
     tree = ast.parse(mod_path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             assert node.level == 0 and node.module in ("__future__",), node.module
         if isinstance(node, ast.Import):
-            assert {n.name for n in node.names} <= {"hashlib", "os", "typing"}
+            assert {n.name for n in node.names} <= {"os", "runpy", "O4_Code_Closure"}
     ns = runpy.run_path(str(mod_path))
     out = ns["write_freeze_digest"](str(src), str(tmp_path / "o4"))
     assert os.path.basename(out) == PCODE.DIGEST_FILENAME

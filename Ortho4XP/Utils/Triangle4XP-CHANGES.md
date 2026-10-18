@@ -66,11 +66,18 @@ and writers, the text mode's exit codes and messages.
 | Platform | File | Built from this source | How |
 |---|---|---|---|
 | macOS (universal x86_64 + arm64) | `Utils/mac/Triangle4XP` | yes, 2026-10-17, sha1 `87dec0d0f852e4bd06e616dcabd7c7daf451aa67` | `cc -O2 -arch arm64 -arch x86_64 -o Utils/mac/Triangle4XP Utils/src/Triangle4XP.c -lm` (Apple clang 21.0.0); floating-point contraction left at the compiler default, as the shipped binary was built |
-| Windows x64 | `Utils/win/Triangle4XP.exe` | **no** — upstream Ortho4XP's binary (predates change 1 and change 2) | — |
-| Linux x86_64 | `Utils/lin/Triangle4XP` | **no** — upstream Ortho4XP's binary (predates change 1 and change 2) | — |
+| Windows x64 | `Utils/win/Triangle4XP.exe` | yes, 2026-10-18, sha1 `67aabbe0f5edbb7d42b80b2c4626670efee6b249` | cross-built on Linux with llvm-mingw 20250924 (UCRT, `llvm-mingw-20250924-ucrt-ubuntu-22.04-x86_64.tar.xz`, sha256 `a325974f9bf811aab44fc03f9f47d718cddfa195d2b6632bd6e7800e10430846`) on `PATH`: `cmake -S Utils -B build-win -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$PWD/Utils/toolchains/mingw-on-linux.cmake && cmake --build build-win` (`-O3 -fno-fast-math`, `-static-libgcc`); imports KERNEL32 and the UCRT `api-ms-win-crt-*` set only, the same DLL set as the upstream binary it replaces (MSYS2 UCRT64 GCC 15.2) |
+| Linux x86_64 | `Utils/lin/Triangle4XP` | yes, 2026-10-18, sha1 `6543d45e9716c03a3e89aca14fd456e22eba5404` | `cmake -S Utils -B build-lin -DCMAKE_BUILD_TYPE=Release && cmake --build build-lin` (Ubuntu 24.04 gcc 13.3.0; `-O3 -fno-fast-math -fexcess-precision=standard ... -lm`); needs glibc >= 2.34 (`__libc_start_main`), the same floor as the upstream binary it replaces (Debian gcc 14.2.0) |
 
-The engine uses `-b` only when `O4_TRIANGLE_IO=binary` is set, the run does
-not refine (`-r`), and the platform's binary carries the switch (default
-`text`); RULINGS 2026-10-17a Q6 keeps the flag off until all three binaries
-are rebuilt from this source and the text == binary twin
-(`tests/test_mesh_triangle_binary.py`) passes on each.
+All three binaries carry change 1 and change 2. Each sha1 is pinned in
+`tests/test_mesh_bank_annulus_blend.py` (`TRIANGLE4XP_SHA1`), which fails
+on the platform whose binary is swapped; update both in the same commit as
+any rebuild. `-h` prints Triangle's long instructions, which do not list
+`-b`; the short usage (no arguments) does.
+
+The engine uses `-b` by default (`O4_TRIANGLE_IO=text` opts out) when the
+run does not refine (`-r`) and the platform's binary carries the switch
+(text otherwise); RULINGS 2026-10-17a Q6 kept the flag off until all three
+binaries were rebuilt from this source and the text == binary twin
+(`tests/test_mesh_triangle_binary.py`) passed on each. An `iterate` (`-r`)
+run converts a binary previous run's `.node`/`.ele` to text first.

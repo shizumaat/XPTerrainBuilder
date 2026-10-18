@@ -194,7 +194,18 @@ jobs:
           # round 1 (2026-09-17) lost the whole Linux Qt step to a hang with
           # no log, because a cancelled job keeps no logs at all.
           python -m pip install pytest-timeout
+          # The lint ratchet's pin (tools/ratchets.py RUFF_VERSION; RULINGS
+          # 2026-10-17a Q8).  Dev tail only — the frozen app never ships it.
+          python -m pip install ruff==0.16.10
           python -m pip list
+
+      # ruff counts per rule may fall, never rise (RULINGS 2026-10-17a Q8,
+      # #855).  `ruff check` only — never `ruff format`, never `--fix`.
+      # Counted over git-tracked files, so the three OSes count one tree;
+      # CI=true makes a missing/mismatched ruff a failure, not a skip.
+      - name: Lint ratchet
+        working-directory: Ortho4XP
+        run: python ../tools/ratchets.py lint
 
       # The suite runs in TWO disjoint halves whose union is `tests/`, each
       # `if: always()` so one half's red does not hide the other's.
@@ -299,9 +310,10 @@ jobs:
       #
       # BINARY TRIANGLE I/O ADMISSION (mesh-io-spec §4, RULINGS 2026-10-17a
       # Q6): build Triangle4XP from the vendored source (Utils/CMakeLists.txt)
-      # and run the text == binary twin against it.  The committed win/lin
-      # binaries predate -b, so the suite's own run of the twin skips there;
-      # this step is the evidence, not the shipped binary.
+      # and run the text == binary twin against it.  The suite's own run of
+      # the twin measures the committed binary (all three carry -b since
+      # 2026-10-18); this step adds the runner's native compiler (MSVC on
+      # Windows) as a second witness.
       - name: Triangle4XP from source + text == binary twin (Linux, Windows)
         if: runner.os != 'macOS'
         working-directory: Ortho4XP

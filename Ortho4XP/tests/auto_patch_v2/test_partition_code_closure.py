@@ -8,13 +8,16 @@ This twin recomputes the closure from the SOURCES — every ``import`` and
 ``from … import`` anywhere in a module, function-level ones included — and
 fails when a module the reading imports is missing from the list (or the
 list names one the closure has not: a list that only grows rots too).
+
+The walker is the shared one (``src/O4_Code_Closure.py``, #842), which the
+v2 stages' twin (``test_stage_code_closure.py``) uses too.
 """
 from __future__ import annotations
 
-import ast
 import os
 from pathlib import Path
 
+import O4_Code_Closure as CLOSURE
 from auto_patch_v2.airport import partition_code as PCODE
 
 SRC = Path(__file__).resolve().parents[2] / "src"
@@ -28,40 +31,12 @@ def _path(mod: str) -> "str | None":
 
 def _imports(mod: str) -> set[str]:
     """Every ``auto_patch_v2`` module ``mod`` imports, anywhere in its
-    source.  ``from <package> import name`` is the submodule ``name`` where
-    there is one, else the package itself (a name its ``__init__`` defines
-    or re-exports — whose own imports are then followed)."""
-    path = _path(mod)
-    pkg = mod if path.endswith("__init__.py") else mod.rsplit(".", 1)[0]
-    out: set[str] = set()
-    for node in ast.walk(ast.parse(Path(path).read_text(encoding="utf-8"))):
-        if isinstance(node, ast.Import):
-            out |= {a.name for a in node.names if a.name.split(".")[0] == PKG}
-        elif isinstance(node, ast.ImportFrom):
-            base = node.module or ""
-            if node.level:
-                up = pkg.split(".")
-                up = up[:len(up) - (node.level - 1)]
-                base = ".".join(up + ([node.module] if node.module else []))
-            if base.split(".")[0] != PKG or _path(base) is None:
-                continue
-            if _path(base).endswith("__init__.py"):
-                out |= {f"{base}.{a.name}" if _path(f"{base}.{a.name}") else base
-                        for a in node.names}
-            else:
-                out.add(base)
-    return out
+    source (:func:`O4_Code_Closure.imports_of`)."""
+    return CLOSURE.imports_of(str(SRC), mod, (PKG,))
 
 
 def _closure(roots) -> set[str]:
-    seen: set[str] = set()
-    stack = list(roots)
-    while stack:
-        m = stack.pop()
-        if m not in seen:
-            seen.add(m)
-            stack.extend(_imports(m))
-    return seen
+    return set(CLOSURE.closure(str(SRC), roots, (PKG,)))
 
 
 def test_every_module_the_reading_imports_is_in_the_code_key():

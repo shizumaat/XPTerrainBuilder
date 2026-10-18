@@ -362,27 +362,26 @@ class TestTheAnnulusIsARegionWithAMaximumArea:
 # area the patched binary is identical to the shipped one, so the change
 # is inert on every tile that has no bank.
 #
-# THE WIN/LIN BINARIES ARE NOT REBUILT HERE — the release CI owns them
-# (docs/DEFERRED_VERIFICATION.md).  Until it does, the fifth ``.poly``
-# field is inert there, so this twin is a HARD twin on macOS ONLY and
-# skips elsewhere with that reason.
+# ALL THREE BINARIES carry the 09aa patch since the win/lin rebuild of
+# 2026-10-18 (Utils/Triangle4XP-CHANGES.md, Binaries), so this twin is a
+# HARD twin on every platform.
 BANK_REGION_MIN_FREE_VERTICES = 40      # for the 30 m band below
 
-# The identity of the binary the twin above is measuring.  It is recorded
-# HERE so that a later rebuild that forgets the 09aa patch (or a merge
-# that restores the vendored binary) fails loudly instead of silently
-# putting the bank back on the ring-to-foot triangulation.  Update it in
-# the SAME commit as any deliberate Triangle4XP rebuild.
-TRIANGLE4XP_MAC_SHA1 = "87dec0d0f852e4bd06e616dcabd7c7daf451aa67"
+# The identity of the binaries the twin above is measuring, one row per
+# platform file.  It is recorded HERE so that a later rebuild that forgets
+# the 09aa patch (or a merge that restores a vendored binary) fails loudly
+# instead of silently putting the bank back on the ring-to-foot
+# triangulation.  Update it in the SAME commit as any deliberate
+# Triangle4XP rebuild, with the Binaries table of Triangle4XP-CHANGES.md.
+TRIANGLE4XP_SHA1 = {
+    "mac/Triangle4XP": "87dec0d0f852e4bd06e616dcabd7c7daf451aa67",
+    "lin/Triangle4XP": "6543d45e9716c03a3e89aca14fd456e22eba5404",
+    "win/Triangle4XP.exe": "67aabbe0f5edbb7d42b80b2c4626670efee6b249",
+}
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason=(
-    "only Utils/mac/Triangle4XP carries the 09aa area-test patch; the "
-    "win/lin binaries are rebuilt by the release CI (owed, recorded in "
-    "docs/DEFERRED_VERIFICATION.md) and the fifth .poly field is inert "
-    "there"))
-def test_the_shipped_mac_triangle4xp_is_the_patched_binary():
-    """The mac binary in the tree IS the one built from the patched
+def test_the_shipped_triangle4xp_is_the_patched_binary():
+    """The platform's binary in the tree IS the one built from the patched
     ``Utils/src/Triangle4XP.c`` (RULINGS 2026-09-09aa)."""
     import hashlib
 
@@ -390,17 +389,14 @@ def test_the_shipped_mac_triangle4xp_is_the_patched_binary():
     if not binary.is_file():
         pytest.skip(f"no Triangle4XP at {binary}")
     digest = hashlib.sha1(binary.read_bytes()).hexdigest()
-    assert digest == TRIANGLE4XP_MAC_SHA1, (
+    row = f"{binary.parent.name}/{binary.name}"
+    assert digest == TRIANGLE4XP_SHA1[row], (
         f"{binary} is sha1 {digest}, not the 09aa-patched binary "
-        f"{TRIANGLE4XP_MAC_SHA1}: rebuild it from Utils/src/Triangle4XP.c "
-        f"(cc -O2 -arch arm64 -arch x86_64 ... -lm) and record the new "
+        f"{TRIANGLE4XP_SHA1[row]}: rebuild it from Utils/src/Triangle4XP.c "
+        f"(Utils/Triangle4XP-CHANGES.md, Binaries) and record the new "
         f"sha1 here in the same commit")
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason=(
-    "the 09aa area-test patch is built into Utils/mac/Triangle4XP only; "
-    "the win/lin binaries are the release CI's (docs/"
-    "DEFERRED_VERIFICATION.md) and the fifth .poly field is inert there"))
 def test_triangle_puts_vertices_inside_a_region_that_asks_for_them(tmp_path):
     """THE BAR (RULINGS 2026-09-09x, met by 2026-09-09aa): a bank annulus written as a region
     with ``max_area = (w / bank_triangle_divisions) ** 2`` comes back with

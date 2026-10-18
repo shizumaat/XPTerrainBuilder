@@ -17,7 +17,7 @@ struct PatchInspector: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(4)
             } label: {
-                Text("\(O4Glossary.term("ground_shape")) · \(icao)").font(.callout.weight(.semibold))
+                Text("\(O4Glossary.term("ground_shape")) · \(icao)").scaledFont(.callout, weight: .semibold)
             }
         }
     }
@@ -97,12 +97,12 @@ struct PatchInspector: View {
             Spacer(minLength: 8)
             Text(value).multilineTextAlignment(.trailing).textSelection(.enabled)
         }
-        .font(.callout)
+        .scaledFont(.callout)
     }
 
     private func note(_ text: String, color: Color = .secondary) -> some View {
         Text(text)
-            .font(.caption)
+            .scaledFont(.caption)
             .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
     }

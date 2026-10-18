@@ -180,7 +180,11 @@ def _cross_section(px: float, py: float, nx: float, ny: float, probe: float,
     return []
 
 
-_CACHE: dict[tuple[int, int, bool], dict[int, list[Station]]] = {}
+#: ``key -> (planar, law, stations by face)``: the objects are HELD and
+#: checked by identity on a hit — an ``id`` alone is reused by the next
+#: object once its owner is freed (issue #843: the stage cache's hit arm at
+#: HECA was served another map's stations, 4,297 against 5,460)
+_CACHE: dict[tuple[int, int, bool], tuple[_t.Any, _t.Any, dict[int, list[Station]]]] = {}
 
 
 def road_station_caps(planar: PlanarMap, law: Law, airport=None,
@@ -189,14 +193,14 @@ def road_station_caps(planar: PlanarMap, law: Law, airport=None,
     mutates, and four generators and the publication read one walk)."""
     key = (id(planar), id(law), airport is not None)
     hit = _CACHE.get(key)
-    if hit is not None:
-        return hit
+    if hit is not None and hit[0] is planar and hit[1] is law:
+        return hit[2]
     out: dict[int, list[Station]] = {}
     for st in station_caps(planar, law, airport, vw):
         out.setdefault(st.face, []).append(st)
-    if len(_CACHE) > 8:
+    if len(_CACHE) >= 2:           # held maps are large: keep the last two
         _CACHE.clear()
-    _CACHE[key] = out
+    _CACHE[key] = (planar, law, out)
     return out
 
 

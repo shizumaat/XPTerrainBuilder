@@ -358,6 +358,13 @@ struct MapMainView: View {
                                          handledElsewhere: searchHandledElsewhere,
                                          onPick: selectAirport)
                 }
+                .overlay(alignment: .topLeading) {
+                    // Select from flight plan (#829): over the map, not a
+                    // sheet, so the selection is watched as the radius moves.
+                    FlightPlanPanel(model: buildModel.flightPlan) { tiles in
+                        controller.zoomToTiles(tiles.map { (lat: $0.lat, lon: $0.lon) })
+                    }
+                }
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)

@@ -19,6 +19,12 @@ import threading
 import time
 from collections import deque
 
+import O4_File_Names as FNAMES
+import O4_Geo_Utils as GEO
+import O4_Imagery_Utils as IMG
+import O4_Map_Labels as LABELS
+import O4_Qt_Map_Labels as QTLABELS
+import O4_Qt_Text_Scale as QTTEXT
 import requests
 from PIL import Image as PILImage
 from PySide6.QtCore import (
@@ -43,12 +49,6 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
 )
-
-import O4_File_Names as FNAMES
-import O4_Geo_Utils as GEO
-import O4_Imagery_Utils as IMG
-import O4_Map_Labels as LABELS
-import O4_Qt_Map_Labels as QTLABELS
 
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
 WORLD = 2 ** SCENE_ZL * 256
@@ -393,8 +393,7 @@ class MapView(QGraphicsView):
         viewport child, so it must be re-pinned on resize and after every
         scroll (QAbstractScrollArea drags viewport children when
         panning)."""
-        from PySide6.QtWidgets import (QHBoxLayout, QLabel, QProgressBar,
-                                       QWidget)
+        from PySide6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QWidget
 
         self.scan_status = QWidget(self.viewport())
         self.scan_status.setStyleSheet(
@@ -1230,7 +1229,8 @@ class MapView(QGraphicsView):
             self._built if self._scenery_filter != SCENERY_FILTER_OTHERS
             else None,
             self._ortho_tiles if self._scenery_filter != SCENERY_FILTER_BUILT
-            else None)
+            else None,
+            QTTEXT.current_scale())
 
     def _draw_airports(self, painter):
         """Sectional-style airport marks by size (#817, mac-app parity).
@@ -1250,7 +1250,8 @@ class MapView(QGraphicsView):
         self._airport_layer.paint(
             painter, key, LABELS.scale_for_slippy_zoom(self._zoom),
             self.visible_bounds(), self._viewport_point,
-            DEFAULT_AIRPORT_COLOR, CUSTOM_AIRPORT_COLOR, DIM_ALPHA)
+            DEFAULT_AIRPORT_COLOR, CUSTOM_AIRPORT_COLOR, DIM_ALPHA,
+            QTTEXT.current_scale())
 
     def _draw_conflict_badge(self, painter, r, px, scale):
         """The mixed-imagery-source warning: a yellow triangle carrying an

@@ -16,9 +16,9 @@ struct PatchShapeInspector: View {
                 single(ways[0])
             } else {
                 HStack {
-                    Text("\(ways.count.formatted()) shapes").font(.callout.weight(.semibold))
+                    Text("\(ways.count.formatted()) shapes").scaledFont(.callout, weight: .semibold)
                     Spacer()
-                    Text("\(model.shapeNodes.count.formatted()) nodes").font(.caption).foregroundStyle(.secondary)
+                    Text("\(model.shapeNodes.count.formatted()) nodes").scaledFont(.caption).foregroundStyle(.secondary)
                 }
             }
             if !model.selection.isEmpty {
@@ -35,9 +35,9 @@ struct PatchShapeInspector: View {
     private func single(_ way: PatchWay) -> some View {
         let stats = PatchShapeStats(way: way, in: doc)
         HStack {
-            Text(way.roleName ?? "shape").font(.callout.weight(.semibold))
+            Text(way.roleName ?? "shape").scaledFont(.callout, weight: .semibold)
             Spacer()
-            Text("Way \(way.id)").font(.caption).foregroundStyle(.secondary)
+            Text("Way \(way.id)").scaledFont(.caption).foregroundStyle(.secondary)
         }
         if let ref = way.tags["ref"] { row("ref", ref) }
         row("Nodes", stats.nodeCount.formatted())
@@ -56,12 +56,12 @@ struct PatchShapeInspector: View {
         HStack {
             Text(key).foregroundStyle(.secondary)
             Spacer()
-            Text(value).font(.callout.monospacedDigit()).textSelection(.enabled)
+            Text(value).scaledFont(.callout, monospacedDigit: true).textSelection(.enabled)
         }
-        .font(.callout)
+        .scaledFont(.callout)
     }
 
     private func note(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text(text).scaledFont(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 }

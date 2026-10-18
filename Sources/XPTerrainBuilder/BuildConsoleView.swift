@@ -22,7 +22,7 @@ struct BuildConsoleView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text("Build Console")
-                .font(.headline)
+                .scaledFont(.headline)
             Spacer()
             Button {
                 buildModel.console.clear()
@@ -61,13 +61,18 @@ struct ConsoleTextView: NSViewRepresentable {
         scroll.backgroundColor = Self.backgroundColor
         context.coordinator.textView = textView
         context.coordinator.scrollView = scroll
+        context.coordinator.setTextScale(context.environment.textScale)
         context.coordinator.sync(with: console)
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.setTextScale(context.environment.textScale)
         context.coordinator.sync(with: console)
     }
+
+    /// The console's point size at Actual Size; View ▸ text size scales it (#827).
+    static let basePointSize = 11.0
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -80,6 +85,21 @@ struct ConsoleTextView: NSViewRepresentable {
         /// totalAppended value up to which the text storage is current.
         private var seenTotal = 0
         private var seenClearCount = 0
+        private var fontSize = CGFloat(ConsoleTextView.basePointSize)
+
+        private var font: NSFont { .monospacedSystemFont(ofSize: fontSize, weight: .regular) }
+
+        /// Re-fonts the whole console when the text scale changes (#827).
+        func setTextScale(_ scale: Double) {
+            let size = CGFloat(TextScale.scaled(ConsoleTextView.basePointSize, scale))
+            guard let textView, size != fontSize || textView.font?.pointSize != size else { return }
+            fontSize = size
+            textView.font = font
+            if let storage = textView.textStorage, storage.length > 0 {
+                storage.addAttribute(.font, value: font,
+                                     range: NSRange(location: 0, length: storage.length))
+            }
+        }
 
         func sync(with console: BuildConsoleModel) {
             guard let textView, let storage = textView.textStorage else { return }
@@ -112,7 +132,7 @@ struct ConsoleTextView: NSViewRepresentable {
 
         private func attributed(_ text: String) -> NSAttributedString {
             NSAttributedString(string: text, attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+                .font: font,
                 .foregroundColor: ConsoleTextView.textColor,
             ])
         }

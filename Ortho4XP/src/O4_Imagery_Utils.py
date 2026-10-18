@@ -16,6 +16,7 @@ import numpy
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 import requests
 
+import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Color_Harmonization as HARMONIZE
 import O4_DDS_Encode as DDSENC
 import O4_DDS_File as DDS
@@ -3174,3 +3175,8 @@ def convert_texture(
 ################################################################################
 
 ################################################################################
+
+
+# The config's values for this module's settings (O4_Cfg_Module_Values),
+# taken last -- as when O4_Config_Utils imported this module, then assigned.
+MODULE_VALUES.pull(__name__, globals())

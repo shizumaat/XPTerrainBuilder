@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import numpy
 from shapely import geometry, ops
+import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
@@ -1439,3 +1440,8 @@ def OSM_to_MultiPolygon(osm_layer, lat, lon, filter=None):
         UI.vprint(2, "    Total number of geometries:", len(ret_val.geoms))
     UI.progress_bar(1, 100)
     return ret_val
+
+
+# The config's values for this module's settings (O4_Cfg_Module_Values),
+# taken last -- as when O4_Config_Utils imported this module, then assigned.
+MODULE_VALUES.pull(__name__, globals())

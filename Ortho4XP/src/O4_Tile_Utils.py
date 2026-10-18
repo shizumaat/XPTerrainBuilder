@@ -4,6 +4,7 @@ import time
 import queue
 import threading
 from collections import defaultdict
+import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_UI_Utils as UI
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
@@ -872,3 +873,8 @@ def delete_incomplete_imgs(tile):
     IMG.incomplete_imgs.pop(tile_coords, None)
     IMG.incomplete_img_paths.pop(tile_coords, None)
     IMG.incomplete_img_providers.pop(tile_coords, None)
+
+
+# The config's values for this module's settings (O4_Cfg_Module_Values),
+# taken last -- as when O4_Config_Utils imported this module, then assigned.
+MODULE_VALUES.pull(__name__, globals())

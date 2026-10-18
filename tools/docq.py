@@ -219,7 +219,8 @@ def main(argv=None) -> int:
     s.add_argument("--object", action="store_true"); s.add_argument("--ramps", action="store_true")
     r = sub.add_parser("ruling"); r.add_argument("ids", nargs="+")
     x = sub.add_parser("index"); x.add_argument("sub", nargs="?")
-    d = sub.add_parser("adr"); d.add_argument("num")
+    d = sub.add_parser("adr")
+    d.add_argument("num")
     a = ap.parse_args(argv)
     if a.cmd == "spec":
         path = SPEC_OBJECT if a.object else SPEC_RAMPS if a.ramps else SPEC_DESIGN
@@ -238,7 +239,8 @@ def main(argv=None) -> int:
     if a.cmd == "index":
         print(index_full(a.sub) if a.sub else index_short()); return 0
     if a.cmd == "adr":
-        print(adr_entry(a.num)); return 0
+        print(adr_entry(a.num))
+        return 0
     return 2
 
 

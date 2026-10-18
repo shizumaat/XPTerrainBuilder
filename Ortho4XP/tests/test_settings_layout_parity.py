@@ -64,7 +64,8 @@ def python_layout() -> list:
 def test_swift_layout_equals_python():
     swift, python = swift_layout(), python_layout()
     assert [(k, t) for k, t, _ in swift] == [(k, t) for k, t, _ in python]
-    for (key, _, swift_rows), (_, _, python_rows) in zip(swift, python):
+    for (key, _, swift_rows), (_, _, python_rows) in zip(
+            swift, python, strict=True):
         assert swift_rows == python_rows, key
 
 

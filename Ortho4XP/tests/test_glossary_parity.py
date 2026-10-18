@@ -174,7 +174,7 @@ def test_no_retired_primary_label():
 def _settings_primary_labels():
     import O4_Settings_Model as SM
     from test_settings_layout_parity import swift_layout
-    for key, title, members in SM._LAYOUT:
+    for _key, title, members in SM._LAYOUT:
         yield "Qt", title
         yield from (("Qt", member[1]) for member in members
                     if not member[3])

@@ -9,7 +9,7 @@ engine** (RULINGS 2026-09-13au): it builds the planar map, generates the law
 constraints from TOML tables, solves the airport's design surface in one staged solve
 and emits the patch. Do not look here for surface construction, the solve or the law.
 
-What is here is 29 modules, declared one by one in `tests/test_v1_retired.py` (`KEEP`).
+What is here is 30 modules, declared one by one in `tests/test_v1_retired.py` (`KEEP`).
 That twin asserts three things: the production import closure reaches nothing under
 `auto_patch/` outside `KEEP`; the modules on disk ARE `KEEP`, exactly; and no production
 module names an `auto_patch` module outside `KEEP` as a string (the `__import__` blind
@@ -24,7 +24,7 @@ block of `STATUS.md` (~90k tokens of append-only history; never load it whole).
   `O4_Vector_Map` calls: airport selection, the freshness gate
   (`_auto_patch_is_current`), parallel dispatch, placement. `engine_v2.py` — the
   per-airport v2 adapter (`build_write_verify_one_v2`: build, stamp the `<osm>` header,
-  verify, place; `rebake_after_mesh`). `selection.py` — which airports a tile builds and
+  verify; split from `object_stage.py`, #836). `selection.py` — which airports a tile builds and
   the boundary policy. `progress.py`, `provenance.py` (freshness stamps, the config-gate
   inventory, `config_digest`), `provenance_code.py` (the engine-source digest),
   `provenance_env.py` (which `O4_` variables are patch settings and which only
@@ -33,7 +33,8 @@ block of `STATUS.md` (~90k tokens of append-only history; never load it whole).
   `obj8_reader.py`, `osm_aeroway.py`.
 - **Flat-site detector.** `flat_site.py` (the detector), `flat_site_mode.py` (production
   DEM prep's caller).
-- **Object stage (post-mesh).** `post_mesh.py`, `object_rebake.py`, `object_anchor.py`,
+- **Object stage (post-mesh).** `object_stage.py` (`rebake_after_mesh`, the v2
+  placement writes, the pack journal; the mesh step's half of the old `engine_v2`), `post_mesh.py`, `object_rebake.py`, `object_anchor.py`,
   `object_frame.py`, `object_clusters.py`, `object_footprints.py`,
   `object_terrain_features.py`, `object_terrain_kinds.py`, `obj8_partition.py`,
   `mesh_sampler.py`. It re-seats scenery-pack objects onto the built mesh. Parts of

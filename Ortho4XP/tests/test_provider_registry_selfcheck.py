@@ -14,7 +14,7 @@ import pytest
 
 import O4_Airport_Elevation_Insets as INSETS
 import O4_File_Names as FNAMES
-import O4_Proj_Runtime as runtime
+import O4_Import_Selfcheck as IMPORT_SELFCHECK
 
 SHIPPED = os.path.normpath(os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "Providers",
@@ -97,16 +97,16 @@ def test_the_selfcheck_names_a_file_read_in_another_encoding(
 
 def test_the_engine_entry_fails_when_the_bundle_has_no_provider_files(
         tmp_path, monkeypatch, capsys):
-    assert runtime.import_selfcheck_main(
+    assert IMPORT_SELFCHECK.import_selfcheck_main(
         ["Ortho4XP", "--import-selfcheck", "json"]) == 0
     assert ("elevation provider registry: ok %d providers"
             % len(SHIPPED_CODES)) in capsys.readouterr().out
     monkeypatch.setattr(FNAMES, "Provider_dir", str(tmp_path))
-    assert runtime.import_selfcheck_main(
+    assert IMPORT_SELFCHECK.import_selfcheck_main(
         ["Ortho4XP", "--import-selfcheck", "json"]) == 1
     assert "elevation provider registry: FAIL no directory" in (
         capsys.readouterr().out)
     os.mkdir(os.path.join(str(tmp_path), "Elevation"))
-    assert runtime.import_selfcheck_main(
+    assert IMPORT_SELFCHECK.import_selfcheck_main(
         ["Ortho4XP", "--import-selfcheck", "json"]) == 1
     assert "FAIL 0 of 0 files" in capsys.readouterr().out

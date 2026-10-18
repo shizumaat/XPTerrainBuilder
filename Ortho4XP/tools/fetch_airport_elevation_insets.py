@@ -51,7 +51,7 @@ Options:
 WITNESS MODE (``--witness ICAO``, promoted 2026-09-30 from the aoi154 /
 opr153 / tx154 scratch ``witness.py`` scripts on their second use, RULINGS
 ``7e90032``): the airport box comes from apt.dat instead of ``--bbox`` --
-THE apt.dat serving the ICAO (``engine_v2.select_apt_dat``, the one
+THE apt.dat serving the ICAO (``apt_dat.select_apt_dat``, the one
 selector; ``--apt-dat`` overrides), its aerodrome footprint (runway ends +
 pavement nodes + 130 boundary rings, the gap census's ``footprint``) as the
 production ``footprint_polygon``, and the inset box = the footprint's box
@@ -344,7 +344,7 @@ def run_witness(arguments) -> int:
     harness = _harness_module()
     apt_dat = arguments.apt_dat
     if not apt_dat:
-        from auto_patch.engine_v2 import select_apt_dat
+        from auto_patch_v2.airport.apt_dat import select_apt_dat
 
         apt_dat = select_apt_dat(harness._owner_xplane_root(), icao)
     if not apt_dat:

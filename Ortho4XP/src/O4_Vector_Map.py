@@ -716,23 +716,10 @@ def small_roads_queries(road_level):
     return queries
 
 
-def resolved_road_level(tile):
-    """``(numeric_level, auto)`` for the tile's ``road_level`` setting.
-
-    "auto" (the default since 2026-07-27, owner ruling — same pattern as
-    the elevation/imagery auto modes) means: level 1 tile-wide (major
-    roads + railways) PLUS full level-5 roads and rails inside each
-    airport's elevation-inset neighbourhood (see ``build_roads``).
-    Numeric strings and legacy ints resolve to the historical tile-wide
-    levels.  Unparseable values read as "auto" rather than crashing a
-    build over a config typo."""
-    raw = getattr(tile, "road_level", "auto")
-    if isinstance(raw, str) and raw.strip().lower() == "auto":
-        return 1, True
-    try:
-        return int(raw), False
-    except (TypeError, ValueError):
-        return 1, True
+#: MOVED to ``auto_patch.selection`` (#836: the patch build's cache check
+#: reads it from the mesh step too).  Re-exported here, as
+#: ``resolved_auto_patch_mode`` is, for this module's own callers.
+resolved_road_level = _SELECTION.resolved_road_level
 
 
 #: MOVED to ``auto_patch.selection`` (spec §A.2): ONE spelling of the mode
@@ -1989,55 +1976,6 @@ def manual_patch_icaos(tile):
     return FNAMES.manual_patch_icaos_in(FNAMES.patch_dir(tile.lat, tile.lon))
 
 
-def manual_patch_files_for(patch_dir, icao):
-    """The manual ``<ICAO>[_x].patch.osm`` files in *patch_dir* that cover
-    *icao* — the same prefix rule ``include_patches`` and the selector
-    apply (the part before the first ``_``)."""
-    if not os.path.isdir(patch_dir):
-        return []
-    return sorted(
-        f for f in os.listdir(patch_dir)
-        if FNAMES.is_manual_patch_name(f)
-        and FNAMES.patch_file_icao(f) == icao.upper())
-
-
-def auto_patch_not_applied(tile, icao, patch_dir=None):
-    """Why ``<ICAO>_auto.patch.osm`` is NOT part of this tile's mesh, or
-    ``None`` when it is.
-
-    THE ONE ADMISSION TEST (lane ``othhjunction``, issues #13/#15): the
-    patch ingest (:func:`include_patches`) and the post-mesh object stage
-    (``auto_patch.engine_v2.rebake_after_mesh``) must agree on which auto
-    patches the mesh carries.  Before this the object stage placed EVERY
-    ``o4_v2_rebake_<ICAO>.json`` plan in the patch dir — at OTHH (build
-    350, 2026-09-18) a manual ``OTHH.patch.osm`` overrode the auto patch in
-    the mesh while the placement stage still split 726 bodies into 2,222
-    files and rewrote the pack DSF against the auto patch's design surface,
-    a surface the mesh did not have.
-
-    Reasons, in ``include_patches``'s order: the auto patch file is absent,
-    the ``auto_patch`` mode does not admit the code, this build's boundary
-    choice skipped it, or a manual patch covers it."""
-    icao = str(icao).upper()
-    if patch_dir is None:
-        patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
-    if not os.path.isfile(os.path.join(patch_dir, icao + "_auto.patch.osm")):
-        return "no %s_auto.patch.osm in the tile's Patches" % icao
-    mode = resolved_auto_patch_mode(tile)
-    if not _SELECTION.mode_admits(icao, mode):
-        return "auto_patch=%s" % mode
-    if icao in {
-        candidate.icao
-        for candidate in (getattr(tile, "auto_patch_selection", None) or ())
-        if candidate.disposition == "boundary_skipped"
-    }:
-        return "boundary choice: skipped"
-    manual = manual_patch_files_for(patch_dir, icao)
-    if manual:
-        return "manual patch %s is used instead" % ", ".join(manual)
-    return None
-
-
 def resolve_cifp_dir_for_tile(tile):
     """The CIFP directory THIS tile build will read, or ``""``."""
     import O4_Settings_Model as SETTINGS
@@ -2049,30 +1987,10 @@ def resolve_cifp_dir_for_tile(tile):
 
 
 ################################################################################
-def build_airports_dico(tile, airport_layer, persist=True):
-    """The tile build's airport-dictionary chain, exactly as
-    ``load_airports_and_prepare_dem`` runs it (discovery, surfaces,
-    runway reconstruction, discards, hangar/apron/taxiway areas,
-    boundaries).  Factored out (2026-07-19, production-DEM parity v2)
-    so the standalone DEM loader in ``auto_patch.elevation`` can build
-    the same ``dico_airports`` the production airport smoothing uses.
-    Pure compute over the already-loaded layer — no network.
-
-    *persist* writes the dictionary to the tile's ``Data*.apt`` for Steps
-    2 and 3; a NEIGHBOUR read passes False (#676: it wrote into a
-    neighbour's build folder that did not exist)."""
-    dico_airports = {}
-    APT.discover_airport_names(airport_layer, dico_airports)
-    APT.attach_surfaces_to_airports(airport_layer, dico_airports)
-    APT.sort_and_reconstruct_runways(tile, airport_layer, dico_airports)
-    APT.discard_unwanted_airports(tile, dico_airports)
-    APT.build_hangar_areas(tile, airport_layer, dico_airports)
-    APT.build_apron_areas(tile, airport_layer, dico_airports)
-    APT.build_taxiway_areas(tile, airport_layer, dico_airports)
-    APT.update_airport_boundaries(tile, dico_airports)
-    if persist:
-        APT.save_airport_info(tile, dico_airports)
-    return dico_airports
+#: MOVED to ``O4_Airport_Dico`` (#836: the mesh step's approach rings read
+#: it, and must not import the vector step).  This module's own callers
+#: keep the name.
+from O4_Airport_Dico import build_airports_dico  # noqa: E402
 
 
 ################################################################################
@@ -2281,8 +2199,6 @@ def include_airports(vector_map, tile):
 
 
 ################################################################################
-#: The clamp pass's own measurement, beside the tile it describes.
-LEVELLED_ROADS_SIDECAR = "o4_levelled_roads.json"
 
 
 def road_bridge_deck_pins(tile):
@@ -2386,7 +2302,7 @@ def road_join_yield_pins(tile):
 def levelled_roads_sidecar_path(build_dir):
     """Path of a tile's levelled-roads sidecar (one spelling, shared with
     ``tools/road_terrain_conformance.py --levelled-roads``)."""
-    return os.path.join(build_dir, LEVELLED_ROADS_SIDECAR)
+    return os.path.join(build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)
 
 
 def write_levelled_roads_sidecar(tile, levelled_roads):
@@ -3678,14 +3594,14 @@ def size_bank_annulus_regions(vector_map, tile):
     """Give every seed inside a BANK ANNULUS a Triangle regional AREA
     constraint (owner RULINGS 2026-09-09x).
 
-    ``O4_Mesh_Utils.bank_annulus_region_areas`` is the one derivation of
+    ``O4_Bank_Annulus.bank_annulus_region_areas`` is the one derivation of
     the annulus and of its local width; this only marries the answer to
     the seeds the vector map is about to write.  Returns the number of
     seeds sized.  Never raises: an unsized annulus is the round-1 mesh,
     which builds.
     """
     try:
-        import O4_Mesh_Utils as MESH
+        import O4_Bank_Annulus as BANK_ANNULUS
 
         keys, points = [], []
         for key, seeds in vector_map.seeds.items():
@@ -3694,7 +3610,7 @@ def size_bank_annulus_regions(vector_map, tile):
                 points.append((float(seed[0]), float(seed[1])))
         if not points:
             return 0
-        areas = MESH.bank_annulus_region_areas(tile, points)
+        areas = BANK_ANNULUS.bank_annulus_region_areas(tile, points)
         if not areas:
             UI.vprint(1, "   Bank annulus: no region seed inside an annulus "
                          "— no area constraint written.")
@@ -3991,7 +3907,7 @@ def include_patches(vector_map, tile):
                 manual = [
                     f + (" (user-edited)" if _is_user_edited_patch(
                         os.path.join(patch_dir, f)) else "")
-                    for f in manual_patch_files_for(patch_dir, auto_icao)]
+                    for f in _SELECTION.manual_patch_files_for(patch_dir, auto_icao)]
                 UI.vprint(
                     0,
                     "   %s: using the MANUAL patch %s — %s is NOT applied "

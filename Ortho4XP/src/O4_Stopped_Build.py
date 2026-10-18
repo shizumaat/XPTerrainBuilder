@@ -38,8 +38,8 @@ def settle(build_dir: str, lat: int, lon: int) -> str:
     back."""
     unproven: list = []
     try:
-        from auto_patch import engine_v2
-        unproven = engine_v2.restore_stopped_build(build_dir, lat, lon)
+        from auto_patch import object_stage
+        unproven = object_stage.restore_stopped_build(build_dir, lat, lon)
     except Exception as exc:                       # the row is still owed
         unproven = [f"The scenery packs changed by this build could not be "
                     f"checked ({exc})."]
@@ -53,7 +53,7 @@ def settle(build_dir: str, lat: int, lon: int) -> str:
 def complete(build_dir: str, lat: int, lon: int) -> None:
     """The build completed: the pack files it rewrote stand."""
     try:
-        from auto_patch import engine_v2
-        engine_v2.discard_pack_journal(build_dir, lat, lon)
+        from auto_patch import object_stage
+        object_stage.discard_pack_journal(build_dir, lat, lon)
     except Exception:
         pass

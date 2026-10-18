@@ -146,6 +146,24 @@ def test_an_edit_outside_the_closure_keeps_every_step_and_inside_moves_it(
                for s, v in STEPCODE.freeze_digests(str(copy)).items())
 
 
+@pytest.mark.parametrize("step, module, path", [
+    ("mesh", "auto_patch.object_stage", ("auto_patch", "object_stage.py")),
+    ("masks", "O4_Imagery_Utils", ("O4_Imagery_Utils.py",)),
+])
+def test_an_edit_to_one_steps_own_code_moves_that_step_alone(
+        tmp_path, step, module, path):
+    """The hub cuts (lane ``cloudstepcut``): the post-mesh object stage is
+    the mesh step's alone, the imagery module the masks step's alone — an
+    edit there re-runs that step and keeps the others."""
+    owners = [s for s in STEPCODE.STEPS if module in STEPCODE.CODE_MODULES[s]]
+    assert owners == [step], owners
+    copy = _copy_sources(tmp_path / "src")
+    before = STEPCODE.freeze_digests(str(copy))
+    _append(copy.joinpath(*path))
+    after = STEPCODE.freeze_digests(str(copy))
+    assert {s for s in STEPCODE.STEPS if after[s] != before[s]} == {step}
+
+
 _FREEZE = r"""
 import os, runpy, sys
 src, out = sys.argv[1], sys.argv[2]

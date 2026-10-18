@@ -30,6 +30,7 @@ import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 import O4_Unpatched_Airports as UNPATCHED
 import O4_Vector_Map as VMAP
+from auto_patch import selection as SELECTION
 import O4_Vector_Utils as VECT
 
 _EMPTY_OSM = "<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n</osm>\n"
@@ -163,9 +164,9 @@ def test_the_stale_patch_is_out_of_every_readers_sight(world, monkeypatch):
     assert sorted(n for n in names if n[-10:] == ".patch.osm") == [
         "KAAA_auto.patch.osm", "KCCC_auto.patch.osm"]        # ingest, mesh
     assert len(VMAP.road_join_yield_pins(world.tile)) == 2   # road pins
-    assert "no KBBB_auto.patch.osm" in VMAP.auto_patch_not_applied(
+    assert "no KBBB_auto.patch.osm" in SELECTION.auto_patch_not_applied(
         world.tile, "KBBB")                                  # object stage
-    assert VMAP.auto_patch_not_applied(world.tile, "KAAA") is None
+    assert SELECTION.auto_patch_not_applied(world.tile, "KAAA") is None
     import glob
     plans = glob.glob(os.path.join(str(world.patch_dir), "o4_v2_rebake_*.json"))
     assert not [p for p in plans if "KBBB" in p]             # plan glob
@@ -197,7 +198,7 @@ def test_a_clean_build_restates_an_empty_list(world, monkeypatch):
     # (7) the airport built again with no manual cleanup: its patch is in
     assert world.ordinary == ["KAAA", "KAAA_auto", "KBBB", "KBBB_auto",
                               "KCCC", "KCCC_auto"]
-    assert VMAP.auto_patch_not_applied(world.tile, "KBBB") is None
+    assert SELECTION.auto_patch_not_applied(world.tile, "KBBB") is None
 
 
 # ── 6: every airport fails ──────────────────────────────────────────────
@@ -288,13 +289,13 @@ def test_the_harness_environment_is_strict():
 def test_the_family_names_are_their_writers_own():
     """The set-aside spells the names itself (it must work when the v2
     package cannot be imported); each is held against its writer."""
-    from auto_patch import engine_v2
+    from auto_patch import object_stage
     from auto_patch_v2.airport import object_plan, rebake_screen
-    from auto_patch_v2.model.rebake import PLAN_FILENAME
+    from auto_patch_v2.model.rebake import GRADED_SURFACE_FILENAME, PLAN_FILENAME
 
     patch = os.path.basename(_patch("", "{icao}"))
     assert UNPATCHED.PATCH_FAMILY == (
-        patch, patch + ".axes.json", engine_v2.GRADED_SURFACE_FILENAME,
+        patch, patch + ".axes.json", GRADED_SURFACE_FILENAME,
         PLAN_FILENAME, rebake_screen.SCREEN_FILENAME,
         object_plan.REFUSED_FILENAME)
     # and none of them, set aside, matches a reader's pattern
@@ -302,7 +303,7 @@ def test_the_family_names_are_their_writers_own():
         stale = name.format(icao="KBBB") + UNPATCHED.STALE_SUFFIX
         assert stale[-10:] != ".patch.osm"
         assert not stale.endswith(".patch.osm.axes.json")
-        assert not engine_v2._PLAN_NAME_RE.match(stale)
+        assert not object_stage._PLAN_NAME_RE.match(stale)
         assert not object_plan.SCREEN_NAME_RE.match(stale)
         assert not stale.endswith(".json")
 

@@ -226,7 +226,7 @@ def _mesh_ground(mesh: str, rows_of: _t.Sequence[_t.Mapping[str, _t.Any]]):
            for p in (b.get("geom_pts") or ())]
     _o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
         _o4os.path.abspath(__file__))), "src", "auto_patch"))
-    from auto_patch.engine_v2 import mesh_placement_sampler
+    from auto_patch.object_stage import mesh_placement_sampler
     sm = mesh_placement_sampler(mesh, (min(los) - .01, min(las) - .01,
                                        max(los) + .01, max(las) + .01))
 

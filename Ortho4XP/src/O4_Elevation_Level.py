@@ -1783,7 +1783,7 @@ def _neighbour_boundary_polygons(lat, lon, reach_m):
     import O4_Airport_Modes as MODES
     import O4_Config_Utils as CFG
     import O4_OSM_Utils as OSM
-    import O4_Vector_Map as VMAP
+    from O4_Airport_Dico import build_airports_dico
     from shapely.geometry import box as _box
 
     polygons = {}
@@ -1801,8 +1801,7 @@ def _neighbour_boundary_polygons(lat, lon, reach_m):
             neighbour.read_from_config()
             layer = OSM.OSM_layer()
             layer.update_dicosm(cached)
-            dico = VMAP.build_airports_dico(neighbour, layer,
-                                            persist=False)
+            dico = build_airports_dico(neighbour, layer, persist=False)
             selected = MODES.inset_keys(
                 dico, MODES.resolved_inset_mode(neighbour)
             )

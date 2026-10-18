@@ -2692,7 +2692,7 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     ``placement_write.apply_plan`` is the call that rewrites the serving
     pack's DSF, re-bakes its ``.obj`` bodies and leaves the
     ``.anchor_bak`` backups — in the OWNER'S install.  Its only engine
-    caller is ``auto_patch.engine_v2._place_objects``, reached only from
+    caller is ``auto_patch.object_stage._place_objects``, reached only from
     ``rebake_after_mesh``, which only ``O4_Mesh_Utils.build_mesh`` calls:
     a TILE build.  The v2 AIRPORT pipeline reaches none of it — its
     rebake stage writes ``<out>/<ICAO>.rebake.json`` and nothing else.
@@ -2703,10 +2703,10 @@ def test_the_object_write_half_is_reachable_ONLY_from_the_tile_path():
     callers = {p.relative_to(src).as_posix() for p in src.rglob("*.py")
                if "apply_plan(" in p.read_text(errors="replace", encoding="utf-8")
                and "def apply_plan(" not in p.read_text(errors="replace", encoding="utf-8")}
-    assert callers == {"auto_patch/engine_v2.py"}, callers
+    assert callers == {"auto_patch/object_stage.py"}, callers
     rebake_callers = {
         p.relative_to(src).as_posix() for p in src.rglob("*.py")
-        if "AUTO_PATCH_ENGINE_V2.rebake_after_mesh(" in p.read_text(
+        if "AUTO_PATCH_OBJECT_STAGE.rebake_after_mesh(" in p.read_text(
             errors="replace", encoding="utf-8")}
     assert rebake_callers == {"O4_Mesh_Utils.py"}, rebake_callers
     for p in (src / "auto_patch_v2" / "pipeline").rglob("*.py"):
@@ -2754,7 +2754,7 @@ def test_the_engine_reads_the_same_stand_down_flag_the_harness_sets():
     it; the string appears in two files and nowhere else, so a rename on
     one side is silent.  This twin is the only thing that would say so.
     """
-    engine = (ROOT / "src" / "auto_patch" / "engine_v2.py").read_text(encoding="utf-8")
+    engine = (ROOT / "src" / "auto_patch" / "object_stage.py").read_text(encoding="utf-8")
     harness = (ROOT / "tools" / "harness"
                / "build_airport.py").read_text(encoding="utf-8")
     assert 'os.environ.get("O4_PACK_WRITES") == "measure_only"' in engine, (

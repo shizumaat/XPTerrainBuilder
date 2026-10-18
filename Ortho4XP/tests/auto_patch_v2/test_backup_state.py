@@ -766,9 +766,9 @@ def test_the_disabled_pack_gate_sits_before_the_placement_call(tmp_path):
     stands BEFORE ``_place_objects`` — the one call that classifies."""
     import inspect
 
-    from auto_patch import engine_v2
+    from auto_patch import object_stage
 
-    src = inspect.getsource(engine_v2.rebake_after_mesh)
+    src = inspect.getsource(object_stage.rebake_after_mesh)
     gate = src.index("pack_enabled(plan_.pack_root)")
     place = src.index("pc = _place_objects(")
     assert gate < place, "the disabled-pack gate must precede the write path"

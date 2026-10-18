@@ -501,8 +501,8 @@ def test_ring_layers_are_ordered_coarsest_first(tmp_path, monkeypatch):
 def _install_neighbour(monkeypatch, tmp_path, boundaries, cached_stems):
     """Make the real ``_neighbour_boundary_polygons`` read a cached layer."""
     import O4_Config_Utils as CFG
+    import O4_Airport_Dico as DICO
     import O4_OSM_Utils as OSM
-    import O4_Vector_Map as VMAP
 
     for stem_lat, stem_lon in cached_stems:
         path = FNAMES.osm_cached(stem_lat, stem_lon, "airports")
@@ -524,7 +524,7 @@ def _install_neighbour(monkeypatch, tmp_path, boundaries, cached_stems):
         ),
     )
     monkeypatch.setattr(
-        VMAP, "build_airports_dico",
+        DICO, "build_airports_dico",
         lambda tile, layer, **kwargs: _dico(
             **{name: poly for name, poly in boundaries.items()}
         ),

@@ -126,14 +126,14 @@ def test_airport_pack_predicate_follows_the_road_level(
     monkeypatch, tmp_path
 ):
     import O4_File_Names as FNAMES
-    import O4_Vector_Map as VMAP
+    from auto_patch import selection as SELECTION
     # the predicate moved from ``osm_load`` to ``build_support`` with the
     # v1 retirement (2026-10-04) — beside the prefetch it gates
     from auto_patch import build_support as osm_load
 
     monkeypatch.setattr(FNAMES, "OSM_dir", str(tmp_path / "OSM_data"))
     tile = SimpleNamespace(lat=30, lon=31)
-    monkeypatch.setattr(VMAP, "resolved_road_level", lambda t: (2, False))
+    monkeypatch.setattr(SELECTION, "resolved_road_level", lambda t: (2, False))
     assert osm_load.is_cached(tile) is False
     _write_osm_cache(FNAMES.osm_cached(30, 31, "airports"))
     assert osm_load.is_cached(tile) is False, "big_roads still missing"
@@ -142,7 +142,7 @@ def test_airport_pack_predicate_follows_the_road_level(
     _write_osm_cache(FNAMES.osm_cached(30, 31, "small_roads"))
     assert osm_load.is_cached(tile) is True
     # A tile that wants no roads needs only the airports layer.
-    monkeypatch.setattr(VMAP, "resolved_road_level", lambda t: (0, False))
+    monkeypatch.setattr(SELECTION, "resolved_road_level", lambda t: (0, False))
     other = SimpleNamespace(lat=31, lon=31)
     _write_osm_cache(FNAMES.osm_cached(31, 31, "airports"))
     assert osm_load.is_cached(other) is True

@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
 import O4_UI_Utils as UI                                   # noqa: E402
-from auto_patch import engine_v2 as E                     # noqa: E402
+from auto_patch import object_stage as E                     # noqa: E402
 from auto_patch_v2.airport.pack_art import MissingDef     # noqa: E402
 from o4_engine import events as EV                         # noqa: E402
 

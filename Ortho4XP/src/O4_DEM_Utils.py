@@ -14,6 +14,7 @@ try:
 except:
     has_gdal = False
 from PIL import Image
+import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 
@@ -1659,3 +1660,8 @@ def smoothen(raster, pix_width, mask_im, preserve_boundary=True):
                 + (pix_width - i) / pix_width * raster[:, -i - 1]
             )
     return raster * (mask_array == 0) + tmp * (mask_array != 0)
+
+
+# The config's values for this module's settings (O4_Cfg_Module_Values),
+# taken last -- as when O4_Config_Utils imported this module, then assigned.
+MODULE_VALUES.pull(__name__, globals())

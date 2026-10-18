@@ -3,6 +3,7 @@ import os
 import shutil
 import sys
 import subprocess
+import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_DSFTool as DSFTOOL
 
 # DSFTool's text is the DSF's own bytes -- UTF-8 by specification.  Lines
@@ -359,3 +360,8 @@ def build_overlay(lat, lon):
         pass
     UI.timings_and_bottom_line(timer)
     return 1
+
+
+# The config's values for this module's settings (O4_Cfg_Module_Values),
+# taken last -- as when O4_Config_Utils imported this module, then assigned.
+MODULE_VALUES.pull(__name__, globals())

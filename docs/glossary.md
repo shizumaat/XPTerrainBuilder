@@ -14,7 +14,7 @@ primary label in either app.
 
 | Shown today (example location) | Plain wording |
 |---|---|
-| "Build ZL", ZL16 (`BuildPane.swift:343`) | "Detail: Standard (~2 m per pixel)", ZL as secondary text |
+| "Build ZL", ZL16 (`BuildPane.swift:343`) | ~~"Detail: Standard (~2 m per pixel)", ZL as secondary text~~ — superseded by the owner's ruling of 2026-10-18 (below): "Detail: ZL16 · ~2 m per pixel" |
 | DSF, "Imagery & DSF" (`BuildPane.swift:352`) | "Scenery file" / "Imagery and scenery file" |
 | "Triangulate 3D mesh" (`OrthoBuildRunner.swift:43`) | "Shape the ground" |
 | "Draw water masks" (`:44`) | "Blend coastlines and water" |
@@ -36,13 +36,20 @@ primary label in either app.
 |---|---|
 | A progress row while airports are graded | "Grading airports" |
 | The Build-pane toggle that runs the first three steps | "Map data, ground shape and water" |
-| Detail levels (ZL12–ZL21) | Very coarse, Coarse, Low, Light, **Standard** (ZL16), Sharp, Very sharp, Ultra sharp, Extreme, Maximum — each with its pixel size at the equator (~40 m … ~0.07 m) |
+| Detail levels (ZL12–ZL21) | The ZL number, with its pixel size at the equator as secondary text: "ZL16 · ~2 m per pixel" (~40 m at ZL12 … ~0.07 m at ZL21) |
+
+## Owner ruling 2026-10-18: detail levels keep their ZL numbers
+
+"Accept all recommendations, except keep using ZL numbers rather than
+trying to name them." (Noah, 2026-10-18.) Detail levels are shown as
+"ZL16", never as an invented name (the draft's "Very coarse … Standard …
+Maximum" scale is withdrawn); the pixel size may follow as secondary text.
 
 ## Rules
 
 - A **primary label** (a title, button, toggle, menu item or row name) uses
   the plain wording. The old word may stay in secondary text: help,
-  tooltips, file names, and the ZL number after a detail level.
+  tooltips, file names, and the pixel size after a ZL number.
 - **Settings rows** (issue #823) are worded in ONE table,
   `Ortho4XP/src/O4_Settings_Model.py` `_LAYOUT`, mirrored row for row by
   `Sources/XPTerrainBuilder/SettingsLayout.swift`

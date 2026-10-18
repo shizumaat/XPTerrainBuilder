@@ -50,7 +50,6 @@ def _swift_table(name: str) -> dict:
 @pytest.mark.parametrize("swift_name, python_table", [
     ("terms", GLOSSARY.TERMS),
     ("stepNames", GLOSSARY.STEP_NAMES),
-    ("detailNames", GLOSSARY.DETAIL_NAMES),
     ("detailPixelSizes", GLOSSARY.DETAIL_PIXEL_SIZES),
 ])
 def test_swift_tables_equal_python(swift_name, python_table):
@@ -93,11 +92,17 @@ def test_step_display(key, label, shown):
     assert GLOSSARY.step_display(key, label) == shown
 
 
-def test_detail_label():
-    assert GLOSSARY.detail_label(16) == "Standard (~2 m per pixel)"
-    assert GLOSSARY.detail_choice(16) == "Standard (~2 m per pixel) · ZL16"
-    assert GLOSSARY.detail_label(9) == "ZL9"
-    assert set(GLOSSARY.DETAIL_NAMES) == set(GLOSSARY.DETAIL_PIXEL_SIZES)
+def test_detail_choice():
+    # Owner ruling 2026-10-18: detail levels are shown as ZL numbers.
+    assert GLOSSARY.detail_choice(16) == "ZL16 · ~2 m per pixel"
+    assert GLOSSARY.detail_choice(9) == "ZL9"
+    assert set(GLOSSARY.DETAIL_PIXEL_SIZES) == set(range(12, 22))
+
+
+def test_swift_detail_choice_matches_python():
+    text = SWIFT_GLOSSARY.read_text(encoding="utf-8")
+    assert '"ZL\\(zl) · \\(size) per pixel"' in text
+    assert "detailNames" not in text
 
 
 def test_surface_check():

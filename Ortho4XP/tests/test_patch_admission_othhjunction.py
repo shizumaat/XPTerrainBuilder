@@ -15,7 +15,7 @@ import types
 import pytest
 
 import O4_Vector_Map as VMAP
-from auto_patch import engine_v2
+from auto_patch import object_stage
 from auto_patch import post_mesh
 from auto_patch_v2.model import rebake as _rb
 import O4_File_Names as FNAMES
@@ -98,7 +98,7 @@ def rebake_stage(tmp_path, monkeypatch):
 
 def test_rebake_places_a_plan_whose_patch_is_in_the_mesh(rebake_stage):
     tile, _ = rebake_stage
-    counts = engine_v2.rebake_after_mesh(tile)
+    counts = object_stage.rebake_after_mesh(tile)
     assert counts["airports"] == 1
     assert "airports_skipped_unapplied" not in counts
 
@@ -106,7 +106,7 @@ def test_rebake_places_a_plan_whose_patch_is_in_the_mesh(rebake_stage):
 def test_rebake_skips_a_plan_a_manual_patch_overrode(rebake_stage, capsys):
     tile, patch_dir = rebake_stage
     _touch(patch_dir / "OTHH.patch.osm")
-    counts = engine_v2.rebake_after_mesh(tile)
+    counts = object_stage.rebake_after_mesh(tile)
     assert counts["airports"] == 0
     assert counts["airports_failed"] == 0
     assert counts["airports_skipped_unapplied"] == 1

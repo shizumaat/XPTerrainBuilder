@@ -796,7 +796,7 @@ def _place(plan, patch_dir, monkeypatch, dsf):
     """Drive ``engine_v2._place_objects`` — the SHIPPED call path — in its
     measure-only arm (no cut, no DSF write, no DSFTool)."""
     from auto_patch import dsf_reader as DSFR
-    from auto_patch import engine_v2 as EV2
+    from auto_patch import object_stage as EV2
     from auto_patch_v2.law import Law
 
     monkeypatch.setattr(DSFR, "ensure_dsf_text_path",
@@ -818,8 +818,6 @@ def test_the_shipped_path_classifies_building_and_basin(tmp_path, monkeypatch):
     fall through to ``other`` — which is what every shipped build did."""
     import json as _json
 
-    from auto_patch import engine_v2 as EV2
-
     pack, dsf, plan = _plan_with_a_building_and_a_basin(tmp_path)
     patch_dir = tmp_path / "patch"
     patch_dir.mkdir()
@@ -838,7 +836,8 @@ def test_the_shipped_path_classifies_building_and_basin(tmp_path, monkeypatch):
     assert "class_other" not in b, b
 
     # and the path the two halves agree on is one function
-    assert EV2.graded_surface_path(str(patch_dir), "TEST") == \
+    from auto_patch_v2.model.rebake import graded_surface_path
+    assert graded_surface_path(str(patch_dir), "TEST") == \
         str(patch_dir / "TEST.graded.json")
 
 

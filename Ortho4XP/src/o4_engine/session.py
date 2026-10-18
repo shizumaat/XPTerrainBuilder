@@ -856,7 +856,7 @@ class EngineSession:
         if self._building:
             return False
         try:
-            from auto_patch import engine_v2 as _EV2
+            from auto_patch import object_stage as _EV2
 
             _EV2.set_missing_art_policy(missing_art)
         except Exception:                                # pragma: no cover
@@ -1641,7 +1641,7 @@ class EngineSession:
         root, la, lo = str(pack_root or ""), int(lat), int(lon)
 
         def work():
-            from auto_patch import engine_v2 as _EV2
+            from auto_patch import object_stage as _EV2
             out = _EV2.omit_missing_art(root, la, lo)
             if out.get("state") == "none":
                 # nothing missing any more: _EV2 announced nothing

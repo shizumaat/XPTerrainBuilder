@@ -2570,9 +2570,9 @@ def _auto_patch_post_mesh_rebake(tile):
         # 2026-09-13au, so there is no engine dispatch left here): v2's own
         # seat law over the tile's o4_v2_rebake_<ICAO>.json plans, the
         # legacy writer; one baker per pack per build.
-        from auto_patch import engine_v2 as AUTO_PATCH_ENGINE_V2
+        from auto_patch import object_stage as AUTO_PATCH_OBJECT_STAGE
 
-        AUTO_PATCH_ENGINE_V2.rebake_after_mesh(tile)
+        AUTO_PATCH_OBJECT_STAGE.rebake_after_mesh(tile)
     except Exception as exception:
         UI.vprint(
             1, "auto_patch post-mesh object re-anchor failed:", exception

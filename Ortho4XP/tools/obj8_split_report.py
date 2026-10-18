@@ -301,8 +301,8 @@ def surface_from_mesh(mesh_path: str, bounds, graded_sampler):
     document's ``roles`` / ``rolled_on`` / ``decks`` from
     ``graded_sampler`` so §17 and §49 read as they do in the app.
     ``bounds`` is the plan's ``(min_lon, min_lat, max_lon, max_lat)``."""
-    from auto_patch.engine_v2 import (_placement_surface,
-                                      mesh_placement_sampler)
+    from auto_patch.object_stage import (_placement_surface,
+                                         mesh_placement_sampler)
     s = _placement_surface(mesh_placement_sampler(mesh_path, bounds))
     for k in ("roles", "rolled_on", "decks"):
         setattr(s, k, getattr(graded_sampler, k, None))

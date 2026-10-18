@@ -755,12 +755,12 @@ def test_mesh_hook_swallows_exceptions(monkeypatch):
     propagate out of it.  The re-seat is v2's ``rebake_after_mesh`` (v1
     retired, RULINGS 2026-09-13au — the guard no longer dispatches to
     ``post_mesh_v1.rebake_dsf_objects``)."""
-    from auto_patch import engine_v2
+    from auto_patch import object_stage
 
     def exploding_rebake(tile):
         raise RuntimeError("synthetic post-mesh failure")
 
-    monkeypatch.setattr(engine_v2, "rebake_after_mesh", exploding_rebake)
+    monkeypatch.setattr(object_stage, "rebake_after_mesh", exploding_rebake)
     messages = []
     monkeypatch.setattr(
         O4_Mesh_Utils.UI, "vprint",

@@ -21,13 +21,15 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import json
+import os
 import typing as _t
 
 from .frame import LL
 
 
 __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
-           "PLAN_VERSION", "PLAN_FILENAME"]
+           "PLAN_VERSION", "PLAN_FILENAME", "GRADED_SURFACE_FILENAME",
+           "graded_surface_path"]
 
 #: 2: the deck signature's end lines / profile (04k, M6b); 3: tunnel wall
 #: plates (05n-4); 4: parts and contact edges, feet retired (06g); 5: the
@@ -41,6 +43,20 @@ __all__ = ["Part", "Member", "Unit", "FlatDatum", "RebakePlan",
 PLAN_VERSION = 13
 #: ``<patch dir>/o4_v2_rebake_<ICAO>.json`` — beside v1's worklist.
 PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
+
+#: ``<ICAO>.graded.json`` beside the patch — the emitted DESIGN SURFACE the
+#: post-mesh object stage reads its §6 classes off (``placement_plan.
+#: pads_rims_from_graded``).  The pipeline writes it into the engine's
+#: ``tmp/`` scratch; the object stage runs at the end of ``build_mesh``,
+#: with no handle on that build's ``res`` — so the patch build PLACES it
+#: beside the patch (``auto_patch.engine_v2``) exactly as the plan is.  ``include_patches`` reads ``*.patch.osm`` only,
+#: so a JSON beside the patch is inert to every other consumer.
+GRADED_SURFACE_FILENAME = "{icao}.graded.json"
+
+
+def graded_surface_path(patch_dir: str, icao: str) -> str:
+    """Where the patch build puts it / the object stage looks for it."""
+    return os.path.join(patch_dir, GRADED_SURFACE_FILENAME.format(icao=icao))
 
 
 

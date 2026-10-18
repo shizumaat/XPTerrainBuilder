@@ -18,7 +18,10 @@ every supported platform); layouts as in ``Utils/Triangle4XP-CHANGES.md``.
 Vertex numbers are kept as Triangle numbers them (1-based here).  Chosen by
 ``O4_TRIANGLE_IO=binary`` (default ``text``) and only when the Triangle4XP
 binary carries the switch (``binary_capable``) and the run does not refine
-(``-r`` reads a text ``.ele``; Triangle4XP refuses ``-b`` with it).
+(``-r`` reads a text ``.ele``; Triangle4XP refuses ``-b`` with it).  An
+``iterate`` run refines the previous run's ``.node`` / ``.ele``, which a
+binary run left binary: ``refine_inputs_as_text`` turns them back into text
+before the ``-r`` run.
 """
 
 import os
@@ -27,7 +30,8 @@ import struct
 import numpy as np
 
 from O4_Triangle_IO import (Elements, NodeTable, TriangleFormatError, read_ele_text,
-                            read_node_text, read_poly_segments)
+                            read_node_text, read_poly_segments, write_ele_text,
+                            write_node_text)
 
 __all__ = [
     "ELE_MAGIC",
@@ -43,6 +47,7 @@ __all__ = [
     "read_node",
     "read_node_binary",
     "read_poly_holes_regions",
+    "refine_inputs_as_text",
     "use_binary_io",
     "write_ele_binary",
     "write_node_binary",
@@ -259,3 +264,25 @@ def adopt_binary_outputs(binary_poly, output_node_file, output_ele_file) -> None
     for leftover in (base + ".node", base + ".poly"):
         if os.path.isfile(leftover):
             os.remove(leftover)
+
+
+def refine_inputs_as_text(node_file, ele_file) -> bool:
+    """Rewrite a binary ``node_file`` / ``ele_file`` (the previous run's
+    outputs) as the text a ``-r`` run reads, in place; text files are left
+    as they are.  The ``.node`` is written as the text post-treatment
+    writes it (``write_node_text``'s ``%.15f``), so a refinement reads the
+    same values in either IO mode.  Returns whether anything was rewritten."""
+    converted = False
+    if os.path.isfile(node_file) and _starts_with(node_file, NODE_MAGIC):
+        with open(node_file, "rb") as handle:
+            _expect_magic(handle, NODE_MAGIC, node_file)
+            points, markers, _first = _read_node_body(handle, node_file)
+        values = points if markers is None else np.column_stack([points, markers])
+        header = f"{len(points)} 2 {points.shape[1] - 2} {0 if markers is None else 1}\n"
+        write_node_text(node_file, header, values, "")
+        converted = True
+    if os.path.isfile(ele_file) and _starts_with(ele_file, ELE_MAGIC):
+        elements = read_ele_binary(ele_file)
+        write_ele_text(ele_file, elements.triangles, elements.attributes)
+        converted = True
+    return converted

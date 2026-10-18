@@ -3594,14 +3594,14 @@ def size_bank_annulus_regions(vector_map, tile):
     """Give every seed inside a BANK ANNULUS a Triangle regional AREA
     constraint (owner RULINGS 2026-09-09x).
 
-    ``O4_Mesh_Utils.bank_annulus_region_areas`` is the one derivation of
+    ``O4_Bank_Annulus.bank_annulus_region_areas`` is the one derivation of
     the annulus and of its local width; this only marries the answer to
     the seeds the vector map is about to write.  Returns the number of
     seeds sized.  Never raises: an unsized annulus is the round-1 mesh,
     which builds.
     """
     try:
-        import O4_Mesh_Utils as MESH
+        import O4_Bank_Annulus as BANK_ANNULUS
 
         keys, points = [], []
         for key, seeds in vector_map.seeds.items():
@@ -3610,7 +3610,7 @@ def size_bank_annulus_regions(vector_map, tile):
                 points.append((float(seed[0]), float(seed[1])))
         if not points:
             return 0
-        areas = MESH.bank_annulus_region_areas(tile, points)
+        areas = BANK_ANNULUS.bank_annulus_region_areas(tile, points)
         if not areas:
             UI.vprint(1, "   Bank annulus: no region seed inside an annulus "
                          "— no area constraint written.")

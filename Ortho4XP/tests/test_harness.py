@@ -8373,7 +8373,7 @@ def _stub_v2_pipeline(monkeypatch, *, status="optimal", sidecar=True,
     mods["auto_patch_v2.planar.__main__"].default_inputs = \
         lambda **kw: {"stub_inputs": kw}
     mods["auto_patch_v2.pipeline.build"].build = build
-    mods["auto_patch_v2.pipeline.build"].Config = lambda: None
+    mods["auto_patch_v2.pipeline.build"].Config = lambda **_kw: None
     mods["auto_patch_v2.law"].Law = _Law
     mods["auto_patch_v2.law"].law_tables_digest = _real_digest
     for name, m in mods.items():

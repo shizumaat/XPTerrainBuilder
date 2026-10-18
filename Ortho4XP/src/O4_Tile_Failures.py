@@ -333,6 +333,9 @@ EXCEPTION_CODES = {
     "OutsideMeshError": UNMAPPED_AIRPORT,
     "StrippedField": UNMAPPED_AIRPORT,
     "Unreplayable": UNMAPPED_AIRPORT,
+    # a stage-cache record that may not be served (#843): caught inside
+    # the build, which then runs the stage — never a failure
+    "Refused": UNMAPPED_AIRPORT,
     # caught before the worker / never raised by an app build
     "AutoPatchBuildFailure": UNMAPPED_AIRPORT,
     "ExternalWriteRefused": UNMAPPED,

@@ -4295,7 +4295,7 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
     Ortho4XP step functions never raise on their own errors and never set
     ``red_flag`` for them: they print an ERROR line
     (``UI.exit_message_and_bottom_line``) and ``return 0``; a normal exit
-    returns 1 (``build_masks``: a bare ``return``, i.e. ``None``).  So the
+    returns 1 (``build_masks`` too since #904).  So the
     ONLY failure signal is ``result == 0`` — exactly the predicate the
     engine path checks (``o4_engine/session.py`` ``_build_worker``), and
     exactly what the old loop discarded: a mesh step whose ``.node`` input

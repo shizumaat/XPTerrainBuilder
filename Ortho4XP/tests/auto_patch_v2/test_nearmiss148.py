@@ -103,20 +103,20 @@ def law():
 
 @pytest.fixture(scope="module")
 def built(law):
-    from auto_patch_v2.model.platform import HELD
     airport = _airport(law)
     pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
-    held = {k: dict(v) for k, v in HELD.items()}
+    held = {k: dict(v) for k, v in pm.registries.held.items()}
     cs, _c, _w = generate(pm, law, airport)
     return pm, cs, held
 
 
 @pytest.fixture()
 def registry(built):
-    from auto_patch_v2.model.platform import HELD
-    HELD.clear()
-    HELD.update({k: dict(v) for k, v in built[2].items()})
-    yield HELD
+    """The map's held records as the arrangement minted them."""
+    held = built[0].registries.held
+    held.clear()
+    held.update({k: dict(v) for k, v in built[2].items()})
+    yield held
 
 
 def _near(pm, law):
@@ -264,23 +264,19 @@ def test_a_plateau_vertex_inside_the_sliver_is_a_held_contact(monkeypatch):
     plateau vertex stay as they were."""
     import types
     from auto_patch_v2.constraints import platform as P
-    from auto_patch_v2.model.platform import HELD
+    from auto_patch_v2.model.registries import Registries
     law = Law.for_airport("ZZZZ")
-    saved = dict(HELD)
-    HELD.clear()
+    reg = Registries()
+    HELD = reg.held
     HELD["padX"] = {"plateau_vertices": [5, 6, 7]}
     face = types.SimpleNamespace(ref="padX", role="building", ring=(), holes=())
-    pm = types.SimpleNamespace(faces={0: face})
+    pm = types.SimpleNamespace(faces={0: face}, registries=reg)
     # (endpoint, nearest pad vertex, pad face, distance, cap, soft face)
     monkeypatch.setattr("auto_patch_v2.constraints.pads.frontage_contacts",
                         lambda _pm, _law: [(5, 2, 0, 0.98, 0.015, 9),     # in the sliver
                                            (6, 2, 0, 9.86, 0.015, 9),     # a far endpoint
                                            (8, 2, 0, 0.50, 0.015, 9)])    # no plateau: joins
-    try:
-        (p, dv, w, n_all, n_r), = P._with_near_miss(pm, law, [("padX", 1, [2, 3, 5, 6, 7], 2, 0)])
-        assert sorted(w) == [2, 3, 5, 6, 7, 8] and (p, dv, n_all, n_r) == ("padX", 1, 2, 0)
-        assert HELD["padX"]["plateau_vertices"] == [6, 7]
-        assert HELD["padX"]["near_miss_contacts"] == [5, 8]
-    finally:
-        HELD.clear()
-        HELD.update(saved)
+    (p, dv, w, n_all, n_r), = P._with_near_miss(pm, law, [("padX", 1, [2, 3, 5, 6, 7], 2, 0)])
+    assert sorted(w) == [2, 3, 5, 6, 7, 8] and (p, dv, n_all, n_r) == ("padX", 1, 2, 0)
+    assert HELD["padX"]["plateau_vertices"] == [6, 7]
+    assert HELD["padX"]["near_miss_contacts"] == [5, 8]

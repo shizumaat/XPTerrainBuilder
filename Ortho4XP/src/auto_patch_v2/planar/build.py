@@ -166,13 +166,12 @@ def channels_after_basins(airport, classification, law, objects, corridors, extr
     return channels, stats
 
 
-def _pad_terraces() -> dict[str, frozenset]:
+def _pad_terraces(terraces) -> dict[str, frozenset]:
     """``PlanarMap.pad_terraces`` from the arrangement's own split
-    (``planar/pad_terrace.TERRACES``, written by this build's
+    (``Arrangement.registries.terraces``, written by this build's
     ``build_arrangement``)."""
-    from .pad_terrace import TERRACES
     out: dict[str, set] = {}
-    for t in TERRACES:
+    for t in terraces:
         out.setdefault(t.pad_ref, set()).add(t.other_ref)
     return {k: frozenset(v) for k, v in out.items()}
 
@@ -385,11 +384,12 @@ def build(airport: Airport, classification: Classification, law: Law,
                        if getattr(r, "natural_shore", False)),
                    natural_shore_wedges=_wedge_rings(arr.regions),
                    shore_verdicts=_shore_verdicts(arr.regions),
-                   pad_terraces=_pad_terraces(),
+                   pad_terraces=_pad_terraces(arr.registries.terraces),
                    pad_roads=frozenset(
                        c.ref for c in classification.cells
                        if (getattr(c, "evidence", None) or {}).get("pad_road")),
-                   ramp_runouts=_runouts(classification))
+                   ramp_runouts=_runouts(classification),
+                   registries=arr.registries)
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of
     # touching pavement, their joints declared — the only lawful steps

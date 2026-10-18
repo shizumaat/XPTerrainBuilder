@@ -42,8 +42,7 @@ def arms(law):
     gate = Startup("G1", GATE_XY, 180.0, "gate")
     cl = Classification(tuple(_cells()), (), {}, ())
     pm1, _s1 = build(_airport(law, startups=(gate,)), cl, law)
-    from auto_patch_v2.model.platform import PLATEAUS
-    plateaus = dict(PLATEAUS)
+    plateaus = dict(pm1.registries.plateaus)
     pm0, _s0 = build(_airport(law), cl, law)
     return pm1, pm0, plateaus
 

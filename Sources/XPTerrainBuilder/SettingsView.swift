@@ -135,6 +135,7 @@ private struct SearchResultsPane: View {
             guard buildModel.schema.vars[entry.item.name] != nil else { return false }
             if entry.item.label.lowercased().contains(needle) { return true }
             if entry.item.name.lowercased().contains(needle) { return true }
+            if entry.item.summary.lowercased().contains(needle) { return true }
             let hint = buildModel.schema.vars[entry.item.name]?.hint ?? ""
             return hint.lowercased().contains(needle)
         }
@@ -301,10 +302,13 @@ private struct GeneralPane: View {
             }
 
             Section("Engine Defaults") {
-                ForEach(SettingsLayout.engineGeneral) { item in
+                ForEach(SettingsLayout.engineGeneral.filter { !$0.expert }) { item in
                     ConfigItemRow(item: item)
                 }
             }
+            ExpertSection(items: SettingsLayout.engineGeneral.filter {
+                $0.expert && buildModel.schema.vars[$0.name] != nil
+            })
         }
         .formStyle(.grouped)
         .navigationTitle("General")
@@ -640,22 +644,46 @@ private struct CategoryPane: View {
                     }
                 }
             }
-            Section(category.title) {
-                ForEach(known.filter { !$0.advanced }) { item in
-                    ConfigItemRow(item: item)
-                }
-            }
-            let advanced = known.filter { $0.advanced }
-            if !advanced.isEmpty {
-                Section("Advanced") {
-                    ForEach(advanced) { item in
+            let plain = known.filter { !$0.expert }
+            if !plain.isEmpty {
+                Section(category.title) {
+                    ForEach(plain) { item in
                         ConfigItemRow(item: item)
                     }
                 }
             }
+            ExpertSection(items: known.filter { $0.expert })
+                .id(category.key)
         }
         .formStyle(.grouped)
         .navigationTitle(category.title)
+    }
+}
+
+/// A category's Expert rows (issue #823): the technical tuning, collapsed
+/// until the user opens it. Each row keeps its technical label and shows
+/// the config name, so forum advice still maps to it.
+private struct ExpertSection: View {
+    let items: [SettingItem]
+    @StateObject private var isExpanded = ViewState(false)
+
+    var body: some View {
+        if !items.isEmpty {
+            Section {
+                DisclosureGroup(
+                    "\(SettingsLayout.expertTitle) (\(items.count))",
+                    isExpanded: $isExpanded.value
+                ) {
+                    ForEach(items) { item in
+                        ConfigItemRow(item: item)
+                    }
+                }
+            } footer: {
+                Text("Technical tuning. The recommended values suit most builds.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
@@ -676,16 +704,27 @@ private struct ConfigItemRow: View {
             // Reading tileConfigGeneration subscribes the row to override
             // rewrites without polling files outside selection changes.
             let _ = buildModel.tileConfigGeneration
-            HStack(spacing: 8) {
-                control(variable)
-                if showsRevert {
-                    Button {
-                        buildModel.revertTileOverrides(for: item.name)
-                    } label: {
-                        Image(systemName: "arrow.uturn.backward.circle")
+            let secondary = SettingsLayout.secondaryText(item, variable)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    control(variable)
+                    if showsRevert {
+                        Button {
+                            buildModel.revertTileOverrides(for: item.name)
+                        } label: {
+                            Image(systemName: "arrow.uturn.backward.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Revert to the global value")
                     }
-                    .buttonStyle(.borderless)
-                    .help("Revert to the global value")
+                }
+                // The plain summary and the recommended value — or, in
+                // Expert, the config name (Qt: Setting.secondary_text).
+                if !secondary.isEmpty {
+                    Text(secondary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .help(variable.hint.isEmpty ? item.name : variable.hint)

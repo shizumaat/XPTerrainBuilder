@@ -43,8 +43,20 @@ primary label in either app.
 - A **primary label** (a title, button, toggle, menu item or row name) uses
   the plain wording. The old word may stay in secondary text: help,
   tooltips, file names, and the ZL number after a detail level.
-- **Expert settings** keep their technical labels; rewording the Settings
-  rows is issue #823.
+- **Settings rows** (issue #823) are worded in ONE table,
+  `Ortho4XP/src/O4_Settings_Model.py` `_LAYOUT`, mirrored row for row by
+  `Sources/XPTerrainBuilder/SettingsLayout.swift`
+  (`Ortho4XP/tests/test_settings_layout_parity.py` keeps them equal). A row
+  outside Expert is a plain question (or a term from this glossary) with a
+  one-line hint and the recommended value (the shipped default). Its label
+  never names a config key or a technical word (`O4_Glossary.RETIRED_WORDS`:
+  ZL, DEM, DSF, mesh, mask, lidar, bathymetry …).
+- **Expert settings** — the mesh, mask and texture-format tuning and the
+  other technical knobs — sit in each category's Expert section, collapsed
+  by default. They keep their technical labels and show the config key
+  (`curvature_tol`, `mask_zl` …) as secondary text, so forum advice still
+  maps to them. Search matches the plain label, the hint and the key.
+- Config KEYS and stored values never change with the wording.
 - **Step names** reach the apps from the engine's `StepProgress` events. The
   wire values (`step_key`, `label`) never change; each app maps them to the
   plain step name where it shows them.

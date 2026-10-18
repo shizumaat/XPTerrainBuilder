@@ -2,15 +2,16 @@
 THE LATE RESUME REFUSES BY FIELD NAME.
 
 ``tools/v2_solve_replay.py --capture`` pickles every value the build hands
-from one stage to the next.  Four of the build's planar-stage products are
-not handed as values at all: they are MODULE GLOBALS the planar stage
-fills and the constraint generators read (``model.platform.HELD`` /
-``PLATEAUS`` / ``PLATFORMS``, ``model.pad_terrace.TERRACES``;
-``planar.overlay.PAD_AIRSIDE`` was the first of the class to travel, owner
-RULINGS 2026-09-16b).  ``--from classify|planar`` re-runs
-``planar/build.build``, which REFILLS them, so it was faithful by
-accident; ``--from shapes|constraints`` re-use the captured map, so they
-read every one EMPTY and assembled a DIFFERENT LP from the build's:
+from one stage to the next.  Until #841 seven of the build's planar-stage
+products were not handed as values at all: they were MODULE GLOBALS the
+planar stage filled and the constraint generators read (``HELD`` /
+``PLATEAUS`` / ``PLATFORMS`` / ``TERRACES`` …; ``PAD_AIRSIDE`` was the
+first of the class to travel, owner RULINGS 2026-09-16b).  ``--from
+classify|planar`` re-ran ``planar/build.build``, which REFILLED them, so it
+was faithful by accident; ``--from shapes|constraints`` re-used the
+captured map, so they read every one EMPTY and assembled a DIFFERENT LP
+from the build's.  Since #841 they are the record ``PlanarMap.registries``
+(``model.registries``) and ``capture_state`` snapshots / installs it:
 
 * #224 at KCLT against ``sw1005_KCLT``: 65,212 rows vs the build's 49,981,
   columns 8,934 vs 8,876, on an IDENTICAL 22,263-vertex set — the
@@ -145,7 +146,7 @@ def live(law):
     """The ``--from planar`` read: build, then generate with the registries
     as the build left them, and the state collected at that boundary."""
     airport, pm = _planar(law)
-    state = CS.collect()
+    state = CS.collect(pm.registries)
     cs, counts, _w = generate(pm, law, airport)
     return _rows(cs), dict(counts), state
 
@@ -158,7 +159,7 @@ def test_an_empty_registry_is_a_different_problem(law, live):
     families that read them."""
     rows_live, counts_live, _state = live
     airport, pm = _planar(law)
-    CS.clear()                                   # what a fresh process has
+    CS.clear(pm.registries)                      # what an old pickle carries
     cs, counts, _w = generate(pm, law, airport)
     rows_bare = _rows(cs)
     assert rows_bare != rows_live, (
@@ -183,9 +184,9 @@ def test_the_capture_state_reproduces_the_planar_read(law, live):
     airport, pm = _planar(law)
     # the pickle round trip, then the fresh process, then the install
     state = pickle.loads(pickle.dumps(state))
-    CS.clear()
+    CS.clear(pm.registries)
     assert CS.missing(state) == ()
-    assert CS.install(state) == tuple(r.field for r in CS.REGISTRIES)
+    assert CS.install(pm.registries, state) == tuple(r.field for r in CS.REGISTRIES)
     cs, counts, _w = generate(pm, law, airport)
     assert _rows(cs) == rows_live
     assert counts == counts_live
@@ -210,12 +211,12 @@ def test_the_record_is_not_edited_by_the_arm_that_installs_it(law, live):
     _r, _c, state = live
     before = pickle.dumps(state)
     airport, pm = _planar(law)
-    CS.clear()
-    CS.install(state)
-    from auto_patch_v2.model.platform import HELD
-    ref = sorted(HELD)[0]
-    HELD[ref]["near_miss_contacts"] = ["edited by the arm"]
-    HELD["minted by the arm"] = {}
+    CS.clear(pm.registries)
+    CS.install(pm.registries, state)
+    held = pm.registries.held
+    ref = sorted(held)[0]
+    held[ref]["near_miss_contacts"] = ["edited by the arm"]
+    held["minted by the arm"] = {}
     generate(pm, law, airport)
     assert pickle.dumps(state) == before
 
@@ -223,18 +224,23 @@ def test_the_record_is_not_edited_by_the_arm_that_installs_it(law, live):
 # ── 4. the refusal ───────────────────────────────────────────────────────
 
 def test_missing_names_every_declared_field_and_ignores_the_unknown():
+    from auto_patch_v2.model.registries import FIELDS, Registries
+    assert tuple(r.field for r in CS.REGISTRIES) == FIELDS
     assert CS.missing(None) == tuple(r.field for r in CS.REGISTRIES)
     assert CS.missing({}) == tuple(r.field for r in CS.REGISTRIES)
     part = {"version": CS.CAPTURE_STATE_VERSION,
             "fields": {"held": {"padA": {}}, "a_registry_since_removed": 1}}
     assert "held" not in CS.missing(part)
     assert CS.unknown(part) == ("a_registry_since_removed",)
-    assert CS.install(part) == ("held",)           # the unknown field is not installed
+    reg = Registries()
+    assert CS.install(reg, part) == ("held",)      # the unknown field is not installed
+    assert reg.held == {"padA": {}}
 
 
 def test_a_newer_record_refuses():
+    from auto_patch_v2.model.registries import Registries
     with pytest.raises(ValueError, match="NEWER"):
-        CS.install({"version": CS.CAPTURE_STATE_VERSION + 1, "fields": {}})
+        CS.install(Registries(), {"version": CS.CAPTURE_STATE_VERSION + 1, "fields": {}})
 
 
 def test_the_refusal_names_the_field_its_stage_and_its_readers():
@@ -242,9 +248,9 @@ def test_the_refusal_names_the_field_its_stage_and_its_readers():
                      ("held", "terraces"), "Re-capture: <command>")
     assert "REFUSED" in msg and "--from constraints" in msg
     for f, mod, filler, reader in (
-            ("held", "model.platform.HELD", "planar/platform.py",
+            ("held", "PlanarMap.registries.held", "planar/platform.py",
              "constraints/jetway_strip.py"),
-            ("terraces", "model.pad_terrace.TERRACES", "planar/pad_terrace.py",
+            ("terraces", "PlanarMap.registries.terraces", "planar/pad_terrace.py",
              "constraints/pad_fronting.py")):
         assert f in msg and mod in msg and filler in msg and reader in msg
     assert "#208" in msg and "#224" in msg
@@ -306,13 +312,15 @@ def test_a_solved_pickle_without_the_record_refuses_every_instrument(R):
 
 def test_the_record_installed_through_the_tool_is_announced(R, live, capsys):
     _r, _c, state = live
-    CS.clear()
+    from auto_patch_v2.model.registries import Registries
+    reg = Registries()
     got = R.install_capture_state({"icao": "ZZZZ", CS.CAPTURE_STATE_KEY: state},
-                                  "ZZZZ", "constraints", "c.pkl", "hint")
+                                  "ZZZZ", "constraints", "c.pkl", "hint", reg=reg)
     assert got == tuple(r.field for r in CS.REGISTRIES)
     out = capsys.readouterr().out
     assert f"capture state v{CS.CAPTURE_STATE_VERSION} installed" in out
     assert "held" in out
+    assert _canon(CS.collect(reg)) == _canon(state)   # into the map's record
 
 
 # ── 5. T2 (stage-cache spec §8, issue #840): the build's record ──────────
@@ -338,22 +346,27 @@ def _canon(v):
 def test_the_build_record_is_what_the_capture_collects(law, live):
     """``planar_stage`` — what ``pipeline/build.build`` calls — returns the
     record ``--capture`` collects at the shape-stage boundary (planar, then
-    the shape stage, then ``collect``), and a process holding OTHER
-    registries that installs it generates the build's row set exactly
-    (hit arm == miss arm)."""
+    the shape stage, then ``collect``), another planar stage in the same
+    process leaves the map's record alone (#841: no module global), and a
+    map whose record was emptied that installs it generates the build's
+    row set exactly (hit arm == miss arm)."""
     from auto_patch_v2.pipeline.shapes import shape_stage
     rows_live, counts_live, _state = live
     airport = _airport(law)
     cl = Classification(_cells(), (), {}, ())
     pm, _st, record = CS.planar_stage(airport, cl, law)
-    shape_stage(pm, law, airport, cl, out=lambda m: None)
-    assert _canon(record) == _canon(CS.collect())    # the capture's boundary
-    # another airport's planar stage leaves its registries behind ...
-    build(_airport(law), Classification(_cells()[:2], (), {}, ()), law)
-    assert _canon(CS.collect()) != _canon(record)
-    # ... and the explicit install restores the build's own
-    assert CS.install(record) == tuple(r.field for r in CS.REGISTRIES)
-    assert _canon(CS.collect()) == _canon(record)
+    st = shape_stage(pm, law, airport, cl, out=lambda m: None)
+    assert st.pm.registries is pm.registries          # replace shares the record
+    assert _canon(record) == _canon(CS.collect(pm.registries))   # the boundary
+    # another airport's planar stage has its OWN record ...
+    other, _o = build(_airport(law), Classification(_cells()[:2], (), {}, ()), law)
+    assert other.registries is not pm.registries
+    assert _canon(CS.collect(other.registries)) != _canon(record)
+    assert _canon(CS.collect(pm.registries)) == _canon(record)
+    # ... and the explicit install into an emptied record restores the build's
+    CS.clear(pm.registries)
+    assert CS.install(pm.registries, record) == tuple(r.field for r in CS.REGISTRIES)
+    assert _canon(CS.collect(pm.registries)) == _canon(record)
     cs, counts, _w = generate(pm, law, airport)
     assert _rows(cs) == rows_live and counts == counts_live
 
@@ -374,4 +387,5 @@ def test_the_build_installs_the_planar_record_before_the_shape_stage():
 
     stage, install, shapes = calls("planar_stage")[0], calls("install")[0], calls("shape_stage")[0]
     assert stage.lineno < install.lineno < shapes.lineno
-    assert [getattr(a, "id", None) for a in install.args] == ["planar_record"]
+    assert ast.unparse(install.args[0]) == "pm.registries"
+    assert [getattr(a, "id", None) for a in install.args[1:]] == ["planar_record"]

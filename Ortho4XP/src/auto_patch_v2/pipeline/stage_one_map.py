@@ -27,9 +27,12 @@ bar ``ribbon_airside_added / _removed`` 0 / 0).  Stage 1's levels, its
 released pins, its fronting set and its hold rows cross by that join; a
 vertex the full map does not carry is COUNTED (``unmapped``), never guessed.
 
-THE MODULE REGISTRIES (``pipeline/capture_state``) the planar stage fills
-and the generators read are the ribbon-free map's while stage 1 is derived
-and solved (:meth:`StageOne.scope`), and the caller's own everywhere else.
+THE REGISTRIES the planar stage fills and the generators read
+(``model.registries``, carried by each map since #841) are the ribbon-free
+map's while stage 1 is derived and solved — every pass reads them off
+``StageOne.pm`` — and the full map's everywhere else; :meth:`StageOne.scope`
+re-installs the ribbon-free map's from its record and carries the hold's
+report into the full map's (``pipeline/capture_state``).
 """
 from __future__ import annotations
 
@@ -402,9 +405,13 @@ class StageOne:
     vmap: dict = _dc.field(default_factory=dict)   #: ribbon-free vid -> full vid
     unmapped: int = 0          #: ribbon-free vertices the full map lacks
     report: dict = _dc.field(default_factory=dict)
+    #: the FULL map's registries (:meth:`bind`): stage 1's hold report is
+    #: carried into them at every :meth:`scope` exit
+    full: _t.Any = None
 
     def bind(self, pm_full) -> "StageOne":
         """The canonical join to the full map (vertex coordinate)."""
+        self.full = pm_full.registries
         at = {tuple(v.xy): i for i, v in _items(pm_full.vertices)}
         self.vmap = {}
         miss = 0
@@ -421,23 +428,25 @@ class StageOne:
 
     @contextlib.contextmanager
     def scope(self):
-        """The ribbon-free map's module registries, installed for the
-        duration; the caller's restored after."""
+        """The ribbon-free map's registries re-installed from its record for
+        the duration (every pass reads them off ``self.pm``, #841); its
+        mutations recorded and the full map's record restored after."""
         from . import capture_state as _cs
-        saved = _cs.collect()
-        _cs.install(self.state)
+        reg = self.pm.registries
+        saved = _cs.collect(self.full) if self.full is not None else None
+        _cs.install(reg, self.state)
         try:
             yield self
         finally:
-            self.state = _cs.collect()   # stage 1's own mutations stay its own
-            _cs.install(saved)
-            # ... but the hold's per-block REPORT (the reach interval, the
-            # datum's median — no vertex id) is the BUILD's: the sidecar's
-            # ``platforms[]`` and the frontage warning read it off the full
-            # map's registry (spec §56 (3))
-            from ..model.platform import hold_report, install_hold_report
-            install_hold_report(hold_report(
-                (self.state.get("fields") or {}).get("held") or {}))
+            self.state = _cs.collect(reg)   # stage 1's own mutations stay its own
+            if self.full is not None:
+                _cs.install(self.full, saved)
+                # ... but the hold's per-block REPORT (the reach interval, the
+                # datum's median — no vertex id) is the BUILD's: the sidecar's
+                # ``platforms[]`` and the frontage warning read it off the full
+                # map's registry (spec §56 (3))
+                from ..model.platform import hold_report, install_hold_report
+                install_hold_report(self.full.held, hold_report(reg.held))
 
     def to_full(self, vid: int) -> int | None:
         return self.vmap.get(int(vid))
@@ -478,21 +487,24 @@ class StageOne:
         return _dc.replace(pm_full, fronting_vertices=fv, fronting_ref=fref)
 
 
-def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple]) -> StageOne | None:
+def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple],
+                      caller: _t.Any = None) -> StageOne | None:
     """THE RIBBON-FREE STAGE-1 PROBLEM: ``derive(cl0) -> (pm, cs, strips,
     hold)`` is the CALLER's own prefix (the build's, the replay's) run on
     the classification without ribbons.  ``None`` when ``cl`` carries no
-    ribbon.  The registries the derivation fills are recorded as the
-    problem's own and the caller's are restored."""
+    ribbon.  The registries the derivation fills (the ribbon-free map's
+    own) are recorded as the problem's, and ``caller`` (the full map's
+    ``registries``) is re-installed from its snapshot around it."""
     cl0 = ribbon_free(cl)
     if cl0 is None:
         return None
     from . import capture_state as _cs
-    saved = _cs.collect()
+    saved = _cs.collect(caller) if caller is not None else None
     try:
         pm0, cs0, strips0, hold0 = derive(cl0)
-        state0 = _cs.collect()
+        state0 = _cs.collect(pm0.registries)
     finally:
-        _cs.install(saved)
+        if caller is not None:
+            _cs.install(caller, saved)
     return StageOne(pm0, cs0, strips0, hold0, state0,
                     report={"ribbon_cells": len(cl.cells) - len(cl0.cells)})

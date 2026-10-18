@@ -1094,7 +1094,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()
     _pulse.tick("the shapes")
-    _cstate.install(planar_record)          # #840: the planar stage's record
+    _cstate.install(pm.registries, planar_record)   # #840: the planar stage's record
     stage = shape_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
     pm = stage.pm
     wall["shapes"] = time.perf_counter() - t
@@ -1167,7 +1167,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         return (st0.pm, cs0, jetway_strips(st0.pm, law, ap0, cs0,
                                            rider_candidates(ap0, law)),
                 hold_pass(st0.pm, law, ap0))
-    _s1 = stage_one_problem(cl, _ribbon_free)
+    _s1 = stage_one_problem(cl, _ribbon_free, pm.registries)
     _pulse.tick("solving the surface")
     if _s1 is not None:
         _s1.bind(pm)
@@ -1212,16 +1212,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _pulse.tick("the last stage: the gap pieces")
         from .late_stage import run_last_stages
         _base_rep = design_rep
-        # the last stage re-mints the HELD registry (its own prefix run): the
+        # the last stage re-mints the held registry (its own prefix run): the
         # base solve's hold report is carried over it (``model.platform``)
         from ..model.platform import hold_report, install_hold_report
-        _hold_rep = hold_report()
+        _hold_rep = hold_report(pm.registries.held)
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, _ribbon_free,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield},
             rules=load_rules(), options=cfg.options,
             out=lambda m: _say(f"[{icao}] {m}", out))
-        install_hold_report(_hold_rep)
+        install_hold_report(pm.registries.held, _hold_rep)
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
             _prefix_stage["stage"], pm=pm)
         strips, design_rep = _late["strips"], _late["design"]

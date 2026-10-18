@@ -1,20 +1,22 @@
-"""THE UNIT-PAD PLATFORM VERDICTS — their record type and the last
-arrangement's registry (unit-platform spec, owner RULINGS 2026-09-28a).
+"""THE UNIT-PAD PLATFORM VERDICTS — their record type and the readers of a
+map's held platforms (unit-platform spec, owner RULINGS 2026-09-28a).
 
-ONE registry, in the ``model`` layer so every consumer may read it (issue
-#104, the reds84 pattern of ``model/hard_plane``): ``planar/platform``
-MINTS the verdicts (and re-exports these names), ``pipeline/publication``
-publishes them, ``constraints/platform`` reads the refused ones — and
-``constraints`` may not import ``planar`` (``tests/auto_patch_v2/
-test_model.py::test_dependency_direction``).
+In the ``model`` layer so every consumer may read it (issue #104, the
+reds84 pattern of ``model/hard_plane``): ``planar/platform`` MINTS the
+verdicts into the map's registries (``model.registries``; issue #841
+deleted the module globals ``PLATFORMS`` / ``HELD`` / ``LANDINGS`` /
+``LANDING_RUNOUTS`` / ``PLATEAUS`` that stood here),
+``pipeline/publication`` publishes them, ``constraints/platform`` reads
+the refused ones — and ``constraints`` may not import ``planar``
+(``tests/auto_patch_v2/test_model.py::test_dependency_direction``).
 """
 from __future__ import annotations
 
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["structure_vertices", "Platform", "PLATFORMS", "HELD", "LANDINGS", "LANDING_RUNOUTS", "LANDING_SEP",
-           "is_landing_ref", "PLATEAUS", "plateau_vertices",
+__all__ = ["structure_vertices", "Platform", "LANDING_SEP",
+           "is_landing_ref", "plateau_vertices",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
            "datum_vertices", "stage_air_vertices",
@@ -53,25 +55,19 @@ class Platform:
         return _dc.asdict(self)
 
 
-#: The last arrangement's platform verdicts (the ``pad_terrace.TERRACES``
-#: pattern: read back by the publication and the census).
-PLATFORMS: list[Platform] = []
-
-
-#: flat-pad spec §1 (2) / §2 (owner RULINGS 2026-09-30f, 30r): the last
-#: arrangement's HELD platform refs (one per flat block; a one-block unit
-#: keeps its own ref) -> ``{"unit", "k", "blocks", "datum_pred", "verdict"}``
-#: — their welded frontage is held at the block's flat datum in stage 1
-#: (``constraints/platform.frontage_hold_rows``).  Minted by
-#: ``planar/platform.platform_split``; ``[building_pad] frontage_hold``
-#: off leaves it empty.
-HELD: dict[str, dict[str, _t.Any]] = {}
-
+#: flat-pad spec §1 (2) / §2 (owner RULINGS 2026-09-30f, 30r): a map's
+#: HELD platform refs (``PlanarMap.registries.held``; one per flat block, a
+#: one-block unit keeps its own ref) -> ``{"unit", "k", "blocks",
+#: "datum_pred", "verdict"}`` — their welded frontage is held at the
+#: block's flat datum in stage 1 (``constraints/platform.
+#: frontage_hold_rows``).  Minted by ``planar/platform.platform_split``;
+#: ``[building_pad] frontage_hold`` off leaves it empty.
+#:
 #: The per-block REPORT ``constraints/no_step.hold_interval`` writes into
-#: :data:`HELD` during stage 1 — scalars and lat/lon keys, no vertex id, so
+#: that record during stage 1 — scalars and lat/lon keys, no vertex id, so
 #: the record means the same on every map of one build.  Stage 1 runs on the
-#: ribbon-free map under ITS OWN registries (``pipeline/stage_one_map``) and
-#: the last stage re-mints :data:`HELD`; :func:`hold_report` /
+#: ribbon-free map with ITS OWN registries (``pipeline/stage_one_map``) and
+#: the last stage re-mints the held record; :func:`hold_report` /
 #: :func:`install_hold_report` carry these keys across both, so the sidecar's
 #: ``platforms[]`` (and the frontage warning, spec §56 (3)) read them.
 HOLD_REPORT_KEYS = ("reach_band", "reach_band0", "reach_width_m", "reach_gap_m",
@@ -81,49 +77,42 @@ HOLD_REPORT_KEYS = ("reach_band", "reach_band0", "reach_width_m", "reach_gap_m",
                     "reach_bands_contacts", "misfit_m", "weld_widened")
 
 
-def hold_report(held: "_t.Mapping[str, dict] | None" = None) -> dict[str, dict]:
+def hold_report(held: "_t.Mapping[str, dict]") -> dict[str, dict]:
     """``{held ref: its report keys}`` (:data:`HOLD_REPORT_KEYS`) off
-    ``held`` (default: the live :data:`HELD`) — a deep copy."""
+    ``held`` (a map's ``registries.held``) — a deep copy."""
     import copy
-    src = HELD if held is None else held
     out = {r: {k: copy.deepcopy(h[k]) for k in HOLD_REPORT_KEYS if k in h}
-           for r, h in src.items()}
+           for r, h in held.items()}
     return {r: d for r, d in out.items() if d}
 
 
-def install_hold_report(report: "_t.Mapping[str, dict]") -> int:
-    """``report`` (:func:`hold_report`) into the live :data:`HELD`, by ref;
-    a ref the live registry does not hold is skipped.  Returns the refs
-    written."""
+def install_hold_report(held: "dict[str, dict]",
+                        report: "_t.Mapping[str, dict]") -> int:
+    """``report`` (:func:`hold_report`) into ``held`` (a map's
+    ``registries.held``), by ref; a ref ``held`` does not hold is skipped.
+    Returns the refs written."""
     import copy
     n = 0
     for r, d in report.items():
-        if r in HELD:
-            HELD[r].update(copy.deepcopy(dict(d)))
+        if r in held:
+            held[r].update(copy.deepcopy(dict(d)))
             n += 1
     return n
 
 
-#: owner RULINGS 2026-10-03e (#290): the last arrangement's RAMP LANDINGS
-#: of a unit's viaduct — ``<unit ref>/landing<k>`` (its collar
+#: owner RULINGS 2026-10-03e (#290): a map's RAMP LANDINGS of a unit's
+#: viaduct (``registries.landings``) — ``<unit ref>/landing<k>`` (its collar
 #: ``.../landing<k>#collar``) -> ``{"block", "y", "deck", "area_m2"}``: a
 #: flat groundside pad held in stage 2 at the block's datum + the deck's
 #: authored ``y`` there (``constraints/platform.landing_rows``).  Minted by
 #: ``planar/landing.landing_regions`` from ``platform_split``.  The
 #: spelling is NOT a block's (``model.planar.block_of`` reads ``/b<k>``):
-#: a landing is never a block of its unit.
-LANDINGS: dict[str, dict[str, _t.Any]] = {}
-
-#: issue #711 (RULINGS 2026-10-14c (5) at a 10-03e landing): the last
-#: arrangement's LANDING RUN-OUTS — ``runout:<landing ref>`` -> ``{"landing",
-#: "block", "y", "lip", "dir", "width_m", "z0_pred", "profile", "run_m"}``:
-#: a road strip off a ramp foot on a landing, held in stage 2 at the block's
-#: datum + ``y`` + the long section ``profile`` (``[(s, dz)]``,
-#: ``constraints/ramp_runout.landing_runout_rows``).  Minted by
-#: ``planar/landing_runout`` from ``planar/landing.landing_regions``.
-LANDING_RUNOUTS: dict[str, dict[str, _t.Any]] = {}
-
-#: the landing ref's separator (``<unit ref>/landing<k>``)
+#: a landing is never a block of its unit.  Its LANDING RUN-OUTS (issue
+#: #711, ``registries.landing_runouts``: ``runout:<landing ref>`` -> the
+#: strip) are minted by ``planar/landing_runout`` and held in stage 2 by
+#: ``constraints/ramp_runout.landing_runout_rows``.
+#:
+#: The landing ref's separator (``<unit ref>/landing<k>``).
 LANDING_SEP = "/landing"
 
 
@@ -133,12 +122,6 @@ def is_landing_ref(ref: object) -> bool:
     r = pad_base_ref(ref)
     i = r.rfind(LANDING_SEP)
     return i > 0 and r[i + len(LANDING_SEP):].isdigit()
-
-
-#: flat-pad spec v2 §3: the last arrangement's PLATEAUS — held block ref ->
-#: ``{"source", "area_m2", "apron_refs", "riders", "startups"}`` (minted by
-#: ``planar/pad_cut.plateau_cut``; empty without a held block or a stand).
-PLATEAUS: dict[str, dict[str, _t.Any]] = {}
 
 
 def plateau_vertices(planar: _t.Any, law: _t.Any = None) -> dict[str, set[int]]:
@@ -211,7 +194,8 @@ def structure_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
 
 def datum_vertices(planar: _t.Any, law: _t.Any,
                    air: "_t.AbstractSet[int] | None" = None) -> dict[str, int]:
-    """``{held ref: its datum vertex}`` over :data:`HELD` — THE FRONTAGE
+    """``{held ref: its datum vertex}`` over the map's held platforms
+    (``planar.registries.held``) — THE FRONTAGE
     DATUM COLUMN of a held pad or block (flat-pad spec §1 (2), v2 §4; spec
     §56 (3): ONE rule for every held ref, there is no collar).  Only a pad
     whose face shares a vertex with a stage-1 face (a block with no welded
@@ -230,7 +214,8 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     such vertex of its own has no datum column and is not held.  ONE derivation: the stage split
     (``solve/design_roles.airside_stage_vertices``) and the hold rows read
     the same vertex."""
-    if not HELD:
+    held = planar.registries.held
+    if not held:
         return {}
     if air is None:
         air = stage_air_vertices(planar, law)
@@ -238,12 +223,12 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     struct = structure_vertices(planar, law)
     for f in planar.faces.values():
         r = str(f.ref)
-        if r in HELD:
+        if r in held:
             vs = own.setdefault(r, set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
     out: dict[str, int] = {}
-    for ref in sorted(HELD):
+    for ref in sorted(held):
         vs = own.get(ref, set())
         weld = vs & set(air)
         inner = sorted(vs - weld - struct)

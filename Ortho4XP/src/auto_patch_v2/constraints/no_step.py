@@ -89,11 +89,10 @@ import typing as _t
 from ..law import Law, LawError
 from ..law.tables import airside_rate_per_m, is_rigid_role
 from ..model.airport import Airport
-from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff,
-                                 Linear, Row, Source)
+from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
-from .routes import reach, reach_anchored, route_neighbours, route_roles, routes
 from .precedence import View, view
+from .routes import reach, reach_anchored, route_neighbours, route_roles, routes
 from .runway_profile import threshold_pins
 
 __all__ = ["route_roles", "no_step_pairs",
@@ -347,6 +346,7 @@ def pair_graph(planar: PlanarMap, cs: ConstraintSet,
     ``taxi_box`` planes) are outside the pair metric.  Every vertex is a
     STATION (no leaf hop: the rows are the edges)."""
     import numpy as np
+
     from .routes import CENTRELINE, RouteGraph
     best: dict[tuple[int, int], tuple[float, float]] = {}
     for d in cs.diffs:
@@ -480,9 +480,11 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     per column of every PULLED runway (``FLEX_RULING``), the residual
     holds re-priced.  ``None`` without a held block (nothing runs)."""
     import numpy as np
+
     from ..law.tables import design as design_law
-    from ..model.platform import HELD
-    from .platform import GEN as PGEN, HOLD_DATUM_RULING, HOLD_RULING, hold_sets, hold_row
+    held_reg = planar.registries.held
+    from .platform import GEN as PGEN
+    from .platform import HOLD_DATUM_RULING, HOLD_RULING, hold_row, hold_sets
     from .routes import reach_anchored, route_path
     sets = hold_sets(planar, law)
     if not sets:
@@ -591,7 +593,8 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # A MISFIT UNDER THE TERRACE FLOOR IS WELDED BY THE PAVEMENT (owner
     # RULINGS 2026-10-08d (2); ``constraints/weld_floor``): the floor is the
     # law's own, the one §55's last stage widens by
-    from ..law.tables import pavement_fallback_cap, pavement_roles as _pav_roles
+    from ..law.tables import pavement_fallback_cap
+    from ..law.tables import pavement_roles as _pav_roles
     from .weld_floor import contact_gives, least_allowance, pavement_heads, seat_misfit
     floor_m = float(law.tables.emit.terrace.pad_terrace_floor_m)
     widen: dict[int, float] = {}
@@ -605,7 +608,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     for pref, dv, weld, n_all, n_ramp in sets:
         if not weld:
             continue
-        plat_v = set(HELD[pref].get("plateau_vertices") or ())
+        plat_v = set(held_reg[pref].get("plateau_vertices") or ())
         front_c = [c for c in weld if c in cols and c in air_c and c not in plat_v]
         # OWNER 2026-10-02 (round 5, RULINGS 2026-10-02ah (1) as restated:
         # "the pad must be seated flat at a level the apron can meet"): the
@@ -745,7 +748,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # the rows
     rows: list = list(group_rows)
     for pref, b in blocks.items():
-        plat = set(HELD[pref].get("plateau_vertices") or ())
+        plat = set(held_reg[pref].get("plateau_vertices") or ())
         res = set(b.get("residual") or ())
         for o in b["weld"]:
             if o in plat:
@@ -793,7 +796,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # — its vertices are not stage 1's; the contacts are held above).  A
     # residual one keeps today's §20 plate (its priced flatness rows).
     conf = [p for p, b in blocks.items()
-            if b["held"] and HELD[p].get("conforming")]
+            if b["held"] and held_reg[p].get("conforming")]
     if conf:
         own_v: dict[str, set[int]] = {}
         for f in planar.faces.values():
@@ -835,7 +838,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                       "route_budget_m": round(rp[1], 3) if rp else None}
     # the per-block record (the sidecar's ``platforms[]``, P20)
     for pref, b in blocks.items():
-        h = HELD[pref]
+        h = held_reg[pref]
         lo, hi = b["I"]
         lo0, hi0 = b["I0"]
 
@@ -927,7 +930,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                  residual=sum(1 for b in blocks.values() if not b["held"]),
                  conforming_held=stats_conf,
                  conforming_residual=sum(1 for p, b in blocks.items()
-                                         if not b["held"] and HELD[p].get("conforming")),
+                                         if not b["held"] and held_reg[p].get("conforming")),
                  runway_bands=sum(len(c) for c in columns.values()),
                  runway_bands_unpulled=sum(len(c) for r, c in columns.items()
                                            if beta.get(r, 0.0) <= 0.0))
@@ -939,7 +942,7 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
                  widened_contacts=len(widen))
     welds = tuple((int(o), int(b["dv"]), pref) for pref, b in blocks.items()
                   for o in b["weld"]
-                  if o not in set(HELD[pref].get("plateau_vertices") or ())
+                  if o not in set(held_reg[pref].get("plateau_vertices") or ())
                   and o not in set(b.get("residual") or ()))
     return HoldInterval(rows, blocks, runways, columns, stats, fronting, fref,
                         dict(widen), floor_m, rw_all,
@@ -990,7 +993,7 @@ class HoldPass:
         res = self.result
         if res is None or not (res.widen or res.face_widen):
             return cs
-        from ..model.platform import HELD
+        held_reg = self.planar.registries.held
         from .weld_floor import pavement_heads, widen_face_rows, widen_weld_rows
         m = to_full or (lambda v: v)
         heads = pavement_heads(self.law)
@@ -1006,7 +1009,7 @@ class HoldPass:
             out, fst = widen_face_rows(out, faces, heads, never, xy)
             if to_full is None and out is not cs:
                 for p, st in zip(prefs, fst):
-                    w = HELD.get(p, {}).get("weld_widened")
+                    w = held_reg.get(p, {}).get("weld_widened")
                     if w is not None:
                         w["rows"], w["runway_rows_kept"] = st["rows"], st["runway_rows_kept"]
         if res.widen:
@@ -1015,7 +1018,7 @@ class HoldPass:
             out, st = widen_weld_rows(out, con, heads, never)
             if to_full is None and out is not base:
                 for pref, b in res.blocks.items():
-                    w = HELD.get(pref, {}).get("weld_widened")
+                    w = held_reg.get(pref, {}).get("weld_widened")
                     if b["widened"] and w is not None and b["gives"]:
                         w["rows"] = int(w.get("rows", 0)) + sum(
                             st.get(c, {}).get("rows", 0) for c in b["gives"])
@@ -1033,7 +1036,7 @@ class HoldPass:
         if res is None or not res.welds:
             return 0
         from ..law.tables import design as design_law
-        from ..model.platform import HELD
+        held_reg = self.planar.registries.held
         from .weld_floor import welds_off
         dl = design_law(self.law)
         off = welds_off(res.welds, levels, float(dl.seal_max_m), res.floor_m,
@@ -1045,7 +1048,7 @@ class HoldPass:
             if b is not None:
                 b["widened"] = True
                 b.setdefault("gives", {})[c] = max(g, b.get("gives", {}).get(c, 0.0))
-                h = HELD.get(blk[c])
+                h = held_reg.get(blk[c])
                 if h is not None:
                     w = h.get("weld_widened") or {"floor_m": res.floor_m, "contacts": []}
                     w["contacts"] = [x for x in w["contacts"]
@@ -1068,7 +1071,7 @@ class HoldPass:
         if res is None or not res.welds:
             return {}
         from ..law.tables import design as design_law
-        from ..model.platform import HELD
+        held_reg = self.planar.registries.held
         from .platform import HOLD_RULING
         from .weld_floor import seal_welds
         hf = getattr(rep, "hard_feasibility", None)
@@ -1088,7 +1091,7 @@ class HoldPass:
         for c, (pref, move) in sorted(got.items()):
             by.setdefault(pref, []).append((c, abs(move)))
         for pref, cm in by.items():
-            h = HELD.get(pref)
+            h = held_reg.get(pref)
             if h is None:
                 continue
             w = h.get("weld_widened") or {"floor_m": res.floor_m, "contacts": []}

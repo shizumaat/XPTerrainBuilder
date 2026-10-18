@@ -305,8 +305,8 @@ def jetway_strips(planar: PlanarMap, law: Law, airport: Airport | None,
     # plateau is the stand's law in stage 1 (``planar/pad_cut.plateau_cut``),
     # never a post-stage-1 projection over it
     from ..model.planar import unit_ref_of
-    from ..model.platform import HELD
-    held_units = {str(h.get("unit")) for h in HELD.values()} | set(HELD)
+    held_reg = planar.registries.held
+    held_units = {str(h.get("unit")) for h in held_reg.values()} | set(held_reg)
     disarmed = 0
     for cid in sorted(regions):
         vs = got[cid]

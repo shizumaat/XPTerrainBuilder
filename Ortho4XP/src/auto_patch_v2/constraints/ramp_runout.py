@@ -125,7 +125,7 @@ def _chord_rows(planar: PlanarMap, sides: _t.Mapping[bool, list], cap: float,
 def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
     """THE LANDING'S RUN-OUT COMES DOWN AT ROAD GRADE (issue #711; owner
     RULINGS 2026-10-14c (5) at a 10-03e landing).  Every vertex of a run-out
-    strip (``planar/landing_runout``, ``model.platform.LANDING_RUNOUTS``),
+    strip (``planar/landing_runout``, ``planar.registries.landing_runouts``),
     ``s`` its distance along the direction of travel from the foot's lip,
     takes ONE hard row against its block's DATUM COLUMN ``D`` (the
     landing's own row, ``constraints/platform.landing_rows``, is
@@ -154,10 +154,11 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
     collar, the strip's side bank ``<run-out>#collar``) — the landing
     platform, another pad — is not the strip's."""
     from ..law.tables import is_rigid_role
-    from ..model.platform import LANDING_RUNOUTS, datum_vertices
+    from ..model.platform import datum_vertices
     from ..model.planar import COLLAR_SUFFIX
     STATS.pop("landing_runout_rows", None)
-    if not LANDING_RUNOUTS:
+    runouts = planar.registries.landing_runouts
+    if not runouts:
         return []
     held = datum_vertices(planar, law)
     band = float(law.tables.emit.cockpit.visual_m)
@@ -169,7 +170,7 @@ def landing_runout_rows(planar: PlanarMap, law: Law, airport=None) -> list:
     seen: set[int] = set()
     n = n_none = 0
     for f in sorted(F.values(), key=lambda q: q.id):
-        rec = LANDING_RUNOUTS.get(str(f.ref))
+        rec = runouts.get(str(f.ref))
         if rec is None or f.role != "service_road":
             continue
         dv = held.get(rec["block"])
@@ -239,11 +240,11 @@ def runout_exempt(rows: list, planar: PlanarMap) -> tuple[list, int]:
     road-grade profile.  MEASURED (HECA, ``small_roads:-3964`` / ``-19455``
     inside ``runout:building4/landing3``): 8 ramp-ceiling rows relaxed by
     6.4-12.5 m against the strip.  ``(rows, withdrawn)``."""
-    from ..model.platform import LANDING_RUNOUTS
+    runouts = planar.registries.landing_runouts
     from .road_ramp import GEN as _ROAD_RAMP
-    if not LANDING_RUNOUTS:
+    if not runouts:
         return rows, 0
-    held = {v for f in planar.faces.values() if str(f.ref) in LANDING_RUNOUTS
+    held = {v for f in planar.faces.values() if str(f.ref) in runouts
             for v in face_vertex_set(planar, f)}
     if not held:
         return rows, 0

@@ -11,7 +11,7 @@ Every function here is one ``build_arrangement`` calls, in its order:
   region clipped out of what an aircraft rolls on;
 * ``_drop_rim_midpoints`` / ``_renode_counts`` — the densifier filter and
   the re-node census (§16g (10) (12) (2)) the arrangement publishes into
-  ``overlay.PAD_AIRSIDE``.
+  ``registries.pad_airside``.
 
 ``overlay`` re-exports every name, so ``planar.overlay.<name>`` still
 resolves for every reader.
@@ -27,6 +27,7 @@ from shapely.ops import unary_union
 
 from ..geom.cluster_outline import AirsideRim, airside_vertex_snap
 from ..law.tables import is_rigid_role, rolled_on_roles, sliver_area_factor
+from ..model.registries import Registries
 
 __all__ = ["airside_union", "build_rim", "apron_cut_to_pads", "airside_clip",
            "plateau_cut"]
@@ -479,11 +480,11 @@ def _stand_zone(parts: list, close_m: float, span, outline, ident: float):
 
 
 def plateau_cut(base_regions, pad_regions, law, airport,
-                grid: float = 0.0) -> tuple[list, dict]:
+                grid: float = 0.0, *, reg: Registries) -> tuple[list, dict]:
     """flat-pad spec v2 §3 (owner RULINGS 2026-09-30y addendum) — THE STAND
     LINE: a PLATEAU inside the apron faces fronting a held block.
 
-    The STAND ZONE of held block ``b`` (``model.platform.HELD``) is (a) the
+    The STAND ZONE of held block ``b`` (``reg.held``) is (a) the
     apron within ``[design] jetway_strip_m`` of the block's RIDER EDGES —
     the jetway strip's own geometry: each outline edge within a rider's
     reach of its anchor (``airport/riders.rider_candidates``; an ``.agp``
@@ -501,7 +502,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     identity spacing.  The ONE site (the 23a precedent: airside faces cut
     by pad geometry); it runs after ``planar/platform.platform_split``,
     which MINTS the held blocks and their ramp masks it reads.  Registry:
-    ``model.platform.PLATEAUS``."""
+    ``reg.plateaus`` (the held blocks are ``reg.held``)."""
     import math as _m
 
     from shapely.geometry import MultiPoint, Point
@@ -512,8 +513,8 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     from ..law.tables import chord_cap_m, design as design_law
     from ..model.planar import PLATEAU_MARK, platform_ref_of
     from .chords import densify
-    from ..model.platform import HELD, PLATEAUS
-    PLATEAUS.clear()
+    held_reg, plateaus = reg.held, reg.plateaus
+    plateaus.clear()
     d = design_law(law)
     D = float(d.jetway_strip_m)
     Rz = float(d.stand_zone_radius_m)
@@ -527,7 +528,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
                     "plateau_rest_sliver_m2": 0.0,
                     "plateau_rest_kept_m2": 0.0, "plateau_islands_dropped": 0,
                     "plateau_rest_enclosed": 0}
-    if not HELD or airport is None or (D <= 0.0 and Rz <= 0.0):
+    if not held_reg or airport is None or (D <= 0.0 and Rz <= 0.0):
         return base_regions, counts
     # every pad's outline, keyed by its PLATFORM ref (a block's collar joins
     # its block): the held blocks' and the rider hosts' candidates
@@ -535,7 +536,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
     for r in pad_regions:
         outl.setdefault(platform_ref_of(r.ref), []).append(r.polygon)
     outline = {k: unary_union(v) for k, v in outl.items()}
-    held = [b for b in sorted(HELD) if b in outline]
+    held = [b for b in sorted(held_reg) if b in outline]
     if not held:
         return base_regions, counts
     # (a) THE RIDERS and their hosts
@@ -562,13 +563,13 @@ def plateau_cut(base_regions, pad_regions, law, airport,
                 key = (round(dd, 6), -poly.area, k)
                 if best is None or key < best[0]:
                     best = (key, k)
-            if best is not None and best[1] in HELD:
+            if best is not None and best[1] in held_reg:
                 riders_of.setdefault(best[1], []).append((pt, float(reach)))
     starts = [st for st in (getattr(airport, "startups", ()) or ())
               if str(st.kind) in kinds]
     zones: dict[str, tuple] = {}
     for b in held:
-        h = HELD[b]
+        h = held_reg[b]
         span = _held_span(h.get("samples_xy"), h.get("samples_ramp"),
                           max(D, reach_s + Rz))
         if span is None:
@@ -739,7 +740,7 @@ def plateau_cut(base_regions, pad_regions, law, airport,
             counts["plateau_apron_pieces"] += len(pieces)
         if rec["apron_refs"]:
             rec["area_m2"] = round(rec["area_m2"], 1)
-            PLATEAUS[b] = rec
+            plateaus[b] = rec
             counts["plateaus"] += 1
             counts["plateau_m2"] = round(counts["plateau_m2"] + rec["area_m2"], 1)
         # a cut entry is a list until its block is done: flatten the slots

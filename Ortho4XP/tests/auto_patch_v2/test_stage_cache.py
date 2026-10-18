@@ -179,8 +179,13 @@ def test_t4_the_off_switch_runs_every_stage_and_writes_nothing(tmp_path):
 
 def test_t4_the_off_switch_is_read_in_the_wrapper_and_classified():
     wrapper = (ROOT / "src" / "auto_patch" / "engine_v2.py").read_text(encoding="utf-8")
-    assert 'os.environ.get("O4_V2_STAGE_CACHE", "1")' in wrapper
-    assert "stage_cache=" in wrapper
+    assert '"O4_V2_STAGE_CACHE", "1"' in wrapper
+    assert "stage_cache=stage_cache_enabled()" in wrapper
+    from auto_patch.engine_v2 import stage_cache_enabled
+    assert stage_cache_enabled({}) is True
+    assert stage_cache_enabled({"O4_V2_STAGE_CACHE": "0"}) is False
+    harness = (ROOT / "tools" / "harness" / "build_airport.py").read_text(encoding="utf-8")
+    assert "Config(stage_cache=stage_cache_enabled())" in harness
     from auto_patch import provenance_env
     assert "O4_V2_STAGE_CACHE" in provenance_env.RUN_ENVIRONMENT
     from auto_patch_v2.pipeline.build import Config

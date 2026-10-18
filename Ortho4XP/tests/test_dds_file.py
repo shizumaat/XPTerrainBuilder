@@ -218,6 +218,137 @@ def test_a_killed_build_leaves_a_partial_that_is_not_a_texture_and_is_swept(
     assert DDS.is_whole(final)
 
 
+# ── the in-process encoder's fallback (#900) and the unconverted texture (#901)
+class _EncoderBroke(RuntimeError):
+    pass
+
+
+def _broken_encoder(monkeypatch):
+    """The in-process encoder chosen, and raising; returns its call list."""
+    calls = []
+
+    def encode(source, fmt, path):
+        calls.append(path)
+        raise _EncoderBroke("worker died")
+
+    monkeypatch.setenv("O4_DDS_ENCODER", "inproc")
+    monkeypatch.setattr(IMG.DDSENC, "ispc_available", lambda: True)
+    monkeypatch.setattr(IMG.DDSENC, "encode_texture", encode)
+    return calls
+
+
+def _log_lines(monkeypatch):
+    lines = []
+    monkeypatch.setattr(IMG.UI, "lvprint",
+                        lambda level, *parts: lines.append(" ".join(
+                            str(p) for p in parts)))
+    return lines
+
+
+def test_an_encoder_failure_is_converted_by_the_tool_in_the_same_attempt(
+        conversion, monkeypatch):
+    """The texture is never lost to the encoder: it raises ONCE, the
+    subprocess converter makes the texture in the same call, whole, and
+    one line names the error."""
+    (tile, final) = conversion
+    calls = _broken_encoder(monkeypatch)
+    outputs = _converter(monkeypatch, _write_part(1))
+    lines = _log_lines(monkeypatch)
+
+    IMG.convert_texture(tile, *ATTRIBUTES)
+
+    assert len(calls) == 1 and len(outputs) == 1
+    assert _textures(tile) == [os.path.basename(final)]
+    assert DDS.is_whole(final)
+    (line,) = [x for x in lines if "In-process DDS encoder failed" in x]
+    assert "worker died" in line and os.path.basename(final) in line
+
+
+def test_a_texture_neither_converter_makes_is_tried_once_in_process(
+        conversion, monkeypatch):
+    """The ten tries are the subprocess converter's: the failing in-process
+    call is never repeated."""
+    (tile, final) = conversion
+    calls = _broken_encoder(monkeypatch)
+    outputs = _converter(monkeypatch, lambda path: 1)
+
+    IMG.convert_texture(tile, *ATTRIBUTES)
+
+    assert len(calls) == 1 and len(outputs) == 10
+    assert _textures(tile) == []
+
+
+def test_pixels_in_memory_reach_the_tool_as_a_temporary_png(tmp_path,
+                                                             monkeypatch):
+    import numpy
+    from PIL import Image
+
+    monkeypatch.setattr(FNAMES, "Tmp_dir", str(tmp_path / "tmp"))
+    pixels = numpy.full((8, 8, 4), 200, dtype=numpy.uint8)
+    path, temporary = IMG._file_for_tool(pixels, "t.png")
+    assert temporary and path == str(tmp_path / "tmp" / "t.png")
+    with Image.open(path) as image:
+        assert image.mode == "RGBA" and (numpy.asarray(image) == pixels).all()
+    assert IMG._file_for_tool("a.jpg", "t.png") == ("a.jpg", False)
+
+
+def test_a_texture_neither_encoder_converts_fails_the_tile_unactivated(
+        tmp_path, monkeypatch):
+    """#901: the tile whose terrain file names a texture that both encoders
+    failed to make is NOT built — its failure is named with the catalogue
+    code — and its new scenery file is not activated (X-Plane stops on a
+    missing texture)."""
+    import O4_Tile_Failures as FAIL
+    import O4_Tile_Staging as STAGING
+    import O4_UI_Utils as UI
+    from test_dsf_activation import _dsf_path, _read, _Recorder, _stub_step, _write
+
+    holder = []
+    name = FNAMES.dds_file_name_from_attributes(*ATTRIBUTES)
+
+    def encoder(dsf):
+        tile = holder[0]
+        with open(os.path.join(STAGING.terrain_dir(tile),
+                               name[:-4] + ".ter"), "w", encoding="utf-8",
+                  newline="") as handle:
+            handle.write("A\n800\nTERRAIN\n\nBASE_TEX_NOWRAP ../textures/"
+                         + name + "\n")
+        IMG.convert_texture(tile, *ATTRIBUTES)
+        _write(dsf + ".tmp", b"finished")
+        return 1
+
+    tile = _stub_step(tmp_path, monkeypatch, encoder)
+    holder.append(tile)
+    tile.imprint_masks_to_dds = False
+    monkeypatch.setitem(IMG.providers_dict, "BI",
+                        {"code": "BI", "color_filters": "none",
+                         "imagery_dir": "normal"})
+    monkeypatch.setattr(IMG, "color_harmonization_field_for_texture",
+                        lambda *args: None)
+    monkeypatch.setattr(FNAMES, "Imagery_dir", str(tmp_path / "Orthophotos"))
+    monkeypatch.setattr(IMG.time, "sleep", lambda seconds: None)
+    calls = _broken_encoder(monkeypatch)
+    _converter(monkeypatch, lambda path: 1)
+    dsf = _dsf_path(tile.build_dir)
+    _write(dsf, b"previous")
+    monkeypatch.setattr(UI, "engine_session", _Recorder())
+
+    assert TILE.build_tile(tile) == 0
+
+    assert len(calls) == 1
+    assert UI.engine_session.named == ["texture_convert_failed"]
+    assert _read(dsf) == b"previous"               # NOT activated
+    assert not os.path.isfile(os.path.join(tile.build_dir, "terrain",
+                                           name[:-4] + ".ter"))
+    (failure,) = FAIL.fold([FAIL.record("texture_convert_failed", count=1)],
+                           "+60+005")
+    assert failure["what"] == ("Tile +60+005 was not built: some of its "
+                               "textures could not be converted.")
+    assert failure["why"].startswith(
+        "1 of its aerial images could not be converted;")
+    assert failure["remedy"].startswith("Build the tile again.")
+
+
 # ── the "already on disk" test ──────────────────────────────────────────
 @_DSFTOOL
 def test_a_truncated_texture_is_queued_again_and_a_whole_one_is_kept(

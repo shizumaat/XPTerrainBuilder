@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import os
 import struct
 
 import numpy as np
@@ -272,21 +273,33 @@ def test_convert_site_encodes_in_memory_pixels_and_lands_whole(tmp_path) -> None
     assert isinstance(source, np.ndarray) and source.shape == (64, 64, 4)
     final = str(tmp_path / "t.dds")
     partial = dds.partial_name(final)
-    assert IMG._run_converter(None, source, True, partial)
-    assert dds.land(partial, final) and dds.is_whole(final)
+    assert IMG._encode_in_process(source, True, partial, final)
+    assert dds.is_whole(final) and not os.path.exists(partial)
     assert dds.split_levels(open(final, "rb").read())[0] == (64, 64, "bc3")
 
 
 @needs_ispc
-def test_convert_site_pool_encodes_an_image_file(tmp_path) -> None:
-    """A path (the cached JPEG) goes through the spawned process pool."""
+def test_the_convert_site_encodes_an_image_file_in_its_own_thread(tmp_path,
+                                                                  monkeypatch) -> None:
+    """A path (the cached JPEG) is encoded in the calling convert thread: no process pool
+    and no subprocess is started (#900: the spawned pool's workers crashed in the frozen
+    app)."""
+    import concurrent.futures
+    import multiprocessing
+    import subprocess
+
     from PIL import Image
 
+    def refuse(*args, **kwargs):
+        raise AssertionError("the default encode path started a process")
+
+    monkeypatch.setattr(concurrent.futures, "ProcessPoolExecutor", refuse)
+    monkeypatch.setattr(multiprocessing, "Process", refuse)
+    monkeypatch.setattr(subprocess, "call", refuse)
+    monkeypatch.setattr(subprocess, "Popen", refuse)
     src = tmp_path / "t.jpg"
     Image.fromarray(_gradient()[:, :, :3], "RGB").save(src, quality=95)
     out = str(tmp_path / "t.dds")
-    try:
-        assert encode.encode_texture(str(src), "bc1", out, 2) == _size(64, 64, "bc1")
-    finally:
-        encode.shutdown_pool()
+    assert encode.encode_texture(str(src), "bc1", out) == _size(64, 64, "bc1")
     assert dds.is_whole(out)
+    assert not hasattr(encode, "shutdown_pool")

@@ -7265,47 +7265,10 @@ def _check_pad_airside_weld(ways, nodes, ll_to_m, cap: float,
 _PAD_CLUSTER_MISMATCH_KEY = "pad_cluster_mismatch"
 
 
-def _check_pad_cluster_mismatch(recs) -> List[Violation]:
-    """§16g (10) (3) THE PAD IS THE CLUSTER, CRITICAL (owner RULINGS
-    2026-09-14x, verbatim: *"pads must match building clusters, no
-    building, or cluster can span multiple pads, if it does, it means we
-    didn't identify the building shape or cluster correctly.  They should
-    match exactly."*).
-
-    SIDECAR-DECLARED, like ``basin_floor_declaration`` and
-    ``eat_ceiling`` above it, and for the same reason: the relation is
-    between the emitted ``building`` faces and the pack's CLUSTERS, and a
-    cluster's footprint outlines live in the rebake plan, which no patch
-    carries.  The build therefore declares the DEFECT SET over its whole
-    cluster population (``constraints.cluster_pad.pad_cluster_mismatch``,
-    the SAME ``_face_map`` the cluster pad itself is derived from — one
-    reading, two readers) and this prices exactly it.  A patch with no
-    key — v1's own output, or a v2 patch predating 14x — reports nothing,
-    as it did before.
-
-    One row per declared record.  There is no magnitude to report: a
-    misidentified shape is not a grade excess, it is a shape that must
-    never be seated over, so the row carries its counterparties in the
-    way name and zero metres."""
-    out: List[Violation] = []
-    for rec in (recs or []):
-        if not isinstance(rec, dict):
-            continue
-        kind = str(rec.get("kind") or "pad_cluster_mismatch")
-        ref = str(rec.get("ref") or "")
-        others = [str(q) for q in (rec.get("others") or [])]
-        name = f"{kind}:{ref}" + (f" -> {','.join(others)}" if others else "")
-        way = Way("pad_cluster_mismatch", "object_pad", name, "", [], [],
-                  {"role": "object_pad"})
-        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-                      de_m=float(max(0, len(others) - 1)),
-                      way_a=way, way_b=way, pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                      elev_a=0.0, elev_b=0.0)
-        lat, lon = rec.get("lat"), rec.get("lon")
-        if lat is not None and lon is not None:
-            v.lat, v.lon = float(lat), float(lon)
-        out.append(v)
-    return out
+from check_grade_lib.families.pad_cluster_mismatch import (  # noqa: E402,F401,I001
+    _check_pad_cluster_mismatch,
+)
+from check_grade_lib.families import pad_cluster_mismatch as _fam_pad_cluster_mismatch  # noqa: E402,I001
 
 
 # ── §38 THE TILE SEAM IS A PIN, VALIDATOR HALF (owner RULINGS
@@ -7318,60 +7281,18 @@ def _check_pad_cluster_mismatch(recs) -> List[Violation]:
 # A patch with no key (v1's own output, or a v2 patch predating §38)
 # reports nothing, exactly as before.
 
-#: §16g (10) (12) (2): the two witness ways a re-node row is reported on.
-#: The role is ``apron`` because an airside CELL is what was re-noded; the
-#: refs name the direction so a row reads without its source.
-_RENODE_WAYS = {
-    "minted": Way("pad_airside_renode", "apron", "pad_airside_renode:minted",
-                  "", [], [], {}),
-    "deleted": Way("pad_airside_renode", "apron", "pad_airside_renode:deleted",
-                   "", [], [], {}),
-}
+from check_grade_lib.families.pad_airside_renode import (  # noqa: E402,F401,I001
+    _check_pad_airside_renode,
+    _RENODE_WAYS,
+)
+from check_grade_lib.families import pad_airside_renode as _fam_pad_airside_renode  # noqa: E402,I001
 
 
-def _check_pad_airside_renode(renode_ll, nodes) -> List[Violation]:
-    """§16g (10) (12) (2) THE ARRANGEMENT CLIP PRESERVES THE AIRSIDE VERTEX
-    SET (Fable 2026-09-16; RULINGS 2026-09-16b).
-
-    ONE ROW PER AIRSIDE NODE the pad stage minted or deleted, read from the
-    sidecar's ``pad_airside_renode`` — the build's own pass A (the airside
-    noded before any pad exists) against its pass B.  It is a PRESENCE
-    family and a GUARD on that derivation, never a grade count: an emitted
-    surface carrying an extra airside vertex breaks no grade law, which is
-    why 15ah's far-field attribution — the clip alone deleting 1,082
-    solve-owned airside vertices and minting 235 at HECA — had no
-    instrument at all and had to be measured with a lane arm.  The bar is
-    an EMPTY list, and a patch with no key reports nothing.
-
-    A MINTED node is joined back to the patch by the canonical 11-dp
-    lat/lon identity (memory ``canonical-identity-join``) so the row names
-    the way it stands on; a DELETED node is by definition absent from the
-    patch and carries its own coordinate alone.
-    """
-    if not renode_ll:
-        return []
-    out: List[Violation] = []
-    for row in renode_ll:
-        if not row or len(row) < 2:
-            continue
-        try:
-            lat, lon = float(row[0]), float(row[1])
-        except (TypeError, ValueError):
-            continue
-        kind = str(row[2]) if len(row) > 2 else "minted"
-        way = _RENODE_WAYS[kind if kind in _RENODE_WAYS else "minted"]
-        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-                      de_m=0.0, way_a=way, way_b=way,
-                      pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                      elev_a=0.0, elev_b=0.0)
-        v.lat, v.lon = lat, lon
-        out.append(v)
-    return out
-
-
-#: jetway-strip spec §2 (6) (a): a strip vertex off its strip's ONE level
-#: by more than this is a row — §31's visual floor, the spec's materiality.
-_JETWAY_STRIP_TOL_M = 0.05
+from check_grade_lib.families.jetway_strip import (  # noqa: E402,F401,I001
+    _check_jetway_strip,
+    _JETWAY_STRIP_TOL_M,
+)
+from check_grade_lib.families import jetway_strip as _fam_jetway_strip  # noqa: E402,I001
 
 
 def _is_platform_collar(w) -> bool:
@@ -7447,138 +7368,18 @@ from check_grade_lib.families.unit_platform import (  # noqa: E402,F401,I001
 from check_grade_lib.families import unit_platform as _fam_unit_platform  # noqa: E402,I001
 
 
-def _check_jetway_strip(jetway_strips_ll, nodes, ways) -> List[Violation]:
-    """THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3: "UNDER THE JETWAYS
-    THE APRON STRIP IS LEVEL WITH THE TERMINAL"; jetway-strip spec §2 (6)).
-
-    SIDECAR-DECLARED, like ``pad_airside_renode`` and ``seam_residual``:
-    the build publishes per strip its ONE level, its vertices by the
-    canonical 11-dp identity and the clamps its projection reported, and
-    this prices the EMITTED surface against exactly that —
-
-      (a) a strip vertex standing off its target — the PAD'S PLANE at
-          that vertex (spec-author ruling Q-32a (d); the strip's level for
-          a sidecar with 2-element vertices) — by more than
-          ``_JETWAY_STRIP_TOL_M``;
-      (c) every clamp the projection reported (a taxi / runway / pinned /
-          other-pad vertex the field would have moved, never absorbed) —
-          one row each, carrying its metres.
-
-    (b), a transition pair over the apron ``max``, is the ``within_shape``
-    family's own apron pair — the transition changes no role and no cap,
-    so a second reading here would count the same pair twice.  A patch
-    with no key reports nothing."""
-    if not jetway_strips_ll:
-        return []
-    by_ll: Dict[Tuple[float, float], Tuple[float, Way]] = {}
-    for w in ways:
-        for nid, z in zip(w.nids, w.elevs):
-            if z is None or nid not in nodes:
-                continue
-            lat, lon = nodes[nid]
-            by_ll.setdefault((round(lat, 7), round(lon, 7)), (float(z), w))
-    out: List[Violation] = []
-    for st in jetway_strips_ll:
-        if not isinstance(st, dict):
-            continue
-        lvl = st.get("level")
-        ref = f"jetway_strip:{st.get('pad_ref', '')}"
-        if lvl is not None:
-            for ll in st.get("vertices_ll") or ():
-                try:
-                    lat, lon = float(ll[0]), float(ll[1])
-                    # Q-32a (d): the vertex's own target on the pad plane
-                    tgt = float(ll[2]) if len(ll) > 2 else float(lvl)
-                except (TypeError, ValueError, IndexError):
-                    continue
-                got = by_ll.get((round(lat, 7), round(lon, 7)))
-                if got is None:
-                    continue
-                z, way = got
-                if abs(z - tgt) <= _JETWAY_STRIP_TOL_M:
-                    continue
-                v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-                              de_m=abs(z - tgt), way_a=way, way_b=way,
-                              pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                              elev_a=z, elev_b=tgt)
-                v.lat, v.lon = lat, lon
-                out.append(v)
-        for c in st.get("clamps") or ():
-            try:
-                lat, lon, m = float(c[0]), float(c[1]), float(c[3])
-            except (TypeError, ValueError, IndexError):
-                continue
-            got = by_ll.get((round(lat, 7), round(lon, 7)))
-            way = got[1] if got is not None else Way(
-                "jetway_strip", "apron", ref + f":clamp:{c[2]}", "", [], [], {})
-            z = got[0] if got is not None else 0.0
-            v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-                          de_m=abs(m), way_a=way, way_b=way,
-                          pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                          elev_a=z, elev_b=z + m)
-            v.lat, v.lon = lat, lon
-            out.append(v)
-    return out
+from check_grade_lib.families.seam_residual import (  # noqa: E402,F401,I001
+    _check_seam_residual,
+    _SEAM_RESIDUAL_TOL_M,
+)
+from check_grade_lib.families import seam_residual as _fam_seam_residual  # noqa: E402,I001
 
 
-def _check_seam_residual(seam_pins_ll, nodes, ways) -> List[Violation]:
-    """§38 (5) SEAM RESIDUAL: a seam band-edge vertex OFF its own DEM.
-
-    The seam is an ANCHOR "like CIFP thresholds that everything else
-    grades to" (owner 13ah), and a ``Pin`` holds exactly, so a row here
-    means the EMITTED surface left the value the solve pinned — the only
-    way this family can speak.  Until §38 the census had NO patch-edge-vs-
-    DEM family at all and could not see the SPLP berm: 123 of 150 seam
-    vertices off their DEM, worst 3.430 m, a 3 m ridge 10 m wide along the
-    seam through the runway strip, with ``strip_seam_tear`` reading 0.
-
-    The join is the canonical 11-dp lat/lon identity (memory
-    ``canonical-identity-join``), never a proximity match.  A pin the
-    patch does not carry is silently absent — a tile PIECE carries only
-    its own side's vertices, and each side's pins are the ones it holds.
-    A pre-§38 sidecar publishes 2-element pins with no value to price
-    against, and this reports nothing for them.
-    """
-    if not seam_pins_ll:
-        return []
-    by_ll: Dict[Tuple[float, float], Tuple[float, Way]] = {}
-    for w in ways:
-        for nid, z in zip(w.nids, w.elevs):
-            if z is None or nid not in nodes:
-                continue
-            lat, lon = nodes[nid]
-            by_ll.setdefault((round(lat, 7), round(lon, 7)), (float(z), w))
-    out: List[Violation] = []
-    for pin in seam_pins_ll:
-        if len(pin) < 3 or pin[2] is None:
-            continue                      # a pre-§38 pin: no value published
-        try:
-            lat, lon, dem = float(pin[0]), float(pin[1]), float(pin[2])
-        except (TypeError, ValueError):
-            continue
-        got = by_ll.get((round(lat, 7), round(lon, 7)))
-        if got is None:
-            continue
-        z, way = got
-        if abs(z - dem) <= _SEAM_RESIDUAL_TOL_M:
-            continue
-        v = Violation(
-            grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-            de_m=abs(z - dem), way_a=way, way_b=way,
-            pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=z, elev_b=dem)
-        v.lat, v.lon = lat, lon
-        out.append(v)
-    return out
-
-
-#: The materiality the seam is read at: the same elevation quantum the
-#: emitted surface carries (``emit.materiality.elevation_m``), so a row
-#: here is surface, never rounding.
-_SEAM_RESIDUAL_TOL_M = 0.01
-
-#: §37 (9) reads the coverage-edge join at the same quantum: the join is a
-#: PIN and a pin holds exactly, so anything above this is surface.
-_ROAD_JOIN_TOL_M = 0.05
+from check_grade_lib.families.road_coverage_join import (  # noqa: E402,F401,I001
+    _check_road_coverage_join,
+    _ROAD_JOIN_TOL_M,
+)
+from check_grade_lib.families import road_coverage_join as _fam_road_coverage_join  # noqa: E402,I001
 
 
 #: §37 (11) (5): the ``out_of_scope`` stamp of a ``sea_wall`` row.  The
@@ -7708,58 +7509,6 @@ def stamp_sea_wall_tears(rows, shore_edges_ll, nodes, ll_to_m) -> int:
             r.out_of_scope = SEA_WALL_TEAR_OUT_OF_SCOPE
             n += 1
     return n
-
-
-def _check_road_coverage_join(road_join_ll, nodes, ways) -> List[Violation]:
-    """§37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): a road
-    vertex where the patch's road meets the CORE's levelled ribbon stands
-    off the ribbon's own altitude there.
-
-    The core's ``include_roads`` levelling is REMOVED inside the patch
-    coverage + 6 m (``O4_Vector_Map.py:1749-1757``), so the patch owns the
-    road inside and the core owns it outside, and NOTHING made them agree:
-    at KCLT way 10826 station 0 (35.2077398, −80.9290045) the patch's kerb
-    stood 2.36 m over the ribbon across 7.9 m of road — a step the driver
-    takes at the airport gate and no other family can see (the patch is
-    lawful on its own side of the edge, and the core ribbon is not in the
-    patch at all).
-
-    The value is LAW INPUT, published per pinned vertex by the solve
-    (sidecar ``road_coverage_join``: ``[lat, lon, the ribbon altitude]``),
-    and the join is the canonical 11-dp lat/lon identity — never a
-    proximity match.  A patch with no key reports nothing, which is every
-    patch built before §37 (9).
-    """
-    if not road_join_ll:
-        return []
-    by_ll: Dict[Tuple[float, float], Tuple[float, Way]] = {}
-    for w in ways:
-        for nid, z in zip(w.nids, w.elevs):
-            if z is None or nid not in nodes:
-                continue
-            lat, lon = nodes[nid]
-            by_ll.setdefault((round(lat, 7), round(lon, 7)), (float(z), w))
-    out: List[Violation] = []
-    for rec in road_join_ll:
-        if len(rec) < 3 or rec[2] is None:
-            continue
-        try:
-            lat, lon, ribbon = float(rec[0]), float(rec[1]), float(rec[2])
-        except (TypeError, ValueError):
-            continue
-        got = by_ll.get((round(lat, 7), round(lon, 7)))
-        if got is None:
-            continue
-        z, way = got
-        if abs(z - ribbon) <= _ROAD_JOIN_TOL_M:
-            continue
-        v = Violation(
-            grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-            de_m=abs(z - ribbon), way_a=way, way_b=way,
-            pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=z, elev_b=ribbon)
-        v.lat, v.lon = lat, lon
-        out.append(v)
-    return out
 
 
 def _check_bank_across_seam(seam_half_width_m, seam_pins_ll, nodes,
@@ -10683,12 +10432,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
      "within"),
     ("basin_floor_declaration",
      "BASIN FACILITY floor DISAGREES with its own body depth", "within"),
-    # §16g (10) (3) THE PAD IS THE CLUSTER (owner RULINGS 2026-09-14x).
-    # Sidecar-declared like the family above it: the build declares the
-    # defect set over its whole cluster population and this prices it.
-    ("pad_cluster_mismatch",
-     "PAD <-> CLUSTER MISMATCH (a pad spanning two clusters, or a cluster "
-     "spanning two pads)", "within"),
+    *_fam_pad_cluster_mismatch.LAW_FAMILY_ROWS,
     # §16g (10) (6) THE PAD WELDS TO THE AIRSIDE (owner RULINGS
     # 2026-09-14ai).  Computed FROM THE PATCH (node identity), not
     # declared: the shared-edge population is recoverable from the
@@ -10696,23 +10440,8 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("pad_airside_weld",
      "PAD SHARING AN EDGE WITH AIRSIDE pulled OUT OF PLANE at that edge",
      "within"),
-    # §16g (10) (12) (2) THE ARRANGEMENT CLIP PRESERVES THE AIRSIDE VERTEX
-    # SET (Fable 2026-09-16; RULINGS 2026-09-16b).  SIDECAR-DECLARED, like
-    # ``eat_ceiling`` and ``seam_pins`` below: the only place the airside's
-    # pre-pad and post-pad node sets both exist is inside the build's own
-    # arrangement, so the build publishes what its pad stage did and this
-    # prices exactly that.  A PRESENCE family and a GUARD on the
-    # derivation, never a defect magnitude.
-    ("pad_airside_renode",
-     "AIRSIDE CELL VERTEX minted or deleted BY THE PAD STAGE",
-     "within"),
-    # THE JETWAY STRIP (owner RULINGS 2026-09-18t Q3; jetway-strip spec
-    # §2 (6)).  SIDECAR-DECLARED like the family above: the build
-    # publishes each strip's ONE level, its vertices by identity and its
-    # projection's clamps (``jetway_strips``), and this prices exactly that.
-    ("jetway_strip",
-     "JETWAY STRIP vertex off its ONE level, or a CLAMP the strip reported",
-     "within"),
+    *_fam_pad_airside_renode.LAW_FAMILY_ROWS,
+    *_fam_jetway_strip.LAW_FAMILY_ROWS,
     *_fam_unit_platform.LAW_FAMILY_ROWS,
     # THE FLAT-PAD FRONTAGE HOLD (flat-pad spec §1 (2); spec-author RULINGS
     # 2026-09-30u (c)).  SIDECAR-DECLARED like the two above: REPORT, one
@@ -10733,15 +10462,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("eat_ceiling",
      "END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling",
      "within"),
-    # §38 THE TILE SEAM IS A PIN (owner RULINGS 2026-09-13ah / 13am /
-    # 13an; spec §38 (5)).  Sidecar-declared like ``eat_ceiling`` above:
-    # ``seam_pins`` = ``[lat, lon, the vertex's own tile's DEM sample]``
-    # and ``seam_half_width_m`` = the band.  Before them the census had NO
-    # patch-edge-vs-DEM family and could not see SPLP's 3.430 m seam berm
-    # or the bank chain in the 1.6 mm crack that made the texture tear.
-    ("seam_residual",
-     "TILE-SEAM vertex OFF its own DEM sample (the pin the solve held)",
-     "within"),
+    *_fam_seam_residual.LAW_FAMILY_ROWS,
     ("bank_across_seam",
      "BANK FOOT node INSIDE a tile-seam band (no bank along a seam)",
      "within"),
@@ -10784,12 +10505,7 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     ("hairline_pair",
      "EMITTED EDGE laid BESIDE a foreign constrained edge (the hairline)",
      "within"),
-    # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be):
-    # sidecar-declared like ``seam_residual`` — ``road_coverage_join`` =
-    # ``[lat, lon, the CORE ribbon's altitude just outside the coverage]``.
-    ("road_coverage_join",
-     "ROAD at the COVERAGE EDGE off the core ribbon it joins",
-     "within"),
+    *_fam_road_coverage_join.LAW_FAMILY_ROWS,
     # §37 (11) (5) THE SEA WALL (owner RULINGS 2026-09-15f item 2): the
     # emitted edges standing ON the declared shore, named with their
     # drop, level and length.  Reported, NEVER adjudicated — a wall is

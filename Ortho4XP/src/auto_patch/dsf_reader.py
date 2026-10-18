@@ -1102,56 +1102,8 @@ def read_dsf_pavement_border_lines(
     return out
 
 
-# Building-facade detector: X-Plane places airport TERMINAL and HANGAR
-# buildings as draped FACADE polygons (``.fac``) in the DSF.  The
-# library virtual paths name the building class:
-#   terminals → lib/airport/Modern_Airports/Terminal_kit/term_building_*.fac
-#   hangars   → lib/airport/Common_Elements/Hangars/*Hangar.fac,
-#               lib/airport/hangars/.../*.fac
-# We classify by substring on the lowercased def path: "term_building"
-# → terminal, "hangar" → hangar.  Restricted to ``.fac`` so a pavement
-# ``.pol`` or object ``.obj`` that merely happens to contain "hangar"
-# in its name can never be mistaken for a building footprint.
-#
-# The stock library also exports generic building facades outside those
-# two families (SPJC field case 2026-07-24: 25 Cargo_Terminal + 21
-# warehouse/office placements dropped, so the cargo apron got pavement
-# pads but no building pads):
-#   lib/airport/Common_Elements/Misc_Buildings/*.fac
-#     (Cargo_Terminal / Blue_Warehouse / White_Warehouse / White_Office)
-#   lib/airport/buildings/{offices,utility,warehouses}/**.fac
-# These are recognized BY LIBRARY FOLDER, never by generic words like
-# "cargo" or "warehouse" — a third-party facade merely named
-# "cargo_ramp.fac" must not become a building.  Every ``.fac`` the
-# stock library exports under these folders is a standalone building
-# (no roof/decor pieces), role ``"building"``.
-#
-# The Terminal_kit also ships term_roof_* decorative pieces that stack
-# ON the footprint (no new outline → dropped) and term_bridge_* CONNECTOR
-# facades — enclosed skybridges / link spans that physically join two
-# ``term_building_*`` facades.  Bridges carry the ``"bridge"`` role so the
-# caller can feed them into the building clustering as CONNECTORS (a
-# building + bridge + building run unions into ONE flat pad) without
-# treating a stray bridge as a standalone building.
-def _building_role_for_def(path: str) -> str | None:
-    """Return ``"terminal"`` / ``"hangar"`` / ``"bridge"`` /
-    ``"building"`` if the POLYGON_DEF path is a terminal, hangar,
-    terminal-bridge, or stock-library generic building facade, else
-    ``None``."""
-    p = path.lower()
-    if not p.endswith(".fac"):
-        return None
-    if "term_bridge" in p:
-        return "bridge"
-    if "term_building" in p:
-        return "terminal"
-    if "hangar" in p:
-        return "hangar"
-    if "/misc_buildings/" in p or p.startswith("lib/airport/buildings/"):
-        return "building"
-    return None
-
-
+# The building-facade detector is v2's ``airport.dsf.building_role_for_def``
+# (wave F, #852: v1's ``_building_role_for_def`` was its identical body).
 def _read_dsf_object_placements(
         lines: list[str], accept_fn,
 ) -> list[tuple[str, float, float, float]]:
@@ -1217,7 +1169,7 @@ def read_dsf_buildings(
     connector facade), or ``"building"`` (a stock-library generic
     building — Misc_Buildings / lib/airport/buildings; mapped from the
     facade's POLYGON_DEF path via
-    ``_building_role_for_def``), ``outer_ring`` is
+    ``airport.dsf.building_role_for_def``), ``outer_ring`` is
     a list of ``(lon, lat)`` tuples and ``holes`` its inner rings.
     Rings are NOT closed.  Returns ``[]`` on any failure.
 
@@ -1237,15 +1189,17 @@ def read_dsf_buildings(
         gate is off (or no root is supplied) the result is exactly the
         prior ``.fac``-only behaviour.
     """
+    from auto_patch_v2.airport.dsf import building_role_for_def
+
     polys = _read_dsf_polys(
         dsf_path,
-        lambda pth: _building_role_for_def(pth) is not None,
+        lambda pth: building_role_for_def(pth) is not None,
         cache_dir, bezier_segments)
     out: list[tuple[list[tuple[float, float]],
                     list[list[tuple[float, float]]],
                     str]] = []
     for outer, holes, def_path in polys:
-        role = _building_role_for_def(def_path)
+        role = building_role_for_def(def_path)
         if role is not None:
             out.append((outer, holes, role))
 

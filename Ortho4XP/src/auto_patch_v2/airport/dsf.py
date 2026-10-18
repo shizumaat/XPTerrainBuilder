@@ -600,9 +600,41 @@ def pavement_surface_code(path: str, surface: str | None = None) -> int:
                          "concreto")) else 1
 
 
+# Building-facade detector: X-Plane places airport TERMINAL and HANGAR
+# buildings as draped FACADE polygons (``.fac``) in the DSF.  The
+# library virtual paths name the building class:
+#   terminals → lib/airport/Modern_Airports/Terminal_kit/term_building_*.fac
+#   hangars   → lib/airport/Common_Elements/Hangars/*Hangar.fac,
+#               lib/airport/hangars/.../*.fac
+# We classify by substring on the lowercased def path: "term_building"
+# → terminal, "hangar" → hangar.  Restricted to ``.fac`` so a pavement
+# ``.pol`` or object ``.obj`` that merely happens to contain "hangar"
+# in its name can never be mistaken for a building footprint.
+#
+# The stock library also exports generic building facades outside those
+# two families (SPJC field case 2026-07-24: 25 Cargo_Terminal + 21
+# warehouse/office placements dropped, so the cargo apron got pavement
+# pads but no building pads):
+#   lib/airport/Common_Elements/Misc_Buildings/*.fac
+#     (Cargo_Terminal / Blue_Warehouse / White_Warehouse / White_Office)
+#   lib/airport/buildings/{offices,utility,warehouses}/**.fac
+# These are recognized BY LIBRARY FOLDER, never by generic words like
+# "cargo" or "warehouse" — a third-party facade merely named
+# "cargo_ramp.fac" must not become a building.  Every ``.fac`` the
+# stock library exports under these folders is a standalone building
+# (no roof/decor pieces), role ``"building"``.
+#
+# The Terminal_kit also ships term_roof_* decorative pieces that stack
+# ON the footprint (no new outline → dropped) and term_bridge_* CONNECTOR
+# facades — enclosed skybridges / link spans that physically join two
+# ``term_building_*`` facades.  Bridges carry the ``"bridge"`` role so the
+# caller can feed them into the building clustering as CONNECTORS (a
+# building + bridge + building run unions into ONE flat pad) without
+# treating a stray bridge as a standalone building.
 def building_role_for_def(path: str) -> str | None:
     """``terminal`` / ``hangar`` / ``bridge`` / ``building`` for a facade
-    path that is a building (v1 ``_building_role_for_def``), else None."""
+    path that is a building (v1 ``_building_role_for_def``, retired into
+    this one by #852), else None."""
     p = path.lower()
     if not p.endswith(".fac"):
         return None

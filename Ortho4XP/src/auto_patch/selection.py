@@ -23,6 +23,7 @@ the normalisers, so nothing here may drag the auto-patch pipeline in;
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 # THE MODE PREDICATES live in the CORE (``O4_Airport_Modes``, #59): the v2
@@ -360,3 +361,61 @@ def boundary_skipper(home_lat: int, home_lon: int, *, is_cold,
                 % (names, names))
 
     return decide
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE ADMISSION TEST — is an auto patch in this tile's mesh?
+# (moved from ``O4_Vector_Map``, #836: the mesh step's object stage
+# reads it, and must not import the vector step to do so)
+# ══════════════════════════════════════════════════════════════════════
+def manual_patch_files_for(patch_dir, icao):
+    """The manual ``<ICAO>[_x].patch.osm`` files in *patch_dir* that cover
+    *icao* — the same prefix rule ``include_patches`` and the selector
+    apply (the part before the first ``_``)."""
+    import O4_File_Names as FNAMES
+
+    if not os.path.isdir(patch_dir):
+        return []
+    return sorted(
+        f for f in os.listdir(patch_dir)
+        if FNAMES.is_manual_patch_name(f)
+        and FNAMES.patch_file_icao(f) == icao.upper())
+
+
+def auto_patch_not_applied(tile, icao, patch_dir=None):
+    """Why ``<ICAO>_auto.patch.osm`` is NOT part of this tile's mesh, or
+    ``None`` when it is.
+
+    THE ONE ADMISSION TEST (lane ``othhjunction``, issues #13/#15): the
+    patch ingest (``O4_Vector_Map.include_patches``) and the post-mesh object stage
+    (``auto_patch.object_stage.rebake_after_mesh``) must agree on which auto
+    patches the mesh carries.  Before this the object stage placed EVERY
+    ``o4_v2_rebake_<ICAO>.json`` plan in the patch dir — at OTHH (build
+    350, 2026-09-18) a manual ``OTHH.patch.osm`` overrode the auto patch in
+    the mesh while the placement stage still split 726 bodies into 2,222
+    files and rewrote the pack DSF against the auto patch's design surface,
+    a surface the mesh did not have.
+
+    Reasons, in ``include_patches``'s order: the auto patch file is absent,
+    the ``auto_patch`` mode does not admit the code, this build's boundary
+    choice skipped it, or a manual patch covers it."""
+    import O4_File_Names as FNAMES
+
+    icao = str(icao).upper()
+    if patch_dir is None:
+        patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
+    if not os.path.isfile(os.path.join(patch_dir, icao + "_auto.patch.osm")):
+        return "no %s_auto.patch.osm in the tile's Patches" % icao
+    mode = resolved_auto_patch_mode(tile)
+    if not mode_admits(icao, mode):
+        return "auto_patch=%s" % mode
+    if icao in {
+        candidate.icao
+        for candidate in (getattr(tile, "auto_patch_selection", None) or ())
+        if candidate.disposition == "boundary_skipped"
+    }:
+        return "boundary choice: skipped"
+    manual = manual_patch_files_for(patch_dir, icao)
+    if manual:
+        return "manual patch %s is used instead" % ", ".join(manual)
+    return None

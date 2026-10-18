@@ -15,6 +15,7 @@ import pytest  # noqa: E402
 
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Vector_Map as VMAP  # noqa: E402
+from auto_patch import selection as SELECTION  # noqa: E402
 from auto_patch import build_support as BS  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 from o4_engine import jsonl  # noqa: E402
@@ -87,7 +88,7 @@ def test_load_then_save_with_no_edits_rewrites_the_same_nodes_and_ways(heca, pat
     line = PF.recorded_stamps_line(again.root_raw)
     assert BS.parse_patch_source(line) == BS.read_patch_source(heca)
     # the build's own manual detection picks the file up
-    assert VMAP.manual_patch_files_for(patches, "HECA") == ["HECA_edited.patch.osm"]
+    assert SELECTION.manual_patch_files_for(patches, "HECA") == ["HECA_edited.patch.osm"]
     assert "HECA" in FNAMES.manual_patch_icaos_in(patches)
     assert PC.patch_list(TILE)["airports"][0]["source"] == "manual"
 

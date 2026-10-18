@@ -14,7 +14,7 @@ import types
 
 import pytest
 
-import O4_Vector_Map as VMAP
+from auto_patch import selection as SELECTION
 from auto_patch import object_stage
 from auto_patch import post_mesh
 from auto_patch_v2.model import rebake as _rb
@@ -37,30 +37,30 @@ def _touch(p, text="<osm/>"):
 
 def test_auto_patch_alone_is_applied(tmp_path):
     _touch(tmp_path / "OTHH_auto.patch.osm")
-    assert VMAP.auto_patch_not_applied(_Tile(), "OTHH", str(tmp_path)) is None
+    assert SELECTION.auto_patch_not_applied(_Tile(), "OTHH", str(tmp_path)) is None
 
 
 def test_a_manual_patch_overrides_and_is_named(tmp_path):
     _touch(tmp_path / "OTHH_auto.patch.osm")
     _touch(tmp_path / "OTHH.patch.osm")
-    why = VMAP.auto_patch_not_applied(_Tile(), "othh", str(tmp_path))
+    why = SELECTION.auto_patch_not_applied(_Tile(), "othh", str(tmp_path))
     assert why is not None and "OTHH.patch.osm" in why
     # the prefix rule is include_patches's: OTHH_mine.patch.osm covers it too
     (tmp_path / "OTHH.patch.osm").unlink()
     _touch(tmp_path / "OTHH_mine.patch.osm")
-    assert "OTHH_mine.patch.osm" in VMAP.auto_patch_not_applied(
+    assert "OTHH_mine.patch.osm" in SELECTION.auto_patch_not_applied(
         _Tile(), "OTHH", str(tmp_path))
     # another airport's manual patch does not
     (tmp_path / "OTHH_mine.patch.osm").unlink()
     _touch(tmp_path / "OTBD.patch.osm")
-    assert VMAP.auto_patch_not_applied(_Tile(), "OTHH", str(tmp_path)) is None
+    assert SELECTION.auto_patch_not_applied(_Tile(), "OTHH", str(tmp_path)) is None
 
 
 def test_missing_file_and_mode_filter(tmp_path):
-    assert "no OTHH_auto.patch.osm" in VMAP.auto_patch_not_applied(
+    assert "no OTHH_auto.patch.osm" in SELECTION.auto_patch_not_applied(
         _Tile(), "OTHH", str(tmp_path))
     _touch(tmp_path / "OTHH_auto.patch.osm")
-    assert VMAP.auto_patch_not_applied(
+    assert SELECTION.auto_patch_not_applied(
         _Tile(mode="None"), "OTHH", str(tmp_path)) == "auto_patch=None"
 
 
@@ -69,7 +69,7 @@ def test_boundary_skip(tmp_path):
     tile = _Tile()
     tile.auto_patch_selection = [types.SimpleNamespace(
         icao="OTHH", disposition="boundary_skipped")]
-    assert "boundary" in VMAP.auto_patch_not_applied(tile, "OTHH",
+    assert "boundary" in SELECTION.auto_patch_not_applied(tile, "OTHH",
                                                      str(tmp_path))
 
 

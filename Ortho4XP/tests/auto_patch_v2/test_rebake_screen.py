@@ -305,8 +305,8 @@ def test_rebake_after_mesh_places_from_a_sidecar_and_skips_a_stale_one(
     from its JSON, and never built against another patch."""
     import O4_File_Names as FNAMES
     import O4_Scenery_Packs as SP
-    import O4_Vector_Map as VMAP
     from auto_patch import object_stage as E, mesh_sampler, post_mesh
+    from auto_patch import selection as SELECTION
     patch_dir = world.patch.parent
     side = patch_dir / RS.SCREEN_FILENAME.format(icao="ZZZZ")
     side.write_text(_take(world, law).to_json(), encoding="utf-8", newline="\n")
@@ -319,7 +319,7 @@ def test_rebake_after_mesh_places_from_a_sidecar_and_skips_a_stale_one(
     monkeypatch.setattr(post_mesh, "_is_protected_scenery_root", lambda _p: False)
     monkeypatch.setattr(FNAMES, "mesh_file", lambda _b, _la, _lo: str(mesh))
     monkeypatch.setattr(FNAMES, "airport_mod_cache_root", lambda: str(tmp_path / "elsewhere"))
-    monkeypatch.setattr(VMAP, "auto_patch_not_applied", lambda *a, **k: None)
+    monkeypatch.setattr(SELECTION, "auto_patch_not_applied", lambda *a, **k: None)
     monkeypatch.setattr(SP, "pack_enabled", lambda _p: True)
     monkeypatch.setattr(mesh_sampler, "MeshElevationSampler", lambda *a, **k: object())
     monkeypatch.delenv("O4_PACK_WRITES", raising=False)

@@ -846,8 +846,8 @@ def rebake_after_mesh(tile) -> dict:
                 # surface, and placing (splitting, rewriting the pack DSF)
                 # against it seats objects on ground that is not there.
                 # ONE admission test, the patch ingest's own.
-                import O4_Vector_Map as _VMAP
-                not_applied = _VMAP.auto_patch_not_applied(
+                from . import selection as _SELECTION
+                not_applied = _SELECTION.auto_patch_not_applied(
                     tile, icao, patch_dir=patch_dir)
                 if not_applied:
                     UI.vprint(0, f"  [v2 rebake] {icao}: placement SKIPPED — its "

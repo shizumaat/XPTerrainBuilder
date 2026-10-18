@@ -30,6 +30,7 @@ import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 import O4_Unpatched_Airports as UNPATCHED
 import O4_Vector_Map as VMAP
+from auto_patch import selection as SELECTION
 import O4_Vector_Utils as VECT
 
 _EMPTY_OSM = "<?xml version='1.0' encoding='UTF-8'?>\n<osm version='0.6'>\n</osm>\n"
@@ -163,9 +164,9 @@ def test_the_stale_patch_is_out_of_every_readers_sight(world, monkeypatch):
     assert sorted(n for n in names if n[-10:] == ".patch.osm") == [
         "KAAA_auto.patch.osm", "KCCC_auto.patch.osm"]        # ingest, mesh
     assert len(VMAP.road_join_yield_pins(world.tile)) == 2   # road pins
-    assert "no KBBB_auto.patch.osm" in VMAP.auto_patch_not_applied(
+    assert "no KBBB_auto.patch.osm" in SELECTION.auto_patch_not_applied(
         world.tile, "KBBB")                                  # object stage
-    assert VMAP.auto_patch_not_applied(world.tile, "KAAA") is None
+    assert SELECTION.auto_patch_not_applied(world.tile, "KAAA") is None
     import glob
     plans = glob.glob(os.path.join(str(world.patch_dir), "o4_v2_rebake_*.json"))
     assert not [p for p in plans if "KBBB" in p]             # plan glob
@@ -197,7 +198,7 @@ def test_a_clean_build_restates_an_empty_list(world, monkeypatch):
     # (7) the airport built again with no manual cleanup: its patch is in
     assert world.ordinary == ["KAAA", "KAAA_auto", "KBBB", "KBBB_auto",
                               "KCCC", "KCCC_auto"]
-    assert VMAP.auto_patch_not_applied(world.tile, "KBBB") is None
+    assert SELECTION.auto_patch_not_applied(world.tile, "KBBB") is None
 
 
 # ── 6: every airport fails ──────────────────────────────────────────────

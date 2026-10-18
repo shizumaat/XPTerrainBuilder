@@ -15,7 +15,7 @@ Tile selection, the flat-site S1 consensus and DEM prep read this file too
 airport load does): :func:`read_threshold_dicts` is their shape, and the
 install-layout helpers below (:func:`xplane_root_from_cifp_path`,
 :func:`discover_cifp_airports`, :func:`airport_in_tile`) came here with the
-retired v1 ``auto_patch.cifp_reader``.
+retired v1 ``cifp_reader`` module.
 """
 from __future__ import annotations
 

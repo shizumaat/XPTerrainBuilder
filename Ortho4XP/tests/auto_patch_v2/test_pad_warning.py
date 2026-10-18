@@ -79,24 +79,17 @@ def test_a_record_lacking_a_slot_says_which_and_no_sentence():
 
 
 def test_the_hold_report_is_carried_by_ref_and_only_its_keys():
-    saved = dict(mp.HELD)
-    try:
-        mp.HELD.clear()
-        mp.HELD["a"] = {"unit": "a", "k": 0}
-        mp.HELD["b"] = {"unit": "b", "k": 0}
-        stage1 = {"a": {"unit": "a", "reach_isect": [1.0, 2.0], "reach_isect_empty": False,
-                        "datum_chosen": 1.5, "hold_contacts": [(7, None)]},
-                  "gone": {"reach_isect": [0.0, 0.0]}}
-        rep = mp.hold_report(stage1)
-        assert set(rep) == {"a", "gone"} and "hold_contacts" not in rep["a"]
-        assert mp.install_hold_report(rep) == 1
-        assert mp.HELD["a"]["reach_isect"] == [1.0, 2.0] and mp.HELD["a"]["datum_chosen"] == 1.5
-        assert "hold_contacts" not in mp.HELD["a"] and "reach_isect" not in mp.HELD["b"]
-        rep["a"]["reach_isect"][0] = 9.0           # a deep copy, not a view
-        assert mp.HELD["a"]["reach_isect"] == [1.0, 2.0]
-    finally:
-        mp.HELD.clear()
-        mp.HELD.update(saved)
+    held = {"a": {"unit": "a", "k": 0}, "b": {"unit": "b", "k": 0}}
+    stage1 = {"a": {"unit": "a", "reach_isect": [1.0, 2.0], "reach_isect_empty": False,
+                    "datum_chosen": 1.5, "hold_contacts": [(7, None)]},
+              "gone": {"reach_isect": [0.0, 0.0]}}
+    rep = mp.hold_report(stage1)
+    assert set(rep) == {"a", "gone"} and "hold_contacts" not in rep["a"]
+    assert mp.install_hold_report(held, rep) == 1
+    assert held["a"]["reach_isect"] == [1.0, 2.0] and held["a"]["datum_chosen"] == 1.5
+    assert "hold_contacts" not in held["a"] and "reach_isect" not in held["b"]
+    rep["a"]["reach_isect"][0] = 9.0           # a deep copy, not a view
+    assert held["a"]["reach_isect"] == [1.0, 2.0]
 
 
 def test_the_census_rows_are_the_released_blocks_each_with_warned():

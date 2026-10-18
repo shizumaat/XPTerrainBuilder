@@ -170,7 +170,6 @@ def _faces(arr, role):
 
 
 def test_23a_the_pad_keeps_its_footprint_and_the_apron_is_cut_back():
-    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
     arr = _renode_scene(_law(True), _TERMINAL)
     pad = unary_union([p for p, _r in _faces(arr, "building")])
     foot = Polygon(_TERMINAL)
@@ -188,11 +187,11 @@ def test_23a_the_pad_keeps_its_footprint_and_the_apron_is_cut_back():
           for ring in (p.exterior, *p.interiors) for c in ring.coords}
     shared = pv & av
     assert {(-60.0, 140.0), (60.0, 140.0)} <= shared
-    assert PAD_AIRSIDE["apron_faces_cut"] == 1
-    assert PAD_AIRSIDE["pad_airside_weld_pairs"] == 1
+    assert arr.registries.pad_airside["apron_faces_cut"] == 1
+    assert arr.registries.pad_airside["pad_airside_weld_pairs"] == 1
     # the pad re-nodes nothing the cut airside did not already carry
-    assert PAD_AIRSIDE["renode_deleted"] == 0
-    assert PAD_AIRSIDE["renode_minted"] == 0, dict(PAD_AIRSIDE)
+    assert arr.registries.pad_airside["renode_deleted"] == 0
+    assert arr.registries.pad_airside["renode_minted"] == 0, dict(arr.registries.pad_airside)
 
 
 def test_23a_matched_base_the_pre_23a_clip_takes_the_apron_out_of_the_pad():
@@ -214,11 +213,10 @@ def test_23a_a_pad_wholly_on_the_apron_is_still_the_footprint():
 def test_23a_the_runway_is_not_apron_and_still_trims_the_pad():
     """23a speaks of the apron.  A pad never takes a runway (airside is
     king, 14ah): the fixture's runway strip is y in [-22.5, 22.5]."""
-    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
     arr = _renode_scene(_law(True), ((300, 0), (380, 0), (380, 80), (300, 80)))
     pad = unary_union([p for p, _r in _faces(arr, "building")])
     runway = unary_union([p for p, _r in _faces(arr, "runway")])
     assert pad.intersection(runway).area < 1e-6
     assert pad.area == pytest.approx(80 * (80 - 22.5), rel=1e-3)
-    assert PAD_AIRSIDE["pad_trimmed_by_runway_taxi_m2"] == pytest.approx(
+    assert arr.registries.pad_airside["pad_trimmed_by_runway_taxi_m2"] == pytest.approx(
         80 * 22.5, rel=1e-3)

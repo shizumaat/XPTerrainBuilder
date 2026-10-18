@@ -10,8 +10,8 @@ by name, when both are as recorded.
 WHAT A STEP'S INPUTS ARE.  The settings it reads — the step's own list in
 ``O4_Cfg_Vars`` (``list_vector_vars`` / ``list_mesh_vars`` /
 ``list_mask_vars``) plus ``custom_dem`` / ``fill_nodata``, and the
-app-level settings that choose its data — the engine's version and code
-digest, the auto-patch configuration digest, and the record of the step
+app-level settings that choose its data — the engine's version, the
+digest of the code the step runs through (``O4_Step_Code``), the auto-patch configuration digest, and the record of the step
 before it (a rebuilt vector step rebuilds the mesh, a rebuilt mesh the
 masks).  The vector step adds the data it read that can change without a
 setting: the tile's OSM cache files, its cached airport elevation
@@ -57,7 +57,8 @@ __all__ = ["REUSABLE_STEPS", "stale_reason", "predicted_reuse", "record",
 
 # 2026-10-14: pack DSFs keyed as the build's input and scenery_packs.ini
 # by content (#615 self-invalidation); a 2026-10-13 record reads as none.
-SCHEMA = "2026-10-14"
+# 2026-10-18: ``code`` is the step's own closure digest (#836).
+SCHEMA = "2026-10-18"
 
 #: the steps whose output can be reused, in build order
 REUSABLE_STEPS = ("vector", "mesh", "masks")
@@ -208,10 +209,16 @@ def _inset_files(tile) -> list:
     return INSETS.list_cached_inset_dems(tile.lat, tile.lon)
 
 
-def _code_identity() -> dict:
+def _code_identity(step: str) -> dict:
+    """The engine half of ``step``'s key: its version, the digest of the
+    code ``step`` runs through (``O4_Step_Code``, #836 — the step's own
+    import closure and the law tables, not the whole tree; the whole-tree
+    digest only when the step's cannot be had), and the auto-patch
+    configuration."""
+    import O4_Step_Code as STEPCODE
     from auto_patch import provenance, provenance_code
     return {"engine": provenance.engine_version(),
-            "code": provenance_code.code_digest(),
+            "code": STEPCODE.step_digest(step) or provenance_code.code_digest(),
             "auto_patch_cfg": provenance.config_digest()}
 
 
@@ -223,7 +230,7 @@ def _inputs(tile, step: str, previous_digest: str, osm_files=None) -> dict:
     inputs = {"step": step, "previous": previous_digest,
               "settings": {name: repr(_setting(tile, name))
                            for name in _step_settings(step)}}
-    inputs.update(_code_identity())
+    inputs.update(_code_identity(step))
     if step == "vector":
         inputs["osm"] = _identity(
             _osm_files(tile) if osm_files is None else osm_files)

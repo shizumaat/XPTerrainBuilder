@@ -133,6 +133,18 @@ print("Stage cache code digests: "
 v2_law_datas = v2_law_datas + [
     (_stage_digest_file, os.path.join("auto_patch_v2", "pipeline"))]
 
+# THE TILE STEPS' CODE DIGESTS (issue #836) — the same mechanism, one
+# digest per reusable tile step (vector, mesh, masks: each step's own
+# import closure and the law tables), one ``step digest`` line each,
+# bundled beside the module that reads it
+# (``_internal/step_code.sha256``, beside ``O4_Step_Code``).
+_step_digest_file = _runpy.run_path(
+    os.path.join("src", "O4_Step_Code.py")
+)["write_freeze_digest"]("src", os.path.join("build", "o4_step_code"))
+print("Tile step code digests: "
+      + open(_step_digest_file, encoding="ascii").read().strip().replace("\n", ", "))
+v2_law_datas = v2_law_datas + [(_step_digest_file, ".")]
+
 # THE PATCH FRESHNESS GATE'S CODE DIGEST (issue #346) — the same mechanism,
 # over the whole engine source: without it a frozen engine's patches key on
 # the version string alone (``_internal/auto_patch/engine_code.sha256``).

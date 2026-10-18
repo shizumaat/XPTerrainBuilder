@@ -1,0 +1,645 @@
+"""THE TILE STEPS' CODE HALF (issue #836, spec
+``docs/specs/step-reuse-content-keys-spec.md`` §2.1): per reusable tile
+step (``vector``, ``mesh``, ``masks`` — ``O4_Step_Reuse``), the modules
+the step runs through, the data tables they load, and ONE digest of
+their bytes — taken from the sources in a checkout, and from the file
+the FREEZE wrote in a frozen engine.
+
+Before, every step keyed on ``provenance_code.code_digest()`` (every
+``.py``/``.toml`` under ``src``): any commit re-ran all three.  Now each
+step keys on the static import closure of the modules where the build
+ENTERS it (:data:`ENTRY_MODULES`; every ``import`` followed, function-
+level ones included, into every module with a source under ``src`` —
+no prefix limit, the mesh step reaches ``auto_patch_v2`` through the
+post-mesh rebake).  ``tests/test_step_code_closure.py`` recomputes each
+closure and fails on a module a step imports and its list omits, and on
+the reverse — the #346 guarantee: no code a step's output depends on can
+change without staling that step.
+
+MEASURED 2026-10-18: the three closures are THE SAME 489 of the 578
+modules under ``src`` (``O4_Mask_Utils`` → ``O4_Mesh_Utils`` →
+``O4_Vector_Map`` → ``auto_patch.driver``; ``O4_DEM_Utils`` →
+``O4_Elevation_Level`` → ``O4_Config_Utils`` → ``O4_Tile_Utils`` →
+``O4_DSF_Utils``).  They share one list (:data:`_TILE_CORE`) until the
+twin says they differ; then each step gets its own.  What a step no
+longer keys on: the app session (``o4_engine``), the Qt GUI, the MSFS
+converters, ``Unused`` and 12 ``auto_patch_v2`` modules the tile core
+does not import.
+
+DATA: the whole-tree digest covered the ``.toml`` law tables; every step
+keeps them (:data:`DATA_FILES`, all of them — the law and classifier
+loaders are in every closure; the twin fails on a ``.toml`` under ``src``
+that is not listed).
+
+STDLIB ONLY, NO RELATIVE IMPORT: the specs execute this file with
+``runpy`` (they never import engine modules); the shared mechanism
+(``src/O4_Code_Closure.py``) is then loaded by path.
+"""
+from __future__ import annotations
+
+import os
+
+__all__ = ["STEPS", "ENTRY_MODULES", "CODE_MODULES", "DATA_FILES",
+           "DIGEST_FILENAME", "freeze_digests", "write_freeze_digest",
+           "frozen_digests", "step_digest"]
+
+#: The file the freeze writes beside this module: one ``step digest``
+#: line per step.
+DIGEST_FILENAME = "step_code.sha256"
+
+#: Where the build ENTERS each step (``o4_engine/session.py`` calls
+#: ``O4_Vector_Map.build_poly_file`` / ``O4_Mesh_Utils.build_mesh`` /
+#: ``O4_Mask_Utils.build_masks``), with the modules spec §2.1 names
+#: beside them (each already in its step's closure).
+ENTRY_MODULES: dict[str, tuple[str, ...]] = {
+    "vector": ("O4_Vector_Map", "O4_Vector_Utils", "O4_OSM_Utils",
+               "O4_Airport_Utils", "auto_patch.driver"),
+    "mesh": ("O4_Mesh_Utils", "O4_DEM_Utils", "O4_Airport_Elevation_Insets",
+             "auto_patch.post_mesh"),
+    "masks": ("O4_Mask_Utils", "O4_Bathymetry_Band"),
+}
+
+#: The reusable steps, in build order (``O4_Step_Reuse.REUSABLE_STEPS``).
+STEPS: tuple[str, ...] = tuple(ENTRY_MODULES)
+
+#: The data tables the steps' modules load, as paths relative to ``src``
+#: (posix), sorted.  Every step keys on all of them.
+DATA_FILES: tuple[str, ...] = (
+    "auto_patch_v2/classify/rules.toml",
+    "auto_patch_v2/law/emit.toml",
+    "auto_patch_v2/law/families.toml",
+    "auto_patch_v2/law/flat_site.toml",
+    "auto_patch_v2/law/precedence.toml",
+    "auto_patch_v2/law/rulesets.toml",
+    "auto_patch_v2/law/structures.toml",
+    "auto_patch_v2/law/zones.toml",
+)
+
+#: The ONE implementation of the closure, the digest and the digest file
+#: (``src/O4_Code_Closure.py``).  Imported in a checkout, a test and a
+#: frozen engine; loaded BY PATH when a ``.spec`` executes this file with
+#: ``runpy`` (``src`` is not on ``sys.path`` then).
+try:
+    import O4_Code_Closure as _closure_module
+    _CLOSURE = vars(_closure_module)
+except ImportError:
+    import runpy as _runpy
+    _CLOSURE = _runpy.run_path(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "O4_Code_Closure.py"))
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _sources(src_root: str, step: str):
+    """``(name, path)`` of every module and data table ``step`` keys on."""
+    for name in CODE_MODULES[step]:
+        yield name, _CLOSURE["source_path"](src_root, name)
+    for rel in DATA_FILES:
+        yield rel, os.path.join(src_root, *rel.split("/"))
+
+
+def freeze_digests(src_root: str) -> dict[str, "str | None"]:
+    """``{step: digest}`` of each step's :data:`CODE_MODULES` and
+    :data:`DATA_FILES` read under ``src_root``; a step with any source
+    missing digests to ``None``."""
+    return {step: _CLOSURE["digest_of"](_sources(src_root, step))
+            for step in STEPS}
+
+
+def write_freeze_digest(src_root: str, out_dir: str) -> str:
+    """THE FREEZE'S ACT: write :func:`freeze_digests` of ``src_root`` to
+    ``out_dir/``:data:`DIGEST_FILENAME` and return that path (the specs
+    bundle it beside this module).  RAISES ``SystemExit`` when any step
+    has no digest."""
+    return _CLOSURE["write_digest_file"](
+        out_dir, DIGEST_FILENAME, freeze_digests(src_root),
+        "ERROR: could not digest the tile steps' code under "
+        f"{src_root!r} (O4_Step_Code names a module or table with no "
+        "source file) — refusing to freeze an engine whose step reuse "
+        "would have no code identity.")
+
+
+def frozen_digests(directory: str | None = None) -> dict[str, str] | None:
+    """The ``{step: digest}`` table the freeze wrote beside this module,
+    or ``None`` (a checkout; an engine frozen by a spec that predates the
+    file; a malformed file)."""
+    return _CLOSURE["read_digest_table"](
+        _HERE if directory is None else directory, DIGEST_FILENAME)
+
+
+_DIGESTS: "dict[str, str | None] | None" = None
+
+
+def step_digest(step: str) -> str | None:
+    """The running engine's code digest for ``step``, taken once per
+    process: the freeze's file when there is one, else the sources beside
+    this module.  ``None`` when neither can be had — the caller then
+    falls back to the whole-tree digest."""
+    global _DIGESTS
+    if _DIGESTS is None:
+        _DIGESTS = dict(frozen_digests() or freeze_digests(_HERE))
+    return _DIGESTS.get(step)
+
+
+#: Each step's static import closure under ``src``, sorted — the code
+#: half of its key.  Held by ``tests/test_step_code_closure.py``; when it
+#: fails, the message names the modules to add or drop (and, when the
+#: steps' closures come apart, gives each step its own tuple).  A package
+#: is listed as its ``__init__``.
+_TILE_CORE: tuple[str, ...] = (
+    "O4_Airport_Batch",
+    "O4_Airport_Elevation_Insets",
+    "O4_Airport_Fade_Masks",
+    "O4_Airport_Index",
+    "O4_Airport_Modes",
+    "O4_Airport_Rank",
+    "O4_Airport_Utils",
+    "O4_Authenticated_Sessions",
+    "O4_Bathymetry",
+    "O4_Bathymetry_Band",
+    "O4_Build_Info",
+    "O4_Cfg_Vars",
+    "O4_Coastal_Foam_Edge",
+    "O4_Code_Closure",
+    "O4_Color_Harmonization",
+    "O4_Config_Utils",
+    "O4_Console_Encoding",
+    "O4_Coral_Atlas",
+    "O4_DDS_Encode",
+    "O4_DDS_File",
+    "O4_DDS_Mips",
+    "O4_DDS_Refine",
+    "O4_DEM_Utils",
+    "O4_DSFTool",
+    "O4_DSF_Utils",
+    "O4_Default_Terrain_Map",
+    "O4_Elevation_Level",
+    "O4_External_Writes",
+    "O4_File_Lock",
+    "O4_File_Names",
+    "O4_Geo_Utils",
+    "O4_Held_File",
+    "O4_Http_Pushback",
+    "O4_Imagery_Async",
+    "O4_Imagery_Certs",
+    "O4_Imagery_Fetch",
+    "O4_Imagery_Progress",
+    "O4_Imagery_Selfcheck",
+    "O4_Imagery_Utils",
+    "O4_Mask_Utils",
+    "O4_Mesh_IO",
+    "O4_Mesh_Utils",
+    "O4_Num_Text",
+    "O4_OSM_Extract_Filter",
+    "O4_OSM_Extracts",
+    "O4_OSM_Utils",
+    "O4_Overlay_Utils",
+    "O4_Parallel_Utils",
+    "O4_Process_Liveness",
+    "O4_Proj_Runtime",
+    "O4_Scenery_Links",
+    "O4_Scenery_Packs",
+    "O4_Sea_Nodata_Fill",
+    "O4_Settings_Model",
+    "O4_Step_Code",
+    "O4_Step_Reuse",
+    "O4_Stopped_Build",
+    "O4_Text_Files",
+    "O4_Tile_Failures",
+    "O4_Tile_Staging",
+    "O4_Tile_Utils",
+    "O4_Triangle_Binary",
+    "O4_Triangle_IO",
+    "O4_UI_Utils",
+    "O4_Unmounted_Links",
+    "O4_Unpatched_Airports",
+    "O4_Vector_Map",
+    "O4_Vector_Utils",
+    "O4_Version",
+    "auto_patch.agp_reader",
+    "auto_patch.apt_dat_reader",
+    "auto_patch.build_support",
+    "auto_patch.cifp_reader",
+    "auto_patch.config",
+    "auto_patch.driver",
+    "auto_patch.dsf_reader",
+    "auto_patch.engine_v2",
+    "auto_patch.flat_site",
+    "auto_patch.flat_site_mode",
+    "auto_patch.geom_safe",
+    "auto_patch.mesh_sampler",
+    "auto_patch.obj8_partition",
+    "auto_patch.obj8_reader",
+    "auto_patch.object_anchor",
+    "auto_patch.object_clusters",
+    "auto_patch.object_footprints",
+    "auto_patch.object_frame",
+    "auto_patch.object_rebake",
+    "auto_patch.object_terrain_features",
+    "auto_patch.object_terrain_kinds",
+    "auto_patch.osm_aeroway",
+    "auto_patch.post_mesh",
+    "auto_patch.progress",
+    "auto_patch.provenance",
+    "auto_patch.provenance_code",
+    "auto_patch.provenance_env",
+    "auto_patch.selection",
+    "auto_patch_v2.airport.anchor_rule",
+    "auto_patch_v2.airport.approach",
+    "auto_patch_v2.airport.apt_dat",
+    "auto_patch_v2.airport.authored_landing",
+    "auto_patch_v2.airport.authored_seat",
+    "auto_patch_v2.airport.backup_state",
+    "auto_patch_v2.airport.basin_ring",
+    "auto_patch_v2.airport.basin_witness",
+    "auto_patch_v2.airport.below_zero",
+    "auto_patch_v2.airport.borrow",
+    "auto_patch_v2.airport.bridge_family",
+    "auto_patch_v2.airport.bulk_geos",
+    "auto_patch_v2.airport.cifp",
+    "auto_patch_v2.airport.cluster_profile",
+    "auto_patch_v2.airport.contact",
+    "auto_patch_v2.airport.contents",
+    "auto_patch_v2.airport.deck_signature",
+    "auto_patch_v2.airport.dem",
+    "auto_patch_v2.airport.dem_production",
+    "auto_patch_v2.airport.dem_shared",
+    "auto_patch_v2.airport.dem_witness",
+    "auto_patch_v2.airport.door_wells",
+    "auto_patch_v2.airport.dsf",
+    "auto_patch_v2.airport.dsf_commands",
+    "auto_patch_v2.airport.dsf_write",
+    "auto_patch_v2.airport.extension_cache",
+    "auto_patch_v2.airport.facade",
+    "auto_patch_v2.airport.file_hash",
+    "auto_patch_v2.airport.flat_site",
+    "auto_patch_v2.airport.footprint_carry",
+    "auto_patch_v2.airport.footprint_connector",
+    "auto_patch_v2.airport.footprint_seats",
+    "auto_patch_v2.airport.footprint_unit",
+    "auto_patch_v2.airport.frame_entry",
+    "auto_patch_v2.airport.grade_ledger",
+    "auto_patch_v2.airport.jetways",
+    "auto_patch_v2.airport.line_object",
+    "auto_patch_v2.airport.load",
+    "auto_patch_v2.airport.obj8",
+    "auto_patch_v2.airport.obj8_clip",
+    "auto_patch_v2.airport.obj8_drape",
+    "auto_patch_v2.airport.obj8_grade",
+    "auto_patch_v2.airport.obj8_roof",
+    "auto_patch_v2.airport.obj8_split",
+    "auto_patch_v2.airport.object_cut",
+    "auto_patch_v2.airport.object_pavement",
+    "auto_patch_v2.airport.object_plan",
+    "auto_patch_v2.airport.osm",
+    "auto_patch_v2.airport.pack",
+    "auto_patch_v2.airport.pack_art",
+    "auto_patch_v2.airport.pack_journal",
+    "auto_patch_v2.airport.pack_partition",
+    "auto_patch_v2.airport.pack_work",
+    "auto_patch_v2.airport.pad_block_seat",
+    "auto_patch_v2.airport.partition_cache",
+    "auto_patch_v2.airport.partition_code",
+    "auto_patch_v2.airport.placement_atom",
+    "auto_patch_v2.airport.placement_body",
+    "auto_patch_v2.airport.placement_boxes",
+    "auto_patch_v2.airport.placement_carrier",
+    "auto_patch_v2.airport.placement_census",
+    "auto_patch_v2.airport.placement_cockpit",
+    "auto_patch_v2.airport.placement_contact",
+    "auto_patch_v2.airport.placement_cut",
+    "auto_patch_v2.airport.placement_deck",
+    "auto_patch_v2.airport.placement_family",
+    "auto_patch_v2.airport.placement_file",
+    "auto_patch_v2.airport.placement_geom",
+    "auto_patch_v2.airport.placement_leaves",
+    "auto_patch_v2.airport.placement_motion",
+    "auto_patch_v2.airport.placement_orphan",
+    "auto_patch_v2.airport.placement_plan",
+    "auto_patch_v2.airport.placement_read",
+    "auto_patch_v2.airport.placement_record",
+    "auto_patch_v2.airport.placement_seams",
+    "auto_patch_v2.airport.placement_seat_tilt",
+    "auto_patch_v2.airport.placement_targets",
+    "auto_patch_v2.airport.placement_write",
+    "auto_patch_v2.airport.pool",
+    "auto_patch_v2.airport.ramp_feet",
+    "auto_patch_v2.airport.reader_work",
+    "auto_patch_v2.airport.rebake_plan",
+    "auto_patch_v2.airport.rebake_screen",
+    "auto_patch_v2.airport.riders",
+    "auto_patch_v2.airport.road_descent",
+    "auto_patch_v2.airport.road_profile",
+    "auto_patch_v2.airport.road_ramp",
+    "auto_patch_v2.airport.road_ways",
+    "auto_patch_v2.airport.scatter",
+    "auto_patch_v2.airport.sheet_chain",
+    "auto_patch_v2.airport.skirt",
+    "auto_patch_v2.airport.slab_drape",
+    "auto_patch_v2.airport.slab_faces",
+    "auto_patch_v2.airport.slab_plates",
+    "auto_patch_v2.airport.sunken_ramp",
+    "auto_patch_v2.airport.sunken_roads",
+    "auto_patch_v2.airport.thin_plates",
+    "auto_patch_v2.airport.topology_cache",
+    "auto_patch_v2.airport.tunnel_objects",
+    "auto_patch_v2.airport.tunnel_walls",
+    "auto_patch_v2.airport.unpatched_pack",
+    "auto_patch_v2.airport.wall_class",
+    "auto_patch_v2.airport.wall_corridor_probe",
+    "auto_patch_v2.airport.wall_corridors",
+    "auto_patch_v2.airport.wall_family",
+    "auto_patch_v2.airport.wall_geometry",
+    "auto_patch_v2.airport.wall_mouth",
+    "auto_patch_v2.classify",
+    "auto_patch_v2.classify.airside_edge",
+    "auto_patch_v2.classify.evidence",
+    "auto_patch_v2.classify.facade_mint",
+    "auto_patch_v2.classify.gap_apron",
+    "auto_patch_v2.classify.gap_mint",
+    "auto_patch_v2.classify.gap_terrace",
+    "auto_patch_v2.classify.lot_roads",
+    "auto_patch_v2.classify.neck",
+    "auto_patch_v2.classify.open_default",
+    "auto_patch_v2.classify.pad_road_exit",
+    "auto_patch_v2.classify.pad_touch",
+    "auto_patch_v2.classify.ramp_runout",
+    "auto_patch_v2.classify.retaining_wall",
+    "auto_patch_v2.classify.ribbon_mint",
+    "auto_patch_v2.classify.roles",
+    "auto_patch_v2.classify.rules",
+    "auto_patch_v2.classify.sources",
+    "auto_patch_v2.classify.taxi_letter",
+    "auto_patch_v2.constraints",
+    "auto_patch_v2.constraints.apron",
+    "auto_patch_v2.constraints.apron_shelf",
+    "auto_patch_v2.constraints.apron_trend",
+    "auto_patch_v2.constraints.ceiling",
+    "auto_patch_v2.constraints.channel",
+    "auto_patch_v2.constraints.cluster_pad",
+    "auto_patch_v2.constraints.contiguity",
+    "auto_patch_v2.constraints.eat",
+    "auto_patch_v2.constraints.end_lip",
+    "auto_patch_v2.constraints.flat_site",
+    "auto_patch_v2.constraints.foot_rows",
+    "auto_patch_v2.constraints.gap_follow",
+    "auto_patch_v2.constraints.geometry",
+    "auto_patch_v2.constraints.groundside",
+    "auto_patch_v2.constraints.hard_plane",
+    "auto_patch_v2.constraints.jetway_strip",
+    "auto_patch_v2.constraints.junction_mesh",
+    "auto_patch_v2.constraints.no_step",
+    "auto_patch_v2.constraints.pad_frontage_gs",
+    "auto_patch_v2.constraints.pad_fronting",
+    "auto_patch_v2.constraints.pad_ramp",
+    "auto_patch_v2.constraints.pad_relief",
+    "auto_patch_v2.constraints.pad_road_reach",
+    "auto_patch_v2.constraints.pad_warning",
+    "auto_patch_v2.constraints.pads",
+    "auto_patch_v2.constraints.pavement_cap",
+    "auto_patch_v2.constraints.platform",
+    "auto_patch_v2.constraints.precedence",
+    "auto_patch_v2.constraints.proximity",
+    "auto_patch_v2.constraints.ramp_runout",
+    "auto_patch_v2.constraints.road_ramp",
+    "auto_patch_v2.constraints.roads",
+    "auto_patch_v2.constraints.routes",
+    "auto_patch_v2.constraints.runway_chord",
+    "auto_patch_v2.constraints.runway_mean_slope",
+    "auto_patch_v2.constraints.runway_profile",
+    "auto_patch_v2.constraints.runway_yield",
+    "auto_patch_v2.constraints.seams",
+    "auto_patch_v2.constraints.shoulder_crossing",
+    "auto_patch_v2.constraints.slab_weld",
+    "auto_patch_v2.constraints.stretches",
+    "auto_patch_v2.constraints.strips",
+    "auto_patch_v2.constraints.structures",
+    "auto_patch_v2.constraints.surface_trend",
+    "auto_patch_v2.constraints.taxi",
+    "auto_patch_v2.constraints.taxi_trend",
+    "auto_patch_v2.constraints.taxi_trend_cap",
+    "auto_patch_v2.constraints.transverse",
+    "auto_patch_v2.constraints.trend",
+    "auto_patch_v2.constraints.water",
+    "auto_patch_v2.constraints.weld_floor",
+    "auto_patch_v2.constraints.zones",
+    "auto_patch_v2.emit.graded",
+    "auto_patch_v2.emit.osm_adapter",
+    "auto_patch_v2.emit.rebake",
+    "auto_patch_v2.emit.road_join",
+    "auto_patch_v2.emit.surface",
+    "auto_patch_v2.emit.terrain_edge",
+    "auto_patch_v2.geom",
+    "auto_patch_v2.geom.base_slab",
+    "auto_patch_v2.geom.cluster_outline",
+    "auto_patch_v2.geom.containment",
+    "auto_patch_v2.geom.core_clamp",
+    "auto_patch_v2.geom.coverage",
+    "auto_patch_v2.geom.feet_graph",
+    "auto_patch_v2.geom.feet_mst",
+    "auto_patch_v2.geom.pad_evidence",
+    "auto_patch_v2.geom.parts",
+    "auto_patch_v2.geom.proportions",
+    "auto_patch_v2.geom.ramp_grade",
+    "auto_patch_v2.geom.ramp_profile",
+    "auto_patch_v2.geom.rotated_rect",
+    "auto_patch_v2.geom.triangulate",
+    "auto_patch_v2.geom.union_find",
+    "auto_patch_v2.geom.vector",
+    "auto_patch_v2.law",
+    "auto_patch_v2.law.airports_schema",
+    "auto_patch_v2.law.approach_corridor",
+    "auto_patch_v2.law.base_profile_schema",
+    "auto_patch_v2.law.basin_schema",
+    "auto_patch_v2.law.cockpit_schema",
+    "auto_patch_v2.law.cutout_schema",
+    "auto_patch_v2.law.design_schema",
+    "auto_patch_v2.law.eat_schema",
+    "auto_patch_v2.law.flat_site_schema",
+    "auto_patch_v2.law.inset_class",
+    "auto_patch_v2.law.model",
+    "auto_patch_v2.law.model_types",
+    "auto_patch_v2.law.rebake_schema",
+    "auto_patch_v2.law.reference_code",
+    "auto_patch_v2.law.role_cap_schema",
+    "auto_patch_v2.law.tables",
+    "auto_patch_v2.law.terrace_schema",
+    "auto_patch_v2.law.tunnel_object_schema",
+    "auto_patch_v2.law.units",
+    "auto_patch_v2.model.airport",
+    "auto_patch_v2.model.constraints",
+    "auto_patch_v2.model.end_area",
+    "auto_patch_v2.model.frame",
+    "auto_patch_v2.model.ground_fit",
+    "auto_patch_v2.model.hard_plane",
+    "auto_patch_v2.model.islands",
+    "auto_patch_v2.model.jetway",
+    "auto_patch_v2.model.map_memo",
+    "auto_patch_v2.model.pad_terrace",
+    "auto_patch_v2.model.placement",
+    "auto_patch_v2.model.planar",
+    "auto_patch_v2.model.platform",
+    "auto_patch_v2.model.pulse",
+    "auto_patch_v2.model.rebake",
+    "auto_patch_v2.model.structures",
+    "auto_patch_v2.model.threshold_datum",
+    "auto_patch_v2.pipeline.authored_seats",
+    "auto_patch_v2.pipeline.build",
+    "auto_patch_v2.pipeline.capture_state",
+    "auto_patch_v2.pipeline.late_stage",
+    "auto_patch_v2.pipeline.publication",
+    "auto_patch_v2.pipeline.ribbon_steps",
+    "auto_patch_v2.pipeline.runway_report",
+    "auto_patch_v2.pipeline.seam_report",
+    "auto_patch_v2.pipeline.shapes",
+    "auto_patch_v2.pipeline.stage_one_map",
+    "auto_patch_v2.pipeline.terrace_witness",
+    "auto_patch_v2.pipeline.xplat",
+    "auto_patch_v2.planar.apron_shelf",
+    "auto_patch_v2.planar.basin_geometry",
+    "auto_patch_v2.planar.basin_rim",
+    "auto_patch_v2.planar.basins",
+    "auto_patch_v2.planar.build",
+    "auto_patch_v2.planar.channel",
+    "auto_patch_v2.planar.channel_claims",
+    "auto_patch_v2.planar.channel_floor",
+    "auto_patch_v2.planar.channel_geometry",
+    "auto_patch_v2.planar.channel_witness",
+    "auto_patch_v2.planar.chords",
+    "auto_patch_v2.planar.cluster",
+    "auto_patch_v2.planar.covered_ground",
+    "auto_patch_v2.planar.door_ramps",
+    "auto_patch_v2.planar.edges",
+    "auto_patch_v2.planar.group",
+    "auto_patch_v2.planar.landing",
+    "auto_patch_v2.planar.landing_runout",
+    "auto_patch_v2.planar.object_corridor",
+    "auto_patch_v2.planar.overlay",
+    "auto_patch_v2.planar.pack_reads",
+    "auto_patch_v2.planar.pad_blocks",
+    "auto_patch_v2.planar.pad_cut",
+    "auto_patch_v2.planar.pad_sliver",
+    "auto_patch_v2.planar.pad_terrace",
+    "auto_patch_v2.planar.platform",
+    "auto_patch_v2.planar.ribbon_weld",
+    "auto_patch_v2.planar.ribbons",
+    "auto_patch_v2.planar.ridge_reach",
+    "auto_patch_v2.planar.shape_airside",
+    "auto_patch_v2.planar.shape_mouths",
+    "auto_patch_v2.planar.shape_parts",
+    "auto_patch_v2.planar.shapes",
+    "auto_patch_v2.planar.shore",
+    "auto_patch_v2.planar.strip_keepout",
+    "auto_patch_v2.planar.structure_approach",
+    "auto_patch_v2.planar.structure_deck",
+    "auto_patch_v2.planar.structure_geometry",
+    "auto_patch_v2.planar.structure_overlap",
+    "auto_patch_v2.planar.structure_pair",
+    "auto_patch_v2.planar.structure_road",
+    "auto_patch_v2.planar.structure_service",
+    "auto_patch_v2.planar.structure_stats",
+    "auto_patch_v2.planar.structure_underpass",
+    "auto_patch_v2.planar.structures",
+    "auto_patch_v2.planar.terrain_edge",
+    "auto_patch_v2.planar.unframed_ramp",
+    "auto_patch_v2.planar.wall_corridor_ramps",
+    "auto_patch_v2.planar.weld",
+    "auto_patch_v2.planar.zones",
+    "auto_patch_v2.solve",
+    "auto_patch_v2.solve.api",
+    "auto_patch_v2.solve.design",
+    "auto_patch_v2.solve.design_assemble",
+    "auto_patch_v2.solve.design_edge",
+    "auto_patch_v2.solve.design_ground",
+    "auto_patch_v2.solve.design_junction",
+    "auto_patch_v2.solve.design_qp",
+    "auto_patch_v2.solve.design_report",
+    "auto_patch_v2.solve.design_roles",
+    "auto_patch_v2.solve.design_stage",
+    "auto_patch_v2.solve.feasibility",
+    "auto_patch_v2.solve.flex",
+    "auto_patch_v2.solve.ground_band",
+    "auto_patch_v2.solve.linear",
+    "auto_patch_v2.solve.pin_yield",
+    "auto_patch_v2.solve.project",
+    "auto_patch_v2.solve.project_strip",
+    "auto_patch_v2.solve.rows",
+    "auto_patch_v2.solve.wall_cut",
+    "auto_patch_v2.verify",
+    "auto_patch_v2.verify.census",
+    "auto_patch_v2.verify.channel",
+    "auto_patch_v2.verify.chord_work",
+    "auto_patch_v2.verify.contiguity",
+    "auto_patch_v2.verify.cutback",
+    "auto_patch_v2.verify.eat",
+    "auto_patch_v2.verify.frame",
+    "auto_patch_v2.verify.frontage",
+    "auto_patch_v2.verify.jetway",
+    "auto_patch_v2.verify.keepout",
+    "auto_patch_v2.verify.no_step",
+    "auto_patch_v2.verify.pads",
+    "auto_patch_v2.verify.pins",
+    "auto_patch_v2.verify.roads",
+    "auto_patch_v2.verify.runway",
+    "auto_patch_v2.verify.runway_mean_slope",
+    "auto_patch_v2.verify.runway_witness",
+    "auto_patch_v2.verify.steps",
+    "auto_patch_v2.verify.strips",
+    "auto_patch_v2.verify.structures",
+    "auto_patch_v2.verify.transverse",
+    "auto_patch_v2.verify.within",
+    "elevation_access",
+    "elevation_access.base",
+    "elevation_access.base_fallback",
+    "elevation_access.base_seam",
+    "elevation_access.base_tiles",
+    "elevation_access.capabilities",
+    "elevation_access.definitions",
+    "elevation_access.discovery",
+    "elevation_access.downloads",
+    "elevation_access.failures",
+    "elevation_access.fetch_scratch",
+    "elevation_access.fetch_slots",
+    "elevation_access.gdal_support",
+    "elevation_access.las_tiles",
+    "elevation_access.registry",
+    "elevation_access.stac_assets",
+    "elevation_access.strategies",
+    "elevation_access.strategies.aoi_zip_download",
+    "elevation_access.strategies.arcgis_export_image",
+    "elevation_access.strategies.arcgis_feature_tiles",
+    "elevation_access.strategies.arcgis_lerc_tiles",
+    "elevation_access.strategies.authenticated_token_search",
+    "elevation_access.strategies.coordinate_named_url_list",
+    "elevation_access.strategies.coral_atlas_library",
+    "elevation_access.strategies.cwcb_lidar_api",
+    "elevation_access.strategies.degree_cog_base_tile",
+    "elevation_access.strategies.degree_named_cog",
+    "elevation_access.strategies.direct_cog",
+    "elevation_access.strategies.geojson_tile_index",
+    "elevation_access.strategies.hgt_archive_drop",
+    "elevation_access.strategies.las_tile_index",
+    "elevation_access.strategies.manual_download",
+    "elevation_access.strategies.os_grid_bucket",
+    "elevation_access.strategies.stac",
+    "elevation_access.strategies.static_stac",
+    "elevation_access.strategies.tile_grid_http",
+    "elevation_access.strategies.tnm_cog",
+    "elevation_access.strategies.usgs_seamless",
+    "elevation_access.strategies.viewfinder_zip",
+    "elevation_access.strategies.wcs",
+    "elevation_access.strategies.wcs_kvp",
+    "elevation_access.strategies.wfs_tile_index",
+    "elevation_access.strategies.xyz_archive_drop",
+    "elevation_access.strategies.xyz_text_tiles",
+    "elevation_access.vertical_units",
+    "elevation_access.warp",
+    "o4_engine.download_meter",
+    "o4_engine.task_meter",
+)
+
+CODE_MODULES: dict[str, tuple[str, ...]] = {
+    "vector": _TILE_CORE,
+    "mesh": _TILE_CORE,
+    "masks": _TILE_CORE,
+}

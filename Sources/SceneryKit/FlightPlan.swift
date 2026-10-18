@@ -112,7 +112,7 @@ public enum FlightPlanReader {
         return current
     }
 
-    private static func text(_ node: XMLElement?, _ name: String) -> String? {
+    private static func childText(_ node: XMLElement?, _ name: String) -> String? {
         child(node, [name])?.stringValue
     }
 
@@ -125,7 +125,7 @@ public enum FlightPlanReader {
                   let lat = number(pos.attribute(forName: "Lat")?.stringValue),
                   let lon = number(pos.attribute(forName: "Lon")?.stringValue),
                   plausible(lat, lon) else { continue }
-            let ident = [text(wp, "Ident"), text(wp, "Name")]
+            let ident = [childText(wp, "Ident"), childText(wp, "Name")]
                 .compactMap { $0 }.first { !$0.isEmpty } ?? ""
             waypoints.append(.init(ident: ident.trimmingCharacters(in: .whitespacesAndNewlines),
                                    lat: lat, lon: lon))
@@ -134,9 +134,9 @@ public enum FlightPlanReader {
     }
 
     private static func simBriefPoint(_ node: XMLElement?) -> FlightPlan.Waypoint? {
-        guard let node, let lat = number(text(node, "pos_lat")),
-              let lon = number(text(node, "pos_long")), plausible(lat, lon) else { return nil }
-        let ident = [text(node, "icao_code"), text(node, "ident")]
+        guard let node, let lat = number(childText(node, "pos_lat")),
+              let lon = number(childText(node, "pos_long")), plausible(lat, lon) else { return nil }
+        let ident = [childText(node, "icao_code"), childText(node, "ident")]
             .compactMap { $0 }.first { !$0.isEmpty } ?? ""
         return .init(ident: ident.trimmingCharacters(in: .whitespacesAndNewlines), lat: lat, lon: lon)
     }

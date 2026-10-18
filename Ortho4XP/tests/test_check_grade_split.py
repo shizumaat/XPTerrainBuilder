@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -53,12 +54,22 @@ def _synthetic_patch(dest: Path) -> Path:
     return osm
 
 
+#: A float in a row's repr, printed at 6 decimals before hashing: the libm
+#: of each OS differs in the last digits (Windows CI moved one
+#: ``runway_end_skirt`` row by an ulp), and a pure move changes no digit.
+_FLOAT = re.compile(r"-?\d+\.\d+(?:e[-+]?\d+)?")
+
+
+def _canonical(row) -> str:
+    return _FLOAT.sub(lambda m: f"{float(m.group()):.6f}", repr(row))
+
+
 def family_rows_digest(osm: Path) -> dict:
     """Per family: the row count and the sha256 of the rows' reprs."""
     family_out: dict = {}
     cg.run_checks_law_true(osm, family_out=family_out)
     return {key: [len(rows), hashlib.sha256(
-        "\n".join(repr(r) for r in rows).encode("utf-8")).hexdigest()]
+        "\n".join(_canonical(r) for r in rows).encode("utf-8")).hexdigest()]
         for key, rows in family_out.items()}
 
 

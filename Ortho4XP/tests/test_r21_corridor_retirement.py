@@ -36,7 +36,6 @@ import O4_Cfg_Vars as CV  # noqa: E402
 import O4_Config_Utils as CFG  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Settings_Model as SM  # noqa: E402
-from auto_patch import flat_site as FS  # noqa: E402
 from auto_patch import flat_site_mode as FSM  # noqa: E402
 
 KEY = "flat_site_declared_corridors"
@@ -51,9 +50,9 @@ class TestTheKeyIsGone:
         assert KEY not in CV.list_cfg_vars
 
     def test_the_parser_and_its_delivery_are_gone(self):
-        for name in ("declared_flat_corridors", "corridors_for_tile",
-                     "corridor_bounds_tile_degrees"):
-            assert not hasattr(FS, name), name
+        # v1 ``auto_patch/flat_site.py`` (the parser's home) is deleted
+        # (issue #932); the delivery stays gone from the mode
+        assert not (SRC / "auto_patch" / "flat_site.py").exists()
         assert not hasattr(FSM, "_declared_corridor_boxes")
 
     def test_a_substitution_carries_no_corridor_field(self):

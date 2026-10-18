@@ -1238,7 +1238,7 @@ def ground_truth(rel, corpus):
 #: The mutation twin's default sample: a real module with a SMALL full
 #: direct-importer sweep, so one audit costs seconds instead of the whole
 #: suite.  Override with --mutation-sample.
-MUTATION_SAMPLE = SRC_PREFIX + "auto_patch/flat_site.py"
+MUTATION_SAMPLE = SRC_PREFIX + "auto_patch/flat_site_mode.py"
 
 
 def cmd_audit(idx, mutations=0, mutation_sample=None, ceiling=CHEAP_CEILING):

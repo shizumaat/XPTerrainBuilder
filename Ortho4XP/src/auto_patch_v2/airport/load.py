@@ -41,7 +41,7 @@ from . import riders as _riders
 _log = logging.getLogger(__name__)
 
 __all__ = ["Inputs", "LoadReport", "load", "load_with_report", "join_cifp",
-           "normalise_surface"]
+           "normalise_surface", "read_apt"]
 
 #: OSM tags that make a closed way a building footprint (v1
 #: ``_extract_osm_terminals`` / ``_is_building_evidence_tags``).
@@ -228,39 +228,14 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep = LoadReport()
 
     # ── apt.dat ────────────────────────────────────────────────────
-    if inputs.apt_dat_path:
-        sel = _pack.PackSelection(
-            os.path.basename(os.path.dirname(os.path.dirname(inputs.apt_dat_path)))
-            or "fixture", os.path.dirname(os.path.dirname(inputs.apt_dat_path)),
-            inputs.apt_dat_path, False)
-    else:
-        sel = _pack.select_pack(inputs.xplane_root, icao, law)
-        if sel is None:
-            raise FileNotFoundError(f"{icao}: no apt.dat under {inputs.xplane_root}")
-    block = _apt.read_airport_block(sel.apt_dat_path, icao)
-    if not block:
-        raise ValueError(f"{icao}: not in {sel.apt_dat_path}")
-    apt = _apt.parse_airport_block(block)
+    sel, block, apt, bres, frame = read_apt(icao, inputs.xplane_root, law,
+                                            inputs.apt_dat_path)
     rep.apt_dat_path, rep.pack_name = sel.apt_dat_path, sel.name
     rep.helipads = tuple(h.name for h in apt.helipads)
-
-    # THE FRAME IS THE CUSTOM BLOCK'S — taken BEFORE the borrow composes,
-    # because §44 (2) is explicit that borrowing pavement does not move
-    # the airport's reference point.
-    lat0, lon0 = apt.reference_point()
-    # ── §44 (3) THE PAVEMENT BORROW, composed HERE and nowhere else ────
-    # (owner RULINGS 2026-09-15f; decided in ``pack.select_pack``).  The
-    # Global Airports block's row-110 polygons are APPENDED to the pack's
-    # own and its row-130 boundary taken only when the pack authored
-    # none; everything else below reads the composed block exactly as it
-    # reads an authored one.
-    bres = _borrow.compose(sel.borrow, icao, apt)
-    apt = bres.airport
     n_own_pav = bres.custom_pavements
     rep.pavement_source = bres.record(sel.name)
     rep.pavement_borrow_line = bres.line(icao)
-    frame = Frame(icao, (lat0, lon0), identity_dp(law),
-                  input_quantum_m=_entry_quantum(law))
+    lat0, lon0 = frame.origin
     to_xy = _vector_to_xy(frame)
     tile = (int(math.floor(lat0)), int(math.floor(lon0)))
 
@@ -688,6 +663,44 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
+
+def read_apt(icao: str, xplane_root: str, law: Law,
+             apt_dat_path: str | None = None
+             ) -> tuple[_t.Any, list[str], _t.Any, _t.Any, Frame]:
+    """``(pack selection, the airport's apt.dat block, composed apt.dat
+    airport, borrow result, frame)``
+    — THE apt.dat read and THE airport frame, one site for the build's
+    load and DEM prep's flat-site decision (issue #932), so the two read
+    one pack and speak one frame.  ``apt_dat_path`` overrides pack
+    discovery (fixtures)."""
+    if apt_dat_path:
+        sel = _pack.PackSelection(
+            os.path.basename(os.path.dirname(os.path.dirname(apt_dat_path)))
+            or "fixture", os.path.dirname(os.path.dirname(apt_dat_path)),
+            apt_dat_path, False)
+    else:
+        sel = _pack.select_pack(xplane_root, icao, law)
+        if sel is None:
+            raise FileNotFoundError(f"{icao}: no apt.dat under {xplane_root}")
+    block = _apt.read_airport_block(sel.apt_dat_path, icao)
+    if not block:
+        raise ValueError(f"{icao}: not in {sel.apt_dat_path}")
+    apt = _apt.parse_airport_block(block)
+    # THE FRAME IS THE CUSTOM BLOCK'S — taken BEFORE the borrow composes,
+    # because §44 (2) is explicit that borrowing pavement does not move
+    # the airport's reference point.
+    lat0, lon0 = apt.reference_point()
+    # ── §44 (3) THE PAVEMENT BORROW, composed HERE and nowhere else ────
+    # (owner RULINGS 2026-09-15f; decided in ``pack.select_pack``).  The
+    # Global Airports block's row-110 polygons are APPENDED to the pack's
+    # own and its row-130 boundary taken only when the pack authored
+    # none; everything else reads the composed block exactly as it reads
+    # an authored one.
+    bres = _borrow.compose(sel.borrow, icao, apt)
+    frame = Frame(icao, (lat0, lon0), identity_dp(law),
+                  input_quantum_m=_entry_quantum(law))
+    return sel, block, bres.airport, bres, frame
 
 
 def join_cifp(icao: str, runways: _t.Sequence[_t.Any],

@@ -9,7 +9,7 @@ engine** (RULINGS 2026-09-13au): it builds the planar map, generates the law
 constraints from TOML tables, solves the airport's design surface in one staged solve
 and emits the patch. Do not look here for surface construction, the solve or the law.
 
-What is here is 29 modules, declared one by one in `tests/test_v1_retired.py` (`KEEP`).
+What is here is 28 modules, declared one by one in `tests/test_v1_retired.py` (`KEEP`).
 That twin asserts three things: the production import closure reaches nothing under
 `auto_patch/` outside `KEEP`; the modules on disk ARE `KEEP`, exactly; and no production
 module names an `auto_patch` module outside `KEEP` as a string (the `__import__` blind
@@ -31,7 +31,7 @@ block of `STATUS.md` (~90k tokens of append-only history; never load it whole).
   identify the run — a new `O4_` variable is classified there, #607).
 - **Readers.** `apt_dat_reader.py`, `dsf_reader.py`, `agp_reader.py`,
   `obj8_reader.py`, `osm_aeroway.py`.
-- **Flat-site detector.** `flat_site.py` (the detector), `flat_site_mode.py` (production
+- **Flat-site DEM prep.** `flat_site_mode.py` (asks the v2 detector `auto_patch_v2/airport/flat_site_prep.py`, issue #932; production
   DEM prep's caller).
 - **Object stage (post-mesh).** `object_stage.py` (`rebake_after_mesh`, the v2
   placement writes, the pack journal; the mesh step's half of the old `engine_v2`), `post_mesh.py`, `object_rebake.py`, `object_anchor.py`,

@@ -29,11 +29,12 @@ what the detector measured (v1's audit).  The datum's SOURCE is
 ``[datum] source`` (``cifp`` | ``pack_seats``) or the declaration's
 (``metres`` = the number is the datum).
 
-The DEM read is the production frame — the same composed raster the core
-mesh drapes, which at a flat site ALREADY carries the core's plateau
-(``dem_production.py``); the core's own ``synthetic_flat_site`` verdict is
-read back through the sampler and COMPARED (``signals["core"]``), a
-disagreement LOGGED, never reconciled (spec §3.3).  The margin ring
+ONE DECISION (issue #932, owner option B; spec §6): DEM prep runs this
+detector on the raw raster (``airport/flat_site_prep.py``) and the build
+READS that record (``airport/flat_site_read.py``) — it measures here only
+when DEM prep decided nothing.  The detector takes any ``site`` carrying
+``icao``, ``runways``, ``pavements``, ``boundaries`` and ``dem`` (the
+build's :class:`Airport`, or DEM prep's lighter inputs).  The margin ring
 (``pavement ∪ boundary ⊕ margin_m`` minus the core) is measured as report
 context with NO gate power (v3 amendment (a)); the dilated extent is the
 :class:`FlatVerdict.region` the preference rows cover.
@@ -56,7 +57,7 @@ from ..law.tables import (FLAT_CLASS_COARSE, FLAT_CLASS_LIDAR, flat_declared,
                           flat_relief_floor_m, flat_site, flat_source_class)
 from ..model.airport import Airport, FlatVerdict
 
-__all__ = ["VERDICTS", "detect", "log_line", "notes", "record",
+__all__ = ["VERDICTS", "detect", "log_line", "record", "from_record",
            "region_polygon", "dem_relief", "seat_consensus"]
 
 #: The five verdicts (v1 ``VERDICT_*``).
@@ -382,14 +383,6 @@ def detect(airport: Airport, law: Law, *, objects: _t.Iterable = (),
     else:
         z0 = z0_cifp
     verdict = FLAT_DECLARED if decl is not None else auto
-    # the core's own verdict on the composed raster (spec §3.3)
-    core_rec = None
-    fn = getattr(airport.dem, "core_flat_site", None)
-    if callable(fn):
-        try:
-            core_rec = fn()
-        except Exception:                   # pragma: no cover
-            core_rec = None
     # THE DATUM REGION NEVER COVERS WATER (owner RULINGS 2026-09-09m (3)).
     # Cut at the region's SINGLE derivation site, so every consumer of
     # ``FlatVerdict.region`` — the datum preference rows
@@ -401,8 +394,6 @@ def detect(airport: Airport, law: Law, *, objects: _t.Iterable = (),
     water_cut_m2 = None
     if full is not None:
         full, water_cut_m2 = _cut_water(airport.dem, full, land)
-    core_sig = None if core_rec is None else {
-        "verdict": core_rec.get("verdict"), "z0_m": core_rec.get("z0_m")}
     signals = {
         "icao": icao, "declared": decl is not None,
         "declared_source": None if decl is None else decl.source,
@@ -413,7 +404,6 @@ def detect(airport: Airport, law: Law, *, objects: _t.Iterable = (),
         "s2_source_whence": whence, "s2_relief_floor_m": floor_m,
         "s2": relief, "s2_ring": ring_rel, "s2_pass": s2_pass,
         "s3_offset_m": offset, "s4": s4,
-        "core": core_sig,
         "region_area_m2": None if full is None else round(float(full.area), 1),
         "region_water_cut_m2": water_cut_m2,
     }
@@ -430,6 +420,20 @@ def record(v: FlatVerdict) -> dict:
     return {"verdict": v.verdict, "auto_verdict": v.auto_verdict,
             "z0_m": v.z0_m, "source": v.source, "substitutes": v.substitutes,
             "signals": dict(v.signals)}
+
+
+def from_record(rec: _t.Mapping[str, _t.Any]) -> FlatVerdict:
+    """The :class:`FlatVerdict` a DEM-prep record carries (issue #932):
+    :func:`record` plus ``region`` (the rings, in the frame the record
+    names) — the inverse the build reads instead of measuring."""
+    region = tuple(
+        (tuple((float(x), float(y)) for x, y in outer),
+         tuple(tuple((float(x), float(y)) for x, y in h) for h in holes))
+        for outer, holes in (rec.get("region") or ()))
+    z0 = rec.get("z0_m")
+    return FlatVerdict(str(rec["verdict"]), str(rec.get("auto_verdict") or rec["verdict"]),
+                       None if z0 is None else float(z0), str(rec.get("source") or ""),
+                       region, dict(rec.get("signals") or {}))
 
 
 def _num(value, digits: int = 2, unit: str = "") -> str:
@@ -466,21 +470,3 @@ def log_line(icao: str, v: FlatVerdict) -> str:
             f"{_num(s.get('s2_relief_floor_m'), 1)} m, slope "
             f"{'?' if slope is None else f'{100.0 * slope:.3f}'} %{extra} | "
             f"DEM−Z0 {_num(s.get('s3_offset_m'))} m | seats {seats}" + declared)
-
-
-def notes(icao: str, v: FlatVerdict) -> list[str]:
-    """Follow-up lines: the core-vs-v2 comparison when the two verdicts
-    or datums differ (LOGGED, never reconciled — spec §3.3)."""
-    core = v.signals.get("core")
-    out: list[str] = []
-    if core is None:
-        if v.substitutes:
-            out.append(f"[flat-site] {icao}: v2 {v.verdict} vs core NONE — the composed "
-                       f"raster carries no synthetic_flat_site record for this airport")
-        return out
-    cz = core.get("z0_m")
-    same_z = v.z0_m is not None and cz is not None and abs(float(cz) - v.z0_m) < 1e-3
-    if core.get("verdict") != v.auto_verdict or (v.substitutes and not same_z):
-        out.append(f"[flat-site] {icao}: v2 {v.auto_verdict} (Z0 {_num(v.z0_m)}) vs core "
-                   f"{core.get('verdict')} (Z0 {_num(cz)}) — DISAGREEMENT, logged, not reconciled")
-    return out

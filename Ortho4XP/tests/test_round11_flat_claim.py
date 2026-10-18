@@ -332,7 +332,7 @@ def _overlay_one_cluster(monkeypatch, z0_m, fallback_placements=0):
     }
     monkeypatch.setattr(
         flat_site_mode, "flat_site_substitutions",
-        lambda tile_, dico_airports=None, xplane_root=None: [substitution])
+        lambda tile_, dico_airports=None, xplane_root=None, decisions_out=None: [substitution])
 
     INSETS.overlay_flat_site_insets(tile)
     return dem, substitution

@@ -38,7 +38,15 @@ for _path in (os.path.join(_ROOT, "src"), _ROOT):
         sys.path.insert(0, _path)
 
 import O4_Airport_Elevation_Insets as INSETS  # noqa: E402
-from auto_patch import config, flat_site, flat_site_mode, provenance  # noqa: E402
+from auto_patch import config, flat_site_mode, provenance  # noqa: E402
+from auto_patch_v2.airport import flat_site as V2FLAT  # noqa: E402
+from auto_patch_v2.airport import flat_site_prep as PREP  # noqa: E402
+from auto_patch_v2.law import Law as _Law  # noqa: E402
+from auto_patch_v2.law.tables import flat_site as _law_flat_site  # noqa: E402
+from auto_patch_v2.model.frame import Frame  # noqa: E402
+
+#: The v2 law's flat margin (issue #932: the decision is v2's).
+MARGIN_M = _law_flat_site(_Law.for_airport("TEST")).detector.margin_m
 
 R_EARTH = 6378137.0
 TILE_LAT, TILE_LON = 0, 0
@@ -134,44 +142,49 @@ def sloped_dem(slope_pct=2.0, n=GRID_N):
     return FakeDEM(lambda x, y: x * (slope_pct / 100.0), n=n)
 
 
-def fake_apt(boundary=BOUNDARY):
-    return types.SimpleNamespace(runways=[], pavements=[], boundary=boundary)
-
-
 def sha(array):
     return hashlib.sha256(np.ascontiguousarray(array).tobytes()).hexdigest()
 
 
-def wire_airport(monkeypatch, thresholds=FLAT_THRESHOLDS, apt=None,
-                 icaos=("TEST",)):
-    """Point the decision function's three lookups at synthetic inputs.
+def site_for(icao, thresholds, boundary=BOUNDARY):
+    """The detector's inputs for a synthetic airport (``flat_site_prep.
+    FlatSiteInputs``): the boundary, and each threshold as a zero-length
+    runway end at the anchor (S1 reads it; the extent does not)."""
+    frame = Frame(icao, ANCHOR, 6)
+    to_xy, _to_ll = frame.transformers()
+    outer = tuple(to_xy(lo, la) for lo, la in boundary.exterior.coords[:-1])
+    centre = to_xy(ANCHOR[1], ANCHOR[0])
+    ends = [PREP._End(centre, float(t)) for t in thresholds]
+    if len(ends) % 2:
+        ends.append(PREP._End(centre, None))
+    runways = tuple(PREP._Runway((ends[i], ends[i + 1]), 45.0)
+                    for i in range(0, len(ends), 2))
+    return PREP.FlatSiteInputs(icao, frame, runways, (),
+                               (PREP._Poly(outer, ()),))
 
-    ``flat_site_substitutions`` resolves them at call time from their own
-    modules, so patching the modules is enough — nothing here replaces a
-    detector function, so every verdict below is the real detector's.
-    """
-    from auto_patch import apt_dat_reader, build_support
+
+def wire_airport(monkeypatch, thresholds=FLAT_THRESHOLDS, boundary=BOUNDARY,
+                 icaos=("TEST",)):
+    """Point DEM prep's lookups at synthetic inputs: the X-Plane root, the
+    CIFP path, the airport (``flat_site_prep.site_inputs``) and the tile's
+    water.  Nothing replaces the detector: every verdict below is the v2
+    detector's, decided on the raster as DEM prep holds it (issue #932)."""
+    from auto_patch import build_support
 
     per_icao = (thresholds if isinstance(thresholds, dict)
                 else {icao: thresholds for icao in icaos})
-    # The install the DEM-prep call site resolves from the engine config;
-    # there is none in a headless twin.
     monkeypatch.setattr(flat_site_mode, "_resolve_xplane_root",
                         lambda: "/synthetic/X-Plane")
     monkeypatch.setattr(
-        flat_site, "cifp_threshold_elevations",
-        lambda root, icao: list(per_icao.get(icao.upper(), [])))
-    # The apt.dat selector is bound from ``build_support`` (v1retire r1,
-    # fbf79c53 moved the import off ``osm_load``); patching the
-    # ``osm_load`` re-export left the real selector running against
-    # "/synthetic/X-Plane", which found nothing, so every substitution
-    # twin saw ``[]`` (#35).
+        build_support, "_find_cifp_path",
+        lambda root, icao: ("/synthetic/%s.dat" % icao
+                            if per_icao.get(icao.upper()) else None))
     monkeypatch.setattr(
-        build_support, "_pick_best_apt_dat_against_osm",
-        lambda root, icao: "/synthetic/apt.dat")
-    monkeypatch.setattr(
-        apt_dat_reader, "load_airport",
-        lambda path, icao, **kwargs: (apt if apt is not None else fake_apt()))
+        PREP, "site_inputs",
+        lambda icao, root, cifp, law, apt_dat_path=None: site_for(
+            icao.upper(), per_icao.get(icao.upper(), []), boundary))
+    monkeypatch.setattr(flat_site_mode, "_tile_water",
+                        lambda tile: (None, None))
 
 
 def substitutions(tile, icaos=("TEST",)):
@@ -278,11 +291,11 @@ def test_flat_candidate_yields_one_substitution_at_z0(monkeypatch):
     assert len(got) == 1
     assert got[0]["icao"] == "TEST"
     assert got[0]["z0_m"] == pytest.approx(3.96)
-    assert got[0]["record"]["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+    assert got[0]["record"]["verdict"] == V2FLAT.FLAT_CANDIDATE
     x0, y0, x1, y1 = got[0]["extent_deg"]
-    # The extent is the boundary bbox grown by FLAT_SITE_MARGIN_M, in
+    # The extent is the boundary bbox grown by the law's margin, in
     # TILE-RELATIVE degrees (tile origin 0/0 here, so degrees outright).
-    margin_deg = config.FLAT_SITE_MARGIN_M / 111319.49
+    margin_deg = MARGIN_M / 111319.49
     assert x0 == pytest.approx(ANCHOR[1] - _HALF_LON - margin_deg, abs=2e-4)
     assert x1 == pytest.approx(ANCHOR[1] + _HALF_LON + margin_deg, abs=2e-4)
     assert y0 == pytest.approx(ANCHOR[0] - _HALF_LAT - margin_deg, abs=2e-4)
@@ -347,29 +360,29 @@ def test_no_cifp_is_no_data_and_substitutes_nothing(monkeypatch):
 
 
 def test_threshold_spread_beyond_the_cap_substitutes_nothing(monkeypatch):
-    wire_airport(monkeypatch,
-                 thresholds=[0.0, config.FLAT_SITE_THRESHOLD_SPREAD_M + 1.0])
+    spread_max = _law_flat_site(_Law.for_airport("TEST")).detector.threshold_spread_max_m
+    wire_airport(monkeypatch, thresholds=[2.0, 2.0 + spread_max + 1.0])
     tile = make_tile(flat_dem())
 
     assert substitutions(tile) == []
 
 
 def test_flat_declared_substitutes_exactly_like_flat_candidate(monkeypatch):
-    """The owner-declaration verdict is EQUIVALENT to the measured one.
+    """The owner-declaration verdict is EQUIVALENT to the measured one, and
+    DEM prep now HONOURS ``law/flat_site.toml [declared]`` (issue #932:
+    the decision is the v2 detector's, which reads the table; v1's DEM
+    prep never did).  Z0 is the declaration's (``source = "metres"``)."""
+    import types as _types
 
-    Detector spec v3 adds ``flat_declared``; spec §1 makes the two the
-    same event for this mode — same substitution, same Z0, and Z0 read
-    from the record rather than recomputed, because a declaration may
-    carry its own elevation there.
-    """
+    from auto_patch_v2.law import tables as _tables
+
     wire_airport(monkeypatch)
     dem = sloped_dem(2.0)                  # S2 would REFUSE this surface
     tile = make_tile(dem)
-    real_classify = flat_site.classify_site
-    declared = dict(z0_m=7.25, verdict=flat_site_mode.VERDICT_FLAT_DECLARED)
-    monkeypatch.setattr(
-        flat_site, "classify_site",
-        lambda **kwargs: dict(real_classify(**kwargs), **declared))
+    decl = _types.SimpleNamespace(z0=7.25, source="metres")
+    for mod in (V2FLAT, _tables):
+        monkeypatch.setattr(mod, "flat_declared",
+                            lambda law, icao: decl if icao == "TEST" else None)
 
     got = substitutions(tile)
 
@@ -389,11 +402,13 @@ def test_an_unknown_future_verdict_takes_the_normal_path(monkeypatch):
     dem = flat_dem()
     tile = make_tile(dem)
     before = sha(dem.alt_dem)
-    real_classify = flat_site.classify_site
-    monkeypatch.setattr(
-        flat_site, "classify_site",
-        lambda **kwargs: dict(real_classify(**kwargs),
-                              verdict="flat_by_some_future_signal"))
+    real = flat_site_mode._decide_airport
+
+    def _future(*args):
+        rec, site = real(*args)
+        return dict(rec, verdict="flat_by_some_future_signal"), site
+
+    monkeypatch.setattr(flat_site_mode, "_decide_airport", _future)
 
     assert substitutions(tile) == []
     INSETS.overlay_flat_site_insets(tile, {"TEST": {"key_type": "icao"}})
@@ -405,7 +420,7 @@ def test_multi_airport_tile_substitutes_only_its_flat_candidates(monkeypatch):
     """Per airport (spec §2.1): one flat, one whose thresholds disagree."""
     wire_airport(monkeypatch, thresholds={
         "AAAA": FLAT_THRESHOLDS,
-        "BBBB": [0.0, config.FLAT_SITE_THRESHOLD_SPREAD_M + 10.0],
+        "BBBB": [2.0, 20.0],
     })
     tile = make_tile(flat_dem())
 
@@ -434,7 +449,7 @@ def test_spread_within_the_cap_places_z0_at_the_cifp_mean(monkeypatch):
 
     assert len(got) == 1
     assert got[0]["z0_m"] == pytest.approx(13.0)         # the MEAN, not an end
-    assert got[0]["record"]["s1_spread_m"] == pytest.approx(2.0)
+    assert got[0]["record"]["signals"]["s1_spread_m"] == pytest.approx(2.0)
     assert thresholds == original                        # CIFP values untouched
 
     INSETS.overlay_flat_site_insets(tile, {"TEST": {"key_type": "icao"}})
@@ -554,7 +569,10 @@ def test_overlay_stamps_synthetic_flat_site_provenance(monkeypatch):
     assert entry["z0_m"] == pytest.approx(3.96)
     assert entry["feather_m"] == FEATHER_M
     assert len(entry["extent_wgs84"]) == 4
-    assert entry["record"]["verdict"] == flat_site.VERDICT_FLAT_CANDIDATE
+    assert entry["record"]["verdict"] == V2FLAT.FLAT_CANDIDATE
+    # THE ONE DECISION rides on the DEM for the build (issue #932)
+    assert dem.flat_site_decisions["TEST"] is entry["record"]
+    assert entry["record"]["plateau"] is True
 
     meta = provenance.dem_provenance_from_dem(dem, icao="TEST")
     assert meta["synthetic_flat_site"]["z0_m"] == pytest.approx(3.96)

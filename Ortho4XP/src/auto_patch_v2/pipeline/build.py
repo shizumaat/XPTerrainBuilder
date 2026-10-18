@@ -15,6 +15,7 @@ import typing as _t
 from pathlib import Path
 
 from ..airport import flat_site as _flat
+from ..airport.flat_site_read import verdict_for_build as _flat_verdict
 from ..airport.load import Inputs, load_with_report
 from ..airport.road_profile import preferred_road_z
 from ..airport.road_descent import descent_line
@@ -964,10 +965,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                  f"{'inside' if b.anchor_inside_floor else 'outside'} the floor, plate y "
                  f"{b.plate_y_m:+.2f})  at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  "
                  f"{'; '.join(b.notes)}", out)
-    # THE FLAT-SITE VERDICT (RULINGS 2026-09-05k-2; ``airport/flat_site.py``):
-    # measured here, after the planar stage read the pack's objects (S4),
-    # on the production raster already in memory; the datum is a
-    # preference the generator below prices, the runway keeps its pins
+    # THE FLAT-SITE VERDICT (RULINGS 2026-09-05k-2; issue #932): DEM prep
+    # DECIDED it once on the raw raster and the record rides on the DEM
+    # (``airport/flat_site_read.py``) — read here, never re-measured; S4
+    # (the pack's seats the planar stage read) is a report; a plateau the
+    # record requires and the composed DEM lacks is an error.  The datum is
+    # a preference the generator below prices, the runway keeps its pins
     t = time.perf_counter()
     _pulse.tick("flat site")
     # §37 (11) (4) (owner RULINGS 2026-09-15f item 2): the airport's OWN
@@ -977,15 +980,14 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     fv = fc.run("flat_site", {**_fc_in, "airport": fc.airport_digest(airport),
                               "planar": fc.output_digest("planar"),
                               "classification": _cl_digest},
-                lambda lw: _flat.detect(airport, lw,
-                                        objects=objects_out[0] if objects_out else (),
-                                        land=_classified_land(cl)))
+                lambda lw: _flat_verdict(airport, lw,
+                                         objects=objects_out[0] if objects_out else (),
+                                         land=_classified_land(cl)))
+    fv, _flat_how = fv
     airport = _dc.replace(airport, flat_site=fv)
     wall["flat_site"] = time.perf_counter() - t
     lrep.flat_site = _flat.record(fv)
-    _say(_flat.log_line(icao, fv) + f"  ({wall['flat_site']:.2f} s)", out)
-    for ln in _flat.notes(icao, fv):
-        _say(ln, out)
+    _say(_flat.log_line(icao, fv) + f" [{_flat_how}]  ({wall['flat_site']:.2f} s)", out)
     # THE CORE SMOOTHS FIRST (RULINGS 2026-09-04t-4): every road-family
     # vertex's fit target is the core's clamped, laterally-levelled road
     # profile on this DEM (``airport/road_profile.py``); the cap rows
@@ -1206,8 +1208,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                  objects=pack_objects, object_report=pack_report)
         # the heartbeat names THIS work, not the inner planar build's last step
         _pulse.tick("stage 1 on the ribbon-free map: shapes and constraints")
-        ap0 = _dc.replace(airport, flat_site=_flat.detect(
-            airport, law, objects=objs0[0] if objs0 else (), land=_classified_land(cl0)))
+        ap0 = _dc.replace(airport, flat_site=_flat_verdict(
+            airport, law, objects=objs0[0] if objs0 else (), land=_classified_land(cl0))[0])
         pref0, _r0, prof0 = preferred_road_z(ap0, pm0, law, inputs.road_grade_limit,
                                              inputs.lane_width_m)
         pm0 = with_runway_chord(_dc.replace(pm0, preferred_z=pref0), law, ap0, {})

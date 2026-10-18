@@ -85,6 +85,7 @@ def test_default_run_exits_zero_on_size_and_one_on_duplicates(
         grown if roots is None else {}))
     monkeypatch.setattr(ratchets, "long_functions", lambda: [])
     monkeypatch.setattr(ratchets, "duplicate_groups", lambda: g2)
+    monkeypatch.setattr(ratchets, "lint_counts", lambda: ({}, None))
     assert ratchets.main(["--baseline", path]) == 0
     out = capsys.readouterr().out
     assert "WARN tools/big.py: 1500 -> 1600 (+100)" in out
@@ -303,3 +304,96 @@ def test_ratchets_is_indexed():
     index = open(os.path.join(TOOLS, "INDEX.md"), encoding="utf-8").read()
     assert "| `tools/ratchets.py` |" in index
     assert "| `tools/ratchet_baseline.json` |" in index
+
+
+# ------------------------------------------------- lint (RULINGS 10-17a Q8)
+def test_lint_ratchet_holds_on_this_tree():
+    """ruff counts per rule may fall, never rise.  CI installs the pin;
+    a local checkout without it skips (the gate itself says so)."""
+    counts, why = ratchets.lint_counts()
+    if counts is None:
+        if os.environ.get("CI"):
+            pytest.fail("CI must run the lint gate: " + why)
+        pytest.skip(why)
+    bad = ratchets.check_lint(counts, ratchets.load_baseline()["lint"])
+    assert not bad, bad[0]
+
+
+def test_lint_rise_fails_and_fall_passes_and_reports():
+    rec = {"E501": 3, "F401": 2}
+    assert ratchets.check_lint({"E501": 3, "F401": 2}, rec) == []
+    assert ratchets.check_lint({"E501": 4, "F401": 1}, rec)       # one rise
+    assert ratchets.check_lint({"E501": 3, "B006": 1}, rec)       # new rule
+    assert ratchets.check_lint({"E501": 9}, None) == []           # no record
+    out = io.StringIO()
+    assert ratchets.print_lint({"E501": 2}, rec, out=out) == []
+    text = out.getvalue()
+    assert "fell" in text and "total 2, baseline 5" in text
+
+
+def test_missing_ruff_skips_locally_and_fails_under_ci(monkeypatch):
+    monkeypatch.setattr(ratchets, "_ruff_command", lambda: None)
+    counts, why = ratchets.lint_counts()
+    assert counts is None and "ruff==%s" % ratchets.RUFF_VERSION in why
+    monkeypatch.delenv("CI", raising=False)
+    out = io.StringIO()
+    assert ratchets.print_lint(None, {"E501": 1}, why, out=out) == []
+    assert "SKIPPED" in out.getvalue()
+    monkeypatch.setenv("CI", "true")
+    assert ratchets.print_lint(None, {"E501": 1}, why, out=io.StringIO())
+
+
+def test_default_run_gates_lint(tmp_path, monkeypatch, capsys):
+    path = str(tmp_path / "baseline.json")
+    assert ratchets.regenerate(path, init=True, groups=[], current={},
+                               layers=[], lint={"E501": 2}) == []
+    monkeypatch.setattr(ratchets, "sizes", lambda roots=None: {})
+    monkeypatch.setattr(ratchets, "long_functions", lambda: [])
+    monkeypatch.setattr(ratchets, "duplicate_groups", lambda: [])
+    monkeypatch.setattr(ratchets, "layer_edges", lambda: [])
+    monkeypatch.setattr(ratchets, "lint_counts", lambda: ({"E501": 1}, None))
+    assert ratchets.main(["--baseline", path]) == 0
+    assert "LINT RATCHET PASS" in capsys.readouterr().out
+    monkeypatch.setattr(ratchets, "lint_counts", lambda: ({"E501": 3}, None))
+    assert ratchets.main(["--baseline", path, "lint"]) == 1
+    assert "LINT RATCHET FAIL" in capsys.readouterr().out
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(ratchets, "lint_counts", lambda: (None, "no ruff"))
+    assert ratchets.main(["--baseline", path, "lint"]) == 0
+    assert "LINT RATCHET SKIPPED" in capsys.readouterr().out
+
+
+def test_regenerate_refuses_a_risen_lint_count_and_keeps_unmeasured(tmp_path):
+    path = str(tmp_path / "baseline.json")
+    assert ratchets.regenerate(path, init=True, groups=[], current={},
+                               layers=[], lint={"E501": 2}) == []
+    with open(path, encoding="utf-8") as fh:
+        before = fh.read()
+    assert ratchets.regenerate(path, groups=[], current={}, layers=[],
+                               lint={"E501": 3})
+    with open(path, encoding="utf-8") as fh:
+        assert fh.read() == before
+    assert ratchets.regenerate(path, groups=[], current={}, layers=[]) == []
+    with open(path, encoding="utf-8") as fh:
+        assert json.load(fh)["lint"] == {"E501": 2}      # ruff absent: kept
+    assert ratchets.regenerate(path, groups=[], current={}, layers=[],
+                               lint={"E501": 1}) == []
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    assert doc["lint"] == {"E501": 1}
+    assert doc["lint_ruff"] == ratchets.RUFF_VERSION
+
+
+def test_ruff_pin_config_and_ci_step_agree():
+    """One pin: ci.yml installs RUFF_VERSION, the baseline was measured
+    with it, and the root pyproject carries the ruled rule set."""
+    with open(os.path.join(REPO, ".github", "workflows", "ci.yml"),
+              encoding="utf-8") as fh:
+        ci = fh.read()
+    assert "ruff==%s" % ratchets.RUFF_VERSION in ci
+    assert "ratchets.py lint" in ci
+    assert ratchets.load_baseline()["lint_ruff"] == ratchets.RUFF_VERSION
+    with open(os.path.join(REPO, "pyproject.toml"), encoding="utf-8") as fh:
+        cfg = fh.read()
+    assert 'select = ["E", "F", "W", "I", "B"]' in cfg
+    assert "line-length = 100" in cfg and "[tool.ruff.format]" not in cfg

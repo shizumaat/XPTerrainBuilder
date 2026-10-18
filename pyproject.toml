@@ -1,0 +1,11 @@
+# ruff check only (owner RULINGS 2026-10-17a Q8, #855; spec
+# Ortho4XP/docs/specs/code-quality-beta3-spec.md §5).  A RATCHET, not a
+# reformat: `tools/ratchets.py lint` records the count per rule in
+# tools/ratchet_baseline.json and fails on a rise.  Never `ruff format`,
+# never `--fix` across the tree.
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]

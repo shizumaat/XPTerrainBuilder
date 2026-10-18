@@ -8,7 +8,7 @@ mirrors :data:`PRESETS` row for row in
 Recommended stops equalling the shipped defaults, or when a cost line's
 figures stop matching their derivation (``docs/presets.md``).
 
-Every key is an existing one: four engine config keys from
+Every key is an existing one: three engine config keys from
 ``O4_Cfg_Vars`` (written to the GLOBAL config, the defaults for new tiles)
 and :data:`ZOOM_PREF`, the build-zoom preference the Build pane already
 stores (Qt ``prefs["zl"]``, Mac ``@AppStorage("OrthoZoomLevel")``).  A
@@ -44,7 +44,6 @@ PRESET_KEYS = (
     "cover_airports_with_highres",
     "cover_zl",
     "cover_extent",
-    "cleaning_level",
 )
 
 #: The words around the cards (SettingsPresets.swift uses the same ones).
@@ -74,27 +73,24 @@ class Preset:
 PRESETS = (
     Preset(
         "recommended", "Recommended",
-        "The settings the app ships with: Standard detail everywhere.",
+        "The settings the app ships with: ZL16 everywhere.",
         "About 1.6–3.1 GB of imagery per tile.",
         (("zl", "16"), ("cover_airports_with_highres", "False"),
-         ("cover_zl", "18"), ("cover_extent", "1.0"),
-         ("cleaning_level", "1")),
+         ("cover_zl", "18"), ("cover_extent", "1.0")),
     ),
     Preset(
         "sharper_airports", "Sharper airports",
-        "Standard detail, and Very sharp imagery on and around every airport.",
+        "ZL16, and ZL18 imagery on and around every airport.",
         "About 1.6–3.1 GB per tile, plus the sharper airports.",
         (("zl", "16"), ("cover_airports_with_highres", "True"),
-         ("cover_zl", "18"), ("cover_extent", "1.0"),
-         ("cleaning_level", "1")),
+         ("cover_zl", "18"), ("cover_extent", "1.0")),
     ),
     Preset(
         "light_on_disk", "Light on disk",
-        "Light detail, and fewer build files kept: a rebuild starts over.",
+        "ZL15 everywhere: coarser imagery, smaller downloads.",
         "About 0.4–0.8 GB of imagery per tile, a quarter of Recommended.",
         (("zl", "15"), ("cover_airports_with_highres", "False"),
-         ("cover_zl", "18"), ("cover_extent", "1.0"),
-         ("cleaning_level", "2")),
+         ("cover_zl", "18"), ("cover_extent", "1.0")),
     ),
 )
 

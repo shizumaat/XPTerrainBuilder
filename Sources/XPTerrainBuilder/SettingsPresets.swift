@@ -5,7 +5,7 @@ import SceneryKit
 /// (O4_Settings_Presets.PRESETS) row for row —
 /// `Ortho4XP/tests/test_settings_presets.py` parses this file and fails
 /// when the two differ. Every preset writes the SAME keys: the build zoom
-/// (`zl`, kept here as `@AppStorage("OrthoZoomLevel")`) and four engine
+/// (`zl`, kept here as `@AppStorage("OrthoZoomLevel")`) and three engine
 /// config keys, written to the global config (the defaults for new tiles).
 /// The figures in `cost` are derived, never measured: see docs/presets.md.
 struct SettingsPreset: Identifiable, Equatable {
@@ -37,17 +37,17 @@ enum SettingsPresets {
 
     static let presets: [SettingsPreset] = [
         SettingsPreset("recommended", "Recommended",
-                       summary: "The settings the app ships with: Standard detail everywhere.",
+                       summary: "The settings the app ships with: ZL16 everywhere.",
                        cost: "About 1.6–3.1 GB of imagery per tile.",
-                       values: ["zl": "16", "cover_airports_with_highres": "False", "cover_zl": "18", "cover_extent": "1.0", "cleaning_level": "1"]),
+                       values: ["zl": "16", "cover_airports_with_highres": "False", "cover_zl": "18", "cover_extent": "1.0"]),
         SettingsPreset("sharper_airports", "Sharper airports",
-                       summary: "Standard detail, and Very sharp imagery on and around every airport.",
+                       summary: "ZL16, and ZL18 imagery on and around every airport.",
                        cost: "About 1.6–3.1 GB per tile, plus the sharper airports.",
-                       values: ["zl": "16", "cover_airports_with_highres": "True", "cover_zl": "18", "cover_extent": "1.0", "cleaning_level": "1"]),
+                       values: ["zl": "16", "cover_airports_with_highres": "True", "cover_zl": "18", "cover_extent": "1.0"]),
         SettingsPreset("light_on_disk", "Light on disk",
-                       summary: "Light detail, and fewer build files kept: a rebuild starts over.",
+                       summary: "ZL15 everywhere: coarser imagery, smaller downloads.",
                        cost: "About 0.4–0.8 GB of imagery per tile, a quarter of Recommended.",
-                       values: ["zl": "15", "cover_airports_with_highres": "False", "cover_zl": "18", "cover_extent": "1.0", "cleaning_level": "2"]),
+                       values: ["zl": "15", "cover_airports_with_highres": "False", "cover_zl": "18", "cover_extent": "1.0"]),
     ]
 
     /// Numbers compare by value (`1` and `1.0` are one cover_extent).

@@ -14,25 +14,27 @@ defaults, or when a GB figure below stops matching its derivation.
 
 ## The keys
 
-Every preset writes the same five existing keys. None is new, and none changes
+Every preset writes the same four existing keys. None is new, and none changes
 its stored format.
 
 | Key | Where it is stored | Recommended | Sharper airports | Light on disk |
 |---|---|---|---|---|
-| `zl` | Build zoom: Qt `prefs["zl"]`, Mac `@AppStorage("OrthoZoomLevel")` | 16 (Standard) | 16 (Standard) | 15 (Light) |
+| `zl` | Build zoom: Qt `prefs["zl"]`, Mac `@AppStorage("OrthoZoomLevel")` | 16 | 16 | 15 |
 | `cover_airports_with_highres` | Global `Ortho4XP.cfg` | False | True | False |
 | `cover_zl` | Global `Ortho4XP.cfg` | 18 | 18 | 18 |
 | `cover_extent` | Global `Ortho4XP.cfg` | 1.0 | 1.0 | 1.0 |
-| `cleaning_level` | Global `Ortho4XP.cfg` (app-wide) | 1 | 1 | 2 |
 
 - **Recommended** equals the registry defaults (`O4_Cfg_Vars`; the build zoom
   is `default_zl`'s default, 16, as both apps' zoom default).
-- **Sharper airports** turns on the existing airport high-detail zones: Very
-  sharp imagery (`cover_zl` 18, about 0.6 m per pixel) over each airport and
+- **Sharper airports** turns on the existing airport high-detail zones: ZL18
+  imagery (`cover_zl` 18, about 0.6 m per pixel) over each airport and
   1 km around it (`cover_extent`).
-- **Light on disk** builds at Light detail (`zl` 15, about 5 m per pixel) and
-  keeps fewer build files (`cleaning_level` 2, "Lean": a rebuild restarts
-  from step 1).
+- **Light on disk** builds at ZL15 (`zl` 15, about 5 m per pixel).
+
+Owner rulings, 2026-10-18: detail levels are named by their ZL number,
+never by an invented name; **Light on disk** does NOT set `cleaning_level`
+(no preset touches it: the build-file cleanup stays whatever the user set);
+**Sharper airports** keeps `cover_zl` 18 and `cover_extent` 1.0.
 
 Presets set the GLOBAL values, the defaults for new tiles. A tile's own
 overrides are kept; its Settings rows go on showing them. A key outside the
@@ -42,9 +44,9 @@ table never makes the cards show Custom.
 
 | Preset | Summary | Cost line |
 |---|---|---|
-| Recommended | The settings the app ships with: Standard detail everywhere. | About 1.6–3.1 GB of imagery per tile. |
-| Sharper airports | Standard detail, and Very sharp imagery on and around every airport. | About 1.6–3.1 GB per tile, plus the sharper airports. |
-| Light on disk | Light detail, and fewer build files kept: a rebuild starts over. | About 0.4–0.8 GB of imagery per tile, a quarter of Recommended. |
+| Recommended | The settings the app ships with: ZL16 everywhere. | About 1.6–3.1 GB of imagery per tile. |
+| Sharper airports | ZL16, and ZL18 imagery on and around every airport. | About 1.6–3.1 GB per tile, plus the sharper airports. |
+| Light on disk | ZL15 everywhere: coarser imagery, smaller downloads. | About 0.4–0.8 GB of imagery per tile, a quarter of Recommended. |
 
 ## Where the figures come from
 
@@ -66,8 +68,8 @@ step up the scale multiplies the count by about 4. Rows grow toward the poles
 
 | Detail | Textures per tile | Imagery GB per tile |
 |---|---|---|
-| 15 (Light) | 36–72 | 0.4–0.8 |
-| 16 (Standard) | 144–276 | 1.6–3.1 |
+| ZL15 | 36–72 | 0.4–0.8 |
+| ZL16 | 144–276 | 1.6–3.1 |
 
 `test_card_figures_equal_their_derivation` recomputes both rows.
 `test_texture_arithmetic` checks the grid against the engine's own function.
@@ -91,7 +93,6 @@ These need a corpus build. The lane that wrote this table had none.
 |---|---|---|
 | `SHARPER_AIRPORTS_EXTRA_GB` | Extra imagery GB per tile that Sharper airports adds. It depends on how many airports a tile holds, so it is a range. | not filled |
 | `RELATIVE_BUILD_TIME` | Whole-tile build time relative to Recommended, per preset. | not filled |
-| (no constant) | Disk saved by `cleaning_level` 2 compared with 1 | not filled |
 
 The cards do not show these yet. When they are measured, add them to each
 preset's cost line, in Python and Swift together.

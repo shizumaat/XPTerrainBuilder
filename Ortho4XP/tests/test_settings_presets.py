@@ -79,7 +79,7 @@ def test_every_value_is_the_stored_cfg_form():
             ok, normalized, error = SM.coerce(name, value)
             assert ok, (entry.key, name, error)
             assert normalized == value, (entry.key, name)
-        assert PRESETS.zoom_value(entry) in GLOSSARY.DETAIL_NAMES
+        assert PRESETS.zoom_value(entry) in GLOSSARY.DETAIL_PIXEL_SIZES
 
 
 def test_recommended_is_the_registry_defaults():
@@ -182,12 +182,18 @@ def test_card_figures_equal_their_derivation():
                   - PRESETS.zoom_value(light))) == 4
 
 
-def test_summaries_name_the_detail_level():
+def test_summaries_name_the_zl_number():
+    # Owner ruling 2026-10-18: detail levels are named by their ZL number.
     for entry in PRESETS.PRESETS:
-        assert GLOSSARY.DETAIL_NAMES[PRESETS.zoom_value(entry)] in entry.summary
+        assert "ZL%d" % PRESETS.zoom_value(entry) in entry.summary
     sharper = PRESETS.preset("sharper_airports")
     cover = int(sharper.as_dict()["cover_zl"])
-    assert GLOSSARY.DETAIL_NAMES[cover] in sharper.summary
+    assert "ZL%d" % cover in sharper.summary
+
+
+def test_no_preset_writes_cleaning_level():
+    # Owner ruling 2026-10-18: "Light on disk" must not set cleaning_level.
+    assert "cleaning_level" not in PRESETS.PRESET_KEYS
 
 
 def test_the_doc_lists_every_preset_value_and_figure():
@@ -204,6 +210,7 @@ def test_the_doc_lists_every_preset_value_and_figure():
 def test_card_words_are_plain():
     for entry in PRESETS.PRESETS:
         for text in (entry.title, entry.summary, entry.cost):
-            words = set(re.findall(r"[A-Za-z]+", text))
+            # A ZL number is plain here (owner ruling 2026-10-18).
+            words = set(re.findall(r"[A-Za-z]+", text)) - {"ZL"}
             assert not words & set(GLOSSARY.RETIRED_WORDS), (entry.key, text)
             assert "_" not in text

@@ -63,7 +63,7 @@ def test_the_datum_bound_is_the_intersection_of_the_contacts_reach_bands(law, bu
     come back.  Give the fixture's contacts reach bands and the derived
     bound is exactly their max-lo / min-hi; an empty intersection marks
     the block ``needs_split`` by definition."""
-    from auto_patch_v2.model.platform import HELD, datum_vertices
+    from auto_patch_v2.model.platform import datum_vertices
     pm, cs = built
     lw = _arm(law, staged_solve=True)
     hp0 = hold_pass(pm, lw)
@@ -82,15 +82,16 @@ def test_the_datum_bound_is_the_intersection_of_the_contacts_reach_bands(law, bu
     bound = [r for r in _datum_rows(hp) if r.v == dv and "reach" in r.source.inputs]
     assert len(bound) == 1
     assert bound[0].lo == lo and bound[0].hi == hi
-    assert HELD[ref]["reach_isect"] == [round(lo, 3), round(hi, 3)]
-    assert not HELD[ref]["reach_isect_empty"]
+    assert pm.registries.held[ref]["reach_isect"] == [round(lo, 3), round(hi, 3)]
+    assert not pm.registries.held[ref]["reach_isect_empty"]
     # an EMPTY intersection: needs_split by definition, no bound row minted
     bands2 = [Band(contacts[0], 105.0, 110.0, src), Band(contacts[1], 90.0, 100.0, src)]
     hp2 = hold_pass(pm, lw)
     solve_design(pm, ConstraintSet.from_rows([*cs.rows(), *bands2]), lw, hold=hp2)
-    assert HELD[ref]["reach_isect_empty"]
+    assert pm.registries.held[ref]["reach_isect_empty"]
     assert not [r for r in _datum_rows(hp2) if r.v == dv and "reach" in r.source.inputs]
-    assert math.isfinite(HELD[ref]["reach_isect"][0]) or HELD[ref]["reach_isect"][0] is not None
+    isect = pm.registries.held[ref]["reach_isect"][0]
+    assert math.isfinite(isect) or isect is not None
     # spec §57 (3) (ii-e): a reach intersection that CUTS NOTHING of the
     # pair-graph interval states no Band (a row with a cost and no law —
     # measured at KCLT: 580 solve-owned movers from Bands binding nowhere);
@@ -101,4 +102,4 @@ def test_the_datum_bound_is_the_intersection_of_the_contacts_reach_bands(law, bu
     solve_design(pm, ConstraintSet.from_rows([*cs.rows(), *wide]), lw, hold=hp3)
     assert not [r for r in _datum_rows(hp3) if r.v == dv and "reach" in r.source.inputs]
     assert hp3.result.stats["datum_reach_bands"] == 0
-    assert HELD[ref]["reach_isect"] == [-1.0e4, 1.0e4]
+    assert pm.registries.held[ref]["reach_isect"] == [-1.0e4, 1.0e4]

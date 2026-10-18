@@ -234,9 +234,9 @@ def _run(icao, out, arm_a=None, arm_b=None):
         pm, _st = build(airport, cl, law, cache=ocache, objects=pack_objects,
                         object_report=pack_report)
         from auto_patch_v2.classify.evidence import CLUSTER_PADS
-        from auto_patch_v2.planar.overlay import PAD_AIRSIDE
         print(f"{name}: CLUSTER_PADS {json.dumps(dict(CLUSTER_PADS))}", flush=True)
-        print(f"{name}: PAD_AIRSIDE {json.dumps(dict(PAD_AIRSIDE))}", flush=True)
+        print(f"{name}: PAD_AIRSIDE {json.dumps(dict(pm.registries.pad_airside))}",
+              flush=True)
         print(f"{name}: classify+planar {time.perf_counter()-t:.1f}s "
               f"verts {len(pm.vertices)} faces {len(pm.faces)}", flush=True)
         res[name] = read(pm, law)

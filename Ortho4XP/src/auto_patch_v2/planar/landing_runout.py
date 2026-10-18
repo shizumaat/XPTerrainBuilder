@@ -17,7 +17,7 @@ leaves the foot along its direction of travel, as long as the shared ramp law
 (``geom/ramp_profile.runout_profile``: design ``[road_contact] ramp_grade``
 off the landing's level, never steeper than the road's own cap) needs to
 meet the raw DEM from the highest level the solve may hold the landing at
-(the block's PREDICTED datum ``HELD[block]["datum_pred"]`` + its widest
+(the block's PREDICTED datum ``held[block]["datum_pred"]`` + its widest
 reach band + the deck's ``y``: MEASURED at HECA's T3 the prediction stood
 1.7-1.9 m under the solved datum).  The rows
 (``constraints/ramp_runout.landing_runout_rows``) read the SOLVED datum:

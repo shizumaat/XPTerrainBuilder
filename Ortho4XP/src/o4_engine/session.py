@@ -1249,7 +1249,11 @@ class EngineSession:
                     step_t0 = time.time()
                     result = step_fn[key](tile)
                     step_seconds[key] = time.time() - step_t0
-                    if result == 1:
+                    if result == 1 and not UI.red_flag:
+                        # The step ENDED with its outputs on disk: its
+                        # record counts now, so a Stop later resumes
+                        # after it (#838).  One that saw the Stop may
+                        # have cut its work short: no record.
                         REUSE.record(tile, key)
                     if self._autopatch_state is not None:
                         autopatch_airports = self._autopatch_state["total"]
@@ -1444,9 +1448,8 @@ class EngineSession:
                       % (STEP_FAILURE_NOUNS.get(key, key).capitalize(), why))
             REUSE.forget_from(tile, key)
             return False
-        REUSE.reused(tile, key)
         UI.vprint(0, "\n%s for tile %s: REUSED — its inputs are unchanged "
-                     "since the last completed build."
+                     "since it last ran to its end."
                   % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
                      FNAMES.short_latlon(*tile_key)))
         self._step_percent = (base + width) * 100.0

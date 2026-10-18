@@ -43,16 +43,28 @@ and mtime are as recorded is not read again (the hit path costs stats);
 any other is digested, so a touched file with the same bytes is no
 change.
 
-A RECORD COUNTS ONLY ONCE ITS BUILD COMPLETED.  A step that ran writes a
-PENDING record; the scenery-file step's completion commits it
-(:func:`commit`).  A step that starts running discards its own committed record and
-the pending records of itself and every later step (:func:`forget_from`);
-a later step's committed record stays, and is reused only when its own
-files are as it recorded them and its predecessor handed on the same
-content — a stopped build cannot leave a record that matches files it
-replaced.
-A build stopped after its mesh step puts the scenery packs back
-(``O4_Stopped_Build``) and commits nothing: the next build reruns.
+A STEP'S RECORD COUNTS WHEN THE STEP ENDS (#838, owner RULINGS
+2026-10-17a Q3).  A step that ran and succeeded writes its record at once
+(:func:`record`): its outputs are on disk and are a function of its
+inputs whatever happens later, so a build stopped at any later point
+resumes from the first step that did not finish.  The rules that make
+that safe:
+
+- a step that starts running discards its own record first
+  (:func:`forget_from`), so a step stopped half-way leaves none — its
+  files may be half rewritten;
+- a later step's record stays, and is reused only when its own files are
+  as it recorded them and its predecessor's record hands on what it was
+  built from (early cutoff above) — the ``previous`` chain carries each
+  predecessor's inputs, so no step chains onto a record of another lineage;
+- the mesh step's record lists, as its outputs, the pack DSFs its object
+  stage rewrote (``pack_dsfs``, journalled).  A Stop puts those packs back
+  (``O4_Stopped_Build``), which changes their content, so the next build
+  reruns the mesh step and reuses the vector step (whose input is the
+  pristine pack, ``provenance.pack_dsf_input_identity``);
+- the record file is replaced whole (temporary file + ``os.replace``): a
+  process killed while writing it leaves the record as it was, and one
+  that cannot be read reads as no record.
 
 ``O4_STEP_REUSE=0`` turns reuse off (every selected step runs).
 
@@ -71,7 +83,7 @@ import urllib.parse
 import O4_File_Names as FNAMES
 
 __all__ = ["REUSABLE_STEPS", "stale_reason", "predicted_reuse", "record",
-           "reused", "commit", "forget_from", "reused_label"]
+           "forget_from", "reused_label"]
 
 # 2026-10-14: pack DSFs keyed as the build's input and scenery_packs.ini
 # by content (#615 self-invalidation); a 2026-10-13 record reads as none.
@@ -317,15 +329,13 @@ def _handed_on(entry: dict) -> str:
 
 
 def _previous_digest(doc: dict, step: str) -> str:
-    """The predecessor's :func:`_handed_on` — this build's record of it
-    (it ran, or was reused, in this build), else the last completed
-    build's."""
+    """The predecessor's :func:`_handed_on`: its record — this build's
+    when it ran in this build (:func:`record` at its end), else the one
+    it was reused on or, when it was not planned, the last one written."""
     index = REUSABLE_STEPS.index(step)
     if index == 0:
         return ""
-    before = REUSABLE_STEPS[index - 1]
-    entry = ((doc.get("pending") or {}).get(before)
-             or (doc.get("committed") or {}).get(before))
+    entry = (doc.get("committed") or {}).get(REUSABLE_STEPS[index - 1])
     if not entry or not entry.get("outputs_digest"):
         return "absent"
     return _handed_on(entry)
@@ -342,7 +352,7 @@ def stale_reason(tile, step: str) -> str | None:
         doc = _read(tile)
         entry = (doc.get("committed") or {}).get(step)
         if not entry:
-            return "no record of a completed build"
+            return "no record of a finished run of it"
         live = _inputs(tile, step, _previous_digest(doc, step),
                        entry.get("osm_files"))
         recorded = entry.get("inputs") or {}
@@ -389,65 +399,41 @@ def _changed_words(key, live, recorded) -> str:
 
 
 def record(tile, step: str) -> None:
-    """``step`` ran and succeeded: write its PENDING record."""
+    """``step`` ran and succeeded, its outputs on disk: its record is the
+    one the next build reads (#838) — written now, not at the build's end."""
     if step not in REUSABLE_STEPS:
         return
     try:
         doc = _read(tile)
-        pending = dict(doc.get("pending") or {})
         inputs = _inputs(tile, step, _previous_digest(doc, step))
         pack_dsfs = _journalled_dsfs(tile) if step == "mesh" else []
         rows = _outputs(tile, step, pack_dsfs)
-        pending[step] = {"inputs": inputs, "digest": _digest(inputs),
-                         "osm_files": _osm_files(tile) if step == "vector"
-                         else None,
-                         "pack_dsfs": pack_dsfs,
-                         "outputs": rows,
-                         "outputs_digest": _outputs_digest(rows)}
-        doc["pending"] = pending
-        _write(tile, doc)
+        committed = dict(doc.get("committed") or {})
+        committed[step] = {"inputs": inputs, "digest": _digest(inputs),
+                           "osm_files": _osm_files(tile) if step == "vector"
+                           else None,
+                           "pack_dsfs": pack_dsfs,
+                           "outputs": rows,
+                           "outputs_digest": _outputs_digest(rows)}
+        _write(tile, {"committed": committed})
     except Exception:
         pass
 
 
-def reused(tile, step: str) -> None:
-    """``step`` was reused: carry its committed record into this build's
-    pending set, so the steps after it chain onto it."""
-    doc = _read(tile)
-    entry = (doc.get("committed") or {}).get(step)
-    if entry:
-        doc["pending"] = dict(doc.get("pending") or {}, **{step: entry})
-        _write(tile, doc)
-
-
 def forget_from(tile, step: str) -> None:
-    """``step`` is about to run: its committed record no longer describes
-    its files, and no pending record of it or a later step is this
-    build's.  A later step's committed record stays (early cutoff, #837):
-    it is reused only when its own files are as it recorded them and this
-    build's ``step`` hands on what it was built from."""
+    """``step`` is about to run: its record no longer describes its files
+    (a Stop may leave them half rewritten).  A later step's record stays
+    (early cutoff, #837): it is reused only when its own files are as it
+    recorded them and this build's ``step`` hands on what it was built
+    from."""
     if step not in REUSABLE_STEPS:
         return
     doc = _read(tile)
     if not doc:
         return
-    later = REUSABLE_STEPS[REUSABLE_STEPS.index(step):]
     committed = {k: v for k, v in (doc.get("committed") or {}).items()
                  if k != step}
-    pending = {k: v for k, v in (doc.get("pending") or {}).items()
-               if k not in later}
-    _write(tile, dict(doc, committed=committed, pending=pending))
-
-
-def commit(tile) -> None:
-    """The build COMPLETED (the scenery-file step's last act): this
-    build's pending records become the ones the next build reads."""
-    doc = _read(tile)
-    pending = doc.get("pending") or {}
-    if not pending:
-        return
-    committed = dict(doc.get("committed") or {}, **pending)
-    _write(tile, {"committed": committed, "pending": {}})
+    _write(tile, {"committed": committed})
 
 
 def reused_label(step_label: str) -> str:

@@ -68,16 +68,15 @@ def _rewrite(path, data: bytes):
 
 
 def _complete_build(tile, steps=REUSE.REUSABLE_STEPS):
-    """What the session does for a build that runs ``steps``, reuses the
-    rest, and completes (the imagery step's commit)."""
+    """What the session does for a build that runs ``steps`` and reuses
+    the rest: each step that runs drops its record, then records at its
+    end (#838)."""
     for step in REUSE.REUSABLE_STEPS:
         if step in steps:
             REUSE.forget_from(tile, step)
             REUSE.record(tile, step)
         else:
             assert REUSE.stale_reason(tile, step) is None
-            REUSE.reused(tile, step)
-    REUSE.commit(tile)
 
 
 def _reasons(tile):
@@ -97,11 +96,12 @@ def test_texture_only_change_reuses_vector_mesh_and_masks(tile):
     assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
 
 
-def test_no_record_before_a_completed_build(tile):
+def test_no_record_before_a_step_ran_to_its_end(tile):
     _write_outputs(tile)
-    for step in REUSE.REUSABLE_STEPS:
-        REUSE.record(tile, step)            # ran, but never committed
-    assert all(why == "no record of a completed build"
+    assert all(why == "no record of a finished run of it"
+               for why in _reasons(tile).values())
+    REUSE.forget_from(tile, "vector")       # started, never ended
+    assert all(why == "no record of a finished run of it"
                for why in _reasons(tile).values())
 
 
@@ -114,7 +114,6 @@ def test_mesh_setting_rebuilds_mesh_and_masks_not_vector(tile):
     assert "curvature_tol" in reasons["mesh"]
     # The mesh step reran on new settings: the masks key on what it hands
     # on — its files AND its inputs — so they rebuild on the new mesh.
-    REUSE.reused(tile, "vector")
     REUSE.forget_from(tile, "mesh")
     REUSE.record(tile, "mesh")
     assert REUSE.stale_reason(tile, "masks") == (
@@ -252,8 +251,6 @@ def test_session_skips_reused_steps_by_name(monkeypatch, tmp_path):
     def ran(step):
         def hook(tile):
             calls.append(step)
-            if step == "imagery":
-                REUSE.commit(tile)          # the real step's last act
         return hook
 
     monkeypatch.setattr(FNAMES, "osm_dir", lambda lat, lon: str(tmp_path / "o"))
@@ -339,7 +336,6 @@ def _build_with_object_stage(tile, install, payload):
     REUSE.record(tile, "mesh")
     REUSE.forget_from(tile, "masks")
     REUSE.record(tile, "masks")
-    REUSE.commit(tile)
 
 
 def test_the_builds_own_pack_rewrite_keeps_the_vector_step(tile, pack_patch):
@@ -426,8 +422,6 @@ def test_a_vector_code_change_with_the_same_output_reruns_only_vector(
     REUSE.record(tile, "vector")
     for step in ("mesh", "masks"):
         assert REUSE.stale_reason(tile, step) is None
-        REUSE.reused(tile, step)
-    REUSE.commit(tile)
     assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
 
 
@@ -512,7 +506,219 @@ def test_a_record_of_the_previous_schema_reruns_once(tile):
     doc["schema"] = "2026-10-18"
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(doc, handle)
-    assert all(why == "no record of a completed build"
+    assert all(why == "no record of a finished run of it"
                for why in _reasons(tile).values())
     _complete_build(tile)
     assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+
+
+# ── #838 (owner RULINGS 2026-10-17a Q3): a step's record counts when the
+# step ENDS, so a stopped build resumes from the first unfinished step.
+
+def _stopped_during(tile, steps_done, stopped_in):
+    """A build that ran ``steps_done`` to their end and was stopped inside
+    ``stopped_in`` (which had dropped its record and wrote part of its
+    files)."""
+    for step in steps_done:
+        REUSE.forget_from(tile, step)
+        REUSE.record(tile, step)
+    REUSE.forget_from(tile, stopped_in)
+
+
+def test_a_stop_after_the_mesh_resumes_at_the_masks(tile):
+    _write_outputs(tile)
+    _stopped_during(tile, ("vector", "mesh"), "masks")
+    assert _reasons(tile) == {"vector": None, "mesh": None,
+                              "masks": "no record of a finished run of it"}
+    assert REUSE.predicted_reuse(tile) == ("vector", "mesh")
+
+
+def test_a_stop_during_the_vector_step_keeps_nothing_of_it(tile):
+    _write_outputs(tile)
+    _complete_build(tile)
+    _rewrite(os.path.join(FNAMES.osm_dir(25, 51), "+25+051_airports.osm.bz2"),
+             b"new osm")                          # the vector step reruns
+    assert REUSE.stale_reason(tile, "vector") == (
+        "the OpenStreetMap data changed")
+    _stopped_during(tile, (), "vector")
+    assert REUSE.stale_reason(tile, "vector") == (
+        "no record of a finished run of it")
+    assert REUSE.predicted_reuse(tile) == ()
+    # The rerun hands on new inputs: the mesh and the masks rerun too.
+    REUSE.forget_from(tile, "vector")
+    REUSE.record(tile, "vector")
+    assert REUSE.stale_reason(tile, "mesh") == (
+        "the step before it changed its files or inputs")
+
+
+def test_a_rerun_with_the_same_output_then_a_stop_keeps_the_later_steps(
+        tile, monkeypatch):
+    """Early cutoff across a Stop: the vector step reran (its code changed)
+    and wrote the same bytes, then the build was stopped in the mesh step
+    — the next build reuses the vector step (this build's record) and the
+    masks (the earlier build's), and reruns the mesh, whose record the
+    Stop dropped."""
+    import O4_Step_Code as STEPCODE
+    live = {s: STEPCODE.step_digest(s) for s in REUSE.REUSABLE_STEPS}
+    monkeypatch.setattr(STEPCODE, "_DIGESTS", dict(live))
+    _write_outputs(tile)
+    _complete_build(tile)
+    monkeypatch.setitem(STEPCODE._DIGESTS, "vector", "f" * 64)
+    REUSE.forget_from(tile, "vector")
+    for path in (FNAMES.input_node_file(tile), FNAMES.input_poly_file(tile),
+                 FNAMES.alt_file(tile)):
+        _rewrite(path, b"data")
+    REUSE.record(tile, "vector")
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    REUSE.forget_from(tile, "mesh")                # Stop inside the mesh
+    # The masks wait on the mesh: no record of it hands on anything yet.
+    assert _reasons(tile) == {
+        "vector": None, "mesh": "no record of a finished run of it",
+        "masks": "the step before it changed its files or inputs"}
+    REUSE.forget_from(tile, "mesh")
+    REUSE.record(tile, "mesh")                     # the same .mesh bytes
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+
+
+def test_a_stop_that_puts_the_packs_back_reruns_the_mesh(tile, pack_patch,
+                                                         tmp_path):
+    """The mesh step's object stage rewrote the pack DSF (journalled); the
+    build is stopped in the masks step and ``O4_Stopped_Build`` puts the
+    pack back.  The mesh record names that DSF as its output, so the next
+    build reruns the mesh — and reuses the vector step, whose input is the
+    pristine pack."""
+    import O4_Stopped_Build as STOPPED
+    from auto_patch_v2.airport import pack_journal
+    from test_auto_patch_freshness import _rebake
+    _write_outputs(tile)
+    _build_with_object_stage(tile, pack_patch, b"XPLNEDSF-rewrite-1")
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    # The next build: the mesh reruns (a mesh setting changed) and its
+    # object stage rewrites the pack again, journalled.
+    tile.curvature_tol = tile.curvature_tol + 1
+    REUSE.forget_from(tile, "mesh")
+    pack_journal.begin(tile.build_dir, FNAMES.short_latlon(25, 51))
+    try:
+        pack_journal.snapshot(str(tmp_path / "Custom Scenery" / "Some Pack"),
+                              str(pack_patch.dsf))
+        _rebake(pack_patch, payload=b"XPLNEDSF-rewrite-2")
+    finally:
+        pack_journal.end()
+    REUSE.record(tile, "mesh")
+    assert REUSE.stale_reason(tile, "mesh") is None
+    REUSE.forget_from(tile, "masks")
+    # Stop: the pack goes back as it was before this build.
+    STOPPED.settle(tile.build_dir, 25, 51)
+    assert pack_patch.dsf.read_bytes() == b"XPLNEDSF-rewrite-1"
+    assert _reasons(tile) == {
+        "vector": None,
+        "mesh": "its output files changed or are missing",
+        "masks": "no record of a finished run of it"}
+
+
+def test_a_process_killed_while_writing_leaves_the_record_whole(
+        tile, monkeypatch):
+    """The record file is replaced whole: a write that dies half-way (a
+    killed process) leaves the record of the steps that ended as it was."""
+    import json
+    _write_outputs(tile)
+    _stopped_during(tile, ("vector",), "mesh")
+    with open(REUSE._record_path(tile), "rb") as handle:
+        before = handle.read()
+
+    def dies_half_way(doc, handle, **kwargs):
+        handle.write('{"committed": {"vector": ')
+        raise KeyboardInterrupt                   # the process is killed
+
+    # A context, not setattr + undo(): undo() would also drop the fixture's
+    # FNAMES redirects, and stale_reason would then read the real corpus.
+    with monkeypatch.context() as m:
+        m.setattr(json, "dump", dies_half_way)
+        with pytest.raises(KeyboardInterrupt):
+            REUSE.forget_from(tile, "vector")
+    with open(REUSE._record_path(tile), "rb") as handle:
+        assert handle.read() == before
+    assert REUSE.stale_reason(tile, "vector") is None
+    # A record that cannot be read is no record: the step runs.
+    with open(REUSE._record_path(tile), "w", encoding="utf-8",
+              newline="\n") as handle:
+        handle.write('{"committed": {"vector": ')
+    assert REUSE.stale_reason(tile, "vector") == (
+        "no record of a finished run of it")
+
+
+def _session_build(monkeypatch, tmp_path, stop_in=None, stopped_result=0):
+    """One build through the session's real step loop; ``stop_in``: the
+    step during which the user presses Stop, which then returns
+    ``stopped_result``.  Returns the steps called."""
+    import O4_UI_Utils as UI
+    from o4_engine.session import EngineSession
+    from test_engine_session import install_stub_pipeline, run_build
+
+    calls = []
+
+    def hook(step):
+        def run(tile):
+            calls.append(step)
+            if step == stop_in:
+                UI.red_flag = True
+        return run
+
+    install_stub_pipeline(
+        monkeypatch,
+        results={stop_in: stopped_result} if stop_in else None,
+        hooks={step: hook(step)
+               for step in ("vector", "mesh", "masks", "imagery")})
+    stub = sys.modules["O4_Config_Utils"]
+
+    class _ConfiguredTile(stub.Tile):
+        iterate = 0                 # what FNAMES' file names read
+
+    monkeypatch.setattr(stub, "Tile", _ConfiguredTile)
+    try:
+        run_build(EngineSession(), [(10, 20)], tmp_path)
+    finally:
+        UI.red_flag = False
+    return calls
+
+
+@pytest.fixture
+def session_dirs(monkeypatch, tmp_path):
+    for name in ("o", "p", "m"):
+        (tmp_path / name).mkdir()
+    monkeypatch.setattr(FNAMES, "osm_dir", lambda lat, lon: str(tmp_path / "o"))
+    monkeypatch.setattr(FNAMES, "patch_dir", lambda lat, lon: str(tmp_path / "p"))
+    monkeypatch.setattr(FNAMES, "mask_dir", lambda lat, lon: str(tmp_path / "m"))
+    monkeypatch.delenv("O4_STEP_REUSE", raising=False)
+    return tmp_path
+
+
+def test_session_resumes_after_a_stop_in_the_masks_step(monkeypatch,
+                                                         session_dirs):
+    calls = _session_build(monkeypatch, session_dirs, stop_in="masks")
+    assert calls == ["vector", "mesh", "masks"]
+    assert _session_build(monkeypatch, session_dirs) == ["masks", "imagery"]
+    assert _session_build(monkeypatch, session_dirs) == ["imagery"]
+
+
+def test_session_reruns_a_vector_step_that_was_stopped(monkeypatch,
+                                                       session_dirs):
+    osm = session_dirs / "o" / "+10+020_airports.osm.bz2"
+    osm.write_bytes(b"osm")
+    assert _session_build(monkeypatch, session_dirs) == [
+        "vector", "mesh", "masks", "imagery"]
+    _rewrite(str(osm), b"new osm")                # the vector step reruns
+    assert _session_build(monkeypatch, session_dirs, stop_in="vector") == [
+        "vector"]
+    assert _session_build(monkeypatch, session_dirs) == [
+        "vector", "mesh", "masks", "imagery"]
+
+
+def test_a_step_that_saw_the_stop_records_nothing(monkeypatch, session_dirs):
+    """A step that returns success although the Stop came while it ran may
+    have cut its work short: it reruns."""
+    calls = _session_build(monkeypatch, session_dirs, stop_in="mesh",
+                           stopped_result=1)
+    assert calls == ["vector", "mesh"]
+    assert _session_build(monkeypatch, session_dirs) == [
+        "mesh", "masks", "imagery"]

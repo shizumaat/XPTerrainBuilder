@@ -11,9 +11,10 @@ WHAT A STEP'S INPUTS ARE.  The settings it reads — the step's own list in
 ``O4_Cfg_Vars`` (``list_vector_vars`` / ``list_mesh_vars`` /
 ``list_mask_vars``) plus ``custom_dem`` / ``fill_nodata``, and the
 app-level settings that choose its data — the engine's version, the
-digest of the code the step runs through (``O4_Step_Code``), the auto-patch configuration digest, and what the step
-before it HANDS ON (#837): the CONTENT of the files it wrote and the
-inputs it read, its own code left out.  The vector step adds the data it read that can change without a
+digest of the code the step runs through (``O4_Step_Code``), the auto-patch
+configuration digest, and what the step before it HANDS ON (#837): the
+CONTENT of the files it wrote and the inputs it read, its own code left
+out.  The vector step adds the data it read that can change without a
 setting: the tile's OSM cache files, its cached airport elevation
 insets, the pack order and state ``scenery_packs.ini`` gives (its
 content, the tile's own pack left out), and for each airport patch the

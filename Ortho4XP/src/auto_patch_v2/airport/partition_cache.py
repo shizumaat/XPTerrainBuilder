@@ -106,7 +106,7 @@ __all__ = ["CACHE_VERSION", "fingerprint", "cache_path", "read", "write",
            "pristine_stamps", "resolved_digest", "peek", "code_digest",
            "dump_digest", "companion", "hold_companion", "filed", "revive",
            "put_back", "ground_witness", "companion_note",
-           "companion_notes"]
+           "companion_notes", "reading_digest"]
 
 #: Bump when the SHAPE of the cached payload changes (the code digest
 #: already covers a change in what the reading produces).
@@ -347,6 +347,31 @@ def ground_witness(fp: str | None, dem: _t.Any) -> _t.Any:
 def _ground_record(fp: str) -> _t.Any:
     got = _GROUND.get(fp)
     return got.record() if isinstance(got, _ground.DemWitness) else got
+
+
+def reading_digest(airport) -> str | None:
+    """sha256 of WHAT the partition this process holds for the airport is
+    a function of: its fingerprint and the ground it was read on (the DEM
+    answers its witness recorded, or the record a HIT was served under) —
+    the stage cache's name for the reading (issue #843), so a reading
+    re-taken on new ground under the same fingerprint is a new input.
+    ``None`` when this run took no fingerprint for the airport."""
+    root = _pack_root(airport)
+    fp = _TAKEN.get((os.path.abspath(root) if root else "",
+                     str(getattr(airport, "icao", "") or "")))
+    if not fp:
+        return None
+    import numpy as np
+    h = hashlib.sha256(f"partition|{fp}|".encode())
+    rec = _ground_record(fp)
+    if isinstance(rec, dict):
+        for name in ("xy", "z"):
+            a = np.ascontiguousarray(np.asarray(rec.get(name, ()), dtype=np.float64))
+            h.update(f"{name}{a.shape}".encode())
+            h.update(a.tobytes())
+    else:
+        h.update(b"no-ground")
+    return h.hexdigest()
 
 
 #: ``(pack root, ICAO) -> fingerprint`` of the fingerprints this process

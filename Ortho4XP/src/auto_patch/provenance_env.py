@@ -57,6 +57,10 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_STEP_REUSE":
         "whether a tile build may skip a step whose output is current "
         "(O4_Step_Reuse, #615); a step that runs builds the same patch",
+    "O4_V2_STAGE_CACHE":
+        "whether the v2 airport build may serve a stage from its content-"
+        "keyed record (#843); a hit is byte-identical to the build that "
+        "wrote it (RULINGS 2026-10-18d)",
     "O4_TRIANGLE_IO":
         "text or binary (default) Triangle4XP exchange files (RULINGS "
         "2026-10-17c); "

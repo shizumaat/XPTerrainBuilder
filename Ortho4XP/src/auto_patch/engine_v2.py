@@ -429,9 +429,12 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             _xq = None if _xq_raw in (None, "") else float(_xq_raw)
         except ValueError:
             _xq = None
+        # THE V2 STAGE CACHE (issue #843): on unless ``O4_V2_STAGE_CACHE=0``;
+        # read HERE because the v2 package reads no environment
         cfg = Config(header_extra=_stamp_header(task),
                      xplat_dump=bool(os.environ.get("O4_V2_XPLAT_DIGEST")),
-                     xplat_quantise_m=_xq)
+                     xplat_quantise_m=_xq,
+                     stage_cache=os.environ.get("O4_V2_STAGE_CACHE", "1").strip() != "0")
         res = build(icao, inputs, scratch, cfg, law, out=_out)
     except Exception as exc:
         return {"icao": icao, "ok": False, "stage": "build", "engine": ENGINE_V2,

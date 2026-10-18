@@ -41,6 +41,7 @@ from ..emit.osm_adapter import (PatchPaths, WeldReport, merge_sub_spacing,
 from ..airport import rebake_screen as _rscreen
 from . import authored_seats as _authored_seats
 from . import capture_state as _cstate
+from . import front_cache as _front
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
@@ -112,6 +113,12 @@ class Config:
     #: ``xplat_dump`` is set; ``None`` (the default, and every shipped
     #: build) means "the law's value".
     xplat_quantise_m: float | None = None
+    #: THE V2 STAGE CACHE (issue #843; ``pipeline/front_cache.py``): serve
+    #: the front-half stages from their content-keyed records under the
+    #: build's mod-cache root.  A SCHEMA FLAG: ``auto_patch/engine_v2.py``
+    #: reads ``O4_V2_STAGE_CACHE`` (``0`` = off) and sets it; off by default
+    #: here, so a direct caller (a tool, a twin) writes no record.
+    stage_cache: bool = False
 
 
 @_dc.dataclass
@@ -710,9 +717,22 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     pack_objects, pack_report = _ps["objects"], _ps["report"]
     _part, _groups = _ps["partition"], _ps["groups"]
     wall["partition"] = _ps["wall"]["total"]
+    # THE STAGE CACHE (issue #843; ``pipeline/front_cache.py``): classify,
+    # planar, flat_site, road_profile and the shapes are served from their
+    # records when key and witnesses hold.  Off (``Config.stage_cache``
+    # False, the xplat dump armed), every call below runs as it always did.
+    fc = _front.FrontCache(icao, airport, law,
+                           enabled=cfg.stage_cache and not cfg.xplat_dump,
+                           mod_cache_root=inputs.mod_cache_root,
+                           pack=(pack_objects, pack_report))
+    airport = fc.airport(airport)
+    fc.window(True)
     t = time.perf_counter()
     _pulse.tick("classifying the airport")
-    cl = classify(airport, law, load_rules(), cache=ocache)
+    _rules = load_rules()
+    _fc_in = fc.common_inputs(_rules, ocache)
+    cl = fc.run("classify", {**_fc_in, "airport": fc.airport_digest(airport)},
+                lambda lw: classify(airport, lw, _rules, cache=ocache), as_served=True)
     wall["classify"] = time.perf_counter() - t
     # spec §55 (4), (9) THE GAP PIECES JOIN IN THE LAST STAGE: with a §53
     # gap piece minted, every stage below runs on the classification
@@ -725,8 +745,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # airside level moves for it.
     from .stage_one_map import gap_free
     cl_gaps, _cl_base = None, gap_free(cl)
+    _cl_digest = fc.output_digest("classify")
     if _cl_base is not None:
         cl_gaps, cl = cl, _cl_base
+        _cl_digest = fc.digest(cl)
     # issue #669 / #711: the object ramps' feet — for the planar stage's
     # landing run-outs (``planar/landing_runout``) and the last stage's
     # run-outs — read HERE, on the run's ResourceCache (one parse per
@@ -736,12 +758,18 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     wall["ramp_feet"] = _feet_rep.get("s", 0.0)
     _say(f"[{icao}] ramp feet (14c (5)): {_feet_rep}", out)
     t = time.perf_counter()
-    objects_out: list = []
     # stage-cache spec §10 step 1 (#840): the registries the planar stage
     # fills come back as its RECORD, installed explicitly before the shapes
-    pm, pstats, planar_record = _cstate.planar_stage(
-        airport, cl, law, objects_out=objects_out, cache=ocache,
-        objects=pack_objects, object_report=pack_report)
+
+    # ``objects_out`` is ``[the pack's objects, the cache]`` — the very
+    # objects the pack stage read (the planar stage reads, never mutates,
+    # them) and the build's own ``ResourceCache``, so it is not recorded
+    objects_out: list = [pack_objects, ocache]
+    pm, pstats, planar_record = fc.run(
+        "planar", {**_fc_in, "airport": fc.airport_digest(airport),
+                   "classification": _cl_digest},
+        lambda lw: _cstate.planar_stage(airport, cl, lw, cache=ocache,
+                                        objects=pack_objects, object_report=pack_report))
     wall["planar"] = time.perf_counter() - t
     # §37 (11) (7) (issue #72): the shore the zones were cut against —
     # quay faces stand on a DECLARED shore (or a pavement edge that IS
@@ -941,8 +969,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # classified surfaces are LAND by declaration, so the datum region's
     # water cut cannot call a reclaimed apron sea (``_cut_water``'s own
     # docstring carries the VMMC measurement).
-    fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else (),
-                      land=_classified_land(cl))
+    fv = fc.run("flat_site", {**_fc_in, "airport": fc.airport_digest(airport),
+                              "planar": fc.output_digest("planar"),
+                              "classification": _cl_digest},
+                lambda lw: _flat.detect(airport, lw,
+                                        objects=objects_out[0] if objects_out else (),
+                                        land=_classified_land(cl)))
     airport = _dc.replace(airport, flat_site=fv)
     wall["flat_site"] = time.perf_counter() - t
     lrep.flat_site = _flat.record(fv)
@@ -955,9 +987,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # below stay and v2 moves a vertex off it only where one binds.
     t = time.perf_counter()
     _pulse.tick("the preferred road profile")
-    road_pref, road_rep, road_profiles = preferred_road_z(
-        airport, pm, law, inputs.road_grade_limit, inputs.lane_width_m)
+    _fc_ap = fc.airport_digest(airport, flat_site=fc.output_digest("flat_site"))
+    _fc_params = repr((inputs.road_grade_limit, inputs.lane_width_m))
+    road_pref, road_rep, road_profiles = fc.run(
+        "road_profile", {**_fc_in, "airport": _fc_ap, "planar": fc.output_digest("planar"),
+                         "params": _fc_params},
+        lambda lw: preferred_road_z(airport, pm, lw, inputs.road_grade_limit,
+                                    inputs.lane_width_m))
     pm = _dc.replace(pm, preferred_z=road_pref)
+    # the target channels below read the law the shape record is keyed on
+    _law_c = fc.stage_law()
     wall["road_profile"] = time.perf_counter() - t
     # THE RUNWAY PROFILE (RULINGS 2026-09-08d (1) / 09-10q/10r/10t (3), spec
     # §21; ``constraints/runway_chord.py``): every runway-family vertex of a
@@ -966,7 +1005,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # straight chord where the DEM frame is degraded.  The DEM fit stays for
     # every other role.
     chord_rep: ChordReport = {}
-    pm = with_runway_chord(pm, law, airport, chord_rep)
+    pm = with_runway_chord(pm, _law_c, airport, chord_rep)
     lrep.runway_chord = dict(chord_rep)
     _say(f"[{icao}] runway profile (08d-1/10t-3): target {chord_rep.get('target_kind', '-')} "
          f"(window {chord_rep.get('window_m', 0.0):.0f} m, {chord_rep.get('runways_trend', 0)} trend / "
@@ -998,7 +1037,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # taxi_trend``.  Fitted AFTER the runway profile, because a chain's
     # runway contact is pinned to the runway's own target.
     tt_rep: TaxiTrendReport = {}
-    pm = with_taxi_trend(pm, law, airport, tt_rep)
+    pm = with_taxi_trend(pm, _law_c, airport, tt_rep)
     lrep.taxi_trend = dict(tt_rep)
     _say(f"[{icao}] taxi profile (10v-1): {tt_rep.get('chains', 0)} chains "
          f"({tt_rep.get('chains_without', 0)} without a fit) "
@@ -1016,7 +1055,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # because a vertex the taxi chain already holds takes no second
     # authority.
     at_rep: ApronTrendReport = {}
-    pm = with_apron_trend(pm, law, airport, at_rep)
+    pm = with_apron_trend(pm, _law_c, airport, at_rep)
     lrep.apron_trend = dict(at_rep)
     _say(f"[{icao}] apron surface (10ar): {at_rep.get('bodies', 0)} bodies on the "
          f"ground's 2-D TREND ({at_rep.get('vertices', 0)} vertices, "
@@ -1037,7 +1076,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # trend channels are WITHDRAWN, not outweighed.  Runs AFTER both are
     # published, so neither claim is re-opened by the other's absence.
     er_rep: dict = {}
-    pm = withdraw_trend_over_reach(pm, law, airport, er_rep)
+    pm = withdraw_trend_over_reach(pm, _law_c, airport, er_rep)
     lrep.eat_reach = dict(er_rep)
     if er_rep.get("pins"):
         _say(f"[{icao}] EAT ramp reach (13aa/§36-5): {er_rep.get('pins', 0)} pinned feet on "
@@ -1058,13 +1097,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # the core's soft road fit for every vertex it governs — the ONE
     # superseding site.  The rows are ``constraints/road_ramp.py``'s.
     ramp_rep: dict = {}
-    pm = with_road_ramp(pm, law, airport, ramp_rep, road_profiles,
+    pm = with_road_ramp(pm, _law_c, airport, ramp_rep, road_profiles,
                         service=load_rules().service)
     # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): the core
     # levels the road OUTSIDE the coverage and not inside it, so where a
     # way leaves, the patch takes the ribbon's own altitude there.
     join_rep: dict = {}
-    pm = with_road_coverage_join(pm, law, road_profiles, join_rep)
+    pm = with_road_coverage_join(pm, _law_c, road_profiles, join_rep)
     ramp_rep.update({f"join_{k}": v for k, v in join_rep.items()})
     lrep.road_ramp = dict(ramp_rep)
     rs = road_rep["profiles"]
@@ -1095,7 +1134,19 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     t = time.perf_counter()
     _pulse.tick("the shapes")
     _cstate.install(pm.registries, planar_record)   # #840: the planar stage's record
-    stage = shape_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
+
+    def _shapes(lw):
+        lines: list[str] = []
+        return shape_stage(pm, lw, airport, cl, out=lines.append), lines
+    # keyed on what the target channels above were handed (their code is
+    # the ``channels`` digest of the shape record's key)
+    stage, _shape_lines = fc.run(
+        "shapes", {**_fc_in, "airport": _fc_ap, "planar": fc.output_digest("planar"),
+                   "road_profile": fc.output_digest("road_profile"),
+                   "classification": _cl_digest, "params": _fc_params}, _shapes)
+    fc.window(False)
+    for _ln in _shape_lines:
+        _say(_ln, out)
     pm = stage.pm
     wall["shapes"] = time.perf_counter() - t
     t = time.perf_counter()
@@ -1645,6 +1696,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                                   for k, v in sorted(_VWALL.items(),
                                                                      key=lambda kv: -kv[1])}),
                                 "rows": {k: v for k, v in vrows.items() if v}}
+    report["cache"] = fc.finish()
     _staged = sum(wall.values())
     wall["total"] = time.perf_counter() - t_build
     wall["unclocked"] = wall["total"] - _staged

@@ -50,6 +50,16 @@ import Foundation
         #expect(TextScale.clamp(.nan) == TextScale.defaultValue)
     }
 
+    /// Twin of `test_map_labels_grow_with_the_text_scale` (Qt).
+    @Test func mapLabelsGrowWithTheTextScale() {
+        let candidates = [MapLabelLayout.Candidate(code: "KAAA", x: 100, y: 100, sizeClass: 0,
+                                                   runwayMeters: 3000, custom: false)]
+        let small = MapLabelLayout.place(candidates, scale: 100, markRadius: 5).labels
+        let big = MapLabelLayout.place(candidates, scale: 100, markRadius: 5, textScale: 1.3).labels
+        #expect(abs(big[0].box.fontSize - small[0].box.fontSize * 1.3) < 1e-9)
+        #expect(big[0].box.width > small[0].box.width)
+    }
+
     @Test func persistsThroughUserDefaults() throws {
         let suite = "TextScaleTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

@@ -180,7 +180,7 @@ def parse_cifp_file(filepath: str) -> dict[str, CifpRunway]:
 # callers and its candidate list was XP11-era ("Custom Scenery/Global
 # Airports", "Resources/default scenery/default apt dat"), neither of
 # which exists on an X-Plane 12 install.  Use
-# ``apt_dat_reader.find_airport_apt_dat(xplane_root, icao)``: it is the
+# ``auto_patch_v2.airport.apt_dat.select_apt_dat(xplane_root, icao)``: it is the
 # live selector, is per-airport rather than per-install, and finds custom
 # scenery packs that override the shipped Global Airports data.
 

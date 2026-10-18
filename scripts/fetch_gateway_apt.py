@@ -2,7 +2,7 @@
 """ONE AIRPORT'S ``apt.dat``, FROM THE X-PLANE SCENERY GATEWAY (issue #250).
 
 Why this exists.  A full tile build reads airport geometry from an
-X-Plane install — ``auto_patch.apt_dat_reader.find_airport_apt_dat``
+X-Plane install — ``auto_patch_v2.airport.apt_dat.select_apt_dat``
 searches ``<xplane root>/Custom Scenery/<pack>/Earth nav data/apt.dat``,
 then the Global Airports pack, then the stock default scenery.  A GitHub
 runner has no install, and X-Plane's own global ``apt.dat`` is not

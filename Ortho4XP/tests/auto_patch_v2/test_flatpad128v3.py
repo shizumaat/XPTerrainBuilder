@@ -373,15 +373,15 @@ def built_full(law):
     gate = Startup("G1", (0.0, 140.0), 180.0, "gate")
     airport = _airport(law, startups=(gate,))
     pm, _st = build(airport, Classification(tuple(_cells_full()), (), {}, ()), law)
-    from auto_patch_v2.model.platform import HELD, PLATEAUS
-    held, plateaus = {k: dict(v) for k, v in HELD.items()}, dict(PLATEAUS)
+    reg = pm.registries
+    held, plateaus = {k: dict(v) for k, v in reg.held.items()}, dict(reg.plateaus)
     cs, _c, _w = generate(pm, law, airport)
     pm0, _st0 = build(_airport(law), Classification(tuple(_cells_full()), (), {}, ()), law)
-    # the registries are the LAST arrangement's: restore the stand arm's
-    HELD.clear()
-    HELD.update(held)
-    PLATEAUS.clear()
-    PLATEAUS.update(plateaus)
+    assert pm0.registries is not reg          # each map carries its own (#841)
+    # the held records as the arrangement minted them (``generate`` writes
+    # the hold's report into them)
+    reg.held.clear()
+    reg.held.update(held)
     return pm, cs, pm0, plateaus
 
 
@@ -434,9 +434,9 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
     held at pass 1a by the zero-budget flex Bands) keeps its own level with
     its hold relaxed in the pad tier and is REPORTED, never a lift of the
     runway; the pad's interior stays on D."""
-    from auto_patch_v2.model.platform import HELD, datum_vertices
+    from auto_patch_v2.model.platform import datum_vertices
     pm, cs, _pm0, _p = built_full
-    assert HELD.get("padB", {}).get("conforming")
+    assert pm.registries.held.get("padB", {}).get("conforming")
     lw = _arm(law, staged_solve=True)
     z, _rep = _solve(pm, cs, lw, hold=True)
     tol = float(lw.tables.emit.design.hard_tol_m)
@@ -448,7 +448,7 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
     from auto_patch_v2.constraints.platform import _conforming_records
     rec = {r["ref"]: r for r in _conforming_records(pm, lw, z)}["padB"]
     assert abs(rec["datum"] - D) <= 1e-3
-    assert rec["datum_median"] == HELD["padB"]["datum_chosen"]
+    assert rec["datum_median"] == pm.registries.held["padB"]["datum_chosen"]
     # spec §56 (3): the record carries the pad's area (the warning's slot)
     # and the warning's verdict — the faces' own area, holes out
     from auto_patch_v2.planar.index import face_polygon
@@ -457,7 +457,7 @@ def test_a_conforming_pad_is_held_flat(law, built_full):
     assert rec["warned"] is False and rec["warning"] is None
     assert rec["welded"] + rec["released"] == rec["held_contacts"]
     assert rec["released"] == 0 or rec["needs_split"]
-    contacts = {o for o, _z in HELD["padB"].get("hold_contacts", [])}
+    contacts = {o for o, _z in pm.registries.held["padB"].get("hold_contacts", [])}
     vs = {v for f in pm.faces.values() if f.ref == "padB"
           for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
     off = {v for v in contacts if abs(z[v] - D) > tol + 1e-6}
@@ -490,7 +490,6 @@ def test_a_weld_left_off_its_datum_by_the_solve_is_sealed_and_recorded(law, buil
     tolerance; a contact the solve left 0.05 m off is put ON it by the weld
     projection (``HoldPass.seal``) and recorded in its block's
     ``weld_widened`` with the move; a runway-family contact is never moved."""
-    from auto_patch_v2.model.platform import HELD
     pm, cs = built
     lw = _arm(law, staged_solve=True)
     tol = float(lw.tables.emit.design.hard_tol_m)
@@ -506,7 +505,7 @@ def test_a_weld_left_off_its_datum_by_the_solve_is_sealed_and_recorded(law, buil
     got = hp.seal(levels)
     assert got["contacts"] == 1 and abs(got["max_m"] - 0.05) < 1e-9
     assert levels[c] == levels[dv]
-    w = HELD[pref]["weld_widened"]
+    w = pm.registries.held[pref]["weld_widened"]
     assert w["sealed"] == 1 and [*pm.vertices[c].key, 0.05] in w["contacts"]
     assert hp.seal(levels)["contacts"] == 0                       # idempotent
     hp.result = _dc.replace(hp.result, never=frozenset({c}))
@@ -521,7 +520,6 @@ def test_a_weld_the_lp_relaxed_is_widened_and_resolved_never_sealed(law, built, 
     pair graph did not see: the contact joins the block's gives with what it
     is off, the pavement rows naming it are widened and pass 1b is solved
     ONCE more; the weld then stands (released 0) and nothing is sealed."""
-    from auto_patch_v2.model.platform import HELD
     from auto_patch_v2.solve import flex
     pm, cs = built
     lw = _arm(law, staged_solve=True)
@@ -536,7 +534,7 @@ def test_a_weld_the_lp_relaxed_is_widened_and_resolved_never_sealed(law, built, 
     levels[c] = levels[dv] - 0.30
     assert hp.seal(dict(levels))["contacts"] == 0
     assert hp.rewiden(levels) == 1 and abs(hp.result.widen[c] - 0.32) < 1e-9
-    assert HELD[pref]["weld_widened"]["relaxed"] == 1
+    assert pm.registries.held[pref]["weld_widened"]["relaxed"] == 1
     # the pass: stage 1 re-solves ONCE with the widened rows
     hp2 = hold_pass(pm, lw)
     calls = {"n": 0}
@@ -556,7 +554,7 @@ def test_a_weld_the_lp_relaxed_is_widened_and_resolved_never_sealed(law, built, 
     assert s1["weld_seal"]["contacts"] == 0                       # sealed 0
     tol = float(lw.tables.emit.design.hard_tol_m)
     assert abs(z2[c] - z2[dv]) <= tol + 1e-9                      # released 0
-    assert HELD[pref]["weld_widened"]["rows"] > 0
+    assert pm.registries.held[pref]["weld_widened"]["rows"] > 0
 
 
 def test_the_hold_pass_widens_only_the_pavement_rows_naming_a_closing_contact(law, built):
@@ -566,7 +564,6 @@ def test_the_hold_pass_widens_only_the_pavement_rows_naming_a_closing_contact(la
     the same count of rows, every hold row and every row naming no such
     contact byte-identical, and the block's record carries the count."""
     from auto_patch_v2.constraints.weld_floor import pavement_heads, ruling_note
-    from auto_patch_v2.model.platform import HELD
     pm, cs = built
     lw = _arm(law, staged_solve=True)
     hp = hold_pass(pm, lw)
@@ -576,12 +573,12 @@ def test_the_hold_pass_widens_only_the_pavement_rows_naming_a_closing_contact(la
     heads = pavement_heads(lw)
     hp.result = _dc.replace(hp.result, widen={c: 0.4})
     hp.result.blocks[pref].update(widened=True, gives={c: 0.4})
-    HELD[pref]["weld_widened"] = {"floor_m": 1.0, "contacts": [[*pm.vertices[c].key, 0.4]]}
+    pm.registries.held[pref]["weld_widened"] = {"floor_m": 1.0, "contacts": [[*pm.vertices[c].key, 0.4]]}
     out = hp.widened(cs)
     a, b = list(cs.rows()), list(out.rows())
     assert len(a) == len(b)
     changed = [(x, y) for x, y in zip(a, b) if x != y]
-    assert changed and HELD[pref]["weld_widened"]["rows"] == len(changed)
+    assert changed and pm.registries.held[pref]["weld_widened"]["rows"] == len(changed)
     for x, y in changed:
         vs = ({int(x.a), int(x.b)} if hasattr(x, "a") else {int(v) for v, _k in x.terms})
         assert c in vs and x.source.ruling.split(" (")[0].strip() in heads

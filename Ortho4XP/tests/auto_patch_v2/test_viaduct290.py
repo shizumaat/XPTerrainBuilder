@@ -199,7 +199,7 @@ def test_a_landing_ref_is_never_a_block():
 def test_the_landing_cut_takes_a_lot_never_a_road_or_airside():
     from shapely.geometry import box
     from auto_patch_v2.law import Law
-    from auto_patch_v2.model.platform import LANDINGS
+    from auto_patch_v2.model.registries import Registries
     from auto_patch_v2.planar import landing as LD
     from auto_patch_v2.planar.overlay import Region
     law = Law.load()
@@ -211,12 +211,9 @@ def test_the_landing_cut_takes_a_lot_never_a_road_or_airside():
                   "groundside", "cell")
     apron = Region("apron", "ap", box(10, 0, 20, 10), None, None,
                    "airside", "cell")
-    LANDINGS.clear()
-    LANDINGS["u/landing0"] = {"block": "u/b0", "y": 0.0}
-    try:
-        out = LD.landing_cut([lot, road, apron], [land], law)
-    finally:
-        LANDINGS.clear()
+    reg = Registries()
+    reg.landings["u/landing0"] = {"block": "u/b0", "y": 0.0}
+    out = LD.landing_cut([lot, road, apron], [land], law, reg=reg)
     lots = [r for r in out if r.role == "parking_lot"]
     assert abs(sum(r.polygon.area for r in lots) - (25 * 25 - 100)) < 1e-6
     assert [r for r in out if r.role == "service_road"][0] is road
@@ -230,7 +227,7 @@ def _regions_for_foot(monkeypatch, foot_y):
     against its unit's pad, the unit a held 200 x 200 m block beside it."""
     from shapely.geometry import box
     from auto_patch_v2.law import Law
-    from auto_patch_v2.model.platform import HELD, LANDINGS
+    from auto_patch_v2.model.registries import Registries
     from auto_patch_v2.planar import landing as LD
     from auto_patch_v2.planar.overlay import Region
     p = _ramp()
@@ -246,15 +243,11 @@ def _regions_for_foot(monkeypatch, foot_y):
     pad = Region("building", "u", box(-300, 0, -100, 200), None, None,
                  "airside", "cell")
     counts: dict = {}
-    HELD.clear()
-    HELD["u"] = {"unit": "u", "k": 0, "blocks": 1}
-    try:
-        got = LD.landing_regions([pad], {}, [box(-900, 0, -800, 10)], airport,
-                                 Law.load(), 0.0, 15.0, counts)
-        return got, counts, dict(LANDINGS)
-    finally:
-        HELD.clear()
-        LANDINGS.clear()
+    reg = Registries()
+    reg.held["u"] = {"unit": "u", "k": 0, "blocks": 1}
+    got = LD.landing_regions([pad], {}, [box(-900, 0, -800, 10)], airport,
+                             Law.load(), 0.0, 15.0, counts, reg=reg)
+    return got, counts, dict(reg.landings)
 
 
 def test_a_foot_within_the_band_of_its_units_pad_is_a_landing(monkeypatch):
@@ -283,17 +276,14 @@ def test_a_deck_that_never_comes_down_to_the_pad_mints_no_landing(monkeypatch):
 def test_the_sidecar_publishes_each_landing_with_its_deck_and_level(monkeypatch):
     from auto_patch_v2.constraints import platform as CP
     from auto_patch_v2.emit.osm_adapter import SIDECAR_KEYS
-    from auto_patch_v2.model.platform import LANDINGS
+    from auto_patch_v2.model.registries import Registries
     from auto_patch_v2.pipeline import publication as PB
     assert "landings" in SIDECAR_KEYS
     monkeypatch.setattr(CP, "landing_vertices", lambda _p: {"u/landing0": [0, 1, 2]})
-    LANDINGS.clear()
-    LANDINGS["u/landing0"] = {"block": "u", "y": -0.2, "deck": "d.obj",
-                              "area_m2": 12.0}
-    try:
-        got = PB._landings(None, [99.8, 99.8, 99.9])
-        assert got == [{"ref": "u/landing0", "block": "u", "deck": "d.obj",
-                        "y": -0.2, "area_m2": 12.0, "level": 99.8}]
-        assert PB._landings(None, None)[0]["level"] is None
-    finally:
-        LANDINGS.clear()
+    pm = types.SimpleNamespace(registries=Registries())
+    pm.registries.landings["u/landing0"] = {"block": "u", "y": -0.2, "deck": "d.obj",
+                                            "area_m2": 12.0}
+    got = PB._landings(pm, [99.8, 99.8, 99.9])
+    assert got == [{"ref": "u/landing0", "block": "u", "deck": "d.obj",
+                    "y": -0.2, "area_m2": 12.0, "level": 99.8}]
+    assert PB._landings(pm, None)[0]["level"] is None

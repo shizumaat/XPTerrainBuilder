@@ -136,6 +136,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.model.planar",
     "auto_patch_v2.model.pulse",
     "auto_patch_v2.model.rebake",
+    "auto_patch_v2.model.registries",
     "auto_patch_v2.model.structures",
     "auto_patch_v2.planar.cluster",
 )

@@ -258,11 +258,11 @@ def test_the_airside_vertex_set_barely_depends_on_whether_a_pad_exists():
     noded in ONE snap-rounding union and a pad ring both split airside
     edges outright and moved unrelated airside nodes by half a grid cell.
     """
-    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
     law = _armed(_law())
     # a pad hanging off the apron's north edge: it CROSSES the rim, which
     # is the case that used to split an airside edge at each crossing
-    _renode_scene(law, ((-60, 260), (60, 260), (60, 380), (-60, 380)))
+    PAD_AIRSIDE = _renode_scene(law, ((-60, 260), (60, 260), (60, 380),
+                                      (-60, 380))).registries.pad_airside
     assert PAD_AIRSIDE["renode_deleted"] == 0, dict(PAD_AIRSIDE)
     # THE RESIDUAL, NAMED AND MEASURED (attempt cap, RULINGS 2026-09-16b):
     # this fixture's apron edge runs 400 m with its own nodes 57 m apart,
@@ -292,9 +292,9 @@ def test_a_pad_wholly_on_airside_is_dropped_and_mints_nothing():
     MEASURED at HECA those 8 pads were the ONLY re-node class left once
     the airside was noded first: 548 of 553 minted airside nodes, every
     one STRICTLY INSIDE the airside union."""
-    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
     law = _armed(_law())
     arr = _renode_scene(law, ((-60, 150), (60, 150), (60, 250), (-60, 250)))
+    PAD_AIRSIDE = arr.registries.pad_airside
     assert PAD_AIRSIDE.get("dropped_wholly_on_airside") == 1, dict(PAD_AIRSIDE)
     assert PAD_AIRSIDE["renode_minted"] == 0 and PAD_AIRSIDE["renode_deleted"] == 0
     assert not any(r.role == "building" for _p, r in arr.faces)
@@ -331,7 +331,7 @@ def test_an_absent_renode_key_means_NOT_MEASURED_not_zero():
     lane's matched replay arms read a perfect ``pad_airside_renode``, which
     is the silent-degradation class the harness exists to refuse."""
     from auto_patch_v2.pipeline.publication import _renode_rows
-    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
+    from auto_patch_v2.model.registries import Registries
 
     class _F:
         def transformers(self):
@@ -340,14 +340,11 @@ def test_an_absent_renode_key_means_NOT_MEASURED_not_zero():
     class _A:
         frame = _F()
 
-    keep = dict(PAD_AIRSIDE)
-    try:
-        PAD_AIRSIDE.clear()
-        assert _renode_rows(_A()) is None
-        PAD_AIRSIDE.update(renode_deleted=0, renode_minted=1,
-                           renode_deleted_xy=[], renode_minted_xy=[(3.0, 4.0)])
-        got = _renode_rows(_A())
-        assert got == [[4.0, 3.0, "minted"]], got
-    finally:
-        PAD_AIRSIDE.clear()
-        PAD_AIRSIDE.update(keep)
+    class _P:
+        registries = Registries()
+
+    assert _renode_rows(_P(), _A()) is None
+    _P.registries.pad_airside.update(renode_deleted=0, renode_minted=1,
+                                     renode_deleted_xy=[], renode_minted_xy=[(3.0, 4.0)])
+    got = _renode_rows(_P(), _A())
+    assert got == [[4.0, 3.0, "minted"]], got

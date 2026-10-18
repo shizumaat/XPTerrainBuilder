@@ -13,14 +13,16 @@ answer as ``auto_patch_v2/airport/partition_code.sha256``; the frozen
 engine reads that file.  Same sources, same digest — in a checkout and in
 every engine frozen from it.
 
-STDLIB ONLY, NO RELATIVE IMPORT: the specs execute this one file with
-``runpy`` (they never import engine packages).  Keep it that way.
+STDLIB ONLY, NO RELATIVE IMPORT: the specs execute this file with
+``runpy`` (they never import engine packages).  Keep it that way.  The
+closure, digest and digest-file mechanism is the shared one in
+``src/O4_Code_Closure.py`` (#842, also stdlib only), loaded by path when
+this file is executed by path; this module owns only the partition's
+module lists and its file name.
 """
 from __future__ import annotations
 
-import hashlib
 import os
-import typing as _t
 
 __all__ = ["CODE_MODULES", "ENTRY_MODULES", "PLUMBING_MODULES",
            "DIGEST_FILENAME", "digest_of", "source_path", "freeze_digest",
@@ -165,35 +167,31 @@ PLUMBING_MODULES: tuple[str, ...] = (
 )
 
 
-def digest_of(sources: _t.Iterable[tuple[str, "str | None"]]) -> str | None:
-    """sha256 over ``name \\0 source bytes \\0`` of every ``(module name,
-    source path)`` in order, or ``None`` when ANY source is missing or
-    unreadable — a digest of some of the code is not a digest of the code."""
-    h = hashlib.sha256()
-    for name, src in sources:
-        try:
-            if not src or not os.path.isfile(src):
-                return None
-            with open(src, "rb") as fh:
-                h.update(name.encode()); h.update(b"\0")
-                h.update(fh.read()); h.update(b"\0")
-        except OSError:
-            return None
-    return h.hexdigest()
+#: The ONE implementation of the closure, the digest and the digest file
+#: (``src/O4_Code_Closure.py``, #842).  Imported in a checkout, a test and
+#: a frozen engine; loaded BY PATH when a ``.spec`` executes this file
+#: with ``runpy`` (``src`` is not on ``sys.path`` then).
+try:
+    import O4_Code_Closure as _closure_module
+    _CLOSURE = vars(_closure_module)
+except ImportError:
+    import runpy as _runpy
+    _CLOSURE = _runpy.run_path(os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), os.pardir, os.pardir,
+        "O4_Code_Closure.py"))
 
-
-def source_path(src_root: str, name: str) -> str:
-    """``name``'s source under ``src_root``: ``<name>.py``, or the
-    package's ``__init__.py``."""
-    base = os.path.join(src_root, *name.split("."))
-    return os.path.join(base, "__init__.py") if os.path.isdir(base) else base + ".py"
+#: sha256 over ``name \0 source bytes \0`` of ``(module name, source
+#: path)`` pairs, ``None`` when any source is missing (the shared one).
+digest_of = _CLOSURE["digest_of"]
+#: ``name``'s source under ``src_root`` (the shared one).
+source_path = _CLOSURE["source_path"]
 
 
 def freeze_digest(src_root: str) -> str | None:
     """:func:`digest_of` over :data:`CODE_MODULES` read under ``src_root``
     (the directory holding ``auto_patch_v2``) — what the freeze writes to
     :data:`DIGEST_FILENAME`.  Equal to the checkout's own digest."""
-    return digest_of((name, source_path(src_root, name)) for name in CODE_MODULES)
+    return _CLOSURE["modules_digest"](src_root, CODE_MODULES)
 
 
 def write_freeze_digest(src_root: str, out_dir: str, *,
@@ -205,22 +203,17 @@ def write_freeze_digest(src_root: str, out_dir: str, *,
     ``SystemExit`` when a listed module has no source — an engine frozen
     without the file would key the cache on its version again, silently.
 
-    ``filename`` and ``digest`` make this the ONE writer of a freeze-time
-    digest file: the patch gate's ``provenance_code`` (#346) passes its own name
-    and its own whole-tree digest, having refused an empty one itself."""
+    ``filename`` and ``digest`` serve the patch gate's ``provenance_code``
+    (#346), which passes its own name and its own whole-tree digest,
+    having refused an empty one itself."""
     if digest is None:
         digest = freeze_digest(src_root)
-    if not digest:
-        raise SystemExit(
-            "ERROR: could not digest the partition cache's code modules under "
-            f"{src_root!r} (partition_code.CODE_MODULES names a module with no "
-            "source file) — refusing to freeze an engine whose partition "
-            "cache would key on the app version.")
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, filename)
-    with open(path, "w", encoding="ascii", newline="\n") as fh:
-        fh.write(digest + "\n")
-    return path
+    return _CLOSURE["write_digest_file"](
+        out_dir, filename, digest,
+        "ERROR: could not digest the partition cache's code modules under "
+        f"{src_root!r} (partition_code.CODE_MODULES names a module with no "
+        "source file) — refusing to freeze an engine whose partition "
+        "cache would key on the app version.")
 
 
 def frozen_digest(directory: str | None = None, *,
@@ -228,15 +221,7 @@ def frozen_digest(directory: str | None = None, *,
     """The digest the freeze wrote beside this module (``directory/
     <filename>``), or ``None`` when the file is absent or is not one
     sha256 (a checkout; an engine frozen by a spec that predates it) — the
-    caller then falls back.  The ONE reader of a freeze-time digest file,
-    as :func:`write_freeze_digest` is the one writer."""
+    caller then falls back."""
     d = directory if directory is not None else os.path.dirname(
         os.path.abspath(__file__))
-    try:
-        with open(os.path.join(d, filename), "r", encoding="ascii") as fh:
-            got = fh.read(256).strip().lower()
-    except (OSError, ValueError):
-        return None
-    if len(got) == 64 and all(c in "0123456789abcdef" for c in got):
-        return got
-    return None
+    return _CLOSURE["read_digest"](d, filename)

@@ -32,9 +32,9 @@ struct PatchNodeInspector: View {
     @ViewBuilder
     private func single(_ node: PatchNode) -> some View {
         HStack {
-            Text("Node \(node.id)").font(.callout.weight(.semibold))
+            Text("Node \(node.id)").scaledFont(.callout, weight: .semibold)
             Spacer()
-            Text("1 selected").font(.caption).foregroundStyle(.secondary)
+            Text("1 selected").scaledFont(.caption).foregroundStyle(.secondary)
         }
         row("lat", String(format: "%.9f", node.lat))
         row("lon", String(format: "%.9f", node.lon))
@@ -42,19 +42,19 @@ struct PatchNodeInspector: View {
             Text("Elevation").foregroundStyle(.secondary)
             TextField(node.alt == nil ? "from the mesh" : "", text: $altText.value)
                 .textFieldStyle(.roundedBorder)
-                .font(.callout.monospacedDigit())
+                .scaledFont(.callout, monospacedDigit: true)
                 .onSubmit { if let v = Self.number(altText.value) { model.setSelectionAlt(v) } }
             Text("m").foregroundStyle(.secondary)
         }
-        .font(.callout)
+        .scaledFont(.callout)
         .onAppear { altText.value = Self.metres(node.alt) }
         .onChange(of: node) { altText.value = Self.metres(node.alt) }
         note(elevationNote(node))
         let roles = Set(doc.waysUsing(node.id).compactMap(\.roleName)).sorted()
         if !roles.isEmpty {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("Used by").foregroundStyle(.secondary).font(.callout)
-                Text(roles.joined(separator: ", ")).font(.callout).fixedSize(horizontal: false, vertical: true)
+                Text("Used by").foregroundStyle(.secondary).scaledFont(.callout)
+                Text(roles.joined(separator: ", ")).scaledFont(.callout).fixedSize(horizontal: false, vertical: true)
             }
         }
         Button("Delete node", role: .destructive) { model.deleteSelection() }
@@ -77,10 +77,10 @@ struct PatchNodeInspector: View {
     private func multi(_ ids: [Int64]) -> some View {
         let alts = ids.compactMap { doc.nodes[$0]?.alt }
         HStack {
-            Text("\(ids.count.formatted()) nodes").font(.callout.weight(.semibold))
+            Text("\(ids.count.formatted()) nodes").scaledFont(.callout, weight: .semibold)
             Spacer()
             if let lo = alts.min(), let hi = alts.max() {
-                Text(String(format: "%.2f – %.2f m", lo, hi)).font(.callout.monospacedDigit())
+                Text(String(format: "%.2f – %.2f m", lo, hi)).scaledFont(.callout, monospacedDigit: true)
             }
         }
         if alts.count < ids.count {
@@ -97,13 +97,13 @@ struct PatchNodeInspector: View {
             Text(label).foregroundStyle(.secondary).frame(width: 48, alignment: .leading)
             TextField(placeholder, text: text)
                 .textFieldStyle(.roundedBorder)
-                .font(.callout.monospacedDigit())
+                .scaledFont(.callout, monospacedDigit: true)
                 .onSubmit { if let v = Self.number(text.wrappedValue) { apply(v) } }
             Text("m").foregroundStyle(.secondary)
             Button("Apply") { if let v = Self.number(text.wrappedValue) { apply(v) } }
                 .disabled(Self.number(text.wrappedValue) == nil)
         }
-        .font(.callout)
+        .scaledFont(.callout)
     }
 
     // MARK: - Helpers
@@ -118,12 +118,12 @@ struct PatchNodeInspector: View {
         HStack {
             Text(key).foregroundStyle(.secondary)
             Spacer()
-            Text(value).font(.callout.monospacedDigit()).textSelection(.enabled)
+            Text(value).scaledFont(.callout, monospacedDigit: true).textSelection(.enabled)
         }
-        .font(.callout)
+        .scaledFont(.callout)
     }
 
     private func note(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Text(text).scaledFont(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 }

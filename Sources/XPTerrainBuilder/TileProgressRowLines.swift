@@ -22,7 +22,7 @@ struct TileProgressRowLines<Trailing: View>: View {
 
     private var titleLine: some View {
         Text(text.title)
-            .font(.caption.monospaced())
+            .scaledFont(.caption, design: .monospaced)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -31,7 +31,7 @@ struct TileProgressRowLines<Trailing: View>: View {
     private var statusLine: some View {
         HStack(spacing: 6) {
             Text(text.status)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(statusColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -39,7 +39,7 @@ struct TileProgressRowLines<Trailing: View>: View {
             Spacer(minLength: 6)
             if let time = text.time {
                 Text(time)
-                    .font(.caption.monospacedDigit())
+                    .scaledFont(.caption, monospacedDigit: true)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .fixedSize()

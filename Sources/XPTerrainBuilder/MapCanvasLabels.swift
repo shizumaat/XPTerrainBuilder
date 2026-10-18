@@ -18,7 +18,8 @@ extension MapCanvasView {
 
     static func makeAirportPlan(overlays: MapOverlays, cam: MapCamera, size: CGSize,
                                 bounds: (minLon: Double, maxLon: Double,
-                                         minLat: Double, maxLat: Double)) -> AirportPlan {
+                                         minLat: Double, maxLat: Double),
+                                textScale: Double = TextScale.defaultValue) -> AirportPlan {
         var plan = AirportPlan()
         plan.radius = CGFloat(MapLabelLayout.markRadius(scale: cam.scale))
         func inView(_ info: AirportInfo) -> Bool {
@@ -47,7 +48,8 @@ extension MapCanvasView {
                                     runwayMeters: airport.runwayMeters, custom: true))
         }
         let placed = MapLabelLayout.place(candidates, scale: cam.scale,
-                                          markRadius: Double(plan.radius))
+                                          markRadius: Double(plan.radius),
+                                          textScale: textScale)
         let r = plan.radius
         for index in placed.marks {
             let c = candidates[index]
@@ -119,8 +121,8 @@ extension MapCanvasView {
                           anchorTop: Bool) {
         let resolved = context.resolve(
             Text(text)
-                .font(.system(size: MapLabelLayout.tileLabelFont, weight: .medium,
-                              design: .monospaced))
+                .font(.system(size: TextScale.scaled(MapLabelLayout.tileLabelFont, textScale),
+                              weight: .medium, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.92)))
         let textSize = resolved.measure(in: CGSize(width: 400, height: 40))
         let pill = CGRect(x: point.x, y: anchorTop ? point.y : point.y - textSize.height - 4,
@@ -139,6 +141,7 @@ final class AirportPlanCache: ObservableObject {
         let size: CGSize
         let defaults: Int
         let customs: Int
+        let textScale: Double
     }
 
     private var key: Key?

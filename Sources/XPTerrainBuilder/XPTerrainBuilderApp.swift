@@ -26,6 +26,7 @@ struct XPTerrainBuilderApp: App {
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)
+                .textScaleRoot()
         }
         .defaultSize(width: 1280, height: 860)
         .defaultPosition(.center)
@@ -97,6 +98,9 @@ struct AppCommands: Commands {
                 openWindow(id: TerrainPreview.windowID, value: TerrainPreview.windowValue)
             }
             .keyboardShortcut("3", modifiers: .command)
+            // View ▸ Bigger / Smaller / Actual Size text (#827).
+            Divider()
+            TextScaleCommands()
         }
     }
 }

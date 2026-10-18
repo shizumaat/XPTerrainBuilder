@@ -103,14 +103,16 @@ public enum MapLabelLayout {
 
     /// `marks`: indexes of every marked candidate, in input order;
     /// `labels`: (index, box) in rank order, no two boxes overlapping.
+    /// `textScale` is the app's text size (#827, `TextScale`): it scales
+    /// the label font, so bigger labels claim bigger boxes.
     public static func place(_ candidates: [Candidate], scale: Double, markRadius: Double,
-                             limit: Int = maxAirportLabels)
+                             limit: Int = maxAirportLabels, textScale: Double = 1)
         -> (marks: [Int], labels: [(index: Int, box: Box)]) {
         let marks = candidates.indices.filter {
             markVisible(sizeClass: candidates[$0].sizeClass,
                         custom: candidates[$0].custom, scale: scale)
         }
-        let font = fontSize(scale: scale)
+        let font = fontSize(scale: scale) * textScale
         let order = marks
             .filter { labelAllowed(sizeClass: candidates[$0].sizeClass,
                                    custom: candidates[$0].custom, scale: scale) }

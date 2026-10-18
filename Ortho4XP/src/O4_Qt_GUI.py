@@ -1044,7 +1044,7 @@ class MainWindow(QMainWindow):
         self.info_elevation = TwoLineElidedLabel("—")
         ig.addRow("Elevation:", self.info_elevation)
         self.info_airport_lidar = TwoLineElidedLabel("—")
-        ig.addRow("Airport elevation:", self.info_airport_lidar)
+        ig.addRow("Airport terrain:", self.info_airport_lidar)
         # Manual-setup affordance (VIEW): shown by the controller when
         # the model reports manual-download sources that could serve
         # the active tile but are not set up yet.

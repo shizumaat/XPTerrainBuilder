@@ -401,9 +401,12 @@ Hypothesis: HECA's 4.34 M rows encode + digest in ≤ 1 s and decode in ≤ 1 s
 (objects: 3.3 + 3.0 s); measured by the codec landing (§10 step 7) before any
 cache uses it. If the codec misses that, the constraint records fall back to
 KEY chaining (the solve names the assembly by its key, not its output digest;
-early cutoff then stops at the constraints) and the miss arm stays Python
-pickle — written by a writer thread (zlib and file I/O release the GIL), the
-encode on the build thread. This fallback is the codec lane's to report.
+early cutoff then stops at the constraints); the records are still stored
+with the codec, not pickle (RULINGS 2026-10-18e: measured at HECA, exact round
+trip, 2.2 s write vs 3.2 s pickle, 36 MB vs 422 MB; decode 1.6–2.1 s misses
+the 1 s target, so key chaining applies) — written by a writer thread (zlib
+and file I/O release the GIL), the encode on the build thread. This fallback
+is the codec lane's to report.
 
 **Environment fingerprint.** `pipeline/xplat.environment()` already reports the
 interpreter, platform and the bundled numerics (numpy, scipy, highspy, shapely,

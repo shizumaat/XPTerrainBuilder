@@ -202,27 +202,37 @@ Only the pack partition has a code closure (`src/auto_patch_v2/airport/partition
 cacheable stage (classify, planar, flat_site, road_profile, shapes), the closure held by a twin,
 one `stage_code.sha256` written by both `.spec` files at freeze. No behaviour change.
 Dependencies: none (parallel to B3-08).
+(Merged as #889. The back-half stages' `ENTRY_MODULES` — 57 generators, assembly, jetway_strip,
+solve, late_cut, late_solve, emit, verify — are added by B3-11e, spec §10 step 9.)
 
 ---
 
 ## B3-11 → #843
 
-**Title:** Content-keyed per-stage cache for the v2 pipeline with DEM and law witnesses
+**Title:** Content-keyed per-stage cache for the whole v2 airport build (front half + constraints, solve, late_stage, emit, verify) with DEM and law witnesses
 
 **Labels:** `feature`, `performance`, `area:airport-solve`, `needs-owner`
 
 **Body:**
-Every stage before constraints is recomputed on every build (median shares: load 6.4, partition
-13.5, classify 17.0, planar 9.9 %, `src/auto_patch/engine_v2.py:70-84`); only the partition is
-cached. Spec: `docs/specs/v2-stage-cache-spec.md` §4–9. Change: `airport/stage_cache.py` beside
-`partition_cache.py` — key = stage + stage code digest + law witness + input digests; the law
-witness records the table rows a stage read (a recording proxy over `law.tables`) and a read
-holds only if they resolve to the same values; DEM witness as the partition's; LRU size cap;
-`O4_V2_STAGE_CACHE=0`. Gate: patch + sidecar byte-identical hit vs miss on HECA (closing) and
-CYXY; `check_build_time.py --run HECA --runs 3` both arms, the miss arm within 0.6 s of cache-off
-or reviewed; replay of a registered capture identical. Hypothesis: a law/solve/emit change reruns
-constraints/solve/emit only (40–70 % of the airport wall skipped). Owner decides the cache root
-and cap (plan Q1, Q2). Dependencies: B3-09, B3-10.
+AMENDED 2026-10-18 (owner RULINGS 2026-10-18b): the cache covers the whole airport build. Spec:
+`docs/specs/v2-stage-cache-spec.md` §4–9 (front half) and §1 "The back half", §3b, §4b, §4c, §12–§14
+(back half). Median shares of the last sweep's builds (`<ICAO>.report.json` `wall_s`, 2026-10-16/17):
+front (load…shapes) 28.3, constraints + jetway 6.0, solve 39.0, late_stage 23.4, emit 1.4,
+verify 2.2 %; only the partition is cached today. Change: `airport/stage_cache.py` beside
+`partition_cache.py` — key = stage + stage code digest + law witness + input OUTPUT digests +
+environment fingerprint; DEM witness as the partition's; LRU under the user's data folder, 2 GB
+cap (17a Q1); `O4_V2_STAGE_CACHE=0` (read in `auto_patch/engine_v2.py`). Back half: one record per
+constraint generator plus an assembly delta, jetway_strip, solve (served only after its residual
+certificate is re-evaluated on the cached `z`), late cut / late solve, emit (file bodies), verify
+(served only for the patch bytes on disk it judged); the prefix re-runs inside the solve and the
+late stage go through the same records; `HARD_CONFLICT` / `RUNWAY_FLEX` become solve-record fields.
+Landings: spec §10 steps 4 and 6–9 (B3-11, B3-11b…e). Gate: patch + sidecar byte-identical cold vs
+full hit vs each single-stage miss on HECA (closing) and CYXY; two cold builds byte-identical first
+(T7); `check_build_time.py --run HECA --runs 3` cache-OFF vs miss arm, the miss arm judged (17a Q2).
+Hypothesis: an emit- or verify-only change rebuilds HECA in ≈ 25–45 s instead of ≈ 807 s; a law
+edit is a full rebuild until the law-row witness lands. Owner questions: spec §14 (cap, verify,
+determinism only if T7 fails). Dependencies: B3-09, B3-10 (both merged or in review: #888/#893,
+#889).
 
 ---
 

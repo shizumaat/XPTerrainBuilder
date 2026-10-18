@@ -244,7 +244,7 @@ def test_sample_many_edges():
 def test_engine_surface_carries_many(monkeypatch):
     """``_surface`` must satisfy ``placement_geom.surface_many``'s
     ``.many`` protocol, and the memo must not change an answer."""
-    from auto_patch import engine_v2
+    from auto_patch import object_stage
     from auto_patch_v2.airport import placement_geom
 
     calls = {"point": 0, "batch": 0}
@@ -259,7 +259,7 @@ def test_engine_surface_carries_many(monkeypatch):
                 for a, o in zip(latitudes, longitudes)]
 
     sample.many = sample_many
-    surface = engine_v2._placement_surface(sample)
+    surface = object_stage._placement_surface(sample)
     assert callable(getattr(surface, "many", None))
 
     points = [(1.0, 2.0, 0.0), (3.0, 4.0, 0.0), (1.0, 2.0, 0.0)]
@@ -277,7 +277,7 @@ def test_engine_surface_carries_many(monkeypatch):
 
 def test_engine_surface_many_without_batch_sampler():
     """A sampler with no ``.many`` still yields a working ``.many``."""
-    from auto_patch import engine_v2
+    from auto_patch import object_stage
     from auto_patch_v2.airport import placement_geom
 
     def sample(latitude, longitude):
@@ -285,7 +285,7 @@ def test_engine_surface_many_without_batch_sampler():
             return None
         return (latitude * 10.0, False)
 
-    surface = engine_v2._placement_surface(sample)
+    surface = object_stage._placement_surface(sample)
     assert callable(getattr(surface, "many", None))
     assert placement_geom.surface_many(
         surface, [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0), (2.0, 0.0, 0.0)]

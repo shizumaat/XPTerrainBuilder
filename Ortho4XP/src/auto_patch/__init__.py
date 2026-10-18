@@ -18,13 +18,14 @@ new engine work belongs in ``auto_patch_v2``.
 Package layout
 --------------
 * the drivers — ``driver`` (tile-level orchestrator, this entry point),
-  ``engine_v2`` (the per-airport v2 adapter: build, stamp, verify, place),
+  ``engine_v2`` (the per-airport v2 adapter: build, stamp, verify),
   ``selection`` (which airports a tile builds), ``progress``,
   ``provenance`` (the freshness stamps and gate inventory)
 * the readers — ``apt_dat_reader``, ``cifp_reader``, ``dsf_reader``,
   ``agp_reader``, ``obj8_reader``, ``osm_aeroway``
 * the flat-site detector — ``flat_site`` / ``flat_site_mode``
-* the object stage (post-mesh) — ``post_mesh``, ``object_rebake``,
+* the object stage (post-mesh) — ``object_stage`` (``rebake_after_mesh``,
+  the placement writes), ``post_mesh``, ``object_rebake``,
   ``object_anchor``, ``object_frame``, ``object_clusters``,
   ``object_footprints``, ``object_terrain_features``,
   ``object_terrain_kinds``, ``obj8_partition``, ``mesh_sampler``

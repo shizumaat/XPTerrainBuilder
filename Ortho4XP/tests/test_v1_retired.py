@@ -82,6 +82,7 @@ KEEP = frozenset({
     "auto_patch.config",
     "auto_patch.driver",
     "auto_patch.engine_v2",
+    "auto_patch.object_stage",
     "auto_patch.geom_safe",
     "auto_patch.progress",
     "auto_patch.provenance",

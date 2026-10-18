@@ -216,7 +216,7 @@ def test_the_selfcheck_counts_the_registry_from_the_engine_entry():
 
 def test_the_selfcheck_fails_and_names_a_strategy_that_did_not_register(
         monkeypatch, capsys):
-    import O4_Proj_Runtime as runtime
+    import O4_Import_Selfcheck as IMPORT_SELFCHECK
     from elevation_access import registry
 
     monkeypatch.setattr(registry, "ACCESS_STRATEGIES", {
@@ -226,7 +226,7 @@ def test_the_selfcheck_fails_and_names_a_strategy_that_did_not_register(
     assert not ok
     assert line == ("elevation_access registry: FAIL 26 of 27 keys; "
                     "missing wcs_kvp")
-    assert runtime.import_selfcheck_main(
+    assert IMPORT_SELFCHECK.import_selfcheck_main(
         ["Ortho4XP", "--import-selfcheck", "json"]) == 1
     assert "missing wcs_kvp" in capsys.readouterr().out
 

@@ -35,7 +35,7 @@ and a whole-tree digest. The plan is to generalise what we have, not to import E
 | W1 | Step reuse: per-step code identity, early cutoff on output content, resume, DSF step, DDS content cache | `step-reuse-content-keys-spec.md` | — (W1.3 after owner Q3) | byte-identical |
 | W2 | Frozen reference fixtures for the inherited `O4_*` vector/mesh/DSF stages | `code-quality-beta3-spec.md` §6 | — | twins |
 | W3 | Mesh I/O: shared numpy reader/writer; binary Triangle4XP I/O behind a flag | `mesh-io-spec.md` | W2 | byte-identical |
-| W4 | v2 per-stage content-keyed cache (registries → stage outputs; stage code identity; law witness; the store) | `v2-stage-cache-spec.md` | — | byte-identical (hit == miss) |
+| W4 | v2 per-stage content-keyed cache for the whole airport build (registries → stage outputs; stage code identity; law witness; the store; back half per RULINGS 2026-10-18b) | `v2-stage-cache-spec.md` | — | byte-identical (hit == miss) |
 | W5 | Imagery fetch: adaptive concurrency + hedging; async HTTP/2 fetcher behind a flag | `imagery-fetch-spec.md` §4–5 | W0 | byte-identical orthophotos |
 | W6 | Texture encode: in-process BC1/BC3 with linear-light mips, behind a flag | `texture-encode-spec.md` §4 | owner Q4, Q5 | **owner sim read** |
 | W7 | DSF encoder and masks: measure first, vectorise only what the profile earns | `dsf-and-masks-measure-first-spec.md` | W2, W3 | byte-identical / "not worth it" |
@@ -121,8 +121,8 @@ nvcompress under Rosetta (E `docs/benchmarks/*`); none was measured on our tree.
 | W0 https host | +30–40 % request rate at today's concurrency; HTTP/2 | E `network.md` §1 (222 → 287–317 req/s at 32 in flight) |
 | W1 no-op rebuild | vector+mesh+masks skipped after any unrelated commit (today: never during development) | `O4_Step_Reuse.py:211-215` keys on the whole-tree digest |
 | W1 DDS cache | the shared-edge textures of a neighbour tile and every rebuild after a cleared build dir skip conversion | mechanism only; count the shared names on one tile pair |
-| W4 stage cache | a law/solve change reruns constraints/solve/emit only: ~55–75 % of the airport wall skipped on a hit (OTHH comment: 75 % in partition+structures+planar) | `engine_v2.py:70-84`; median shares load 6.4 / partition 13.5 / classify 17.0 / planar 9.9 % |
-| W4 miss arm | ≤ 1 s added per airport (digests of in-memory products) | hypothesis; the law's 1 % is 0.6 s — measured before landing |
+| W4 stage cache | (amended 2026-10-18, RULINGS 18b) every stage keyed: an emit- or verify-only change rebuilds ≈ 5–9 % of the median wall; a solve change ≈ 55–70 %; one generator ≈ 67–70 %; a law edit 100 % until the law-row witness lands | `v2-stage-cache-spec.md` §1, §12; median shares 2026-10-16/17 front 28.3 / constraints 6.0 / solve 39.0 / late_stage 23.4 / emit 1.4 / verify 2.2 % |
+| W4 miss arm | ≤ 1 s added per airport (digests of in-memory products) — needs the columnar constraint codec at HECA (object pickling of its 4.3 M rows is ≈ 4 s per set, up to four sets) | hypothesis; the law's 1 % is 0.6 s — measured before landing (spec §4c) |
 | W5 fetcher | 3–6× request rate on a cold cache (E: 1,436 req/s at 128 in flight vs 222 on our host/pattern) | E `network.md` §2; our line and provider terms differ |
 | W3 mesh I/O | mesh step 8.5 → 2.8 s class saving (E), on top of Triangle's own ~3 s | E ADR 0004 |
 | W6 encoder | 0.33 s/texture (E) vs our DDSTool (unmeasured on arm64) | E `dds-encoder.md`; gain unknown until measured |

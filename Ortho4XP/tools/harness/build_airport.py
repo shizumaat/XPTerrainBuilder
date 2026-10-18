@@ -1110,10 +1110,10 @@ def inset_arp_sanity(lat, lon, icao, warn_abs_delta_m=None,
                      disc_radius_m=None):
     """:func:`inset_arp_sanity_record` for a real build: the cached
     insets in production ranking order and THE apt.dat v2 reads
-    (``engine_v2.select_apt_dat`` -- the one selector)."""
+    (``apt_dat.select_apt_dat`` -- the one selector)."""
     try:
         import O4_Airport_Elevation_Insets as INSETS
-        from auto_patch.engine_v2 import select_apt_dat
+        from auto_patch_v2.airport.apt_dat import select_apt_dat
 
         paths = INSETS.cached_inset_paths_for_icao(lat, lon, icao)
         xplane_root = os.environ.get("XPLANE_ROOT") or _owner_xplane_root()

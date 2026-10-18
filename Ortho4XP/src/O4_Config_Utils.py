@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
+import ast
 import logging
 import os
 
+import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Cfg_Vars as CFG
-import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
-import O4_Imagery_Utils as IMG
 import O4_Text_Files as TEXT
-import O4_OSM_Utils as OSM
-import O4_Overlay_Utils as OVL
-import O4_Tile_Utils as TILE
 import O4_UI_Utils as UI
 import O4_Unmounted_Links as UNMOUNTED
-import O4_Vector_Map as VMAP
 from O4_Cfg_Vars import (
     cfg_app_vars,
     cfg_global_tile_vars,
@@ -65,16 +61,28 @@ def set_global_variables(var: str, value: str) -> None:
         var_without_global = var[len(global_prefix):]
         if var_without_global in cfg_app_vars:
             return
-    target = (
-        cfg_vars[var]["module"] + "." + var
-        if "module" in cfg_vars[var]
-        else "globals()['" + var + "']"
-        )
     if cfg_vars[var]["type"] in (bool, list):
-        cmd = target + "=" + value
+        _assign(var, ast.literal_eval(value))
     else:
-        cmd = target + "=cfg_vars['" + var + "']['type'](value)"
-    exec(cmd)
+        _assign(var, cfg_vars[var]["type"](value))
+
+
+def _assign(var: str, value) -> None:
+    """Set config variable ``var``: on the module its ``"module"`` alias
+    names (``O4_Cfg_Module_Values``), else on this module."""
+    if "module" in cfg_vars[var]:
+        MODULE_VALUES.assign(cfg_vars[var]["module"], var, value)
+    else:
+        globals()[var] = value
+
+
+def __getattr__(name: str):
+    """``getattr(O4_Config_Utils, "IMG")`` — the module a ``"module"``
+    alias names (``o4_engine.command_process`` and ``O4_Step_Reuse`` read
+    settings so)."""
+    if name in MODULE_VALUES.MODULES:
+        return MODULE_VALUES.holder(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 def config_compatibility(value) -> str:
     """
@@ -97,12 +105,7 @@ def config_compatibility(value) -> str:
 # they are defined in a different module and overriden when the config is loaded (below)
 # hence the reason this module is imported last (see Ortho4XP.py)
 for var in cfg_vars:
-    target = (
-        cfg_vars[var]["module"] + "." + var
-        if "module" in cfg_vars[var]
-        else var
-    )
-    exec(target + "=cfg_vars['" + var + "']['default']")
+    _assign(var, cfg_vars[var]["default"])
 
 ################################################################################
 # Config keys of retired settings, recognised so configs written by older

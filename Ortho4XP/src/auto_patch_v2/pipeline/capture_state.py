@@ -94,7 +94,7 @@ import importlib
 import typing as _t
 from collections.abc import Mapping as _Mapping
 
-__all__ = ["CAPTURE_STATE_KEY", "CAPTURE_STATE_VERSION", "Registry",
+__all__ = ["CAPTURE_STATE_KEY", "CAPTURE_STATE_VERSION", "Registry", "planar_stage",
            "REGISTRIES", "collect", "install", "missing", "unknown",
            "refusal", "clear", "line"]
 
@@ -148,7 +148,9 @@ REGISTRIES: tuple[Registry, ...] = (
     Registry("landings", "auto_patch_v2.model.platform", "LANDINGS",
              "planar/landing.py via planar/platform.py (the planar stage)",
              ("constraints/platform.py (the landing level rows, RULINGS 2026-10-03e)",
-              "constraints/pads.py (the DEM-datum withdrawal)")),
+              "constraints/pads.py (the DEM-datum withdrawal)",
+              "pipeline/publication.py (the sidecar's landings; found by "
+              "the #840 census)")),
     Registry("landing_runouts", "auto_patch_v2.model.platform", "LANDING_RUNOUTS",
              "planar/landing_runout.py via planar/landing.py (the planar stage)",
              ("constraints/ramp_runout.py (the run-out's level rows, #711)",
@@ -206,6 +208,20 @@ def collect() -> dict[str, _t.Any]:
     fields = {r.field: _snapshot(live) for r in REGISTRIES
               if (live := r.live()) is not None}
     return {"version": CAPTURE_STATE_VERSION, "fields": fields}
+
+
+def planar_stage(airport: _t.Any, classification: _t.Any, law: _t.Any,
+                 **kw: _t.Any) -> tuple[_t.Any, _t.Any, dict[str, _t.Any]]:
+    """THE PLANAR STAGE WITH ITS RECORD: ``(pm, pstats, state)`` (stage-cache
+    spec §10 step 1, issue #840).  ``planar/build.build`` (``kw`` passed
+    through) fills the registries; ``state`` is :func:`collect` at its
+    return — the stage's output as DATA, which the build then
+    :func:`install` s explicitly before the shape stage, so a stage served
+    from a record and a stage run here enter the shape stage with the same
+    registries by construction."""
+    from ..planar.build import build as _build_planar
+    pm, pstats = _build_planar(airport, classification, law, **kw)
+    return pm, pstats, collect()
 
 
 def _fields(state: _t.Mapping[str, _t.Any] | None) -> dict[str, _t.Any]:

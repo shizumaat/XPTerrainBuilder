@@ -24,7 +24,7 @@ import O4_File_Names as FNAMES
 import O4_Imagery_Selfcheck as SELFCHECK
 import O4_Imagery_Utils as IMG
 import O4_OSM_Extracts as EXTRACTS
-import O4_Proj_Runtime as runtime
+import O4_Import_Selfcheck as IMPORT_SELFCHECK
 import O4_Settings_Model as SM
 import O4_Text_Files as TEXT
 import O4_UI_Utils as UI
@@ -155,7 +155,7 @@ def test_the_selfcheck_leaves_the_registries_in_force(monkeypatch):
 
 
 def test_the_engine_entry_prints_the_imagery_line(capsys):
-    assert runtime.import_selfcheck_main(
+    assert IMPORT_SELFCHECK.import_selfcheck_main(
         ["Ortho4XP", "--import-selfcheck", "json"]) == 0
     assert "imagery provider registry: ok %d providers, " % len(_shipped(
         FNAMES.Provider_dir, "lay", True)) in capsys.readouterr().out

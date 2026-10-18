@@ -689,6 +689,96 @@ def identity_list(paths) -> str:
     return ";".join(sorted(_identity(p) for p in (paths or ())))
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Content identity of the files a build WROTE (step reuse, #837)
+# ──────────────────────────────────────────────────────────────────────────────
+# ``O4_Step_Reuse`` keys a step on its predecessor's OUTPUT CONTENT, so a
+# step that reran and wrote the same bytes leaves the next step reusable.
+# A patch's root line carries stamps that name the run that wrote it, not
+# what it contains — they move with every commit or engine release while the
+# geometry stays put, and no reader of a patch's geometry looks at them
+# (module doc, point 1: the mesher parses ``<node>`` / ``<way>`` only).
+# Those, and only those, are left out of a patch's content digest:
+#
+#   o4_code         driver._freshness_stamps_now (the engine's source digest)
+#   o4_engine       driver._freshness_stamps_now (the engine version; the v2
+#                   emitter's own default, emit/osm_adapter.render_patch)
+#   o4_fresh_v      engine_v2._stamp_header (this module's schema version)
+#   o4_apt_dat_mtime           engine_v2._stamp_header (the input's mtime)
+#   o4_apt_dat_borrowed_mtime  pipeline/build.borrowed_apt_dat_stamp
+#
+# Every other stamp (the inputs' fingerprints, the pack, the ICAO, the
+# ruleset) and every byte below the root line IS hashed.
+PER_RUN_STAMP_KEYS = ("o4_code", "o4_engine", "o4_fresh_v",
+                      "o4_apt_dat_mtime", "o4_apt_dat_borrowed_mtime")
+
+_PER_RUN_STAMP_RE = re.compile(
+    r"\s(?:" + "|".join(re.escape(k) for k in PER_RUN_STAMP_KEYS)
+    + r")=(['\"])[^'\"]*\1")
+
+_DIGEST_CHUNK = 1 << 20
+
+
+def stamp_free_root(line: bytes) -> bytes:
+    """A patch's ``<osm …>`` root line without its :data:`PER_RUN_STAMP_KEYS`
+    attributes (any other line is returned as it is)."""
+    if b"<osm " not in line:
+        return line
+    text = line.decode("utf-8", "surrogateescape")
+    return _PER_RUN_STAMP_RE.sub("", text).encode("utf-8", "surrogateescape")
+
+
+def content_digest(path: str) -> str:
+    """sha256 (hex) of a file's content; for a patch (``.osm``) the root
+    line is read through :func:`stamp_free_root` — the root is line 1 or 2,
+    the convention ``build_support.patch_root_line`` reads.  Raises
+    ``OSError`` when the file cannot be read."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        if path.endswith(".osm"):
+            for _ in range(2):
+                line = handle.readline()
+                digest.update(stamp_free_root(line))
+                if b"<osm " in line:
+                    break
+        for chunk in iter(lambda: handle.read(_DIGEST_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def content_identity_list(paths, known=()) -> list:
+    """``[path, size, mtime_ns, sha256]`` per file, sorted by path: the
+    build's OUTPUT identity (``identity_list`` is the stat identity of an
+    INPUT, and its ``<osm>`` stamp format is a wire the patch gate reads
+    back — this does not change it).  ``known``: an earlier list — a file
+    whose path, size and mtime are all as it records keeps its digest
+    unread (the hit path costs a stat).  A file that cannot be read is
+    ``[path, -1, -1, "missing"]``."""
+    recorded = {row[0]: row for row in (known or ())
+                if isinstance(row, (list, tuple)) and len(row) == 4}
+    rows = []
+    for path in sorted(set(p for p in (paths or ()) if p)):
+        try:
+            stat = os.stat(path)
+            row = recorded.get(path)
+            if not (row and row[1] == stat.st_size
+                    and row[2] == stat.st_mtime_ns and row[3] != "missing"):
+                row = [path, stat.st_size, stat.st_mtime_ns,
+                       content_digest(path)]
+        except OSError:
+            row = [path, -1, -1, "missing"]
+        rows.append(list(row))
+    return rows
+
+
+def content_identity_digest(rows) -> str:
+    """One 16-hex digest of :func:`content_identity_list` rows over path,
+    size and content — the mtime is left out: a file rewritten with the
+    same bytes is the same output."""
+    text = "\n".join(f"{r[0]}|{r[1]}|{r[3]}" for r in rows or ())
+    return hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest()[:16]
+
+
 def pack_dsf_input_identity(dsf_path: str | None) -> str:
     """:func:`_identity` of a pack DSF **as the build's INPUT**.
 

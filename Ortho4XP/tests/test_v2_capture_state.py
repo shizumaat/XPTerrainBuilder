@@ -313,3 +313,65 @@ def test_the_record_installed_through_the_tool_is_announced(R, live, capsys):
     out = capsys.readouterr().out
     assert f"capture state v{CS.CAPTURE_STATE_VERSION} installed" in out
     assert "held" in out
+
+
+# ── 5. T2 (stage-cache spec §8, issue #840): the build's record ──────────
+
+def _canon(v):
+    """A record as a comparable value: arrays by dtype/shape/bytes, sets
+    sorted, dataclasses by their fields (the record holds numpy arrays,
+    whose ``==`` is elementwise)."""
+    if hasattr(v, "tobytes") and hasattr(v, "dtype"):
+        return ("array", str(v.dtype), tuple(getattr(v, "shape", ())), v.tobytes())
+    if isinstance(v, dict):
+        return ("dict", tuple((repr(k), _canon(x)) for k, x in v.items()))
+    if isinstance(v, (set, frozenset)):
+        return ("set", tuple(sorted(repr(_canon(x)) for x in v)))
+    if isinstance(v, (list, tuple)):
+        return (type(v).__name__, tuple(_canon(x) for x in v))
+    if _dc.is_dataclass(v) and not isinstance(v, type):
+        return (type(v).__name__, tuple((f.name, _canon(getattr(v, f.name)))
+                                        for f in _dc.fields(v)))
+    return repr(v)
+
+
+def test_the_build_record_is_what_the_capture_collects(law, live):
+    """``planar_stage`` — what ``pipeline/build.build`` calls — returns the
+    record ``--capture`` collects at the shape-stage boundary (planar, then
+    the shape stage, then ``collect``), and a process holding OTHER
+    registries that installs it generates the build's row set exactly
+    (hit arm == miss arm)."""
+    from auto_patch_v2.pipeline.shapes import shape_stage
+    rows_live, counts_live, _state = live
+    airport = _airport(law)
+    cl = Classification(_cells(), (), {}, ())
+    pm, _st, record = CS.planar_stage(airport, cl, law)
+    shape_stage(pm, law, airport, cl, out=lambda m: None)
+    assert _canon(record) == _canon(CS.collect())    # the capture's boundary
+    # another airport's planar stage leaves its registries behind ...
+    build(_airport(law), Classification(_cells()[:2], (), {}, ()), law)
+    assert _canon(CS.collect()) != _canon(record)
+    # ... and the explicit install restores the build's own
+    assert CS.install(record) == tuple(r.field for r in CS.REGISTRIES)
+    assert _canon(CS.collect()) == _canon(record)
+    cs, counts, _w = generate(pm, law, airport)
+    assert _rows(cs) == rows_live and counts == counts_live
+
+
+def test_the_build_installs_the_planar_record_before_the_shape_stage():
+    """The wiring: ``pipeline/build.build`` takes the planar stage through
+    ``planar_stage`` and installs THAT record before its ``shape_stage``."""
+    import ast
+    src = (ROOT / "src" / "auto_patch_v2" / "pipeline" / "build.py").read_text(
+        encoding="utf-8")
+    fn = next(n for n in ast.parse(src).body
+              if isinstance(n, ast.FunctionDef) and n.name == "build")
+
+    def calls(name):
+        return sorted((n for n in ast.walk(fn) if isinstance(n, ast.Call)
+                       and getattr(n.func, "attr", getattr(n.func, "id", None)) == name),
+                      key=lambda c: c.lineno)
+
+    stage, install, shapes = calls("planar_stage")[0], calls("install")[0], calls("shape_stage")[0]
+    assert stage.lineno < install.lineno < shapes.lineno
+    assert [getattr(a, "id", None) for a in install.args] == ["planar_record"]

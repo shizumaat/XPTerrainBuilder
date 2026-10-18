@@ -17,7 +17,7 @@ import O4_Proj_Runtime as PROJRT
 import O4_Imagery_Utils as IMG
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
-import O4_Mesh_Utils as MESH
+import O4_Triangle_Run as TRIANGLE_RUN
 import O4_Mesh_IO as MESH_IO
 from O4_Parallel_Utils import parallel_execute
 
@@ -1620,7 +1620,7 @@ if __name__ == "__main__":
     vector_map.write_node_file(name + ".node")
     vector_map.write_poly_file(name + ".poly")
     print("Triangulate...")
-    MESH.triangulate(name, os.path.join(os.path.dirname(sys.argv[0]), ".."))
+    TRIANGLE_RUN.triangulate(name, os.path.join(os.path.dirname(sys.argv[0]), ".."))
     ((xmin, ymin, xmax, ymax), mask_im) = triangulation_to_image(
         name, pixel_size, grid_size_or_bbox
     )

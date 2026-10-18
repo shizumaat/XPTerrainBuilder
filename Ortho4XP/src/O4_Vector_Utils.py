@@ -162,7 +162,7 @@ class Vector_Map:
         #: then copies the region's ATTRIBUTE into its area slot
         #: (Triangle4XP.c:15035), a number of order 1..128 in square
         #: degrees, i.e. unconstrained beside a 1 deg tile.  Sized by
-        #: ``O4_Mesh_Utils.bank_annulus_region_areas``.
+        #: ``O4_Bank_Annulus.bank_annulus_region_areas``.
         self.seed_areas = {}
 
     def insert_node(self, x, y, z):

@@ -249,7 +249,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     from auto_patch_v2.airport import dsf as _dsf2
     from auto_patch_v2.law import Law
     from auto_patch import dsf_reader as _DSFR
-    from auto_patch import engine_v2 as _ev2
+    from auto_patch import object_stage as _ev2
     from auto_patch_v2.airport.dsf_write import pristine_dsf_path
     import O4_File_Names as FNAMES
 

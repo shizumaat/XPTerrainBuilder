@@ -4,6 +4,7 @@ import time
 import queue
 import threading
 from collections import defaultdict
+import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_UI_Utils as UI
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
@@ -17,7 +18,8 @@ import O4_Held_File as HELD
 import O4_Tile_Failures as FAILURES
 import O4_Tile_Staging as STAGING
 import O4_Imagery_Progress as IMGPROGRESS
-import O4_Step_Reuse as REUSE
+# Unused since #838 (records commit per step); kept: O4_Step_Code keys on it.
+import O4_Step_Reuse as REUSE  # noqa: F401
 import O4_Stopped_Build as STOPPED
 from O4_Parallel_Utils import (
     effective_convert_slots,
@@ -630,9 +632,6 @@ def build_tile(tile):
     warn_if_imagery_incomplete(tile)
     # The build COMPLETED: the pack files its object stage rewrote stand.
     STOPPED.complete(tile.build_dir, tile.lat, tile.lon)
-    # ...and the records of the steps it ran or reused are the ones the
-    # next build may reuse (#615).
-    REUSE.commit(tile)
     UI.timings_and_bottom_line(timer)
     UI.logprint(
         "Step 3 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
@@ -884,3 +883,8 @@ def delete_incomplete_imgs(tile):
     IMG.incomplete_imgs.pop(tile_coords, None)
     IMG.incomplete_img_paths.pop(tile_coords, None)
     IMG.incomplete_img_providers.pop(tile_coords, None)
+
+
+# The config's values for this module's settings (O4_Cfg_Module_Values),
+# taken last -- as when O4_Config_Utils imported this module, then assigned.
+MODULE_VALUES.pull(__name__, globals())

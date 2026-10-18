@@ -53,8 +53,8 @@ def _effective_patch(directory: str, icao: str) -> tuple[str, str] | None:
     """``(source, path)`` of the patch the build applies for *icao*: a
     manual patch (the editor's own ``<ICAO>_edited.patch.osm`` first, else
     the first hand-made one) over the auto patch."""
-    import O4_Vector_Map as VMAP
-    manual = VMAP.manual_patch_files_for(directory, icao)
+    from auto_patch import selection as SELECTION
+    manual = SELECTION.manual_patch_files_for(directory, icao)
     if manual:
         own = FNAMES.edited_patch_name(icao)
         return "manual", os.path.join(directory, own if own in manual else manual[0])

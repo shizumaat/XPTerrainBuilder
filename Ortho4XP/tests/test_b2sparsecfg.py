@@ -13,7 +13,7 @@ import pytest
 
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
-from auto_patch import engine_v2
+from auto_patch import object_stage
 from auto_patch import post_mesh
 
 
@@ -54,7 +54,7 @@ def test_user_switch_off_skips_the_placement_stage(rebake_stage):
     tile, _plan = rebake_stage
     tile.modify_custom_airports = False
 
-    counts = engine_v2.rebake_after_mesh(tile)
+    counts = object_stage.rebake_after_mesh(tile)
 
     assert counts == {"airports": 0, "airports_failed": 0, "packs_written": 0}
 
@@ -65,7 +65,7 @@ def test_lane_measure_only_arm_still_runs_the_stage(rebake_stage, monkeypatch):
     tile, _plan = rebake_stage
     monkeypatch.setenv("O4_PACK_WRITES", "measure_only")
 
-    counts = engine_v2.rebake_after_mesh(tile)
+    counts = object_stage.rebake_after_mesh(tile)
 
     assert counts["airports_failed"] == 1  # the loop ran and read the plan
 
@@ -73,7 +73,7 @@ def test_lane_measure_only_arm_still_runs_the_stage(rebake_stage, monkeypatch):
 def test_switch_on_runs_the_stage(rebake_stage):
     tile, _plan = rebake_stage
 
-    counts = engine_v2.rebake_after_mesh(tile)
+    counts = object_stage.rebake_after_mesh(tile)
 
     assert counts["airports_failed"] == 1
 
@@ -102,7 +102,7 @@ def test_switch_off_prints_no_rebake_line(rebake_stage, capsys):
     tile.modify_custom_airports = False
     assert UI.verbosity == 1                      # the app's own default
 
-    counts = engine_v2.rebake_after_mesh(tile)
+    counts = object_stage.rebake_after_mesh(tile)
 
     assert _rebake_lines(capsys) == []
     assert counts == {"airports": 0, "airports_failed": 0, "packs_written": 0}
@@ -112,9 +112,9 @@ def test_switch_off_names_the_switch_at_v2(rebake_stage, capsys, monkeypatch):
     """...and ``-v2`` still says WHICH switch stood the stage down."""
     tile, _plan = rebake_stage
     tile.modify_custom_airports = False
-    monkeypatch.setattr(UI, "verbosity", engine_v2._STAND_DOWN_VERBOSITY)
+    monkeypatch.setattr(UI, "verbosity", object_stage._STAND_DOWN_VERBOSITY)
 
-    engine_v2.rebake_after_mesh(tile)
+    object_stage.rebake_after_mesh(tile)
 
     lines = _rebake_lines(capsys)
     assert len(lines) == 1 and "modify_custom_airports is off" in lines[0]
@@ -138,7 +138,7 @@ def test_switch_off_outranks_every_other_rebake_print(rebake_stage, capsys,
             raise RuntimeError("no worklist path")
         monkeypatch.setattr(post_mesh, "object_anchor_worklist_path", _boom)
 
-    counts = engine_v2.rebake_after_mesh(tile)
+    counts = object_stage.rebake_after_mesh(tile)
 
     assert _rebake_lines(capsys) == []
     assert counts == {"airports": 0, "airports_failed": 0, "packs_written": 0}
@@ -157,7 +157,7 @@ def test_switch_on_still_reports_a_mesh_problem(rebake_stage, capsys,
         monkeypatch.setattr(FNAMES, "mesh_file",
                             lambda _b, _lat, _lon: "/nonexistent/mesh.mes")
 
-    engine_v2.rebake_after_mesh(tile)
+    object_stage.rebake_after_mesh(tile)
 
     assert len(_rebake_lines(capsys)) == 1
 

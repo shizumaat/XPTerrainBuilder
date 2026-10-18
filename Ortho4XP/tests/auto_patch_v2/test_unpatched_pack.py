@@ -25,7 +25,7 @@ import pytest
 
 import O4_UI_Utils as UI
 import O4_Unpatched_Airports as UNPATCHED
-from auto_patch import engine_v2 as ENGINE
+from auto_patch import object_stage as ENGINE
 from auto_patch_v2.airport import backup_state as B
 from auto_patch_v2.airport import placement_write as PW
 from auto_patch_v2.airport import unpatched_pack as UP

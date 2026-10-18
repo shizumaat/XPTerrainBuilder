@@ -29,6 +29,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import O4_Bank_Annulus as BANK_ANNULUS  # noqa: E402
 import O4_Mesh_Utils as MESH  # noqa: E402
 
 STRIDE = 6
@@ -272,7 +273,7 @@ class TestTheAnnulusIsARegionWithAMaximumArea:
             lat, lon = _to_ll(x_m, y_m)
             seeds.append((lon - LON, lat - LAT))
 
-        areas = MESH.bank_annulus_region_areas(tile, seeds)
+        areas = BANK_ANNULUS.bank_annulus_region_areas(tile, seeds)
         assert set(areas) == {0, 1, 2, 3}, areas
 
         # .poly units are lon x lat degrees; back to m2
@@ -296,7 +297,7 @@ class TestTheAnnulusIsARegionWithAMaximumArea:
                            (OUTER_M + 50.0, 0.0)):          # beyond the foot
             lat, lon = _to_ll(x_m, y_m)
             seeds.append((lon - LON, lat - LAT))
-        assert MESH.bank_annulus_region_areas(tile, seeds) == {}
+        assert BANK_ANNULUS.bank_annulus_region_areas(tile, seeds) == {}
 
     def test_a_tile_with_no_bank_foot_ring_sizes_nothing(
             self, annulus, tmp_path, monkeypatch):
@@ -306,7 +307,7 @@ class TestTheAnnulusIsARegionWithAMaximumArea:
         monkeypatch.setattr(MESH.FNAMES, "patch_dir",
                             lambda lat, lon: str(empty))
         lat, lon = _to_ll(INNER_M + BANK_M / 2.0, 0.0)
-        assert MESH.bank_annulus_region_areas(
+        assert BANK_ANNULUS.bank_annulus_region_areas(
             tile, [(lon - LON, lat - LAT)]) == {}
 
     def test_the_poly_writer_writes_the_fifth_field_only_where_sized(

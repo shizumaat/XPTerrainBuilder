@@ -2,6 +2,7 @@ import os
 import sys
 import time
 
+import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_File_Names as FNAMES
 
 verbosity = 1
@@ -363,3 +364,8 @@ def nicer_timer(elapsed):
     elapsed = "{:.2f}".format(elapsed) if not out_string else int(elapsed)
     out_string += str(elapsed) + "sec"
     return out_string
+
+
+# The config's values for this module's settings (O4_Cfg_Module_Values),
+# taken last -- as when O4_Config_Utils imported this module, then assigned.
+MODULE_VALUES.pull(__name__, globals())

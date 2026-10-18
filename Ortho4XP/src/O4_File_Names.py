@@ -1110,3 +1110,8 @@ def geotiff_file_name_from_attributes(
 
 
 ##############################################################################
+
+
+#: The road clamp pass's own measurement, beside the tile it describes
+#: (written by ``O4_Vector_Map``, read by ``O4_Mesh_Utils``).
+LEVELLED_ROADS_SIDECAR = "o4_levelled_roads.json"

@@ -46,6 +46,7 @@ __all__ = [
     "AptRunway", "AptHelipad", "AptPavement", "AptLine", "AptBoundary",
     "AptTaxiNode", "AptTaxiEdge", "AptStartup", "AptAirport",
     "read_airport_block", "parse_airport_block", "find_apt_dat",
+    "select_apt_dat",
     "global_candidates", "file_has_airport", "block_sha256",
 ]
 
@@ -470,7 +471,34 @@ def find_apt_dat(xplane_root: str, icao: str) -> str | None:
     return cands[0] if cands else None
 
 
+def select_apt_dat(xplane_root: str, icao: str) -> str | None:
+    """THE apt.dat that serves ``icao`` — v2's OWN selector, called once.
+
+    ONE SELECTOR, ONE DATUM (lane ``aptstamp`` 2026-09-17).  Until this
+    existed auto_patch carried TWO apt.dat policies: the driver's gate and
+    freshness stamp re-derived v1's
+    ``osm_load._pick_best_apt_dat_against_osm`` (custom pack carrying a
+    1201/1202 taxi network, ELSE fall back to Global Airports), while the
+    build read ``auto_patch_v2.airport.apt_dat.find_apt_dat`` (§44 (1):
+    the pack is the pack — the first custom pack with row-110 pavement,
+    never a Global fallback).  MEASURED on the owner's install 2026-09-17:
+    of 1,327 CIFP airports carried by a custom pack the two disagreed at
+    **225** (220 of them v1=Global Airports vs v2=the custom pack; 5
+    custom-vs-custom, incl. KAUS, YMML, KJAN, MPTO, PAKD).  For each of
+    those the patch header stamped — and the gate re-derived — a file the
+    build never opened: editing the pack v2 DID read left the patch
+    reading "current" and a stale patch was reused.
+
+    The build is the authority, so the gate follows the build: every v1-
+    side caller (the freshness gate, the stamp, the "no apt.dat in this
+    install" skip line, the DSF object-anchor worklist) resolves through
+    HERE, and nothing re-implements the policy.
+    """
+    return find_apt_dat(xplane_root, icao)
+
+
 # ── block parser ─────────────────────────────────────────────────────────
+
 
 def parse_airport_block(block: list[str]) -> AptAirport:
     """Parse one airport block (``read_airport_block`` output)."""

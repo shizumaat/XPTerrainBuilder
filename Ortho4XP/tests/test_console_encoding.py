@@ -1089,7 +1089,8 @@ def test_triangle_echo_survives_its_path_encoding(
     monkeypatch.setattr(MESH.subprocess, "Popen",
                         _echo_popen(MESH, written_in))
     monkeypatch.setattr(UI, "red_flag", 0)
-    assert MESH.triangulate(str(tmp_path / "mesh"), str(tmp_path)) == 1
+    import O4_Triangle_Run as TRIANGLE_RUN
+    assert TRIANGLE_RUN.triangulate(str(tmp_path / "mesh"), str(tmp_path)) == 1
     process = MESH._run_triangulation_process(
         ["Triangle4XP", "-pAYPQ", str(tmp_path / "run.poly")])
     process.wait()

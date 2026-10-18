@@ -13,7 +13,7 @@ two sides cannot drift for the one round they coexist.
 
   ``_pick_best_apt_dat_against_osm``  the apt.dat SELECTOR the driver, the
       freshness gate and the DSF object-anchor worklist call (its policy is
-      ``engine_v2.select_apt_dat`` — one selector, one datum)
+      ``auto_patch_v2.airport.apt_dat.select_apt_dat`` — one selector, one datum)
   ``ensure_airports_osm_tile_cached``  the tile driver's ``airports`` OSM
       prefetch
   ``is_cached``  the parallel scheduler's fetch-admission predicate for the
@@ -70,7 +70,7 @@ def _pick_best_apt_dat_against_osm(
     ONE SELECTOR, ONE DATUM (lane ``aptstamp`` 2026-09-17).  This
     function is the NAME the driver, the freshness gate and the DSF
     object-anchor worklist call; its POLICY is
-    ``auto_patch.engine_v2.select_apt_dat`` →
+    ``auto_patch_v2.airport.apt_dat.select_apt_dat`` →
     ``auto_patch_v2.airport.apt_dat.find_apt_dat``, the same call the
     build makes, so nothing downstream can watch a file the build never
     opened.
@@ -93,8 +93,8 @@ def _pick_best_apt_dat_against_osm(
     the build then failed on with "no apt.dat under xp_root".  None here
     means the driver's skip line, which is the truthful answer.
     """
-    from . import engine_v2 as _engine_v2
-    chosen = _engine_v2.select_apt_dat(xplane_root, icao)
+    from auto_patch_v2.airport.apt_dat import select_apt_dat
+    chosen = select_apt_dat(xplane_root, icao)
     if chosen is not None:
         UI.vprint(1, f"  [pav-builder] {icao}: apt.dat {chosen}")
     return chosen
@@ -160,9 +160,9 @@ def is_cached(tile) -> bool:
         lat, lon = int(tile.lat), int(tile.lon)
         if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
             return False
-        import O4_Vector_Map as _VMAP
+        from . import selection as _SELECTION
 
-        (road_level, _auto) = _VMAP.resolved_road_level(tile)
+        (road_level, _auto) = _SELECTION.resolved_road_level(tile)
         if road_level >= 1 and not os.path.isfile(
                 FNAMES.osm_cached(lat, lon, "big_roads")):
             return False

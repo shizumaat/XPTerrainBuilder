@@ -195,6 +195,9 @@ def test_transport_matches_direct_subscription(monkeypatch, tmp_path):
     """Spec §8.2 drift guard: the same stubbed build serialized from a direct
     subscription and read off the pipe must be identical apart from the
     handshake and wall-clock fields."""
+    # Two builds of one tile in one folder: each step's record counts when
+    # it ends (#838), so the second would reuse the first's steps.
+    monkeypatch.setenv("O4_STEP_REUSE", "0")
     # Direct in-process subscription.
     install_stub_pipeline(monkeypatch)
     direct_events = []

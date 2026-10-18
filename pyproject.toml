@@ -6,6 +6,10 @@
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# Not linted (owner 2026-10-18): retired diagnostics nothing references
+# (tools/attic/README.md) and tracked debug scratch; neither is built, frozen,
+# imported or tested.  Deleting scratch is #740's.
+extend-exclude = ["Ortho4XP/tools/attic", "Ortho4XP/scratch"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B"]

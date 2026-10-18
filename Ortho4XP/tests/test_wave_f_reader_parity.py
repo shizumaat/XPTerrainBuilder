@@ -85,3 +85,59 @@ def test_OWNER_QUESTION_cifp_unreadable_file(tmp_path):
     assert V1_CIFP.parse_cifp_file(missing) == {}
     with pytest.raises(OSError):
         V2_CIFP.read_cifp_runways(missing)
+
+
+# ── obj8_reader <-> airport/obj8 ─────────────────────────────────────────
+#: a tiny OBJ8: TAB-separated VT rows, IDX10 + IDX, an indented TRIS (the
+#: XPlane2Blender LOD shape), a hard-deck run, a draped run and an ANIM
+#: block — every state the two parsers both track
+TINY_OBJ8 = "\n".join([
+    "I", "800", "OBJ", "", "POINT_COUNTS\t6 0 0 12",
+    "VT\t0 0 0\t0 1 0\t0 0",
+    "VT\t10 0 0\t0 1 0\t0 0",
+    "VT\t0 0 10\t0 1 0\t0 0",
+    "VT 10 2 10 0 1 0 0 0",
+    "VT 20 2 10 0 1 0 0 0",
+    "VT 20 -1 0 0 1 0 0 0",
+    "IDX10 0 1 2 1 3 2 3 4 1",
+    "IDX 5 4 3",
+    "\tTRIS\t0 3",
+    "ATTR_hard_deck",
+    "TRIS 3 3",
+    "ATTR_no_hard",
+    "ANIM_begin",
+    "TRIS 6 3",
+    "ANIM_end",
+    "ATTR_draped",
+    "TRIS 0 3",
+    "LIGHT_NAMED amb_street_light2 0 9.5 0.9",
+]) + "\n"
+
+
+def test_obj8_readers_agree_on_their_shared_geometry(tmp_path):
+    """The subset BOTH readers carry — vertices, solid triangles with their
+    hardness, draped triangles — is identical.  v1 ``ObjectGeometry``
+    carries more (``vertex_line_indices`` for the rebake's in-place y
+    rewrite, ``positional_commands`` that ride with their structure, the
+    draped layer group, LOD/ANIM counts); v2 ``ObjGeometry`` carries the
+    per-triangle ANIM flag.  So the PAIR is not a duplicate: v1 is the
+    object stage's reader and leaves with that stage (wave A), not here."""
+    from auto_patch import obj8_reader as V1_OBJ8
+    from auto_patch_v2.airport import obj8 as V2_OBJ8
+
+    path = write_text(tmp_path / "tiny.obj", TINY_OBJ8)
+    v1 = V1_OBJ8.load_object_file(path)
+    v2 = V2_OBJ8.parse_obj8(path)
+    assert [tuple(v) for v in v2.vertices.tolist()] == \
+        [tuple(map(float, v)) for v in v1.vertices]
+    assert [tuple(t) for t in v2.solid.tolist()] == \
+        [tuple(t) for t in v1.solid_triangles]
+    assert [tuple(t) for t in v2.draped.tolist()] == \
+        [tuple(t) for t in v1.draped_triangles]
+    names = {0: "", V2_OBJ8.HARD: "hard", V2_OBJ8.HARD_DECK: "hard_deck"}
+    assert [names[int(h)] for h in v2.hardness] == \
+        list(v1.solid_triangle_hardness)
+    # what only v1 carries (the object stage's needs)
+    assert len(v1.vertex_line_indices) == len(v1.vertices)
+    assert [c.keyword for c in v1.positional_commands] == ["LIGHT_NAMED"]
+    assert not hasattr(v2, "positional_commands")

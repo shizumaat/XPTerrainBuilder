@@ -4,6 +4,8 @@ pillow==12.2.0
 pyproj==3.7.2
 requests==2.33.1
 truststore==0.10.4   # Python HTTPS trusts the OS root store in the frozen bundle (O4_Proj_Runtime.trust_system_certificate_store, #121)
+curl_cffi==0.16.3    # async HTTP/2 imagery fetcher (O4_Imagery_Fetch, ported from OrthoStudio XP; O4_IMAGERY_FETCHER=async, imagery-fetch-spec §5); MIT; abi3 wheels for macOS arm64/x86_64, Windows, manylinux with libcurl linked in; imported lazily, so the freeze must pin it
+certifi==2026.7.22   # the CA bundle the async imagery fetcher verifies with (O4_Imagery_Certs, RULINGS 2026-10-17c (ii)); also requests' own dependency
 Rtree==1.4.1
 shapely==2.1.2
 scikit-fmm==2025.6.23

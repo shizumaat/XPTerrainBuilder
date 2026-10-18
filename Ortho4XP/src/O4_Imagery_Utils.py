@@ -22,6 +22,7 @@ import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Http_Pushback as PUSHBACK
+import O4_Imagery_Async as FETCH_ASYNC
 import O4_Mask_Utils as MASK
 import O4_Mesh_Utils as MESH
 import O4_OSM_Utils as OSM
@@ -1218,10 +1219,13 @@ def http_request_to_image(width, height, url, request_headers, http_session):
             # Feed the download meter: current network throughput for the
             # build-time estimate (content is already fully read here —
             # non-streaming get).
+            # A prefetched answer (O4_IMAGERY_FETCHER=async) was metered
+            # by the fetcher as it arrived.
             try:
-                from o4_engine import download_meter
-                download_meter.record(
-                    len(r.content or b""), time.time() - fetch_t0)
+                if not getattr(r, "o4_prefetched", False):
+                    from o4_engine import download_meter
+                    download_meter.record(
+                        len(r.content or b""), time.time() - fetch_t0)
             except Exception:
                 pass
             status_code = str(r)
@@ -1393,6 +1397,90 @@ def _shared_tile_cache_get(provider_code, zoomlevel, til_x, til_y):
 
 
 ################################################################################
+def wmts_request(tilematrix, til_x, til_y, provider):
+    """``(url, request_headers)`` of one TMS/WMTS tile, or None for a local TMS.
+
+    The one request builder both fetchers read (``get_wmts_image`` and the
+    async prefetch, ``O4_IMAGERY_FETCHER=async``).  A ``{switch:a,b}`` server
+    is drawn at random per call, as before.
+    """
+    request_headers = None
+    if has_URL and provider["code"] in URL.custom_url_list:
+        (url, request_headers) = URL.custom_tms_request(
+            tilematrix, til_x, til_y, provider
+        )
+    elif provider["request_type"] == "tms":  # TMS
+        url = provider["url_template"].replace("{zoom}", str(tilematrix))
+        url = url.replace("{x}", str(til_x))
+        url = url.replace("{y}", str(til_y))
+        url = url.replace("{|y|}", str(abs(til_y) - 1))
+        url = url.replace("{-y}", str(2 ** tilematrix - 1 - til_y))
+        url = url.replace(
+            "{quadkey}", GEO.gtile_to_quadkey(til_x, til_y, tilematrix)
+        )
+        url = url.replace(
+            "{xcenter}",
+            str(
+                (til_x + 0.5)
+                * provider["resolutions"][tilematrix]
+                * provider["tile_size"]
+                + provider["top_left_corner"][tilematrix][0]
+            ),
+        )
+        url = url.replace(
+            "{ycenter}",
+            str(
+                -1
+                * (til_y + 0.5)
+                * provider["resolutions"][tilematrix]
+                * provider["tile_size"]
+                + provider["top_left_corner"][tilematrix][1]
+            ),
+        )
+        url = url.replace(
+            "{size}",
+            str(
+                int(
+                    provider["resolutions"][tilematrix]
+                    * provider["tile_size"]
+                )
+            ),
+        )
+        if "{switch:" in url:
+            (url_0, tmp) = url.split("{switch:")
+            (tmp, url_2) = tmp.split("}")
+            server_list = tmp.split(",")
+            url_1 = random.choice(server_list).strip()
+            url = url_0 + url_1 + url_2
+    elif provider["request_type"] == "wmts":  # WMTS
+        url = (
+            provider["url_prefix"]
+            + "&SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER="
+            + provider["layers"]
+            + "&STYLE=&FORMAT=image/"
+            + provider["image_type"]
+            + "&TILEMATRIXSET="
+            + provider["tilematrixset"]["identifier"]
+            + "&TILEMATRIX="
+            + provider["tilematrixset"]["tilematrices"][tilematrix][
+                "identifier"
+            ]
+            + "&TILEROW="
+            + str(til_y)
+            + "&TILECOL="
+            + str(til_x)
+        )
+    elif provider["request_type"] == "local_tms":  # LOCAL TMS: no request
+        return None
+    if not request_headers:
+        if "fake_headers" in provider:
+            request_headers = provider["fake_headers"]
+        else:
+            request_headers = request_headers_generic
+    return (url, request_headers)
+
+
+################################################################################
 def get_wmts_image(tilematrix, til_x, til_y, provider, http_session):
     cached = _shared_tile_cache_get(
         provider.get("code", ""), tilematrix, til_x, til_y
@@ -1402,73 +1490,8 @@ def get_wmts_image(tilematrix, til_x, til_y, provider, http_session):
     til_x_orig, til_y_orig = til_x, til_y
     down_sample = 0
     while True:
-        request_headers = None
-        if has_URL and provider["code"] in URL.custom_url_list:
-            (url, request_headers) = URL.custom_tms_request(
-                tilematrix, til_x, til_y, provider
-            )
-        elif provider["request_type"] == "tms":  # TMS
-            url = provider["url_template"].replace("{zoom}", str(tilematrix))
-            url = url.replace("{x}", str(til_x))
-            url = url.replace("{y}", str(til_y))
-            url = url.replace("{|y|}", str(abs(til_y) - 1))
-            url = url.replace("{-y}", str(2 ** tilematrix - 1 - til_y))
-            url = url.replace(
-                "{quadkey}", GEO.gtile_to_quadkey(til_x, til_y, tilematrix)
-            )
-            url = url.replace(
-                "{xcenter}",
-                str(
-                    (til_x + 0.5)
-                    * provider["resolutions"][tilematrix]
-                    * provider["tile_size"]
-                    + provider["top_left_corner"][tilematrix][0]
-                ),
-            )
-            url = url.replace(
-                "{ycenter}",
-                str(
-                    -1
-                    * (til_y + 0.5)
-                    * provider["resolutions"][tilematrix]
-                    * provider["tile_size"]
-                    + provider["top_left_corner"][tilematrix][1]
-                ),
-            )
-            url = url.replace(
-                "{size}",
-                str(
-                    int(
-                        provider["resolutions"][tilematrix]
-                        * provider["tile_size"]
-                    )
-                ),
-            )
-            if "{switch:" in url:
-                (url_0, tmp) = url.split("{switch:")
-                (tmp, url_2) = tmp.split("}")
-                server_list = tmp.split(",")
-                url_1 = random.choice(server_list).strip()
-                url = url_0 + url_1 + url_2
-        elif provider["request_type"] == "wmts":  # WMTS
-            url = (
-                provider["url_prefix"]
-                + "&SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&LAYER="
-                + provider["layers"]
-                + "&STYLE=&FORMAT=image/"
-                + provider["image_type"]
-                + "&TILEMATRIXSET="
-                + provider["tilematrixset"]["identifier"]
-                + "&TILEMATRIX="
-                + provider["tilematrixset"]["tilematrices"][tilematrix][
-                    "identifier"
-                ]
-                + "&TILEROW="
-                + str(til_y)
-                + "&TILECOL="
-                + str(til_x)
-            )
-        elif provider["request_type"] == "local_tms":  # LOCAL TMS
+        request = wmts_request(tilematrix, til_x, til_y, provider)
+        if request is None:  # LOCAL TMS
             # ! Too much specific, needs to be changed by a
             # x,y-> file_name lambda fct
             url_local = provider["url_template"].replace(
@@ -1492,11 +1515,7 @@ def get_wmts_image(tilematrix, til_x, til_y, provider, http_session):
                         "white",
                     ),
                 )
-        if not request_headers:
-            if "fake_headers" in provider:
-                request_headers = provider["fake_headers"]
-            else:
-                request_headers = request_headers_generic
+        (url, request_headers) = request
         width = height = provider["tile_size"]
         (success, data) = http_request_to_image(
             width, height, url, request_headers, http_session
@@ -1585,29 +1604,35 @@ def build_texture_from_tilbox(tilbox, zoomlevel, provider, progress=None):
     parts_y = til_y_max - til_y_min
     width = height = provider["tile_size"]
     big_image = Image.new("RGB", (width * parts_x, height * parts_y))
+    # the number of workers (and the async fetcher's in-flight cap)
+    if "max_threads" in provider:
+        max_threads = int(provider["max_threads"])
+    else:
+        max_threads = 16
     # we set-up the queue of downloads
     http_session = requests.Session()
+    sessions = {}
+    if FETCH_ASYNC.fetcher_choice() == "async":
+        sessions = _prefetch_tilbox_parts(
+            tilbox, zoomlevel, provider, max_threads, http_session
+        )
     download_queue = queue.Queue()
     for monty in range(0, parts_y):
         for montx in range(0, parts_x):
             x0 = montx * width
             y0 = monty * height
+            til_x, til_y = til_x_min + montx, til_y_min + monty
             fargs = (
                 zoomlevel,
-                til_x_min + montx,
-                til_y_min + monty,
+                til_x,
+                til_y,
                 provider,
                 big_image,
                 x0,
                 y0,
-                http_session,
+                sessions.get((til_x, til_y), http_session),
             )
             download_queue.put(fargs)
-    # then the number of workers
-    if "max_threads" in provider:
-        max_threads = int(provider["max_threads"])
-    else:
-        max_threads = 16
     # and finally activate them
     success = parallel_execute(
         get_and_paste_wmts_part, download_queue, max_threads, progress
@@ -1617,6 +1642,46 @@ def build_texture_from_tilbox(tilbox, zoomlevel, provider, progress=None):
 
 
 ################################################################################
+
+################################################################################
+def _prefetch_tilbox_parts(tilbox, zoomlevel, provider, max_threads, fallback):
+    """``{(til_x, til_y): PartSession}`` for the parts the network must answer.
+
+    O4_IMAGERY_FETCHER=async (imagery-fetch-spec §5): every part's tile is
+    fetched at once through the HTTP/2 fetcher, at most ``max_threads`` in
+    flight; the parts then run the threaded chain on its answer (see
+    ``O4_Imagery_Async``).  Parts the shared map cache or a local TMS serves
+    are left out, as they make no request.
+    """
+    (til_x_min, til_y_min, til_x_max, til_y_max) = tilbox
+    code = provider.get("code", "")
+    parts = []
+    for til_y in range(til_y_min, til_y_max):
+        for til_x in range(til_x_min, til_x_max):
+            if shared_tile_cache_dir and os.path.isfile(
+                shared_tile_cache_path(code, zoomlevel, til_x, til_y)
+            ):
+                continue
+            request = wmts_request(zoomlevel, til_x, til_y, provider)
+            if request is not None:
+                parts.append(((til_x, til_y), request[0], request[1]))
+
+    def meter(result):
+        try:
+            from o4_engine import download_meter
+            download_meter.record(len(result.body), result.elapsed)
+        except Exception:
+            pass
+
+    results = FETCH_ASYNC.fetch_parts(
+        parts, code, max_threads, should_stop=lambda: UI.red_flag,
+        on_result=meter,
+    )
+    return {
+        key: FETCH_ASYNC.PartSession(FETCH_ASYNC.answer_of(result), fallback)
+        for key, result in results.items()
+    }
+
 
 ################################################################################
 def build_texture_from_bbox_and_size(t_bbox, t_epsg, t_size, provider):

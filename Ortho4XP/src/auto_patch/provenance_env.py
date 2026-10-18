@@ -63,6 +63,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_CACHE_AWARE_ADMISSION": "tile admission order in a parallel run",
     "O4_OSM_CLASS_LIMIT": "concurrent Overpass fetches",
     "O4_IMAGERY_CLASS_LIMIT": "concurrent imagery fetches",
+    "O4_IMAGERY_FETCHER":
+        "which imagery downloader fetches the tiles (RULINGS 2026-10-17e); "
+        "same bytes either way, never the airport patch",
     "O4_DISABLE_OSM_WARMER": "whether a parallel run warms the OSM cache",
     "O4_ENGINE_SHUTDOWN_GRACE_SECONDS": "how long a stopping engine waits",
     "O4_SECRET_BROKER_TIMEOUT_SECONDS": "how long a key request waits",

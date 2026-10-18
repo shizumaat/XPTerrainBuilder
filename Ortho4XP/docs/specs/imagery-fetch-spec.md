@@ -1,6 +1,7 @@
 # Imagery fetch — spec (2026-10-17, Beta 3 W0 + W5)
 
-Status: PROPOSAL. Plan: `beta3-build-speed-plan-20261017.md` W0 (§3 here) and
+Status: PROPOSAL; §4 SKIPPED and §5 PORTED from OrthoStudio XP (RULINGS
+2026-10-17c). Plan: `beta3-build-speed-plan-20261017.md` W0 (§3 here) and
 W5 (§4–5). Issues: manifest B3-02, B3-03, B3-13, B3-14. Related: #622 (progress
 share, measured rate, prefetch — unchanged by this spec). Prior art: E
 `docs/specs/net-download.md` R1–R7, `docs/benchmarks/network.md`, ADR 0005.
@@ -87,6 +88,10 @@ failed pieces, white-squared textures. Reported as ranges.
 
 ## 4. Adaptive concurrency and hedging inside the threaded fetcher (B3-13)
 
+> **SKIPPED — RULINGS 2026-10-17c (iii).** The threaded fetcher is not made
+> adaptive; the AIMD window and hedging arrive with the ported §5 fetcher
+> instead. The text below is kept as the design record, not as work to do.
+
 Keep `parallel_execute` and the thread pool; make the number of ACTIVE
 requests per host group adaptive (E R2, AIMD):
 
@@ -116,6 +121,33 @@ per host group optional. `build_texture_from_tilbox` chooses the fetcher by
 per-piece contract is unchanged: `(success, PIL.Image)` per part, pasted into
 `big_image`; `request_headers` and the provider's session cookies are
 forwarded; the placeholder tests run on the body and headers identically.
+
+**As ported (2026-10-17, RULINGS 2026-10-17c).** The fetcher is PORTED from
+OrthoStudio XP (`net/fetch.py` → `src/O4_Imagery_Fetch.py`, `net/certs.py` →
+`src/O4_Imagery_Certs.py`, E at `7c028d82d`, E's NOTICE at
+`THIRD_PARTY/orthostudio-xp/NOTICE`), not re-implemented. The glue is
+`src/O4_Imagery_Async.py` plus `build_texture_from_tilbox` /
+`_prefetch_tilbox_parts` / `wmts_request` in `O4_Imagery_Utils`:
+
+- the async path PREFETCHES the parts of a webmercator texture; each part then
+  runs the unchanged `get_wmts_image` → `http_request_to_image` chain on its
+  prefetched answer, so the placeholder tests, status handling, parent-zoom
+  fallback, `(success, image)` contract and white square are ONE code for both
+  fetchers. A part's second request (a parent tile, a 429 the fetcher's budget
+  gave up on) goes to the threaded `requests` session;
+- one event loop on one daemon thread for the process (a curl session is bound
+  to its loop; connections stay alive between textures); fetchers pooled per
+  (provider code, `max_threads`), so a provider's AIMD window and 429 pause
+  carry from one texture to the next. E's `fetch_many` admits one run at a time,
+  so two concurrent textures use two fetchers: per-provider in-flight bound =
+  concurrent textures × `max_threads`, as the threaded path. Hedges (a request
+  unanswered after 3 s) may add up to half the window on top;
+- `max_threads` is the window's start and cap; the WMS / non-webmercator
+  path (`build_texture_from_bbox_and_size`) stays threaded;
+- the download meter is fed per transfer by the fetcher (`o4_prefetched`
+  answers are not metered twice); `UI.red_flag` is polled every 0.2 s and sets
+  the fetcher's cancel event;
+- TLS: certifi's bundle for this path only (17c (ii)).
 
 Admission conditions: `curl_cffi` wheels for mac arm64/x86_64, win, linux in
 the freeze (`requirements.txt`, both `.spec` hiddenimports if lazily imported —
@@ -154,5 +186,6 @@ the Bing host; any change to texture bytes.
 
 ## Licence
 
-Design follows E's `net-download.md` rules R1–R7 as prior art; re-implemented.
-`Ortho4XP/` (GPL-3).
+Design follows E's `net-download.md` rules R1–R7. §5's fetcher is E's code,
+ported under GPL v3 with E's §7 terms (file headers, `THIRD_PARTY/orthostudio-xp/NOTICE`,
+About-box credit; `LICENSING.md`). `Ortho4XP/` (GPL-3).

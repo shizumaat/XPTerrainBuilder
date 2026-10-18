@@ -35,6 +35,10 @@ from typing import List, Optional
 # warmer (o4_engine.parallel) is disabled suite-wide; tests that exercise
 # the warmer itself delete this variable and stub the download modules.
 os.environ.setdefault("O4_DISABLE_OSM_WARMER", "1")
+# The async imagery fetcher (the production default, RULINGS 2026-10-17e) opens
+# its sockets inside libcurl, where the Python socket guard below cannot see
+# them; the suite runs the threaded fetcher unless a test opts in (loopback only).
+os.environ["O4_IMAGERY_FETCHER"] = "threads"
 
 # ...and the law is ENFORCED at the socket, not trusted to every caller
 # (issue #122).  Windows CI hung three times to the 600 s pytest-timeout,

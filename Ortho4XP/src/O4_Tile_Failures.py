@@ -208,6 +208,12 @@ CATALOGUE = {
         "no usable imagery source is set for it.",
         "The imagery source named in the tile's settings is not one the "
         "app knows.", "settings"),
+    # a texture neither encoder converted (#900/#901): the new scenery
+    # file is not activated, since X-Plane stops on a missing texture
+    "texture_convert_failed": Entry(
+        "some of its textures could not be converted.",
+        "{textures} could not be converted; X-Plane stops on a missing "
+        "texture, so the new scenery was not put in place.", "retry"),
     "imagery_download_failed": Entry(
         "its aerial images could not be downloaded.",
         "None of the downloads from the imagery source succeeded.",
@@ -508,6 +514,8 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "pack": ("the scenery pack “%s”" % pack) if pack
                 else "a scenery pack on this tile",
         "step": params.get("step") or "build",
+        "textures": ("%s of its aerial images" % params["count"])
+                    if params.get("count") else "Some of its aerial images",
     }
     words.update(_link_words(params))
     words["was"] = "were" if len(airports) > 1 else "was"

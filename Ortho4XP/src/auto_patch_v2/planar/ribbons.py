@@ -19,7 +19,7 @@ from ..model.planar import is_osm_ribbon_ref
 from ..law.tables import rolled_on_roles
 from .pad_cut import _drop_rim_midpoints, airside_clip, build_rim
 from . import overlay as _ov
-from .overlay import (PAD_AIRSIDE, Region, _claiming_region, _node_coords,
+from .overlay import (Region, _claiming_region, _node_coords,
                       absorb_enclosed_pavement, dissolve_degenerate_holes,
                       dissolve_sliver_zones, merge_slivers)
 from .platform import merge_platform_faces
@@ -27,7 +27,7 @@ from .platform import merge_platform_faces
 __all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "airside_vertex_set"]
 
 def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law: Law,
-                    keeps: bool, grid: float, ring_lines_of, counts: dict):
+                    keeps: bool, grid: float, ring_lines_of, counts: dict, reg):
     """RULINGS 2026-09-30aa rules 2, 9-10 (#100) — THE MAPPED-ROAD RIBBONS
     JOIN THE FINISHED AIRSIDE.  The arrangement WITHOUT them (pass A and
     the pads, ``noded``) is finished first — claimed, merged, absorbed and
@@ -42,7 +42,8 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     (a later sliver dissolve treats it as frozen) and that airside union."""
     from ..law.tables import rolled_on_roles
     hosts_seen: dict = {}
-    got = _faces_of(noded, regions, bands, law, keeps, None, hosts_seen=hosts_seen)
+    got = _faces_of(noded, regions, bands, law, keeps, None, hosts_seen=hosts_seen,
+                    reg=reg)
     base_faces = got[0]
     base_order = ({shapely.normalize(g).wkb: k for k, g in enumerate(got[-1])},
                   hosts_seen, airside_vertex_set(base_faces, law))
@@ -131,12 +132,13 @@ _RIM_GUARD_PASSES = 4
 
 
 def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
-              air_f=None, order=None, hosts_seen=None):
+              air_f=None, order=None, hosts_seen=None, *, reg):
     """Polygonise ``noded`` and give every face its region, then the
     derivation-site merges (§41 (1)/(4), 08d (4a), 10h (1)).  ``air_f``
     (30aa, the ribbons' pass): the FINISHED airside — a face outside it is
     never an aircraft pavement's (a strip between a ribbon and the rim the
-    raw apron cell overlaps is not apron)."""
+    raw apron cell overlaps is not apron).  ``reg``: the arrangement's
+    registries (``platforms`` read, ``pad_airside`` written)."""
     if air_f is not None:
         from ..law.tables import rolled_on_roles
         rolled = rolled_on_roles(law)
@@ -167,11 +169,11 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
         # RULINGS 2026-09-29n (4), #94: ONE platform, ONE face — a foreign
         # ring edge noded through the pad is dropped at this derivation site
         from .platform import merge_platform_faces
-        faces, _plat_merged = merge_platform_faces(faces)
-        PAD_AIRSIDE["platform_faces_merged"] = _plat_merged
+        faces, _plat_merged = merge_platform_faces(faces, reg.platforms)
+        reg.pad_airside["platform_faces_merged"] = _plat_merged
         from .platform import MERGE_READ
         if MERGE_READ:
-            PAD_AIRSIDE["platform_merge_read"] = "; ".join(
+            reg.pad_airside["platform_merge_read"] = "; ".join(
                 f"{r} {a}->{'refused' if b is None else b}"
                 for r, (a, b) in sorted(MERGE_READ.items()))
     ident = law.tables.emit.identity.min_distinct_spacing_m
@@ -201,7 +203,7 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
     # the plateau — LAST, so no merge above reads the new region; a scrap
     # ONE plateau face encloses closes that face's hole there (issue #546)
     from .pad_sliver import rerole_plateau_scraps
-    faces = rerole_plateau_scraps(faces, law, PAD_AIRSIDE)
+    faces = rerole_plateau_scraps(faces, law, reg.pad_airside)
     return (faces, dropped, dropped_seam, merged, absorbed, detached,
             zs_dissolved, zs_dropped, zs_area, zs_rows, holes_gone, polys)
 

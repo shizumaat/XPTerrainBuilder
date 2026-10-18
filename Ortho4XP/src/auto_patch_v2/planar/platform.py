@@ -11,7 +11,7 @@ and ``pad_terrace.pad_terrace_split``, before pass B nodes the pads), each
 such pad is TESTED and PLANNED (``pad_blocks.plan_blocks``):
 
 * ONE block — the region is left WHOLE under its own ref and registered in
-  :data:`HELD` with the plan's record;
+  the map's held record (``Registries.held``) with the plan's record;
 * SEVERAL blocks (a stepped base, RULINGS 2026-09-30r / 10-02aj) — the unit
   is CUT at its necks into block faces ``<ref>/b<k>``, and between two
   blocks a STRIP ``<ref>/b<k>#strip`` (``model.planar.STRIP_SUFFIX``) wide
@@ -40,10 +40,11 @@ from shapely.strtree import STRtree
 from ..law import Law
 from ..law.tables import frontage_roles
 from ..model.planar import STRIP_SUFFIX, block_ref, is_bank_ref
-from ..model.platform import HELD, PLATFORMS, Platform
+from ..model.platform import Platform
+from ..model.registries import Registries
 from ..geom.parts import nonempty_polygon_parts
 
-__all__ = ["platform_split", "Platform", "PLATFORMS", "merge_platform_faces"]
+__all__ = ["platform_split", "Platform", "merge_platform_faces"]
 
 #: The ring sampling step of the frontage read (m) — ``pad_terrace._STEP_M``'s
 #: geometric resolution, not a law value.
@@ -105,7 +106,8 @@ def draped_facade_pads(pad_regions, airport) -> "set[int]":
     return out
 
 
-# ``Platform`` / ``PLATFORMS`` live in ``model/platform`` (issue #104:
+# ``Platform`` lives in ``model/platform`` and the verdicts in the map's
+# ``registries.platforms`` (issue #104, #841:
 # ``constraints/platform`` reads them and may not import ``planar``);
 # re-exported.
 
@@ -164,7 +166,8 @@ def rim_relief_m(P: Polygon, air, near_m: float, dem, slope_max: float
 
 
 def platform_split(base_regions, pad_regions, law: Law,
-                   grid: float = 0.0, dem=None, airport=None) -> tuple[list, dict]:
+                   grid: float = 0.0, dem=None, airport=None, *,
+                   reg: Registries) -> tuple[list, dict]:
     """THE BLOCK PLANNER (module docstring).  Returns ``(pad_regions,
     counts)``.
 
@@ -172,10 +175,10 @@ def platform_split(base_regions, pad_regions, law: Law,
     frontage_hold`` on, every unit pad is TESTED and PARTITIONED per rigid
     block here (``planar.pad_blocks``), the verdicts published in
     ``pad_blocks.BLOCK_PLANS``."""
-    PLATFORMS.clear()
-    HELD.clear()
-    from ..model.platform import LANDINGS
-    LANDINGS.clear()
+    platforms, held = reg.platforms, reg.held
+    platforms.clear()
+    held.clear()
+    reg.landings.clear()
     from .pad_blocks import BLOCK_PLANS, plan_blocks
     BLOCK_PLANS.clear()
     split_units: dict[str, list] = {}
@@ -222,7 +225,7 @@ def platform_split(base_regions, pad_regions, law: Law,
             # a DRAPED FACADE's footprint (module constant): the sim floors
             # the facade on the terrain under the WHOLE footprint, so the
             # plate stays a §20 plate and §4 holds it flat (``conforming``)
-            PLATFORMS.append(Platform(str(pr.ref), round(P.area, 1), nw, rel,
+            platforms.append(Platform(str(pr.ref), round(P.area, 1), nw, rel,
                                       REFUSED_DRAPED_FACADE))
             out.append(pr)
             continue
@@ -237,20 +240,20 @@ def platform_split(base_regions, pad_regions, law: Law,
             # between two blocks a STRIP wide enough for the 1:3 bank the
             # predicted step needs (§2 (5): the declared pad|pad terrace,
             # never a shared vertex at two floors)
-            blk = _mint_blocks(pr, P, bplan, law, pmin, nw, rel)
+            blk = _mint_blocks(pr, P, bplan, law, pmin, nw, rel, reg)
             if blk is not None:
                 split_units[str(pr.ref)] = [b.polygon for b in bplan.blocks]
                 unit_ids.update(id(q) for q in blk[0])
                 out.extend(blk[0])
                 out.extend(blk[1])
                 continue
-        PLATFORMS.append(Platform(str(pr.ref), round(P.area, 1), nw, rel))
+        platforms.append(Platform(str(pr.ref), round(P.area, 1), nw, rel))
         if bplan is not None:
             one = len(bplan.blocks) == 1
             # a partition the mint could not cut (a block left no face over
             # ``min_area_m2``) keeps the unit whole: every welded contact is
             # held and the solve finds the one datum
-            HELD[str(pr.ref)] = {"unit": str(pr.ref), "k": 0, "blocks": 1,
+            held[str(pr.ref)] = {"unit": str(pr.ref), "k": 0, "blocks": 1,
                                  "datum_pred": bplan.blocks[0].datum if one else None,
                                  "verdict": bplan.verdict if one else "unminted_split",
                                  "samples_xy": bplan.blocks[0].samples_xy if one else None,
@@ -280,7 +283,7 @@ def platform_split(base_regions, pad_regions, law: Law,
         for r in out:
             ref = str(r.ref)
             P = r.polygon
-            if (ref in HELD or is_bank_ref(ref)
+            if (ref in held or is_bank_ref(ref)
                     or ref in split_units or P is None or P.is_empty
                     or not isinstance(P, Polygon) or P.area < pmin):
                 continue
@@ -288,11 +291,11 @@ def platform_split(base_regions, pad_regions, law: Law,
                     tree.query(P, predicate="dwithin", distance=near)]
             if not cand or _welded_samples(P, unary_union(cand), near) < _MIN_WELDED:
                 continue
-            HELD[ref] = {"unit": ref, "k": 0, "blocks": 1, "datum_pred": None,
+            held[ref] = {"unit": ref, "k": 0, "blocks": 1, "datum_pred": None,
                          "verdict": "conforming", "conforming": True,
                          "samples_xy": None, "samples_held": None,
                          "samples_reach": None, "samples_ramp": None}
-        counts["conforming_held"] = sum(1 for h in HELD.values() if h.get("conforming"))
+        counts["conforming_held"] = sum(1 for h in held.values() if h.get("conforming"))
     # owner RULINGS 2026-10-03e (#290): the RAMP LANDINGS of a unit's
     # viaduct — flat groundside pads with their collars, minted after every
     # block is registered and after the ref pass above (it never renames
@@ -308,24 +311,24 @@ def platform_split(base_regions, pad_regions, law: Law,
          and not r.polygon.is_empty and _side(law, r.role) == "airside"],
         airport, law, float(grid),
         # the LANDING BANK's width (master ruling 2026-10-08 R3 (1))
-        float(bp.platform_collar_max_m), counts))
-    counts["platforms"] = sum(1 for p in PLATFORMS if not p.refused)
-    counts["platforms_refused"] = sum(1 for p in PLATFORMS if p.refused)
+        float(bp.platform_collar_max_m), counts, reg=reg))
+    counts["platforms"] = sum(1 for p in platforms if not p.refused)
+    counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(
         f"{p.ref} {p.pad_m2:,.0f} m2"
-        + (f" REFUSED {p.refused}" if p.refused else "") for p in PLATFORMS[:12])
+        + (f" REFUSED {p.refused}" if p.refused else "") for p in platforms[:12])
     return out, counts
 
 
 def _mint_blocks(pr, P: Polygon, bplan, law: Law, pmin: float, nw: int,
-                 rel) -> "tuple[list, list] | None":
+                 rel, reg: Registries) -> "tuple[list, list] | None":
     """The block faces of one CUT unit (``platform_split``): per block ``k``
     its polygon less a STRIP along every cut chord it touches (half the bank
     the predicted step needs, at least half ``bank_min_width_m`` — the
     terrace between two flat floors is a 1:3 bank in the heightfield, §2
     (5)); the strip half (and any scrap the cut leaves under
     ``min_area_m2``) is ``<ref>/b<k>#strip``.  Registers each block in
-    ``PLATFORMS`` and ``HELD``.  ``None`` when a block would carry no face
+    ``reg.platforms`` and ``reg.held``.  ``None`` when a block would carry no face
     (the caller keeps the unit whole)."""
     bank = float(law.tables.emit.design.bank_slope)
     bmin = float(law.tables.emit.design.bank_min_width_m)
@@ -351,8 +354,8 @@ def _mint_blocks(pr, P: Polygon, bplan, law: Law, pmin: float, nw: int,
         strip_regs.extend(_dc.replace(pr, ref=ref + STRIP_SUFFIX, polygon=q) for q in rest)
         recs.append((ref, b))
     for ref, b in recs:
-        PLATFORMS.append(Platform(ref, round(b.polygon.area, 1), nw, rel))
-        HELD[ref] = {"unit": str(pr.ref), "k": b.k, "blocks": len(bplan.blocks),
+        reg.platforms.append(Platform(ref, round(b.polygon.area, 1), nw, rel))
+        reg.held[ref] = {"unit": str(pr.ref), "k": b.k, "blocks": len(bplan.blocks),
                      "datum_pred": b.datum, "verdict": bplan.verdict,
                      "samples_xy": b.samples_xy, "samples_held": b.samples_held,
                      "samples_reach": b.samples_reach,
@@ -430,7 +433,8 @@ def _merge_group(polys: list[Polygon]) -> "list[Polygon] | None":
 MERGE_READ: dict[str, tuple[int, "int | None"]] = {}
 
 
-def merge_platform_faces(faces: list) -> tuple[list, int]:
+def merge_platform_faces(faces: list, platforms: _t.Sequence[Platform]
+                          ) -> tuple[list, int]:
     """ONE PAD, ONE FACE (owner RULINGS 2026-09-29n (4), issue #94).
 
     A unit pad is ONE region, but the arrangement nodes every ring it is
@@ -445,7 +449,7 @@ def merge_platform_faces(faces: list) -> tuple[list, int]:
     share no edge stay separate faces.  Returns ``(faces, merged)``: faces
     removed."""
     MERGE_READ.clear()
-    refs = {p.ref for p in PLATFORMS if not p.refused}
+    refs = {p.ref for p in platforms if not p.refused}
     if not refs:
         return faces, 0
     keys = refs | {r + STRIP_SUFFIX for r in refs}

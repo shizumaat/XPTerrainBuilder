@@ -231,10 +231,10 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
     # "the upper pad's front / faced aprons" matched nothing at HECA
     # (``building52`` faces ``dsf:objpav68#0``, ``building131`` faces
     # ``pav37`` — the same east apron under two refs).
-    from ..model.pad_terrace import TERRACES
+    terraces = planar.registries.terraces
     ref_of = {f.id: str(f.ref) for f in planar.faces.values()}
     lower: dict[str, list[tuple[float, float]]] = {}
-    for t in TERRACES:
+    for t in terraces:
         if t.kind == "pad":
             lower.setdefault(t.other_ref, []).append((t.front_level, t.other_level))
     n_across = 0

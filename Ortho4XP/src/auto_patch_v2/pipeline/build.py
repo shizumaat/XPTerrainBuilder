@@ -40,6 +40,7 @@ from ..emit.osm_adapter import (PatchPaths, WeldReport, merge_sub_spacing,
                                 write_tile_pieces)
 from ..airport import rebake_screen as _rscreen
 from . import authored_seats as _authored_seats
+from . import capture_state as _cstate
 from ..airport.rebake_plan import plan as rebake_plan
 from ..emit.rebake import deck_datum_from_surface
 from ..law import Law
@@ -736,8 +737,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] ramp feet (14c (5)): {_feet_rep}", out)
     t = time.perf_counter()
     objects_out: list = []
-    pm, pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
-                              objects=pack_objects, object_report=pack_report)
+    # stage-cache spec §10 step 1 (#840): the registries the planar stage
+    # fills come back as its RECORD, installed explicitly before the shapes
+    pm, pstats, planar_record = _cstate.planar_stage(
+        airport, cl, law, objects_out=objects_out, cache=ocache,
+        objects=pack_objects, object_report=pack_report)
     wall["planar"] = time.perf_counter() - t
     # §37 (11) (7) (issue #72): the shore the zones were cut against —
     # quay faces stand on a DECLARED shore (or a pavement edge that IS
@@ -1090,6 +1094,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # the route bands, the withdraw set, the joint filter, the yield transform
     t = time.perf_counter()
     _pulse.tick("the shapes")
+    _cstate.install(planar_record)          # #840: the planar stage's record
     stage = shape_stage(pm, law, airport, cl, out=lambda m: _say(m, out))
     pm = stage.pm
     wall["shapes"] = time.perf_counter() - t

@@ -81,6 +81,7 @@ import O4_Airport_Batch as APTBATCH
 import O4_Airport_Rank as RANK
 import O4_Airport_Search as SEARCH
 import O4_Map_Guidance as GUIDE
+import O4_Flight_Plan as FLIGHTPLAN
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
 import O4_Qt_Map as QTMAP
@@ -1378,6 +1379,11 @@ class MainWindow(QMainWindow):
         settings_action.setShortcut(QKeySequence.Preferences)
         settings_action.triggered.connect(self.open_settings)
         file_menu.addAction(settings_action)
+        # Select tiles along a flight plan (#829; Mac: File menu too).
+        self.flight_plan_action = QAction(FLIGHTPLAN.MENU_TITLE, self)
+        self.flight_plan_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        self.flight_plan_action.triggered.connect(self.open_flight_plan_dialog)
+        file_menu.addAction(self.flight_plan_action)
         patch_actions = self.patch_editor.menu_actions(self)
         file_menu.addAction(patch_actions["save"])
         quit_action = QAction("Quit", self)
@@ -1581,6 +1587,24 @@ class MainWindow(QMainWindow):
                     print("Derived %s from X-Plane folder: %s" % (key, value))
             except OSError as exc:
                 print("Could not save derived paths:", exc)
+
+    def open_flight_plan_dialog(self, **seams):
+        """File menu: select the tiles along a flight plan (#829).  One
+        dialog at a time; the route layer is installed on the map once.
+        ``seams`` reach the dialog (tests: ``fetch``, ``choose_file``)."""
+        import O4_Qt_Flight_Plan as QTFLIGHT
+
+        if getattr(self, "_route_layer", None) is None:
+            self._route_layer = QTFLIGHT.RouteLayer(self.map)
+            self.map.add_layer(self._route_layer)
+        dialog = getattr(self, "flight_plan_dialog", None)
+        if dialog is not None and dialog.isVisible():
+            dialog.raise_()
+            return dialog
+        self.flight_plan_dialog = QTFLIGHT.FlightPlanDialog(
+            self, self.map, self._route_layer, self.prefs, save_prefs, **seams)
+        self.flight_plan_dialog.show()
+        return self.flight_plan_dialog
 
     def open_coral_atlas_dialog(self):
         """Tools menu: the Allen Coral Atlas reef bathymetry setup."""

@@ -74,6 +74,12 @@ struct AppCommands: Commands {
             .keyboardShortcut("f", modifiers: .command)
         }
 
+        // Select the tiles along a flight plan (#829; Qt: File menu too).
+        CommandGroup(after: .newItem) {
+            Button(FlightPlanCopy.menuTitle) { buildModel.flightPlan.open() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+        }
+
         // The patch editor's ⌘S (#46): saves the edited patch.
         CommandGroup(replacing: .saveItem) {
             PatchSaveCommand(model: buildModel.patchEdit)

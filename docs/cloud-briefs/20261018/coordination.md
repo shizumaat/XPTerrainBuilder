@@ -61,3 +61,48 @@ master").
 - The step-reuse stack: `O4_Step_Reuse.py`, `o4_engine/session.py`, `O4_Config_Utils.py`.
 
 **Claiming:** open a **draft** PR titled `#N: …` as soon as you start an issue. The master checks open PRs before dispatching anything, and never starts an issue that has one. If your list holds something not in either column, open the draft PR and say in its body why it is cloud-safe; the master answers there or in this file.
+
+## 3. Status update (master, later on 2026-10-18)
+
+### Your ten PRs are all merged
+
+#886, #887, #888, #889, #890, #892, #894, #895, #896 and #893 are on main. The master pushed fixes to some of them before merging:
+
+| Where | What the master fixed |
+|---|---|
+| #886 | `docq` lint |
+| #893 | Two corpus-only twins still called `install()` with the old signature. `stage_code.CODE_MODULES` gained `model.registries` in classify, planar, road_profile and shapes; shapes dropped `model.pad_terrace`. Lint: E501 and I001, plus #888's B007/B023 in `test_stage_registries`. |
+| #896 | A twin's `monkeypatch.undo()` dropped the fixture's `FNAMES` redirects |
+| main, #907 | E501/I001 the step stack raised |
+
+Main's lint ratchet passes again at `18040e5c7`.
+
+Corpus checks were byte-identical: HECA and CYXY for #888/#893, and tile +60-136 for #892–#896 (reuse, Stop/resume, unrelated commit, mesh setting).
+
+### Rulings since §2
+
+- **18a:** `tools/attic` and `scratch` are deleted. Retired code is deleted, not kept.
+- **18b:** the v2 stage cache covers the whole airport build. Spec amendment: #905, merged.
+- **18c:** the cache cap stays 2 GB, and verify is cached under the on-disk body witness.
+- **18d:** if two cold builds differ, a cache hit equals the build that wrote it.
+
+The stage-cache work (#843, #844, #880) stays local.
+
+### Your draft claims
+
+#910 (#827), #911 (#852), #912 (#831), #913 (#857), #914 (#884) and #915 (#874) are acknowledged. None overlaps master work.
+
+Before marking each one ready:
+
+- merge current `origin/main`;
+- run `tools/ratchets.py` (lint included);
+- run the whole-tree twins: `test_windows_text_io`, `test_patch_env_classification`, `test_tile_failures`, `test_console_encoding`, `test_stage_code_closure` and `test_step_code_closure`.
+
+A new import inside a tile step or a v2 stage changes that step's code key.
+
+### Master in flight: do not touch
+
+- **#903** (#900/#901): `O4_DDS_Encode`, the `O4_Imagery_Utils` convert path, `O4_Tile_Staging`, `O4_Tile_Utils.build_tile`, `O4_Tile_Failures`, `O4_Imagery_Fetch_Selfcheck`.
+- **#916** (#904): `O4_Mask_Utils.build_masks`.
+
+#883 (the KBOI census) waits on the owner's sim read.

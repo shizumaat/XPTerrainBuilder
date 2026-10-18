@@ -427,6 +427,10 @@ struct MapMainView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)
             }
+            // The preset cards (#822): the first choice a new user makes.
+            PresetCardsView()
+                .frame(maxWidth: 640)
+                .padding(.top, 8)
             Text(Self.systemInfo.summary)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)

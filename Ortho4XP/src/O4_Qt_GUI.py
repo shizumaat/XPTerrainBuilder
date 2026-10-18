@@ -1551,6 +1551,15 @@ class MainWindow(QMainWindow):
             return
         self.prefs = dict(wizard.prefs)
         save_prefs(self.prefs)
+        if wizard.preset_values:
+            # The preset card the user picked (#822): its config keys.
+            import O4_Settings_Model as SM
+
+            try:
+                SM.write_global(wizard.preset_values)
+                SM.apply_runtime(wizard.preset_values)
+            except OSError as exc:
+                print("Could not save the preset:", exc)
         self._seed_paths_from_xplane()
         self._apply_prefs()
         self._load_airports_async()
@@ -1611,6 +1620,10 @@ class MainWindow(QMainWindow):
         selected = sorted(self.map.selection())
         if not selected and self.map.active_tile():
             selected = [self.map.active_tile()]
+        # The preset cards (#822) read and set the build zoom: hand the
+        # dialog the zoom the toolbar shows, not the one saved at launch.
+        if self.zl_combo.currentIndex() >= 0:
+            self.prefs["zl"] = int(self.zl_combo.currentText())
         dialog = QTSET.SettingsWindow(
             self.prefs,
             selected,

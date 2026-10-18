@@ -199,3 +199,11 @@ def test_the_doc_lists_every_preset_value_and_figure():
         assert "`%s`" % name in doc
     assert "SHARPER_AIRPORTS_EXTRA_GB" in doc
     assert "RELATIVE_BUILD_TIME" in doc
+
+
+def test_card_words_are_plain():
+    for entry in PRESETS.PRESETS:
+        for text in (entry.title, entry.summary, entry.cost):
+            words = set(re.findall(r"[A-Za-z]+", text))
+            assert not words & set(GLOSSARY.RETIRED_WORDS), (entry.key, text)
+            assert "_" not in text

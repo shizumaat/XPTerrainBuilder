@@ -343,6 +343,9 @@ EXCEPTION_CODES = {
     "UnmountedLink": "output_link_unmounted",
     "LoginError": UNMAPPED,
     "CredentialStoreUnavailable": UNMAPPED,
+    # O4_Flight_Plan (#829): a plan the "Select from flight plan" dialog
+    # cannot read is shown in that dialog — never a build failure
+    "FlightPlanError": UNMAPPED,
     # the standard library and the HTTP stack
     "MemoryError": "out_of_memory",
     "FileNotFoundError": "file_missing",

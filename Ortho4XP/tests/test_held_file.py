@@ -21,6 +21,7 @@ recorded rather than slept.
 from __future__ import annotations
 
 import errno
+import json
 import os
 import sys
 
@@ -215,3 +216,87 @@ def test_an_already_released_lock_is_silent(tmp_path, monkeypatch):
                         lambda level, *args: said.append(args))
     BATHYBAND._release_band_lock(band_directory)
     assert said == []
+
+
+# =====================================================================
+# The band lock's exclusive create on a delete-pending name (#884)
+# =====================================================================
+def _delete_pending_refusal(path):
+    """What ``os.open(O_CREAT | O_EXCL)`` raises on Windows while the name
+    is delete pending: the C runtime's bare EACCES, no ``winerror``."""
+    return PermissionError(errno.EACCES, "Permission denied", path)
+
+
+def test_the_create_predicate_admits_the_bare_eacces_and_the_held_codes():
+    assert HELD.is_held_name_on_create(_delete_pending_refusal("f"))
+    assert HELD.is_held_name_on_create(_held_file_error("f", winerror=5))
+    assert not HELD.is_held_name_on_create(OSError(errno.ENOENT, "no"))
+    # The DEFAULT predicate stays narrow: a bare EACCES elsewhere is a
+    # real refusal (pinned by the "not a held file" twin above).
+    assert not HELD.is_held_file_error(_delete_pending_refusal("f"))
+
+
+def _refusing_exclusive_create(monkeypatch, lock_path, refusals):
+    """Patch ``os.open`` so the band lock's exclusive create meets
+    ``refusals`` first -- the interleaving forced, not timed."""
+    real_os_open = os.open
+    creates = []
+
+    def _os_open(path, flags, *args, **kwargs):
+        if os.path.abspath(path) == os.path.abspath(lock_path) and (
+                flags & os.O_EXCL):
+            creates.append(1)
+            if refusals:
+                raise refusals.pop(0)
+        return real_os_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(BATHYBAND.os, "open", _os_open)
+    return creates
+
+
+def test_a_just_released_lock_name_is_waited_out_not_raised(
+        windows, monkeypatch, tmp_path):
+    """#884: the waiter saw the owner's release land (the lock no longer
+    exists to a stat) and its exclusive create met the delete-pending
+    name.  The bare EACCES killed the waiter's thread; it must be retried
+    within the held-file bound and the lock then taken."""
+    band_directory = str(tmp_path)
+    lock_path = BATHYBAND._band_lock_path(band_directory)
+    creates = _refusing_exclusive_create(
+        monkeypatch, lock_path, [_delete_pending_refusal(lock_path)] * 2)
+    assert BATHYBAND._acquire_band_lock(band_directory, wait=False)
+    monkeypatch.undo()
+    assert len(creates) == 3
+    assert windows == [HELD.HELD_FILE_FIRST_BACKOFF_S,
+                       HELD.HELD_FILE_FIRST_BACKOFF_S * 2]
+    with open(lock_path, "r", encoding="utf-8") as lock_file:
+        assert json.load(lock_file)["pid"] == os.getpid()
+
+
+def test_a_lock_name_refused_forever_still_raises(
+        windows, monkeypatch, tmp_path):
+    """A permission failure that never clears is reported after the
+    bound, never polled on forever."""
+    band_directory = str(tmp_path)
+    lock_path = BATHYBAND._band_lock_path(band_directory)
+    creates = _refusing_exclusive_create(
+        monkeypatch, lock_path,
+        [_delete_pending_refusal(lock_path)] * (HELD.HELD_FILE_ATTEMPTS + 1))
+    with pytest.raises(PermissionError):
+        BATHYBAND._acquire_band_lock(band_directory, wait=False)
+    monkeypatch.undo()
+    assert len(creates) == HELD.HELD_FILE_ATTEMPTS
+
+
+def test_off_windows_the_bare_eacces_on_create_raises_at_once(
+        windows, monkeypatch, tmp_path):
+    monkeypatch.setattr(HELD, "RETRY_HELD_FILE", False)
+    band_directory = str(tmp_path)
+    lock_path = BATHYBAND._band_lock_path(band_directory)
+    creates = _refusing_exclusive_create(
+        monkeypatch, lock_path, [_delete_pending_refusal(lock_path)])
+    with pytest.raises(PermissionError):
+        BATHYBAND._acquire_band_lock(band_directory, wait=False)
+    monkeypatch.undo()
+    assert len(creates) == 1
+    assert windows == []

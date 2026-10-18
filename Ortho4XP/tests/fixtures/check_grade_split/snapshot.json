@@ -1,0 +1,1045 @@
+{
+ "law_families": [
+  [
+   "within_shape",
+   "WITHIN-SHAPE vertex-pair grade",
+   "within"
+  ],
+  [
+   "road_cross_section",
+   "ROAD CROSS-SECTION (lateral) grade",
+   "within"
+  ],
+  [
+   "taxi_box",
+   "TAXI SHORT-PAIR BOX (pairs under withdrawn_chord_min_m vs cL*|ds| + cT*|dt|)",
+   "within"
+  ],
+  [
+   "plane_gradient",
+   "PLANE GRADIENT (triangle surface)",
+   "within"
+  ],
+  [
+   "runway_end_skirt",
+   "RUNWAY-END PROFILE (the ground beyond a runway end, RULINGS 2026-10-12q)",
+   "within"
+  ],
+  [
+   "terrace_joint_route",
+   "APRON TERRACE JOINT crossing a taxi ROUTE",
+   "within"
+  ],
+  [
+   "terrace_joint_strip",
+   "APRON TERRACE JOINT inside a RUNWAY STRIP",
+   "within"
+  ],
+  [
+   "terrace_actual_step",
+   "APRON TERRACE ACTUAL step past its DECLARED step",
+   "within"
+  ],
+  [
+   "basin_floor_declaration",
+   "BASIN FACILITY floor DISAGREES with its own body depth",
+   "within"
+  ],
+  [
+   "pad_cluster_mismatch",
+   "PAD <-> CLUSTER MISMATCH (a pad spanning two clusters, or a cluster spanning two pads)",
+   "within"
+  ],
+  [
+   "pad_airside_weld",
+   "PAD SHARING AN EDGE WITH AIRSIDE pulled OUT OF PLANE at that edge",
+   "within"
+  ],
+  [
+   "pad_airside_renode",
+   "AIRSIDE CELL VERTEX minted or deleted BY THE PAD STAGE",
+   "within"
+  ],
+  [
+   "jetway_strip",
+   "JETWAY STRIP vertex off its ONE level, or a CLAMP the strip reported",
+   "within"
+  ],
+  [
+   "platform_rim_relief",
+   "PLATFORM rim relief the collar carries (one row per platform)",
+   "within"
+  ],
+  [
+   "platform_refused",
+   "UNIT PAD that got NO platform (erosion left no inner ring)",
+   "within"
+  ],
+  [
+   "pad_frontage_hold",
+   "FLAT-PAD block whose HELD frontage contact stands off its datum",
+   "within"
+  ],
+  [
+   "pad_frontage_infeasible",
+   "FLAT-PAD block with UNHELD frontage contacts (ramp / unreachable)",
+   "within"
+  ],
+  [
+   "hard_conflict",
+   "HARD law row the pre-solve feasibility LP relaxed (a conflict between laws)",
+   "within"
+  ],
+  [
+   "eat_ceiling",
+   "END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling",
+   "within"
+  ],
+  [
+   "seam_residual",
+   "TILE-SEAM vertex OFF its own DEM sample (the pin the solve held)",
+   "within"
+  ],
+  [
+   "bank_across_seam",
+   "BANK FOOT node INSIDE a tile-seam band (no bank along a seam)",
+   "within"
+  ],
+  [
+   "ramp_in_road",
+   "RAMP vertex INSIDE a road ribbon (the road margin is general)",
+   "within"
+  ],
+  [
+   "pavement_over_road_cap",
+   "PAVEMENT pair steeper than the ROAD cap (the universal fallback)",
+   "within"
+  ],
+  [
+   "object_cut_offset",
+   "EMITTED cut vertex OUTSIDE its object's wall line (\u00a733 (6))",
+   "within"
+  ],
+  [
+   "object_cut_depth",
+   "EMITTED cut floor OFF the object's AUTHORED floor plate (\u00a733 (6))",
+   "within"
+  ],
+  [
+   "ramp_in_strip",
+   "RAMP vertex INSIDE a runway/taxiway GRADED STRIP (the covered extent spans the strip)",
+   "within"
+  ],
+  [
+   "hairline_pair",
+   "EMITTED EDGE laid BESIDE a foreign constrained edge (the hairline)",
+   "within"
+  ],
+  [
+   "road_coverage_join",
+   "ROAD at the COVERAGE EDGE off the core ribbon it joins",
+   "within"
+  ],
+  [
+   "sea_wall",
+   "SEA WALL (a pavement or quay edge standing ON the shore)",
+   "within"
+  ],
+  [
+   "adjacent_ground_tear",
+   "ADJACENT-GROUND graded-strip TEAR",
+   "within"
+  ],
+  [
+   "adjacent_ground_step",
+   "ADJACENT-GROUND within-face welded STEP",
+   "within"
+  ],
+  [
+   "strip_seam_tear",
+   "ADJACENT-GROUND strip SEAM tear",
+   "within"
+  ],
+  [
+   "strip_transverse",
+   "RUNWAY-EDGE TIE (any vertex abeam a runway edge)",
+   "within"
+  ],
+  [
+   "zone_on_pavement",
+   "ADJACENT-GROUND zone strip STANDING ON pavement",
+   "within"
+  ],
+  [
+   "groundside_cutback",
+   "GROUNDSIDE CUT-BACK strip terrace (road <-> zone/airside across the stand-off)",
+   "within"
+  ],
+  [
+   "transverse",
+   "TRANSVERSE (cross-corridor) grade",
+   "within"
+  ],
+  [
+   "drainage_spine",
+   "DRAINAGE SPINE at or above its LOWER pavement",
+   "within"
+  ],
+  [
+   "apron_lattice_membrane",
+   "APRON LATTICE MEMBRANE pair over the apron's own budget",
+   "within"
+  ],
+  [
+   "airside_no_step",
+   "AIRSIDE NO-STEP (direct-distance grade + rate of change)",
+   "within"
+  ],
+  [
+   "lateral_contiguity",
+   "LATERAL CONTIGUITY (road vs strictest class)",
+   "within"
+  ],
+  [
+   "strip_longitudinal",
+   "STRIP ABEAM-LONGITUDINAL grade",
+   "within"
+  ],
+  [
+   "strip_arc",
+   "STRIP LONGITUDINAL grade-CHANGE rate",
+   "within"
+  ],
+  [
+   "resa_transverse",
+   "RESA / END-CORRIDOR TRANSVERSE grade",
+   "within"
+  ],
+  [
+   "raoa",
+   "RAOA grade-change rate (ICAO only)",
+   "within"
+  ],
+  [
+   "drainage_minimum",
+   "SURFACE FLATTER than its drainage minimum",
+   "within"
+  ],
+  [
+   "runway_crown",
+   "RUNWAY CROWN below its DECLARED drop",
+   "within"
+  ],
+  [
+   "wall_in_runway_strip",
+   "RETAINING WALL inside a RUNWAY STRIP",
+   "within"
+  ],
+  [
+   "channel_floor_at_declaration",
+   "CHANNEL FLOOR off its own declared profile",
+   "within"
+  ],
+  [
+   "channel_crest_at_edge",
+   "CHANNEL CREST off the governed cell it edges",
+   "within"
+  ],
+  [
+   "stacked_nodes",
+   "STACKED NODES (one coordinate, values disagree)",
+   "within"
+  ],
+  [
+   "sentinel_elevation",
+   "SENTINEL ELEVATION (vertex far outside the patch's own ground band)",
+   "within"
+  ],
+  [
+   "cross_shape",
+   "CROSS-SHAPE proximity grade",
+   "cross"
+  ],
+  [
+   "frontage_near_miss",
+   "NEAR-MISS BUILDING FRONTAGE (pad \u2194 soft pavement across a sliver)",
+   "cross"
+  ],
+  [
+   "vertex_to_edge_step",
+   "VERTEX-TO-EDGE step",
+   "steps"
+  ],
+  [
+   "mid_edge_step",
+   "MID-EDGE step",
+   "steps"
+  ],
+  [
+   "runway_step",
+   "STEP between two faces of the RUNWAY FAMILY",
+   "steps"
+  ]
+ ],
+ "names": [
+  "ADJACENT_GROUND_STEP_FAMILY",
+  "Any",
+  "BASE_STEP_JOINT_KIND",
+  "BASIN_WALL_JOINT_KIND",
+  "BROKEN_BY_EMIT_TOL_M",
+  "COCKPIT_BUCKETS",
+  "COCKPIT_MOTION",
+  "COCKPIT_REASON_TEXT",
+  "COCKPIT_REPORT",
+  "COCKPIT_RULING",
+  "COCKPIT_VISUAL",
+  "Counter",
+  "DEFERRED_ADJUDICATION_RULING",
+  "DESIGN_TARGET_HEADING",
+  "DESIGN_TARGET_RULING",
+  "DISCONNECTED_RING_TOL_M",
+  "DeclaredWallSteps",
+  "Dict",
+  "ELEV_ROUNDING_NOISE_M",
+  "Edge",
+  "EdgeStep",
+  "FRAME_BUILDER_ANCHOR",
+  "FRAME_MEAN_OF_NODES",
+  "FRAME_SIDECAR_DATUM",
+  "FrozenSet",
+  "GRADE_MATERIALITY",
+  "GROUNDSIDE_CUTBACK_FAMILY",
+  "GROUNDSIDE_CUTBACK_OUT_OF_SCOPE",
+  "HAIRLINE_ABOVE_FLOOR_OUT_OF_SCOPE",
+  "HAIRLINE_DEGENERATE_M",
+  "HAIRLINE_ON_EDGE_M",
+  "HAIRLINE_ON_EDGE_OUT_OF_SCOPE",
+  "HOST_CAP_FEATURE_CLASSES",
+  "HOST_DUPLICATE_TAG",
+  "HOST_ROLE_TAG",
+  "HOST_SHARED_NODES_TAG",
+  "HOST_SOURCE_TAG",
+  "HOST_WAY_TAG",
+  "LATERAL_CAP_T_TAG",
+  "LAW_FAMILIES",
+  "LAW_TRUE_KNOBS",
+  "LIFTED_CAP_TAG",
+  "List",
+  "MATERIALITY_ACCUMULATION_RULE",
+  "MATERIALITY_FLOOR_M",
+  "MATERIALITY_FLOOR_RULING",
+  "MATERIALITY_RUNWAY_FAMILY_ROLES",
+  "MATERIALITY_SHARP_GRADE_CAP_MULTIPLE",
+  "MATERIALITY_SHARP_STEP_M",
+  "MATERIALITY_SUB_FLOOR_CLASSES",
+  "MATERIALITY_SUB_FLOOR_LABEL",
+  "MATERIALITY_UNMEASURED_FAMILIES",
+  "MOUTH_WALL_LABEL_SUFFIX",
+  "OBJECT_CUT_DEPTH_M",
+  "OBJECT_CUT_OFFSET_M",
+  "OUT_OF_SCOPE_CLASSES",
+  "OUT_OF_SCOPE_RULING",
+  "Optional",
+  "PAVCAP_WELD_M",
+  "PAVEMENT_ROAD_CAP",
+  "PLANE_FIT_QUANTUM_M",
+  "PLANE_PAD_SEP",
+  "Path",
+  "RELAXED_OUT_OF_SCOPE",
+  "RETIRED_LAWS",
+  "RETIRED_LAW_RULING",
+  "ROAD_FRONTAGE_TOL_M",
+  "ROLE_GRADE_LIMITS",
+  "ROLE_LESS_FEATURE_CLASSES",
+  "ROLE_LESS_HOST_RULING",
+  "ROUTE_FIELD_LOCAL_WINDOW_M",
+  "ROUTE_FIELD_MODEL",
+  "ROW_POINT_KEYS",
+  "RUNWAY_EDGE_TIE_FAMILY",
+  "R_EARTH",
+  "SEA_WALL_ON_SHORE_M",
+  "SEA_WALL_OUT_OF_SCOPE",
+  "SEA_WALL_TEAR_OUT_OF_SCOPE",
+  "SENTINEL_FLOOR_PCTL",
+  "SENTINEL_MIN_NODES",
+  "SERVICE_ROAD_MAX_GRADE",
+  "SERVICE_ROAD_MAX_TRANSVERSE",
+  "SHARED_NID_TOLERANCE_M",
+  "SHARED_VERTEX_TOL_M",
+  "SIDECAR_ANCHOR_KEY",
+  "SIDECAR_EVIDENCE_KEYS",
+  "SIDECAR_FRAME_DATUM_KEYS",
+  "SIDECAR_LAW_KEYS",
+  "SLOPED_QUAD_ROUNDING_NOISE_M",
+  "STACKED_NODE_ALT_TOL_M",
+  "STACKED_NODE_XY_TOL_M",
+  "STEP_EXEMPTIONS",
+  "STEP_EXEMPT_FAMILIES",
+  "STRIP_SEAM_GRADED_ROLES",
+  "STRIP_SEAM_OPEN_BOUNDARY_FLOOR_M",
+  "STRIP_SEAM_OPEN_GROUND_MIN_M",
+  "STRIP_SEAM_OPEN_GROUND_SAMPLES",
+  "STRIP_SEAM_ROLE",
+  "STRIP_SEAM_TEAR_MIN_DISTANCE_M",
+  "STRIP_SEAM_TEAR_MIN_GRADE",
+  "STRIP_SEAM_TEAR_MIN_STEP_M",
+  "STRIP_SEAM_TEAR_RADIUS_M",
+  "STRIP_SEAM_WALL_STRADDLE_TOL_M",
+  "STRIP_STATION_BOUNDARY_EPS_M",
+  "ShapePairConstraint",
+  "TAXI_BOX_FAMILY",
+  "TAXI_GRADE_BY_WIDTH",
+  "TAXI_GRADE_WIDTH_ROLES",
+  "TAXI_MAX_GRADE_NARROW",
+  "TAXI_MAX_TRANSVERSE_NARROW",
+  "TAXI_YIELD_CAP_TAG",
+  "TILE_SEAM_LL_TOL_DEG",
+  "TILE_SEAM_ZONE_M",
+  "Tuple",
+  "USER_EDITED_LABEL",
+  "UserEditedPatchUnjudged",
+  "V2_ADJACENT_GROUND_REF_PREFIX",
+  "VERSION_DEFERRED_FAMILIES",
+  "Vertex",
+  "Violation",
+  "WALL_TERRACE_JOINT_KIND",
+  "WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE",
+  "Way",
+  "YIELDED_OUT_OF_SCOPE",
+  "ZONE_ON_PAVEMENT_FAMILY",
+  "ZONE_ON_PAVEMENT_MIN_AREA_M2",
+  "_ACTIVE_RULESET",
+  "_ACTIVE_RUNWAY_AXES",
+  "_APRON_EDGE_PORTION_RATIO",
+  "_APRON_MAX_GRADE",
+  "_APRON_PREF_STATS",
+  "_ApproachCorridor",
+  "_BASIN_FACILITY_WAY",
+  "_BASIN_FLOOR_DISAGREEMENT_M",
+  "_BASIN_FLOOR_MATCH_TOL_M",
+  "_BUILDING_FRONTAGE_NEAR_MISS_M",
+  "_CHANNEL_STRUCTURE_ROLES",
+  "_CHANNEL_TOL_M",
+  "_COCKPIT_LAW_CACHE",
+  "_CROWN_INTERSECTION_ROLES",
+  "_CROWN_OUT_OF_SCOPE",
+  "_CROWN_RUNWAY_ROLES",
+  "_CROWN_UNKNOWN_PAIRS",
+  "_DECLARED_PLATE_ROLES",
+  "_DEFAULT_RULESET",
+  "_DRAINAGE_MIN_ROLES",
+  "_DRAINAGE_MIN_RUN_M",
+  "_DRAINAGE_SPINE_MIN_FALL_M",
+  "_DRAINAGE_SPINE_PARENT_ROLES",
+  "_EAT_CEILING_TOL_M",
+  "_FAN_RAMP_LAW",
+  "_GAP_CONFORM_MARGIN_M",
+  "_GRADE_VISIBILITY_BUFFER_M",
+  "_GROUNDSIDE_ROLES",
+  "_GradedDomain",
+  "_HARD_TOL_M",
+  "_JETWAY_STRIP_TOL_M",
+  "_JOINT_SEGMENTS",
+  "_JointSegments",
+  "_LATERAL_GAP_TOL_M",
+  "_LATERAL_MIN_MEMBER_M",
+  "_LATERAL_PROBE_M",
+  "_LATERAL_ROAD_ROLES",
+  "_LATERAL_STEP_M",
+  "_LATTICE_JOIN_TOL_M",
+  "_LAT_SERVICE_PRICED_ROLES",
+  "_LAT_TAXI_PRICED_ROLES",
+  "_LAW_DRAIN_MIN_APRON_ROLES",
+  "_LAW_DRAIN_MIN_GS_ROLES",
+  "_LAW_JUNCTION_ROLES",
+  "_LAW_ROAD_ROLES",
+  "_LAYOUT_AUTHORITY_RANK",
+  "_LAYOUT_GS_ROLES",
+  "_LIFTED_CAP_STATS",
+  "_MIN_END_LEN_M",
+  "_M_PER_DEG_LAT",
+  "_ND_RE",
+  "_NEAR_MISS_FRONTAGE_SOFT_ROLES",
+  "_NODE_ALT_RE",
+  "_NODE_RE",
+  "_NO_STEP_AIRSIDE_ROLES",
+  "_NO_STEP_POLYLINE_FEATURES",
+  "_OBJECT_CUT_RIM_CLASSES",
+  "_PAD_CLUSTER_MISMATCH_KEY",
+  "_PAD_SLOPE_MAX",
+  "_PAD_VERTEX_ROLE",
+  "_PAVCAP_ROLES",
+  "_RAMP_IN_STRIP_RUNWAY_ROLES",
+  "_RAMP_IN_STRIP_TAXI_ROLES",
+  "_RAMP_ROLES",
+  "_RENODE_WAYS",
+  "_ROAD_FAMILY_ROLES",
+  "_ROAD_JOIN_TOL_M",
+  "_ROAD_XSECTION_LAW",
+  "_ROAD_XSECTION_MIN_DEG",
+  "_ROUTE_BAND_SKIP_ROLES",
+  "_RUNWAY_CAP_STATS",
+  "_RUNWAY_STEP_M",
+  "_RW_STEP_LAW_CLS",
+  "_RunwayViewBand",
+  "_SEAM_RESIDUAL_TOL_M",
+  "_SENTINEL_DROP_FALLBACK_M",
+  "_SHOULDER_EDGE_TOL_M",
+  "_SITE_KEY_DP",
+  "_SLOPING_RECT_OSM_ROLES",
+  "_SPINE_AIRSIDE_ROLES",
+  "_SPINE_HANDOFF_MATERIALITY_M",
+  "_SPINE_PARENT_CELL_M",
+  "_SRC_DIR",
+  "_STEP_CONTACT_TOL_M",
+  "_STRIP_LIP_M",
+  "_STRIP_LONGITUDINAL_MIN_RUN_M",
+  "_STRIP_LONGITUDINAL_ROLE",
+  "_STRIP_PAVEMENT_ROLES",
+  "_STRIP_PRECEDENCE",
+  "_StretchBox",
+  "_TAG_RE",
+  "_TAXI_BOX_STATS",
+  "_TAXI_YIELD_STATS",
+  "_TERRACE_ACTUAL_WAY",
+  "_TERRACE_JOINT_WAY",
+  "_TERRACE_ROUTE_WAY",
+  "_TERRACE_STEP_QUANT_M",
+  "_TERRACE_STRADDLE_PAIR_M",
+  "_TERRACE_STRADDLE_PERP_M",
+  "_TERRACE_STRIP_WAY",
+  "_THIS_DIR",
+  "_TIE_WALL_ROLE",
+  "_TRANSVERSE_HALF_M",
+  "_TRANSVERSE_MAX_GAP_M",
+  "_TRANSVERSE_MIN_WIDTH_M",
+  "_TRANSVERSE_ROLES",
+  "_TRANSVERSE_SERVICE_ROLES",
+  "_TRANSVERSE_STEP_M",
+  "_TRANSVERSE_TAXI_ROLES",
+  "_TW",
+  "_V2_PAVCAP_LAW",
+  "_V2_PAVCAP_T",
+  "_V2_RAMP_LAW",
+  "_V2_RAMP_T",
+  "_V2_STRIP_LAWCLS",
+  "_V2_STRIP_LAWS",
+  "_V2_STRIP_T",
+  "_V2_T",
+  "_V2_TABLES",
+  "_WALL_RETREAT_M",
+  "_WALL_STRIP_MARGIN_M",
+  "_WAY_RE",
+  "_WELD_HUB_ROLES",
+  "_WallFaces",
+  "_WeldNodes",
+  "_ZONE_ON_PAVEMENT_ROLES",
+  "_airside_arc_rate_per_m",
+  "_airside_groundside_pair",
+  "_airside_rate_per_m_for",
+  "_apron_portion_pair",
+  "_apron_tier_pair",
+  "_apron_tier_read",
+  "_authority_rank",
+  "_axes_to_m",
+  "_basin_declared_drop",
+  "_basin_facilities_declared",
+  "_bucket_edges",
+  "_bucket_vertices",
+  "_build_vertex_edge_tables",
+  "_channel_declared_at",
+  "_channel_facilities_declared",
+  "_check_adjacent_ground_edges",
+  "_check_adjacent_ground_steps",
+  "_check_airside_no_step",
+  "_check_airside_no_step_rate",
+  "_check_apron_lattice_membrane",
+  "_check_bank_across_seam",
+  "_check_basin_floor_declaration",
+  "_check_channel_crest_at_edge",
+  "_check_channel_floor_at_declaration",
+  "_check_cross_shape_proximity",
+  "_check_drainage_minimum",
+  "_check_drainage_spine_below_pavement",
+  "_check_eat_ceiling",
+  "_check_edge_midpoint_step",
+  "_check_frontage_near_miss",
+  "_check_groundside_cutback",
+  "_check_hairline_pair",
+  "_check_hard_conflict",
+  "_check_jetway_strip",
+  "_check_lateral_contiguity",
+  "_check_no_wall_in_runway_strip",
+  "_check_object_cut_depth",
+  "_check_object_cut_offset",
+  "_check_pad_airside_renode",
+  "_check_pad_airside_weld",
+  "_check_pad_cluster_mismatch",
+  "_check_pad_frontage",
+  "_check_pavement_over_road_cap",
+  "_check_plane_gradient",
+  "_check_platform_refused",
+  "_check_platform_rim_relief",
+  "_check_published_law_edges",
+  "_check_ramp_in_road",
+  "_check_ramp_in_strip",
+  "_check_raoa_rate",
+  "_check_resa_transverse_grade",
+  "_check_road_coverage_join",
+  "_check_runway_crown",
+  "_check_runway_edge_tie",
+  "_check_runway_end_skirt_edges",
+  "_check_sea_wall",
+  "_check_seam_residual",
+  "_check_sentinel_elevation",
+  "_check_spine_curvature",
+  "_check_stacked_nodes",
+  "_check_strip_arc_rate",
+  "_check_strip_longitudinal_grade",
+  "_check_strip_seam_tears",
+  "_check_terrace_actual_step",
+  "_check_terrace_joint_crosses_route",
+  "_check_terrace_joint_in_runway_strip",
+  "_check_transverse_grade",
+  "_check_vertex_to_edge_step",
+  "_check_within_shape",
+  "_check_zone_on_pavement",
+  "_cockpit_in_ring",
+  "_cockpit_where",
+  "_cockpit_why",
+  "_code_letter_of",
+  "_code_number_of",
+  "_common_stretch_cap",
+  "_crown_centerline_nids",
+  "_crown_drops_by_nid",
+  "_declared_step_allowance",
+  "_derive_per_vertex_elevations",
+  "_disconnected_rings_to_m",
+  "_drainage_minimum_grade",
+  "_drainage_minimum_shortfall",
+  "_drainage_spine_envelope",
+  "_drainage_spine_interval",
+  "_drainage_spine_parent_family",
+  "_drainage_spine_parents",
+  "_engine_metric",
+  "_fan_ramp_law_cap",
+  "_fan_ramp_pair_cap",
+  "_fan_ramp_zones_to_m",
+  "_field_by_nid",
+  "_frame_datum_points",
+  "_gap_parts_across_knife",
+  "_grade_context_from_osm",
+  "_hairline_segments",
+  "_hav_m",
+  "_in_disconnected_ring",
+  "_is_gap_ref",
+  "_is_groundside",
+  "_is_mouth_wall_joint",
+  "_is_platform_collar",
+  "_joint_segment_carried",
+  "_junction_stretch_cap",
+  "_junction_stretch_crossings",
+  "_label",
+  "_lateral_cap_t_tag",
+  "_lateral_cap_tag",
+  "_lifted_cap_tag",
+  "_ll_to_m_factory",
+  "_long_axis_of_points",
+  "_mark_disconnected",
+  "_matched_axis_row",
+  "_near_miss_frontage_budget",
+  "_nearest_edge_alt_by_way",
+  "_nearest_ridge",
+  "_no_step_polylines",
+  "_o4console",
+  "_o4os",
+  "_o4sys",
+  "_object_cut_regions",
+  "_on_shore",
+  "_one_row_per_pad_vertex",
+  "_open_ground_between_law",
+  "_pad_relief_by_nid",
+  "_pair_grade_allowance",
+  "_pair_grade_limit",
+  "_pair_is_transverse",
+  "_pair_quant_noise_m",
+  "_parse_osm",
+  "_pavement_edge_junction_nids",
+  "_plane_pad_ref",
+  "_platform_way",
+  "_point_in_rect_ring",
+  "_point_in_ring",
+  "_point_polyline_dist",
+  "_print_steps",
+  "_print_violations",
+  "_published_code_and_letter",
+  "_published_end_classes",
+  "_raoa_applies",
+  "_raoa_footprint_ring",
+  "_rate_reader_blind_spot",
+  "_rate_row_site",
+  "_resa_transverse_band",
+  "_resolve_ruleset",
+  "_ring_route_m",
+  "_ring_width_m",
+  "_road_frame_by_nid",
+  "_road_pair_reading_v2",
+  "_road_xsection_cap",
+  "_role_grade_limit",
+  "_rsa_end_lengths",
+  "_runway_axis_and_width",
+  "_runway_end_profile_law",
+  "_runway_published_cap",
+  "_runway_strip_groups",
+  "_runway_strip_keepout_rings",
+  "_runway_strip_long_slope",
+  "_runway_strip_longitudinal_runs",
+  "_runway_strip_wall_keepout_rings",
+  "_scan_edges",
+  "_seam_lines",
+  "_seam_nids",
+  "_seam_nids_from_pins",
+  "_seam_pair_is_tear",
+  "_seg_point_distance",
+  "_segments_cross",
+  "_set_active_ruleset",
+  "_shore_index",
+  "_shoulder_cap",
+  "_shoulder_dropoff_exempt",
+  "_shoulder_transverse_envelope",
+  "_sidecar_frame_datum",
+  "_site_key",
+  "_soft_grade_shape",
+  "_spine_handoff_here",
+  "_step_exemption_for",
+  "_stretch_node_index",
+  "_stretches_to_m",
+  "_strip_chain_start",
+  "_strip_group_of_axis",
+  "_strip_half_width_m",
+  "_strip_law",
+  "_strip_longitudinal_breaches",
+  "_strip_longitudinal_law",
+  "_strip_station_inside",
+  "_strip_station_runs",
+  "_taxi_yield_pair_cap",
+  "_taxi_yield_tag",
+  "_terrace_joint_carried_flags",
+  "_terrace_joints_to_m",
+  "_terrace_step_allowance",
+  "_transverse_cap_for_seg_cap",
+  "_transverse_cap_law",
+  "_transverse_minimum_binds",
+  "_transverse_minimum_for_role",
+  "_transverse_span_budget",
+  "_transverse_span_budget_law",
+  "_transverse_surface_bounds",
+  "_weld_give",
+  "_zone_on_pavement_area",
+  "adjudication",
+  "annotations",
+  "argparse",
+  "cockpit_block",
+  "cockpit_block_lines",
+  "cockpit_classify",
+  "cockpit_geometry",
+  "cockpit_in_view",
+  "cockpit_law",
+  "dataclass",
+  "dataclasses",
+  "defaultdict",
+  "design_target_summary",
+  "effective_role",
+  "field",
+  "groundside_cutback_frame",
+  "iter_shape_grade_constraints",
+  "itertools",
+  "late_stage_floor_m",
+  "late_stage_unknown_nodes",
+  "law_context_from_sidecar",
+  "law_role",
+  "main",
+  "mark_apron_edge_portions",
+  "math",
+  "os",
+  "plane_fit_noise",
+  "plane_reading",
+  "re",
+  "resolve_feature_hosts",
+  "role_less_host_duplicate",
+  "row_adjudicated",
+  "row_cap_pct",
+  "row_excess_m",
+  "row_is_sharp",
+  "row_magnitude",
+  "row_points",
+  "row_roles",
+  "row_runway_family",
+  "row_side",
+  "row_step_m",
+  "run_checks",
+  "run_checks_law_true",
+  "runway_edge_tie_frame",
+  "runway_edge_tie_law",
+  "sentinel_drop_m",
+  "shoulder_nids",
+  "sidecar_anchor",
+  "sidecar_evidence",
+  "sidecar_frame_name",
+  "sidecar_metre_frame",
+  "stamp_relaxed_rows",
+  "stamp_sea_wall_tears",
+  "step_exempt",
+  "sys",
+  "taxi_grade_cap_for_letter",
+  "transverse_bind_report",
+  "user_edited_label",
+  "weld_widened_nodes"
+ ],
+ "family_rows": {
+  "_ruleset_declared": [
+   3,
+   "bc525851383815332ed45a2ab3977cd7ac1b5991ad62f7e5091dcc8cea038bd6"
+  ],
+  "_ruleset_active": [
+   3,
+   "bc525851383815332ed45a2ab3977cd7ac1b5991ad62f7e5091dcc8cea038bd6"
+  ],
+  "_apron_over_preference": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "_feature_hosts": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "_cockpit_geometry": [
+   5,
+   "378d42da67fc16e15303bca0f301eee24f4ca96593f4a52683bc24b7c82655ef"
+  ],
+  "within_shape": [
+   1,
+   "29901ae76207589e6e429e7ad8d985b61d5f05992593243836172c6ed3863f96"
+  ],
+  "road_cross_section": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "taxi_box": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "plane_gradient": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "runway_end_skirt": [
+   6,
+   "b7170506e70aa04b4869a0281d9ca5c8c55c18b05bfeaa15bb4db2e9f6351423"
+  ],
+  "terrace_joint_route": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "terrace_joint_strip": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "terrace_actual_step": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "basin_floor_declaration": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "pad_airside_weld": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "pad_cluster_mismatch": [
+   2,
+   "db885b52d3c67597f87517af54dc043d8bc3076ecf857b72c2a235b7b1080416"
+  ],
+  "eat_ceiling": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "sea_wall": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "road_coverage_join": [
+   1,
+   "a42c17c065dae17c3e34dcb02ed74a8f2feb841635be892fb2fe4354845dc305"
+  ],
+  "pad_airside_renode": [
+   3,
+   "cf564e5aaa7e20bda627d7866514e29d7d847a439983be7ebd4481da180e788e"
+  ],
+  "jetway_strip": [
+   4,
+   "101ace05626a6b05d446c3bd88ab79fe97d1d395048316572f16a141664c0826"
+  ],
+  "platform_rim_relief": [
+   1,
+   "17909a0ff774c7ed6e8eea2b95a180bfb62790f34ca2a865445c7e9e694b06f6"
+  ],
+  "pad_frontage_hold": [
+   1,
+   "05a2b8ad31ee91ca532942f2f53553300a16229b12487257bb6d81638230afcd"
+  ],
+  "pad_frontage_infeasible": [
+   1,
+   "1047c5957b0bf84416e0fbd070ed4a9e4cf66b173a4c53bc6be4f972b232d62a"
+  ],
+  "hard_conflict": [
+   2,
+   "5aaae7254917b7dc3fdb81e76ad2a481c39489a037cd09845d37a8f57fa0b9ad"
+  ],
+  "platform_refused": [
+   1,
+   "f847b097d6c807ecf42191815ba90fa3b55bec68cb06f32431ec10679d661087"
+  ],
+  "seam_residual": [
+   1,
+   "8d4cdccda2c1a16e4f6cecc7d8a06c9da0221b315bce476b4284f27f32dcf8dc"
+  ],
+  "bank_across_seam": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "ramp_in_road": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "pavement_over_road_cap": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "object_cut_offset": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "object_cut_depth": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "ramp_in_strip": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "hairline_pair": [
+   4,
+   "a375015dd093fa93faf1707f371e3d5b6e779244b5898a9d02229328e8f74662"
+  ],
+  "adjacent_ground_tear": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "adjacent_ground_step": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "groundside_cutback": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "zone_on_pavement": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "strip_seam_tear": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "strip_transverse": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "transverse": [
+   5,
+   "077fd775060d4687dbfdfc3de11fb71cf4c09cc5306292d9772e2a24cf6e74d7"
+  ],
+  "drainage_spine": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "apron_lattice_membrane": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "airside_no_step": [
+   16,
+   "7d9116474200f8e86f6c5d57d6979516b99242bbb3c46a95df087076295d9d66"
+  ],
+  "lateral_contiguity": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "strip_longitudinal": [
+   1,
+   "6e159ca47ec989605a08442eaa9780a09850145dbbe189b676148be609f1dd55"
+  ],
+  "strip_arc": [
+   1,
+   "0c424fc10bce026685c5a4d8bb64e0ee9ecbb27ff543feaa21089637f1e12aef"
+  ],
+  "resa_transverse": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "raoa": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "drainage_minimum": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "runway_crown": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "wall_in_runway_strip": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "channel_floor_at_declaration": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "channel_crest_at_edge": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "stacked_nodes": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "sentinel_elevation": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "cross_shape": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "frontage_near_miss": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "vertex_to_edge_step": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "mid_edge_step": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ],
+  "runway_step": [
+   0,
+   "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  ]
+ }
+}

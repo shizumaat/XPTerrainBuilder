@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """docq — THE DOC QUERY: print exactly one spec section, one RULINGS
-entry, or the short tool index, so a lane never greps a monolith.
+entry, one ADR, or the short tool index, so a lane never greps a monolith.
 
 Owner 2026-09-13: lanes spent 115k–170k fresh input tokens (12–16 turns)
 before their first edit, slicing `design-surface-spec.md` (~123k tokens),
@@ -17,6 +17,7 @@ lanes append to them on their branches); this tool is the READ surface.
     tools/docq.py ruling 2026-09-13am 13ab 13aj
     tools/docq.py index                  # one line per tool
     tools/docq.py index seat_feet        # the FULL row(s) matching a substring
+    tools/docq.py adr 0003               # one ADR, Ortho4XP/docs/adr/0003-*.md
 
 Exit 1 with a named miss when nothing matches — a silent empty print is
 how a lane reads the wrong law.  A `spec` query with no file flag looks in
@@ -40,6 +41,9 @@ SPEC_RAMPS = os.path.join(ROOT, "Ortho4XP/docs/specs/auto-patch-v2/othh-terminal
 SPEC_FILES = (SPEC_DESIGN, SPEC_OBJECT, SPEC_RAMPS)
 RULINGS = os.path.join(ROOT, "Ortho4XP/docs/RULINGS.md")
 INDEX = os.path.join(ROOT, "tools/INDEX.md")
+#: architecture decision records beside RULINGS (code-quality-beta3-spec §4)
+ADR_DIR = os.path.join(ROOT, "Ortho4XP/docs/adr")
+ADR_FILE = re.compile(r"^(\d{4})-[a-z0-9][a-z0-9-]*\.md$")
 
 _HEAD = re.compile(r"^(#{2,3}) (§\d+[a-z]?(?:\.\d+)?(?: \(\d+\))?)(?=\s|$)(.*)$")
 
@@ -134,6 +138,26 @@ def ruling_entry(ids: list[str]) -> str:
     return "\n\n".join(out)
 
 
+# --- adr --------------------------------------------------------------------
+
+def adr_paths(adr_dir: str = ADR_DIR) -> dict[str, str]:
+    """``{NNNN: path}`` for every `NNNN-slug.md` in the ADR folder, in order."""
+    names = sorted(n for n in os.listdir(adr_dir) if ADR_FILE.match(n))
+    return {ADR_FILE.match(n).group(1): os.path.join(adr_dir, n) for n in names}
+
+
+def adr_entry(num: str, adr_dir: str = ADR_DIR) -> str:
+    """The whole text of ADR ``num`` (``3``, ``03`` and ``0003`` all name 0003)."""
+    key = num.strip()
+    if not key.isdigit():
+        raise SystemExit(f"docq: an ADR number is digits, not {num!r}")
+    key = f"{int(key):04d}"
+    path = adr_paths(adr_dir).get(key)
+    if path is None:
+        raise SystemExit(f"docq: no ADR {key} in {os.path.basename(adr_dir)}/")
+    return "\n".join(_read(path)).rstrip("\n")
+
+
 # --- index ------------------------------------------------------------------
 
 def index_rows() -> list[tuple[str, str]]:
@@ -195,6 +219,7 @@ def main(argv=None) -> int:
     s.add_argument("--object", action="store_true"); s.add_argument("--ramps", action="store_true")
     r = sub.add_parser("ruling"); r.add_argument("ids", nargs="+")
     x = sub.add_parser("index"); x.add_argument("sub", nargs="?")
+    d = sub.add_parser("adr"); d.add_argument("num")
     a = ap.parse_args(argv)
     if a.cmd == "spec":
         path = SPEC_OBJECT if a.object else SPEC_RAMPS if a.ramps else SPEC_DESIGN
@@ -212,6 +237,8 @@ def main(argv=None) -> int:
         print(ruling_entry(a.ids)); return 0
     if a.cmd == "index":
         print(index_full(a.sub) if a.sub else index_short()); return 0
+    if a.cmd == "adr":
+        print(adr_entry(a.num)); return 0
     return 2
 
 

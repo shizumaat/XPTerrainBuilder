@@ -19,6 +19,7 @@ import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
 import O4_Triangle_Run as TRIANGLE_RUN
 import O4_Mesh_IO as MESH_IO
+import O4_Unpatched_Airports as UNPATCHED
 from O4_Parallel_Utils import parallel_execute
 
 mask_altitude_above = 0.5
@@ -197,6 +198,9 @@ def build_masks(tile, for_imagery=False):
     # not installed under Extents/ — a stale tile config must not degrade
     # the whole masks step (it used to warn once per mask square and, before
     # 2026-07-16, crashed every mask worker).
+    # What this run builds NOT as asked (#853): named on the tile's
+    # BuildDone as warnings, restated by every completed masks step.
+    degraded = []
     custom_extent_code = tile.masks_custom_extent
     if custom_extent_code and custom_extent_code not in IMG.extents_dict:
         UI.lvprint(
@@ -205,6 +209,10 @@ def build_masks(tile, for_imagery=False):
             + "' was not found under Extents/; building regular masks"
             + " instead.",
         )
+        degraded.append({"code": "mask_extent_missing",
+                         "detail": "masks_custom_extent=%s not under "
+                                   "Extents/" % custom_extent_code,
+                         "extent": str(custom_extent_code)})
         custom_extent_code = ""
 
     # Check or create dest dir
@@ -274,7 +282,13 @@ def build_masks(tile, for_imagery=False):
         tile, dico_sea, coastline_sea_present, bathymetry_band_vrt,
         airport_gated_band
     ):
+        tile.shallow_water_skipped = []
         shallow_water_categories = load_shallow_water_polygons(tile)
+        degraded.extend(
+            {"code": "mask_shallow_water_skipped", "category": category,
+             "detail": "shallow-water fallback category %s skipped"
+                       % category}
+            for category in getattr(tile, "shallow_water_skipped", ()))
 
     if legacy_dem_refinement:
         try:
@@ -444,6 +458,8 @@ def build_masks(tile, for_imagery=False):
     UI.logprint(
         "Step 2.5 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
     )
+    if not for_imagery:
+        UNPATCHED.record_degraded(tile, "masks", degraded)
     # 1 = the step finished: the session records (and later reuses) a step
     # only on ``result == 1`` (#904; a bare return made masks never reusable).
     return 1
@@ -654,6 +670,15 @@ def shallow_water_fallback_wanted(tile, dico_sea, coastline_sea_present,
 
 
 ################################################################################
+def _note_skipped(tile, category):
+    """A shallow-water category this tile's masks go without (#853):
+    ``build_masks`` names it on the tile's BuildDone."""
+    try:
+        tile.shallow_water_skipped.append(category)
+    except AttributeError:
+        tile.shallow_water_skipped = [category]
+
+
 def load_shallow_water_polygons(tile):
     """The tile's mapped shallow-water polygons, by category.
 
@@ -690,6 +715,7 @@ def load_shallow_water_polygons(tile):
                     "download for the shallow-water mask fallback failed;"
                     " that category is skipped.",
                 )
+                _note_skipped(tile, cached_suffix)
                 continue
             area = OSM.OSM_to_MultiPolygon(layer, tile.lat, tile.lon)
         except Exception as error:
@@ -700,6 +726,7 @@ def load_shallow_water_polygons(tile):
                 "skipped:",
                 str(error),
             )
+            _note_skipped(tile, cached_suffix)
             continue
         if area.is_empty:
             continue

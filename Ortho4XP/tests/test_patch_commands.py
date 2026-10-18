@@ -207,7 +207,8 @@ def test_the_four_commands_round_trip_through_the_jsonl_transport(patches):
     capture = _Capture()
     jsonl.serve(io.StringIO("\n".join(json.dumps(c) for c in commands) + "\n"), capture)
     objects = capture.objects()
-    assert objects[0]["event"] == "EngineHello" and objects[0]["protocol"] == EV.PROTOCOL_VERSION == "1.12"
+    assert objects[0]["event"] == "EngineHello" and objects[0]["protocol"] == EV.PROTOCOL_VERSION
+    assert tuple(int(p) for p in EV.PROTOCOL_VERSION.split(".")) >= (1, 12)
     replies = {o["reply"]: o for o in objects if "reply" in o}
     assert replies[1]["ok"] and replies[1]["result"]["airports"][0]["bbox"] == [30.1, 31.4, 30.101, 31.401]
     assert replies[2]["ok"] and replies[2]["result"]["nodes"] == [list(n) for n in load["nodes"]]

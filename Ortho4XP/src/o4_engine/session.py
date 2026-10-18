@@ -82,7 +82,8 @@ STEP_FAILURE_NOUNS = {
 BUILT_WITH_WARNINGS = "built with warnings"
 
 
-def build_done(lat, lon, ok, records, app_driven=False, notes=()):
+def build_done(lat, lon, ok, records, app_driven=False, notes=(),
+               degraded=()):
     """A tile's ``BuildDone`` from its raw failure ``records``
     (``O4_Tile_Failures.record``), folded to one user message per cause
     (issue #562).  Shared with the parallel orchestrator's dead-worker
@@ -101,6 +102,10 @@ def build_done(lat, lon, ok, records, app_driven=False, notes=()):
 
     ``notes`` are raw NOTE records of a built tile — it was built on
     stand-in elevation for some cell (owner RULINGS 2026-10-12e).
+
+    ``degraded`` are raw WARNING records of outputs a built tile has NOT
+    as asked (``O4_Tile_Failures.from_degraded``, #853): they join
+    ``warnings`` after the unpatched airports and never count as one.
     """
     tile = FNAMES.short_latlon(lat, lon)
     try:
@@ -117,8 +122,9 @@ def build_done(lat, lon, ok, records, app_driven=False, notes=()):
         # printed and then recovered from: not a warning.
         return BuildDone(
             lat=lat, lon=lon, ok=True,
-            warnings=FAIL.fold(unpatched, tile, built=True,
-                               log_path=log_path, report_button=app_driven),
+            warnings=FAIL.fold(list(unpatched) + list(degraded), tile,
+                               built=True, log_path=log_path,
+                               report_button=app_driven),
             notes=FAIL.fold(notes, tile, built=True, log_path=log_path,
                             report_button=app_driven, note=True),
             # The same airports one by one (#564): each entry is a
@@ -1333,7 +1339,9 @@ class EngineSession:
                             UNPATCHED.read_unmounted_packs(tile)),
                         self.app_driven,
                         notes=FAIL.from_substitutions(
-                            UNPATCHED.read_substitutions(tile)))
+                            UNPATCHED.read_substitutions(tile)),
+                        degraded=FAIL.from_degraded(
+                            UNPATCHED.read_degraded(tile)))
                     self._emit(TileState(
                         lat=lat, lon=lon, state="done", percent=100.0,
                         label=(BUILT_WITH_WARNINGS

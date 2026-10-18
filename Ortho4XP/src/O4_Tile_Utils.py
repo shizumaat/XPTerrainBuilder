@@ -21,6 +21,7 @@ import O4_Imagery_Progress as IMGPROGRESS
 # Unused since #838 (records commit per step); kept: O4_Step_Code keys on it.
 import O4_Step_Reuse as REUSE  # noqa: F401
 import O4_Stopped_Build as STOPPED
+import O4_Unpatched_Airports as UNPATCHED
 from O4_Parallel_Utils import (
     effective_convert_slots,
     effective_download_slots,
@@ -823,13 +824,21 @@ def warn_if_imagery_incomplete(tile):
     ``O4_Imagery_Utils``) — invisible at the default verbosity — and the
     tile then finished, exit 0, with white textures the user met in the
     simulator.  ``UI.loud_warning`` is the channel that reaches both
-    UIs' consoles and ``Ortho4XP.log``; no new wire event is needed.
+    UIs' consoles and ``Ortho4XP.log``.  And the tile's ``BuildDone``
+    names it as a DEGRADED warning (#853, ``imagery_incomplete``): every
+    completed imagery step restates its row, empty when nothing is missing.
     """
-    message = IMG.incomplete_texture_warning(
-        FNAMES.short_latlon(tile.lat, tile.lon)
-    )
+    tile_coords = FNAMES.short_latlon(tile.lat, tile.lon)
+    message = IMG.incomplete_texture_warning(tile_coords)
+    rows = []
     if message:
         UI.loud_warning(message)
+        rows.append({
+            "code": "imagery_incomplete", "detail": message,
+            "count": len(IMG.incomplete_imgs.get(tile_coords) or ()),
+            "source": ", ".join(sorted(
+                IMG.incomplete_img_providers.get(tile_coords) or ()))})
+    UNPATCHED.record_degraded(tile, "imagery", rows)
     return message
 
 

@@ -31,7 +31,7 @@ import O4_Sea_Nodata_Fill as SEA_FILL
 import O4_Text_Files as TEXT
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
-from O4_Parallel_Utils import effective_convert_slots, parallel_execute
+from O4_Parallel_Utils import parallel_execute
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 
@@ -2849,30 +2849,58 @@ def _image_for_converter(image, png_file_name, dxt5, inproc):
     return path
 
 
-def _run_converter(conv_cmd, source, dxt5, dds_partial):
-    """One conversion attempt; ``True`` when the converter succeeded.
+def _run_converter(conv_cmd):
+    """One subprocess conversion attempt; ``True`` when the converter succeeded."""
+    return not subprocess.call(
+        conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+        **UI.external_tool_keyword_arguments())
 
-    ``conv_cmd`` ``None`` is the in-process encoder (``O4_DDS_ENCODER=
-    inproc``): ``source`` (a path or the pixels) is encoded into
-    ``dds_partial``; otherwise the subprocess converter runs."""
-    if conv_cmd is not None:
-        return not subprocess.call(
-            conv_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-            **UI.external_tool_keyword_arguments())
+
+def _dds_tool_cmd(source_path, dxt5, dds_partial):
+    """The subprocess converter's command: DDSTool (macOS), nvcompress elsewhere."""
+    if "dar" in sys.platform:
+        return [dds_convert_cmd, "--png2dxt5" if dxt5 else "--png2dxt1",
+                source_path, dds_partial]
+    return [dds_convert_cmd, "-bc3" if dxt5 else "-bc1", "-fast",
+            source_path, dds_partial]
+
+
+def _encode_in_process(source, dxt5, dds_partial, dds_final):
+    """ONE in-process encode of ``source`` (a path or the pixels), landed on
+    ``dds_final``; ``True`` when the texture is there whole. A failure is
+    logged once, by name, and the caller falls back to the subprocess
+    converter for this texture (#900) — never retried here."""
     try:
-        DDSENC.encode_texture(source, "bc3" if dxt5 else "bc1", dds_partial,
-                              effective_convert_slots(0))
-        return True
-    except Exception as error:  # the retry loop reports and retries
-        UI.vprint(1, "   In-process DDS encoder failed:", repr(error))
+        DDSENC.encode_texture(source, "bc3" if dxt5 else "bc1", dds_partial)
+    except Exception as error:
+        UI.lvprint(1, "   In-process DDS encoder failed (" + repr(error)
+                   + "); converting " + os.path.basename(dds_final)
+                   + " with the subprocess converter.")
+        DDS.sweep_partials(dds_final)
         return False
+    if DDS.land(dds_partial, dds_final):
+        return True
+    UI.lvprint(1, "   In-process DDS encoder wrote a short file; converting "
+               + os.path.basename(dds_final) + " with the subprocess converter.")
+    return False
+
+
+def _file_for_tool(source, png_file_name):
+    """``(path, is_temporary)`` the subprocess converter reads: ``source`` if
+    it is already a path, else the pixels saved to a temporary PNG."""
+    if not isinstance(source, numpy.ndarray):
+        return source, False
+    path = os.path.join(FNAMES.Tmp_dir, png_file_name)
+    os.makedirs(FNAMES.Tmp_dir, exist_ok=True)
+    save_temp_png(Image.fromarray(source), path)
+    return path, True
 
 
 def convert_texture(
     tile, til_x_left, til_y_top, zoomlevel, provider_code, type="dds"
 ):
-    # O4_DDS_ENCODER=inproc encodes DXT1/DXT5 in this process family
-    # (O4_DDS_Encode); the default runs DDSTool / nvcompress per texture.
+    # The in-process encoder (default) encodes DXT1/DXT5 in this thread
+    # (O4_DDS_Encode); O4_DDS_ENCODER=tool runs DDSTool / nvcompress.
     inproc = type == "dds" and DDSENC.chosen_encoder() == "inproc"
     if type == "dds":
         out_file_name = FNAMES.dds_file_name_from_attributes(
@@ -2897,6 +2925,7 @@ def convert_texture(
     )
     erase_tmp_png = False
     erase_tmp_tif = False
+    inproc_done = False
     dxt5 = False
     masked_texture = False
     if tile.imprint_masks_to_dds and type == "dds":
@@ -3045,22 +3074,13 @@ def convert_texture(
         DDS.sweep_partials(dds_final)
         dds_partial = DDS.partial_name(dds_final)
         if inproc:
-            conv_cmd = None
-        elif "dar" in sys.platform:
-            conv_cmd = [
-                dds_convert_cmd,
-                "--png2dxt5" if dxt5 else "--png2dxt1",
-                file_to_convert,
-                dds_partial,
-            ]
-        else:
-            conv_cmd = [
-                dds_convert_cmd,
-                "-bc3" if dxt5 else "-bc1",
-                "-fast",
-                file_to_convert,
-                dds_partial,
-            ]
+            if _encode_in_process(file_to_convert, dxt5, dds_partial, dds_final):
+                inproc_done = True
+            else:  # #900: this texture goes to the subprocess converter
+                file_to_convert, temp_png = _file_for_tool(
+                    file_to_convert, png_file_name)
+                erase_tmp_png = erase_tmp_png or temp_png
+        conv_cmd = _dds_tool_cmd(file_to_convert, dxt5, dds_partial)
     else:
         (latmax, lonmin) = GEO.gtile_to_wgs84(til_x_left, til_y_top, zoomlevel)
         (latmin, lonmax) = GEO.gtile_to_wgs84(
@@ -3137,8 +3157,8 @@ def convert_texture(
                 os.path.join(FNAMES.Geotiff_dir, out_file_name),
             ]
     tentative = 0
-    while True:
-        if _run_converter(conv_cmd, file_to_convert, dxt5, dds_partial) and (
+    while not inproc_done:
+        if _run_converter(conv_cmd) and (
             dds_partial is None or DDS.land(dds_partial, dds_final)
         ):
             break

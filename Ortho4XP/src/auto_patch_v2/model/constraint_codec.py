@@ -31,8 +31,7 @@ import operator as _op
 import pickle as _pickle
 import sys as _sys
 
-from .constraints import (Band, ConstraintSet, Diff, Flat, Linear, Offset, Pin,
-                          Source)
+from .constraints import Band, ConstraintSet, Diff, Flat, Linear, Offset, Pin, Source
 
 __all__ = ["CODEC_VERSION", "LAYOUT", "ColumnarSet", "encode", "decode",
            "digest"]
@@ -113,7 +112,7 @@ class ColumnarSet:
 
 def _rebuild(names, codes, bufs) -> ColumnarSet:
     cols = {}
-    for name, code, buf in zip(names, codes, bufs):
+    for name, code, buf in zip(names, codes, bufs, strict=True):
         col = _array.array(code)
         col.frombytes(buf)
         cols[name] = col
@@ -164,7 +163,7 @@ class _Tables:
         """One table index per row.  A ``Source`` object shared by many
         rows is looked up by value once, at its first row."""
         ids = list(map(id, col))
-        first = dict(zip(ids, col))                 # one object per id
+        first = dict(zip(ids, col, strict=True))                 # one object per id
         by_id, by_value = self.src_by_id, self.src_by_value
         fresh = [s for k, s in first.items() if k not in by_id]
         _check("source", fresh, {Source})
@@ -228,9 +227,9 @@ def _enc_follows(name: str, col) -> dict:
                 name: _array.array(_INT)}
     _check(name, col, {int, tuple, _NONE})
     tags = [0 if x is None else 1 if type(x) is int else 2 for x in col]
-    lens = [len(x) if t == 2 else t for t, x in zip(tags, col)]     # tag 0/1 = length
+    lens = [len(x) if t == 2 else t for t, x in zip(tags, col, strict=True)]     # tag 0/1 = length
     flat = list(_it.chain.from_iterable((x,) if t == 1 else x
-                                        for t, x in zip(tags, col) if t))
+                                        for t, x in zip(tags, col, strict=True) if t))
     return {name + ".tag": _array.array(_SBYTE, tags),
             name + ".len": _array.array(_INT, lens), name: _array.array(_INT, flat)}
 
@@ -263,8 +262,8 @@ def encode(cs: ConstraintSet) -> ColumnarSet:
         cols[f"{attr}.n"] = _array.array(_INT, [len(rows)])
         names = [n for n, _k in fields]
         get = _op.attrgetter(*names)
-        columns = list(zip(*map(get, rows))) if rows else [()] * len(names)
-        for (name, kind), col in zip(fields, columns):
+        columns = list(zip(*map(get, rows), strict=True)) if rows else [()] * len(names)
+        for (name, kind), col in zip(fields, columns, strict=True):
             cols.update(_encode_field(f"{attr}.{name}", kind, col, tables))
     cols.update(tables.columns())
     return ColumnarSet(cols)
@@ -291,7 +290,7 @@ def _decode_field(cols: dict, name: str, kind: str, strings: list, sources: list
     if kind == "optfloat":
         vals, none = cols[name].tolist(), cols[name + ".none"]
         if any(none):
-            return [None if m else x for x, m in zip(vals, none)]
+            return [None if m else x for x, m in zip(vals, none, strict=True)]
         return vals
     if kind == "optstr":
         idx = cols[name]
@@ -303,14 +302,14 @@ def _decode_field(cols: dict, name: str, kind: str, strings: list, sources: list
     if kind == "ints":
         return _ragged(cols[name + ".len"], cols[name].tolist())
     if kind == "terms":
-        pairs = list(zip(cols[name + ".v"].tolist(), cols[name + ".c"].tolist()))
+        pairs = list(zip(cols[name + ".v"].tolist(), cols[name + ".c"].tolist(), strict=True))
         return _ragged(cols[name + ".len"], pairs)
     if kind == "follows":
         tags = cols[name + ".tag"]
         if not any(tags):
             return [None] * len(tags)
         flat, out, at = cols[name].tolist(), [], 0
-        for tag, n in zip(tags, cols[name + ".len"]):
+        for tag, n in zip(tags, cols[name + ".len"], strict=True):
             out.append(None if tag == 0 else flat[at] if tag == 1
                        else tuple(flat[at:at + n]))
             at += n
@@ -323,9 +322,9 @@ def _make_rows(cls: type, names: list[str], columns: list[list]) -> tuple:
     row, the state ``pickle`` itself restores (the row dataclasses have
     no ``__post_init__``)."""
     new, out = object.__new__, []
-    for vals in zip(*columns):
+    for vals in zip(*columns, strict=True):
         row = new(cls)
-        row.__dict__.update(zip(names, vals))
+        row.__dict__.update(zip(names, vals, strict=True))
         out.append(row)
     return tuple(out)
 
@@ -340,7 +339,7 @@ def decode(enc: ColumnarSet) -> ConstraintSet:
         at += n
     inputs = _ragged(cols["src.inputs.len"], [strings[i] for i in cols["src.inputs"]])
     sources = [Source(strings[g], strings[r], ins) for g, r, ins in
-               zip(cols["src.generator"], cols["src.ruling"], inputs)]
+               zip(cols["src.generator"], cols["src.ruling"], inputs, strict=True)]
     kinds = {}
     for cls, attr, fields in LAYOUT:
         if not cols[f"{attr}.n"][0]:

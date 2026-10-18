@@ -3,16 +3,23 @@ exact round trip over every row kind and every optional-field variant,
 out-of-band pickling, digest determinism and refusals."""
 from __future__ import annotations
 
+import dataclasses
 import math
 import pickle
 import struct
 
 import pytest
-
-from auto_patch_v2.model.constraint_codec import (LAYOUT, ColumnarSet, decode,
-                                                  digest, encode)
-from auto_patch_v2.model.constraints import (Band, ConstraintSet, Diff, Flat,
-                                             Linear, Offset, Pin, Source)
+from auto_patch_v2.model.constraint_codec import LAYOUT, ColumnarSet, decode, digest, encode
+from auto_patch_v2.model.constraints import (
+    Band,
+    ConstraintSet,
+    Diff,
+    Flat,
+    Linear,
+    Offset,
+    Pin,
+    Source,
+)
 
 S1 = Source("runway_profile", "2026-08-27", ("apt:12", "osm:way/99"))
 S2 = Source("apron_within_shape", "RULINGS-10y", ())
@@ -57,7 +64,7 @@ def test_round_trip_every_row_kind_and_variant():
         assert [type(r) for r in getattr(back, kind)] == [type(r) for r in getattr(cs, kind)]
     # the frozen rows stay frozen and hashable
     assert hash(back.diffs[3]) == hash(cs.diffs[3])
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         back.pins[0].z = 1.0
 
 

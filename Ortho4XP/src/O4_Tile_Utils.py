@@ -579,6 +579,18 @@ def build_tile(tile):
         )
         UI.exit_message_and_bottom_line("", code="imagery_download_failed")
         return 0
+    missing = STAGING.missing_textures(tile)
+    if missing:
+        # #901: X-Plane stops on a terrain file whose texture is missing.
+        UI.lvprint(
+            0,
+            "ERROR: %d texture(s) named by the new terrain files are missing "
+            "(not converted) — the new DSF was not activated: %s"
+            % (len(missing), ", ".join(missing)),
+        )
+        UI.exit_message_and_bottom_line(
+            "", code="texture_convert_failed", count=len(missing))
+        return 0
     if not activate_tile(tile, dsf_file_name):
         UI.exit_message_and_bottom_line("", code=None)   # named there
         return 0

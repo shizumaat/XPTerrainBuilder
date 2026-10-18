@@ -90,6 +90,7 @@ class LawRecorder:
         self._law = law
         self._paths: set[tuple[str, ...]] = set()
         self._digests: dict[tuple[str, ...], str] = {}
+        self._closed = False
         self._root = _wrap(law, (), self)
 
     def law(self) -> _t.Any:
@@ -101,8 +102,17 @@ class LawRecorder:
         return self._law
 
     def read(self, path: tuple[str, ...]) -> None:
-        """Record ``path`` as read (the proxy's one write)."""
-        self._paths.add(path)
+        """Record ``path`` as read (the proxy's one write); nothing once
+        :meth:`close` d."""
+        if not self._closed:
+            self._paths.add(path)
+
+    def close(self) -> None:
+        """Stop recording and let the record go (the last cached stage has
+        taken its witness); a proxy a memo kept still answers."""
+        self._closed = True
+        self._paths.clear()
+        self._digests.clear()
 
     def record(self) -> dict[str, str]:
         """``{dotted path: value digest}`` of every leaf read so far, in

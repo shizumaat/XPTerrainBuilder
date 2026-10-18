@@ -175,6 +175,16 @@ class FrontCache:
             self.dem_rec.recording(on)
             self.file_rec.recording(on)
 
+    def close(self) -> None:
+        """The last front-half stage is done: close the window and let the
+        recorders' records go (they are hundreds of MB of samples at a large
+        airport, and the rest of the build never reads them)."""
+        if self.active:
+            self.window(False)
+            self.dem_rec.reset()
+            self.law_rec.close()
+            self.file_rec = _files.FileRecorder()
+
     def stage_law(self) -> _t.Any:
         """The law a front-half call is handed: the recording proxy while
         the cache is on."""

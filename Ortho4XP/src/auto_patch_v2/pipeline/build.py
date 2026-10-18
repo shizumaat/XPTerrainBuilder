@@ -1149,7 +1149,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         "shapes", {**_fc_in, "airport": _fc_ap, "planar": fc.output_digest("planar"),
                    "road_profile": fc.output_digest("road_profile"),
                    "classification": _cl_digest, "params": _fc_params}, _shapes)
-    fc.window(False)
+    fc.close()
     for _ln in _shape_lines:
         _say(_ln, out)
     pm = stage.pm

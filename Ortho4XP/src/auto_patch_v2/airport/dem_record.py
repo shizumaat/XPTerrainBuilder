@@ -63,6 +63,51 @@ def _tile_digest(tile: _t.Any) -> str:
     return answer_digest(("tile", rest, answer_digest(alt) if alt is not None else None))
 
 
+class _Samples:
+    """The samples asked, kept as array chunks (a front half asks millions:
+    as Python floats they were hundreds of MB of objects the collector
+    walked through the whole solve); ``record`` is ``dem_witness``'s shape."""
+
+    def __init__(self, dem: _t.Any) -> None:
+        self._dem = dem
+        self._xs: list[float] = []
+        self._ys: list[float] = []
+        self._zs: list[float] = []
+        self._chunks: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+
+    def z(self, x: float, y: float) -> float:
+        v = self._dem.z(x, y)
+        self._xs.append(float(x))
+        self._ys.append(float(y))
+        self._zs.append(float("nan") if v is None else float(v))
+        return v
+
+    def z_many(self, xs: _t.Any, ys: _t.Any) -> np.ndarray:
+        out = self._dem.z_many(xs, ys)
+        self.add(np.asarray(xs, dtype=np.float64).ravel(),
+                 np.asarray(ys, dtype=np.float64).ravel(),
+                 np.asarray(out, dtype=np.float64).ravel())
+        return out
+
+    def add(self, xs: np.ndarray, ys: np.ndarray, zs: np.ndarray) -> None:
+        self._flush()
+        self._chunks.append((xs.copy(), ys.copy(), zs.copy()))
+
+    def _flush(self) -> None:
+        if self._xs:
+            self._chunks.append((np.asarray(self._xs), np.asarray(self._ys),
+                                 np.asarray(self._zs)))
+            self._xs, self._ys, self._zs = [], [], []
+
+    def record(self) -> dict:
+        self._flush()
+        if not self._chunks:
+            return {"xy": np.empty((0, 2)), "z": np.empty(0)}
+        xs, ys, zs = (np.concatenate([c[k] for c in self._chunks]) for k in range(3))
+        self._chunks = [(xs, ys, zs)]
+        return {"xy": np.column_stack([xs, ys]), "z": zs}
+
+
 class DemRecorder:
     """A ``DemSample`` that answers exactly as ``dem`` does and, while
     recording, remembers every question (module doc)."""
@@ -75,7 +120,7 @@ class DemRecorder:
     # ── the window ──────────────────────────────────────────────────
     def reset(self) -> None:
         """Forget every question asked so far."""
-        object.__setattr__(self, "_o4r_samples", _wit.DemWitness(self._o4r_dem))
+        object.__setattr__(self, "_o4r_samples", _Samples(self._o4r_dem))
         object.__setattr__(self, "_o4r_calls", {})
         object.__setattr__(self, "_o4r_attrs", {})
         object.__setattr__(self, "_o4r_tiles", None)
@@ -161,9 +206,8 @@ class DemRecorder:
         s = record.get("samples") or {}
         xy = np.asarray(s.get("xy", np.empty((0, 2))), dtype=np.float64).reshape(-1, 2)
         z = np.asarray(s.get("z", np.empty(0)), dtype=np.float64).ravel()
-        self._o4r_samples._xs.extend(xy[:, 0].tolist())
-        self._o4r_samples._ys.extend(xy[:, 1].tolist())
-        self._o4r_samples._zs.extend(z.tolist())
+        if z.shape[0]:
+            self._o4r_samples.add(xy[:, 0], xy[:, 1], z)
         for n, a, d in record.get("calls") or ():
             self._o4r_calls.setdefault((n, a), d)
         for n, d in (record.get("attrs") or {}).items():

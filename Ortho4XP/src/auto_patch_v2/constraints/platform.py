@@ -36,7 +36,7 @@ from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import (PlanarMap, is_bank_ref, is_collar_ref, is_strip_ref,
                             pad_base_ref, platform_ref_of, unit_ref_of)
-from ..model.platform import HELD, HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
+from ..model.platform import HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
 from .pad_warning import stamp_warning
 
 __all__ = ["platform_collar_rows", "platform_plane_rows", "frontage_hold_rows",
@@ -102,12 +102,12 @@ def collar_faces(planar: PlanarMap, law: Law, is_bank=is_collar_ref
 
 def unit_pad_faces(planar: PlanarMap, law: Law) -> list[tuple[str, tuple[int, ...]]]:
     """``(ref, its face ids)`` per PLANNED unit pad or block in the map —
-    every ``model.platform.HELD`` ref that is not a §20 conforming pad
+    every held ref (``planar.registries.held``) that is not a §20 conforming pad
     (spec §56 (3): the pad face itself, there is no collar).  ONE
     derivation: the contacts, the flat rows and the records read it."""
     from .pads import rigid_roles
     rigid = set(rigid_roles(law))
-    units = {r for r, h in HELD.items() if not h.get("conforming")}
+    units = {r for r, h in planar.registries.held.items() if not h.get("conforming")}
     by: dict[str, list[int]] = {}
     if units:
         for fid in sorted(planar.faces):
@@ -138,21 +138,20 @@ def platform_collar_rows(planar: PlanarMap, law: Law,
 
 
 def _with_runouts(planar: PlanarMap, pairs: list) -> list:
-    """``pairs`` with each landing's run-out faces (``model.platform.
-    LANDING_RUNOUTS``, issue #711) joined to its platform faces."""
-    from ..model.platform import LANDING_RUNOUTS
-    if not LANDING_RUNOUTS:
+    """``pairs`` with each landing's run-out faces (``planar.registries.
+    landing_runouts``, issue #711) joined to its platform faces."""
+    if not planar.registries.landing_runouts:
         return pairs
     by: dict[str, list[int]] = {}
     strip: dict[str, list[int]] = {}
     bank: dict[str, list[int]] = {}
     for fid in sorted(planar.faces):
         ref = str(planar.faces[fid].ref)
-        rec = LANDING_RUNOUTS.get(ref)
+        rec = planar.registries.landing_runouts.get(ref)
         if rec is not None:
             by.setdefault(rec["landing"], []).append(fid)
             strip.setdefault(ref, []).append(fid)
-        elif is_collar_ref(ref) and platform_ref_of(ref) in LANDING_RUNOUTS:
+        elif is_collar_ref(ref) and platform_ref_of(ref) in planar.registries.landing_runouts:
             bank.setdefault(platform_ref_of(ref), []).append(fid)
     # the landing's collar banks off the strip's first metres too; the
     # strip's own side bank (``<run-out>#collar``) banks off the strip
@@ -482,16 +481,15 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
 
 def landing_vertices(planar: PlanarMap) -> dict[str, list[int]]:
     """``{landing ref: its platform vertices}`` (rings and holes; the
-    collar excluded) over ``model.platform.LANDINGS`` — ONE reading, the
+    collar excluded) over ``planar.registries.landings`` — ONE reading, the
     level rows and the DEM-datum withdrawal (``pads.pad_datum_withdrawn``)
     ask it."""
-    from ..model.platform import LANDINGS
-    if not LANDINGS:
+    if not planar.registries.landings:
         return {}
     out: dict[str, set[int]] = {}
     for f in planar.faces.values():
         r = str(f.ref)
-        if r in LANDINGS:
+        if r in planar.registries.landings:
             vs = out.setdefault(r, set())
             for ring in (f.ring, *f.holes):
                 vs.update(planar.ring_vertices(ring))
@@ -512,15 +510,14 @@ def landing_rows(planar: PlanarMap, law: Law,
     1:3 rows (:func:`platform_collar_rows`, keyed on the ``#collar``
     spelling).  A landing whose block has no datum column holds nothing
     and is counted (``landings_no_datum``)."""
-    from ..model.platform import LANDINGS
     STATS.pop("landing_rows", None)
-    if not LANDINGS:
+    if not planar.registries.landings:
         return []
     held = datum_vertices(planar, law)
     rows: list[Row] = []
     n = n_none = 0
     for ref, vs in sorted(landing_vertices(planar).items()):
-        rec = LANDINGS[ref]
+        rec = planar.registries.landings[ref]
         dv = held.get(rec["block"])
         if dv is None:
             n_none += 1
@@ -608,7 +605,7 @@ def platform_contacts(planar: PlanarMap, law: Law
 def refused_plates(planar: PlanarMap, law: Law
                    ) -> list[tuple[str, list[int], list[int]]]:
     """(E) SPEC-AUTHOR RULINGS 2026-09-29s: a REFUSED platform
-    (``planar/platform.PLATFORMS``: a draped facade's footprint)
+    (``planar.registries.platforms``: a draped facade's footprint)
     that fronts airside is a plain welded plate and takes the SAME
     contact-led fit.  ``(ref, its OWN plate vertices, its WELDED
     contacts)``: the contacts are the plate's airside rim vertices (the 23a
@@ -616,10 +613,9 @@ def refused_plates(planar: PlanarMap, law: Law
     plate's own vertices only — never an airside vertex (a hard plane
     through a weld is 10y's refuted identity) and never a vertex shared
     with another pad or a pavement face.  The min-area is unchanged."""
-    from ..model.platform import PLATFORMS
     from .pads import airside_vertices, rigid_roles
     from .precedence import view
-    refused = {p.ref for p in PLATFORMS if p.refused}
+    refused = {p.ref for p in planar.registries.platforms if p.refused}
     if not refused:
         return []
     rigid = set(rigid_roles(law))
@@ -760,7 +756,7 @@ def hold_sets(planar: PlanarMap, law: Law
     out: list[tuple[str, int, list[int], int, int]] = []
     # flat-pad spec v2 §4: a §20 CONFORMING pad's contacts are its own
     # airside rim vertices (the plate IS its ring: 09-01g), no ramp mask
-    conf = [r for r in held if HELD[r].get("conforming")]
+    conf = [r for r in held if planar.registries.held[r].get("conforming")]
     if conf:
         from .pads import airside_vertices as _air
         air_v = _air(planar, law)
@@ -779,7 +775,7 @@ def hold_sets(planar: PlanarMap, law: Law
         weld = [o for o in weld if o != held.get(pref)]
         if pref not in held or not weld:
             continue
-        h = HELD[pref]
+        h = planar.registries.held[pref]
         hx = h.get("samples_xy")
         hr = h.get("samples_ramp")
         n_all = len(weld)
@@ -844,13 +840,14 @@ def _with_near_miss(planar: PlanarMap, law: Law,
     idx = {pref: k for k, (pref, *_r) in enumerate(sets)}
     on: dict[str, set[int]] = {pref: set(w) | {dv} | set((flat_of or {}).get(pref, ()))
                                for pref, dv, w, _n, _r in sets}
-    conf = {pref for pref in idx if HELD[pref].get("conforming")}
+    conf = {pref for pref in idx if planar.registries.held[pref].get("conforming")}
     if conf:
         for f in planar.faces.values():
             if str(f.ref) in conf:
                 for ring in (f.ring, *f.holes):
                     on[str(f.ref)].update(planar.ring_vertices(ring))
-    plat_of = {pref: set(HELD[pref].get("plateau_vertices") or ()) for pref in idx}
+    held = planar.registries.held
+    plat_of = {pref: set(held[pref].get("plateau_vertices") or ()) for pref in idx}
     taken: set[int] = {v for p_, _dv, w, _n, _r in sets for v in w
                        if v not in plat_of[p_]}
     runway: set[int] = set()
@@ -870,15 +867,15 @@ def _with_near_miss(planar: PlanarMap, law: Law,
     out = list(sets)
     for pref, k in idx.items():
         es = sorted(add.get(pref, ()))
-        HELD[pref]["near_miss_contacts"] = es
+        planar.registries.held[pref]["near_miss_contacts"] = es
         if es:
             p, dv, w, n_all, n_r = out[k]
             out[k] = (p, dv, list(w) + [e for e in es if e not in plat_of[pref]],
                       n_all, n_r)
             if plat_of[pref] & set(es):
                 # a plateau vertex inside the sliver is a contact (docstring)
-                HELD[pref]["plateau_vertices"] = [
-                    v for v in HELD[pref]["plateau_vertices"] if v not in set(es)]
+                planar.registries.held[pref]["plateau_vertices"] = [
+                    v for v in planar.registries.held[pref]["plateau_vertices"] if v not in set(es)]
     return out
 
 
@@ -970,13 +967,14 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
     residual contact of an empty interval and adds the datum ``Pin`` and
     the runway's flex ``Band`` rows (``solve.design.solve_design``).  The
     route-metric reach band (the former ``no_step.runway_reach_band_values``,
-    deleted with it) that bounded the datum here is DELETED — it pinned ``preferred_z``, not solved values,
-    on a metric that reached 5 of SPJC's 8 blocks.  A generator."""
+    deleted with it) that bounded the datum here is DELETED — it pinned
+    ``preferred_z``, not solved values, on a metric that reached 5 of
+    SPJC's 8 blocks.  A generator."""
     STATS.pop("frontage_hold_rows", None)
     rows: list[Row] = []
     n_b = n_c = n_ramp = 0
     for pref, dv, weld, n_all, n_r in hold_sets(planar, law):
-        h = HELD[pref]
+        h = planar.registries.held[pref]
         n_ramp += n_r
         h["hold_contacts"] = [(o, None) for o in weld]
         h["welded_total"] = n_all
@@ -1030,11 +1028,11 @@ def platform_records(planar: PlanarMap, law: Law,
                      "plane_residual_max_m": round(float(res.max()), 3),
                      "platform_vertices": len(inner), "welded": len(weld),
                      "centroid_ll": _ll_of(planar, inner, c0)}
-        if pref in HELD:
+        if pref in planar.registries.held:
             # flat-pad spec §1 / §2 (RULINGS 2026-09-30f/r): the block, its
             # unit, the solved datum and how far its welded frontage stands
             # off it (the hold's miss, a step at the pad's rim)
-            h = HELD[pref]
+            h = planar.registries.held[pref]
             dv = dvs.get(pref)
             rec.update({"unit": h["unit"], "block": h["k"], "blocks": h["blocks"],
                         "block_verdict": h["verdict"],
@@ -1094,14 +1092,13 @@ def platform_records(planar: PlanarMap, law: Law,
             # sit on the datum, its tilt (a plane fitted over them) and area
             pv = [v for v in (h.get("plateau_vertices") or ())]
             if pv:
-                from ..model.platform import PLATEAUS
                 from ..law.tables import design as _dl
                 tol_p = float(_dl(law).hard_tol_m)
                 P = np.array([planar.vertices[v].xy for v in pv], dtype=float)
                 Zp = np.array([float(z[v]) for v in pv])
                 Ap = np.c_[P - P.mean(axis=0), np.ones(len(P))]
                 cp, *_ = np.linalg.lstsq(Ap, Zp, rcond=None)
-                pr = PLATEAUS.get(pref, {})
+                pr = planar.registries.plateaus.get(pref, {})
                 rec.update({"plateau_vertices": len(pv),
                             "plateau_within_tol": (int((np.abs(Zp - float(z[dv])) <= tol_p + 1e-6).sum())
                                                    if dv is not None else None),
@@ -1207,7 +1204,7 @@ def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
     the tilt of the plane fitted over ALL its vertices, the interval."""
     import numpy as np
     from ..law.tables import design as design_law
-    refs = [r for r, h in HELD.items() if h.get("conforming")]
+    refs = [r for r, h in planar.registries.held.items() if h.get("conforming")]
     if not refs:
         return []
     dvs = datum_vertices(planar, law)
@@ -1222,7 +1219,7 @@ def _conforming_records(planar: PlanarMap, law: Law, z) -> list[dict]:
                 vs.update(planar.ring_vertices(ring))
     out: list[dict] = []
     for r in sorted(refs):
-        h, vs, dv = HELD[r], sorted(verts.get(r, ())), dvs.get(r)
+        h, vs, dv = planar.registries.held[r], sorted(verts.get(r, ())), dvs.get(r)
         if dv is None or len(vs) < 3:
             continue
         X = np.array([planar.vertices[v].xy for v in vs], dtype=float)

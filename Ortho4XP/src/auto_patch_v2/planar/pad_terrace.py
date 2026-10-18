@@ -52,8 +52,9 @@ apron, not of the same unit) that shares the upper pad's rim is cut back
 from it by ``identity.weld_spacing_m`` — two pads front nothing of each
 other, so only the identity split is needed.
 
-The terraces are PUBLISHED (``TERRACES``, and the ``pad_terraces`` count
-in ``overlay.PAD_AIRSIDE``) so the arrangement can declare each strip as a
+The terraces are PUBLISHED (the map's ``registries.terraces``, and the
+``pad_terraces`` count
+in ``registries.pad_airside``) so the arrangement can declare each strip as a
 shape joint (``terrace_joints``) and a reader can find them."""
 from __future__ import annotations
 
@@ -65,10 +66,11 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import nearest_points
 from shapely.strtree import STRtree
 
-from ..model.pad_terrace import TERRACES, Terrace
+from ..model.pad_terrace import Terrace
+from ..model.registries import Registries
 from ..geom.parts import nonempty_polygon_parts
 
-__all__ = ["pad_terrace_split", "Terrace", "TERRACES"]
+__all__ = ["pad_terrace_split", "Terrace"]
 
 #: The ring sampling step of the facing read (m): a geometric resolution,
 #: not a law value (the pads' own chord caps are 5-60 m).
@@ -78,7 +80,7 @@ _STEP_M = 2.0
 _GRAZE_M = 0.5
 
 
-# ``Terrace`` / ``TERRACES`` live in ``model/pad_terrace`` (issue #104:
+# ``Terrace`` lives in ``model/pad_terrace`` (issue #104:
 # ``constraints`` reads them and may not import ``planar``); re-exported.
 
 
@@ -107,11 +109,14 @@ def _level(dem, apoly: Polygon, near: list[tuple[float, float]], reach: float) -
     return float(np.mean(zs)) if zs else None
 
 
-def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, dict]:
+def pad_terrace_split(base_regions, pad_regions, law, dem, *,
+                      reg: Registries) -> tuple[list, list, dict]:
     """THE SPLIT (module docstring).  Returns ``(base_regions,
-    pad_regions, counts)``; a no-op without a DEM."""
+    pad_regions, counts)``; a no-op without a DEM.  The terraces are
+    minted into ``reg.terraces``."""
     from ..law.tables import design as design_law, pavement_roles
-    TERRACES.clear()
+    terraces = reg.terraces
+    terraces.clear()
     counts: dict = {"pad_terraces": 0}
     if dem is None or not pad_regions:
         return list(base_regions), list(pad_regions), counts
@@ -201,7 +206,7 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
             contact = P.exterior.intersection(base[i].polygon.buffer(near))
             line = tuple(tuple(c) for g in getattr(contact, "geoms", [contact])
                          for c in getattr(g, "coords", []))
-            TERRACES.append(Terrace(str(pr.ref), str(base[front].ref), str(base[i].ref),
+            terraces.append(Terrace(str(pr.ref), str(base[front].ref), str(base[i].ref),
                                     "apron", round(lf, 3), round(lt, 3), round(bound, 3),
                                     gap, line))
             cut_apron.setdefault(i, []).append(P.buffer(gap))
@@ -214,7 +219,7 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
                     continue
                 if Q.distance(A) > near or Q.distance(P) > pad_gap:
                     continue
-                TERRACES.append(Terrace(str(pr.ref), str(base[front].ref), str(pads[j].ref),
+                terraces.append(Terrace(str(pr.ref), str(base[front].ref), str(pads[j].ref),
                                         "pad", round(lf, 3), round(lt, 3), round(bound, 3),
                                         pad_gap, ()))
                 cut_pad.setdefault(j, []).append(P.buffer(pad_gap))
@@ -232,9 +237,9 @@ def pad_terrace_split(base_regions, pad_regions, law, dem) -> tuple[list, list, 
         r = pads[j]
         ps = sorted(nonempty_polygon_parts(r.polygon.difference(unary_union(bufs))), key=lambda q: -q.area)
         pads[j] = _dc.replace(r, polygon=ps[0]) if ps else None
-    counts["pad_terraces"] = len(TERRACES)
+    counts["pad_terraces"] = len(terraces)
     counts["pad_terrace_list"] = "; ".join(
         f"{t.pad_ref}|{t.other_ref} front {t.front_ref} {t.front_level:.1f} vs "
-        f"{t.other_level:.1f} bound {t.bound_m:.2f}" for t in TERRACES[:12])
+        f"{t.other_level:.1f} bound {t.bound_m:.2f}" for t in terraces[:12])
     return ([r for r in base if r is not None] + extra,
             [p for p in pads if p is not None], counts)

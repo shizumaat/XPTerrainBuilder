@@ -49,8 +49,7 @@ def far(law):
     gate = Startup("G1", FAR_GATE_XY, 180.0, "gate")
     pm, _s = build(_airport(law, startups=(gate,)),
                    Classification(tuple(_cells()), (), {}, ()), law)
-    from auto_patch_v2.model.platform import PLATEAUS
-    return pm, dict(PLATEAUS)
+    return pm, dict(pm.registries.plateaus)
 
 
 def _keys(pm, f) -> set:

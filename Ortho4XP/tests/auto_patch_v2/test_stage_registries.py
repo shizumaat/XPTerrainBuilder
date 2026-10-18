@@ -1,14 +1,16 @@
 """T1 — THE CONSUMER CENSUS AS A TEST (``docs/specs/v2-stage-cache-spec.md``
-§3 / §8 T1, issue #840; RULINGS 2026-08-30l).
+§3 / §8 T1, issues #840 / #841; RULINGS 2026-08-30l).
 
 The set of module-level MUTABLE globals of ``auto_patch_v2`` that a module
-of ANOTHER sub-package reads must equal the fields the planar stage's
-record declares (``pipeline/capture_state.REGISTRIES``) plus an allow-list
-of memos, diagnostics and products of the uncached half — each with the
-reason it is not carried.  A new module global one stage fills and a later
-stage reads is exactly what a stage cache would serve stale: it fails here
-until it is either a declared field of the record or ruled into the
-allow-list.
+of ANOTHER sub-package reads must equal an allow-list of memos,
+diagnostics and products of the uncached half — each with the reason it
+is not carried.  The planar stage's registries are no longer module
+globals at all (#841): they are the typed record ``model.registries.
+Registries`` every map carries (``PlanarMap.registries``), and NO module
+of the package may bind one of their seven old names at module level
+again.  A new module global one stage fills and a later stage reads is
+exactly what a stage cache would serve stale: it fails here until it is
+either a field of the record or ruled into the allow-list.
 
 THE CENSUS (an AST walk over ``src/auto_patch_v2``, no import of the
 engine):
@@ -188,12 +190,12 @@ def census(root: Path = V2) -> dict[tuple[str, str], set[str]]:
             key = nxt
         return key
 
-    for m, (path, tree) in mods.items():
+    for m, (_path, tree) in mods.items():
         names, modules = imports[m]
         names = {k: origin(v) for k, v in names.items()}
         local = {n for (dm, n) in cands if dm == m}
 
-        def key_of(node: ast.AST):
+        def key_of(node: ast.AST, names=names, local=local, m=m, modules=modules):
             if isinstance(node, ast.Name):
                 if node.id in names and names[node.id] in cands:
                     return names[node.id]
@@ -223,30 +225,67 @@ def census(root: Path = V2) -> dict[tuple[str, str], set[str]]:
     return {k: v for k, v in readers.items() if k in mutated}
 
 
-def declared() -> set[tuple[str, str]]:
-    return {(r.module, r.attr) for r in CS.REGISTRIES}
+#: THE SEVEN MODULE GLOBALS ISSUE #841 DELETED -> the ``Registries`` field
+#: that replaced each.  None may come back as a module-level binding of ANY
+#: module of the package (a new spelling of the class is caught by the
+#: census above; the old names are pinned here by name).
+RETIRED: dict[tuple[str, str], str] = {
+    (_P + "model.platform", "HELD"): "held",
+    (_P + "model.platform", "PLATEAUS"): "plateaus",
+    (_P + "model.platform", "LANDINGS"): "landings",
+    (_P + "model.platform", "LANDING_RUNOUTS"): "landing_runouts",
+    (_P + "model.platform", "PLATFORMS"): "platforms",
+    (_P + "model.pad_terrace", "TERRACES"): "terraces",
+    (_P + "planar.overlay", "PAD_AIRSIDE"): "pad_airside",
+}
+
+
+def _module_level_names(tree: ast.Module) -> set[str]:
+    """Every name a module binds at module level (assignments, imports)."""
+    out: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            out.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)) and isinstance(node.target, ast.Name):
+            out.add(node.target.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            out.update((a.asname or a.name).split(".")[0] for a in node.names)
+    return out
 
 
 # ── the twin ─────────────────────────────────────────────────────────────
 
-def test_the_cross_stage_globals_are_the_declared_record():
+def test_the_cross_stage_globals_are_the_ruled_allow_list():
     found = census()
     got = set(found)
-    want = declared() | set(ALLOWED) | set(UNRULED)
+    want = set(ALLOWED) | set(UNRULED)
     undeclared = sorted(got - want)
     assert not undeclared, (
         "module globals a LATER stage reads that the planar stage's record "
         "does not carry (a stage cache would serve them stale): "
         + "; ".join(f"{m}.{n} read by {sorted(found[(m, n)])}"
                     for m, n in undeclared))
-    # a declared field nobody reads across stages any more is a stale row
+    # a ruled row nobody reads across stages any more is a stale row
     stale = sorted(want - got)
-    assert not stale, f"declared but not read across stages: {stale}"
+    assert not stale, f"ruled but not read across stages: {stale}"
+
+
+def test_no_registry_is_a_module_global_any_more():
+    """#841: the seven registries are fields of the map's record — no module
+    of the package binds one of their names at module level, and the record
+    and the capture state declare the same fields in the same order."""
+    from auto_patch_v2.model.registries import FIELDS
+    names = {n for _m, n in RETIRED}
+    back = sorted(f"{m}.{n}" for m, (_p, tree) in _modules().items()
+                  for n in _module_level_names(tree) & names)
+    assert not back, f"a retired registry is a module global again: {back}"
+    assert tuple(RETIRED.values()) == FIELDS
+    assert tuple(r.field for r in CS.REGISTRIES) == FIELDS
 
 
 def test_every_allowed_row_carries_its_reason():
     assert all(r.strip() for r in (*ALLOWED.values(), *UNRULED.values()))
-    assert not (set(ALLOWED) & declared()) and not (set(UNRULED) & declared())
+    assert not (set(ALLOWED) & set(RETIRED)) and not (set(UNRULED) & set(RETIRED))
 
 
 _PLANTED = {

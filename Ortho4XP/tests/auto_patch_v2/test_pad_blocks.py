@@ -193,7 +193,7 @@ def test_each_block_is_its_own_platform_with_a_declared_terrace_between():
     floors wide enough for the 1:3 bank of the predicted step — never one
     vertex at two floors, no collar — and registers each block as HELD."""
     from auto_patch_v2.law import Law
-    from auto_patch_v2.model.platform import HELD, PLATFORMS
+    from auto_patch_v2.model.registries import Registries
     from auto_patch_v2.planar.pad_blocks import Block, BlockPlan
     from auto_patch_v2.planar.platform import _mint_blocks
 
@@ -209,9 +209,9 @@ def test_each_block_is_its_own_platform_with_a_declared_terrace_between():
                      cuts=[chord], steps=[(0, 1, -3.0)])
     import dataclasses
     reg = dataclasses.make_dataclass("R", ["ref", "polygon"])("t", P)
-    PLATFORMS.clear()
-    HELD.clear()
-    got = _mint_blocks(reg, P, plan, law, 10.0, 100, None)
+    regs = Registries()
+    PLATFORMS, HELD = regs.platforms, regs.held
+    got = _mint_blocks(reg, P, plan, law, 10.0, 100, None, regs)
     assert got is not None
     plats, cols = got
     assert {r.ref for r in plats} == {"t/b0", "t/b1"}
@@ -226,8 +226,6 @@ def test_each_block_is_its_own_platform_with_a_declared_terrace_between():
     b = [r.polygon for r in plats if r.ref == "t/b1"]
     gap = min(p.distance(q) for p in a for q in b)
     assert gap >= 3.0 / bank - 1e-6            # the whole 1:3 bank fits
-    PLATFORMS.clear()
-    HELD.clear()
 
 
 def test_no_cut_through_more_than_a_bay_of_building():

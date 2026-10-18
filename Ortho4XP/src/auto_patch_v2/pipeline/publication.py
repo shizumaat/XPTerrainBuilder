@@ -94,15 +94,15 @@ from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.eat import eat_report_rects as _eat_report_rects
 
 
-def _renode_rows(airport) -> "list | None":
+def _renode_rows(planar: PlanarMap, airport) -> "list | None":
     """§16g (10) (12) (2): the airside nodes the PAD STAGE minted or
     deleted, as ``[lat, lon, kind]``, read verbatim out of the
-    arrangement's own publication (``planar/overlay.PAD_AIRSIDE``) and
+    arrangement's own publication (``planar.registries.pad_airside``) and
     converted in the airport's own frame.  Never re-derived: the only
     place the two node sets both exist is inside the arrangement."""
-    from ..planar.overlay import PAD_AIRSIDE
+    pad_airside = planar.registries.pad_airside
     out: list = []
-    if "renode_minted" not in PAD_AIRSIDE:
+    if "renode_minted" not in pad_airside:
         # THE ARRANGEMENT DID NOT RUN IN THIS PROCESS — a ``v2_solve_replay``
         # arm resumes from a captured planar map, so the pad stage's own
         # reading does not exist here.  Return ``None``, and the caller
@@ -111,12 +111,12 @@ def _renode_rows(airport) -> "list | None":
         # every replay arm read a perfect ``pad_airside_renode`` — the
         # silent-degradation class this project refuses.
         return None
-    if not PAD_AIRSIDE:
+    if not pad_airside:
         return out
     _to_xy, to_ll = airport.frame.transformers()
     for key, kind in (("renode_deleted_xy", "deleted"),
                       ("renode_minted_xy", "minted")):
-        for x, y in (PAD_AIRSIDE.get(key) or ()):
+        for x, y in (pad_airside.get(key) or ()):
             lat, lon = to_ll(float(x), float(y))
             out.append([round(float(lat), 11), round(float(lon), 11), kind])
     return out
@@ -618,7 +618,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # the census family ``pad_airside_renode`` prices exactly what
             # the build did and never re-derives it.  The bar is an EMPTY
             # list; a patch with no key reads exactly as before.
-            "pad_airside_renode": _renode_rows(airport),
+            "pad_airside_renode": _renode_rows(planar, airport),
             # §34 (9) THE PINCHED RAMP (RULINGS 2026-09-14ak/14am):
             # ``[shapeID, corridor, road ref, span m, designed grade]`` per
             # ramp face whose within-shape longitudinal cap is LIFTED — the
@@ -742,25 +742,23 @@ def _hard_conflict() -> list[dict[str, _t.Any]]:
 def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:
     """The ``platforms`` sidecar key: the minted platforms' solved records
     (``constraints.platform.platform_records``) plus every REFUSED one the
-    arrangement named (``planar.platform.PLATFORMS``)."""
+    arrangement named (``planar.registries.platforms``)."""
     from ..constraints.platform import platform_records
-    from ..planar.platform import PLATFORMS
     out = platform_records(planar, law, z)
     out.extend({"ref": p.ref, "refused": p.refused, "pad_m2": p.pad_m2}
-               for p in PLATFORMS if p.refused)
+               for p in planar.registries.platforms if p.refused)
     return out
 
 
 def _landings(planar: PlanarMap, z) -> list[dict[str, _t.Any]]:
     """The ``landings`` sidecar key (spec §56 (10) R-L): per minted ramp
-    landing (``model.platform.LANDINGS``) its ref, block, deck, the deck's
+    landing (``planar.registries.landings``) its ref, block, deck, the deck's
     authored ``y`` at its foot and the level the solve gave its platform
     vertices (their median; ``None`` without a surface)."""
     from ..constraints.platform import landing_vertices
-    from ..model.platform import LANDINGS
     vs = landing_vertices(planar)
     out = []
-    for ref, rec in sorted(LANDINGS.items()):
+    for ref, rec in sorted(planar.registries.landings.items()):
         zs = sorted(float(z[v]) for v in vs.get(ref, ())) if z is not None else []
         out.append({"ref": ref, "block": rec["block"], "deck": rec["deck"],
                     "y": rec["y"], "area_m2": rec.get("area_m2"),

@@ -156,7 +156,7 @@ def test_the_census_unknowns_are_the_stages_by_the_canonical_join(cg):
     with open(FRAME / "solved.pkl", "rb") as fh:
         a = pickle.load(fh)
     if a.get(cs_.CAPTURE_STATE_KEY):
-        cs_.install(a[cs_.CAPTURE_STATE_KEY])
+        cs_.install(a["pm"].registries, a[cs_.CAPTURE_STATE_KEY])
     pm, fixed = a["pm"], set(a["late_fixed"])
     free, frep = late_followers(pm)
     nodes, ways = cg._parse_osm(FRAME / "HECA_auto.patch.osm")

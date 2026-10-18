@@ -33,8 +33,8 @@ author): a deck whose lowest surface stands more than ``BAND_M`` ABOVE the
 pad has no foot on it; counted ``landing_above_unit``, nothing minted.
 
 Called once, at the end of ``planar/platform.platform_split`` — after
-every block is minted and registered in ``HELD`` and after the split's
-ref passes, so neither renames a landing.  The landing ref
+every block is minted and registered in the held record (``Registries.held``)
+and after the split's ref passes, so neither renames a landing.  The landing ref
 ``<unit>/landing<k>`` is not a block ref (``model.planar.block_of``)."""
 from __future__ import annotations
 
@@ -45,7 +45,8 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from ..model.planar import COLLAR_SUFFIX, pad_base_ref
-from ..model.platform import HELD, LANDING_RUNOUTS, LANDING_SEP, LANDINGS
+from ..model.platform import LANDING_SEP
+from ..model.registries import Registries
 
 __all__ = ["BAND_M", "landing_regions", "landing_cut"]
 
@@ -79,14 +80,16 @@ def _prints(part) -> list:
 def landing_regions(out: list, split_units: _t.Mapping[str, list],
                     air_polys: _t.Sequence[Polygon], airport, law,
                     grid: float, collar_m: float,
-                    counts: dict) -> list:
+                    counts: dict, *, reg: Registries) -> list:
     """The landing + collar regions to add to the pad regions ``out``
-    (module docstring), registering each in :data:`LANDINGS`."""
-    LANDINGS.clear()
-    LANDING_RUNOUTS.clear()
+    (module docstring), registering each in ``reg.landings`` (and its
+    run-outs in ``reg.landing_runouts``)."""
+    held, landings, runouts = reg.held, reg.landings, reg.landing_runouts
+    landings.clear()
+    runouts.clear()
     part = getattr(airport, "partition", None)
     frame = getattr(airport, "frame", None)
-    if part is None or frame is None or not HELD or collar_m <= 0.0:
+    if part is None or frame is None or not held or collar_m <= 0.0:
         return []
     if not any(getattr(m, "deck_kind", "") in ("flag", "signature")
                for u in part.units for m in u.members):
@@ -102,11 +105,11 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     blocks: list[tuple[str, Polygon]] = []
     for unit, polys in sorted(split_units.items()):
         for k, q in enumerate(polys):
-            if block_ref(unit, k) in HELD:
+            if block_ref(unit, k) in held:
                 blocks.append((block_ref(unit, k), q))
     for r in out:
         ref = str(r.ref)
-        if (ref in HELD and HELD[ref].get("blocks", 1) == 1
+        if (ref in held and held[ref].get("blocks", 1) == 1
                 and ref not in split_units and r.polygon is not None):
             blocks.append((ref, r.polygon))
     if not blocks:
@@ -147,7 +150,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                 pieces.append((q, y))
         if not pieces:
             continue
-        unit = str(HELD[bref].get("unit", bref))
+        unit = str(held[bref].get("unit", bref))
         tmpl = template.get(bref) or next(
             (r for r in out if str(r.ref).startswith(bref)), None)
         if tmpl is None:
@@ -217,9 +220,9 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # foot's RUN-OUT ahead of its landing, before any collar — the collar
     # banks the strip's sides, never its course (``planar/landing_runout``)
     from .landing_runout import landing_runouts
-    LANDING_RUNOUTS.update(landing_runouts(plats, HELD, airport, law, taken,
+    runouts.update(landing_runouts(plats, held, airport, law, taken,
                                            reach + grid, grid, counts))
-    for rec in LANDING_RUNOUTS.values():
+    for rec in runouts.values():
         taken = unary_union([taken, *rec["polys"]])
     # PASS 2: the collars, over what no platform, pad or airside holds
     held_c = taken
@@ -232,7 +235,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
         added.extend(_dc.replace(tmpl, ref=ref, polygon=q) for q in Ls)
         added.extend(_dc.replace(tmpl, ref=ref + COLLAR_SUFFIX, polygon=q)
                      for q in cparts)
-        LANDINGS[ref] = {"block": bref, "y": round(y_land, 4), "deck": key,
+        landings[ref] = {"block": bref, "y": round(y_land, 4), "deck": key,
                          "voters": voters, "area_m2": round(Lu.area, 1),
                          "collar_m2": round(sum(q.area for q in cparts), 1)}
     # PASS 3 (#711): the RUN-OUT's own 1:3 bank along its SIDES (flat caps:
@@ -242,18 +245,18 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # and a bank of a ref with no pad face is no pad there (MEASURED, HECA:
     # named as the landing's, Hangar_Tower bodies 60 m down the strip were
     # seated on the landing at 101.78 m, +10.91 m)
-    for rref, rec in sorted(LANDING_RUNOUTS.items()):
+    for rref, rec in sorted(runouts.items()):
         band = rec["axis"].buffer(0.5 * rec["width_m"] + collar_m, cap_style=2, join_style=2)
         cparts = [q for q in _parts(band.difference(held_c)) if q.area >= max(grid * grid, 1.0)]
         held_c = unary_union([held_c, *cparts])
         tmpl = tmpls[rec["landing"]]
         added.extend(_dc.replace(tmpl, ref=rref + COLLAR_SUFFIX, polygon=q) for q in cparts)
         rec["bank_m2"] = round(sum(q.area for q in cparts), 1)
-    counts["landings"] = len(LANDINGS)
-    if LANDINGS:
+    counts["landings"] = len(landings)
+    if landings:
         counts["landing_list"] = "; ".join(
             f"{r} on {v['block']} y {v['y']:+.2f} {v['area_m2']:g} m2"
-            for r, v in sorted(LANDINGS.items()))
+            for r, v in sorted(landings.items()))
     return added
 
 
@@ -268,7 +271,7 @@ LOT_ROLES = frozenset({"parking_lot"})
 
 
 def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
-                counts: "dict | None" = None) -> list:
+                counts: "dict | None" = None, *, reg: Registries) -> list:
     """The GROUNDSIDE base regions with every landing — its platform AND
     its collar — cut out (owner RULINGS 2026-10-03e: the ground is graded
     up to the landing).  A ramp lands on a lot or a road, and a groundside
@@ -280,14 +283,16 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
     dropped them (the two landings on ``dsf:pol10`` solved at 96.3 m, not
     99.2).  The collar is the 1:3 bank between them, so it is the lot's
     no longer; the lot meets the bank's toe.  Airside regions are never
-    cut (the landing was minted outside them)."""
-    if not LANDINGS:
+    cut (the landing was minted outside them).  ``reg``: the arrangement's
+    registries (its ``landings`` and ``landing_runouts`` are read)."""
+    landings, runouts = reg.landings, reg.landing_runouts
+    if not landings:
         return base_regions
     from ..law.tables import role_side
-    strips = unary_union([q for rec in LANDING_RUNOUTS.values() for q in rec["polys"]])
+    strips = unary_union([q for rec in runouts.values() for q in rec["polys"]])
     L = unary_union([r.polygon for r in pad_regions
-                     if (pad_base_ref(r.ref) in LANDINGS
-                         or pad_base_ref(r.ref) in LANDING_RUNOUTS)
+                     if (pad_base_ref(r.ref) in landings
+                         or pad_base_ref(r.ref) in runouts)
                      and r.polygon is not None] + [strips])
     if L.is_empty:
         return base_regions
@@ -305,15 +310,16 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
             out.append(_dc.replace(r, polygon=q))
     if counts is not None:
         counts["landing_cut_regions"] = n
-    return out + _runout_regions(out, law, counts)
+    return out + _runout_regions(out, law, counts, runouts)
 
 
-def _runout_regions(base: list, law, counts: "dict | None") -> list:
+def _runout_regions(base: list, law, counts: "dict | None",
+                    runouts: _t.Mapping[str, dict]) -> list:
     """THE RUN-OUT STRIPS as base regions (#711, ``planar/landing_runout``):
     a ``service_road`` region per strip, less every base region left
     standing after the lot cut — a road, the airside, a zone keeps its
     ground and the strip yields to it."""
-    if not LANDING_RUNOUTS or not base:
+    if not runouts or not base:
         return []
     from ..law.tables import role_side
     from ..model.planar import is_late_ref
@@ -325,7 +331,7 @@ def _runout_regions(base: list, law, counts: "dict | None") -> list:
                             and not is_late_ref(r.ref)])
     side = role_side(law, "service_road")
     got: list = []
-    for ref, rec in sorted(LANDING_RUNOUTS.items()):
+    for ref, rec in sorted(runouts.items()):
         for q in rec["polys"]:
             for p in _parts(q.difference(standing)):
                 if p.area >= 1.0:

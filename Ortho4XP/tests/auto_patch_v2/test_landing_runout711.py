@@ -14,6 +14,7 @@ from auto_patch_v2.airport import ramp_feet as RF
 from auto_patch_v2.geom.ramp_profile import ramp_delta, runout_profile
 from auto_patch_v2.law import Law
 from auto_patch_v2.model import platform as MP
+from auto_patch_v2.model.registries import Registries
 
 
 @pytest.fixture
@@ -120,16 +121,11 @@ def test_the_strip_cuts_the_lot_and_yields_to_a_road(law):
     land = Region("building", "u/landing0", box(0, 0, 10, 10), None, None, "airside", "cell")
     lot = Region("parking_lot", "lot", box(10, -20, 200, 30), None, None, "groundside", "cell")
     road = Region("service_road", "rd", box(40, -20, 46, 30), None, None, "groundside", "cell")
-    MP.LANDINGS.clear()
-    MP.LANDING_RUNOUTS.clear()
-    MP.LANDINGS["u/landing0"] = {"block": "u", "y": 0.0}
-    MP.LANDING_RUNOUTS["runout:u/landing0"] = {"landing": "u/landing0",
-                                               "polys": [box(10, 1, 130, 9)]}
-    try:
-        out = LD.landing_cut([lot, road], [land], law)
-    finally:
-        MP.LANDINGS.clear()
-        MP.LANDING_RUNOUTS.clear()
+    reg = Registries()
+    reg.landings["u/landing0"] = {"block": "u", "y": 0.0}
+    reg.landing_runouts["runout:u/landing0"] = {"landing": "u/landing0",
+                                                "polys": [box(10, 1, 130, 9)]}
+    out = LD.landing_cut([lot, road], [land], law, reg=reg)
     strips = [r for r in out if r.ref == "runout:u/landing0"]
     assert {r.role for r in strips} == {"service_road"}
     # the road keeps its ground: the strip is cut in two at it
@@ -146,6 +142,7 @@ class _Planar:
     """The strip as one face (four corners), the datum column vertex 9."""
 
     def __init__(self):
+        self.registries = Registries()
         xy = {0: (10, 1), 1: (130, 1), 2: (130, 9), 3: (10, 9), 9: (-50, 0)}
         self.vertices = {k: types.SimpleNamespace(xy=p, incident_faces=(0,), dem_z=100.0)
                          for k, p in xy.items()}
@@ -161,15 +158,15 @@ def test_the_strip_is_held_relative_to_its_blocks_datum(law, monkeypatch):
     from auto_patch_v2.constraints.ramp_runout import (LANDING_RUNOUT_RULING,
                                                        landing_runout_rows)
     monkeypatch.setattr(MP, "datum_vertices", lambda _p, _l: {"u": 9})
-    MP.LANDING_RUNOUTS.clear()
+    planar = _Planar()
     rec = {"landing": "u/landing0", "block": "u", "y": -0.2, "lip": (10.0, 5.0),
            "dir": (1.0, 0.0), "g": 0.05, "cap": 0.10, "z0_pred": 105.8, "reach_m": 0.5,
            "dem0": 100.0}
     ceilings: dict = {}
     try:
         def bounds(ground):
-            MP.LANDING_RUNOUTS["runout:u/landing0"] = {**rec, "ground": ground}
-            rows = landing_runout_rows(_Planar(), law)
+            planar.registries.landing_runouts["runout:u/landing0"] = {**rec, "ground": ground}
+            rows = landing_runout_rows(planar, law)
             assert all(r.source.ruling == LANDING_RUNOUT_RULING for r in rows)
             # the strip's own chords: along each side at the road cap, across
             # at each paired station at the cross-fall cap
@@ -203,7 +200,7 @@ def test_the_strip_is_held_relative_to_its_blocks_datum(law, monkeypatch):
         falling = bounds([(0.0, 0.0), (120.0, -9.6)])
         assert falling[1][0] == pytest.approx(-0.2 - 12.0)
     finally:
-        MP.LANDING_RUNOUTS.clear()
+        planar.registries.landing_runouts.clear()
 
 
 def test_the_collar_banks_the_strips_sides(monkeypatch):
@@ -212,13 +209,10 @@ def test_the_collar_banks_the_strips_sides(monkeypatch):
         1: types.SimpleNamespace(ref="u/landing0"),
         2: types.SimpleNamespace(ref="u/landing0#collar"),
         3: types.SimpleNamespace(ref="runout:u/landing0"),
-        4: types.SimpleNamespace(ref="runout:u/landing0#collar")})
-    MP.LANDING_RUNOUTS.clear()
-    MP.LANDING_RUNOUTS["runout:u/landing0"] = {"landing": "u/landing0"}
-    try:
-        got = CP._with_runouts(pm, [("u/landing0", (2,), (1,)), ("v/b0", (7,), (8,))])
-    finally:
-        MP.LANDING_RUNOUTS.clear()
+        4: types.SimpleNamespace(ref="runout:u/landing0#collar")},
+        registries=Registries())
+    pm.registries.landing_runouts["runout:u/landing0"] = {"landing": "u/landing0"}
+    got = CP._with_runouts(pm, [("u/landing0", (2,), (1,)), ("v/b0", (7,), (8,))])
     # the landing's collar banks off the strip's first metres; the strip's
     # own side bank (its own ref, never folded into the landing by the
     # object stage) banks off the strip
@@ -230,13 +224,10 @@ def test_a_mapped_road_on_the_strip_rides_it():
     from auto_patch_v2.constraints import ramp_runout as RR
     from auto_patch_v2.constraints.road_ramp import GEN as ROAD_RAMP
     from auto_patch_v2.model.constraints import Band, Source
-    MP.LANDING_RUNOUTS.clear()
-    MP.LANDING_RUNOUTS["runout:u/landing0"] = {"landing": "u/landing0"}
+    planar = _Planar()
+    planar.registries.landing_runouts["runout:u/landing0"] = {"landing": "u/landing0"}
     on = Band(1, None, 95.0, Source(ROAD_RAMP, "roads.groundside_road ramp ceiling"))
     off = Band(9, None, 95.0, Source(ROAD_RAMP, "roads.groundside_road ramp ceiling"))
     other = Band(1, None, 99.0, Source("roads", "road_cross_section"))
-    try:
-        rows, n = RR.runout_exempt([on, off, other], _Planar())
-    finally:
-        MP.LANDING_RUNOUTS.clear()
+    rows, n = RR.runout_exempt([on, off, other], planar)
     assert n == 1 and rows == [off, other]

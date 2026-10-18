@@ -1,8 +1,9 @@
-"""The imagery detail picker: plain wording shown, the zoom level kept.
+"""The imagery detail picker: zoom levels shown with their pixel size.
 
-Issue #831: a user picks "Standard (~2 m per pixel) · ZL16", never a bare
-"16".  The window, the wizard and their tests speak zoom levels through
-the combo's text API (``currentText() == "16"``, ``setCurrentText("17")``,
+Issue #831: a user picks "ZL16 · ~2 m per pixel", never a bare "16"
+(owner ruling 2026-10-18: detail levels keep their ZL numbers).  The
+window, the wizard and their tests speak zoom levels through the combo's
+text API (``currentText() == "16"``, ``setCurrentText("17")``,
 ``findText``); :class:`DetailCombo` keeps that API in zoom levels while
 each item DISPLAYS its glossary label (``O4_Glossary.detail_choice``).
 """
@@ -14,7 +15,7 @@ __all__ = ["DetailCombo"]
 
 
 class DetailCombo(QComboBox):
-    """A combo of zoom levels whose items read as plain detail levels.
+    """A combo of zoom levels whose items carry their pixel size.
 
     The text API is in zoom levels: ``currentText()`` is ``"16"`` (``""``
     when unresolved), ``findText("16")`` the index of ZL16."""

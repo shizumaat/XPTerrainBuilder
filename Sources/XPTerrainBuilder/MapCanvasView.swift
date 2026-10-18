@@ -591,7 +591,7 @@ struct MapCanvasView: View {
         .padding(8)
         .help(atLimit
               ? "The view is zoomed past the imagery source's finest zoom level — tiles are upscaled and blurry. Builds at higher ZLs would upscale the same data."
-              : "The imagery zoom level matching the current view — compare with the Build ZL setting.")
+              : "The imagery zoom level matching the current view — compare with the Detail setting (ZL) in the Build pane.")
     }
 
     /// Horizontal segmented-style zoom control: − and + in separate

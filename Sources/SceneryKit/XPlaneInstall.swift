@@ -76,7 +76,7 @@ public enum XPlaneInstall {
         if resolveCIFPDir(cifpDataPath: cifpDataPath, customSceneryDir: customSceneryDir) != nil {
             return nil
         }
-        let detail = problem(at: xplanePath) ?? "Your X-Plane folder has no CIFP data."
+        let detail = problem(at: xplanePath) ?? "Your X-Plane folder has no runway data (CIFP)."
         return detail + " Without it every runway, taxiway and apron would drape "
             + "over the raw terrain, so the engine refuses the build. "
             + "Choose your X-Plane folder to continue."

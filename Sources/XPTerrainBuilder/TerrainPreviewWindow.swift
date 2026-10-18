@@ -97,8 +97,8 @@ private struct TerrainPreviewContent: View {
 
     private var legend: some View {
         VStack(alignment: .leading, spacing: 3) {
-            legendRow(TerrainPreviewScene.terrainColor, "DEM terrain")
-            legendRow(TerrainPreviewScene.patchColor, "patch surface")
+            legendRow(TerrainPreviewScene.terrainColor, "terrain")
+            legendRow(TerrainPreviewScene.patchColor, "airport ground shape")
             legendRow(TerrainPreviewScene.buildingColor, "pack buildings")
             legendRow(TerrainPreviewScene.markerColor, "selected node")
         }

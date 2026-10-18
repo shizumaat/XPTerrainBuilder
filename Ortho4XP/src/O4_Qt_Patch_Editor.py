@@ -12,6 +12,7 @@ import typing as _t
 
 from PySide6.QtGui import QAction, QKeySequence
 
+import O4_Glossary as GLOSSARY
 import O4_Qt_Map as QTMAP
 from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
@@ -59,13 +60,13 @@ class PatchEditor:
 
     def menu_actions(self, window) -> dict[str, QAction]:
         """Edit ▸ Undo / Redo (Ctrl/⌘Z, Shift+Ctrl/⌘Z; a drag is one step),
-        File ▸ Save Patch (Ctrl/⌘S) and View ▸ 3D Preview (Ctrl/⌘3)."""
+        File ▸ Save my edits (Ctrl/⌘S) and View ▸ 3D Preview (Ctrl/⌘3)."""
         stack = self.model.undo_stack
         undo = stack.createUndoAction(window, "Undo")
         undo.setShortcut(QKeySequence.Undo)
         redo = stack.createRedoAction(window, "Redo")
         redo.setShortcuts([QKeySequence("Ctrl+Shift+Z"), QKeySequence.Redo])
-        save = QAction("Save Patch", window)
+        save = QAction(GLOSSARY.TERMS["save_edits"], window)
         save.setShortcut(QKeySequence.Save)
         save.triggered.connect(self.controller.save)
 

@@ -40,7 +40,7 @@ CONTROLS_HELP = ("The scene stays still; you move and turn the viewpoint.\n"
                  "Home or 0 back to the first view. Hold Shift for fast, Control for slow.\n"
                  "Mouse: drag to look around · scroll to move along the view · "
                  "Alt-drag or right-drag to move over the ground.")
-LEGEND = ((SC.TERRAIN_COLOR, "DEM terrain"), (SC.PATCH_COLOR, "patch surface"),
+LEGEND = ((SC.TERRAIN_COLOR, "terrain"), (SC.PATCH_COLOR, "airport ground shape"),
           (SC.BUILDING_COLOR, "pack buildings"), (SC.MARKER_COLOR, "selected node"))
 
 _PANEL = ("background: rgba(0,0,0,140); border-radius: 8px; color: rgba(255,255,255,217);")

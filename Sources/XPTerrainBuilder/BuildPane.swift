@@ -189,8 +189,8 @@ struct BuildPane: View {
                     }
                 }
             }
-            detailRow("Zoom level", zlText(info))
-            detailRow("Mesh built", dateText(info?.meshDate))
+            detailRow(O4Glossary.term("detail"), zlText(info))
+            detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
             if let dem = info?.customDEM, !dem.isEmpty {
                 detailRow("Elevation", (dem as NSString).lastPathComponent)
@@ -199,7 +199,7 @@ struct BuildPane: View {
             ForEach(otherScenery, id: \.name) { item in
                 detailRow("Other scenery", item.name)
                     .help(item.name)
-                detailRow("DSF modified", item.dsfDate.map {
+                detailRow("Modified", item.dsfDate.map {
                     $0.formatted(date: .abbreviated, time: .shortened)
                 } ?? "—")
             }
@@ -304,7 +304,7 @@ struct BuildPane: View {
 
     private func zlText(_ info: O4TileInfo?) -> String {
         guard let info, let zl = info.zl else { return "—" }
-        var text = "ZL\(zl)"
+        var text = O4Glossary.detailChoice(zl)
         // Airport high-ZL cover: e.g. "ZL16 + ZL18 ICAO" makes the
         // upgraded-airports setting visible at a glance.
         let mode = info.highZLAirports
@@ -351,20 +351,20 @@ struct BuildPane: View {
                         .tag(provider.code)
                 }
             }
-            Picker("Build ZL", selection: zlBinding) {
+            Picker(O4Glossary.term("detail"), selection: zlBinding) {
                 ForEach(12...21, id: \.self) { zl in
-                    Text("ZL\(zl)").tag(zl)
+                    Text(O4Glossary.detailChoice(zl)).tag(zl)
                 }
             }
-            .help("Higher zoom levels mean sharper imagery and much larger downloads: one ZL step ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
+            .help("More detail means sharper imagery and much larger downloads: one step (one ZL) ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
             Divider()
-            Toggle("Vector, mesh & masks", isOn: boolBinding(\.doVector))
-                .help("OSM data, elevation, triangulation and water masks — the tile's terrain.")
-            Toggle("Imagery & DSF", isOn: boolBinding(\.doImagery))
-                .help("Downloads imagery, converts textures and writes the final DSF.")
-            Toggle("Extract overlays", isOn: boolBinding(\.doOverlays))
-                .help("Extracts roads/buildings overlays from the overlay source configured in the engine config.")
-            Toggle("Modify custom airports", isOn: Binding(
+            Toggle(O4Glossary.term("terrain_steps"), isOn: boolBinding(\.doVector))
+                .help("Downloads map data (roads, water, airports), shapes the ground and blends coastlines and water — the tile's terrain.")
+            Toggle(O4Glossary.term("imagery_and_scenery_file"), isOn: boolBinding(\.doImagery))
+                .help("Downloads imagery, converts textures and writes the final scenery file (DSF).")
+            Toggle(O4Glossary.term("xplane_objects"), isOn: boolBinding(\.doOverlays))
+                .help("Copies the roads, forests and buildings (overlays) of the X-Plane scenery configured as the overlay source.")
+            Toggle(O4Glossary.term("fit_buildings"), isOn: Binding(
                 get: { buildModel.modifyCustomAirports },
                 set: { buildModel.setModifyCustomAirports($0) }))
                 .disabled(customAirportPacks.isEmpty)
@@ -441,7 +441,7 @@ struct BuildPane: View {
             Label("Multiple imagery sources installed",
                   systemImage: "exclamationmark.triangle.fill")
                 .scaledFont(.callout, weight: .semibold)
-            Text("Only one imagery source can be used at a time; this tile's DSF references \(audit.currentProvider) textures. Images from other sources are left over from earlier builds and never shown.")
+            Text("Only one imagery source can be used at a time; this tile's scenery file references \(audit.currentProvider) textures. Images from other sources are left over from earlier builds and never shown.")
                 .scaledFont(.caption)
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(audit.sources) { source in

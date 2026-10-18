@@ -34,6 +34,7 @@ from ..geom.proportions import inscribed_width_m
 from ..law import Law
 from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
 from ..model.airport import Airport
+from ..model.registries import Registries
 from .chords import densify, ring_lines, stations
 from .terrain_edge import EdgeReport, road_lines
 from .pad_cut import (_drop_rim_midpoints, _renode_counts, _SHARED_TIE_DP,
@@ -147,14 +148,15 @@ class Arrangement:
     #: One record per dissolved/dropped sliver: ``(ref, area_m2, width_m,
     #: host role:ref or None)`` — what the report names.
     zone_sliver_rows: tuple = ()
-
-
-#: RULINGS 2026-09-14ax: what the ARRANGEMENT's pad clip did this build —
-#: the pads trimmed, the crossing points quantised to the airside rim's
-#: own nodes, the ones too far to move, every refusal by reason, and the
-#: pads the clip would have erased.  ONE publication (``classify.evidence``
-#: re-exports it); the report and the census read it, never re-derive it.
-PAD_AIRSIDE: dict[str, object] = {}
+    #: THE REGISTRIES this arrangement minted (``model.registries``, #841):
+    #: the held platforms, plateaus, landings, run-outs, platform verdicts,
+    #: declared terraces and ``pad_airside`` — RULINGS 2026-09-14ax: what the
+    #: pad clip did this build (the pads trimmed, the crossing points
+    #: quantised to the airside rim's own nodes, the ones too far to move,
+    #: every refusal by reason, the pads the clip would have erased); the
+    #: report and the census read it, never re-derive it.  ``planar/build``
+    #: puts the record on the map.
+    registries: Registries = _dc.field(default_factory=Registries)
 
 
 def _faces_of_lazy():
@@ -201,7 +203,9 @@ def _runway_ridges(airport: Airport, spacing: float
 
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None) -> Arrangement:
-    """Regions + breakline sources -> ONE noded arrangement."""
+    """Regions + breakline sources -> ONE noded arrangement, with the
+    registries its passes mint (:attr:`Arrangement.registries`)."""
+    reg = Registries()
     grid = grid_m if grid_m is not None else \
         law.tables.emit.identity.min_distinct_spacing_m
     # RULINGS 2026-09-30aa rules 2/9 (#100): the MAPPED-ROAD RIBBONS take
@@ -273,8 +277,7 @@ def build_arrangement(airport: Airport, classification: Classification,
     # the rim's own coordinates.
     keeps = bool(getattr(law.tables.structures.placement,
                          "pad_keeps_footprint", False))
-    from .pad_terrace import TERRACES, pad_terrace_split
-    TERRACES.clear()
+    from .pad_terrace import pad_terrace_split
     if keeps:
         base_regions, pad_regions, _pad_clip = apron_cut_to_pads(
             base_regions, pad_regions, law, float(grid))
@@ -282,7 +285,7 @@ def build_arrangement(airport: Airport, classification: Classification,
         # FRONTS; a touching apron at another level is split off as a
         # declared terrace — at the one site the weld is made
         base_regions, pad_regions, _terr = pad_terrace_split(
-            base_regions, pad_regions, law, getattr(airport, "dem", None))
+            base_regions, pad_regions, law, getattr(airport, "dem", None), reg=reg)
         _pad_clip.update(_terr)
         # unit-platform spec §1 (2)-(4) (RULINGS 2026-09-28a (1)): a unit
         # pad fronting airside becomes a PLATFORM inside a COLLAR — minted
@@ -292,7 +295,7 @@ def build_arrangement(airport: Airport, classification: Classification,
         pad_regions, _plat = platform_split(base_regions, pad_regions, law,
                                             float(grid),
                                             getattr(airport, "dem", None),
-                                            airport=airport)
+                                            airport=airport, reg=reg)
         _pad_clip.update(_plat)
         # owner RULINGS 2026-10-14n D2 (#709): a building on an apron that
         # reaches past its edge — the ground under that part is a shelf at
@@ -304,12 +307,12 @@ def build_arrangement(airport: Airport, classification: Classification,
         # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING takes
         # its own footprint out of the groundside lot / road it lands on
         from .landing import landing_cut
-        base_regions = landing_cut(base_regions, pad_regions, law, _plat)
+        base_regions = landing_cut(base_regions, pad_regions, law, _plat, reg=reg)
         # flat-pad spec v2 §3: THE STAND LINE — the held blocks' plateaus
         # cut out of the apron they front, off the blocks just minted
         from .pad_cut import plateau_cut
         base_regions, _plateau = plateau_cut(base_regions, pad_regions, law,
-                                             airport, float(grid))
+                                             airport, float(grid), reg=reg)
         _pad_clip.update(_plateau)
 
     def _ring_lines_of(rs) -> list[LineString]:
@@ -394,32 +397,34 @@ def build_arrangement(airport: Airport, classification: Classification,
         nodes_b = _node_coords(noded)
         noded, regions, frozen, air_f, base_order = _ribbons_pass_c(
             ribbon_cells, noded, noded_a, pad_lines, regions, bands, law, keeps,
-            float(grid), _ring_lines_of, _pad_clip)
+            float(grid), _ring_lines_of, _pad_clip, reg)
         if frozen is not None:
             _pad_clip.update({f"ribbon_{k}": v for k, v in _renode_counts(
                 nodes_b, _node_coords(noded),
                 shapely.set_precision(air_f, float(grid))).items()})
-    PAD_AIRSIDE.clear()
-    PAD_AIRSIDE.update(_pad_clip)
+    pad_airside = reg.pad_airside
+    pad_airside.clear()
+    pad_airside.update(_pad_clip)
     (faces, dropped, dropped_seam, merged, absorbed, detached, zs_dissolved,
      zs_dropped, zs_area, zs_rows, holes_gone, _polys) = _faces_of_lazy()(
         noded, regions, bands, law, keeps, frozen,
         air_f if frozen is not None else None,
         base_order[0] if frozen is not None else None,
-        base_order[1] if frozen is not None else None)
+        base_order[1] if frozen is not None else None, reg=reg)
     if frozen is not None:
         # 30aa rule 10 / 30z (1) AT THE DERIVATION SITE: the airside's own
         # vertex set (aircraft pavement + pads) with the ribbons against the
         # one the arrangement WITHOUT them finished with — both 0 is the bar
         from .ribbons import airside_vertex_set
         _after = airside_vertex_set(faces, law)
-        PAD_AIRSIDE["ribbon_airside_added"] = len(_after - base_order[2])
-        PAD_AIRSIDE["ribbon_airside_removed"] = len(base_order[2] - _after)
+        pad_airside["ribbon_airside_added"] = len(_after - base_order[2])
+        pad_airside["ribbon_airside_removed"] = len(base_order[2] - _after)
     return Arrangement(faces, noded, sources, regions, dropped, grid,
                        bands, dropped_seam, weld, merged,
                        tuple(edge_lines), erep, holes_gone,
                        absorbed, detached,
-                       zs_dissolved, zs_dropped, zs_area, zs_rows)
+                       zs_dissolved, zs_dropped, zs_area, zs_rows,
+                       registries=reg)
 
 
 

@@ -23,7 +23,6 @@ import pytest
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import pad_fronting, pads
 from auto_patch_v2.law import Law
-from auto_patch_v2.planar import pad_terrace
 from auto_patch_v2.planar.build import build
 
 from test_v2frontage import HALF_W, RUN_LEN, _airport, _rect  # noqa: E402
@@ -93,9 +92,9 @@ def test_the_touching_low_apron_is_split_off_as_a_terrace(law):
     its corner shares NO vertex with it and stands beyond §20's horizon,
     so the pad no longer fronts it; the facing row is the SENIOR one."""
     pm, airport = _built(law, _cells(lower_pad=False))
-    kinds = [(t.kind, t.pad_ref, t.other_ref, t.front_ref) for t in pad_terrace.TERRACES]
+    kinds = [(t.kind, t.pad_ref, t.other_ref, t.front_ref) for t in pm.registries.terraces]
     assert kinds == [("apron", "padP", "apronLow", "apronHigh")]
-    t = pad_terrace.TERRACES[0]
+    t = pm.registries.terraces[0]
     assert t.front_level == pytest.approx(704.0) and t.other_level == pytest.approx(698.0)
     p, a = _fid(pm, "padP"), _fid(pm, "apronLow")
     assert not (_vs(pm, p) & _vs(pm, a))
@@ -115,7 +114,7 @@ def test_the_lower_pad_at_the_corner_is_split_from_the_upper_pad(law):
     """The lower pad touches the low apron and shared P's rim: the rim is
     split (two vertex sets), and the lower pad still fronts its apron."""
     pm, _a = _built(law, _cells(lower_pad=True))
-    kinds = sorted((t.kind, t.other_ref) for t in pad_terrace.TERRACES)
+    kinds = sorted((t.kind, t.other_ref) for t in pm.registries.terraces)
     assert kinds == [("apron", "apronLow"), ("pad", "padQ")]
     p, q, a = _fid(pm, "padP"), _fid(pm, "padQ"), _fid(pm, "apronLow")
     assert not (_vs(pm, p) & _vs(pm, q))
@@ -124,14 +123,14 @@ def test_the_lower_pad_at_the_corner_is_split_from_the_upper_pad(law):
 
 def test_a_touching_apron_at_the_same_level_stays_welded(law):
     pm, _a = _built(law, _cells(lower_pad=False), flat=True)
-    assert pad_terrace.TERRACES == []
+    assert pm.registries.terraces == []
     assert _vs(pm, _fid(pm, "padP")) & _vs(pm, _fid(pm, "apronLow"))
 
 
 def test_a_pad_touching_the_apron_it_fronts_is_left_to_20(law):
     """The front itself touches: §20's weld, nothing split."""
     pm, _a = _built(law, _cells(lower_pad=False, front_touches=True))
-    assert pad_terrace.TERRACES == []
+    assert pm.registries.terraces == []
     assert _vs(pm, _fid(pm, "padP")) & _vs(pm, _fid(pm, "apronLow"))
 
 
@@ -171,17 +170,17 @@ def test_a_junior_facing_row_never_crosses_a_declared_pad_terrace(law):
         return [r for r in rows if r.source.ruling.startswith(pads.LEVEL_JUNIOR_RULING)
                 and set(r.follows or ()) & _vs(pm, q)]
 
-    kept = list(pad_terrace.TERRACES)
+    kept = list(pm.registries.terraces)
     try:
-        pad_terrace.TERRACES[:] = [t for t in kept if t.other_ref != "padQ"]
+        pm.registries.terraces[:] = [t for t in kept if t.other_ref != "padQ"]
         assert junior_rows(), "the fixture must face apronW with a junior row"
         t0 = next(t for t in kept if t.kind == "pad" and t.other_ref == "padQ")
         assert (t0.front_level, t0.other_level) == (704.0, 698.0)
-        pad_terrace.TERRACES[:] = kept
+        pm.registries.terraces[:] = kept
         assert not junior_rows()       # apronW (~702) is the UPPER side
         assert pad_fronting.STATS["pad_fronting_across_terrace"]["junior_dropped"] >= 1
     finally:
-        pad_terrace.TERRACES[:] = kept
+        pm.registries.terraces[:] = kept
         pad_fronting._CACHE.clear()
 
 
@@ -212,11 +211,11 @@ def test_the_30i_floor_welds_under_one_metre_and_terraces_at_it(law, gap, split)
     lw = _dc.replace(law, tables=_dc.replace(law.tables, emit=em))
     airport = _airport(lw, _GapDem(gap))
     pm, _st = build(airport, Classification(tuple(_cells(lower_pad=False)), (), {}, ()), lw)
-    kinds = [(t.kind, t.other_ref) for t in pad_terrace.TERRACES]
+    kinds = [(t.kind, t.other_ref) for t in pm.registries.terraces]
     shared = _vs(pm, _fid(pm, "padP")) & _vs(pm, _fid(pm, "apronLow"))
     if split:
         assert kinds == [("apron", "apronLow")]
-        assert pad_terrace.TERRACES[0].bound_m == pytest.approx(1.0)
+        assert pm.registries.terraces[0].bound_m == pytest.approx(1.0)
         assert not shared
     else:
         assert kinds == []

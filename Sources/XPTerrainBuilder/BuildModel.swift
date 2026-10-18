@@ -891,6 +891,8 @@ final class BuildModel: ObservableObject {
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
+        case .imageryDownloadsDone:
+            break // the engine's scheduling signal; the tile's row moves on its own
         case .unknown:
             break // additive protocol: ignore unknown event types
         }

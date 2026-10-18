@@ -207,6 +207,38 @@ struct UnmountedLinkTests {
         #expect(O4TileFailureCopy.removeLinkButton
                 == "Remove the link and build on this Mac's drive")
     }
+
+    /// #853 (protocol 1.13): every entry carries `severity`; an older
+    /// engine's entry takes its list's default; the label is the Qt one.
+    @Test func severityIsParsedAndLabelled() throws {
+        var degraded = entry("imagery_incomplete",
+                             what: "Tile +30+031 was built, but some of its aerial images are missing.")
+        degraded["severity"] = "degraded"
+        let object: [String: Any] = [
+            "event": "BuildDone", "lat": 30, "lon": 31, "ok": true, "error": "",
+            "warnings": [degraded, entry("airport_solve", what: "Old engine.")],
+            "notes": [entry("elevation_substituted", what: "Note.")],
+        ]
+        guard case .buildDone(_, _, _, _, _, let warnings, _, let notes)?
+                = O4Event.parse(object: object) else {
+            Issue.record("BuildDone did not decode")
+            return
+        }
+        #expect(warnings.map(\.severity) == ["degraded", "degraded"])
+        #expect(warnings[0].severityLabel == "Warning")
+        #expect(notes[0].severity == "info" && notes[0].severityLabel == "Note")
+        let failed = O4TileFailure.parseList([entry("disk_full", what: "Full.")])
+        #expect(failed[0].severity == "blocking" && failed[0].severityLabel == "Not built")
+    }
+
+    /// The wire drift blast.py reported: `ImageryDownloadsDone` is now a
+    /// known event (a scheduling signal the app ignores), not `.unknown`.
+    @Test func imageryDownloadsDoneIsAKnownEvent() throws {
+        let object: [String: Any] = ["event": "ImageryDownloadsDone", "lat": 30, "lon": 31,
+                                     "downloaded": 12, "failed": 1]
+        #expect(O4Event.parse(object: object)
+                == .imageryDownloadsDone(lat: 30, lon: 31, downloaded: 12, failed: 1))
+    }
 }
 
 /// #695: a fixable failure is asked AS SOON AS its tile fails — from the

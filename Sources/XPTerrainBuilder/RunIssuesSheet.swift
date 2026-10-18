@@ -53,6 +53,11 @@ struct RunIssuesSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(Array(tile.entries.enumerated()), id: \.offset) { _, entry in
                             VStack(alignment: .leading, spacing: 2) {
+                                // #853: the same label the Qt box gives it
+                                Text(entry.severityLabel.uppercased())
+                                    .font(.caption2).fontWeight(.semibold)
+                                    .foregroundStyle(entry.severity == "blocking"
+                                                     ? Color.red : Color.secondary)
                                 Text(entry.what).fontWeight(.semibold)
                                 Text(entry.why)
                                 Text(entry.remedy)

@@ -282,6 +282,10 @@ public enum O4Event: Sendable, Equatable {
     case buildDone(lat: Int, lon: Int, ok: Bool, error: String,
                    failures: [O4TileFailure], warnings: [O4TileFailure],
                    unpatchedAirports: [O4TileFailure], notes: [O4TileFailure])
+    /// A tile's imagery DOWNLOAD queue drained; only the local texture
+    /// conversion remains (engine `ImageryDownloadsDone`). A scheduling
+    /// signal for the engine's own orchestrator; the app shows nothing.
+    case imageryDownloadsDone(lat: Int, lon: Int, downloaded: Int, failed: Int)
     case runEta(elapsedSeconds: Double, remainingSeconds: Double?, doneTiles: Int, totalTiles: Int)
     /// Per-tile clocks beside RunEta (protocol 1.3): each row is one
     /// tile's elapsed wall time and its OWN remaining-work estimate
@@ -390,10 +394,19 @@ public enum O4Event: Sendable, Equatable {
             return .buildDone(lat: int("lat"), lon: int("lon"),
                               ok: bool("ok"), error: string("error"),
                               failures: O4TileFailure.parseList(object["failures"]),
-                              warnings: O4TileFailure.parseList(object["warnings"]),
+                              warnings: O4TileFailure.parseList(
+                                  object["warnings"], defaultSeverity: "degraded"),
                               unpatchedAirports: O4TileFailure.parseList(
-                                  object["unpatched_airports"]),
-                              notes: O4TileFailure.parseList(object["notes"]))
+                                  object["unpatched_airports"], defaultSeverity: "degraded"),
+                              notes: O4TileFailure.parseList(
+                                  object["notes"], defaultSeverity: "info"))
+        // Another STRING LITERAL match: `class ImageryDownloadsDone` in
+        // Ortho4XP/src/o4_engine/events.py — a tile's imagery downloads
+        // drained, only the local conversion remains (a scheduling signal).
+        case "ImageryDownloadsDone":
+            return .imageryDownloadsDone(lat: int("lat"), lon: int("lon"),
+                                         downloaded: int("downloaded"),
+                                         failed: int("failed"))
         case "RunEta":
             let remaining = (object["remaining_seconds"] as? NSNumber)?.doubleValue
             return .runEta(elapsedSeconds: double("elapsed_seconds"),

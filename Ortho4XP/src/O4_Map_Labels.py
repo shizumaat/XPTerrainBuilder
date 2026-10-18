@@ -155,9 +155,14 @@ def _overlaps(a: LabelBox, b: LabelBox) -> bool:
 
 def place_airport_labels(candidates: Sequence[LabelCandidate], scale: float,
                          mark_radius: float,
-                         limit: int = MAX_AIRPORT_LABELS
+                         limit: int = MAX_AIRPORT_LABELS,
+                         text_scale: float = 1.0
                          ) -> Tuple[List[int], List[Tuple[int, LabelBox]]]:
     """Which candidates are marked, and which are labelled where.
+
+    ``text_scale`` is the apps' text size (#827, :mod:`O4_Text_Scale`):
+    it scales the label font, so bigger labels claim bigger boxes and
+    fewer of them fit.
 
     Returns ``(marks, labels)``: ``marks`` the indexes (into
     ``candidates``) of every marked airport, in input order; ``labels``
@@ -165,7 +170,7 @@ def place_airport_labels(candidates: Sequence[LabelCandidate], scale: float,
     """
     marks = [i for i, c in enumerate(candidates)
              if mark_visible(c.size_class, c.custom, scale)]
-    font = label_font_size(scale)
+    font = label_font_size(scale) * text_scale
     order = sorted((i for i in marks
                     if label_allowed(candidates[i].size_class,
                                      candidates[i].custom, scale)),

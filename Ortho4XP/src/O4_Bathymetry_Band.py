@@ -595,8 +595,15 @@ def _acquire_band_lock(
         if UI.red_flag:
             return False
         try:
-            lock_descriptor = os.open(
-                lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+            # On Windows the name of a lock its owner JUST released can
+            # still be "delete pending" (another handle -- a scanner --
+            # had it open), and the exclusive create is refused with a
+            # bare EACCES until that handle closes (#884): bounded retry.
+            lock_descriptor = HELD.retrying_a_held_file(
+                lambda: os.open(
+                    lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                ),
+                is_held=HELD.is_held_name_on_create,
             )
         except FileExistsError:
             try:

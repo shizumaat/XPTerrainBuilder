@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import typing as _t
 
+import O4_Flight_Plan as FP
+from O4_Qt_Widgets import SqueezableLineEdit, wrap_and_never_widen
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPen, QPolygonF
 from PySide6.QtWidgets import (
@@ -27,14 +29,10 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QLineEdit,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
 )
-
-import O4_Flight_Plan as FP
-from O4_Qt_Widgets import SqueezableLineEdit, wrap_and_never_widen
 
 __all__ = ["FlightPlanDialog", "RouteLayer"]
 

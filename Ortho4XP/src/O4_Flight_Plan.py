@@ -213,7 +213,7 @@ def read_plan_file(path: str) -> FlightPlan:
         with open(path, encoding="utf-8", errors="replace", newline=None) as fh:
             text = fh.read()
     except OSError as exc:
-        raise FlightPlanError("Could not read %s (%s)." % (path, exc.strerror))
+        raise FlightPlanError("Could not read %s (%s)." % (path, exc.strerror)) from exc
     return parse_plan_text(text, path.replace("\\", "/").rsplit("/", 1)[-1])
 
 
@@ -243,7 +243,7 @@ def fetch_simbrief(user: str, timeout: float = 20.0) -> FlightPlan:
         body = exc.read()
     except (urllib.error.URLError, OSError) as exc:
         raise FlightPlanError("Could not reach simbrief.com (%s)." % (
-            getattr(exc, "reason", None) or exc))
+            getattr(exc, "reason", None) or exc)) from exc
     return parse_simbrief(body.decode("utf-8", errors="replace"))
 
 
@@ -251,8 +251,8 @@ def fetch_simbrief(user: str, timeout: float = 20.0) -> FlightPlan:
 # Route -> tiles
 # ===========================================================================
 def _vec(lat: float, lon: float) -> Tuple[float, float, float]:
-    p, l = math.radians(lat), math.radians(lon)
-    return (math.cos(p) * math.cos(l), math.cos(p) * math.sin(l), math.sin(p))
+    p, lam = math.radians(lat), math.radians(lon)
+    return (math.cos(p) * math.cos(lam), math.cos(p) * math.sin(lam), math.sin(p))
 
 
 def _norm_lon(lon: float) -> float:
@@ -370,7 +370,7 @@ def route_drawing(points: Sequence[Tuple[float, float]]
     where it crosses the antimeridian, each piece ending on +-180."""
     dense = densify(points)
     parts: List[List[Tuple[float, float]]] = [[dense[0]]] if dense else []
-    for (lat0, lon0), (lat1, lon1) in zip(dense, dense[1:]):
+    for (lat0, lon0), (lat1, lon1) in zip(dense, dense[1:], strict=False):
         if abs(lon1 - lon0) > 180.0:
             edge = 180.0 if lon0 > 0 else -180.0
             unwrapped = lon1 + (360.0 if lon0 > 0 else -360.0)
@@ -392,7 +392,7 @@ def radius_km(value: float, unit: str) -> float:
 
 def route_length_km(points: Sequence[Tuple[float, float]]) -> float:
     vecs = [_vec(lat, lon) for lat, lon in points]
-    return EARTH_RADIUS_KM * sum(_central_angle(a, b) for a, b in zip(vecs, vecs[1:]))
+    return EARTH_RADIUS_KM * sum(_central_angle(a, b) for a, b in zip(vecs, vecs[1:], strict=False))
 
 
 def summary_text(plan: FlightPlan, unit: str) -> str:

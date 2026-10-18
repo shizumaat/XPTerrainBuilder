@@ -16,9 +16,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_Flight_Plan as FP  # noqa: E402
+import pytest  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 PLANS = os.path.join(FIXTURES, "flight_plan")
@@ -85,9 +84,9 @@ def test_route_tiles_on_known_routes(case):
 def test_route_drawing(case):
     parts = FP.route_drawing([tuple(p) for p in case["points"]])
     assert len(parts) == len(case["parts"])
-    for got, want in zip(parts, case["parts"]):
+    for got, want in zip(parts, case["parts"], strict=True):
         assert len(got) == len(want)
-        for p, q in zip(got, want):
+        for p, q in zip(got, want, strict=True):
             assert list(p) == pytest.approx(q)
 
 

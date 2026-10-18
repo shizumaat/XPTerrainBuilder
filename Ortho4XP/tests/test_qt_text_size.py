@@ -18,10 +18,9 @@ import pytest  # noqa: E402
 
 pytest.importorskip("PySide6")
 
+import O4_Text_Scale as TS  # noqa: E402
 from PySide6.QtGui import QKeySequence  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QMenu  # noqa: E402
-
-import O4_Text_Scale as TS  # noqa: E402
 
 
 @pytest.fixture(scope="module")

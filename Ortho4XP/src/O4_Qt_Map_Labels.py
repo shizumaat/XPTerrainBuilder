@@ -16,12 +16,11 @@ Mac twin: ``Sources/XPTerrainBuilder/MapCanvasLabels.swift``.
 import math
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPen
-
 import O4_Airport_Rank as RANK
 import O4_Map_Labels as LABELS
 import O4_Text_Scale as TS
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPen
 
 __all__ = ["paint_tile_labels", "AirportLayer", "label_font"]
 

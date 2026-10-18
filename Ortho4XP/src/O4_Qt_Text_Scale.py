@@ -12,10 +12,9 @@ Activity rows' small print, the patch panel's notes), which
 
 from typing import Callable, Dict, Optional
 
+import O4_Text_Scale as TS
 from PySide6.QtGui import QAction, QFont, QKeySequence
 from PySide6.QtWidgets import QApplication, QWidget
-
-import O4_Text_Scale as TS
 
 __all__ = ["current_scale", "base_points", "size_text", "apply_text_scale",
            "make_actions"]

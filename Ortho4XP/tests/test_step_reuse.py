@@ -166,6 +166,34 @@ def test_reuse_can_be_turned_off(tile, monkeypatch):
     assert all(why and "O4_STEP_REUSE" in why for why in _reasons(tile).values())
 
 
+def test_each_step_keys_on_its_own_code_digest(tile, monkeypatch):
+    """#836: a step is staled by a change to ITS code (``O4_Step_Code``),
+    not by any commit — a change to the mesh step's code digest reruns
+    the mesh (and the masks, chained), never the vector step."""
+    import O4_Step_Code as STEPCODE
+    live = {s: STEPCODE.step_digest(s) for s in REUSE.REUSABLE_STEPS}
+    assert all(live.values())
+    monkeypatch.setattr(STEPCODE, "_DIGESTS", dict(live))
+    _write_outputs(tile)
+    _complete_build(tile)
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    monkeypatch.setitem(STEPCODE._DIGESTS, "mesh", "f" * 64)
+    assert _reasons(tile) == {"vector": None,
+                              "mesh": "the engine code changed",
+                              "masks": None}
+    _complete_build(tile, steps=("mesh", "masks"))
+    monkeypatch.setitem(STEPCODE._DIGESTS, "masks", "e" * 64)
+    assert _reasons(tile) == {"vector": None, "mesh": None,
+                              "masks": "the engine code changed"}
+
+
+def test_a_step_without_its_digest_keys_on_the_whole_tree(tile, monkeypatch):
+    import O4_Step_Code as STEPCODE
+    from auto_patch import provenance_code
+    monkeypatch.setattr(STEPCODE, "_DIGESTS", {})
+    assert REUSE._code_identity("mesh")["code"] == provenance_code.code_digest()
+
+
 def test_mesh_records_the_pack_dsfs_its_object_stage_rewrote(tile, tmp_path,
                                                              monkeypatch):
     dsf = tmp_path / "pack.dsf"

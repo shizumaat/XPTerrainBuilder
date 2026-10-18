@@ -630,10 +630,12 @@ def test_a_process_killed_while_writing_leaves_the_record_whole(
         handle.write('{"committed": {"vector": ')
         raise KeyboardInterrupt                   # the process is killed
 
-    monkeypatch.setattr(json, "dump", dies_half_way)
-    with pytest.raises(KeyboardInterrupt):
-        REUSE.forget_from(tile, "vector")
-    monkeypatch.undo()
+    # A context, not setattr + undo(): undo() would also drop the fixture's
+    # FNAMES redirects, and stale_reason would then read the real corpus.
+    with monkeypatch.context() as m:
+        m.setattr(json, "dump", dies_half_way)
+        with pytest.raises(KeyboardInterrupt):
+            REUSE.forget_from(tile, "vector")
     with open(REUSE._record_path(tile), "rb") as handle:
         assert handle.read() == before
     assert REUSE.stale_reason(tile, "vector") is None

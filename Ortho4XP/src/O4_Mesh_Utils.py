@@ -2704,6 +2704,11 @@ def build_mesh(tile):
         UI.exit_message_and_bottom_line("\nERROR: Could not find ", poly_file,
                                         code="earlier_step_missing")
         return 0
+    if tile.iterate:
+        # ``-r`` reads the previous run's .node / .ele as text; a binary
+        # run (O4_TRIANGLE_IO=binary) left them binary (mesh-io-spec §4).
+        TRI_BIN.refine_inputs_as_text(node_file,
+                                      os.path.splitext(node_file)[0] + ".ele")
     if not tile.iterate:
         if not os.path.isfile(alt_file):
             UI.exit_message_and_bottom_line(
@@ -2844,7 +2849,7 @@ def build_mesh(tile):
     # with ``A`` exactly.
     regional_areas = "a" if do_refine == "A" else ""
     # ``b`` = BINARY exchange files (mesh-io-spec §4, RULINGS 2026-10-17a
-    # Q6): opt-in through O4_TRIANGLE_IO=binary, only with a Triangle4XP
+    # Q6): the default (O4_TRIANGLE_IO=text opts out), only with a Triangle4XP
     # that carries the switch, and never with ``-r`` (it reads a text
     # ``.ele``; Triangle4XP refuses ``-b`` with it) — text otherwise.
     binary_io = TRI_BIN.use_binary_io(Triangle4XP_cmd.strip(),

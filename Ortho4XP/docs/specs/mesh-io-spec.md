@@ -74,8 +74,11 @@ read use binary tables — magic 8 bytes, `int32` header, `float64`/`int32`
 tables, native byte order — with the text path intact and the `.alt`/`.weight`
 rasters read in one `fread`. Python side: `O4_Mesh_IO.write_node_binary/
 write_poly_binary/read_node_binary/read_ele_binary`, chosen by
-`O4_TRIANGLE_IO=binary|text` (default `text`); `O4_Mesh_Utils` passes `-b` and
-the binary names when on.
+`O4_TRIANGLE_IO=binary|text` (default `binary` since all three binaries carry
+`-b`, PR #890; `text` opts out, and a Triangle4XP without `-b` falls back to
+text); `O4_Mesh_Utils` passes `-b` and the binary names when on. An `iterate`
+run (`-r`, text only) first rewrites a binary previous run's `.node`/`.ele`
+as text (`O4_Triangle_Binary.refine_inputs_as_text`).
 
 Admission: the three binaries rebuilt from the same source and placed in
 `Utils/{mac,win,lin}` with the modification notice Triangle's licence requires

@@ -33,6 +33,7 @@ __all__ = [
     "read_node_text",
     "read_poly_segments",
     "triangle_attributes",
+    "write_ele_text",
     "write_node_text",
 ]
 
@@ -215,3 +216,17 @@ def write_node_text(path, header_line, values, trailer_line) -> None:
         handle.write(header_line)
         write_rows(handle, row_format, table)
         handle.write(trailer_line)
+
+
+def write_ele_text(path, triangles, attributes) -> None:
+    """Write a Triangle text ``.ele``: the header, one row per triangle
+    numbered from 1, corners as ``%d`` and attributes as ``%.17g`` (each
+    double read back exactly) -- what a ``-r`` run reads."""
+    triangles = np.asarray(triangles, dtype=np.int64)
+    attributes = np.asarray(attributes, dtype=np.float64).reshape(len(triangles), -1)
+    table = np.column_stack([np.arange(1, len(triangles) + 1), triangles, attributes])
+    row_format = ("%d" + " %d" * triangles.shape[1]
+                  + " %.17g" * attributes.shape[1] + "\n")
+    with open(path, "w", encoding="ascii", newline="\n") as handle:
+        handle.write(f"{len(triangles)} {triangles.shape[1]} {attributes.shape[1]}\n")
+        write_rows(handle, row_format, table)

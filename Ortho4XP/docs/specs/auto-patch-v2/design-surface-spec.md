@@ -2358,10 +2358,14 @@ is the shortest squared edge (round 2's 314-vs-306 band vertices differ
 only in that argument — the slopes are identical).  `Utils/mac/Triangle4XP`
 is rebuilt from it, `cc -O2 -arch arm64 -arch x86_64` (Apple clang 21), a
 universal binary as the shipped one is, committed WITH the source and its
-sha1 pinned by a twin
-(`test_the_shipped_mac_triangle4xp_is_the_patched_binary`,
-`TRIANGLE4XP_MAC_SHA1 = 7ca193114522035fb0449432431b14db02fe37e1`) so a
-later rebuild that forgets the patch, or a merge that restores the
+sha1 pinned by a twin — today
+`test_the_shipped_triangle4xp_is_the_patched_binary` in
+`tests/test_mesh_bank_annulus_blend.py`, one row per platform file in
+`TRIANGLE4XP_SHA1` (`mac/Triangle4XP`, `lin/Triangle4XP`,
+`win/Triangle4XP.exe`; the current sha1s and build commands are the
+Binaries table of `Utils/Triangle4XP-CHANGES.md`, all three rebuilt from
+this source with `-b` in 2026-10, #849; the 2026-09-09 mac-only pin was
+`7ca19311…`) — so a later rebuild that forgets the patch, or a merge that restores the
 vendored binary, fails loudly instead of silently putting the bank back
 on the ring-to-foot triangulation.  The region-area twin
 (`test_triangle_puts_vertices_inside_a_region_that_asks_for_them`) is no

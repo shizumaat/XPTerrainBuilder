@@ -24,9 +24,9 @@ import O4_Triangle_IO as TRI_IO
 
 _PLATFORM = ("mac" if sys.platform == "darwin"
              else "win" if sys.platform.startswith("win") else "lin")
-#: CI builds Triangle4XP from Utils/src on the Linux and Windows runners and
-#: points this at it (the committed win/lin binaries predate -b); a binary
-#: named here that lacks -b is an error, never a skip.
+#: CI also builds Triangle4XP from Utils/src with the runner's own compiler
+#: on Linux and Windows and points this at it; a binary named here that
+#: lacks -b is an error, never a skip.
 BINARY_ENV = "O4_TRIANGLE4XP_TEST_BINARY"
 TRIANGLE4XP = os.environ.get(BINARY_ENV) or os.path.join(
     FNAMES.Utils_dir, _PLATFORM,
@@ -85,8 +85,8 @@ def test_truncated_and_foreign_files_are_refused(tmp_path):
 
 
 @pytest.mark.parametrize("value, requested", [
-    (None, False), ("text", False), ("binary", True), (" Binary ", True), ("1", False)])
-def test_the_flag_is_off_unless_binary(monkeypatch, value, requested):
+    (None, True), ("text", False), (" Text ", False), ("binary", True), ("1", True)])
+def test_the_flag_is_on_unless_text(monkeypatch, value, requested):
     if value is None:
         monkeypatch.delenv(TRI_BIN.TRIANGLE_IO_ENV, raising=False)
     else:
@@ -176,3 +176,55 @@ def test_binary_refuses_refine(tmp_path):
     res = _run("-rb", tmp_path / "a.alt", tmp_path / "a.weight", tmp_path / "x.node")
     assert res.returncode != 0
     assert "-b" in res.stdout and "-r" in res.stdout
+
+
+def _post_processed(directory, stem):
+    """Rewrite ``<stem>.node`` as ``post_process_nodes_altitudes`` does: in
+    the encoding Triangle4XP wrote it (binary stays binary)."""
+    path = str(directory / (stem + ".node"))
+    nodes = TRI_BIN.read_node(path)
+    if nodes.header_line is None:
+        TRI_BIN.write_node_binary(path, nodes.values[:, :6])
+    else:
+        TRI_IO.write_node_text(path, nodes.header_line, nodes.values[:, :6],
+                               nodes.trailer_line)
+    return nodes.values[:, :6]
+
+
+@needs_binary
+def test_iterate_refines_a_binary_mesh_to_the_text_mesh(tmp_path):
+    """The ``iterate`` cfg var refines the previous run's ``Data.N.node`` /
+    ``.N.ele`` with ``-r``, which Triangle4XP reads as text only: a binary
+    previous run is converted at that consumer, and iterate 1 under binary
+    IO writes the very ``.mesh`` it writes under text IO."""
+    rng = np.random.default_rng(5)
+    alt = tmp_path / "s.alt"
+    weight = tmp_path / "s.weight"
+    (rng.random((11, 11)) * 100).astype(np.float32).tofile(alt)
+    np.ones((1001, 1001), dtype=np.float32).tofile(weight)
+    switches = "-pq10AauYBQS500000"
+    meshes = []
+    for arm in ("text", "bin"):
+        directory = tmp_path / arm
+        directory.mkdir()
+        _square_inputs(directory, np.random.default_rng(6))
+        if arm == "text":
+            res = _run(switches, alt, weight, directory / "s.poly")
+        else:
+            poly = TRI_BIN.binary_inputs(str(directory / "s.node"),
+                                         str(directory / "s.poly"))
+            res = _run(switches.replace("QS", "QbS"), alt, weight, poly)
+            TRI_BIN.adopt_binary_outputs(poly, str(directory / "s.1.node"),
+                                         str(directory / "s.1.ele"))
+        assert res.returncode == 0, res.stdout
+        _post_processed(directory, "s.1")
+        assert TRI_BIN.refine_inputs_as_text(
+            str(directory / "s.1.node"), str(directory / "s.1.ele")) is (arm == "bin")
+        res = _run("-pq10ruYBQS500000", alt, weight, directory / "s.1.poly")
+        assert res.returncode == 0, res.stdout
+        vertices = _post_processed(directory, "s.2")
+        out = directory / "s.mesh"
+        MESH_IO.write_mesh(str(out), vertices.ravel(), str(directory / "s.2.ele"), 5, 43)
+        meshes.append(out.read_bytes())
+    assert meshes[0].count(b"\n") > 200
+    assert meshes[0] == meshes[1]

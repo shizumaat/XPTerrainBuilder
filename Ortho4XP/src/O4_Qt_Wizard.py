@@ -26,7 +26,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import O4_Settings_Presets as PRESETS
 from O4_Qt_Detail_Combo import DetailCombo
+from O4_Qt_Preset_Cards import PresetCards
 from O4_Qt_Widgets import (
     ElidedRowLabel,
     may_be_squeezed,
@@ -102,6 +104,11 @@ class OnboardingWizard(QDialog):
         self.resize(640, 400)
         self.prefs = dict(prefs)
         self.skipped = False
+        #: The config keys of the preset card picked on the Imagery page
+        #: (#822), for the caller to write; empty when none was picked or
+        #: the zoom was changed after it.
+        self.preset_values = {}
+        self._preset_key = None
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -233,7 +240,7 @@ class OnboardingWizard(QDialog):
         lay.addWidget(self._body(
             "The imagery source and zoom level every new tile starts\n"
             "with. ZL16 is the sweet spot for most areas; each +1 ZL\n"
-            "quadruples download size."
+            "quadruples download size. Or start from a preset below."
         ))
         row = QHBoxLayout()
         # Field labels elide rather than floor the page: on the Windows
@@ -255,8 +262,38 @@ class OnboardingWizard(QDialog):
         row.addWidget(self.zl_combo)
         row.addStretch(1)
         lay.addLayout(row)
+        self.preset_cards = PresetCards()
+        self.preset_cards.chosen.connect(self._choose_preset)
+        lay.addWidget(self.preset_cards)
+        self.zl_combo.currentTextChanged.connect(self._refresh_presets)
+        self._refresh_presets()
         lay.addStretch(1)
         return page
+
+    def _preset_current(self):
+        """The preset keys as the wizard would leave them: the global
+        config, the picked preset's keys over it, and the zoom shown."""
+        import O4_Settings_Model as SM
+
+        raw = SM.read_global_raw()
+        values = {name: SM.global_effective_value(name, raw)
+                  for name in PRESETS.PRESET_KEYS[1:]}
+        if self._preset_key:
+            values.update(PRESETS.cfg_values(PRESETS.preset(self._preset_key)))
+        try:
+            zoom = int(self.zl_combo.currentText())
+        except ValueError:
+            zoom = PRESETS.default_zoom()
+        return PRESETS.current_values(values, zoom)
+
+    def _refresh_presets(self, *_):
+        self.preset_cards.set_current(self._preset_current())
+
+    def _choose_preset(self, key):
+        self._preset_key = key
+        self.zl_combo.setCurrentText(
+            str(PRESETS.zoom_value(PRESETS.preset(key))))
+        self._refresh_presets()
 
     # ------------------------------------------------------------------
     def _page(self, title):
@@ -325,6 +362,11 @@ class OnboardingWizard(QDialog):
         self.prefs["output_dir"] = self.output_edit.text().strip()
         self.prefs["imagery"] = self.imagery_combo.currentText()
         self.prefs["zl"] = int(self.zl_combo.currentText())
+        self.preset_values = {}
+        if self._preset_key and not self.skipped:
+            picked = PRESETS.preset(self._preset_key)
+            if PRESETS.matching_preset(self._preset_current()) == picked:
+                self.preset_values = PRESETS.cfg_values(picked)
 
     # ------------------------------------------------------------------
     def _browse_xplane(self):

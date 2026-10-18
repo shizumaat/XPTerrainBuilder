@@ -181,6 +181,10 @@ private struct GeneralPane: View {
 
     var body: some View {
         Form {
+            // The preset cards (#822): one click sets a fixed set of keys.
+            Section {
+                PresetCardsView()
+            }
             Section("Application") {
                 LabeledContent("Version") {
                     Text("XPTerrainBuilder \(AppVersion.current)")

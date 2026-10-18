@@ -42,6 +42,8 @@ from PySide6.QtWidgets import (
 
 import O4_File_Names as FNAMES
 import O4_Settings_Model as SM
+import O4_Settings_Presets as PRESETS
+from O4_Qt_Preset_Cards import PresetCards
 from O4_Qt_Widgets import (
     ElidedRowLabel,
     SqueezableLineEdit,
@@ -992,6 +994,11 @@ class SettingsWindow(QDialog):
         top.addWidget(self.customized_chip)
         root.addLayout(top)
 
+        # The preset cards (#822): one click sets a fixed set of keys.
+        self.preset_cards = PresetCards()
+        self.preset_cards.chosen.connect(self._apply_preset)
+        root.addWidget(self.preset_cards)
+
         # Sidebar + content
         middle = QHBoxLayout()
         side = QVBoxLayout()
@@ -1176,6 +1183,35 @@ class SettingsWindow(QDialog):
                     self.blended and setting.scope in ("app", "pref")
                 )
         self._refresh_customized_chip()
+        self._refresh_presets()
+
+    def _preset_current(self):
+        """The preset keys' current GLOBAL values (presets set defaults)."""
+        return PRESETS.current_values(
+            self._global_vals,
+            self.prefs.get(PRESETS.ZOOM_PREF, PRESETS.default_zoom()),
+        )
+
+    def _refresh_presets(self):
+        self.preset_cards.set_current(self._preset_current())
+
+    def _apply_preset(self, key):
+        """Write the preset's config keys in one global write, its zoom to
+        the preferences, and show the new values in their rows."""
+        entry = PRESETS.preset(key)
+        values = PRESETS.cfg_values(entry)
+        try:
+            SM.write_global(values)
+        except OSError as exc:
+            QMessageBox.critical(
+                self, "Settings", "Could not save: %s" % exc
+            )
+            return
+        SM.apply_runtime(values)
+        for name, value in values.items():
+            self._show_global_value(SM.get_setting(name), value)
+        self.prefs[PRESETS.ZOOM_PREF] = PRESETS.zoom_value(entry)
+        self._refresh_presets()
 
     def _refresh_customized_chip(self):
         self.customized_chip.setText(
@@ -1240,15 +1276,21 @@ class SettingsWindow(QDialog):
             )
             return
         SM.apply_runtime({setting.name: normalized})
+        self._show_global_value(setting, normalized)
+        self._refresh_presets()
+
+    def _show_global_value(self, setting, normalized):
+        """Record a written global value and show it in its row."""
         self._global_file_vals[setting.name] = normalized
         self._global_vals[setting.name] = normalized
         row = self.rows[setting.name]
-        row.set_value(normalized)
-        # Inherited tile rows track the global value live.
-        if self.blended and setting.scope == "tile":
-            if setting.name not in self._override_union():
-                row.set_baseline(normalized, "Overrides the global value")
-                row.set_value(normalized)
+        if not (self.blended and setting.scope == "tile"):
+            row.set_value(normalized)
+        elif setting.name not in self._override_union():
+            # Inherited tile rows track the global value live; a tile
+            # that overrides it keeps showing its own value.
+            row.set_baseline(normalized, "Overrides the global value")
+            row.set_value(normalized)
 
     # ------------------------------------------------------------------
     # Filtering / navigation

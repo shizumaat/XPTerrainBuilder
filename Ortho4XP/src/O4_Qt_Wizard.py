@@ -8,6 +8,7 @@ airport indexing.
 
 import os
 import sys
+import O4_Glossary as GLOSSARY
 import O4_Text_Files as TEXT
 
 from PySide6.QtCore import Qt
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from O4_Qt_Detail_Combo import DetailCombo
 from O4_Qt_Widgets import (
     ElidedRowLabel,
     may_be_squeezed,
@@ -246,10 +248,9 @@ class OnboardingWizard(QDialog):
         self.imagery_combo.setCurrentText(self.prefs.get("imagery", "BI"))
         row.addWidget(self.imagery_combo)
         row.addSpacing(16)
-        row.addWidget(ElidedRowLabel("Zoom level:"))
-        self.zl_combo = QComboBox()
+        row.addWidget(ElidedRowLabel("%s:" % GLOSSARY.TERMS["detail"]))
+        self.zl_combo = DetailCombo(range(12, 19))
         may_be_squeezed(self.zl_combo, chars=2)
-        self.zl_combo.addItems([str(z) for z in range(12, 19)])
         self.zl_combo.setCurrentText(str(self.prefs.get("zl", 16)))
         row.addWidget(self.zl_combo)
         row.addStretch(1)

@@ -103,3 +103,63 @@ def test_detail_label():
 def test_surface_check():
     assert GLOSSARY.surface_check(3) == (
         "Airport surface check: 3 spots outside the rules")
+
+
+# --- The acceptance grep: no retired word as a primary label ---------------
+#
+# Every string literal of both apps' UI code (docstrings and comments are not
+# UI) is searched for the RETIRED phrases.  The phrases are specific enough
+# ("Build ZL", "Revert to auto", "Patch · ") that secondary text rarely
+# carries them; a literal that legitimately does is listed here with why.
+ALLOWED = {
+    # (file name, retired phrase): reason
+}
+
+
+def _swift_literals(path: Path):
+    for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1):
+        code = line.split("//", 1)[0] if not line.lstrip().startswith(
+            "//") else ""
+        for literal in re.findall(r'"((?:[^"\\]|\\.)*)"', code):
+            yield number, literal
+
+
+def _python_literals(path: Path):
+    import ast
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                             ast.AsyncFunctionDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(
+                    getattr(first, "value", None), ast.Constant):
+                docstrings.add(id(first.value))
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and id(node) not in docstrings):
+            yield node.lineno, node.value
+
+
+def _ui_sources():
+    for directory in SWIFT_UI_DIRS:
+        for path in sorted(directory.glob("*.swift")):
+            if path != SWIFT_GLOSSARY:
+                yield path, _swift_literals(path)
+    src = ENGINE_DIR / "src"
+    for path in sorted(src.glob(QT_UI_GLOB)) + [src / "O4_Settings_Model.py"]:
+        yield path, _python_literals(path)
+
+
+def test_no_retired_primary_label():
+    phrases = [phrase for retired in GLOSSARY.RETIRED.values()
+               for phrase in retired]
+    found = []
+    for path, literals in _ui_sources():
+        for number, literal in literals:
+            for phrase in phrases:
+                if (phrase in literal
+                        and (path.name, phrase) not in ALLOWED):
+                    found.append("%s:%d %r" % (path.name, number, literal))
+    assert found == []

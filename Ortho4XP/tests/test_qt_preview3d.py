@@ -377,7 +377,7 @@ def test_the_window_speaks_the_mac_words(qapp):
     assert window.chip_text().startswith("Preview · 1.4 km × 1.1 km · DEM base only · 5 m grid")
     floor = window.model._ground_y(0.0, 0.0)              # the camera's floor is the terrain
     assert floor is not None and window.scene.camera.position()[1] > floor
-    assert [t for _c, t in LEGEND] == ["DEM terrain", "patch surface", "pack buildings",
+    assert [t for _c, t in LEGEND] == ["terrain", "airport ground shape", "pack buildings",
                                        "selected node"]
     assert [b.text() for b in window.mode_buttons.values()] == ["Preview", "Last build"]
     window.exaggeration_slider.setValue(55)

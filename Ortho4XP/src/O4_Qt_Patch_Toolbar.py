@@ -41,7 +41,7 @@ class PatchToolbar(QFrame):
             b = QToolButton(self)
             b.setText(mode)
             b.setCheckable(True)
-            b.setToolTip("View the patch, or edit its nodes.")
+            b.setToolTip("View the airport ground shape, or edit its nodes.")
             self.mode_group.addButton(b)
             self.mode_buttons[mode] = b
             row.addWidget(b)

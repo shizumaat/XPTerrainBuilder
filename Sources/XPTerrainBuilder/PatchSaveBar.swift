@@ -18,13 +18,13 @@ struct PatchSaveBar: View {
         VStack(alignment: .leading, spacing: 8) {
             if model.tilesNeedingRebuild.contains(doc.tile), n == 0 {
                 note(doc.source == .manual
-                     ? "The tile is out of date until you rebuild it. Object re-seating is off for this airport while the edited patch is in use."
+                     ? "The tile is out of date until you rebuild it. Fitting custom airport buildings is off for this airport while the edited ground shape is in use."
                      : "The tile is out of date until you rebuild it.")
                 Button("Rebuild tile") { model.rebuildTile() }
                     .disabled(model.build?.isBuilding ?? false)
             }
             if doc.isHandMade {
-                note("This patch was made outside the editor. Save writes back to \(file); there is no Revert to auto.")
+                note("This airport ground shape was made outside the editor. Saving writes back to \(file); there is no automatic shape to go back to.")
             }
             if confirmingRevert.value { revertConfirmation }
             if let error = model.editError, model.prompt == nil {
@@ -38,12 +38,12 @@ struct PatchSaveBar: View {
                 }
                 Spacer(minLength: 4)
                 if canRevert, !confirmingRevert.value {
-                    Button("Revert to auto…") { confirmingRevert.value = true }
+                    Button(O4Glossary.term("undo_edits") + "…") { confirmingRevert.value = true }
                 }
-                Button(model.isSaving ? "Saving…" : "Save") { Task { await model.save() } }
+                Button(model.isSaving ? "Saving…" : O4Glossary.term("save_edits")) { Task { await model.save() } }
                     .buttonStyle(.borderedProminent)
                     .disabled(n == 0 || model.isSaving)
-                    .help("Save the edited patch (⌘S)")
+                    .help("Save your edits to the airport ground shape (⌘S)")
             }
         }
         .onChange(of: doc.path) { confirmingRevert.value = false }
@@ -52,15 +52,15 @@ struct PatchSaveBar: View {
     private var revertConfirmation: some View {
         VStack(alignment: .leading, spacing: 6) {
             if doc.source == .manual {
-                note("Go back to the auto patch? \(file) is moved aside to \(file).disabled (not deleted), and the next build of this tile uses the auto patch."
+                note("Go back to the automatic ground shape? \(file) is moved aside to \(file).disabled (not deleted), and the next build of this tile uses the automatic shape."
                      + (n > 0 ? " Your \(n) unsaved edit\(n == 1 ? " is" : "s are") discarded." : ""))
             } else {
-                note("Discard your \(n) unsaved edit\(n == 1 ? "" : "s") and reload the auto patch?")
+                note("Discard your \(n) unsaved edit\(n == 1 ? "" : "s") and reload the automatic ground shape?")
             }
             HStack {
                 Spacer()
                 Button("Cancel") { confirmingRevert.value = false }
-                Button(doc.source == .manual ? "Revert" : "Discard edits", role: .destructive) {
+                Button(doc.source == .manual ? "Undo my edits" : "Discard edits", role: .destructive) {
                     confirmingRevert.value = false
                     Task { await model.revertToAuto() }
                 }
@@ -115,18 +115,18 @@ struct PatchUnsavedPromptCard: View {
             return "Save your \(edits) before quitting?"
         case .switchAirport(let icao, _):
             return icao == doc.icao
-                ? "\(doc.icao)'s patch changed on disk. Save your \(edits) before reloading it?"
+                ? "\(doc.icao)'s ground shape changed on disk. Save your \(edits) before reloading it?"
                 : "Save your \(edits) before showing \(icao)?"
         }
     }
 }
 
-/// File ▸ Save Patch (⌘S).
+/// File ▸ Save my edits (⌘S) — the airport ground shape.
 struct PatchSaveCommand: View {
     @ObservedObject var model: PatchEditModel
 
     var body: some View {
-        Button("Save Patch") { Task { await model.save() } }
+        Button(O4Glossary.term("save_edits")) { Task { await model.save() } }
             .keyboardShortcut("s", modifiers: .command)
             .disabled(model.unsavedEdits == 0 || model.isSaving)
     }

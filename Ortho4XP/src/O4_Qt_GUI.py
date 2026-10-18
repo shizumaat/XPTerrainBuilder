@@ -70,6 +70,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import O4_Glossary as GLOSSARY
 import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
 import O4_UI_Utils as UI
@@ -100,6 +101,7 @@ import O4_Qt_Patch_Editor as QTPATCH
 # aliases keep this file's ~20 existing call sites unchanged.
 from O4_Qt_Click_Row import ClickableRow  # noqa: E402
 from O4_Qt_Map_Hint import MapHint  # noqa: E402
+from O4_Qt_Detail_Combo import DetailCombo  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
     may_be_squeezed as _may_be_squeezed,
@@ -939,9 +941,8 @@ class MainWindow(QMainWindow):
         # No map hookup: the BUILD source is what the next build
         # downloads, never what the basemap draws (see the Map combo).
         toolbar.addWidget(self.imagery_combo)
-        toolbar.addWidget(QLabel(" Build ZL "))
-        self.zl_combo = QComboBox()
-        self.zl_combo.addItems([str(z) for z in range(12, 22)])
+        toolbar.addWidget(QLabel(" %s " % GLOSSARY.TERMS["detail"]))
+        self.zl_combo = DetailCombo(range(12, 22))
         self.zl_combo.setPlaceholderText("--")
         self.zl_combo.currentTextChanged.connect(
             lambda _text: self._update_build_summary()
@@ -1035,15 +1036,15 @@ class MainWindow(QMainWindow):
         irl.addWidget(self.imagery_conflict_btn, 0)
         ig.addRow("Imagery:", imagery_row)
         self.info_zl = ElidedRowLabel("—")
-        ig.addRow("Zoom level:", self.info_zl)
+        ig.addRow("%s:" % GLOSSARY.TERMS["detail"], self.info_zl)
         self.info_mesh = ElidedRowLabel("—")
-        ig.addRow("Mesh built:", self.info_mesh)
+        ig.addRow("Ground shaped:", self.info_mesh)
         self.info_imagery = ElidedRowLabel("—")
         ig.addRow("Imagery updated:", self.info_imagery)
         self.info_elevation = TwoLineElidedLabel("—")
         ig.addRow("Elevation:", self.info_elevation)
         self.info_airport_lidar = TwoLineElidedLabel("—")
-        ig.addRow("Airport lidar:", self.info_airport_lidar)
+        ig.addRow("Airport elevation:", self.info_airport_lidar)
         # Manual-setup affordance (VIEW): shown by the controller when
         # the model reports manual-download sources that could serve
         # the active tile but are not set up yet.
@@ -1145,11 +1146,11 @@ class MainWindow(QMainWindow):
         self.selection_conflict_btn.setVisible(False)
         _never_widen(self.selection_conflict_btn)
         bg.addWidget(self.selection_conflict_btn)
-        self.chk_vector = QCheckBox("Vector, mesh && masks")
+        self.chk_vector = QCheckBox(GLOSSARY.TERMS["terrain_steps"])
         self.chk_vector.setChecked(True)
-        self.chk_imagery = QCheckBox("Imagery && DSF")
+        self.chk_imagery = QCheckBox(GLOSSARY.TERMS["imagery_and_scenery_file"])
         self.chk_imagery.setChecked(True)
-        self.chk_overlays = QCheckBox("Extract overlays")
+        self.chk_overlays = QCheckBox(GLOSSARY.TERMS["xplane_objects"])
         self.chk_skip_built = QCheckBox("Skip already-built tiles")
         self.chk_skip_built.setChecked(True)
         # Auto-install (mac-app parity: BuildPane's "Install finished
@@ -1176,7 +1177,7 @@ class MainWindow(QMainWindow):
         # airport packs onto the rebuilt ground.
         import O4_Config_Utils as CFG
 
-        self.chk_modify_airports = QCheckBox("Modify custom airports")
+        self.chk_modify_airports = QCheckBox(GLOSSARY.TERMS["fit_buildings"])
         self.chk_modify_airports.setChecked(
             bool(getattr(CFG, "modify_custom_airports", True))
         )
@@ -1987,7 +1988,7 @@ class MainWindow(QMainWindow):
             name.setToolTip(pack.content_root)
             rl.addWidget(name)
             modified = pack.dsf_modified(*tile)
-            detail = "DSF modified %s" % (
+            detail = "Modified %s" % (
                 time.strftime("%d %b %Y %H:%M", time.localtime(modified))
                 if modified else "—"
             )
@@ -2600,7 +2601,7 @@ class MainWindow(QMainWindow):
             self.install_check.setChecked(False)
             return
         self._refresh_conflict_indicator(tile)
-        zl_text = str(info.zl) if info.zl else "?"
+        zl_text = GLOSSARY.detail_choice(info.zl) if info.zl else "?"
         # Airport high-ZL cover: show the upgraded zoomlevel and its scope
         # (e.g. "16 + ZL18 ICAO") so the setting is visible at a glance.
         mode = (getattr(info, "high_zl_airports", "") or "").strip()
@@ -3213,7 +3214,7 @@ class MainWindow(QMainWindow):
             return None
         problem = SM.xplane_install_problem(self.prefs.get("xplane_dir", ""))
         return "%s Set it in Settings, or run Help ▸ Run setup assistant." % (
-            problem or "Your X-Plane folder has no CIFP data.")
+            problem or "Your X-Plane folder has no runway data (CIFP).")
 
     def start_build(self):
         """Build the selected tiles — or queue them into the run in
@@ -3742,8 +3743,10 @@ class MainWindow(QMainWindow):
     def _on_step_progress(self, event):
         tile = (event.lat, event.lon)
         state = "indeterminate" if event.indeterminate else "active"
+        # Wire label -> plain step name (#831); the wire is unchanged.
+        label = GLOSSARY.step_display(event.step_key, event.label)
         resolved = resolve_tile_state(
-            (state, event.label, event.percent),
+            (state, label, event.percent),
             self._progress_states.get(tile),
         )
         if resolved is None:
@@ -3754,7 +3757,7 @@ class MainWindow(QMainWindow):
         self._render_row_state(tile)
         self.setWindowTitle(
             "XPTerrainBuilder — building %s · %s · %d%%"
-            % (FNAMES.short_latlon(*tile), event.label, event.percent)
+            % (FNAMES.short_latlon(*tile), label, event.percent)
         )
 
     def _on_tile_state(self, event):

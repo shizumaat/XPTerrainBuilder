@@ -716,23 +716,10 @@ def small_roads_queries(road_level):
     return queries
 
 
-def resolved_road_level(tile):
-    """``(numeric_level, auto)`` for the tile's ``road_level`` setting.
-
-    "auto" (the default since 2026-07-27, owner ruling — same pattern as
-    the elevation/imagery auto modes) means: level 1 tile-wide (major
-    roads + railways) PLUS full level-5 roads and rails inside each
-    airport's elevation-inset neighbourhood (see ``build_roads``).
-    Numeric strings and legacy ints resolve to the historical tile-wide
-    levels.  Unparseable values read as "auto" rather than crashing a
-    build over a config typo."""
-    raw = getattr(tile, "road_level", "auto")
-    if isinstance(raw, str) and raw.strip().lower() == "auto":
-        return 1, True
-    try:
-        return int(raw), False
-    except (TypeError, ValueError):
-        return 1, True
+#: MOVED to ``auto_patch.selection`` (#836: the patch build's cache check
+#: reads it from the mesh step too).  Re-exported here, as
+#: ``resolved_auto_patch_mode`` is, for this module's own callers.
+resolved_road_level = _SELECTION.resolved_road_level
 
 
 #: MOVED to ``auto_patch.selection`` (spec §A.2): ONE spelling of the mode
@@ -2232,8 +2219,6 @@ def include_airports(vector_map, tile):
 
 
 ################################################################################
-#: The clamp pass's own measurement, beside the tile it describes.
-LEVELLED_ROADS_SIDECAR = "o4_levelled_roads.json"
 
 
 def road_bridge_deck_pins(tile):
@@ -2337,7 +2322,7 @@ def road_join_yield_pins(tile):
 def levelled_roads_sidecar_path(build_dir):
     """Path of a tile's levelled-roads sidecar (one spelling, shared with
     ``tools/road_terrain_conformance.py --levelled-roads``)."""
-    return os.path.join(build_dir, LEVELLED_ROADS_SIDECAR)
+    return os.path.join(build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)
 
 
 def write_levelled_roads_sidecar(tile, levelled_roads):

@@ -160,9 +160,9 @@ def is_cached(tile) -> bool:
         lat, lon = int(tile.lat), int(tile.lon)
         if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
             return False
-        import O4_Vector_Map as _VMAP
+        from . import selection as _SELECTION
 
-        (road_level, _auto) = _VMAP.resolved_road_level(tile)
+        (road_level, _auto) = _SELECTION.resolved_road_level(tile)
         if road_level >= 1 and not os.path.isfile(
                 FNAMES.osm_cached(lat, lon, "big_roads")):
             return False

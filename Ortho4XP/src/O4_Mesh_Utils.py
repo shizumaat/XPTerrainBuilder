@@ -1195,7 +1195,7 @@ def _bank_rings_from_patches(tile):
     """
     from shapely import geometry, ops
 
-    import O4_Vector_Map as VMAP          # late: no cycle, see the note
+    from auto_patch import selection as SELECTION
     patch_dir = FNAMES.patch_dir(tile.lat, tile.lon)
     if not os.path.exists(patch_dir):
         BANK_RINGS_STATS.clear()
@@ -1204,7 +1204,7 @@ def _bank_rings_from_patches(tile):
     manual = [f for f in all_files if "_auto.patch.osm" not in f]
     auto = [f for f in all_files if "_auto.patch.osm" in f]
     manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
-    mode = VMAP.resolved_auto_patch_mode(tile)
+    mode = SELECTION.resolved_auto_patch_mode(tile)
     files = list(manual)
     for name in auto:
         icao = name.replace("_auto.patch.osm", "").upper()
@@ -1306,7 +1306,7 @@ def bank_pavement_lines(tile):
     caller then declines to override any pre-valued vertex at all.
     """
     from shapely import geometry
-    import O4_Vector_Map as VMAP          # late: no cycle, see the note
+    from auto_patch import selection as SELECTION
 
     scalx = cos((tile.lat + 0.5) * pi / 180)
     lines = []
@@ -1317,7 +1317,7 @@ def bank_pavement_lines(tile):
         manual = [f for f in all_files if "_auto.patch.osm" not in f]
         auto = [f for f in all_files if "_auto.patch.osm" in f]
         manual_icao = {f[:-10].split("_")[0].upper() for f in manual}
-        mode = VMAP.resolved_auto_patch_mode(tile)
+        mode = SELECTION.resolved_auto_patch_mode(tile)
         files = list(manual)
         for name in auto:
             icao = name.replace("_auto.patch.osm", "").upper()
@@ -1366,8 +1366,7 @@ def _levelled_road_lines(tile, scalx):
     import json
     from shapely import geometry
 
-    import O4_Vector_Map as VMAP          # late: no cycle, see the note
-    path = os.path.join(tile.build_dir, VMAP.LEVELLED_ROADS_SIDECAR)
+    path = os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)
     if not os.path.exists(path):
         return ([], 0.0)
     try:

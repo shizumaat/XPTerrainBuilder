@@ -419,3 +419,25 @@ def auto_patch_not_applied(tile, icao, patch_dir=None):
     if manual:
         return "manual patch %s is used instead" % ", ".join(manual)
     return None
+
+
+# ══════════════════════════════════════════════════════════════════════
+# THE ROAD LEVEL (moved from ``O4_Vector_Map``, #836)
+# ══════════════════════════════════════════════════════════════════════
+def resolved_road_level(tile):
+    """``(numeric_level, auto)`` for the tile's ``road_level`` setting.
+
+    "auto" (the default since 2026-07-27, owner ruling — same pattern as
+    the elevation/imagery auto modes) means: level 1 tile-wide (major
+    roads + railways) PLUS full level-5 roads and rails inside each
+    airport's elevation-inset neighbourhood (see ``build_roads``).
+    Numeric strings and legacy ints resolve to the historical tile-wide
+    levels.  Unparseable values read as "auto" rather than crashing a
+    build over a config typo."""
+    raw = getattr(tile, "road_level", "auto")
+    if isinstance(raw, str) and raw.strip().lower() == "auto":
+        return 1, True
+    try:
+        return int(raw), False
+    except (TypeError, ValueError):
+        return 1, True

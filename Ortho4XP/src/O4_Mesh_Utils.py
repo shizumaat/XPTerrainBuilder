@@ -24,19 +24,16 @@ import O4_Version
 
 if "dar" in sys.platform:
     Triangle4XP_cmd = os.path.join(FNAMES.Utils_dir, "mac", "Triangle4XP ")
-    triangle_cmd = os.path.join(FNAMES.Utils_dir, "mac", "triangle ")
     sort_mesh_cmd = os.path.join(FNAMES.Utils_dir, "mac", "moulinette ")
     unzip_cmd = os.path.join(FNAMES.Utils_dir, "mac", "7zz")
     if not os.path.exists(unzip_cmd):
         unzip_cmd = "7z"
 elif "win" in sys.platform:
     Triangle4XP_cmd = os.path.join(FNAMES.Utils_dir, "win", "Triangle4XP.exe ")
-    triangle_cmd = os.path.join(FNAMES.Utils_dir, "win", "triangle.exe ")
     sort_mesh_cmd = os.path.join(FNAMES.Utils_dir, "win", "moulinette.exe ")
     unzip_cmd = os.path.join(FNAMES.Utils_dir, "win", "7z.exe")
 else:
     Triangle4XP_cmd = os.path.join(FNAMES.Utils_dir, "lin", "Triangle4XP ")
-    triangle_cmd = os.path.join(FNAMES.Utils_dir, "lin", "triangle ")
     sort_mesh_cmd = os.path.join(FNAMES.Utils_dir, "lin", "moulinette ")
     unzip_cmd = "7z "
 
@@ -3050,31 +3047,6 @@ def sort_mesh(tile):
 
 
 ################################################################################
-def triangulate(name, path_to_Ortho4XP_dir):
-    Tri_option = " -pAYPQ "
-    mesh_cmd = [
-        os.path.join(path_to_Ortho4XP_dir, triangle_cmd).strip(),
-        Tri_option.strip(),
-        name + ".poly",
-    ]
-    fingers_crossed = subprocess.Popen(
-        mesh_cmd, stdout=subprocess.PIPE, bufsize=0, **UI.external_tool_keyword_arguments()
-    )
-    while True:
-        line = fingers_crossed.stdout.readline()
-        if not line:
-            break
-        else:
-            print(CONSOLE.native_tool_text(line)[:-1])
-    fingers_crossed.poll()
-    if fingers_crossed.returncode:
-        print("\nERROR: triangle crashed, check osm mask data.\n")
-        UI.tile_failure("mesh_failed", "triangle crashed")
-        return 0
-    return 1
-
-
-##############################################################################
 def read_mesh_file(mesh_file):
     """``(mesh_version, nbr_nodes, node_coords, nbr_tris, tri_idx,
     tri_types)`` of a ``.mesh`` (``O4_Mesh_IO.read_mesh``'s arrays, flat):

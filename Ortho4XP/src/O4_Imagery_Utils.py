@@ -25,7 +25,7 @@ import O4_Geo_Utils as GEO
 import O4_Http_Pushback as PUSHBACK
 import O4_Imagery_Async as FETCH_ASYNC
 import O4_Mask_Utils as MASK
-import O4_Mesh_Utils as MESH
+import O4_Triangle_Run as TRIANGLE_RUN
 import O4_OSM_Utils as OSM
 import O4_Sea_Nodata_Fill as SEA_FILL
 import O4_Text_Files as TEXT
@@ -908,7 +908,7 @@ def initialize_local_combined_providers_dict(tile):
                 )
                 vector_map.write_node_file(name + ".node")
                 vector_map.write_poly_file(name + ".poly")
-                MESH.triangulate(name, ".")
+                TRIANGLE_RUN.triangulate(name, ".")
                 (
                     (xmin, ymin, xmax, ymax),
                     mask_im,

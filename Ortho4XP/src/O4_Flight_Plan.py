@@ -396,7 +396,7 @@ def route_length_km(points: Sequence[Tuple[float, float]]) -> float:
 
 
 def summary_text(plan: FlightPlan, unit: str) -> str:
-    """"KSEA → KPDX · 4 waypoints · 233 km"."""
+    """"ORIG → DEST · 4 waypoints · 233 km"."""
     length = route_length_km(plan.points())
     if unit == "nm":
         length /= KM_PER_NM

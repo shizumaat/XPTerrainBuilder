@@ -48,12 +48,12 @@ CLOSURE_PREFIXES: tuple[str, ...] = ("auto_patch_v2",)
 #: Where ``pipeline/build.build`` ENTERS each cached stage (the module
 #: that DEFINES the function it calls, not a package re-exporting it):
 #: ``classify(...)`` / ``load_rules()`` (re-exported by
-#: ``classify/__init__``), ``planar.build.build``, ``flat_site.detect``,
+#: ``classify/__init__``), ``planar.build.build``, ``flat_site_read.verdict_for_build``,
 #: ``road_profile.preferred_road_z``, ``shapes.shape_stage``.
 ENTRY_MODULES: dict[str, tuple[str, ...]] = {
     "classify": ("auto_patch_v2.classify.roles", "auto_patch_v2.classify.rules"),
     "planar": ("auto_patch_v2.planar.build",),
-    "flat_site": ("auto_patch_v2.airport.flat_site",),
+    "flat_site": ("auto_patch_v2.airport.flat_site_read",),
     "road_profile": ("auto_patch_v2.airport.road_profile",),
     "channels": ("auto_patch_v2.airport.road_ramp", "auto_patch_v2.constraints.apron_trend",
                  "auto_patch_v2.constraints.eat", "auto_patch_v2.constraints.runway_chord",
@@ -460,7 +460,10 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.zones",
     ),
     "flat_site": (
+        "auto_patch_v2.airport.dem",
+        "auto_patch_v2.airport.dem_production",
         "auto_patch_v2.airport.flat_site",
+        "auto_patch_v2.airport.flat_site_read",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",

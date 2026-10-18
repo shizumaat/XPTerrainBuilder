@@ -7183,17 +7183,25 @@ def overlay_flat_site_insets(tile, dico_airports=None):
     the DEM object, written HERE and only here, so the stamp can never
     claim a substitution the solve did not see (spec section 2.3).
 
+    THE ONE DECISION (issue #932): every airport's decision record — the
+    v2 detector's, made here on the raw raster — is kept on the DEM object
+    as ``flat_site_decisions`` ({ICAO: record}); its ``plateau`` says
+    whether the synthetic inset landed.  The v2 build reads that record
+    (``auto_patch_v2/airport/flat_site_read.py``) and never re-measures.
+
     Never takes a build down: a failure here leaves the real surface in
     place (the pre-change behaviour) and says so at verbosity 0.
     """
     base_dem = getattr(tile, "dem", None)
     if base_dem is None or getattr(base_dem, "alt_dem", None) is None:
         return
+    decisions = {}
+    base_dem.flat_site_decisions = decisions
     try:
         from auto_patch import flat_site_mode as FLAT_SITE_MODE
 
         substitutions = FLAT_SITE_MODE.flat_site_substitutions(
-            tile, dico_airports=dico_airports
+            tile, dico_airports=dico_airports, decisions_out=decisions
         )
     except Exception as error:
         UI.vprint(
@@ -7229,7 +7237,9 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         inset, water_frac = _flat_site_inset(
             tile, (x0, y0, x1, y1), substitution["z0_m"], feather_m,
             "%s synthetic flat-site inset" % icao, water)
+        record = substitution["record"]
         if inset is None:
+            record["plateau"] = "the whole extent is water"
             UI.vprint(
                 0,
                 "   [flat-site] %s: the whole synthetic extent is WATER — "
@@ -7255,7 +7265,9 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                 str(error),
                 ") - that airport stays on the real surface.",
             )
+            record["plateau"] = "bake failed: %s" % type(error).__name__
             continue
+        record["plateau"] = True
         airport_entry = {
             "icao": icao,
             "kind": "synthetic_flat_site",

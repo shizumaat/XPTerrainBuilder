@@ -1,8 +1,11 @@
 """FLAT-SITE mode (phase 2) — the DEM-prep SUBSTITUTION DECISION.
 
-Spec: ``docs/specs/flat-site-mode-spec.md`` (2026-08-09, FROZEN).  Phase 1
-(``auto_patch/flat_site.py``) is the report-only detector; this module is
-the half of phase 2 that DECIDES, per airport, whether DEM prep should
+Spec: ``docs/specs/flat-site-mode-spec.md`` (2026-08-09, FROZEN) as
+amended by ``docs/specs/auto-patch-v2/flat-site-datum-spec.md`` §6 (issue
+#932, owner option B, 2026-10-18): the decision is the v2 detector's
+(``auto_patch_v2/airport/flat_site_prep.py``), made HERE once per airport
+on the raw raster and carried to the build as one record; v1's detector is
+deleted.  This module asks it, per airport, whether DEM prep should
 substitute a synthetic constant surface, and at what elevation and over
 what footprint.  It writes NO raster: the blend itself lives beside the
 feathering machinery it reuses
@@ -19,12 +22,8 @@ every inset airport.  Everything downstream is blind to it and runs
 against a truthful flat input.
 
 WHAT THIS MODULE MAY AND MAY NOT TOUCH.  It CONSUMES the detector's
-interface — the verdict string, ``z0_m`` and ``extent_from_apt`` — and
-never its classification internals or constants (a sibling lane owns
-those).  It reads only the airport's OWN inputs (CIFP thresholds, the
-apt.dat record the pipeline itself picks) so the extent measured here and
-the extent the pipeline's report-only detector measures are the SAME
-footprint over the SAME population.
+record — the verdict, ``z0_m`` and the region — and never its
+classification internals or law (``law/flat_site.toml``).
 
 ORDERING (spec §2.1).  The classification runs on the REAL surface: the
 caller invokes this AFTER the airport smoothing and the cached-inset bake
@@ -76,13 +75,6 @@ __all__ = [
 #: without the layout package.
 _R_EARTH = 6378137.0
 
-#: The detector's OWNER-DECLARATION verdict (detector spec v3).  Named
-#: by its wire string as well as by the detector's constant: this module
-#: must not depend on the sibling lane's landing order, and the string —
-#: not the constant — is what a sidecar record actually carries.
-VERDICT_FLAT_DECLARED = "flat_declared"
-
-
 def flat_site_mode_enabled() -> bool:
     """The gate (spec §2.2).  ``O4_FLAT_SITE_MODE=0`` kills the mode."""
     return bool(getattr(_config, "FLAT_SITE_MODE", False))
@@ -100,12 +92,9 @@ def substituting_verdicts() -> frozenset:
     an ALLOW-LIST on purpose: an unknown verdict must degrade to the
     real DEM, never to a substitution nobody specified.
     """
-    from . import flat_site as _flat_site
+    from auto_patch_v2.airport.flat_site import FLAT_CANDIDATE, FLAT_DECLARED
 
-    return frozenset((
-        _flat_site.VERDICT_FLAT_CANDIDATE,
-        getattr(_flat_site, "VERDICT_FLAT_DECLARED", VERDICT_FLAT_DECLARED),
-    ))
+    return frozenset((FLAT_CANDIDATE, FLAT_DECLARED))
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -362,8 +351,7 @@ def claimed_placements_by_icao(icaos, xplane_root: str, tile_lat: int,
 
     Returns ``{}`` when nothing on the tile places objects.
     """
-    from .driver import (
-        _airport_claim_lonlat, _object_anchor_worklist_entries)
+    from .driver import _airport_claim_lonlat, _object_anchor_worklist_entries
     from .dsf_reader import read_dsf_object_placement_positions
     from .post_mesh import CLAIM_CONTAINMENT, worklist_claim_assigner
 
@@ -646,40 +634,107 @@ def claimed_placement_cluster_bounds(placements_ll, anchor, tile_lat: int,
 # ──────────────────────────────────────────────────────────────────────
 # The decision
 # ──────────────────────────────────────────────────────────────────────
+def _tile_water(tile):
+    """``(sea, inland)`` of the tile's CACHED water — the same reading
+    :func:`water_cutout` unions (``O4_Vector_Map.cached_tile_water``; never
+    a download), or ``(None, None)``."""
+    try:
+        import O4_Vector_Map as VMAP
+
+        return VMAP.cached_tile_water(tile)
+    except Exception as error:                           # pragma: no cover
+        UI.vprint(1, "   [flat-site] water witness unavailable (%s: %s)."
+                  % (type(error).__name__, error))
+        return None, None
+
+
+def _decide_airport(icao, xplane_root, dem, tile_lat, tile_lon, water):
+    """``(record, inputs)`` for one airport — the v2 detector on DEM prep's
+    raw raster (``auto_patch_v2/airport/flat_site_prep.py``); ``(None,
+    None)`` when the airport has no apt.dat this install can read."""
+    from auto_patch_v2.airport import flat_site as _v2flat
+    from auto_patch_v2.airport import flat_site_prep as _prep
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.law.tables import flat_declared
+
+    from .build_support import _find_cifp_path
+
+    law = Law.for_airport(icao)
+    cifp_path = _find_cifp_path(xplane_root, icao)
+    if not cifp_path and flat_declared(law, icao) is None:
+        # No CIFP threshold and no declaration: the detector can only say
+        # ``no_data`` — skip the apt.dat read (a busy tile names dozens of
+        # such fields).  No record: the build measures the same no_data.
+        return None, None
+    try:
+        site = _prep.site_inputs(icao, xplane_root, cifp_path, law)
+    except (FileNotFoundError, ValueError):
+        return None, None
+    record = _prep.decide(site, dem, tile_lat, tile_lon, water, law,
+                          out=lambda line: UI.vprint(1, line))
+    UI.vprint(1, _v2flat.log_line(icao, _v2flat.from_record(record)))
+    return record, site
+
+
+def _region_bounds_deg(record, tile_lat: int, tile_lon: int):
+    """The region's bounding box as tile-relative degrees ``(x0, y0, x1,
+    y1)`` (the frame :func:`extent_bounds_tile_degrees` speaks), or
+    ``None`` with no region."""
+    pts = [pt for outer, _holes in (record.get("region_ll") or ())
+           for pt in outer]
+    if not pts:
+        return None
+    lons = [float(p[0]) for p in pts]
+    lats = [float(p[1]) for p in pts]
+    return (min(lons) - tile_lon, min(lats) - tile_lat,
+            max(lons) - tile_lon, max(lats) - tile_lat)
+
+
+def _region_local_m(record, anchor):
+    """The region as ONE geometry in ``build_support._projection(anchor)``
+    metres — the frame the R8-1 cluster code measures in."""
+    from shapely.geometry import MultiPolygon, Polygon
+
+    from .build_support import _projection
+
+    to_m = _projection(anchor)
+    polys = []
+    for outer, holes in (record.get("region_ll") or ()):
+        ring = [to_m(float(lo), float(la)) for lo, la in outer]
+        if len(ring) < 3:
+            continue
+        polys.append(Polygon(ring, [[to_m(float(lo), float(la)) for lo, la in h]
+                                    for h in holes if len(h) >= 3]))
+    if not polys:
+        return None
+    geom = polys[0] if len(polys) == 1 else MultiPolygon(polys)
+    return geom if geom.is_valid else geom.buffer(0)
+
+
 def flat_site_substitutions(tile, dico_airports=None,
-                            xplane_root: str | None = None) -> list:
+                            xplane_root: str | None = None,
+                            decisions_out: dict | None = None) -> list:
     """Every flat-site substitution this tile's DEM should carry.
 
-    One entry per airport the detector calls ``flat_candidate`` or
+    One entry per airport the v2 detector calls ``flat_candidate`` or
     ``flat_declared`` (:func:`substituting_verdicts`)::
 
-        {"icao", "z0_m", "extent_deg": (x0, y0, x1, y1),
-         "extent_area_km2", "record": <the detector's evidence record>}
+        {"icao", "verdict", "z0_m", "extent_deg": (x0, y0, x1, y1),
+         "extent_area_km2", "object_clusters", "cluster_findings",
+         "record": <the decision record>}
 
-    ``extent_deg`` is tile-relative degrees (see
-    :func:`extent_bounds_tile_degrees`).  Returns ``[]`` — and reads
-    nothing beyond the gate — when the mode is off, so the gate-off arm
-    costs one boolean.
-
-    S1 SHORT-CIRCUIT: an airport whose CIFP threshold consensus fails is
-    skipped before its apt.dat is opened.  Both substituting verdicts
-    require S1 (``flat_candidate`` is S1 ∧ S2; an owner declaration is
-    an override of S2, not of the instrument truth S1 supplies), so this
-    cannot change any verdict; it keeps DEM prep from loading
-    twenty-five apt.dat blocks on a busy tile to classify airports that
-    cannot qualify.
+    ``extent_deg`` is the tile-relative bounding box of the record's
+    region (pavement ∪ runways ∪ boundary ⊕ margin, minus water).
+    ``decisions_out`` (optional) is filled with ``{ICAO: record}`` for
+    EVERY airport decided — substituting or not — the ONE decision the
+    build reads (issue #932).  Returns ``[]`` — and reads nothing beyond
+    the gate — when the mode is off.
     """
     if not flat_site_mode_enabled():
         return []
     dem = getattr(tile, "dem", None)
     if dem is None or getattr(dem, "alt_dem", None) is None:
         return []
-
-    from . import apt_dat_reader as _APR
-    from . import flat_site as _flat_site
-    from . import provenance as _provenance
-    from .build_support import _airport_anchor, _projection
-    from .build_support import _pick_best_apt_dat_against_osm
 
     if xplane_root is None:
         # The install THIS build was handed (recorded on the Tile by
@@ -699,42 +754,34 @@ def flat_site_substitutions(tile, dico_airports=None,
     if not icaos:
         return []
 
+    from auto_patch_v2.airport.dem_production import TileWater
+
     tile_lat = int(math.floor(tile.lat))
     tile_lon = int(math.floor(tile.lon))
+    sea, inland = _tile_water(tile)
+    water = TileWater(tile_lat, tile_lon, sea, inland)
     accepted = substituting_verdicts()
     out = []
-    # R8-1: the anchor + apt.dat extent of every airport that SUBSTITUTES,
-    # kept for the claimed-object-placement clustering after the loop.
+    # R8-1: the anchor + extent of every airport that SUBSTITUTES, kept
+    # for the claimed-object-placement clustering after the loop.
     anchor_by_icao: dict = {}
     extent_by_icao: dict = {}
     for icao in icaos:
-        elevations = _flat_site.cifp_threshold_elevations(xplane_root, icao)
-        if _flat_site.threshold_consensus(elevations).get("pass") is not True:
+        record, _site = _decide_airport(icao, xplane_root, dem, tile_lat,
+                                        tile_lon, water)
+        if record is None:
             continue
-        apt_path = _pick_best_apt_dat_against_osm(xplane_root, icao)
-        if apt_path is None:
-            continue
-        apt = _APR.load_airport(apt_path, icao)
-        if apt is None:
-            continue
-        anchor = _airport_anchor(apt)
-        extent_m = _flat_site.extent_from_apt(apt, _projection(anchor))
-        record = _flat_site.classify_site(
-            icao=icao, cifp_elevations_m=elevations, dem=dem,
-            tile_lat=tile_lat, tile_lon=tile_lon, anchor=anchor,
-            extent_m=extent_m,
-            dem_meta=_provenance.dem_provenance_from_dem(dem, icao=icao))
-        UI.vprint(1, _flat_site.format_log_line(record))
+        if decisions_out is not None:
+            decisions_out[icao] = record
         if record.get("verdict") not in accepted:
             continue
-        bounds = extent_bounds_tile_degrees(extent_m, anchor,
-                                            tile_lat, tile_lon)
-        # Z0 comes from the RECORD, never recomputed here: with an owner
-        # declaration the detector may put a declared elevation there,
-        # and two derivations of one number is how this repo gets two
-        # instruments over one population.
+        bounds = _region_bounds_deg(record, tile_lat, tile_lon)
+        # Z0 comes from the RECORD, never recomputed here.
         if bounds is None or record.get("z0_m") is None:
+            record["plateau"] = "no region or no Z0"
             continue
+        anchor = tuple(float(v) for v in record["origin"])
+        extent_m = _region_local_m(record, anchor)
         anchor_by_icao[icao] = anchor
         extent_by_icao[icao] = extent_m
         out.append({
@@ -742,14 +789,15 @@ def flat_site_substitutions(tile, dico_airports=None,
             "verdict": record.get("verdict"),
             "z0_m": float(record["z0_m"]),
             "extent_deg": bounds,
-            "extent_area_km2": round(extent_m.area / 1e6, 4),
+            "extent_area_km2": round(
+                float((record.get("signals") or {}).get("region_area_m2")
+                      or 0.0) / 1e6, 4),
             # R8-1: filled in below — one entry per CLAIMED-PLACEMENT
-            # cluster outside the apt.dat extent.  Always present (an
-            # empty list is "measured, none"), never absent.
+            # cluster outside the extent.  Always present (an empty list
+            # is "measured, none"), never absent.
             "object_clusters": [],
             # R11-1/R11-2: the clusters this airport was REFUSED, with
-            # the number that refused them.  Same rule — an empty list
-            # is "measured, none".
+            # the number that refused them.  Same rule.
             "cluster_findings": [],
             "record": record,
         })
@@ -971,7 +1019,6 @@ def _island_component(land, core_box):
     ISLAND TEST: the component must not reach the working frame.  A
     mainland reaches it; an island does not.
     """
-    from shapely import geometry
 
     if land is None or getattr(land, "is_empty", True):
         return None, "no land data"

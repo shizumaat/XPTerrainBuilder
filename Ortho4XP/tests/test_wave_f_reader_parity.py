@@ -54,15 +54,15 @@ def test_the_selection_shape_is_read_cifp_runways_rekeyed(tmp_path):
 def test_cifp_below_sea_thresholds_are_read(tmp_path):
     """RULED (owner 2026-10-18, #911 Q1): a signed threshold elevation is
     read by the selection shape and by the flat-site S1 consensus — v1
-    ``parse_cifp_file`` (``elev.isdigit()``) dropped it."""
-    from auto_patch import flat_site
-
+    ``parse_cifp_file`` (``elev.isdigit()``) dropped it.  S1 is the v2
+    detector's since issue #932: it reads ``read_cifp_runways`` through
+    the join (``flat_site_prep.site_inputs``)."""
     path = str(write_text(tmp_path / "ZZZZ.dat",
                           RWY_18R_BELOW_SEA + "\n" + RWY_16L + "\n"))
     shaped = V2_CIFP.read_threshold_dicts(path)
     assert sorted(shaped) == ["RW16L", "RW18R"]
     assert shaped["RW18R"]["elevation_m"] == pytest.approx(-11 * 0.3048)
-    assert sorted(flat_site.cifp_threshold_elevations_from_file(path)) == (
+    assert sorted(r.elevation_m for r in V2_CIFP.read_cifp_runways(path).values()) == (
         pytest.approx(sorted([-11 * 0.3048, 44 * 0.3048])))
 
 

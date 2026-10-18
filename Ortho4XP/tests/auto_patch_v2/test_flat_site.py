@@ -228,7 +228,7 @@ def test_flat_candidate_verdict_and_rows(flat_site, law):
     assert s["s2_pass"] is True and s["s2"]["relief_m"] <= 1.0
     assert s["s2_source_class"] == "coarse" and s["s2_source_whence"] == "inset"
     assert s["s4"]["pass"] is None                    # no objects: no_data, never a fail
-    assert s["core"] is None and fv.region
+    assert "core" not in s and fv.region            # #932: no second verdict to compare
     rows = C.flat_datum(pm, law, airport)
     # one preference group PER ROW (the assembler's slack is per group —
     # a shared group would free every row by the largest single relief)
@@ -252,7 +252,6 @@ def test_flat_candidate_verdict_and_rows(flat_site, law):
     assert counts["flat_datum"] == len(rows)
     line = F.log_line("ZZZZ", fv)
     assert line.startswith("[flat-site] ZZZZ: flat_candidate — Z0 100.10 m")
-    assert F.notes("ZZZZ", fv) and "core NONE" in F.notes("ZZZZ", fv)[0]
 
 
 # ── 3. not_flat: zero rows ────────────────────────────────────────────────

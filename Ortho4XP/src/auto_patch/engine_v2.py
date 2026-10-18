@@ -258,7 +258,8 @@ def _stamp_header(task: dict) -> dict[str, str]:
     EXACTLY as ``PavementLayout.to_osm`` renders them for a v1 patch: the
     percent-encoded apt.dat path + its mtime, and the all-or-nothing
     freshness block.  The apt.dat stamped is the one the GATE re-derives
-    — and since lane ``aptstamp`` (2026-09-17) that is ``auto_patch_v2.airport.apt_dat.select_apt_dat``,
+    — and since lane ``aptstamp`` (2026-09-17) that is
+    ``auto_patch_v2.airport.apt_dat.select_apt_dat``,
     v2's OWN selector, on both sides: the file stamped is the file the
     build read.  It overrides the ``o4_apt_dat`` v2's emitter writes only
     to percent-encode it (``pipeline/build.py`` :915, ``Config.

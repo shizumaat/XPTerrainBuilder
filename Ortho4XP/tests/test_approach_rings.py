@@ -35,11 +35,11 @@ ENGINE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ENGINE_DIR / "src"))
 
 import O4_Airport_Elevation_Insets as INSETS  # noqa: E402
-from tests.inset_code import patch_inset_code
-from elevation_access import definitions as ea_definitions
 import O4_Elevation_Level as RINGS  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Geo_Utils as GEO  # noqa: E402
+from elevation_access import definitions as ea_definitions
+from tests.inset_code import patch_inset_code
 
 try:
     from osgeo import gdal
@@ -500,8 +500,8 @@ def test_ring_layers_are_ordered_coarsest_first(tmp_path, monkeypatch):
 # =====================================================================
 def _install_neighbour(monkeypatch, tmp_path, boundaries, cached_stems):
     """Make the real ``_neighbour_boundary_polygons`` read a cached layer."""
-    import O4_Config_Utils as CFG
     import O4_Airport_Dico as DICO
+    import O4_Config_Utils as CFG
     import O4_OSM_Utils as OSM
 
     for stem_lat, stem_lon in cached_stems:
@@ -1842,6 +1842,7 @@ def test_a_date_only_stamp_change_is_not_rewritten(tmp_path, monkeypatch):
     ``checked``; a build must not rewrite it (shared-repo write refused,
     measured 2026-10-02 on the KASE tile)."""
     import json
+
     import O4_Elevation_Level as EL
     import O4_File_Names as FNAMES
     path = tmp_path / "N39W107_approach_rings" / "index.json"

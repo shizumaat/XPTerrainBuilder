@@ -24,8 +24,6 @@ from auto_patch import provenance  # noqa: E402
 
 def build_patch(out_dir: str, code: str) -> str:
     """The ZZZZ patch written into ``out_dir``, stamped ``code``; its path."""
-    from test_m4 import _PlaneDem, _cells, _ways
-
     from auto_patch_v2.classify.roles import Classification
     from auto_patch_v2.constraints import generate
     from auto_patch_v2.emit.graded import graded_surface
@@ -37,6 +35,7 @@ def build_patch(out_dir: str, code: str) -> str:
     from auto_patch_v2.planar.build import build
     from auto_patch_v2.planar.structures import build_structures
     from auto_patch_v2.solve import solve_design
+    from test_m4 import _cells, _PlaneDem, _ways
 
     law = Law.for_airport("ZZZZ")
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)

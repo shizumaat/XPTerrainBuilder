@@ -66,7 +66,8 @@ def mean_slope_caps(planar: PlanarMap, law: Law, airport: Airport
     """Runway ref -> its EFFECTIVE mean-slope cap (module docstring), for
     every runway the authority states a cap for."""
     key = (id(planar), id(law), id(airport))
-    if _LAST and _LAST[0] == key:
+    if _LAST and _LAST[0] == key and _LAST[2] is planar and _LAST[3] is law \
+            and _LAST[4] is airport:                 # an id is reused once freed
         return dict(_LAST[1])
     rws = [rw for rw in airport.runways
            if runway_mean_slope_max(law, rw.code_number, rw.code_letter) is not None
@@ -91,7 +92,7 @@ def mean_slope_caps(planar: PlanarMap, law: Law, airport: Airport
             if spread + margin > m or (rc is not None and getattr(rc, "yielded", False)):
                 continue              # THE PINS GOVERN (module docstring)
             out[rw.id] = m
-    _LAST[:] = [key, dict(out)]
+    _LAST[:] = [key, dict(out), planar, law, airport]
     return out
 
 

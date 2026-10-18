@@ -48,7 +48,8 @@ from ..law import witness as _law
 from . import stage_code as _code
 from . import xplat as _xplat
 
-__all__ = ["FrontCache", "stage_folder"]
+__all__ = ["FrontCache", "stage_folder", "classify_side_state",
+           "install_classify_side_state"]
 
 #: The extra code a stage's key carries beyond its own closure.
 _EXTRA_CODE: dict[str, tuple[str, ...]] = {"shapes": ("channels",)}
@@ -69,6 +70,32 @@ def stage_folder(airport: _t.Any, mod_cache_root: str | None) -> str | None:
         return mod_cache_root
     from ..airport import dsf as _dsf
     return _dsf.mod_cache_dir(mod_cache_root, name)
+
+
+#: THE CLASSIFY STAGE'S SIDE STATE: module globals ``classify`` fills that
+#: a LATER stage reads — ``pipeline/publication._pad_refusals`` writes them
+#: into the sidecar's ``pad_refusals``.  (The spec's census, §3, ruled
+#: ``CLUSTER_PADS`` "not carried, tools only"; the closing HECA build's hit
+#: arm emptied ``pad_refusals`` and found the reader.)  Carried with the
+#: classify record and installed on a hit and a miss alike.
+_CLASSIFY_SIDE = ("CLUSTER_PADS", "PAD_REFUSED")
+
+
+def classify_side_state() -> dict[str, _t.Any]:
+    """A deep copy of :data:`_CLASSIFY_SIDE` as ``classify`` left them."""
+    import copy
+    from ..classify import evidence as _ev
+    return {k: copy.deepcopy(getattr(_ev, k)) for k in _CLASSIFY_SIDE}
+
+
+def install_classify_side_state(state: _t.Mapping[str, _t.Any]) -> None:
+    """Put a recorded side state back into the module globals, in place."""
+    import copy
+    from ..classify import evidence as _ev
+    for k in _CLASSIFY_SIDE:
+        live = getattr(_ev, k)
+        live.clear()
+        live.update(copy.deepcopy(dict(state.get(k) or {})))
 
 
 def _resource_stamps(airport: _t.Any) -> str:

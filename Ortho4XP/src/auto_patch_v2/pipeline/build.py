@@ -731,8 +731,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _pulse.tick("classifying the airport")
     _rules = load_rules()
     _fc_in = fc.common_inputs(_rules, ocache)
-    cl = fc.run("classify", {**_fc_in, "airport": fc.airport_digest(airport)},
-                lambda lw: classify(airport, lw, _rules, cache=ocache), as_served=True)
+    cl, _cl_side = fc.run(
+        "classify", {**_fc_in, "airport": fc.airport_digest(airport)},
+        lambda lw: (classify(airport, lw, _rules, cache=ocache),
+                    _front.classify_side_state()), as_served=True)
+    # what ``classify`` leaves in ``classify.evidence`` for the sidecar's
+    # ``pad_refusals``, put back on a hit (and, unchanged, on a miss)
+    _front.install_classify_side_state(_cl_side)
     wall["classify"] = time.perf_counter() - t
     # spec §55 (4), (9) THE GAP PIECES JOIN IN THE LAST STAGE: with a §53
     # gap piece minted, every stage below runs on the classification

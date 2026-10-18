@@ -52,7 +52,9 @@ __all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest
 
 #: Bump when the SHAPE of a record changes (the code digests cover a change
 #: in what a stage produces).
-CACHE_VERSION = 1
+CACHE_VERSION = 2   # the classify record carries its side state
+                    # (``pipeline/front_cache.classify_side_state``); a v1
+                    # record is a bare classification — refused, never repaired
 
 #: RULINGS 2026-10-17a Q1 / 18c (1): the starting cap per mod-cache root.
 CAP_BYTES = 2 * 1024 ** 3

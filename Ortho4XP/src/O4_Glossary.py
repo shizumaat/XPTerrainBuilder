@@ -13,7 +13,7 @@ shows them (:func:`step_display`).
 """
 
 __all__ = [
-    "TERMS", "RETIRED", "STEP_NAMES", "DETAIL_PIXEL_SIZES",
+    "TERMS", "RETIRED", "RETIRED_WORDS", "STEP_NAMES", "DETAIL_PIXEL_SIZES",
     "detail_choice", "step_display", "surface_check",
 ]
 
@@ -66,6 +66,18 @@ RETIRED = {
     "elevation_source": ("Custom elevation data (DEM)",),
     "map_data_server": ("Overpass server",),
 }
+
+# Bare technical words a Settings row OUTSIDE Expert may not use in its
+# label or its category title (issue #823): the row says what it does in
+# plain words, and the Expert section keeps the technical names.  Matched
+# as whole words, ignoring case.
+RETIRED_WORDS = (
+    "ZL", "DEM", "DSF", "DDS", "OSM", "TMS", "HTTP", "LOD", "CIFP", "AIRAC",
+    "Overpass", "lidar", "mesh", "mask", "masks", "masking", "curvature",
+    "bathymetry", "bathy", "triangle", "triangles", "ortho", "orthophoto",
+    "orthophotos", "inset", "insets", "patch", "patches", "decal", "vector",
+    "overlay", "overlays", "texture", "raster",
+)
 
 # Engine step key (the wire value ``StepProgress.step_key``, and the legacy
 # driver's step names) -> the step's plain name.

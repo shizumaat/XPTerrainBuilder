@@ -483,7 +483,7 @@ def test_the_settings_window_offers_the_boundary_choice(qapp, tmp_path,
     win = SettingsWindow(prefs={}, tiles=[], custom_build_dir="")
     try:
         row = win.rows["auto_patch_boundary"]
-        assert row.setting.label == "Airports on a tile edge"
+        assert row.setting.label == "What if an airport crosses a tile edge?"
         assert row.setting.scope == "app"
         combo = row.control
         assert isinstance(combo, QComboBox), type(combo).__name__

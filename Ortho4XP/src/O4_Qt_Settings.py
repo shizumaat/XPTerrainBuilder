@@ -185,8 +185,16 @@ class _SettingRow(QWidget):
         top.addWidget(self.revert_button)
         lay.addLayout(top)
 
-        if setting.hint:
-            desc = QLabel(setting.hint)
+        # The grey lines under the name (issue #823): the one-line summary
+        # and the recommended value — or, in Expert, the cfg name — then,
+        # for an Expert row only, the registry's full hint.  Outside Expert
+        # the full hint is the tooltip.
+        for text in (setting.secondary_text(),
+                     setting.hint if setting.advanced else ""):
+            if not text:
+                continue
+            desc = QLabel(text)
+            desc.setToolTip(setting.hint)
             # Word wrap alone still floors the row at the longest
             # unbreakable run (a URL, a path): 156 px on macOS here.
             wrap_and_never_widen(desc)
@@ -197,9 +205,10 @@ class _SettingRow(QWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._context_menu)
         self._search_blob = (
-            "%s %s %s %s" % (
+            "%s %s %s %s %s" % (
                 setting.label,
                 setting.name,
+                setting.summary,
                 setting.hint,
                 " ".join(title for _, title in setting.value_labels),
             )
@@ -1001,7 +1010,7 @@ class SettingsWindow(QDialog):
             self.category_list.addItem(title)
         self.category_list.currentRowChanged.connect(self._category_changed)
         side.addWidget(self.category_list, 1)
-        self.advanced_check = QCheckBox("Show advanced")
+        self.advanced_check = QCheckBox("Show expert settings")
         self.advanced_check.toggled.connect(self._apply_filter)
         side.addWidget(self.advanced_check)
         middle.addLayout(side)
@@ -1024,6 +1033,7 @@ class SettingsWindow(QDialog):
         self._headers = {}      # category key -> QLabel
         self._lines = {}        # category key -> QFrame separator
         self._advanced_notes = {}
+        self._expert_headers = {}   # category key -> "Expert" sub-header
         self._provider_signin_section = None
         for key, title in SM.CATEGORIES:
             header = QLabel("<b>%s</b>" % title)
@@ -1038,6 +1048,14 @@ class SettingsWindow(QDialog):
             self._lines[key] = line
             hidden_count = 0
             for setting in SM.settings_for(key):
+                if setting.advanced and not hidden_count:
+                    # The Expert section: the category's last rows
+                    # (O4_Settings_Model._LAYOUT), shown on demand.
+                    expert = QLabel("<i>%s</i>" % SM.EXPERT_TITLE)
+                    expert.setTextFormat(Qt.RichText)
+                    expert.setContentsMargins(0, 10, 0, 2)
+                    self.content_layout.addWidget(expert)
+                    self._expert_headers[key] = expert
                 row = _SettingRow(setting)
                 row.committed.connect(self._row_committed)
                 row.reset_requested.connect(self._row_reset)
@@ -1047,8 +1065,8 @@ class SettingsWindow(QDialog):
                     hidden_count += 1
             if hidden_count:
                 note = QLabel(
-                    "<i>%d advanced setting%s hidden — enable "
-                    "“Show advanced”.</i>"
+                    "<i>%d expert setting%s hidden — tick "
+                    "“Show expert settings”.</i>"
                     % (hidden_count, "s" if hidden_count > 1 else "")
                 )
                 wrap_and_never_widen(note)
@@ -1252,6 +1270,7 @@ class SettingsWindow(QDialog):
         )
         override_union = self._override_union() if self.blended else set()
         visible_by_cat = {key: 0 for key, _ in SM.CATEGORIES}
+        expert_by_cat = {key: 0 for key, _ in SM.CATEGORIES}
         for name, row in self.rows.items():
             s = row.setting
             if tile_view and not query:
@@ -1270,19 +1289,23 @@ class SettingsWindow(QDialog):
             row.setVisible(show)
             if show and not tile_view:
                 visible_by_cat[s.category] += 1
+                expert_by_cat[s.category] += int(s.advanced)
         for key, _ in SM.CATEGORIES:
-            self._headers[key].setVisible(
-                not tile_view and visible_by_cat[key] > 0
-            )
-            self._lines[key].setVisible(
-                not tile_view and visible_by_cat[key] > 0
-            )
             note = self._advanced_notes.get(key)
+            # A category whose rows are ALL Expert still shows its title
+            # and the note when it is the one selected (issue #823).
+            note_shown = bool(note) and (
+                not tile_view and not advanced and not query
+                and (visible_by_cat[key] > 0 or selected == key)
+            )
             if note:
-                note.setVisible(
-                    not tile_view and not advanced and not query
-                    and visible_by_cat[key] > 0
-                )
+                note.setVisible(note_shown)
+            shown = not tile_view and (visible_by_cat[key] > 0 or note_shown)
+            self._headers[key].setVisible(shown)
+            self._lines[key].setVisible(shown)
+            expert = self._expert_headers.get(key)
+            if expert:
+                expert.setVisible(not tile_view and expert_by_cat[key] > 0)
         if self._provider_signin_section is not None:
             # App-level, so it hides in the tile-focused views; a search
             # query matches it by provider name / "sign in".

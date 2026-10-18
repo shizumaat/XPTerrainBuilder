@@ -167,4 +167,40 @@ def test_no_retired_primary_label():
                 if (phrase in literal
                         and (path.name, phrase) not in ALLOWED):
                     found.append("%s:%d %r" % (path.name, number, literal))
+    # The Settings rows outside Expert, and the category titles, in BOTH
+    # apps (issue #823): no bare technical word and no config key as a
+    # label.  Expert rows keep their technical names by design.
+    for app, label in _settings_primary_labels():
+        found.extend("%s %r: %s" % (app, label, why)
+                     for why in _technical_words(label))
     assert found == []
+
+
+def _settings_primary_labels():
+    import O4_Settings_Model as SM
+    from test_settings_layout_parity import swift_layout
+    for _key, title, members in SM._LAYOUT:
+        yield "Qt", title
+        yield from (("Qt", member[1]) for member in members
+                    if not member[3])
+    for _key, title, rows in swift_layout():
+        yield "Mac", title
+        yield from (("Mac", row[1]) for row in rows if not row[3])
+
+
+def _technical_words(label):
+    import O4_Cfg_Vars
+    for word in GLOSSARY.RETIRED_WORDS:
+        if re.search(r"\b%s\b" % re.escape(word), label, re.I):
+            yield word
+    for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", label):
+        if "_" in token or token in O4_Cfg_Vars.cfg_vars:
+            yield token
+
+
+def test_a_technical_word_is_caught():
+    # The grep's own twin: a raw key and a bare word both fail a label.
+    assert list(_technical_words("Curvature tolerance")) == ["curvature"]
+    assert list(_technical_words("Set curvature_tol")) == [
+        "curvature_tol"]
+    assert list(_technical_words("How detailed should it be?")) == []

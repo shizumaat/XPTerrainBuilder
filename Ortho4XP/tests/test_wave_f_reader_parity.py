@@ -12,17 +12,21 @@ re-pointing, never before.
 from __future__ import annotations
 
 import pytest
-from auto_patch import cifp_reader as V1_CIFP
 from auto_patch_v2.airport import cifp as V2_CIFP
 from object_stage_support import write_text
 
-# ── cifp_reader <-> airport/cifp ─────────────────────────────────────────
+# ── cifp: v1 cifp_reader retired onto airport/cifp ──────────────────────
+# Owner 2026-10-18 (#911 Q1): tile selection and the flat-site S1 consensus
+# read below-sea-level thresholds, as the v2 airport load does.  The twins
+# below hold the RULED behaviour.
 RWY_16L = "RWY:RW16L,+0580,      ,00044, ,IJCH,3,   ;S12002744,W077071686,0000;"
 RWY_34R = "RWY:RW34R,+2380,      ,00113, ,IJCZ,1,   ;S12021200,W077064500,0984;"
-#: a BELOW-SEA-LEVEL threshold: ARINC 424 signs the elevation field
+#: BELOW-SEA-LEVEL thresholds: ARINC 424 signs the elevation field
 RWY_18R_BELOW_SEA = ("RWY:RW18R,+1835,      ,-0011, ,ISNA,3,   ;"
                      "N52215800,E004422200,0000;")
-#: the malformed rows both readers must skip the same way
+RWY_36L_BELOW_SEA = ("RWY:RW36L,+0035,      ,-0013, ,    , ,   ;"
+                     "N52192000,E004422400,0000;")
+#: the malformed rows the reader skips
 SKIPPED = [
     "RWY:XX99,+0000,      ,00010, ,    , ,   ;S12000000,W077000000,0000;",
     "RWY:RW09,+0900,      ,     , ,    , ,   ;S12000000,W077000000,0000;",
@@ -32,55 +36,65 @@ SKIPPED = [
 ]
 
 
-@pytest.mark.parametrize("s", ["S12002744", "N25153000", "n00000001",
-                               "S89595999"])
-def test_cifp_latitude_parsers_are_identical(s):
-    assert V1_CIFP.parse_cifp_lat(s) == V2_CIFP.parse_lat(s)
-
-
-@pytest.mark.parametrize("s", ["W077071686", "E051361200", "w000000001",
-                               "E179595999"])
-def test_cifp_longitude_parsers_are_identical(s):
-    assert V1_CIFP.parse_cifp_lon(s) == V2_CIFP.parse_lon(s)
-
-
-def test_cifp_runway_readers_agree_on_unsigned_records(tmp_path):
-    """Same records, same numbers; the SHAPE differs (v1 ``{"RW16L":
-    {lat, lon, elevation_m, displaced_m}}``, v2 ``{"16L": CifpRunway}``),
-    which is an adapter, not a behaviour."""
-    path = write_text(tmp_path / "SPJC.dat",
+def test_the_selection_shape_is_read_cifp_runways_rekeyed(tmp_path):
+    """Same records, same numbers: ``read_threshold_dicts`` is
+    ``read_cifp_runways`` in the ``{"RW16L": {lat, lon, elevation_m,
+    displaced_m}}`` shape selection and the object-anchor worklist read."""
+    path = write_text(tmp_path / "ZZZZ.dat",
                       "\n".join([RWY_16L, RWY_34R] + SKIPPED) + "\n")
-    v1 = V1_CIFP.parse_cifp_file(str(path))
+    shaped = V2_CIFP.read_threshold_dicts(str(path))
     v2 = V2_CIFP.read_cifp_runways(str(path))
-    assert sorted(v1) == ["RW16L", "RW34R"]
+    assert sorted(shaped) == ["RW16L", "RW34R"]
     assert {"RW" + k: {"lat": r.lat, "lon": r.lon,
                        "elevation_m": r.elevation_m,
                        "displaced_m": r.displaced_m}
-            for k, r in v2.items()} == v1
+            for k, r in v2.items()} == shaped
 
 
-def test_OWNER_QUESTION_cifp_below_sea_threshold(tmp_path):
-    """THE DIFFERENCE THAT STOPS THE PAIR.  v1 ``parse_cifp_file`` requires
-    ``elev.isdigit()`` and DROPS a signed (below-sea-level) threshold; v2
-    ``read_cifp_runways`` reads it.  v1's reader feeds tile SELECTION
-    (``selection.select_patch_airports``: an airport with no parsed runway
-    is never patched) and the flat-site S1 consensus that seeds the DEM
-    plateau (``flat_site_mode``) — so re-pointing changes emitted output
-    at every airport with a below-sea threshold."""
-    path = write_text(tmp_path / "BELOW.dat", RWY_18R_BELOW_SEA + "\n")
-    assert V1_CIFP.parse_cifp_file(str(path)) == {}
-    v2 = V2_CIFP.read_cifp_runways(str(path))
-    assert list(v2) == ["18R"]
-    assert v2["18R"].elevation_m == pytest.approx(-11 * 0.3048)
+def test_cifp_below_sea_thresholds_are_read(tmp_path):
+    """RULED (owner 2026-10-18, #911 Q1): a signed threshold elevation is
+    read by the selection shape and by the flat-site S1 consensus — v1
+    ``parse_cifp_file`` (``elev.isdigit()``) dropped it."""
+    from auto_patch import flat_site
+
+    path = str(write_text(tmp_path / "ZZZZ.dat",
+                          RWY_18R_BELOW_SEA + "\n" + RWY_16L + "\n"))
+    shaped = V2_CIFP.read_threshold_dicts(path)
+    assert sorted(shaped) == ["RW16L", "RW18R"]
+    assert shaped["RW18R"]["elevation_m"] == pytest.approx(-11 * 0.3048)
+    assert sorted(flat_site.cifp_threshold_elevations_from_file(path)) == (
+        pytest.approx(sorted([-11 * 0.3048, 44 * 0.3048])))
 
 
-def test_OWNER_QUESTION_cifp_unreadable_file(tmp_path):
-    """v1 swallows ``OSError`` (``{}`` and a log line); v2 raises it.
-    Every v1 caller except ``selection`` already wraps the call; selection
-    would turn a vanished CIFP file from "airport skipped" into a failed
-    selection."""
+def test_selection_patches_an_airport_whose_thresholds_are_all_below_sea(
+        tmp_path, monkeypatch):
+    """RULED (owner 2026-10-18, #911 Q1): an airport whose every runway
+    threshold is below sea level is SELECTED for patching (v1 parsed its
+    runways to ``{}`` and never patched it)."""
+    from auto_patch import selection
+
+    cifp = tmp_path / "CIFP"
+    write_text(cifp / "ZZZZ.dat",
+               RWY_18R_BELOW_SEA + "\n" + RWY_36L_BELOW_SEA + "\n")
+    monkeypatch.setattr(V2_CIFP, "xplane_root_from_cifp_path",
+                        lambda path: "/fake/xplane")
+    monkeypatch.setattr(
+        "auto_patch.build_support._pick_best_apt_dat_against_osm",
+        lambda root, icao, *a, **k: "/fake/apt.dat")
+    tile = type("Tile", (), {"lat": 52, "lon": 4})()
+    got = selection.select_patch_airports(tile, str(cifp), "ICAO",
+                                          manual_icaos=())
+    assert [(c.icao, c.disposition) for c in got] == [("ZZZZ", "patch")]
+    assert sorted(got[0].runways) == ["RW18R", "RW36L"]
+
+
+def test_an_unreadable_cifp_file_skips_the_airport_not_the_tile(tmp_path):
+    """The OSError choice: v2 ``read_cifp_runways`` raises (the airport
+    load checks ``isfile`` first); the selection shape keeps v1's caller-
+    visible behaviour — a vanished file is no runways, so selection skips
+    that airport instead of failing the tile."""
     missing = str(tmp_path / "GONE.dat")
-    assert V1_CIFP.parse_cifp_file(missing) == {}
+    assert V2_CIFP.read_threshold_dicts(missing) == {}
     with pytest.raises(OSError):
         V2_CIFP.read_cifp_runways(missing)
 

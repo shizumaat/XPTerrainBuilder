@@ -1,10 +1,10 @@
-"""CIFP path-resolution tests: ``cifp_reader.xplane_root_from_cifp_path``
+"""CIFP path-resolution tests: ``airport.cifp.xplane_root_from_cifp_path``
 and ``elevation._find_cifp_path``.
 
 Standalone path-resolution tests; require no X-Plane install or
 fixture data.
 """
-from auto_patch import cifp_reader as AP
+from auto_patch_v2.airport import cifp as AP
 from auto_patch.build_support import _find_cifp_path
 
 

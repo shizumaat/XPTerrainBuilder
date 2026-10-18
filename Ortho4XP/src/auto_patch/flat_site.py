@@ -129,7 +129,7 @@ def cifp_threshold_elevations(xplane_root: str, icao: str) -> list:
     """Every CIFP runway threshold elevation (metres) for ``icao``.
 
     Uses the engine's OWN CIFP locator and parser
-    (``elevation._find_cifp_path`` → ``cifp_reader.parse_cifp_file``) so
+    (``build_support._find_cifp_path`` → ``airport.cifp.read_cifp_runways``) so
     the detector reads the same file, with the same AIRAC precedence, as
     the runway profile does.  Empty list when no CIFP file exists.
     """
@@ -142,20 +142,16 @@ def cifp_threshold_elevations(xplane_root: str, icao: str) -> list:
 
 
 def cifp_threshold_elevations_from_file(path: str) -> list:
-    """The threshold elevations in one CIFP ``.dat`` file, metres."""
-    from . import cifp_reader as _CIFP
+    """The threshold elevations in one CIFP ``.dat`` file, metres —
+    below-sea-level thresholds included (owner 2026-10-18, #911 Q1).
+    An unreadable file is no thresholds."""
+    from auto_patch_v2.airport.cifp import read_cifp_runways
 
     try:
-        runways = _CIFP.parse_cifp_file(path)
-    except Exception:                                # pragma: no cover
+        runways = read_cifp_runways(path)
+    except (OSError, ValueError):
         return []
-    out = []
-    for record in (runways or {}).values():
-        try:
-            out.append(float(record["elevation_m"]))
-        except (KeyError, TypeError, ValueError):
-            continue
-    return out
+    return [float(r.elevation_m) for r in runways.values()]
 
 
 def threshold_consensus(elevations_m: Sequence) -> dict:

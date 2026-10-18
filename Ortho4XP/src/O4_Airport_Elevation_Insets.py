@@ -3066,7 +3066,7 @@ def _xplane_root_for_package_footprints():
     configuration.  The resolution order mirrors what ``O4_Vector_Map``
     already does to locate CIFP data (the reverse direction of the same
     derivation): ``cifp_data_path`` walked up two levels via
-    ``auto_patch.cifp_reader.xplane_root_from_cifp_path``, then the parent
+    ``auto_patch_v2.airport.cifp.xplane_root_from_cifp_path``, then the parent
     of ``custom_scenery_dir``.  A CIFP path pointing outside an X-Plane
     install (a Navigraph folder) is rejected by requiring ``Custom
     Scenery`` under the derived root, and falls through to the next source.
@@ -3085,7 +3085,7 @@ def _xplane_root_for_package_footprints():
     cifp_path = getattr(configuration, "cifp_data_path", "") or ""
     if cifp_path:
         try:
-            from auto_patch.cifp_reader import xplane_root_from_cifp_path
+            from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
 
             root = xplane_root_from_cifp_path(cifp_path)
         except Exception:

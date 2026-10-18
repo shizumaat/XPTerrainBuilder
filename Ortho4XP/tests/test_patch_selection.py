@@ -35,15 +35,15 @@ def synthetic(tmp_path, monkeypatch):
     runways = {"01": _threshold(38.5, -9.5), "19": _threshold(38.6, -9.4)}
 
     monkeypatch.setattr(
-        "auto_patch.cifp_reader.discover_cifp_airports",
+        "auto_patch_v2.airport.cifp.discover_cifp_airports",
         lambda path: {c: os.path.join(str(cifp), "%s.dat" % c) for c in codes})
-    monkeypatch.setattr("auto_patch.cifp_reader.parse_cifp_file",
+    monkeypatch.setattr("auto_patch_v2.airport.cifp.read_threshold_dicts",
                         lambda path: dict(runways))
-    monkeypatch.setattr("auto_patch.cifp_reader.airport_in_tile",
+    monkeypatch.setattr("auto_patch_v2.airport.cifp.airport_in_tile",
                         lambda rw, lat, lon: True)
     monkeypatch.setattr("auto_patch.build_support.pair_runways",
                         lambda rw: [("01", rw["01"], "19", rw["19"])])
-    monkeypatch.setattr("auto_patch.cifp_reader.xplane_root_from_cifp_path",
+    monkeypatch.setattr("auto_patch_v2.airport.cifp.xplane_root_from_cifp_path",
                         lambda path: "/fake/xplane")
 
     apt = {"LPMT": "/fake/a.dat", "LPPT": "/fake/b.dat", "LPCS": None,
@@ -95,7 +95,7 @@ def test_mode_None_returns_nothing_without_opening_cifp(synthetic,
     monkeypatch.setattr(builtins, "open",
                         lambda *a, **k: (opened.append(a), real_open(*a, **k))[1])
     monkeypatch.setattr(
-        "auto_patch.cifp_reader.discover_cifp_airports",
+        "auto_patch_v2.airport.cifp.discover_cifp_airports",
         lambda path: pytest.fail("mode None must not scan the CIFP dir"))
     assert SEL.select_patch_airports(
         synthetic, synthetic.cifp, "None", manual_icaos=()) == []

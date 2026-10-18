@@ -76,7 +76,7 @@ def xplane_root_for(lat: int, lon: int) -> str | None:
     install — ``patch_commands`` and the tile driver resolve it so)."""
     import O4_Config_Utils as CFG
     import O4_Vector_Map as VMAP
-    from auto_patch.cifp_reader import xplane_root_from_cifp_path
+    from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
     tile = CFG.Tile(lat, lon, "")
     tile.read_from_config()
     cifp_dir = VMAP.resolve_cifp_dir_for_tile(tile)

@@ -55,6 +55,7 @@ struct MapCanvasView: View {
                 draw(context: context, size: size)
             }
             .overlay { PatchOverlay(model: buildModel.patchEdit, camera: camera) }
+            .overlay { FlightRouteOverlay(model: buildModel.flightPlan, camera: camera) }
             .background(Self.ocean)
             .gesture(pan(size: proxy.size))
             .gesture(tileSelect(size: proxy.size))

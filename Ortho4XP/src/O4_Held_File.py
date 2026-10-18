@@ -11,7 +11,14 @@ neither refusal says the operation was wrong.  Two engine sites meet it:
   of PR #202, and the origin of this policy);
 * the bathymetry band's ``os.remove`` of ``fetch.lock``, which a waiter
   inside ``_acquire_band_lock``'s poll loop opens for its staleness read
-  (#230 / #249, measured as an intermittent windows-latest red).
+  (#230 / #249, measured as an intermittent windows-latest red);
+* the same lock's exclusive CREATE right after its owner released it: a
+  file deleted while some other handle (Defender, the indexer) still has
+  it open stays "delete pending" under its name until that handle
+  closes, and ``CreateFile(CREATE_NEW)`` on that name is refused with
+  ``ERROR_ACCESS_DENIED``.  ``os.open`` goes through the C runtime, which
+  reports it as a bare ``EACCES`` with no ``winerror`` (#884, measured on
+  windows-latest as the waiter's thread dying with ``PermissionError``).
 
 No holder in either case lasts: the condition is transient by nature, so
 the remedy is a bounded retry with a doubling backoff around the ONE
@@ -33,6 +40,7 @@ this freely.
 
 from __future__ import annotations
 
+import errno
 import os
 import sys
 import time
@@ -66,21 +74,43 @@ def is_held_file_error(error: OSError) -> bool:
     return getattr(error, "winerror", None) in WINDOWS_HELD_FILE_ERRORS
 
 
-def retrying_a_held_file(operation: Callable[[], T]) -> T:
+def is_held_name_on_create(error: OSError) -> bool:
+    """Is ``error`` Windows refusing an EXCLUSIVE CREATE because the name
+    is still held -- a file deleted while another handle is open stays
+    "delete pending" until that handle closes?
+
+    For an ``os.open(..., O_CREAT | O_EXCL)`` only: the C runtime turns
+    ``ERROR_ACCESS_DENIED`` into a bare ``EACCES`` with no ``winerror``,
+    which in general could be any permission failure -- so this is never
+    the default predicate.  At an exclusive create of a file the caller
+    owns the directory of, it is the held name; a genuine permission
+    failure still raises after the bounded attempts.
+    """
+    return is_held_file_error(error) or (
+        getattr(error, "winerror", None) is None
+        and error.errno == errno.EACCES
+    )
+
+
+def retrying_a_held_file(
+    operation: Callable[[], T],
+    is_held: Callable[[OSError], bool] = is_held_file_error,
+) -> T:
     """Call ``operation()``, retrying ONLY a held-file refusal.
 
     The bounded, doubling backoff of the constants above is spent only on
-    :func:`is_held_file_error`, and only on Windows; the last attempt
-    raises like any other, so a holder that never lets go is reported
-    rather than waited out forever.  Anything else raises on the first
-    attempt, untouched.
+    ``is_held`` (:func:`is_held_file_error` unless the call site passes a
+    narrower-context predicate such as :func:`is_held_name_on_create`),
+    and only on Windows; the last attempt raises like any other, so a
+    holder that never lets go is reported rather than waited out forever.
+    Anything else raises on the first attempt, untouched.
     """
     backoff = HELD_FILE_FIRST_BACKOFF_S
     for attempt in range(1, HELD_FILE_ATTEMPTS + 1):
         try:
             return operation()
         except OSError as error:
-            if (not RETRY_HELD_FILE or not is_held_file_error(error)
+            if (not RETRY_HELD_FILE or not is_held(error)
                     or attempt == HELD_FILE_ATTEMPTS):
                 raise
             time.sleep(backoff)

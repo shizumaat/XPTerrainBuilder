@@ -20,9 +20,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-import O4_File_Names as FNAMES                                # noqa: E402
-import O4_Mesh_Utils as MESH                                  # noqa: E402
-import O4_UI_Utils as UI                                      # noqa: E402
+import O4_File_Names as FNAMES  # noqa: E402
+import O4_Mesh_Utils as MESH  # noqa: E402
+import O4_UI_Utils as UI  # noqa: E402
 
 NX = NY = 3
 

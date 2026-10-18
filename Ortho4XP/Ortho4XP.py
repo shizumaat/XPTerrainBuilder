@@ -77,8 +77,8 @@ if __name__ == '__main__' and '--tls-selfcheck' in sys.argv:
 # Lazy-import smoke test as a CLI (#130): the frozen bundle must carry
 # every package the engine imports inside a function (laspy).
 if __name__ == '__main__' and '--import-selfcheck' in sys.argv:
-    import O4_Proj_Runtime
-    sys.exit(O4_Proj_Runtime.import_selfcheck_main(sys.argv))
+    import O4_Import_Selfcheck
+    sys.exit(O4_Import_Selfcheck.import_selfcheck_main(sys.argv))
 
 # Imagery fetch self-check as a CLI (imagery-fetch-spec §5): one texture
 # through download_jpeg_ortho with the fetcher O4_IMAGERY_FETCHER selects —

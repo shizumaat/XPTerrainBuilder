@@ -21,9 +21,8 @@ Command-line tooling for the auto-patch engine. Everything here is live: each fi
 below is reachable from `src/`, `tests/`, a `CLAUDE.md`, `scripts/`, CI, the Swift
 `Sources/`, or `tools/artifact_contracts.json` — or is a data file those tools own.
 
-Retired diagnostics live in [`attic/`](attic/README.md) (owner ruling 2026-07-26);
-they are not maintained and do not run from that directory without a one-line
-`sys.path` fix, documented there.
+A retired tool is deleted, not kept (owner RULINGS 2026-10-18a, superseding the
+2026-07-26 `attic/` ruling); git history keeps it.
 
 **Run from `Ortho4XP/`**, with `venv/` and `OSM_data/` present. A wrong cwd exits 0
 with a silently smaller layout, which reads as a fake speedup.
@@ -38,7 +37,6 @@ a test collector touch them, runs a full airport build:
 | `check_connector_coverage.py` | `build_airport_pavement()` at line 20 |
 | `full_airport_build.py` | `build_airport_pavement()` at line 36 |
 
-(Ten more unguarded tools moved to `attic/` in the same ruling.) `_diag.py`,
 `mesh_elevation_sampler.py` and `obj8_geometry.py` also lack a guard but do no
 module-level work — they are libraries and are safe to import.
 
@@ -106,7 +104,6 @@ module-level work — they are libraries and are safe to import.
 
 | File | One line |
 |---|---|
-| `_diag.py` | Shared helpers for the diagnostic tools: `sys.path` setup, X-Plane root default, `build` / `build_capturing_union`, geometry→OSM dump, shape signatures. **After the 2026-07-26 ruling all five of its importers are in `attic/`** — no live tool uses it |
 | `obj8_geometry.py` | OBJ8 geometry and DSF object-placement primitives — anchor vs geometry reach, the basis of the whole re-anchor family |
 | `msfs_to_obj8/` | MSFS glTF → OBJ8 conversion package (`convert`, `gltf_reader`, `atlas_pack`, `material_fidelity`) |
 | `obj8_building_gen/` | Procedural OBJ8 building generation (`geometry`, `atlas`, `texture`, `obj8_writer`) |
@@ -114,4 +111,3 @@ module-level work — they are libraries and are safe to import.
 | `build_time_baselines.json` | Committed per-airport / per-tile baselines `check_build_time.py` measures against |
 | `build_time_approvals.json` | Committed owner approvals that let a specific regression pass |
 | `run_ledger.jsonl` | Append-only run ledger written by `run_with_ledger.py` |
-| `attic/` | Retired diagnostics — see [`attic/README.md`](attic/README.md) |

@@ -84,6 +84,7 @@ _CLASSIFY_SIDE = ("CLUSTER_PADS", "PAD_REFUSED")
 def classify_side_state() -> dict[str, _t.Any]:
     """A deep copy of :data:`_CLASSIFY_SIDE` as ``classify`` left them."""
     import copy
+
     from ..classify import evidence as _ev
     return {k: copy.deepcopy(getattr(_ev, k)) for k in _CLASSIFY_SIDE}
 
@@ -91,6 +92,7 @@ def classify_side_state() -> dict[str, _t.Any]:
 def install_classify_side_state(state: _t.Mapping[str, _t.Any]) -> None:
     """Put a recorded side state back into the module globals, in place."""
     import copy
+
     from ..classify import evidence as _ev
     for k in _CLASSIFY_SIDE:
         live = getattr(_ev, k)

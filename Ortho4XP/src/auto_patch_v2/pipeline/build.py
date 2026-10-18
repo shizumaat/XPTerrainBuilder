@@ -1000,8 +1000,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         lambda lw: preferred_road_z(airport, pm, lw, inputs.road_grade_limit,
                                     inputs.lane_width_m))
     pm = _dc.replace(pm, preferred_z=road_pref)
-    # the target channels below read the law the shape record is keyed on
-    _law_c = fc.stage_law()
     wall["road_profile"] = time.perf_counter() - t
     # THE RUNWAY PROFILE (RULINGS 2026-09-08d (1) / 09-10q/10r/10t (3), spec
     # §21; ``constraints/runway_chord.py``): every runway-family vertex of a
@@ -1010,7 +1008,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # straight chord where the DEM frame is degraded.  The DEM fit stays for
     # every other role.
     chord_rep: ChordReport = {}
-    pm = with_runway_chord(pm, _law_c, airport, chord_rep)
+    pm = with_runway_chord(pm, law, airport, chord_rep)
     lrep.runway_chord = dict(chord_rep)
     _say(f"[{icao}] runway profile (08d-1/10t-3): target {chord_rep.get('target_kind', '-')} "
          f"(window {chord_rep.get('window_m', 0.0):.0f} m, {chord_rep.get('runways_trend', 0)} trend / "
@@ -1042,7 +1040,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # taxi_trend``.  Fitted AFTER the runway profile, because a chain's
     # runway contact is pinned to the runway's own target.
     tt_rep: TaxiTrendReport = {}
-    pm = with_taxi_trend(pm, _law_c, airport, tt_rep)
+    pm = with_taxi_trend(pm, law, airport, tt_rep)
     lrep.taxi_trend = dict(tt_rep)
     _say(f"[{icao}] taxi profile (10v-1): {tt_rep.get('chains', 0)} chains "
          f"({tt_rep.get('chains_without', 0)} without a fit) "
@@ -1060,7 +1058,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # because a vertex the taxi chain already holds takes no second
     # authority.
     at_rep: ApronTrendReport = {}
-    pm = with_apron_trend(pm, _law_c, airport, at_rep)
+    pm = with_apron_trend(pm, law, airport, at_rep)
     lrep.apron_trend = dict(at_rep)
     _say(f"[{icao}] apron surface (10ar): {at_rep.get('bodies', 0)} bodies on the "
          f"ground's 2-D TREND ({at_rep.get('vertices', 0)} vertices, "
@@ -1081,7 +1079,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # trend channels are WITHDRAWN, not outweighed.  Runs AFTER both are
     # published, so neither claim is re-opened by the other's absence.
     er_rep: dict = {}
-    pm = withdraw_trend_over_reach(pm, _law_c, airport, er_rep)
+    pm = withdraw_trend_over_reach(pm, law, airport, er_rep)
     lrep.eat_reach = dict(er_rep)
     if er_rep.get("pins"):
         _say(f"[{icao}] EAT ramp reach (13aa/§36-5): {er_rep.get('pins', 0)} pinned feet on "
@@ -1102,13 +1100,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # the core's soft road fit for every vertex it governs — the ONE
     # superseding site.  The rows are ``constraints/road_ramp.py``'s.
     ramp_rep: dict = {}
-    pm = with_road_ramp(pm, _law_c, airport, ramp_rep, road_profiles,
+    pm = with_road_ramp(pm, law, airport, ramp_rep, road_profiles,
                         service=load_rules().service)
     # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): the core
     # levels the road OUTSIDE the coverage and not inside it, so where a
     # way leaves, the patch takes the ribbon's own altitude there.
     join_rep: dict = {}
-    pm = with_road_coverage_join(pm, _law_c, road_profiles, join_rep)
+    pm = with_road_coverage_join(pm, law, road_profiles, join_rep)
     ramp_rep.update({f"join_{k}": v for k, v in join_rep.items()})
     lrep.road_ramp = dict(ramp_rep)
     rs = road_rep["profiles"]
@@ -1148,7 +1146,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     stage, _shape_lines = fc.run(
         "shapes", {**_fc_in, "airport": _fc_ap, "planar": fc.output_digest("planar"),
                    "road_profile": fc.output_digest("road_profile"),
-                   "classification": _cl_digest, "params": _fc_params}, _shapes)
+                   "classification": _cl_digest, "params": _fc_params}, _shapes,
+        whole_law=True)
     fc.close()
     for _ln in _shape_lines:
         _say(_ln, out)
@@ -1635,7 +1634,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         if cfg.verify:
             t = time.perf_counter()
             _pulse.tick("verifying the patch")
-            from ..constraints.roads import road_law_caps
+            from ..constraints.roads import roadlawaps
             from ..verify import census_frame
             # ONE FRAME FOR THE WHOLE VERIFY STAGE (lane ``v2cost2``,
             # RULINGS 2026-09-14q item 7): the caps and the ``Patch`` were
@@ -1643,7 +1642,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             # ``apron_over_preference`` below, the second time AFTER this
             # clock stopped, which is where OTHH's 105 unattributed
             # seconds were.  Same rows, one frame, inside the clock.
-            _caps = road_law_caps(pm, law, airport)
+            _caps = roadlawaps(pm, law, airport)
             # §34 (9) (RULINGS 2026-09-14ak/14am): the PINCHED RAMP faces
             # whose within-shape longitudinal cap is LIFTED — the same map
             # ``face_tags`` stamps on the ways for the v1 census.

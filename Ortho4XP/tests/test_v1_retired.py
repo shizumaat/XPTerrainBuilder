@@ -60,7 +60,6 @@ KEEP = frozenset({
     # the readers
     "auto_patch.agp_reader",
     "auto_patch.apt_dat_reader",
-    "auto_patch.cifp_reader",
     "auto_patch.dsf_reader",
     "auto_patch.osm_aeroway",
     "auto_patch.flat_site_mode",

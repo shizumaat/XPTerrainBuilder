@@ -98,8 +98,8 @@ def _staleness(tile: str, icao: str, doc: PF.PatchFile, source: str
     import O4_Config_Utils as CFG
     import O4_Vector_Map as VMAP
     from auto_patch import driver
-    from auto_patch.cifp_reader import (discover_cifp_airports,
-                                        xplane_root_from_cifp_path)
+    from auto_patch_v2.airport.cifp import (discover_cifp_airports,
+                                            xplane_root_from_cifp_path)
     lat, lon = _tile(tile)
     t = CFG.Tile(lat, lon, "")
     t.read_from_config()

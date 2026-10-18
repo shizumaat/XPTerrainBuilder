@@ -78,7 +78,8 @@ APT_SVC_PTS = [(0.0, 0.0), (50.0, 0.0)]
 
 
 class _FakeCenterline:
-    """The ``apt_dat_reader.TaxiCenterline`` surface the law reads."""
+    """The taxi-centerline surface the law reads (v1 ``TaxiCenterline``
+    retired, #852)."""
 
     def __init__(self, pts, is_service=False, seg_sizes=None):
         self.line = LineString(pts)

@@ -166,9 +166,9 @@ def apt_dat_airport(apt_dat_path, icao, scratch_dir):
     engine's reader and parsed by the gap census's ``iter_airports`` (one
     parser); the footprint is the census's ``footprint`` at zero buffer;
     ``runway_ends`` is ``[(name, lat, lon)]`` from every row 100."""
-    from auto_patch.apt_dat_reader import _read_airport_block
+    from auto_patch_v2.airport.apt_dat import read_airport_block
 
-    block = _read_airport_block(apt_dat_path, icao)
+    block = read_airport_block(apt_dat_path, icao)
     if not block:
         return None
     census = _census_module()

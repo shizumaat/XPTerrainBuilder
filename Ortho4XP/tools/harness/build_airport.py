@@ -979,9 +979,9 @@ def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
     copied; the elevation is row 1's, in feet."""
     from elevation_access import vertical_units as ea_vertical_units
     from O4_MSFS_XPlane_Pack import _AirportPositionAccumulator
-    from auto_patch.apt_dat_reader import _read_airport_block
+    from auto_patch_v2.airport.apt_dat import read_airport_block
 
-    block = _read_airport_block(apt_dat_path, icao)
+    block = read_airport_block(apt_dat_path, icao)
     if not block:
         return None
     try:
@@ -4481,12 +4481,12 @@ def resolve_tile_for(icao: str, root: Path):
             sys.path.insert(0, str(p))
     try:
         from conftest import xplane_root
-        from auto_patch.apt_dat_reader import (find_airport_apt_dat,
-                                               _read_airport_block)
-        path = find_airport_apt_dat(xplane_root(), icao)
+        from auto_patch_v2.airport.apt_dat import (read_airport_block,
+                                                   select_apt_dat)
+        path = select_apt_dat(xplane_root(), icao)
         if not path:
             return None
-        for line in (_read_airport_block(path, icao) or []):
+        for line in (read_airport_block(path, icao) or []):
             toks = line.split()
             if not toks:
                 continue

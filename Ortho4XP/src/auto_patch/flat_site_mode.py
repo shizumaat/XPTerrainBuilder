@@ -214,7 +214,7 @@ def _resolve_xplane_root() -> str | None:
         return None
     cifp_path = getattr(_CFG, "cifp_data_path", "") or ""
     if cifp_path:
-        from .cifp_reader import xplane_root_from_cifp_path
+        from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
 
         root = xplane_root_from_cifp_path(cifp_path)
         if root:
@@ -310,20 +310,21 @@ OBJECT_CLUSTER_MIN_PLACEMENTS = 5
 def _cifp_runways(xplane_root: str, icao: str) -> dict:
     """The CIFP runway records for ``icao`` — the DRIVER's own dict.
 
-    ``elevation._find_cifp_path`` → ``cifp_reader.parse_cifp_file`` is
+    ``build_support._find_cifp_path`` → ``airport.cifp.read_threshold_dicts`` is
     the pair ``driver.run_auto_patch_generation`` builds its worklist
     claim from, and the pair the detector already reads elevations
     through, so the claim geometry computed here is the claim geometry
     Phase 2 partitions with.  ``{}`` when no CIFP file exists.
     """
-    from . import cifp_reader as _CIFP
+    from auto_patch_v2.airport.cifp import read_threshold_dicts
+
     from .build_support import _find_cifp_path
 
     try:
         path = _find_cifp_path(xplane_root, icao)
         if not path:
             return {}
-        return _CIFP.parse_cifp_file(path) or {}
+        return read_threshold_dicts(path)
     except Exception:                                    # pragma: no cover
         return {}
 

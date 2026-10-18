@@ -166,11 +166,12 @@ def test_staleness_compares_the_recorded_stamps(heca, patches, monkeypatch):
             pass
 
     import O4_Config_Utils as CFG
-    from auto_patch import cifp_reader, driver
+    from auto_patch import driver
+    from auto_patch_v2.airport import cifp
     monkeypatch.setattr(CFG, "Tile", _Tile)
     monkeypatch.setattr(VMAP, "resolve_cifp_dir_for_tile", lambda t: "/cifp")
-    monkeypatch.setattr(cifp_reader, "xplane_root_from_cifp_path", lambda p: "/xp")
-    monkeypatch.setattr(cifp_reader, "discover_cifp_airports", lambda p: {"HECA": "/cifp/HECA.dat"})
+    monkeypatch.setattr(cifp, "xplane_root_from_cifp_path", lambda p: "/xp")
+    monkeypatch.setattr(cifp, "discover_cifp_airports", lambda p: {"HECA": "/cifp/HECA.dat"})
 
     def stale(meta, patch_file, xp_root, icao, **kw):
         seen.update(meta=meta, xp_root=xp_root, cifp=kw["cifp_file"])

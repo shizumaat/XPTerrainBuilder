@@ -159,15 +159,15 @@ def test_the_selector_marks_a_straddler_boundary_skipped(tmp_path,
     """End to end through `select_patch_airports`: class S + cold ⇒
     disposition `boundary_skipped`, never `patch`."""
     apt = _apt(tmp_path, "sel", _pavement(60.0))
-    monkeypatch.setattr("auto_patch.cifp_reader.discover_cifp_airports",
+    monkeypatch.setattr("auto_patch_v2.airport.cifp.discover_cifp_airports",
                         lambda path: {"ZZZZ": "z.dat"})
-    monkeypatch.setattr("auto_patch.cifp_reader.parse_cifp_file",
+    monkeypatch.setattr("auto_patch_v2.airport.cifp.read_threshold_dicts",
                         lambda path: {"09": {"lat": LAT, "lon": _lon(10.0)}})
-    monkeypatch.setattr("auto_patch.cifp_reader.airport_in_tile",
+    monkeypatch.setattr("auto_patch_v2.airport.cifp.airport_in_tile",
                         lambda rw, lat, lon: True)
     monkeypatch.setattr("auto_patch.build_support.pair_runways",
                         lambda rw: [("09", 1, "27", 2)])
-    monkeypatch.setattr("auto_patch.cifp_reader.xplane_root_from_cifp_path",
+    monkeypatch.setattr("auto_patch_v2.airport.cifp.xplane_root_from_cifp_path",
                         lambda path: "/fake")
     monkeypatch.setattr(
         "auto_patch.build_support._pick_best_apt_dat_against_osm",

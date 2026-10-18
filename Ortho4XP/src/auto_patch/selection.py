@@ -100,13 +100,14 @@ def select_patch_airports(tile, cifp_path: str, mode: str, *,
     if mode == "None":
         return []
 
-    from . import build_support as _bs
-    from . import cifp_reader as _cifp
+    from auto_patch_v2.airport import cifp as _cifp
 
-    (airport_in_tile, discover_cifp_airports, parse_cifp_file,
+    from . import build_support as _bs
+
+    (airport_in_tile, discover_cifp_airports, read_threshold_dicts,
      xplane_root_from_cifp_path) = (
         _cifp.airport_in_tile, _cifp.discover_cifp_airports,
-        _cifp.parse_cifp_file, _cifp.xplane_root_from_cifp_path)
+        _cifp.read_threshold_dicts, _cifp.xplane_root_from_cifp_path)
     pair_runways = _bs.pair_runways
 
     manual = {str(code).upper() for code in (manual_icaos or ())}
@@ -121,7 +122,7 @@ def select_patch_airports(tile, cifp_path: str, mode: str, *,
             out.append(PatchCandidate(icao, filepath, {}, "manual",
                                       "a manual patch covers this airport"))
             continue
-        runways = parse_cifp_file(filepath)
+        runways = read_threshold_dicts(filepath)
         if not runways:
             continue
         if not airport_in_tile(runways, tile_lat, tile_lon):

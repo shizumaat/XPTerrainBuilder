@@ -16,15 +16,18 @@ closure and fails on a module a step imports and its list omits, and on
 the reverse — the #346 guarantee: no code a step's output depends on can
 change without staling that step.
 
-MEASURED 2026-10-18: the three closures are THE SAME 489 of the 578
-modules under ``src`` (``O4_Mask_Utils`` → ``O4_Mesh_Utils`` →
-``O4_Vector_Map`` → ``auto_patch.driver``; ``O4_DEM_Utils`` →
-``O4_Elevation_Level`` → ``O4_Config_Utils`` → ``O4_Tile_Utils`` →
-``O4_DSF_Utils``).  They share one list (:data:`_TILE_CORE`) until the
-twin says they differ; then each step gets its own.  What a step no
-longer keys on: the app session (``o4_engine``), the Qt GUI, the MSFS
-converters, ``Unused`` and 12 ``auto_patch_v2`` modules the tile core
-does not import.
+MEASURED 2026-10-18 (#892): the three closures were THE SAME 489 of the
+578 modules under ``src``.  After the hub-edge cuts (lane ``cloudstepcut``:
+the config's module settings, the object stage out of ``engine_v2``,
+``build_airports_dico`` / ``triangulate`` / the bank annulus into leaves):
+vector 458, mesh 468, masks 476 of 584 — vector is :data:`_SHARED`
+exactly; mesh adds the object stage and the mesh module, masks adds the
+imagery / DDS modules and the mask module.  What still joins them:
+``O4_Airport_Elevation_Insets`` → ``auto_patch.flat_site_mode`` →
+``O4_Vector_Map`` (and the patch driver), a cut left for a traced build.
+What no step keys on: the app session (``o4_engine``), the Qt GUI, the
+MSFS converters, ``Unused`` and the ``auto_patch_v2`` modules the tile
+core does not import.
 
 DATA: the whole-tree digest covered the ``.toml`` law tables; every step
 keeps them (:data:`DATA_FILES`, all of them — the law and classifier
@@ -141,75 +144,48 @@ def step_digest(step: str) -> str | None:
     return _DIGESTS.get(step)
 
 
-#: Each step's static import closure under ``src``, sorted — the code
-#: half of its key.  Held by ``tests/test_step_code_closure.py``; when it
-#: fails, the message names the modules to add or drop (and, when the
-#: steps' closures come apart, gives each step its own tuple).  A package
-#: is listed as its ``__init__``.
-_TILE_CORE: tuple[str, ...] = (
+#: Each step's static import closure under ``src`` is ``_SHARED`` plus
+#: its own ``_BEYOND_SHARED[step]`` — the code half of its key.  Held by
+#: ``tests/test_step_code_closure.py``; when it fails, the message names
+#: the modules to add or drop.  A package is listed as its ``__init__``.
+#: Measured 458 shared; vector 458, mesh 468, masks 476 of 584 modules.
+_SHARED: tuple[str, ...] = (
     "O4_Airport_Batch",
+    "O4_Airport_Dico",
     "O4_Airport_Elevation_Insets",
-    "O4_Airport_Fade_Masks",
     "O4_Airport_Index",
     "O4_Airport_Modes",
     "O4_Airport_Rank",
     "O4_Airport_Utils",
     "O4_Authenticated_Sessions",
-    "O4_Bathymetry",
+    "O4_Bank_Annulus",
     "O4_Bathymetry_Band",
     "O4_Build_Info",
+    "O4_Cfg_Module_Values",
     "O4_Cfg_Vars",
-    "O4_Coastal_Foam_Edge",
     "O4_Code_Closure",
-    "O4_Color_Harmonization",
     "O4_Config_Utils",
     "O4_Console_Encoding",
     "O4_Coral_Atlas",
-    "O4_DDS_Encode",
-    "O4_DDS_File",
-    "O4_DDS_Mips",
-    "O4_DDS_Refine",
     "O4_DEM_Utils",
     "O4_DSFTool",
-    "O4_DSF_Utils",
-    "O4_Default_Terrain_Map",
     "O4_Elevation_Level",
     "O4_External_Writes",
     "O4_File_Lock",
     "O4_File_Names",
     "O4_Geo_Utils",
     "O4_Held_File",
-    "O4_Http_Pushback",
-    "O4_Imagery_Async",
-    "O4_Imagery_Certs",
-    "O4_Imagery_Fetch",
-    "O4_Imagery_Progress",
-    "O4_Imagery_Selfcheck",
-    "O4_Imagery_Utils",
-    "O4_Mask_Utils",
-    "O4_Mesh_IO",
-    "O4_Mesh_Utils",
-    "O4_Num_Text",
     "O4_OSM_Extract_Filter",
     "O4_OSM_Extracts",
     "O4_OSM_Utils",
-    "O4_Overlay_Utils",
     "O4_Parallel_Utils",
     "O4_Process_Liveness",
     "O4_Proj_Runtime",
     "O4_Scenery_Links",
     "O4_Scenery_Packs",
-    "O4_Sea_Nodata_Fill",
     "O4_Settings_Model",
-    "O4_Step_Code",
-    "O4_Step_Reuse",
-    "O4_Stopped_Build",
     "O4_Text_Files",
     "O4_Tile_Failures",
-    "O4_Tile_Staging",
-    "O4_Tile_Utils",
-    "O4_Triangle_Binary",
-    "O4_Triangle_IO",
     "O4_UI_Utils",
     "O4_Unmounted_Links",
     "O4_Unpatched_Airports",
@@ -294,7 +270,6 @@ _TILE_CORE: tuple[str, ...] = (
     "auto_patch_v2.airport.osm",
     "auto_patch_v2.airport.pack",
     "auto_patch_v2.airport.pack_art",
-    "auto_patch_v2.airport.pack_journal",
     "auto_patch_v2.airport.pack_partition",
     "auto_patch_v2.airport.pack_work",
     "auto_patch_v2.airport.pad_block_seat",
@@ -321,7 +296,6 @@ _TILE_CORE: tuple[str, ...] = (
     "auto_patch_v2.airport.placement_seams",
     "auto_patch_v2.airport.placement_seat_tilt",
     "auto_patch_v2.airport.placement_targets",
-    "auto_patch_v2.airport.placement_write",
     "auto_patch_v2.airport.pool",
     "auto_patch_v2.airport.ramp_feet",
     "auto_patch_v2.airport.reader_work",
@@ -335,7 +309,6 @@ _TILE_CORE: tuple[str, ...] = (
     "auto_patch_v2.airport.scatter",
     "auto_patch_v2.airport.sheet_chain",
     "auto_patch_v2.airport.skirt",
-    "auto_patch_v2.airport.slab_drape",
     "auto_patch_v2.airport.slab_faces",
     "auto_patch_v2.airport.slab_plates",
     "auto_patch_v2.airport.sunken_ramp",
@@ -344,7 +317,6 @@ _TILE_CORE: tuple[str, ...] = (
     "auto_patch_v2.airport.topology_cache",
     "auto_patch_v2.airport.tunnel_objects",
     "auto_patch_v2.airport.tunnel_walls",
-    "auto_patch_v2.airport.unpatched_pack",
     "auto_patch_v2.airport.wall_class",
     "auto_patch_v2.airport.wall_corridor_probe",
     "auto_patch_v2.airport.wall_corridors",
@@ -638,8 +610,45 @@ _TILE_CORE: tuple[str, ...] = (
     "o4_engine.task_meter",
 )
 
+#: What each step imports beyond :data:`_SHARED`.
+_BEYOND_SHARED: dict[str, tuple[str, ...]] = {
+    "vector": (
+    ),
+    "mesh": (
+        "O4_Mesh_IO",
+        "O4_Mesh_Utils",
+        "O4_Num_Text",
+        "O4_Triangle_Binary",
+        "O4_Triangle_IO",
+        "auto_patch.object_stage",
+        "auto_patch_v2.airport.pack_journal",
+        "auto_patch_v2.airport.placement_write",
+        "auto_patch_v2.airport.slab_drape",
+        "auto_patch_v2.airport.unpatched_pack",
+    ),
+    "masks": (
+        "O4_Coastal_Foam_Edge",
+        "O4_Color_Harmonization",
+        "O4_DDS_Encode",
+        "O4_DDS_File",
+        "O4_DDS_Mips",
+        "O4_DDS_Refine",
+        "O4_Http_Pushback",
+        "O4_Imagery_Async",
+        "O4_Imagery_Certs",
+        "O4_Imagery_Fetch",
+        "O4_Imagery_Utils",
+        "O4_Mask_Utils",
+        "O4_Mesh_IO",
+        "O4_Num_Text",
+        "O4_Sea_Nodata_Fill",
+        "O4_Triangle_Binary",
+        "O4_Triangle_IO",
+        "O4_Triangle_Run",
+    ),
+}
+
 CODE_MODULES: dict[str, tuple[str, ...]] = {
-    "vector": _TILE_CORE,
-    "mesh": _TILE_CORE,
-    "masks": _TILE_CORE,
+    step: tuple(sorted(_SHARED + _BEYOND_SHARED[step]))
+    for step in STEPS
 }

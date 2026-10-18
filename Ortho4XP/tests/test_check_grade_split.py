@@ -89,7 +89,9 @@ def test_every_family_row_is_mains_on_the_synthetic_patch(frozen, tmp_path):
     got = family_rows_digest(_synthetic_patch(tmp_path))
     # the moved families must actually be exercised by the patch
     for key in ("platform_rim_relief", "platform_refused", "hard_conflict",
-                "pad_frontage_hold", "pad_frontage_infeasible"):
+                "pad_frontage_hold", "pad_frontage_infeasible",
+                "pad_cluster_mismatch", "pad_airside_renode", "jetway_strip",
+                "seam_residual", "road_coverage_join"):
         assert got[key][0] > 0, key
     assert got == frozen["family_rows"]
 

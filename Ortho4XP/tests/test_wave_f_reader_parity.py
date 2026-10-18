@@ -12,10 +12,8 @@ re-pointing, never before.
 from __future__ import annotations
 
 import pytest
-
 from auto_patch import cifp_reader as V1_CIFP
 from auto_patch_v2.airport import cifp as V2_CIFP
-
 from object_stage_support import write_text
 
 # ── cifp_reader <-> airport/cifp ─────────────────────────────────────────

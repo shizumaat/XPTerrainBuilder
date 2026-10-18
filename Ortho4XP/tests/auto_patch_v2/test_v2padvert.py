@@ -209,8 +209,7 @@ def _renode_scene(law, pad_ring):
     built through the real ``build_arrangement`` so the twin reads the
     noding itself and not a re-spelling of it."""
     from auto_patch_v2.classify.roles import Cell, Classification
-    from auto_patch_v2.model.airport import (Airport, Runway, RunwayEnd,
-                                             SceneryPack)
+    from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
     from auto_patch_v2.model.frame import Frame
     from auto_patch_v2.planar.overlay import build_arrangement
 
@@ -308,6 +307,7 @@ def test_the_densifier_may_not_node_the_rim_but_a_pad_corner_survives():
     geometry and is never dropped: doing that collapsed the three
     ``test_v2padlevel`` fixtures whose pad merely touches its apron."""
     from shapely.geometry import LineString, Polygon
+
     from auto_patch_v2.planar.overlay import _drop_rim_midpoints, build_rim
     law = _armed(_law())
     air = Polygon([(0, 0), (400, 0), (400, 100), (0, 100)])
@@ -330,8 +330,8 @@ def test_an_absent_renode_key_means_NOT_MEASURED_not_zero():
     MEASURED ZERO.  Publishing ``[]`` either way made all four of this
     lane's matched replay arms read a perfect ``pad_airside_renode``, which
     is the silent-degradation class the harness exists to refuse."""
-    from auto_patch_v2.pipeline.publication import _renode_rows
     from auto_patch_v2.model.registries import Registries
+    from auto_patch_v2.pipeline.publication import _renode_rows
 
     class _F:
         def transformers(self):

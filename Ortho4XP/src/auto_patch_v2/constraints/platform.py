@@ -846,7 +846,8 @@ def _with_near_miss(planar: PlanarMap, law: Law,
             if str(f.ref) in conf:
                 for ring in (f.ring, *f.holes):
                     on[str(f.ref)].update(planar.ring_vertices(ring))
-    plat_of = {pref: set(planar.registries.held[pref].get("plateau_vertices") or ()) for pref in idx}
+    held = planar.registries.held
+    plat_of = {pref: set(held[pref].get("plateau_vertices") or ()) for pref in idx}
     taken: set[int] = {v for p_, _dv, w, _n, _r in sets for v in w
                        if v not in plat_of[p_]}
     runway: set[int] = set()
@@ -966,8 +967,9 @@ def frontage_hold_rows(planar: PlanarMap, law: Law,
     residual contact of an empty interval and adds the datum ``Pin`` and
     the runway's flex ``Band`` rows (``solve.design.solve_design``).  The
     route-metric reach band (the former ``no_step.runway_reach_band_values``,
-    deleted with it) that bounded the datum here is DELETED — it pinned ``preferred_z``, not solved values,
-    on a metric that reached 5 of SPJC's 8 blocks.  A generator."""
+    deleted with it) that bounded the datum here is DELETED — it pinned
+    ``preferred_z``, not solved values, on a metric that reached 5 of
+    SPJC's 8 blocks.  A generator."""
     STATS.pop("frontage_hold_rows", None)
     rows: list[Row] = []
     n_b = n_c = n_ramp = 0

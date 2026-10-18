@@ -89,11 +89,10 @@ import typing as _t
 from ..law import Law, LawError
 from ..law.tables import airside_rate_per_m, is_rigid_role
 from ..model.airport import Airport
-from ..model.constraints import (REACH_GENERATOR, Band, ConstraintSet, Diff,
-                                 Linear, Row, Source)
+from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
-from .routes import reach, reach_anchored, route_neighbours, route_roles, routes
 from .precedence import View, view
+from .routes import reach, reach_anchored, route_neighbours, route_roles, routes
 from .runway_profile import threshold_pins
 
 __all__ = ["route_roles", "no_step_pairs",
@@ -347,6 +346,7 @@ def pair_graph(planar: PlanarMap, cs: ConstraintSet,
     ``taxi_box`` planes) are outside the pair metric.  Every vertex is a
     STATION (no leaf hop: the rows are the edges)."""
     import numpy as np
+
     from .routes import CENTRELINE, RouteGraph
     best: dict[tuple[int, int], tuple[float, float]] = {}
     for d in cs.diffs:
@@ -480,9 +480,11 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     per column of every PULLED runway (``FLEX_RULING``), the residual
     holds re-priced.  ``None`` without a held block (nothing runs)."""
     import numpy as np
+
     from ..law.tables import design as design_law
     held_reg = planar.registries.held
-    from .platform import GEN as PGEN, HOLD_DATUM_RULING, HOLD_RULING, hold_sets, hold_row
+    from .platform import GEN as PGEN
+    from .platform import HOLD_DATUM_RULING, HOLD_RULING, hold_row, hold_sets
     from .routes import reach_anchored, route_path
     sets = hold_sets(planar, law)
     if not sets:
@@ -591,7 +593,8 @@ def hold_interval(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # A MISFIT UNDER THE TERRACE FLOOR IS WELDED BY THE PAVEMENT (owner
     # RULINGS 2026-10-08d (2); ``constraints/weld_floor``): the floor is the
     # law's own, the one §55's last stage widens by
-    from ..law.tables import pavement_fallback_cap, pavement_roles as _pav_roles
+    from ..law.tables import pavement_fallback_cap
+    from ..law.tables import pavement_roles as _pav_roles
     from .weld_floor import contact_gives, least_allowance, pavement_heads, seat_misfit
     floor_m = float(law.tables.emit.terrace.pad_terrace_floor_m)
     widen: dict[int, float] = {}

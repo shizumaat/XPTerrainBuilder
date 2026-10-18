@@ -2695,7 +2695,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                  "late_declared": list(_lrep["follow"].get("declared", ())),
                                  "late_wall_s": _lrep["wall_s"]}
                                 if late_from is not None else {}),
-                             _capture_state().CAPTURE_STATE_KEY: _capture_state().collect(pm_w.registries),
+                             _capture_state().CAPTURE_STATE_KEY:
+                                 _capture_state().collect(pm_w.registries),
                              # #100 option (c): the map + set stage 1 SOLVED
                              # (the ribbon-free one) and its registries, which
                              # --stage1-dump reads in place of pm / cs

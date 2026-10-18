@@ -573,7 +573,8 @@ def test_the_hold_pass_widens_only_the_pavement_rows_naming_a_closing_contact(la
     heads = pavement_heads(lw)
     hp.result = _dc.replace(hp.result, widen={c: 0.4})
     hp.result.blocks[pref].update(widened=True, gives={c: 0.4})
-    pm.registries.held[pref]["weld_widened"] = {"floor_m": 1.0, "contacts": [[*pm.vertices[c].key, 0.4]]}
+    pm.registries.held[pref]["weld_widened"] = {
+        "floor_m": 1.0, "contacts": [[*pm.vertices[c].key, 0.4]]}
     out = hp.widened(cs)
     a, b = list(cs.rows()), list(out.rows())
     assert len(a) == len(b)

@@ -190,12 +190,12 @@ def census(root: Path = V2) -> dict[tuple[str, str], set[str]]:
             key = nxt
         return key
 
-    for m, (path, tree) in mods.items():
+    for m, (_path, tree) in mods.items():
         names, modules = imports[m]
         names = {k: origin(v) for k, v in names.items()}
         local = {n for (dm, n) in cands if dm == m}
 
-        def key_of(node: ast.AST):
+        def key_of(node: ast.AST, names=names, local=local, m=m, modules=modules):
             if isinstance(node, ast.Name):
                 if node.id in names and names[node.id] in cands:
                     return names[node.id]

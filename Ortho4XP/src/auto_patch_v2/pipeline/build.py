@@ -1634,7 +1634,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         if cfg.verify:
             t = time.perf_counter()
             _pulse.tick("verifying the patch")
-            from ..constraints.roads import road_law_caps
+            from ..constraints.roads import roadlawaps
             from ..verify import census_frame
             # ONE FRAME FOR THE WHOLE VERIFY STAGE (lane ``v2cost2``,
             # RULINGS 2026-09-14q item 7): the caps and the ``Patch`` were
@@ -1642,7 +1642,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             # ``apron_over_preference`` below, the second time AFTER this
             # clock stopped, which is where OTHH's 105 unattributed
             # seconds were.  Same rows, one frame, inside the clock.
-            _caps = road_law_caps(pm, law, airport)
+            _caps = roadlawaps(pm, law, airport)
             # §34 (9) (RULINGS 2026-09-14ak/14am): the PINCHED RAMP faces
             # whose within-shape longitudinal cap is LIFTED — the same map
             # ``face_tags`` stamps on the ways for the v1 census.

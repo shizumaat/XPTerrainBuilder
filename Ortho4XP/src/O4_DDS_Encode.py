@@ -4,12 +4,13 @@
 #   @ 7c028d82dcc59a27296972973aa0663ef37efddc; LICENSE/NOTICE: THIRD_PARTY/orthostudio-xp/.
 # Modified for XPTerrainBuilder, 2026-10-17: the nvcompress fallback is dropped (our
 #   DDSTool/nvcompress subprocess path in O4_Imagery_Utils stays the default); the header comes
-#   from O4_DDS_File; the O4_DDS_ENCODER flag, the file writer and the process pool are added.
+#   from O4_DDS_File; the O4_DDS_ENCODER flag and the file writer are added.
 """In-process BC1/BC3 (DXT1/DXT5) texture encoding through ``ispc_texcomp``.
 
-``O4_DDS_ENCODER=inproc`` makes ``O4_Imagery_Utils.convert_texture`` encode here instead of
-running DDSTool (macOS) / nvcompress (Windows, Linux) per texture; the default is ``tool``
-(owner RULINGS 2026-10-17a Q5: off until the owner's sim read). Spec:
+``O4_Imagery_Utils.convert_texture`` encodes here, in its own convert thread (ispc_texcomp
+releases the GIL), instead of running DDSTool (macOS) / nvcompress (Windows, Linux) per
+texture — the default since owner RULINGS 2026-10-17d; ``O4_DDS_ENCODER=tool`` opts out, and
+a texture this encoder fails is converted by the subprocess converter (#900). Spec:
 ``docs/specs/texture-encode-spec.md`` section 4.
 
 Post-passes kept from OrthoStudio XP's field work: the optimal single-colour endpoint table
@@ -19,10 +20,7 @@ for uniform blocks (:func:`encode_flat_blocks`), forced four-colour mode
 
 from __future__ import annotations
 
-import concurrent.futures as _cf
-import multiprocessing as _mp
 import os
-import threading
 from functools import cache
 
 import numpy as np
@@ -33,7 +31,7 @@ from O4_DDS_Refine import refine_blocks
 
 __all__ = ["DEFAULT_MIP_MODE", "ENCODER_ENV", "chosen_encoder", "count_three_colour_blocks",
            "encode_dds", "encode_file", "encode_flat_blocks", "encode_level", "encode_texture",
-           "force_four_colour_mode", "ispc_available", "shutdown_pool"]
+           "force_four_colour_mode", "ispc_available"]
 
 #: The flag: ``inproc`` (this module, default) or ``tool`` (today's subprocess converter).
 ENCODER_ENV = "O4_DDS_ENCODER"
@@ -234,7 +232,7 @@ def encode_file(source, fmt: str, path: str, mip_mode: MipMode = DEFAULT_MIP_MOD
     """Encode ``source`` (an image path or an (h, w, 3|4) array) and write the DDS to ``path``.
 
     The caller passes a PARTIAL name (``O4_DDS_File.partial_name``) and lands it; this
-    function only writes. Returns the bytes written. Runs in a pool worker.
+    function only writes. Returns the bytes written.
     """
     data = encode_dds(_load_rgba(source), fmt, mip_mode=mip_mode)
     with open(path, "wb") as handle:
@@ -242,50 +240,11 @@ def encode_file(source, fmt: str, path: str, mip_mode: MipMode = DEFAULT_MIP_MOD
     return len(data)
 
 
-_POOL_LOCK = threading.Lock()
-_POOL: _cf.ProcessPoolExecutor | None = None
+def encode_texture(source, fmt: str, path: str) -> int:
+    """The convert site's entry: write the DDS of ``source`` (an image path or the pixels) to
+    ``path``, in the calling convert thread.
 
-
-def _pool(workers: int) -> _cf.ProcessPoolExecutor:
-    """The process-wide encode pool (spawned, ``workers`` wide on first use; shared by the
-    convert threads of every tile this process builds)."""
-    global _POOL
-    with _POOL_LOCK:
-        if _POOL is None:
-            _POOL = _cf.ProcessPoolExecutor(max_workers=max(1, int(workers)),
-                                            mp_context=_mp.get_context("spawn"))
-        return _POOL
-
-
-def shutdown_pool() -> None:
-    """Stop the encode pool (the next :func:`encode_file_pooled` starts a new one)."""
-    global _POOL
-    with _POOL_LOCK:
-        pool, _POOL = _POOL, None
-    if pool is not None:
-        pool.shutdown(wait=True)
-
-
-def encode_file_pooled(source, fmt: str, path: str, workers: int) -> int:
-    """:func:`encode_file` in the process pool; blocks the calling convert thread.
-
-    A broken pool (a worker killed) is dropped so the next texture gets a fresh one, and the
-    error is raised for the caller's retry loop."""
-    try:
-        return _pool(workers).submit(encode_file, source, fmt, path).result()
-    except _cf.process.BrokenProcessPool:
-        shutdown_pool()
-        raise
-
-
-def encode_texture(source, fmt: str, path: str, workers: int) -> int:
-    """The convert site's entry: write the DDS of ``source`` to ``path``.
-
-    An image path (the cached JPEG, the common case) goes to the process pool, whose worker
-    decodes it; pixels already in memory (a colour-filtered, harmonized or masked texture)
-    are encoded in the calling convert thread — shipping 48-64 MB to a worker cost more
-    than it saved (14 real textures, 16 workers: pool 1.2 s vs thread 0.8 s; paths: pool
-    0.5 s vs thread 0.6 s; 2026-10-17)."""
-    if isinstance(source, np.ndarray):
-        return encode_file(source, fmt, path)
-    return encode_file_pooled(source, fmt, path, workers)
+    No process pool (issue #900): in the frozen app its spawned workers crashed in PROJ's
+    sqlite close (SIGSEGV) and lost 9 of 260 textures on +43-117, for a ~20 % gain over
+    threads (14 textures: pool 0.51 s vs threads 0.62-0.71 s, PR #870)."""
+    return encode_file(source, fmt, path)

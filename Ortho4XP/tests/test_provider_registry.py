@@ -28,7 +28,9 @@ def imagery(monkeypatch_module=None):
     try:
         import O4_Imagery_Utils as IMG
 
-        if not IMG.providers_dict:
+        # an earlier test on this worker may have filled providers_dict
+        # alone (the imagery self-check does), so check each registry
+        if not (IMG.providers_dict and IMG.combined_providers_dict):
             IMG.initialize_extents_dict()
             IMG.initialize_color_filters_dict()
             IMG.initialize_providers_dict()

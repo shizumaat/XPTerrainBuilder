@@ -7308,52 +7308,10 @@ from check_grade_lib.families.unit_platform import (  # noqa: E402,F401,I001
 )
 
 
-def _check_pad_frontage(platforms_ll, held: bool) -> List[Violation]:
-    """THE FLAT-PAD FRONTAGE HOLD (flat-pad spec §1 (2) / §5 A1; spec-author
-    RULINGS 2026-09-30u (c); spec §56 (3)) — REPORT, one row per held BLOCK.
-
-    SIDECAR-DECLARED like ``platform_rim_relief``: the build publishes per
-    held block its solved datum and what the solve did with its frontage
-    welds.  ``held=True`` is ``pad_frontage_hold``: a block one of whose
-    HELD contacts stands off the datum by more than
-    ``frontage_hold_margin_m`` (``held_over_margin`` > 0), ``de`` = the
-    worst.  ``held=False`` is ``pad_frontage_infeasible`` (spec §56 (3)): a
-    block with a frontage weld the elastic LP RELEASED (``released`` > 0) —
-    the pad's rim carries the step; ``de`` = ``released_max_m``,
-    ``distance`` = the count, the site the worst released contact, and
-    ``reading`` says whether the user was WARNED (``"warned"``, over the
-    bar), not (``"not_warned"``, under it) or OVER THE BAR WITH NO LINE
-    (``"unsaid"``: the record lacks a slot of the fixed copy,
-    ``warning_unsaid`` names it) — never a silent class."""
-    out: List[Violation] = []
-    kind = "pad_frontage_hold" if held else "pad_frontage_infeasible"
-    for rec in platforms_ll or ():
-        if not isinstance(rec, dict) or rec.get("refused") or "datum" not in rec:
-            continue
-        if held:
-            if not int(rec.get("held_over_margin", 0) or 0):
-                continue
-            de = float(rec.get("held_miss_max_m") or 0.0)
-            ll = rec.get("hold_worst_ll") or rec.get("centroid_ll") or (0.0, 0.0)
-            n = int(rec.get("held_contacts", 0) or 0)
-        else:
-            n = int(rec.get("released", 0) or 0)
-            if not n:
-                continue
-            de = float(rec.get("released_max_m") or 0.0)
-            ll = ((rec.get("released_ll") or [None])[0]
-                  or rec.get("centroid_ll") or (0.0, 0.0))
-        way = _platform_way(str(rec.get("ref", "")), kind)
-        dat = float(rec.get("datum", 0.0) or 0.0)
-        v = Violation(grade_pct=0.0, excess_pct=0.0, distance_m=float(n),
-                      de_m=de, way_a=way, way_b=way,
-                      pt_a=(0.0, 0.0), pt_b=(0.0, 0.0), elev_a=dat, elev_b=dat)
-        v.lat, v.lon = float(ll[0]), float(ll[1])
-        if not held:
-            v.reading = ("warned" if rec.get("warned") else
-                         "unsaid" if rec.get("warning_unsaid") else "not_warned")
-        out.append(v)
-    return out
+from check_grade_lib.families.pad_frontage import (  # noqa: E402,F401,I001
+    _check_pad_frontage,
+)
+from check_grade_lib.families import pad_frontage as _fam_pad_frontage  # noqa: E402,I001
 
 
 from check_grade_lib.families.hard_conflict import (  # noqa: E402,F401,I001
@@ -8337,62 +8295,11 @@ def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
 # with no key (v1's own output, or a v2 patch predating §36) reads
 # ``None`` and this family reports nothing, exactly as before.
 
-def _check_eat_ceiling(eat_rects, nodes, ways) -> List[Violation]:
-    """EAT pavement standing ABOVE its departure-surface ceiling.
-
-    Each published rect carries its regulation ``value_m`` and the
-    ``[lat, lon]`` of every vertex it governs; the row is that vertex
-    standing above the value by more than the elevation materiality.  The
-    pin holds EXACTLY in the design solve (a pinned vertex is eliminated
-    from the unknowns), so a row here means the EMITTED surface left the
-    value the solve pinned — the only way this family can speak.
-
-    The join is the canonical 11-dp lat/lon identity (memory
-    ``canonical-identity-join``), never a proximity match; a rect vertex
-    the patch does not carry is silently absent, which is what a vertex
-    the rect law withdrew looks like.
-    """
-    if not eat_rects:
-        return []
-    by_ll: Dict[Tuple[float, float], float] = {}
-    for w in ways:
-        for nid, z in zip(w.nids, w.elevs):
-            if z is None or nid not in nodes:
-                continue
-            lat, lon = nodes[nid]
-            by_ll.setdefault((round(lat, 7), round(lon, 7)), float(z))
-    out: List[Violation] = []
-    for rec in (eat_rects or []):
-        try:
-            value = float(rec["value_m"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        ref = f"{rec.get('runway', '')}/{rec.get('end', '')}".strip("/")
-        for ll in (rec.get("vertices") or []):
-            try:
-                lat, lon = float(ll[0]), float(ll[1])
-            except (TypeError, ValueError, IndexError):
-                continue
-            z = by_ll.get((round(lat, 7), round(lon, 7)))
-            if z is None or z - value <= _EAT_CEILING_TOL_M:
-                continue
-            way = Way(f"eat_rect:{rec.get('rect')}", "junction",
-                      ref or "eat_rect", "taxiway", [], [],
-                      {"role": "junction", "ref": ref or "eat_rect"})
-            v = Violation(
-                grade_pct=0.0, excess_pct=0.0, distance_m=0.0,
-                de_m=z - value, way_a=way, way_b=way,
-                pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                elev_a=z, elev_b=value)
-            v.lat, v.lon = lat, lon
-            out.append(v)
-    return out
-
-
-#: The materiality the ceiling is read at: the same elevation quantum the
-#: emitted surface carries (``emit.materiality.elevation_m``), so a row
-#: here is surface, never rounding.
-_EAT_CEILING_TOL_M = 0.01
+from check_grade_lib.families.eat_ceiling import (  # noqa: E402,F401,I001
+    _check_eat_ceiling,
+    _EAT_CEILING_TOL_M,
+)
+from check_grade_lib.families import eat_ceiling as _fam_eat_ceiling  # noqa: E402,I001
 
 
 # ── THE FAN-RAMP LAW, VALIDATOR HALF (owner RULINGS 21f0980) ────────
@@ -10443,25 +10350,9 @@ LAW_FAMILIES: Tuple[Tuple[str, str, str], ...] = (
     *_fam_pad_airside_renode.LAW_FAMILY_ROWS,
     *_fam_jetway_strip.LAW_FAMILY_ROWS,
     *_fam_unit_platform.LAW_FAMILY_ROWS,
-    # THE FLAT-PAD FRONTAGE HOLD (flat-pad spec §1 (2); spec-author RULINGS
-    # 2026-09-30u (c)).  SIDECAR-DECLARED like the two above: REPORT, one
-    # row per held block — a HELD contact off its datum, and the UNHELD
-    # (ramp / unreachable) contacts the collar carries.
-    ("pad_frontage_hold",
-     "FLAT-PAD block whose HELD frontage contact stands off its datum",
-     "within"),
-    ("pad_frontage_infeasible",
-     "FLAT-PAD block with UNHELD frontage contacts (ramp / unreachable)",
-     "within"),
+    *_fam_pad_frontage.LAW_FAMILY_ROWS,
     *_fam_hard_conflict.LAW_FAMILY_ROWS,
-    # THE END-AROUND TAXIWAY CEILING (owner RULINGS 2026-09-13j item 2,
-    # ruled 13q item 2; spec §36).  Sidecar-declared like the two families
-    # above it: the accepted rects arrive as ``eat_rects`` and this prices
-    # the pavement they govern against the regulation value the solve
-    # pinned.  A patch with no key reports nothing.
-    ("eat_ceiling",
-     "END-AROUND TAXIWAY pavement ABOVE its departure-surface ceiling",
-     "within"),
+    *_fam_eat_ceiling.LAW_FAMILY_ROWS,
     *_fam_seam_residual.LAW_FAMILY_ROWS,
     ("bank_across_seam",
      "BANK FOOT node INSIDE a tile-seam band (no bank along a seam)",

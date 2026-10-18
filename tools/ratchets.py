@@ -45,19 +45,33 @@ and a package missing from ``LAYER_ORDER`` is one.  Function-level
 imports count (they are the same dependency, deferred).
 ``layers --propose`` prints the order with the fewest violations.
 
+LINT — THE THIRD GATE (RULINGS 2026-10-17a Q8, #855; spec
+``code-quality-beta3-spec.md`` §5).  ``lint``: ``ruff check`` (pinned
+``RUFF_VERSION``; rules and line length in the repo-root
+``pyproject.toml``) over the repo, counted PER RULE over git-tracked files
+only (so an untracked local file never moves a count, and every OS counts
+the same tree).  Each rule's count may fall, never rise; a rule absent
+from the baseline is recorded at zero.  A fall passes and is reported
+(``--regenerate`` lowers the record, as for duplicates).  No ``ruff
+format``, no ``--fix``.  ruff missing or at another version: SKIPPED with
+the install line, exit 0 — except under ``CI`` (env set), where it fails:
+CI must run the gate.
+
     tools/ratchets.py                    # all sections; exit 1 ONLY on a
-                                         # risen duplicate or layer count
+                                         # risen duplicate, layer or lint count
     tools/ratchets.py size               # the size report alone
     tools/ratchets.py funcs [--top N]    # the long functions
     tools/ratchets.py dupes [--top N]    # the identical-body groups
     tools/ratchets.py dupes --near       # the near-duplicate groups
     tools/ratchets.py layers [--propose] # the v2 import matrix + violations
+    tools/ratchets.py lint               # ruff counts per rule vs baseline
     tools/ratchets.py --justify PATH "reason"   # an optional note
     tools/ratchets.py --regenerate       # re-snapshot the baseline
 
 ``--regenerate`` re-snapshots the sizes (growth included — the snapshot
 is what "grew" is measured against), keeps existing notes, and refuses
-(writing nothing) only on a risen duplicate or layer count.  ``--init`` writes the
+(writing nothing) only on a risen duplicate, layer or lint count; with
+ruff unavailable it keeps the recorded lint counts.  ``--init`` writes the
 first baseline and refuses when one exists.  ``tools/blast.py --audit``
 prints the duplicate and layer sections and fails on a rise.
 """
@@ -66,10 +80,13 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
+from collections import Counter
 
 __all__ = ["SOFT", "HARD", "SIZE_ROOTS", "DUP_ROOT", "BASELINE",
            "tracked_sources", "line_count", "sizes", "check_size",
@@ -78,7 +95,8 @@ __all__ = ["SOFT", "HARD", "SIZE_ROOTS", "DUP_ROOT", "BASELINE",
            "NEAR_MIN_NODES", "long_functions", "LONG_FUNCTION", "main",
            "V2_ROOT", "LAYER_ORDER", "layer_edges", "layer_matrix",
            "layer_violations", "propose_order", "check_layers",
-           "print_layers"]
+           "print_layers", "RUFF_VERSION", "lint_counts", "check_lint",
+           "print_lint"]
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(REPO, "tools", "ratchet_baseline.json")
@@ -96,6 +114,9 @@ V2_ROOT = "Ortho4XP/src/auto_patch_v2"
 # the three leaf packages below the plan's seven, verify and pipeline on top.
 LAYER_ORDER = ("geom", "law", "model", "airport", "classify", "planar",
                "constraints", "solve", "emit", "verify", "pipeline")
+# THE pin (RULINGS 2026-10-17a Q8): ci.yml installs exactly this; the
+# baseline's ``lint_ruff`` records it.  A bump re-measures (--regenerate).
+RUFF_VERSION = "0.16.10"
 
 
 def tracked_sources(roots=SIZE_ROOTS, repo=REPO, exts=EXTS):
@@ -490,29 +511,106 @@ def print_dupes(groups, recorded, top=10, out=None, near=False):
     return check_duplicates(groups, recorded)
 
 
-def _write_baseline(path, size, justified, duplicates, layers=None):
+def _ruff_command():
+    if importlib.util.find_spec("ruff") is not None:
+        return [sys.executable, "-m", "ruff"]
+    exe = shutil.which("ruff")
+    return [exe] if exe else None
+
+
+def lint_counts(repo=REPO, version=RUFF_VERSION):
+    """``({rule: count}, None)`` over git-tracked files, or ``(None, why)``
+    when ruff is missing or not the pinned ``version``."""
+    cmd = _ruff_command()
+    install = "`python -m pip install ruff==%s`" % version
+    if cmd is None:
+        return None, "ruff is not installed (%s)" % install
+    got = subprocess.run(cmd + ["--version"], capture_output=True, text=True,
+                         encoding="utf-8").stdout.split()
+    if not got or got[-1] != version:
+        return None, ("ruff %s installed, the baseline is measured with "
+                      "ruff==%s (%s)" % (got[-1] if got else "?", version,
+                                         install))
+    out = subprocess.run(
+        cmd + ["check", "--no-cache", "--exit-zero", "--output-format",
+               "json", "--config", os.path.join(repo, "pyproject.toml"), "."],
+        cwd=repo, capture_output=True, text=True, encoding="utf-8",
+        check=True).stdout
+    tracked = set(subprocess.run(
+        ["git", "-C", repo, "ls-files", "-z"], capture_output=True, text=True,
+        encoding="utf-8", check=True).stdout.split("\0"))
+    root, counts = os.path.realpath(repo), Counter()
+    for v in json.loads(out or "[]"):
+        rel = os.path.relpath(os.path.realpath(v["filename"]), root)
+        if rel.replace(os.sep, "/") in tracked:
+            counts[v.get("code") or "invalid-syntax"] += 1
+    return dict(sorted(counts.items())), None
+
+
+def check_lint(counts, recorded):
+    """Refusals: no rule's count may rise (a rule missing from ``recorded``
+    is at zero).  ``recorded`` None: no lint baseline yet, nothing gated."""
+    if recorded is None or counts is None:
+        return []
+    risen = ["%s %d -> %d" % (r, recorded.get(r, 0), n)
+             for r, n in sorted(counts.items()) if n > recorded.get(r, 0)]
+    if not risen:
+        return []
+    return ["LINT ROSE: %s — a rule's count may fall, never rise (RULINGS "
+            "2026-10-17a Q8); `ruff check FILE` names the lines, fix them "
+            "by hand (never `ruff format` / `--fix` across the tree)"
+            % ", ".join(risen)]
+
+
+def print_lint(counts, recorded, why=None, out=None):
+    """The lint section; returns refusals (a rise; under CI, ruff missing)."""
+    out = out or sys.stdout
+    print("== lint ratchet (ruff==%s check, per rule, git-tracked files) =="
+          % RUFF_VERSION, file=out)
+    if counts is None:
+        print("  SKIPPED: %s" % why, file=out)
+        return (["lint: %s — CI must run the lint gate" % why]
+                if os.environ.get("CI") else [])
+    rec = recorded or {}
+    for r in sorted(set(counts) | set(rec)):
+        n, b = counts.get(r, 0), rec.get(r, 0)
+        mark = ("ROSE" if n > b else "fell (`--regenerate` lowers the "
+                "record)" if n < b else "")
+        print("  %-16s %6d  baseline %6d  %s" % (r, n, b, mark), file=out)
+    print("  total %d, baseline %s" % (sum(counts.values()), sum(rec.values())
+                                       if recorded is not None else None),
+          file=out)
+    return check_lint(counts, recorded)
+
+
+def _write_baseline(path, size, justified, duplicates, layers=None,
+                    lint=None):
     doc = {"ruling": "RULINGS 2026-10-04a, amended 04b and 04c",
            "note": "generated by tools/ratchets.py; `size` is a snapshot "
                    "the report measures growth against (never a gate), "
-                   "`duplicates` and `layers` (upward imports in "
-                   "auto_patch_v2) may fall and never rise; never edit by "
+                   "`duplicates`, `layers` (upward imports in "
+                   "auto_patch_v2) and each `lint` rule count (ruff "
+                   "`lint_ruff`) may fall and never rise; never edit by "
                    "hand",
            "soft": SOFT, "hard": HARD, "duplicates": duplicates,
            "size": dict(sorted(size.items())),
            "justified": dict(sorted(justified.items()))}
     if layers is not None:
         doc["layers"] = sorted(layers)
+    if lint is not None:
+        doc["lint_ruff"], doc["lint"] = RUFF_VERSION, dict(sorted(lint.items()))
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False)
         f.write("\n")
 
 
 def regenerate(path=BASELINE, init=False, current=None, groups=None,
-               layers=None):
+               layers=None, lint=None):
     """Re-snapshot the baseline: every file past 1,000 at its CURRENT size
     (growth included — size is a report, 04c), notes kept for files still
     past 1,000, none invented.  Refuses, writing nothing, only on a risen
-    duplicate or layer count.  Returns the list of refusals."""
+    duplicate, layer or lint count.  ``lint`` None (ruff unavailable)
+    keeps the recorded lint counts.  Returns the list of refusals."""
     current = sizes() if current is None else current
     groups = duplicate_groups() if groups is None else groups
     layers = layer_violations(layer_edges()) if layers is None else layers
@@ -524,11 +622,13 @@ def regenerate(path=BASELINE, init=False, current=None, groups=None,
     else:
         old = load_baseline(path)
         bad = check_duplicates(groups, old["duplicates"]) \
-            + check_layers(layers, old.get("layers"))
+            + check_layers(layers, old.get("layers")) \
+            + check_lint(lint, old.get("lint"))
         if bad:
             return bad
         kept = {r: w for r, w in old.get("justified", {}).items() if r in past}
-    _write_baseline(path, past, kept, duplicate_count(groups), layers)
+        lint = old.get("lint") if lint is None else lint
+    _write_baseline(path, past, kept, duplicate_count(groups), layers, lint)
     return []
 
 
@@ -552,7 +652,8 @@ def justify(rel, reason, path=BASELINE, current=None):
     old = load_baseline(path)
     size, just = dict(old["size"]), dict(old.get("justified", {}))
     size[rel], just[rel] = current[rel], reason
-    _write_baseline(path, size, just, old["duplicates"], old.get("layers"))
+    _write_baseline(path, size, just, old["duplicates"], old.get("layers"),
+                    old.get("lint"))
     return []
 
 
@@ -561,7 +662,8 @@ def main(argv=None):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    p.add_argument("what", nargs="?", choices=("size", "funcs", "dupes", "layers"))
+    p.add_argument("what", nargs="?", choices=("size", "funcs", "dupes", "layers",
+                                             "lint"))
     p.add_argument("--top", type=int, default=10,
                    help="dupes / funcs: rows to print (0 = all)")
     p.add_argument("--near", action="store_true",
@@ -591,15 +693,19 @@ def main(argv=None):
         print_dupes(near_duplicate_groups(), None, a.top, near=True)
         return 0
     if a.regenerate or a.init:
-        bad = regenerate(a.baseline, init=a.init)
+        lint, why = lint_counts()
+        if why:
+            print("lint not measured (%s): the recorded counts are kept" % why)
+        bad = regenerate(a.baseline, init=a.init, lint=lint)
         for r in bad:
             print("REFUSED " + r)
         if not bad:
             b = load_baseline(a.baseline)
             print("baseline written: %d files, %d lines, %d duplicates, "
-                  "%d upward imports"
+                  "%d upward imports, %d lint findings"
                   % (len(b["size"]), sum(b["size"].values()),
-                     b["duplicates"], len(b.get("layers") or ())))
+                     b["duplicates"], len(b.get("layers") or ()),
+                     sum((b.get("lint") or {}).values())))
         return 1 if bad else 0
     base = load_baseline(a.baseline)
     bad = []
@@ -618,6 +724,14 @@ def main(argv=None):
         for r in worse:
             print("REFUSED " + r)
         print("LAYER RATCHET " + ("PASS" if not worse else "FAIL"))
+        bad += worse
+    if a.what in (None, "lint"):
+        counts, why = lint_counts()
+        worse = print_lint(counts, base.get("lint"), why)
+        for r in worse:
+            print("REFUSED " + r)
+        print("LINT RATCHET " + ("FAIL" if worse else "SKIPPED" if counts
+                                 is None else "PASS"))
         bad += worse
     return 1 if bad else 0
 

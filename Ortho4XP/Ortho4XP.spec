@@ -106,6 +106,18 @@ print(f"Partition cache code digest: "
 v2_law_datas = v2_law_datas + [
     (_partition_digest_file, os.path.join("auto_patch_v2", "airport"))]
 
+# THE V2 STAGE CACHE'S CODE DIGESTS (issue #842) — the same mechanism, one
+# digest per cached stage (classify, planar, flat_site, road_profile,
+# shapes), one ``stage digest`` line each, bundled beside the module that
+# reads it (``_internal/auto_patch_v2/pipeline/stage_code.sha256``).
+_stage_digest_file = _runpy.run_path(
+    os.path.join("src", "auto_patch_v2", "pipeline", "stage_code.py")
+)["write_freeze_digest"]("src", os.path.join("build", "o4_stage_code"))
+print("Stage cache code digests: "
+      + open(_stage_digest_file, encoding="ascii").read().strip().replace("\n", ", "))
+v2_law_datas = v2_law_datas + [
+    (_stage_digest_file, os.path.join("auto_patch_v2", "pipeline"))]
+
 # THE PATCH FRESHNESS GATE'S CODE DIGEST (issue #346) — the same mechanism,
 # over the whole engine source: without it a frozen engine's patches key on
 # the version string alone (``_internal/auto_patch/engine_code.sha256``).

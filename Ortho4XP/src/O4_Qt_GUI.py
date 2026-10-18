@@ -81,6 +81,7 @@ import O4_Airport_Batch as APTBATCH
 import O4_Airport_Rank as RANK
 import O4_Airport_Search as SEARCH
 import O4_Map_Guidance as GUIDE
+import O4_Text_Scale as TEXTSCALE
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
 import O4_Qt_Map as QTMAP
@@ -93,6 +94,7 @@ import O4_Qt_Pack_Art as QTART
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
+import O4_Qt_Text_Scale as QTTEXT
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -154,6 +156,9 @@ TILE_SCAN_CACHE_VERSION = 1
 # Shared, so the button never changes size when a row flips between
 # them, and big enough to read AS a stop sign (owner, on 1.0.238).
 STOP_ICON_PT = 16
+# Pixel size of the Activity rows' small print (status, clock, detail) at
+# Actual Size; it follows View > text size (#827).
+ROW_SMALL_PX = 11
 # Search-popup item role carrying an airport row's code (#667 tag).
 _SEARCH_CODE_ROLE = Qt.UserRole + 1
 STOP_SIGN_COLOR = "#E5372B"
@@ -833,6 +838,8 @@ class MainWindow(QMainWindow):
 
         self._make_widgets()
         self._make_menus()
+        # The remembered text size (#827), before anything is shown.
+        self.set_text_scale(self.prefs.get(TEXTSCALE.PREF_KEY), save=False)
         self._apply_prefs(initial=True)
         # Optimistic launch: last session's squares are on the map before
         # the engine has finished booting.  Runs BEFORE the selection
@@ -1343,8 +1350,8 @@ class MainWindow(QMainWindow):
         self.console.setMaximumBlockCount(MAX_CONSOLE_LINES)
         font = self.console.font()
         font.setFamily("Menlo" if sys.platform == "darwin" else "Monospace")
-        font.setPointSize(11)
         self.console.setFont(font)
+        QTTEXT.size_text(self.console, points=11)  # follows View > text size
 
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.addWidget(center)
@@ -1398,6 +1405,12 @@ class MainWindow(QMainWindow):
         console_action = QAction("Toggle console", self)
         console_action.triggered.connect(self.toggle_console)
         view_menu.addAction(console_action)
+        # Text size (#827): Bigger / Smaller / Actual Size, remembered.
+        view_menu.addSeparator()
+        self._text_scale_actions = QTTEXT.make_actions(self, self.set_text_scale)
+        for key in ("bigger", "smaller", "actual"):
+            view_menu.addAction(self._text_scale_actions[key])
+        view_menu.addSeparator()
         # Scenery layer filter (mac-app parity: MapSceneryFilter) — our
         # built tiles, other installed ortho/mesh packages, or both.
         scenery_menu = view_menu.addMenu("Scenery")
@@ -2501,6 +2514,22 @@ class MainWindow(QMainWindow):
         dismissed across launches."""
         self.prefs[GUIDE.HINT_DISMISSED_PREF] = bool(dismissed)
         save_prefs(self.prefs)
+
+    def set_text_scale(self, value, save=True):
+        """View > Bigger / Smaller / Actual Size (#827): scale every
+        panel's text and the map's labels; remembered between launches."""
+        scale = QTTEXT.apply_text_scale(value)
+        actions = getattr(self, "_text_scale_actions", {})
+        if actions:
+            actions["bigger"].setEnabled(scale < TEXTSCALE.STEPS[-1])
+            actions["smaller"].setEnabled(scale > TEXTSCALE.STEPS[0])
+            actions["actual"].setEnabled(scale != TEXTSCALE.DEFAULT)
+        if getattr(self, "map", None) is not None:
+            self.map.viewport().update()
+        if save:
+            self.prefs[TEXTSCALE.PREF_KEY] = scale
+            save_prefs(self.prefs)
+        return scale
 
     def show_tips(self):
         """Help > Show Tips: the map hint again (#828)."""
@@ -3657,7 +3686,7 @@ class MainWindow(QMainWindow):
                     stale.setVisible(False)
                 bar.setValue(0)
                 status.setText("queued")
-                status.setStyleSheet("color: gray; font-size: 11px;")
+                status.setStyleSheet("color: gray;")
                 clock.setText("")
                 cancel.setEnabled(True)
                 cancel.setVisible(True)
@@ -3691,12 +3720,14 @@ class MainWindow(QMainWindow):
             line.setSpacing(6)
             status = ElidedRowLabel("queued")
             status.setObjectName("tile_status")
-            status.setStyleSheet("color: gray; font-size: 11px;")
+            status.setStyleSheet("color: gray;")
+            QTTEXT.size_text(status, pixels=ROW_SMALL_PX)
             line.addWidget(status, 1)
             # Per-tile clock (elapsed · ~remaining), fed by TileClocks.
             clock = QLabel("")
             clock.setObjectName("tile_clock")
-            clock.setStyleSheet("color: gray; font-size: 11px;")
+            clock.setStyleSheet("color: gray;")
+            QTTEXT.size_text(clock, pixels=ROW_SMALL_PX)
             clock.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             line.addWidget(clock)
             # Per-tile stop / resume: one button that changes what it
@@ -3724,7 +3755,8 @@ class MainWindow(QMainWindow):
             detail = QLabel("")
             detail.setObjectName("tile_detail")
             detail.setWordWrap(True)
-            detail.setStyleSheet("color: gray; font-size: 11px;")
+            detail.setStyleSheet("color: gray;")
+            QTTEXT.size_text(detail, pixels=ROW_SMALL_PX)
             detail.setVisible(False)
             rl.addWidget(detail)
             self._rows_layout.insertWidget(
@@ -3870,7 +3902,7 @@ class MainWindow(QMainWindow):
             status.setText(label or "queued")
             if label == "stopped":
                 color = STOPPED_COLOR
-        status.setStyleSheet("color: %s; font-size: 11px;" % color)
+        status.setStyleSheet("color: %s;" % color)
         if state in ("done", "error"):
             # Nothing left to stop and nothing to resume: a finished tile
             # goes back through the Build button.

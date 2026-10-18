@@ -49,6 +49,7 @@ import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Qt_Map_Labels as QTLABELS
+import O4_Qt_Text_Scale as QTTEXT
 
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
 WORLD = 2 ** SCENE_ZL * 256
@@ -1230,7 +1231,8 @@ class MapView(QGraphicsView):
             self._built if self._scenery_filter != SCENERY_FILTER_OTHERS
             else None,
             self._ortho_tiles if self._scenery_filter != SCENERY_FILTER_BUILT
-            else None)
+            else None,
+            QTTEXT.current_scale())
 
     def _draw_airports(self, painter):
         """Sectional-style airport marks by size (#817, mac-app parity).
@@ -1250,7 +1252,8 @@ class MapView(QGraphicsView):
         self._airport_layer.paint(
             painter, key, LABELS.scale_for_slippy_zoom(self._zoom),
             self.visible_bounds(), self._viewport_point,
-            DEFAULT_AIRPORT_COLOR, CUSTOM_AIRPORT_COLOR, DIM_ALPHA)
+            DEFAULT_AIRPORT_COLOR, CUSTOM_AIRPORT_COLOR, DIM_ALPHA,
+            QTTEXT.current_scale())
 
     def _draw_conflict_badge(self, painter, r, px, scale):
         """The mixed-imagery-source warning: a yellow triangle carrying an

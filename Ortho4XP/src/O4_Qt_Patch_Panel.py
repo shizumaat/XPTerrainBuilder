@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit
                                QPushButton, QVBoxLayout, QWidget)
 
 import O4_Qt_Patch_ShapePick as PICK
+import O4_Qt_Text_Scale as QTTEXT
 from O4_Qt_Patch_Controller import PatchController, built_date_text
 from O4_Qt_Patch_Geometry import role_name
 
@@ -55,9 +56,8 @@ def _plural(n: int, word: str) -> str:
 def _note(text: str = "", color: str | None = None) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
-    font = label.font()
-    font.setPointSizeF(max(font.pointSizeF() - 1, 8))
-    label.setFont(font)
+    # One point under the app font, following the text scale (#827).
+    QTTEXT.size_text(label, points=max(QTTEXT.base_points() - 1, 8))
     label.setStyleSheet("color: %s;" % color if color else "color: palette(mid);")
     return label
 

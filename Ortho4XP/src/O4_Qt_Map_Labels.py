@@ -21,6 +21,7 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QFontMetricsF, QPen
 
 import O4_Airport_Rank as RANK
 import O4_Map_Labels as LABELS
+import O4_Text_Scale as TS
 
 __all__ = ["paint_tile_labels", "AirportLayer", "label_font"]
 
@@ -63,15 +64,17 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
                       bounds: Tuple[float, float, float, float],
                       tile_key: Callable[[int, int], str],
                       built: Optional[Dict[Tile, object]],
-                      ortho_tiles: Optional[Set[Tile]]) -> None:
+                      ortho_tiles: Optional[Set[Tile]],
+                      text_scale: float = TS.DEFAULT) -> None:
     """Coordinate top-left on every visible tile; imagery bottom-left on
     a ``built`` tile (its ``provider``/``zl``/``has_zones``) or on one an
     installed ortho pack covers (``imagery ?``).  ``None`` for ``built``
-    or ``ortho_tiles`` hides that layer (the scenery filter)."""
+    or ``ortho_tiles`` hides that layer (the scenery filter).
+    ``text_scale`` is the apps' text size (#827)."""
     if scale < LABELS.TILE_LABEL_MIN_SCALE:
         return
     (lat_lo, lat_hi, lon_lo, lon_hi) = bounds
-    font = label_font(LABELS.TILE_LABEL_FONT)
+    font = label_font(TS.scaled(LABELS.TILE_LABEL_FONT, text_scale))
     for lat in range(max(int(math.floor(lat_lo)), -85),
                      min(int(math.floor(lat_hi)), 84) + 1):
         for lon in range(max(int(math.floor(lon_lo)), -180),
@@ -159,9 +162,10 @@ class AirportLayer:
                 add(code, lat, lon, True, dim)
         return candidates, dims
 
-    def plan(self, key, scale, bounds, point_of):
+    def plan(self, key, scale, bounds, point_of, text_scale=TS.DEFAULT):
         """``(candidates, dims, marks, labels, radius)`` for this view,
-        rebuilt only when ``key`` (the view geometry) changed."""
+        rebuilt only when ``key`` (the view geometry and the text
+        scale, #827) changed."""
         if key != self._plan_key or self._plan is None:
             # One-degree margin, as the mac app culls: a mark just
             # off-screen still owns a label that reaches into it.
@@ -170,16 +174,16 @@ class AirportLayer:
             candidates, dims = self._candidates(scale, margin, point_of)
             radius = LABELS.mark_radius(scale)
             marks, labels = LABELS.place_airport_labels(
-                candidates, scale, radius)
+                candidates, scale, radius, text_scale=text_scale)
             self._plan = (candidates, dims, marks, labels, radius)
             self._plan_key = key
         return self._plan
 
     def paint(self, painter, key, scale, bounds, point_of,
               default_color: QColor, custom_color: QColor,
-              dim_alpha: int) -> None:
+              dim_alpha: int, text_scale: float = TS.DEFAULT) -> None:
         (candidates, dims, marks, labels, radius) = self.plan(
-            key, scale, bounds, point_of)
+            (key, text_scale), scale, bounds, point_of, text_scale)
         if not candidates:
             return
         pen_width = max(1.4, radius * 0.4)

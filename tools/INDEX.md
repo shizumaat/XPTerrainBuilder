@@ -28,8 +28,8 @@ Engine tools run **from `Ortho4XP/`** with `venv/` and `OSM_data/` present —
 a wrong cwd exits 0 with a silently smaller layout.
 `Ortho4XP/tools/README.md` is the long-form catalog of the engine tree's
 tools (what each one does in detail); this file is the short "which one do
-I reach for" surface across both trees. Retired tools live in
-`Ortho4XP/tools/attic/` and are listed there, not here.
+I reach for" surface across both trees. A retired tool is deleted (owner
+RULINGS 2026-10-18a); git history keeps it.
 
 ---
 
@@ -205,7 +205,6 @@ them anywhere.
 | `Ortho4XP/tools/build_time_baselines.json`, `build_time_approvals.json` | Committed baselines and owner approvals for `check_build_time.py`. |
 | `Ortho4XP/tools/run_ledger.jsonl` | The append-only run ledger (gitignored, machine-local). |
 | `tools/artifact_contracts.json` | Declared artifact contracts (`blast.py` reads it). |
-| `Ortho4XP/tools/attic/` | Retired diagnostics; see `attic/README.md`. Not standard tools. |
 
 ---
 

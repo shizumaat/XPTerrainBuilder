@@ -331,10 +331,10 @@ class TestTheAnnulusIsARegionWithAMaximumArea:
     def test_the_regional_area_flag_rides_with_the_attribute_flag(self):
         """``-a`` is read from the ``.poly`` only when NOT refining; with
         ``-r`` Triangle4XP demands an ``.area`` file and exits 1."""
-        source = (SRC / "O4_Mesh_Utils.py").read_text(encoding="utf-8")
-        assert 'regional_areas = "a" if do_refine == "A" else ""' in source
-        assert '"-pq" + "{:.9g}".format(tile.min_angle) + do_refine + ' \
-               'regional_areas +' in source
+        meshed = MESH.triangle_switches(30, "A", "Q", "", "", "S500000")
+        refined = MESH.triangle_switches(30, "r", "Q", "", "", "S500000")
+        assert meshed == "-pq30AauYBQS500000"
+        assert refined == "-pq30ruYBQS500000"
 
 
 # ── THE END-TO-END TWIN: DOES TRIANGLE ACTUALLY REFINE THE ANNULUS? ────

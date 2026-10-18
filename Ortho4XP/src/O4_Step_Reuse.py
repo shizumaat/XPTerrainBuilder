@@ -11,9 +11,9 @@ WHAT A STEP'S INPUTS ARE.  The settings it reads — the step's own list in
 ``O4_Cfg_Vars`` (``list_vector_vars`` / ``list_mesh_vars`` /
 ``list_mask_vars``) plus ``custom_dem`` / ``fill_nodata``, and the
 app-level settings that choose its data — the engine's version, the
-digest of the code the step runs through (``O4_Step_Code``), the auto-patch configuration digest, and the record of the step
-before it (a rebuilt vector step rebuilds the mesh, a rebuilt mesh the
-masks).  The vector step adds the data it read that can change without a
+digest of the code the step runs through (``O4_Step_Code``), the auto-patch configuration digest, and what the step
+before it HANDS ON (#837): the CONTENT of the files it wrote and the
+inputs it read, its own code left out.  The vector step adds the data it read that can change without a
 setting: the tile's OSM cache files, its cached airport elevation
 insets, the pack order and state ``scenery_packs.ini`` gives (its
 content, the tile's own pack left out), and for each airport patch the
@@ -28,11 +28,29 @@ read only by the scenery-file step (``O4_DSF_Utils``,
 which the masks step reads to pick its inland-water grey level, so it is
 an input of the masks step.
 
+EARLY CUTOFF (#837).  A step's ``previous`` is the predecessor's output
+CONTENT (``provenance.content_identity_list``: path, size, sha256 — an
+airport patch read without the stamps that only name the run that wrote
+it, ``provenance.PER_RUN_STAMP_KEYS``) together with the predecessor's
+own inputs minus its code digest.  A vector step that reran because its
+code changed and wrote the same bytes leaves the mesh and the masks
+reusable: no code a step's output depends on can change without changing
+that step's own code key or the content its predecessor wrote.  The
+predecessor's inputs stay in the chain because a later step reads some
+of them directly (the mesh bakes the elevation insets the vector step
+keys on).  Outputs are identified by content: a file whose path, size
+and mtime are as recorded is not read again (the hit path costs stats);
+any other is digested, so a touched file with the same bytes is no
+change.
+
 A RECORD COUNTS ONLY ONCE ITS BUILD COMPLETED.  A step that ran writes a
 PENDING record; the scenery-file step's completion commits it
-(:func:`commit`).  A step that starts running discards the committed
-records of itself and every later step first (:func:`forget_from`), so a
-stopped build can never leave a record that describes files it replaced.
+(:func:`commit`).  A step that starts running discards its own committed record and
+the pending records of itself and every later step (:func:`forget_from`);
+a later step's committed record stays, and is reused only when its own
+files are as it recorded them and its predecessor handed on the same
+content — a stopped build cannot leave a record that matches files it
+replaced.
 A build stopped after its mesh step puts the scenery packs back
 (``O4_Stopped_Build``) and commits nothing: the next build reruns.
 
@@ -58,7 +76,9 @@ __all__ = ["REUSABLE_STEPS", "stale_reason", "predicted_reuse", "record",
 # 2026-10-14: pack DSFs keyed as the build's input and scenery_packs.ini
 # by content (#615 self-invalidation); a 2026-10-13 record reads as none.
 # 2026-10-18: ``code`` is the step's own closure digest (#836).
-SCHEMA = "2026-10-18"
+# 2026-10-18b: outputs by content, ``previous`` = what the predecessor
+# hands on (#837); a 2026-10-18 record reads as none — reruns once.
+SCHEMA = "2026-10-18b"
 
 #: the steps whose output can be reused, in build order
 REUSABLE_STEPS = ("vector", "mesh", "masks")
@@ -254,7 +274,7 @@ def _journalled_dsfs(tile) -> list:
         return []
 
 
-def _outputs(tile, step: str, pack_dsfs=()) -> str:
+def _output_files(tile, step: str, pack_dsfs=()) -> list:
     if step == "vector":
         files = [FNAMES.input_node_file(tile), FNAMES.input_poly_file(tile),
                  FNAMES.apt_file(tile), FNAMES.alt_file(tile)]
@@ -270,15 +290,45 @@ def _outputs(tile, step: str, pack_dsfs=()) -> str:
             files = [os.path.join(folder, n) for n in os.listdir(folder)]
         except OSError:
             files = []
-    return _identity(files)
+    return files
 
 
-def _previous_digest(doc: dict, step: str, section: str) -> str:
+def _outputs(tile, step: str, pack_dsfs=(), known=()) -> list:
+    """``step``'s output files by content; ``known``: the rows recorded
+    for them, whose digests a file with an unchanged stat keeps."""
+    from auto_patch import provenance
+    return provenance.content_identity_list(
+        _output_files(tile, step, pack_dsfs), known)
+
+
+def _outputs_digest(rows) -> str:
+    from auto_patch import provenance
+    return provenance.content_identity_digest(rows)
+
+
+def _handed_on(entry: dict) -> str:
+    """What a step hands the next one: its output content and its inputs
+    without its code digest (a change of code reaches the next step only
+    through the files it writes)."""
+    inputs = {k: v for k, v in (entry.get("inputs") or {}).items()
+              if k != "code"}
+    return _digest({"outputs": entry.get("outputs_digest"),
+                    "inputs": inputs})
+
+
+def _previous_digest(doc: dict, step: str) -> str:
+    """The predecessor's :func:`_handed_on` — this build's record of it
+    (it ran, or was reused, in this build), else the last completed
+    build's."""
     index = REUSABLE_STEPS.index(step)
     if index == 0:
         return ""
-    entry = (doc.get(section) or {}).get(REUSABLE_STEPS[index - 1]) or {}
-    return entry.get("digest") or "absent"
+    before = REUSABLE_STEPS[index - 1]
+    entry = ((doc.get("pending") or {}).get(before)
+             or (doc.get("committed") or {}).get(before))
+    if not entry or not entry.get("outputs_digest"):
+        return "absent"
+    return _handed_on(entry)
 
 
 def stale_reason(tile, step: str) -> str | None:
@@ -293,14 +343,15 @@ def stale_reason(tile, step: str) -> str | None:
         entry = (doc.get("committed") or {}).get(step)
         if not entry:
             return "no record of a completed build"
-        live = _inputs(tile, step, _previous_digest(doc, step, "committed"),
+        live = _inputs(tile, step, _previous_digest(doc, step),
                        entry.get("osm_files"))
         recorded = entry.get("inputs") or {}
         for key in sorted(set(live) | set(recorded)):
             if live.get(key) != recorded.get(key):
                 return _changed_words(key, live.get(key), recorded.get(key))
-        if _outputs(tile, step, entry.get("pack_dsfs") or ()) != entry.get(
-                "outputs"):
+        rows = _outputs(tile, step, entry.get("pack_dsfs") or (),
+                        entry.get("outputs") or ())
+        if _outputs_digest(rows) != entry.get("outputs_digest"):
             return "its output files changed or are missing"
         return None
     except Exception as error:                    # never fatal: just run it
@@ -326,7 +377,7 @@ def _changed_words(key, live, recorded) -> str:
         names = sorted(n for n in set(live) | set(recorded or {})
                        if live.get(n) != (recorded or {}).get(n))
         return "setting changed: " + ", ".join(names[:4])
-    return {"previous": "the step before it was rebuilt",
+    return {"previous": "the step before it changed its files or inputs",
             "engine": "the engine version changed",
             "code": "the engine code changed",
             "auto_patch_cfg": "the auto-patch configuration changed",
@@ -344,13 +395,15 @@ def record(tile, step: str) -> None:
     try:
         doc = _read(tile)
         pending = dict(doc.get("pending") or {})
-        inputs = _inputs(tile, step, _previous_digest(doc, step, "pending"))
+        inputs = _inputs(tile, step, _previous_digest(doc, step))
         pack_dsfs = _journalled_dsfs(tile) if step == "mesh" else []
+        rows = _outputs(tile, step, pack_dsfs)
         pending[step] = {"inputs": inputs, "digest": _digest(inputs),
                          "osm_files": _osm_files(tile) if step == "vector"
                          else None,
                          "pack_dsfs": pack_dsfs,
-                         "outputs": _outputs(tile, step, pack_dsfs)}
+                         "outputs": rows,
+                         "outputs_digest": _outputs_digest(rows)}
         doc["pending"] = pending
         _write(tile, doc)
     except Exception:
@@ -368,8 +421,11 @@ def reused(tile, step: str) -> None:
 
 
 def forget_from(tile, step: str) -> None:
-    """``step`` is about to run: its committed record and every later
-    step's no longer describe the files on disk."""
+    """``step`` is about to run: its committed record no longer describes
+    its files, and no pending record of it or a later step is this
+    build's.  A later step's committed record stays (early cutoff, #837):
+    it is reused only when its own files are as it recorded them and this
+    build's ``step`` hands on what it was built from."""
     if step not in REUSABLE_STEPS:
         return
     doc = _read(tile)
@@ -377,7 +433,7 @@ def forget_from(tile, step: str) -> None:
         return
     later = REUSABLE_STEPS[REUSABLE_STEPS.index(step):]
     committed = {k: v for k, v in (doc.get("committed") or {}).items()
-                 if k not in later}
+                 if k != step}
     pending = {k: v for k, v in (doc.get("pending") or {}).items()
                if k not in later}
     _write(tile, dict(doc, committed=committed, pending=pending))

@@ -55,6 +55,18 @@ def _write_outputs(tile):
             handle.write("data")
 
 
+def _rewrite(path, data: bytes):
+    """Write ``data`` to ``path`` with an mtime surely past the old one —
+    a rerun that wrote the file again."""
+    try:
+        before = os.stat(path).st_mtime
+    except OSError:
+        before = 0.0
+    with open(path, "wb") as handle:
+        handle.write(data)
+    os.utime(path, (before + 10.0, before + 10.0))
+
+
 def _complete_build(tile, steps=REUSE.REUSABLE_STEPS):
     """What the session does for a build that runs ``steps``, reuses the
     rest, and completes (the imagery step's commit)."""
@@ -100,11 +112,13 @@ def test_mesh_setting_rebuilds_mesh_and_masks_not_vector(tile):
     reasons = _reasons(tile)
     assert reasons["vector"] is None
     assert "curvature_tol" in reasons["mesh"]
-    # The session drops the mesh's record and every later one when the
-    # mesh step starts; the masks then rebuild on the new mesh.
+    # The mesh step reran on new settings: the masks key on what it hands
+    # on — its files AND its inputs — so they rebuild on the new mesh.
     REUSE.reused(tile, "vector")
     REUSE.forget_from(tile, "mesh")
-    assert REUSE.stale_reason(tile, "masks") == "no record of a completed build"
+    REUSE.record(tile, "mesh")
+    assert REUSE.stale_reason(tile, "masks") == (
+        "the step before it changed its files or inputs")
     _complete_build(tile, steps=("mesh", "masks"))
     assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
 
@@ -149,14 +163,21 @@ def test_a_new_elevation_inset_rebuilds_the_vector_step(tile, tmp_path):
         "the airport elevation insets changed")
 
 
-def test_a_rebuilt_step_chains_to_the_next(tile):
-    """A vector step that ran again (same inputs) still rebuilds the mesh:
-    its committed record went when it started."""
+def test_a_rerun_that_wrote_the_same_files_keeps_the_next_step(tile):
+    """#837 early cutoff: a vector step that ran again and wrote the same
+    bytes (new mtimes) leaves the mesh and the masks reusable; one that
+    wrote different bytes rebuilds them."""
     _write_outputs(tile)
     _complete_build(tile)
     REUSE.forget_from(tile, "vector")
+    _rewrite(FNAMES.input_poly_file(tile), b"data")
     REUSE.record(tile, "vector")
-    assert REUSE.stale_reason(tile, "mesh") == "no record of a completed build"
+    assert REUSE.stale_reason(tile, "mesh") is None
+    REUSE.forget_from(tile, "vector")
+    _rewrite(FNAMES.input_poly_file(tile), b"DATA")
+    REUSE.record(tile, "vector")
+    assert REUSE.stale_reason(tile, "mesh") == (
+        "the step before it changed its files or inputs")
 
 
 def test_reuse_can_be_turned_off(tile, monkeypatch):
@@ -368,3 +389,130 @@ def test_scenery_packs_ini_is_read_by_content(tile, tmp_path):
     _ini(tmp_path, packs[:1] + ["SCENERY_PACK_DISABLED Custom Scenery/"
                                 "Airport B/"])
     assert REUSE.stale_reason(tile, "vector") == "scenery_packs.ini changed"
+
+
+# ── #837: outputs by content, and a step chained on what its predecessor
+# hands on (its output content and its inputs, its code left out).
+
+def test_a_touched_output_with_the_same_bytes_is_no_change(tile):
+    _write_outputs(tile)
+    _complete_build(tile)
+    mesh = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
+    _rewrite(mesh, b"data")
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    _rewrite(mesh, b"mesh")
+    assert REUSE.stale_reason(tile, "mesh") == (
+        "its output files changed or are missing")
+
+
+def test_a_vector_code_change_with_the_same_output_reruns_only_vector(
+        tile, monkeypatch):
+    """The owner's case (#837): a commit inside the vector step's code
+    reruns it; it writes the same files, and the mesh and the masks are
+    reused — through the session's order of calls, to a committed build
+    that reuses everything next time."""
+    import O4_Step_Code as STEPCODE
+    live = {s: STEPCODE.step_digest(s) for s in REUSE.REUSABLE_STEPS}
+    monkeypatch.setattr(STEPCODE, "_DIGESTS", dict(live))
+    _write_outputs(tile)
+    _complete_build(tile)
+    monkeypatch.setitem(STEPCODE._DIGESTS, "vector", "f" * 64)
+    assert _reasons(tile) == {"vector": "the engine code changed",
+                              "mesh": None, "masks": None}
+    REUSE.forget_from(tile, "vector")
+    for path in (FNAMES.input_node_file(tile), FNAMES.input_poly_file(tile),
+                 FNAMES.alt_file(tile)):
+        _rewrite(path, b"data")
+    REUSE.record(tile, "vector")
+    for step in ("mesh", "masks"):
+        assert REUSE.stale_reason(tile, step) is None
+        REUSE.reused(tile, step)
+    REUSE.commit(tile)
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+
+
+def _patch_text(code="0123456789abcdef", engine="1.50.1", body="25.1",
+                dem="dem-a"):
+    return ("<?xml version='1.0' encoding='UTF-8'?>\n"
+            "<osm version='0.6' generator='auto_patch_v2' "
+            f"o4_engine='{engine}' o4_icao='XXXX' o4_fresh_v='4' "
+            f"o4_dem='{dem}' o4_code='{code}' "
+            "o4_apt_dat_mtime='1700000000.000000'>\n"
+            f"  <node id='-1' lat='{body}' lon='51.1'/>\n"
+            "</osm>\n").encode("utf-8")
+
+
+def _rerun_vector_writing_patch(tile, tmp_path, **patch):
+    REUSE.forget_from(tile, "vector")
+    _rewrite(str(tmp_path / "patches" / "XXXX_auto.patch.osm"),
+             _patch_text(**patch))
+    REUSE.record(tile, "vector")
+    return REUSE.stale_reason(tile, "mesh")
+
+
+def test_a_patch_whose_run_stamps_alone_changed_keeps_the_mesh(tile,
+                                                              tmp_path):
+    """The stamps that name the run that wrote a patch (code digest,
+    engine version, apt.dat mtime) are not its content; any other byte is."""
+    _write_outputs(tile)
+    _rewrite(str(tmp_path / "patches" / "XXXX_auto.patch.osm"), _patch_text())
+    _complete_build(tile)
+    assert _rerun_vector_writing_patch(
+        tile, tmp_path, code="fedcba9876543210", engine="1.50.2") is None
+    assert _rerun_vector_writing_patch(
+        tile, tmp_path, code="fedcba9876543210", engine="1.50.2",
+        body="25.2") == "the step before it changed its files or inputs"
+
+
+def test_an_input_fingerprint_stamp_is_patch_content(tile, tmp_path):
+    _write_outputs(tile)
+    _rewrite(str(tmp_path / "patches" / "XXXX_auto.patch.osm"), _patch_text())
+    _complete_build(tile)
+    assert _rerun_vector_writing_patch(tile, tmp_path, dem="dem-b") == (
+        "the step before it changed its files or inputs")
+
+
+def test_the_stamp_free_root_drops_exactly_the_run_stamps():
+    from auto_patch import provenance
+    line = _patch_text().split(b"\n")[1]
+    free = provenance.stamp_free_root(line)
+    for key in provenance.PER_RUN_STAMP_KEYS:
+        assert key.encode() + b"=" not in free
+    assert free == (b"<osm version='0.6' generator='auto_patch_v2' "
+                    b"o4_icao='XXXX' o4_dem='dem-a'>")
+    assert provenance.stamp_free_root(b"  <node id='-1'/>") == (
+        b"  <node id='-1'/>")
+
+
+def test_an_unchanged_stat_skips_the_digest(tile, monkeypatch):
+    """The hit path costs stats: no output is read while its path, size
+    and mtime are as recorded."""
+    from auto_patch import provenance
+    _write_outputs(tile)
+    _complete_build(tile)
+    calls = []
+    real = provenance.content_digest
+    monkeypatch.setattr(provenance, "content_digest",
+                        lambda path: calls.append(path) or real(path))
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    assert calls == []
+    mesh = FNAMES.mesh_file(tile.build_dir, tile.lat, tile.lon)
+    _rewrite(mesh, b"data")
+    assert REUSE.stale_reason(tile, "mesh") is None
+    assert calls == [mesh]
+
+
+def test_a_record_of_the_previous_schema_reruns_once(tile):
+    import json
+    _write_outputs(tile)
+    _complete_build(tile)
+    path = REUSE._record_path(tile)
+    with open(path, encoding="utf-8") as handle:
+        doc = json.load(handle)
+    doc["schema"] = "2026-10-18"
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump(doc, handle)
+    assert all(why == "no record of a completed build"
+               for why in _reasons(tile).values())
+    _complete_build(tile)
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}

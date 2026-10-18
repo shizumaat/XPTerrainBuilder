@@ -167,7 +167,7 @@ def test_the_rule_read_on_a_real_cut_map_declares_every_knife_and_no_contour_in_
     with open(FRAME, "rb") as fh:
         a = pickle.load(fh)
     if a.get(cs_.CAPTURE_STATE_KEY):
-        cs_.install(a[cs_.CAPTURE_STATE_KEY])
+        cs_.install(a["pm"].registries, a[cs_.CAPTURE_STATE_KEY])
     pm, st = S.build_shapes(a["pm"], Law.for_airport(a["icao"]), a["airport"])
     contours = [j for j in pm.shape_joints if not j.gap]
     assert len(contours) <= 16 and st.part_contours_undeclared > 0

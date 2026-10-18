@@ -58,7 +58,8 @@ RUN_ENVIRONMENT: dict[str, str] = {
         "whether a tile build may skip a step whose output is current "
         "(O4_Step_Reuse, #615); a step that runs builds the same patch",
     "O4_TRIANGLE_IO":
-        "text or binary Triangle4XP exchange files (RULINGS 2026-10-17c); "
+        "text or binary (default) Triangle4XP exchange files (RULINGS "
+        "2026-10-17c); "
         "the .mesh is byte-identical either way",
     "O4_CACHE_AWARE_ADMISSION": "tile admission order in a parallel run",
     "O4_OSM_CLASS_LIMIT": "concurrent Overpass fetches",

@@ -2849,7 +2849,7 @@ def build_mesh(tile):
     # with ``A`` exactly.
     regional_areas = "a" if do_refine == "A" else ""
     # ``b`` = BINARY exchange files (mesh-io-spec §4, RULINGS 2026-10-17a
-    # Q6): opt-in through O4_TRIANGLE_IO=binary, only with a Triangle4XP
+    # Q6): the default (O4_TRIANGLE_IO=text opts out), only with a Triangle4XP
     # that carries the switch, and never with ``-r`` (it reads a text
     # ``.ele``; Triangle4XP refuses ``-b`` with it) — text otherwise.
     binary_io = TRI_BIN.use_binary_io(Triangle4XP_cmd.strip(),

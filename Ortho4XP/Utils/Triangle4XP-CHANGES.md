@@ -75,8 +75,9 @@ on the platform whose binary is swapped; update both in the same commit as
 any rebuild. `-h` prints Triangle's long instructions, which do not list
 `-b`; the short usage (no arguments) does.
 
-The engine uses `-b` only when `O4_TRIANGLE_IO=binary` is set, the run does
-not refine (`-r`), and the platform's binary carries the switch (default
-`text`); RULINGS 2026-10-17a Q6 keeps the flag off until all three binaries
-are rebuilt from this source and the text == binary twin
-(`tests/test_mesh_triangle_binary.py`) passes on each.
+The engine uses `-b` by default (`O4_TRIANGLE_IO=text` opts out) when the
+run does not refine (`-r`) and the platform's binary carries the switch
+(text otherwise); RULINGS 2026-10-17a Q6 kept the flag off until all three
+binaries were rebuilt from this source and the text == binary twin
+(`tests/test_mesh_triangle_binary.py`) passed on each. An `iterate` (`-r`)
+run converts a binary previous run's `.node`/`.ele` to text first.

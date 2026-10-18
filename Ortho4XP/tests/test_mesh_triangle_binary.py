@@ -85,8 +85,8 @@ def test_truncated_and_foreign_files_are_refused(tmp_path):
 
 
 @pytest.mark.parametrize("value, requested", [
-    (None, False), ("text", False), ("binary", True), (" Binary ", True), ("1", False)])
-def test_the_flag_is_off_unless_binary(monkeypatch, value, requested):
+    (None, True), ("text", False), (" Text ", False), ("binary", True), ("1", True)])
+def test_the_flag_is_on_unless_text(monkeypatch, value, requested):
     if value is None:
         monkeypatch.delenv(TRI_BIN.TRIANGLE_IO_ENV, raising=False)
     else:

@@ -15,9 +15,11 @@
 
 Integers are int32 and reals float64, native byte order (little-endian on
 every supported platform); layouts as in ``Utils/Triangle4XP-CHANGES.md``.
-Vertex numbers are kept as Triangle numbers them (1-based here).  Chosen by
-``O4_TRIANGLE_IO=binary`` (default ``text``) and only when the Triangle4XP
-binary carries the switch (``binary_capable``) and the run does not refine
+Vertex numbers are kept as Triangle numbers them (1-based here).  The
+default (RULINGS 2026-10-17a Q6: all three binaries carry ``-b`` and the
+text == binary twin passes on each); ``O4_TRIANGLE_IO=text`` opts out.  Used
+only when the Triangle4XP binary carries the switch (``binary_capable``;
+text otherwise) and the run does not refine
 (``-r`` reads a text ``.ele``; Triangle4XP refuses ``-b`` with it).  An
 ``iterate`` run refines the previous run's ``.node`` / ``.ele``, which a
 binary run left binary: ``refine_inputs_as_text`` turns them back into text
@@ -69,8 +71,9 @@ _I32 = np.dtype("=i4")
 
 
 def binary_requested() -> bool:
-    """``O4_TRIANGLE_IO=binary`` (anything else, or unset, is text)."""
-    return os.environ.get(TRIANGLE_IO_ENV, "text").strip().lower() == "binary"
+    """Binary unless ``O4_TRIANGLE_IO=text`` (unset, ``binary`` or anything
+    else is binary)."""
+    return os.environ.get(TRIANGLE_IO_ENV, "binary").strip().lower() != "text"
 
 
 def use_binary_io(executable, refine) -> bool:

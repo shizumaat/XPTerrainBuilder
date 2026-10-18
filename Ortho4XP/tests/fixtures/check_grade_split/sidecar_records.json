@@ -1,0 +1,17 @@
+{
+ "platforms": [
+  {"ref": "unit7/p0", "rim_relief_max_m": 0.42, "worst_ll": [35.2201, -80.9361],
+   "level": 212.5, "collar_m": 3.0, "worst_z": 212.08},
+  {"ref": "unit8/p0", "refused": "eroded", "pad_m2": 118.5},
+  {"ref": "unit9/b1", "datum": 211.0, "held_over_margin": 2,
+   "held_miss_max_m": 0.12, "hold_worst_ll": [35.221, -80.9362],
+   "held_contacts": 5, "released": 1, "released_max_m": 0.3,
+   "released_ll": [[35.2211, -80.9363]], "warned": true}
+ ],
+ "hard_conflict": [
+  {"site": [35.219, -80.936], "against": {"seam": 1, "taxi": 2},
+   "tier": "groundside", "row": "pad_rim:12", "s_m": 0.07},
+  {"site": [35.2191, -80.9364], "against": {"runway": 1},
+   "tier": "pad", "row": "pad_rim:13", "s_m": 0.02}
+ ]
+}

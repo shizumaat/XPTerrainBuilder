@@ -20,10 +20,7 @@ the classify stage to the end of the shape stage, target channels
 included; a stage's witness is everything they hold at its end, and a hit
 replays its stored witness into them.  A memo one stage fills and a later
 one reads therefore never hides a read (spec §5's memo rule, met by
-construction for the front half).  The target channels and the shape stage
-run on the REAL law and the shape record is keyed on the whole law
-(:meth:`FrontCache.run` ``whole_law``): what they fill, the constraints and
-the solve read back by the law's identity.
+construction for the front half).
 
 WHAT IS NEVER CACHED: a build with ``Config.xplat_dump`` (the release gate
 measures the programme, §7), an airport whose pack reading has no
@@ -138,7 +135,6 @@ class FrontCache:
         self.root = mod_cache_root
         self.folder = stage_folder(airport, mod_cache_root)
         self.report: dict[str, _t.Any] = {"stages": {}}
-        self._law_digest: str | None = None
         self.digests: dict[str, str] = {}
         self._field_digests: dict[str, tuple[_t.Any, str]] = {}
         self._writer: _cf.ThreadPoolExecutor | None = None
@@ -256,21 +252,14 @@ class FrontCache:
 
     # ── one stage ───────────────────────────────────────────────────
     def run(self, stage: str, inputs: _t.Mapping[str, str | None],
-            fn: _t.Callable[[_t.Any], _t.Any], *, as_served: bool = False,
-            whole_law: bool = False) -> _t.Any:
+            fn: _t.Callable[[_t.Any], _t.Any], *, as_served: bool = False) -> _t.Any:
         """``fn(law)``'s output for ``stage``: served from its record when
         the key and the witnesses hold, else computed (and recorded).
 
         ``as_served``: a miss hands on its output DECODED from the record,
         exactly as a hit would — for an output the build digests again
         afterwards (a pickle's bytes follow object identity, so the live
-        object and its decoded copy need not digest alike).
-
-        ``whole_law``: the stage runs on the REAL law and its key carries the
-        whole law's digest instead of a witness.  For the shape stage and the
-        target channels before it: they fill the memos the constraints and
-        the solve read back keyed on the law's ``id``, and on a proxy those
-        memos missed (HECA, miss arm, 3 runs each arm: the solve +5.2 s)."""
+        object and its decoded copy need not digest alike)."""
         if not self.active:
             return fn(self.real_law)
         codes = {s: self.code.get(s) for s in (stage,) + _EXTRA_CODE.get(stage, ())}
@@ -281,17 +270,13 @@ class FrontCache:
                 k for k, v in {**codes, **inputs}.items() if v is None)
             return fn(self.stage_law())
         recipe = {"inputs": dict(inputs), "code": codes, "env": self.env}
-        if whole_law:
-            if self._law_digest is None:
-                self._law_digest = _law.value_digest(self.real_law)
-            recipe["law"] = self._law_digest
         key = _store.key_of(stage, recipe)
         path = _store.entry_path(self.folder, self.icao, stage, key)
         rep["key"] = key[:16]
         got = self._serve(stage, key, path, rep)
         if got is not None:
             return got[0]
-        out = fn(self.real_law if whole_law else self.stage_law())
+        out = fn(self.stage_law())
         blob = self._record(stage, key, path, recipe, out, rep)
         return _pickle.loads(blob) if as_served and blob is not None else out
 

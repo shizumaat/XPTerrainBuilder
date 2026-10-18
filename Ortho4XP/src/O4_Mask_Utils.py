@@ -444,7 +444,9 @@ def build_masks(tile, for_imagery=False):
     UI.logprint(
         "Step 2.5 for tile lat=", tile.lat, ", lon=", tile.lon, ": normal exit."
     )
-    return
+    # 1 = the step finished: the session records (and later reuses) a step
+    # only on ``result == 1`` (#904; a bare return made masks never reusable).
+    return 1
 ################################################################################
     
 ################################################################################

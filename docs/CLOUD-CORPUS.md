@@ -62,8 +62,17 @@ repository is not enabled for this session" even with a valid PAT, and
    # the image's default python3 is a PPA 3.11 whose -dev headers are now
    # unreachable; the venv uses Ubuntu's 3.12 (headers from python3.12-dev)
    # the setup script does not start inside the checkout (git rev-parse fails
-   # there, measured 2026-09-29); the clone lands at /home/user/<repo>
-   cd "${CLAUDE_PROJECT_DIR:-/home/user/XPTerrainBuilder}/Ortho4XP"
+   # there, measured 2026-09-29); the clone lands at /home/user/<repo>.
+   # A project with two repos sets CLAUDE_PROJECT_DIR=/home/user, and a
+   # session may start before (or without) the clone: find the checkout, and
+   # skip the venv rather than fail the session (2026-10-18, "cd: ...: No such
+   # file or directory" stopped a project thread from starting)
+   O4=""
+   for d in "${CLAUDE_PROJECT_DIR:-}/Ortho4XP" "${CLAUDE_PROJECT_DIR:-}/XPTerrainBuilder/Ortho4XP" /home/user/XPTerrainBuilder/Ortho4XP; do
+     [ -f "$d/requirements.txt" ] && { O4="$d"; break; }
+   done
+   [ -n "$O4" ] || { echo "no XPTerrainBuilder checkout: venv skipped"; exit 0; }
+   cd "$O4"
    /usr/bin/python3.12 -m venv venv
    venv/bin/python -m pip install -q --upgrade pip setuptools wheel
    grep -v '^gdal' requirements.txt > /tmp/req.txt

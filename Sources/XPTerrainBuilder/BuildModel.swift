@@ -983,6 +983,9 @@ final class BuildModel: ObservableObject {
 
     /// The patch layer (map overlay + "Patch · ICAO" box).
     lazy var patchEdit = PatchEditModel(build: self)
+
+    /// "Select from flight plan…" (#829): the panel and the route overlay.
+    lazy var flightPlan = FlightPlanSelection(build: self)
     /// The pack reference outlines under it (spec §0 A4).
     lazy var packOutlines = PatchPackOutlines(patch: patchEdit)
 

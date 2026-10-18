@@ -317,7 +317,13 @@ def test_waiter_resumes_from_the_other_process_cells(monkeypatch):
     result = {}
 
     def _consumer():
-        result["vrt"] = BATHYBAND.ensure_bathymetry_band(_tile())
+        # The consumer's own failure is the finding, so keep it: left to
+        # the thread it surfaced only as a KeyError on ``result`` below
+        # (#884 -- the waiter's lock create had raised PermissionError).
+        try:
+            result["vrt"] = BATHYBAND.ensure_bathymetry_band(_tile())
+        except BaseException as error:
+            result["error"] = error
 
     consumer_thread = threading.Thread(target=_consumer)
     consumer_thread.start()
@@ -350,6 +356,7 @@ def test_waiter_resumes_from_the_other_process_cells(monkeypatch):
         "the hand-played other process could not release its lock")
     consumer_thread.join(timeout=15)
     assert not consumer_thread.is_alive()
+    assert "error" not in result, f"the waiter failed: {result['error']!r}"
     # It resumed from the other fetch's cells: nothing was refetched.
     assert fetch_calls == []
     assert result["vrt"] == FNAMES.bathymetry_band_vrt(

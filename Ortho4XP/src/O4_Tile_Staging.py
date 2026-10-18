@@ -28,7 +28,8 @@ import shutil
 import O4_File_Names as FNAMES
 import O4_Held_File as HELD
 
-__all__ = ["staging_dir", "begin", "terrain_dir", "install", "prune"]
+__all__ = ["staging_dir", "begin", "terrain_dir", "install", "prune",
+           "missing_textures"]
 
 LIVE = "terrain"
 
@@ -56,6 +57,32 @@ def terrain_dir(tile) -> str:
     of a build in progress, else the live folder."""
     return (getattr(tile, "terrain_staging", None)
             or os.path.join(tile.build_dir, LIVE))
+
+
+def missing_textures(tile) -> list:
+    """The ``.dds`` textures this build's terrain files name that are not on
+    disk, sorted (#901).  X-Plane stops on a terrain file whose texture is
+    missing, so a scenery file naming one is never activated."""
+    folder = terrain_dir(tile)
+    try:
+        names = sorted(n for n in os.listdir(folder) if n.endswith(".ter"))
+    except OSError:
+        return []
+    live = os.path.join(tile.build_dir, LIVE)
+    missing = set()
+    for name in names:
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8",
+                      errors="replace") as handle:
+                refs = [line.split()[-1] for line in handle
+                        if line.rstrip().lower().endswith(".dds")]
+        except OSError:
+            continue
+        for ref in refs:
+            path = os.path.normpath(os.path.join(live, ref))
+            if not os.path.isfile(path):
+                missing.add(os.path.basename(path))
+    return sorted(missing)
 
 
 def install(tile) -> set:

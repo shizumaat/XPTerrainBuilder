@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LittleNavmap xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://www.littlenavmap.org/schema/lnmpln.xsd">
+  <Flightplan>
+    <Header>
+      <FlightplanType>IFR</FlightplanType>
+      <CruisingAlt>37000</CruisingAlt>
+      <CreationDate>2026-10-18T12:00:00</CreationDate>
+      <FileVersion>1.2</FileVersion>
+      <ProgramName>Little Navmap</ProgramName>
+    </Header>
+    <Departure>
+      <Pos Lon="-73.785400" Lat="40.643600" Alt="13.00"/>
+      <Start>4</Start>
+    </Departure>
+    <Waypoints>
+      <Waypoint>
+        <Name>John F Kennedy Intl</Name>
+        <Ident>KJFK</Ident>
+        <Type>AIRPORT</Type>
+        <Pos Lon="-73.778900" Lat="40.639801" Alt="13.00"/>
+      </Waypoint>
+      <Waypoint>
+        <Ident>N5530W</Ident>
+        <Type>USER</Type>
+        <Pos Lon="-30.000000" Lat="55.500000" Alt="37000.00"/>
+      </Waypoint>
+      <Waypoint>
+        <Name>Heathrow</Name>
+        <Ident>EGLL</Ident>
+        <Type>AIRPORT</Type>
+        <Pos Lon="-0.461389" Lat="51.477500" Alt="83.00"/>
+      </Waypoint>
+    </Waypoints>
+  </Flightplan>
+</LittleNavmap>

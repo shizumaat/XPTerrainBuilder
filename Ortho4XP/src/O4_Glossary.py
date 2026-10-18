@@ -13,9 +13,8 @@ shows them (:func:`step_display`).
 """
 
 __all__ = [
-    "TERMS", "RETIRED", "RETIRED_WORDS", "STEP_NAMES", "DETAIL_NAMES",
-    "DETAIL_PIXEL_SIZES",
-    "detail_label", "detail_choice", "step_display", "surface_check",
+    "TERMS", "RETIRED", "RETIRED_WORDS", "STEP_NAMES", "DETAIL_PIXEL_SIZES",
+    "detail_choice", "step_display", "surface_check",
 ]
 
 # key -> the plain wording a primary label uses.  The owner's wording
@@ -92,20 +91,10 @@ STEP_NAMES = {
     "overlay": TERMS["xplane_objects"],
 }
 
-# Imagery zoom level -> (detail name, ground size of one pixel).  The
-# pixel size is the equator's, rounded: 156,543 m / 2**ZL.
-DETAIL_NAMES = {
-    12: "Very coarse",
-    13: "Coarse",
-    14: "Low",
-    15: "Light",
-    16: "Standard",
-    17: "Sharp",
-    18: "Very sharp",
-    19: "Ultra sharp",
-    20: "Extreme",
-    21: "Maximum",
-}
+# Imagery zoom level -> ground size of one pixel.  Detail levels are
+# shown by their ZL number (owner ruling 2026-10-18: no invented names);
+# the pixel size is secondary text.  Equator figures, rounded:
+# 156,543 m / 2**ZL.
 DETAIL_PIXEL_SIZES = {
     12: "~40 m",
     13: "~20 m",
@@ -125,17 +114,13 @@ _AUTO_PATCH_LABEL = "auto-patch"
 _DETAIL_SEPARATOR = " · "
 
 
-def detail_label(zl):
-    """``"Standard (~2 m per pixel)"`` for ZL16; ``"ZL<n>"`` off the table."""
-    name = DETAIL_NAMES.get(zl)
-    if name is None:
-        return "ZL%s" % (zl,)
-    return "%s (%s per pixel)" % (name, DETAIL_PIXEL_SIZES[zl])
-
-
 def detail_choice(zl):
-    """A detail menu item: the plain label, ZL as secondary text."""
-    return "%s · ZL%s" % (detail_label(zl), zl)
+    """A detail menu item: ``"ZL16 · ~2 m per pixel"``; ``"ZL<n>"`` off
+    the table."""
+    size = DETAIL_PIXEL_SIZES.get(zl)
+    if size is None:
+        return "ZL%s" % (zl,)
+    return "ZL%s · %s per pixel" % (zl, size)
 
 
 def step_display(step_key, label):

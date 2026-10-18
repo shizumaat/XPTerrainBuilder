@@ -44,21 +44,9 @@ public enum O4Glossary {
         "overlay": "Roads, forests and buildings from X-Plane",
     ]
 
-    /// Imagery zoom level -> detail name.
-    public static let detailNames: [Int: String] = [
-        12: "Very coarse",
-        13: "Coarse",
-        14: "Low",
-        15: "Light",
-        16: "Standard",
-        17: "Sharp",
-        18: "Very sharp",
-        19: "Ultra sharp",
-        20: "Extreme",
-        21: "Maximum",
-    ]
-
     /// Imagery zoom level -> ground size of one pixel (equator, rounded).
+    /// Detail levels are shown by their ZL number (owner ruling
+    /// 2026-10-18: no invented names); the pixel size is secondary text.
     public static let detailPixelSizes: [Int: String] = [
         12: "~40 m",
         13: "~20 m",
@@ -77,17 +65,10 @@ public enum O4Glossary {
         terms[key] ?? key
     }
 
-    /// "Standard (~2 m per pixel)" for ZL16; "ZL<n>" off the table.
-    public static func detailLabel(_ zl: Int) -> String {
-        guard let name = detailNames[zl], let size = detailPixelSizes[zl] else {
-            return "ZL\(zl)"
-        }
-        return "\(name) (\(size) per pixel)"
-    }
-
-    /// A detail menu item: the plain label, ZL as secondary text.
+    /// A detail menu item: "ZL16 · ~2 m per pixel"; "ZL<n>" off the table.
     public static func detailChoice(_ zl: Int) -> String {
-        "\(detailLabel(zl)) · ZL\(zl)"
+        guard let size = detailPixelSizes[zl] else { return "ZL\(zl)" }
+        return "ZL\(zl) · \(size) per pixel"
     }
 
     /// The progress text shown for an engine `StepProgress`: the engine's

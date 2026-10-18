@@ -48,9 +48,10 @@ PLAN_FILENAME = "o4_v2_rebake_{icao}.json"
 #: post-mesh object stage reads its §6 classes off (``placement_plan.
 #: pads_rims_from_graded``).  The pipeline writes it into the engine's
 #: ``tmp/`` scratch; the object stage runs at the end of ``build_mesh``,
-#: with no handle on that build's ``res`` — so the patch build PLACES it
-#: beside the patch (``auto_patch.engine_v2``) exactly as the plan is.  ``include_patches`` reads ``*.patch.osm`` only,
-#: so a JSON beside the patch is inert to every other consumer.
+#: with no handle on that build's ``res`` — so the tile driver's patch
+#: build PLACES it beside the patch exactly as the plan is.
+#: ``include_patches`` reads ``*.patch.osm`` only, so a JSON beside the
+#: patch is inert to every other consumer.
 GRADED_SURFACE_FILENAME = "{icao}.graded.json"
 
 

@@ -25,7 +25,8 @@ from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate, platform
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.planar import COLLAR_SUFFIX, is_bank_ref
-from auto_patch_v2.model.platform import HELD, datum_vertices
+from auto_patch_v2.model.platform import datum_vertices
+from auto_patch_v2.model.registries import Registries
 from auto_patch_v2.planar import platform as pplat
 from auto_patch_v2.planar.build import build
 from auto_patch_v2.planar.overlay import Region
@@ -89,7 +90,7 @@ def bank_law(law):
 def built(law):
     airport = _airport(law, _Dem())
     pm, _st = build(airport, Classification(tuple(_cells()), (), {}, ()), law)
-    return pm, airport, dict(HELD), list(pplat.PLATFORMS)
+    return pm, airport, dict(pm.registries.held), list(pm.registries.platforms)
 
 
 @pytest.fixture(scope="module")
@@ -134,16 +135,17 @@ def test_no_pad_is_refused_for_its_shape(law):
     thin = Region("building", "thin", Polygon(_rect(-60.0, 200.0, 60.0, 208.0)),
                   None, None, "airside", "cell")
     far = _dc.replace(thin, ref="far", polygon=Polygon(_rect(-60.0, 600.0, 60.0, 700.0)))
-    got, counts = pplat.platform_split(_air_regions(), [thin, far], law, 0.5)
+    reg = Registries()
+    got, counts = pplat.platform_split(_air_regions(), [thin, far], law, 0.5, reg=reg)
     assert [r.ref for r in got] == ["thin", "far"] and counts["platforms"] == 0
-    assert not HELD.get("far") and HELD["thin"]["conforming"]
+    assert not reg.held.get("far") and reg.held["thin"]["conforming"]
     big = _dc.replace(thin, ref="big", polygon=Polygon(_rect(-100.0, 200.0, 100.0, 245.0)))
     narrow = _dc.replace(thin, ref="narrow",
                          polygon=Polygon(_rect(-400.0, 200.0, 400.0, 209.0)))
-    got, counts = pplat.platform_split(_air_regions(), [big, narrow], law, 0.5)
+    got, counts = pplat.platform_split(_air_regions(), [big, narrow], law, 0.5, reg=reg)
     assert [(r.ref, r.polygon.equals(q.polygon)) for r, q in zip(got, [big, narrow])] == [
         ("big", True), ("narrow", True)]
-    assert [(p.ref, p.refused) for p in pplat.PLATFORMS] == [("big", ""), ("narrow", "")]
+    assert [(p.ref, p.refused) for p in reg.platforms] == [("big", ""), ("narrow", "")]
     assert counts["platforms"] == 2 and counts["platforms_refused"] == 0
 
 
@@ -164,12 +166,13 @@ def test_a_draped_facade_footprint_is_no_unit_platform(law):
     touch = NS(source="dsf:fac:building",
                outer=tuple(_rect(50.0, 400.0, 80.0, 440.0)), holes=())   # grazes ``osm``
     airport = NS(buildings=(fac, touch))
-    got, counts = pplat.platform_split(air2, [pad, osm], law, 0.5, airport=airport)
+    reg = Registries()
+    got, counts = pplat.platform_split(air2, [pad, osm], law, 0.5, airport=airport, reg=reg)
     assert sorted(r.ref for r in got) == ["fac", "osm"]
-    assert [(p.ref, p.refused) for p in pplat.PLATFORMS] == [
+    assert [(p.ref, p.refused) for p in reg.platforms] == [
         ("fac", pplat.REFUSED_DRAPED_FACADE), ("osm", "")]
     assert counts["platforms"] == 1 and counts["platforms_refused"] == 1
-    assert HELD["fac"]["conforming"]
+    assert reg.held["fac"]["conforming"]
     # the one derivation both the mint and this twin read
     assert pplat.draped_facade_pads([pad, osm], airport) == {id(pad)}
     assert pplat.draped_facade_pads([pad, osm], None) == set()
@@ -198,7 +201,7 @@ def test_a_second_region_of_a_unit_ref_keeps_the_ref(law):
     it to."""
     main = Region("building", "u", Polygon(PAD), None, None, "airside", "cell")
     sliver = _dc.replace(main, polygon=Polygon(_rect(60.0, 200.0, 61.0, 201.0)))
-    got, _c = pplat.platform_split(_air_regions(), [main, sliver], law, 0.5)
+    got, _c = pplat.platform_split(_air_regions(), [main, sliver], law, 0.5, reg=Registries())
     assert [r.ref for r in got] == ["u", "u"]
 
 
@@ -214,7 +217,8 @@ def test_a_unit_pad_is_one_face_when_a_foreign_ring_edge_crosses_it(law):
                   "apron", {}),
              Cell(2, "building", "padU", pad, (), None, None, "airside", "pad", {})]
     pm, _st = build(_airport(law, _Dem()), Classification(tuple(cells), (), {}, ()), law)
-    assert [p.ref for p in pplat.PLATFORMS] == ["padU"] and not pplat.PLATFORMS[0].refused
+    plats = pm.registries.platforms
+    assert [p.ref for p in plats] == ["padU"] and not plats[0].refused
     plat = _faces(pm, "padU")
     assert len(plat) == 1, [len(pm.faces[q].ring) for q in plat]
     pf = pm.faces[plat[0]]
@@ -246,8 +250,8 @@ def test_the_held_pad_is_flat_at_its_datum_and_leads_its_frontage(built, law):
     airside vertices; the datum column is an OWN vertex; every other own
     vertex takes a hard two-way row to it; every contact a hold row."""
     pm, airport, held, _p = built
-    HELD.clear()
-    HELD.update(held)
+    pm.registries.held.clear()
+    pm.registries.held.update(held)
     (ref, flat, weld), = platform.platform_contacts(pm, law)
     air = _vs(pm, _faces(pm, "apronA"))
     assert ref == "padU" and set(weld) == _vs(pm, _faces(pm, "padU")) & air
@@ -299,8 +303,8 @@ def test_the_solved_pad_is_flat_and_its_record_carries_no_collar_key(built, law)
     released, nothing warned — and the record names no collar."""
     from auto_patch_v2.solve import solve_design
     pm, airport, held, _p = built
-    HELD.clear()
-    HELD.update(held)
+    pm.registries.held.clear()
+    pm.registries.held.update(held)
     cs, _c, _w = generate(pm, law, airport)
     z = np.asarray(solve_design(pm, cs, law)[0].z, float)
     rec, = platform.platform_records(pm, law, z)

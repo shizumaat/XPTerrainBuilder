@@ -311,8 +311,11 @@ def _capture_state():
 
 
 def install_capture_state(rec: dict, icao: str, stage: str, source: str,
-                          recapture: str, required: bool = True) -> tuple[str, ...]:
-    """THE CAPTURE STATE OF ``rec``, INSTALLED — or a REFUSAL naming every
+                          recapture: str, required: bool = True,
+                          reg=None) -> tuple[str, ...]:
+    """THE CAPTURE STATE OF ``rec``, INSTALLED into ``reg`` (the registries
+    of the map the resume solves; default ``rec["pm"]``'s, or a fresh
+    record when ``rec`` carries no map) — or a REFUSAL naming every
     field it does not carry (issues #208, #224).
 
     ``rec`` is a ``--capture`` pickle or a ``--solved-out`` pickle; ``stage``
@@ -333,8 +336,15 @@ def install_capture_state(rec: dict, icao: str, stage: str, source: str,
     gone = cstate.missing(state)
     if gone and (required or stage in LATE_RESUMES):
         raise SystemExit(cstate.refusal(icao, stage, source, gone, recapture))
-    installed = cstate.install(state)
-    print(cstate.line(icao, installed, state))
+    if reg is None:
+        pm = rec.get("pm")
+        if pm is not None:
+            reg = pm.registries
+        else:
+            from auto_patch_v2.model.registries import Registries
+            reg = Registries()
+    installed = cstate.install(reg, state)
+    print(cstate.line(icao, installed, state, reg))
     return installed
 
 
@@ -686,18 +696,17 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
         # ``pad_airside`` key stays written so a reader of an older
         # spelling keeps working.
         from auto_patch_v2.pipeline import capture_state as _cstate
-        from auto_patch_v2.planar.overlay import PAD_AIRSIDE
-        _state = _cstate.collect()
+        _state = _cstate.collect(pm.registries)
         pickle.dump({"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
                      "inputs": inputs, "placement": dict(placement or {}),
-                     "pad_airside": dict(PAD_AIRSIDE),
+                     "pad_airside": dict(pm.registries.pad_airside),
                      _cstate.CAPTURE_STATE_KEY: _state,
                      # issue #156: the DECLARED overlay this capture read
                      CAPTURE_OVERLAY_KEY: _overlay}, fh)
     # beside the pickle, for ``tools/harness/frames.py register`` (which
     # reads it without unpickling engine objects)
     _data_overlay().write_sidecar(out, _overlay)
-    print(_cstate.line(icao, tuple(_state["fields"]), _state))
+    print(_cstate.line(icao, tuple(_state["fields"]), _state, pm.registries))
     print(f"[{icao}] captured -> {out} in {time.perf_counter() - t:.0f} s "
           f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
 
@@ -1254,7 +1263,7 @@ def bank_from(pkl: Path, emit_dir: Path | None,
     # the planar stage that fills them.
     install_capture_state(sv, icao, "bank-from", str(pkl),
                           "Re-run the arm that wrote it with the current tool "
-                          "(--replay ... --solved-out PKL).")
+                          "(--replay ... --solved-out PKL).", reg=pm.registries)
     law = Law.for_airport(icao)
     sol = Solution(tuple(float(v) for v in z), Status.OPTIMAL, None)
     res: dict = {}
@@ -1302,7 +1311,7 @@ def stability_probe(pkl: Path, site: tuple[float, float], drop_m: float,
     # the planar stage that fills them.
     install_capture_state(sv, icao, "probe-site", str(pkl),
                           "Re-run the arm that wrote it with the current tool "
-                          "(--replay ... --solved-out PKL).")
+                          "(--replay ... --solved-out PKL).", reg=pm.registries)
     law0 = Law.for_airport(icao)
     to_xy, _from = airport.frame.transformers()
     sx, sy = to_xy(site[1], site[0])
@@ -1470,7 +1479,7 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
         if prob.get("stage1") is not None:     # #100 option (c)
             from auto_patch_v2.pipeline import capture_state as _cst
             pm, cs = prob["stage1"].pm, prob["stage1"].cs
-            _cst.install(prob["stage1"].state)
+            _cst.install(pm.registries, prob["stage1"].state)
     else:
         with pkl.open("rb") as fh:
             sv = pickle.load(fh)
@@ -1486,7 +1495,8 @@ def stage1_population(pkl: Path, drop: list[str], out: Path,
         # the planar stage that fills them.
         install_capture_state(sv, icao, "stage1-dump", str(pkl),
                               "Re-run the arm that wrote it with the current "
-                              "tool (--replay ... --solved-out PKL).")
+                              "tool (--replay ... --solved-out PKL).",
+                              reg=pm.registries)
         law = Law.for_airport(icao)
         if design_weights:
             d0 = law.tables.emit.design
@@ -1850,7 +1860,6 @@ def pad_read(icao: str, pm, law, airport, sites: list[tuple[float, float]]) -> d
     from auto_patch_v2.constraints.cluster_pad import pad_cluster_mismatch
     from auto_patch_v2.law.tables import rolled_on_roles
     from auto_patch_v2.planar.index import face_polygon
-    from auto_patch_v2.planar.overlay import PAD_AIRSIDE
     rolled = rolled_on_roles(law)
     polys = {fid: face_polygon(pm, fid) for fid in pm.faces}
     bref: dict[str, list[int]] = {}
@@ -1876,7 +1885,8 @@ def pad_read(icao: str, pm, law, airport, sites: list[tuple[float, float]]) -> d
     _base = lambda r: r.split("#")[0]  # noqa: E731
     nested = [r for r in nested_all if _base(r["inner_ref"]) != _base(r["outer_ref"])]
     same = [r for r in nested_all if _base(r["inner_ref"]) == _base(r["outer_ref"])]
-    pa = {k: v for k, v in PAD_AIRSIDE.items() if not isinstance(v, (list, tuple, set))}
+    pa = {k: v for k, v in pm.registries.pad_airside.items()
+          if not isinstance(v, (list, tuple, set))}
     out = {"pad_airside": pa, "building_faces": sum(len(v) for v in bref.values()),
            "building_refs": len(bref), "building_area_m2": round(b_area, 1),
            "airside_area_m2": round(air_area, 1), "weld_refs": weld_refs,
@@ -1979,11 +1989,12 @@ def _hard_conflict_now() -> list:
     return [dict(r) for r in HARD_CONFLICT]
 
 
-def _hold_report_now() -> dict:
+def _hold_report_now(pm) -> dict:
     """The solve's hold report (``model.platform.hold_report``): what a
-    later ``--late-from`` pass carries over its own re-minted registry."""
+    later ``--late-from`` pass carries over its own re-minted registry —
+    off ``pm``'s record (``PlanarMap.registries``)."""
     from auto_patch_v2.model.platform import hold_report
-    return hold_report()
+    return hold_report(pm.registries.held)
 
 
 def replay_problem(pkl: Path, resume: str, drop: list[str],
@@ -2051,20 +2062,10 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                           f"tools/v2_solve_replay.py --capture {icao} --out {pkl}",
                           required=False)
     # THE LEGACY SPELLING of the arrangement's re-node reading (RULINGS
-    # 2026-09-16b, the FIRST registry to travel with a capture, before the
-    # record above generalised it): a capture written between 2026-09-16
-    # and that record carries ``pad_airside`` alone.  Such a capture
-    # REFUSES a late resume above, so this restores it only for the
-    # resumes that re-run the arrangement — where the read is the honest
-    # one anyway.  A capture older than BOTH has neither, and every reader
-    # then reports the key ABSENT rather than zero.
-    _pa = cap.get("pad_airside")
-    if _pa and not cap.get(_capture_state().CAPTURE_STATE_KEY):
-        from auto_patch_v2.planar.overlay import PAD_AIRSIDE
-        PAD_AIRSIDE.clear()
-        PAD_AIRSIDE.update(_pa)
-        print(f"[{cap['icao']}] pad/airside re-node from the capture: "
-              f"deleted {_pa.get('renode_deleted')} minted {_pa.get('renode_minted')}")
+    # 2026-09-16b): a capture carrying ``pad_airside`` alone REFUSES a late
+    # resume above, and an early resume re-runs the arrangement, whose map
+    # carries its own reading (``PlanarMap.registries``, #841) — so the
+    # legacy key has no reader left and is not restored.
     # A CAPTURE PREDATING A TARGET CHANNEL REPLAYS WITH THAT CHANNEL
     # EMPTY, and says which (lane ``v2roadcontact``, §37 (10)).  A
     # ``PlanarMap`` field added since the pickle was written is simply
@@ -2347,7 +2348,7 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                                                    rider_candidates(airport, law)),
                         hold_pass(st0.pm, law, airport))
             _t1 = time.perf_counter()
-            s1 = stage_one_problem(cl, _ribbon_free)
+            s1 = stage_one_problem(cl, _ribbon_free, pm.registries)
             if s1 is not None:
                 s1.bind(pm)
                 print(f"[{icao}] stage 1 on the ribbon-free map (#100 (c)): {s1.report} "
@@ -2430,7 +2431,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         # the late pass's sidecar loses ``platforms[].weld_widened`` and the
         # census prices the welded contacts with no allowance
         from auto_patch_v2.model.platform import install_hold_report
-        install_hold_report(_base_hold)
+        install_hold_report(prob["pm"].registries.held, _base_hold)
     icao, airport, pm, law, cs = (prob["icao"], prob["airport"], prob["pm"],
                                   prob["law"], prob["cs"])
     cl, stage, counts, t0 = prob["cl"], prob["stage"], prob["counts"], prob["t0"]
@@ -2684,7 +2685,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              "cs": cs_w, "z": z,
                              "pin_yield": list(getattr(rep, "pin_yield", ()) or ()),
                              "hard_conflict": _hard_conflict_now(),
-                             "hold_report": _hold_report_now(),
+                             "hold_report": _hold_report_now(pm_w),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
                                  "late_stage": _lrep["stage"],
@@ -2694,7 +2695,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                  "late_declared": list(_lrep["follow"].get("declared", ())),
                                  "late_wall_s": _lrep["wall_s"]}
                                 if late_from is not None else {}),
-                             _capture_state().CAPTURE_STATE_KEY: _capture_state().collect(),
+                             _capture_state().CAPTURE_STATE_KEY:
+                                 _capture_state().collect(pm_w.registries),
                              # #100 option (c): the map + set stage 1 SOLVED
                              # (the ribbon-free one) and its registries, which
                              # --stage1-dump reads in place of pm / cs

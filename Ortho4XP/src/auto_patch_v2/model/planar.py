@@ -36,6 +36,7 @@ import enum
 import typing as _t
 
 from .frame import XY, Key
+from .registries import Registries
 from .structures import Basin, Channel, Tunnel
 
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
@@ -666,6 +667,14 @@ class PlanarMap:
     #: ``planar/covered_ground``; ``airport/road_ramp`` reads each as a wall
     #: that retains its height (the road past the mouth at its own floor).
     mouth_walls: tuple[tuple[tuple[tuple[float, float], ...], float, str], ...] = ()
+    #: THE PLANAR STAGE'S REGISTRIES (stage-cache spec §10 step 2, #841):
+    #: the held platforms, plateaus, landings, run-outs, platform verdicts,
+    #: declared terraces and the pad/airside publication this map's
+    #: arrangement minted (``model.registries``).  The record is SHARED by
+    #: every ``dataclasses.replace`` of the map (the constraint generators
+    #: write the hold's report into ``held``) and outside equality.
+    registries: Registries = _dc.field(default_factory=Registries,
+                                       compare=False, repr=False)
 
     def __setstate__(self, state: dict) -> None:
         """A map PICKLED BEFORE A FIELD EXISTED reads that field's default

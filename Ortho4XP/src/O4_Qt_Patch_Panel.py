@@ -8,7 +8,7 @@ first" when the zoomed airport has no patch.  Edit mode adds the node
 inspector (one node: lat/lon, elevation, "Used by", Delete; several: the
 range, "Set to", "Offset", Delete N; a selected shape, #759: role, ref,
 nodes, area, perimeter, elevation range, "Used by", "Delete shape").  The save bar shows in Edit mode and
-whenever there is something to save or rebuild; "Revert to auto…" confirms
+whenever there is something to save or rebuild; "Undo my edits…" confirms
 inside the box.  The widgets are built once and refreshed in place, so a
 field being typed in keeps its focus.
 """
@@ -20,7 +20,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QVBoxLayout, QWidget)
 
+import O4_Glossary as GLOSSARY
 import O4_Qt_Patch_ShapePick as PICK
+import O4_Qt_Text_Scale as QTTEXT
 from O4_Qt_Patch_Controller import PatchController, built_date_text
 from O4_Qt_Patch_Geometry import role_name
 
@@ -40,11 +42,11 @@ def parse_number(text: str) -> float | None:
 
 
 def source_line(patch, file_mtime: float | None) -> str:
-    """"Auto patch, built 12 Oct" / "Edited · KHIO_edited.patch.osm" /
+    """"Automatic, built 12 Oct" / "Edited · KHIO_edited.patch.osm" /
     "Manual · KHIO_runways.patch.osm"."""
     if patch.source == "auto":
         date = built_date_text(file_mtime)
-        return "Auto patch, built %s" % date if date else "Auto patch"
+        return "Automatic, built %s" % date if date else "Automatic"
     return ("Manual · " if patch.is_hand_made else "Edited · ") + patch.file_name
 
 
@@ -55,9 +57,8 @@ def _plural(n: int, word: str) -> str:
 def _note(text: str = "", color: str | None = None) -> QLabel:
     label = QLabel(text)
     label.setWordWrap(True)
-    font = label.font()
-    font.setPointSizeF(max(font.pointSizeF() - 1, 8))
-    label.setFont(font)
+    # One point under the app font, following the text scale (#827).
+    QTTEXT.size_text(label, points=max(QTTEXT.base_points() - 1, 8))
     label.setStyleSheet("color: %s;" % color if color else "color: palette(mid);")
     return label
 
@@ -110,7 +111,7 @@ class PatchPanel(QGroupBox):
     """The Patch box; hidden while the layer is hidden."""
 
     def __init__(self, controller: PatchController, parent=None):
-        super().__init__("Patch", parent)
+        super().__init__(GLOSSARY.TERMS["ground_shape"], parent)
         self.controller = controller
         self.model = controller.model
         v = QVBoxLayout(self)
@@ -122,9 +123,9 @@ class PatchPanel(QGroupBox):
         v.addWidget(self.source_row)
         v.addWidget(self.shapes_row)
         self.mesh_note = _note()
-        self.stale_note = _note("The engine, DEM or airport data has changed since this patch "
-                                "was edited. The auto patch would now be different, but your "
-                                "edited patch is still used.", STALE_COLOR)
+        self.stale_note = _note("The engine, elevation or airport data has changed since this "
+                                "ground shape was edited. The automatic shape would now be "
+                                "different, but your edited shape is still used.", STALE_COLOR)
         v.addWidget(self.mesh_note)
         v.addWidget(self.stale_note)
         self.inspector = self._make_inspector()
@@ -262,11 +263,11 @@ class PatchPanel(QGroupBox):
         self.unsaved_label.setStyleSheet("color: %s;" % SELECTION_COLOR)
         row.addWidget(self.unsaved_label)
         row.addStretch(1)
-        self.revert_button = QPushButton("Revert to auto…")
+        self.revert_button = QPushButton(GLOSSARY.TERMS["undo_edits"] + "…")
         self.revert_button.clicked.connect(lambda: self._confirming(True))
-        self.save_button = QPushButton("Save")
+        self.save_button = QPushButton(GLOSSARY.TERMS["save_edits"])
         self.save_button.setDefault(True)
-        self.save_button.setToolTip("Save the edited patch (Ctrl+S)")
+        self.save_button.setToolTip("Save your edits to the airport ground shape (Ctrl+S)")
         self.save_button.clicked.connect(c.save)
         row.addWidget(self.revert_button)
         row.addWidget(self.save_button)
@@ -292,10 +293,10 @@ class PatchPanel(QGroupBox):
         self.setVisible(visible)
         if not visible:
             return
-        self.setTitle("Patch · %s" % icao)
+        self.setTitle("%s · %s" % (GLOSSARY.TERMS["ground_shape"], icao))
         loaded = c.state == c.LOADED and m.doc is not None
-        status = {c.LOADING: "Loading the patch…", c.FAILED: c.state_message,
-                  c.NO_PATCH: ("No patch was built for this airport." if c.tile_built
+        status = {c.LOADING: "Loading the ground shape…", c.FAILED: c.state_message,
+                  c.NO_PATCH: ("No ground shape was built for this airport." if c.tile_built
                                else "Build this tile first.")}.get(c.state, "")
         self.status.setText(status)
         self.status.setStyleSheet("color: orange;" if c.state == c.FAILED else "color: palette(mid);")
@@ -417,26 +418,28 @@ class PatchPanel(QGroupBox):
             self._confirm_open = False
         needs_rebuild = p.tile in m.tiles_needing_rebuild and n == 0
         self.rebuild_note.setText(
-            "The tile is out of date until you rebuild it. Object re-seating is off for this "
-            "airport while the edited patch is in use." if p.source == "manual"
+            "The tile is out of date until you rebuild it. Fitting custom airport buildings is "
+            "off for this airport while the edited ground shape is in use." if p.source == "manual"
             else "The tile is out of date until you rebuild it.")
         self.rebuild_note.setVisible(needs_rebuild)
         self.rebuild_button.setVisible(needs_rebuild)
         self.rebuild_button.setEnabled(not c.is_building())
-        self.hand_made_note.setText("This patch was made outside the editor. Save writes back "
-                                    "to %s; there is no Revert to auto." % p.file_name)
+        self.hand_made_note.setText("This airport ground shape was made outside the editor. "
+                                    "Saving writes back to %s; there is no automatic shape to "
+                                    "go back to." % p.file_name)
         self.hand_made_note.setVisible(p.is_hand_made)
         can_revert = not p.is_hand_made and (p.source == "manual" or n > 0)
         self.confirm.setVisible(self._confirm_open and can_revert)
         if p.source == "manual":
-            text = ("Go back to the auto patch? %s is moved aside to %s.disabled (not deleted), "
-                    "and the next build of this tile uses the auto patch." % (p.file_name, p.file_name))
+            text = ("Go back to the automatic ground shape? %s is moved aside to %s.disabled "
+                    "(not deleted), and the next build of this tile uses the automatic shape."
+                    % (p.file_name, p.file_name))
             if n > 0:
                 text += " Your %s discarded." % ("1 unsaved edit is" if n == 1
                                                  else "%d unsaved edits are" % n)
-            self.confirm_button.setText("Revert")
+            self.confirm_button.setText(GLOSSARY.TERMS["undo_edits"])
         else:
-            text = "Discard your %s and reload the auto patch?" % _plural(n, "unsaved edit")
+            text = "Discard your %s and reload the automatic ground shape?" % _plural(n, "unsaved edit")
             self.confirm_button.setText("Discard edits")
         self.confirm_text.setText(text)
         self.error_note.setText(m.edit_error or "")

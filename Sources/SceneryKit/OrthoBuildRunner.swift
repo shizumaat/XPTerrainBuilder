@@ -38,14 +38,7 @@ public struct OrthoBuildJob: Codable, Sendable, Equatable {
     public static let allSteps = ["vector", "mesh", "masks", "dsf"]
 
     public static func stepLabel(_ step: String) -> String {
-        switch step {
-        case "vector": return "Assemble vector data"
-        case "mesh": return "Triangulate 3D mesh"
-        case "masks": return "Draw water masks"
-        case "dsf": return "Build imagery / DSF"
-        case "overlay": return "Extract overlays"
-        default: return step
-        }
+        O4Glossary.stepNames[step] ?? step
     }
 }
 

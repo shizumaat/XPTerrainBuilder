@@ -111,10 +111,10 @@ struct PatchOverlay: View {
         }
     }
 
-    /// "KHIO · auto patch · 4,576 nodes · 392 shapes".
+    /// "KHIO · automatic shape · 4,576 nodes · 392 shapes".
     static func chipText(_ doc: PatchDocument) -> String {
-        let source = doc.source == .auto ? "auto patch"
-            : doc.isHandMade ? "manual patch" : "edited patch"
+        let source = doc.source == .auto ? "automatic shape"
+            : doc.isHandMade ? "hand-made shape" : "edited shape"
         return "\(doc.icao) · \(source) · \(doc.nodes.count.formatted()) nodes · \(doc.ways.count.formatted()) shapes"
     }
 

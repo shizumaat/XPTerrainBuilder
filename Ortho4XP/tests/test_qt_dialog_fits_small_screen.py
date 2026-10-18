@@ -202,7 +202,7 @@ class TestElidedRowLabelBoundary:
         qapp.processEvents()
         return label
 
-    NAME = "Modify custom airports (reseat objects)"
+    NAME = "Fit custom airport buildings to the new ground"
 
     def test_exactly_its_hint_is_not_elided(self, qapp):
         from PySide6.QtWidgets import QLabel

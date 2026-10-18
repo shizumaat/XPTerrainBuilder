@@ -299,9 +299,10 @@ jobs:
       #
       # BINARY TRIANGLE I/O ADMISSION (mesh-io-spec §4, RULINGS 2026-10-17a
       # Q6): build Triangle4XP from the vendored source (Utils/CMakeLists.txt)
-      # and run the text == binary twin against it.  The committed win/lin
-      # binaries predate -b, so the suite's own run of the twin skips there;
-      # this step is the evidence, not the shipped binary.
+      # and run the text == binary twin against it.  The suite's own run of
+      # the twin measures the committed binary (all three carry -b since
+      # 2026-10-18); this step adds the runner's native compiler (MSVC on
+      # Windows) as a second witness.
       - name: Triangle4XP from source + text == binary twin (Linux, Windows)
         if: runner.os != 'macOS'
         working-directory: Ortho4XP

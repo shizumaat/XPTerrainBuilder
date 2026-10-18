@@ -24,9 +24,9 @@ import O4_Triangle_IO as TRI_IO
 
 _PLATFORM = ("mac" if sys.platform == "darwin"
              else "win" if sys.platform.startswith("win") else "lin")
-#: CI builds Triangle4XP from Utils/src on the Linux and Windows runners and
-#: points this at it (the committed win/lin binaries predate -b); a binary
-#: named here that lacks -b is an error, never a skip.
+#: CI also builds Triangle4XP from Utils/src with the runner's own compiler
+#: on Linux and Windows and points this at it; a binary named here that
+#: lacks -b is an error, never a skip.
 BINARY_ENV = "O4_TRIANGLE4XP_TEST_BINARY"
 TRIANGLE4XP = os.environ.get(BINARY_ENV) or os.path.join(
     FNAMES.Utils_dir, _PLATFORM,

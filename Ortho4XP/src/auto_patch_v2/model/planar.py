@@ -51,7 +51,8 @@ __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "gap_step_part", "shares_gap_part",
            "bears_shape",
            "face_edge_ids",
-           "face_vertex_set", "gap_follower_faces", "pad_road_faces"]
+           "face_vertex_set", "gap_follower_faces", "pad_road_faces",
+           "RISER_SUFFIX", "is_band_riser_ref", "band_risers"]
 
 #: unit-platform spec §1 (3): the ref suffix of a platform pad's COLLAR face
 #: (``planar/platform.py`` mints it).  ``#`` is the tree's split spelling,
@@ -938,6 +939,39 @@ def _check_cycle(pm: PlanarMap, fid: int, cycle: tuple[int, ...]) -> None:
 #: with it; the ONE reading every layer asks through
 #: :func:`is_osm_ribbon_ref`.
 OSM_RIBBON_FEEDS = {"airport_small_roads": "small_roads", "big_roads": "big_roads"}
+
+
+#: owner RULINGS 2026-10-19a / 19i (#951): the ref suffix of a band's RISER
+#: face — the strip of a runway / taxi safety-area band within one weld
+#: spacing of a mapped-road ribbon inside it (``planar/band_riser``).
+RISER_SUFFIX = ":riser"
+
+
+def is_band_riser_ref(ref) -> bool:
+    """A band riser face's ref (:data:`RISER_SUFFIX`)."""
+    return str(ref or "").endswith(RISER_SUFFIX)
+
+
+def band_risers(pm) -> list[tuple[int, frozenset[int], frozenset[int]]]:
+    """``(face id, lower, upper)`` per band riser face: ``lower`` its ring
+    vertices an OSM ribbon face carries (the road's kerb), ``upper`` the
+    rest (the band line one weld spacing off).  Derived from the map, in
+    face-id order; empty without a riser."""
+    ids = [f.id for f in pm.faces.values()
+           if f.role == "graded_strip" and is_band_riser_ref(f.ref)]
+    if not ids:
+        return []
+    rib: set[int] = set()
+    for f in pm.faces.values():
+        if is_osm_ribbon_ref(f.ref):
+            for cyc in (f.ring, *f.holes):
+                rib.update(pm.ring_vertices(cyc))
+    out = []
+    for fid in sorted(ids):
+        f = pm.faces[fid]
+        vs = {v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
+        out.append((fid, frozenset(vs & rib), frozenset(vs - rib)))
+    return out
 
 
 def is_osm_ribbon_ref(ref) -> bool:

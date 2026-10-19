@@ -60,6 +60,7 @@ __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_ban
 from ..classify.sources import ENCLOSED_MIN_FRAC  # noqa: E402,F401
 from ..geom.union_find import find_root
 from ..model.end_area import end_area_lengths
+from ..model.planar import is_band_riser_ref
 
 
 @_dc.dataclass(frozen=True)
@@ -692,7 +693,10 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     keep: list[tuple[Polygon, Region] | None] = list(faces)
     hosts = set(host_roles)
     refused = set(refuse_roles)
-    order = sorted((i for i, (_p, r) in enumerate(faces) if r.source == "zone"),
+    # a band RISER (``planar/band_riser``, 19i) is narrow by construction:
+    # it is the wall, never a sliver, and never a sliver's host
+    order = sorted((i for i, (_p, r) in enumerate(faces) if r.source == "zone"
+                    and not is_band_riser_ref(r.ref)),
                    key=lambda i: faces[i][0].area)
 
     def _thawed(poly) -> bool:
@@ -719,7 +723,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
             if j == i or keep[j] is None:
                 continue
             pj, rj = keep[j]
-            if rj.role in refused or (thawed and rj.role in hosts):
+            if rj.role in refused or (thawed and rj.role in hosts) \
+                    or is_band_riser_ref(rj.ref):
                 continue
             try:
                 shared = poly.boundary.intersection(pj.boundary).length

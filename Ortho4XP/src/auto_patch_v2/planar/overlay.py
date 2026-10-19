@@ -36,6 +36,7 @@ from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
 from ..model.airport import Airport
 from ..model.registries import Registries
 from .chords import densify, ring_lines, stations
+from .road_yield import road_carriageways
 from .terrain_edge import EdgeReport, road_lines
 from .pad_cut import (_drop_rim_midpoints, _renode_counts, _SHARED_TIE_DP,
                       airside_clip, airside_union, apron_cut_to_pads,
@@ -245,7 +246,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                           shore_declarations(getattr(airport, "osm_ways", ())),
                           shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
                           pack_shore_walls(airport),
-                          _runway_records(airport, law)):
+                          _runway_records(airport, law),
+                          road_carriageways(getattr(airport, "osm_ways", ()), law)):
         regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                               z.code_letter, role_side(law, "graded_strip"),
                               "zone", z.zone, z.edge_kind, z.quay,

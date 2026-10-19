@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtWidgets import QMenu, QMessageBox
-
 import O4_File_Names as FNAMES
 import O4_Reveal as REVEAL
+from PySide6.QtWidgets import QMenu, QMessageBox
 
 __all__ = ["tile_menu"]
 

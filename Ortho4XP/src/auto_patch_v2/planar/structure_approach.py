@@ -28,6 +28,7 @@ from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
 from ..classify.roles import Cell
 from ..geom.union_find import find_root
 from ..airport.dem import dem_z_at
+from ..airport.road_ways import mapped_width_m
 from ..airport.wall_mouth import WallField
 from ..geom.vector import unit_vector
 
@@ -36,13 +37,11 @@ _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
-           "mouths", "FieldRegion", "cover_polygons", "standing_cover", "cut_gap_cells", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge", "MAX_HOPS",
+           "mouths", "FieldRegion", "cover_polygons", "standing_cover", "cut_gap_cells", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge",
            "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
 NODE_TOL = 0.05
-#: Approach ways are followed at most this many hops from the mouth.
-MAX_HOPS = 6
 #: Two directions within 30° are parallel (31h's dual test; the approach kink test).
 PARALLEL_COS = math.cos(math.radians(30))
 
@@ -63,20 +62,10 @@ def is_bridge(w: OsmWay) -> bool:
 
 def carriageway_width_m(tags: _t.Mapping[str, str], law: Law) -> float:
     """The way's stated ``width``, else ``lanes × lane_width_m`` (a
-    railway counts as ``default_lanes``)."""
+    railway counts as ``default_lanes``) — ``airport/road_ways.
+    mapped_width_m`` at the ``[tunnel]`` lane law."""
     tn = law.tables.structures.tunnel
-    w = tags.get("width")
-    if w:
-        try:
-            return max(1.0, float(w.replace("m", "").strip()))
-        except ValueError:
-            pass
-    lanes = tags.get("lanes")
-    try:
-        n = int(lanes) if lanes else tn.default_lanes
-    except ValueError:
-        n = tn.default_lanes
-    return max(1, n) * tn.lane_width_m
+    return mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
 
 
 def pavement_half_widths(axis_fn, ss: _t.Sequence[float], cells, polys, law: Law,
@@ -222,7 +211,23 @@ def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float,
     never a hop and are never refused).  Before this the walk tested
     direction on the FIRST hop only and then took the first candidate in
     load order at each node: LEMD −5980's ramp left its hairpin onto
-    −15331 (33.3°) with −15328 (2.3°) beside it."""
+    −15331 (33.3°) with −15328 (2.3°) beside it.
+
+    THE ARRIVAL HEADING IS THE WAY'S, NOT ITS FLARE (issue #948).  Where
+    the arrival hop refuses EVERY continuation, the turn is read again
+    from the CHORD of the way the walk arrived on (its first node as
+    walked to the junction): a carriageway that flares into a merge node
+    — a dual carriageway rejoining its single way — arrives on a short
+    hop tens of degrees off the road's own line, and the hop alone
+    refused the road straight ahead (KBUR −22530's last 4.3 m hop stood
+    62° off the 7-lane way north, so the walk ended there and its
+    extension ran 59° off the road).  The fallback only admits: a walk
+    the hop reading continues is unchanged.
+
+    The walk is bounded by ``reach_m`` and by never walking a way twice,
+    not by a count of ways: a road mapped as many short pieces is still
+    one route (the retired six-hop cap ended KBUR's west carriageway's
+    walk 239 m out, short of its 360 m ramp)."""
     idx: dict[tuple[int, int], list[tuple[int, bool]]] = {}
     for i, w in enumerate(ways):
         if is_tunnel(w, admitted) or ("highway" not in w.tags
@@ -236,21 +241,16 @@ def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float,
     seen: set[int] = set()
     heading: XY = (-inward[0], -inward[1])     # OUTWARD from the bore
     cos_max = math.cos(math.radians(max(0.0, min(180.0, turn_max_deg))))
-    for _hop in range(MAX_HOPS):
-        best = None
-        best_cos = cos_max - 1e-12
-        for i, forward in idx.get(_key(cur), ()):
-            if i in seen:
-                continue
-            pts = list(ways[i].points) if forward else list(reversed(ways[i].points))
-            d = unit(cur, pts[min(1, len(pts) - 1)])
-            c = d[0] * heading[0] + d[1] * heading[1]
-            if c > best_cos:                   # the smallest turn, inside the cap
-                best_cos, best = c, (i, pts)
+    chord: XY | None = None                    # the arriving way's own line
+    for _hop in range(len(ways) + 1):
+        best = _next_way(ways, idx.get(_key(cur), ()), seen, cur, heading, cos_max)
+        if best is None and chord is not None:
+            best = _next_way(ways, idx.get(_key(cur), ()), seen, cur, chord, cos_max)
         if best is None:
             break
         i, pts = best
         seen.add(i)
+        chord = unit(cur, pts[-1]) if pts[-1] != cur else None
         for p in pts[1:]:
             length += math.hypot(p[0] - cur[0], p[1] - cur[1])
             path.append(p)
@@ -269,6 +269,22 @@ def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float,
         path.append((cur[0] + ax / L * (reach_m - length + 1.0),
                      cur[1] + ay / L * (reach_m - length + 1.0)))
     return path
+
+
+def _next_way(ways, at, seen: set[int], cur: XY, heading: XY, cos_max: float):
+    """The unwalked way at node ``cur`` whose first hop turns least from
+    ``heading``, inside the cap: ``(index, points as walked)`` or None."""
+    best = None
+    best_cos = cos_max - 1e-12
+    for i, forward in at:
+        if i in seen:
+            continue
+        pts = list(ways[i].points) if forward else list(reversed(ways[i].points))
+        d = unit(cur, pts[min(1, len(pts) - 1)])
+        c = d[0] * heading[0] + d[1] * heading[1]
+        if c > best_cos:                       # the smallest turn, inside the cap
+            best_cos, best = c, (i, pts)
+    return best
 
 
 def resample(path: _t.Sequence[XY], ss: _t.Sequence[float]) -> list[XY]:

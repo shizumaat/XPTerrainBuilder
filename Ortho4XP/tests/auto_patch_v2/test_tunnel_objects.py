@@ -542,6 +542,29 @@ def test_box_on_the_bore_is_flat_at_the_mouth_depth(objs, law):
     assert t.climb_from_s == pytest.approx(t.top_s) and t.design_grade == 0.0
 
 
+def test_a_pad_touching_a_flat_object_trench_never_refuses_it(objs, law):
+    """#946 (VHHH TUNNEL2: a 32,019 m2 flat object trench refused "the
+    mouth stands against building pad" over a 30 m2 corner of a terminal
+    pad).  A flat trench has no ramp beyond its walls, and the walls are
+    never clipped and senior to a pad (05k-1 / 08-26): a building pad
+    overlapping a corner of it leaves the object cut built."""
+    tags_t = {"highway": "secondary", "tunnel": "yes", "lanes": "2"}
+    bore = (OsmWay(-301, "big_roads", ((0.0, 300.0), (0.0, -300.0)), False, tags_t),)
+    airport, objects, cache, cs, st = _corridors(
+        objs, law, [("wall_box", (0.0, 0.0), 0.0, -3.0, "OBJECT_AGL")], bore)
+    c = cs[0]
+    assert c.flat
+    x0, y0, x1, y1 = c.footprint.bounds
+    pad = _rect(x1 - 3.0, y1 - 3.0, x1 + 60.0, y1 + 60.0)
+    assert Polygon(pad).intersection(c.footprint).area > 0.0
+    cells = _cells() + [Cell(2, "building", "padT", pad, (), None, None,
+                             "airside", "pad", {})]
+    _cl2, tunnels, sst = build_structures(airport, Classification(tuple(cells), (), {}, ()),
+                                          law, objects, cs)
+    assert not [r for r in sst.refused if "wall_box" in r or "padT" in r], sst.refused
+    assert [t for t in tunnels if t.source == "object"]
+
+
 # ── the SAME Tunnel product through the readers ──────────────────────────
 
 @pytest.fixture(scope="module")

@@ -154,7 +154,13 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
     the LEVEL is the apt.dat airport elevation record (the header row;
     runway rows carry none — ``Airport.elevation_m``), which is the
     HIGHEST point of the landing area, so the runway's HIGHER threshold
-    sits at it; the TILT is the §21 long-wave DEM trend's mean
+    sits at it LESS the ground's fall from the airport's highest point to
+    that threshold (issue #941: the record names ONE point; a second
+    runway lying 7 m below it was pinned at it, and the hard pin lifted
+    the primary runway 4.5 m mid-length) — read off the §21 trends of
+    EVERY runway's ridge, CIFP-pinned or not (:func:`_relief_below_top`;
+    zero for the runway carrying the highest point, so a one-runway
+    airport is unchanged); the TILT is the §21 long-wave DEM trend's mean
     slope along the runway's own ridge, bounded by the runway's own
     longitudinal (and end-zone) cap; on a DEGRADED frame, or a ridge the
     trend cannot fit, the runway is LEVEL at the datum (never an invented
@@ -174,6 +180,10 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
     out: dict[int, tuple[float, str, str]] = {}
     degraded = dem_degraded(airport)
     window = float(law.tables.emit.design.runway_profile_window_m)
+    needs = any(sum(e.threshold_elev_m is not None for e in rw.ends) < 2
+                for rw in airport.runways if chains.get(rw.id))
+    trends = ({} if degraded or not needs
+              else _ridge_trends(planar, vw, airport, chains, window))
     for rw in airport.runways:
         chs = chains.get(rw.id)
         L = rw.length_m
@@ -198,15 +208,12 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
         all_ids = [v for ch in chs for v in ch]
         lim = _datum_slope_cap(law, rw)
         slope = 0.0
-        if not degraded and lim is not None:
-            t = _trend_of(((along(v), float(planar.vertices[v].dem_z))
-                           for v in all_ids
-                           if planar.vertices[v].dem_z is not None), window)
-            if t is not None:
-                s0, s1 = t.s[0], t.s[-1]
-                z0, z1 = t.at(s0), t.at(s1)
-                if z0 is not None and z1 is not None and s1 > s0:
-                    slope = max(-lim, min(lim, (float(z1) - float(z0)) / (s1 - s0)))
+        t = trends.get(rw.id)
+        if lim is not None and t is not None:
+            s0, s1 = t.s[0], t.s[-1]
+            z0, z1 = t.at(s0), t.at(s1)
+            if z0 is not None and z1 is not None and s1 > s0:
+                slope = max(-lim, min(lim, (float(z1) - float(z0)) / (s1 - s0)))
         # THE HIGHEST POINT (arm 2): the apt.dat airport elevation is the
         # elevation of the highest point of the landing area (ICAO Annex 14
         # "aerodrome elevation"; FAA "airport elevation", highest point of
@@ -216,12 +223,13 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
         # 9.5 m above its real CIFP thresholds.
         end_v = {e.name: _end_vertex(vw, all_ids, rw, e, ux, uy) for e in rw.ends}
         s_top = max((along(v) for v in end_v.values()), key=lambda q: slope * q)
+        level = float(elev) - _relief_below_top(trends, rw.id, s_top)
         pinned = [(end_v[e.name], float(e.threshold_elev_m)) for e in cifp]
         for end in rw.ends:
             if end.threshold_elev_m is not None:
                 continue
             v = end_v[end.name]
-            z = float(elev) + slope * (along(v) - s_top)
+            z = level + slope * (along(v) - s_top)
             for vp, zp in pinned:
                 if lim is None or vp == v:
                     continue
@@ -229,6 +237,39 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
                 z = max(zp - reach, min(zp + reach, z))
             out[v] = (z, rw.id, end.name)
     return out
+
+
+def _ridge_trends(planar: PlanarMap, vw: View, airport: Airport,
+                  chains: dict[str, list[list[int]]], window: float) -> dict:
+    """Runway id -> the §21 long-wave DEM trend along its ridge (stations
+    from the runway's FIRST end), for every runway whose ridge fits one."""
+    out = {}
+    for rw in airport.runways:
+        chs = chains.get(rw.id)
+        if not chs or rw.length_m <= 0.0:
+            continue
+        a_xy, ux, uy = _axis(rw)
+        t = _trend_of((((vw.xy[v][0] - a_xy[0]) * ux + (vw.xy[v][1] - a_xy[1]) * uy,
+                        float(planar.vertices[v].dem_z))
+                       for ch in chs for v in ch
+                       if planar.vertices[v].dem_z is not None), window)
+        if t is not None:
+            out[rw.id] = t
+    return out
+
+
+def _relief_below_top(trends: dict, rid: str, s_top: float) -> float:
+    """How far runway ``rid``'s trend at station ``s_top`` lies below the
+    HIGHEST trend point of any runway of the airport — where the apt.dat
+    elevation record (the highest point of the landing area) belongs.
+    Zero when this runway carries that point, or when either is unread."""
+    t = trends.get(rid)
+    here = t.at(min(max(s_top, t.s[0]), t.s[-1])) if t is not None else None
+    tops = [z for tr in trends.values() for q in tr.s
+            if (z := tr.at(q)) is not None]
+    if here is None or not tops:
+        return 0.0
+    return max(0.0, max(tops) - float(here))
 
 
 def threshold_pins(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, float]:

@@ -792,7 +792,6 @@ class DesignReport:
                     f"{tr.get('bordered', 0)} at their bordering pavement's "
                     f"level, {tr.get('linked', 0)} straight between two, "
                     f"{tr.get('pad_held', 0)} held along a pad frontage, "
-                    f"{tr.get('kerb', 0)} band-kerb targets added, "
                     f"{tr.get('anchored', 0)} reaching a coverage join at the cap, "
                     f"{tr.get('bare', 0)} leaving the last bordered level in "
                     f"{tr.get('bare_runs', 0)} run(s) ({tr.get('bare_steepened', 0)} "

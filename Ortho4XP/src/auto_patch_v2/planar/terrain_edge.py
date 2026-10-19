@@ -40,12 +40,12 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
-from ..airport.road_ways import road_ways
+from ..airport.road_ways import ribbon_half_width_m, road_ways
 from ..law import Law
 from ..law.tables import snap_margin_m
 from ..airport.dem import dem_z_many
 
-__all__ = ["EdgeClip", "EdgeReport", "road_lines", "road_ways", "road_half_width_m",
+__all__ = ["EdgeClip", "EdgeReport", "road_lines", "road_edges", "road_ways", "road_half_width_m",
            "clip_to_terrain_edge"]
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
@@ -105,12 +105,23 @@ def road_lines(osm_ways=()) -> tuple[LineString, ...]:
     return tuple(ln for _w, ln in road_ways(osm_ways))
 
 
-def road_half_width_m(law: Law) -> float:
-    """A mapped road's RIBBON half-width: the lane width plus the
-    ``groundside_cutback_m`` every road already receives.  ONE reading
-    for §19 rule 2's outer-edge barrier and §34 (4)'s band subtraction."""
-    return (float(law.tables.emit.road_profile.lane_width_m)
-            + float(law.tables.zones.adjacent_ground.groundside_cutback_m))
+def road_half_width_m(law: Law, tags=None) -> float:
+    """A mapped road's RIBBON half-width plus the ``groundside_cutback_m``
+    every road already receives: the way's mapped width
+    (``airport/road_ways.ribbon_half_width_m``, #949) when its ``tags``
+    are given, else the core lane width.  ONE reading for §19 rule 2's
+    outer-edge barrier."""
+    half = (ribbon_half_width_m(tags, law) if tags is not None
+            else float(law.tables.emit.road_profile.lane_width_m))
+    return half + float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+
+
+def road_edges(osm_ways, law: Law) -> tuple[tuple[LineString, float], ...]:
+    """:func:`road_lines` WITH each road's barrier half-width
+    (:func:`road_half_width_m` at its own tags), for §19 rule 2: a wide
+    road's outer edge stands where its mapped ribbon ends (#944)."""
+    return tuple((ln, road_half_width_m(law, w.tags or {}))
+                 for w, ln in road_ways(osm_ways))
 
 
 def _segment_ends(geom) -> np.ndarray:
@@ -202,13 +213,15 @@ def _road_barriers(part: Polygon, seed, crest, roads, law) -> tuple[list, list, 
     g = float(d.edge_grid_m)
     snap = float(d.edge_road_snap_m)
     run_min = float(d.edge_road_run_m)
-    half = road_half_width_m(law)
-    reach = part.buffer(half + g, **_MITRE)
+    # a road is a centreline (the core lane width) or ``(centreline,
+    # half-width)`` from :func:`road_edges` (its mapped width)
+    default = road_half_width_m(law)
     out: list = []
     relief: list = []
     n_runs = 0
     for road in roads:
-        line = road.intersection(reach)
+        road, half = road if isinstance(road, tuple) else (road, default)
+        line = road.intersection(part.buffer(half + g, **_MITRE))
         if line.is_empty:
             continue
         for piece in getattr(line, "geoms", [line]):

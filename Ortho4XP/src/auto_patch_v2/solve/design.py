@@ -197,6 +197,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     # import ``constraints``, M0 §1); no hold row = pass 1a IS stage 1.
 
     retarget: dict = {}
+    # one QP-budget memo for every stage-1 pass (``project_runway``, #994)
+    budget_memo: dict = {}
 
     def _s1(pm_x: PlanarMap, cs_x: ConstraintSet):
         if trend_rewrite is None:
@@ -220,7 +222,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         so, rp = _solve_stage(pm_x, cs_x, law, options, size_out=sz,
                               method=method, low_rank=low_rank, drop=d_x,
                               fixed=f_x, levelled_out=lv,
-                              stage_roles=airside_stage_roles(law))
+                              stage_roles=airside_stage_roles(law),
+                              projection_memo=budget_memo)
         return so, rp, d_x, f_x, lv, sz
     t1 = time.perf_counter()
     from .pin_yield import stage1_read_pins
@@ -437,7 +440,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  drop: _t.AbstractSet[int] | None = None,
                  fixed: _t.Mapping[int, float] | None = None,
                  levelled_out: dict[int, float] | None = None,
-                 stage_roles: _t.AbstractSet[str] | None = None
+                 stage_roles: _t.AbstractSet[str] | None = None,
+                 projection_memo: dict | None = None
                  ) -> tuple[Solution, DesignReport]:
     """ONE solve of the design surface (module docstring) — the whole thing
     when ``staged_solve`` is off, one stage of §20b when it is not.
@@ -446,6 +450,7 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     §20b (4)'s answer for the next stage: the solved value of every vertex
     whose column carried an ALWAYS-ON row (bending, chord, trend, datum,
     level belt) — a column with none has no level here and is left free.
+    ``projection_memo`` is :func:`project_after_solve`'s ``memo``.
     """
     opt = options or Options()
     d = design_law(law)
@@ -801,7 +806,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     if x is not None:
         # ... then PHASE E, the ZONE projection (12ag, §32): one entry,
         x, rep.runway_projection, rep.zone_projection = project_after_solve(
-            planar, law, base_p, x, stacked=(A1, b1), verbose=opt.verbose)
+            planar, law, base_p, x, stacked=(A1, b1), memo=projection_memo,
+            verbose=opt.verbose)
         # RE-READ AFTER THE PROJECTION (§30 (3b), ``rep.read_hard_set``): its
         # own rows are held exactly now; what is left is what it does not own.
         if hard_i.size:

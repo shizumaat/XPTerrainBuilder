@@ -260,16 +260,36 @@ _PRIMAL_TOL = 1.0e-9
 #: carry.  A solver constant, not a law value.
 _DROPPED_BOUND = 1.0e6
 
+#: THE QP's WORK BUDGET (issue #994).  HiGHS's QP is a DENSE-NULLSPACE
+#: active set (``design_qp``'s docstring): each iteration pays for the
+#: nullspace it has grown, so a projection that must move thousands of
+#: columns never finishes in any useful time.  Measured on KEDW's capture
+#: (15,321 free columns, 117,826 rows, the elastic arm): 70,800 iterations
+#: and 222 s to HiGHS's own "nullspace limit of 4000" — Solve error, design
+#: surface kept, RSS past 5 GB — and the next stage-1 pass paid it again.
+#: The projection is a TOUCH-UP over a family that is small by construction;
+#: a QP that has not closed in this many iterations is reported by name and
+#: the design surface kept, which is what the unbounded run ended in too.
+#: Measured: 10,000 iterations cost 9.3 s on that problem.  CYXY and KLAX
+#: never reach the QP (their projections are "held by the solve").  A
+#: solver constant, not a law value; deterministic (never a wall clock).
+_QP_ITERATIONS_MAX = 10_000
+#: the status word :func:`_qp` returns when the budget stopped it — the
+#: caller's memo reads it to stop the next pass paying the same budget
+OVER_BUDGET = "over the projection's QP budget"
+
 
 def _qp(A: sp.csr_matrix, rhs: np.ndarray, x0: np.ndarray, w: np.ndarray,
         verbose: bool = False) -> tuple[np.ndarray, str]:
-    """``min Σ w (x − x0)²  s.t.  A x ≤ rhs`` through HiGHS's QP.  Returns
-    ``(x, "optimal")`` or ``(x0, status word)``."""
+    """``min Σ w (x − x0)²  s.t.  A x ≤ rhs`` through HiGHS's QP, held to
+    :data:`_QP_ITERATIONS_MAX`.  Returns ``(x, "optimal")`` or
+    ``(x0, status word)``; a budget stop's word starts :data:`OVER_BUDGET`."""
     import highspy
     inf = highspy.kHighsInf
     h = highspy.Highs()
     h.setOptionValue("output_flag", bool(verbose))
     h.setOptionValue("primal_feasibility_tolerance", _PRIMAL_TOL)
+    h.setOptionValue("qp_iteration_limit", _QP_ITERATIONS_MAX)
     m, n = A.shape
     h.addVars(n, np.full(n, -inf), np.full(n, inf))
     h.changeColsCost(n, np.arange(n, dtype=np.int32), -2.0 * w * x0)
@@ -283,7 +303,14 @@ def _qp(A: sp.csr_matrix, rhs: np.ndarray, x0: np.ndarray, w: np.ndarray,
     rc = h.run()
     st = h.getModelStatus()
     if st != highspy.HighsModelStatus.kOptimal:
-        return x0, f"{h.modelStatusToString(st)} [rc {rc}, {m} rows x {n} columns]"
+        word = h.modelStatusToString(st)
+        # the budget, or HiGHS's own nullspace ceiling: both are the dense
+        # nullspace outgrowing the problem, and neither closes next pass
+        if st == highspy.HighsModelStatus.kIterationLimit or (
+                st == highspy.HighsModelStatus.kSolveError
+                and int(h.getInfo().qp_iteration_count) > 0):
+            word = f"{OVER_BUDGET} ({word})"
+        return x0, f"{word} [rc {rc}, {m} rows x {n} columns]"
     return np.asarray(h.getSolution().col_value, float)[:n], "optimal"
 
 
@@ -434,8 +461,21 @@ def _tie_break(h: _t.Any, A: sp.csr_matrix, rhs: np.ndarray, cost: np.ndarray,
     return out
 
 
+def _kept(rep: ProjectionReport, x: np.ndarray, t0: float, status: str,
+          verbose: bool) -> tuple[np.ndarray, ProjectionReport]:
+    """The projection did not settle: the DESIGN vector goes back unchanged
+    with its reason named — never a silently worse surface."""
+    rep.status = status
+    rep.after_m = rep.before_m
+    rep.wall_s = time.perf_counter() - t0
+    if verbose:
+        print(f"    [design/project] NOT OPTIMAL: {rep.status}")
+    return x, rep
+
+
 def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
                    *, stacked: tuple[sp.csr_matrix, np.ndarray] | None = None,
+                   memo: dict | None = None,
                    verbose: bool = False) -> tuple[np.ndarray, ProjectionReport]:
     """Project the design solve's ``x`` onto the runway family's hard rows
     (module docstring).  Returns the projected column vector and the report;
@@ -449,7 +489,11 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
     with none (a twin, a replay) passes nothing and it is rebuilt.  The
     one-way SPLIT the design solve applies to that matrix never touches a
     hard row (no hard ruling head is a one-way head), so the two readings
-    are the same matrix on this population."""
+    are the same matrix on this population.
+
+    ``memo`` (one dict per design solve, the caller's) carries a QP budget
+    stop (:data:`_QP_ITERATIONS_MAX`, issue #994) from one pass to the next,
+    so a runway family too large for the QP pays the budget once."""
     rep = ProjectionReport()
     t0 = time.perf_counter()
     if not bool(design_law(law).runway_projection):
@@ -571,6 +615,13 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
     # and the QP re-solved.  The loop ends when the full population is
     # satisfied, so the result is the same point the all-rows QP gives —
     # measured at HECA, in a fraction of the time.
+    # THE BUDGET IS PAID ONCE PER SOLVE (issue #994): a QP that ran over
+    # :data:`_QP_ITERATIONS_MAX` here is over it again in the next pass,
+    # whose runway family is the same size — the caller's ``memo`` carries
+    # the first stop, and every later pass keeps its design surface at once.
+    if memo is not None and memo.get("over_budget"):
+        return _kept(rep, x, t0, f"not run: {memo['over_budget']} in an "
+                     "earlier pass — design surface kept", verbose)
     near = (Ar @ x0 - rhs) > -_NEAR_M
     xf, st = np.asarray(x0), "optimal"
     for _round in range(_CUT_ROUNDS_MAX):
@@ -585,9 +636,9 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
     rep.cut_rows = int(near.sum())
     if st == "optimal" and (np.max(Ar @ xf - rhs) > _CLOSED_M):
         st = "cutting plane did not close"           # fall through to the full QP
-    if st != "optimal":
+    if st != "optimal" and not st.startswith(OVER_BUDGET):
         xf, st = _qp(Ar, rhs, x0, w, verbose)
-    if st != "optimal":
+    if st != "optimal" and not st.startswith(OVER_BUDGET):
         # THE COUPLED ROWS CAN BE INFEASIBLE, AND THAT IS THE PROJECTION'S
         # OWN DOING (measured on the ``ridge`` fixture with a 4 m ridge
         # kink): a row that ties a runway vertex to a NON-runway vertex is
@@ -629,12 +680,16 @@ def project_runway(planar: PlanarMap, law: Law, base: _t.Any, x: np.ndarray,
             if st == "optimal":
                 st = "optimal (elastic on the coupled rows)"
     rep.wall_s = time.perf_counter() - t0
+    if st.startswith(OVER_BUDGET):
+        # named in the log whatever the verbosity: the next app log must say
+        # which projection ran out of budget and how big it was
+        print(f"    [design/project] {st}: {rep.columns} free columns, "
+              f"{rep.rows} hard rows, {rep.elastic_rows} withdrawn, "
+              f"{rep.wall_s:.1f} s — design surface kept")
+        if memo is not None:
+            memo["over_budget"] = st
     if not st.startswith("optimal"):
-        rep.status = st
-        rep.after_m = rep.before_m
-        if verbose:
-            print(f"    [design/project] NOT OPTIMAL: {rep.status}")
-        return x, rep
+        return _kept(rep, x, t0, st, verbose)
     out = x.copy()
     out[free] = xf
     v = Ar @ xf - rhs + held
@@ -1041,6 +1096,7 @@ def project_zone_bands(planar: PlanarMap, law: Law, base: _t.Any,
 def project_after_solve(planar: PlanarMap, law: Law, base: _t.Any,
                         x: np.ndarray, *,
                         stacked: tuple[sp.csr_matrix, np.ndarray] | None = None,
+                        memo: dict | None = None,
                         verbose: bool = False
                         ) -> tuple[np.ndarray, ProjectionReport, ZoneClampReport]:
     """THE TWO PROJECTIONS, in their one lawful order (§16 then §32).
@@ -1059,6 +1115,6 @@ def project_after_solve(planar: PlanarMap, law: Law, base: _t.Any,
     rationale is here, beside the code it describes.
     """
     x, rwy = project_runway(planar, law, base, x, stacked=stacked,
-                            verbose=verbose)
+                            memo=memo, verbose=verbose)
     x, zone = project_zone_bands(planar, law, base, x, verbose=verbose)
     return x, rwy, zone

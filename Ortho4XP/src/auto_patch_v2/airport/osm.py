@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import bz2
 import dataclasses as _dc
+import hashlib
 import math
 import os
 import typing as _t
 import xml.etree.ElementTree as ET
 
 __all__ = ["OsmDoc", "RawWay", "RelationReport", "read_osm_file", "feed_path",
-           "load_feed", "TAGS_OF_INTEREST", "FEEDS", "RELATION_TYPES",
+           "load_feed", "feed_witness", "TAGS_OF_INTEREST", "FEEDS", "RELATION_TYPES",
            "ROAD_FEEDS", "ROAD_CACHE_TAG_SCHEMA", "feed_tag_schema",
            "SHORE_FEED", "SHORE_TAGS_OF_INTEREST", "SHORE_CACHE_TAG_SCHEMA"]
 
@@ -326,36 +327,64 @@ def read_osm_file(path: str, namespace: str = "",
                                        tuple(unclosable), inners, inner_area)
 
 
+def _neighbourhood(lat: float, lon: float) -> list[tuple[int, int]]:
+    """The 3x3 tiles around the one holding ``(lat, lon)``, in read order."""
+    blat, blon = int(math.floor(lat)), int(math.floor(lon))
+    return [(blat + dlat, blon + dlon) for dlat in (-1, 0, 1) for dlon in (-1, 0, 1)]
+
+
+def feed_witness(osm_root: str, lat: float, lon: float) -> str:
+    """THE PATCH FRESHNESS GATE'S OSM INPUT (``o4_osm``, issue #880):
+    ``"<lat>,<lon>|<16 hex>"`` — the home tile of ``(lat, lon)`` and one
+    sha256 over the size and mtime (or absence) of every file
+    :func:`load_feed` could read for an airport there: each of
+    :data:`FEEDS` over the 3x3 neighbourhood, both spellings (``.osm.bz2``
+    and ``.osm``).  Stat only, no read.  The writer passes the airport's
+    centre, the gate the stamped tile — the same answer while no file
+    changed, appeared or vanished."""
+    blat, blon = int(math.floor(lat)), int(math.floor(lon))
+    h = hashlib.sha256(os.path.abspath(osm_root).encode() + b"\0")
+    for feed in FEEDS:
+        for tlat, tlon in _neighbourhood(blat, blon):
+            base = os.path.join(tile_dir(osm_root, tlat, tlon),
+                                f"{tlat:+03d}{tlon:+04d}_{feed}.osm")
+            for path in (base + ".bz2", base):
+                try:
+                    st = os.stat(path)
+                    mark = f"{st.st_size}|{st.st_mtime_ns}"
+                except OSError:
+                    mark = "missing"
+                h.update(f"{feed}|{tlat}|{tlon}|{path[-4:]}|{mark}\0".encode())
+    return f"{blat},{blon}|{h.hexdigest()[:16]}"
+
+
 def load_feed(osm_root: str, feed: str, lat: float, lon: float,
               radius_deg: float = 0.05) -> OsmDoc:
     """Ways of ``feed`` with a vertex inside the ``radius_deg`` box around
     ``(lat, lon)``, merged over the 3x3 tile neighbourhood (a missing
     tile contributes nothing; a missing natural tile is an empty feed —
     never a download)."""
-    blat, blon = int(math.floor(lat)), int(math.floor(lon))
     out: list[RawWay] = []
     sources: list[str] = []
     schemas: list[tuple[str, str | None]] = []
     rep = RelationReport()
-    for dlat in (-1, 0, 1):
-        for dlon in (-1, 0, 1):
-            tlat, tlon = blat + dlat, blon + dlon
-            path = feed_path(osm_root, tlat, tlon, feed)
-            if not os.path.isfile(path):
+    for tlat, tlon in _neighbourhood(lat, lon):
+        path = feed_path(osm_root, tlat, tlon, feed)
+        if not os.path.isfile(path):
+            continue
+        sources.append(path)
+        schemas.append((path, feed_tag_schema(path)))
+        ns = f"{tlat:+03d}{tlon:+04d}:"
+        nodes, ways, frep = read_osm_file(
+            path, ns, SHORE_TAGS_OF_INTEREST if feed == SHORE_FEED
+            else TAGS_OF_INTEREST)
+        rep = rep.merge(frep)
+        for wid, nds, tags in ways:
+            pts = tuple(nodes[n] for n in nds if n in nodes)
+            if len(pts) < 2:
                 continue
-            sources.append(path)
-            schemas.append((path, feed_tag_schema(path)))
-            ns = f"{tlat:+03d}{tlon:+04d}:"
-            nodes, ways, frep = read_osm_file(
-                path, ns, SHORE_TAGS_OF_INTEREST if feed == SHORE_FEED
-                else TAGS_OF_INTEREST)
-            rep = rep.merge(frep)
-            for wid, nds, tags in ways:
-                pts = tuple(nodes[n] for n in nds if n in nodes)
-                if len(pts) < 2:
-                    continue
-                if not any(abs(p[0] - lat) <= radius_deg
-                           and abs(p[1] - lon) <= radius_deg for p in pts):
-                    continue
-                out.append(RawWay(wid, pts, tags))
+            if not any(abs(p[0] - lat) <= radius_deg
+                       and abs(p[1] - lon) <= radius_deg for p in pts):
+                continue
+            out.append(RawWay(wid, pts, tags))
     return OsmDoc(feed, tuple(out), tuple(sources), rep, tuple(schemas))

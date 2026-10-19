@@ -54,7 +54,8 @@ def test_the_stages_are_the_specs_cached_stages():
     assert SCODE.STAGES == ("classify", "planar", "flat_site", "road_profile",
                             "channels", "shapes",
                             *(SCODE.generator_stage(n) for n, _f in GENERATORS),
-                            "constraints.assembly", "jetway_strip")
+                            "constraints.assembly", "jetway_strip",
+                            "solve", "late_cut", "late_solve")
     assert set(SCODE.CODE_MODULES) == set(SCODE.STAGES)
 
 

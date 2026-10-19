@@ -424,7 +424,7 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
 def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                    base_solution: _t.Mapping[str, _t.Any], *, rules=None,
                    options=None, out: _t.Callable[[str], None] = print,
-                   roads_only: bool = False,
+                   roads_only: bool = False, records: _t.Any = None,
                    **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
     """THE LAST STAGE (spec §55 (4)).  ``base_solution`` is the base map and
     its solved levels (``{"pm", "z"}``, and the base's ``hard_conflict``
@@ -439,12 +439,24 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     ``roads_only`` is THE PAD ROADS' OWN STAGE (issue #609; 13a (1): junior
     to every pavement they meet — :func:`run_last_stages`): ``cl`` is taken
     as it is (nothing is cut), only the pad roads follow, and no gap-follow
-    row is minted."""
-    cut = late_cut(cl, airport, law, base_solution, rules=rules, out=out,
-                   roads_only=roads_only)
+    row is minted.
+
+    ``records`` (``pipeline/late_records.LateRecords``): the cut and the
+    solve through their stage-cache records, the derive through the
+    prefix's; ``None`` runs them plainly."""
+    if records is None:
+        cut = late_cut(cl, airport, law, base_solution, rules=rules, out=out,
+                       roads_only=roads_only)
+        derived, t_derive = late_derive(derive, cut)
+        return late_solve(cut, derived, t_derive, airport, law, base_solution,
+                          options=options, out=out, roads_only=roads_only, **solve_kw)
+    # the stage-cache records (``pipeline/late_records``; spec §4b.5)
+    cut = records.cut(cl, roads_only, lambda o: late_cut(
+        cl, airport, law, base_solution, rules=rules, out=o, roads_only=roads_only), out)
     derived, t_derive = late_derive(derive, cut)
-    return late_solve(cut, derived, t_derive, airport, law, base_solution,
-                      options=options, out=out, roads_only=roads_only, **solve_kw)
+    return records.solve(cut, derive, derived, t_derive, roads_only, lambda o: late_solve(
+        cut, derived, t_derive, airport, law, base_solution, options=options, out=o,
+        roads_only=roads_only, **solve_kw), out)
 
 
 def _has_pad_road(c) -> bool:

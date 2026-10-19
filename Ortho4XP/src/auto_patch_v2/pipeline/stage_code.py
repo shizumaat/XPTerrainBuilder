@@ -31,8 +31,10 @@ generator, ``constraints.<generator>``, entered at the generator's own
 module (``fn.__module__`` — generators of one module share the digest,
 never the record), ``constraints.assembly`` (the post-passes and the joint
 filter: ``constraints/assembly.py`` + ``pipeline/shapes.py``) and
-``jetway_strip``.  Their closures are declared at the end of this file,
-the generators' as the modules all of them share plus each module's own.
+``jetway_strip``; then ``solve``, ``late_cut`` and ``late_solve`` (spec
+§4b.4, §4b.5; step 9b).  Their closures are declared at the end of this
+file, the generators' as the modules all of them share plus each module's
+own.
 
 STDLIB ONLY, NO RELATIVE IMPORT: the specs execute this file with
 ``runpy`` (they never import engine packages); the shared mechanism
@@ -1131,6 +1133,165 @@ CODE_MODULES["jetway_strip"] = _mods("""
     model.registries model.structures model.threshold_datum
 """)
 
+#: THE SOLVE AND THE LAST STAGE (spec §4b.4, §4b.5; #843 step 9b): the solve
+#: is entered at ``solve.design`` / ``solve.api`` AND at the callback
+#: modules the build binds into it (``solve`` may not import
+#: ``constraints``): ``constraints.road_ramp`` (``reach_seed_rewrite``),
+#: ``constraints.no_step`` (``hold_pass``), ``constraints.taxi_trend``
+#: (``stage_one_retarget``), ``pipeline.stage_one_map`` (the ribbon-free
+#: stage-one problem the solve reads) and ``pipeline.solve_record`` (its
+#: codec and certificate).  The late cut and the late solve share one
+#: closure: ``pipeline.late_stage`` reaches the whole of both halves.
+CODE_MODULES["solve"] = _mods("""
+    airport.anchor_rule airport.apt_dat airport.authored_landing airport.authored_seat
+    airport.backup_state airport.basin_ring airport.basin_witness airport.below_zero
+    airport.borrow airport.bridge_family airport.bulk_geos airport.cluster_profile
+    airport.contact airport.contents airport.deck_signature airport.dem
+    airport.dem_production airport.dem_record airport.dem_shared airport.dem_witness
+    airport.door_wells airport.dsf airport.extension_cache airport.file_hash
+    airport.file_witness airport.footprint_carry airport.footprint_connector
+    airport.footprint_seats airport.footprint_unit airport.frame_entry
+    airport.grade_ledger airport.jetways airport.line_object airport.obj8
+    airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
+    airport.obj8_split airport.object_cut airport.pack airport.pack_partition
+    airport.pack_work airport.pad_block_seat airport.partition_cache
+    airport.partition_code airport.placement_atom airport.placement_body
+    airport.placement_boxes airport.placement_carrier airport.placement_census
+    airport.placement_cockpit airport.placement_contact airport.placement_cut
+    airport.placement_deck airport.placement_family airport.placement_file
+    airport.placement_geom airport.placement_leaves airport.placement_motion
+    airport.placement_orphan airport.placement_plan airport.placement_read
+    airport.placement_record airport.placement_seams airport.placement_seat_tilt
+    airport.placement_targets airport.pool airport.ramp_feet airport.reader_work
+    airport.rebake_plan airport.riders airport.road_profile airport.road_ways
+    airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
+    airport.slab_plates airport.stage_cache airport.sunken_ramp airport.sunken_roads
+    airport.thin_plates airport.topology_cache airport.tunnel_objects
+    airport.tunnel_walls airport.wall_class airport.wall_corridor_probe
+    airport.wall_corridors airport.wall_family airport.wall_geometry airport.wall_mouth
+    classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
+    classify.gap_mint classify.lot_roads classify.neck classify.open_default
+    classify.pad_touch classify.ramp_runout classify.retaining_wall classify.ribbon_mint
+    classify.roles classify.rules classify.sources classify.taxi_letter
+    constraints.apron constraints.apron_shelf constraints.ceiling
+    constraints.cluster_pad constraints.contiguity constraints.end_lip
+    constraints.geometry constraints.groundside constraints.no_step
+    constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
+    constraints.pads constraints.platform constraints.precedence constraints.road_ramp
+    constraints.roads constraints.routes constraints.runway_chord
+    constraints.runway_profile constraints.runway_yield constraints.shoulder_crossing
+    constraints.stretches constraints.strips constraints.taxi constraints.taxi_trend
+    constraints.taxi_trend_cap constraints.transverse constraints.trend
+    constraints.weld_floor geom geom.base_slab geom.cluster_outline geom.containment
+    geom.core_clamp geom.coverage geom.pad_evidence geom.parts geom.proportions
+    geom.ramp_grade geom.ramp_profile geom.rotated_rect geom.triangulate geom.union_find
+    geom.vector law law.airports_schema law.approach_corridor law.base_profile_schema
+    law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
+    law.eat_schema law.flat_site_schema law.inset_class law.model law.model_types
+    law.rebake_schema law.reference_code law.role_cap_schema law.tables
+    law.terrace_schema law.tunnel_object_schema law.units model.airport
+    model.constraints model.end_area model.frame model.hard_plane model.islands
+    model.jetway model.map_memo model.pad_terrace model.placement model.planar
+    model.platform model.pulse model.rebake model.registries model.structures
+    model.threshold_datum pipeline.back_cache pipeline.capture_state
+    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf
+    planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
+    planar.channel_claims planar.channel_floor planar.channel_geometry
+    planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
+    planar.edges planar.landing planar.landing_runout planar.object_corridor
+    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
+    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
+    planar.ridge_reach planar.shape_airside planar.shape_mouths planar.shape_parts
+    planar.shapes planar.shore planar.strip_keepout planar.structure_approach
+    planar.structure_deck planar.structure_geometry planar.structure_overlap
+    planar.structure_pair planar.structure_road planar.structure_service
+    planar.structure_stats planar.structure_underpass planar.structures
+    planar.terrain_edge planar.unframed_ramp planar.wall_corridor_ramps planar.weld
+    planar.zones solve.api solve.design solve.design_assemble solve.design_edge
+    solve.design_ground solve.design_junction solve.design_qp solve.design_report
+    solve.design_roles solve.design_stage solve.feasibility solve.flex solve.linear
+    solve.pin_yield solve.project solve.project_strip solve.rows solve.wall_cut
+""")
+CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
+    airport.anchor_rule airport.apt_dat airport.authored_landing airport.authored_seat
+    airport.backup_state airport.basin_ring airport.basin_witness airport.below_zero
+    airport.borrow airport.bridge_family airport.bulk_geos airport.cluster_profile
+    airport.contact airport.contents airport.deck_signature airport.dem
+    airport.dem_production airport.dem_record airport.dem_shared airport.dem_witness
+    airport.door_wells airport.dsf airport.extension_cache airport.file_hash
+    airport.file_witness airport.footprint_carry airport.footprint_connector
+    airport.footprint_seats airport.footprint_unit airport.frame_entry
+    airport.grade_ledger airport.jetways airport.line_object airport.obj8
+    airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
+    airport.obj8_split airport.object_cut airport.pack airport.pack_partition
+    airport.pack_work airport.pad_block_seat airport.partition_cache
+    airport.partition_code airport.placement_atom airport.placement_body
+    airport.placement_boxes airport.placement_carrier airport.placement_census
+    airport.placement_cockpit airport.placement_contact airport.placement_cut
+    airport.placement_deck airport.placement_family airport.placement_file
+    airport.placement_geom airport.placement_leaves airport.placement_motion
+    airport.placement_orphan airport.placement_plan airport.placement_read
+    airport.placement_record airport.placement_seams airport.placement_seat_tilt
+    airport.placement_targets airport.pool airport.ramp_feet airport.reader_work
+    airport.rebake_plan airport.riders airport.road_profile airport.road_ways
+    airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
+    airport.slab_plates airport.stage_cache airport.sunken_ramp airport.sunken_roads
+    airport.thin_plates airport.topology_cache airport.tunnel_objects
+    airport.tunnel_walls airport.wall_class airport.wall_corridor_probe
+    airport.wall_corridors airport.wall_family airport.wall_geometry airport.wall_mouth
+    classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
+    classify.gap_mint classify.gap_terrace classify.lot_roads classify.neck
+    classify.open_default classify.pad_road_exit classify.pad_touch classify.ramp_runout
+    classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
+    classify.sources classify.taxi_letter constraints constraints.apron
+    constraints.apron_shelf constraints.assembly constraints.ceiling constraints.channel
+    constraints.cluster_pad constraints.contiguity constraints.eat constraints.end_lip
+    constraints.flat_site constraints.foot_rows constraints.gap_follow
+    constraints.geometry constraints.groundside constraints.hard_plane
+    constraints.jetway_strip constraints.junction_mesh constraints.no_step
+    constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
+    constraints.pad_relief constraints.pad_road_reach constraints.pad_warning
+    constraints.pads constraints.pavement_cap constraints.platform
+    constraints.precedence constraints.proximity constraints.ramp_runout
+    constraints.road_ramp constraints.roads constraints.routes constraints.runway_chord
+    constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
+    constraints.seams constraints.shoulder_crossing constraints.slab_weld
+    constraints.stretches constraints.strips constraints.structures constraints.taxi
+    constraints.taxi_trend constraints.taxi_trend_cap constraints.transverse
+    constraints.trend constraints.water constraints.weld_floor constraints.zones
+    emit.graded emit.surface geom geom.base_slab geom.cluster_outline geom.containment
+    geom.core_clamp geom.coverage geom.feet_graph geom.feet_mst geom.pad_evidence
+    geom.parts geom.proportions geom.ramp_grade geom.ramp_profile geom.rotated_rect
+    geom.triangulate geom.union_find geom.vector law law.airports_schema
+    law.approach_corridor law.base_profile_schema law.basin_schema law.cockpit_schema
+    law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
+    law.inset_class law.model law.model_types law.rebake_schema law.reference_code
+    law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
+    model.airport model.constraint_codec model.constraints model.end_area model.frame
+    model.ground_fit model.hard_plane model.islands model.jetway model.map_memo
+    model.pad_terrace model.placement model.planar model.platform model.pulse
+    model.rebake model.registries model.structures model.threshold_datum
+    pipeline.back_cache pipeline.capture_state pipeline.constraint_records
+    pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
+    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.basin_geometry
+    planar.basin_rim planar.basins planar.build planar.channel planar.channel_claims
+    planar.channel_floor planar.channel_geometry planar.channel_witness planar.chords
+    planar.covered_ground planar.door_ramps planar.edges planar.landing
+    planar.landing_runout planar.object_corridor planar.overlay planar.pack_reads
+    planar.pad_blocks planar.pad_cut planar.pad_sliver planar.pad_terrace
+    planar.platform planar.ribbon_weld planar.ribbons planar.ridge_reach
+    planar.shape_airside planar.shape_mouths planar.shape_parts planar.shapes
+    planar.shore planar.strip_keepout planar.structure_approach planar.structure_deck
+    planar.structure_geometry planar.structure_overlap planar.structure_pair
+    planar.structure_road planar.structure_service planar.structure_stats
+    planar.structure_underpass planar.structures planar.terrain_edge
+    planar.unframed_ramp planar.wall_corridor_ramps planar.weld planar.zones solve.api
+    solve.design solve.design_assemble solve.design_edge solve.design_ground
+    solve.design_junction solve.design_qp solve.design_report solve.design_roles
+    solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
+    solve.project solve.project_strip solve.rows solve.wall_cut
+""")
+
 
 def generator_stage(name: str) -> str:
     """The stage-code entry of the constraint generator ``name``."""
@@ -1144,6 +1305,23 @@ ENTRY_MODULES["constraints.assembly"] = ("auto_patch_v2.constraints.assembly",
                                          "auto_patch_v2.pipeline.shapes")
 ENTRY_MODULES["jetway_strip"] = ("auto_patch_v2.airport.riders",
                                  "auto_patch_v2.constraints.jetway_strip")
+ENTRY_MODULES["solve"] = ("auto_patch_v2.solve.design", "auto_patch_v2.solve.api",
+                          "auto_patch_v2.constraints.road_ramp",
+                          "auto_patch_v2.constraints.no_step",
+                          "auto_patch_v2.constraints.taxi_trend",
+                          "auto_patch_v2.pipeline.stage_one_map",
+                          "auto_patch_v2.pipeline.solve_record")
+ENTRY_MODULES["late_cut"] = ("auto_patch_v2.pipeline.late_stage",
+                             "auto_patch_v2.pipeline.late_records",
+                             "auto_patch_v2.classify.gap_terrace",
+                             "auto_patch_v2.classify.gap_mint")
+ENTRY_MODULES["late_solve"] = ("auto_patch_v2.pipeline.late_stage",
+                               "auto_patch_v2.pipeline.late_records",
+                               "auto_patch_v2.constraints.gap_follow",
+                               "auto_patch_v2.solve.design",
+                               "auto_patch_v2.constraints.road_ramp",
+                               "auto_patch_v2.constraints.no_step",
+                               "auto_patch_v2.constraints.taxi_trend")
 
 #: The cached stages, in build order.
 STAGES: tuple[str, ...] = tuple(ENTRY_MODULES)

@@ -51,7 +51,8 @@ from . import back_cache as _bc
 from . import stage_code as _code
 from .shapes import joint_filter, shape_constraints
 
-__all__ = ["GenRows", "Constraints", "constraints_stage", "strips_stage"]
+__all__ = ["GenRows", "Constraints", "constraints_stage", "strips_stage", "set_delta",
+           "from_delta", "kinds_of"]
 
 #: The ``ConstraintSet`` fields, in the codec's order; a row's kind is its index.
 _KINDS: tuple[str, ...] = tuple(attr for _cls, attr, _f in _codec.LAYOUT)
@@ -125,32 +126,51 @@ def _concat(gens: _t.Sequence[GenRows]) -> dict[str, tuple]:
 
 
 def _delta(final: tuple, concat: tuple) -> tuple[_array.array, list]:
-    """Each row of ``final`` as its index into ``concat`` (by identity, in
-    order — the post-passes withdraw and append, never reorder), ``-1`` and
-    kept apart for a row ``concat`` does not hold."""
-    idx, new, j, n = _array.array("i"), [], 0, len(concat)
+    """Each row of ``final`` as its index into ``concat`` (by identity),
+    ``-1`` and kept apart for a row ``concat`` does not hold."""
+    at: dict[int, int] = {}
+    for i, r in enumerate(concat):
+        at.setdefault(id(r), i)
+    idx, new = _array.array("i"), []
     for r in final:
-        k = j
-        while k < n and concat[k] is not r:
-            k += 1
-        if k < n:
-            idx.append(k)
-            j = k + 1
-        else:
-            idx.append(-1)
+        i = at.get(id(r), -1)
+        idx.append(i)
+        if i < 0:
             new.append(r)
     return idx, new
 
 
+def set_delta(final: ConstraintSet, base: _t.Mapping[str, tuple]) -> dict:
+    """``final`` as a DELTA over ``base`` (per row kind, the rows it is
+    made of): per kind each row's index into ``base`` (``-1``: a row
+    ``base`` does not hold) and those rows in the columnar codec — never a
+    pickle of rows (RULINGS 2026-10-18e).  :func:`from_delta` inverts it."""
+    idx, new = {}, {}
+    for k in _KINDS:
+        idx[k], new[k] = _delta(getattr(final, k), base[k])
+    return {"idx": idx,
+            "minted": _codec.encode(ConstraintSet(**{k: tuple(v) for k, v in new.items()}))}
+
+
+def from_delta(rec: _t.Mapping[str, _t.Any], base: _t.Mapping[str, tuple]) -> ConstraintSet:
+    """The set :func:`set_delta` encoded, over the same ``base``."""
+    minted = _codec.decode(rec["minted"])
+    kinds = {}
+    for k in _KINDS:
+        fresh = iter(getattr(minted, k))
+        kinds[k] = tuple(base[k][i] if i >= 0 else next(fresh) for i in rec["idx"][k])
+    return ConstraintSet(**kinds)
+
+
+def kinds_of(cs: ConstraintSet) -> dict[str, tuple]:
+    """``cs``'s rows per kind — the ``base`` of :func:`set_delta`."""
+    return {k: tuple(getattr(cs, k)) for k in _KINDS}
+
+
 def _assembly_codec(gens: _t.Sequence[GenRows]) -> _bc.Codec:
     def encode(a: _Assembly) -> tuple[bytes, _t.Callable[[], str]]:
-        concat = _concat(gens)
-        idx, new = {}, {}
-        for k in _KINDS:
-            idx[k], new[k] = _delta(getattr(a.cs, k), concat[k])
-        minted = _codec.encode(ConstraintSet(**{k: tuple(v) for k, v in new.items()}))
         yielded = GenRows.of(a.yielded, {})
-        blob = pickle.dumps({"idx": idx, "minted": minted,
+        blob = pickle.dumps({**set_delta(a.cs, _concat(gens)),
                              "yielded": (_codec.encode(yielded.cs), yielded.runs),
                              "counts": a.counts, "walls": a.walls,
                              "joints": a.joints}, protocol=5)
@@ -158,13 +178,8 @@ def _assembly_codec(gens: _t.Sequence[GenRows]) -> _bc.Codec:
 
     def decode(blob: bytes) -> _Assembly:
         rec = pickle.loads(blob)
-        concat, minted = _concat(gens), _codec.decode(rec["minted"])
-        kinds = {}
-        for k in _KINDS:
-            fresh = iter(getattr(minted, k))
-            kinds[k] = tuple(concat[k][i] if i >= 0 else next(fresh) for i in rec["idx"][k])
         y_cs, y_runs = rec["yielded"]
-        return _Assembly(ConstraintSet(**kinds), rec["counts"], rec["walls"],
+        return _Assembly(from_delta(rec, _concat(gens)), rec["counts"], rec["walls"],
                          GenRows(_codec.decode(y_cs), y_runs, {}).rows(), rec["joints"])
     return _bc.Codec(encode, decode)
 
@@ -233,15 +248,15 @@ def constraints_stage(fc: _t.Any, pm, law, airport, stage, inputs: _t.Mapping[st
 
 
 def strips_stage(fc: _t.Any, pm, law, airport, con: Constraints,
-                 inputs: _t.Mapping[str, str | None]):
+                 inputs: _t.Mapping[str, str | None]) -> _bc.Got:
     """THE JETWAY STRIPS (``constraints.jetway_strip.jetway_strips`` on the
-    airport's riders) through their record (spec §4b.2)."""
+    airport's riders) through their record (spec §4b.2): the record's
+    :class:`~pipeline.back_cache.Got` (``value`` the strips; ``digest`` what
+    the solve's key names them by)."""
     from ..airport.riders import rider_candidates
     from ..constraints.jetway_strip import jetway_strips
 
     def run():
         return jetway_strips(pm, law, airport, con.cs, rider_candidates(airport, law))
-    if fc is None:
-        return run()
     return _bc.record(fc, "jetway_strip", {**inputs, "assembly": con.key,
-                                           "dem_before": con.chain}, run).value
+                                           "dem_before": con.chain}, run)

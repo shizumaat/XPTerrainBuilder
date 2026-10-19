@@ -42,7 +42,9 @@ from .planar_report import shore_decision_lines  # noqa: F401  (read here)
 from .prefix import Deriver, PackRead, run_prefix
 from .prefix import classified_land as _classified_land  # noqa: F401  (read here)
 from .rebake_inputs import _plate_seats, _rebake_inputs, plate_stations  # noqa: F401
+from .late_records import prefix_identity
 from .shapes import joint_steps
+from .solve_record import identity, solve_stage
 from .verify_stage import verify
 
 __all__ = ["Config", "BuildResult", "build", "borrowed_apt_dat_stamp"]
@@ -523,7 +525,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _yield_records, seam_yielded = pre.yield_records, pre.seam_yielded
     t = time.perf_counter()
     _pulse.tick("solving the surface")
-    size: dict[str, int] = {}
     # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
@@ -547,13 +548,27 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # PASS — the apron levels stage 1 solved become trend contacts, bound
     # here because ``solve`` may not import ``constraints``
     from ..constraints.taxi_trend import stage_one_retarget
-    tt2_rep: TaxiTrendReport = {}
-    sol, design_rep = solve_design(
-        pm, cs, law, cfg.options, size_out=size, strips=strips,
-        stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
-        hold=pre.hold, stage1=_s1,
-        trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
-                                                          lv, tt2_rep))
+
+    def _solve() -> tuple:
+        size: dict[str, int] = {}
+        tt2: TaxiTrendReport = {}
+        sol, rep = solve_design(
+            pm, cs, law, cfg.options, size_out=size, strips=strips,
+            stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
+            hold=pre.hold, stage1=_s1,
+            trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
+                                                              lv, tt2))
+        return sol, rep, size, tt2, None if _s1 is None else dict(_s1.report)
+    # THE SOLVE'S RECORD (stage-cache spec §4b.4; ``pipeline/solve_record``):
+    # keyed on the prefix's records and the ribbon-free prefix's, never
+    # served without its certificate
+    _solved = solve_stage(
+        fc, {**pre.keys, "stage_one": "none" if _s1 is None else prefix_identity(
+            derive.last.keys), "options": fc.digest(cfg.options)},
+        _solve, cs=cs, n=len(pm.vertices), law=law, options=cfg.options,
+        held=pm.registries.held)
+    sol, design_rep = _solved.value.sol, _solved.value.design
+    size, tt2_rep = dict(_solved.value.size), _solved.value.second_pass
     wall["solve"] = time.perf_counter() - t
     if tt2_rep:
         lrep.taxi_trend["second_pass"] = {
@@ -587,12 +602,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # the last stage re-mints the held registry (its own prefix run): the
         # base solve's hold report is carried over it (``model.platform``)
         from ..model.platform import install_hold_report
+        from .late_records import LateRecords
+        _records = LateRecords(
+            fc, {"airport": pre.keys.get("airport"), "rules": _fc_in.get("rules"),
+                 "options": fc.digest(cfg.options)},
+            identity(pre.keys.get("pm"), _solved.digest), law, cfg.options)
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, derive,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
              "hard_conflict": hard_conflict},
             rules=load_rules(), options=cfg.options,
-            out=lambda m: _say(f"[{icao}] {m}", out))
+            out=lambda m: _say(f"[{icao}] {m}", out), records=_records)
         install_hold_report(pm.registries.held, _base_rep.hold_report)
         hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(

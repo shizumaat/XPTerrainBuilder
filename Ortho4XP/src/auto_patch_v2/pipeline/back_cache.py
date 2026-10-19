@@ -72,20 +72,28 @@ class Got(_t.NamedTuple):
 def record(fc: _t.Any, stage: str, inputs: _t.Mapping[str, str | None],
            fn: _t.Callable[[], _t.Any], *, code: str | None = None,
            codec: Codec = PICKLE,
-           check: _t.Callable[[_t.Any], str | None] | None = None) -> Got:
+           check: _t.Callable[[_t.Any], str | None] | None = None,
+           bypass: str | None = None) -> Got:
     """``fn()``'s output for ``stage`` through the build's cache ``fc``
     (``pipeline/front_cache.FrontCache``), keyed on ``inputs``, the
     ``stage_code`` entry ``code`` (default: ``stage``), the environment and
-    the whole law (module doc).  An input or code with no digest, or a cache
-    that is off, runs ``fn()`` uncached.  ``check(value)`` is asked of a
-    decoded record before it is served: a reason refuses it (a reference
-    that no longer holds)."""
+    the whole law (module doc).  An input or code with no digest, a cache
+    that is off or ``fc`` ``None`` runs ``fn()`` uncached.  ``check(value)``
+    is asked of a decoded record before it is served: a reason refuses it
+    (a reference that no longer holds; the solve's certificate) and its
+    seconds are the entry's ``check_s``.  ``bypass`` names why this call
+    may not be cached (``time_limit``): reported, and ``fn()`` runs."""
+    if fc is None:
+        return Got(fn(), None, None, "")
     name = fc.report_name(stage)
     if not fc.active:
         fc.bypassed(stage)
         return Got(fn(), None, None, "")
     rep: dict[str, _t.Any] = {}
     fc.report["stages"][name] = rep
+    if bypass:
+        rep["state"] = f"bypass: {bypass}"
+        return Got(fn(), None, None, "")
     code = code or stage
     digest = fc.code.get(code)
     full = {**inputs, "law": fc.law_digest()}
@@ -112,7 +120,11 @@ def _serve(fc: _t.Any, key: str, path: str, recipe: dict, codec: Codec,
         if why:
             raise _store.Refused(why)
         out = load()
-        why = check(out) if check is not None else None
+        why = None
+        if check is not None:
+            t_check = time.perf_counter()
+            why = check(out)
+            rep["check_s"] = round(time.perf_counter() - t_check, 4)
         if why:
             raise _store.Refused(why)
     except FileNotFoundError:

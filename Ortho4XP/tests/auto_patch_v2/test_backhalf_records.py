@@ -112,7 +112,7 @@ def _arm(world, root: Path | None, **fc_kw):
     stage = shape_stage(pm, law, airport, cl, out=lambda _m: None)
     yielded: list = []
     con = CR.constraints_stage(fc, stage.pm, law, airport, stage, INPUTS, yielded)
-    strips = CR.strips_stage(fc, stage.pm, law, airport, con, INPUTS)
+    strips = CR.strips_stage(fc, stage.pm, law, airport, con, INPUTS).value
     rep = fc.finish() if fc is not None else {}
     fields = (dict(stage.dropped), stage.flats_straddling, stage.bands_withdrawn)
     return con.cs, con.counts, fields, yielded, strips, rep

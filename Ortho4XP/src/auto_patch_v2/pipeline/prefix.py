@@ -76,6 +76,12 @@ class PrefixRecord:
     strips: _t.Any
     hold: _t.Any
     wall: dict
+    #: the run's record identities the solve and the late stage are keyed on
+    #: (``pm`` the shape stage's output digest, ``airport``, ``assembly`` the
+    #: assembly's KEY, ``strips`` the strips' output digest, ``chain`` the
+    #: DEM chain after them); empty with no cache, ``None`` where a step was
+    #: not cached
+    keys: dict = _dc.field(default_factory=dict)
 
     def derived(self) -> tuple:
         """``(pm, cs, strips, hold)`` — what ``stage_one_problem`` and
@@ -380,8 +386,9 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
     t = time.perf_counter()
     tick("the jetway strips")
     # a ``rows`` filter (the replay's arm) is not in the assembly's key
-    strips = strips_stage(cache, pm, law, airport,
-                          con._replace(cs=cs, key=con.key if rows is None else None), back_in)
+    sgot = strips_stage(cache, pm, law, airport,
+                        con._replace(cs=cs, key=con.key if rows is None else None), back_in)
+    strips = sgot.value
     wall["jetway_strip"] = time.perf_counter() - t
     say(f"[{icao}] jetway strip region (18t Q3) {wall['jetway_strip']:.2f} s: "
         + ", ".join(f"{k} {v}" for k, v in strips.counts.items()))
@@ -395,7 +402,10 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
         reports={k: getattr(lrep, k, None) for k in _REPORTS},
         yield_records=yield_records, stage=stage, pm=pm, cs=cs, counts=counts,
         gwalls=gwalls, seam_yielded=seam_yielded, strips=strips,
-        hold=hold_pass(pm, law, airport), wall=wall)
+        hold=hold_pass(pm, law, airport), wall=wall,
+        keys={} if cache is None else {
+            **back_in, "assembly": con.key if rows is None else None,
+            "strips": sgot.digest, "chain": con.chain})
 
 
 def _say_constraints(icao: str, stage, cs, counts: dict, gwalls: dict, wall_s: float,

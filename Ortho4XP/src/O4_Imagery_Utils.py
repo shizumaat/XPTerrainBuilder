@@ -550,6 +550,20 @@ def initialize_providers_dict():
                         provider[key] = int(value)
                     except:
                         pass
+                elif key == "timeout":
+                    # Per-provider HTTP timeout in seconds (#863: a slow
+                    # server, e.g. USGS NAIP, answers in up to ~30 s);
+                    # without the key the global http_timeout applies.
+                    seconds = provider_timeout(value)
+                    if seconds is None:
+                        print(
+                            "Error in reading timeout for provider",
+                            provider_code,
+                            ". Using the default.",
+                        )
+                        del provider[key]
+                    else:
+                        provider[key] = seconds
                 elif key == "extent":
                     pass
                 elif key == "color_filters":
@@ -1197,10 +1211,24 @@ def is_placeholder_tile(url, headers):
     return False
 
 
-def http_request_to_image(width, height, url, request_headers, http_session):
+def provider_timeout(value):
+    """The ``timeout=`` of a .lay file as positive seconds, or None if invalid."""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if 0 < seconds < float("inf") else None
+
+
+def http_request_to_image(
+    width, height, url, request_headers, http_session, timeout=None
+):
+    """GET one image; ``timeout`` is the provider's own (s), else http_timeout."""
     UI.vprint(
         3, "HTTP request issued :", url, "\nRequest headers :", request_headers
     )
+    if timeout is None:
+        timeout = http_timeout
     tentative_request = 0
     tentative_image = 0
     pushback = PUSHBACK.Pushback()
@@ -1213,10 +1241,10 @@ def http_request_to_image(width, height, url, request_headers, http_session):
             fetch_t0 = time.time()
             if request_headers:
                 r = http_session.get(
-                    url, timeout=http_timeout, headers=request_headers
+                    url, timeout=timeout, headers=request_headers
                 )
             else:
-                r = http_session.get(url, timeout=http_timeout)
+                r = http_session.get(url, timeout=timeout)
             # Feed the download meter: current network throughput for the
             # build-time estimate (content is already fully read here —
             # non-streaming get).
@@ -1262,9 +1290,10 @@ def http_request_to_image(width, height, url, request_headers, http_session):
                 UI.vprint(2, "Server said 'Forbidden' ! (IP banned?)")
                 UI.vprint(3, url, r.headers, r.content)
                 break
-            elif ("[429]" in status_code) or ("[503]" in status_code):
+            elif any(c in status_code for c in ("[429]", "[502]", "[503]")):
                 # Pushback: obey Retry-After (or back off) and hold the
-                # host for every download thread (#834).
+                # host for every download thread (#834).  A 502 is an
+                # overloaded gateway saying the same as a 503 (#863).
                 UI.vprint(2, "Server asked us to slow down.", status_code)
                 wait = pushback.next_wait(r.headers, pause_url=url)
                 if wait is None:
@@ -1356,7 +1385,8 @@ def get_wms_image(bbox, width, height, provider, http_session):
         else:
             request_headers = request_headers_generic
     (success, data) = http_request_to_image(
-        width, height, url, request_headers, http_session
+        width, height, url, request_headers, http_session,
+        timeout=provider.get("timeout"),
     )
     if success:
         return (1, data)
@@ -1519,7 +1549,8 @@ def get_wmts_image(tilematrix, til_x, til_y, provider, http_session):
         (url, request_headers) = request
         width = height = provider["tile_size"]
         (success, data) = http_request_to_image(
-            width, height, url, request_headers, http_session
+            width, height, url, request_headers, http_session,
+            timeout=provider.get("timeout"),
         )
         if success and not down_sample:
             return (success, data)
@@ -1676,7 +1707,7 @@ def _prefetch_tilbox_parts(tilbox, zoomlevel, provider, max_threads, fallback):
 
     results = FETCH_ASYNC.fetch_parts(
         parts, code, max_threads, should_stop=lambda: UI.red_flag,
-        on_result=meter,
+        on_result=meter, timeout_s=provider.get("timeout"),
     )
     return {
         key: FETCH_ASYNC.PartSession(FETCH_ASYNC.answer_of(result), fallback)

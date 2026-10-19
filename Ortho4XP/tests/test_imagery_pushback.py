@@ -105,6 +105,22 @@ def test_repeated_503_without_header_backs_off_then_fails(clock):
     ) + 1e-9
 
 
+def test_502_is_retried_like_503_whatever_check_tms_response(clock, monkeypatch):
+    """#863: USGS NAIP answers ~1 in 12 requests 502 (overloaded gateway);
+    it is pushback like a 503, not a give-up 5xx, within the same bound."""
+    monkeypatch.setattr(IMG, "check_tms_response", False)
+    session = _Session([_Response(502), _ok()])
+    ok, image = _fetch(session)
+    assert ok == 1 and len(session.urls) == 2
+    session = _Session([_Response(502)] * 50)
+    ok, status = _fetch(session)
+    assert ok == 0 and "[502]" in status
+    assert len(session.urls) == PUSHBACK.BACKOFF_MAX_STEPS + 2
+    session = _Session([_Response(500), _ok()])  # other 5xx unchanged
+    ok, status = _fetch(session)
+    assert ok == 0 and len(session.urls) == 1
+
+
 def test_red_flag_during_backoff_stops_promptly(clock):
     def raise_flag():
         UI.red_flag = True

@@ -35,6 +35,9 @@ from .pool import share_object, shared_object
 from .placement_contact import (_polys_touch, boxes_touch,
                                 m_per_deg_exact, ring_metres)
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from .footprint_unit import _PShim
+
 __all__ = ["PlanConnector", "CONNECTOR_BOXES_MAX", "_span_m",
            "_is_connector", "_connector_ends", "authored_units",
            "authored_unit_census", "ConnectorVerdict", "connector_verdict",

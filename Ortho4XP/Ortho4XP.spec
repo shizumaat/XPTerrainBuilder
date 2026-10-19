@@ -138,6 +138,14 @@ _engine_digest_file = _runpy.run_path(
 )["write_freeze_digest"]("src", os.path.join("build", "o4_engine_code"))
 print(f"Engine code digest: {open(_engine_digest_file).read().strip()}")
 v2_law_datas = v2_law_datas + [(_engine_digest_file, "auto_patch")]
+# THE PATCH BUILD'S CODE CLOSURE (#880): the ``o4_code`` freshness stamp
+# keys on the modules the patch build imports (and the law tables), not the
+# whole tree; bundled beside ``provenance_code.py``.  REFUSES like the rest.
+_patch_digest_file = _runpy.run_path(
+    os.path.join("src", "auto_patch", "provenance_code.py")
+)["write_patch_freeze_digest"]("src", os.path.join("build", "o4_patch_code"))
+print(f"Patch code digest: {open(_patch_digest_file).read().strip()}")
+v2_law_datas = v2_law_datas + [(_patch_digest_file, "auto_patch")]
 
 # highspy (the HiGHS QP behind the runway family's final projection,
 # ``auto_patch_v2/solve/project.py``, RULINGS 2026-09-09ae) is imported

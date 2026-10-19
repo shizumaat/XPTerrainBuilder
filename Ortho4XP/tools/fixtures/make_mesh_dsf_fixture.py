@@ -54,10 +54,13 @@ from __future__ import annotations
 
 # The console is UTF-8 before anything prints (#171, #125): ONE derivation
 # site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
-import os as _o4os, sys as _o4sys                                    # noqa: E401,E402
+import os as _o4os  # noqa: E401,E402
+import sys as _o4sys
+
 _o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
     _o4os.path.dirname(_o4os.path.abspath(__file__)))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
+import O4_Console_Encoding as _o4console  # noqa: E402
+
 _o4console.configure_console_streams()
 
 import argparse  # noqa: E402
@@ -74,7 +77,6 @@ from contextlib import contextmanager  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 
 import numpy  # noqa: E402
-
 import O4_Default_Terrain_Map as DTM  # noqa: E402
 import O4_DSF_Utils as DSF  # noqa: E402
 import O4_File_Names as FNAMES  # noqa: E402

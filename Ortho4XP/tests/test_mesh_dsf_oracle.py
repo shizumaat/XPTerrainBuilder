@@ -47,7 +47,7 @@ def _committed(name):
 
 
 def _first_difference(got, want):
-    for (k, (a, b)) in enumerate(zip(got, want)):
+    for (k, (a, b)) in enumerate(zip(got, want, strict=False)):
         if a != b:
             return k
     return min(len(got), len(want))

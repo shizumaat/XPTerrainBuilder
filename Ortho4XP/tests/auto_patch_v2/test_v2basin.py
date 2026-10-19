@@ -120,12 +120,15 @@ def objs(tmp_path_factory, law):
     }
 
 
-def _basins(objs, law, dem, placements, authored_min=None):
-    """Read and admit, optionally with ``authored_depth_min_m`` overridden
-    — the interventional arm: the ONLY thing that changes between them."""
-    if authored_min is not None:
-        bl = _dc.replace(law.tables.structures.basin,
-                         authored_depth_min_m=authored_min)
+def _basins(objs, law, dem, placements, authored_min=None, protrusion_max=None):
+    """Read and admit, optionally with ``authored_depth_min_m`` (and the
+    protrusion share) overridden — the interventional arm."""
+    if authored_min is not None or protrusion_max is not None:
+        bl = law.tables.structures.basin
+        if authored_min is not None:
+            bl = _dc.replace(bl, authored_depth_min_m=authored_min)
+        if protrusion_max is not None:
+            bl = _dc.replace(bl, rim_protrusion_max_fraction=protrusion_max)
         st = _dc.replace(law.tables.structures, basin=bl)
         law = _dc.replace(law, tables=_dc.replace(law.tables, structures=st))
     airport = _dc.replace(_airport(objs, law, placements), dem=dem)
@@ -179,10 +182,12 @@ def test_the_refusal_is_the_datum_clause_and_nothing_else(objs, law):
     """The interventional arm: the SAME slab, the same reader, the same
     region — only ``authored_depth_min_m`` changes.  At 0 (the pre-09ag
     law) it is admitted again, which is what makes 5b the clause that
-    refuses it."""
+    refuses it.  The slab stands 12 m out of its datum's ground, so #942's
+    second reading (``basin_datum.standing_out_of_ground``) refuses it as
+    well; that gate is opened here so this arm isolates clause 5b."""
     dem = _StepDem()
     _o, basins, stats = _basins(objs, law, dem, [("slab", (0.0, 0.0), 0.0, 0.0)],
-                                authored_min=0.0)
+                                authored_min=0.0, protrusion_max=1.0)
     assert [r for r in stats.refused if "datum relief" in r] == []
     assert len(basins) == 1
     assert basins[0].floor_z == pytest.approx(

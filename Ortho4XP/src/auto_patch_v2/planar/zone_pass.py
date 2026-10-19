@@ -51,7 +51,7 @@ def _rim_nodes(nodes_a0: set, rim_line, tol: float) -> list:
     if not cs:
         return []
     near = shapely.dwithin(rim_line, shapely.points(np.asarray(cs, dtype=float)), tol)
-    return [c for c, k in zip(cs, near) if bool(k)]
+    return [c for c, k in zip(cs, near, strict=True) if bool(k)]
 
 
 def _off_rim_runs(line, keep_out, tree, node_pts, hops: list) -> list:

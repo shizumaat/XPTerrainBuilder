@@ -1189,7 +1189,8 @@ CODE_MODULES["solve"] = _mods("""
     constraints.weld_floor geom geom.base_slab geom.cluster_outline geom.containment
     geom.core_clamp geom.coverage geom.fixed_overlay geom.pad_evidence geom.parts
     geom.proportions geom.ramp_grade geom.ramp_profile geom.rotated_rect geom.triangulate
-    geom.union_find geom.vector law law.airports_schema law.approach_corridor law.base_profile_schema
+    geom.union_find geom.vector law law.airports_schema law.approach_corridor
+    law.base_profile_schema
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
     law.eat_schema law.flat_site_schema law.inset_class law.model law.model_types
     law.rebake_schema law.reference_code law.role_cap_schema law.tables
@@ -1269,7 +1270,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.core_clamp geom.coverage geom.feet_graph geom.feet_mst geom.fixed_overlay
     geom.pad_evidence geom.parts geom.proportions geom.ramp_grade geom.ramp_profile
     geom.rotated_rect geom.triangulate geom.union_find geom.vector law
-    law.airports_schema law.approach_corridor law.base_profile_schema law.basin_schema law.cockpit_schema
+    law.airports_schema law.approach_corridor law.base_profile_schema law.basin_schema
+    law.cockpit_schema
     law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units

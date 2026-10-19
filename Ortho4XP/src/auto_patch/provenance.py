@@ -606,7 +606,10 @@ def parse_patch_provenance(path: str) -> dict | None:
 # source (``provenance_code``).  ``o4_engine`` moves only when the engine is
 # FROZEN, so an edited checkout reused its old patches.  Every "3" patch
 # rebuilds exactly once.
-FRESHNESS_SCHEMA_VERSION = "4"
+# "5" (2026-10-19, #880): ``o4_code`` is the patch build's import closure,
+# not the whole tree (``provenance_code.freshness_code_digest``).  Every "4"
+# patch rebuilds exactly once — through the v2 stage cache (#843).
+FRESHNESS_SCHEMA_VERSION = "5"
 
 # Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately
 # NOT here: it is an INPUT to the recomputation of ``o4_dsf`` (which 1°×1°

@@ -869,25 +869,56 @@ def test_the_same_engine_code_reuses_the_patch(install, patch_file,
     from auto_patch import provenance_code
 
     stamped = read_patch_source(str(patch_file))["freshness"]["o4_code"]
-    assert stamped == provenance_code.code_digest() != "absent"
-    monkeypatch.setattr(provenance_code, "_CODE_DIGEST", None)   # a new process
+    assert stamped == provenance_code.freshness_code_digest() != "absent"
+    monkeypatch.setattr(provenance_code, "_PATCH_DIGEST", None)  # a new process
     assert install.is_current(patch_file)
 
 
 def test_changed_engine_code_rebuilds_and_says_so(install, patch_file,
                                                   monkeypatch):
-    """#346: the SAME version string over different engine code — an edited
-    checkout, or two freezes that did not go through ``make_engine.sh`` —
-    is a changed input, named in the one reason line."""
+    """#346: the SAME version string over different code the patch build
+    imports — an edited checkout, or two freezes that did not go through
+    ``make_engine.sh`` — is a changed input, named in the one reason line."""
     import O4_Version
     from auto_patch import provenance_code
 
     seen = _reason_lines(monkeypatch)
     version = O4_Version.version
-    monkeypatch.setattr(provenance_code, "_CODE_DIGEST", "0123456789abcdef")
+    monkeypatch.setattr(provenance_code, "_PATCH_DIGEST", "0123456789abcdef")
     assert not install.is_current(patch_file)
     assert O4_Version.version == version
     assert len(seen) == 1 and "KFAKE" in seen[0] and "o4_code" in seen[0], seen
+
+
+def test_code_outside_the_patch_closure_keeps_the_patch(install, patch_file,
+                                                        monkeypatch):
+    """#880: an edit the patch build does not import (the Qt app, the app's
+    commands) moves the whole-tree digest and nothing else — the patch is
+    reused."""
+    from auto_patch import provenance_code
+
+    monkeypatch.setattr(provenance_code, "_CODE_DIGEST", "fedcba9876543210")
+    assert provenance_code.code_digest() == "fedcba9876543210"
+    assert install.is_current(patch_file)
+
+
+def test_the_whole_tree_switch_keys_on_the_whole_tree(install, patch_file,
+                                                      monkeypatch):
+    """``O4_PATCH_FRESHNESS_WHOLE_TREE=1`` (#880's off switch) restores
+    #346's key: the closure-stamped patch rebuilds once, a patch stamped
+    under the switch is current, and then ANY source edit stales it."""
+    from auto_patch import provenance_code
+
+    monkeypatch.setenv(provenance_code.WHOLE_TREE_ENV, "1")
+    seen = _reason_lines(monkeypatch)
+    assert not install.is_current(patch_file)
+    assert len(seen) == 1 and "o4_code" in seen[0], seen
+    install.emit_patch(patch_file)                      # rebuilt under it
+    assert read_patch_source(str(patch_file))["freshness"]["o4_code"] \
+        == provenance_code.code_digest()
+    assert install.is_current(patch_file)
+    monkeypatch.setattr(provenance_code, "_CODE_DIGEST", "fedcba9876543210")
+    assert not install.is_current(patch_file)
 
 
 def test_engine_version_stamped_from_o4_version(install, patch_file):

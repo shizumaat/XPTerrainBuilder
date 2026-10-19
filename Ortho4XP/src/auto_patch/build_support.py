@@ -233,6 +233,8 @@ _PATCH_SOURCE_MTIME_RE = re.compile(r"o4_apt_dat_mtime='([^']*)'")
 _PATCH_SOURCE_BORROWED_RE = re.compile(r"o4_apt_dat_borrowed='([^']*)'")
 _PATCH_SOURCE_BORROWED_MTIME_RE = re.compile(
     r"o4_apt_dat_borrowed_mtime='([^']*)'")
+# The OSM feeds' witness (v2's emitter, ``osm.feed_witness``; #880).
+_PATCH_SOURCE_OSM_RE = re.compile(r"\so4_osm='([^']*)'")
 # The stamp set is ``provenance.FRESHNESS_KEYS`` — ONE derivation site.  This
 # regex used to re-spell it by hand and silently dropped a key the writer
 # had gained (``o4_solve_cfg``, #36: the reader returned no such stamp, so
@@ -262,6 +264,7 @@ def read_patch_source(path: str) -> dict | None:
 
     Returns ``{"apt_dat": str, "apt_dat_mtime": float | None,
     "apt_dat_borrowed": str, "apt_dat_borrowed_mtime": float | None,
+    "osm": str,
     "freshness": {key: raw value}}``, or ``None`` when the file is
     missing, unreadable, or pre-dates the apt.dat stamp.
     ``apt_dat_borrowed`` is ``""`` when the patch borrowed nothing or
@@ -342,9 +345,11 @@ def parse_patch_source(line: str) -> dict | None:
             borrowed_mtime = float(m.group(1))
         except ValueError:
             borrowed_mtime = None
+    m = _PATCH_SOURCE_OSM_RE.search(line)
     return {"apt_dat": apt_dat, "apt_dat_mtime": mtime,
             "apt_dat_borrowed": borrowed,
             "apt_dat_borrowed_mtime": borrowed_mtime,
+            "osm": m.group(1) if m else "",
             "freshness": freshness}
 
 

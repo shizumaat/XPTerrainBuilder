@@ -180,6 +180,28 @@ def test_osm_feeds(cyxy):
     assert rep.buildings_by_source["osm"] == 4
 
 
+def test_the_osm_witness_names_the_feeds_the_load_could_read(cyxy, tmp_path):
+    """#880: the load records ``osm.feed_witness`` (the patch gate's
+    ``o4_osm``); it moves when a feed in the 3x3 neighbourhood appears,
+    and not for one outside it."""
+    import shutil
+    a, rep = cyxy
+    tile, digest = rep.osm_witness.split("|")
+    assert tile == "60,-136" and len(digest) == 16
+    root = tmp_path / "OSM_data"
+    shutil.copytree(FIX / "OSM_data", root)
+    before = O.feed_witness(str(root), 60, -136)
+    assert before.startswith("60,-136|")
+    far = Path(O.feed_path(str(root), 62, -136, "big_roads"))
+    far.parent.mkdir(parents=True, exist_ok=True)
+    far.write_bytes(b"<osm/>")
+    assert O.feed_witness(str(root), 60, -136) == before
+    near = Path(O.feed_path(str(root), 61, -135, "big_roads"))
+    near.parent.mkdir(parents=True, exist_ok=True)
+    near.write_bytes(b"<osm/>")
+    assert O.feed_witness(str(root), 60, -136) != before
+
+
 # ── DSF ──────────────────────────────────────────────────────────────────
 
 def test_dsf_dump(cyxy):

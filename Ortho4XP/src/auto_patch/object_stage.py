@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 import traceback
 import typing as _t
 
@@ -829,6 +830,9 @@ def rebake_after_mesh(tile) -> dict:
             UI.vprint(1, "  [v2 rebake] DSF_OBJECT_REANCHOR is off — the placement plan "
                          "is measured and recorded, no pack file is written")
         written_packs: set[str] = set()
+        ran_packs: set[str] = set()
+        t_stage = time.monotonic()
+        reuse = _stage_reuse(tile, mesh_path)
         for plan_path in plans:
             icao = "?"
             try:
@@ -896,16 +900,25 @@ def rebake_after_mesh(tile) -> dict:
                                  "nothing is read, classified or written")
                     counts["airports"] += 1
                     continue
-                _sample = mesh_placement_sampler(mesh_path, plan_.bounds())
+                omit = art.missing if art is not None and art.omit else ()
 
                 # THE PLACEMENT PATH (11e (3); the ONLY object stage
-                # since 2026-09-12s) — no seat is computed
+                # since 2026-09-12s) — no seat is computed; served from
+                # the airport's record when nothing it reads changed (#879)
+                def _compute(plan_=plan_, law=law, omit=omit):
+                    return _place_objects(
+                        plan_, law,
+                        mesh_placement_sampler(mesh_path, plan_.bounds()),
+                        tile, patch_dir, write_enabled, measure_only,
+                        omit=omit)
                 pc = {}
+                served = reuse.reused if reuse is not None else 0
                 try:
-                    pc = _place_objects(
-                        plan_, law, _sample, tile, patch_dir, write_enabled,
-                        measure_only,
-                        omit=art.missing if art is not None and art.omit else ())
+                    recipe = _reuse_recipe(reuse, plan_, tile, patch_dir,
+                                           writes=(write_enabled, measure_only),
+                                           omit=omit)
+                    pc = (reuse.run(icao, _reuse_folder(plan_), recipe, _compute)
+                          if recipe is not None else _compute())
                 finally:
                     # #433: the art decision, finished with what the
                     # placement write did (a raise wrote nothing)
@@ -919,18 +932,81 @@ def rebake_after_mesh(tile) -> dict:
                     counts["placement_" + k] = counts.get("placement_" + k, 0) + int(v)
                 if pc.get("packs_written"):
                     written_packs.add(plan_.pack_root)
+                    if reuse is None or reuse.reused == served:
+                        ran_packs.add(plan_.pack_root)
             except Exception as exc:
                 counts["airports_failed"] += 1
                 UI.vprint(1, f"  [v2 rebake] {icao}: placement failed ({exc}); continuing")
                 UI.vprint(2, traceback.format_exc())
         counts["packs_written"] = len(written_packs)
-        for pr in sorted(written_packs):
+        if reuse is not None:
+            reuse.finish()
+            counts["airports_reused"] = reuse.reused
+            UI.vprint(1, f"  [v2 rebake] object stage: {reuse.reused} airport(s) "
+                         f"reused, {reuse.ran} ran "
+                         f"({time.monotonic() - t_stage:.1f} s)")
+        for pr in sorted(ran_packs):
             UI.vprint(1, f"  [v2 rebake] pack {os.path.basename(pr)} was modified "
                          "(originals kept as .anchor_bak) — restart X-Plane, objects are cached")
     except Exception as exc:
         UI.vprint(1, f"  [v2 rebake] failed: {exc}")
         UI.vprint(2, traceback.format_exc())
     return counts
+
+
+def reuse_enabled(environ=None) -> bool:
+    """THE OBJECT STAGE REUSE'S SWITCH (#879): on unless
+    ``O4_OBJECT_STAGE_REUSE=0`` (``object_stage_reuse.ENV_SWITCH``).  Read
+    here, not in ``auto_patch_v2`` (which reads no environment), and handed
+    to the reuse as ``on``."""
+    from auto_patch_v2.airport.object_stage_reuse import ENV_SWITCH
+    env = os.environ if environ is None else environ
+    return str(env.get(ENV_SWITCH, "1")).strip() != "0"
+
+
+def _stage_reuse(tile, mesh_path: str):
+    """The object stage's reuse for this tile's run (#879,
+    ``airport/object_stage_reuse``), or ``None`` when it cannot be set up
+    (every airport then runs, as before)."""
+    try:
+        import O4_File_Names as FNAMES
+        import O4_Object_Stage_Code as _osc
+        import O4_UI_Utils as UI
+        from auto_patch_v2.airport import object_stage_reuse as _osr
+        from auto_patch_v2.airport import pack_journal as _pj
+        from auto_patch_v2.pipeline import xplat as _xplat
+        tile_name = FNAMES.short_latlon(tile.lat, tile.lon)
+        return _osr.StageReuse(
+            tile_name, mesh_path, code=_osc.runtime_digest(),
+            env=_xplat.environment(),
+            exclude_dirs=(_pj.path_for(tile.build_dir, tile_name),),
+            cache_root=FNAMES.airport_mod_cache_root(), on=reuse_enabled(),
+            say=lambda line: UI.vprint(1, line))
+    except Exception:
+        return None
+
+
+def _reuse_folder(plan_) -> str:
+    """Where an airport's object-stage record is kept: its pack's mod-cache
+    folder, beside the partition and the v2 stage records."""
+    import O4_File_Names as FNAMES
+    from auto_patch_v2.airport import dsf as _dsf2
+    return _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(),
+                               os.path.basename(os.path.normpath(plan_.pack_root)))
+
+
+def _reuse_recipe(reuse, plan_, tile, patch_dir: str, *, writes: tuple,
+                  omit: _t.Sequence) -> "dict | None":
+    """One airport's reuse key (``object_stage_reuse.airport_recipe``), or
+    ``None``: no reuse, or a key that could not be taken (it runs)."""
+    if reuse is None:
+        return None
+    try:
+        return reuse.airport_recipe(plan_, tile.lat, tile.lon, patch_dir,
+                                    writes=writes, omit=omit,
+                                    engine=_engine_version())
+    except Exception:
+        return None
 
 
 def _pack_stand_down(tile) -> str:

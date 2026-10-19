@@ -73,7 +73,7 @@ def record(fc: _t.Any, stage: str, inputs: _t.Mapping[str, str | None],
            fn: _t.Callable[[], _t.Any], *, code: str | None = None,
            codec: Codec = PICKLE,
            check: _t.Callable[[_t.Any], str | None] | None = None,
-           bypass: str | None = None) -> Got:
+           bypass: str | None = None, as_served: bool = False) -> Got:
     """``fn()``'s output for ``stage`` through the build's cache ``fc``
     (``pipeline/front_cache.FrontCache``), keyed on ``inputs``, the
     ``stage_code`` entry ``code`` (default: ``stage``), the environment and
@@ -82,7 +82,14 @@ def record(fc: _t.Any, stage: str, inputs: _t.Mapping[str, str | None],
     is asked of a decoded record before it is served: a reason refuses it
     (a reference that no longer holds; the solve's certificate) and its
     seconds are the entry's ``check_s``.  ``bypass`` names why this call
-    may not be cached (``time_limit``): reported, and ``fn()`` runs."""
+    may not be cached (``time_limit``): reported, and ``fn()`` runs.
+
+    ``as_served``: a miss hands on its output DECODED from its payload,
+    exactly as a hit would (``FrontCache.run``'s flag) — for an output the
+    build digests again (``FrontCache.digest``: a pickle's bytes follow
+    object sharing, so a live output and its decoded copy, mixed with
+    other products, need not digest alike; the late cut's classification,
+    #843)."""
     if fc is None:
         return Got(fn(), None, None, "")
     name = fc.report_name(stage)
@@ -108,7 +115,7 @@ def record(fc: _t.Any, stage: str, inputs: _t.Mapping[str, str | None],
     got = _serve(fc, key, path, recipe, codec, check, rep)
     if got is not None:
         return got
-    return _run(fc, stage, key, path, recipe, fn, codec, rep)
+    return _run(fc, stage, key, path, recipe, fn, codec, rep, as_served)
 
 
 def _serve(fc: _t.Any, key: str, path: str, recipe: dict, codec: Codec,
@@ -143,7 +150,7 @@ def _serve(fc: _t.Any, key: str, path: str, recipe: dict, codec: Codec,
 
 
 def _run(fc: _t.Any, stage: str, key: str, path: str, recipe: dict,
-         fn: _t.Callable[[], _t.Any], codec: Codec, rep: dict) -> Got:
+         fn: _t.Callable[[], _t.Any], codec: Codec, rep: dict, as_served: bool) -> Got:
     fc.dem_rec.reset()
     fc.file_rec = _files.FileRecorder()
     fc.window(True)
@@ -164,6 +171,8 @@ def _run(fc: _t.Any, stage: str, key: str, path: str, recipe: dict,
     t = time.perf_counter()
     digest = digest_fn()
     rep["digest_s"] = round(time.perf_counter() - t, 4)
+    if as_served:
+        out = codec.decode(blob)
     if opaque:
         rep["state"] += f"; not written: dem {opaque}"
         return Got(out, key, digest, dem_d)

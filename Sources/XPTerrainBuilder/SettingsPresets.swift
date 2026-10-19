@@ -36,19 +36,26 @@ enum SettingsPresets {
     static let customTitle = "Custom"
 
     static let presets: [SettingsPreset] = [
-        SettingsPreset("recommended", "Recommended",
-                       summary: "The settings the app ships with: ZL16 everywhere.",
+        SettingsPreset("light_on_disk", "Light on disk",
+                       summary: "ZL15 everywhere: coarser imagery, smaller downloads.",
+                       cost: "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced.",
+                       values: ["zl": "15", "cover_airports_with_highres": "False", "cover_zl": "18", "cover_extent": "1.0"]),
+        SettingsPreset("balanced", "Balanced",
+                       summary: "The standard settings: ZL16 everywhere.",
                        cost: "About 1.6–3.1 GB of imagery per tile.",
                        values: ["zl": "16", "cover_airports_with_highres": "False", "cover_zl": "18", "cover_extent": "1.0"]),
         SettingsPreset("sharper_airports", "Sharper airports",
-                       summary: "ZL16, and ZL18 imagery on and around every airport.",
+                       summary: "ZL16, and ZL18 imagery on and around airports with ICAO codes.",
                        cost: "About 1.6–3.1 GB per tile, plus the sharper airports.",
-                       values: ["zl": "16", "cover_airports_with_highres": "True", "cover_zl": "18", "cover_extent": "1.0"]),
-        SettingsPreset("light_on_disk", "Light on disk",
-                       summary: "ZL15 everywhere: coarser imagery, smaller downloads.",
-                       cost: "About 0.4–0.8 GB of imagery per tile, a quarter of Recommended.",
-                       values: ["zl": "15", "cover_airports_with_highres": "False", "cover_zl": "18", "cover_extent": "1.0"]),
+                       values: ["zl": "16", "cover_airports_with_highres": "ICAO", "cover_zl": "18", "cover_extent": "1.0"]),
     ]
+
+    /// The preset a new user starts from (#937; Qt DEFAULT_PRESET).
+    static let defaultKey = "sharper_airports"
+
+    static var defaultPreset: SettingsPreset? {
+        presets.first { $0.key == defaultKey }
+    }
 
     /// Numbers compare by value (`1` and `1.0` are one cover_extent).
     static func same(_ first: O4Value, _ second: O4Value) -> Bool {
@@ -81,6 +88,17 @@ extension BuildModel {
 
     var currentPreset: SettingsPreset? {
         SettingsPresets.presets.first { presetMatches($0) }
+    }
+
+    /// First run (#937): when the global config sets none of the preset
+    /// keys yet, start from the default preset (Qt parity:
+    /// O4_Settings_Presets.unset_in). The engine's own defaults stay
+    /// Balanced, so builds outside the app are unchanged.
+    func applyDefaultPresetIfUnset() {
+        guard engine != nil, let preset = SettingsPresets.defaultPreset,
+              !preset.values.keys.contains(where: { globalConfigValues[$0] != nil })
+        else { return }
+        applyPreset(preset)
     }
 
     /// One click: the zoom to the Build pane, the rest to the global config.

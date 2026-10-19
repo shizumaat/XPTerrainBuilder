@@ -392,6 +392,7 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                     ta = _ar.anchor_for(tcls, tgeom, surface, pads, body_rims,
                                         tol_m=split_tol_m,
                                         deck_own_ground_m=deck_own_ground_m,
+                                        authored_agl_m=u.agl_m,        # #972
                                         datum=_ar.datum_of(       # §16e
                                             m,
                                             abutment_step_m=abutment_step_m,
@@ -531,6 +532,7 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
                 if any(float(p.height_m) > 0.0 for p in parts) else ()))
     a = _ar.anchor_for(cls, geom, surface, pads, rims, tol_m=split_tol_m,
                        deck_own_ground_m=deck_own_ground_m,       # 30g (3)
+                       authored_agl_m=u.agl_m,                    # #972
                        datum=_ar.datum_of(                       # §16e
                            m, abutment_step_m=abutment_step_m,
                            abutment_walk_max_m=abutment_walk_max_m,

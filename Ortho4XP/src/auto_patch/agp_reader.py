@@ -114,11 +114,19 @@ def _scenery_pack_order(xplane_root: str) -> list[str]:
 _MERGED_EXPORTS = ("EXPORT", "EXPORT_EXTEND", "EXPORT_BACKUP", "EXPORT_RATIO")
 
 
-def _parse_library_txt(lib_path: str, index: dict[str, str]) -> None:
+def _parse_library_txt(lib_path: str, index: dict[str, str],
+                       backups: dict[str, str] | None = None) -> None:
     """Merge the ``EXPORT*`` directives of one ``library.txt`` into
     ``index`` (virtual-path → absolute physical-path).  Later calls
     overwrite earlier ones, so callers must visit lower-priority
-    libraries first."""
+    libraries first — except that a path whose file is absent never
+    replaces one on disk.
+
+    ``EXPORT_BACKUP`` rows go to ``backups`` when it is given: X-Plane
+    uses a backup only when NO library exports the path for real, so a
+    high-priority pack's placeholder must not shadow a real library
+    (issue #950: LEIB's 3,156 ``opensceneryx/placeholder.obj`` backups,
+    a file that does not exist, hid OpenSceneryX's own exports)."""
     lib_dir = os.path.dirname(lib_path)
     try:
         with open(lib_path, "r", encoding="utf-8", errors="replace") as f:
@@ -150,10 +158,30 @@ def _parse_library_txt(lib_path: str, index: dict[str, str]) -> None:
             continue
         phys_abs = os.path.normpath(
             os.path.join(lib_dir, physical.replace("\\", "/")))
-        index[virtual] = phys_abs
+        target = (backups if directive == "EXPORT_BACKUP"
+                  and backups is not None else index)
+        old = target.get(virtual)
+        if (old is not None and old != phys_abs
+                and not os.path.isfile(phys_abs) and os.path.isfile(old)):
+            continue                 # an absent file never shadows a present one
+        target[virtual] = phys_abs
         # Case-insensitive fallback key (some packs differ only in case
         # from the DSF reference); the exact key above wins on lookup.
-        index.setdefault(virtual.lower(), phys_abs)
+        target.setdefault(virtual.lower(), phys_abs)
+
+
+def _merge_library_sources(sources: list[str]) -> dict[str, str]:
+    """The merged index of ``sources`` (lowest priority first): every real
+    export, then each ``EXPORT_BACKUP`` only where no real export of that
+    path exists in ANY library (X-Plane's rule; issue #950)."""
+    index: dict[str, str] = {}
+    backups: dict[str, str] = {}
+    for source in sources:
+        _parse_library_txt(source, index, backups)
+    for virtual, phys in backups.items():
+        if virtual not in index and virtual.lower() not in index:
+            index[virtual] = phys
+    return index
 
 
 def _library_source_files(xplane_root: str) -> list[str]:
@@ -196,7 +224,7 @@ def _library_source_files(xplane_root: str) -> list[str]:
 # Bump when the parse changes shape in a way that would make an old
 # cached index wrong (e.g. a new EXPORT directive, a different key
 # scheme) — invalidates every sidecar.
-_LIB_INDEX_CACHE_VERSION = 1
+_LIB_INDEX_CACHE_VERSION = 2   # 2: EXPORT_BACKUP yields to real exports (#950)
 
 # Sidecar name prefix; the full name carries a digest of the absolute
 # xplane_root so two installs never collide.  Lives beside the object
@@ -420,11 +448,9 @@ def get_library_index(xplane_root: str) -> dict[str, str]:
             xplane_root, sources)
         index = _read_library_index_sidecar(sidecar_path, fingerprint)
         if index is None:
-            index = {}
             # Lowest priority first, so a higher-priority EXPORT of the
             # same virtual path overwrites it.
-            for source in sources:
-                _parse_library_txt(source, index)
+            index = _merge_library_sources(sources)
             _write_library_index_sidecar(sidecar_path, fingerprint, index)
 
         _LIB_INDEX_CACHE[key] = index

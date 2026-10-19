@@ -89,6 +89,25 @@ def test_an_end_with_no_record_near_it_stays_pinless(tmp_path):
     assert rep.cifp_coordinate_joins == ()
 
 
+
+def test_a_designator_naming_a_distant_threshold_is_refused_and_rejoined(tmp_path):
+    """#994 (KEDW: a CIFP cycle gave the paved runways the designators the
+    apt.dat keeps for the lakebed ones, 4.6-7.2 km away): SWAP the 02 and
+    14R records' designators.  Each name now points at the other runway's
+    threshold; the designator join is refused (one line each) and the
+    coordinate pass puts each record back on the end it locates."""
+    base, _ = load_with_report("CYXY", _inputs(str(FIX / "CIFP")), Law.for_airport("CYXY"))
+    a, rep = load_with_report("CYXY", _inputs(_renumbered_cifp(tmp_path, {"02": "@@", "14R": "02", "@@": "14R"})),
+                              Law.for_airport("CYXY"))
+    want = {e.name: e.threshold_elev_m for r in base.runways for e in r.ends}
+    got = {e.name: e.threshold_elev_m for r in a.runways for e in r.ends}
+    assert got == want and want["02"] != want["14R"]
+    assert rep.cifp_missing_ends == ()
+    refused = [s for s in rep.cifp_coordinate_joins if "designator join refused (#994)" in s]
+    assert len(refused) == 2
+    assert any(" 14R -> 02 joined" in s for s in rep.cifp_coordinate_joins)
+    assert any(" 02 -> 14R joined" in s for s in rep.cifp_coordinate_joins)
+
 _XP = Path(os.environ.get("O4_XPLANE_ROOT", "/Users/noah/X-Plane 12"))
 _KCLT_CIFP = _XP / "Custom Data" / "CIFP" / "KCLT.dat"
 

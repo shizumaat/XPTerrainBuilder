@@ -68,6 +68,8 @@ __all__ = [
     "CLUSTER_INSET_KIND",
     "ISTHMUS_INSET_KIND",
     "island_continuity_regions",
+    # #945 — the bake's water cut keeps the airport's own surfaces.
+    "water_beside_site",
 ]
 
 #: Local-metre projection constant — ``layout.R_EARTH``'s value, kept
@@ -851,6 +853,42 @@ def water_cutout(tile):
     except Exception:                                    # pragma: no cover
         pass
     return out
+
+
+def water_beside_site(water, record, tile_lat: int, tile_lon: int):
+    """``water`` minus the airport's own datum region — the water the bake
+    may cut out of THIS airport's Z0 raster (issue #945).
+
+    The decision record's ``region_ll`` is already water-cut with the
+    airport's OWN surfaces kept as land (§37 (11) (4), ``flat_site_prep``):
+    a taxiway on a viaduct over open water is pavement, never sea.  The
+    bake used to cut the raw tile water instead, so the Z0 raster had a
+    hole under every such pavement and the solve read the SEA floor there
+    (VMMC's apron-to-runway bridges: DEM 1.76 m under a 6.10 m deck, the
+    paved edges pulled 0.5-1.1 m below their centreline).  Both frames are
+    tile-relative degrees.  ``water`` comes back unchanged when the record
+    carries no region or the difference cannot be formed.
+    """
+    if water is None or water.is_empty:
+        return water
+    from shapely.geometry import MultiPolygon, Polygon
+
+    def _ring(points):
+        return [(float(lo) - tile_lon, float(la) - tile_lat)
+                for lo, la in points]
+
+    polys = [Polygon(_ring(outer), [_ring(h) for h in holes if len(h) >= 3])
+             for outer, holes in (record.get("region_ll") or ())
+             if len(outer) >= 3]
+    if not polys:
+        return water
+    try:
+        region = MultiPolygon(polys) if len(polys) > 1 else polys[0]
+        if not region.is_valid:
+            region = region.buffer(0)
+        return water.difference(region)
+    except Exception:                                    # pragma: no cover
+        return water
 
 
 def _attach_claimed_object_clusters(substitutions, icaos, anchor_by_icao,

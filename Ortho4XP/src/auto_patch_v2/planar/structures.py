@@ -127,7 +127,6 @@ __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 NODE_TOL = 0.05                    #: two node coords closer than this are one
-MAX_HOPS = 6                       #: hops an approach walk follows from a mouth
 PARALLEL_COS = math.cos(math.radians(30))   #: 31h's dual test / the kink test
 
 # ── build ────────────────────────────────────────────────────────────────
@@ -624,8 +623,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                      f"(ramp or wall ring self-intersects)")
                 break
             probe = geom.outer if beyond is None else geom.outer.intersection(beyond)
-            if probe.is_empty or (c is not None and g.kind == WALL_KIND):
-                hit = None      # 07b (2): a Law C ramp stands inside its own walls
+            if probe.is_empty or (c is not None and (g.kind == WALL_KIND or not g.climbs)):
+                # 07b (2): a Law C ramp stands inside its own walls; a FLAT
+                # object trench (no climb) is walls end to end, never
+                # clipped and senior to a pad (05k-1 / 08-26; #946)
+                hit = None
             elif g.stop_at_pavement:
                 hit = _pad_hit(probe, stops, stop_tree, gap, host)
             else:

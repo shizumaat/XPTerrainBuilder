@@ -438,6 +438,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.ribbon_weld",
         "auto_patch_v2.planar.ribbons",
         "auto_patch_v2.planar.ridge_reach",
+        "auto_patch_v2.planar.road_yield",
         "auto_patch_v2.planar.shape_airside",
         "auto_patch_v2.planar.shape_mouths",
         "auto_patch_v2.planar.shape_parts",

@@ -52,15 +52,9 @@ from .design_roles import ruling_head
 __all__ = ["ConflictReport", "tier_of", "row_tiers", "cap_seniority",
            "SIDE_RANKED_HEADS",
            "check_hard_set", "canonical_rank",
-           "HARD_CONFLICT", "publish", "publish_stages", "demote_conflicts",
+           "shipped_conflicts", "publish_stages", "demote_conflicts",
            "apron_hard_rows", "source_face", "published",
            "promote_missed", "runway_after"]
-
-#: the SHIPPED surface's conflicts (the ``hard_conflict`` sidecar key):
-#: set once per ``solve_design`` from its final stages, read by
-#: ``pipeline/publication`` (the ``RUNWAY_FLEX`` pattern)
-HARD_CONFLICT: list[dict[str, _t.Any]] = []
-
 
 @_dc.dataclass
 class ConflictReport:
@@ -393,16 +387,21 @@ def check_hard_set(planar: PlanarMap, law: Law, one: list, hard_i: np.ndarray,
     return rows[rel], rep
 
 
-def publish(records: _t.Iterable[dict[str, _t.Any]]) -> None:
-    """Set the shipped surface's ``hard_conflict`` records (sidecar key)."""
-    HARD_CONFLICT[:] = [dict(r) for r in records]
+def shipped_conflicts(*reps: _t.Any) -> list[dict[str, _t.Any]]:
+    """The SHIPPED surface's ``hard_conflict`` records (the sidecar key) —
+    every conflict of the final stages' reports, in stage order, copied.
+    ``solve_design`` returns them as ``DesignReport.hard_conflict``
+    (v2-stage-cache spec §3b: a record field, no module global)."""
+    feas = [getattr(r, "hard_feasibility", None) for r in reps]
+    return [dict(c) for f in feas if f is not None for c in f.conflicts]
 
 
 def publish_stages(*reps: _t.Any, pass1a: "dict | None" = None,
                    law: Law | None = None) -> "dict | None":
-    """Publish the SHIPPED surface's conflicts — the final stage 1's and
-    stage 2's reports (pass 1a's stay in its own stage record) — and return
-    the first report's ``as_dict`` (the stage-1 record).  With ``pass1a``
+    """Judge the SHIPPED surface's stages — the final stage 1's and stage
+    2's reports (pass 1a's stay in its own stage record) — and return the
+    first report's ``as_dict`` (the stage-1 record); their conflicts are
+    :func:`shipped_conflicts`.  With ``pass1a``
     (its record) and ``law``, every stage-1 LP is judged against §5a's
     budget, min(``hard_conflict_lp_budget_s``, ``_share`` x pass 1a's wall)
     (RULINGS 2026-09-30bj)."""
@@ -417,7 +416,6 @@ def publish_stages(*reps: _t.Any, pass1a: "dict | None" = None,
             hf["over_budget"] = float(hf.get("lp_wall_s", 0.0)) > budget
         if feas and feas[0] is not None:
             feas[0].over_budget = feas[0].lp_wall_s > budget
-    publish([c for f in feas if f is not None for c in f.conflicts])
     return feas[0].as_dict() if feas and feas[0] is not None else None
 
 
@@ -470,8 +468,8 @@ def apron_hard_rows(planar: PlanarMap, law: Law) -> _t.Callable[[_t.Any], bool]:
 
 
 def published(sol: _t.Any, rep: _t.Any) -> tuple[_t.Any, _t.Any]:
-    """The single solve's answer, its conflicts published (§5a)."""
-    publish_stages(rep)
+    """The single solve's answer, its conflicts on its report (§5a)."""
+    rep.hard_conflict = shipped_conflicts(rep)
     return sol, rep
 
 

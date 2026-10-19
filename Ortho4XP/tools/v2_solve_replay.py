@@ -1051,7 +1051,8 @@ def _why_hump(icao, pm, law, airport, cs, z, runway: str, s0: float, s1: float,
 
 def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
                strip_rep=None, late_cut: dict | None = None,
-               late_stage: dict | None = None, cells=()) -> dict:
+               late_stage: dict | None = None, cells=(),
+               hard_conflict=(), runway_flex=()) -> dict:
     """THE BUILD'S EMIT HALF on a replay arm (``pipeline/build.py:780-795``):
     the graded surface, the terrain-edge
     ways and the patch — so a same-frame divergence
@@ -1083,7 +1084,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     surf_out = merge_sub_spacing(surf_out, law, wrep)
     print("    " + wrep.line(icao))
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
-                      strip_rep=strip_rep)
+                      strip_rep=strip_rep, hard_conflict=hard_conflict,
+                      runway_flex=runway_flex)
     # spec §56 (3): the lines the build would WARN the user with
     from auto_patch_v2.constraints.pad_warning import warnings_of
     for _w in warnings_of(pub.get("platforms")):
@@ -1985,12 +1987,6 @@ def rim_diagnostic_lines(pm) -> list[str]:
             if n.startswith(("rim stations", "rim vs the shells", "rim diagnostics"))]
 
 
-def _hard_conflict_now() -> list:
-    """The solve's published relaxation records (``solve/feasibility``)."""
-    from auto_patch_v2.solve.feasibility import HARD_CONFLICT
-    return [dict(r) for r in HARD_CONFLICT]
-
-
 def _hold_report_now(pm) -> dict:
     """The solve's hold report (``model.platform.hold_report``): what a
     later ``--late-from`` pass carries over its own re-minted registry —
@@ -2512,6 +2508,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     else:
         sol, rep = solve_design(pm, cs, law, Options(verbose=verbose), size_out=size,
                                 method=method, strips=strips, **_kw)
+    # spec §3b: the solve's side channels are RECORD fields — the arm's own,
+    # whatever an instrument re-solves later in this run
+    hard_conflict = (_lrep["hard_conflict"] if late_from is not None
+                     else rep.hard_conflict)
     if late_from is None and prob.get("stage1") is not None:
         print(f"[{icao}] stage 1 map (#100 (c)): {rep.stages.get('stage1_map')}")
     if _tt2:
@@ -2635,7 +2635,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                   {"law_ruleset": law.ruleset_key, "pack": airport.pack.name})
             vrows = run_census(surf, law, publication(pm, law, airport, sol.z, cs,
                                                       strips=strips,
-                                                      strip_rep=rep.jetway_strip),
+                                                      strip_rep=rep.jetway_strip,
+                                                      hard_conflict=hard_conflict,
+                                                      runway_flex=rep.runway_flex),
                                road_law_caps(pm, law, airport))
             summary = {k: len(v) for k, v in vrows.items() if v}
             # ONE READING OF THE GATE (RULINGS 2026-09-14bx): the same
@@ -2686,7 +2688,7 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                 pickle.dump({"icao": icao, "airport": airport, "law_icao": icao, "pm": pm_w,
                              "cs": cs_w, "z": z,
                              "pin_yield": list(getattr(rep, "pin_yield", ()) or ()),
-                             "hard_conflict": _hard_conflict_now(),
+                             "hard_conflict": [dict(r) for r in hard_conflict],
                              "hold_report": _hold_report_now(pm_w),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],
@@ -2722,7 +2724,8 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                                                if late_from is not None else None),
                                      late_stage=(prob["late"]["rep"]["stage"]
                                                  if late_from is not None else None),
-                                     cells=cl.cells))
+                                     cells=cl.cells, hard_conflict=hard_conflict,
+                                     runway_flex=rep.runway_flex))
     if emit_dir is not None or verify:
         # object-placement spec §18 (6): the seat per wall / pit placement,
         # as the build's rebake plan publishes it (``authored_seats``)

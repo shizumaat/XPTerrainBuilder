@@ -331,8 +331,10 @@ def test_a_plan_hull_answer_draws_the_same_footprint():
     import base64
     import numpy as np
     hull = np.array([[0, 0], [10, 0], [10, 2], [0, 2]], dtype="<f4")
-    result = {"models": [{"key": "m", "plan_hull_f32_b64": base64.b64encode(hull.tobytes()).decode()}],
-              "placements": [{"model": "m", "lat": 30.0, "lon": 31.0, "heading_deg": 90.0, "agl_m": 0}],
+    hull_b64 = base64.b64encode(hull.tobytes()).decode()
+    result = {"models": [{"key": "m", "plan_hull_f32_b64": hull_b64}],
+              "placements": [{"model": "m", "lat": 30.0, "lon": 31.0,
+                              "heading_deg": 90.0, "agl_m": 0}],
               "facades": []}
     (ring,) = footprints_from_pack_objects(result)
     assert (30.0 - min(p[0] for p in ring)) * 111320 == pytest.approx(10, abs=1e-6)

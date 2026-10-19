@@ -130,6 +130,20 @@ def test_no_dead_providers_resurrected(imagery):
     assert not resurrected, sorted(resurrected)
 
 
+RETIRED_HOSTS = ("wxs.ign.fr",)  # IGN's keyed API: NXDOMAIN (#862)
+
+
+def test_no_provider_fetches_from_a_retired_host(imagery):
+    """No provider's url_template / url_prefix may name a host whose
+    service is gone: every tile fetch fails (#862, SEA)."""
+    stale = sorted(
+        code for code, provider in imagery.providers_dict.items()
+        for key in ("url_template", "url_prefix")
+        if any(host in str(provider.get(key, "")) for host in RETIRED_HOSTS))
+    assert not stale, stale
+    assert "SEA" in imagery.providers_dict
+
+
 def test_custom_url_module_importable(imagery):
     """O4_Custom_URL must import and only reference live providers."""
     assert imagery.has_URL, "Providers/O4_Custom_URL.py failed to import"

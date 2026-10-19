@@ -9218,6 +9218,31 @@ def test_every_law_family_declares_a_cockpit_class(cg):
         assert law["family_class"][key] in COCKPIT_CLASSES, key
 
 
+def test_a_declared_wall_terrace_is_exempt_in_both_readers(cg):
+    """OWNER RULINGS 2026-10-19l (#988): "the census exempts declared wall
+    terraces", the same way 19c exempts object-decked trenches.  The
+    groundside cut-back is the step the build stands a band off a road by
+    on purpose — an in-band road below the band meets it at a retaining
+    wall (19i).  KBUR's building9 corner is the row: 2.69 m over 1.0 m,
+    ``graded_strip|service_road``.  The census reports it and never counts
+    it critical; the SAME height over the same span read by a grade family
+    is still a §31 (7) cliff (the exemption is the family's, never the
+    shape's).  The engine's own reader (``verify``) carries it as no
+    structural-defect family, under the same law class."""
+    import importlib
+    from auto_patch_v2.law import Law
+    vc = importlib.import_module("auto_patch_v2.verify.census")
+    vcut = importlib.import_module("auto_patch_v2.verify.cutback")
+    law = cg.cockpit_law(refresh=True)
+    assert law["family_class"]["groundside_cutback"] == "terrace"
+    wall = _CkStep("graded_strip", "service_road", 2.69, distance_m=1.0)
+    assert cg.cockpit_classify("groundside_cutback", wall, law=law) == (
+        cg.COCKPIT_REPORT, "declared_terrace")
+    assert cg.cockpit_classify("within_shape", wall, law=law)[1] == "cliff"
+    assert Law.for_airport("ZZZZ").tables.families[vcut.FAMILY].cockpit == "terrace"
+    assert vcut.FAMILY not in vc.DEFECT_KEYS
+
+
 def test_a_step_over_the_motion_threshold_on_apron_is_critical_motion(cg):
     law = cg.cockpit_law(refresh=True)
     row = _CkStep("apron", "apron", 0.06)

@@ -1281,6 +1281,53 @@ def _levelled_road_lines(tile, scalx):
         return None
 
 
+def pavement_shore_vertices(tile, vertices, water_valued):
+    """The water-bit vertices that stand ON a patch PAVEMENT ring (#945).
+
+    A patch pavement ring that borders water is the shoreline: its
+    vertices are corners of the INTERP_ALT pavement triangles inside AND
+    of the sea triangles of the seawall band outside (the band between
+    the ring and the wall ``SEAWALL_OFFSET_M`` out is sea-owned by
+    design).  RULINGS 2026-09-09z (3) — "only set pavement node
+    elevations, then the DEM should grade into the water" — keeps such a
+    vertex at the PAVEMENT's value: the drop to the water happens across
+    the seawall band, never across the pavement.  Without this the
+    per-vertex water datum levelled the ring to the sea: VMMC's
+    apron-to-runway taxiway viaducts came out a ridge at the deck height
+    on the centreline falling to 0.00 m at both paved edges.
+
+    The test is GEOMETRIC — within :data:`BANK_RING_MATCH_TOLERANCE` of a
+    patch PAVEMENT way (:func:`bank_pavement_lines`' aeroway / highway
+    rings) — so it holds the ring's input nodes and the points the mesher
+    inserted on its segments alike (those carry the segment's linear
+    value in column 5; a split point a hair outside the coverage polygon
+    never reaches ``patch_segment_split_values``).  A bank foot or any
+    other marked ring is not pavement and keeps the water datum; the
+    seawall stands ``SEAWALL_OFFSET_M`` out, far beyond the tolerance.
+    Empty when the linework cannot be read.
+    """
+    import numpy as _np
+    import shapely as _sh
+
+    if not water_valued:
+        return set()
+    try:
+        pavement = bank_pavement_lines(tile)
+    except Exception as error:
+        UI.lvprint(1, "WARNING: the pavement linework could not be read; "
+                      "pavement ring vertices on the shore keep the water "
+                      "datum:", str(error))
+        return set()
+    if not pavement or not pavement[0]:
+        return set()
+    scalx = cos((tile.lat + 0.5) * pi / 180)
+    idx = _np.asarray(sorted(water_valued), dtype=_np.int64)
+    points = _sh.points(vertices[6 * idx] * scalx, vertices[6 * idx + 1])
+    hit, _ = _sh.STRtree(pavement[0]).query(
+        points, predicate="dwithin", distance=BANK_RING_MATCH_TOLERANCE)
+    return {int(idx[k]) for k in _np.unique(hit)}
+
+
 def audit_bank_annulus(tile, vertices, triangles, blend):
     """THE LOUD BAR (owner RULINGS 2026-09-13cp): REFUSE when an airport
     that HAS a bank foot comes out with a collapsed annulus.
@@ -2118,6 +2165,7 @@ def post_process_nodes_altitudes(tile):
     # them by more than 3 m and one by 32.19 m — the apt.dat surfaces
     # being re-derived from patch rings for no measured gain.  Widening
     # is therefore a deliberate, separately-measured act, not a default.
+    pavement_shore = set()
     if _interp_alt_only_tris:
         report = {}
         patch_valued = patch_valued_vertex_indices(tile, vertices)
@@ -2168,6 +2216,11 @@ def post_process_nodes_altitudes(tile):
                 f"   Patch rings: {len(split)} mesher-inserted vertex(es) "
                 "lie on a patch ring segment and take the ring's value "
                 "there (R18-1b amendment 2026-09-06).")
+        # #945: the pavement ring's own shore vertices keep the PAVEMENT
+        # value in the final copy below (a seawall node stands 0.5 m off
+        # the ring and is never among them).
+        pavement_shore = pavement_shore_vertices(tile, vertices,
+                                                 water_valued)
         # THE INTERIM BELT (owner RULINGS 2026-09-13cp): a node the
         # vector map wrote a BARE INTERP_ALT edge on — a levelled road
         # ribbon, a seawall band, an OBJ8 patch object — carries an
@@ -2257,9 +2310,11 @@ def post_process_nodes_altitudes(tile):
         # sea triangle was levelled above; copying column 5 over it is
         # exactly the "water lifted to terrain level" the owner read at
         # OTHH, one shore vertex at a time.  The patch sets pavement; it
-        # never sets water.
+        # never sets water — and a PAVEMENT RING vertex on the shore is
+        # pavement (#945, :func:`pavement_shore_vertices`): the seawall
+        # band beside it carries the drop.
         for v in (v1, v2, v3):
-            if v in water_valued:
+            if v in water_valued and v not in pavement_shore:
                 if vertices[6 * v + 2] != vertices[6 * v + 5]:
                     lifted_water.add(v)
                 continue
@@ -2277,6 +2332,12 @@ def post_process_nodes_altitudes(tile):
             "with a patch/road INTERP_ALT triangle kept their levelled "
             "water altitude instead of the patch value (RULINGS "
             "2026-09-09z (3)).")
+    if pavement_shore:
+        UI.vprint(
+            1,
+            f"   Shore pavement: {len(pavement_shore)} pavement ring "
+            "vertex(es) on the water line kept the patch value; the seawall "
+            "band carries the drop to the water (#945).")
     UI.vprint(1, "-> Writing output nodes file.")
     if nodes.header_line is None:  # read from a binary .1.node
         TRI_BIN.write_node_binary(FNAMES.output_node_file(tile),

@@ -19,9 +19,6 @@ def test_unnamed_airport_label_is_readable():
 
 
 def test_neighbour_dico_is_not_persisted(monkeypatch):
-    from types import SimpleNamespace
-
-    import O4_Airport_Apt_Identity as APT_IDENTITY
     import O4_Airport_Utils as APT
     import O4_Vector_Map as VMAP
 
@@ -31,19 +28,12 @@ def test_neighbour_dico_is_not_persisted(monkeypatch):
                  "build_hangar_areas", "build_apron_areas",
                  "build_taxiway_areas", "update_airport_boundaries"):
         monkeypatch.setattr(APT, name, lambda *a, **k: None)
-    # The apt.dat identity step (#994) reads the airport index: stubbed,
-    # so the twin never touches an install or the index cache.
-    for name in ("tile_apt_dat_airports", "adopt_apt_dat_identities",
-                 "drop_unclaimed_seeds"):
-        monkeypatch.setattr(APT_IDENTITY, name, lambda *a, **k: [])
     monkeypatch.setattr(APT, "save_airport_info",
                         lambda tile, dico: saved.append(tile))
-    neighbour = SimpleNamespace(lat=45, lon=7)
-    home = SimpleNamespace(lat=46, lon=7)
-    VMAP.build_airports_dico(neighbour, None, persist=False)
+    VMAP.build_airports_dico("neighbour", None, persist=False)
     assert saved == []
-    VMAP.build_airports_dico(home, None)
-    assert saved == [home]
+    VMAP.build_airports_dico("home", None)
+    assert saved == ["home"]
 
 
 def test_memory_vector_driver_is_not_the_deprecated_name():

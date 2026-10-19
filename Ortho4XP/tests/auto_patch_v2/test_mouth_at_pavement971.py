@@ -111,9 +111,8 @@ def test_road_over_the_bore_stops_the_mouth_the_approach_road_does_not(law):
                   "groundside", "road", {})]
     polys = [Polygon(c.ring) for c in cells]
     axis = LineString([(60.0, 0.0), (900.0, 0.0)])
-    got = mouth_stops(cells, polys, law, airside_cut_roles(law), axis,
-                      [LineString([(-60.0, 0.0), (60.0, 0.0)])], (60.0, 0.0), half, rim_off,
-                      (), grid)
+    got = mouth_stops(cells, polys, law, airside_cut_roles(law), axis, (60.0, 0.0), half,
+                      rim_off, (), grid)
     assert [r for _p, r in got] == ["over"]
 
 

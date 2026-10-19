@@ -19,11 +19,11 @@ object the rule names, and keeps its building-pad stops alone):
    portal's own pavement" exemption no longer reaches it.  The corridor's
    own DECK (an underpass, §34 (5)) is not a cut and stays exempt.
 2. **Pavement over the bore is not cut either.**  A road or apron face
-   the bore runs under BEYOND the corridor's own cap reach (``half +
-   rim_off`` from the mouth — an approach road's ribbon end overlaps the
-   bore by at most its own half-width) COVERS the tunnel, and so does an
-   apron the mouth stands on: the mouth stops at its edge.  Every other
-   airside face stops the corridor as §34 (12) (3) always had it.
+   over the bore, and an apron the mouth stands on, stops the corridor:
+   the mouth stops at its edge (since clause 4 every road but the ramp's
+   own is a stop, so the road half of this clause needs no test of its
+   own).  Every other airside face stops the corridor as §34 (12) (3)
+   always had it.
 3. **Unless the tunnel lies within it.**  A road or apron face the axis
    runs INSIDE from the mouth for at least the shortest lawful ramp
    (``mouth_depth_m / ramp_max_grade``) HOSTS the ramp — the tunnel is
@@ -74,18 +74,16 @@ def _host_run_m(axis: LineString, poly: Polygon, grid: float) -> float:
 
 
 def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: LineString,
-                bores: _t.Sequence[LineString], mouth: tuple[float, float], half: float,
-                rim_off: float, decked: _t.Sequence[Polygon], grid: float
-                ) -> list[tuple[Polygon, str]]:
+                mouth: tuple[float, float], half: float, rim_off: float,
+                decked: _t.Sequence[Polygon], grid: float) -> list[tuple[Polygon, str]]:
     """The pavement faces ONE mapped bore's corridor stops short of, as
     ``[(polygon, ref)]`` for ``structure_geometry.pad_hit`` (the module
-    doc's three clauses).  ``cut_roles`` is §34 (12) (3)'s airside set
-    (``structure_service.airside_cut_roles``), ``decked`` the corridor's
-    own deck polygons, ``bores`` its mapped bore lines."""
+    doc's four clauses; since clause 4 a road over the bore (clause 2) is
+    a stop as every road but the ramp's own is).  ``cut_roles`` is §34
+    (12) (3)'s airside set (``structure_service.airside_cut_roles``),
+    ``decked`` the corridor's own deck polygons."""
     tn = law.tables.structures.tunnel
     keep = unary_union(list(decked)).buffer(grid) if decked else None
-    deep = [b.difference(Point(mouth).buffer(half + rim_off)) for b in bores]
-    deep = [d for d in deep if not d.is_empty]
     min_run = tn.mouth_depth_m / tn.ramp_max_grade
     mp = Point(mouth)
     out: list[tuple[Polygon, str]] = []
@@ -104,7 +102,6 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
             if c.role in cut_roles:
                 out.append((p, c.ref))                # §34 (12) (3), unchanged
             continue
-        covers = any(d.intersection(p).length > grid for d in deep)
         if at_mouth and _host_run_m(axis, p, grid) >= min_run:
             continue                                  # clause 3: the ramp's host
         if not airside and _own_road(axis, p, half + rim_off, grid):
@@ -204,7 +201,6 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     newer word; the mouth slides to the taxiway's edge like any other."""
     from .structure_approach import pavement_half_widths
     from .structure_geometry import ring_for
-    bores = [m.bore.line for m in (group.members or ()) if getattr(m, "bore", None) is not None]
     def ring_of(s0: float):
         ln = substring(axis, s0, axis.length)
 
@@ -224,17 +220,15 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         geom = ring_for(None, fn, ss, half, rim_off, group.inward, grid, group, half_fn)
         return None if geom is None else geom.outer
 
-    # THE SLID STRETCH IS COVERED BORE: pavement over it covers the tunnel
-    # as the mapped bore's does, so the stops are re-read from the new
-    # mouth and the slide repeats until the mouth stands clear of them too
-    # (a few passes; a stretch that keeps meeting new pavement is refused)
+    # the stops are re-read from each new mouth (an apron the new mouth
+    # stands in, a host that starts there) and the slide repeats until the
+    # mouth stands clear of them too
     total, refs = 0.0, []
     for _pass in range(_SLIDE_PASSES):
         here = substring(axis, total, axis.length)
-        covered = bores + ([substring(axis, 0.0, total)] if total > 0.0 else [])
         mouth = here.coords[0] if total > 0.0 else group.mouth
-        stops = mouth_stops(cells, polys, law, cut_roles, here, covered, mouth, half, rim_off,
-                            decked, grid)
+        stops = mouth_stops(cells, polys, law, cut_roles, here, mouth, half, rim_off, decked,
+                            grid)
         s0, ref = clear_mouth(here, stops, half, rim_off, gap, spacing, grid,
                               lambda s, _t=total: ring_of(_t + s),
                               law.tables.structures.tunnel.mouth_slide_max_m - total)

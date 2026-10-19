@@ -7,8 +7,11 @@ both used at exactly one site in :mod:`auto_patch_v2.planar.structures`:
 
 * :func:`airside_cut_roles` — clause (3)'s protected set: the airside
   roles a corridor may never cut;
-* :func:`airside_stops` — the faces of that set ONE corridor must stop
-  short of, its own decked and mouth-standing pavement excluded.
+* the faces of that set ONE corridor must stop short of — since issue
+  #971 (owner 2026-10-19, "tunnel mouths should always stop at the
+  pavement") read in ``planar/structure_mouth.mouth_stops``, which also
+  withdrew the "portal's own pavement" exemption for the taxi family and
+  the pavement over the bore.
 
 CLAUSE (1) IS WITHDRAWN (Fable 2026-09-15; RULINGS 2026-09-15w).  Round
 1 read it as "a tunnel is built only where its bore passes under a cover
@@ -40,8 +43,8 @@ from .structure_approach import carriageway_width_m, under_cover
 if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
     from ..model.airport import Airport
 
-__all__ = ["airside_cut_roles", "airside_stops", "deck_witness_for",
-           "decked_exclusion", "osm_stops", "owner_kept", "pad_relief_m",
+__all__ = ["airside_cut_roles", "deck_witness_for",
+           "decked_exclusion", "owner_kept", "pad_relief_m",
            "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness", "knee_nodes"]
 
 
@@ -507,74 +510,6 @@ def airside_cut_roles(law: Law) -> tuple[str, ...]:
     return tuple(r for r in law.tables.precedence.roles
                  if role_side(law, r) == "airside" and is_value_role(law, r)
                  and not is_structure_role(law, r) and r != "building")
-
-
-def airside_stops(cells, polys, cut_roles, decked, mouth_pts, grid: float):
-    """§34 (12) (3) A CORRIDOR NEVER CUTS AIRSIDE PAVEMENT — the faces one
-    corridor must STOP SHORT of, as ``[(polygon, ref)]`` for
-    ``structure_geometry.pad_hit`` (owner RULINGS 2026-09-15f item 1 as
-    AMENDED, Fable 2026-09-15; RULINGS 2026-09-15w).
-
-    IT STOPS SHORT, IT IS NOT REFUSED.  The ruling's own words: "it
-    becomes an underpass where the pavement is authored as a deck or a
-    pack corridor covers it, otherwise it STOPS SHORT of the pavement —
-    at VMMC the OSM car-park bore stops at pav5".  The stop is the
-    existing station-truncation loop in ``structures.build_structures``,
-    the same one ``ramp_crosses_pad`` has always used; a corridor with no
-    room left refuses there, by that loop's own message.
-
-    TWO EXCLUSIONS, both the ruling's.  ``decked`` are this corridor's own
-    deck polygons — "the pavement is the DECK of an underpass (§34 (5))"
-    — so every §34 (5) underpass, LEMD F-6 and KCLT taxiway U, is
-    untouched.  And the pavement the corridor's own MOUTH stands on is
-    not a cut: (3) is about a bore that CROSSES a pavement, and a
-    corridor whose mouth stands on an apron does not cross it, it ENDS in
-    it — that is what a portal is, and 08-07 ruling 4's cut is how the
-    portal is opened.
-
-    THE CALLER SCOPES IT TO OSM-DERIVED CORRIDORS.  A PACK-STATED
-    corridor (§33 (6) signatures A/B/C — ``tunnel_objects``, wall
-    corridors, plates) is authored geometry and its crossing of airside
-    IS an underpass by authorship: measured at OTHH, applying (3) to them
-    refused three terminal tunnels (``tunnel middle - east`` / ``- west``,
-    ``tunnel south west 2``) against aprons ``pav32`` / ``pav30``.
-    """
-    from shapely.ops import unary_union
-    keep = unary_union(list(decked)) if decked else None
-    out = []
-    for p, c in zip(polys, cells):
-        if c.role not in cut_roles or c.kind == "structure":
-            continue
-        if any(p.dwithin(q, grid) for q in mouth_pts):
-            continue                      # the portal's own pavement
-        if keep is not None and p.within(keep.buffer(grid)):
-            continue                      # this corridor's own deck
-        out.append((p, c.ref))
-    return out
-
-
-def osm_stops(corridor, group, cells, polys, pads, pad_tree, cut_roles,
-              deck_ivals, obj_ivals, grid: float, wall_kind: str):
-    """``(stops, tree)`` for ``structure_geometry.pad_hit`` — what ONE
-    corridor's ramp must stop short of (§34 (12) (3) as amended).
-
-    A PACK-STATED corridor (``corridor is not None``) or a wall corridor
-    keeps the building pads alone, exactly as before: it is authored
-    geometry and its crossing of airside IS an underpass by authorship
-    (measured at OTHH — bound by (3) it refused three terminal tunnels
-    against aprons ``pav32`` / ``pav30``).  An OSM-derived corridor adds
-    :func:`airside_stops`.
-    """
-    from shapely.geometry import Point
-    from shapely.strtree import STRtree
-    if corridor is not None or group.kind == wall_kind:
-        return pads, pad_tree
-    stops = pads + airside_stops(
-        cells, polys, cut_roles,
-        [d[3] for d in deck_ivals] + [d[3] for d in obj_ivals],
-        [Point(m.xy) for m in (group.members or ())] or [Point(group.mouth)],
-        grid)
-    return stops, (STRtree([p for p, _r in stops]) if stops else None)
 
 
 def deck_witness_for(airport, law: Law, under_ways):

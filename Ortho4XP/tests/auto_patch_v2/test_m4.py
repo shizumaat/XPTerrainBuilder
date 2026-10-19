@@ -132,8 +132,12 @@ def test_dual_bore_is_one_ramp_per_mouth_with_gap_wall_cap(synthetic, law):
     assert all(c.ref == "tunnel_wall" for c in cl2.cells if c.role == "retaining_wall")
     for t in tunnels:
         assert t.mouth_z == pytest.approx(t.mouth_dem_z - tn.mouth_depth_m)
-        # the mouth line stands at the bore's mapped end (x = ±80)
-        assert abs(abs(t.axis[0][0]) - 80.0) < 1.0
+        # THE MOUTH STOPS AT THE PAVEMENT (owner 2026-10-19, #971): the
+        # bore's mapped end (x = ±80) is the apron's edge, so the mouth line
+        # stands where the rim cap clears the apron by the gap — never cuts it
+        clear = tn.wall_gap_m + tn.wall_gap_m + tn.wall_band_width_m
+        assert 80.0 + clear - 1e-6 <= abs(t.axis[0][0]) <= 80.0 + clear + 1.0, t.axis[0]
+        assert any("#971" in n for n in t.notes)
         assert t.half_width_m == pytest.approx((12.0 + 2 * 3.5 * 2 / 2) / 2, abs=0.6)
     # THE RIM (RULINGS 2026-09-06b (1)): the void face's exterior stands
     # wall_gap_m + wall_band_width_m off the ramp edge (an OSM bore), its

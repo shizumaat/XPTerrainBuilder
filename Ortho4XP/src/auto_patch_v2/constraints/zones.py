@@ -579,13 +579,6 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # level beneath the band's grade ("typically they are cut below") and
     # the band leads only where the road would stand above it.
     kerb = planar.band_kerb_vertices(airside_stage_roles(law))
-    # AT THE WALL THE BAND HOLDS ITS OWN GRADED LEVEL (owner 2026-10-19,
-    # #951 spec Q11): a band vertex at a wall beside a road (a riser's band
-    # line, a road page's stand-off) takes the nearest pavement's graded
-    # level — its ceiling, never above the pavement edge — as its floor, so
-    # it never falls to the raw DEM and the step stands at the wall
-    from .band_standoff import band_wall_vertices
-    at_wall = band_wall_vertices(planar, law)
     for v, classes in member.items():
         cap_only = v in kerb
         if (v in own_law and not cap_only) or v in wall_vertices:
@@ -667,8 +660,6 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if rank > 0 or hi is None:
                     continue         # the kerb: the nearest pavement's ceiling alone
                 lo = None
-            elif rank == 0 and v in at_wall and hi is not None:
-                lo = max(lo, min(hi, 0.0)) if lo is not None else min(hi, 0.0)
             if blend is None:
                 terms = ((v, 1.0),) + _foot(a, b, t, 1.0)
             else:

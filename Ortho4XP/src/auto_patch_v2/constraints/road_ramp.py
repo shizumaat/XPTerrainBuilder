@@ -392,7 +392,7 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     cs, rep["wall_release"] = wall_release(planar, law, cs)
     # 19a / 19i (#951): the band's riser beside a road inside it is the step
     from .band_riser import riser_release
-    cs, rep["riser_release"] = riser_release(planar, law, cs)
+    cs, rep["riser_release"] = riser_release(planar, law, cs, levels)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
     cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
     # LAST: the rewrites above carry every vertex's §37 (6) row as the

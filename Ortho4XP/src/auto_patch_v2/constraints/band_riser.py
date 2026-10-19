@@ -32,10 +32,10 @@ import typing as _t
 
 from ..law import Law
 from ..model.band_riser import band_risers
-from ..model.constraints import ConstraintSet, Linear, Source
+from ..model.constraints import Band, ConstraintSet, Linear, Source
 from ..model.planar import PlanarMap, is_osm_ribbon_ref
 
-__all__ = ["riser_release", "FLOOR_RULING"]
+__all__ = ["riser_release", "FLOOR_RULING", "GRADED_RULING"]
 
 #: the ruling of the one-way floor that keeps the band from falling below
 #: the road across a riser (module docstring)
@@ -47,7 +47,8 @@ FLOOR_RULING = ("band riser floor (owner RULINGS 2026-10-19a / 19i; "
 GEN = "band_riser"
 
 
-def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet
+def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet,
+                  levels: _t.Mapping[int, float] | None = None
                   ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
     """``cs`` without the pair rows across a band riser (module docstring)
     and the count released."""
@@ -56,10 +57,15 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     standoffs = band_standoffs(planar, law)
     rep: dict[str, _t.Any] = {"risers": len(risers), "released": 0,
                               "standoffs": len(standoffs)}
+    from .band_standoff import band_wall_vertices
+    wall = band_wall_vertices(planar, law)
+    graded = _graded_rows(planar, law, levels or {}, wall)
+    rep["graded"] = len(graded)
     if not risers:
         floors = _standoff_floors(standoffs, set())
         rep["floors"] = len(floors)
-        return (_dc.replace(cs, linears=tuple(cs.linears) + tuple(floors)), rep)             if floors else (cs, rep)
+        return _dc.replace(cs, linears=tuple(cs.linears) + tuple(floors),
+                           bands=tuple(cs.bands) + tuple(graded)), rep
     from shapely.geometry import LineString, Polygon
     from shapely.strtree import STRtree
     rib: set[int] = set()
@@ -107,11 +113,12 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet
             rep["released"] += 1
             continue
         linears.append(r)
-    floors = _floor_rows(planar, risers, xy)
+    floors = [r for r in _floor_rows(planar, risers, xy) if r.terms[0][0] in wall]
     floors += _standoff_floors(standoffs, {r.terms[0][0] for r in floors})
     rep["floors"] = len(floors)
     return _dc.replace(cs, diffs=tuple(diffs),
-                       linears=tuple(linears) + tuple(floors)), rep
+                       linears=tuple(linears) + tuple(floors),
+                       bands=tuple(cs.bands) + tuple(graded)), rep
 
 
 def _floor_rows(planar: PlanarMap, risers, xy) -> list[Linear]:
@@ -142,3 +149,48 @@ def _standoff_floors(standoffs, seen: set[int]) -> list[Linear]:
     return [Linear(((int(b), 1.0), (int(g), -1.0)), 0.0, None,
                    Source(GEN, FLOOR_RULING, (f"vertex:{b}",)), follows=int(b))
             for b, g, _d in standoffs if b not in seen]
+
+
+#: the ruling of the band's graded level at a wall (owner, #951 spec Q11)
+GRADED_RULING = ("band graded level at a wall (owner 2026-10-19, #951 spec Q11: "
+                 "the top of the band holds its own graded level)")
+
+
+def _graded_rows(planar: PlanarMap, law: Law, levels: _t.Mapping[int, float],
+                 wall: _t.AbstractSet[int]) -> list[Band]:
+    """AT THE WALL THE BAND HOLDS ITS OWN GRADED LEVEL (owner 2026-10-19,
+    #951 spec Q11: it does not fall to raw DEM).  Per band vertex at a wall
+    (``constraints/band_standoff.band_wall_vertices``), a floor at the
+    nearest stage-1 pavement vertex's solved level plus the zone's graded
+    fall at that distance — its ceiling (``law.tables.zone_bounds``), never
+    above the pavement — whichever generator shapes the band there (the zone
+    rows, or the runway end's ``strips`` skirt: MEASURED KLAX 33.945963,
+    -118.436316, the end skirt's chord bounds -7.2..+4.2 m let the band line
+    sit at its DEM, a 2.55 m step inside the band over 7.1 m).  No row
+    where the vertex stands beyond the zone (``zone_bounds`` is the DEM)."""
+    if not wall or not levels:
+        return []
+    from ..law.tables import airside_stage_roles, zone_bounds
+    air = airside_stage_roles(law)
+    feet: dict[int, _t.Any] = {}
+    for f in planar.faces.values():
+        if f.role in air:
+            for v in planar.ring_vertices(f.ring):
+                if v in levels:
+                    feet.setdefault(v, f)
+    if not feet:
+        return []
+    from scipy.spatial import cKDTree
+    ids = sorted(feet)
+    tree = cKDTree([planar.vertices[v].xy for v in ids])
+    out: list[Band] = []
+    for v in sorted(wall):
+        d, j = tree.query(planar.vertices[v].xy)
+        p = ids[int(j)]
+        f = feet[p]
+        _fl, ce = zone_bounds(law, f.role, float(d), f.code_number, f.code_letter)
+        if ce is None:
+            continue
+        out.append(Band(int(v), float(levels[p]) + min(ce, 0.0), None,
+                        Source(GEN, GRADED_RULING, (f"vertex:{v}",))))
+    return out

@@ -75,10 +75,29 @@ def band_standoffs(planar: PlanarMap, law: Law) -> list[tuple[int, int, float]]:
 def band_wall_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     """The band vertices standing at a wall beside a road: the band line of
     every riser (``model.band_riser``) and every stand-off band vertex
-    (:func:`band_standoffs`)."""
+    (:func:`band_standoffs`).  A riser vertex closer to a ribbon than one
+    weld spacing less the snap margin is no band line: it is a median or a
+    sliver between carriageways (``planar/band_riser`` absorbs them), road
+    ground that rides with the roads (MEASURED, round 2 iteration 1, KLAX
+    33.94033, -118.39618: a median vertex 0.5 m off both carriageways held
+    at the band's level stood 3.5 m over them)."""
+    from shapely.geometry import Point, Polygon
+    from shapely.strtree import STRtree
+
+    from ..law.tables import snap_margin_m
+    near_m = float(law.tables.emit.identity.weld_spacing_m) - snap_margin_m(law)
+    ribs = []
+    for f in planar.faces.values():
+        if is_osm_ribbon_ref(f.ref):
+            g = Polygon([planar.vertices[v].xy for v in planar.ring_vertices(f.ring)])
+            ribs.append(g if g.is_valid else g.buffer(0.0))
+    tree = STRtree(ribs) if ribs else None
     out: set[int] = set()
     for _fid, _lo, up in band_risers(planar):
-        out.update(up)
+        for v in up:
+            p = Point(planar.vertices[v].xy)
+            if tree is None or not len(tree.query(p, predicate="dwithin",
+                                                   distance=near_m)):
+                out.add(v)
     out.update(b for b, _g, _d in band_standoffs(planar, law))
     return frozenset(out)
-

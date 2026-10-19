@@ -530,11 +530,22 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             # such a ring into its parts.
             grid = rules.cells.snap_grid_m
             for part in polygon_parts(shapely.set_precision(face.intersection(territory), grid)):
-                if part.area >= rules.cells.min_area_m2:
-                    jl, n_serving = _junction_letter(part, taxi, through, rules)
-                    scored.append((part, "junction", ref, jl,
-                                   dict(tev, near_route=1.0,
-                                        letter_chains=float(n_serving)), net))
+                if part.area < rules.cells.min_area_m2:
+                    continue
+                if not _centreline_on(part, (*taxi, *through), rules):
+                    # #808 (owner 2026-10-19): a route-territory part no
+                    # taxi centreline runs on is airside only on its own
+                    # evidence — it is apron remainder, judged like any
+                    scored.append((part, "apron", ref, None,
+                                   dict(tev, near_route=0.0, route_part_off_centreline=1.0),
+                                   net))
+                    stats["route_parts_off_centreline"] = \
+                        stats.get("route_parts_off_centreline", 0) + 1
+                    continue
+                jl, n_serving = _junction_letter(part, taxi, through, rules)
+                scored.append((part, "junction", ref, jl,
+                               dict(tev, near_route=1.0,
+                                    letter_chains=float(n_serving)), net))
             for part in polygon_parts(shapely.set_precision(face.difference(territory), grid)):
                 if part.area >= rules.cells.min_area_m2:
                     scored.append((part, "apron", ref, None,
@@ -1211,6 +1222,17 @@ def _route_territory(face: Polygon, prox, corridors, rules: Rules
             remainder += p.area
     territory = unary_union(parts) if parts else Polygon()
     return territory, near.area, remainder
+
+
+def _centreline_on(part: Polygon, chains: _t.Sequence[Chain], rules: Rules) -> bool:
+    """A TAXI CENTRELINE RUNS ON ``part`` (issue #808): some chain shares at
+    least ``cells.min_shared_m`` with it, read within ``cells.on_tol_m`` —
+    ``_junction_letter``'s own "runs through or along" test."""
+    near = part.buffer(rules.cells.on_tol_m)
+    if not near.is_valid:
+        near = near.buffer(0)                    # see ``_junction_letter``
+    return any(c.line.intersection(near).length >= rules.cells.min_shared_m
+               for c in chains)
 
 
 def _junction_letter(part: Polygon, touching: list[Chain], through: list[Chain],

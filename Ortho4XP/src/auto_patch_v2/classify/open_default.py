@@ -1,7 +1,7 @@
 """THE OPEN-PAVEMENT DEFAULT (RULINGS 2026-09-04u): open pavement is
 NEVER apron by default.  A face the slice scored ``apron`` keeps that
 role only on APRON EVIDENCE — a 1300 startup on the face or its source
-polygon, a taxi centreline on the source (``cells.min_shared_m`` of it),
+polygon (the face's own only, for the pavement beyond a §43 neck: #808), a taxi centreline on the source (``cells.min_shared_m`` of it),
 the source named an apron (apt.dat description, ``lot.apron_name_tokens``)
 or covered by OSM ``aeroway=apron`` — else it is groundside: a
 ``parking_lot`` when a road reaches it (``roles._road_evidence``: a
@@ -37,7 +37,13 @@ def apron_evidence(face: Polygon, src: SourceRecord | None,
         return "taxi centreline touches the face"
     if start_tree is not None and len(start_tree.query(face, predicate="contains")) > 0:
         return "startup on the face"
-    if src is None:
+    if src is None or evid.get("neck_new_apron"):
+        # THE PIECE BEYOND A NECK STANDS ON ITS OWN EVIDENCE (owner
+        # 2026-10-19, issue #808; narrows 04u for §43's products): the
+        # source's stands, centrelines, name and cover stand on the far
+        # side of the neck.  KCLT ``pav62`` (a named apron, 8 stands)
+        # carries a 15,219 m2 parking lot past a neck south of 36R that
+        # read apron off stands 110 m away.
         return None
     if src.startups > 0:
         return f"{src.startups} startup(s) on the source"

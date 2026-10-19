@@ -7300,10 +7300,15 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         # R17c-2: the raster is grown by the feather so the ramp lands
         # OUTSIDE the declared extent -- Z0 holds to the wall line.  The
         # provenance below keeps the DECLARED box.
+        record = substitution["record"]
+        # #945: the airport's OWN pavement over water (a viaduct taxiway)
+        # is land for this cut, exactly as the decision record reads it.
         inset, water_frac = _flat_site_inset(
             tile, (x0, y0, x1, y1), substitution["z0_m"], feather_m,
-            "%s synthetic flat-site inset" % icao, water)
-        record = substitution["record"]
+            "%s synthetic flat-site inset" % icao,
+            FLAT_SITE_MODE.water_beside_site(
+                water, record, int(math.floor(tile.lat)),
+                int(math.floor(tile.lon))))
         if inset is None:
             record["plateau"] = "the whole extent is water"
             UI.vprint(

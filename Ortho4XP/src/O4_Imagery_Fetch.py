@@ -16,7 +16,7 @@ Rules and their justification: OrthoStudio XP's ``docs/specs/net-download.md`` (
 
 - one ``AsyncSession`` for the life of the ``Fetcher`` (connections kept alive);
 - per ``host_group`` AIMD window: +1 per round of successes up to ``max_in_flight``, halved on
-  429/503, on a refused connection or on a latency spike, x0.75 on a timeout, paused on 429
+  429/502/503, on a refused connection or on a latency spike, x0.75 on a timeout, paused on 429
   (``Retry-After`` obeyed);
 - an optional ``req_per_s`` **ceiling** per host group, on top of the window, for a server that
   counts requests rather than connections: the group starts at a quarter of it, climbs a step per
@@ -162,6 +162,10 @@ a client to name itself, and the Brazilian water agency, which serves the ANADEM
 the provider's own headers, ``fake_headers`` or ``request_headers_generic``, so this is the
 default only for a caller that names none.)"""
 DETAIL_MAX_CHARS = 200
+OVERLOAD_STATUSES = frozenset({502, 503})
+"""5xx answers that mean "the server is overloaded", not "this URL failed": they halve the
+window like a 429. A 502 from a gateway in front of a busy backend is one (USGS NAIP answers
+about 1 in 12 requests with it, #863); every 5xx is retried within ``max_attempts`` either way."""
 
 _Kind = Literal["ok", "pushback", "server", "timeout", "connect"]
 
@@ -277,7 +281,9 @@ class _Group:
                 and self._latency_spike()
             ):
                 self._decrease(0.5, now)
-        elif kind in ("pushback", "connect") or (kind == "server" and outcome.status == 503):
+        elif kind in ("pushback", "connect") or (
+            kind == "server" and outcome.status in OVERLOAD_STATUSES
+        ):
             # A server that defends itself by refusing the connection says no as plainly as one
             # answering 429, and said nothing to us before 0.1.14: the window stayed wide and we
             # kept knocking until the attempts ran out (a user, 2026-09-24). ``_decrease`` halves

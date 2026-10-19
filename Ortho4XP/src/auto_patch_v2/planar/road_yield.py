@@ -19,15 +19,15 @@ adjacent-ground band is ribboned by the patch (``classify/ribbon_mint``'s
 extent is the same envelope) and grades WITH the zone (RULINGS 2026-09-13ar,
 2026-09-29r, owner 2026-09-30b) -- this module does not touch it.  A road
 whose centreline runs OUTSIDE every band is a groundside road the core mesh
-owns: the band must not enter its carriageway.  So the part of each such
-centreline outside the envelope is grown by the road's MAPPED
-half-width (``airport/road_ways.ribbon_half_width_m``, #949: the way's
-``width``, else ``lanes`` x ``tunnel.lane_width_m``; never narrower than the
-core's ``road_profile.lane_width_m``) -- the ribbon a patch road gets plus the stand-off every groundside cell
-gets, and that is subtracted from the band at the single zone derivation
-site (``planar/zones.zone_regions``).  The gap between the band's new edge
-and the road terraces, exactly as against a groundside cell (groundside
-terrace law)."""
+owns: the band must not enter its carriageway. So the part of each such
+centreline outside the envelope is grown by the road's MAPPED half-width
+(``airport/road_ways.ribbon_half_width_m``, #949: the way's ``width``, else
+``lanes`` x ``tunnel.lane_width_m``; never narrower than the core's
+``road_profile.lane_width_m``; the ribbon a patch road gets) plus the stand-
+off every groundside cell gets, and that is subtracted from the band at the
+single zone derivation site (``planar/zones.zone_regions``). The gap between
+the band's new edge and the road terraces, exactly as against a groundside
+cell (groundside terrace law)."""
 from __future__ import annotations
 
 from shapely.geometry import LineString

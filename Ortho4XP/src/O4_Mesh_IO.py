@@ -81,6 +81,20 @@ def _block(block: bytes, count: int, width: int, dtype, what: str) -> np.ndarray
     return values.reshape(count, width)
 
 
+def _columns(block: bytes, count: int, needed: int, what: str) -> np.ndarray:
+    """The first ``needed`` columns of a block whose row width is the file's
+    own: stock Ortho4XP writes two values per normal (``nx ny``) where this
+    engine writes three (``nx ny 0``), and the per-line reader this one
+    replaced read only the leading columns of each row (#939)."""
+    values = parse_numbers(block, np.float64) if block.strip() else np.zeros(0)
+    width = values.size // count if count else needed
+    if width < needed or values.size != count * width:
+        raise MeshFormatError(
+            f"{what}: expected {count} rows of at least {needed} values, "
+            f"parsed {values.size}")
+    return values.reshape(count, width)[:, :needed]
+
+
 def _triangle_rows(block: bytes, count: int) -> tuple:
     """``(corners int64 1-based, attributes uint32)``; the attribute column
     may hold a REAL (a mesh written before the attribute was normalised)."""
@@ -110,8 +124,8 @@ def read_mesh(path) -> MeshArrays:
         raise MeshFormatError(f"{path}: {n_normals} normals for {n_vertices} vertices")
     v_end = data.rfind(b"\n" + _NORMALS_TAG + b"\n", v_start, n_start)
     t_end = data.rfind(b"\n" + _TRIANGLES_TAG + b"\n", n_start, t_start)
-    vertices = _block(data[v_start:v_end], n_vertices, 4, np.float64, "vertices")
-    normals = _block(data[n_start:t_end], n_vertices, 3, np.float64, "normals")
+    vertices = _columns(data[v_start:v_end], n_vertices, 3, "vertices")
+    normals = _columns(data[n_start:t_end], n_vertices, 2, "normals")
     corners, attributes = _triangle_rows(data[t_start:], n_triangles)
     coords = np.empty((n_vertices, 5))
     coords[:, :3] = vertices[:, :3]

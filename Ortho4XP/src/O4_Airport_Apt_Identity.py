@@ -222,7 +222,7 @@ def adopt_apt_dat_identities(dico_airports: dict,
             # it is kept, and the overlapped apt.dat airport is not seeded
             # a second time over the same ground.
             continue
-        UI.vprint(1, "   OSM airport", _label(key), "is", entry.code,
+        UI.vprint(2, "   OSM airport", _label(key), "is", entry.code,
                   "in apt.dat (" + entry.name + ").")
         record = dico_airports.pop(key)
         record["key_type"] = _KEY_TYPE[entry.category]

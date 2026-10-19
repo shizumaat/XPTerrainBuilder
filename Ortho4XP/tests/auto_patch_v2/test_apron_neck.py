@@ -31,11 +31,10 @@ import pathlib
 import re
 
 import pytest
-from shapely.geometry import box
-from shapely.ops import unary_union
-
 from auto_patch_v2.classify.neck import necks_of, split_at_necks
 from auto_patch_v2.classify.rules import load_rules
+from shapely.geometry import box
+from shapely.ops import unary_union
 
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "auto_patch_v2"
 
@@ -288,10 +287,9 @@ def _centreline(*xy):
     running along a polygon (``roles._touching`` over one centreline)."""
     import types
 
+    from auto_patch_v2.classify.roles import _touching
     from shapely.geometry import LineString
     from shapely.strtree import STRtree
-
-    from auto_patch_v2.classify.roles import _touching
     parts = [(LineString(xy), types.SimpleNamespace(id=1))]
     tree = STRtree([ln for ln, _c in parts])
     return lambda poly: _touching(poly, tree, parts, load_rules())
@@ -300,10 +298,9 @@ def _centreline(*xy):
 def test_a_narrow_stretch_holding_a_startup_is_not_cut(rules):
     """#262's rung at the cut: "a taxiway has no parking position on it".
     CYXY pav3's 'South ramp' stand sits on a 7.4 m x 189 m arm."""
+    from auto_patch_v2.classify.roles import _neck_pieces
     from shapely.geometry import Point
     from shapely.strtree import STRtree
-
-    from auto_patch_v2.classify.roles import _neck_pieces
     face = _pav5()
     ident = lambda x, y: (x, y)                        # noqa: E731
     cl = _centreline((150.0, 0.0), (500.0, 0.0))       # along the path's edge
@@ -385,9 +382,8 @@ def test_a_grid_snapped_part_still_separates(rules):
     import json
 
     import shapely
-    from shapely import wkb
-
     from auto_patch_v2.classify.neck import _separates
+    from shapely import wkb
 
     data = json.loads((pathlib.Path(__file__).parent / "data"
                        / "neck_fixed_precision_cutter.json")

@@ -968,7 +968,18 @@ def tile_inset_refetch_rows(state, lat, lon) -> list:
 #: refusal ONLY under ``--strict-inset-datum`` -- a geoid difference at a
 #: coastal Alaskan field is lawful and must not block the owner's build,
 #: and the ENGINE never refuses on it.  Table values, overridable on the CLI.
-INSET_ARP_SANITY = {"disc_radius_m": 60.0, "warn_abs_delta_m": 3.0}
+#:
+#: THE RUNWAY THRESHOLDS ARE THE WITNESS WHEN CIFP HAS THEM (owner 2026-10-19,
+#: #576, amending 09-30bm): the field elevation is the HIGHEST point of the
+#: runways, not the ground at the ARP, so on a sloped field the ARP disc
+#: reads lower by the field's relief (KBWG: ARP median 159.0 m against
+#: field 165.8 m, while the inset meets all four CIFP thresholds within
+#: 0.09 m).  Each inset is then judged at every CIFP threshold (a
+#: ``threshold_disc_radius_m`` disc) against that threshold's own
+#: elevation; the ARP-vs-field reading is kept in the record and stays the
+#: verdict where CIFP is absent or no threshold disc holds a cell.
+INSET_ARP_SANITY = {"disc_radius_m": 60.0, "warn_abs_delta_m": 3.0,
+                    "threshold_disc_radius_m": 15.0}
 
 
 def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
@@ -1003,10 +1014,13 @@ def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
             elevation_ft * ea_vertical_units.VERTICAL_UNIT_TO_M["ft"])
 
 
-def _inset_disc_median_m(inset_path, arp_lat, arp_lon, radius_m):
+def _inset_disc_median_m(inset_path, arp_lat, arp_lon, radius_m,
+                         at_least_one_cell=False):
     """``(median_m, cells)`` of the valid cells of an EPSG:4326 inset
     whose centres lie within ``radius_m`` of the ARP; ``(None, 0)`` when
-    none does (the ARP is off the raster, or the disc is all nodata)."""
+    none does (the ARP is off the raster, or the disc is all nodata).
+    ``at_least_one_cell`` widens the disc to half a cell diagonal, so a
+    small disc on a coarse inset still holds the cell under the point."""
     import math
 
     import numpy
@@ -1020,6 +1034,9 @@ def _inset_disc_median_m(inset_path, arp_lat, arp_lon, radius_m):
     nodata = band.GetNoDataValue()
     metres_per_deg_lat = 111_320.0
     metres_per_deg_lon = metres_per_deg_lat * math.cos(math.radians(arp_lat))
+    if at_least_one_cell:
+        radius_m = max(radius_m, math.hypot(abs(dx) * metres_per_deg_lon,
+                                            abs(dy) * metres_per_deg_lat) / 2.0)
     half_cols = int(math.ceil(radius_m / (abs(dx) * metres_per_deg_lon))) + 1
     half_rows = int(math.ceil(radius_m / (abs(dy) * metres_per_deg_lat))) + 1
     col = int((arp_lon - x0) / dx)
@@ -1046,14 +1063,41 @@ def _inset_disc_median_m(inset_path, arp_lat, arp_lon, radius_m):
     return (float(numpy.median(values[valid])), int(valid.sum()))
 
 
+def _threshold_judgement(path, thresholds, warn, radius):
+    """Each CIFP threshold of ``thresholds`` (``read_threshold_dicts``
+    shape) read on one inset: ``[{runway, elevation_m, inset_median_m,
+    cells, delta_m, status}]`` for the thresholds whose disc holds a valid
+    cell, in designator order; ``[]`` when none does."""
+    out = []
+    for runway in sorted(thresholds):
+        pin = thresholds[runway]
+        (median, cells) = _inset_disc_median_m(path, pin["lat"], pin["lon"],
+                                               radius, at_least_one_cell=True)
+        if median is None:
+            continue
+        delta = median - pin["elevation_m"]
+        out.append({"runway": runway,
+                    "elevation_m": round(pin["elevation_m"], 3),
+                    "inset_median_m": round(median, 3), "cells": cells,
+                    "delta_m": round(delta, 3),
+                    "status": "warn" if abs(delta) > warn else "ok"})
+    return out
+
+
 def inset_arp_sanity_record(inset_paths, apt_dat_path, icao,
-                            warn_abs_delta_m=None, disc_radius_m=None):
+                            warn_abs_delta_m=None, disc_radius_m=None,
+                            thresholds=None):
     """The ``frame.json`` ``inset_arp_sanity`` record (pure: paths in,
-    record out).  ``status`` is ``warn`` when ANY cached inset's disc
-    median is more than ``warn_abs_delta_m`` from the field elevation,
-    ``ok`` when every judged inset is within it, ``skipped`` (with
-    ``why``) when nothing could be judged.  Each inset also carries the
-    vertical-unit provenance its sidecar records (spec §2)."""
+    record out).  ``status`` is ``warn`` when ANY cached inset misses its
+    witness by more than ``warn_abs_delta_m``, ``ok`` when every judged
+    inset is within it, ``skipped`` (with ``why``) when nothing could be
+    judged.  The witness is the CIFP runway thresholds when ``thresholds``
+    (``cifp.read_threshold_dicts``) has any the inset covers — each
+    threshold's disc median against that threshold's elevation, the worst
+    one quoted in ``delta_m`` / ``against`` — else the ARP disc median
+    against the apt.dat field elevation (#576).  The ARP reading is kept
+    as ``arp_median_m`` / ``arp_delta_m`` either way.  Each inset also
+    carries the vertical-unit provenance its sidecar records (spec §2)."""
     warn = float(INSET_ARP_SANITY["warn_abs_delta_m"]
                  if warn_abs_delta_m is None else warn_abs_delta_m)
     radius = float(INSET_ARP_SANITY["disc_radius_m"]
@@ -1064,21 +1108,26 @@ def inset_arp_sanity_record(inset_paths, apt_dat_path, icao,
     if not inset_paths:
         record["why"] = "no cached inset for this airport"
         return record
-    if not apt_dat_path:
-        record["why"] = "no apt.dat serves this airport"
+    thresholds = thresholds or {}
+    threshold_radius = float(INSET_ARP_SANITY["threshold_disc_radius_m"])
+    if thresholds:
+        record["threshold_disc_radius_m"] = threshold_radius
+    arp = (_apt_dat_arp_and_field_elevation(apt_dat_path, icao)
+           if apt_dat_path else None)
+    if arp is None and not thresholds:
+        record["why"] = ("no apt.dat serves this airport" if not apt_dat_path
+                         else "the apt.dat block carries no ARP or elevation")
         return record
-    arp = _apt_dat_arp_and_field_elevation(apt_dat_path, icao)
-    if arp is None:
-        record["why"] = "the apt.dat block carries no ARP or elevation"
-        return record
-    (arp_lat, arp_lon, arp_source, field_m) = arp
-    record.update({"arp": [round(arp_lat, 7), round(arp_lon, 7)],
-                   "arp_source": arp_source,
-                   "field_elevation_m": round(field_m, 3)})
+    if arp is not None:
+        (arp_lat, arp_lon, arp_source, field_m) = arp
+        record.update({"arp": [round(arp_lat, 7), round(arp_lon, 7)],
+                       "arp_source": arp_source,
+                       "field_elevation_m": round(field_m, 3)})
     judged = []
     for path in inset_paths:
-        (median, cells) = _inset_disc_median_m(path, arp_lat, arp_lon,
-                                               radius)
+        (median, cells) = ((None, 0) if arp is None else
+                           _inset_disc_median_m(path, arp_lat, arp_lon,
+                                                radius))
         entry = {"inset": os.path.basename(str(path)), "cells": cells,
                  "inset_median_m": (None if median is None
                                     else round(median, 3))}
@@ -1097,29 +1146,59 @@ def inset_arp_sanity_record(inset_paths, apt_dat_path, icao,
             delta = median - field_m
             entry["delta_m"] = round(delta, 3)
             entry["status"] = "warn" if abs(delta) > warn else "ok"
+            entry["witness"] = "arp_field_elevation"
+            entry["against"] = f"field elevation {round(field_m, 3)} m"
+            entry["arp_median_m"] = entry["inset_median_m"]
+            entry["arp_delta_m"] = entry["delta_m"]
+        readings = (_threshold_judgement(path, thresholds, warn,
+                                         threshold_radius)
+                    if thresholds else [])
+        if readings:
+            worst = max(readings, key=lambda r: abs(r["delta_m"]))
+            entry.update({
+                "witness": "cifp_thresholds", "thresholds": readings,
+                "inset_median_m": worst["inset_median_m"],
+                "delta_m": worst["delta_m"],
+                "against": (f"CIFP {worst['runway']} threshold "
+                            f"{worst['elevation_m']} m"),
+                "status": ("warn" if any(r["status"] == "warn"
+                                         for r in readings) else "ok")})
+        if "status" in entry:
             judged.append(entry["status"])
         record["insets"].append(entry)
     if judged:
         record["status"] = "warn" if "warn" in judged else "ok"
     else:
-        record["why"] = "the ARP disc holds no valid inset cell"
+        record["why"] = ("no runway-threshold or ARP disc holds a valid "
+                         "inset cell" if thresholds
+                         else "the ARP disc holds no valid inset cell")
     return record
 
 
 def inset_arp_sanity(lat, lon, icao, warn_abs_delta_m=None,
                      disc_radius_m=None):
     """:func:`inset_arp_sanity_record` for a real build: the cached
-    insets in production ranking order and THE apt.dat v2 reads
-    (``apt_dat.select_apt_dat`` -- the one selector)."""
+    insets in production ranking order, THE apt.dat v2 reads
+    (``apt_dat.select_apt_dat`` -- the one selector) and the airport's
+    CIFP thresholds (``O4_Settings_Model.autodetect_cifp`` on the same
+    install, ``cifp.read_threshold_dicts``; none when no file serves it)."""
     try:
         import O4_Airport_Elevation_Insets as INSETS
+        from O4_Settings_Model import autodetect_cifp
         from auto_patch_v2.airport.apt_dat import select_apt_dat
+        from auto_patch_v2.airport.cifp import read_threshold_dicts
 
         paths = INSETS.cached_inset_paths_for_icao(lat, lon, icao)
         xplane_root = os.environ.get("XPLANE_ROOT") or _owner_xplane_root()
         apt_dat = select_apt_dat(xplane_root, icao) if xplane_root else None
+        cifp_dir = autodetect_cifp(xplane_root) if xplane_root else ""
+        cifp_file = (os.path.join(cifp_dir, f"{str(icao).upper()}.dat")
+                     if cifp_dir else "")
+        thresholds = (read_threshold_dicts(cifp_file)
+                      if cifp_file and os.path.isfile(cifp_file) else {})
         return inset_arp_sanity_record(paths, apt_dat, icao,
-                                       warn_abs_delta_m, disc_radius_m)
+                                       warn_abs_delta_m, disc_radius_m,
+                                       thresholds=thresholds)
     except Exception as exc:
         return {"status": "skipped", "why": f"check failed ({exc!r})"}
 
@@ -1150,11 +1229,12 @@ def require_inset_arp_sanity(record, strict):
     bad = [entry for entry in record["insets"]
            if entry.get("status") == "warn"]
     raise SystemExit(
-        "REFUSING (--strict-inset-datum): the inset median at the ARP "
-        "disagrees with the apt.dat field elevation "
-        f"({record.get('field_elevation_m')} m) by more than "
+        "REFUSING (--strict-inset-datum): the inset disagrees with its "
+        "elevation witness (the CIFP runway thresholds, else the apt.dat "
+        f"field elevation at the ARP) by more than "
         f"{record['warn_abs_delta_m']} m: "
-        + "; ".join(f"{e['inset']} median {e['inset_median_m']} m "
+        + "; ".join(f"{e['inset']} median {e['inset_median_m']} m vs "
+                    f"{e.get('against')} "
                     f"(delta {e['delta_m']:+.2f} m, vertical_unit_applied="
                     f"{e.get('vertical_unit_applied')})" for e in bad))
 
@@ -4935,8 +5015,8 @@ def main(argv=None) -> int:
         if sanity.get("status") == "warn":
             prog.note("WARNING inset ARP sanity: "
                       + "; ".join(f"{e['inset']} median "
-                                  f"{e['inset_median_m']} m vs field "
-                                  f"{sanity['field_elevation_m']} m "
+                                  f"{e['inset_median_m']} m vs "
+                                  f"{e.get('against')} "
                                   f"({e['delta_m']:+.2f} m)"
                                   for e in sanity["insets"]
                                   if e.get("status") == "warn"))

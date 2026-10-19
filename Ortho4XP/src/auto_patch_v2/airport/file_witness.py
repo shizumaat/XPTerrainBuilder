@@ -13,6 +13,10 @@ modification time.  A later read :func:`holds` only when every one still
 has both; a file gone, resized or touched REFUSES the record (no content
 hash: a touched file is a miss, never a wrong hit).
 
+A recorder made with ``writes=True`` also keeps the files written in the
+window (opened for writing, or renamed onto): the object stage's outputs,
+which its reuse re-hashes before it serves a record (#879).
+
 NOT RECORDED: code (``.py``, ``.pyc``, extension modules — a stage's code
 is its ``stage_code`` digest), the stage cache's own files (``o4_stage*``)
 and files opened for writing.  What a file
@@ -44,24 +48,38 @@ _ACTIVE: "weakref.WeakSet[FileRecorder]" = weakref.WeakSet()
 _HOOKED = False
 
 
+def _as_str(path: _t.Any) -> "str | None":
+    if isinstance(path, bytes):
+        return os.fsdecode(path)
+    if isinstance(path, os.PathLike):
+        return os.fspath(path)
+    return path if isinstance(path, str) else None
+
+
 def _hook(event: str, args: tuple) -> None:
-    if event != "open" or not _ACTIVE:
+    if event not in ("open", "os.rename") or not _ACTIVE:
+        return
+    if event == "os.rename":            # ``os.rename`` / ``os.replace``
+        dst = _as_str((tuple(args) + (None, None))[1])
+        if dst is not None and not os.path.basename(dst).startswith(_OWN):
+            for rec in tuple(_ACTIVE):
+                if rec._written is not None:
+                    rec._written.add(dst)
         return
     path, mode, flags = (tuple(args) + (None, None, None))[:3]
-    if isinstance(path, bytes):
-        path = os.fsdecode(path)
-    elif isinstance(path, os.PathLike):
-        path = os.fspath(path)
-    if (not isinstance(path, str) or path.endswith(_CODE)
+    path = _as_str(path)
+    if (path is None or path.endswith(_CODE)
             or os.path.basename(path).startswith(_OWN)):
         return
     if isinstance(mode, str):
-        if any(c in mode for c in "wax+"):
-            return
-    elif isinstance(flags, int) and flags & _WRITE_FLAGS:
-        return
+        writing = any(c in mode for c in "wax+")
+    else:
+        writing = isinstance(flags, int) and bool(flags & _WRITE_FLAGS)
     for rec in tuple(_ACTIVE):
-        rec._paths.add(path)
+        if not writing:
+            rec._paths.add(path)
+        elif rec._written is not None:
+            rec._written.add(path)
 
 
 def _install() -> None:
@@ -84,8 +102,11 @@ class FileRecorder:
     """Records the files opened for reading while it is
     :meth:`recording` (module doc)."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, writes: bool = False) -> None:
         self._paths: set[str] = set()
+        #: with ``writes``: every file opened for writing or renamed onto
+        #: (``os.rename`` / ``os.replace``) — the object stage's outputs (#879)
+        self._written: "set[str] | None" = set() if writes else None
         _install()
 
     def recording(self, on: bool) -> None:
@@ -106,6 +127,12 @@ class FileRecorder:
                 continue
             out[ap] = _stamp(ap)
         return out
+
+    def written(self) -> list[str]:
+        """The absolute paths of the regular files written while recording
+        that still exist (a ``writes`` recorder; ``[]`` otherwise)."""
+        return sorted({os.path.abspath(p) for p in self._written or ()
+                       if os.path.isfile(p)})
 
     def replay(self, record: _t.Mapping[str, _t.Any] | None) -> None:
         """Merge a stored record's files (a stage served from cache)."""

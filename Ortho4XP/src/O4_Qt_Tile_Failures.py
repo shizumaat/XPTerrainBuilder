@@ -22,10 +22,12 @@ from __future__ import annotations
 import os
 import sys
 
+from O4_Tile_Failures import SEVERITY_LABELS
+
 __all__ = ["AIRPORT_FAILED_LINE", "REPORT_BUTTON", "SAVE_REPORT_BUTTON",
            "console_lines", "report_phrase", "box_texts", "tile_report",
            "REMOVE_LINK_BUTTON", "REQUEUED_LINE", "BUILD_AGAIN_BUTTON",
-           "removable_links", "issues_box"]
+           "removable_links", "issues_box", "severity_label"]
 
 # --- copy (identical to the mac app's O4TileFailureCopy) ----------------
 REPORT_BUTTON = "Report this problem"
@@ -61,14 +63,24 @@ def _entries(event) -> list:
             + [("note", n) for n in getattr(event, "notes", None) or []])
 
 
+def severity_label(is_warning, entry) -> str:
+    """The entry's severity as both apps label it (#853): the wire's
+    ``severity`` (protocol 1.13), else the list it came in (an older
+    engine sends no key)."""
+    severity = entry.get("severity") or (
+        "info" if is_warning == "note" else
+        "degraded" if is_warning else "blocking")
+    return SEVERITY_LABELS.get(severity, SEVERITY_LABELS["blocking"])
+
+
 def console_lines(event) -> list:
     """The console block of one ``BuildDone``: three lines per cause, then
     its technical detail, indented."""
     lines = []
     for is_warning, entry in _entries(event):
-        lines.append(("Note: " if is_warning == "note" else
-                      "Warning: " if is_warning else "*** ")
-                     + entry.get("what", ""))
+        label = severity_label(is_warning, entry)
+        lines.append(("*** " if label == SEVERITY_LABELS["blocking"]
+                      else label + ": ") + entry.get("what", ""))
         lines.append("    " + entry.get("why", ""))
         lines.append("    " + entry.get("remedy", ""))
         for detail in (entry.get("detail") or "").splitlines():
@@ -106,10 +118,10 @@ def box_texts(events, requeued=()) -> tuple:
     if warned:
         parts.append("%d built with warnings" % warned)
     body = "\n\n".join(
-        "%s\n%s\n%s" % (e.get("what", ""), e.get("why", ""),
-                        e.get("remedy", ""))
+        "%s: %s\n%s\n%s" % (severity_label(warning, e), e.get("what", ""),
+                            e.get("why", ""), e.get("remedy", ""))
         + ("\n" + REQUEUED_LINE if id(event) in requeued else "")
-        for event in events for _warning, e in _entries(event))
+        for event in events for warning, e in _entries(event))
     detail = "\n\n".join("%s\n%s" % (e.get("what", ""), e.get("detail", ""))
                          for _warning, e in entries if e.get("detail"))
     return (", ".join(parts), body, detail)

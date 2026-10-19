@@ -18,7 +18,9 @@ needs to know: there is nothing left under a name it looks for.
 This module owns four things and nothing else: the per-airport file
 family and its set-aside, the continue-or-abort decision (with the strict
 mode the harness and the release checks run in), the engine-log warning,
-and the list of unpatched airports the session reports from.
+and the list of unpatched airports the session reports from — plus the
+sidecar's other closing facts of a built tile (stand-in elevation,
+unreachable packs, and the DEGRADED outputs of #853: :func:`record_degraded`).
 """
 from __future__ import annotations
 
@@ -32,6 +34,7 @@ __all__ = [
     "PACK_RESTORE_KEY", "note_pack",
     "record_substitutions", "read_substitutions",
     "UNMOUNTED_KEY", "record_unmounted_packs", "read_unmounted_packs",
+    "DEGRADED_KEY", "record_degraded", "read_degraded",
     "warn",
 ]
 
@@ -240,6 +243,56 @@ def read_unmounted_packs(tile) -> list:
     """The rows :func:`record_unmounted_packs` published for the tile on
     disk (see :func:`read`)."""
     return _read_rows(tile, "unmounted_packs", UNMOUNTED_KEY)
+
+
+#: Sidecar key of the DEGRADED outputs (#853): ``{source: [row, ...]}``,
+#: one list per step part that can degrade, each restated whole by that
+#: part on every run (an empty list clears it).
+DEGRADED_KEY = "degraded"
+
+
+def record_degraded(tile, source: str, rows) -> list:
+    """Publish what the build part ``source`` (``"imagery"``, ``"masks"``,
+    ``"airport-insets"``) produced NOT as asked — rows of
+    ``{"code", "detail", ...words}`` with a DEGRADED ``O4_Tile_Failures``
+    code — replacing that part's earlier rows; the final ``BuildDone``
+    names them as warnings (:func:`read_degraded`).  Never fatal."""
+    rows = [dict(row) for row in rows or () if isinstance(row, dict)]
+    own = getattr(tile, "degraded_outputs", None)
+    if own is None:
+        own = {}
+        build_dir = getattr(tile, "build_dir", None)
+        if build_dir:
+            on_disk = _read_all(build_dir).get(DEGRADED_KEY)
+            own = dict(on_disk) if isinstance(on_disk, dict) else {}
+    own[str(source)] = rows
+    try:
+        tile.degraded_outputs = own
+    except AttributeError:                     # a slotted stand-in tile
+        pass
+    build_dir = getattr(tile, "build_dir", None)
+    if build_dir:
+        try:
+            os.makedirs(build_dir, exist_ok=True)
+            _write_key(build_dir, DEGRADED_KEY, own)
+        except OSError:
+            pass
+    return rows
+
+
+def read_degraded(tile) -> list:
+    """Every degraded row of the tile on disk, in source order (see
+    :func:`read`)."""
+    own = getattr(tile, "degraded_outputs", None)
+    if own is None:
+        try:
+            own = _read_all(tile.build_dir).get(DEGRADED_KEY)
+        except (AttributeError, TypeError):
+            own = None
+    if not isinstance(own, dict):
+        return []
+    return [dict(row) for source in sorted(own)
+            for row in own[source] or () if isinstance(row, dict)]
 
 
 def note_pack(tile, icao: str, text: str, pack: str = "",

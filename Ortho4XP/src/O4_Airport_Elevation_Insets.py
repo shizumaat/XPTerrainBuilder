@@ -175,6 +175,7 @@ from elevation_access.warp import inset_valid_fraction
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
+import O4_Unpatched_Airports as UNPATCHED
 import O4_File_Lock as O4_File_Lock
 import O4_External_Writes as EXTWRITE
 import O4_Geo_Utils as GEO
@@ -5763,6 +5764,11 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
     # the run's step-1 wall time as download-polluted, which disqualifies
     # it as a build-time measurement (tools/check_build_time.py).
     tile.insets_fetched_last_build = 0
+    # The HOME pass restates the airports built without their inset
+    # (#853, ``inset_fetch_failed``); a neighbour pass is another tile's.
+    home = meter_key == "airport-insets"
+    if home:
+        UNPATCHED.record_degraded(tile, "airport-insets", [])
     if not insets_enabled_for_tile(tile):
         return
     provider_definitions = select_provider_definitions(
@@ -5823,6 +5829,10 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
             "raised %s: %s - continuing without insets; the frame is NOT "
             "warm and the next build retries it."
             % (tile.lat, tile.lon, type(error).__name__, error))
+        if home:
+            UNPATCHED.record_degraded(tile, "airport-insets", [{
+                "code": "inset_fetch_failed",
+                "detail": "%s: %s" % (type(error).__name__, error)}])
     else:
         if fetch_failures:
             # THE FETCH FAILED ON TRANSPORT (or crashed) for these
@@ -5840,6 +5850,11 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
                     "FAILED (%s) - this build uses NO inset from %s; check "
                     "the network / TLS (antivirus or proxy HTTPS "
                     "inspection) and rebuild." % (icao, code, text, code))
+            if home:
+                UNPATCHED.record_degraded(tile, "airport-insets", [
+                    {"code": "inset_fetch_failed", "airport": icao,
+                     "source": code, "detail": "%s: %s" % (code, text)}
+                    for (icao, code, text) in fetch_failures])
             return
         # The pass settled every airport against every provider without
         # raising: nothing is left to fetch for THIS configuration, so

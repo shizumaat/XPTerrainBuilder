@@ -23,6 +23,18 @@ A failure is named by a stable ``code``.  A code reaches here three ways:
   ``UI.tile_failure("...")``.  A refused ACTIVATION of a finished scenery
   file names its code with :func:`code_for_activation` (#585).
 
+A third class (issue #853, spec code-quality-beta3 §2): a DEGRADED
+outcome — the tile was built, but not as asked (white-squared textures,
+an airport inset not fetched, a mask built without what it was told to
+use).  The step that degraded publishes a row beside the tile
+(``O4_Unpatched_Airports.record_degraded``); :func:`from_degraded` turns
+the rows into records, and they ride ``BuildDone.warnings`` like an
+unpatched airport.  Every entry has a severity (:data:`SEVERITIES`) and a
+domain (:data:`DOMAINS`); every folded entry carries the OCCURRENCE's
+severity on the wire (``severity``, protocol 1.13, additive).
+``docs/degraded-census.md`` is the census of the step modules' WARNING
+prints; ``tests/test_tile_failures.py`` reads it as its table.
+
 ADDING A FAILURE CLASS: one :data:`CATALOGUE` entry, plus either the
 exception class name in :data:`EXCEPTION_CODES` or ``failure_code = "..."``
 on the class (an optional ``failure_params`` dict fills ``{pack}``).
@@ -45,16 +57,48 @@ __all__ = [
     "render", "from_unpatched", "from_substitutions", "from_unmounted",
     "closing_lines",
     "is_proxy_refusal",
+    "SEVERITIES", "DOMAINS", "SEVERITY_LABELS", "severity_of", "domain_of",
+    "from_degraded",
 ]
 
 
 class Entry(NamedTuple):
     """One failure class: the tail of "Tile X was not built: …", the cause
-    and the remedy key (:data:`REMEDIES`)."""
+    and the remedy key (:data:`REMEDIES`).
+
+    ``severity`` (:data:`SEVERITIES`) is what the class is when it is the
+    tile's own outcome; ``domain`` (:data:`DOMAINS`) is the part of the
+    build it belongs to — empty when the code's first word names it
+    (:func:`domain_of`)."""
 
     what: str
     why: str
     remedy: str
+    severity: str = "blocking"
+    domain: str = ""
+
+
+#: ``blocking``: the tile was not built (for an airport code: the airport
+#: has no patch).  ``degraded``: built, but an output is not what was
+#: asked.  ``info``: built as asked, with something worth knowing.
+SEVERITIES = ("blocking", "degraded", "info")
+
+#: The part of the build a code belongs to.
+DOMAINS = ("airport", "pack", "elevation", "map", "mesh", "masks",
+           "imagery", "scenery", "overlay", "network", "system", "app")
+
+#: A code's first word that is not itself a domain -> its domain.
+_WORD_DOMAINS = {
+    "road": "map", "texture": "imagery", "output": "system",
+    "proxy": "network", "disk": "system", "no": "system", "out": "system",
+    "file": "system", "earlier": "app", "worker": "app", "step": "app",
+    "unexpected": "app", "inset": "elevation", "mask": "masks",
+}
+
+#: How both apps label a wire ``severity`` (identical to the mac app's
+#: ``O4TileFailureCopy.severityLabel``).
+SEVERITY_LABELS = {"blocking": "Not built", "degraded": "Warning",
+                   "info": "Note"}
 
 
 # The fixed remedy set (the master rules the copy; census
@@ -161,14 +205,15 @@ CATALOGUE = {
     "pack_restore_unproven": Entry(
         "objects at {airports} may float or sink.",
         "An earlier build moved the objects of {pack} onto graded ground, "
-        "and they could not be put back: {reason}", "restore_pack"),
+        "and they could not be put back: {reason}", "restore_pack",
+        severity="degraded"),
     # a NOTE, not a failure: a base cell read from a fallback source
     # (RULINGS 2026-10-12e; ``elevation_access.base_fallback``)
     "elevation_substituted": Entry(
         "with stand-in elevation for {cells}.",
         "{source} did not answer, so {fallback} was used. It includes "
         "trees and buildings, so the ground there may read a few metres "
-        "high.", "rebuild_later"),
+        "high.", "rebuild_later", severity="info"),
     "pack_write_failed": Entry(
         "objects for {airports} could not be updated.",
         "The app could not safely rewrite the file of {pack}.", "pack"),
@@ -176,6 +221,24 @@ CATALOGUE = {
         "the road data for this area is out of date.",
         "It could not be refreshed, which needs an internet connection.",
         "network"),
+    # ── degraded: built, but not as asked (#853, docs/degraded-census.md)
+    "imagery_incomplete": Entry(
+        "some of its aerial images are missing.",
+        "{textures} could not be downloaded from {imagery_source}, so they "
+        "show as white squares.", "network", severity="degraded"),
+    "inset_fetch_failed": Entry(
+        "the detailed elevation for {airports} could not be downloaded.",
+        "{inset_source} did not answer, so the ground there was shaped from "
+        "the standard elevation data.", "network", severity="degraded"),
+    "mask_extent_missing": Entry(
+        "its water masks were built without the custom extent you chose.",
+        "The extent “{extent}” was not found in the app's Extents folder, "
+        "so the regular masks were used.", "settings", severity="degraded"),
+    "mask_shallow_water_skipped": Entry(
+        "part of its shallow-water shading is missing.",
+        "The map data for {category} could not be downloaded, so those "
+        "areas are not shaded as shallow water.", "network",
+        severity="degraded"),
     # ── whole tile ─────────────────────────────────────────────────────
     "elevation_download_failed": Entry(
         "its elevation data could not be downloaded.",
@@ -243,7 +306,7 @@ CATALOGUE = {
         "{airports} {was} graded without {pack}.",
         "The pack is a link to “{target}”, {missing}, so X-Plane's own "
         "airport data was used instead; the ground may not match the pack "
-        "when the drive is back.", "unmounted_pack"),
+        "when the drive is back.", "unmounted_pack", severity="degraded"),
     "output_folder_unwritable": Entry(
         "its output folder could not be written.",
         "The folder is protected or the disk is full.", "permissions"),
@@ -449,6 +512,21 @@ def code_for_stage(stage: str, code: Optional[str] = None) -> str:
     return STAGE_CODES.get(str(stage or ""), UNMAPPED_AIRPORT)
 
 
+def severity_of(code: str) -> str:
+    """The catalogue severity of ``code`` (an unknown code is blocking)."""
+    entry = CATALOGUE.get(code)
+    return entry.severity if entry else "blocking"
+
+
+def domain_of(code: str) -> str:
+    """The domain of ``code``: its entry's own, else its first word's."""
+    entry = CATALOGUE.get(code)
+    if entry and entry.domain:
+        return entry.domain
+    word = str(code).split("_", 1)[0]
+    return _WORD_DOMAINS.get(word, word)
+
+
 def is_proxy_refusal(exc: BaseException) -> bool:
     """Whether ``exc`` says a PROXY refused the connection — by class
     (``ProxyError`` anywhere on the MRO) or by its own ``failure_code``."""
@@ -522,6 +600,12 @@ def _describe(code: str, tile: str, airports: list, params: dict,
         "step": params.get("step") or "build",
         "textures": ("%s of its aerial images" % params["count"])
                     if params.get("count") else "Some of its aerial images",
+        "imagery_source": params.get("source") or "the imagery source",
+        "inset_source": params.get("source")
+                        or "The detailed elevation source",
+        "extent": params.get("extent") or "?",
+        "category": _CATEGORY_WORDS.get(params.get("category", ""),
+                                        "reefs or tidal flats"),
     }
     words.update(_link_words(params))
     words["was"] = "were" if len(airports) > 1 else "was"
@@ -529,10 +613,18 @@ def _describe(code: str, tile: str, airports: list, params: dict,
     why = why[:1].upper() + why[1:]
     lead = ("Tile %s was built " if note else "Tile %s was built, but "
             if built else "Tile %s was not built: ")
-    # the unpatched sentence belongs to an airport left WITHOUT a patch
-    unpatched = built and not note and code not in _PATCHED_WARNINGS
+    # the unpatched sentence belongs to an airport left WITHOUT a patch: a
+    # blocking airport cause on a tile that was built (UNMAPPED is a
+    # degraded row whose code was not a degraded one: no airport)
+    unpatched = (built and not note and entry.severity == "blocking"
+                 and code != UNMAPPED)
     return {
         "code": code,
+        # the OCCURRENCE's severity (protocol 1.13, additive): a tile not
+        # built is blocking whatever ended it; a built tile's warning is
+        # degraded, its note info
+        "severity": ("info" if note else "degraded") if built
+                    else "blocking",
         "what": lead % tile + entry.what.format(**words),
         "why": (why + " " + UNPATCHED) if unpatched else why,
         "cells": list(cells),
@@ -547,8 +639,9 @@ def _describe(code: str, tile: str, airports: list, params: dict,
     }
 
 
-# warnings on a built tile whose airport DID get a patch
-_PATCHED_WARNINGS = ("pack_restore_unproven", "airport_pack_unmounted")
+# The shallow-water fallback's categories (``O4_Mask_Utils.
+# SHALLOW_WATER_CATEGORIES``) in words.
+_CATEGORY_WORDS = {"reef": "coral reefs", "tidalflat": "tidal flats"}
 
 
 def _link_words(params: dict) -> dict:
@@ -680,6 +773,28 @@ def from_substitutions(rows: Iterable[dict]) -> list:
                    source=row.get("source") or "",
                    fallback=row.get("fallback") or row.get("code") or "")
             for row in rows or () if isinstance(row, dict)]
+
+
+def from_degraded(rows: Iterable[dict]) -> list:
+    """Raw WARNING records from ``O4_Unpatched_Airports.read_degraded``
+    rows (``{"code", "detail"}``, an optional ``airport``, the rest its
+    words' parameters, #853): an output the tile was built with that is
+    not what was asked.  A row whose code is not a DEGRADED one is the
+    generic "report it" — a step never turns a failure into a warning."""
+    out = []
+    for row in rows or ():
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("code") or "")
+        params = {k: v for k, v in row.items()
+                  if k not in ("code", "detail", "airport")}
+        airport = str(row.get("airport") or "")
+        if severity_of(code) != "degraded" or code not in CATALOGUE:
+            params, airport = {}, ""
+            code = "[%s]" % code          # record() makes it UNMAPPED
+        out.append(record(code, str(row.get("detail") or ""),
+                          airport=airport, **params))
+    return out
 
 
 def closing_lines(warnings: list, notes: Iterable[dict] = ()) -> list:

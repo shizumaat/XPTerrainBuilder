@@ -25,13 +25,21 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
     /// (protocol 1.11, #668): non-empty only for `output_link_unmounted`,
     /// where the app offers to remove it.
     public let link: String
+    /// `blocking` (not built), `degraded` (built, not as asked) or `info`
+    /// (protocol 1.13, #853). An older engine sends no key: `parseList`
+    /// then fills the list's own default.
+    public let severity: String
 
     public var id: String { code + "|" + what }
 
+    /// The severity as both apps label it.
+    public var severityLabel: String { O4TileFailureCopy.severityLabel(severity) }
+
     public init(code: String, what: String, why: String, remedy: String,
                 airports: [String] = [], detail: String = "", logPath: String = "",
-                link: String = "") {
+                link: String = "", severity: String = "blocking") {
         self.link = link
+        self.severity = severity
         self.code = code
         self.what = what
         self.why = why
@@ -44,10 +52,13 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
     /// Decode a `failures` / `warnings` array. The JSON keys are STRING
     /// LITERALS matched against `O4_Tile_Failures._describe`; a missing
     /// array (an engine older than 1.10) and malformed entries decode to
-    /// nothing.
-    public static func parseList(_ value: Any?) -> [O4TileFailure] {
+    /// nothing. `defaultSeverity` stands in for an entry without the
+    /// `severity` key (an engine older than 1.13).
+    public static func parseList(_ value: Any?,
+                                 defaultSeverity: String = "blocking") -> [O4TileFailure] {
         (value as? [[String: Any]] ?? []).compactMap { entry in
             guard let what = entry["what"] as? String, !what.isEmpty else { return nil }
+            let severity = entry["severity"] as? String ?? ""
             return O4TileFailure(
                 code: entry["code"] as? String ?? "",
                 what: what,
@@ -56,7 +67,8 @@ public struct O4TileFailure: Sendable, Equatable, Identifiable {
                 airports: (entry["airports"] as? [Any])?.compactMap { $0 as? String } ?? [],
                 detail: entry["detail"] as? String ?? "",
                 logPath: entry["log_path"] as? String ?? "",
-                link: entry["link"] as? String ?? "")
+                link: entry["link"] as? String ?? "",
+                severity: severity.isEmpty ? defaultSeverity : severity)
         }
     }
 
@@ -217,6 +229,17 @@ public enum O4TileFailureCopy {
     }
 
     public static let builtWithWarnings = "built with warnings"
+
+    /// A wire `severity` (protocol 1.13, #853) as both apps label it
+    /// (identical to the engine's `O4_Tile_Failures.SEVERITY_LABELS`).
+    public static func severityLabel(_ severity: String) -> String {
+        switch severity {
+        case "degraded": return "Warning"
+        case "info": return "Note"
+        case "blocking": return "Not built"
+        default: return severityLabel("blocking")
+        }
+    }
 
     // The report buttons (#565), identical to the Qt window's.
     public static let reportButton = "Report this problem"

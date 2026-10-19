@@ -76,7 +76,13 @@ from typing import Any, Optional
 # replies only.  Within 1.12 (2026-10-15, additive): ``terrain_sample``,
 # ``pack_objects`` and its completion event PackObjectsReady (spec §5,
 # ruled after the massing measurement).
-PROTOCOL_VERSION = "1.12"
+# 1.13 (2026-10-18, additive, #853): the ``severity`` key of every
+# ``BuildDone.failures`` / ``warnings`` / ``notes`` entry — ``blocking``
+# (not built), ``degraded`` (built, not as asked) or ``info`` — and
+# ``warnings`` now also carries a built tile's DEGRADED outputs
+# (white-squared textures, an airport inset not fetched, a mask built
+# without its extent).  A peer that ignores the key loses nothing.
+PROTOCOL_VERSION = "1.13"
 
 
 @dataclass(frozen=True)
@@ -280,6 +286,11 @@ class BuildDone(EngineEvent):
     from a clean success.  ``unpatched_airports`` is the same set one
     airport per entry — the same dict plus ``stage`` — for a consumer
     that counts rather than displays (the release check, a sweep).
+
+    Since 1.13 (#853) ``warnings`` also names the tile's DEGRADED outputs
+    (codes whose ``O4_Tile_Failures`` severity is ``degraded``), and
+    every entry of the three lists carries ``severity``
+    (``blocking`` / ``degraded`` / ``info``) — optional to a reader.
     """
 
     lat: int = 0

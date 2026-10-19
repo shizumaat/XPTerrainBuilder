@@ -717,7 +717,7 @@ def test_the_new_fields_are_additive_and_survive_the_child_hop():
     assert payload["event"] == "BuildDone"
     assert set(payload["failures"][0]) == {
         "code", "what", "why", "remedy", "airports", "detail", "log_path",
-        "cells", "link"}
+        "cells", "link", "severity"}
     # ...and goes back into the report command unchanged (#565)
     from o4_engine.failure_report import _normalise
     assert _normalise(payload["failures"])[0]["code"] == "disk_full"
@@ -760,3 +760,96 @@ def test_a_fixable_failure_reaches_the_wire_when_its_tile_fails(
     run_done = next(i for i, e in enumerate(events)
                     if isinstance(e, EV.RunDone))
     assert failed < second_starts < run_done
+
+
+# ---------------------------------------------------------------------------
+# Severity, domain and the DEGRADED census (#853, spec code-quality-beta3 §2)
+# ---------------------------------------------------------------------------
+CENSUS = os.path.join(os.path.dirname(__file__), "..", "docs",
+                      "degraded-census.md")
+CENSUS_CLASSES = {"degraded", "failure", "uncoded", "diagnostic", "config"}
+
+
+def test_every_code_has_a_lawful_name_a_severity_and_a_domain():
+    for code, entry in FAIL.CATALOGUE.items():
+        assert re.fullmatch(r"[a-z][a-z0-9_]+", code), code
+        assert entry.severity in FAIL.SEVERITIES, code
+        assert FAIL.domain_of(code) in FAIL.DOMAINS, code
+        assert entry.remedy in FAIL.REMEDIES, code
+    assert set(FAIL.SEVERITY_LABELS) == set(FAIL.SEVERITIES)
+    for code in ("imagery_incomplete", "inset_fetch_failed",
+                 "mask_extent_missing", "mask_shallow_water_skipped"):
+        assert FAIL.severity_of(code) == "degraded", code
+    assert FAIL.severity_of("elevation_substituted") == "info"
+    assert FAIL.severity_of("texture_convert_failed") == "blocking"
+
+
+def _census_rows():
+    rows = []
+    with open(CENSUS, encoding="utf-8") as handle:
+        for line in handle:
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            if len(cells) == 6 and cells[0].endswith(".py"):
+                rows.append(cells)
+    return rows
+
+
+def _warning_strings(module):
+    """``{function: count}`` of the string constants naming WARNING in
+    ``module`` (docstrings excluded; nested functions dotted)."""
+    with open(os.path.join(SRC, module), encoding="utf-8") as handle:
+        tree = ast.parse(handle.read())
+    counts = {}
+
+    def walk(node, where):
+        for child in ast.iter_child_nodes(node):
+            name = where
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                name = child.name if not where else where + "." + child.name
+            if (isinstance(child, ast.Constant)
+                    and isinstance(child.value, str)
+                    and "WARNING" in child.value
+                    and not isinstance(node, ast.Expr)):
+                key = name or "<module>"
+                counts[key] = counts.get(key, 0) + 1
+            walk(child, name)
+
+    walk(tree, "")
+    return counts
+
+
+def test_every_warning_print_of_a_step_module_is_in_the_census():
+    """E's errors.md pattern: the census file IS the table.  A new WARNING
+    print in a step module, or one more in a listed function, needs its
+    row, and the row says whether the user is told (a degraded code)."""
+    rows = _census_rows()
+    modules = sorted({row[0] for row in rows})
+    found = {(m, f): n for m in modules
+             for (f, n) in _warning_strings(m).items()}
+    listed = {(row[0], row[1]): int(row[2]) for row in rows}
+    assert found == listed
+    for (module, function, _count, klass, code, effect) in rows:
+        assert klass in CENSUS_CLASSES, (module, function)
+        assert effect, (module, function)
+        if klass in ("degraded", "failure"):
+            want = "degraded" if klass == "degraded" else "blocking"
+            assert code in FAIL.CATALOGUE, (module, function)
+            assert FAIL.severity_of(code) == want, (module, function)
+        else:
+            assert code == "", (module, function)
+    # every census code is published by some module other than the
+    # catalogue (a degraded code nobody records is a dead row)
+    census_codes = {row[4] for row in rows if row[3] == "degraded"}
+    strings = set()
+    for path, tree in TREES:
+        if path != "O4_Tile_Failures.py":
+            strings |= {n.value for n in ast.walk(tree)
+                        if isinstance(n, ast.Constant)
+                        and isinstance(n.value, str)}
+    assert census_codes <= strings
+    # the other degraded codes are the airport-pack warnings, published by
+    # their own sidecar keys (#564, #668), not by a step's census row
+    degraded = {c for c, e in FAIL.CATALOGUE.items()
+                if e.severity == "degraded"}
+    assert degraded - census_codes == {"pack_restore_unproven",
+                                       "airport_pack_unmounted"}

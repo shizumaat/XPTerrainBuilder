@@ -36,9 +36,14 @@ CANAL = box(ANCHOR[1] - 0.05, ANCHOR[0] - 0.004,
 
 def _wire_water(monkeypatch, geometry):
     """Stand in for ``O4_Vector_Map.cached_tile_water`` — the ONE reader,
-    patched here so no OSM cache is touched."""
+    patched here so no OSM cache is touched.  Production hands the SAME
+    water to the bake (``water_cutout``) and to the detector's witness
+    (``_tile_water``), so the twins do too (#945: the bake now reads the
+    decision record's water-cut region)."""
     monkeypatch.setattr(flat_site_mode, "water_cutout",
                         lambda tile: geometry)
+    monkeypatch.setattr(flat_site_mode, "_tile_water",
+                        lambda tile: (geometry, None))
 
 
 def _cell(dem, lat_deg, lon_deg):
@@ -135,6 +140,61 @@ def test_a_wholly_submerged_extent_substitutes_nothing(monkeypatch):
     INSETS.overlay_flat_site_insets(tile, dico())
     assert sha(dem.alt_dem) == before
     assert not getattr(dem, "synthetic_flat_site_provenance", [])
+
+
+# ── #945: the airport's OWN pavement over water is land for the cut ────
+
+def test_pavement_over_the_water_takes_z0_and_the_rest_of_the_canal_does_not(
+        monkeypatch):
+    """VMMC's apron-to-runway taxiways are viaducts over open water.  The
+    decision record already keeps the airport's own surfaces as land
+    (§37 (11) (4)); the bake cut the RAW water and left a hole in the Z0
+    raster under the deck, so the solve read the sea floor there (DEM
+    1.76 m under a 6.10 m deck, the paved edges pulled 0.5-1.1 m below
+    their centreline)."""
+    import dataclasses
+
+    from auto_patch_v2.airport import flat_site_prep as PREP
+    from tests.test_flat_site_mode import BOUNDARY, FLAT_THRESHOLDS, site_for
+
+    def with_bridge(icao, root, cifp, law, apt_dat_path=None):
+        """The airport plus one taxiway deck crossing the canal."""
+        site = site_for(icao.upper(), FLAT_THRESHOLDS, BOUNDARY)
+        to_xy, _to_ll = site.frame.transformers()
+        deck = ((-0.0005, -0.005), (0.0005, -0.005), (0.0005, 0.001),
+                (-0.0005, 0.001))
+        bridge = PREP._Poly(tuple(to_xy(ANCHOR[1] + dx, ANCHOR[0] + dy)
+                                  for dx, dy in deck), ())
+        return dataclasses.replace(site, pavements=(bridge,))
+
+    wire_airport(monkeypatch)
+    monkeypatch.setattr(PREP, "site_inputs", with_bridge)
+    _wire_water(monkeypatch, CANAL)
+    dem = flat_dem(1.0, n=3601)
+    tile = make_tile(dem)
+    substitutions(tile)
+    INSETS.overlay_flat_site_insets(tile, dico())
+
+    # the deck over the canal carries Z0 ...
+    assert _cell(dem, ANCHOR[0] - 0.003, ANCHOR[1]) == pytest.approx(3.96,
+                                                                     abs=1e-3)
+    # ... the open canal beside it keeps the base surface ...
+    assert _cell(dem, ANCHOR[0] - 0.003, ANCHOR[1] + 0.003) == pytest.approx(
+        1.0, abs=1e-3)
+    # ... and dry ground is Z0 as before.
+    assert _cell(dem, ANCHOR[0] + 0.002, ANCHOR[1]) == pytest.approx(3.96,
+                                                                     abs=1e-3)
+
+
+def test_water_beside_site_subtracts_the_region_only():
+    water = box(0.0, 0.0, 1.0, 0.5)
+    record = {"region_ll": [[[[113.4, 22.4], [113.6, 22.4], [113.6, 22.6],
+                              [113.4, 22.6]], []]]}
+    got = flat_site_mode.water_beside_site(water, record, 22, 113)
+    assert not got.intersects(box(0.41, 0.41, 0.49, 0.49))
+    assert got.covers(box(0.7, 0.1, 0.8, 0.2))
+    assert flat_site_mode.water_beside_site(water, {}, 22, 113) is water
+    assert flat_site_mode.water_beside_site(None, record, 22, 113) is None
 
 
 # ── the reader is cache-only ────────────────────────────────────────────

@@ -1261,6 +1261,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                  f"(high contact {r['high_ll'][0]:.7f},{r['high_ll'][1]:.7f}, "
                  f"low {r['low_ll'][0]:.7f},{r['low_ll'][1]:.7f})", out)
     _pin_yield = list(design_rep.pin_yield or ())
+    hard_conflict = design_rep.hard_conflict     # spec §3b: a record field
     _late_report: dict | None = None
     if cl_gaps is not None:
         # spec §55 (4) THE LAST STAGE: the pieces cut by the base's levels,
@@ -1272,14 +1273,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _base_rep = design_rep
         # the last stage re-mints the held registry (its own prefix run): the
         # base solve's hold report is carried over it (``model.platform``)
-        from ..model.platform import hold_report, install_hold_report
-        _hold_rep = hold_report(pm.registries.held)
+        from ..model.platform import install_hold_report
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, _ribbon_free,
-            {"pm": pm, "z": sol.z, "pin_yield": _pin_yield},
+            {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
+             "hard_conflict": hard_conflict},
             rules=load_rules(), options=cfg.options,
             out=lambda m: _say(f"[{icao}] {m}", out))
-        install_hold_report(pm.registries.held, _hold_rep)
+        install_hold_report(pm.registries.held, _base_rep.hold_report)
+        hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
             _prefix_stage["stage"], pm=pm)
         strips, design_rep = _late["strips"], _late["design"]
@@ -1463,7 +1465,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                                # stage seats the riders off this
                                "jetway_strips": _strip_records})
         pub = publication(pm, law, airport, sol.z, cs, strips=strips,
-                          strip_rep=design_rep.jetway_strip)
+                          strip_rep=design_rep.jetway_strip,
+                          hard_conflict=hard_conflict,
+                          runway_flex=design_rep.runway_flex)
         # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
         # residual per family (``design``, replacing ``law_tiers``) and the
         # rows the surface missed (``design_target``), which the census

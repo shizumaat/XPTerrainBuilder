@@ -231,18 +231,20 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                    roads_only: bool = False,
                    **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
     """THE LAST STAGE (spec §55 (4)).  ``base_solution`` is the base map and
-    its solved levels (``{"pm", "z"}``); ``derive(cl) -> (pm, cs, strips,
+    its solved levels (``{"pm", "z"}``, and the base's ``hard_conflict``
+    records — empty when absent); ``derive(cl) -> (pm, cs, strips,
     hold)`` is the CALLER's own prefix (the build's, the replay's), run here
     on the classification with the pieces cut.  ``(full map, solution,
     report)``; the report carries the stage's own row set (``cs``), its
-    constants (``fixed``) and the solve's report (``design``).
+    constants (``fixed``), the solve's report (``design``) and
+    ``hard_conflict``: the base's records merged with the late solve's
+    (v2-stage-cache spec §3b — no module global).
 
     ``roads_only`` is THE PAD ROADS' OWN STAGE (issue #609; 13a (1): junior
     to every pavement they meet — :func:`run_last_stages`): ``cl`` is taken
     as it is (nothing is cut), only the pad roads follow, and no gap-follow
     row is minted."""
     from ..law.tables import design as _design_law
-    from ..solve import feasibility as _feas
     from ..solve.design import solve_late_stage
     if rules is None:
         from ..classify.rules import load_rules
@@ -374,11 +376,9 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     # THE BASE'S RELAXATIONS STAY PUBLISHED (§55 (4) iv): the last solve
     # publishes its own conflict records over the registry; the earlier
     # stages' (the caller's own solve, or the pickled base's) come first
-    base_conf = [dict(r) for r in (base_solution.get("hard_conflict")
-                                   if "hard_conflict" in base_solution
-                                   else _feas.HARD_CONFLICT)]
+    base_conf = [dict(r) for r in (base_solution.get("hard_conflict") or ())]
     sol, design = solve_late_stage(pm, cs, law, fixed, options, **solve_kw)
-    _feas.publish([*base_conf, *_feas.HARD_CONFLICT])
+    hard_conflict = [*base_conf, *(dict(r) for r in design.hard_conflict)]
     t_solve = time.perf_counter() - t0
     feas = getattr(design, "hard_feasibility", None)
     if feas is not None:
@@ -396,7 +396,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                         "followers": list(frep["follower_ribbon_refs"])},
               "dropped": dropped, "follow": grep, "cs": cs, "cs_full": cs_full,
               "fixed": fixed, "strips": strips, "pin_yield": [*_carry_pin_yield(base_solution, pm_base, pm), *pad_joins],
-              "design": design,
+              "design": design, "hard_conflict": hard_conflict,
               "wall_s": {"cut": round(t_cut, 2), "derive": round(t_derive, 2),
                          "solve": round(t_solve, 2)}}
     return pm, sol, report
@@ -421,7 +421,6 @@ def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     worst 7.36 m; and with the order inside ONE derive (gap pieces' pass
     with the pad roads' vertices and rows dropped, OTHH): 12 gap nodes
     still moved up to 0.20 m — the rings the pad roads re-node."""
-    from ..solve import feasibility as _feas
     from .stage_one_map import remap_row
     roads = [c for c in cl.cells if _has_pad_road(c)]
     gaps = any(is_gap_ref(c.ref) for c in cl.cells)
@@ -438,7 +437,7 @@ def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     pm, sol, rep = run_late_stage(
         cl_all, airport, law, derive,
         {"pm": pm_g, "z": sol_g.z, "pin_yield": rep_g["pin_yield"],
-         "hard_conflict": [dict(r) for r in _feas.HARD_CONFLICT]},
+         "hard_conflict": rep_g["hard_conflict"]},
         out=out, roads_only=True, **kw)
     # the gap stage's records stand; its follow rows cross to the final map
     # by the canonical join (vertex coordinate)

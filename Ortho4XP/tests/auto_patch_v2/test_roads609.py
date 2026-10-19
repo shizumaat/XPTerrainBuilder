@@ -141,9 +141,14 @@ def test_the_pad_road_is_a_follower_of_the_last_stage(law):
     derive = _derive(airport, law)
     pm0, cs0, _s, hold0 = derive(base)
     sol0, _rep0 = solve_design(pm0, cs0, law, hold=hold0)
+    base_conf = [{"row": "twin base conflict (#843)", "stage": "base"}]
     pm1, sol1, rep = run_late_stage(cl, airport, law, derive,
-                                    {"pm": pm0, "z": sol0.z, "pin_yield": []},
+                                    {"pm": pm0, "z": sol0.z, "pin_yield": [],
+                                     "hard_conflict": base_conf},
                                     out=lambda m: None)
+    # #843 step 6: the base's conflicts come first, the late solve's after —
+    # the record's merge, no module global
+    assert rep["hard_conflict"] == [*base_conf, *rep["design"].hard_conflict]
     assert rep["followers"]["pad_roads"] >= 1 and rep["followers"]["gap_faces"] == 0
     free, _f = late_followers(pm1)
     assert free and rep["pad_ramp"]["rows"] > 0

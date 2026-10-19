@@ -136,7 +136,7 @@ def answer_of(result: Any) -> Any:
 
 _loop_lock = threading.Lock()
 _loop: asyncio.AbstractEventLoop | None = None
-_idle: dict[tuple[str, int], list[Any]] = {}
+_idle: dict[tuple[str, int, float | None], list[Any]] = {}
 
 
 def _event_loop() -> asyncio.AbstractEventLoop:
@@ -152,19 +152,21 @@ def _event_loop() -> asyncio.AbstractEventLoop:
         return _loop
 
 
-def _checkout(group: str, cap: int) -> Any:
+def _checkout(group: str, cap: int, timeout_s: float | None = None) -> Any:
     from O4_Imagery_Fetch import Fetcher
 
     with _loop_lock:
-        pool = _idle.get((group, cap))
+        pool = _idle.get((group, cap, timeout_s))
         if pool:
             return pool.pop()
-    return Fetcher(max_in_flight=cap, start_in_flight=cap)
+    if timeout_s is None:
+        return Fetcher(max_in_flight=cap, start_in_flight=cap)
+    return Fetcher(max_in_flight=cap, start_in_flight=cap, timeout_s=timeout_s)
 
 
-def _checkin(group: str, cap: int, fetcher: Any) -> None:
+def _checkin(group: str, cap: int, fetcher: Any, timeout_s: float | None = None) -> None:
     with _loop_lock:
-        _idle.setdefault((group, cap), []).append(fetcher)
+        _idle.setdefault((group, cap, timeout_s), []).append(fetcher)
 
 
 async def _watch(should_stop: Callable[[], bool], cancel: asyncio.Event) -> None:
@@ -179,6 +181,7 @@ def fetch_parts(
     cap: int,
     should_stop: Callable[[], bool] = lambda: False,
     on_result: Callable[[Any], None] | None = None,
+    timeout_s: float | None = None,
 ) -> dict[Any, Any]:
     """Fetch ``(key, url, headers)`` parts; returns ``{key: FetchResult}`` in part order.
 
@@ -186,7 +189,8 @@ def fetch_parts(
     ``max_threads``: the window never exceeds it. ``should_stop`` is polled every
     :data:`CANCEL_POLL_S`; when it turns true the run is cancelled and the parts not yet
     answered come back with ``error="SYS_CANCELLED"``. ``on_result`` runs on the loop thread
-    as each part completes (the download meter's feed).
+    as each part completes (the download meter's feed). ``timeout_s`` is the provider's
+    ``timeout=`` (seconds); None keeps the fetcher's default.
     """
     from O4_Imagery_Fetch import FetchRequest
 
@@ -194,7 +198,7 @@ def fetch_parts(
         return {}
     cap = max(1, int(cap))
     requests_ = [FetchRequest(key, url, dict(headers or {}), group) for key, url, headers in parts]
-    fetcher = _checkout(group, cap)
+    fetcher = _checkout(group, cap, timeout_s)
 
     async def run() -> list[Any]:
         cancel = asyncio.Event()
@@ -209,5 +213,5 @@ def fetch_parts(
     try:
         results = asyncio.run_coroutine_threadsafe(run(), _event_loop()).result()
     finally:
-        _checkin(group, cap, fetcher)
+        _checkin(group, cap, fetcher, timeout_s)
     return {r.key: r for r in results}

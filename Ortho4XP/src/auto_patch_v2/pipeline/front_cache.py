@@ -22,6 +22,14 @@ replays its stored witness into them.  A memo one stage fills and a later
 one reads therefore never hides a read (spec §5's memo rule, met by
 construction for the front half).
 
+THE PREFIX RE-RUNS (spec §4b.3) go through the same records: each run
+:meth:`FrontCache.reopen` s the window (a fresh DEM and file record; the
+law recorder stays one for the build, so a re-run's witness is cumulative
+over every run before it — narrower, never wider) and names its stages in
+the report under its own :attr:`FrontCache.tag`.  The back half's records
+(``pipeline/back_cache.py``) share this object's folder, environment,
+writer and report.
+
 WHAT IS NEVER CACHED: a build with ``Config.xplat_dump`` (the release gate
 measures the programme, §7), an airport whose pack reading has no
 fingerprint while it places resolved objects (its ``ResourceCache`` reads
@@ -136,11 +144,19 @@ class FrontCache:
         self.folder = stage_folder(airport, mod_cache_root)
         self.report: dict[str, _t.Any] = {"stages": {}}
         self.digests: dict[str, str] = {}
+        #: the prefix run this object is serving (``""``: the main pass);
+        #: a re-run's stages are reported as ``<stage>@<tag>``
+        self.tag = ""
+        #: the records read or written this build (one ``last_used``)
+        self._used: list[str] = []
+        self._law_digest: str | None = None
         self._field_digests: dict[str, tuple[_t.Any, str]] = {}
         self._writer: _cf.ThreadPoolExecutor | None = None
         self._pending: list[_cf.Future] = []
         why = bypass or self._bypass(airport, enabled)
         self.active = why is None
+        #: a bypass the caller named (``xplat``) is reported per record
+        self.bypass = bypass
         self.report["state"] = "on" if self.active else f"bypass: {why}"
         if not self.active:
             return
@@ -184,8 +200,31 @@ class FrontCache:
         if self.active:
             self.window(False)
             self.dem_rec.reset()
-            self.law_rec.close()
             self.file_rec = _files.FileRecorder()
+
+    def reopen(self, tag: str) -> None:
+        """A prefix RE-RUN begins (spec §4b.3): a fresh DEM and file record,
+        the window open, its stages reported under ``tag``."""
+        self.tag = tag
+        if self.active:
+            self.close()
+            self.window(True)
+
+    def report_name(self, stage: str) -> str:
+        """The report's name for ``stage`` in the current run."""
+        return f"{stage}@{self.tag}" if self.tag else stage
+
+    def law_digest(self) -> str:
+        """The WHOLE law's digest — the back half's law key (spec §5's
+        first landing; the row witness is a later one)."""
+        if self._law_digest is None:
+            self._law_digest = _law.value_digest(self.real_law)
+        return self._law_digest
+
+    def bypassed(self, stage: str) -> None:
+        """Report ``stage`` as bypassed when the caller named the bypass."""
+        if self.bypass:
+            self.report["stages"][self.report_name(stage)] = {"state": f"bypass: {self.bypass}"}
 
     def stage_law(self) -> _t.Any:
         """The law a front-half call is handed: the recording proxy while
@@ -260,11 +299,13 @@ class FrontCache:
         exactly as a hit would — for an output the build digests again
         afterwards (a pickle's bytes follow object identity, so the live
         object and its decoded copy need not digest alike)."""
+        self.digests.pop(stage, None)        # never a previous run's digest
         if not self.active:
+            self.bypassed(stage)
             return fn(self.real_law)
         codes = {s: self.code.get(s) for s in (stage,) + _EXTRA_CODE.get(stage, ())}
         rep: dict[str, _t.Any] = {}
-        self.report["stages"][stage] = rep
+        self.report["stages"][self.report_name(stage)] = rep
         if any(v is None for v in codes.values()) or any(v is None for v in inputs.values()):
             rep["state"] = "bypass: undigested " + ",".join(
                 k for k, v in {**codes, **inputs}.items() if v is None)
@@ -273,17 +314,18 @@ class FrontCache:
         key = _store.key_of(stage, recipe)
         path = _store.entry_path(self.folder, self.icao, stage, key)
         rep["key"] = key[:16]
-        got = self._serve(stage, key, path, rep)
+        got = self._serve(stage, key, path, rep, recipe)
         if got is not None:
             return got[0]
         out = fn(self.stage_law())
         blob = self._record(stage, key, path, recipe, out, rep)
         return _pickle.loads(blob) if as_served and blob is not None else out
 
-    def _serve(self, stage: str, key: str, path: str, rep: dict) -> tuple[_t.Any] | None:
+    def _serve(self, stage: str, key: str, path: str, rep: dict,
+               recipe: dict) -> tuple[_t.Any] | None:
         t = time.perf_counter()
         try:
-            head, wit, load = _store.read(path, key)
+            head, wit, load = _store.read(path, key, recipe)
             why = (_files.holds(wit.get("files")) or _law.holds(self.real_law, wit.get("law"))
                    or _dem.holds(self.dem_rec, wit.get("dem")))
             if why:
@@ -301,7 +343,7 @@ class FrontCache:
         self.law_rec.replay(wit.get("law"))
         self.dem_rec.replay(wit.get("dem"))
         self.file_rec.replay(wit.get("files"))
-        _store.touch(path)
+        self._used.append(path)
         self.digests[stage] = head["output_digest"]
         rep.update(state="hit", read_s=round(time.perf_counter() - t, 4),
                    bytes=int(head.get("bytes") or 0))
@@ -325,19 +367,36 @@ class FrontCache:
         if opaque:
             rep["state"] += f"; not written: dem {opaque}"
             return blob
-        header = {"stage": stage, "key": key, "version": _store.CACHE_VERSION,
-                  "recipe": recipe, "output_digest": digest, "created": time.time(),
-                  "bytes": len(blob)}
-        if self._writer is None:
-            self._writer = _cf.ThreadPoolExecutor(1, thread_name_prefix="o4-stage-cache")
-        self._pending.append(self._writer.submit(self._write, path, header, witness,
-                                                 blob, rep))
+        self.write_async(path, self.header(stage, key, recipe, digest, len(blob)),
+                         witness, blob, rep)
         return blob
 
     @staticmethod
-    def _write(path: str, header: dict, witness: dict, blob: bytes, rep: dict) -> None:
+    def header(stage: str, key: str, recipe: dict, digest: str, size: int,
+               **extra: _t.Any) -> dict:
+        """A record's header (``airport/stage_cache`` adds ``payload_sha256``)."""
+        return {"stage": stage, "key": key, "version": _store.CACHE_VERSION,
+                "recipe": recipe, "output_digest": digest, "created": time.time(),
+                "bytes": size, **extra}
+
+    def write_async(self, path: str, header: dict, witness: _t.Any, blob: bytes,
+                    rep: dict) -> None:
+        """Store a record on the writer thread; ``rep`` takes its
+        ``written_bytes`` and ``write_s``."""
+        if self._writer is None:
+            self._writer = _cf.ThreadPoolExecutor(1, thread_name_prefix="o4-stage-cache")
+        self._used.append(path)
+        self._pending.append(self._writer.submit(self._write, path, header, witness,
+                                                 blob, rep))
+
+    def note_used(self, path: str) -> None:
+        """A record served this build (its ``last_used`` is the build's)."""
+        self._used.append(path)
+
+    @staticmethod
+    def _write(path: str, header: dict, witness: _t.Any, blob: bytes, rep: dict) -> None:
         t = time.perf_counter()
-        rep["written_bytes"] = _store.write(path, header, witness, blob)
+        rep["written_bytes"] = _store.write(path, header, witness, blob, used=False)
         rep["write_s"] = round(time.perf_counter() - t, 4)
 
     def output_digest(self, stage: str) -> str | None:
@@ -357,6 +416,9 @@ class FrontCache:
         if self._writer is not None:
             self._writer.shutdown(wait=True)
             self._writer = None
+        if self._used:
+            _store.touch_many(self._used)
+            self._used = []
         if self.active and self._pending:
             gone = _store.sweep(self.root)
             if gone:

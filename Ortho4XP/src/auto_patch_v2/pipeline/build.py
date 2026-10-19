@@ -454,10 +454,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # planar, flat_site, road_profile and the shapes are served from their
     # records when key and witnesses hold.  Off (``Config.stage_cache``
     # False, the xplat dump armed), every call below runs as it always did.
-    fc = _front.FrontCache(icao, airport, law,
-                           enabled=cfg.stage_cache and not cfg.xplat_dump,
+    fc = _front.FrontCache(icao, airport, law, enabled=cfg.stage_cache,
                            mod_cache_root=inputs.mod_cache_root,
-                           pack=(pack_objects, pack_report))
+                           pack=(pack_objects, pack_report),
+                           # the release gate measures the programme (§7):
+                           # every record reports ``bypass: xplat``
+                           bypass="xplat" if cfg.xplat_dump else None)
     airport = fc.airport(airport)
     fc.window(True)
     t = time.perf_counter()
@@ -532,7 +534,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # (``pipeline/stage_one_map``); ``None`` when no ribbon was minted
     from .stage_one_map import stage_one_problem
     # the heartbeat names THIS work, not the inner planar build's last step
-    derive = Deriver(airport, law, inputs, pack,
+    # the re-runs go through the same records, keyed by their own
+    # classification (stage-cache spec §4b.3)
+    derive = Deriver(airport, law, inputs, pack, cache=fc, common=_fc_in,
                      heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
     _s1 = stage_one_problem(cl, derive, pm.registries)
     _pulse.tick("solving the surface")

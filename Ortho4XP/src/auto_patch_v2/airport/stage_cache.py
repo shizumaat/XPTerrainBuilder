@@ -10,19 +10,25 @@ ONE FILE PER RECORD: ``o4_stage_<ICAO>_<stage>_<key[:16]>.cache``::
 The HEADER is readable without decompressing anything (§6: the #880 walk
 reads headers only): ``stage``, ``key``, the ``recipe`` the key was taken
 from (``inputs`` ``{name: digest}``, ``code``, ``env``, ``version``), the
-``output_digest`` (the sha256 of the payload's pickle bytes — ONE hash is
-both the payload's integrity check and the digest later stages chain on,
-spec §4c), ``created`` and ``bytes``.  The WITNESS block holds what the
+``output_digest`` (the digest later stages chain on, spec §4c: for a
+pickled record the sha256 of its pickle bytes, for a constraint record its
+columnar digest), the ``payload_sha256`` (the payload bytes' own sha256,
+checked on EVERY read — a mismatch is refused ``payload_sha256``),
+``created``, ``last_used`` and ``bytes``.  The WITNESS block holds what the
 stage read that its key does not name — the law paths (``law/witness``),
 the DEM questions (``airport/dem_record``) and the files opened
 (``airport/file_witness``) — checked by the caller before the payload is
 used.  Write = temp file + ``os.replace``; a record that does not parse,
 names another key or version, or whose payload does not hash to its
-header is REFUSED, never repaired.
+header is REFUSED, never repaired; a record whose stored recipe differs
+from the one asked for is refused ``recipe:<field>`` (the first field that
+differs, so a refusal says why).
 
 THE CAP (RULINGS 2026-10-17a Q1, 18c (1)): 2 GB per mod-cache root,
 oldest-``last_used`` first.  ``last_used`` lives in one small index file
-per folder (``o4_stage.index.json``), so a hit does not rewrite its record.
+per folder (``o4_stage.index.json``), so a hit does not rewrite its record;
+the records one stage run wrote or read carry ONE ``last_used``
+(:func:`touch_many`, spec §6 back half).
 
 The DIGEST every stage input is named by is :func:`digest_of` — the
 sha256 of the object pickled at protocol 5.  It is stable across processes
@@ -47,14 +53,14 @@ import typing as _t
 import zlib
 
 __all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest", "key_of",
-           "entry_path", "encode", "write", "read_header", "read", "touch",
+           "entry_path", "encode", "write", "read_header", "read", "touch", "touch_many",
            "sweep", "peek", "Refused"]
 
 #: Bump when the SHAPE of a record changes (the code digests cover a change
 #: in what a stage produces).
-CACHE_VERSION = 2   # the classify record carries its side state
-                    # (``pipeline/front_cache.classify_side_state``); a v1
-                    # record is a bare classification — refused, never repaired
+CACHE_VERSION = 3   # v3: the header carries ``payload_sha256`` beside
+                    # ``output_digest`` (the back-half records, #843 step 9;
+                    # v2: the classify record carries its side state)
 
 #: RULINGS 2026-10-17a Q1 / 18c (1): the starting cap per mod-cache root.
 CAP_BYTES = 2 * 1024 ** 3
@@ -115,14 +121,19 @@ def encode(output: _t.Any) -> tuple[bytes, str]:
     return blob, hashlib.sha256(blob).hexdigest()
 
 
-def write(path: str, header: dict, witness: _t.Any, blob: bytes) -> int:
+def write(path: str, header: dict, witness: _t.Any, blob: bytes, *,
+          used: bool = True) -> int:
     """Store a record (temp + ``os.replace``) and return its size in bytes;
-    ``0`` (never an exception) when it could not be written."""
+    ``0`` (never an exception) when it could not be written.  The header
+    gains ``payload_sha256`` (of ``blob``) unless it names one.  ``used``
+    False leaves the index to the caller's :func:`touch_many`."""
     tmp = f"{path}.tmp{os.getpid()}"
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         wit = zlib.compress(pickle.dumps(witness, protocol=5), _ZLIB_LEVEL)
         body = zlib.compress(blob, _ZLIB_LEVEL)
+        header = {"payload_sha256": hashlib.sha256(blob).hexdigest(), **header}
+        header.setdefault("last_used", header.get("created"))
         head = json.dumps(header, sort_keys=True, default=str).encode()
         with open(tmp, "wb") as fh:
             fh.write(MAGIC)
@@ -132,7 +143,8 @@ def write(path: str, header: dict, witness: _t.Any, blob: bytes) -> int:
             fh.write(wit)
             fh.write(body)
         os.replace(tmp, path)
-        touch(path)
+        if used:
+            touch(path)
         return os.path.getsize(path)
     except Exception:
         try:
@@ -162,15 +174,35 @@ def read_header(path: str) -> dict | None:
         return None
 
 
-def read(path: str, key: str) -> tuple[dict, _t.Any, _t.Callable[[], _t.Any]]:
+def _recipe_field(stored: _t.Any, asked: _t.Any, at: str = "") -> str | None:
+    """The first dotted field where two recipes differ, or ``None``."""
+    if isinstance(stored, dict) and isinstance(asked, dict):
+        for k in sorted(set(stored) | set(asked), key=str):
+            got = _recipe_field(stored.get(k), asked.get(k), f"{at}.{k}" if at else str(k))
+            if got is not None:
+                return got
+        return None
+    return None if stored == asked else (at or "recipe")
+
+
+def read(path: str, key: str, recipe: _t.Mapping[str, _t.Any] | None = None,
+         decode: _t.Callable[[bytes], _t.Any] = pickle.loads
+         ) -> tuple[dict, _t.Any, _t.Callable[[], _t.Any]]:
     """``(header, witness, load)`` of the record of ``key`` at ``path`` —
-    ``load()`` decodes the payload, checking its sha256 against the
-    header's ``output_digest`` first.  Raises :class:`Refused` (a stale,
-    foreign or broken record) or ``FileNotFoundError`` (no record)."""
+    ``load()`` returns ``decode(payload)``, checking the payload's sha256
+    against the header's ``payload_sha256`` first.  ``recipe`` (the one the
+    key was taken from) names the first differing field of a foreign
+    record.  Raises :class:`Refused` (a stale, foreign or broken record) or
+    ``FileNotFoundError`` (no record)."""
     with open(path, "rb") as fh:
         head = _head(fh)
         if head.get("version") != CACHE_VERSION:
             raise Refused(f"version {head.get('version')}")
+        if recipe is not None:
+            asked = json.loads(json.dumps(recipe, sort_keys=True, default=str))
+            field = _recipe_field(head.get("recipe"), asked)
+            if field is not None:
+                raise Refused(f"recipe:{field}")
         if head.get("key") != key:
             raise Refused("key")
         (m,) = _U64.unpack(fh.read(_U64.size))
@@ -186,9 +218,9 @@ def read(path: str, key: str) -> tuple[dict, _t.Any, _t.Callable[[], _t.Any]]:
             blob = zlib.decompress(body)
         except zlib.error as exc:
             raise Refused("payload zlib") from exc
-        if hashlib.sha256(blob).hexdigest() != head.get("output_digest"):
+        if hashlib.sha256(blob).hexdigest() != head.get("payload_sha256"):
             raise Refused("payload_sha256")
-        return pickle.loads(blob)
+        return decode(blob)
     return head, witness, load
 
 
@@ -210,6 +242,10 @@ def touch(path: str, when: float | None = None) -> None:
     folder, name = os.path.split(path)
     idx = _load_index(folder)
     idx[name] = float(when if when is not None else time.time())
+    _save_index(folder, idx)
+
+
+def _save_index(folder: str, idx: dict) -> None:
     tmp = f"{_index_path(folder)}.tmp{os.getpid()}"
     try:
         with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
@@ -220,6 +256,20 @@ def touch(path: str, when: float | None = None) -> None:
             os.remove(tmp)
         except OSError:
             pass
+
+
+def touch_many(paths: _t.Iterable[str], when: float | None = None) -> None:
+    """Record every one of ``paths`` as used at ONE time (one stage run's
+    records), one index write per folder."""
+    now = float(when if when is not None else time.time())
+    by_folder: dict[str, list[str]] = {}
+    for p in paths:
+        folder, name = os.path.split(p)
+        by_folder.setdefault(folder, []).append(name)
+    for folder, names in by_folder.items():
+        idx = _load_index(folder)
+        idx.update({n: now for n in names})
+        _save_index(folder, idx)
 
 
 def _records(root: str) -> list[tuple[str, int, float]]:

@@ -91,3 +91,57 @@ def test_tile_selection_and_missing_index(tmp_path):
     codes = [e.code for e in
              ID.tile_apt_dat_airports(33, -119, str(cache), xplane_root="")]
     assert codes == ["ZZZZ"]
+
+
+# ── closed [X] fields (owner 2026-10-19): no seed, no inset, unless a
+#    Custom Scenery pack provides the airport ─────────────────────────────
+import O4_Airport_Modes as MODES  # noqa: E402
+
+CLOSED = _entry("XXXX", 33.94, -118.41, (33.93, -118.44, 33.95, -118.38),
+                name="[X] Closed Field")
+
+
+def test_closed_field_without_custom_pack_is_not_seeded():
+    dico = {}
+    assert ID.adopt_apt_dat_identities(
+        dico, [CLOSED], custom_serves=lambda code: False) == 0
+    assert dico == {}
+
+
+def test_closed_field_osm_identity_gets_no_inset():
+    dico = {"XXXX": _osm("icao", "Tagged",
+                         geometry.box(-118.44, 33.93, -118.38, 33.95)),
+            "Named": _osm("name", "Other",
+                          geometry.box(-118.0, 33.5, -117.9, 33.6))}
+    ID.adopt_apt_dat_identities(dico, [CLOSED],
+                                custom_serves=lambda code: False)
+    assert set(dico) == {"XXXX", "Named"}
+    assert dico["XXXX"][MODES.INSET_EXCLUDED]
+    assert MODES.inset_keys(dico, "All") == ["Named"]
+
+
+def test_closed_field_with_custom_pack_is_seeded_and_inset():
+    dico = {}
+    assert ID.adopt_apt_dat_identities(
+        dico, [CLOSED], custom_serves=lambda code: code == "XXXX") == 1
+    assert MODES.INSET_EXCLUDED not in dico["XXXX"]
+    assert MODES.inset_keys(dico, "ICAO") == ["XXXX"]
+
+
+def _apt_dat(path, code):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("I\n1100 Version\n\n1 100 0 0 %s [X] Closed Field\n"
+                    "100 30 1 0 0.25 0 2 0 09 33.94 -118.44 0 0 2 0 0 0 "
+                    "27 33.94 -118.38 0 0 2 0 0 0\n\n99\n" % code,
+                    encoding="utf-8", newline="\n")
+
+
+def test_custom_pack_serves_reads_auto_patch_selection(tmp_path):
+    root = tmp_path / "X-Plane"
+    _apt_dat(root / "Global Scenery" / "Global Airports" / "Earth nav data"
+             / "apt.dat", "XXXX")
+    assert not ID.custom_pack_serves("XXXX", str(root))
+    _apt_dat(root / "Custom Scenery" / "Some Pack" / "Earth nav data"
+             / "apt.dat", "XXXX")
+    assert ID.custom_pack_serves("XXXX", str(root))
+    assert not ID.custom_pack_serves("XXXX", "")

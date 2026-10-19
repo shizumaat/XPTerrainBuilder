@@ -14,7 +14,7 @@ from __future__ import annotations
 
 __all__ = ["MODES", "MODE_RANK", "LEGACY_TRUE", "LEGACY_FALSE", "DEFAULT_MODE",
            "normalize_mode", "mode_admits", "resolved_auto_patch_mode",
-           "resolved_inset_mode", "inset_keys"]
+           "resolved_inset_mode", "inset_keys", "INSET_EXCLUDED"]
 
 #: Ordered weakest → strongest.  ``None`` < ``ICAO`` < ``All``.
 MODES = ("None", "ICAO", "All")
@@ -120,15 +120,26 @@ def resolved_inset_mode(tile) -> str:
                           "airport_elevation_insets", warn=_ui_warn)
 
 
+#: A ``dico_airports`` record carrying this key (its value names why) is
+#: never inset-selected, whatever the mode: a CLOSED apt.dat field with no
+#: Custom Scenery pack for it (owner 2026-10-19; set by
+#: ``O4_Airport_Apt_Identity``).
+INSET_EXCLUDED = "inset_excluded"
+
+
 def inset_keys(dico_airports, mode: str) -> list:
     """The ``dico_airports`` keys the inset selection *mode* admits.
 
     Tuple-keyed unnamed strips are skipped before the predicate, as the
-    box builder already does.
+    box builder already does; so is a record marked
+    :data:`INSET_EXCLUDED`.
     """
     out = []
     for key in dico_airports:
         if not isinstance(key, str):
+            continue
+        record = dico_airports[key]
+        if isinstance(record, dict) and record.get(INSET_EXCLUDED):
             continue
         if mode_admits(str(key).strip().upper(), mode):
             out.append(key)

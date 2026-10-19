@@ -954,6 +954,16 @@ def rebake_after_mesh(tile) -> dict:
     return counts
 
 
+def reuse_enabled(environ=None) -> bool:
+    """THE OBJECT STAGE REUSE'S SWITCH (#879): on unless
+    ``O4_OBJECT_STAGE_REUSE=0`` (``object_stage_reuse.ENV_SWITCH``).  Read
+    here, not in ``auto_patch_v2`` (which reads no environment), and handed
+    to the reuse as ``on``."""
+    from auto_patch_v2.airport.object_stage_reuse import ENV_SWITCH
+    env = os.environ if environ is None else environ
+    return str(env.get(ENV_SWITCH, "1")).strip() != "0"
+
+
 def _stage_reuse(tile, mesh_path: str):
     """The object stage's reuse for this tile's run (#879,
     ``airport/object_stage_reuse``), or ``None`` when it cannot be set up
@@ -961,7 +971,7 @@ def _stage_reuse(tile, mesh_path: str):
     try:
         import O4_File_Names as FNAMES
         import O4_UI_Utils as UI
-        from auto_patch_v2.airport import object_stage_code as _osc
+        import O4_Object_Stage_Code as _osc
         from auto_patch_v2.airport import object_stage_reuse as _osr
         from auto_patch_v2.airport import pack_journal as _pj
         from auto_patch_v2.pipeline import xplat as _xplat
@@ -970,7 +980,7 @@ def _stage_reuse(tile, mesh_path: str):
             tile_name, mesh_path, code=_osc.runtime_digest(),
             env=_xplat.environment(),
             exclude_dirs=(_pj.path_for(tile.build_dir, tile_name),),
-            cache_root=FNAMES.airport_mod_cache_root(),
+            cache_root=FNAMES.airport_mod_cache_root(), on=reuse_enabled(),
             say=lambda line: UI.vprint(1, line))
     except Exception:
         return None

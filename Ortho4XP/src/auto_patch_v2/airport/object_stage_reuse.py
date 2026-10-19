@@ -17,7 +17,7 @@ repaired).  The KEY (:meth:`StageReuse.recipe`) is:
 * ``objects``      the pack OBJ sources the plan names;
 * ``params``       the write mode, the art omission, the law tables and
                    the engine version;
-* ``code``         the stage's import closure (``object_stage_code``);
+* ``code``         the stage's import closure (``src/O4_Object_Stage_Code.py``);
 * ``env``          the interpreter and geometry libraries (``xplat``).
 
 THE WITNESS, checked before a record is served: every file the stage
@@ -30,7 +30,9 @@ stopped build's restore or another tool changed is a re-run, never a
 wrong hit.
 
 The switch is ``O4_OBJECT_STAGE_REUSE`` (``0`` = off; a run-environment
-variable, ``provenance_env``).  Every airport says ``reused`` or ``ran:
+variable, ``provenance_env``), READ BY THE CALLER — the v1 object
+stage's ``reuse_enabled`` — and handed here as ``on`` (``auto_patch_v2``
+reads no environment; ``engine_v2.stage_cache_enabled`` is the same split).  Every airport says ``reused`` or ``ran:
 <the first input that differs>`` with its wall time.
 """
 from __future__ import annotations
@@ -44,20 +46,15 @@ from . import file_witness as _fw
 from . import stage_cache as _sc
 from .file_hash import sha256_file_or_none
 
-__all__ = ["ENV_SWITCH", "INPUTS", "enabled", "StageReuse"]
+__all__ = ["ENV_SWITCH", "INPUTS", "StageReuse"]
 
-#: ``0`` turns the reuse off (every airport runs, no record is written).
+#: ``0`` turns the reuse off (every airport runs, no record is written);
+#: the caller reads it and passes ``on``.
 ENV_SWITCH = "O4_OBJECT_STAGE_REUSE"
 
 #: The key's inputs, in the order a miss names the first that differs.
 INPUTS: tuple[str, ...] = ("plan", "mesh", "graded", "pristine_dsf",
                            "objects", "params")
-
-
-def enabled(env: _t.Mapping[str, str] | None = None) -> bool:
-    """Whether the reuse is on (default on)."""
-    env = os.environ if env is None else env
-    return str(env.get(ENV_SWITCH, "1")).strip() != "0"
 
 
 class _Entry(_t.NamedTuple):
@@ -76,13 +73,13 @@ class StageReuse:
 
     def __init__(self, tile_name: str, mesh_path: str, *, code: str | None,
                  env: _t.Any, exclude_dirs: _t.Sequence[str] = (),
-                 cache_root: str | None = None, on: bool | None = None,
+                 cache_root: str | None = None, on: bool = True,
                  say: _t.Callable[..., _t.Any] | None = None) -> None:
         self.stage = "objects" + tile_name
         self.mesh_path = os.path.abspath(mesh_path)
         self.code = code
         self.env = _sc.canonical_digest(env)
-        self.on = enabled() if on is None else bool(on)
+        self.on = bool(on)
         self.cache_root = cache_root
         self._exclude = tuple(os.path.abspath(d) + os.sep for d in exclude_dirs)
         self._say = say or (lambda *a: None)

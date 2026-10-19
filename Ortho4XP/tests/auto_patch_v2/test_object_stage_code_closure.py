@@ -1,5 +1,5 @@
 """issue #879 — THE OBJECT STAGE REUSE'S CODE KEY IS THE IMPORT CLOSURE of
-the stage (``airport/object_stage_code``), held like ``stage_code``'s:
+the stage (``src/O4_Object_Stage_Code.py``), held like ``stage_code``'s:
 a module the stage imports and the list omits would be a STALE HIT after
 an edit there; a listed module the stage no longer imports is dropped.
 The freeze digest reproduces from the specs' by-path execution, and both
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import O4_Code_Closure as CLOSURE
 from auto_patch import object_stage as STAGE
-from auto_patch_v2.airport import object_stage_code as OSC
+import O4_Object_Stage_Code as OSC
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -25,8 +25,8 @@ def test_every_module_the_stage_imports_is_in_its_code_key():
     closure = set(CLOSURE.closure(str(SRC), OSC.ENTRY_MODULES, OSC.CLOSURE_PREFIXES))
     missing, extra = sorted(closure - set(OSC.CODE_MODULES)), \
         sorted(set(OSC.CODE_MODULES) - closure)
-    assert not missing, f"add to object_stage_code.CODE_MODULES: {missing}"
-    assert not extra, f"drop from object_stage_code.CODE_MODULES: {extra}"
+    assert not missing, f"add to O4_Object_Stage_Code.CODE_MODULES: {missing}"
+    assert not extra, f"drop from O4_Object_Stage_Code.CODE_MODULES: {extra}"
     assert list(OSC.CODE_MODULES) == sorted(set(OSC.CODE_MODULES))
     assert "auto_patch_v2.airport.object_stage_reuse" in OSC.CODE_MODULES
 
@@ -44,7 +44,7 @@ def test_the_runtime_digest_is_the_checkouts():
 _FREEZE = r"""
 import os, runpy, sys
 src, out = sys.argv[1], sys.argv[2]
-mod = runpy.run_path(os.path.join(src, "auto_patch_v2", "airport", "object_stage_code.py"))
+mod = runpy.run_path(os.path.join(src, "O4_Object_Stage_Code.py"))
 print(mod["write_freeze_digest"](src, out))
 """
 
@@ -65,8 +65,8 @@ def test_the_freeze_digest_reproduces_by_path(tmp_path):
 def test_both_specs_write_and_bundle_the_digest():
     for spec in ("Ortho4XP.spec", "Ortho4XP_Qt.spec"):
         text = (ROOT / spec).read_text(encoding="utf-8")
-        assert '"airport", "object_stage_code.py")\n)["write_freeze_digest"]("src"' in text
-        assert '(_object_stage_digest_file, os.path.join("auto_patch_v2", "airport"))' in text
+        assert '"O4_Object_Stage_Code.py")\n)["write_freeze_digest"]("src"' in text
+        assert '(_object_stage_digest_file, ".")' in text
 
 
 def test_the_stage_keys_each_airport_through_the_reuse(tmp_path):

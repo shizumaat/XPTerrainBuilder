@@ -135,14 +135,14 @@ v2_law_datas = v2_law_datas + [
 
 # THE OBJECT STAGE REUSE'S CODE DIGEST (issue #879) — the same mechanism for
 # the object stage after the mesh, bundled beside the module that reads it
-# (``_internal/auto_patch_v2/airport/object_stage_code.sha256``).
+# (``_internal/object_stage_code.sha256``, beside ``O4_Object_Stage_Code``).
 _object_stage_digest_file = _runpy.run_path(
-    os.path.join("src", "auto_patch_v2", "airport", "object_stage_code.py")
+    os.path.join("src", "O4_Object_Stage_Code.py")
 )["write_freeze_digest"]("src", os.path.join("build", "o4_object_stage_code"))
 print(f"Object stage code digest: "
       f"{open(_object_stage_digest_file, encoding='ascii').read().strip()}")
 v2_law_datas = v2_law_datas + [
-    (_object_stage_digest_file, os.path.join("auto_patch_v2", "airport"))]
+    (_object_stage_digest_file, ".")]
 
 # THE TILE STEPS' CODE DIGESTS (issue #836) — the same mechanism, one
 # digest per reusable tile step (vector, mesh, masks: each step's own

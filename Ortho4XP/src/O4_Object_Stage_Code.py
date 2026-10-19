@@ -3,6 +3,11 @@ stage after the mesh runs through, and ONE digest of their source bytes —
 taken from the sources in a checkout, and from the file the FREEZE wrote
 in a frozen engine.
 
+A TOP-LEVEL ``O4_*`` MODULE, not an ``auto_patch_v2`` one: the stage it
+keys is the v1-named ``auto_patch.object_stage``, so this file names v1
+modules, and ``auto_patch_v2`` may not (``tests/auto_patch_v2/
+test_model.py``) — the same home as the tile steps' ``O4_Step_Code``.
+
 The partition's and the v2 stages' mechanism (``auto_patch_v2/airport/
 partition_code.py``, ``auto_patch_v2/pipeline/stage_code.py``) for one
 more cached unit: :data:`ENTRY_MODULES` is where ``O4_Mesh_Utils`` enters
@@ -16,7 +21,7 @@ rule ``stage_code`` follows (#842, there for the spec author to rule).
 
 STDLIB ONLY, NO RELATIVE IMPORT: the specs execute this file with
 ``runpy`` (they never import engine packages); the shared mechanism
-(``src/O4_Code_Closure.py``) is then loaded by path.
+(``O4_Code_Closure.py`` beside this file) is then loaded by path.
 """
 from __future__ import annotations
 
@@ -40,8 +45,7 @@ try:
 except ImportError:
     import runpy as _runpy
     _CLOSURE = _runpy.run_path(os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), os.pardir, os.pardir,
-        "O4_Code_Closure.py"))
+        os.path.dirname(os.path.abspath(__file__)), "O4_Code_Closure.py"))
 
 
 def write_freeze_digest(src_root: str, out_dir: str) -> str:
@@ -53,7 +57,7 @@ def write_freeze_digest(src_root: str, out_dir: str) -> str:
         out_dir, DIGEST_FILENAME,
         _CLOSURE["modules_digest"](src_root, CODE_MODULES),
         "ERROR: could not digest the object stage's code modules under "
-        f"{src_root!r} (object_stage_code.CODE_MODULES names a module with "
+        f"{src_root!r} (O4_Object_Stage_Code.CODE_MODULES names a module with "
         "no source file) — refusing to freeze an engine whose object stage "
         "reuse would have no code identity.")
 
@@ -63,13 +67,12 @@ _RUNTIME: list = []
 
 def runtime_digest() -> "str | None":
     """The digest for THIS engine, once per process: of the sources in a
-    checkout (``src`` two levels up), else the file the freeze wrote
-    beside this module.  ``None`` with neither — the stage then neither
+    checkout (``src``, this module's folder), else the file the freeze
+    wrote beside this module (``_internal`` in a frozen engine).  ``None`` with neither — the stage then neither
     reads nor writes a record."""
     if not _RUNTIME:
         here = os.path.dirname(os.path.abspath(__file__))
-        got = _CLOSURE["modules_digest"](
-            os.path.dirname(os.path.dirname(here)), CODE_MODULES)
+        got = _CLOSURE["modules_digest"](here, CODE_MODULES)
         _RUNTIME.append(got or _CLOSURE["read_digest"](here, DIGEST_FILENAME))
     return _RUNTIME[0]
 
@@ -137,7 +140,6 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.obj8_roof",
     "auto_patch_v2.airport.obj8_split",
     "auto_patch_v2.airport.object_plan",
-    "auto_patch_v2.airport.object_stage_code",
     "auto_patch_v2.airport.object_stage_reuse",
     "auto_patch_v2.airport.pack",
     "auto_patch_v2.airport.pack_art",

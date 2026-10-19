@@ -14,6 +14,7 @@ the graded surface and writes a body file (temp + ``os.replace``) and a
 from __future__ import annotations
 
 import os
+import types
 
 import pytest
 
@@ -157,12 +158,16 @@ def test_a_record_names_another_key_or_is_torn_is_refused(world):
 
 
 def test_the_switch_off_runs_and_writes_no_record(world, monkeypatch):
+    from auto_patch import object_stage as STAGE
+    monkeypatch.delenv(R.ENV_SWITCH, raising=False)
+    assert STAGE.reuse_enabled()
     monkeypatch.setenv(R.ENV_SWITCH, "0")
-    assert not R.enabled()
-    reuse = R.StageReuse("+10+020", str(world.mesh), code="c" * 64, env={})
-    assert not reuse.on
-    world.stage(on=None)
-    world.stage(on=None)
+    assert not STAGE.reuse_enabled()
+    tile = types.SimpleNamespace(lat=10, lon=20, build_dir=str(world.root))
+    reuse = STAGE._stage_reuse(tile, str(world.mesh))
+    assert reuse is not None and not reuse.on
+    world.stage(on=STAGE.reuse_enabled())
+    world.stage(on=STAGE.reuse_enabled())
     assert world.calls == 2
     assert not list(world.cache.glob("o4_stage_*"))
 

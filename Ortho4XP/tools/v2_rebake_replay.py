@@ -366,24 +366,27 @@ def cmd_plan(args: argparse.Namespace) -> int:
         import numpy as np
         # issue #660: the ONE local interpolator (a raw-degree Delaunay
         # is re-triangulated far away by any vertex added anywhere)
-        from obj8_split_report import GradedInterpolator
+        from obj8_split_report import GradedFaceMask, GradedInterpolator
         with open(args.graded, encoding="utf-8") as fh:
             data = json.load(fh)
         verts = data["vertices"]
         started = time.perf_counter()
         interp = GradedInterpolator(
             [[v[1], v[2]] for v in verts], [v[3] for v in verts])
+        # #737: off every graded face reads nothing, never an
+        # interpolation across the ungraded ground between faces
+        faces = GradedFaceMask(data, interp.origin)
         construct = time.perf_counter() - started
         print("  graded interpolator: %d vertices, construct %.2fs"
               % (len(verts), construct))
 
         def sample(la, lo):
-            z = float(np.asarray(interp(la, lo)).reshape(-1)[0])
+            z = float(faces.mask([la], [lo], interp(la, lo))[0])
             return None if not np.isfinite(z) else (z, False)
 
         def sample_many(las, los):
-            zs = np.asarray(interp(np.asarray(las, dtype=float),
-                                   np.asarray(los, dtype=float))).reshape(-1)
+            zs = faces.mask(las, los, interp(np.asarray(las, dtype=float),
+                                             np.asarray(los, dtype=float)))
             return [None if not np.isfinite(z) else (float(z), False)
                     for z in zs]
         sample.many = sample_many

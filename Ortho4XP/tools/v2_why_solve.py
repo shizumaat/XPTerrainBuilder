@@ -46,10 +46,11 @@ from auto_patch_v2.model.planar import PlanarMap
 from auto_patch_v2.solve.design import DesignReport, solve_design
 from auto_patch_v2.solve.design_ground import ground_datum_vertices
 
-__all__ = ["Prepared", "prepare", "solve_with_pressure", "family_of",
-           "resolve_faces", "Binding", "bindings", "Step", "Trace",
-           "chain_trace", "RelaxResult", "relax_family", "taxi_letters",
-           "report"]
+# ``prepare`` / ``resolve_faces`` / ``taxi_letters`` live in ``tools/v2_why.py``
+# (which imports this module), so they are not re-exported here.
+__all__ = ["Prepared", "solve_with_pressure", "family_of", "Binding",
+           "bindings", "Step", "Trace", "chain_trace", "RelaxResult",
+           "relax_family", "report"]
 
 #: Binding tolerance in metres — a design target the surface sits ON.
 #: (The LP sat on its bounds to ~1e-9; a penalty settles near them.)

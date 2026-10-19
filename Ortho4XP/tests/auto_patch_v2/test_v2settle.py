@@ -302,3 +302,39 @@ def test_a_plain_pack_member_carries_no_plate_and_is_group_eligible():
     assert m.plate_y is None and m.deck_stations == ()
     assert _eligible(m)
     assert not _eligible(_dc.replace(m, plate_y=0.0))
+
+
+# ── 6. the QP's work budget, paid once per solve (issue #994) ────────────
+
+def test_a_projection_over_its_qp_budget_keeps_the_design_surface_and_says_so(
+        ridge, law, solved, monkeypatch):
+    """KEDW's 15,321-column runway family ran HiGHS's dense-nullspace QP for
+    222 s per pass to a Solve error.  Under a budget the QP stops, the DESIGN
+    vector comes back unchanged, the status names the budget, and the memo
+    records it for the next pass."""
+    from auto_patch_v2.solve import project as P
+    _airport, pm, _cs, _sol, _rep, base = solved
+    x_kink = _columns(base, _kinked(ridge, law, solved))
+    monkeypatch.setattr(P, "_QP_ITERATIONS_MAX", 1)
+    memo: dict = {}
+    x_out, prep = project_runway(pm, law, base, x_kink, memo=memo)
+    assert prep.status.startswith(P.OVER_BUDGET), prep.status
+    assert np.array_equal(x_out, x_kink)
+    assert memo["over_budget"].startswith(P.OVER_BUDGET)
+
+
+def test_a_later_pass_does_not_pay_the_budget_again(ridge, law, solved):
+    """A memo carrying a budget stop skips the QP: the design vector comes
+    back unchanged and the status says why.  An empty memo changes nothing:
+    the projection settles the kink as in twin 1 and records no stop."""
+    _airport, pm, _cs, _sol, _rep, base = solved
+    x_kink = _columns(base, _kinked(ridge, law, solved))
+    x_out, prep = project_runway(pm, law, base, x_kink,
+                                 memo={"over_budget": "budget stop"})
+    assert np.array_equal(x_out, x_kink)
+    assert prep.status.startswith("not run: budget stop"), prep.status
+    memo: dict = {}
+    x_run, prep_run = project_runway(pm, law, base, x_kink, memo=memo)
+    x_ref, _prep_ref = project_runway(pm, law, base, x_kink)
+    assert prep_run.ran and not memo
+    assert np.array_equal(x_run, x_ref)

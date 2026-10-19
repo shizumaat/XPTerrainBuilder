@@ -22,6 +22,7 @@ from .lot_roads import lot_cells, split_lot_ribbon
 from .pad_touch import touch_limit_m
 from .rules import Rules
 from ..geom.parts import line_parts
+from ..airport.road_ways import ribbon_half_width_m
 
 __all__ = ["mint_osm_ribbons", "mint_pad_roads", "ribbon_extent", "bridge_gaps",
            "network_spans", "exit_reach"]
@@ -302,7 +303,7 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
     the returned ribbon still covers it (it is occupied)."""
     from shapely.ops import substring
     orr = rules.osm_roads
-    hw = float(law.tables.emit.road_profile.lane_width_m)
+    hw = ribbon_half_width_m(w.tags, law)
     axes = []
     for a, b in spans:
         seg = substring(line, a, b)
@@ -314,9 +315,8 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
             if ax.length >= (orr.min_len_m if min_len is None else min_len)]
     if not axes:
         return 0, 0.0, None
-    rib = unary_union([ax.buffer(hw, cap_style="flat", join_style="mitre",
-                                 mitre_limit=2.0) for ax in axes])
-    rib = shapely.set_precision(rib.difference(occupied), rules.cells.snap_grid_m)
+    rib = _ribbon_over(axes, hw, occupied, float(law.tables.emit.road_profile.lane_width_m),
+                       rules.cells.snap_grid_m)
     road, lot_parts = rib, []
     if lots:
         road, lot_parts = split_lot_ribbon(
@@ -345,6 +345,25 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
     return k - k0, area, (rib if k > k0 or lot_parts else None)
 
 
+def _ribbon_over(axes, hw: float, occupied, core_hw: float, grid: float):
+    """The ribbon of ``axes`` at half-width ``hw`` less ``occupied``,
+    widened only AROUND the core-width ribbon (``core_hw``) the same axes
+    mint (issue #949): the map's width widens a road the core ribbons, and
+    never mints road where the core's ribbon is covered — a road the
+    pavement already traces, whose wider buffer would only lay a strip
+    along that pavement's edge (KBUR way −18822, ``lanes=3``: a 0.5 m strip
+    87 m along ``dsf:pol122``'s edge beside a pad, 2.5 m off it)."""
+    def _rib(h: float):
+        g = unary_union([ax.buffer(h, cap_style="flat", join_style="mitre",
+                                   mitre_limit=2.0) for ax in axes])
+        return shapely.set_precision(g.difference(occupied), grid)
+    core = _rib(core_hw)
+    if hw <= core_hw or core.is_empty:
+        return core
+    reach = core.buffer(hw - core_hw, join_style="mitre", mitre_limit=2.0)
+    return shapely.set_precision(_rib(hw).intersection(reach), grid)
+
+
 def _cover(ev: Evidence, rules: Rules):
     return unary_union([c.line for c in ev.truck_chains]).buffer(rules.osm_roads.dedup_m) \
         if ev.truck_chains else Polygon()
@@ -358,8 +377,9 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     an ``osm_roads.ribbon_highways`` class, over its parts inside the patch
     plus the same-way gaps up to ``osm_roads.road_gap_bridge_m``; parts
     within ``osm_roads.dedup_m`` of a 1206 route dropped (the network is
-    senior); half-width = ``road_profile.lane_width_m`` (the ribbon
-    half-width ``terrain_edge.road_half_width_m`` reads).  Nothing already
+    senior); half-width = the way's own (``airport/road_ways.
+    ribbon_half_width_m``: its mapped carriageway, never under the core's
+    ``road_profile.lane_width_m``; issue #949).  Nothing already
     standing is overlapped — pavement, runway, shoulder, pad, a 1206
     corridor, an earlier ribbon — and every pad's set-back is kept
     (roadweld100: "the ribbon takes the same set-back itself"), so no

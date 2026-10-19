@@ -43,9 +43,9 @@ def cyxy_map():
 
 
 def test_import_and_budget():
+    # 1,000 lines is a guide, never a gate (RULINGS 2026-10-04 "FILE SIZE…"
+    # a/b/c): ``tools/ratchets.py`` reports long files for the master to read.
     assert importlib.import_module("auto_patch_v2.planar")
-    for py in (SRC / "planar").glob("*.py"):
-        assert len(py.read_text(encoding="utf-8").splitlines()) <= 1000, py
 
 
 def test_invariants_and_counts(cyxy_map):

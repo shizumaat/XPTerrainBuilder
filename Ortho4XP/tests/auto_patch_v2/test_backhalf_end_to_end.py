@@ -197,6 +197,7 @@ def _arm_in_a_fresh_process(tmp: Path, name: str, seed: str, cache: Path,
     import pickle
     import subprocess
     import sys
+
     from tests.auto_patch_v2.test_solve_late_records import ROOT
     cwd, tdir = tmp / f"cwd_{name}", tmp / f"tmp_{name}"
     cwd.mkdir()

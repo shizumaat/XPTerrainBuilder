@@ -153,3 +153,44 @@ def test_the_ground_beyond_a_taxi_corridor_rises_at_most_5_percent(laws):
     # beyond the reach: the band is far behind, nothing is stated
     xy[2] = (50.0, half + law.tables.zones.adjacent_ground.ungraded_rise_reach_m + 1.0)
     assert Z._beyond_graded_ceiling(ctx, law, 2, [], Source("t", "t", ())) is None
+
+
+def test_the_reference_blends_across_a_switch_between_two_pavements(laws):
+    """Issue #799 (the pocket rule, 08-01; master's reading (ii) under
+    RULINGS 2026-10-16c): KBJC 39.912928, −105.119265 — a strip vertex off
+    an apron took the apron's lip, its neighbour 3.35 m away the junction's
+    5.6 m off, a 1.65 m step.  Outside the runway family the nearest-edge
+    switch blends with another pavement's edge as with the same one's; a
+    runway edge blends with its own runway's edges only."""
+    import types
+    from auto_patch_v2.constraints import zones as Z
+    law = laws["icao"]
+    blend = float(law.tables.zones.adjacent_ground.reference_blend_m)
+    xy = {0: (0.0, 0.0), 1: (40.0, 0.0), 2: (0.0, 8.0), 3: (40.0, 8.0),
+          9: (20.0, 3.5)}
+
+    def ctx(fam0):
+        edges = [(0, 1, fam0, 4 if fam0 == "runway" else None, "E", "pav1"),
+                 (2, 3, "apron", None, None, "apron1")]
+        by = {"runway": {}, "taxi": {}, "apron": {(0, 0): [1]}}
+        by[fam0] = {(0, 0): [0]}
+        return types.SimpleNamespace(vw=types.SimpleNamespace(xy=xy, law=law),
+                                     edges=edges, cell=50.0, by_family=by)
+
+    got = Z._blend_partner(ctx("taxi"), 9, 0, 0.5, 3.5)
+    assert got is not None
+    k2, _t2, d2, w2 = got
+    assert (k2, d2) == (1, pytest.approx(4.5))
+    assert w2 == pytest.approx(0.5 * (1.0 - 1.0 / blend))
+    # another pavement first: a nearer second edge of the vertex's own
+    # pavement does not hide it (KBJC v3566)
+    xy.update({4: (24.0, 0.0), 5: (24.0, 3.0)})
+    c = ctx("taxi")
+    c.edges.append((4, 5, "taxi", None, "E", "pav1"))
+    c.by_family["taxi"][(0, 0)].append(2)
+    assert Z._blend_partner(c, 9, 0, 0.5, 3.5)[0] == 1
+    # a runway edge: another pavement is no partner
+    assert Z._blend_partner(ctx("runway"), 9, 0, 0.5, 3.5) is None
+    # past the blend distance: no partner
+    xy[9] = (20.0, 0.5)
+    assert Z._blend_partner(ctx("taxi"), 9, 0, 0.5, 0.5) is None

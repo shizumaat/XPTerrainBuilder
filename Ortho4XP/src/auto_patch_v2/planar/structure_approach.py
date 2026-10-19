@@ -771,8 +771,70 @@ def merge_duals(mouths: list[Mouth], law: Law, stats
         dx = (centre_lat - lat0) * nx - (s_out - along0) * inward[0]
         dy = (centre_lat - lat0) * ny - (s_out - along0) * inward[1]
         axis = [(p[0] + dx, p[1] + dy) for p in axis]
+        span, s_part = _dual_span_m(axis, members, law)
+        width = max(width, span)
+        if s_part is not None:
+            axis = _straight_past(axis, ss, s_part)
         out.append((members, axis[0], inward, width, axis))
     return out
+
+
+def _dual_span_m(axis: list[XY], members: list[Mouth], law: Law
+                 ) -> tuple[float, float | None]:
+    """THE DUAL RAMP SPANS ITS CARRIAGEWAYS ALONG THE RAMP, not at the mouth
+    alone (issue #807): ``(the full width across every member's approach
+    over the NOMINAL ramp length — mouth_depth_m / ramp_grade, the stations
+    the ramp is built over at its design grade — the station where the
+    carriageways PART, or None)``.
+
+    They part where they stand further apart than half the dual separation
+    (``dual_carriageway_max_separation_m``): there they stop being one road
+    (KCLT's south ramp: both run into a roundabout), and the MEAN of two
+    routes going different ways is no route at all.  KCLT's tertiary
+    carriageways stand 11 m apart at the taxiway U mouths and ~18 m apart
+    80 m out; the mouth's 17.5 m left each carriageway's outer edge on the
+    ramp wall."""
+    tn = law.tables.structures.tunnel
+    ax = LineString(axis)
+    s_max = min(tn.mouth_depth_m / max(tn.ramp_grade, 1e-6), ax.length)
+    routes = [(LineString(m.approach), m.width_m / 2.0) for m in members
+              if len(m.approach) >= 2]
+    if not routes:
+        return 0.0, None
+    part_m = tn.dual_carriageway_max_separation_m / 2.0
+    half = 0.0
+    for k in range(int(ax.length) + 1):
+        p = ax.interpolate(float(k))
+        offs = [(r.distance(p), h) for r, h in routes]
+        if 2.0 * max(d for d, _h in offs) > part_m:
+            return 2.0 * half, float(k)         # the carriageways part here
+        if k <= s_max:
+            half = max([half] + [d + h for d, h in offs])
+    return 2.0 * half, None
+
+
+#: The chord the straight run past a parting takes its direction from: the
+#: axis's own line over this run before the parting, not its last 5 m hop
+#: (already bending toward one of the parting roads).
+_PART_CHORD_M = 20.0
+
+
+def _straight_past(axis: list[XY], ss: list[float], s_part: float) -> list[XY]:
+    """The dual's axis up to where its carriageways part, then STRAIGHT on
+    along its line over the last ``_PART_CHORD_M`` to its full length (issue
+    #807): past the
+    parting the mean axis kinks between two roads and the corridor folds
+    ("the approach bends tighter than the corridor")."""
+    keep = [p for p, s in zip(axis, ss, strict=False) if s <= s_part]
+    if len(keep) < 2:
+        keep = list(axis[:2])
+    kl = LineString(keep)
+    back = kl.interpolate(max(0.0, kl.length - _PART_CHORD_M))
+    a = unit((back.x, back.y), keep[-1])
+    rest = LineString(axis).length - kl.length
+    if rest <= 0.0:
+        return keep
+    return keep + [(keep[-1][0] + a[0] * rest, keep[-1][1] + a[1] * rest)]
 
 # ── the ramp's top (moved VERBATIM from planar/structures.py, lane
 #    v2wallplate: that file stands at its 1,000-line budget and §33 grows

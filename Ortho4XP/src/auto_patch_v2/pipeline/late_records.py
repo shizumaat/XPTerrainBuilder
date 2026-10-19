@@ -115,7 +115,8 @@ class LateRecords:
             return run(tee), tee.lines
         got = _bc.record(self.fc, f"late.cut.{self.passes}",
                          {**self.inputs, "cl": self.fc.digest(cl), "base": self.base,
-                          "roads_only": str(bool(roads_only))}, fn, code="late_cut")
+                          "roads_only": str(bool(roads_only))}, fn, code="late_cut",
+                         as_served=True)     # the next pass digests its cl
         self._cut = got.digest
         cut, lines = got.value
         if not tee.ran:

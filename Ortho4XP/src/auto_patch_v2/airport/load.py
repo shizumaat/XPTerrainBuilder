@@ -574,9 +574,13 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.buildings_by_source["dsf:agp"] = n_agp
     rep.dsf_pavements = n_pol
     rep.dsf_pavements_far = n_far
+    # issue #713: the sidecar the pack refresh writes for the PRISTINE DSF
+    # (``engine_v2.fresh_object_footprints``) — named, as v1 names it, by
+    # that file's stem: ``+30+031`` before the object stage first writes
+    # the pack, ``+30+031.dsf`` (the ``.anchor_bak``'s) after
     cache_path = inputs.footprint_cache_path or (
         os.path.join(_dsf.mod_cache_dir(inputs.mod_cache_root, sel.name),
-                     f"o4_object_footprints_{tile[0]:+03d}{tile[1]:+04d}.cache")
+                     _dsf.footprint_cache_name(pack_dsf))
         if inputs.mod_cache_root else None)
     if cache_path and os.path.isfile(cache_path):
         rep.footprint_cache_path = cache_path

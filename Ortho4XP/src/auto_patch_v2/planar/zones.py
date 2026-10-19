@@ -16,7 +16,10 @@ arc-free (v1 groundside clip convention).
 """
 from __future__ import annotations
 
+import collections as _collections
 import dataclasses as _dc
+import threading as _threading
+import weakref as _weakref
 
 import shapely
 from shapely.geometry import LineString, Polygon
@@ -83,15 +86,48 @@ def shore_region(cells: tuple[Cell, ...], dem):
     fn = getattr(dem, "sea_geometry", None)
     if not callable(fn) or not cells:
         return None
+    tiles = getattr(dem, "water_tile_keys", None)
+    key = (id(dem), tiles(), tuple((c.ring, c.holes) for c in cells)) \
+        if callable(tiles) else None     # only a frame that names its water reads
+    if key is not None:
+        with _SHORE_LOCK:
+            hit = _SHORE_MEMO.get(key)
+        if hit is not None and hit[0]() is dem:
+            return hit[1]
     land = unary_union([Polygon(c.ring, c.holes) for c in cells])
     try:
         w = fn(land.buffer(500.0).bounds)
     except Exception:                                   # pragma: no cover
         return None
-    if w is None or w.is_empty:
-        return None
-    w = w.difference(land)
-    return None if w.is_empty else w
+    if w is not None and not w.is_empty:
+        w = w.difference(land)
+    w = None if w is None or w.is_empty else w
+    if key is None:
+        return w
+    try:
+        ref = _weakref.ref(dem)
+    except TypeError:                                   # pragma: no cover
+        return w
+    with _SHORE_LOCK:
+        _SHORE_MEMO[key] = (ref, w)
+        while len(_SHORE_MEMO) > _SHORE_MEMO_SIZE:
+            _SHORE_MEMO.popitem(last=False)
+    return w
+
+
+#: THE SHORE REGION IS READ ONCE PER CELL SET (issue #412): the structure
+#: pass calls :func:`shore_region` on EVERY one of its overlap passes
+#: (``unframed_ramp.MAX_OVERLAP_PASSES``) and twice per planar stage
+#: (``planar/build.channels_after_basins`` and the build proper) with the
+#: same cells, and each call buffers the whole airport union by 500 m —
+#: HECA's ribbon-free planar stage spent 42.5 s of 85 in it.  The answer
+#: is a pure function of the cells' rings and the DEM's sea, so it is
+#: kept for the last few cell sets; the DEM is held WEAKLY (a production
+#: frame is hundreds of MB) and a dead or different DEM is a miss.
+#: Shapely geometries are immutable, so callers share the one answer.
+_SHORE_MEMO: "_collections.OrderedDict" = _collections.OrderedDict()
+_SHORE_MEMO_SIZE = 4
+_SHORE_LOCK = _threading.Lock()
 
 
 # §37 (11) (7) / 29a: ``SHORE_WALL_TAGS`` and ``shore_declarations`` live

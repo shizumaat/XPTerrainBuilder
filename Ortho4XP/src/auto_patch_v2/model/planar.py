@@ -784,7 +784,7 @@ class PlanarMap:
                 vs = self.ring_vertices(cyc)
                 tgt.update(vs)
                 if f.role == "graded_strip" and reach_m > 0.0:
-                    band_edges.extend(zip(vs, vs[1:] + vs[:1]))
+                    band_edges.extend(zip(vs, vs[1:] + vs[:1], strict=True))
         out = rib & band
         if reach_m > 0.0 and band_edges and rib - band:
             import shapely

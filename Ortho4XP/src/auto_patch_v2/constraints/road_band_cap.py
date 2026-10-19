@@ -44,4 +44,4 @@ def road_band_caps(planar: PlanarMap, law: Law) -> list[Row]:
     return [Linear(((v, 1.0), (ids[int(j)], -1.0)), None, 0.0,
                    Source(GEN, RULING, (f"vertex:{v}", f"vertex:{ids[int(j)]}")),
                    follows=v)
-            for v, j in zip(loose, js)]
+            for v, j in zip(loose, js, strict=True)]

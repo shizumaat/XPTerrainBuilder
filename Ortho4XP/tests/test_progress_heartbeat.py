@@ -85,18 +85,47 @@ def test_heartbeat_fires_at_the_cadence_and_never_faster():
     assert text.endswith("— doing x 3/9 things")
 
 
+def _wait_for(predicate, timeout_s, interval_s=0.01):
+    """Bounded wait: poll ``predicate`` until true or ``timeout_s`` passes."""
+    deadline = time.monotonic() + timeout_s
+    while not predicate():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(interval_s)
+    return True
+
+
 def test_heartbeat_thread_beats_and_stops():
+    """The daemon thread beats at the cadence (never faster) and a stopped
+    heartbeat never beats again (issue #930).
+
+    Robust on a loaded Windows runner (~15.6 ms timer, slow thread start):
+    each beat is stamped with the clock reading the gate itself used — not
+    a second ``time.monotonic()`` taken after it, which a preemption between
+    the two could pull below the period — and the run waits, under a
+    deadline, for three beats instead of counting beats in a fixed sleep."""
+    period = 0.2
+    seen = [0.0]                                # the gate's last reading
+    def clock():
+        seen[0] = time.monotonic()
+        return seen[0]
     got = []
-    hb = progress.Heartbeat(lambda text: got.append(time.monotonic()),
-                            lambda: (1, "step"), period_s=0.2)
+    hb = progress.Heartbeat(lambda text: got.append(seen[0]),
+                            lambda: (1, "step"), period_s=period, clock=clock)
+    t0 = time.monotonic()
     hb.start(poll_s=0.01)
-    time.sleep(1.05)
+    assert _wait_for(lambda: len(got) >= 3, timeout_s=30.0), got
+    thread = hb._thread
     hb.stop()
+    elapsed = time.monotonic() - t0
     n = len(got)
-    assert 3 <= n <= 5, got
-    assert all(b - a >= 0.2 - 1e-3 for a, b in zip(got, got[1:]))
-    time.sleep(0.3)
-    assert len(got) == n                    # stopped means stopped
+    # never faster: on the gate's clock, consecutive beats are a period apart
+    assert all(b - a >= period for a, b in zip(got, got[1:])), got
+    assert n <= elapsed / period + 1, (n, elapsed)
+    # stopped means stopped: the thread is joined and no beat follows
+    assert hb._thread is None and not thread.is_alive()
+    time.sleep(3 * period)
+    assert len(got) == n
 
 
 # ── the pulse ─────────────────────────────────────────────────────────────

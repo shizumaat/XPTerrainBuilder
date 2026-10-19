@@ -25,6 +25,7 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..planar.pack_reads import pool_report as _pack_read_pool
 from ..solve import DesignReport, Options, Solution, solve_design  # noqa: F401
+from . import emit_records as _records
 from . import front_cache as _front
 from . import xplat as _xplat
 
@@ -34,7 +35,6 @@ from .emit_stage import (  # noqa: F401
     MOVED_M,
     borrowed_apt_dat_stamp,
     displacement_by_role,
-    emit,
     post_solve,
     with_join_yield,
 )
@@ -43,7 +43,6 @@ from .prefix import Deriver, PackRead, run_prefix
 from .prefix import classified_land as _classified_land  # noqa: F401  (read here)
 from .rebake_inputs import _plate_seats, _rebake_inputs, plate_stations  # noqa: F401
 from .shapes import joint_steps
-from .verify_stage import verify
 
 __all__ = ["Config", "BuildResult", "build", "borrowed_apt_dat_stamp"]
 
@@ -669,17 +668,29 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     #: the verify work pool's account (``report["pool"]["verify"]``)
     _vpool: list[dict] = []
     if sol.status.value in ("optimal", "feasible"):
-        # THE EMIT (spec §4b.6; ``pipeline/emit_stage.py``)
-        paths, pieces, surf, pub = emit(
-            icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,
+        # THE EMIT (spec §4b.6; ``pipeline/emit_stage.py``) through its
+        # record (``pipeline/emit_records.py``; the header is not keyed)
+        _em_in = _records.emit_inputs(
+            fc, pm=pm, sol=sol, cs=cs, cs_key=pre.cs_key, cl=cl, strips=strips,
+            design_rep=design_rep, hard_conflict=hard_conflict,
+            yield_records=_yield_records, late_report=_late_report, lrep=lrep,
+            airport=airport, objects_out=objects_out, common=_fc_in,
+            feather_m=cfg.feather_m)
+        _em = _records.emit(
+            fc, _em_in,
+            icao=icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,
             design_rep=design_rep, hard_conflict=hard_conflict,
             yield_records=_yield_records, late_report=_late_report,
             lrep=lrep, header_extra=cfg.header_extra, out_dir=out_dir,
             objects_out=objects_out, report=report, wall=wall, out=out)
+        paths, pieces = _em.paths, _em.pieces
         if cfg.verify:
-            # THE VERIFY STAGE (spec §4b.7; ``pipeline/verify_stage.py``)
-            vrows = verify(icao, surf=surf, pub=pub, pm=pm, law=law, airport=airport,
-                           report=report, wall=wall, pool_out=_vpool, out=out)
+            # THE VERIFY STAGE (spec §4b.7; ``pipeline/verify_stage.py``):
+            # its record holds only while the bodies on disk are the judged
+            vrows = _records.verify(fc, _em, pm_digest=_em_in.get("pm"),
+                                    airport_digest=_em_in.get("airport"),
+                                    icao=icao, pm=pm, law=law, airport=airport,
+                                    report=report, wall=wall, pool_out=_vpool, out=out)
     report["cache"] = fc.finish()
     _staged = sum(wall.values())
     wall["total"] = time.perf_counter() - t_build

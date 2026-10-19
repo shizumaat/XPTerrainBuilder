@@ -56,7 +56,8 @@ class PrefixRecord:
     channels, ``pm`` the shape stage's; ``reports`` the channel reports
     (``runway_chord``, ``taxi_trend``, ``apron_trend``, ``eat_reach``,
     ``road_ramp``); ``planar_record`` the planar stage's registries record
-    (``None`` on a re-run, which installs none); ``wall`` the step clocks."""
+    (``None`` on a re-run, which installs none); ``wall`` the step clocks;
+    ``cs_key`` the constraint assembly record's key."""
 
     airport: _t.Any
     planar_pm: _t.Any
@@ -76,6 +77,9 @@ class PrefixRecord:
     strips: _t.Any
     hold: _t.Any
     wall: dict
+    #: the constraint assembly record's KEY (``None``: not cached, or a
+    #: ``rows`` filter ran) — how a later record names ``cs`` (RULINGS 18e)
+    cs_key: str | None = None
 
     def derived(self) -> tuple:
         """``(pm, cs, strips, hold)`` — what ``stage_one_problem`` and
@@ -395,7 +399,8 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
         reports={k: getattr(lrep, k, None) for k in _REPORTS},
         yield_records=yield_records, stage=stage, pm=pm, cs=cs, counts=counts,
         gwalls=gwalls, seam_yielded=seam_yielded, strips=strips,
-        hold=hold_pass(pm, law, airport), wall=wall)
+        hold=hold_pass(pm, law, airport), wall=wall,
+        cs_key=con.key if rows is None else None)
 
 
 def _say_constraints(icao: str, stage, cs, counts: dict, gwalls: dict, wall_s: float,

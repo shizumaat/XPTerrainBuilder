@@ -358,7 +358,10 @@ def test_the_capture_runs_every_pre_solve_stage_the_build_runs():
 
     mod = _replay_module()
     cap_calls = _calls(inspect.getsource(mod.capture))
-    build_calls = _calls(inspect.getsource(build_fn))
+    # the build's pre-solve half is ``build`` and its prefix (§10 step 8)
+    from auto_patch_v2.pipeline.prefix import run_prefix
+    build_calls = (_calls(inspect.getsource(build_fn))
+                   | _calls(inspect.getsource(run_prefix)))
     stages = {"load_with_report", "partition_pack", "derive", "read_objects",
               "classify", "build", "detect", "preferred_road_z", "shape_stage",
               # THE CLUSTERS (lane ``v2padjoin``, 2026-09-14): a capture

@@ -20,7 +20,7 @@ them, 200 without) — reported on #842 for the spec author to rule.
 
 The stage cache (#843, ``pipeline/front_cache.py``) reads them through
 :func:`runtime_digests`.  ``channels`` is the build's TARGET CHANNELS
-(``pipeline/build.py`` between the road profile and the shape stage: the
+(``pipeline/prefix.py`` between the road profile and the shape stage: the
 runway chord, the taxi and apron trends, the EAT reach, the road ramps and
 the coverage join).  They are not cached — they run on every build — but
 the shape stage's record is keyed on what they are handed, so their code
@@ -45,8 +45,9 @@ DIGEST_FILENAME = "stage_code.sha256"
 #: The closure follows imports into these top-level packages only.
 CLOSURE_PREFIXES: tuple[str, ...] = ("auto_patch_v2",)
 
-#: Where ``pipeline/build.build`` ENTERS each cached stage (the module
-#: that DEFINES the function it calls, not a package re-exporting it):
+#: Where the build ENTERS each cached stage (``pipeline/build.build`` for
+#: classify, ``pipeline/prefix.run_prefix`` for the rest — the module that
+#: DEFINES the function it calls, not a package re-exporting it):
 #: ``classify(...)`` / ``load_rules()`` (re-exported by
 #: ``classify/__init__``), ``planar.build.build``, ``flat_site_read.verdict_for_build``,
 #: ``road_profile.preferred_road_z``, ``shapes.shape_stage``.
@@ -676,6 +677,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
+        "auto_patch_v2.constraints.assembly",
         "auto_patch_v2.constraints.ceiling",
         "auto_patch_v2.constraints.channel",
         "auto_patch_v2.constraints.cluster_pad",

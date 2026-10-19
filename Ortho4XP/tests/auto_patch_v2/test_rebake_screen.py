@@ -188,7 +188,8 @@ def test_no_partition_cache_no_sidecar_and_a_default_plan_keeps_nothing(world, l
     assert _take(world, law) is None                       # the build plans inline
     from auto_patch_v2.airport import rebake_plan as RP
     assert inspect.signature(RP.plan).parameters["keep_extension"].default is False
-    src = inspect.getsource(sys.modules["auto_patch_v2.pipeline.build"].build)
+    import auto_patch_v2.pipeline.emit_stage as _emit   # the build's emit (§10 step 8)
+    src = inspect.getsource(_emit._rebake)
     assert "keep_extension=False" in src and "_rscreen.take(" in src
 
 

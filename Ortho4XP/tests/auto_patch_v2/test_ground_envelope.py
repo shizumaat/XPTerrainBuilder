@@ -196,7 +196,7 @@ def test_the_solve_guard_has_its_own_catalogue_entry():
 def test_the_pipeline_and_the_sidecar_read_the_one_derivation():
     import inspect
     from auto_patch_v2.emit import osm_adapter
-    from auto_patch_v2.pipeline import build as B, publication as PUB
-    assert "outside_envelope(pm, sol.z, _envelope)" in inspect.getsource(B)
+    from auto_patch_v2.pipeline import emit_stage as E, publication as PUB
+    assert "outside_envelope(pm, sol.z, _envelope)" in inspect.getsource(E)
     assert '"ground_envelope"' in inspect.getsource(PUB.publication)
     assert '"ground_envelope"' in inspect.getsource(osm_adapter)

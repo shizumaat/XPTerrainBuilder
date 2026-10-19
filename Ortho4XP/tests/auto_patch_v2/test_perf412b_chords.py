@@ -218,7 +218,10 @@ def test_the_build_report_carries_the_verify_pool():
     for fn in (C.census_frame, C.census_patch):
         assert {"say", "on_pool"} <= set(inspect.signature(fn).parameters)
     assert {"out", "on_pool"} <= set(inspect.signature(W.within_shape).parameters)
-    src = inspect.getsource(B.build)
-    assert 'say=lambda m: _say("  " + m, out),' in src
+    V = importlib.import_module("auto_patch_v2.pipeline.verify_stage")
+    src = inspect.getsource(V.verify)
+    assert 'say=lambda m: out("  " + m),' in src
     assert "on_pool=_vpool.append)" in src
+    src = inspect.getsource(B.build)
+    assert "pool_out=_vpool" in src
     assert '"verify": _vpool[-1] if _vpool else None}' in src

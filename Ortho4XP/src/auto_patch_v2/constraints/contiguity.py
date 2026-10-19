@@ -180,27 +180,32 @@ def _cross_section(px: float, py: float, nx: float, ny: float, probe: float,
     return []
 
 
-#: ``key -> (planar, law, stations by face)``: the objects are HELD and
-#: checked by identity on a hit — an ``id`` alone is reused by the next
+#: ``key -> (planar, law, airport, stations by face)``: the objects are HELD
+#: and checked by identity on a hit — an ``id`` alone is reused by the next
 #: object once its owner is freed (issue #843: the stage cache's hit arm at
-#: HECA was served another map's stations, 4,297 against 5,460)
-_CACHE: dict[tuple[int, int, bool], tuple[_t.Any, _t.Any, dict[int, list[Station]]]] = {}
+#: HECA was served another map's stations, 4,297 against 5,460).  The
+#: AIRPORT is held too (#843 step 9b): the strip keep-out reads its DEM, so
+#: a walk taken on another airport object (another DEM, or the DEM before
+#: the stage cache's recorder) is never served — it hid the generators' DEM
+#: questions from their records, order-dependently (Windows CI, PR #979)
+_CACHE: dict[tuple[int, int, int], tuple[_t.Any, _t.Any, _t.Any, dict[int, list[Station]]]] = {}
 
 
 def road_station_caps(planar: PlanarMap, law: Law, airport=None,
                       vw: View | None = None) -> dict[int, list[Station]]:
-    """Stations grouped by face (memoised per planar map — the map never
-    mutates, and four generators and the publication read one walk)."""
-    key = (id(planar), id(law), airport is not None)
+    """Stations grouped by face (memoised per planar map, law and airport —
+    the map never mutates, and four generators and the publication read one
+    walk)."""
+    key = (id(planar), id(law), id(airport))
     hit = _CACHE.get(key)
-    if hit is not None and hit[0] is planar and hit[1] is law:
-        return hit[2]
+    if hit is not None and hit[0] is planar and hit[1] is law and hit[2] is airport:
+        return hit[3]
     out: dict[int, list[Station]] = {}
     for st in station_caps(planar, law, airport, vw):
         out.setdefault(st.face, []).append(st)
     if len(_CACHE) >= 2:           # held maps are large: keep the last two
         _CACHE.clear()
-    _CACHE[key] = (planar, law, out)
+    _CACHE[key] = (planar, law, airport, out)
     return out
 
 

@@ -233,6 +233,7 @@ def test_a_planar_record_without_its_registries_refuses_by_field_name(tmp_path, 
     pm, pstats, record = load()
     del record["fields"]["terraces"]
     blob, digest = SC.encode((pm, pstats, record))
+    head = {k: v for k, v in head.items() if k != "payload_sha256"}   # write re-stamps it
     assert SC.write(str(path), {**head, "output_digest": digest, "bytes": len(blob)},
                     witness, blob)
     with pytest.raises(SystemExit) as exc:

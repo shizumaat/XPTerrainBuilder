@@ -28,7 +28,7 @@ import shapely
 from shapely.ops import unary_union
 
 from ..law import Law
-from ..model.planar import RISER_SUFFIX
+from ..model.band_riser import RISER_SUFFIX
 
 __all__ = ["riser_geometry", "apply_risers", "riser_lines"]
 

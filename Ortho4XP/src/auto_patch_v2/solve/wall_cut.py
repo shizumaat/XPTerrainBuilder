@@ -71,7 +71,8 @@ def riser_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
     """``(min, max)`` pairs of the triangle edges from a road ribbon vertex
     to a band vertex across a band riser face (module docstring); empty
     without a riser."""
-    from ..model.planar import band_risers, is_osm_ribbon_ref
+    from ..model.band_riser import band_risers
+    from ..model.planar import is_osm_ribbon_ref
     risers = band_risers(planar)
     if not risers:
         return frozenset()

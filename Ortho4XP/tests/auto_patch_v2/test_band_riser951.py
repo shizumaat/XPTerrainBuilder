@@ -32,7 +32,7 @@ def arm(law):
 
 
 def test_the_band_yields_a_riser_one_weld_spacing_wide(arm, law):
-    from auto_patch_v2.model.planar import band_risers
+    from auto_patch_v2.model.band_riser import band_risers
     pm, _sol, _rep = arm
     rs = band_risers(pm)
     assert rs, "no riser beside the road in the strip"
@@ -47,7 +47,7 @@ def test_the_band_yields_a_riser_one_weld_spacing_wide(arm, law):
 
 
 def test_the_road_keeps_its_ground_and_the_riser_is_the_wall(arm, law):
-    from auto_patch_v2.model.planar import band_risers
+    from auto_patch_v2.model.band_riser import band_risers
     from auto_patch_v2.pipeline.band_road_wall import LABEL, band_road_wall_joints
     pm, sol, _rep = arm
     road = _road(pm)
@@ -66,7 +66,7 @@ def test_the_bending_is_cut_across_the_riser(arm):
     """``solve/wall_cut.riser_cut_edges``: every cut edge joins a ribbon
     vertex to a band vertex; none joins two ribbon vertices (the road keeps
     its own bending)."""
-    from auto_patch_v2.model.planar import band_risers
+    from auto_patch_v2.model.band_riser import band_risers
     from auto_patch_v2.solve.rows import _face_triangles
     from auto_patch_v2.solve.wall_cut import riser_cut_edges
     pm, _sol, _rep = arm

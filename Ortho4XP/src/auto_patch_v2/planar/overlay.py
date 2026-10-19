@@ -60,7 +60,7 @@ __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_ban
 from ..classify.sources import ENCLOSED_MIN_FRAC  # noqa: E402,F401
 from ..geom.union_find import find_root
 from ..model.end_area import end_area_lengths
-from ..model.planar import is_band_riser_ref
+from ..model.band_riser import is_band_riser_ref
 
 
 @_dc.dataclass(frozen=True)

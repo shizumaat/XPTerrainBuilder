@@ -446,6 +446,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.law.units",
     "auto_patch_v2.law.witness",
     "auto_patch_v2.model.airport",
+    "auto_patch_v2.model.band_riser",
     "auto_patch_v2.model.constraint_codec",
     "auto_patch_v2.model.constraints",
     "auto_patch_v2.model.end_area",

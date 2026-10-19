@@ -408,6 +408,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.band_riser",
         "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.islands",
@@ -768,6 +769,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
         "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.band_riser",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.frame",
@@ -968,7 +970,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.precedence constraints.ramp_runout constraints.band_riser
         constraints.road_ramp geom
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
-        geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport
+        geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport model.band_riser
         model.islands model.map_memo model.platform
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
@@ -977,7 +979,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.pads constraints.platform constraints.precedence
         constraints.band_riser constraints.road_ramp geom geom.base_slab geom.cluster_outline
         geom.containment
-        geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport
+        geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport model.band_riser
         model.islands model.map_memo model.platform
     """),
     "roads": _mods(_GENERATOR_CORE + """
@@ -1095,7 +1097,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_site_schema law.inset_class law.model
     law.model_types law.rebake_schema law.reference_code law.role_cap_schema law.tables
-    law.terrace_schema law.tunnel_object_schema law.units model.airport
+    law.terrace_schema law.tunnel_object_schema law.units model.airport model.band_riser
     model.constraints model.end_area model.frame model.ground_fit model.hard_plane
     model.islands model.map_memo model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum pipeline.shapes
@@ -1197,7 +1199,7 @@ CODE_MODULES["solve"] = _mods("""
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
     law.eat_schema law.flat_site_schema law.inset_class law.model law.model_types
     law.rebake_schema law.reference_code law.role_cap_schema law.tables
-    law.terrace_schema law.tunnel_object_schema law.units model.airport
+    law.terrace_schema law.tunnel_object_schema law.units model.airport model.band_riser
     model.constraints model.end_area model.frame model.hard_plane model.islands
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
@@ -1278,7 +1280,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
-    model.airport model.constraint_codec model.constraints model.end_area model.frame
+    model.airport model.band_riser model.constraint_codec model.constraints model.end_area model.frame
     model.ground_fit model.hard_plane model.islands model.jetway model.map_memo
     model.pad_terrace model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum
@@ -1350,7 +1352,7 @@ CODE_MODULES["emit"] = _mods("""
     law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
-    model.airport model.constraints model.end_area model.frame model.hard_plane
+    model.airport model.band_riser model.constraints model.end_area model.frame model.hard_plane
     model.islands model.jetway model.map_memo model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.authored_seats pipeline.emit_stage
@@ -1403,7 +1405,7 @@ CODE_MODULES["verify"] = _mods("""
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_site_schema law.inset_class law.model
     law.model_types law.rebake_schema law.reference_code law.role_cap_schema law.tables
-    law.terrace_schema law.tunnel_object_schema law.units model.airport
+    law.terrace_schema law.tunnel_object_schema law.units model.airport model.band_riser
     model.constraints model.end_area model.frame model.islands model.map_memo
     model.placement model.planar model.platform model.pulse model.rebake
     model.registries model.structures model.threshold_datum pipeline.band_road_wall

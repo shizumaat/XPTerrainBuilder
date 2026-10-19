@@ -23,7 +23,8 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..model.planar import PlanarMap, band_risers
+from ..model.band_riser import band_risers
+from ..model.planar import PlanarMap
 
 __all__ = ["band_road_wall_joints", "LABEL"]
 

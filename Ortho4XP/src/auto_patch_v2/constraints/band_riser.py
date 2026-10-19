@@ -21,8 +21,9 @@ import dataclasses as _dc
 import typing as _t
 
 from ..law import Law
+from ..model.band_riser import band_risers
 from ..model.constraints import ConstraintSet, Linear
-from ..model.planar import PlanarMap, band_risers, is_osm_ribbon_ref
+from ..model.planar import PlanarMap, is_osm_ribbon_ref
 
 __all__ = ["riser_release"]
 

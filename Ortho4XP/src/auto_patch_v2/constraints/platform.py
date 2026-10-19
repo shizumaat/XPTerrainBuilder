@@ -332,6 +332,15 @@ def _bank_rows(planar: PlanarMap, law: Law,
                 terrace.add(o)
                 keep.append(o)
                 continue
+            if other and all(is_collar_ref(planar.faces[q].ref) for q in inc):
+                # THE SEAM BETWEEN TWO BANKS (issue #711): a vertex only
+                # collars share is ground both banks reach — each keeps its
+                # one-way 1:3 rim row (the plate leads).  With no row at all
+                # it was a column the bending stencil held: HECA's run-out
+                # | landing collar seam at 30.1113600, 31.3922450 stood at
+                # 92.02 m, 3.3 m under its DEM, beside a 100.5 m run-out
+                keep.append(o)
+                continue
             if other:
                 continue
             keep.append(o)

@@ -15,20 +15,26 @@ The fixture: two ramp landings side by side, each a flat face with its
 from __future__ import annotations
 
 import pytest
-
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import platform
+from auto_patch_v2.law import Law
 from auto_patch_v2.model.planar import COLLAR_SUFFIX, is_collar_ref
 from auto_patch_v2.planar.build import build
-
-from test_unitplatform_platform import _Dem, _base_cells, bank_law, law  # noqa: F401
+from test_unitplatform_platform import _base_cells, _Dem
 from test_v2frontage import _airport, _rect
 
 A, B = "padU/landing0", "padU/landing1"
 
 
 @pytest.fixture(scope="module")
-def seamed(bank_law):
+def seam_law():
+    # a landing's flat face is no held block: the 29s contact-led plane
+    from tests.auto_patch_v2._plate import contact_led_law
+    return contact_led_law(Law.for_airport("ZZZZ"))
+
+
+@pytest.fixture(scope="module")
+def seamed(seam_law):
     cells = _base_cells() + [
         Cell(2, "building", A, _rect(-55.0, 205.0, -5.0, 295.0), (), None, None,
              "airside", "pad", {}),
@@ -38,12 +44,12 @@ def seamed(bank_law):
              "airside", "pad", {}),
         Cell(5, "building", B + COLLAR_SUFFIX, _rect(0.0, 200.0, 60.0, 300.0),
              (_rect(5.0, 205.0, 55.0, 295.0),), None, None, "airside", "pad", {})]
-    airport = _airport(bank_law, _Dem())
-    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), bank_law)
+    airport = _airport(seam_law, _Dem())
+    pm, _st = build(airport, Classification(tuple(cells), (), {}, ()), seam_law)
     return pm, airport
 
 
-def test_a_vertex_only_two_collars_share_keeps_both_banks(seamed, bank_law):
+def test_a_vertex_only_two_collars_share_keeps_both_banks(seamed, seam_law):
     pm, airport = seamed
     edge_v = {v for e in pm.edges.values() if e.left_face is None or e.right_face is None
               for v in (e.a, e.b)}
@@ -51,7 +57,7 @@ def test_a_vertex_only_two_collars_share_keeps_both_banks(seamed, bank_law):
             and all(is_collar_ref(pm.faces[q].ref) for q in vx.incident_faces)
             and len({pm.faces[q].ref for q in vx.incident_faces}) == 2}
     assert seam, "the fixture must carry a seam vertex off the coverage edge"
-    rows = [r for r in platform.platform_collar_rows(pm, bank_law, airport) if r.a in seam]
+    rows = [r for r in platform.platform_collar_rows(pm, seam_law, airport) if r.a in seam]
     plate = {v: {pm.faces[q].ref for q in vx.incident_faces}
              for v, vx in pm.vertices.items()}
     for v in seam:
@@ -60,4 +66,4 @@ def test_a_vertex_only_two_collars_share_keeps_both_banks(seamed, bank_law):
         # 1:3 bank with the flat side leading
         assert {A, B} <= {ref for r in mine for ref in plate[r.b]}
         assert all(r.follows == (v,) and r.cap == pytest.approx(
-            float(bank_law.tables.emit.design.bank_slope)) for r in mine)
+            float(seam_law.tables.emit.design.bank_slope)) for r in mine)

@@ -30,7 +30,8 @@ from auto_patch_v2.pipeline.prefix import Deriver
 from auto_patch_v2.pipeline.shapes import joint_steps
 from auto_patch_v2.solve import Options, solve_design
 from tests.auto_patch_v2.test_backhalf_records import ICAO, _copy, _states
-from tests.auto_patch_v2.test_solve_late_records import INPUTS, PACK, _late_world, _unclocked
+from tests.auto_patch_v2.test_solve_late_records import (
+    INPUTS, PACK, _first_difference, _late_world, _unclocked)
 
 
 def _run(root: Path | None, out_dir: Path) -> dict:
@@ -100,13 +101,40 @@ def _files(arm: dict, clocks: bool) -> dict:
             for k, v in arm["files"].items()}
 
 
+_SIDECAR_B = re.compile(r"sidecar \d+ B")
+
+
+def _sidecar_sized(arm: dict) -> dict:
+    """``arm`` with the sidecar's byte count checked against the file the
+    arm wrote and then masked: the sidecar carries the solve's clocks as
+    decimals (``"solver_wall_s":0.01`` / ``0.009``), so its LENGTH is a
+    clock reading too — a cold run's equals a hit's only when every clock
+    happens to print as many digits (a slow runner, e.g. Windows CI, often
+    does not).  Its CONTENT is compared unclocked by ``_files``."""
+    rep = dict(arm["report"])
+    emit = dict(rep["emit"])
+    side = Path(emit["sidecar"]).name
+    assert emit["bytes_sidecar"] == len(arm["files"][side])
+    emit["bytes_sidecar"] = "<clocked>"
+    rep["emit"] = emit
+    lines = [_SIDECAR_B.sub("sidecar <clocked> B", ln) for ln in arm["lines"]]
+    assert sum(_SIDECAR_B.search(ln) is not None for ln in arm["lines"]) == 1
+    return {**arm, "report": rep, "lines": lines}
+
+
 def _same(a: dict, b: dict, *, clocks: bool = True) -> None:
     """``a`` equals ``b``: every file byte for byte (``clocks`` False: the
-    JSON files but for their clocks), the report, the lines, the rows."""
+    JSON files but for their clocks, and the sidecar's byte count — itself
+    a clock reading — only against each arm's own file), the report, the
+    lines, the rows."""
     assert a["files"] and _files(a, clocks) == _files(b, clocks)
+    if not clocks:
+        a, b = _sidecar_sized(a), _sidecar_sized(b)
     ra, rb = dict(a["report"]), dict(b["report"])
     va, vb = ra.pop("verify"), rb.pop("verify")
-    assert (ra == rb) if clocks else (_unclocked(ra) == _unclocked(rb))
+    if not clocks:
+        ra, rb = _unclocked(ra), _unclocked(rb)
+    assert ra == rb, _first_difference(ra, rb) or "same values, other container types"
     assert {k: v for k, v in va.items() if k != "wall_s"} == \
         {k: v for k, v in vb.items() if k != "wall_s"}
     assert _clockless(a["lines"]) == _clockless(b["lines"])

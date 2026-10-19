@@ -392,13 +392,30 @@ def test_t6_every_generator_alone_in_order_and_shuffled_agrees(world):
     shuffled = list(GENERATORS)
     random.Random(843).shuffle(shuffled)
     assert {n: gen_digest(fn, stage.pm, law, airport) for n, fn in shuffled} == in_order
-    procs = [_alone([n]) for n, _f in GENERATORS]
     alone: dict[str, str] = {}
-    for p in procs:
-        out, err = p.communicate(timeout=600)
-        assert p.returncode == 0, err[-2000:]
+    for n, (code, out, err) in _each_alone([n for n, _f in GENERATORS]):
+        assert code == 0, f"{n}: {err[-2000:]}"
         alone.update(json.loads(out.strip().splitlines()[-1]))
     assert alone == in_order
+
+
+def _each_alone(names: list[str]):
+    """``(name, (returncode, stdout, stderr))`` of each generator run ALONE
+    in its own fresh process, at most ``_ALONE_LIVE`` processes at once:
+    some 57 interpreters importing scipy together exhaust a small runner
+    (Windows CI children died with an access violation in the import)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(n: str) -> tuple[int, str, str]:
+        p = _alone([n])
+        out, err = p.communicate(timeout=600)
+        return p.returncode, out, err
+    with ThreadPoolExecutor(max_workers=_ALONE_LIVE) as ex:
+        return list(zip(names, ex.map(one, names), strict=True))
+
+
+#: The most ``_alone`` children alive at once.
+_ALONE_LIVE = max(1, min(4, os.cpu_count() or 1))
 
 
 #: Every ``id(...)`` argument in ``constraints/`` and ``solve/``: a MAP, a law,

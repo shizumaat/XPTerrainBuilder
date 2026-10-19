@@ -1,0 +1,33 @@
+{
+  "files": {
+    "Data+45+007.1.ele": "cf2622e7489ce99a8f8e83f86a529e3696163ae85a94e17412720b317ee25fce",
+    "Data+45+007.1.node": "c18c9c65669ef5cdedba16fe09b203eb0ea1b577ddf7c48a3d1ba63d6b9ad661",
+    "Data+45+007.alt": "0645e2e031b15d359c4420f206b72adc8f6ad705402ff676372aff53d4d92cfa",
+    "Data+45+007.mesh": "59c16ae5ccca8a74bf564cdacb80bf2fb559add50bbc870fcf3377360ee029db",
+    "Data+45+007.node": "35a2ed7af5800a5764f37afcd943fea9c3df9b85b815eed30424e7c7f366e7da",
+    "Data+45+007.poly": "24477c2e47c3297de5c45b190bbfe085454c3584e077c592850ef792ee6f9583",
+    "default_xplane.dsf": "8c88d596fbfca74334cc4dd1a831a02270e521e89ebf3dfc8cedf9a43c574996",
+    "full_ortho.dsf": "1e2ec1c9a5927b1041b4563b1b88f3959b1da6d35fb794025d932e73eabb7994"
+  },
+  "history": [
+    {
+      "date": "2026-10-19",
+      "platform": "lin",
+      "reason": "initial fixture (#856)"
+    }
+  ],
+  "issue": "#856 (B3-24), code-quality-beta3-spec.md section 6",
+  "platform_files": {},
+  "recipe": "Ortho4XP/tools/fixtures/make_mesh_dsf_fixture.py",
+  "total_bytes": 167414,
+  "triangle": {
+    "lin": {
+      "binary": "Utils/lin/Triangle4XP",
+      "binary_sha256": "d37897be3e7b7b90066060c1d8c875ae66d36050a22eece5e8c02fd3c6367948",
+      "outputs": {
+        "Data+45+007.1.ele": "cf2622e7489ce99a8f8e83f86a529e3696163ae85a94e17412720b317ee25fce",
+        "Data+45+007.1.node": "c18c9c65669ef5cdedba16fe09b203eb0ea1b577ddf7c48a3d1ba63d6b9ad661"
+      }
+    }
+  }
+}

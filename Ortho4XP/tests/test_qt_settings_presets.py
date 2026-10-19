@@ -47,13 +47,14 @@ def _titles(cards):
     return [PRESETS.preset(key).title for key in cards.cards]
 
 
-def test_settings_shows_the_three_cards_and_recommended(window):
+def test_settings_shows_the_three_cards_and_balanced(window):
+    # An untouched global config is the registry defaults: Balanced.
     cards = window.preset_cards
-    assert _titles(cards) == ["Recommended", "Sharper airports",
-                              "Light on disk"]
-    assert cards.current_key == "recommended"
-    assert cards.status_label.text() == "Current: Recommended"
-    assert not cards.buttons["recommended"].isEnabled()
+    assert _titles(cards) == ["Light on disk", "Balanced",
+                              "Sharper airports"]
+    assert cards.current_key == "balanced"
+    assert cards.status_label.text() == "Current: Balanced"
+    assert not cards.buttons["balanced"].isEnabled()
 
 
 def test_applying_a_preset_sets_exactly_its_keys(window):
@@ -92,7 +93,7 @@ def test_a_preset_keeps_a_tiles_own_override(qapp, tmp_path, monkeypatch):
                          custom_build_dir=build_dir)
     try:
         win.preset_cards.buttons["sharper_airports"].click()
-        assert SM.read_global_raw()["cover_airports_with_highres"] == "True"
+        assert SM.read_global_raw()["cover_airports_with_highres"] == "ICAO"
         # The tile row keeps showing the tile's own value.
         assert SM.values_equivalent(
             "cover_extent", win.rows["cover_extent"].value(), "3.0")
@@ -108,9 +109,10 @@ def test_first_run_shows_the_cards_and_hands_back_the_pick(
     try:
         wizard._set_step(WIZ.STEPS.index("Imagery"))
         cards = wizard.preset_cards
-        assert _titles(cards) == ["Recommended", "Sharper airports",
-                                  "Light on disk"]
-        assert cards.status_label.text() == "Current: Recommended"
+        assert _titles(cards) == ["Light on disk", "Balanced",
+                                  "Sharper airports"]
+        # A new user starts from the default preset (#937).
+        assert cards.status_label.text() == "Current: Sharper airports"
         cards.buttons["light_on_disk"].click()
         assert wizard.zl_combo.currentText() == "15"
         assert cards.current_key == "light_on_disk"
@@ -118,6 +120,33 @@ def test_first_run_shows_the_cards_and_hands_back_the_pick(
         assert wizard.prefs["zl"] == 15
         assert wizard.preset_values == PRESETS.cfg_values(
             PRESETS.preset("light_on_disk"))
+    finally:
+        wizard.close()
+
+
+def test_first_run_finish_writes_the_default_preset(
+        qapp, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(WIZ, "detect_xplane_installs", lambda: [])
+    wizard = WIZ.OnboardingWizard({}, ["BI"])
+    try:
+        wizard._finish()
+        assert wizard.preset_values == PRESETS.cfg_values(
+            PRESETS.default_preset())
+    finally:
+        wizard.close()
+
+
+def test_first_run_keeps_a_config_that_sets_a_preset_key(
+        qapp, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(WIZ, "detect_xplane_installs", lambda: [])
+    SM.write_global({"cover_extent": "2.5"})
+    wizard = WIZ.OnboardingWizard({}, ["BI"])
+    try:
+        assert wizard.preset_cards.status_label.text() == "Current: Custom"
+        wizard._finish()
+        assert wizard.preset_values == {}
     finally:
         wizard.close()
 

@@ -68,7 +68,7 @@ function (docstrings excluded).
 | O4_Airport_Elevation_Insets.py | warn_if_delivered_inset_clips_airport | 1 | uncoded | | ground beyond a short inset is graded on the base source |
 | O4_Airport_Elevation_Insets.py | _clear_poisoned_insets | 1 | diagnostic | | an unreadable cached inset is removed and refetched |
 | O4_Airport_Elevation_Insets.py | _archive_void_inset_record | 1 | diagnostic | | a void record could not be archived |
-| O4_Airport_Elevation_Insets.py | ensure_airport_insets._fetch_airport_insets | 2 | degraded | inset_fetch_failed | an airport inset was not fetched, so the airport uses the base source |
+| O4_Airport_Elevation_Insets.py | ensure_airport_insets._fetch_airport_insets | 1 | degraded | inset_fetch_failed | an airport inset was not fetched and none is cached, so the airport uses the base source (a failed refetch that keeps the cached inset is an INFO line, #924) |
 | O4_Airport_Elevation_Insets.py | _load_inset_raster | 1 | uncoded | | an unreadable inset is skipped |
 | O4_Airport_Elevation_Insets.py | parse_airport_elevation_level | 1 | config | | an unrecognised level reads as auto |
 | O4_Airport_Elevation_Insets.py | ensure_insets_for_tile | 2 | degraded | inset_fetch_failed | the same, published by the home tile's pass |

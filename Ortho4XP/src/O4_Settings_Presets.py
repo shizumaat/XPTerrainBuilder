@@ -1,11 +1,11 @@
 """Settings presets: the three starting points a new user picks from (#822).
 
-**Recommended**, **Sharper airports** and **Light on disk** each write the
+**Light on disk**, **Balanced** and **Sharper airports** each write the
 SAME fixed set of keys (:data:`PRESET_KEYS`) with fixed values.  The Mac app
 mirrors :data:`PRESETS` row for row in
 ``Sources/XPTerrainBuilder/SettingsPresets.swift``;
 ``tests/test_settings_presets.py`` fails when the two differ, when
-Recommended stops equalling the shipped defaults, or when a cost line's
+Balanced stops equalling the registry defaults, or when a cost line's
 figures stop matching their derivation (``docs/presets.md``).
 
 Every key is an existing one: three engine config keys from
@@ -17,7 +17,10 @@ preset never changes a key's name or its stored value format.
 Values are stored as the cfg literal ``O4_Settings_Model.coerce`` produces,
 so a preset compares with the stored config through
 ``O4_Settings_Model.values_equivalent``.  When the current values match no
-preset, the window shows :data:`CUSTOM_TITLE`.
+preset, the window shows :data:`CUSTOM_TITLE`.  A new user starts from
+:data:`DEFAULT_PRESET` (Sharper airports, #937): the first-run screens apply
+it; the engine's own defaults stay Balanced, so builds outside the apps
+(the harness, the CLI) are unchanged.
 """
 
 from __future__ import annotations
@@ -28,9 +31,10 @@ import O4_Cfg_Vars
 import O4_Settings_Model as SM
 
 __all__ = [
-    "Preset", "PRESETS", "PRESET_KEYS", "ZOOM_PREF", "CUSTOM_TITLE",
-    "SECTION_TITLE", "SECTION_NOTE", "SHARPER_AIRPORTS_EXTRA_GB",
-    "RELATIVE_BUILD_TIME", "preset", "cfg_values", "zoom_value",
+    "Preset", "PRESETS", "PRESET_KEYS", "DEFAULT_PRESET", "ZOOM_PREF",
+    "CUSTOM_TITLE", "SECTION_TITLE", "SECTION_NOTE",
+    "SHARPER_AIRPORTS_EXTRA_GB", "RELATIVE_BUILD_TIME", "preset",
+    "default_preset", "unset_in", "cfg_values", "zoom_value",
     "default_zoom", "current_values", "matching_preset", "status_text",
 ]
 
@@ -72,35 +76,49 @@ class Preset:
 # 60°N (docs/presets.md gives the formula; the twin recomputes the figures).
 PRESETS = (
     Preset(
-        "recommended", "Recommended",
-        "The settings the app ships with: ZL16 everywhere.",
+        "light_on_disk", "Light on disk",
+        "ZL15 everywhere: coarser imagery, smaller downloads.",
+        "About 0.4–0.8 GB of imagery per tile, a quarter of Balanced.",
+        (("zl", "15"), ("cover_airports_with_highres", "False"),
+         ("cover_zl", "18"), ("cover_extent", "1.0")),
+    ),
+    Preset(
+        "balanced", "Balanced",
+        "The standard settings: ZL16 everywhere.",
         "About 1.6–3.1 GB of imagery per tile.",
         (("zl", "16"), ("cover_airports_with_highres", "False"),
          ("cover_zl", "18"), ("cover_extent", "1.0")),
     ),
     Preset(
         "sharper_airports", "Sharper airports",
-        "ZL16, and ZL18 imagery on and around every airport.",
+        "ZL16, and ZL18 imagery on and around airports with ICAO codes.",
         "About 1.6–3.1 GB per tile, plus the sharper airports.",
-        (("zl", "16"), ("cover_airports_with_highres", "True"),
-         ("cover_zl", "18"), ("cover_extent", "1.0")),
-    ),
-    Preset(
-        "light_on_disk", "Light on disk",
-        "ZL15 everywhere: coarser imagery, smaller downloads.",
-        "About 0.4–0.8 GB of imagery per tile, a quarter of Recommended.",
-        (("zl", "15"), ("cover_airports_with_highres", "False"),
+        (("zl", "16"), ("cover_airports_with_highres", "ICAO"),
          ("cover_zl", "18"), ("cover_extent", "1.0")),
     ),
 )
+
+#: The preset a new user starts from (owner, #937): the first-run screens
+#: apply it unless the global config already sets a preset key.
+DEFAULT_PRESET = "sharper_airports"
 
 # MEASURED BY THE MASTER (no corpus in the lane that wrote this table).
 #: Extra imagery GB per tile that Sharper airports adds; it depends on how
 #: many airports a tile holds, so it is a measured range, e.g. (0.1, 0.5).
 SHARPER_AIRPORTS_EXTRA_GB = None
-#: Whole-tile build time relative to Recommended, per preset key, e.g.
-#: {"recommended": 1.0, "sharper_airports": 1.1, "light_on_disk": 0.6}.
+#: Whole-tile build time relative to Balanced, per preset key, e.g.
+#: {"balanced": 1.0, "sharper_airports": 1.1, "light_on_disk": 0.6}.
 RELATIVE_BUILD_TIME: dict = {}
+
+
+def default_preset() -> Preset:
+    return preset(DEFAULT_PRESET)
+
+
+def unset_in(global_raw: dict) -> bool:
+    """Whether the global config sets none of the preset keys, so a new
+    user gets :data:`DEFAULT_PRESET` (the zoom is a preference, not cfg)."""
+    return not any(name in global_raw for name in PRESET_KEYS[1:])
 
 
 def preset(key: str) -> Preset:

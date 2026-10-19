@@ -70,9 +70,10 @@ RETIRED = {
 # Bare technical words a Settings row OUTSIDE Expert may not use in its
 # label or its category title (issue #823): the row says what it does in
 # plain words, and the Expert section keeps the technical names.  Matched
-# as whole words, ignoring case.
+# as whole words, ignoring case.  "ZL" is not retired: detail levels keep
+# their ZL numbers (owner ruling 2026-10-18).
 RETIRED_WORDS = (
-    "ZL", "DEM", "DSF", "DDS", "OSM", "TMS", "HTTP", "LOD", "CIFP", "AIRAC",
+    "DEM", "DSF", "DDS", "OSM", "TMS", "HTTP", "LOD", "CIFP", "AIRAC",
     "Overpass", "lidar", "mesh", "mask", "masks", "masking", "curvature",
     "bathymetry", "bathy", "triangle", "triangles", "ortho", "orthophoto",
     "orthophotos", "inset", "insets", "patch", "patches", "decal", "vector",

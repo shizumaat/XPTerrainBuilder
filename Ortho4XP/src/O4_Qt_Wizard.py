@@ -108,7 +108,12 @@ class OnboardingWizard(QDialog):
         #: (#822), for the caller to write; empty when none was picked or
         #: the zoom was changed after it.
         self.preset_values = {}
-        self._preset_key = None
+        # A new user starts from the default preset (#937) unless the
+        # global config already sets one of its keys.
+        import O4_Settings_Model as SM
+
+        self._preset_key = (PRESETS.DEFAULT_PRESET
+                            if PRESETS.unset_in(SM.read_global_raw()) else None)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)

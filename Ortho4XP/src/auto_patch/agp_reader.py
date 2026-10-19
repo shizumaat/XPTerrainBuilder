@@ -156,8 +156,12 @@ def _parse_library_txt(lib_path: str, index: dict[str, str],
         physical = line.split(virtual, 1)[1].strip()
         if not physical:
             continue
-        phys_abs = os.path.normpath(
-            os.path.join(lib_dir, physical.replace("\\", "/")))
+        # ``\\`` and ``:`` are directory separators to X-Plane (Windows and
+        # classic Mac OS authoring): ff_library exports ``fence:fence.fac``,
+        # and reading the colon as a name character left 36 stock ``lib/``
+        # paths cached pack dumps place resolving to no file (issue #442)
+        phys_abs = os.path.normpath(os.path.join(
+            lib_dir, physical.replace("\\", "/").replace(":", "/")))
         target = (backups if directive == "EXPORT_BACKUP"
                   and backups is not None else index)
         old = target.get(virtual)
@@ -224,7 +228,8 @@ def _library_source_files(xplane_root: str) -> list[str]:
 # Bump when the parse changes shape in a way that would make an old
 # cached index wrong (e.g. a new EXPORT directive, a different key
 # scheme) — invalidates every sidecar.
-_LIB_INDEX_CACHE_VERSION = 2   # 2: EXPORT_BACKUP yields to real exports (#950)
+_LIB_INDEX_CACHE_VERSION = 3   # 3: ``:`` is a directory separator (#442)
+                               # 2: EXPORT_BACKUP yields to real exports (#950)
 
 # Sidecar name prefix; the full name carries a digest of the absolute
 # xplane_root so two installs never collide.  Lives beside the object

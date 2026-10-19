@@ -43,6 +43,21 @@ the mapped portal and the new mouth is
 covered bore — it emits nothing and the pavement over it keeps its own
 surface.  Beyond the mouth the station-truncation loop of
 ``structures.build_structures`` stops the ramp's TOP at the same set.
+
+A SLID MOUTH CONTINUES THE ROAD'S OWN PROFILE (owner, issue #1028: "a
+mouth that slides is placed where the road's own geometry reaches grade,
+not just at the first point past the pavement").  The road leaves the
+bore at the MAPPED portal's floor (its DEM less ``mouth_depth_m``, the
+§33 (3) crest cap applied) and climbs along the approach at the design
+``ramp_grade`` (:func:`road_profile`) — held at the bore's depth under
+any pavement it passes beneath (a road under a taxiway keeps its cover).
+The slid mouth's floor is that profile at the mouth — never a
+fresh ``mouth_depth_m`` under the ground there, which dug a full-depth
+trench where the road had already come up (measured EDDF: a motorway at
+grade 104.5 m beyond the plateau's edge given a 7.5 m trench and a 168 m
+ramp back up).  Where the profile REACHES GRADE before the mouth stands
+clear of the pavement, the road surfaces under that pavement: no open
+ramp stands beyond it and none is built — the DEM carries the road.
 """
 from __future__ import annotations
 
@@ -53,14 +68,18 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import substring, unary_union
 from shapely.strtree import STRtree
 
+from ..airport.dem import dem_z_at
 from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_family, role_side
 from ..model.frame import rotated_rectangle
 
-__all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement"]
+__all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
 _SLIDE_PASSES = 4
+#: The road profile's sampling step along the approach (m): the ground's
+#: fall at a plateau's edge is a few metres long.
+_PROFILE_STEP_M = 1.0
 
 
 def _host_run_m(axis: LineString, poly: Polygon, grid: float) -> float:
@@ -116,12 +135,23 @@ def _own_road(axis: LineString, poly: Polygon, reach: float, grid: float) -> boo
     runs ALONG, inside it for longer than the ribbon is wide.  A road the
     axis crosses, or a lot / pack road polygon wider than the corridor, is
     pavement the ramp runs beside or through, and stops it."""
-    mrr = rotated_rectangle(poly)
-    cs = list(mrr.exterior.coords)[:-1]
+    width = _narrow_width(poly)
+    return width <= 2.0 * reach + grid and _runs_along(axis, poly, width, grid)
+
+
+def _narrow_width(poly: Polygon) -> float:
+    """The polygon's width: its rotated rectangle's short side (inf for a
+    degenerate one)."""
+    cs = list(rotated_rectangle(poly).exterior.coords)[:-1]
     if len(cs) < 4:
-        return False
-    width = min(math.dist(cs[i], cs[(i + 1) % 4]) for i in range(4))
-    return width <= 2.0 * reach + grid and axis.intersection(poly).length > width + grid
+        return math.inf
+    return min(math.dist(cs[i], cs[(i + 1) % 4]) for i in range(4))
+
+
+def _runs_along(axis: LineString, poly: Polygon, width: float, grid: float) -> bool:
+    """The axis runs ALONG ``poly`` — inside it for longer than it is wide:
+    a ribbon the road follows, never one it passes under."""
+    return axis.intersection(poly).length > width + grid
 
 
 def clear_mouth(axis: LineString, stops: list[tuple[Polygon, str]], half: float,
@@ -182,15 +212,76 @@ def _extend_back(seg: LineString, by: float) -> LineString:
     return LineString([head, *seg.coords])
 
 
+def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float],
+                 inward: tuple[float, float], rim_off: float, spacing: float,
+                 cover: _t.Sequence[Polygon] = ()):
+    """THE ROAD'S OWN PROFILE out of a MAPPED portal (#1028; module doc):
+    ``(z_p, s_g, floor_at)`` or ``None`` where the DEM carries no portal.
+
+    ``z_p`` is the floor at the portal: the DEM at the rim's cap centre
+    (``rim_off`` in front of the mouth line, as the build's datum reads
+    it), crest-capped at the approach's ground + ``mouth_depth_m`` as §33
+    (3) caps it, less ``mouth_depth_m``.  Out along ``axis`` the road
+    climbs from it at ``ramp_grade`` — but WHERE THE AXIS PASSES UNDER
+    PAVEMENT (``cover``, the stops the mouth slid out of, save a ribbon the
+    axis runs along: the road's own paving) it keeps the
+    bore's depth under that pavement's ground (the floor never rises above
+    ``DEM − mouth_depth_m`` there): the slide never thins the cover over
+    a road passing under a taxiway.  ``floor_at(s)`` is that profile;
+    ``s_g`` the first station, out from under the pavement, where the
+    ground has come down to it (``None`` within the slide cap plus the
+    longest ramp)."""
+    from .structure_approach import approach_ground
+    tn = law.tables.structures.tunnel
+    z = dem_z_at(airport, (portal[0] + inward[0] * rim_off, portal[1] + inward[1] * rim_off))
+    if math.isnan(z):
+        return None
+
+    def fn(s: float) -> tuple[float, float]:
+        q = axis.interpolate(min(s, axis.length))
+        return (q.x, q.y)
+    ground = approach_ground(airport, fn, tn.mouth_depth_m, spacing)
+    if not math.isnan(ground):
+        z = min(z, ground + tn.mouth_depth_m)          # §33 (3): an overbridge is no cover
+    z_p = z - tn.mouth_depth_m
+    # a ribbon the road runs ALONG is the road's own paving, never its cover
+    cover = [p for p in cover if not _runs_along(axis, p, _narrow_width(p), _PROFILE_STEP_M)]
+    tree = STRtree(cover) if cover else None
+    step = min(spacing, _PROFILE_STEP_M)
+    lim = min(axis.length, tn.mouth_slide_max_m + tn.max_ramp_length_m)
+    floors, s_g, f, s = [z_p], None, z_p, step
+    while s <= lim + 1e-9:
+        q = Point(fn(s))
+        d = dem_z_at(airport, (q.x, q.y))
+        f += tn.ramp_grade * step
+        under = tree is not None and len(tree.query(q, predicate="within")) > 0
+        if under and not math.isnan(d):
+            f = min(f, d - tn.mouth_depth_m)
+        floors.append(f)
+        if s_g is None and not under and not math.isnan(d) and d <= f:
+            s_g = s
+        s += step
+
+    def floor_at(s: float) -> float:
+        k = min(len(floors) - 1, max(0, int(round(s / step))))
+        return floors[k]
+    return z_p, s_g, floor_at
+
+
 def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       cut_roles: _t.Collection[str], half: float, rim_off: float, gap: float,
-                      spacing: float, grid: float, decked: _t.Sequence[Polygon]):
+                      spacing: float, grid: float, decked: _t.Sequence[Polygon],
+                      airport=None):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
-    bore's group: ``(axis, mouth, stops, tree, note)`` with the axis
-    starting at the mouth that stands clear of the pavement (the module
-    doc); ``axis`` is ``None`` and ``note`` the refusal when no mouth on
-    the approach does.  ``decked`` are the corridor's own deck polygons
-    (read on the mapped approach).  ``stops`` / ``tree`` carry the building ``pads`` too
+    bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
+    axis starting at the mouth that stands clear of the pavement (the
+    module doc); ``axis`` is ``None`` and ``note`` the refusal when no
+    mouth on the approach does, or when the road reaches grade under the
+    pavement.  ``floor_z`` is a SLID mouth's floor on the road's own
+    profile, held under the pavement it slid out of (:func:`road_profile`;
+    ``None`` for a mouth that did not slide, or without ``airport``): the
+    caller's datum is never deeper.  ``decked`` are the corridor's own deck
+    polygons (read on the mapped approach).  ``stops`` / ``tree`` carry the building ``pads`` too
     (``ramp_crosses_pad``: a pad stops the ramp's top but never slides
     the mouth).
 
@@ -223,7 +314,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     # the stops are re-read from each new mouth (an apron the new mouth
     # stands in, a host that starts there) and the slide repeats until the
     # mouth stands clear of them too
-    total, refs = 0.0, []
+    total, refs, cover = 0.0, [], []
     for _pass in range(_SLIDE_PASSES):
         here = substring(axis, total, axis.length)
         mouth = here.coords[0] if total > 0.0 else group.mouth
@@ -232,6 +323,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         s0, ref = clear_mouth(here, stops, half, rim_off, gap, spacing, grid,
                               lambda s, _t=total: ring_of(_t + s),
                               law.tables.structures.tunnel.mouth_slide_max_m - total)
+        cover.extend(p for p, _r in stops)
         if math.isnan(s0) or s0 <= 0.0:
             break
         total += s0
@@ -242,11 +334,31 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         return None, None, stops, tree, (
             f"the mouth cannot stand clear of pavement {ref} within "
             f"{law.tables.structures.tunnel.mouth_slide_max_m:.0f} m of its mapped portal "
-            f"(#971: a mouth stops at the pavement, never cuts it)")
+            f"(#971: a mouth stops at the pavement, never cuts it)"), None
     if total <= 0.0:
-        return axis, group.mouth, stops, tree, ""
+        return axis, group.mouth, stops, tree, "", None
+    at = ", ".join(dict.fromkeys(refs))
+    prof = None if airport is None else road_profile(airport, law, axis, group.mouth,
+                                                     group.inward, rim_off, spacing, cover)
+    floor = None
+    if prof is not None:
+        z_p, s_g, floor_at = prof
+        floor = floor_at(total)
+        q = substring(axis, total, axis.length).coords[0]
+        here = dem_z_at(airport, (q[0] + group.inward[0] * rim_off,
+                                  q[1] + group.inward[1] * rim_off))
+        if not math.isnan(here) and floor >= here:
+            s_g = min(total, s_g if s_g is not None else total)   # surfaced at the mouth's cap
+        if s_g is not None and s_g <= total + grid:
+            return None, None, stops, tree, (
+                f"the road reaches grade {s_g:.0f} m out along its approach (floor {z_p:.2f} at "
+                f"the mapped portal, climbing at the design grade), before its mouth stands clear "
+                f"of pavement {at} at {total:.1f} m: it surfaces under the pavement and no open "
+                f"ramp stands beyond it (#1028)"), None
     new = substring(axis, total, axis.length)
     p = new.coords[0]
     return new, (p[0], p[1]), stops, tree, (
-        f"mouth stops at pavement {', '.join(dict.fromkeys(refs))}: {total:.1f} m out along "
-        f"the approach from the mapped portal (#971; the stretch between is covered bore)")
+        f"mouth stops at pavement {at}: {total:.1f} m out along the approach from the mapped "
+        f"portal (#971; the stretch between is covered bore"
+        + ("" if floor is None else f", climbing on the road's own profile to floor {floor:.2f} "
+           f"at the mouth, #1028") + ")"), floor

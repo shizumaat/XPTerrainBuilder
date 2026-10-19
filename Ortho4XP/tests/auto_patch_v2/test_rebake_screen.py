@@ -337,6 +337,11 @@ def test_rebake_after_mesh_places_from_a_sidecar_and_skips_a_stale_one(
     # the second run reads the plan; ONE airport, not two (plan + sidecar)
     monkeypatch.setattr(RS, "build_plan", lambda *a, **k: pytest.fail("rebuilt"))
     counts = E.rebake_after_mesh(tile)
+    # #879: nothing the airport reads changed — its placement is SERVED
+    assert counts["airports"] == 1 and counts["airports_reused"] == 1
+    assert len(placed) == 1
+    monkeypatch.setenv("O4_OBJECT_STAGE_REUSE", "0")
+    counts = E.rebake_after_mesh(tile)
     assert counts["airports"] == 1 and len(placed) == 2 and placed[1] == placed[0]
     # another patch under the same sidecar: SKIPPED, nothing placed
     world.patch.write_text(PATCH.format(stamp="a").replace("lat='1.0'", "lat='7.0'"),

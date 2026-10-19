@@ -959,12 +959,17 @@ extension OrthoEngineClient {
     /// Asynchronous on the engine side (spec §5): the reply is
     /// `{"status": "started"}` and the `PackObjectsReady` event naming this
     /// command's id carries the result or the error.
-    public func packObjects(tile: String, icao: String, bbox: O4LatLonBox) async throws -> O4PackObjects {
+    /// `footprintsOnly` (#797): each model's plan hull instead of its
+    /// massing — the 2-D map's answer (OTHH: 47 MB in full).
+    public func packObjects(tile: String, icao: String, bbox: O4LatLonBox,
+                            footprintsOnly: Bool = false) async throws -> O4PackObjects {
         let once = O4ResumeOnce<O4PackObjects>()
+        let base: [String: Any] = ["tile": tile, "icao": icao, "bbox": bbox.wireArray]
+        let arguments = footprintsOnly ? base.merging(["footprints_only": true]) { a, _ in a } : base
         return try await withCheckedThrowingContinuation { continuation in
             once.set(continuation)
             send(command: "pack_objects",
-                 arguments: ["tile": tile, "icao": icao, "bbox": bbox.wireArray],
+                 arguments: arguments,
                  completion: { reply in
                      if !reply.ok {
                          once.resume(.failure(O4CommandError(reply.error ?? "The engine refused pack_objects.")))

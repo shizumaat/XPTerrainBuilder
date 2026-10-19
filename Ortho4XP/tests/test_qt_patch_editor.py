@@ -326,6 +326,18 @@ def test_footprints_turn_with_the_heading():
     assert (31.0 - min(lons)) * 111320 * np.cos(np.radians(30)) == pytest.approx(2, abs=1e-6)
 
 
+def test_a_plan_hull_answer_draws_the_same_footprint():
+    """#797: a ``footprints_only`` model carries its plan hull (x, z)."""
+    import base64
+    import numpy as np
+    hull = np.array([[0, 0], [10, 0], [10, 2], [0, 2]], dtype="<f4")
+    result = {"models": [{"key": "m", "plan_hull_f32_b64": base64.b64encode(hull.tobytes()).decode()}],
+              "placements": [{"model": "m", "lat": 30.0, "lon": 31.0, "heading_deg": 90.0, "agl_m": 0}],
+              "facades": []}
+    (ring,) = footprints_from_pack_objects(result)
+    assert (30.0 - min(p[0] for p in ring)) * 111320 == pytest.approx(10, abs=1e-6)
+
+
 def test_pack_outlines_follow_the_patch_through_pack_objects_ready(editor):
     from o4_engine import events as EV
     ed, view = editor
@@ -343,6 +355,7 @@ def test_pack_outlines_follow_the_patch_through_pack_objects_ready(editor):
     ed.controller.evaluate()
     ed.outlines.set_enabled(True)
     assert asked["tile"] == TILE and asked["icao"] == "ZZZZ"
+    assert asked["footprints_only"] is True         # the outlines only (#797)
     s, w, n, e = asked["bbox"]                      # the patch bbox + 500 m (A9)
     assert (30.1 - s) * 111320 == pytest.approx(500)
     assert not ed.outlines._pavement.isEmpty() and ed.outlines._footprints.isEmpty()

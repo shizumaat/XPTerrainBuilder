@@ -48,6 +48,9 @@ import dataclasses as _dc
 import math
 import typing as _t
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from .anchor_rule import RimRing
+
 __all__ = ["BASIN_WALL_REF", "Arc", "is_basin_ring", "arcs_of", "arc_of_node",
            "member_kind", "ring_ref_of", "arc_index_of", "bind_key_of", "ring_bar",
            "ring_reading", "ring_arcs", "arc_anchor", "floor_bodies", "plan_counts",

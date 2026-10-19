@@ -29,6 +29,9 @@ from ..model.frame import XY
 from .structure_approach import unit
 from ..airport.dem import dem_z_at
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from .channel import _Cand
+
 __all__ = ['_hole_region', '_field_region', '_runs', '_in_hole', '_across', '_along', '_spread_m', '_span', '_deck_ring', '_sides', '_lidar_floor', '_bank_width', '_walls_half', '_bank_toe_half', '_poly', '_parts', '_ends', '_witness_along', '_lidar_cut', '_confirmed']
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)

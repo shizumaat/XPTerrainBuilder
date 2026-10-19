@@ -20,10 +20,10 @@ extent is the same envelope) and grades WITH the zone (RULINGS 2026-09-13ar,
 2026-09-29r, owner 2026-09-30b) -- this module does not touch it.  A road
 whose centreline runs OUTSIDE every band is a groundside road the core mesh
 owns: the band must not enter its carriageway.  So the part of each such
-centreline outside the envelope is grown by the road's CARRIAGEWAY
-half-width (``structure_approach.carriageway_width_m``: the way's ``width``,
-else ``lanes`` x ``tunnel.lane_width_m``; never narrower than the ribbon's
-own ``road_profile.lane_width_m``) plus the stand-off every groundside cell
+centreline outside the envelope is grown by the road's MAPPED
+half-width (``airport/road_ways.ribbon_half_width_m``, #949: the way's
+``width``, else ``lanes`` x ``tunnel.lane_width_m``; never narrower than the
+core's ``road_profile.lane_width_m``) -- the ribbon a patch road gets plus the stand-off every groundside cell
 gets, and that is subtracted from the band at the single zone derivation
 site (``planar/zones.zone_regions``).  The gap between the band's new edge
 and the road terraces, exactly as against a groundside cell (groundside
@@ -33,9 +33,8 @@ from __future__ import annotations
 from shapely.geometry import LineString
 from shapely.ops import unary_union
 
-from ..airport.road_ways import road_ways
+from ..airport.road_ways import ribbon_half_width_m, road_ways
 from ..law import Law
-from .structure_approach import carriageway_width_m
 
 __all__ = ["road_carriageways", "beside_road_cut"]
 
@@ -54,14 +53,12 @@ def road_carriageways(osm_ways, law: Law,
             return ()
         highways = orr.ribbon_highways
     allowed = set(highways)
-    ribbon_half = float(law.tables.emit.road_profile.lane_width_m)
     out: list[tuple[LineString, float]] = []
     for w, line in road_ways(osm_ways):
         tags = w.tags or {}
         if tags.get("highway") not in allowed:
             continue
-        half = max(ribbon_half, 0.5 * carriageway_width_m(tags, law))
-        out.append((line, half))
+        out.append((line, ribbon_half_width_m(tags, law)))
     return tuple(out)
 
 

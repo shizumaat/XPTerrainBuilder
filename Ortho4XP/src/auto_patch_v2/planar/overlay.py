@@ -37,7 +37,7 @@ from ..model.airport import Airport
 from ..model.registries import Registries
 from .chords import densify, ring_lines, stations
 from .road_yield import road_carriageways
-from .terrain_edge import EdgeReport, road_lines
+from .terrain_edge import EdgeReport, road_edges
 from .pad_cut import (_drop_rim_midpoints, _renode_counts, _SHARED_TIE_DP,
                       airside_clip, airside_union, apron_cut_to_pads,
                       build_rim)
@@ -242,7 +242,7 @@ def build_arrangement(airport: Airport, classification: Classification,
     edge_lines: list[LineString] = []
     for z in zone_regions(cells, law, classification.keepouts,
                           getattr(airport, "dem", None),
-                          road_lines(getattr(airport, "osm_ways", ())), erep,
+                          road_edges(getattr(airport, "osm_ways", ()), law), erep,
                           shore_declarations(getattr(airport, "osm_ways", ())),
                           shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
                           pack_shore_walls(airport),

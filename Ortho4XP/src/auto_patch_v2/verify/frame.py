@@ -58,13 +58,13 @@ def metric_points(lat0: float, lon0: float,
     in-build verify reads in this frame, every vertex of the airport)."""
     if not lls:
         return []
-    from pyproj import Transformer
     import numpy as _np
+    from pyproj import Transformer
     crs = Frame("", (float(lat0), float(lon0)), 11).crs
     t = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
     a = _np.asarray(lls, dtype=float)
     xs, ys = t.transform(a[:, 1], a[:, 0])
-    return [(float(x), float(y)) for x, y in zip(xs, ys)]
+    return [(float(x), float(y)) for x, y in zip(xs, ys, strict=True)]
 
 
 @_dc.dataclass(frozen=True)
@@ -146,7 +146,8 @@ class Patch:
         fwd, inv = metric_frame(self.lat0, self.lon0)
         ids = list(self.ll)
         xy = dict(zip(ids, metric_points(self.lat0, self.lon0,
-                                         [self.ll[v] for v in ids])))
+                                         [self.ll[v] for v in ids]),
+                      strict=True))
         census = {xy[v]: self.xy[v] for v in xy if v in self.xy}
         # a row's ``site_m`` is rounded to 2 dp (``row``): a vertex read
         # back from it still lands exactly on the vertex

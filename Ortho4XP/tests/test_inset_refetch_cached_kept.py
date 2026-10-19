@@ -20,10 +20,13 @@ import O4_Airport_Elevation_Insets as INSETS
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 import O4_Unpatched_Airports as UNPATCHED
-
-from test_inset_fetch_scratch import (WIDER_BOX, _corpus, _inset_dir,
-                                      littering_strategy,  # noqa: F401
-                                      requires_gdal)
+from test_inset_fetch_scratch import (
+    WIDER_BOX,
+    _corpus,
+    _inset_dir,
+    littering_strategy,  # noqa: F401
+    requires_gdal,
+)
 from test_inset_resolution_ladder import BOX
 
 ICAO, CODE = "KASE", "FAKESCR"

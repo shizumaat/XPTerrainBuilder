@@ -695,6 +695,44 @@ def _in_band_ribbon_vertices(planar: PlanarMap, law: Law, terr) -> set[int]:
     for v, ft in (terr.get("foot") or {}).items():
         if v in rib and role_of.get(ft[3]) in banded:
             out.add(v)
+    return _whole_roads(planar, out)
+
+
+def _whole_roads(planar: PlanarMap, seed: set[int]) -> set[int]:
+    """THE WHOLE ROAD DROPS TOGETHER (owner 2026-10-19, #951 spec Q13: "an
+    in-band road drops together, not per vertex"): every vertex of the
+    OSM-ribbon faces connected (through shared vertices) to one carrying a
+    ``seed`` vertex, among the ribbon faces that stand in a runway / taxi
+    band — touch its zone or carry a seed vertex.  MEASURED (lane m3,
+    iteration 2, KLAX): released per vertex, a carriageway stepped against
+    its neighbour (``pavement_over_road_cap`` 0 -> 5, 2.72 m)."""
+    if not seed:
+        return seed
+    from ..model.planar import is_osm_ribbon_ref
+    from .band_standoff import is_band_zone_ref
+    band = {v for f in planar.faces.values()
+            if f.role == "graded_strip" and is_band_zone_ref(f.ref)
+            for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+    faces = {}
+    for f in planar.faces.values():
+        if is_osm_ribbon_ref(f.ref):
+            vs = {v for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+            if vs & band or vs & seed:
+                faces[f.id] = vs
+    by_v: dict[int, list[int]] = {}
+    for fid, vs in faces.items():
+        for v in vs:
+            by_v.setdefault(v, []).append(fid)
+    out = set(seed)
+    todo = [fid for fid, vs in faces.items() if vs & seed]
+    done: set[int] = set()
+    while todo:
+        fid = todo.pop()
+        if fid in done:
+            continue
+        done.add(fid)
+        out |= faces[fid]
+        todo.extend(g for v in faces[fid] for g in by_v[v] if g not in done)
     return out
 
 

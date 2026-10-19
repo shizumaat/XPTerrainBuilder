@@ -52,9 +52,14 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet
     """``cs`` without the pair rows across a band riser (module docstring)
     and the count released."""
     risers = band_risers(planar)
-    rep: dict[str, _t.Any] = {"risers": len(risers), "released": 0}
+    from .band_standoff import band_standoffs
+    standoffs = band_standoffs(planar, law)
+    rep: dict[str, _t.Any] = {"risers": len(risers), "released": 0,
+                              "standoffs": len(standoffs)}
     if not risers:
-        return cs, rep
+        floors = _standoff_floors(standoffs, set())
+        rep["floors"] = len(floors)
+        return (_dc.replace(cs, linears=tuple(cs.linears) + tuple(floors)), rep)             if floors else (cs, rep)
     from shapely.geometry import LineString, Polygon
     from shapely.strtree import STRtree
     rib: set[int] = set()
@@ -103,6 +108,7 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet
             continue
         linears.append(r)
     floors = _floor_rows(planar, risers, xy)
+    floors += _standoff_floors(standoffs, {r.terms[0][0] for r in floors})
     rep["floors"] = len(floors)
     return _dc.replace(cs, diffs=tuple(diffs),
                        linears=tuple(linears) + tuple(floors)), rep
@@ -128,3 +134,11 @@ def _floor_rows(planar: PlanarMap, risers, xy) -> list[Linear]:
                               Source(GEN, FLOOR_RULING, (f"vertex:{v}",)),
                               follows=int(v)))
     return out
+
+
+def _standoff_floors(standoffs, seen: set[int]) -> list[Linear]:
+    """The same one-way floor for a road page's stand-off pairs
+    (constraints/band_standoff, #951 spec Q12)."""
+    return [Linear(((int(b), 1.0), (int(g), -1.0)), 0.0, None,
+                   Source(GEN, FLOOR_RULING, (f"vertex:{b}",)), follows=int(b))
+            for b, g, _d in standoffs if b not in seen]

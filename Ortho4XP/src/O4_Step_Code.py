@@ -352,6 +352,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.constraints.apron_trend",
     "auto_patch_v2.constraints.assembly",
     "auto_patch_v2.constraints.band_riser",
+    "auto_patch_v2.constraints.band_standoff",
     "auto_patch_v2.constraints.ceiling",
     "auto_patch_v2.constraints.channel",
     "auto_patch_v2.constraints.cluster_pad",

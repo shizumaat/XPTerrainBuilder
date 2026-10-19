@@ -43,12 +43,14 @@ def band_road_wall_joints(planar: PlanarMap, law: Law,
     if z is None:
         return []
     risers = band_risers(planar)
-    if not risers:
+    from ..constraints.band_standoff import band_standoffs
+    standoffs = band_standoffs(planar, law)
+    if not risers and not standoffs:
         return []
     from .ribbon_steps import _to_ll
     to_ll = _to_ll(planar)
     floor = float(law.tables.emit.materiality.elevation_m)
-    out: list[dict[str, _t.Any]] = []
+    out: list[dict[str, _t.Any]] = _standoff_records(planar, standoffs, z, floor, to_ll)
     for fid, lower, upper in risers:
         if not lower or not upper:
             continue
@@ -101,3 +103,33 @@ def _midlines(planar: PlanarMap, law: Law, fid: int, lower) -> list[list]:
                                                        if cut.geom_type == "MultiLineString"
                                                        else cut)
             if p.geom_type == "LineString" and len(p.coords) >= 2]
+
+
+#: half-length of the declared line across one road page's stand-off pair
+_STANDOFF_HALF_M = 0.5
+
+
+def _standoff_records(planar: PlanarMap, standoffs, z, floor: float, to_ll
+                      ) -> list[dict[str, _t.Any]]:
+    """THE ROAD PAGE'S WALL (#951 spec Q12): per stand-off pair
+    (``constraints/band_standoff``) whose band vertex stands above its road
+    vertex by more than ``floor``, a short line across the pair's chord at
+    its middle, perpendicular to it — the chord the census reads crosses
+    it."""
+    out: list[dict[str, _t.Any]] = []
+    for b, g, d in standoffs:
+        step = float(z[b]) - float(z[g])
+        if step <= floor or d <= 0.0:
+            continue
+        (bx, by), (gx, gy) = planar.vertices[b].xy, planar.vertices[g].xy
+        mx, my = 0.5 * (bx + gx), 0.5 * (by + gy)
+        nx, ny = -(gy - by) / d * _STANDOFF_HALF_M, (gx - bx) / d * _STANDOFF_HALF_M
+        declared = round(step + _EMIT_Z_ROUND_M, 4)
+        out.append({
+            "points": [list(to_ll(mx - nx, my - ny)), list(to_ll(mx + nx, my + ny))],
+            "step_m": declared, "declared_step_m": declared, "faced": False,
+            "kind": "wall_terrace", "faces": [], "shapes": [LABEL],
+            "gap": False, "roles": ["graded_strip"], "pairs": 1,
+            "length_m": round(2.0 * _STANDOFF_HALF_M, 2), "height_m": round(step, 3),
+            "emitted_step_m": round(step, 3), "agreement_m": 0.0})
+    return out

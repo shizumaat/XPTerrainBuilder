@@ -12,8 +12,9 @@ held against :func:`closure` by a twin):
 
 - ``auto_patch_v2/airport/partition_code.py`` (the pack partition, #362),
 - ``auto_patch_v2/pipeline/stage_code.py`` (the v2 stages, #842),
-- ``auto_patch/provenance_code.py`` (the patch gate's whole-tree digest,
-  #346 — the digest and the file reader/writer only),
+- ``auto_patch/provenance_code.py`` (the patch freshness gate: the
+  patch build's closure, #880, and the #346 whole-tree digest behind
+  ``O4_PATCH_FRESHNESS_WHOLE_TREE=1``),
 - the tile pipeline's per-step closure (``O4_Step_Code.py``, #836).
 
 STDLIB ONLY, NO RELATIVE IMPORT, NO ENGINE IMPORT: the ``.spec`` files
@@ -94,11 +95,30 @@ def imports_of(src_root: str, name: str,
     return out
 
 
+def _parent_packages(src_root: str, name: str) -> list[str]:
+    """Every package above ``name`` that has an ``__init__.py`` under
+    ``src_root`` (``a.b.c`` -> ``a``, ``a.b``)."""
+    parts = name.split(".")
+    found = []
+    for i in range(1, len(parts)):
+        pkg = ".".join(parts[:i])
+        if os.path.isfile(os.path.join(src_root, *parts[:i], "__init__.py")):
+            found.append(pkg)
+    return found
+
+
 def closure(src_root: str, entry_modules: _t.Iterable[str],
-            prefixes: "_t.Collection[str] | None" = None) -> tuple[str, ...]:
+            prefixes: "_t.Collection[str] | None" = None, *,
+            packages: bool = False) -> tuple[str, ...]:
     """The static import closure of ``entry_modules`` under ``src_root``
     (:func:`imports_of`, followed to a fixed point), entries included,
-    sorted.  A package appears as its own name (its ``__init__``)."""
+    sorted.  A package appears as its own name (its ``__init__``).
+
+    ``packages``: also every package ABOVE a module in the closure — its
+    ``__init__`` runs when the module is imported (issue #880) — and what
+    that ``__init__`` imports, as Python loads it (``o4_engine``'s imports
+    the app session).  Off by default: the stage, step and partition
+    closures were declared without them."""
     seen: set[str] = set()
     stack = list(entry_modules)
     while stack:
@@ -106,6 +126,9 @@ def closure(src_root: str, entry_modules: _t.Iterable[str],
         if name not in seen:
             seen.add(name)
             stack.extend(imports_of(src_root, name, prefixes))
+            if packages:
+                stack.extend(p for p in _parent_packages(src_root, name)
+                             if _wanted(p, prefixes))
     return tuple(sorted(seen))
 
 

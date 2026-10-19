@@ -771,8 +771,38 @@ def merge_duals(mouths: list[Mouth], law: Law, stats
         dx = (centre_lat - lat0) * nx - (s_out - along0) * inward[0]
         dy = (centre_lat - lat0) * ny - (s_out - along0) * inward[1]
         axis = [(p[0] + dx, p[1] + dy) for p in axis]
+        width = max(width, _dual_span_m(axis, members, law))
         out.append((members, axis[0], inward, width, axis))
     return out
+
+
+def _dual_span_m(axis: list[XY], members: list[Mouth], law: Law) -> float:
+    """THE DUAL RAMP SPANS ITS CARRIAGEWAYS ALONG THE RAMP, not at the mouth
+    alone (issue #807): the full width across every member's approach over
+    the NOMINAL ramp length (``mouth_depth_m / ramp_grade``, the stations
+    the ramp is built over at its design grade), up to where the
+    carriageways PART — stand further apart than half the dual separation
+    (``dual_carriageway_max_separation_m``), which is where they stop being
+    one road (KCLT's south ramp: both run into a roundabout).  KCLT's
+    tertiary carriageways stand 11 m apart at the taxiway U mouths and
+    ~18 m apart 80 m out; the mouth's 17.5 m left each carriageway's outer
+    edge on the ramp wall."""
+    tn = law.tables.structures.tunnel
+    ax = LineString(axis)
+    s_max = min(tn.mouth_depth_m / max(tn.ramp_grade, 1e-6), ax.length)
+    routes = [(LineString(m.approach), m.width_m / 2.0) for m in members
+              if len(m.approach) >= 2]
+    if not routes:
+        return 0.0
+    part_m = tn.dual_carriageway_max_separation_m / 2.0
+    half = 0.0
+    for k in range(int(s_max) + 1):
+        p = ax.interpolate(float(k))
+        offs = [(r.distance(p), h) for r, h in routes]
+        if 2.0 * max(d for d, _h in offs) > part_m:
+            break                  # the carriageways part: the dual ends here
+        half = max([half] + [d + h for d, h in offs])
+    return 2.0 * half
 
 # ── the ramp's top (moved VERBATIM from planar/structures.py, lane
 #    v2wallplate: that file stands at its 1,000-line budget and §33 grows

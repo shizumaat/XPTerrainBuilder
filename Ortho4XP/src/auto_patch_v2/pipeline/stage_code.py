@@ -1208,7 +1208,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
-    planar.structure_service planar.structure_stats planar.structure_underpass
+    planar.structure_mouth planar.structure_service planar.structure_stats
+    planar.structure_underpass
     planar.structures planar.terrain_edge planar.unframed_ramp
     planar.wall_corridor_ramps planar.weld planar.zones solve.api solve.design
     solve.design_assemble solve.design_edge solve.design_ground solve.design_junction
@@ -1288,7 +1289,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_geometry
     planar.structure_overlap planar.structure_pair planar.structure_road
-    planar.structure_service planar.structure_stats planar.structure_underpass
+    planar.structure_mouth planar.structure_service planar.structure_stats
+    planar.structure_underpass
     planar.structures planar.terrain_edge planar.unframed_ramp
     planar.wall_corridor_ramps planar.weld planar.zones solve.api solve.design
     solve.design_assemble solve.design_edge solve.design_ground solve.design_junction

@@ -147,9 +147,11 @@ def test_a_ribbon_in_the_runway_strip_on_a_hillside_stays_at_the_runway_level(la
     y = -20 (the DEM under the road stands ~10 m above the runway).  Every
     ribbon vertex is BORDERED by the runway (``road_terrace``) and is a
     band kerb; the band's CEILING caps it (owner 2026-10-19, #951: a road
-    in a safety area may sit at or below its grade, never above), so on a
-    hill that rises above the band the road is solved at the band's grade
-    by the runway (the hill is the cut), and every AIRSIDE value equals the
+    in a safety area may sit at or below its grade, never above).  Under
+    19a / 19k it stands in the runway's band, so the terrace rewrite leaves
+    it out (no target at the runway's level); on a hill that rises above
+    the band the band's ceiling alone solves it at the band's grade by the
+    runway (the hill is the cut), and every AIRSIDE value equals the
     ribbon-free airport's (airside is untouched by construction)."""
     from auto_patch_v2.model.planar import is_osm_ribbon_ref
     from auto_patch_v2.solve.design_roles import airside_stage_vertices
@@ -166,8 +168,8 @@ def test_a_ribbon_in_the_runway_strip_on_a_hillside_stays_at_the_runway_level(la
                                          and 600.0 < pm1.vertices[v].xy[0] < 900.0}
     assert {terr["foot"][v][3] for v in terr["foot"]} == {"09/27"}
     tr = rep1.reach_seed.get("terrace", {})
-    assert tr.get("bordered", 0) > 0
-    # the road is solved at the runway's level, metres under its DEM
+    assert tr.get("in_band_released", 0) > 0 and tr.get("bordered", 0) == 0
+    # the road is capped at the band beside the runway, metres under its DEM
     z = sol1.z
     for v in terr["foot"]:
         a, b, u, _ref = terr["foot"][v]

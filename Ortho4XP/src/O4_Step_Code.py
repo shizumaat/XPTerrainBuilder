@@ -462,6 +462,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.model.structures",
     "auto_patch_v2.model.threshold_datum",
     "auto_patch_v2.pipeline.authored_seats",
+    "auto_patch_v2.pipeline.band_road_wall",
     "auto_patch_v2.pipeline.build",
     "auto_patch_v2.pipeline.capture_state",
     "auto_patch_v2.pipeline.emit_stage",

@@ -26,7 +26,8 @@ block of `STATUS.md` (~90k tokens of append-only history; never load it whole).
   per-airport v2 adapter (`build_write_verify_one_v2`: build, stamp the `<osm>` header,
   verify; split from `object_stage.py`, #836). `selection.py` — which airports a tile builds and
   the boundary policy. `progress.py`, `provenance.py` (freshness stamps, the config-gate
-  inventory, `config_digest`), `provenance_code.py` (the engine-source digest),
+  inventory, `config_digest`), `provenance_code.py` (the code digest: the patch
+  build's import closure, #880; the whole tree under `O4_PATCH_FRESHNESS_WHOLE_TREE=1`),
   `provenance_env.py` (which `O4_` variables are patch settings and which only
   identify the run — a new `O4_` variable is classified there, #607).
 - **Readers.** `apt_dat_reader.py`, `dsf_reader.py`, `agp_reader.py`,

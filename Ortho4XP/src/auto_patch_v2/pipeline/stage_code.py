@@ -411,6 +411,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.planar.apron_shelf",
+        "auto_patch_v2.planar.basin_datum",
         "auto_patch_v2.planar.basin_geometry",
         "auto_patch_v2.planar.basin_rim",
         "auto_patch_v2.planar.basins",

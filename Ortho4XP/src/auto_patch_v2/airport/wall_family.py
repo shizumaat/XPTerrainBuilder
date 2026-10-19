@@ -39,6 +39,9 @@ from .wall_corridors import (CLASS_BAY, CLASS_GARAGE, CLASS_LEVEL, ID_PREFIX,
 from .wall_geometry import _DENSIFY_M, _FamilyFaces, _merge_walls, _overlap_along, _seat_base
 from .wall_mouth import FieldCover, MouthIndex, WallField, admit
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from .wall_geometry import WallBand
+
 __all__ = ["WallReader", "WallField", "wall_reader", "wall_families", "read_family",
            "assemble", "read_wall_corridors"]
 

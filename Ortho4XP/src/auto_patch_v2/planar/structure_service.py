@@ -37,6 +37,9 @@ from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_side
 from .structure_approach import carriageway_width_m, under_cover
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from ..model.airport import Airport
+
 __all__ = ["airside_cut_roles", "airside_stops", "deck_witness_for",
            "decked_exclusion", "osm_stops", "owner_kept", "pad_relief_m",
            "parts", "SURFACE_LINE_KINDS", "terrain_tunnel_witness", "knee_nodes"]

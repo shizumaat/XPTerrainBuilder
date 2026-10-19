@@ -34,7 +34,7 @@ import math
 __all__ = ["DsfPolygon", "DsfPlacement", "DsfDump", "find_text_dump",
            "content_keyed_dump",
            "read_dump", "PolDeclaration", "pol_declaration", "ground_photograph",
-           "pavement_verdict",
+           "pavement_verdict", "names_soft_ground",
            "is_pavement_def", "pavement_gate", "building_role_for_def", "read_footprint_cache",
            "mod_cache_dir"]
 
@@ -412,8 +412,23 @@ MATERIAL_TOKENS = ("asphalt", "concrete", "asphalte", "beton", "béton",
                    "hormigon", "hormigón", "asfalto", "cemento", "calcestruzzo",
                    "betão", "concreto")
 #: TERRAIN WORDS veto whatever the file declares: a grass texture page
-#: may still say ``SURFACE asphalt`` (04e (1)'s known trap).
+#: may still say ``SURFACE asphalt`` (04e (1)'s known trap).  Matched as a
+#: WORD of the path (:func:`names_soft_ground`, issue #726), never a
+#: substring: ``concrete_dirty.pol`` is weathered concrete, not dirt.
 SOFT_NAME_TOKENS = ("grass", "terrain", "dirt", "gravel", "soil", "mud", "snow")
+_NAME_WORD_RE = re.compile(r"[^\W\d_]+")
+
+
+def names_soft_ground(path: str) -> bool:
+    """Whether a (lower-cased) path names a terrain word
+    (:data:`SOFT_NAME_TOKENS`) as one of its words — the letters between
+    separators, digits and case-free punctuation — or its plural
+    (``grass3``, ``Ground/dirt/``, ``gravels``; not ``dirty``)."""
+    for w in _NAME_WORD_RE.findall(path):
+        stems = (w, w[:-1], w[:-2]) if w.endswith("s") else (w,)
+        if any(t in SOFT_NAME_TOKENS for t in stems):
+            return True
+    return False
 #: PAINT / SIGN WORDS veto a NAME; against the file's own declaration
 #: they stand only when the file names no layer group (see the gate).
 DECORATIVE_TOKENS = ("paint", "line", "marking", "light", "decal", "sign",
@@ -521,7 +536,7 @@ def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | Non
 
     1. a stock pavement namespace is a source unless ``PAVEMENT_SKIP``;
     2. a decorative NAMESPACE (``PAVEMENT_SKIP``) or a terrain word
-       (``SOFT_NAME_TOKENS``) refuses, whatever the file says;
+       (:func:`names_soft_ground`) refuses, whatever the file says;
     3. a material-token name with no paint/sign word is a source, as it
        always was — its file is not consulted;
     4. THE FILE (04e (1)): a paint layer group refuses; ``SURFACE
@@ -537,8 +552,8 @@ def pavement_verdict(path: str, decl: PolDeclaration | None = None) -> str | Non
     p = path.lower()
     if p.startswith(PAVEMENT_PREFIXES):
         return None if any(s in p for s in PAVEMENT_SKIP) else SOURCE
-    if not p.endswith(".pol") or any(
-            s in p for s in PAVEMENT_SKIP + SOFT_NAME_TOKENS):
+    if (not p.endswith(".pol") or any(s in p for s in PAVEMENT_SKIP)
+            or names_soft_ground(p)):
         return None
     decorative = any(s in p for s in DECORATIVE_TOKENS)
     if not decorative and any(t in p for t in MATERIAL_TOKENS):

@@ -95,6 +95,24 @@ def test_markings_terrain_soft_and_undeclared_stay_refused(tmp_path, rel, surfac
     assert _gate(tmp_path)(rel)[0] is None
 
 
+def test_a_terrain_word_is_a_word_not_a_substring(tmp_path):
+    """#726 (KATL ``pols/concrete_dirty.pol``, 2.33 km2): ``dirty`` is
+    weathered concrete, not dirt — a terrain word vetoes only as a WORD of
+    the path (or its plural)."""
+    for rel in ("pols/concrete_dirty.pol", "g/asphalt_soiled.pol",
+                "g/concrete-snowy.pol"):
+        _pol(tmp_path, rel, "concrete", "LAYER_GROUP taxiways +1")
+        assert S.is_pavement_def(rel), rel
+        assert _gate(tmp_path)(rel)[0] == S.SOURCE, rel
+    for name in ("ground/poly/grass3.pol", "g/dirt/x.pol", "g/gravels.pol",
+                 "g/grasses_a.pol", "g/snow.pol", "lib/terrain/x.pol",
+                 "g/mud-1.pol"):
+        assert S.names_soft_ground(name), name
+    for name in ("pols/concrete_dirty.pol", "g/muddy.pol", "g/soiled.pol",
+                 "g/grassland.pol", "g/snowfield.pol"):
+        assert not S.names_soft_ground(name), name
+
+
 def test_paint_layer_wins_wherever_its_row_sits(tmp_path):
     path = _pol(tmp_path, "g/late.pol", "asphalt", "LAYER_GROUP taxiways +1")
     with open(path, "a", encoding="utf-8", newline="\n") as fh:

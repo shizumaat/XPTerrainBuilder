@@ -209,8 +209,8 @@ def test_the_cli_hands_the_overlay_to_the_GUARDED_capture(R, tmp_path,
     seen = {}
 
     def _fake(icao, out, mod_cache_root=None, placement=None, rule=None,
-              cifp_dir=None, data_overlay=None):
-        seen.update(icao=icao, out=out, data_overlay=data_overlay)
+              cifp_dir=None, data_overlay=None, stage_cache="off", why_miss=False):
+        seen.update(icao=icao, out=out, data_overlay=data_overlay, stage_cache=stage_cache)
 
     monkeypatch.setattr(R, "_capture_guarded", _fake)
     monkeypatch.setattr(sys, "argv", [

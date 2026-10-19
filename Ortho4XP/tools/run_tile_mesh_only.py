@@ -35,9 +35,10 @@ airport's road feed, a mod-cache PACK that has cached nothing for this
 tile or its neighbours) while this run's own guard blocked nothing is
 NAMED as an EXTERNAL CANDIDATE and does not fail the run; an in-scope
 delta still refuses (rc 1, CONTAMINATED).  ``--patches-as-is`` (2026-09-04, v2 M2 mesh
-A/B): step 1 does NOT resolve the X-Plane install paths, so auto_patch
-generation is skipped and the ``Patches/`` files ALREADY ON DISK are meshed
-exactly as they are — the deliberate measurement of a given patch's
+A/B; #976): step 1 replaces the auto_patch generator call with a no-op
+(it still applies the install paths when the owner's config names them,
+so flat-site DEM prep and the patch selection are production's), and the
+``Patches/`` files ALREADY ON DISK are meshed exactly as they are — the deliberate measurement of a given patch's
 mesh-apply cost (constrained edges, step 1/2 wall), never a trap: the
 flag is explicit, the run prints it, and a run without it still refuses
 when no install resolves.  ``first_step`` is 1 (default, vector then mesh)
@@ -85,6 +86,14 @@ import O4_Mesh_Utils as MESH
 import O4_Config_Utils as CFG
 import O4_Bathymetry_Band as BATHYBAND
 
+
+def _patches_as_is_generation(tile, airport_layer, dico_airports):
+    """``--patches-as-is``'s stand-in for
+    ``O4_Vector_Map.run_auto_patch_generation``: generate nothing, refuse
+    nothing — ``include_patches`` then loads the ``Patches/`` files on
+    disk under the tile's own auto_patch mode, as a build would."""
+    print("   auto_patch generation skipped (--patches-as-is)", flush=True)
+
 # The auto_patch driver uses a ProcessPool; macOS spawn re-imports the
 # main module, so an unguarded body re-runs the ENTIRE build in every
 # worker (see run_tile_build.py).  The write guard and the audit belong
@@ -97,7 +106,8 @@ if __name__ == "__main__":
                                    require_no_swallowed_write_block,
                                    require_no_unauthorised_writes,
                                    tile_input_scope)
-    from build_airport import apply_xplane_install_paths
+    from build_airport import (apply_xplane_install_paths,
+                               apply_xplane_install_paths_for_preflight)
 
     IMG.initialize_extents_dict()
     IMG.initialize_color_filters_dict()
@@ -134,6 +144,22 @@ if __name__ == "__main__":
         # implementation rather than a second arrangement of it, and it
         # refuses identically when nothing resolves.
         if patches_as_is:
+            # #976: generation is SKIPPED BY NAME, not by leaving the CIFP
+            # unresolved — since beta plan §1 B2 an unresolved CIFP under
+            # auto_patch=ICAO is a FATAL step-1 refusal, and without the
+            # install root DEM prep ran with flat-site OFF (a different
+            # DEM than the build being measured).  The install paths are
+            # applied when the owner's config has them (the pre-flight's
+            # non-fatal form), so flat-site, the patch selection and the
+            # boundary-skip set are production's; only the generator call
+            # is replaced.
+            applied = apply_xplane_install_paths_for_preflight()
+            print("X-Plane install paths applied:", sorted(applied),
+                  flush=True)
+            if not applied:
+                print("WARNING: no X-Plane install resolved — flat-site "
+                      "DEM prep is OFF for this run", flush=True)
+            VMAP.run_auto_patch_generation = _patches_as_is_generation
             print("--patches-as-is: auto_patch generation SKIPPED; meshing "
                   "the Patches/ files on disk as they are", flush=True)
         else:

@@ -19,15 +19,25 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from shapely.ops import unary_union
-
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.law import Law
-from auto_patch_v2.law.reference_code import (INSTRUMENT, NON_INSTRUMENT, PRECISION,
-                                              ref_status, runway_status, status_by_ref,
-                                              status_of_classes)
-from auto_patch_v2.law.tables import (runway_safety_area_length_m, runway_zone_edge_offset_m,
-                                      zone2_half_width_m, zone_bounds, zone_edge_offset_m)
+from auto_patch_v2.law.reference_code import (
+    INSTRUMENT,
+    NON_INSTRUMENT,
+    PRECISION,
+    ref_status,
+    runway_status,
+    status_by_ref,
+    status_of_classes,
+)
+from auto_patch_v2.law.tables import (
+    runway_safety_area_length_m,
+    runway_zone_edge_offset_m,
+    zone2_half_width_m,
+    zone_bounds,
+    zone_edge_offset_m,
+)
+from shapely.ops import unary_union
 
 FT = 0.3048
 

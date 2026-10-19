@@ -230,7 +230,8 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         offs, cell_half, n_read, n_refused = _deck_cell(
             axis_fn, ss, cells, polys, half,
             DECK_CELL_MAX_RATIO * 2.0 * half, law=law,
-            cut_roles=cut_roles, grid=grid0, stopped=stopped)
+            cut_roles=cut_roles, grid=grid0, stopped=stopped,
+            status_of=status_by_ref(getattr(airport, "runways", ())))
         half = max(half, cell_half)
         # THE MOUTH STANDS INSIDE THE DECK (spec §34 (5) as amended,
         # RULINGS 2026-09-13ai): the clip ribbon is the deck's own
@@ -483,7 +484,8 @@ def _airside_at(p, nv, sgn: float, dist: float, tree, cells, polys,
 def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
                max_half: float | None = None, law: Law | None = None,
                cut_roles: _t.Sequence[str] = (), grid: float = 0.5,
-               stopped: dict | None = None):
+               stopped: dict | None = None,
+               status_of: _t.Mapping[str, int] | None = None):
     """THE DECK CELL AND ITS HALF-WIDTH ACROSS THE ROAD (spec §34 (5),
     §34 (5) (a)): ``(the admitted cells' union or None, the MEDIAN
     half-width, stations read, stations REFUSED)``.
@@ -583,8 +585,8 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
         # way's 48 m with the last station in a 14R/32L ``runway_shoulder``
         # cell the ``DECK_CELL_MAX_RATIO`` gate refuses outright.  The
         # widest reading can therefore never differ from this one.
-        strip = (strip_half_width_m(law, best_cell, ref_status(
-            status_by_ref(getattr(airport, "runways", ())), best_cell.ref))
+        # ``status_of``: each runway's instrument status by ref (#811)
+        strip = (strip_half_width_m(law, best_cell, ref_status(status_of, best_cell.ref))
                  if law is not None else 0.0)
         hl, kl = _covered_offset(p, nv, +1.0, best[1], strip, tree, cells,
                                  polys, best_cell, cut_roles, grid)

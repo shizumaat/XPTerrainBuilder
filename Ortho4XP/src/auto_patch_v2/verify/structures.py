@@ -22,8 +22,8 @@ import math
 
 from ..constraints.geometry import principal_axis
 from ..law.tables import zone2_half_width_m
-from .runway_witness import published_status
 from ..model.structures import deck_z_on_faces
+from .runway_witness import published_status
 
 #: The corridor ring's own identity spacing (1 m), in DEGREES — the
 #: published corridor is lon/lat and the tolerance travels with it.

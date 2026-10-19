@@ -11473,6 +11473,66 @@ def test_inset_arp_sanity_skips_without_inputs(build_mod, tmp_path):
     assert rec["status"] == "skipped" and "ARP" in rec["why"]
 
 
+def _krdu_thresholds(elevation_m, inside=True):
+    """Two CIFP thresholds (``read_threshold_dicts`` shape) on the
+    ``_arp_fixture`` inset (lon -78.795..-78.780, lat 35.870..35.885), or
+    off it when ``inside`` is False."""
+    shift = 0.0 if inside else 1.0
+    return {"RW05L": {"lat": 35.872 + shift, "lon": -78.792,
+                      "elevation_m": elevation_m, "displaced_m": 0.0},
+            "RW23R": {"lat": 35.883 + shift, "lon": -78.782,
+                      "elevation_m": elevation_m, "displaced_m": 0.0}}
+
+
+def test_inset_sanity_judges_cifp_thresholds_on_a_sloped_field(
+        build_mod, tmp_path):
+    """#576 (KBWG): the ARP stands lower than the field elevation (the
+    highest runway point); the inset meets every CIFP threshold, so it is
+    ok, and the ARP reading stays in the record."""
+    pytest.importorskip("osgeo.gdal")
+    inset, apt = _arp_fixture(tmp_path, 128.0)
+    assert build_mod.inset_arp_sanity_record(
+        [inset], apt, "KRDU")["status"] == "warn"        # ARP: -4.588 m
+    rec = build_mod.inset_arp_sanity_record(
+        [inset], apt, "KRDU", thresholds=_krdu_thresholds(128.05))
+    assert rec["status"] == "ok"
+    (entry,) = rec["insets"]
+    assert entry["witness"] == "cifp_thresholds"
+    assert [t["runway"] for t in entry["thresholds"]] == ["RW05L", "RW23R"]
+    assert entry["delta_m"] == pytest.approx(-0.05, abs=1e-3)
+    assert entry["arp_delta_m"] == pytest.approx(-4.588, abs=1e-3)
+    build_mod.require_inset_arp_sanity(rec, strict=True)   # no refusal
+
+
+def test_inset_sanity_thresholds_still_catch_a_feet_inset(build_mod, tmp_path):
+    pytest.importorskip("osgeo.gdal")
+    inset, apt = _arp_fixture(tmp_path, 435.0)
+    rec = build_mod.inset_arp_sanity_record(
+        [inset], apt, "KRDU", thresholds=_krdu_thresholds(132.588))
+    assert rec["status"] == "warn"
+    assert rec["insets"][0]["against"].startswith("CIFP RW")
+    with pytest.raises(SystemExit, match="CIFP RW"):
+        build_mod.require_inset_arp_sanity(rec, strict=True)
+    # CIFP alone judges when no apt.dat serves the airport
+    alone = build_mod.inset_arp_sanity_record(
+        [inset], None, "KRDU", thresholds=_krdu_thresholds(132.588))
+    assert alone["status"] == "warn" and "arp" not in alone
+
+
+def test_inset_sanity_falls_back_to_the_arp_without_cifp(build_mod, tmp_path):
+    """No CIFP, or no threshold on the inset: the 09-30bm reading,
+    unchanged."""
+    pytest.importorskip("osgeo.gdal")
+    inset, apt = _arp_fixture(tmp_path, 128.0)
+    plain = build_mod.inset_arp_sanity_record([inset], apt, "KRDU")
+    for thresholds in (None, {}, _krdu_thresholds(128.0, inside=False)):
+        rec = build_mod.inset_arp_sanity_record(
+            [inset], apt, "KRDU", thresholds=thresholds)
+        assert rec["status"] == plain["status"] == "warn"
+        assert rec["insets"][0]["witness"] == "arp_field_elevation"
+        assert rec["insets"][0]["delta_m"] == plain["insets"][0]["delta_m"]
+
+
 def test_refresh_only_rings_still_cold_refuses(build_mod, tmp_path, monkeypatch):
     """A ``--refresh-only --refresh-data rings`` run whose planned cells are
     still unanswered afterwards (TNM 500s, 2026-10-01: 13 of 60 at KASE)

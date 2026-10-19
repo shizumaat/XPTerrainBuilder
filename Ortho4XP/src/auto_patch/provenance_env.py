@@ -61,6 +61,10 @@ RUN_ENVIRONMENT: dict[str, str] = {
         "whether the v2 airport build may serve a stage from its content-"
         "keyed record (#843); a hit is byte-identical to the build that "
         "wrote it (RULINGS 2026-10-18d)",
+    "O4_OBJECT_STAGE_REUSE":
+        "whether the object stage after the mesh may serve an airport from "
+        "its content-keyed record (#879); it runs after the patch is on "
+        "disk, and a served airport left the pack as a run would",
     "O4_TRIANGLE_IO":
         "text or binary (default) Triangle4XP exchange files (RULINGS "
         "2026-10-17c); "

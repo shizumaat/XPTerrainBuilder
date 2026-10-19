@@ -95,6 +95,9 @@ from .precedence import View, view
 from .routes import reach, reach_anchored, route_neighbours, route_roles, routes
 from .runway_profile import threshold_pins
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from .routes import RouteGraph
+
 __all__ = ["route_roles", "no_step_pairs",
            "no_step_rate", "no_step_edges", "pad_contacts",
            "pad_pavement_edges", "rate_rows_for_chain", "reach_bands", "turn_cos",

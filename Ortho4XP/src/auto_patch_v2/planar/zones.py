@@ -33,6 +33,7 @@ from ..law.tables import (runway_end_profile, runway_safety_area_length_m,
 from ..model.planar import is_gap_apron_ref, is_late_ref
 from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
                     shore_declarations, shore_verdict)
+from .road_yield import beside_road_cut
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
 __all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
@@ -220,7 +221,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  edge_report: EdgeReport | None = None,
                  declared: tuple = (),
                  shore_wedge_m: float | None = None,
-                 pack_walls: tuple = (), runways: tuple = ()) -> list[ZoneRegion]:
+                 pack_walls: tuple = (), runways: tuple = (),
+                 carriageways: tuple = ()) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -230,7 +232,11 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     also CLIPPED BY THE TERRAIN EDGE at this single derivation site
     (``planar/terrain_edge.py``; owner RULINGS 2026-09-10b/10c, spec §19): the
     adjacent ground ends at a rim road or a crest.  Without one — every
-    synthetic fixture — the regions are what they were."""
+    synthetic fixture — the regions are what they were.
+
+    ``carriageways`` (``planar/road_yield.road_carriageways``: centreline,
+    half-width) are the mapped roads; the bands yield the carriageway of
+    every road running BESIDE them (owner 2026-10-19, #944)."""
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
@@ -352,6 +358,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     out: list[ZoneRegion] = []
     counters: dict[tuple, int] = {}
     breaks = runway_end_breaks(cells, law, runways)
+    bands: dict[tuple, tuple] = {}
     for key in sorted(groups, key=rank):
         fam, cn, cl = key
         u = unary_union(groups[key])
@@ -372,8 +379,26 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                 continue
             inner = u.buffer(min(lip, hw), **_MITRE)
             outer = u.buffer(hw, **_MITRE)
+        bands[key] = (u, inner, outer)
+    # THE ROAD BESIDE THE BAND TRUMPS THE BAND (owner 2026-10-19, #944;
+    # ``planar/road_yield``): a road whose centreline runs OUTSIDE every
+    # band envelope (and off the airside pavement) is the core's groundside
+    # road — the bands yield its carriageway plus the groundside stand-off.
+    # A road INSIDE a band is ribboned and grades with the zone (13ar/29r).
+    beside = None
+    if carriageways and bands:
+        envelope = unary_union(
+            [b[2] for b in bands.values()]
+            + [Polygon(c.ring, c.holes) for c in cells
+               if c.side != "groundside" and len(c.ring) >= 3])
+        beside = beside_road_cut(carriageways, envelope, cut)
+    for key, (u, inner, outer) in bands.items():
+        fam, cn, cl = key
         z1 = inner.difference(claimed)
         z2 = outer.difference(inner).difference(claimed)
+        if beside is not None:
+            z1 = z1.difference(beside)
+            z2 = z2.difference(beside)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
             if gap_apron_u is not None and geom.intersects(gap_apron_u):

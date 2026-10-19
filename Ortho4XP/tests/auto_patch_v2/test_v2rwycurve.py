@@ -387,6 +387,67 @@ def test_one_cifp_pin_keeps_its_value_and_the_other_end_takes_the_datum(law):
     assert abs(z27 - 700.0) == pytest.approx(lim * d, rel=1e-6)   # clamped
 
 
+class _SideFallDem(_PlaneDem):
+    """The ground falls 2 % ACROSS the runways (in planar y) and 0.4 % along."""
+
+    provenance = {"synthetic": "2 % cross-fall"}
+
+    def z(self, x: float, y: float) -> float:
+        return 700.0 + 0.004 * x - 0.02 * y
+
+
+def test_a_second_pinless_runway_falls_from_the_highest_point_with_the_ground(law):
+    """ISSUE #941 (found at a field whose turf strip lies beside its CIFP
+    runway, 7 m below the apt.dat elevation): the record is the HIGHEST
+    point of the landing area — ONE point.  A pinless runway lying below
+    the runway that carries it takes the record LESS the ground's fall
+    from that point, never the record itself: pinned at it, the turf strip
+    stood 7 m over its ground and its hard pin lifted the primary runway
+    4.5 m mid-length."""
+    import dataclasses as _dc
+    from auto_patch_v2.constraints.runway_profile import datum_pins
+    from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack
+    from auto_patch_v2.model.frame import Frame
+    dem = _SideFallDem()
+    r = _rot(90.0)
+    off = 200.0
+    ends_p = (RunwayEnd("09", r((-RUN_LEN / 2, 0.0)), (60.5, -135.5), 0.0, 0.0,
+                        None, "fixture"),
+              RunwayEnd("27", r((RUN_LEN / 2, 0.0)), (60.5, -135.5), 0.0, 0.0,
+                        None, "fixture"))
+    ends_s = (RunwayEnd("09L", r((-RUN_LEN / 4, off)), (60.5, -135.5), 0.0, 0.0,
+                        None, ""),
+              RunwayEnd("27R", r((RUN_LEN / 4, off)), (60.5, -135.5), 0.0, 0.0,
+                        None, ""))
+    rw_p = Runway("09/27", 45.0, 1, ends_p, 3, "D")
+    rw_s = Runway("09L/27R", 20.0, 3, ends_s, 2, "B")
+    frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
+    pack = SceneryPack("fixture", "apt.dat", "0", (), ())
+    base = Airport("ZZZZ", "Synthetic", frame, 0.0, (rw_p, rw_s), (), (), {}, (),
+                   (), (), (), (), (), (), pack, dem, law.ruleset_key)
+    cells = (Cell(0, "runway", "09/27",
+                  _rect(r, -RUN_LEN / 2, -HALF_WIDTH, RUN_LEN / 2, HALF_WIDTH),
+                  (), 3, "D", "airside", "runway", {}),
+             Cell(1, "runway", "09L/27R",
+                  _rect(r, -RUN_LEN / 4, off - 10.0, RUN_LEN / 4, off + 10.0),
+                  (), 2, "B", "airside", "runway", {}))
+    pm, _st = build(base, Classification(cells, (), {}, ()), law)
+    vw = view(pm, law)
+    top = max(dem.z(*vw.xy[v]) for ch in ridge_chains(vw)["09/27"] for v in ch)
+    elev = top + 1.0                       # the record, 1 m over the DEM's top
+    airport = _dc.replace(base, elevation_m=elev)
+    pins = {(rid, e): (v, z) for v, (z, rid, e) in datum_pins(pm, law, airport).items()}
+    assert len(pins) == 4
+    # the runway carrying the highest point keeps the record at its top end
+    assert max(z for (rid, _e), (_v, z) in pins.items() if rid == "09/27") \
+        == pytest.approx(elev, abs=1e-6)
+    # the lower runway sits the ground's fall below it — the same 1 m over
+    # its own ground as the record stands over the primary's top
+    for e in ("09L", "27R"):
+        v, z = pins[("09L/27R", e)]
+        assert z - pm.vertices[v].dem_z == pytest.approx(1.0, abs=0.05), (e, z)
+
+
 def test_a_missing_apt_dat_elevation_refuses_by_name(law):
     """An airport whose apt.dat carries no elevation record REFUSES, naming
     the airport — never a silently free runway."""

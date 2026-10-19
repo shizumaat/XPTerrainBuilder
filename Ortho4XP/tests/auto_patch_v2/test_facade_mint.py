@@ -145,7 +145,7 @@ def test_both_exits_of_the_design_solve_project_the_strips():
     import inspect
     from auto_patch_v2.solve import design
     src = inspect.getsource(design.solve_design)
-    assert src.count("return _with_facade_strips(") == 2
+    assert src.count("return _with_hold_report(caller_map, *_with_facade_strips(") == 2
     assert "return published(" not in src and "return sol, rep2" not in src
     pm, law = _fake_map(), Law.for_airport("SPJC")
     z = tuple([25.88] * 4 + [32.5, 33.0, 31.0, 33.2] + [40.0] * 3 + [9.0, 50.0])

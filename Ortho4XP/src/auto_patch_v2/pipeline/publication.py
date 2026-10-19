@@ -393,9 +393,13 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
 def publication(planar: PlanarMap, law: Law, airport: Airport,
                 z: _t.Sequence[float] | None = None,
                 cs: _t.Any = None, strips: _t.Any = None,
-                strip_rep: _t.Any = None) -> dict[str, _t.Any]:
+                strip_rep: _t.Any = None, *,
+                hard_conflict: _t.Iterable[dict] = (),
+                runway_flex: _t.Iterable[dict] = ()) -> dict[str, _t.Any]:
     """The sidecar keys the solve's own pricing publishes; with ``z`` the
-    crown drops are the BUILT ones.  The shape joints (owner RULINGS
+    crown drops are the BUILT ones.  ``hard_conflict`` / ``runway_flex``
+    are the solve's records (``DesignReport`` fields, the late stage's
+    merged ``hard_conflict``; v2-stage-cache spec §3b).  The shape joints (owner RULINGS
     2026-09-08k, ``planar.shape_joints``) are declared, and every published
     pair across a joint (``planar.shape_of_vertex``: two shapes) is
     withheld — the solve priced none, so the readers price none (a
@@ -535,13 +539,13 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # flat-pad spec v2 §6 A11 (owner RULINGS 2026-09-30as): per
             # PULLED runway its flex budget, the lift that set it, what
             # pass 1b used and the pad that pulled it — an empty list where
-            # no runway was pulled (``constraints/no_step.RUNWAY_FLEX``)
-            "runway_flex": _runway_flex(),
+            # no runway was pulled (``constraints/no_step.HoldPass.finish``)
+            "runway_flex": [dict(r) for r in runway_flex],
             # flat-pad spec v2 §5a (owner RULINGS 2026-09-30be/30bf): the
             # HARD rows the pre-solve feasibility LP relaxed (a conflict
             # between laws, named per row) — an empty list where the hard
-            # set was feasible (``solve/feasibility.HARD_CONFLICT``)
-            "hard_conflict": _hard_conflict(),
+            # set was feasible (``solve/feasibility.shipped_conflicts``)
+            "hard_conflict": [dict(r) for r in hard_conflict],
             # flat-pad spec v2 §3 P2 / P19: the PLATEAU RING vertices per
             # held block — minted by law (``planar/pad_cut.plateau_cut``),
             # EXPECTED added airside nodes, excluded from the renode bar
@@ -725,18 +729,6 @@ def _plateau_rings(planar: PlanarMap, law: Law) -> dict[str, list]:
     from ..model.platform import plateau_vertices
     return {b: sorted(list(planar.vertices[v].key) for v in vs)
             for b, vs in sorted(plateau_vertices(planar, law).items())}
-
-
-def _runway_flex() -> list[dict[str, _t.Any]]:
-    """The ``runway_flex`` sidecar key (flat-pad spec v2 §6 A11)."""
-    from ..constraints.no_step import RUNWAY_FLEX
-    return [dict(r) for r in RUNWAY_FLEX]
-
-
-def _hard_conflict() -> list[dict[str, _t.Any]]:
-    """The ``hard_conflict`` sidecar key (flat-pad spec v2 §5a)."""
-    from ..solve.feasibility import HARD_CONFLICT
-    return [dict(r) for r in HARD_CONFLICT]
 
 
 def _platforms(planar: PlanarMap, law: Law, z) -> list[dict[str, _t.Any]]:

@@ -186,7 +186,7 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "pad_airside_renode",
     # flat-pad spec v2 §5a (owner RULINGS 2026-09-30be/30bf): one record per
     # HARD row the pre-solve feasibility LP relaxed — its law, the laws it
-    # conflicts with, site, s_i (``solve/feasibility.HARD_CONFLICT``); the
+    # conflicts with, site, s_i (``DesignReport.hard_conflict``); the
     # census's ``hard_conflict`` family emits one row per entry; the bar is
     # an empty list
     "hard_conflict",

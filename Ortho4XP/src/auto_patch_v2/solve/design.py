@@ -71,7 +71,8 @@ from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, har
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
 from .feasibility import (_carries_a_column, apron_hard_rows, demote_conflicts,  # noqa: F401
-                          promote_missed, published, publish_stages, runway_after)
+                          promote_missed, published, publish_stages, runway_after,
+                          shipped_conflicts)
 from .flex import _held_at_ref, runway_columns, runway_stage_roles, stage_one  # noqa: F401
 from .project import ProjectionReport, ZoneClampReport, project_after_solve
 from .pin_yield import yield_pins as _yield_pins  # (re-export: test_surfacesettle2)
@@ -183,10 +184,12 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     status the worse of the two, the report stage 2's with stage 1's
     counters in ``stages`` and the hard set COMBINED (§20b's census table).
     """
+    caller_map = planar                 # its held registry is read after the solve
     if not bool(design_law(law).staged_solve):
-        return _with_facade_strips(planar, law, *published(*_solve_stage(
-            planar, cs, law, options, size_out=size_out, method=method,
-            low_rank=low_rank)))
+        return _with_hold_report(caller_map, *_with_facade_strips(
+            planar, law, *published(*_solve_stage(
+                planar, cs, law, options, size_out=size_out, method=method,
+                low_rank=low_rank))))
     t_all = time.perf_counter()
     # PASS 1a / THE INTERVAL / PASS 1b (flat-pad spec v2 §1-§2, owner
     # RULINGS 2026-09-30as; ``solve/flex.stage_one``): ``hold`` is the
@@ -314,6 +317,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     if stage1 is not None:
         rep2.stages["stage1_map"] = dict(stage1.report)   # #100 option (c)
     rep2.stages["stage1"]["hard_feasibility"] = publish_stages(rep1, rep2, pass1a=pass1a, law=law)
+    rep2.hard_conflict = shipped_conflicts(rep1, rep2)
     # THE HARD SET IS THE COMBINATION (§20b's census table): an airside hard
     # row carries no column in stage 2 — it was enforced and read in stage 1,
     # where it is scaled to metres — so the shipped surface's hard set is
@@ -380,7 +384,19 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                       wall_s=time.perf_counter() - t_all,
                       message=f"staged design surface (20b): stage 1 {sol1.message}; "
                               f"stage 2 {sol2.message}")
-    return _with_facade_strips(planar, law, sol, rep2)
+    return _with_hold_report(caller_map, *_with_facade_strips(planar, law, sol, rep2))
+
+
+def _with_hold_report(planar: PlanarMap, sol: Solution,
+                      rep: DesignReport) -> tuple[Solution, DesignReport]:
+    """THE HOLD REPORT ON THE RECORD (v2-stage-cache spec §3b / §4b.4): the
+    hold keys the solve wrote into the CALLER's map's ``registries.held``,
+    read once after the whole solve (``model.platform.hold_report``) —
+    returned on ``rep.hold_report``; the registry itself is still written
+    as before."""
+    from ..model.platform import hold_report
+    rep.hold_report = hold_report(planar.registries.held)
+    return sol, rep
 
 
 def _with_facade_strips(planar: PlanarMap, law: Law, sol: Solution,

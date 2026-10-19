@@ -12,15 +12,14 @@ with the zone).
 from __future__ import annotations
 
 import pytest
-from shapely.geometry import LineString, box
-from shapely.ops import unary_union
-
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import snap_margin_m, zone_edge_offset_m
 from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.planar.road_yield import road_carriageways
 from auto_patch_v2.planar.zones import zone_regions
+from shapely.geometry import LineString, box
+from shapely.ops import unary_union
 
 #: a taxiway 30 m wide along y, its east edge at x = 0
 PAV = ((-30.0, -400.0), (0.0, -400.0), (0.0, 400.0), (-30.0, 400.0))

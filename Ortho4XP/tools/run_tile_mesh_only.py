@@ -40,7 +40,8 @@ A/B; #976): step 1 replaces the auto_patch generator call with a no-op
 so flat-site DEM prep and the patch selection are production's), and the
 ``Patches/`` files ALREADY ON DISK are meshed exactly as they are — the
 deliberate measurement of a given patch's mesh-apply cost (constrained
-edges, step 1/2 wall), never a trap: the flag is explicit, the run prints it, and a run without it still refuses
+edges, step 1/2 wall), never a trap: the flag is explicit, the run
+prints it, and a run without it still refuses
 when no install resolves.  ``first_step`` is 1 (default, vector then mesh)
 or 2 -- the MESH REPLAY: step 2 alone, on the ``.node`` / ``.poly`` /
 ``.weight`` / ``.alt`` inputs already sitting in the build directory.

@@ -14,12 +14,10 @@ from __future__ import annotations
 import dataclasses as _dc
 
 import pytest
-
 from auto_patch_v2.law import Law
-
 from test_roadmint100 import _way, _with
 from test_roadterrace100 import _solve
-from test_wall_step715 import ROAD, _StepDem, _road
+from test_wall_step715 import ROAD, _road, _StepDem
 
 
 @pytest.fixture(scope="module")

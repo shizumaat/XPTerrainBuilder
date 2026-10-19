@@ -965,7 +965,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_ramp constraints.pad_relief
         constraints.pad_warning constraints.pads constraints.platform
-        constraints.precedence constraints.ramp_runout constraints.band_riser constraints.road_ramp geom
+        constraints.precedence constraints.ramp_runout constraints.band_riser
+        constraints.road_ramp geom
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport
         model.islands model.map_memo model.platform
@@ -974,7 +975,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.band_riser constraints.road_ramp geom geom.base_slab geom.cluster_outline geom.containment
+        constraints.band_riser constraints.road_ramp geom geom.base_slab geom.cluster_outline
+        geom.containment
         geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport
         model.islands model.map_memo model.platform
     """),
@@ -1182,7 +1184,8 @@ CODE_MODULES["solve"] = _mods("""
     constraints.cluster_pad constraints.contiguity constraints.end_lip
     constraints.geometry constraints.groundside constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
-    constraints.pads constraints.platform constraints.precedence constraints.band_riser constraints.road_ramp
+    constraints.pads constraints.platform constraints.precedence constraints.band_riser
+    constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_profile constraints.runway_yield constraints.shoulder_crossing
     constraints.stretches constraints.strips constraints.taxi constraints.taxi_trend
@@ -1260,7 +1263,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.pad_relief constraints.pad_road_reach constraints.pad_warning
     constraints.pads constraints.pavement_cap constraints.platform
     constraints.precedence constraints.proximity constraints.ramp_runout
-    constraints.band_riser constraints.road_ramp constraints.roads constraints.routes constraints.runway_chord
+    constraints.band_riser constraints.road_ramp constraints.roads constraints.routes
+    constraints.runway_chord
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.slab_weld
     constraints.stretches constraints.strips constraints.structures constraints.taxi
@@ -1331,7 +1335,8 @@ CODE_MODULES["emit"] = _mods("""
     constraints.end_lip constraints.flat_site constraints.geometry
     constraints.groundside constraints.junction_mesh constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
-    constraints.pads constraints.platform constraints.precedence constraints.band_riser constraints.road_ramp
+    constraints.pads constraints.platform constraints.precedence constraints.band_riser
+    constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
@@ -1401,7 +1406,8 @@ CODE_MODULES["verify"] = _mods("""
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.islands model.map_memo
     model.placement model.planar model.platform model.pulse model.rebake
-    model.registries model.structures model.threshold_datum pipeline.band_road_wall pipeline.publication
+    model.registries model.structures model.threshold_datum pipeline.band_road_wall
+    pipeline.publication
     pipeline.ribbon_steps pipeline.verify_stage planar.cluster planar.shape_airside
     planar.shape_mouths planar.shape_parts planar.shapes planar.strip_keepout
     solve.design_roles solve.ground_band verify verify.census verify.channel

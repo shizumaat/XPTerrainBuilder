@@ -212,7 +212,7 @@ def test_cache_miss_falls_through(monkeypatch, tmp_path):
     )
     calls = []
 
-    def fake_http(width, height, url, headers, session):
+    def fake_http(width, height, url, headers, session, timeout=None):
         calls.append(url)
         return 1, Image.new("RGB", (256, 256), (9, 9, 9))
 

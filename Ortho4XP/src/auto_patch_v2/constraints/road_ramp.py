@@ -636,15 +636,16 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
         design=float(law.tables.emit.road_contact.ramp_grade),
         lane=float(law.tables.emit.road_profile.lane_width_m))
     # a BAND-KERB vertex (``road_terrace``'s ``kerb``) carries no §37 (6)
-    # row — the band leads there — and gets ONE: the terrace level as the
-    # same law-weight design target, never a ceiling (the band's own rows
-    # stay the hard ones).  A bare kerb has no floor and gets nothing.
-    kerb = terr.get("kerb") or {}
-    add = {v: z for v, z in prof.items() if v in kerb and v not in floor}
+    # row and NO terrace target: a road inside a band beats the band at or
+    # below the band's grade (owner 2026-10-19, #951 — "as long as they are
+    # at or below the safety area grade they are not interfering with air
+    # traffic, and typically they are cut below").  The terrace level (the
+    # bordering pavement's) as its target pulled KLAX's road 3.85 m up
+    # toward the runway end; the band's ceiling is ``zones.zone_bands``'
+    # kerb row, so above the band's grade the band still leads.
     prof = {v: z for v, z in prof.items() if v in floor}
-    rep["governed"] = len(prof) + len(add)
-    rep["kerb"] = len(add)
-    if not prof and not add:
+    rep["governed"] = len(prof)
+    if not prof:
         return cs, rep
     linears = []
     for r in cs.linears:
@@ -653,11 +654,6 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
             if v in prof:
                 r = _dc.replace(r, lo=prof[v], hi=prof[v])
         linears.append(r)
-    for v in sorted(add):
-        ref = next((planar.faces[f].ref for f in planar.vertices[v].incident_faces
-                    if planar.faces[f].role in roles), "")
-        linears.append(Linear(((v, 1.0),), add[v], add[v],
-                              Source(GEN, RULING, (f"vertex:{v}", ref))))
     bands = []
     for r in cs.bands:
         if r.source.generator == GEN and r.source.ruling == RULING_CEILING:

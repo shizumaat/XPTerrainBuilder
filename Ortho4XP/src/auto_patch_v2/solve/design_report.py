@@ -356,6 +356,15 @@ class DesignReport:
     #: pulling pad (``constraints/no_step.HoldPass.finish``); empty where no
     #: runway was pulled or no block is held
     runway_flex: list = _dc.field(default_factory=list)
+    #: §5a THE SHIPPED SURFACE'S CONFLICTS (the ``hard_conflict`` sidecar
+    #: key): the HARD rows the final stages' feasibility LP relaxed
+    #: (``solve/feasibility.shipped_conflicts``; v2-stage-cache spec §3b —
+    #: was the module global ``feasibility.HARD_CONFLICT``)
+    hard_conflict: list = _dc.field(default_factory=list)
+    #: THE HOLD REPORT (``model.platform.hold_report``) read off the map's
+    #: ``registries.held`` after the solve — what a later stage that
+    #: re-mints the held registry carries over it (spec §3b / §4b.4)
+    hold_report: dict = _dc.field(default_factory=dict)
     #: §5: one-sided pair-cap rows promoted to HARD on the fronting set
     fronting_promoted: int = 0
     fronting_promoted_by: dict = _dc.field(default_factory=dict)
@@ -783,7 +792,6 @@ class DesignReport:
                     f"{tr.get('bordered', 0)} at their bordering pavement's "
                     f"level, {tr.get('linked', 0)} straight between two, "
                     f"{tr.get('pad_held', 0)} held along a pad frontage, "
-                    f"{tr.get('kerb', 0)} band-kerb targets added, "
                     f"{tr.get('anchored', 0)} reaching a coverage join at the cap, "
                     f"{tr.get('bare', 0)} leaving the last bordered level in "
                     f"{tr.get('bare_runs', 0)} run(s) ({tr.get('bare_steepened', 0)} "

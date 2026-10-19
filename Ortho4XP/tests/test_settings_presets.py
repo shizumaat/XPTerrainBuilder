@@ -4,8 +4,8 @@
 ``Sources/XPTerrainBuilder/SettingsPresets.swift``.  This twin requires the
 two to be equal, every preset to write the same existing keys, Balanced
 to be the registry defaults, Sharper airports to be the default preset,
-Custom to show once a key differs, and every GB figure on a card to equal
-its derivation in ``docs/presets.md``.
+Custom to show once a key differs, and every
+GB figure on a card to equal its derivation in ``docs/presets.md``.
 
 Hermetic: the repo's own files, no Qt, no network.
 """

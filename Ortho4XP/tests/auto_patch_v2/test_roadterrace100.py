@@ -145,9 +145,11 @@ def test_a_ribbon_in_the_runway_strip_on_a_hillside_stays_at_the_runway_level(la
     """THE NLWF CLASS, synthetic: a tertiary road 30 m south of the runway
     (inside its strip) on a hillside rising 0.5 m per metre south of
     y = -20 (the DEM under the road stands ~10 m above the runway).  Every
-    ribbon vertex is BORDERED by the runway (``road_terrace``), the stage-2
-    rewrite targets the runway edge's own solved level, the road is solved
-    there (the hill is the cut), and every AIRSIDE value equals the
+    ribbon vertex is BORDERED by the runway (``road_terrace``) and is a
+    band kerb; the band's CEILING caps it (owner 2026-10-19, #951: a road
+    in a safety area may sit at or below its grade, never above), so on a
+    hill that rises above the band the road is solved at the band's grade
+    by the runway (the hill is the cut), and every AIRSIDE value equals the
     ribbon-free airport's (airside is untouched by construction)."""
     from auto_patch_v2.model.planar import is_osm_ribbon_ref
     from auto_patch_v2.solve.design_roles import airside_stage_vertices
@@ -164,7 +166,7 @@ def test_a_ribbon_in_the_runway_strip_on_a_hillside_stays_at_the_runway_level(la
                                          and 600.0 < pm1.vertices[v].xy[0] < 900.0}
     assert {terr["foot"][v][3] for v in terr["foot"]} == {"09/27"}
     tr = rep1.reach_seed.get("terrace", {})
-    assert tr.get("governed", 0) > 0 and tr.get("bordered", 0) > 0
+    assert tr.get("bordered", 0) > 0
     # the road is solved at the runway's level, metres under its DEM
     z = sol1.z
     for v in terr["foot"]:
@@ -301,3 +303,45 @@ def test_the_coverage_join_clip_is_the_cap_s_envelope_never_a_design_grade_cut()
     out, _rep = terrace_profile({"foot": foot, "pad": {}, "station": st}, lv, floor, CAP,
                                 {0: 80.0}, design=DESIGN, lane=LANE)
     assert out[1] == pytest.approx(80.0 + CAP * 10.0)
+
+
+class _DipDem(_SlopeDem):
+    """The same strip falling instead: −0.5 m per metre south of y = −20
+    (the road at y = −30 stands 5 m BELOW the runway edge)."""
+
+    def z(self, x: float, y: float) -> float:
+        return 100.0 - max(0.0, -20.0 - y) * 0.5
+
+
+def test_a_ribbon_kerb_in_a_band_is_capped_by_the_band_never_lifted(law):
+    """OWNER 2026-10-19 (#951, KLAX): "as long as they are at or below the
+    safety area grade they are not interfering with air traffic, and
+    typically they are cut below".  The kerb a ribbon shares with a band is
+    the ROAD's vertex capped by the band: it carries the band's CEILING row
+    (no floor) and NO terrace target at the bordering pavement's level —
+    the target that pulled KLAX's road 3.85 m up toward the runway end.
+    Every AIRSIDE value equals the ribbon-free airport's."""
+    from auto_patch_v2.constraints import generate
+    from auto_patch_v2.law.tables import airside_stage_roles
+    from auto_patch_v2.solve.design_roles import airside_stage_vertices
+    a1 = _dc.replace(_with(_way(-3, SOUTH, highway="tertiary")), dem=_DipDem())
+    a0 = _dc.replace(_with(), dem=_DipDem())
+    pm1, sol1, rep1 = _solve(a1, law)
+    pm0, sol0, _r0 = _solve(a0, law)
+    kerb = pm1.band_kerb_vertices(airside_stage_roles(law))
+    assert kerb
+    cs, _c, _w = generate(pm1, law, a1)
+    zone = [r for r in cs.linears if r.source.generator == "zones"
+            and r.source.ruling.startswith("zones.adjacent_ground (")
+            and r.follows in kerb]
+    assert {r.follows for r in zone} == kerb
+    assert all(r.lo is None and r.hi is not None for r in zone)
+    # the terrace rewrite targets no kerb vertex
+    assert rep1.reach_seed.get("terrace", {}).get("governed", 0) == 0
+    # the road is never above the band's ceiling: nothing lifts it past the
+    # ground the band holds beside it
+    z = sol1.z
+    assert max(z[v] for v in kerb) <= 100.0
+    z0 = {pm0.vertices[v].xy: sol0.z[v] for v in airside_stage_vertices(pm0, law)}
+    at1 = {pm1.vertices[v].xy: v for v in range(len(pm1.vertices))}
+    assert z0 and all(abs(sol1.z[at1[xy]] - zz) <= 1e-9 for xy, zz in z0.items())

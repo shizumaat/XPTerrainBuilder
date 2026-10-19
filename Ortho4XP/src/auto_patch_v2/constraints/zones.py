@@ -572,8 +572,16 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if fid not in pad_nearest or fv[0][3] < pad_d[fid]:
             pad_nearest[fid], pad_d[fid] = v, fv[0][3]
 
+    # A ROAD IN A BAND BEATS THE BAND AT OR BELOW ITS GRADE (owner
+    # 2026-10-19, #951): the kerb a mapped-road ribbon shares with the band
+    # is the ROAD's vertex, capped by the band — it takes the nearest
+    # pavement's CEILING only, never its floor, so the road keeps its own
+    # level beneath the band's grade ("typically they are cut below") and
+    # the band leads only where the road would stand above it.
+    kerb = planar.band_kerb_vertices(airside_stage_roles(law))
     for v, classes in member.items():
-        if v in own_law or v in wall_vertices:
+        cap_only = v in kerb
+        if (v in own_law and not cap_only) or v in wall_vertices:
             continue
         src = Source(GEN, "zones.adjacent_ground (2026-08-01)", (f"vertex:{v}",))
         found = _found(v, classes)
@@ -648,6 +656,10 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 hi = None
             if v in pad_rim and pad_nearest.get(pad_rim[v]) != v:
                 continue             # a pad's far rim: no row (the Flat carries the level)
+            if cap_only:
+                if rank > 0 or hi is None:
+                    continue         # the kerb: the nearest pavement's ceiling alone
+                lo = None
             if blend is None:
                 terms = ((v, 1.0),) + _foot(a, b, t, 1.0)
             else:

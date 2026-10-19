@@ -37,6 +37,7 @@ function (docstrings excluded).
 | O4_Mesh_Utils.py | patch_valued_vertex_indices | 2 | uncoded | | free-interior interpolation disabled for the tile |
 | O4_Mesh_Utils.py | patch_segment_split_values | 1 | uncoded | | ring-segment vertices keep the free-interior treatment |
 | O4_Mesh_Utils.py | _levelled_road_lines | 1 | uncoded | | bank blend overrides nothing pre-valued |
+| O4_Mesh_Utils.py | pavement_shore_vertices | 1 | uncoded | | pavement ring vertices on the water line keep the water datum (the #945 ridge) |
 | O4_Mesh_Utils.py | audit_bank_annulus | 1 | uncoded | | warn mode of an audit whose strict mode raises `BankAnnulusCollapse` |
 | O4_Mesh_Utils.py | interp_alt_ribbon_vertex_indices | 1 | uncoded | | road ribbon nodes stay in the free set |
 | O4_Mesh_Utils.py | bank_annulus_blend_values | 2 | uncoded | | bank annulus keeps the graph-harmonic treatment |

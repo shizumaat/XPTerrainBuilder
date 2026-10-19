@@ -80,3 +80,20 @@ def test_a_dual_ramp_spans_its_carriageways_until_they_part(law):
     # 20 + 7 m — never the 120 m the parted roads stand apart further out
     sep = law.tables.structures.tunnel.dual_carriageway_max_separation_m
     assert 18.0 + 5.0 < width <= sep / 2.0 + 7.0 + 1e-6
+
+
+def test_past_the_parting_the_dual_axis_runs_straight(law):
+    """#807: where the carriageways part (a roundabout), the mean of the two
+    routes kinks and the corridor folds; the dual's axis runs straight on
+    from the parting along its last direction."""
+    west = [(-5.5, 0.0), (-5.5, -100.0), (20.0, -180.0)]
+    east = [(5.5, 0.0), (5.5, -100.0), (90.0, -110.0)]
+
+    def mk(xy, ap):
+        return Mouth(Bore([], [xy, (xy[0], 10.0)]), xy, (0.0, 1.0), 7.0, ap, ())
+    (_m, _xy, _inw, _w, axis), = merge_duals([mk(west[0], west), mk(east[0], east)],
+                                             law, StructureStats())
+    tail = [p for p in axis if p[1] < -105.0]
+    assert len(tail) == 1, axis                    # one straight run, no kink
+    (x0, y0), (x1, y1) = axis[-2], axis[-1]
+    assert abs(x1 - x0) < 0.25 * abs(y1 - y0), axis  # on the shared line south

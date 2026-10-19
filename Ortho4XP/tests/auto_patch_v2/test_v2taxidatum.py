@@ -445,7 +445,12 @@ def _runway_touching(law, dem):
         Cell(1, "primary_parallel", "pavT",
              _rect(r, -TAXI_LEN / 2, 200.0, TAXI_LEN / 2, 223.0), (), None,
              "D", "airside", "taxi", {}),
-        Cell(2, "stub", "linkR", _rect(r, -11.5, HALF_WIDTH, 11.5, 200.0), (),
+        # linkR's sides carry a vertex 3 m off the runway edge, on the
+        # contact segment of its chain (until #770 the zone lip noded them)
+        Cell(2, "stub", "linkR",
+             tuple(r(p) for p in ((-11.5, HALF_WIDTH), (11.5, HALF_WIDTH),
+                                  (11.5, HALF_WIDTH + 3.0), (11.5, 200.0),
+                                  (-11.5, 200.0), (-11.5, HALF_WIDTH + 3.0))), (),
              None, "D", "airside", "taxi", {}),
     )
     cuts = (CutLine("taxi_centerline", "pavT",

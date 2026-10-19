@@ -326,7 +326,10 @@ def _two_pavement_cells(drop_m: float):
     """A pad between an APRON on one side and a TAXIWAY on the other, the
     taxiway's own surface ``drop_m`` below the apron's over the 120 m the
     pad spans.  The taxi family is SENIOR to the apron."""
-    pad = _rect(-60.0, 180.0, 60.0, 240.0)
+    # the pad's sides carry a vertex of their own off both pavements (until
+    # #770 the taxiway's zone lines noded them there)
+    pad = ((-60.0, 180.0), (60.0, 180.0), (60.0, 230.5), (60.0, 240.0),
+           (-60.0, 240.0), (-60.0, 230.5))
 
     class _Tilt:
         provenance = {"synthetic": "two levels"}

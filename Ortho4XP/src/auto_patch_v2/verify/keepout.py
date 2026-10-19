@@ -258,13 +258,20 @@ def ramp_in_strip(p: Patch) -> list[Row]:
     "hole in the taxiway" (LEMD 40.4611623,-3.5444804: ramp face 961 at
     15.5 m from a kerb whose code-E strip is 19.0 m, a 5.42 m unbanked drop
     and the airport's worst CRITICAL VISUAL row).  A vertex welded to the
-    strip's outer edge is OUTSIDE it."""
+    strip's outer edge is OUTSIDE it, and so is one inside an object cut's
+    wall line: the strip there rides the object's deck (#946)."""
     bands = _strip_bands(p)
     if not bands:
         return []
     tol = weld_tol_m(p)
+    # #946 (owner 2026-10-19 "Yes"): the surface over an OBJECT-DECKED
+    # trench rides the object's deck (§33 (6) B AMENDED (3) (c)), so a ramp
+    # vertex inside a published object cut's wall line is not in a strip
+    decked = [g for _i, g, _f in _object_cut_regions(p)]
     out: list[Row] = []
     for sh, vid, pt in _ramp_vertices(p, ramp_roles(p)):
+        if any(d.distance(pt) <= tol for d in decked):
+            continue
         for g, pw in bands:
             if not g.contains(pt):
                 continue

@@ -400,3 +400,24 @@ def test_an_unroled_rim_feature_outside_its_object_is_priced_not_raised(dirty):
     assert len(rows) == 1
     assert rows[0]["magnitude_m"] == pytest.approx(_OBJECT_OFFSET_M, abs=0.05)
     assert keepout.RIM_ROLE in rows[0]["roles"]
+
+
+def test_a_strip_ramp_inside_an_object_cut_rides_its_deck_on_both_readers(cg, tmp_path):
+    """#946 (owner 2026-10-19 "Yes"): where the surface rides an object
+    deck over a trench, the strip there is the object's deck — a ramp
+    vertex inside a published object cut's wall line is no
+    ``ramp_in_strip`` row, on the oracle and on ``verify`` alike."""
+    rings, side = _layout()
+    strip_ramp = rings[5][2]
+    las = [q[0] for q in strip_ramp]
+    los = [q[1] for q in strip_ramp]
+    pad = 5.0 / _MLAT
+    outline = [[min(las) - pad, min(los) - pad], [min(las) - pad, max(los) + pad],
+               [max(las) + pad, max(los) + pad], [max(las) + pad, min(los) - pad]]
+    side = dict(side, object_cuts=list(side["object_cuts"]) + [
+        {"id": "obj2", "wall_ref": "tunnel_wall", "ramp_refs": ["tunnel_ramp"],
+         "floor_m": _BASE_Z_M - 4.0, "outline_ll": outline}])
+    p = _patch(rings, side)
+    assert keepout.ramp_in_strip(p) == []
+    fo = _oracle(cg, tmp_path, "decked", rings, side)
+    assert fo["ramp_in_strip"] == []

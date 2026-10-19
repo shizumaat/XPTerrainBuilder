@@ -38,7 +38,7 @@ class _World:
         for path, text in ((self.mesh, "mesh 1"), (self.obj, "OBJ 1"),
                            (self.graded, "graded 1"), (self.pristine, "DSF 0"),
                            (self.extra, "lib 1")):
-            path.write_text(text, encoding="utf-8")
+            path.write_text(text, encoding="utf-8", newline="\n")
         self.calls = 0
         self.said: list[str] = []
         self.plan = {"icao": "XAAA", "units": [1, 2]}
@@ -47,13 +47,13 @@ class _World:
     def place(self, tag="XAAA"):
         """The stand-in placement: deterministic in what it reads."""
         self.calls += 1
-        src = (self.obj.read_text() + self.graded.read_text()
-               + self.pristine.read_text() + self.extra.read_text())
+        src = "".join(p.read_text(encoding="utf-8") for p in (
+            self.obj, self.graded, self.pristine, self.extra))
         body = self.pack / "objects" / f"{tag}_b0.obj"
-        with open(str(body) + ".tmp", "w", encoding="utf-8") as fh:
+        with open(str(body) + ".tmp", "w", encoding="utf-8", newline="\n") as fh:
             fh.write("body of " + src)
         os.replace(str(body) + ".tmp", body)
-        with open(self.dsf, "w", encoding="utf-8") as fh:
+        with open(self.dsf, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(f"DSF with {src}, last written for {tag}")
         return {"bodies": 1, "packs_written": 1}
 
@@ -99,10 +99,11 @@ def test_unchanged_inputs_are_served_and_equal_a_fresh_run(world, tmp_path):
 
 @pytest.mark.parametrize("change, named", [
     (lambda w: w.plan.update(units=[1, 2, 3]), "plan"),
-    (lambda w: w.mesh.write_text("mesh 2"), "mesh"),
-    (lambda w: w.graded.write_text("graded 2"), "graded"),
-    (lambda w: w.pristine.write_text("DSF 9"), "pristine_dsf"),
-    (lambda w: w.obj.write_text("OBJ 2"), "objects"),
+    (lambda w: w.mesh.write_text("mesh 2", encoding="utf-8", newline="\n"), "mesh"),
+    (lambda w: w.graded.write_text("graded 2", encoding="utf-8", newline="\n"), "graded"),
+    (lambda w: w.pristine.write_text("DSF 9", encoding="utf-8", newline="\n"),
+     "pristine_dsf"),
+    (lambda w: w.obj.write_text("OBJ 2", encoding="utf-8", newline="\n"), "objects"),
     (lambda w: w.params.update(measure_only=True), "params.measure_only"),
 ])
 def test_each_key_input_changed_reruns_and_is_named(world, change, named):
@@ -134,10 +135,12 @@ def test_the_code_and_the_environment_are_in_the_key(world):
 
 def test_a_read_file_or_an_output_changed_after_the_record_refuses_it(world):
     world.stage()
-    world.extra.write_text("lib 2")                  # read, never keyed
+    # read, never keyed
+    world.extra.write_text("lib 2", encoding="utf-8", newline="\n")
     world.stage()
     assert world.calls == 2 and f"ran: file:{world.extra}" in world.last()
-    world.dsf.write_text("the user's own DSF")       # an output
+    # an output
+    world.dsf.write_text("the user's own DSF", encoding="utf-8", newline="\n")
     world.stage()
     assert world.calls == 3 and f"ran: output:{world.dsf}" in world.last()
     world.stage()
@@ -178,7 +181,7 @@ def test_a_sibling_rewriting_the_shared_dsf_later_is_rewitnessed(world):
     changes the first's output; both are served next time."""
     world.stage(airports=("XAAA", "XBBB"))
     assert world.calls == 2
-    assert world.dsf.read_text().endswith("for XBBB")
+    assert world.dsf.read_text(encoding="utf-8").endswith("for XBBB")
     world.stage(airports=("XAAA", "XBBB"))
     assert world.calls == 2, world.said
 
@@ -187,14 +190,14 @@ def test_the_recorder_keeps_what_was_written(tmp_path):
     rec = FW.FileRecorder(writes=True)
     out = tmp_path / "out.txt"
     src = tmp_path / "in.txt"
-    src.write_text("x")
+    src.write_text("x", encoding="utf-8", newline="\n")
     rec.recording(True)
     try:
-        src.read_text()
-        with open(str(out) + ".tmp", "w") as fh:
+        src.read_text(encoding="utf-8")
+        with open(str(out) + ".tmp", "w", encoding="utf-8", newline="\n") as fh:
             fh.write("y")
         os.replace(str(out) + ".tmp", out)
-        (tmp_path / "o4_stage_own.cache").write_text("z")
+        (tmp_path / "o4_stage_own.cache").write_text("z", encoding="utf-8", newline="\n")
     finally:
         rec.recording(False)
     assert rec.written() == [os.path.abspath(out)]

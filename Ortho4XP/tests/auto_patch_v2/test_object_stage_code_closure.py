@@ -79,7 +79,7 @@ def test_the_stage_keys_each_airport_through_the_reuse(tmp_path):
     assert "mesh_placement_sampler(mesh_path" in src[src.index("def _compute"):
                                                       src.index("reuse.run(")]
     mesh = tmp_path / "t.mesh"
-    mesh.write_text("m", encoding="utf-8")
+    mesh.write_text("m", encoding="utf-8", newline="\n")
     tile = types.SimpleNamespace(lat=10, lon=20, build_dir=str(tmp_path))
     reuse = STAGE._stage_reuse(tile, str(mesh))
     assert reuse is not None and reuse.code == OSC.runtime_digest()

@@ -122,6 +122,30 @@ class StageReuse:
             "params": dict(params),
         }, "code": self.code, "env": self.env}
 
+    def airport_recipe(self, plan_: _t.Any, lat: int, lon: int, patch_dir: str, *,
+                       writes: tuple[bool, bool], omit: _t.Sequence,
+                       engine: str) -> dict:
+        """:meth:`recipe` of one airport's rebake plan on tile ``(lat,
+        lon)``: its graded surface beside the patch, its pack's pristine
+        tile DSF, the OBJ of every member; ``writes`` is ``(write_enabled,
+        measure_only)``, ``omit`` the missing art the write drops."""
+        from ..law.tables import law_tables_digest
+        from ..model.rebake import graded_surface_path
+        from .dsf import dsf_path_in_pack
+        from .dsf_write import pristine_dsf_path
+        objects = [os.path.join(plan_.pack_root,
+                                *m.resource.replace("\\", "/").split("/"))
+                   for u in plan_.units for m in u.members]
+        return self.recipe(
+            plan_.to_dict(),
+            graded_path=graded_surface_path(patch_dir, plan_.icao),
+            pristine_path=pristine_dsf_path(dsf_path_in_pack(plan_.pack_root, lat, lon)),
+            objects=objects,
+            params={"write_enabled": bool(writes[0]), "measure_only": bool(writes[1]),
+                    "omit": sorted(repr(m) for m in omit),
+                    "law": str(law_tables_digest().get("sha256") or ""),
+                    "engine": engine})
+
     # ── the run ─────────────────────────────────────────────────────────
     def run(self, icao: str, folder: str, recipe: dict,
             compute: _t.Callable[[], _t.Any]) -> _t.Any:

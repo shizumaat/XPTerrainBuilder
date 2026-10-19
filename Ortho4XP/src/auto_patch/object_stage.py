@@ -987,29 +987,14 @@ def _reuse_folder(plan_) -> str:
 
 def _reuse_recipe(reuse, plan_, tile, patch_dir: str, *, writes: tuple,
                   omit: _t.Sequence) -> "dict | None":
-    """One airport's reuse key (``object_stage_reuse`` module doc), or
-    ``None`` (no reuse, or a key that could not be taken: the airport
-    runs)."""
+    """One airport's reuse key (``object_stage_reuse.airport_recipe``), or
+    ``None``: no reuse, or a key that could not be taken (it runs)."""
     if reuse is None:
         return None
     try:
-        from auto_patch_v2.airport import dsf as _dsf2
-        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
-        from auto_patch_v2.law.tables import law_tables_digest
-        from auto_patch_v2.model.rebake import graded_surface_path
-        dsf_path = _dsf2.dsf_path_in_pack(plan_.pack_root, tile.lat, tile.lon)
-        objects = [os.path.join(plan_.pack_root,
-                                *m.resource.replace("\\", "/").split("/"))
-                   for u in plan_.units for m in u.members]
-        return reuse.recipe(
-            plan_.to_dict(),
-            graded_path=graded_surface_path(patch_dir, plan_.icao),
-            pristine_path=pristine_dsf_path(dsf_path), objects=objects,
-            params={"write_enabled": bool(writes[0]),
-                    "measure_only": bool(writes[1]),
-                    "omit": sorted(repr(m) for m in omit),
-                    "law": str(law_tables_digest().get("sha256") or ""),
-                    "engine": _engine_version()})
+        return reuse.airport_recipe(plan_, tile.lat, tile.lon, patch_dir,
+                                    writes=writes, omit=omit,
+                                    engine=_engine_version())
     except Exception:
         return None
 

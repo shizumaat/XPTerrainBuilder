@@ -129,14 +129,11 @@ RUN_ENVIRONMENT: dict[str, str] = {
 }
 
 #: Digested, like a gate ``config.py`` declares.  Read outside ``config.py``
-#: (the apt.dat reader, the DEM and inset bake, the object stage, the mesh,
+#: (the DEM and inset bake, the object stage, the mesh,
 #: the census law) or by ``config.py`` without a string default.  Being
 #: here claims only "a change to it rebuilds", which is the safe side; the
 #: mesh-stage and cache entries are development knobs kept on that side.
 SETTINGS_OUTSIDE_CONFIG: frozenset[str] = frozenset({
-    # the apt.dat reader's curve flattening
-    "O4_ADAPTIVE_BEZIER", "O4_BEZIER_FLATTEN_DEV_M",
-    "O4_CURVE_MIN_SPACING_M", "O4_CURVE_SAGITTA_M",
     # config.py reads without a string default, and the apt.dat override
     "O4_FABRIC_W2_ICAO_STRIP_AUTHORITY", "O4_FABRIC_W2_TAXIWAY_LIP_AUTHORITY",
     "O4_HOLE_ROUTER", "O4_PADS_BAND_VARIABLES", "O4_PAVEMENT_SCORE_WEIGHTS",

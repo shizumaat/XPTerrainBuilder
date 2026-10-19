@@ -1,17 +1,15 @@
-"""Unit tests for ``auto_patch.agp_reader`` and the DSF ``.agp`` OBJECT
-walker.
+"""Unit tests for ``auto_patch.agp_reader`` (the ``library.txt`` index)
+and the DSF OBJECT walker.
 
-Pure hermetic tests — they build tiny ``.agp`` files and ``library.txt``
-maps under ``tmp_path`` and feed synthetic DSF text to the OBJECT walker,
-so they need no X-Plane install and always run.  They pin the encoded
-``.agp`` footprint math (TILE/CROP_POLY × TEXTURE_WIDTH/HEIGHT ÷
-TEXTURE_SCALE, anchored at ANCHOR_PT), the ``library.txt`` resolution +
-priority, the persistent library-index sidecar cache and its
-invalidation, and the placement→lon/lat transform.
+Pure hermetic tests — they build tiny ``library.txt`` maps under
+``tmp_path`` and feed synthetic DSF text to the OBJECT walker, so they need
+no X-Plane install and always run.  They pin the ``library.txt``
+resolution + priority and the persistent library-index sidecar cache and
+its invalidation.  (The ``.agp`` footprint half retired with v1's facade
+reader, #852; v2's is ``auto_patch_v2.airport.riders``.)
 """
 from __future__ import annotations
 
-import math
 import os
 import threading
 
@@ -48,10 +46,7 @@ def clear_library_index_memo():
     A._LIB_INDEX_LOCKS.clear()
 
 
-# ── .agp footprint parsing ───────────────────────────────────────────
-# A 128px tile spanning 60 m (mpp = 60/128 = 0.46875), anchored low so
-# the parsed footprint is asymmetric in y — exactly the stock
-# hangar_40x26_1 layout.
+# ── a stock-shaped .agp resource (the library tests export it) ───────
 _AGP_60x60 = """A
 1000
 AG_POINT
@@ -72,66 +67,6 @@ ROTATION 0
 CROP_POLY 0.0 128.0 0.0 0.0 128.0 0.0 128.0 128.0
 ANCHOR_PT 64.0 29.867
 """
-
-_MPP = 60.0 / 128.0
-
-
-def _write(tmp_path, name, text):
-    p = tmp_path / name
-    p.write_text(text, encoding="utf-8", newline="")
-    return str(p)
-
-
-def test_parse_agp_tile_meters(tmp_path):
-    fp = A.parse_agp(_write(tmp_path, "h.agp", _AGP_60x60))
-    assert fp is not None
-    xs = [x for x, _ in fp.local_poly]
-    ys = [y for _, y in fp.local_poly]
-    # Full 128px tile → 60 m on each axis.
-    assert (max(xs) - min(xs)) == pytest.approx(60.0, abs=1e-6)
-    assert (max(ys) - min(ys)) == pytest.approx(60.0, abs=1e-6)
-    # Anchor at pixel (64, 29.867) → x centred, y offset low.
-    assert min(xs) == pytest.approx(-64.0 * _MPP, abs=1e-6)
-    assert min(ys) == pytest.approx(-29.867 * _MPP, abs=1e-6)
-    assert max(ys) == pytest.approx((128.0 - 29.867) * _MPP, abs=1e-6)
-    assert fp.rotation == 0.0
-
-
-def test_parse_agp_default_anchor_is_tile_centre(tmp_path):
-    text = _AGP_60x60.replace("ANCHOR_PT 64.0 29.867\n", "")
-    fp = A.parse_agp(_write(tmp_path, "noanchor.agp", text))
-    assert fp is not None
-    xs = [x for x, _ in fp.local_poly]
-    ys = [y for _, y in fp.local_poly]
-    # No ANCHOR_PT → tile centre (64,64) → symmetric ±30 m on both axes.
-    assert min(xs) == pytest.approx(-30.0, abs=1e-6)
-    assert max(xs) == pytest.approx(30.0, abs=1e-6)
-    assert min(ys) == pytest.approx(-30.0, abs=1e-6)
-    assert max(ys) == pytest.approx(30.0, abs=1e-6)
-
-
-def test_parse_agp_crop_tighter_than_tile(tmp_path):
-    # CROP_POLY covering only pixels 32..96 (64 px → 30 m) inside the
-    # 128px tile: the footprint follows the CROP_POLY, not the TILE.
-    text = _AGP_60x60.replace(
-        "CROP_POLY 0.0 128.0 0.0 0.0 128.0 0.0 128.0 128.0",
-        "CROP_POLY 32.0 96.0 32.0 32.0 96.0 32.0 96.0 96.0")
-    fp = A.parse_agp(_write(tmp_path, "crop.agp", text))
-    xs = [x for x, _ in fp.local_poly]
-    ys = [y for _, y in fp.local_poly]
-    assert (max(xs) - min(xs)) == pytest.approx(64.0 * _MPP, abs=1e-6)
-    assert (max(ys) - min(ys)) == pytest.approx(64.0 * _MPP, abs=1e-6)
-
-
-def test_parse_agp_memoized(tmp_path):
-    p = _write(tmp_path, "memo.agp", _AGP_60x60)
-    assert A.parse_agp(p) is A.parse_agp(p)
-
-
-def test_parse_agp_missing_scale_returns_none(tmp_path):
-    text = _AGP_60x60.replace("TEXTURE_WIDTH 60.0\n", "")
-    assert A.parse_agp(_write(tmp_path, "bad.agp", text)) is None
-
 
 # ── library.txt resolution ───────────────────────────────────────────
 def _make_xplane_root(tmp_path):
@@ -551,39 +486,11 @@ def test_concurrent_cold_builds_parse_once(tmp_path):
     assert results[0] == _fresh_parse(root)
 
 
-# ── placement → lon/lat transform ────────────────────────────────────
-def test_footprint_lonlat_heading_rotation(tmp_path):
-    root = _make_xplane_root(tmp_path)
-    pack = root / "Custom Scenery" / "P"
-    pack.mkdir()
-    (pack / "h.agp").write_text(_AGP_60x60, encoding="utf-8", newline="")
-    virtual = "lib/airport/Common_Elements/Hangars/T.agp"
-    (pack / "library.txt").write_text(f"EXPORT {virtual}\th.agp\n", encoding="utf-8", newline="")
-
-    lon0, lat0 = -81.0, 28.0
-    ring0 = A.agp_footprint_lonlat(virtual, lon0, lat0, 0.0, str(root))
-    ring90 = A.agp_footprint_lonlat(virtual, lon0, lat0, 90.0, str(root))
-    assert ring0 and len(ring0) == 4
-    assert ring90 and len(ring90) == 4
-
-    # The local east extent at heading 0 should become a (south-going)
-    # north extent at heading 90: the lon-span and lat-span swap roughly.
-    def span(ring):
-        lons = [p[0] for p in ring]
-        lats = [p[1] for p in ring]
-        m_per_deg = A._LAT_M_PER_DEG
-        lon_m = (max(lons) - min(lons)) * m_per_deg * math.cos(
-            math.radians(lat0))
-        lat_m = (max(lats) - min(lats)) * m_per_deg
-        return lon_m, lat_m
-
-    lon_m0, lat_m0 = span(ring0)
-    lon_m90, lat_m90 = span(ring90)
-    assert lon_m0 == pytest.approx(lat_m90, abs=0.5)
-    assert lat_m0 == pytest.approx(lon_m90, abs=0.5)
-
-
 # ── DSF OBJECT walker ────────────────────────────────────────────────
+def _is_agp(path):
+    return path.lower().endswith(".agp")
+
+
 _DSF_LINES = [
     "OBJECT_DEF lib/airport/Common_Elements/Hangars/Lg_Maint_Gray.agp\n",
     "OBJECT_DEF lib/cars/car_static.obj\n",
@@ -597,7 +504,7 @@ _DSF_LINES = [
 
 def test_object_walker_filters_and_parses_heading():
     placements = _read_dsf_object_placements(
-        _DSF_LINES, A.is_agp_building_def)
+        _DSF_LINES, _is_agp)
     # idx 1 (the .obj) is filtered out; 3 agp placements remain.
     assert len(placements) == 3
     paths = {p[0].split("/")[-1] for p in placements}
@@ -613,18 +520,7 @@ def test_object_walker_filters_and_parses_heading():
 def test_object_walker_no_accepted_defs():
     lines = ["OBJECT_DEF lib/cars/car_static.obj\n",
              "OBJECT 0 -81.0 28.0 0.0\n"]
-    assert _read_dsf_object_placements(lines, A.is_agp_building_def) == []
-
-
-def test_is_agp_building_def_prefix_and_ext():
-    assert A.is_agp_building_def(
-        "lib/airport/Common_Elements/Hangars/Foo.agp")
-    # wrong extension
-    assert not A.is_agp_building_def(
-        "lib/airport/Common_Elements/Hangars/Foo.obj")
-    # right ext, wrong prefix (not the hangars scope)
-    assert not A.is_agp_building_def(
-        "lib/airport/Common_Elements/Parking_Items/Row_of_Cars_2.agp")
+    assert _read_dsf_object_placements(lines, _is_agp) == []
 
 
 # ── #141: the fingerprint must not rest on another cache's freshness ──

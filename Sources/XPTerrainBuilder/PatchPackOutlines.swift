@@ -77,12 +77,13 @@ final class PatchPackOutlines: ObservableObject {
             }
         }
         guard let box = doc.bbox else { return }
-        // The 3D window's box (A9), so one request serves both.
+        // The 3D window's box (A9); plan outlines only (#797)
         let request = TerrainPreviewModel.terrainRequest(around: box).0
         Task { [weak self] in
             do {
                 let objects = try await PackBuildingsStore.shared.objects(
-                    client: client, tile: doc.tile, icao: doc.icao, box: request)
+                    client: client, tile: doc.tile, icao: doc.icao, box: request,
+                    footprintsOnly: true)
                 let rings = await Task.detached(priority: .utility) { PackFootprints.outlines(objects) }.value
                 guard let self, self.generation == gen else { return }
                 self.footprints = rings

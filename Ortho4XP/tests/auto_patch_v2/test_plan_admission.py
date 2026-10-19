@@ -18,10 +18,10 @@ import pathlib
 import numpy as np
 import pytest
 import shapely
-from shapely.errors import GEOSException
-
-from auto_patch_v2.airport import below_zero, frame_entry as fe, obj8_clip, wall_geometry
+from auto_patch_v2.airport import below_zero, obj8_clip, wall_geometry
+from auto_patch_v2.airport import frame_entry as fe
 from auto_patch_v2.airport.obj8_clip import _bulk_polys, _plan_admitted
+from shapely.errors import GEOSException
 
 REACH = 200.0
 STEP = float(np.spacing(np.float32(REACH)))     # the float32 step there: 15 um

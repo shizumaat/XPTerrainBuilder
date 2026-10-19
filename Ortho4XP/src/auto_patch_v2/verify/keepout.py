@@ -81,6 +81,10 @@ OBJECT_CUT_DEPTH_M = 0.10
 #: The FEATURE classes an object cut's geometry wears beside its ramp
 #: faces: the corridor RIM (``check_grade._OBJECT_CUT_RIM_CLASSES``).
 OBJECT_CUT_RIM_FEATURES = frozenset({"structure_rim"})
+#: The role a rim FEATURE (which carries none) is priced under: the wall
+#: it is (``verify.structures.structure_rim_gap``'s spelling).  #946: an
+#: unroled rim row raised ``KeyError: ''`` and failed the VHHH build.
+RIM_ROLE = "retaining_wall"
 
 #: §34 (5) (b) / §41 (2): the strip families, as ``role_family`` names them.
 _STRIP_FAMILIES = ("runway", "taxi")
@@ -155,8 +159,9 @@ def _keepout_row(p: Patch, family: str, sh: Shape, vid: int, depth: float,
     """One PRESENCE row: the offending vertex, how far in it stands."""
     la, lo = p.ll.get(vid, (None, None))
     xy = p.xy.get(vid)
-    return row(family, (sh.role, other.role or sh.role),
-               p.side(sh.role), depth, None, None, depth, xy, xy,
+    role = sh.role or (RIM_ROLE if sh.feature in OBJECT_CUT_RIM_FEATURES else "")
+    return row(family, (role, other.role or role),
+               p.side(role), depth, None, None, depth, xy, xy,
                sh.ref, other.ref, lat=la, lon=lo)
 
 
@@ -253,13 +258,20 @@ def ramp_in_strip(p: Patch) -> list[Row]:
     "hole in the taxiway" (LEMD 40.4611623,-3.5444804: ramp face 961 at
     15.5 m from a kerb whose code-E strip is 19.0 m, a 5.42 m unbanked drop
     and the airport's worst CRITICAL VISUAL row).  A vertex welded to the
-    strip's outer edge is OUTSIDE it."""
+    strip's outer edge is OUTSIDE it, and so is one inside an object cut's
+    wall line: the strip there rides the object's deck (#946)."""
     bands = _strip_bands(p)
     if not bands:
         return []
     tol = weld_tol_m(p)
+    # #946 (owner 2026-10-19 "Yes"): the surface over an OBJECT-DECKED
+    # trench rides the object's deck (§33 (6) B AMENDED (3) (c)), so a ramp
+    # vertex inside a published object cut's wall line is not in a strip
+    decked = [g for _i, g, _f in _object_cut_regions(p)]
     out: list[Row] = []
     for sh, vid, pt in _ramp_vertices(p, ramp_roles(p)):
+        if any(d.distance(pt) <= tol for d in decked):
+            continue
         for g, pw in bands:
             if not g.contains(pt):
                 continue

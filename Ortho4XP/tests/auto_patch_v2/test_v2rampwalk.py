@@ -167,6 +167,41 @@ def test_a_ways_own_nodes_are_never_a_hop(law):
     assert path[len(hairpin.points) - 1] == pytest.approx((0.0, 40.0))
 
 
+def test_a_merge_flare_reads_the_ways_own_line(law):
+    """Issue #948: a carriageway that FLARES into a merge node arrives on a
+    short hop far off the road's line (KBUR −22530: 4.3 m at 62° off the
+    7-lane way straight ahead).  Where that hop refuses every continuation
+    the turn is read from the arriving way's chord, so the walk goes on
+    straight instead of ending and extending along the flare."""
+    bore = OsmWay(-1, "big_roads", ((0.0, -50.0), (0.0, 0.0)), False, TAGS_T)
+    # north 76 m, the last 4.3 m flaring 59 deg west into the merge node
+    flare = OsmWay(-2, "big_roads", ((0.0, 0.0), (0.0, 72.0), (-1.0, 73.5),
+                                     (-4.7, 75.7)), False, TAGS_R)
+    on = OsmWay(-3, "big_roads", ((-4.7, 75.7), (-4.5, 300.0)), False, TAGS_R)
+    cap = law.tables.structures.tunnel.approach_turn_max_deg
+    path = _sa.approach((0.0, 0.0), (0.0, -1.0), [bore, flare, on], 250.0,
+                        ("yes",), cap)
+    assert path[-1][1] > 240.0, path                # went on north
+    assert min(p[0] for p in path) > -6.0, path     # never ran off west
+    # a side road square to the way's line is still refused on its chord
+    side = OsmWay(-4, "big_roads", ((-4.7, 75.7), (200.0, 80.0)), False, TAGS_R)
+    path2 = _sa.approach((0.0, 0.0), (0.0, -1.0), [bore, flare, side], 250.0,
+                         ("yes",), cap)
+    assert max(p[0] for p in path2) < 1.0, path2
+
+
+def test_a_road_mapped_in_many_pieces_is_walked_to_its_reach(law):
+    """Issue #948: the walk is bounded by its reach, not by a count of
+    ways — a straight road mapped as twelve 20 m pieces is one route."""
+    bore = OsmWay(-1, "big_roads", ((-50.0, 0.0), (0.0, 0.0)), False, TAGS_T)
+    pieces = [OsmWay(-10 - k, "big_roads", ((20.0 * k, 0.0), (20.0 * (k + 1), 0.0)),
+                     False, TAGS_R) for k in range(12)]
+    path = _sa.approach((0.0, 0.0), (-1.0, 0.0), [bore, *pieces], 230.0,
+                        ("yes",), law.tables.structures.tunnel.approach_turn_max_deg)
+    assert path[-1][0] == pytest.approx(240.0)      # the last mapped node
+    assert len(path) == 13
+
+
 # ── (5) a bridge states the crossing ─────────────────────────────────────
 
 def _underpass_ways(layer="1", aeroway="taxiway"):

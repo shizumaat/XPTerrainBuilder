@@ -170,6 +170,7 @@ from ..model.frame import XY
 from ..model.planar import is_gap_ref
 from ..model.structures import Basin, Tunnel
 from ..model import pulse as _pulse
+from . import basin_datum as _basin_datum
 from . import basin_rim as _basin_rim
 from .basin_geometry import (_floors, _floors_inside, _outer, _ramp_axis, _region_floor,
                              _renode, _rim, _snap_ring, shell_thickness_m)
@@ -418,6 +419,13 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
         f"{o.id} {o.path.rsplit('/', 1)[-1]}: claimed by the §33 (6) object cut — the pack's "
         f"own trench geometry, not a pit"
         for o in objects if o.witnesses and o.id in claimed)
+    # ...NOR A SHELL STANDING UP OUT OF ITS GROUND (issue #942): rule 1's
+    # rim read against the ground the author placed it on as well as the
+    # centroid's — KSEZ's rock formations, terrain skins over real relief
+    cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m, _fe.quantum(law))
+    witnessed, standing = _basin_datum.standing_out_of_ground(
+        witnessed, cache, bl.contact_band_m, bl.rim_protrusion_max_fraction)
+    stats.refused.extend(standing)
     # ...AND A CHANNEL'S OWN WALL/FLOOR OBJECT IS NEVER A BASIN EITHER
     # (spec §45 (7), scoped by §45 (11)) — but NOT HERE ANY MORE.  Under
     # §45 (13) (d) AMENDED (owner RULINGS 2026-09-15aw) the channels are
@@ -442,7 +450,6 @@ def build_basins(airport: Airport, classification: Classification, law: Law,
     tunnel_u = uu("tunnel_u", [p for p, c in zip(polys, cells) if c.kind == "structure"]) \
         if any(c.kind == "structure" for c in cells) else None
     pads = [(p, c.ref) for p, c in zip(polys, cells) if c.role == "building"]
-    cache = cache or obj8.ResourceCache(bl.min_solid_thickness_m, _fe.quantum(law))
     boxed = [o for o in objects if o.plan_bbox is not None]
     box_tree = STRtree([o.plan_bbox for o in boxed]) if boxed else None
     # ── THE AT-GRADE READ (owner RULINGS 2026-09-13bp (i)/(ii)) ──────────

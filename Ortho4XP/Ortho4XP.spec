@@ -118,6 +118,17 @@ print("Stage cache code digests: "
 v2_law_datas = v2_law_datas + [
     (_stage_digest_file, os.path.join("auto_patch_v2", "pipeline"))]
 
+# THE OBJECT STAGE REUSE'S CODE DIGEST (issue #879) — the same mechanism for
+# the object stage after the mesh, bundled beside the module that reads it
+# (``_internal/object_stage_code.sha256``, beside ``O4_Object_Stage_Code``).
+_object_stage_digest_file = _runpy.run_path(
+    os.path.join("src", "O4_Object_Stage_Code.py")
+)["write_freeze_digest"]("src", os.path.join("build", "o4_object_stage_code"))
+print(f"Object stage code digest: "
+      f"{open(_object_stage_digest_file, encoding='ascii').read().strip()}")
+v2_law_datas = v2_law_datas + [
+    (_object_stage_digest_file, ".")]
+
 # THE TILE STEPS' CODE DIGESTS (issue #836) — the same mechanism, one
 # digest per reusable tile step (vector, mesh, masks: each step's own
 # import closure and the law tables), one ``step digest`` line each,
@@ -138,6 +149,14 @@ _engine_digest_file = _runpy.run_path(
 )["write_freeze_digest"]("src", os.path.join("build", "o4_engine_code"))
 print(f"Engine code digest: {open(_engine_digest_file).read().strip()}")
 v2_law_datas = v2_law_datas + [(_engine_digest_file, "auto_patch")]
+# THE PATCH BUILD'S CODE CLOSURE (#880): the ``o4_code`` freshness stamp
+# keys on the modules the patch build imports (and the law tables), not the
+# whole tree; bundled beside ``provenance_code.py``.  REFUSES like the rest.
+_patch_digest_file = _runpy.run_path(
+    os.path.join("src", "auto_patch", "provenance_code.py")
+)["write_patch_freeze_digest"]("src", os.path.join("build", "o4_patch_code"))
+print(f"Patch code digest: {open(_patch_digest_file).read().strip()}")
+v2_law_datas = v2_law_datas + [(_patch_digest_file, "auto_patch")]
 
 # highspy (the HiGHS QP behind the runway family's final projection,
 # ``auto_patch_v2/solve/project.py``, RULINGS 2026-09-09ae) is imported

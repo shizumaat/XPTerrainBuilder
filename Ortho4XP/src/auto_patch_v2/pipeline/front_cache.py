@@ -199,11 +199,18 @@ class FrontCache:
 
     # ── the digests ─────────────────────────────────────────────────
     def airport_digest(self, airport: _t.Any, **named: str) -> str:
-        """One digest of ``airport``: each field pickled (memoised by
-        value identity), the DEM left to its witness, the partition by its
-        reading digest and its connectors; ``named`` overrides a field by a
-        digest already in hand (a stage output's; ``None`` is ignored).
-        ``""`` while the cache is off."""
+        """One digest of ``airport``: each field pickled CANONICALLY
+        (:func:`stage_cache.canonical_digest`, memoised by value identity),
+        the DEM left to its witness, the partition by its reading digest and
+        its connectors; ``named`` overrides a field by a digest already in
+        hand (a stage output's; ``None`` is ignored).  ``""`` while the
+        cache is off.
+
+        Canonical because the digest must be the same in every process: a
+        plain pickle writes a set in the process's hash-seed order, and a
+        partition with no reading digest (every ``--capture``; a pack with
+        no fingerprint) carries ``frozenset[str]`` fields — three HECA
+        captures of one tree each named a new airport (issue #844)."""
         if not self.active:
             return ""
         t = time.perf_counter()
@@ -227,7 +234,7 @@ class FrontCache:
         got = self._field_digests.get(name)
         if got is not None and got[0] is value:
             return got[1]
-        d = _store.digest_of(value)
+        d = _store.canonical_digest(value)
         self._field_digests[name] = (value, d)
         return d
 

@@ -389,6 +389,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                        c.ref for c in classification.cells
                        if (getattr(c, "evidence", None) or {}).get("pad_road")),
                    ramp_runouts=_runouts(classification),
+                   jetway_ground=tuple(getattr(classification, "jetway_ground", ())),
                    registries=arr.registries)
     validate(pm)
     # THE SHAPES (owner RULINGS 2026-09-08k): the connected components of

@@ -111,7 +111,25 @@ def test_road_over_the_bore_stops_the_mouth_the_approach_road_does_not(law):
                   "groundside", "road", {})]
     polys = [Polygon(c.ring) for c in cells]
     axis = LineString([(60.0, 0.0), (900.0, 0.0)])
-    got = mouth_stops(cells, polys, law, airside_cut_roles(law), axis,
-                      [LineString([(-60.0, 0.0), (60.0, 0.0)])], (60.0, 0.0), half, rim_off,
-                      (), grid)
+    got = mouth_stops(cells, polys, law, airside_cut_roles(law), axis, (60.0, 0.0), half,
+                      rim_off, (), grid)
     assert [r for _p, r in got] == ["over"]
+
+
+def test_a_lot_beside_the_ramp_is_never_trimmed_its_own_road_is(law):
+    """Clause 4 (owner RULINGS 2026-10-19o): a parking lot running beside
+    the east approach, its edge 0.5 m off the ramp's edge — inside the rim
+    stand-off — is pavement the rim would trim; it stops the ramp instead.
+    The approach road's own ribbon, as wide as the carriageway and run
+    along by the axis, is the ramp and is cut as before."""
+    cells = _base_cells() + [
+        Cell(1, "parking_lot", "lot", _rect(100, 4.0, 300, 60), (), None, None,
+             "groundside", "lot", {}),
+        Cell(2, "service_road", "own", _rect(60, -3.5, 900, 3.5), (), None, None,
+             "groundside", "road", {})]
+    cl = Classification(tuple(cells), (), {}, ())
+    cl2, tunnels, st = build_structures(_airport(law), cl, law)
+    east = [t for t in tunnels if t.axis[0][0] > 0]
+    assert east, st.refused
+    assert _area(cl2, "lot") == pytest.approx(200.0 * 56.0, abs=1e-6)   # not one m2 trimmed
+    assert _area(cl2, "own") < 840.0 * 7.0 - 100.0                      # the ramp IS this road

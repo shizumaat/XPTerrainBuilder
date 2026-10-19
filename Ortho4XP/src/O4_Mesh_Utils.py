@@ -2425,6 +2425,26 @@ def _refuse_on_broken_proj() -> bool:
     return True
 
 
+def triangle_switches(min_angle, do_refine, tri_verbosity, output_poly,
+                      binary_switch, limit_tris):
+    """Triangle4XP's switch string for one run of ``build_mesh``.
+
+    ONE builder for the first run and the lower-angle retries (#874: the
+    retry rebuilt the string by hand and dropped ``a``), so a retry differs
+    from the first run in the ``q`` angle only.
+
+    ``a`` (no number) = REGIONAL area constraints: the maximum triangle
+    area each region record's fifth field carries (the BANK ANNULUS, and
+    nothing else — RULINGS 2026-09-09x).  It is read out of the ``.poly``
+    only when NOT refining; with ``-r`` Triangle4XP would instead demand
+    an ``.area`` file and exit 1 (Triangle4XP.c:11743), so the flag rides
+    with ``A`` exactly.
+    """
+    regional_areas = "a" if do_refine == "A" else ""
+    return ("-pq" + "{:.9g}".format(min_angle) + do_refine + regional_areas
+            + "uYB" + tri_verbosity + output_poly + binary_switch + limit_tris)
+
+
 ################################################################################
 def build_mesh(tile):
     if UI.is_working:
@@ -2593,13 +2613,6 @@ def build_mesh(tile):
     max_steiner = max(max_steiner, 5e5)
 
     limit_tris = "S" + str(max_steiner)
-    # ``a`` (no number) = REGIONAL area constraints: the maximum triangle
-    # area each region record's fifth field carries (the BANK ANNULUS, and
-    # nothing else — RULINGS 2026-09-09x).  It is read out of the ``.poly``
-    # only when NOT refining; with ``-r`` Triangle4XP would instead demand
-    # an ``.area`` file and exit 1 (Triangle4XP.c:11743), so the flag rides
-    # with ``A`` exactly.
-    regional_areas = "a" if do_refine == "A" else ""
     # ``b`` = BINARY exchange files (mesh-io-spec §4, RULINGS 2026-10-17a
     # Q6): the default (O4_TRIANGLE_IO=text opts out), only with a Triangle4XP
     # that carries the switch, and never with ``-r`` (it reads a text
@@ -2607,10 +2620,14 @@ def build_mesh(tile):
     binary_io = TRI_BIN.use_binary_io(Triangle4XP_cmd.strip(),
                                       refine=do_refine == "r")
     binary_switch = "b" if binary_io else ""
-    Tri_option = (
-        "-pq" + "{:.9g}".format(tile.min_angle) + do_refine + regional_areas +
-        "uYB" + tri_verbosity + output_poly + binary_switch + limit_tris
-    )
+
+    def switches_for(min_angle):
+        # The first run and every lower-angle retry: same switches, only
+        # the angle differs (#874).
+        return triangle_switches(min_angle, do_refine, tri_verbosity,
+                                 output_poly, binary_switch, limit_tris)
+
+    Tri_option = switches_for(tile.min_angle)
 
     weight_array = numpy.ones((1001, 1001), dtype=numpy.float32)
     build_curv_tol_weight_map(tile, weight_array)
@@ -2679,17 +2696,7 @@ def build_mesh(tile):
                 "(min_angle) most likely due to an uncatched OSM error.\n",
                 f"Reattempting with a lower angle constraint (min_angle={min_angle}).",
             )
-            Tri_option = (
-                "-pq"
-                + "{:.9g}".format(min_angle)
-                + do_refine
-                + "uYB"
-                + tri_verbosity
-                + output_poly
-                + binary_switch
-                + limit_tris
-            )
-            mesh_cmd[1] = Tri_option
+            mesh_cmd[1] = switches_for(min_angle)
             fingers_crossed = _run_triangulation_process(mesh_cmd)
             # Do not launch a further retry attempt once cancelled.
             if UI.red_flag:

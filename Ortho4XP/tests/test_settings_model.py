@@ -75,7 +75,8 @@ def test_elevation_category_has_airport_level_and_no_retired_row():
     names = {s.name for s in elevation}
     labels = {s.name: s.label for s in elevation}
     assert "airport_elevation_level" in names
-    assert labels["airport_elevation_level"] == "Airport elevation detail level"
+    assert labels["airport_elevation_level"] == (
+        "How detailed should airport elevation be?")
     # The retired inset-resolution row is gone.
     assert "airport_elevation_inset_resolution_m" not in names
 

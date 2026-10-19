@@ -155,7 +155,7 @@ def test_each_cluster_bakes_its_own_constant_inset_and_the_gap_is_untouched(
 
     monkeypatch.setattr(
         flat_site_mode, "flat_site_substitutions",
-        lambda tile_, dico_airports=None, xplane_root=None: [{
+        lambda tile_, dico_airports=None, xplane_root=None, decisions_out=None: [{
             "icao": "TEST",
             "verdict": "flat_candidate",
             "z0_m": 4.0,

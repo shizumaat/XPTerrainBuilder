@@ -256,160 +256,6 @@ class TestBezierInterpolation:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# find_airport_apt_dat — search priority
-# ──────────────────────────────────────────────────────────────────────
-class TestFindAirportAptDat:
-    def test_returns_none_when_root_missing(self):
-        assert APR.find_airport_apt_dat("/nonexistent", "SPJC") is None
-
-    def test_returns_none_when_icao_missing(self):
-        assert APR.find_airport_apt_dat("/tmp", "") is None
-
-    def test_finds_per_airport_pack_first(self, tmp_path):
-        """A per-airport Custom Scenery pack should win over the
-        Global Airports pack.  Build a fake X-Plane root with both.
-        """
-        xp = tmp_path / "X-Plane 12"
-        cs = xp / "Custom Scenery"
-
-        # 1) Per-airport pack containing ZZZZ
-        per_apt_pack = cs / "ZZZZ Per Airport Pack" / "Earth nav data"
-        per_apt_pack.mkdir(parents=True)
-        per_apt_path = per_apt_pack / "apt.dat"
-        per_apt_path.write_text(
-            "A\n"
-            "1    100 0 0 ZZZZ Per-Airport Test\n"
-            "100 45.00 1 0 0.25 1 1 0 09 -12 -77 0 60 0 0 0 0 27 -12 -77.01 0 60 0 0 0 0\n",
-            encoding="utf-8", newline="")
-
-        # 2) Global Airports pack also containing ZZZZ
-        global_pack = cs / "Global Airports" / "Earth nav data"
-        global_pack.mkdir(parents=True)
-        global_path = global_pack / "apt.dat"
-        global_path.write_text(
-            "A\n"
-            "1    100 0 0 ZZZZ Global Test\n"
-            "100 45.00 1 0 0.25 1 1 0 09 -12 -77 0 60 0 0 0 0 27 -12 -77.01 0 60 0 0 0 0\n",
-            encoding="utf-8", newline="")
-
-        found = APR.find_airport_apt_dat(str(xp), "ZZZZ")
-        assert found == str(per_apt_path)
-
-    def test_falls_back_to_global(self, tmp_path):
-        """If no per-airport pack contains the ICAO, fall back to the
-        Global Airports pack.
-        """
-        xp = tmp_path / "X-Plane 12"
-        cs = xp / "Custom Scenery"
-
-        # Per-airport pack contains a DIFFERENT airport
-        other_pack = cs / "Other Pack" / "Earth nav data"
-        other_pack.mkdir(parents=True)
-        (other_pack / "apt.dat").write_text(
-            "A\n"
-            "1    100 0 0 AAAA Other Airport\n",
-            encoding="utf-8", newline="")
-
-        # Global has ZZZZ
-        global_pack = cs / "Global Airports" / "Earth nav data"
-        global_pack.mkdir(parents=True)
-        global_path = global_pack / "apt.dat"
-        global_path.write_text(
-            "A\n"
-            "1    100 0 0 ZZZZ Global Test\n",
-            encoding="utf-8", newline="")
-
-        found = APR.find_airport_apt_dat(str(xp), "ZZZZ")
-        assert found == str(global_path)
-
-    def test_falls_back_to_default(self, tmp_path):
-        """If neither Custom Scenery contains the ICAO, try the
-        default scenery's apt.dat.
-        """
-        xp = tmp_path / "X-Plane 12"
-        default_pack = (xp / "Resources" / "default scenery"
-                        / "default apt dat" / "Earth nav data")
-        default_pack.mkdir(parents=True)
-        default_path = default_pack / "apt.dat"
-        default_path.write_text(
-            "A\n"
-            "1    100 0 0 ZZZZ Default Test\n",
-            encoding="utf-8", newline="")
-
-        # Custom Scenery dir doesn't even exist
-        found = APR.find_airport_apt_dat(str(xp), "ZZZZ")
-        assert found == str(default_path)
-
-    def test_returns_none_when_icao_nowhere(self, tmp_path):
-        xp = tmp_path / "X-Plane 12"
-        (xp / "Custom Scenery").mkdir(parents=True)
-        assert APR.find_airport_apt_dat(str(xp), "ZZZZ") is None
-
-    def test_disabled_pack_is_ignored(self, tmp_path):
-        """Owner RULINGS 2026-09-17b: a pack disabled in
-        scenery_packs.ini is not loaded by X-Plane, so the reader falls
-        through to Global Airports."""
-        xp, per_apt_path, global_path = _pack_and_global(tmp_path)
-        assert APR.find_airport_apt_dat(str(xp), "ZZZZ") == str(per_apt_path)
-        _write_ini(xp, ["SCENERY_PACK_DISABLED "
-                        "Custom Scenery/ZZZZ Per Airport Pack/"])
-        assert APR.find_airport_apt_dat(str(xp), "ZZZZ") == str(global_path)
-
-    def test_disabling_global_airports_changes_nothing(self, tmp_path):
-        """``Global Airports`` is never filtered by this module."""
-        xp, _per, global_path = _pack_and_global(tmp_path)
-        _write_ini(xp, ["SCENERY_PACK_DISABLED "
-                        "Custom Scenery/ZZZZ Per Airport Pack/",
-                        "SCENERY_PACK_DISABLED "
-                        "Custom Scenery/Global Airports/"])
-        assert APR.find_airport_apt_dat(str(xp), "ZZZZ") == str(global_path)
-
-
-def _write_ini(xp, lines):
-    (xp / "Custom Scenery" / "scenery_packs.ini").write_text(
-        "I\n1000 Version\nSCENERY\n\n" + "".join(f"{ln}\n" for ln in lines),
-        encoding="utf-8", newline="")
-
-
-def _pack_and_global(tmp_path):
-    """An X-Plane root with one per-airport pack and Global Airports,
-    both carrying ZZZZ.  Returns ``(root, pack apt.dat, global apt.dat)``."""
-    xp = tmp_path / "X-Plane 12"
-    cs = xp / "Custom Scenery"
-    per = cs / "ZZZZ Per Airport Pack" / "Earth nav data"
-    per.mkdir(parents=True)
-    per_path = per / "apt.dat"
-    per_path.write_text("A\n1    100 0 0 ZZZZ Per-Airport Test\n",
-                        encoding="utf-8", newline="")
-    glob = cs / "Global Airports" / "Earth nav data"
-    glob.mkdir(parents=True)
-    glob_path = glob / "apt.dat"
-    glob_path.write_text("A\n1    100 0 0 ZZZZ Global Test\n",
-                         encoding="utf-8", newline="")
-    return xp, per_path, glob_path
-
-
-class TestFindAllAirportAptDats:
-    def test_lists_every_enabled_pack(self, tmp_path):
-        xp, per_path, glob_path = _pack_and_global(tmp_path)
-        assert APR.find_all_airport_apt_dats(str(xp), "ZZZZ") == [
-            str(glob_path), str(per_path)]      # sorted listdir order
-
-    def test_disabled_pack_is_not_available_geometry(self, tmp_path):
-        xp, _per, glob_path = _pack_and_global(tmp_path)
-        _write_ini(xp, ["SCENERY_PACK_DISABLED "
-                        "Custom Scenery/ZZZZ Per Airport Pack/"])
-        assert APR.find_all_airport_apt_dats(str(xp), "ZZZZ") == [
-            str(glob_path)]
-
-    def test_unlisted_pack_stays_available(self, tmp_path):
-        xp, per_path, glob_path = _pack_and_global(tmp_path)
-        _write_ini(xp, ["SCENERY_PACK Custom Scenery/Global Airports/"])
-        assert APR.find_all_airport_apt_dats(str(xp), "ZZZZ") == [
-            str(glob_path), str(per_path)]
-
-
-# ──────────────────────────────────────────────────────────────────────
 # Ramp starts (rows 1300/1301) and ground-vehicle routes (row 1206)
 # ──────────────────────────────────────────────────────────────────────
 # Real-format rows modeled on CYXY Whitehorse (our reference airport):
@@ -458,36 +304,6 @@ class TestTruckEdgeParsing:
         assert te.direction == "oneway"
         assert te.kind == "truck"
         assert te.name == "Terminal fuel truck"
-
-    def test_service_road_centerlines(self, tmp_path):
-        apt = _load_ramp_truck(tmp_path)
-        # Identity meter projection (lon, lat) -> (x, y) scaled up so the
-        # two ~consecutive segments are well over the 0.1 m collapse floor.
-        def to_m(lon, lat):
-            return (lon * 1e5, lat * 1e5)
-        cls = APR.service_road_centerlines(apt, to_m)
-        assert len(cls) == 1                 # both edges share one name
-        tcl = cls[0]
-        assert tcl.name == "Terminal fuel truck"
-        # Ground-vehicle route: marked OUT of the aircraft taxi spine.
-        assert tcl.is_service
-        # Merged across the two edges -> 3 vertices (nodes 0,1,2).
-        assert len(tcl.line.coords) == 3
-        # No ICAO taxi size on a truck route: one empty letter per segment.
-        assert tcl.seg_sizes == ["", ""]
-
-    def test_service_road_centerlines_empty_without_trucks(self, tmp_path):
-        # Reuse the runway-only ZZZZ-style block: no 1206 rows.
-        p = tmp_path / "apt2.dat"
-        p.write_text(
-            "A\n"
-            "1    100 0 0 ZNOP No Trucks\n"
-            "100 45.00 1 0 0.25 1 1 0 09 -12 -77 0 60 0 0 0 0"
-            " 27 -12 -77.01 0 60 0 0 0 0\n",
-            encoding="utf-8", newline="")
-        apt = APR.load_airport(str(p), "ZNOP")
-        assert apt.truck_edges == []
-        assert APR.service_road_centerlines(apt, lambda lon, lat: (lon, lat)) == []
 
 
 class TestPaintedLines:
@@ -539,23 +355,6 @@ class TestPaintedLines:
         assert not hold.is_centerline_paint
         assert loop.is_centerline_paint  # paint says yes ...
 
-    def test_painted_taxi_centerlines_filters(self, tmp_path):
-        apt = self._load(tmp_path)
-
-        def to_m(lon, lat):
-            return ((lon + 77.0) * 1e5, (lat + 12.0) * 1e5)
-        # No pavement/runway gates: only the paint-code + closed
-        # filters apply -> exactly the open centerline survives.
-        out = APR.painted_taxi_centerlines(apt, to_m)
-        assert len(out) == 1
-        tcl = out[0]
-        assert tcl.name == "P1"
-        assert tcl.line.length > 8.0
-        # Painted lines carry no apt.dat ICAO size (default taxi cap) and are
-        # aircraft centerlines, not ground-vehicle routes.
-        assert not tcl.is_service
-        assert tcl.seg_sizes == [""] * (len(tcl.line.coords) - 1)
-
     def test_no_painted_lines_block(self, tmp_path):
         p = tmp_path / "apt_plain.dat"
         p.write_text(
@@ -566,8 +365,6 @@ class TestPaintedLines:
             encoding="utf-8", newline="")
         apt = APR.load_airport(str(p), "ZNOL")
         assert apt.painted_lines == []
-        assert APR.painted_taxi_centerlines(
-            apt, lambda lon, lat: (lon, lat)) == []
 
 
 # ──────────────────────────────────────────────────────────────────────

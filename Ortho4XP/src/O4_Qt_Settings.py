@@ -42,6 +42,8 @@ from PySide6.QtWidgets import (
 
 import O4_File_Names as FNAMES
 import O4_Settings_Model as SM
+import O4_Settings_Presets as PRESETS
+from O4_Qt_Preset_Cards import PresetCards
 from O4_Qt_Widgets import (
     ElidedRowLabel,
     SqueezableLineEdit,
@@ -185,8 +187,16 @@ class _SettingRow(QWidget):
         top.addWidget(self.revert_button)
         lay.addLayout(top)
 
-        if setting.hint:
-            desc = QLabel(setting.hint)
+        # The grey lines under the name (issue #823): the one-line summary
+        # and the recommended value — or, in Expert, the cfg name — then,
+        # for an Expert row only, the registry's full hint.  Outside Expert
+        # the full hint is the tooltip.
+        for text in (setting.secondary_text(),
+                     setting.hint if setting.advanced else ""):
+            if not text:
+                continue
+            desc = QLabel(text)
+            desc.setToolTip(setting.hint)
             # Word wrap alone still floors the row at the longest
             # unbreakable run (a URL, a path): 156 px on macOS here.
             wrap_and_never_widen(desc)
@@ -197,9 +207,10 @@ class _SettingRow(QWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._context_menu)
         self._search_blob = (
-            "%s %s %s %s" % (
+            "%s %s %s %s %s" % (
                 setting.label,
                 setting.name,
+                setting.summary,
                 setting.hint,
                 " ".join(title for _, title in setting.value_labels),
             )
@@ -983,6 +994,11 @@ class SettingsWindow(QDialog):
         top.addWidget(self.customized_chip)
         root.addLayout(top)
 
+        # The preset cards (#822): one click sets a fixed set of keys.
+        self.preset_cards = PresetCards()
+        self.preset_cards.chosen.connect(self._apply_preset)
+        root.addWidget(self.preset_cards)
+
         # Sidebar + content
         middle = QHBoxLayout()
         side = QVBoxLayout()
@@ -1001,7 +1017,7 @@ class SettingsWindow(QDialog):
             self.category_list.addItem(title)
         self.category_list.currentRowChanged.connect(self._category_changed)
         side.addWidget(self.category_list, 1)
-        self.advanced_check = QCheckBox("Show advanced")
+        self.advanced_check = QCheckBox("Show expert settings")
         self.advanced_check.toggled.connect(self._apply_filter)
         side.addWidget(self.advanced_check)
         middle.addLayout(side)
@@ -1024,6 +1040,7 @@ class SettingsWindow(QDialog):
         self._headers = {}      # category key -> QLabel
         self._lines = {}        # category key -> QFrame separator
         self._advanced_notes = {}
+        self._expert_headers = {}   # category key -> "Expert" sub-header
         self._provider_signin_section = None
         for key, title in SM.CATEGORIES:
             header = QLabel("<b>%s</b>" % title)
@@ -1038,6 +1055,14 @@ class SettingsWindow(QDialog):
             self._lines[key] = line
             hidden_count = 0
             for setting in SM.settings_for(key):
+                if setting.advanced and not hidden_count:
+                    # The Expert section: the category's last rows
+                    # (O4_Settings_Model._LAYOUT), shown on demand.
+                    expert = QLabel("<i>%s</i>" % SM.EXPERT_TITLE)
+                    expert.setTextFormat(Qt.RichText)
+                    expert.setContentsMargins(0, 10, 0, 2)
+                    self.content_layout.addWidget(expert)
+                    self._expert_headers[key] = expert
                 row = _SettingRow(setting)
                 row.committed.connect(self._row_committed)
                 row.reset_requested.connect(self._row_reset)
@@ -1047,8 +1072,8 @@ class SettingsWindow(QDialog):
                     hidden_count += 1
             if hidden_count:
                 note = QLabel(
-                    "<i>%d advanced setting%s hidden — enable "
-                    "“Show advanced”.</i>"
+                    "<i>%d expert setting%s hidden — tick "
+                    "“Show expert settings”.</i>"
                     % (hidden_count, "s" if hidden_count > 1 else "")
                 )
                 wrap_and_never_widen(note)
@@ -1158,6 +1183,35 @@ class SettingsWindow(QDialog):
                     self.blended and setting.scope in ("app", "pref")
                 )
         self._refresh_customized_chip()
+        self._refresh_presets()
+
+    def _preset_current(self):
+        """The preset keys' current GLOBAL values (presets set defaults)."""
+        return PRESETS.current_values(
+            self._global_vals,
+            self.prefs.get(PRESETS.ZOOM_PREF, PRESETS.default_zoom()),
+        )
+
+    def _refresh_presets(self):
+        self.preset_cards.set_current(self._preset_current())
+
+    def _apply_preset(self, key):
+        """Write the preset's config keys in one global write, its zoom to
+        the preferences, and show the new values in their rows."""
+        entry = PRESETS.preset(key)
+        values = PRESETS.cfg_values(entry)
+        try:
+            SM.write_global(values)
+        except OSError as exc:
+            QMessageBox.critical(
+                self, "Settings", "Could not save: %s" % exc
+            )
+            return
+        SM.apply_runtime(values)
+        for name, value in values.items():
+            self._show_global_value(SM.get_setting(name), value)
+        self.prefs[PRESETS.ZOOM_PREF] = PRESETS.zoom_value(entry)
+        self._refresh_presets()
 
     def _refresh_customized_chip(self):
         self.customized_chip.setText(
@@ -1222,15 +1276,21 @@ class SettingsWindow(QDialog):
             )
             return
         SM.apply_runtime({setting.name: normalized})
+        self._show_global_value(setting, normalized)
+        self._refresh_presets()
+
+    def _show_global_value(self, setting, normalized):
+        """Record a written global value and show it in its row."""
         self._global_file_vals[setting.name] = normalized
         self._global_vals[setting.name] = normalized
         row = self.rows[setting.name]
-        row.set_value(normalized)
-        # Inherited tile rows track the global value live.
-        if self.blended and setting.scope == "tile":
-            if setting.name not in self._override_union():
-                row.set_baseline(normalized, "Overrides the global value")
-                row.set_value(normalized)
+        if not (self.blended and setting.scope == "tile"):
+            row.set_value(normalized)
+        elif setting.name not in self._override_union():
+            # Inherited tile rows track the global value live; a tile
+            # that overrides it keeps showing its own value.
+            row.set_baseline(normalized, "Overrides the global value")
+            row.set_value(normalized)
 
     # ------------------------------------------------------------------
     # Filtering / navigation
@@ -1252,6 +1312,7 @@ class SettingsWindow(QDialog):
         )
         override_union = self._override_union() if self.blended else set()
         visible_by_cat = {key: 0 for key, _ in SM.CATEGORIES}
+        expert_by_cat = {key: 0 for key, _ in SM.CATEGORIES}
         for name, row in self.rows.items():
             s = row.setting
             if tile_view and not query:
@@ -1270,19 +1331,23 @@ class SettingsWindow(QDialog):
             row.setVisible(show)
             if show and not tile_view:
                 visible_by_cat[s.category] += 1
+                expert_by_cat[s.category] += int(s.advanced)
         for key, _ in SM.CATEGORIES:
-            self._headers[key].setVisible(
-                not tile_view and visible_by_cat[key] > 0
-            )
-            self._lines[key].setVisible(
-                not tile_view and visible_by_cat[key] > 0
-            )
             note = self._advanced_notes.get(key)
+            # A category whose rows are ALL Expert still shows its title
+            # and the note when it is the one selected (issue #823).
+            note_shown = bool(note) and (
+                not tile_view and not advanced and not query
+                and (visible_by_cat[key] > 0 or selected == key)
+            )
             if note:
-                note.setVisible(
-                    not tile_view and not advanced and not query
-                    and visible_by_cat[key] > 0
-                )
+                note.setVisible(note_shown)
+            shown = not tile_view and (visible_by_cat[key] > 0 or note_shown)
+            self._headers[key].setVisible(shown)
+            self._lines[key].setVisible(shown)
+            expert = self._expert_headers.get(key)
+            if expert:
+                expert.setVisible(not tile_view and expert_by_cat[key] > 0)
         if self._provider_signin_section is not None:
             # App-level, so it hides in the tile-focused views; a search
             # query matches it by provider name / "sign in".

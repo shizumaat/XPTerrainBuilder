@@ -179,18 +179,22 @@ class _BakedTile:
                  x0: float, x1: float, y0: float, y1: float,
                  inset_provenance: list | None = None,
                  flat_site_provenance: list | None = None,
-                 overlay_provenance: dict | None = None) -> None:
+                 overlay_provenance: dict | None = None,
+                 flat_site_decisions: dict | None = None) -> None:
         self.lat, self.lon = lat, lon
         self.alt = np.asarray(alt_dem, dtype=np.float64)
         self.x0, self.x1, self.y0, self.y1 = x0, x1, y0, y1
         # THE CORE'S OWN RECORDS on the composed raster, kept for the
         # flat-site detector (RULINGS 2026-09-05k-2): the insets that
         # baked (their ``native_resolution_m`` is the source class), the
-        # tile-wide overlay, and the core's ``synthetic_flat_site``
-        # verdict per airport (compared with v2's, never reconciled).
+        # tile-wide overlay, the core's ``synthetic_flat_site`` stamps, and
+        # DEM prep's ONE flat-site decision per airport (issue #932,
+        # ``airport/flat_site_prep.py``; the build reads it, never
+        # re-measures).
         self.inset_provenance = list(inset_provenance or [])
         self.flat_site_provenance = list(flat_site_provenance or [])
         self.overlay_provenance = dict(overlay_provenance or {})
+        self.flat_site_decisions = dict(flat_site_decisions or {})
 
     def sample(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
         ny, nx = self.alt.shape
@@ -423,6 +427,38 @@ class ProductionDem:
         self.__dict__.update(st)
         self._enter = self.frame.entry()
 
+    @classmethod
+    def over_prep(cls, frame: Frame, icao: str, dem: _t.Any, lat: int, lon: int,
+                  water: "TileWater | None",
+                  out: _t.Callable[[str], None] = print) -> "ProductionDem":
+        """DEM PREP's view of the raster it is preparing (issue #932): the
+        SAME sampler the build reads — bilinear on the working grid, the
+        source class from the bake's inset records, the water witness —
+        over the ONE host tile, before the flat-site substitution lands.
+        It never composes, warms or checks another tile (a point off the
+        host tile reads NaN), reads no corpus path and writes nothing."""
+        self = cls.__new__(cls)
+        self.frame, self.icao = frame, icao
+        self.elevation_root = self.osm_root = self.xplane_root = ""
+        self.allow_degraded, self.core_hosted = True, True
+        self._required_boxes = {}
+        self.declared_tiles = {(int(lat), int(lon))}
+        self._out = out
+        self.provenance = {"frame": "dem-prep", "query": "bilinear on the baked working grid"}
+        overlay = getattr(dem, "tile_overlay_provenance", None)
+        self._tiles = {(int(lat), int(lon)): _BakedTile(
+            int(lat), int(lon), dem.alt_dem, dem.x0, dem.x1, dem.y0, dem.y1,
+            inset_provenance=list(getattr(dem, "airport_inset_provenance", None) or []),
+            overlay_provenance=overlay if isinstance(overlay, dict) else None)}
+        self._water = {(int(lat), int(lon)): water}
+        self._shore = {}
+        from pyproj import Transformer  # local: geodesy stays in the loaders
+        self._inv = Transformer.from_crs(frame.crs, "EPSG:4326", always_xy=True)
+        self._fwd = Transformer.from_crs("EPSG:4326", frame.crs, always_xy=True)
+        self._enter = frame.entry()
+        self._seeded_only = True
+        return self
+
     # ── DemSample protocol ──────────────────────────────────────────
     def z(self, x: float, y: float) -> float:
         return float(self.z_many(np.array([x]), np.array([y]))[0])
@@ -542,20 +578,18 @@ class ProductionDem:
                 return f, f"{key} in {sidecar}"
         return None, None
 
-    def core_flat_site(self) -> dict | None:
-        """The core's own ``synthetic_flat_site`` record for this airport
-        on the composed raster (``O4_Airport_Elevation_Insets.
-        overlay_flat_site_insets``), or ``None`` when the core substituted
-        nothing here."""
+    def flat_site_decision(self) -> dict | None:
+        """DEM prep's flat-site decision record for this airport (issue
+        #932: ``airport/flat_site_prep.py`` decided it on the raw raster,
+        ``O4_Airport_Elevation_Insets.overlay_flat_site_insets`` kept it on
+        the DEM object), or ``None`` when DEM prep decided nothing here
+        (flat-site mode off, an airport outside the tile's dictionary)."""
         lat, lon = self.frame.origin
         t = self.tile(int(math.floor(lat)), int(math.floor(lon)))
         if t is None:
             return None
-        for e in t.flat_site_provenance:
-            if isinstance(e, dict) and str(e.get("icao", "")).upper() == self.icao.upper() \
-                    and e.get("kind") == "synthetic_flat_site":
-                return e
-        return None
+        rec = t.flat_site_decisions.get(self.icao.upper())
+        return dict(rec) if isinstance(rec, dict) else None
 
     def warm_tiles(self) -> frozenset[tuple[int, int]]:
         """The 1° tiles already composed (or seeded) — the rasters a
@@ -785,6 +819,8 @@ class ProductionDem:
     def tile(self, lat: int, lon: int) -> _BakedTile | None:
         key = (lat, lon)
         if key not in self._tiles:
+            if self.__dict__.get("_seeded_only"):
+                return None                     # DEM prep: the host tile only
             self._tiles[key] = self._compose(lat, lon)
         return self._tiles[key]
 
@@ -1002,7 +1038,8 @@ class ProductionDem:
                           inset_provenance=baked,
                           flat_site_provenance=list(
                               getattr(dem, "synthetic_flat_site_provenance", None) or []),
-                          overlay_provenance=overlay if isinstance(overlay, dict) else None)
+                          overlay_provenance=overlay if isinstance(overlay, dict) else None,
+                          flat_site_decisions=getattr(dem, "flat_site_decisions", None))
 
     @staticmethod
     def _box_text(box) -> str:

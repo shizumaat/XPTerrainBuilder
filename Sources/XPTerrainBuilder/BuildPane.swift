@@ -47,9 +47,9 @@ struct BuildPane: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Build")
-                    .font(.headline)
+                    .scaledFont(.headline)
                 Text(engineSubtitle)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(buildModel.engine == nil ? .orange : .secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -140,7 +140,7 @@ struct BuildPane: View {
                 .font(.system(size: 36))
                 .foregroundStyle(.tertiary)
             Text("No build engine available. The app normally uses its bundled engine — check Settings ▸ General ▸ Build Engine if it can't be found, or choose a custom engine folder there.")
-                .font(.callout)
+                .scaledFont(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             SettingsLink {
@@ -159,7 +159,7 @@ struct BuildPane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(4)
         } label: {
-            Text(title).font(.callout.weight(.semibold))
+            Text(title).scaledFont(.callout, weight: .semibold)
         }
     }
 
@@ -170,7 +170,7 @@ struct BuildPane: View {
         if let active = buildModel.activeTile {
             let info = buildModel.built[active]
             Text("Tile \(active.key)\(titleSuffix(active, info))")
-                .font(.callout.weight(.semibold))
+                .scaledFont(.callout, weight: .semibold)
             HStack(spacing: 5) {
                 detailRow("Imagery", info?.provider.isEmpty == false ? info!.provider : "—")
                 if let audit = textureAudit, audit.hasConflict {
@@ -180,7 +180,7 @@ struct BuildPane: View {
                     } label: {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(.yellow)
-                            .font(.caption)
+                            .scaledFont(.caption)
                     }
                     .buttonStyle(.borderless)
                     .help("Multiple imagery sources are installed in this tile")
@@ -189,8 +189,8 @@ struct BuildPane: View {
                     }
                 }
             }
-            detailRow("Zoom level", zlText(info))
-            detailRow("Mesh built", dateText(info?.meshDate))
+            detailRow(O4Glossary.term("detail"), zlText(info))
+            detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
             if let dem = info?.customDEM, !dem.isEmpty {
                 detailRow("Elevation", (dem as NSString).lastPathComponent)
@@ -199,7 +199,7 @@ struct BuildPane: View {
             ForEach(otherScenery, id: \.name) { item in
                 detailRow("Other scenery", item.name)
                     .help(item.name)
-                detailRow("DSF modified", item.dsfDate.map {
+                detailRow("Modified", item.dsfDate.map {
                     $0.formatted(date: .abbreviated, time: .shortened)
                 } ?? "—")
             }
@@ -210,14 +210,14 @@ struct BuildPane: View {
             if !modifiedAirports.isEmpty {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Modified airports:")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                         .frame(width: 104, alignment: .trailing)
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(modifiedAirports) { row in
                             HStack(spacing: 4) {
                                 Text(row.label)
-                                    .font(.caption)
+                                    .scaledFont(.caption)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                     .help("\(row.packName) — \(row.objectCount) object file\(row.objectCount == 1 ? "" : "s") reseated to this tile's rebuilt ground")
@@ -252,7 +252,7 @@ struct BuildPane: View {
                 let installedCount = buildModel.selected.filter { buildModel.isInstalled($0) }.count
                 HStack(spacing: 6) {
                     Text("\(buildModel.selected.count) tiles selected · \(installedCount) installed")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                     if let combined = combinedAudit, combined.hasConflict {
                         Button {
@@ -261,7 +261,7 @@ struct BuildPane: View {
                         } label: {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.yellow)
-                                .font(.caption)
+                                .scaledFont(.caption)
                         }
                         .buttonStyle(.borderless)
                         .help("\(combined.tilesWithConflict) selected tile\(combined.tilesWithConflict == 1 ? " has" : "s have") multiple imagery sources")
@@ -283,7 +283,7 @@ struct BuildPane: View {
                     Text(MapGuidance.nothingBuiltText)
                 }
             }
-            .font(.caption)
+            .scaledFont(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -291,7 +291,7 @@ struct BuildPane: View {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
                 Text(buildModel.scanPhase.isEmpty ? "Scanning…" : buildModel.scanPhase)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -304,7 +304,7 @@ struct BuildPane: View {
 
     private func zlText(_ info: O4TileInfo?) -> String {
         guard let info, let zl = info.zl else { return "—" }
-        var text = "ZL\(zl)"
+        var text = O4Glossary.detailChoice(zl)
         // Airport high-ZL cover: e.g. "ZL16 + ZL18 ICAO" makes the
         // upgraded-airports setting visible at a glance.
         let mode = info.highZLAirports
@@ -325,11 +325,11 @@ struct BuildPane: View {
     private func detailRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline) {
             Text(label + ":")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: 104, alignment: .trailing)
             Text(value)
-                .font(.caption)
+                .scaledFont(.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -340,7 +340,7 @@ struct BuildPane: View {
     private var buildBox: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(buildSummary)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             Picker("Imagery", selection: providerBinding) {
@@ -351,20 +351,20 @@ struct BuildPane: View {
                         .tag(provider.code)
                 }
             }
-            Picker("Build ZL", selection: zlBinding) {
+            Picker(O4Glossary.term("detail"), selection: zlBinding) {
                 ForEach(12...21, id: \.self) { zl in
-                    Text("ZL\(zl)").tag(zl)
+                    Text(O4Glossary.detailChoice(zl)).tag(zl)
                 }
             }
-            .help("Higher zoom levels mean sharper imagery and much larger downloads: one ZL step ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
+            .help("More detail means sharper imagery and much larger downloads: one step (one ZL) ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
             Divider()
-            Toggle("Vector, mesh & masks", isOn: boolBinding(\.doVector))
-                .help("OSM data, elevation, triangulation and water masks — the tile's terrain.")
-            Toggle("Imagery & DSF", isOn: boolBinding(\.doImagery))
-                .help("Downloads imagery, converts textures and writes the final DSF.")
-            Toggle("Extract overlays", isOn: boolBinding(\.doOverlays))
-                .help("Extracts roads/buildings overlays from the overlay source configured in the engine config.")
-            Toggle("Modify custom airports", isOn: Binding(
+            Toggle(O4Glossary.term("terrain_steps"), isOn: boolBinding(\.doVector))
+                .help("Downloads map data (roads, water, airports), shapes the ground and blends coastlines and water — the tile's terrain.")
+            Toggle(O4Glossary.term("imagery_and_scenery_file"), isOn: boolBinding(\.doImagery))
+                .help("Downloads imagery, converts textures and writes the final scenery file (DSF).")
+            Toggle(O4Glossary.term("xplane_objects"), isOn: boolBinding(\.doOverlays))
+                .help("Copies the roads, forests and buildings (overlays) of the X-Plane scenery configured as the overlay source.")
+            Toggle(O4Glossary.term("fit_buildings"), isOn: Binding(
                 get: { buildModel.modifyCustomAirports },
                 set: { buildModel.setModifyCustomAirports($0) }))
                 .disabled(customAirportPacks.isEmpty)
@@ -373,7 +373,7 @@ struct BuildPane: View {
                       : "Reseats the 3-D objects in the listed packages at the new ground elevation this build produces, so they neither float above nor sink into the reprofiled terrain.")
             if !customAirportPacks.isEmpty {
                 Text(customAirportPacks.joined(separator: ", "))
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
                     .padding(.leading, 18)
@@ -385,7 +385,7 @@ struct BuildPane: View {
                 HStack(spacing: 4) {
                     Text(buildModel.customBuildDir.isEmpty
                          ? "Ortho4XP/Tiles" : buildModel.customBuildDir)
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .foregroundStyle(.secondary)
@@ -406,7 +406,7 @@ struct BuildPane: View {
                     }
                 }
             }
-            .font(.callout)
+            .scaledFont(.callout)
         }
         .toggleStyle(.checkbox)
     }
@@ -440,24 +440,24 @@ struct BuildPane: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Multiple imagery sources installed",
                   systemImage: "exclamationmark.triangle.fill")
-                .font(.callout.weight(.semibold))
-            Text("Only one imagery source can be used at a time; this tile's DSF references \(audit.currentProvider) textures. Images from other sources are left over from earlier builds and never shown.")
-                .font(.caption)
+                .scaledFont(.callout, weight: .semibold)
+            Text("Only one imagery source can be used at a time; this tile's scenery file references \(audit.currentProvider) textures. Images from other sources are left over from earlier builds and never shown.")
+                .scaledFont(.caption)
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(audit.sources) { source in
                     let isCurrent = source.provider.lowercased()
                         == audit.currentProvider.lowercased()
                     Text("\(source.provider) — \(source.fileCount) file\(source.fileCount == 1 ? "" : "s"), \(ByteCountFormatter.string(fromByteCount: source.bytes, countStyle: .file))\(isCurrent ? "  (current)" : "")")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(isCurrent ? .primary : .secondary)
                 }
             }
             Text("If this tile deliberately mixes sources through imagery zones, keep them.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.tertiary)
             if let trashMessage {
                 Text(trashMessage)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
             Button(isTrashingImages
@@ -576,22 +576,22 @@ struct BuildPane: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Multiple imagery sources installed",
                   systemImage: "exclamationmark.triangle.fill")
-                .font(.callout.weight(.semibold))
+                .scaledFont(.callout, weight: .semibold)
             Text("\(combined.tilesWithConflict) of \(buildModel.selected.count) selected tiles carry textures from more than one source; only each tile's current source is ever shown.")
-                .font(.caption)
+                .scaledFont(.caption)
             VStack(alignment: .leading, spacing: 2) {
                 Text("In use: \(providerLabel(combined.currentProviders)) — \(ByteCountFormatter.string(fromByteCount: combined.currentBytes, countStyle: .file))")
-                    .font(.caption)
+                    .scaledFont(.caption)
                 Text("Unused: \(providerLabel(combined.foreignProviders)) — \(ByteCountFormatter.string(fromByteCount: combined.foreignBytes, countStyle: .file)) in \(combined.foreignFiles.count) files")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
             Text("If a tile deliberately mixes sources through imagery zones, keep them.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.tertiary)
             if let trashMessage {
                 Text(trashMessage)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
             Button(isTrashingImages
@@ -792,7 +792,7 @@ struct BuildPane: View {
                     .truncationMode(.tail)
                 Button("Details") { showingMissingDetails = true }
                     .buttonStyle(.borderless)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .popover(isPresented: $showingMissingDetails, arrowEdge: .top) {
                         Text(EngineSetup.missingDetail(missing))
                             .textSelection(.enabled)
@@ -849,7 +849,7 @@ struct BuildPane: View {
             }
             .help(buildButtonHelp)
         }
-        .font(.callout)
+        .scaledFont(.callout)
         .padding(.horizontal, 12)
         .frame(height: Self.bottomBarHeight)
         .background(.bar)
@@ -908,7 +908,7 @@ struct ActivityBox: View {
         VStack(alignment: .leading, spacing: 6) {
             if activity.totalTiles > 0 {
                 Text("Building \(activity.totalTiles) tile\(activity.totalTiles == 1 ? "" : "s") — \(activity.doneTiles) done")
-                    .font(.callout.weight(.medium))
+                    .scaledFont(.callout, weight: .medium)
             }
             ForEach(activity.runOrder, id: \.self) { coord in
                 row(coord, activity.tiles[coord])
@@ -925,7 +925,7 @@ struct ActivityBox: View {
                          ? "Remaining: estimating…"
                          : "Remaining ≈ \(activity.remainingSeconds.map(ProgressRowText.clock) ?? "—")")
                 }
-                .font(.caption.monospacedDigit())
+                .scaledFont(.caption, monospacedDigit: true)
                 .foregroundStyle(.secondary)
             }
         }
@@ -991,7 +991,7 @@ struct ActivityBox: View {
             if !progress.detail.isEmpty,
                progress.state == .stopped || progress.label == "stopped" {
                 Text(progress.detail)
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

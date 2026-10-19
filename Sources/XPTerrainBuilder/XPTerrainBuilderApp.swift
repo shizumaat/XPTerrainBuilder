@@ -26,6 +26,7 @@ struct XPTerrainBuilderApp: App {
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)
+                .textScaleRoot()
         }
         .defaultSize(width: 1280, height: 860)
         .defaultPosition(.center)
@@ -74,6 +75,12 @@ struct AppCommands: Commands {
             .keyboardShortcut("f", modifiers: .command)
         }
 
+        // Select the tiles along a flight plan (#829; Qt: File menu too).
+        CommandGroup(after: .newItem) {
+            Button(FlightPlanCopy.menuTitle) { buildModel.flightPlan.open() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+        }
+
         // The patch editor's ⌘S (#46): saves the edited patch.
         CommandGroup(replacing: .saveItem) {
             PatchSaveCommand(model: buildModel.patchEdit)
@@ -91,6 +98,9 @@ struct AppCommands: Commands {
                 openWindow(id: TerrainPreview.windowID, value: TerrainPreview.windowValue)
             }
             .keyboardShortcut("3", modifiers: .command)
+            // View ▸ Bigger / Smaller / Actual Size text (#827).
+            Divider()
+            TextScaleCommands()
         }
     }
 }

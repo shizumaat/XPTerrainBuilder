@@ -606,22 +606,22 @@ def _discover_airports_in_tile(lat: int, lon: int) -> List[str]:
     """Return sorted ICAOs whose runways fall in the 1°×1° tile.
 
     Uses the same CIFP scanner the build pipeline uses
-    (``O4_Cifp_Reader.discover_cifp_airports`` +
-    ``parse_cifp_file`` + ``airport_in_tile``) to ensure tests run
+    (``auto_patch_v2.airport.cifp.discover_cifp_airports`` +
+    ``read_threshold_dicts`` + ``airport_in_tile``) to ensure tests run
     against the exact airport set the build pipeline would touch.
     """
     cifp_path = os.path.join(xplane_root(), "Custom Data", "CIFP")
     if not os.path.isdir(cifp_path):
         return []
-    from auto_patch.cifp_reader import (
-        discover_cifp_airports, parse_cifp_file, airport_in_tile)
+    from auto_patch_v2.airport.cifp import (
+        airport_in_tile, discover_cifp_airports, read_threshold_dicts)
     found: List[str] = []
     for icao, filepath in discover_cifp_airports(cifp_path).items():
         # Only test against true 4-letter ICAOs (mirror the build
         # pipeline's ICAO mode).
         if not (len(icao) == 4 and icao.isalpha()):
             continue
-        runways = parse_cifp_file(filepath)
+        runways = read_threshold_dicts(filepath)
         if runways and airport_in_tile(runways, lat, lon):
             found.append(icao)
     return sorted(found)

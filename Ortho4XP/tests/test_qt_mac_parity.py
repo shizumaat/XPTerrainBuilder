@@ -29,6 +29,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import O4_Airport_Index as APT  # noqa: E402
 import O4_Custom_Scenery as PACKS  # noqa: E402
+import O4_Flight_Plan as FLIGHTPLAN  # noqa: E402
 import O4_Qt_GUI as GUI  # noqa: E402
 import O4_Qt_Map as QTMAP  # noqa: E402
 import O4_Tile_Info as TINFO  # noqa: E402
@@ -753,3 +754,96 @@ def test_no_match_says_so_and_selects_nothing(make_window, monkeypatch):
         "No airport matches \u201cqqqq zzzz\u201d")
     window._search_accept_first()
     assert window.map.selection() == before
+
+
+# ===========================================================================
+# #829: select from flight plan (Mac: FlightPlanPanel, FlightRouteOverlay)
+# ===========================================================================
+_PLANS = os.path.join(os.path.dirname(__file__), "fixtures", "flight_plan")
+
+
+def _flight_dialog(window, **seams):
+    seams.setdefault("choose_file",
+                     lambda: os.path.join(_PLANS, "short_hop_v11.fms"))
+    return window.open_flight_plan_dialog(**seams)
+
+
+def test_the_flight_plan_action_is_in_the_file_menu(make_window):
+    window = make_window()
+    from PySide6.QtWidgets import QMenu
+    menus = [m for m in window.menuBar().findChildren(QMenu)
+             if window.flight_plan_action in m.actions()]
+    assert [m.title() for m in menus] == ["&File"]
+    assert window.flight_plan_action.text() == FLIGHTPLAN.MENU_TITLE
+
+
+def test_a_plan_file_selects_its_route_live_and_draws_it(make_window):
+    window = make_window()
+    window.map.set_selection({(10, 10)})
+    dialog = _flight_dialog(window)
+    dialog.unit_combo.setCurrentText("km")
+    dialog.radius_spin.setValue(0)
+    dialog.open_file()
+    route = set(FLIGHTPLAN.route_tiles(FLIGHTPLAN.read_plan_file(
+        os.path.join(_PLANS, "short_hop_v11.fms")).points(), 0))
+    assert window.map.selection() == {(10, 10)} | route
+    assert dialog.layer.parts() and dialog.layer in window.map._layers
+    assert dialog.summary.text().startswith("KSEA \u2192 KPDX")
+    assert dialog.minimumSizeHint().width() <= 640   # fits a small laptop
+    small = window.map.selection()
+    dialog.radius_spin.setValue(100)          # live: no button press
+    assert window.map.selection() > small
+    assert dialog.count_label.text() == FLIGHTPLAN.tiles_text(len(dialog.tiles()))
+    dialog.accept()
+    assert window.map.active_tile() == (47, -123)   # the departure tile
+    assert dialog.layer.parts() == []
+    assert (10, 10) in window.map.selection()
+
+
+def test_cancel_puts_the_old_selection_back(make_window):
+    window = make_window()
+    window.map.set_active(10, 10)
+    dialog = _flight_dialog(window)
+    dialog.open_file()
+    assert window.map.selection() != {(10, 10)}
+    dialog.reject()
+    assert window.map.selection() == {(10, 10)}
+    assert dialog.layer.parts() == []
+
+
+def test_the_unit_converts_the_radius_and_is_remembered(make_window):
+    window = make_window()
+    dialog = _flight_dialog(window)
+    dialog.unit_combo.setCurrentText("km")
+    dialog.radius_spin.setValue(93)
+    dialog.unit_combo.setCurrentText("nm")
+    assert dialog.radius_spin.value() == 50
+    assert dialog.radius_spin.maximum() == FLIGHTPLAN.RADIUS_MAX["nm"]
+    assert dialog.radius_km() == pytest.approx(92.6)
+    prefs = _prefs(make_window)
+    assert (prefs["flight_plan_unit"], prefs["flight_plan_radius"]) == ("nm", 50)
+
+
+def test_simbrief_uses_the_fetch_seam_and_reports_errors(make_window):
+    window = make_window()
+    with open(os.path.join(_PLANS, "simbrief_ofp.xml"), encoding="utf-8") as fh:
+        ofp = fh.read()
+    asked = []
+
+    def fake_fetch(user):
+        asked.append(user)
+        if user == "nobody":
+            raise FLIGHTPLAN.FlightPlanError("SimBrief: Unknown UserID")
+        return FLIGHTPLAN.parse_simbrief(ofp)
+
+    dialog = _flight_dialog(window, fetch=fake_fetch)
+    dialog.simbrief_edit.setText("nobody")
+    dialog.fetch_simbrief()
+    assert dialog.summary.text() == "SimBrief: Unknown UserID"
+    assert not dialog.tiles()
+    dialog.simbrief_edit.setText("123456")
+    dialog.fetch_simbrief()
+    assert asked == ["nobody", "123456"]
+    assert dialog.summary.text().startswith("ENGM \u2192 ENTC")
+    assert (60, 11) in window.map.selection() and (69, 18) in window.map.selection()
+    assert _prefs(make_window)["simbrief_user"] == "123456"

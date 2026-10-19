@@ -59,7 +59,7 @@ What this does, and why every piece of it is the way it is:
   airport pass satisfies the engine's own predicate instead of
   weakening it: ``O4_Settings_Model.resolve_cifp_dir`` takes a
   non-empty ``cifp_data_path`` as authoritative, and
-  ``auto_patch.cifp_reader.xplane_root_from_cifp_path`` walks TWO
+  ``auto_patch_v2.airport.cifp.xplane_root_from_cifp_path`` walks TWO
   levels up from it and requires a ``Custom Scenery/`` (or
   ``Resources/``) there.  So the fixture is laid out as
   ``<root>/Custom Data/CIFP/CYXY.dat`` beside

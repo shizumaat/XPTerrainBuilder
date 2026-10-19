@@ -37,7 +37,7 @@ mutual and in-process:
   `O4_Config_Utils`, `O4_OSM_Extracts`, `O4_Version`).
 - The engine imports back **into** `auto_patch` — `O4_Default_Terrain_Map.py`
   (`dsf_reader`, `agp_reader`), `O4_Airport_Elevation_Insets.py`
-  (`cifp_reader`), `O4_Qt_GUI.py` (`object_rebake`).
+  (`dsf_reader`, `flat_site_mode`), `O4_Qt_GUI.py` (`object_rebake`).
 
 Both directions run in one Python process. Contributions to these
 directories are accepted under GPL v3.

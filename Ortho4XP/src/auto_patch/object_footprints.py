@@ -1058,7 +1058,7 @@ def structure_ring(
     # 60.706235,-135.0696776): a resource whose library path NAMES it a
     # building (lib/airport/hangars/…, terminal kits) is definitionally a
     # building — the same semantic trust the .fac path classifier
-    # (dsf_reader._building_role_for_def) already extends.  An
+    # (auto_patch_v2.airport.dsf.building_role_for_def) already extends.  An
     # arched-shell hangar's footings project ~0.001 of its hull (below
     # the 0.002 slab/mast floor calibrated at HECA), so the heuristic
     # alone would cull real stock hangars.

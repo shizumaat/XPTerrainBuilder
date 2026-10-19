@@ -979,9 +979,9 @@ def _apt_dat_arp_and_field_elevation(apt_dat_path, icao):
     copied; the elevation is row 1's, in feet."""
     from elevation_access import vertical_units as ea_vertical_units
     from O4_MSFS_XPlane_Pack import _AirportPositionAccumulator
-    from auto_patch.apt_dat_reader import _read_airport_block
+    from auto_patch_v2.airport.apt_dat import read_airport_block
 
-    block = _read_airport_block(apt_dat_path, icao)
+    block = read_airport_block(apt_dat_path, icao)
     if not block:
         return None
     try:
@@ -4103,6 +4103,7 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
     # ONE implementation, called from both entries (RULINGS ``7e90032``);
     # the dump lands in the LANE-LOCAL mod-cache overlay armed above.
     from auto_patch.engine_v2 import fresh_pack_dump            # noqa: E402
+    from auto_patch.engine_v2 import stage_cache_enabled        # noqa: E402
     # THE APP'S PROGRESS WIRING, the same object (issue #136): the step
     # banners and the >=60 s heartbeat print LIVE here through
     # ``UI.lvprint``, exactly as the app's driver prints them.
@@ -4146,7 +4147,10 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
             def _out(ln: str) -> None:
                 lines.append(ln)
                 v2p.line(ln)
-            res = build(icao, inputs, v2_dir, Config(), law, out=_out)
+            # the stage cache (#843) as the app runs it: on unless
+            # ``O4_V2_STAGE_CACHE=0`` (records land in the lane-local overlay)
+            res = build(icao, inputs, v2_dir, Config(stage_cache=stage_cache_enabled()),
+                        law, out=_out)
         dt = time.time() - t0
         for ln in lines:
             prog.note(f"  [v2] {ln}")
@@ -4295,7 +4299,7 @@ def run_tile_steps(tile, plan, prog, skip_steps=None):
     Ortho4XP step functions never raise on their own errors and never set
     ``red_flag`` for them: they print an ERROR line
     (``UI.exit_message_and_bottom_line``) and ``return 0``; a normal exit
-    returns 1 (``build_masks``: a bare ``return``, i.e. ``None``).  So the
+    returns 1 (``build_masks`` too since #904).  So the
     ONLY failure signal is ``result == 0`` — exactly the predicate the
     engine path checks (``o4_engine/session.py`` ``_build_worker``), and
     exactly what the old loop discarded: a mesh step whose ``.node`` input
@@ -4477,12 +4481,12 @@ def resolve_tile_for(icao: str, root: Path):
             sys.path.insert(0, str(p))
     try:
         from conftest import xplane_root
-        from auto_patch.apt_dat_reader import (find_airport_apt_dat,
-                                               _read_airport_block)
-        path = find_airport_apt_dat(xplane_root(), icao)
+        from auto_patch_v2.airport.apt_dat import (read_airport_block,
+                                                   select_apt_dat)
+        path = select_apt_dat(xplane_root(), icao)
         if not path:
             return None
-        for line in (_read_airport_block(path, icao) or []):
+        for line in (read_airport_block(path, icao) or []):
             toks = line.split()
             if not toks:
                 continue

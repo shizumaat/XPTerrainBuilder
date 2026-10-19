@@ -546,7 +546,7 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     :func:`require_capture_isolation` asks the engine's OWN accessors, so a
     redirect the engine would ignore reads as absent."""
     require_capture_isolation()
-    from auto_patch_v2.airport import flat_site as _flat
+    from auto_patch_v2.airport.flat_site_read import verdict_for_build as _flat_verdict
     from auto_patch_v2.airport.frame_entry import quantum as _fe_quantum
     from auto_patch_v2.airport.load import load_with_report
     from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
@@ -672,8 +672,8 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     # replay solves a DIFFERENT problem from the build (measured at VMMC:
     # pav5 1.95 m against the build's 5.09, within_shape 327 against 2).
     from auto_patch_v2.pipeline.build import _classified_land
-    fv = _flat.detect(airport, law, objects=objects_out[0] if objects_out else (),
-                      land=_classified_land(cl))
+    fv, _how = _flat_verdict(airport, law, objects=objects_out[0] if objects_out else (),
+                             land=_classified_land(cl))
     airport = _dc.replace(airport, flat_site=fv)
     road_pref, _rep, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
                                            inputs.lane_width_m)

@@ -24,6 +24,8 @@ struct MapCanvasView: View {
     /// The airport layer's last plan (#817): rebuilt only when the camera,
     /// the viewport or the airport lists change.
     @StateObject private var airportPlans = AirportPlanCache()
+    /// View ▸ text size (#827): the map's tile and airport labels follow it.
+    @Environment(\.textScale) var textScale
 
     // Night-chart palette (the icon's world).
     static let ocean = Color(red: 0.043, green: 0.051, blue: 0.071)
@@ -53,6 +55,7 @@ struct MapCanvasView: View {
                 draw(context: context, size: size)
             }
             .overlay { PatchOverlay(model: buildModel.patchEdit, camera: camera) }
+            .overlay { FlightRouteOverlay(model: buildModel.flightPlan, camera: camera) }
             .background(Self.ocean)
             .gesture(pan(size: proxy.size))
             .gesture(tileSelect(size: proxy.size))
@@ -219,9 +222,10 @@ struct MapCanvasView: View {
         let overlays = self.overlays
         let plan = airportPlans.plan(
             for: .init(camera: cam, size: size, defaults: overlays.defaultAirports.count,
-                       customs: overlays.airports.count)
+                       customs: overlays.airports.count, textScale: textScale)
         ) {
-            Self.makeAirportPlan(overlays: overlays, cam: cam, size: size, bounds: bounds)
+            Self.makeAirportPlan(overlays: overlays, cam: cam, size: size, bounds: bounds,
+                                 textScale: textScale)
         }
         drawAirports(plan, context: context)
         let showLabels = cam.scale > 26
@@ -587,7 +591,7 @@ struct MapCanvasView: View {
         .padding(8)
         .help(atLimit
               ? "The view is zoomed past the imagery source's finest zoom level — tiles are upscaled and blurry. Builds at higher ZLs would upscale the same data."
-              : "The imagery zoom level matching the current view — compare with the Build ZL setting.")
+              : "The imagery zoom level matching the current view — compare with the Detail setting (ZL) in the Build pane.")
     }
 
     /// Horizontal segmented-style zoom control: − and + in separate

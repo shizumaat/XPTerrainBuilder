@@ -50,10 +50,10 @@ NODE_SIZE = 6.0
 
 
 def chip_text(model) -> str:
-    """"KHIO · auto patch · 4,576 nodes · 392 shapes"."""
+    """"KHIO · automatic shape · 4,576 nodes · 392 shapes"."""
     p, doc = model.patch, model.doc
-    source = ("auto patch" if p.source == "auto"
-              else "manual patch" if p.is_hand_made else "edited patch")
+    source = ("automatic shape" if p.source == "auto"
+              else "hand-made shape" if p.is_hand_made else "edited shape")
     return "%s · %s · {:,} nodes · {:,} shapes".format(len(doc.nodes), len(doc.ways)) % (p.icao, source)
 
 

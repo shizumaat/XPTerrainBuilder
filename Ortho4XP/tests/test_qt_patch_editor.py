@@ -170,7 +170,7 @@ def test_hand_made_is_decided_by_file_name():
         == "Manual · ZZZZ_runways.patch.osm"
     assert source_line(_loaded(None, "ZZZZ_edited.patch.osm", "manual"), None) \
         == "Edited · ZZZZ_edited.patch.osm"
-    assert source_line(_loaded(None), None) == "Auto patch"
+    assert source_line(_loaded(None), None) == "Automatic"
     assert parse_number(" 62,7 ") == 62.7 and parse_number("+0.50") == 0.5
     assert parse_number("x") is None
 
@@ -219,7 +219,7 @@ def test_load_drag_snap_merge_save_and_reload(editor, patches):
     ed.controller.evaluate()                       # … and loads the airport
     assert ed.controller.state == ed.controller.LOADED
     assert ed.model.patch.icao == "ZZZZ" and len(ed.model.doc.nodes) == 5
-    assert not ed.panel.isHidden() and ed.panel.title() == "Patch · ZZZZ"
+    assert not ed.panel.isHidden() and ed.panel.title() == "Airport ground shape · ZZZZ"
     ed.model.set_mode("Edit")
     # drag -5 onto -3: the pointer within 8 px snaps; release merges (1 step)
     start, target = _screen(ed, -5), _screen(ed, -3)

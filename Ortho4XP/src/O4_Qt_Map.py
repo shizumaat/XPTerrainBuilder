@@ -309,6 +309,8 @@ class MapView(QGraphicsView):
     status_message = Signal(str)
     view_changed = Signal()
     built_changed = Signal()
+    # A right-click without a drag (#938): lat, lon, global screen QPoint.
+    tile_menu_requested = Signal(int, int, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -376,6 +378,7 @@ class MapView(QGraphicsView):
 
         # Interaction state
         self._panning = False
+        self._right_press = None  # where a right-button press began
         self._pan_start = None
         self._press_pos = None
 
@@ -690,6 +693,8 @@ class MapView(QGraphicsView):
         if event.button() in (Qt.RightButton, Qt.MiddleButton):
             self._panning = True
             self._pan_start = event.position()
+            self._right_press = (event.position()
+                                 if event.button() == Qt.RightButton else None)
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
             return
@@ -722,6 +727,16 @@ class MapView(QGraphicsView):
         ):
             self._panning = False
             self.unsetCursor()
+            press, self._right_press = self._right_press, None
+            if (event.button() == Qt.RightButton and press is not None
+                    and (event.position() - press).manhattanLength() < 6):
+                # A right-click, not a pan: the tile's menu.
+                scene_pos = self.mapToScene(event.position().toPoint())
+                lat, lon = GEO.pix_to_wgs84(
+                    scene_pos.x(), scene_pos.y(), SCENE_ZL)
+                self.tile_menu_requested.emit(
+                    math.floor(lat), math.floor(lon),
+                    event.globalPosition().toPoint())
             event.accept()
             return
         if any(layer.mouse_release(event) for layer in self._layers):

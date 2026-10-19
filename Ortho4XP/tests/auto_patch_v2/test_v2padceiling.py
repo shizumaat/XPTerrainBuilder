@@ -357,7 +357,15 @@ def test_the_capture_runs_every_pre_solve_stage_the_build_runs():
         return out
 
     mod = _replay_module()
-    cap_calls = _calls(inspect.getsource(mod.capture))
+    # since #844 the capture's front half (classify … shapes) runs through
+    # ``tools/replay_stage_cache.front_half``, the one writer shared with the
+    # stage cache, so the claim is read over the path, not over one function
+    _fh = importlib.util.spec_from_file_location(
+        "_replay_stage_cache", _TOOL.parent / "replay_stage_cache.py")
+    replay_stage_cache = importlib.util.module_from_spec(_fh)
+    _fh.loader.exec_module(replay_stage_cache)
+    cap_calls = _calls(inspect.getsource(mod.capture)
+                       + inspect.getsource(replay_stage_cache.front_half))
     build_calls = _calls(inspect.getsource(build_fn))
     stages = {"load_with_report", "partition_pack", "derive", "read_objects",
               "classify", "build", "detect", "preferred_road_z", "shape_stage",

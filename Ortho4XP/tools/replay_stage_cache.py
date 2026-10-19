@@ -98,7 +98,7 @@ def front_half(icao: str, airport: _t.Any, law: _t.Any, inputs: _t.Any, *,
         raise ValueError(f"stage-cache mode {mode!r}: one of {MODES}")
     from auto_patch_v2.airport.flat_site_read import verdict_for_build
     from auto_patch_v2.airport.road_profile import preferred_road_z
-    from auto_patch_v2.classify import classify as _classify
+    from auto_patch_v2.classify import classify
     from auto_patch_v2.pipeline import capture_state as _cstate
     from auto_patch_v2.pipeline import front_cache as _front
     from auto_patch_v2.pipeline.build import _classified_land
@@ -112,7 +112,7 @@ def front_half(icao: str, airport: _t.Any, law: _t.Any, inputs: _t.Any, *,
     fc_in = fc.common_inputs(rules, ocache)
     cl, side = fc.run(
         "classify", {**fc_in, "airport": fc.airport_digest(airport)},
-        lambda lw: (_classify(airport, lw, rules, cache=ocache),
+        lambda lw: (classify(airport, lw, rules, cache=ocache),
                     _front.classify_side_state()), as_served=True)
     _front.install_classify_side_state(side)
     cl_d = fc.output_digest("classify")

@@ -11583,6 +11583,13 @@ def cockpit_classify(family: str, row, *, law: dict,
     # wedge with a Steiner cascade wherever it is.
     if cls == "unmeshable":
         return COCKPIT_VISUAL, "unmeshable"
+    # A DECLARED WALL TERRACE IS EXEMPT (owner RULINGS 2026-10-19l, #988: "the census
+    # exempts declared wall terraces", as 19c exempts object-decked
+    # trenches): the groundside cut-back is the step the build stands a band
+    # off a road by on purpose — an in-band road below the band meets it at
+    # a retaining wall (19i) — so the §31 (7) cliff escape never reaches it.
+    if cls == "terrace":
+        return COCKPIT_REPORT, "declared_terrace"
     mag = row_magnitude(row)
     roles = row_roles(row)
     rolled = law["rolled_on"]

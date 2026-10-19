@@ -1041,6 +1041,27 @@ def _cell_path_from_stem(tile, stem: str):
         return None
 
 
+def _cached_coastline_is_empty(tile) -> bool:
+    """True when this tile's CACHED coastline layer holds no coastline, so
+    the band pass returns at "no shoreline" and fetches nothing (#389).
+
+    Disk only, and lock-free: the cache is read by the engine's own OSM
+    reader (``OSM_layer.update_dicosm`` + ``OSM_to_MultiLineString``, the
+    pair :func:`_band_geometry` uses).  No cache file, or one that does
+    not parse, answers False: the pass would download it, which is not
+    settled."""
+    import O4_OSM_Utils as OSM
+
+    cached = FNAMES.osm_cached(tile.lat, tile.lon, "coastline")
+    if not os.path.isfile(cached):
+        return False
+    tags = {"n": [], "w": [("natural", "coastline")], "r": []}
+    layer = OSM.OSM_layer()
+    if not layer.update_dicosm(cached, tags, {k: list(v) for (k, v) in tags.items()}):
+        return False
+    return OSM.OSM_to_MultiLineString(layer, tile.lat, tile.lon).is_empty
+
+
 def is_cached(tile, fine_nearshore_only=None, intertidal_ok=None) -> bool:
     """True when this tile's bathymetry band would fetch nothing — and
     write nothing: no cell, no stamp, no mosaic.
@@ -1103,7 +1124,9 @@ def is_cached(tile, fine_nearshore_only=None, intertidal_ok=None) -> bool:
             FNAMES.bathymetry_band_index(tile.lat, tile.lon))
         cells = _stamp_cells(stamp)
         if not cells:
-            return False
+            # A landlocked tile never writes a stamp: the pass stops at
+            # "no shoreline" (``_band_geometry``) before any fetch (#389).
+            return _cached_coastline_is_empty(tile)
         (record, identical) = _settling_record(
             stamp, definitions, wanted_key)
         if record is None:

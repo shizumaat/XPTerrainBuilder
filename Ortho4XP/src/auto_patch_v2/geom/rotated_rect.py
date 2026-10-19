@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["rotated_rectangle", "long_axis"]
+__all__ = ["rotated_rectangle", "rectangle_axes", "long_axis"]
 
 
 def rotated_rectangle(poly):
@@ -35,6 +35,38 @@ def rotated_rectangle(poly):
     """
     with np.errstate(divide="ignore", invalid="ignore"):
         return poly.minimum_rotated_rectangle
+
+
+def rectangle_axes(poly) -> tuple[tuple[float, float], float, float]:
+    """``((ux, uy), long_m, short_m)`` of ``poly`` read as a RIBBON.
+
+    The long-side unit direction and the two side lengths of
+    :func:`rotated_rectangle` — the idiom ``[lot] mouth_width_factor``
+    names ("the strip's width and axis are its minimum rotated
+    rectangle's short and long sides").  ONE spelling for every caller
+    that reads a face's axis, its width or its proportions
+    (``classify/airside_edge._strip_axis_width``, the issue #110 road
+    ribbon in ``classify/open_default``).  A degenerate ring — empty,
+    zero area, or a rectangle shapely returns as a Point / LineString —
+    reads ``((1.0, 0.0), 0.0, 0.0)``, which every caller already treats
+    as "no axis, no width".
+    """
+    if poly.is_empty or poly.area <= 0.0:
+        return (1.0, 0.0), 0.0, 0.0
+    try:
+        rect = rotated_rectangle(poly)
+        xs = list(getattr(rect, "exterior", rect).coords)
+    except Exception:                                    # pragma: no cover
+        return (1.0, 0.0), 0.0, 0.0
+    if len(xs) < 5:
+        return (1.0, 0.0), 0.0, 0.0
+    e1 = (xs[1][0] - xs[0][0], xs[1][1] - xs[0][1])
+    e2 = (xs[2][0] - xs[1][0], xs[2][1] - xs[1][1])
+    l1 = float(np.hypot(*e1))
+    l2 = float(np.hypot(*e2))
+    lng, long_m, short_m = (e1, l1, l2) if l1 >= l2 else (e2, l2, l1)
+    n = float(np.hypot(*lng)) or 1.0
+    return (lng[0] / n, lng[1] / n), long_m, short_m
 
 
 def long_axis(rect):

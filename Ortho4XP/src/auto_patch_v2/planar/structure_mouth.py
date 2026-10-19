@@ -10,10 +10,9 @@ pavement, however they too should never cross a taxiway edge, the full
 taxiway width must always stay graded unless we're fully cutting it out
 for an object with a hard deck top."
 
-Read as three clauses over the pavement faces near a MAPPED bore's mouth
+Read as four clauses over the pavement faces near a MAPPED bore's mouth
 (a pack-stated corridor — a wall object, a plate, a wall corridor — IS the
-object the rule names, and keeps its own law, ``structure_service.
-osm_stops``):
+object the rule names, and keeps its building-pad stops alone):
 
 1. **A taxiway face is never cut.**  Every taxi-family face stops the
    corridor, the one the mouth stands on included — §34 (12) (3)'s "the
@@ -31,10 +30,16 @@ osm_stops``):
    "entirely within pavement" — and is cut, as 08-07 ruling 4 has always
    cut it.  A taxi face never hosts (clause 1).
 
+4. **Nor the road or lot it runs beside** (owner RULINGS 2026-10-19o):
+   every other road or parking face stops the corridor too, save the
+   ramp's OWN road — a ribbon no wider than the corridor that the axis
+   runs along (:func:`_own_road`), which the ramp is.  Clause 3 still comes first.
+
 THE MOUTH STOPS AT THE EDGE, IT IS NOT REFUSED.  :func:`clear_mouth`
 slides the mouth outward along the approach until the corridor's mouth
 end (its rim cap and first spacing of ramp) stands ``wall_gap_m`` clear of
-every stop; the stretch between the mapped portal and the new mouth is
+every stop, at most ``[tunnel] mouth_slide_max_m``; the stretch between
+the mapped portal and the new mouth is
 covered bore — it emits nothing and the pavement over it keeps its own
 surface.  Beyond the mouth the station-truncation loop of
 ``structures.build_structures`` stops the ramp's TOP at the same set.
@@ -50,6 +55,7 @@ from shapely.strtree import STRtree
 
 from ..law import Law
 from ..law.tables import is_structure_role, is_value_role, role_family, role_side
+from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement"]
 
@@ -99,26 +105,42 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
                 out.append((p, c.ref))                # §34 (12) (3), unchanged
             continue
         covers = any(d.intersection(p).length > grid for d in deep)
-        if not (covers or (airside and at_mouth)):
-            continue                                  # a road the ramp merely runs along
         if at_mouth and _host_run_m(axis, p, grid) >= min_run:
             continue                                  # clause 3: the ramp's host
-        out.append((p, c.ref))                        # clause 2
+        if not airside and _own_road(axis, p, half + rim_off, grid):
+            continue                                  # clause 4: the ramp's own road
+        out.append((p, c.ref))                        # clauses 2 and 4
     return out
+
+
+def _own_road(axis: LineString, poly: Polygon, reach: float, grid: float) -> bool:
+    """CLAUSE 4's test: ``poly`` is the road the ramp IS — a ribbon no
+    wider than the corridor (``2 * reach``, its rim to rim) that the axis
+    runs ALONG, inside it for longer than the ribbon is wide.  A road the
+    axis crosses, or a lot / pack road polygon wider than the corridor, is
+    pavement the ramp runs beside or through, and stops it."""
+    mrr = rotated_rectangle(poly)
+    cs = list(mrr.exterior.coords)[:-1]
+    if len(cs) < 4:
+        return False
+    width = min(math.dist(cs[i], cs[(i + 1) % 4]) for i in range(4))
+    return width <= 2.0 * reach + grid and axis.intersection(poly).length > width + grid
 
 
 def clear_mouth(axis: LineString, stops: list[tuple[Polygon, str]], half: float,
                 rim_off: float, gap: float, spacing: float, grid: float,
-                ring_of: _t.Callable[[float], "Polygon | None"]) -> tuple[float, str]:
+                ring_of: _t.Callable[[float], "Polygon | None"],
+                max_slide: float = math.inf) -> tuple[float, str]:
     """``(s0, ref)``: the least station ``s0`` along ``axis`` at which the
     corridor's mouth end — its real ring over the first ``spacing``,
     ``ring_of(s0)`` — stands ``gap`` clear of every stop; ``ref`` the stop
     it slid out of (``""`` when the mapped mouth already stands clear).
 
-    THE MOUTH SLIDES OUT OF THE PAVEMENT IT STANDS IN, AND NO FURTHER: only
-    the stops the mapped portal's own mouth end touches may be slid
-    through.  A different stop met on the way means the approach runs from
-    one pavement into the next, and ``s0`` is NaN with ``ref`` naming it.
+    THE MOUTH SLIDES AT MOST ``max_slide`` (``[tunnel] mouth_slide_max_m``):
+    past it ``s0`` is NaN with ``ref`` naming the stop still in the way.
+    (Round 1 refused at the first stop the portal did not touch; owner
+    RULINGS 2026-10-19o's roads beside the ramp made that refuse bores
+    whose mouths stand among side roads, so the bound is a length.)
     The rectangle ``half + rim_off`` either side of the axis, ``rim_off``
     behind the mouth line, is a necessary test (the real ring is never
     narrower) and keeps the ring builder off every station it fails."""
@@ -149,9 +171,8 @@ def clear_mouth(axis: LineString, stops: list[tuple[Polygon, str]], half: float,
             got = hits(ring) if ring is not None else []
             if not got:
                 return s, first
-        other = [r for r in got if r not in at_portal]
-        if other:
-            return math.nan, other[0]
+        if s > max_slide:
+            return math.nan, got[0]
         s += grid
     return math.nan, first
 
@@ -214,8 +235,9 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         mouth = here.coords[0] if total > 0.0 else group.mouth
         stops = mouth_stops(cells, polys, law, cut_roles, here, covered, mouth, half, rim_off,
                             decked, grid)
-        s0, ref = clear_mouth(here, stops, half, rim_off, gap,
-                              spacing, grid, lambda s, _t=total: ring_of(_t + s))
+        s0, ref = clear_mouth(here, stops, half, rim_off, gap, spacing, grid,
+                              lambda s, _t=total: ring_of(_t + s),
+                              law.tables.structures.tunnel.mouth_slide_max_m - total)
         if math.isnan(s0) or s0 <= 0.0:
             break
         total += s0
@@ -223,9 +245,10 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     stops = list(pads) + stops
     tree = STRtree([p for p, _r in stops]) if stops else None
     if math.isnan(s0) or s0 > 0.0:
-        return None, None, stops, tree, (f"the mouth cannot stand clear of pavement {ref} "
-                                         f"on its approach (#971: a mouth stops at the "
-                                         f"pavement, never cuts it)")
+        return None, None, stops, tree, (
+            f"the mouth cannot stand clear of pavement {ref} within "
+            f"{law.tables.structures.tunnel.mouth_slide_max_m:.0f} m of its mapped portal "
+            f"(#971: a mouth stops at the pavement, never cuts it)")
     if total <= 0.0:
         return axis, group.mouth, stops, tree, ""
     new = substring(axis, total, axis.length)

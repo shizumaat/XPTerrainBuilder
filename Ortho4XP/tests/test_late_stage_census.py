@@ -115,7 +115,7 @@ def test_the_stage_widens_by_and_publishes_one_number_read_at_one_site():
     from auto_patch_v2.pipeline import late_stage as ls
     from auto_patch_v2.pipeline import publication as pub
     from auto_patch_v2.pipeline import stage_one_map as som
-    src = inspect.getsource(ls.run_late_stage)
+    src = inspect.getsource(ls.late_solve)       # the stage's solve half (§10 step 8)
     assert src.count("pad_terrace_floor_m") == 1
     assert "widen_floor_m=floor_m" in src and '"floor_m": floor_m' in src
     head = "pavement_max_grade ceiling"

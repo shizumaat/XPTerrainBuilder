@@ -65,12 +65,15 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
     from auto_patch_v2.pipeline import shapes
     # ``planar/__init__`` re-exports ``build``, shadowing the submodule
     planar_build = importlib.import_module("auto_patch_v2.planar.build")
-    text = (SRC / "auto_patch_v2" / "pipeline" / "build.py").read_text(encoding="utf-8")
-    for line in ("from ..classify import classify, load_rules",
-                 "from ..planar.build import build as build_planar",
+    # classify is entered in ``build``, the rest in its prefix (§10 step 8)
+    pipe = SRC / "auto_patch_v2" / "pipeline"
+    text = (pipe / "build.py").read_text(encoding="utf-8")
+    assert "from ..classify import classify, load_rules" in text
+    text = (pipe / "prefix.py").read_text(encoding="utf-8")
+    for line in ("from ..planar.build import build as build_planar",
                  "from ..airport.flat_site_read import verdict_for_build as _flat_verdict",
                  "from ..airport.road_profile import preferred_road_z",
-                 "from .shapes import joint_steps, shape_constraints, shape_stage"):
+                 "from .shapes import shape_constraints, shape_stage"):
         assert line in text, line
     defined = {
         "classify": {classify.classify.__module__, classify.load_rules.__module__},

@@ -2351,21 +2351,16 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
                     _ocache = _RCache(law.tables.structures.basin.min_solid_thickness_m,
                                       _fe.quantum(law))
                     _objs, _orep = _read_objects(airport, law, _ocache)
-                from auto_patch_v2.airport.riders import rider_candidates
-                from auto_patch_v2.constraints.jetway_strip import jetway_strips
-                from auto_patch_v2.constraints.no_step import hold_pass
-                pm0, _ps0 = build_planar(airport, cl0, law, cache=_ocache, objects=_objs,
-                                         object_report=_orep)
-                pref0, _r0, _p0 = preferred_road_z(airport, pm0, law, inputs.road_grade_limit,
-                                                   inputs.lane_width_m)
-                st0 = shape_stage(_targets(_dc.replace(pm0, preferred_z=pref0)), law,
-                                  airport, cl0, out=lambda m: None)
-                cs0, _c0, _w0 = shape_constraints(st0.pm, law, airport, st0)
-                if drop:                   # the names were checked on the full map
-                    cs0 = drop_rows(cs0, drop, check=False)
-                return (st0.pm, cs0, jetway_strips(st0.pm, law, airport, cs0,
-                                                   rider_candidates(airport, law)),
-                        hold_pass(st0.pm, law, airport))
+                # THE BUILD'S OWN PREFIX (stage-cache spec §4b.3,
+                # ``pipeline/prefix.run_prefix``), with this replay's target
+                # channels (its arms) and its dropped rows
+                from auto_patch_v2.pipeline.prefix import PackRead, run_prefix
+                rec = run_prefix(
+                    airport, cl0, law, inputs, PackRead(_objs, _orep, _ocache), None,
+                    targets=_targets,
+                    # the names were checked on the full map
+                    rows=(lambda cs0: drop_rows(cs0, drop, check=False)) if drop else None)
+                return rec.derived()
             _t1 = time.perf_counter()
             s1 = stage_one_problem(cl, _ribbon_free, pm.registries)
             if s1 is not None:

@@ -372,13 +372,14 @@ def test_the_build_record_is_what_the_capture_collects(law, live):
 
 
 def test_the_build_installs_the_planar_record_before_the_shape_stage():
-    """The wiring: ``pipeline/build.build`` takes the planar stage through
-    ``planar_stage`` and installs THAT record before its ``shape_stage``."""
+    """The wiring: the build's prefix (``pipeline/prefix.run_prefix``) takes
+    the planar stage through ``planar_stage`` and installs THAT record
+    before its ``shape_stage``."""
     import ast
-    src = (ROOT / "src" / "auto_patch_v2" / "pipeline" / "build.py").read_text(
+    src = (ROOT / "src" / "auto_patch_v2" / "pipeline" / "prefix.py").read_text(
         encoding="utf-8")
     fn = next(n for n in ast.parse(src).body
-              if isinstance(n, ast.FunctionDef) and n.name == "build")
+              if isinstance(n, ast.FunctionDef) and n.name == "run_prefix")
 
     def calls(name):
         return sorted((n for n in ast.walk(fn) if isinstance(n, ast.Call)

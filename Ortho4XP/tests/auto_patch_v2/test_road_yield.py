@@ -83,3 +83,12 @@ def test_the_carriageway_reads_the_map(law):
     # 7 lanes x 3.5 m; no tag: never narrower than the ribbon's own lane
     # width; a stated width wins; a footway and a bore are not the road
     assert halves == pytest.approx([12.25, max(lw, 3.5), 15.0])
+
+
+def test_the_rim_road_barrier_reads_the_mapped_width(law):
+    # §19 rule 2's outer-edge barrier stands where the road's own ribbon
+    # ends: a 7-lane way's half-width, not the core lane width
+    from auto_patch_v2.planar.terrain_edge import road_edges, road_half_width_m
+    cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+    halves = [h for _l, h in road_edges((_road(0.0, lanes="7"), _road(0.0)), law)]
+    assert halves == pytest.approx([12.25 + cut, road_half_width_m(law)])

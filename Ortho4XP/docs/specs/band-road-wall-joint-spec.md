@@ -96,3 +96,61 @@ between them (heightfield: a 1 m wide steep face, not a vertical one).
   33.945963, −118.436316 are declared walls;
 - the #951 road (33.946976888, −118.436319373) stays on its DEM;
 - 30aa airside identity holds (`ribbon_airside_added/removed` 0 / 0).
+
+## 6. Measured — lane m3, two iterations (STOPPED at the cap; bars NOT met)
+
+Replays `--replay frames/c944/{KBUR,KLAX}.pkl --from planar --emit`,
+census through `tools/harness/census.py`; base = main 8f96a4c76.
+
+Iteration 1 (sections 2.1–2.6 as written):
+
+- the synthetic #715 twin: the road at 92.00 m (its ground), the riser's band
+  line at 99.32–99.63 m, a 7.64 m declared wall. Without the cut the road
+  stood at 98.9–99.5 m (the release alone moved nothing: 0 rows crossed), so
+  **the bending is the coupling** c951joint measured.
+- KBUR: `strip_seam_tear` 0 → 82, worst 8.35 m at 34.197845, −118.347643: a
+  band island the cut decoupled from roads standing 8 m ABOVE it fell to
+  202.6 m.
+
+Iteration 2 (added: a one-way floor `z[band line] ≥ z[nearest kerb]`, so
+the band meets a road above it level, 13ar / 29r; and band remnants
+narrower than `strip_min_width_m` beside a riser join it):
+
+| | KBUR main → it2 | KLAX main → it2 |
+|---|---|---|
+| `hairline_pair` raw | 333 → 459 | 1300 → 1345 |
+| `hairline_pair` in scope | 0 → 0 (every row `above_degenerate_floor` / `on_the_edge`) | 0 → 0 |
+| `strip_seam_tear` | 0 → 0 | 4 → 10 (worst 3.58 m) |
+| `adjacent_ground_step` | 3 → 8 | 5 → 8 (worst 2.75 m) |
+| new road-road rows | — | `pavement_over_road_cap` 0 → 5 (2.72 m), `terrace_actual_step` 0 → 8 (3.02 m), `vertex_to_edge_step` 0 → 1, `road_cross_section` worst 0.81 → 1.90 m |
+| CRITICAL visual | 336 → 467 | 1312 → 1377 |
+| 30aa `ribbon_airside_added/removed` | 0 / 0 | 6 / 0 (main 6 / 0) |
+| airside values (solve-owned, > 0.02 m) | — | 0 moved; the EMITTED solve-owned vertex set differs (164 / 180) — not attributed |
+
+Owner sites:
+
+- KBUR building9 corner (34.19628, −118.35023): `groundside_cutback` 2.69 m
+  over 1.12 m between `adjacent_ground:taxi:C:zone2#36` and **`dsf:pol122`, a
+  DSF road page, not an OSM ribbon** — no riser is built there (the riser
+  follows the mapped-road ribbons). It reads as a declared terrace only by
+  the 19l census class, not as a `terrace_joints` record.
+- KLAX 33.945963, −118.436316: a 0.37 m declared riser and a 2.55 m step over
+  7.07 m INSIDE the band (`adjacent_ground_step`, main: 1.86 m over 3.5 m at
+  the kerb). The riser's band line sits at its DEM: zone 2's rows bound the
+  band, they do not hold it at the band's grade, so the fit puts the line at
+  the ground and the rise moves into the band.
+- KLAX #951 road `big_roads:-2346` (33.946976888, −118.436319373): 26.83–28.03 m
+  (main 27.11–30.07 m) — on its ground.
+
+What the next round has to answer (not decided by the lane):
+
+1. **What is the band's grade beside an in-band road?** The riser is vertical
+   only where the band's rows hold the band line above the road; in a zone-2
+   band the line falls to its ground. A wall at the owner's KLAX site needs
+   a rule for the band line's level (e.g. the band's own profile carried to
+   the riser) — that is an owner/spec decision.
+2. **Which roads get the riser?** The KBUR site's road is a DSF page
+   (`dsf:pol122`), not a mapped-road ribbon.
+3. **The road-road defects at KLAX** come from 19k's release of in-band
+   ribbon vertices from the 10-03b terrace while a neighbouring ribbon keeps
+   it: the release reads per vertex, the roads meet per carriageway.

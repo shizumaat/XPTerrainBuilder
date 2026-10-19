@@ -18,6 +18,10 @@ from . import obj8_split as _split
 from . import placement_seat_tilt as _pst
 from ..model.rebake import Member
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from . import placement_carrier as _pc
+    from .placement_body import _Raw
+
 __all__ = ["Body", "Split", "Kept", "SplitSet", "Staged"]
 
 

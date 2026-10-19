@@ -24,6 +24,9 @@ Two passes around ``O4_Airport_Utils.attach_surfaces_to_airports``:
   the apt.dat airport it overlaps is counted as claimed); every
   apt.dat airport no aerodrome claimed is SEEDED with its apt.dat extent
   as the boundary, so the OSM runways inside it attach to it by geometry.
+* closed ``[X]`` fields (owner 2026-10-19): no seed and no inset, unless
+  an enabled Custom Scenery pack provides the airport (auto_patch's own
+  ``select_apt_dat``);
 * :func:`drop_unclaimed_seeds` (after): a seed no OSM surface attached to
   is removed -- apt.dat alone never adds smoothing to ground OSM maps
   nothing on (the dictionary's population stays what OSM shows).
@@ -37,8 +40,11 @@ from typing import Iterable, List, Optional
 
 from shapely import geometry
 
+from auto_patch_v2.airport import apt_dat as APT_DAT
+
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Airport_Index as AIRPORT_INDEX
+import O4_Airport_Modes as MODES
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_UI_Utils as UI
@@ -49,6 +55,9 @@ __all__ = [
     "tile_apt_dat_airports",
     "adopt_apt_dat_identities",
     "drop_unclaimed_seeds",
+    "is_closed",
+    "custom_pack_serves",
+    "CLOSED_PREFIX",
 ]
 
 #: apt.dat categories that name a land airport (heliports and seaplane
@@ -58,6 +67,9 @@ IDENTITY_CATEGORIES = ("icao_airport", "airport")
 #: dico key_type of each identity category: the ICAO-code consumers
 #: (``O4_DSF_Utils`` "ICAO" cover, the inset "ICAO" mode) read "icao".
 _KEY_TYPE = {"icao_airport": "icao", "airport": "local_ref"}
+
+#: apt.dat's name prefix for a CLOSED field.
+CLOSED_PREFIX = "[X]"
 
 #: Marks an entry seeded from apt.dat until a surface claims it.
 SEED_FLAG = "apt_dat_seed"
@@ -194,21 +206,50 @@ def _matches_by_overlap(dico_airports: dict, keys: List,
     return pairs
 
 
-def adopt_apt_dat_identities(dico_airports: dict,
-                             entries: Iterable) -> int:
+def is_closed(entry) -> bool:
+    """apt.dat marks a closed field by the ``[X]`` name prefix."""
+    return entry.name.lstrip().startswith(CLOSED_PREFIX)
+
+
+def custom_pack_serves(code: str, xplane_root: Optional[str] = None) -> bool:
+    """True when an enabled Custom Scenery pack provides ``code``: the
+    apt.dat auto_patch's own selector (``select_apt_dat``) picks for it is
+    not a Global Airports / default one.  No install resolved: False."""
+    if xplane_root is None:
+        xplane_root = INSETS._xplane_root_for_package_footprints()
+    if not xplane_root:
+        return False
+    try:
+        chosen = APT_DAT.select_apt_dat(xplane_root, code)
+    except Exception:
+        return False
+    return bool(chosen) and chosen not in APT_DAT.global_candidates(
+        xplane_root)
+
+
+def adopt_apt_dat_identities(dico_airports: dict, entries: Iterable,
+                             custom_serves=custom_pack_serves) -> int:
     """Re-key the OSM aerodromes of ``dico_airports`` (as
     ``O4_Airport_Utils.discover_airport_names`` left it: absolute
     degrees) to their apt.dat codes and seed the airports no aerodrome
-    claimed.  Returns the number of seeds."""
+    claimed.  Returns the number of seeds.
+
+    A CLOSED field (:func:`is_closed`) no Custom Scenery pack provides
+    (``custom_serves(code)``, auto_patch's own pack selection) is never
+    seeded, and the airport identified with it is marked
+    ``O4_Airport_Modes.INSET_EXCLUDED`` -- no inset (owner 2026-10-19)."""
     unclaimed = {entry.code: entry for entry in entries}
     if not unclaimed:
         return 0
+    excluded = {code for (code, entry) in unclaimed.items()
+                if is_closed(entry) and not custom_serves(code)}
     adopted = set()
     for key in [k for k in dico_airports if k in unclaimed]:
         # OSM's own code is an apt.dat airport of this tile: same identity.
         entry = unclaimed.pop(key)
         if dico_airports[key].get("key_type") != "icao":
             dico_airports[key]["key_type"] = _KEY_TYPE[entry.category]
+        _mark_closed(dico_airports[key], entry.code, excluded)
         adopted.add(key)
     others = [k for k in dico_airports if k not in adopted]
     for (key, entry) in _matches_by_overlap(
@@ -225,6 +266,7 @@ def adopt_apt_dat_identities(dico_airports: dict,
         UI.vprint(2, "   OSM airport", _label(key), "is", entry.code,
                   "in apt.dat (" + entry.name + ").")
         record = dico_airports.pop(key)
+        _mark_closed(record, entry.code, excluded)
         record["key_type"] = _KEY_TYPE[entry.category]
         if record.get("name", "****") == "****":
             record["name"] = entry.name
@@ -233,6 +275,8 @@ def adopt_apt_dat_identities(dico_airports: dict,
     for entry in unclaimed.values():
         box = _extent_box(entry)
         if box is None or entry.code in dico_airports:
+            continue
+        if entry.code in excluded:
             continue
         dico_airports[entry.code] = {
             "key_type": _KEY_TYPE[entry.category],
@@ -245,6 +289,11 @@ def adopt_apt_dat_identities(dico_airports: dict,
         }
         seeds += 1
     return seeds
+
+
+def _mark_closed(record: dict, code: str, excluded: set) -> None:
+    if code in excluded:
+        record[MODES.INSET_EXCLUDED] = "closed field " + code
 
 
 def _label(key) -> str:

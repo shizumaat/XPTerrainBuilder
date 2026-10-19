@@ -678,3 +678,25 @@ def test_group_decrease_once_per_round() -> None:
         for i in range(g.window):
             g.record(fetch_mod._Outcome("ok", 200, latency=0.05), 100.0 + i)
     assert 8 <= g.window <= 9  # floor 8, plus at most one additive step
+
+
+def test_a_502_halves_the_window_like_a_503_and_a_500_does_not() -> None:
+    """#863: a gateway in front of an overloaded backend (USGS NAIP) answers 502 where another
+    server answers 503; both say "slow down". A 500 is the URL's own answer."""
+    for status, window in ((502, 8), (503, 8), (500, 16)):
+        group = fetch_mod._Group("p", 16, 16)
+        group.record(fetch_mod._Outcome("server", status), 0.0)
+        assert group.window == window, status
+
+
+def test_a_fetcher_takes_its_providers_timeout() -> None:
+    """#863: ``fetch_parts(timeout_s=...)`` is the .lay ``timeout=``; None keeps the default."""
+    import O4_Imagery_Async as FETCH_ASYNC
+
+    assert FETCH_ASYNC._checkout("t863", 2).timeout_s == Fetcher().timeout_s
+    slow = FETCH_ASYNC._checkout("t863", 2, 45.0)
+    split = (fetch_mod.CONNECT_TIMEOUT_MAX_S, 45.0 - fetch_mod.CONNECT_TIMEOUT_MAX_S)
+    assert slow.timeout_s == 45.0 and slow._timeout() == split
+    FETCH_ASYNC._checkin("t863", 2, slow, 45.0)
+    assert FETCH_ASYNC._checkout("t863", 2) is not slow  # pooled apart from the default
+    assert FETCH_ASYNC._checkout("t863", 2, 45.0) is slow

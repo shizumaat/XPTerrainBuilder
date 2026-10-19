@@ -7991,7 +7991,8 @@ except Exception:                                       # pragma: no cover
 
 
 def _check_ramp_in_strip(ways, nodes, ll_to_m,
-                         face_holes_m: Optional[dict] = None) -> List[Violation]:
+                         face_holes_m: Optional[dict] = None,
+                         object_cuts_ll: Optional[list] = None) -> List[Violation]:
     """§34 (5) (b) NO STRUCTURE RAMP INSIDE THE STRIP OF THE WAY IT PASSES
     UNDER (Fable 2026-09-15; RULINGS 2026-09-15h; owner 15e item 7).
 
@@ -8066,6 +8067,11 @@ def _check_ramp_in_strip(ways, nodes, ll_to_m,
         pass
     if not bands:
         return []
+    # #946 (owner 2026-10-19 "Yes"): where the surface RIDES AN OBJECT DECK
+    # over a trench (a published object cut — §33 (6) B AMENDED (3) (c)),
+    # the strip there is the object's deck, not ground: a ramp vertex
+    # inside the object's own wall line is exempt
+    decked = [g for _i, g, _f, _r in _object_cut_regions(object_cuts_ll, ll_to_m)]
     out: List[Violation] = []
     for w in ways:
         if law_role(w) not in _RAMP_ROLES:
@@ -8075,6 +8081,8 @@ def _check_ramp_in_strip(ways, nodes, ll_to_m,
                 continue
             lat, lon = nodes[nid]
             p = Point(ll_to_m(lat, lon))
+            if any(d.distance(p) <= SHARED_VERTEX_TOL_M for d in decked):
+                continue
             for g, pw in bands:
                 if not g.contains(p):
                     continue
@@ -12594,7 +12602,8 @@ def run_checks(
     # §34 (5) (b): the covered extent of an underpass spans the pavement
     # AND its graded strip, so no ramp vertex stands inside that strip
     ramp_strip = _fam("ramp_in_strip",
-                      _check_ramp_in_strip(ways, nodes, ll_to_m, face_holes_m))
+                      _check_ramp_in_strip(ways, nodes, ll_to_m, face_holes_m,
+                                           object_cuts_ll))
     _pv("RAMP vertex INSIDE a runway/taxiway GRADED STRIP (RULINGS "
         "2026-09-15h §34 (5) (b): the covered extent of an underpass "
         "beneath a taxiway or runway spans the pavement AND its strip — "

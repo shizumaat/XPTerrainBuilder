@@ -207,11 +207,10 @@ def test_an_unreachable_near_miss_contact_is_a_reported_needs_split(law, built,
     lost = near if kept is rim else rim
     assert {tuple(pm.vertices[q].key) for q in lost} & rel
     # nothing but the pad's own hold was relaxed for it
-    from auto_patch_v2.solve.feasibility import HARD_CONFLICT
-    conf = [r for r in HARD_CONFLICT if "frontage_hold" not in r["row"]
+    conf = [r for r in rep.hard_conflict if "frontage_hold" not in r["row"]
             and "building_pad" in r["row"]]
     assert not conf, conf
-    assert any("frontage_hold" in r["row"] for r in HARD_CONFLICT)
+    assert any("frontage_hold" in r["row"] for r in rep.hard_conflict)
 
 def test_a_fixed_frontage_contact_dictates_the_level_and_the_pavement_welds_to_it(
         law, built, registry):
@@ -280,3 +279,49 @@ def test_a_plateau_vertex_inside_the_sliver_is_a_held_contact(monkeypatch):
     assert sorted(w) == [2, 3, 5, 6, 7, 8] and (p, dv, n_all, n_r) == ("padX", 1, 2, 0)
     assert HELD["padX"]["plateau_vertices"] == [6, 7]
     assert HELD["padX"]["near_miss_contacts"] == [5, 8]
+
+
+def test_the_side_channels_reach_publication_through_the_record(law, built,
+                                                                registry,
+                                                                monkeypatch):
+    """#843 step 6 (v2-stage-cache spec §3b / §4b.4): the solve's
+    ``hard_conflict``, ``runway_flex`` and hold report are FIELDS of the
+    ``DesignReport`` — no module global — and ``publication`` publishes
+    exactly what it is handed.  The unreachable near-miss arm relaxes a
+    hard row (a conflict); the hold's flex record is stamped by the
+    ``HoldPass.finish`` the solve calls (nothing pulls a runway here, RULINGS
+    2026-10-02ag (1), so the twin adds one marked record to what it
+    returns)."""
+    from auto_patch_v2.constraints import no_step
+    from auto_patch_v2.model.platform import hold_report
+    from auto_patch_v2.pipeline.publication import publication
+    from auto_patch_v2.solve import feasibility
+    assert not hasattr(feasibility, "HARD_CONFLICT")
+    assert not hasattr(no_step, "RUNWAY_FLEX")
+    real = no_step.HoldPass.finish
+    mark = {"runway": "09/27", "budget_m": 0.0, "twin": "843"}
+
+    def finish(self, *a, **k):
+        return [*real(self, *a, **k), dict(mark)]
+    monkeypatch.setattr(no_step.HoldPass, "finish", finish)
+    pm, cs, _h = built
+    lw = _arm(law, staged_solve=True)
+    near = sorted(e for e, *_r in _near(pm, law))
+    pad = {v for f in pm.faces.values() if f.ref == "padB"
+           for r in (f.ring, *f.holes) for v in pm.ring_vertices(r)}
+    rim = sorted(v for v in pad if any(pm.faces[q].ref in ("apronA", "apronD")
+                                       for q in pm.vertices[v].incident_faces))
+    src = Source("fixture", "nearmiss148 twin anchor", ())
+    pins = [Pin(v, 700.5, src) for v in rim] + [Pin(q, 701.5, src) for q in near]
+    cs1 = ConstraintSet.from_rows([*cs.rows(), *pins])
+    z, rep = _solve(pm, cs1, lw)
+    assert rep.hard_conflict and mark in rep.runway_flex
+    assert rep.hold_report == hold_report(pm.registries.held)
+    airport = _airport(lw)
+    pub = publication(pm, lw, airport, tuple(z), cs1,
+                      hard_conflict=rep.hard_conflict, runway_flex=rep.runway_flex)
+    assert pub["hard_conflict"] == rep.hard_conflict
+    assert pub["runway_flex"] == rep.runway_flex
+    # nothing handed, nothing published: no channel around the record
+    bare = publication(pm, lw, airport, tuple(z), cs1)
+    assert bare["hard_conflict"] == [] and bare["runway_flex"] == []

@@ -65,6 +65,12 @@ struct MapCanvasView: View {
                 },
                 onMagnify: { location, magnification in
                     zoom(by: 1 + magnification, anchoredAt: location, size: proxy.size)
+                },
+                onRightClick: { location in
+                    let point = camera.value.coordinate(of: location, in: proxy.size)
+                    let coord = BuildModel.TileCoord(lat: Int(floor(point.lat)),
+                                                     lon: Int(floor(point.lon)))
+                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord))
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }

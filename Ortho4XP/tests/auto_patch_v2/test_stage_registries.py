@@ -52,8 +52,6 @@ _UNCACHED = ("spec §3: produced by the uncached half (the solve / its "
 #: NOT CARRIED, BY RULING (spec §3, ``capture_state``'s table).  ``(module,
 #: name) -> reason``; a row here is a decision, so its reason is required.
 ALLOWED: dict[tuple[str, str], str] = {
-    (_P + "solve.feasibility", "HARD_CONFLICT"): _UNCACHED,
-    (_P + "constraints.no_step", "RUNWAY_FLEX"): _UNCACHED,
     **{(_P + "constraints.cluster_pad", n): _UNCACHED
        for n in ("YIELDED", "REFERENCE", "DERIVED", "OFFSET_SPREAD",
                  "TOUCHING_STEPS")},

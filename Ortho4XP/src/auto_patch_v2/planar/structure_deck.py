@@ -38,6 +38,9 @@ from ..geom.vector import chord_bearing_mod180
 from ..geom.parts import polygon_parts_with_area
 from ..airport.dem import dem_z_at
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from ..classify.roles import Cell
+
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 __all__ = ["PavementDeck", "pavement_deck_intervals", "deck_intervals", "flanking_pair",

@@ -67,7 +67,7 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.tables import (family, is_structure_role, is_value_role, role_cap,
+from ..law.tables import (band_standoff_reach_m, family, is_structure_role, is_value_role, role_cap,
                           role_side, senior_role, zone2_half_width_m,
                           zone_edge_offset_m)
 from ..model.airport import Airport
@@ -131,7 +131,7 @@ def _owned(pm: PlanarMap, roads: _t.AbstractSet[str], law: Law) -> dict[int, str
     # 30e (4): the kerb a mapped-road ribbon shares with a zone band is
     # the BAND's (29r: the band leads) — no ramp target, no ceiling on it
     from ..law.tables import airside_stage_roles as _asr
-    kerb = pm.band_kerb_vertices(_asr(law))      # never a pavement rim (#100 r4)
+    kerb = pm.band_kerb_vertices(_asr(law), band_standoff_reach_m(law))      # never a pavement rim (#100 r4)
     for fid, f in pm.faces.items():
         if f.role not in roads:
             continue
@@ -1125,7 +1125,7 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     # band kerb on BOTH sides for 600 m — no owned vertex, no road row
     # reaches it — and it stood 4.0 m over the runway edge 24 m away
     # (v367 8.54 m, runway 4.52 m) on a strip whose outer edge is at 4.0 m.
-    kerb = pm.band_kerb_vertices(stage1)
+    kerb = pm.band_kerb_vertices(stage1, band_standoff_reach_m(law))
     vs = sorted(v for v in ribbon_v if (v in owned or v in kerb) and v in frame)
     out["kerb"] = {v: True for v in vs if v in kerb}
     if not vs:

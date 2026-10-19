@@ -171,13 +171,15 @@ def test_the_airside_is_unchanged_by_a_ribbon_and_the_kerb_is_shared(law):
         if f.role == "graded_strip":            # the ribbon is the band's HOLE
             for cyc in (f.ring, *f.holes):
                 band.update(pm1.ring_vertices(cyc))
-    kerb = set()
-    for f in rib:
-        kerb.update(v for v in pm1.ring_vertices(f.ring) if v in band)
-    # IN-BAND: the ribbon shares its kerb vertices with the band (30e (4)),
-    # and those are exactly the model's band-kerb set
-    assert len(kerb) >= 4
-    assert kerb <= pm1.band_kerb_vertices()
+    # IN-BAND (owner 2026-10-19 rulings 19a/19i, #951 — superseding 30e (4)
+    # here): the band STANDS OFF the ribbon and terraces against it, so no
+    # ribbon vertex is a band vertex; the model's band-kerb set is the ribbon
+    # vertices across that stand-off (``band_standoff_reach_m``)
+    from auto_patch_v2.law.tables import band_standoff_reach_m
+    rib_v = {v for f in rib for v in pm1.ring_vertices(f.ring)}
+    assert not rib_v & band
+    kerb = pm1.band_kerb_vertices(frozenset(), band_standoff_reach_m(law))
+    assert len(kerb) >= 4 and kerb <= rib_v
 
 
 # ── THE ROAD-EXIT LAW (owner RULINGS 2026-09-29y / 30z (1) / 10-02v (1);

@@ -884,6 +884,18 @@ def snap_margin_m(law: Law) -> float:
     return law.tables.emit.identity.min_distinct_spacing_m * math.sqrt(2) / 2
 
 
+def band_standoff_reach_m(law: Law) -> float:
+    """How far across the groundside stand-off a road stands from the band
+    it terraces against: ``groundside_cutback_m + identity.weld_spacing_m``
+    plus the snap margin — the horizon ``constraints/groundside.
+    groundside_ramps`` reads.  A mapped-road ribbon inside a band stands
+    off it by the cut-back (owner 2026-10-19, #951 "wall is correct"), so
+    its kerb is the ribbon vertices within this reach of a band vertex
+    (``PlanarMap.band_kerb_vertices``)."""
+    return (float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+            + float(law.tables.emit.identity.weld_spacing_m) + snap_margin_m(law))
+
+
 def gap_standoff_m(law: Law) -> float:
     """THE STAND-OFF of a gap piece from a standing cell it does not weld to
     (spec §53 (12)): the pad set-back + the snap margin + one identity cell.

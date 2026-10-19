@@ -631,6 +631,16 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     for v in terr.get("meet") or {}:
         if v in floor and v not in joins:
             joins[v] = floor[v]
+    # 19a / 19i (#951): INSIDE a band envelope the band's cap alone governs
+    # a mapped-road ribbon — a ribbon vertex bordered by the runway or taxi
+    # family (it stands in that pavement's band), or standing off a band,
+    # leaves the terrace entirely: no target at the pavement's level and no
+    # bare run climbing from it (``constraints/road_band_cap`` caps it).  A
+    # ribbon beside an apron, and every 1206 corridor / DSF page, keeps 10-03b.
+    in_band = _in_band_ribbon_vertices(planar, law, terr)
+    if in_band:
+        terr = {k: ({v: x for v, x in d.items() if v not in in_band}
+                    if isinstance(d, dict) else d) for k, d in terr.items()}
     prof, rep = terrace_profile(
         terr, levels, floor, cap, joins,
         design=float(law.tables.emit.road_contact.ramp_grade),
@@ -644,6 +654,7 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # toward the runway end; the band's ceiling is ``zones.zone_bands``'
     # kerb row, so above the band's grade the band still leads.
     prof = {v: z for v, z in prof.items() if v in floor}
+    rep["in_band_released"] = len(in_band)
     rep["governed"] = len(prof)
     if not prof:
         return cs, rep
@@ -662,6 +673,27 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
                 r = _dc.replace(r, hi=prof[v] + vis)
         bands.append(r)
     return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep
+
+
+def _in_band_ribbon_vertices(planar: PlanarMap, law: Law, terr) -> set[int]:
+    """The ribbon vertices a band governs (19a/19i): the band kerb (the
+    vertices standing off a band) and every OSM-ribbon vertex whose
+    bordering foot (``road_terrace``'s ``foot``) is a runway- or
+    taxi-family pavement — it stands in that pavement's band."""
+    from ..law.tables import (airside_stage_roles, apron_roles,
+                              band_standoff_reach_m)
+    from ..model.planar import is_osm_ribbon_ref
+    out = set(terr.get("kerb") or ())
+    out |= set(planar.band_kerb_vertices(airside_stage_roles(law),
+                                         band_standoff_reach_m(law)))
+    banded = set(airside_stage_roles(law)) - set(apron_roles(law))
+    role_of = {f.ref: f.role for f in planar.faces.values()}
+    rib = {v for f in planar.faces.values() if is_osm_ribbon_ref(f.ref)
+           for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+    for v, ft in (terr.get("foot") or {}).items():
+        if v in rib and role_of.get(ft[3]) in banded:
+            out.add(v)
+    return out
 
 
 def welded_join_release(planar: PlanarMap, law: Law, cs: ConstraintSet,

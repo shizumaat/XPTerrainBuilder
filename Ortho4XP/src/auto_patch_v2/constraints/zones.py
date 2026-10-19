@@ -673,6 +673,9 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         beyond = _beyond_graded_ceiling(ctx, law, v, found, src)
         if beyond is not None:
             rows.append(beyond)
+    # the road the band stands off: at or below the band (#951)
+    from .road_band_cap import road_band_caps
+    rows.extend(road_band_caps(planar, law))
     return rows
 
 

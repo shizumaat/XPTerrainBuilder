@@ -749,13 +749,17 @@ class PlanarMap:
                     air.update(self.ring_vertices(cyc))
         return frozenset(v for v in self.ribbon_vertices() if v not in air)
 
-    def band_kerb_vertices(self, airside_roles: _t.AbstractSet[str] = frozenset()
-                           ) -> frozenset[int]:
+    def band_kerb_vertices(self, airside_roles: _t.AbstractSet[str] = frozenset(),
+                           reach_m: float = 0.0) -> frozenset[int]:
         """30e (4) (spec-author RULINGS 2026-09-30e, 29r): the KERB a
-        mapped-road ribbon shares with an adjacent-ground band — every
+        mapped-road ribbon keeps with an adjacent-ground band — every
         vertex touching both an OSM ribbon face (:func:`is_osm_ribbon_ref`)
-        and a ``graded_strip`` face.  It is the BAND's vertex: the band's
-        rows lead there, and no road generator prices it as road.
+        and a ``graded_strip`` face, and (owner 2026-10-19, #951: the band
+        stands off a ribbon inside it and terraces against it) every ribbon
+        vertex within ``reach_m`` of a band vertex across that stand-off
+        (``law.tables.band_standoff_reach_m``).  No road generator prices
+        it as road toward a bordering pavement: the band caps it
+        (``constraints/road_band_cap``).
 
         NEVER A PAVEMENT-RIM VERTEX (#100 round 4, lane roadmint100e): a
         vertex also on an ``airside_roles`` face (§20b stage 1's roles) is
@@ -766,6 +770,7 @@ class PlanarMap:
         rib: set[int] = set()
         band: set[int] = set()
         air: set[int] = set()
+        band_edges: list[tuple[int, int]] = []
         for f in self.faces.values():
             if f.role == "graded_strip":
                 tgt = band
@@ -776,8 +781,22 @@ class PlanarMap:
             else:
                 continue
             for cyc in (f.ring, *f.holes):
-                tgt.update(self.ring_vertices(cyc))
-        return frozenset((rib & band) - air)
+                vs = self.ring_vertices(cyc)
+                tgt.update(vs)
+                if f.role == "graded_strip" and reach_m > 0.0:
+                    band_edges.extend(zip(vs, vs[1:] + vs[:1]))
+        out = rib & band
+        if reach_m > 0.0 and band_edges and rib - band:
+            import shapely
+            segs = shapely.linestrings([[self.vertices[a].xy, self.vertices[b].xy]
+                                        for a, b in band_edges])
+            tree = shapely.STRtree(segs)
+            loose = sorted(rib - band)
+            pts = shapely.points([self.vertices[v].xy for v in loose])
+            hit, _d = tree.query_nearest(pts, max_distance=reach_m,
+                                         return_distance=True, all_matches=False)
+            out |= {loose[int(i)] for i in hit[0]}
+        return frozenset(out - air)
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

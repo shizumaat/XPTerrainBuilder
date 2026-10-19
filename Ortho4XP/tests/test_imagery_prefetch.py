@@ -14,12 +14,11 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest
-
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Imagery_Prefetch as PREFETCH
 import O4_UI_Utils as UI
+import pytest
 from o4_engine import parallel
 from o4_engine.events import ImageryDownloadsDone
 from o4_engine.session import EngineSession

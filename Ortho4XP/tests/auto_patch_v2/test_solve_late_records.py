@@ -282,7 +282,7 @@ def _late_world():
     class Dem(_FallingDem):                     # the DEM recorder asks in bulk
         def z_many(self, xs, ys):
             import numpy as np
-            return np.array([self.z(float(x), float(y)) for x, y in zip(xs, ys)])
+            return np.array([self.z(float(x), float(y)) for x, y in zip(xs, ys, strict=True)])
     law = Law.for_airport("ZZZZ")
     airport = _airport(law, Dem())
     cells, _n = _cut_back_groundside(_ribbon_cells(), law, load_rules(), airport,

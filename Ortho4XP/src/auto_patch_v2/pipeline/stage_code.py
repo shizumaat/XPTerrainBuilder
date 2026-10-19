@@ -1196,23 +1196,24 @@ CODE_MODULES["solve"] = _mods("""
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
-    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf
+    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.basin_datum
     planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
-    planar.ridge_reach planar.shape_airside planar.shape_mouths planar.shape_parts
-    planar.shapes planar.shore planar.strip_keepout planar.structure_approach
-    planar.structure_deck planar.structure_geometry planar.structure_overlap
-    planar.structure_pair planar.structure_road planar.structure_service
-    planar.structure_stats planar.structure_underpass planar.structures
-    planar.terrain_edge planar.unframed_ramp planar.wall_corridor_ramps planar.weld
-    planar.zones solve.api solve.design solve.design_assemble solve.design_edge
-    solve.design_ground solve.design_junction solve.design_qp solve.design_report
-    solve.design_roles solve.design_stage solve.feasibility solve.flex solve.linear
-    solve.pin_yield solve.project solve.project_strip solve.rows solve.wall_cut
+    planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
+    planar.shape_parts planar.shapes planar.shore planar.strip_keepout
+    planar.structure_approach planar.structure_deck planar.structure_geometry
+    planar.structure_overlap planar.structure_pair planar.structure_road
+    planar.structure_service planar.structure_stats planar.structure_underpass
+    planar.structures planar.terrain_edge planar.unframed_ramp
+    planar.wall_corridor_ramps planar.weld planar.zones solve.api solve.design
+    solve.design_assemble solve.design_edge solve.design_ground solve.design_junction
+    solve.design_qp solve.design_report solve.design_roles solve.design_stage
+    solve.feasibility solve.flex solve.linear solve.pin_yield solve.project
+    solve.project_strip solve.rows solve.wall_cut
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.anchor_rule airport.apt_dat airport.authored_landing airport.authored_seat
@@ -1275,23 +1276,24 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.rebake model.registries model.structures model.threshold_datum
     pipeline.back_cache pipeline.capture_state pipeline.constraint_records
     pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
-    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.basin_geometry
-    planar.basin_rim planar.basins planar.build planar.channel planar.channel_claims
-    planar.channel_floor planar.channel_geometry planar.channel_witness planar.chords
-    planar.covered_ground planar.door_ramps planar.edges planar.landing
-    planar.landing_runout planar.object_corridor planar.overlay planar.pack_reads
-    planar.pad_blocks planar.pad_cut planar.pad_sliver planar.pad_terrace
-    planar.platform planar.ribbon_weld planar.ribbons planar.ridge_reach
-    planar.shape_airside planar.shape_mouths planar.shape_parts planar.shapes
-    planar.shore planar.strip_keepout planar.structure_approach planar.structure_deck
-    planar.structure_geometry planar.structure_overlap planar.structure_pair
-    planar.structure_road planar.structure_service planar.structure_stats
-    planar.structure_underpass planar.structures planar.terrain_edge
-    planar.unframed_ramp planar.wall_corridor_ramps planar.weld planar.zones solve.api
-    solve.design solve.design_assemble solve.design_edge solve.design_ground
-    solve.design_junction solve.design_qp solve.design_report solve.design_roles
-    solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
-    solve.project solve.project_strip solve.rows solve.wall_cut
+    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.basin_datum
+    planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
+    planar.channel_claims planar.channel_floor planar.channel_geometry
+    planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
+    planar.edges planar.landing planar.landing_runout planar.object_corridor
+    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
+    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
+    planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
+    planar.shape_parts planar.shapes planar.shore planar.strip_keepout
+    planar.structure_approach planar.structure_deck planar.structure_geometry
+    planar.structure_overlap planar.structure_pair planar.structure_road
+    planar.structure_service planar.structure_stats planar.structure_underpass
+    planar.structures planar.terrain_edge planar.unframed_ramp
+    planar.wall_corridor_ramps planar.weld planar.zones solve.api solve.design
+    solve.design_assemble solve.design_edge solve.design_ground solve.design_junction
+    solve.design_qp solve.design_report solve.design_roles solve.design_stage
+    solve.feasibility solve.flex solve.linear solve.pin_yield solve.project
+    solve.project_strip solve.rows solve.wall_cut
 """)
 
 

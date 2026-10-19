@@ -150,6 +150,7 @@ def step_digest(step: str) -> str | None:
 #: the modules to add or drop.  A package is listed as its ``__init__``.
 #: Measured 458 shared; vector 458, mesh 468, masks 476 of 584 modules.
 _SHARED: tuple[str, ...] = (
+    "O4_Airport_Apt_Identity",
     "O4_Airport_Batch",
     "O4_Airport_Dico",
     "O4_Airport_Elevation_Insets",

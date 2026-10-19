@@ -89,6 +89,9 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_AUTO_PATCH_REBUILD":
         "the gate's own force flag, which the gate reads directly",
     "O4_PATCH_PROVENANCE": "the header block's switch, not geometry",
+    "O4_PATCH_FRESHNESS_WHOLE_TREE":
+        "which code digest the gate stamps as ``o4_code`` (the patch "
+        "build's closure, or the whole tree, #880); the build is the same",
     # ── what happens around the patch, never in it ──────────────────────
     "O4_AUTO_PATCH_STRICT":
         "whether an airport that FAILED fails its tile; a patch that was "

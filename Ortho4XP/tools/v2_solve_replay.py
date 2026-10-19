@@ -11,6 +11,12 @@ promoted on its second use by lane ``v2chord``).
     venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl [--from constraints|shapes|planar|classify]
         [--drop-generator G ...] [--json OUT.json] [--z-out Z.npy] [--why-hard [N]]
     venv/bin/python tools/v2_solve_replay.py --why-from SOLVED.pkl --why-hard [N]
+    venv/bin/python tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl --stage-cache
+    venv/bin/python tools/v2_solve_replay.py --replay-cache ICAO [--why-miss] [replay flags]
+
+``--stage-cache`` / ``--replay-cache`` (issue #844): the front half runs
+through the v2 stage cache — written by the capture, served read-only to
+the replay (``tools/replay_stage_cache.py``).
 
 ``--drop-generator`` also takes the pseudo-generator ``eat_ramp_reach``:
 the EAT's §36 (5) trend WITHDRAWAL is a channel edit made before the
@@ -443,27 +449,31 @@ def require_capture_isolation() -> None:
             f"O4_AIRPORT_MOD_CACHE_DIR overlays before the engine is imported.")
 
 
-def _capture_guarded(icao: str, out: Path, mod_cache_root: str | None = None,
+def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = None,
                      placement: dict[str, object] | None = None,
                      rule: dict[str, object] | None = None,
                      cifp_dir: str | None = None,
-                     data_overlay: str | None = None) -> None:
+                     data_overlay: str | None = None, stage_cache: str = "off",
+                     why_miss: bool = False) -> dict:
     """:func:`capture` with the shared-repo guard and the lane-local cache
     redirects armed around it (``harness/build_airport.
     arm_shared_repo_protection``, the ONE arming composition).  The
     REDIRECT must happen before the engine is imported, which is why it
-    is here and not inside the capture (lane ``v2padqp``)."""
-    out.parent.mkdir(parents=True, exist_ok=True)
+    is here and not inside the capture (lane ``v2padqp``).  ``out=None``
+    (``--replay-cache``) pickles nothing; the redirect's per-run area is
+    then ``tmp/replay_cache``."""
+    work = out.parent if out is not None else ROOT / "tmp" / "replay_cache"
+    work.mkdir(parents=True, exist_ok=True)
     _harness_dir = str(ROOT / "tools" / "harness")
     if _harness_dir not in sys.path:
         sys.path.insert(0, _harness_dir)
     from build_airport import (arm_shared_repo_protection as _arm,
                                report_guard_churn as _churn)
-    _guard, _redirects = _arm(ROOT, out.parent, f"cap_{icao}")
+    _guard, _redirects = _arm(ROOT, work, f"cap_{icao}")
     _guard.__enter__()
     try:
-        capture(icao, out, mod_cache_root, placement, rule, cifp_dir,
-                data_overlay)
+        return capture(icao, out, mod_cache_root, placement, rule, cifp_dir,
+                       data_overlay, stage_cache, why_miss)
     finally:
         _guard.__exit__(None, None, None)
         _churn(_guard)
@@ -512,11 +522,12 @@ def _rules_override(rules, over: dict[str, object]):
     return rules
 
 
-def capture(icao: str, out: Path, mod_cache_root: str | None = None,
+def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
             placement: dict[str, object] | None = None,
             rule: dict[str, object] | None = None,
             cifp_dir: str | None = None,
-            data_overlay: str | None = None) -> None:
+            data_overlay: str | None = None, stage_cache: str = "off",
+            why_miss: bool = False) -> dict:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -544,21 +555,22 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     WRITE the shared ``Airport_mod_cache`` (``o4_dsf_object_positions_*``,
     the DSFTool dump a subprocess writes where no Python guard can see).
     :func:`require_capture_isolation` asks the engine's OWN accessors, so a
-    redirect the engine would ignore reads as absent."""
+    redirect the engine would ignore reads as absent.
+
+    ``stage_cache`` (issue #844): ``"off"`` (default), ``"write"``
+    (``--stage-cache``) or ``"read"`` (``--replay-cache``) — see
+    ``tools/replay_stage_cache.py``.  Returns the capture's dict; with
+    ``out=None`` nothing is pickled (the read-only replay's front half)."""
     require_capture_isolation()
-    from auto_patch_v2.airport.flat_site_read import verdict_for_build as _flat_verdict
     from auto_patch_v2.airport.frame_entry import quantum as _fe_quantum
     from auto_patch_v2.airport.load import load_with_report
     from auto_patch_v2.airport.obj8 import ResourceCache as _RCache
     from auto_patch_v2.airport.pack_partition import partition_pack as _partition_pack
-    from auto_patch_v2.airport.road_profile import preferred_road_z
-    from auto_patch_v2.classify import classify, load_rules
+    from auto_patch_v2.classify import load_rules
     from auto_patch_v2.law import Law
     from auto_patch_v2.law.tables import group_span_max_m as _span_max
     from auto_patch_v2.pipeline.__main__ import default_inputs
-    from auto_patch_v2.pipeline.shapes import shape_stage
     from auto_patch_v2.planar.basins import read_objects as _read_objects
-    from auto_patch_v2.planar.build import build as build_planar
     from auto_patch_v2.planar.group import derive as _derive_groups
     law = Law.for_airport(icao)
     if placement:
@@ -661,24 +673,34 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
     if rule:
         _rules = _rules_override(_rules, rule)
         print(f"[{icao}] CAPTURE ARM [rules] {rule}")
-    cl = classify(airport, law, _rules, cache=ocache)
-    objects_out: list = []
-    pm, _pstats = build_planar(airport, cl, law, objects_out=objects_out, cache=ocache,
-                               objects=pack_objects, object_report=pack_report)
-    # §37 (11) (4) (owner RULINGS 2026-09-15f item 2): the airport's OWN
-    # classified surfaces are LAND, so the datum region's water cut cannot
-    # call a reclaimed apron sea.  ONE derivation
-    # (``pipeline/build._classified_land``), read here too — without it a
-    # replay solves a DIFFERENT problem from the build (measured at VMMC:
-    # pav5 1.95 m against the build's 5.09, within_shape 327 against 2).
-    from auto_patch_v2.pipeline.build import _classified_land
-    fv, _how = _flat_verdict(airport, law, objects=objects_out[0] if objects_out else (),
-                             land=_classified_land(cl))
-    airport = _dc.replace(airport, flat_site=fv)
-    road_pref, _rep, _p = preferred_road_z(airport, pm, law, inputs.road_grade_limit,
-                                           inputs.lane_width_m)
-    pm = _dc.replace(pm, preferred_z=road_pref)
-    stage = shape_stage(pm, law, airport, cl)
+    # CLASSIFY → PLANAR → FLAT SITE → ROAD PROFILE → SHAPE STAGE, each
+    # through the v2 stage cache as ``pipeline/build`` hands it (issue
+    # #844, ``tools/replay_stage_cache.py``): ``--stage-cache`` serves and
+    # writes the records, ``--replay-cache`` serves them read-only, neither
+    # runs every stage exactly as before.  The flat site reads the
+    # airport's OWN classified surfaces as LAND (§37 (11) (4), RULINGS
+    # 2026-09-15f item 2; ``pipeline/build._classified_land``) — without it
+    # a replay solves a DIFFERENT problem from the build (VMMC: pav5 1.95 m
+    # against the build's 5.09, within_shape 327 against 2).
+    if str(ROOT / "tools") not in sys.path:
+        sys.path.insert(0, str(ROOT / "tools"))
+    from replay_stage_cache import front_half as _front_half
+    _fh = _front_half(icao, airport, law, inputs, ocache=ocache, pack_objects=pack_objects,
+                      pack_report=pack_report, rules=_rules, mode=stage_cache,
+                      why_miss=why_miss)
+    airport, cl, pm, stage = _fh["airport"], _fh["cl"], _fh["pm"], _fh["stage"]
+    from auto_patch_v2.pipeline import capture_state as _cstate
+    _state = _cstate.collect(pm.registries)
+    cap = {"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
+           "inputs": inputs, "placement": dict(placement or {}),
+           "pad_airside": dict(pm.registries.pad_airside),
+           _cstate.CAPTURE_STATE_KEY: _state,
+           # issue #156: the DECLARED overlay this capture read
+           CAPTURE_OVERLAY_KEY: _overlay}
+    if out is None:                 # ``--replay-cache``: the replay reads it in memory
+        print(f"[{icao}] front half served in {time.perf_counter() - t:.0f} s "
+              f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
+        return cap
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("wb") as fh:
         # THE CAPTURE STATE, AT THIS STAGE BOUNDARY (issues #208, #224;
@@ -695,20 +717,14 @@ def capture(icao: str, out: Path, mod_cache_root: str | None = None,
         # travel this way, and is now one field of the record — the legacy
         # ``pad_airside`` key stays written so a reader of an older
         # spelling keeps working.
-        from auto_patch_v2.pipeline import capture_state as _cstate
-        _state = _cstate.collect(pm.registries)
-        pickle.dump({"icao": icao, "airport": airport, "cl": cl, "pm": pm, "stage": stage,
-                     "inputs": inputs, "placement": dict(placement or {}),
-                     "pad_airside": dict(pm.registries.pad_airside),
-                     _cstate.CAPTURE_STATE_KEY: _state,
-                     # issue #156: the DECLARED overlay this capture read
-                     CAPTURE_OVERLAY_KEY: _overlay}, fh)
+        pickle.dump(cap, fh)
     # beside the pickle, for ``tools/harness/frames.py register`` (which
     # reads it without unpickling engine objects)
     _data_overlay().write_sidecar(out, _overlay)
     print(_cstate.line(icao, tuple(_state["fields"]), _state, pm.registries))
     print(f"[{icao}] captured -> {out} in {time.perf_counter() - t:.0f} s "
           f"(vertices {len(pm.vertices)}, faces {len(pm.faces)})")
+    return cap
 
 
 def network_crosscheck(pm, law, airport) -> dict:
@@ -2027,8 +2043,13 @@ def replay_problem(pkl: Path, resume: str, drop: list[str],
         raise SystemExit("--placement / --pad-read / --rim-diagnostics at replay need --from "
                          "classify or --from planar (a later resume re-uses "
                          "the captured arrangement and cannot see the key)")
-    with pkl.open("rb") as fh:
-        cap = pickle.load(fh)
+    if isinstance(pkl, dict):
+        # ``--replay-cache`` (issue #844): the capture's front half, served
+        # from the stage cache in this process — no pickle was written
+        cap, pkl = pkl, Path(f"<stage cache {pkl['icao']}>")
+    else:
+        with pkl.open("rb") as fh:
+            cap = pickle.load(fh)
     icao, airport, cl, pm, stage, inputs = (cap["icao"], cap["airport"], cap["cl"], cap["pm"],
                                             cap["stage"], cap["inputs"])
     # issue #156: the capture's OWN declaration of the corpus it read, so
@@ -2838,6 +2859,17 @@ def main() -> int:
                          "\u2014 this makes the arm one command-line variable instead "
                          "of an edit to the shipped toml; e.g. "
                          "--rule corridor.runway_shoulder_band=false")
+    ap.add_argument("--stage-cache", action="store_true",
+                    help="with --capture: serve the front-half stages (classify, planar, "
+                         "flat_site, road_profile, shapes) from the v2 stage cache and "
+                         "WRITE the ones that miss (issue #844)")
+    ap.add_argument("--replay-cache", metavar="ICAO",
+                    help="replay --from constraints with no pickle: load and the pack "
+                         "stage run, the front half is served from the stage cache "
+                         "READ-ONLY (a miss is computed, never written; issue #844)")
+    ap.add_argument("--why-miss", action="store_true",
+                    help="with --stage-cache / --replay-cache: per record of a stage that "
+                         "did not hit, the first recipe field that differs from the key")
     ap.add_argument("--out", type=Path)
     ap.add_argument("--reclassify", type=Path, metavar="PKL",
                     help="DRY \u00a740 SHOULDER-BAND READ off a registered capture: "
@@ -2975,8 +3007,17 @@ def main() -> int:
     if _tools_dir not in sys.path:
         sys.path.insert(0, _tools_dir)
     import replay_arms as _arms
-    if a.capture or a.replay or a.why_from or a.reclassify or a.bank_from \
-            or a.stage1_diff:
+    if a.stage_cache and not a.capture:
+        ap.error("--stage-cache writes the front half of a --capture; a replay is "
+                 "served read-only with --replay-cache ICAO")
+    if a.why_miss and not (a.stage_cache or a.replay_cache):
+        ap.error("--why-miss reads the stage cache: with --capture ... --stage-cache "
+                 "or --replay-cache ICAO")
+    if a.replay_cache and (a.replay or a.capture or a.resume != "constraints"):
+        ap.error("--replay-cache ICAO is a --from constraints replay served from the "
+                 "stage cache: not with --replay PKL, --capture or another --from")
+    if a.capture or a.replay or a.replay_cache or a.why_from or a.reclassify \
+            or a.bank_from or a.stage1_diff:
         _arm_lines = _arms.arm_gate(_arms.context_of(a), _arms.given_arms(a))
         if _arms.context_of(a) == "capture":
             # issue #420: an overlay the capture cannot take REFUSES before
@@ -3035,7 +3076,8 @@ def main() -> int:
         pl = dict(it.split("=", 1) for it in a.placement)
         rl = dict(it.split("=", 1) for it in a.rule)
         _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl,
-                         a.cifp_dir, a.data_overlay)
+                         a.cifp_dir, a.data_overlay,
+                         "write" if a.stage_cache else "off", a.why_miss)
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)
@@ -3070,6 +3112,10 @@ def main() -> int:
         if a.json:
             a.json.write_text(json.dumps(res, indent=1, default=str))
         return 0
+    if a.replay_cache:
+        # issue #844: the front half served from the stage cache, read-only
+        a.replay = _capture_guarded(a.replay_cache.upper(), None, stage_cache="read",
+                                    why_miss=a.why_miss)
     if a.replay:
         sites = [tuple(float(x) for x in it.split(",")) for it in a.site]
         wh = (a.why_hump[0], float(a.why_hump[1]), float(a.why_hump[2])) if a.why_hump else None

@@ -43,7 +43,7 @@ from .stage_one_map import (late_constraints, late_fixed, late_followers,
                             late_rim_levels, row_vertices)
 
 __all__ = ["late_stations", "cut_classification", "run_late_stage", "run_last_stages",
-           "BEHIND_STEP"]
+           "late_cut", "late_derive", "late_solve", "LateCut", "BEHIND_STEP"]
 
 #: THE CELLS BEHIND A DECLARED STEP (spec §60 (9) R1) — a structure's floor
 #: and ramp roles and its wall void, read from their two owners: never a
@@ -225,25 +225,26 @@ def _carry_pin_yield(base_solution, pm_base, pm_full) -> list[dict]:
     return out
 
 
-def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
-                   base_solution: _t.Mapping[str, _t.Any], *, rules=None,
-                   options=None, out: _t.Callable[[str], None] = print,
-                   roads_only: bool = False,
-                   **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
-    """THE LAST STAGE (spec §55 (4)).  ``base_solution`` is the base map and
-    its solved levels (``{"pm", "z"}``); ``derive(cl) -> (pm, cs, strips,
-    hold)`` is the CALLER's own prefix (the build's, the replay's), run here
-    on the classification with the pieces cut.  ``(full map, solution,
-    report)``; the report carries the stage's own row set (``cs``), its
-    constants (``fixed``) and the solve's report (``design``).
+@_dc.dataclass
+class LateCut:
+    """What the cut (steps (i)-(ii)) hands the derive and the solve: the cut
+    classification, its published report, the stations each part reads
+    (``gap_follow.PartStations``), the pad roads' exits (``roads_only``)
+    and the cut's wall seconds."""
 
-    ``roads_only`` is THE PAD ROADS' OWN STAGE (issue #609; 13a (1): junior
-    to every pavement they meet — :func:`run_last_stages`): ``cl`` is taken
-    as it is (nothing is cut), only the pad roads follow, and no gap-follow
-    row is minted."""
-    from ..law.tables import design as _design_law
-    from ..solve import feasibility as _feas
-    from ..solve.design import solve_late_stage
+    cl: _t.Any
+    report: dict
+    part_stations: dict
+    exits: _t.Any
+    wall_s: float
+
+
+def late_cut(cl, airport, law: Law, base_solution: _t.Mapping[str, _t.Any], *,
+             rules=None, out: _t.Callable[[str], None] = print,
+             roads_only: bool = False) -> LateCut:
+    """STEPS (i)-(ii) of the module docstring: the stations and the cut —
+    ``cl`` with every gap piece replaced by its parts (or, ``roads_only``,
+    the pad roads run on to their exits and their ramp-foot run-outs)."""
     if rules is None:
         from ..classify.rules import load_rules
         rules = load_rules()
@@ -275,9 +276,30 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     out(f"LAST STAGE cut (§55 (2)-(3)) {t_cut:.1f} s: {len(cut['pieces'])} pieces -> "
         f"{cut['parts']} parts, {cut['knives']} knives, {cut['stations']} stations, "
         f"{cut['merged']} stations merged by the floors")
+    return LateCut(cl_cut, cut, part_stations, exits, t_cut)
+
+
+def late_derive(derive: _t.Callable[[_t.Any], tuple], cut: LateCut) -> tuple[tuple, float]:
+    """STEP (iii)'s first half: the CALLER's own prefix on the cut
+    classification — ``((pm, cs, strips, hold), wall seconds)``."""
     t0 = time.perf_counter()
-    pm, cs, strips, _hold = derive(cl_cut)
-    t_derive = time.perf_counter() - t0
+    got = derive(cut.cl)
+    return got, time.perf_counter() - t0
+
+
+def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
+               base_solution: _t.Mapping[str, _t.Any], *, options=None,
+               out: _t.Callable[[str], None] = print, roads_only: bool = False,
+               **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
+    """STEP (iii)'s second half: the followers, the constants, the follow
+    rows and ``solve.design.solve_late_stage`` on the derived map —
+    ``(full map, solution, report)`` (:func:`run_late_stage`)."""
+    from ..law.tables import design as _design_law
+    from ..solve import feasibility as _feas
+    from ..solve.design import solve_late_stage
+    pm_base, z_base = base_solution["pm"], base_solution["z"]
+    cl_cut, part_stations, exits, t_cut = cut.cl, cut.part_stations, cut.exits, cut.wall_s
+    pm, cs, strips, _hold = derived
     free, frep = late_followers(pm, roads_only=roads_only)
     ident = float(law.tables.emit.identity.min_distinct_spacing_m)
     fixed, jrep = late_fixed(pm_base, z_base, pm, free, ident)
@@ -390,7 +412,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         if sol.z:
             r["z_m"] = round(float(sol.z[r["v"]]), 4)
             r["excess_m"] = round(r["z_m"] - r["pinned_m"], 4)
-    report = {"cut": cut, "cl": cl_cut, "followers": frep, "join": jrep,
+    report = {"cut": cut.report, "cl": cl_cut, "followers": frep, "join": jrep,
               "pad_ramp": pad_ramp, "pad_exits": exits,
               "stage": {"floor_m": floor_m,
                         "followers": list(frep["follower_ribbon_refs"])},
@@ -400,6 +422,29 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
               "wall_s": {"cut": round(t_cut, 2), "derive": round(t_derive, 2),
                          "solve": round(t_solve, 2)}}
     return pm, sol, report
+
+
+def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
+                   base_solution: _t.Mapping[str, _t.Any], *, rules=None,
+                   options=None, out: _t.Callable[[str], None] = print,
+                   roads_only: bool = False,
+                   **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
+    """THE LAST STAGE (spec §55 (4)).  ``base_solution`` is the base map and
+    its solved levels (``{"pm", "z"}``); ``derive(cl) -> (pm, cs, strips,
+    hold)`` is the CALLER's own prefix (the build's, the replay's), run here
+    on the classification with the pieces cut.  ``(full map, solution,
+    report)``; the report carries the stage's own row set (``cs``), its
+    constants (``fixed``) and the solve's report (``design``).
+
+    ``roads_only`` is THE PAD ROADS' OWN STAGE (issue #609; 13a (1): junior
+    to every pavement they meet — :func:`run_last_stages`): ``cl`` is taken
+    as it is (nothing is cut), only the pad roads follow, and no gap-follow
+    row is minted."""
+    cut = late_cut(cl, airport, law, base_solution, rules=rules, out=out,
+                   roads_only=roads_only)
+    derived, t_derive = late_derive(derive, cut)
+    return late_solve(cut, derived, t_derive, airport, law, base_solution,
+                      options=options, out=out, roads_only=roads_only, **solve_kw)
 
 
 def _has_pad_road(c) -> bool:

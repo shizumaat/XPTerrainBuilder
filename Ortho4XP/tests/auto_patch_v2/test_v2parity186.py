@@ -288,11 +288,11 @@ def test_the_declared_construction_is_the_builds_own():
     make both families readable, and must fail here."""
     import inspect
 
-    from auto_patch_v2.pipeline import build as B
-    src = inspect.getsource(B)
+    from auto_patch_v2.pipeline import emit_stage as E, verify_stage as V
+    src = inspect.getsource(E)
     assert "surf_out = with_terrain_edges(surf," in src
     assert "surf_out = weld_to_shore(surf_out," in src
-    assert "census_frame(surf, law, pub," in src
+    assert "census_frame(surf, law, pub," in inspect.getsource(V)
 
 
 # ── THE CONSTANTS ARE THE ORACLE'S OWN (the census-wrapper precedent) ────

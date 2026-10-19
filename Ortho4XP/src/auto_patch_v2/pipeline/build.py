@@ -9,80 +9,44 @@ from __future__ import annotations
 
 import dataclasses as _dc
 import json
-import os
 import time
 import typing as _t
 from pathlib import Path
 
-from ..airport import flat_site as _flat
-from ..airport.flat_site_read import verdict_for_build as _flat_verdict
 from ..airport.load import Inputs, load_with_report
-from ..airport.road_profile import preferred_road_z
-from ..airport.road_descent import descent_line
-from ..airport.road_ramp import with_road_ramp
-from ..emit.road_join import with_road_coverage_join
 from ..classify import classify, load_rules
-from .shapes import joint_steps, shape_constraints, shape_stage
-from .seam_report import seam_yield_block
-from ..constraints.flat_site import GEN as FLAT_GEN
-from ..constraints.routes import RIDGE_KIND
-from ..constraints.runway_chord import ChordReport, with_runway_chord
-from ..constraints.runway_yield import yielded_lines
-from ..constraints.apron_trend import (ApronTrendReport, apron_trend_block,
-                                       with_apron_trend)
-from ..constraints.eat import withdraw_trend_over_reach
-from ..constraints.taxi_trend import (TaxiTrendReport, taxi_trend_block,
-                                      with_taxi_trend)
-from ..constraints.runway_profile import RUNWAY_FAMILY
-from ..emit.terrain_edge import with_terrain_edges
-from ..emit.graded import graded_surface
-from ..emit.osm_adapter import (PatchPaths, WeldReport, merge_sub_spacing,
-                                shore_edges_of, weld_to_shore, write_patch,
-                                write_tile_pieces)
-from ..airport import rebake_screen as _rscreen
-from . import authored_seats as _authored_seats
-from . import capture_state as _cstate
-from . import front_cache as _front
-from ..airport.rebake_plan import plan as rebake_plan
-from ..emit.rebake import deck_datum_from_surface
+from ..constraints.routes import RIDGE_KIND  # noqa: F401
+from ..constraints.runway_profile import RUNWAY_FAMILY  # noqa: F401
+from ..constraints.taxi_trend import TaxiTrendReport
+from ..emit.osm_adapter import PatchPaths
 from ..law import Law
+from ..model import pulse as _pulse
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
-from ..model import pulse as _pulse
-from ..planar.build import build as build_planar
 from ..planar.pack_reads import pool_report as _pack_read_pool
-from ..solve import DesignReport, Options, Solution, solve_design
-from ..solve.ground_band import ground_envelope, outside_envelope
-from .publication import face_tags, publication
+from ..solve import DesignReport, Options, Solution, solve_design  # noqa: F401
+from . import front_cache as _front
 from . import xplat as _xplat
+
+# the stages (stage-cache spec §10 step 8): the prefix, the emit, the verify;
+# the names marked "read here" are re-exported for the tools and twins
+from .emit_stage import (  # noqa: F401
+    MOVED_M,
+    borrowed_apt_dat_stamp,
+    displacement_by_role,
+    emit,
+    post_solve,
+    with_join_yield,
+)
+from .planar_report import shore_decision_lines  # noqa: F401  (read here)
+from .prefix import Deriver, PackRead, run_prefix
+from .prefix import classified_land as _classified_land  # noqa: F401  (read here)
+from .rebake_inputs import _plate_seats, _rebake_inputs, plate_stations  # noqa: F401
+from .shapes import joint_steps
+from .verify_stage import verify
 
 __all__ = ["Config", "BuildResult", "build", "borrowed_apt_dat_stamp"]
 
-
-def borrowed_apt_dat_stamp(path: str | None) -> dict[str, str]:
-    """The freshness stamp for §44's BORROWED Global Airports apt.dat.
-
-    ``{}`` when nothing was borrowed (the empty path), else
-    ``{"o4_apt_dat_borrowed_mtime": "<mtime>.6f"}`` — the same rendering
-    ``auto_patch/engine_v2._stamp_header`` gives ``o4_apt_dat_mtime``, so
-    the two mtimes compare the same way in the gate.  An ``OSError``
-    (the borrowed file vanished between the load stage and the emit)
-    OMITS the key, exactly as ``_stamp_header`` does for ``o4_apt_dat``
-    — and the gate reads a non-empty ``o4_apt_dat_borrowed`` with no
-    mtime as "not current" (fail-safe), so the patch rebuilds once.
-
-    The PATH itself rides RAW (``o4_apt_dat_borrowed``, written beside
-    this key since §44 (4)), XML-escaped by the emitter's ``_q``; only
-    ``o4_apt_dat`` is percent-encoded, and by the v1 host's
-    ``header_extra``.  ``layout.read_patch_source`` reads each back in
-    the encoding it is written in.
-    """
-    if not path:
-        return {}
-    try:
-        return {"o4_apt_dat_borrowed_mtime": f"{os.path.getmtime(path):.6f}"}
-    except OSError:
-        return {}
 
 @_dc.dataclass(frozen=True)
 class Config:
@@ -145,210 +109,6 @@ class BuildResult:
     rebake_screen: Path | None = None
 
 
-def _plate_seats(pm, law, seats=None) -> dict[str, tuple[float, list, float]]:
-    """Placement id -> ``(plate y, stations in frame xy)`` for every
-    PLATE-seated structure member: a tunnel wall object (RULINGS
-    2026-09-05n-4: plate height above its seat; the stations stand at the
-    walls' OUTER FACE + ``emit.identity.min_distinct_spacing_m`` outward,
-    every ``bridge.abutment_sample_step_m`` along the object's own
-    footprint — RULINGS 2026-09-08d (c): never on the rim ring, whose
-    vertices sample the trench drop (OTHH tunnels middle-west/-east
-    −2.30 / −2.09), and whichever side of the outer face the rim stands
-    on) and a basin member (RULINGS 2026-09-06b (3), ``basin.seat =
-    "floor_plate"``: the family's floor-plate y — NEGATIVE, under the
-    rendered y = 0 plane — and points ON the trench floor face, so the
-    seat's delta = floor − (mesh(anchor) + agl + plate y) lands the plate
-    on the floor — and, 2026-09-09ac (2), ONLY for the basin's own
-    witness resource ``Basin.witness_id``, never for every member).  ``emit/rebake._plate_reading`` reads both alike.
-
-    AUTHORED TO THE CUT (object-placement spec §18 (3); owner RULINGS
-    2026-10-07c (3)-(5)): a member whose authored seat already works over
-    the cut (``seats``, ``authored_seats.seat_records``) is NOT entered —
-    it is never re-seated; a wall that is re-seated carries the pack's
-    median proud height as the plate's clearance over the ground its
-    stations read (0.0 = flush, 05n-4)."""
-    seats = _authored_seats.seat_records(pm, law) if seats is None else seats
-    kept = _authored_seats.kept_ids(seats)
-    from shapely.geometry import LineString as _LS, Point as _Pt, Polygon as _Poly
-    grid = law.tables.emit.identity.min_distinct_spacing_m
-    step = law.tables.structures.bridge.abutment_sample_step_m
-    rim_off = law.tables.structures.tunnel.wall_gap_m + law.tables.structures.tunnel.wall_band_width_m
-    tol = law.tables.structures.tunnel.wall_band_width_m + 2.0 * grid
-    out: dict[str, tuple[float, list]] = {}
-    for tn in pm.structures:
-        if tn.source != "object" or not tn.objects:
-            continue
-        # RULINGS 2026-09-08o: the stations stand OUTSIDE the EMITTED rim
-        # ring (``wall_path``) on at-grade ground, never on the mesh wall
-        # face (57 of unit:8's 70 stations lay inside the rim ring, pushed
-        # outside the outer face by the arrangement's snap) and never in
-        # the ramp beyond the wall end
-        beyond = None
-        if tn.top_s > tn.wall_length_m + 1e-6 and len(tn.axis) >= 2:
-            ax = _LS(tn.axis)
-            s0, s1 = min(tn.wall_length_m, ax.length), min(tn.top_s, ax.length)
-            if s1 - s0 > 1e-6:
-                seg = [ax.interpolate(s0)] + [_Pt(q) for q in tn.axis
-                                                if s0 < ax.project(_Pt(q)) < s1] + [ax.interpolate(s1)]
-                beyond = _LS([(q.x, q.y) for q in seg]).buffer(tn.half_width_m + rim_off + grid)
-        pts = plate_stations(tn.footprint, grid, step, tn.wall_path, beyond)
-        if not pts:
-            # no footprint recorded: the rim ring inside the walls (pre-08d)
-            pts = list(tn.wall_path)
-            if tn.wall_length_m > 0.0 and tn.top_s > tn.wall_length_m + 1e-6:
-                ax = _LS(tn.axis)
-                pts = [p for p in pts if ax.project(_Pt(p)) <= tn.wall_length_m + tol]
-        for oid in tn.objects:
-            if oid in kept:
-                continue
-            # the seat reads the CREST (plate_y_m): an edge wall's depth
-            # is the bore law's, its crest still goes flush (2026-09-06c)
-            out[oid] = (float(tn.plate_y_m or tn.depth_m), pts,
-                        float((seats.get(oid) or {}).get("proud_m") or 0.0))
-    if law.tables.structures.basin.seat != "floor_plate":
-        return out
-    for b in pm.basins:
-        floor = _Poly(b.ring)
-        inner = floor.buffer(-2.0 * grid)
-        pts = list((inner if not inner.is_empty and inner.geom_type == "Polygon"
-                    else floor).exterior.coords)[:-1]
-        if not pts:
-            continue
-        # RULINGS 2026-09-09ac (2): the plate seat is the BASIN'S OWN
-        # WITNESS RESOURCE's — the object whose floor plate the basin cut
-        # (``Basin.witness_id``, the deepest genuine solid, the one
-        # ``plate_y_m`` is measured from).  Another member whose plate
-        # merely SHARES that plate y is not plate-seated: it seats by its
-        # feet like any other resource (measured at LEMD: 12 of the 13
-        # "plate" members were terminal slabs the basin half claimed at
-        # the T4S basin's own −7.048 / +5.206 / … plate y, standing them
-        # 12–17 m off their own feet — spec §11.4).
-        if b.witness_id and b.witness_id not in kept:
-            # ... and the plate stands ``floor_clearance_m`` ABOVE the
-            # trench floor its stations read (11t §24 (2)): the floor row
-            # dropped the terrain by that much so the plate renders, and a
-            # seat without it would chase the object straight back down.
-            out.setdefault(b.witness_id, (float(b.plate_y_m), pts,
-                                          float(law.tables.structures.basin.floor_clearance_m)))
-    return out
-
-
-def plate_stations(footprint, standoff_m: float, step_m: float, rim_path=(),
-                   exclude=None) -> list:
-    """RULINGS 2026-09-08d (c) / 2026-09-08o: the plate seat's stations for
-    a wall object of plan ``footprint`` (its walls' outer faces, a ring in
-    frame xy): the footprint UNITED with the emitted rim ring (``rim_path``
-    — the trench's at-grade rim as built, which the arrangement's outward
-    snap can push OUTSIDE the outer face, 08e deviation 2) where that ring
-    lies against the footprint, grown by ``standoff_m`` (mitred, so the
-    corners stay corners) and sampled every ``step_m`` along the exterior
-    — points OUTSIDE both the wall and the rim ring, on the at-grade
-    ground, never on the mesh wall face; a station inside ``exclude`` (the
-    ramp beyond the wall end) is dropped.  ``[]`` without a footprint."""
-    import math as _m
-    from shapely.geometry import Point as _Pt, Polygon as _Poly
-    from shapely.ops import unary_union as _uu
-    if not footprint or len(footprint) < 3:
-        return []
-    poly = _Poly(footprint)
-    if not poly.is_valid:
-        poly = poly.buffer(0)
-    if poly.is_empty or poly.geom_type != "Polygon":
-        return []
-    region = poly
-    rim = None
-    if rim_path and len(rim_path) >= 3:
-        rim = _Poly(rim_path)
-        if not rim.is_valid:
-            rim = rim.buffer(0)
-        if not rim.is_empty:
-            # only the rim's extent AGAINST the object: the rim beyond the
-            # walls (an OSM stand-off along the climb) is the ramp's
-            near = rim.intersection(poly.buffer(standoff_m * 2.0, join_style="mitre"))
-            poke = near.difference(poly) if not near.is_empty else near
-            if not poke.is_empty and poke.area > 1e-9:
-                # the rim stands outside the wall somewhere: the region grows
-                # by it (a rim wholly inside the wall leaves the footprint as
-                # it is — the ring keeps its own vertex order)
-                region = _uu([poly, near])
-                if region.geom_type != "Polygon":
-                    region = max((g for g in region.geoms if g.geom_type == "Polygon"),
-                                 key=lambda g: g.area, default=poly)
-    ring = region.buffer(standoff_m, join_style="mitre").exterior
-    n = max(4, int(_m.ceil(ring.length / step_m)))
-    pts = [tuple(ring.interpolate(k * ring.length / n).coords[0]) for k in range(n)]
-    keep = []
-    for q in pts:
-        pq = _Pt(q)
-        if rim is not None and not rim.is_empty and rim.contains(pq):
-            continue
-        if exclude is not None and not exclude.is_empty and exclude.contains(pq):
-            continue
-        keep.append(q)
-    return keep
-
-
-def _basin_polygon(b):
-    """A basin's admitted region as a frame polygon (the deck signature's
-    below-grade spanning evidence, 04k), ``None`` when degenerate."""
-    from shapely.geometry import Polygon
-    try:
-        p = Polygon(b.region or b.ring)
-        return p if p.is_valid and not p.is_empty else p.buffer(0)
-    except (ValueError, TypeError):
-        return None
-
-
-def _rebake_inputs(pm, law, surf, airport) -> dict[str, _t.Any]:
-    """THE PLANAR AND SOLVED FACTS the rebake plan reads beyond the pack
-    partition — ``tunnel_objects`` (the plate seats) / ``exclude`` /
-    ``below_grade`` / ``deck_datum``, the keywords ``rebake_screen.take``
-    and ``rebake_plan.plan`` share.  ONE assembly: the build and any
-    instrument that replays its rebake section call this."""
-    _to_xy = airport.frame.transformers()[0]
-    # a basin family is PLATE-seated onto its floor (2026-09-06b (3)),
-    # never excluded; ``exclude`` stays for any other caller
-    excluded = set() if law.tables.structures.basin.seat == "floor_plate" \
-        else {oid for b in pm.basins for oid in b.objects}
-    # seat = "none" (RULINGS 2026-09-08b/c, spec §2 / §3): a door
-    # ramp's or a sunken road's family is NEVER re-seated by its
-    # trench — the cluster law would sink the well's neighbours into
-    # the ramp (measured OTHH: 8 Parking-Left/Right objects written)
-    excluded |= {oid for tn in pm.structures
-                 if tn.source in ("door", "sunken_road", "wall_corridor")
-                 for oid in tn.objects}
-    # AUTHORED TO THE CUT (object-placement spec §18 (3) (b)): a wall or a
-    # pit whose authored seat already works over the cut is the author's —
-    # no plate seat and no other seat either
-    seats = _authored_seats.seat_records(pm, law)
-    excluded |= _authored_seats.kept_ids(seats)
-    return {
-        "tunnel_objects": _plate_seats(pm, law, seats),
-        "authored_seats": tuple(seats[k] for k in sorted(seats)),
-        "exclude": excluded,
-        "below_grade": [(_basin_polygon(b), tuple(b.objects)) for b in pm.basins],
-        # the SOLVED surface's value at every hard deck — ``emit/rebake.py``
-        "deck_datum": lambda ring, _s=surf: deck_datum_from_surface(_s, ring, _to_xy)}
-
-
-def _classified_land(classification):
-    """§37 (11) (4) THE AIRPORT'S OWN SURFACES ARE LAND BY DECLARATION
-    (owner RULINGS 2026-09-15f item 2; Fable 2026-09-15i) — the union of
-    every classified cell, for the flat-site datum region's water cut.
-
-    It is the SAME declaration ``planar/zones.shore_region`` makes for
-    the zone trim and ``constraints/water.water_pins`` has always made
-    ("an apron over water is a deck, not water"); read from the
-    classification so there is one source and not three."""
-    from shapely.geometry import Polygon as _P
-    from shapely.ops import unary_union as _u
-    cells = list(getattr(classification, "cells", ()) or ())
-    if not cells:
-        return None
-    land = _u([_P(c.ring, c.holes) for c in cells])
-    return None if land.is_empty else land
-
-
 #: the taxi-family row counters (§8.6 trend, §61 cross-section and
 #: membrane, #517 through-junction profile): their rows live in the stage that owns their vertices — the
 #: base's stage 1 — so behind a last stage (§55 (4)) the sidecar's top
@@ -366,36 +126,6 @@ def _fold_base_rows(rep, base) -> None:
 
 def _say(msg: str, out: _t.Callable[[str], None]) -> None:
     out(msg)
-
-
-#: The report's "moved" threshold (metres off the DEM sample) — a report
-#: figure (M3b §4 / M5), not a law value.
-MOVED_M = 0.5
-
-
-def displacement_by_role(pm: PlanarMap, law: Law, sol: Solution
-                         ) -> dict[str, dict[str, _t.Any]]:
-    """Per role (a vertex counts for the SENIOR role touching it): how
-    many vertices sit more than :data:`MOVED_M` off their DEM sample, and
-    the largest such displacement — the M5 "what yielded where" figure."""
-    from ..law.tables import senior_role, tiers
-    tier_of = {r: k for k, t in enumerate(tiers(law)) for r in t}  # report order only
-    acc: dict[str, dict[str, _t.Any]] = {}
-    for vid, v in pm.vertices.items():
-        if v.dem_z is None or not v.incident_faces:
-            continue
-        roles = [pm.faces[f].role for f in v.incident_faces]
-        role = senior_role(law, roles)
-        rec = acc.setdefault(role, {"tier": tier_of.get(role), "vertices": 0,
-                                    "over": 0, "max_m": 0.0})
-        d = abs(sol.z[vid] - v.dem_z)
-        rec["vertices"] += 1
-        if d > MOVED_M:
-            rec["over"] += 1
-        rec["max_m"] = max(rec["max_m"], d)
-    for rec in acc.values():
-        rec["max_m"] = round(rec["max_m"], 3)
-    return dict(sorted(acc.items(), key=lambda kv: (kv[1]["tier"] is None, kv[1]["tier"])))
 
 
 def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
@@ -447,10 +177,6 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # FILTERS this reading after the solve instead of re-partitioning a
     # filtered object set.  ``planar`` is handed the same objects, so the
     # pack is still read once.
-    from ..airport.pack_partition import partition_pack as _partition_pack
-    from ..law.tables import group_span_max_m as _span_max
-    from ..planar.basins import read_objects as _read_objects
-    from ..planar.group import derive as _derive_groups
     # THE PACK PARTITION IS CACHED (lane ``v2cost2``, RULINGS 2026-09-14q
     # item 1): the pack reading and the partition are a pure function of
     # the pack files, the dump, the law, the frame and the code, so they
@@ -460,10 +186,15 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # the write is that cache's class and not a ``--refresh-data`` act).
     # ``_derive_groups`` reads the DEM and is NEVER cached.
     from ..airport import partition_cache as _pcache
+    from ..airport.pack_partition import partition_pack as _partition_pack
+
     # THE STAGE'S WORK POOL (issue #362): opened here so its lines reach
     # the build log through ``out`` and its account reaches the report;
     # lazily started, so a cache HIT spawns nothing
     from ..airport.pack_work import open_pool as _open_pool
+    from ..law.tables import group_span_max_m as _span_max
+    from ..planar.basins import read_objects as _read_objects
+    from ..planar.group import derive as _derive_groups
     _wpool = _open_pool(law, ocache, out=lambda m: _say("  " + m, out))
     _fp = _pcache.fingerprint(airport, law, dump_path=lrep.dsf_dump_path,
                               radius_deg=inputs.radius_deg,
@@ -559,6 +290,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         # relation.  Carried on the airport because ``constraints`` may not
         # import ``planar``.
         from ..planar.cluster import clusters as _derive_clusters
+
         # unit-platform spec §2 (owner RULINGS 2026-09-28a (2)): THE ONE
         # CONNECTOR VERDICT, derived on the DEM and STAMPED on the partition —
         # ``plan_clusters`` reads it here and the rebake plan carries it to the
@@ -759,432 +491,34 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # landing run-outs (``planar/landing_runout``) and the last stage's
     # run-outs — read HERE, on the run's ResourceCache (one parse per
     # resource: the planar stage reads the same cache)
-    from ..airport.ramp_feet import REPORT as _feet_rep, attach_ramp_feet
+    from ..airport.ramp_feet import REPORT as _feet_rep
+    from ..airport.ramp_feet import attach_ramp_feet
     airport = attach_ramp_feet(airport, law, ocache)
     wall["ramp_feet"] = _feet_rep.get("s", 0.0)
     _say(f"[{icao}] ramp feet (14c (5)): {_feet_rep}", out)
-    t = time.perf_counter()
     # stage-cache spec §10 step 1 (#840): the registries the planar stage
     # fills come back as its RECORD, installed explicitly before the shapes
-
+    # (``pipeline/prefix.run_prefix``).
     # ``objects_out`` is ``[the pack's objects, the cache]`` — the very
     # objects the pack stage read (the planar stage reads, never mutates,
     # them) and the build's own ``ResourceCache``, so it is not recorded
     objects_out: list = [pack_objects, ocache]
-    pm, pstats, planar_record = fc.run(
-        "planar", {**_fc_in, "airport": fc.airport_digest(airport),
-                   "classification": _cl_digest},
-        lambda lw: _cstate.planar_stage(airport, cl, lw, cache=ocache,
-                                        objects=pack_objects, object_report=pack_report))
-    wall["planar"] = time.perf_counter() - t
-    # §37 (11) (7) (issue #72): the shore the zones were cut against —
-    # quay faces stand on a DECLARED shore (or a pavement edge that IS
-    # the coast), natural faces slope to the water.
-    _say(f"  [planar] shore (§37 (11) (7)): "
-         f"{len(getattr(pm, 'quay_refs', ()) or ())} quay face(s), "
-         f"{len(getattr(pm, 'natural_shore_refs', ()) or ())} natural", out)
-    for _ln in shore_decision_lines(pm, airport):
-        _say(_ln, out)
+    pack = PackRead(pack_objects, pack_report, ocache)
     if _xp:
         _xp["classification"] = cl
-        _xp["planar_pm"] = pm
         _xp["partition_airport"] = airport
-    _say(f"[{icao}] planar {wall['planar']:.2f} s  faces {pstats.faces}  "
-         f"edges {pstats.edges}  vertices {pstats.vertices}  "
-         f"breaklines {pstats.breaklines}  T-vertices {pstats.t_vertices}"
-         f"  seam bands {pstats.seam_bands}  seam vertices {pstats.seam_vertices}"
-         f"  seam-band faces dropped {pstats.dropped_seam_faces}"
-         f"  slivers merged {pstats.slivers_merged} (08d-4a)", out)
-    # §41 (4) (owner RULINGS 2026-09-14c item 4): the sliver ZONE strips
-    if pstats.zone_slivers_dissolved or pstats.zone_slivers_dropped:
-        _say(f"[{icao}] zone slivers (41-4): "
-             f"{pstats.zone_slivers_dissolved} dissolved into their host, "
-             f"{pstats.zone_slivers_dropped} host-less dropped, "
-             f"{pstats.zone_sliver_area_m2:,.1f} m2", out)
-    sh = pstats.shapes
-    if sh.faces:
-        # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19)
-        _say(f"[{icao}] " + pstats.terrain_edge.line(), out)
-        # THE SHAPES (owner RULINGS 2026-09-08k; ``planar/shapes.py``)
-        _say(f"[{icao}] network (08p): {sh.network_faces} of {sh.faces} pavement faces "
-             f"({', '.join(f'{k} {n}' for k, n in sorted(sh.network_by_role.items()))}), "
-             f"{sh.network_vertices} vertices, {sh.connected_stations} connected stations, "
-             f"{sh.unconnected_station_edges} unconnected centreline edges; bodies {sh.body_faces} faces "
-             f"({sh.faces_unlabelled} welded whole)", out)
-        _say(f"[{icao}] shapes (08k): {sh.body_faces} body faces -> {sh.components} components, "
-             f"{sh.bodies} bodies, {sh.shapes} shapes (strip welds {sh.welded_strip_pairs}, route welds {sh.welded_route_pairs}); "
-             f"vertices {sh.vertices_labelled} (roads {sh.road_vertices_labelled} labelled / "
-             f"{sh.road_vertices_relabelled} relabelled / {sh.road_vertices_unlabelled} freed; road faces "
-             f"{sh.roads_along} along, {sh.roads_crossing} crossing -> {sh.road_ramps} ramps, 08r-2; pads relabelled "
-             f"{sh.pads_relabelled}); joints {sh.contours} contours ({sh.contour_length_m:,.0f} m, "
-             f"dangling faces {sh.dangling_faces}) + {sh.gap_joints} gap ({sh.gap_length_m:,.0f} m); "
-             f"joint edges {sh.joint_edges}; {sh.wall_s:.2f} s", out)
-        for sid, nf, a, nv, roles in sh.by_shape[:8]:
-            _say(f"    shape {sid}: {nf} faces, {a:,} m2, {nv} vertices, {'/'.join(roles)}", out)
-    ss = pstats.structures
-    ts = pstats.tunnel_objects
-    ds, rs = pstats.door_wells, pstats.sunken_roads
-    ws = pstats.wall_corridors
-    if ws.corridors or ws.refused:
-        _say(f"[{icao}] wall corridors (09-08m/n Law C): {ws.corridors} corridors "
-             f"({', '.join(f'{k} {n}' for k, n in sorted(ws.by_class.items()))}) from {ws.pairs} "
-             f"pairs of {ws.bands} bands in {ws.families} families ({ws.read_s:.2f} s)  "
-             + (f"field read ({ws.field_cells} cells)" if ws.field_read else "FIELD NOT READ")
-             + f"  refused {len(ws.refused)}", out)
-        for r in ws.refused[:40]:
-            _say(f"    refused wall corridor {r}", out)
-    if ds.wells or ds.refused or rs.roads or rs.refused:
-        _say(f"[{icao}] door wells (09-08b/c Law A): {ds.wells} of {ds.regions} regions in "
-             f"{ds.families} families ({ds.sill_witnesses} sill witnesses over {ds.screened} "
-             f"screened placements, {ds.basin_gate_components} basin-gate components left to the "
-             f"basin pass; {ds.read_s:.2f} s)  sunken roads (Law B): {rs.roads} of {rs.plates} "
-             f"plates in {rs.families} families ({rs.read_s:.2f} s)  refused {len(ds.refused)} / "
-             f"{len(rs.refused)}", out)
-        for r in ds.refused[:40]:
-            _say(f"    refused door {r}", out)
-        for r in rs.refused[:40]:
-            _say(f"    refused sunken road {r}", out)
-    if ss.bores or ss.object_corridors or ss.door_ramps or ss.sunken_roads or ss.wall_corridors \
-            or ts.refused:
-        _say(f"[{icao}] structures: bores {ss.bores} (no on-field mouth {ss.bores_no_mouth}, "
-             f"mouth-only built {ss.bores_mouth_only}, replaced by "
-             f"objects {ss.bores_replaced_by_object})  mouths {ss.mouths} (off-field "
-             f"{ss.mouths_off_field}, on approach {ss.mouths_on_approach} of "
-             f"{ss.approach_corridors} corridors, "
-             f"{ss.runway_bands} runway bands)  duals merged "
-             f"{ss.duals_merged}  object corridors {ss.object_corridors} (signatures "
-             f"{ts.signatures} of {ts.resources} resources screened, {ts.not_screened} "
-             f"not screened, thin plates {ts.plates}, object cuts {ts.shells} B "
-             f"(basin placements claimed {len(ts.shell_claimed)}), merged {ts.merged}, "
-             f"{ts.signature_s:.2f} s)  plate mouths {len(ss.plate_mouths)}  "
-             f"crest from approach {len(ss.crest_from_approach)}  "
-             f"underpasses {len(ss.underpasses)}  "
-             f"object-decked trenches {ss.decked_outlines} (§33 (6) B (3) (c): "
-             f"{ss.decked_pavement_m2:,.0f} m2 pavement, {ss.decked_centreline_m:,.0f} m "
-             f"centreline, {ss.decked_road_m:,.0f} m road excluded)  "
-             f"door ramps {ss.door_ramps}  sunken roads "
-             f"{ss.sunken_roads}  wall corridors {ss.wall_corridors}  tunnels {ss.tunnels}  "
-             f"decks {ss.decks}  "
-             f"cells cut {ss.cells_cut}  mouth roads {len(ss.mouth_roads)}  "
-             f"refused {len(ss.refused) + len(ts.refused)}", out)
-    # §34 (13) (4): every MOUTH ROAD named — the class is meant to be a
-    # handful (LEMD 4, KCLT 3, OTHH 0), so a rising count is visible
-    for _mr in ss.mouth_roads:
-        _say(f"    [{icao}]     {_mr}", out)
-    # the structure report is printed ONCE, mouth roads or none (it stood
-    # inside the loop above since 81a61794: a field with no mouth road
-    # printed no refusal and no per-tunnel line — KCLT, sweep sww)
-    for r in ts.refused:
-        _say(f"    refused object {r}", out)
-    for r in ss.refused:
-        _say(f"    refused {r}", out)
-    if ss.mouth_only_bores:
-        _say(f"    mouth-only bores BUILT (owner 2026-09-12ab, no cover): "
-             f"{', '.join(ss.mouth_only_bores)}", out)
-    for r in ss.plate_mouths:
-        _say(f"    {r}", out)
-    for r in ss.underpasses:
-        _say(f"    {r}", out)
-    for r in ss.decked_excluded:
-        _say(f"    {r}", out)
-    for r in ss.decked_runway_family:
-        _say(f"    {r}", out)
-    for r in ss.crest_from_approach:
-        _say(f"    {r}", out)
-    for r in ss.mouths_on_approach_named:
-        _say(f"    {r}", out)
-    for r in ss.mouths_off_field_nearest:
-        _say(f"    {r}", out)
-    for r in ss.bore_precedence:
-        _say(f"    {r}", out)
-    for tn in pm.structures:
-        if tn.source == "object":
-            # round-2 spec §3.6: the per-corridor line
-            inside = min(tn.top_s, tn.wall_length_m)
-            _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
-                 f"depth {tn.depth_m:.2f} m ramp {tn.top_s:.1f} m (inside walls {inside:.1f} m, "
-                 f"beyond {max(0.0, tn.top_s - tn.wall_length_m):.1f} m) grade "
-                 f"{100.0 * tn.design_grade:.2f} % ends mouth={tn.mouth_kind} "
-                 f"ground={tn.ground_kind} walls {tn.ends} width {tn.hull_width_m:.1f} m "
-                 f"reseat expect {', '.join(f'{d:+.2f}' for d in tn.reseat_expect_m)} "
-                 f"trench-outside {tn.trench_outside_max_m:.3f} m replaced mouths of "
-                 f"[{', '.join(str(w) for w in tn.replaced_ways)}]  decks {len(tn.decks)}  "
-                 f"{'; '.join(tn.notes)}", out)
-            continue
-        if tn.source == "wall_corridor":
-            # RULINGS 2026-09-08m/n Law C: the per-site line the report quotes
-            inside = [z for s, z in tn.profile if s <= tn.wall_length_m + 1e-6]
-            _say(f"    {tn.id}: floor@mouth {tn.mouth_z:.2f} ground {tn.mouth_dem_z:.2f} "
-                 f"floor {min(inside) if inside else tn.mouth_z:.2f}..{max(inside) if inside else tn.mouth_z:.2f} "
-                 f"depth {tn.depth_m:.2f} m width {tn.hull_width_m:.1f} m walls "
-                 f"{tn.wall_length_m:.1f} m ramp {max(0.0, tn.top_s - tn.climb_from_s):.1f} m at "
-                 f"{100.0 * tn.design_grade:.2f} % top s {tn.top_s:.1f} ends {tn.ends} "
-                 f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
-                 f"{'; '.join(tn.notes)}", out)
-            continue
-        if tn.source in ("door", "sunken_road"):
-            # RULINGS 2026-09-08b/c: the per-site line the report quotes
-            _say(f"    {tn.id}: {'sill' if tn.source == 'door' else 'cut'} {tn.mouth_z:.2f} "
-                 f"ground {tn.mouth_dem_z:.2f} depth {tn.depth_m:.2f} m width "
-                 f"{tn.hull_width_m:.1f} m well/plate {tn.wall_length_m:.1f} m ramp "
-                 f"{max(0.0, tn.top_s - tn.climb_from_s):.1f} m at {100.0 * tn.design_grade:.2f} % "
-                 f"top s {tn.top_s:.1f} ground {tn.top_ground_z if tn.top_ground_z is not None else float('nan'):.2f} "
-                 f"trench-outside {tn.trench_outside_max_m:.3f} m clipped '{tn.clipped_by}'  "
-                 f"{'; '.join(tn.notes)}", out)
-            continue
-        _say(f"    {tn.id}: mouth {tn.mouth_z:.2f} (DEM {tn.mouth_dem_z:.2f}) top {tn.top_s:.0f} m"
-             f"  half {tn.half_width_m:.1f} m  decks {len(tn.decks)}  {'; '.join(tn.notes)}", out)
-    bs = pstats.basins
-    if bs.objects is not None:
-        o = bs.objects
-        _say(f"[{icao}] objects: {o.placements} placements, {o.resolved} resolved "
-             f"({o.unresolved} unresolved, {o.stock_placements} stock), "
-             f"{o.resources_parsed} resources parsed in {bs.object_read_s:.2f} s, "
-             f"{o.below_grade_objects} below grade, {o.hard_deck_objects} hard-deck, "
-             f"{lrep.objects_restored_for_read} restored-for-read (.anchor_bak)", out)
-        for up in o.unresolved_paths[:10]:
-            _say(f"    unresolved {up}", out)
-    # THE AT-GRADE READ, TIMED (owner RULINGS 2026-09-13bp (iii)): it was
-    # untimed beside object_read_s and burned VHHH's 2,626 s planar stage
-    _say(f"[{icao}] at-grade read: {bs.grade_geometry_s:.2f} s, {bs.grade_calls} placements, "
-         f"{bs.grade_unions} clip+union (one per distinct resource/plane), "
-         f"{bs.grade_vertices} vertices", out)
-    if bs.union_s:
-        _say("[%s] basin unions: " % icao + "  ".join(
-            f"{k} {v:.1f}s/{bs.union_n.get(k, 0)}"
-            for k, v in sorted(bs.union_s.items(), key=lambda kv: -kv[1])), out)
-    if bs.regions or bs.refused:
-        _say(f"[{icao}] basins: regions {bs.regions}  basins {bs.basins}  cells cut {bs.cells_cut}  "
-             f"refused {len(bs.refused)}  under min area {len(bs.small_regions)}", out)
-        for r in bs.refused:
-            _say(f"    refused {r}", out)
-        for b in pm.basins:
-            _say(f"    {b.id}: floor {b.floor_z:.2f}  R_est {b.rim_estimate_m:.2f}  deepest solid "
-                 f"{b.solid_min_y_m:+.2f} (rendered {b.solid_min_z:.2f})  floor area {b.area_m2:.0f} m2  "
-                 f"seat expect {b.seat_expect_m:+.2f} (anchor "
-                 f"{'inside' if b.anchor_inside_floor else 'outside'} the floor, plate y "
-                 f"{b.plate_y_m:+.2f})  at {b.anchor_ll[0]:.6f},{b.anchor_ll[1]:.6f}  "
-                 f"{'; '.join(b.notes)}", out)
-    # THE FLAT-SITE VERDICT (RULINGS 2026-09-05k-2; issue #932): DEM prep
-    # DECIDED it once on the raw raster and the record rides on the DEM
-    # (``airport/flat_site_read.py``) — read here, never re-measured; S4
-    # (the pack's seats the planar stage read) is a report; a plateau the
-    # record requires and the composed DEM lacks is an error.  The datum is
-    # a preference the generator below prices, the runway keeps its pins
-    t = time.perf_counter()
-    _pulse.tick("flat site")
-    # §37 (11) (4) (owner RULINGS 2026-09-15f item 2): the airport's OWN
-    # classified surfaces are LAND by declaration, so the datum region's
-    # water cut cannot call a reclaimed apron sea (``_cut_water``'s own
-    # docstring carries the VMMC measurement).
-    fv = fc.run("flat_site", {**_fc_in, "airport": fc.airport_digest(airport),
-                              "planar": fc.output_digest("planar"),
-                              "classification": _cl_digest},
-                lambda lw: _flat_verdict(airport, lw,
-                                         objects=objects_out[0] if objects_out else (),
-                                         land=_classified_land(cl)))
-    fv, _flat_how = fv
-    airport = _dc.replace(airport, flat_site=fv)
-    wall["flat_site"] = time.perf_counter() - t
-    lrep.flat_site = _flat.record(fv)
-    _say(_flat.log_line(icao, fv) + f" [{_flat_how}]  ({wall['flat_site']:.2f} s)", out)
-    # THE CORE SMOOTHS FIRST (RULINGS 2026-09-04t-4): every road-family
-    # vertex's fit target is the core's clamped, laterally-levelled road
-    # profile on this DEM (``airport/road_profile.py``); the cap rows
-    # below stay and v2 moves a vertex off it only where one binds.
-    t = time.perf_counter()
-    _pulse.tick("the preferred road profile")
-    _fc_ap = fc.airport_digest(airport, flat_site=fc.output_digest("flat_site"))
-    _fc_params = repr((inputs.road_grade_limit, inputs.lane_width_m))
-    road_pref, road_rep, road_profiles = fc.run(
-        "road_profile", {**_fc_in, "airport": _fc_ap, "planar": fc.output_digest("planar"),
-                         "params": _fc_params},
-        lambda lw: preferred_road_z(airport, pm, lw, inputs.road_grade_limit,
-                                    inputs.lane_width_m))
-    pm = _dc.replace(pm, preferred_z=road_pref)
-    # the target channels below read the law the shape record is keyed on
-    _law_c = fc.stage_law()
-    wall["road_profile"] = time.perf_counter() - t
-    # THE RUNWAY PROFILE (RULINGS 2026-09-08d (1) / 09-10q/10r/10t (3), spec
-    # §21; ``constraints/runway_chord.py``): every runway-family vertex of a
-    # two-pin runway takes the TARGET PROFILE at weight ``[design] chord`` —
-    # the ground's long-wave trend through the threshold pins, or the
-    # straight chord where the DEM frame is degraded.  The DEM fit stays for
-    # every other role.
-    chord_rep: ChordReport = {}
-    pm = with_runway_chord(pm, _law_c, airport, chord_rep)
-    lrep.runway_chord = dict(chord_rep)
-    _say(f"[{icao}] runway profile (08d-1/10t-3): target {chord_rep.get('target_kind', '-')} "
-         f"(window {chord_rep.get('window_m', 0.0):.0f} m, {chord_rep.get('runways_trend', 0)} trend / "
-         f"{chord_rep.get('runways_chord', 0)} chord"
-         + (f", FALLBACK {chord_rep['fallback']}" if chord_rep.get("fallback") else "")
-         + f"); {chord_rep.get('runways', 0)} runways with two pins "
-         f"({chord_rep.get('runways_without', 0)} without, DEM fit kept)  vertices "
-         f"{chord_rep.get('vertices', 0)}  target above DEM up to {chord_rep.get('max_above_dem_m', 0.0):.2f} m, "
-         f"below up to {chord_rep.get('max_below_dem_m', 0.0):.2f} m"
-         + ("; off the straight chord " + ", ".join(
-             f"{r['runway']} {r['trend_max_off_chord_m']:+.2f}" for r in chord_rep.get("by_runway", [])[:6])
-            if chord_rep.get("by_runway") else ""), out)
-    # §50.4 THE ONE LOUD LINE (owner RULINGS 2026-09-18d (3)): one line per
-    # OVER-GRADE runway, naming the grade its own pins demand, the two pins
-    # and the cap they exceeded.  A LINE, never a gate — no verify family
-    # is added and ``defect_gate`` is untouched.  Recorded in three places
-    # from ONE record: ``report.json["runway_cap_yield"]`` (here, through
-    # ``lrep``), the GradedSurface provenance key of the same name, and the
-    # sidecar law key ``runway_caps`` (EVERY runway, yielded or not).
-    _caps = dict(getattr(pm, "runway_caps", {}) or {})
-    _yield_records = [rc.as_dict(law.ruleset_key)
-                      for _r, rc in sorted(_caps.items()) if rc.yielded]
-    for _line in yielded_lines(icao, _caps, law.ruleset.authority):
-        _say(_line, out)
-    # THE TAXI CHAIN'S TARGET PROFILE (owner RULINGS 2026-09-10v (1); spec
-    # §8.6): every taxi centreline chain takes the ground's LONG-WAVE TREND
-    # along itself — the same §21 fit at the same window — shifted linearly
-    # through the chain's runway contacts, at the WEAK ``[design]
-    # taxi_trend``.  Fitted AFTER the runway profile, because a chain's
-    # runway contact is pinned to the runway's own target.
-    tt_rep: TaxiTrendReport = {}
-    pm = with_taxi_trend(pm, _law_c, airport, tt_rep)
-    lrep.taxi_trend = dict(tt_rep)
-    _say(f"[{icao}] taxi profile (10v-1): {tt_rep.get('chains', 0)} chains "
-         f"({tt_rep.get('chains_without', 0)} without a fit) "
-         f"window {tt_rep.get('window_m', 0.0):.0f} m  vertices "
-         f"{tt_rep.get('vertices', 0)}  shifted through "
-         f"{tt_rep.get('pins', 0)} runway contacts  target above DEM up to "
-         f"{tt_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
-         f"{tt_rep.get('max_below_dem_m', 0.0):.2f} m"
-         + (f"; FALLBACK {tt_rep['fallback']}" if tt_rep.get("fallback") else ""), out)
-    # THE APRON BODY'S TARGET SURFACE (owner RULINGS 2026-09-10ar; spec
-    # §8.7): an apron body LARGER THAN THE FIT WINDOW takes the ground's
-    # 2-D long-wave trend at every vertex — a moving quadratic SURFACE fit
-    # of the production DEM — instead of its three affine ``body_datum``
-    # rows, which a plane-sized body keeps.  Fitted AFTER the taxi trend,
-    # because a vertex the taxi chain already holds takes no second
-    # authority.
-    at_rep: ApronTrendReport = {}
-    pm = with_apron_trend(pm, _law_c, airport, at_rep)
-    lrep.apron_trend = dict(at_rep)
-    _say(f"[{icao}] apron surface (10ar): {at_rep.get('bodies', 0)} bodies on the "
-         f"ground's 2-D TREND ({at_rep.get('vertices', 0)} vertices, "
-         f"{at_rep.get('samples', 0)} DEM cells, fit "
-         f"{at_rep.get('fit_wall_s', 0.0):.2f} s), "
-         f"{at_rep.get('bodies_plane', 0)} bodies keep their affine PLANE; "
-         f"window {at_rep.get('window_m', 0.0):.0f} m, widest body "
-         f"{at_rep.get('max_diameter_m', 0.0):.0f} m; target above DEM up to "
-         f"{at_rep.get('max_above_dem_m', 0.0):.2f} m, below up to "
-         f"{at_rep.get('max_below_dem_m', 0.0):.2f} m"
-         + (f"; FALLBACK {at_rep['fallback']}" if at_rep.get("fallback") else ""), out)
-    # THE EAT RAMP'S REACH — THE TREND YIELDS (owner RULINGS 2026-09-13aa;
-    # spec §36 (5)).  An end-around taxiway pinned a tail height below the
-    # departure surface must ramp back to the ground at the TAXI cap, and
-    # the ramp's free neighbours were buying ~1 % of grade with their
-    # ground-trend residual instead (measured 2.37-3.87 % at KCLT).  Over
-    # the DERIVED reach — drop / cap along the loop's own centreline — both
-    # trend channels are WITHDRAWN, not outweighed.  Runs AFTER both are
-    # published, so neither claim is re-opened by the other's absence.
-    er_rep: dict = {}
-    pm = withdraw_trend_over_reach(pm, _law_c, airport, er_rep)
-    lrep.eat_reach = dict(er_rep)
-    if er_rep.get("pins"):
-        _say(f"[{icao}] EAT ramp reach (13aa/§36-5): {er_rep.get('pins', 0)} pinned feet on "
-             f"{len(er_rep.get('feet', []))} loop(s), reach "
-             + ", ".join(f"{r['reach_m']:.0f} m (drop {r['drop_m']:.2f} at cap {r['cap']:.3f})"
-                         for r in er_rep.get("feet", [])[:4])
-             + f"; trend rows withdrawn {er_rep.get('withdrawn', 0)} "
-             f"(taxi {er_rep.get('withdrawn_taxi', 0)}, apron {er_rep.get('withdrawn_apron', 0)})"
-             + (f"; LOOP TOO SHORT at {len(er_rep['short'])} foot(feet) — forced grade "
-                + ", ".join(f"{(s.get('forced_grade') or 0) * 100:.2f} %"
-                            for s in er_rep["short"][:4]) + " (taxi family)"
-                if er_rep.get("short") else ""), out)
-    # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE
-    # DEM (owner RULINGS 2026-09-13j item 5, ruled 13aj; spec §37 (6)).
-    # LAST of the target channels, because a mouth's level is READ from the
-    # airside's own published target (§21 chord / §8.6 taxi trend / §8.7
-    # apron trend) where it carries one; the ramp target then SUPERSEDES
-    # the core's soft road fit for every vertex it governs — the ONE
-    # superseding site.  The rows are ``constraints/road_ramp.py``'s.
-    ramp_rep: dict = {}
-    pm = with_road_ramp(pm, _law_c, airport, ramp_rep, road_profiles,
-                        service=load_rules().service)
-    # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be): the core
-    # levels the road OUTSIDE the coverage and not inside it, so where a
-    # way leaves, the patch takes the ribbon's own altitude there.
-    join_rep: dict = {}
-    pm = with_road_coverage_join(pm, _law_c, road_profiles, join_rep)
-    ramp_rep.update({f"join_{k}": v for k, v in join_rep.items()})
-    lrep.road_ramp = dict(ramp_rep)
-    rs = road_rep["profiles"]
-    _say(f"[{icao}] road profile {wall['road_profile']:.2f} s  ways {rs['ways']} "
-         f"(osm {rs['ways_by_kind'].get('osm', 0)}, route {rs['ways_by_kind'].get('route', 0)}, "
-         f"axis {rs['ways_by_kind'].get('axis', 0)})"
-         f"  stations {rs['stations']}  clamped {rs['clamped_stations']} "
-         f"(max lift {rs['max_lift_m']:.2f} m, cut {rs['max_cut_m']:.2f} m)  cap {rs['cap']:.3f}"
-         f"  vertices {road_rep['vertices']}  preferred {road_rep['preferred']}"
-         f"  DEM fallback {road_rep['dem_fallback']}"
-         f"  off-DEM {road_rep['preferred_off_dem']} (max {road_rep['max_preferred_shift_m']:.2f} m)",
-         out)
-    _say(f"[{icao}] road ramps (§37 (6)): {ramp_rep.get('vertices', 0)} groundside-road "
-         f"vertices from {ramp_rep.get('mouths', 0)} airside contacts at cap "
-         f"{ramp_rep.get('cap') or 0.0:.3f} -> {ramp_rep.get('targets', 0)} targets "
-         f"({ramp_rep.get('on_dem', 0)} on the DEM, {ramp_rep.get('on_ramp', 0)} on the ramp "
-         f"up to {ramp_rep.get('max_above_dem_m', 0.0):.2f} m above it over "
-         f"{ramp_rep.get('max_reach_m', 0.0):.0f} m of route, "
-         f"{ramp_rep.get('no_contact', 0)} with no contact); core fit withdrawn on "
-         f"{ramp_rep.get('preferred_withdrawn', 0)}; clamp over the DEM up to "
-         f"{ramp_rep.get('max_clamp_over_dem_m', 0.0):.2f} m; coverage-edge joins "
-         f"(§37 (9)) {ramp_rep.get('join_exits', 0)} exit(s) on "
-         f"{ramp_rep.get('join_routes', 0)} route(s) -> {ramp_rep.get('join_vertices', 0)} "
-         f"pinned vertices", out)
-    _say(f"[{icao}] road {descent_line(ramp_rep)}", out)
-    # THE SHAPE STAGE (owner RULINGS 2026-09-08k; ``pipeline/shapes.py``):
-    # the route bands, the withdraw set, the joint filter, the yield transform
-    t = time.perf_counter()
-    _pulse.tick("the shapes")
-    _cstate.install(pm.registries, planar_record)   # #840: the planar stage's record
-
-    def _shapes(lw):
-        lines: list[str] = []
-        return shape_stage(pm, lw, airport, cl, out=lines.append), lines
-    # keyed on what the target channels above were handed (their code is
-    # the ``channels`` digest of the shape record's key)
-    stage, _shape_lines = fc.run(
-        "shapes", {**_fc_in, "airport": _fc_ap, "planar": fc.output_digest("planar"),
-                   "road_profile": fc.output_digest("road_profile"),
-                   "classification": _cl_digest, "params": _fc_params}, _shapes)
-    fc.close()
-    for _ln in _shape_lines:
-        _say(_ln, out)
-    pm = stage.pm
-    wall["shapes"] = time.perf_counter() - t
-    t = time.perf_counter()
-    _pulse.tick("generating the law constraints")
-    seam_yielded: list = []
-    cs, counts, gwalls = shape_constraints(pm, law, airport, stage,
-                                           yielded_out=seam_yielded)
-    wall["constraints"] = time.perf_counter() - t
-    if stage.dropped:
-        _say(f"[{icao}] joints (08k): {sum(stage.dropped.values())} rows dropped across shape "
-             f"boundaries — " + ", ".join(f"{g} {n}" for g, n in sorted(stage.dropped.items()))
-             + f"; reach bands withdrawn {stage.bands_withdrawn}; flats straddling "
-             f"{stage.flats_straddling}", out)
-    _say(f"[{icao}] constraints {wall['constraints']:.2f} s  {cs.counts()}", out)
-    for name, n in counts.items():
-        # a ``<generator>.<stat>`` key is a statistic, not a timed generator
-        _say(f"    {name:28s} {n:8d}  {gwalls[name]:.3f} s" if name in gwalls
-             else f"    {name:28s} {n:8d}", out)
-    # THE JETWAY STRIP'S REGION (owner RULINGS 2026-09-18t Q3; jetway-strip
-    # spec §1): derived HERE, where the airport, the map and the constraint
-    # set meet, and handed to the solve as data — ``solve`` may not import
-    # ``constraints`` (M0 §1).  The projection itself runs between §20b's
-    # two stages (``solve/project_strip.py``).
-    t = time.perf_counter()
-    _pulse.tick("the jetway strips")
-    from ..airport.riders import rider_candidates
-    from ..constraints.jetway_strip import jetway_strips
-    strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law))
-    wall["jetway_strip"] = time.perf_counter() - t
-    _say(f"[{icao}] jetway strip region (18t Q3) {wall['jetway_strip']:.2f} s: "
-         + ", ".join(f"{k} {v}" for k, v in strips.counts.items()), out)
+    # THE PREFIX (stage-cache spec §4b.3; ``pipeline/prefix.py``): planar →
+    # flat site → road profile → target channels → shapes → constraints →
+    # jetway strips → the hold, through the front cache, saying its lines
+    pre = run_prefix(airport, cl, law, inputs, pack, fc, common=_fc_in, cl_digest=_cl_digest,
+                     icao=icao, lrep=lrep, out=out)
+    wall.update(pre.wall)
+    if _xp:
+        _xp["planar_pm"] = pre.planar_pm
+    airport, pm, pstats, stage = pre.airport, pre.pm, pre.pstats, pre.stage
+    fv, road_rep, tt_rep = airport.flat_site, pre.road_rep, pre.reports["taxi_trend"]
+    cs, counts, gwalls, strips = pre.cs, pre.counts, pre.gwalls, pre.strips
+    _yield_records, seam_yielded = pre.yield_records, pre.seam_yielded
     t = time.perf_counter()
     _pulse.tick("solving the surface")
     size: dict[str, int] = {}
@@ -1192,40 +526,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
     from ..constraints.road_ramp import reach_seed_rewrite
-    # flat-pad spec v2 §1 / §2 (RULINGS 2026-09-30as): the hold's pass 1a /
-    # interval / pass 1b, bound here for the same reason
-    from ..constraints.no_step import hold_pass
+
     # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
     # this build's own prefix, re-run on the classification without ribbons
     # (``pipeline/stage_one_map``); ``None`` when no ribbon was minted
     from .stage_one_map import stage_one_problem
-
-    _prefix_stage: dict = {}           # the last prefix run's shape stage
-
-    def _ribbon_free(cl0):
-        objs0: list = []
-        pm0, _st0 = build_planar(airport, cl0, law, objects_out=objs0, cache=ocache,
-                                 objects=pack_objects, object_report=pack_report)
-        # the heartbeat names THIS work, not the inner planar build's last step
-        _pulse.tick("stage 1 on the ribbon-free map: shapes and constraints")
-        ap0 = _dc.replace(airport, flat_site=_flat_verdict(
-            airport, law, objects=objs0[0] if objs0 else (), land=_classified_land(cl0))[0])
-        pref0, _r0, prof0 = preferred_road_z(ap0, pm0, law, inputs.road_grade_limit,
-                                             inputs.lane_width_m)
-        pm0 = with_runway_chord(_dc.replace(pm0, preferred_z=pref0), law, ap0, {})
-        pm0 = withdraw_trend_over_reach(with_apron_trend(with_taxi_trend(
-            pm0, law, ap0, {}), law, ap0, {}), law, ap0, {})
-        pm0 = with_road_coverage_join(
-            with_road_ramp(pm0, law, ap0, {}, prof0,
-                           service=load_rules().service),
-            law, prof0, {})
-        st0 = shape_stage(pm0, law, ap0, cl0, out=lambda m: None)
-        cs0, _c0, _w0 = shape_constraints(st0.pm, law, ap0, st0)
-        _prefix_stage["stage"] = st0
-        return (st0.pm, cs0, jetway_strips(st0.pm, law, ap0, cs0,
-                                           rider_candidates(ap0, law)),
-                hold_pass(st0.pm, law, ap0))
-    _s1 = stage_one_problem(cl, _ribbon_free, pm.registries)
+    # the heartbeat names THIS work, not the inner planar build's last step
+    derive = Deriver(airport, law, inputs, pack,
+                     heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
+    _s1 = stage_one_problem(cl, derive, pm.registries)
     _pulse.tick("solving the surface")
     if _s1 is not None:
         _s1.bind(pm)
@@ -1238,7 +547,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     sol, design_rep = solve_design(
         pm, cs, law, cfg.options, size_out=size, strips=strips,
         stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
-        hold=hold_pass(pm, law, airport), stage1=_s1,
+        hold=pre.hold, stage1=_s1,
         trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
                                                           lv, tt2_rep))
     wall["solve"] = time.perf_counter() - t
@@ -1275,13 +584,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         from ..model.platform import hold_report, install_hold_report
         _hold_rep = hold_report(pm.registries.held)
         pm, sol, _late = run_last_stages(
-            cl_gaps, airport, law, _ribbon_free,
+            cl_gaps, airport, law, derive,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield},
             rules=load_rules(), options=cfg.options,
             out=lambda m: _say(f"[{icao}] {m}", out))
         install_hold_report(pm.registries.held, _hold_rep)
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
-            _prefix_stage["stage"], pm=pm)
+            derive.last.stage, pm=pm)
         strips, design_rep = _late["strips"], _late["design"]
         design_rep.stages["base"] = dict(_base_rep.stages)
         _fold_base_rows(design_rep, _base_rep)
@@ -1294,23 +603,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                         "lot_rows": _late["follow"].get("lot_rows", 0),
                         "declared_bounds": len(_late["follow"].get("declared", ())),
                         "wall_s": _late["wall_s"]}
-    # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS where the solve
-    # released a §37 (9) join pin — the join takes the patch's level and
-    # the sidecar tells the core clamp to follow (``road_join_yield``)
-    from ..emit.road_join import with_pin_yield
-    # joinyield128: a join on AIRSIDE was never pinned — the ribbon takes
-    # the airside's solved level there (``road_ramp.airside_joins``)
-    from ..constraints.road_ramp import airside_joins
-    pm = with_pin_yield(pm, _pin_yield,
-                        float(law.tables.emit.materiality.elevation_m),
-                        withheld=airside_joins(pm, law),
-                        z=sol.z or None)
-    _to_ll = airport.frame.transformers()[1] if pm.road_join_yield else None
-    for _v, (_rib, _zp) in sorted(pm.road_join_yield.items()):
-        _lat, _lon = _to_ll(*pm.vertices[_v].xy)
-        _say(f"[{icao}] JOIN YIELD (27a (10)): v{_v} at {_lat:.8f},{_lon:.8f} "
-             f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m; "
-             f"the core ribbon takes the patch level beyond its budget)", out)
+    # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS (``emit_stage``)
+    pm = with_join_yield(icao, pm, law, airport, sol, _pin_yield, out)
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
     # THE SEAM PASSES ARE DELETED (§38 (1); owner RULINGS 2026-09-13ah,
@@ -1323,92 +617,13 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _say(f"[{icao}] solve {wall['solve']:.2f} s  status {sol.status.value}  "
          f"LP {size}  {sol.message}", out)
     _say(f"[{icao}] {design_rep.line()}", out)
-    # THE REPORT NAMES THE RESIDUAL PER RUNWAY (spec §21.2 (4)): the built
-    # ridge against the target profile it was given, its mean |z - DEM| and
-    # the law row holding it where it did not reach.
-    if sol.z:
-        from .runway_report import runway_profile_block
-        design_rep.runway_profile = runway_profile_block(pm, law, airport, cs, sol.z)
-        # ... beside what the publisher covered (§61: the feet it named, the
-        # ones past the reach or on a face no chain owns, the chains no fit)
-        design_rep.taxi_trend = {
-            **taxi_trend_block(pm, law, sol.z),
-            **{k: tt_rep[k] for k in ("xsec_vertices", "xsec_pin_const",
-                                      "xsec_far", "xsec_no_chain",
-                                      "chains_without") if k in tt_rep}}
-        design_rep.apron_trend = apron_trend_block(pm, law, sol.z)
-        for r in design_rep.runway_profile["runways"]:
-            _say(f"    runway {r['runway']} ({r['kind']}, window {r['window_m']:.0f} m): "
-                 f"target RMS {r['target_rms_m']:.3f} m, max {r['target_max_m']:.3f} m; "
-                 f"|z-DEM| mean "
-                 + ("-" if r["dem_mean_abs_m"] is None else f"{r['dem_mean_abs_m']:.3f} m")
-                 + f"; bow vs straight chord {r['chord_bow_m']:+.2f} m; binding "
-                 + (f"{r['binding']} (slack {r['binding_slack_m']:.3f} m)"
-                    if r["binding"] else "nothing"), out)
-    if fv.substitutes and sol.z:
-        tol = law.tables.emit.materiality.elevation_m
-        dz = [abs(sol.z[r.terms[0][0]] - r.hi) for r in cs.linears
-              if r.source.generator == FLAT_GEN]
-        held = sum(1 for d in dz if d <= tol)
-        lrep.flat_site["rows"] = len(dz)
-        lrep.flat_site["rows_at_datum"] = held
-        lrep.flat_site["max_off_datum_m"] = round(max(dz), 3) if dz else 0.0
-        _say(f"[flat-site] {icao}: {held}/{len(dz)} datum rows at Z0 {fv.z0_m:.2f} "
-             f"(max off {lrep.flat_site['max_off_datum_m']:.3f} m; the law rows outrank "
-             f"the preference where they differ)", out)
-    moved = displacement_by_role(pm, law, sol) if sol.z else {}
-    if moved:
-        _say(f"[{icao}] off-DEM > {MOVED_M} m by role: " + ", ".join(
-            f"{r} {v['over']}/{v['vertices']} (max {v['max_m']:.2f})"
-            for r, v in moved.items() if v["over"]), out)
-    # issue #623 THE GROUND ENVELOPE: a solved vertex outside every level
-    # the airport's ground holds is named here and FAILS the airport in the
-    # driver (``auto_patch/engine_v2.py``) — the solve cannot see it, a
-    # wrong datum is met exactly and the status is optimal.
-    _envelope = ground_envelope(pm, law)
-    off_ground = outside_envelope(pm, sol.z, _envelope) if sol.z else []
-    if off_ground:
-        w = off_ground[0]
-        _say(f"[{icao}] OFF THE GROUND: {len(off_ground)} solved vertex(es) "
-             f"outside the ground envelope [{_envelope[0]:.2f}, "
-             f"{_envelope[1]:.2f}] m — worst {w['z_m']:.2f} m over a DEM of "
-             f"{w['dem_m']} m at ({w['lat']}, {w['lon']}); the app build "
-             f"fails this airport (issue #623)", out)
-    if sol.status.value in ("optimal", "feasible") and pm.seam_vertices:
-        tol = law.tables.emit.materiality.elevation_m
-        res_seam = sorted(((abs(sol.z[v] - pm.vertices[v].dem_z), v)
-                           for v in pm.seam_vertices if pm.vertices[v].dem_z is not None),
-                          reverse=True)
-        off = [(d, v) for d, v in res_seam if d > tol]
-        report_seam = {"seam_vertices": len(pm.seam_vertices), "honoured": len(res_seam) - len(off),
-                       "residual": [{"vertex": v, "off_dem_m": round(d, 3)} for d, v in off]}
-        # §38 (2) A FAMILY UNMET BETWEEN TWO PINS IS NAMED (owner RULINGS
-        # 2026-09-13ah: "never a moved pin, never a silent residual").  The
-        # rows the seam pin made the zone band yield, read at the SOLVED
-        # surface: the pin, the family, and demanded vs allowed metres.
-        report_seam["yielded"] = seam_yield_block(pm, law, seam_yielded, sol.z)
-        _say(f"[{icao}] seam: {report_seam['honoured']}/{len(res_seam)} vertices on the DEM; "
-             f"{len(off)} residual" + (f", max {off[0][0]:.3f} m at vertex {off[0][1]}" if off else ""), out)
-        yb = report_seam["yielded"]
-        _say(f"[{icao}] seam yield (38.2): {yb['rows']} row(s) yielded to a seam pin"
-             + (f", {yb['unmet']} still unmet at the solved surface"
-                f" (worst {yb['worst_m']:.3f} m: " + "; ".join(yb["named"]) + ")"
-                if yb["unmet"] else " — every one met at the solved surface"), out)
-    else:
-        report_seam = None
-    road_agree = None
-    if sol.status.value in ("optimal", "feasible") and pm.preferred_z:
-        from ..verify.roads import road_profile_agreement
-        road_agree = road_profile_agreement(pm, law, sol.z)
-        _say(f"[{icao}] roads vs core profile: {road_agree['vertices']} vertices, "
-             f"mean |z-profile| {road_agree['mean_m']:.3f} m, max {road_agree['max_m']:.3f} m, "
-             f"{road_agree['off']} off beyond materiality in {road_agree['faces_off']} "
-             f"of {len(road_agree['faces'])} faces", out)
-    if sol.residual is not None:
-        r = sol.residual
-        _say(f"    residual: pin {r.max_pin_m:.4f} diff {r.max_diff_m:.4f} "
-             f"flat {r.max_flat_m:.4f} band {r.max_band_m:.4f} "
-             f"offset {r.max_offset_m:.4f} m  objective {r.objective:.2f}", out)
+    # THE READS OF THE SOLVED SURFACE (``emit_stage.post_solve``): the
+    # runway / taxi / apron blocks, the datum rows, the displacement, the
+    # ground envelope (issue #623), the seam and the road agreement
+    _post = post_solve(icao, pm, law, airport, sol, cs, design_rep, tt_rep, fv, lrep,
+                       seam_yielded, out)
+    moved, _envelope, off_ground = _post["moved"], _post["envelope"], _post["off_ground"]
+    report_seam, road_agree = _post["seam"], _post["road_agree"]
     report: dict[str, _t.Any] = {
         "icao": icao, "ruleset": law.ruleset_key,
         "load": _dc.asdict(lrep), "planar": _dc.asdict(pstats),
@@ -1448,261 +663,16 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     #: the verify work pool's account (``report["pool"]["verify"]``)
     _vpool: list[dict] = []
     if sol.status.value in ("optimal", "feasible"):
-        t = time.perf_counter()
-        _pulse.tick("emitting the patch")
-        from .publication import jetway_strips_ll
-        _strip_records = jetway_strips_ll(pm, airport, strips,
-                                          design_rep.jetway_strip)
-        surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs,
-                              {"law_ruleset": law.ruleset_key,
-                               "pack": airport.pack.name,
-                               # §50.4: the yielded runways ride the
-                               # surface's own provenance (an open object)
-                               "runway_cap_yield": _yield_records,
-                               # jetway-strip spec §4 (C17): the object
-                               # stage seats the riders off this
-                               "jetway_strips": _strip_records})
-        pub = publication(pm, law, airport, sol.z, cs, strips=strips,
-                          strip_rep=design_rep.jetway_strip)
-        # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
-        # residual per family (``design``, replacing ``law_tiers``) and the
-        # rows the surface missed (``design_target``), which the census
-        # counts law-true in their families and reports under one heading
-        pub["design"] = design_rep.as_dict()
-        # spec §56 (3) (owner 07c (6) "warn and explain"): the fixed line of
-        # every block whose released frontage weld is over the bar — the
-        # engine says each ONCE through its warning path (``auto_patch/
-        # driver``: ``UI.loud_warning``); this package prints nothing
-        from ..constraints.pad_warning import warnings_of
-        report["warnings"] = warnings_of(pub.get("platforms"))
-        from .publication import gap_pieces, late_stage, pad_touch
-        _gap_records = gap_pieces(_late_report and _late_report["cut"], cl.cells)
-        if _late_report is not None or _gap_records:
-            pub["gap_pieces"] = _gap_records
-        if _late_report is not None:
-            pub["late_stage"] = late_stage(_late_report["stage"])
-        _touch = pad_touch(cl.cells, law, pm)
-        if _touch:
-            pub["pad_touch"] = _touch
-        pub["design_target"] = design_rep.targets
-        js = report["joint_steps"]
-        if js and js["contours"]:
-            worst = max(js["contours"], key=lambda c: c["step_m"])
-            _say(f"[{icao}] joint steps (08k): {len(js['contours'])} joints, max step "
-                 f"{worst['step_m']:.2f} m (joint {worst['id']}, {worst['length_m']:.0f} m, "
-                 f"shapes {worst['shapes']}, {'gap' if worst['gap'] else 'contour'}, "
-                 f"{'/'.join(worst['roles'])}); by roles " + ", ".join(
-                     f"{k} {v['edges']} edges max {v['max_step_m']:.2f}" for k, v in sorted(js["by_roles"].items()))
-                 + (f"; roads: " + ", ".join(f"#{r['face']} {r['ref']} {r['step_m']:.2f} m"
-                                             for r in js["roads"][:8]) if js["roads"] else ""), out)
-        if js and js.get("ramps"):
-            short = [r for r in js["ramps"] if r["too_short"]]
-            _say(f"[{icao}] road ramps (08r-2): {len(js['ramps'])} roads crossing between shapes, steepest "
-                 + ", ".join(f"#{r['face']} {r['ref']} {r['dz_m']:.2f} m over {r['length_m']:.0f} m = "
-                             f"{100 * r['grade']:.2f} % (shapes {r['shapes']})" for r in js["ramps"][:6])
-                 + (f"; TOO SHORT (at the cap): " + ", ".join(f"#{r['face']} {r['ref']}" for r in short)
-                    if short else "; none at the cap"), out)
-        header = {"o4_apt_dat": airport.pack.apt_dat_path,
-                  "o4_pack": airport.pack.name,
-                  # §44 (4): the Global Airports apt.dat this patch
-                  # borrowed its pavement from ("" = nothing borrowed)
-                  "o4_apt_dat_borrowed": airport.pack.borrowed_apt_dat_path}
-        header.update(borrowed_apt_dat_stamp(
-            airport.pack.borrowed_apt_dat_path))
-        header.update(cfg.header_extra or {})
-        # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19.3 C12):
-        # the edge segments published as open ways over the vertices they
-        # already run through — the owner's KML read of where ground ends
-        surf_out = with_terrain_edges(surf, pm, law)
-        # §39 (1) THE HAIRLINE LAW / THE SHORE WELD (owner RULINGS
-        # 2026-09-13bk): the LAST thing done to the surface before it is
-        # written, at the one site every ring passes through.  No emitted
-        # vertex may stand beside a foreign constrained edge; where the
-        # bank followed the water line it now SHARES the water's own
-        # vertices.  The edges are published so the ``hairline_pair``
-        # census prices exactly the population the weld ran against.
-        wrep = WeldReport()
-        shore = shore_edges_of(airport.dem, surf_out)
-        surf_out = weld_to_shore(surf_out, law, shore, wrep)
-        # §39 (iii) (owner RULINGS 2026-09-13cg): and the identity join
-        # MERGES a sub-spacing segment rather than writing one — after the
-        # weld, whose projection can itself bring two vertices together.
-        surf_out = merge_sub_spacing(surf_out, law, wrep)
-        _say(wrep.line(icao), out)
-        report["shore_weld"] = _dc.asdict(wrep)
-        pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
-        # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
-        # withdrawn under (road cap governs) — the census reads the same set
-        from ..law.tables import airside_stage_roles as _asr
-        rc_vs = pm.road_cap_vertices(_asr(law))
-        if rc_vs:
-            _to_ll_rc = airport.frame.transformers()[1]
-            pub["road_cap_governs"] = [list(_to_ll_rc(*pm.vertices[v].xy))
-                                       for v in sorted(rc_vs)]
-        # OWNER RULINGS 2026-10-15j: a non-runway pavement's own lip inside a
-        # runway end area — the end laws yield there; both readers skip it
-        from .publication import end_profile_yields as _epy
-        _lip = _epy(pm, law, airport)
-        if _lip:
-            pub["end_profile_yields"] = _lip
-        # OWNER RULINGS 2026-10-03b (#100): the terrace's second witness — a
-        # pack fence / wall line along a bordered ribbon run (REPORT ONLY)
-        from .terrace_witness import terrace_witness
-        _wit = terrace_witness(pm, airport, sol.z, load_rules(), lrep.dsf_dump_path,
-                               law=law)
-        if _wit:
-            pub["road_terrace_witness"] = _wit
-        _say(f"[{icao}] road terrace witness (10-03b, report only): {len(_wit)} "
-             "fence/wall line(s) along a bordered road run"
-             + "".join(f"; {w['object']} {w['length_m']} m road {w['road_m']['mean']} m"
-                       + (f" dem {w['dem_m']['min']}..{w['dem_m']['max']} m"
-                          if 'dem_m' in w else "") for w in _wit[:6]), out)
-        wedges = getattr(pm, "natural_shore_wedges", ()) or ()
-        if wedges:
-            _to_ll = airport.frame.transformers()[1]
-            pub["natural_shore"] = [[list(_to_ll(x, y)) for x, y in ring]
-                                    for ring in wedges]
-        paths = write_patch(surf_out, law, out_dir, pub, header,
-                            face_tags(pm, law, airport))
-        if pm.seam_vertices:
-            pieces = write_tile_pieces(surf_out, law, out_dir, pub, header,
-                                       face_tags(pm, law, airport))
-        wall["emit"] = time.perf_counter() - t
-        _say(f"[{icao}] emit {wall['emit']:.2f} s  ways {paths.ways}  nodes {paths.nodes}"
-             f"  patch {paths.bytes_patch} B  sidecar {paths.bytes_sidecar} B", out)
-        # THE RE-BAKE PLAN LEAVES THE PATCH BUILD (owner RULINGS 2026-10-04x
-        # (1), issue #362; RULINGS 04f-1 for the plan itself).  The plan is
-        # object-stage work the patch never reads, so what is written HERE
-        # is the SCREEN SIDECAR — the planar and solved facts ``plan()``
-        # needs beyond the cached partition (``airport/rebake_screen``) —
-        # and the tile build's object step builds the plan from the two.
-        # A run that kept NO partition cache has nothing to defer onto and
-        # plans inline, exactly as before.
-        t = time.perf_counter()
-        _pulse.tick("the object re-bake screen")
-        rplan = rscreen = None
-        if objects_out:
-            _plan_args = _rebake_inputs(pm, law, surf, airport)
-            Path(out_dir).mkdir(parents=True, exist_ok=True)
-            rscreen = _rscreen.take(
-                airport, objects_out[0], law,
-                patches=[paths.patch] + [pp.patch for pp in (pieces or {}).values()],
-                **_plan_args)
-            if rscreen is not None:
-                screen_path = Path(out_dir) / f"{icao}.rebake.screen.json"
-                screen_path.write_text(rscreen.to_json(), encoding="utf-8", newline="\n")
-                wall["rebake_screen"] = time.perf_counter() - t
-                _say(f"[{icao}] rebake screen {wall['rebake_screen']:.2f} s  "
-                     f"excluded {len(rscreen.excluded)}  plates {len(rscreen.plates)}  "
-                     f"below-grade regions {len(rscreen.below_grade)}  "
-                     f"deck rings {len(rscreen.deck_datum)}  — the plan is built by "
-                     f"the object step from partition {rscreen.partition_fp[:12]}"
-                     f"  -> {screen_path}", out)
-            else:
-                # no extension cache without a partition cache: nothing is kept
-                rplan = rebake_plan(airport, objects_out[0], objects_out[1], law,
-                                    partition=airport.partition,
-                                    keep_extension=False, **_plan_args)
-                rebake_path = Path(out_dir) / f"{icao}.rebake.json"
-                rebake_path.write_text(rplan.to_json(),
-                                       encoding="utf-8", newline="\n")
-                wall["rebake_plan"] = time.perf_counter() - t
-                from ..airport.partition_cache import companion_notes as _cnotes
-                for _ln in _cnotes():               # [extension] cache OFF
-                    _say("  " + _ln, out)
-                _say(_rscreen.plan_line(icao, rplan, wall["rebake_plan"])
-                     + f"  (inline: no partition cache was kept)  -> {rebake_path}", out)
-        for (tl, tn), pp in (pieces or {}).items():
-            _say(f"    tile {tl:+03d}{tn:+04d}: ways {pp.ways}  nodes {pp.nodes}  "
-                 f"-> {pp.patch}", out)
-        report["rebake_plan"] = None if rplan is None else {
-            "path": str(Path(out_dir) / f"{icao}.rebake.json"),
-            "counts": dict(rplan.counts), "skipped": len(rplan.skipped)}
-        report["rebake_screen"] = None if rscreen is None else {
-            "path": str(Path(out_dir) / f"{icao}.rebake.screen.json"),
-            "partition_fp": rscreen.partition_fp,
-            "patch_bodies": list(rscreen.patch_bodies)}
-        report["emit"] = {"patch": str(paths.patch), "sidecar": str(paths.sidecar),
-                          "ways": paths.ways, "nodes": paths.nodes,
-                          "bytes_patch": paths.bytes_patch,
-                          "bytes_sidecar": paths.bytes_sidecar,
-                          # a scalar sidecar key (``seam_half_width_m``) is reported as its
-        # own value; every other key is a collection and reports its size
-        "published": {k: (len(v) if hasattr(v, "__len__") else v)
-                      for k, v in pub.items()},
-                          "tiles": {f"{tl:+03d}{tn:+04d}": {"patch": str(pp.patch),
-                                                             "ways": pp.ways,
-                                                             "nodes": pp.nodes}
-                                    for (tl, tn), pp in (pieces or {}).items()}}
+        # THE EMIT (spec §4b.6; ``pipeline/emit_stage.py``)
+        paths, pieces, surf, pub = emit(
+            icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,
+            design_rep=design_rep, yield_records=_yield_records, late_report=_late_report,
+            lrep=lrep, header_extra=cfg.header_extra, out_dir=out_dir,
+            objects_out=objects_out, report=report, wall=wall, out=out)
         if cfg.verify:
-            t = time.perf_counter()
-            _pulse.tick("verifying the patch")
-            from ..constraints.roads import road_law_caps
-            from ..verify import census_frame
-            # ONE FRAME FOR THE WHOLE VERIFY STAGE (lane ``v2cost2``,
-            # RULINGS 2026-09-14q item 7): the caps and the ``Patch`` were
-            # built TWICE — once here and once for
-            # ``apron_over_preference`` below, the second time AFTER this
-            # clock stopped, which is where OTHH's 105 unattributed
-            # seconds were.  Same rows, one frame, inside the clock.
-            _caps = road_law_caps(pm, law, airport)
-            # §34 (9) (RULINGS 2026-09-14ak/14am): the PINCHED RAMP faces
-            # whose within-shape longitudinal cap is LIFTED — the same map
-            # ``face_tags`` stamps on the ways for the v1 census.
-            from .publication import lifted_caps as _lifted_caps
-            # the apron chords' work pool says its line through this log
-            # and hands its account to the report (``report["pool"]``)
-            _vpatch, vrows = census_frame(surf, law, pub, _caps,
-                                          _lifted_caps(pm),
-                                          say=lambda m: _say("  " + m, out),
-                                          on_pool=_vpool.append)
-            # RULINGS 2026-09-08t: every row is counted LAW-TRUE — there is
-            # no relaxed / yielded scope any more.  A row here is a DESIGN
-            # TARGET the surface missed; the census reports, never blocks.
-            _v_census_s = time.perf_counter() - t
-            summary = {k: len(v) for k, v in vrows.items()}
-            _say(f"[{icao}] verify {_v_census_s:.2f} s  rows "
-                 f"{sum(summary.values())}  " + ", ".join(
-                     f"{k} {n}" for k, n in summary.items() if n), out)
-            # THE STRUCTURAL-DEFECT GATE, ONE READING (owner RULINGS
-            # 2026-09-14bx): a DEFECT row aborts the tile only when
-            # MATERIAL — ``emit.verify.defect_min_excess_m`` of excess
-            # beyond its own cap over its own span.  A row under the floor
-            # stays a census VIOLATION (it is untouched in ``vrows`` and so
-            # counted in ``by_family`` above, in ``rows`` below and in the
-            # cockpit) and is NAMED here instead of killing the tile.
-            from ..verify.census import defect_gate, under_floor_text
-            defects, under_floor = defect_gate(law, vrows)
-            for k, n in defects.items():
-                _say(f"[{icao}] verify: DEFECT {k} {n} — " + "; ".join(
-                    f"{r.get('way_a')} {r.get('reading')} {r.get('magnitude_m')} m"
-                    for r in vrows[k][:10]) + (" ..." if n > 10 else ""), out)
-            if under_floor:
-                _say(f"[{icao}] verify: {under_floor_text(under_floor)} — "
-                     "a census violation, not an abort (RULINGS 2026-09-14bx)",
-                     out)
-            from ..verify.within import apron_over_preference as _v_pref
-            v_pref = _v_pref(_vpatch)
-            from ..verify.census import WALL_S as _VWALL
-            # the stage clock covers the preference report too (item 7)
-            wall["verify"] = time.perf_counter() - t
-            _say(f"[{icao}] verify: apron_over_preference {v_pref['over_preference']}/{v_pref['rows']} "
-                 f"(max grade {v_pref['max_grade']:.4f}) — a report figure, the "
-                 f"design surface has no preference ladder", out)
-            report["verify"] = {"by_family": summary,
-                                "apron_over_preference": v_pref,
-                                "defects": defects,
-                                # the DEFECT rows the materiality floor
-                                # spared (14bx) — still rows, still counted
-                                "defects_under_floor": under_floor,
-                                # THE PER-FAMILY VERIFY CLOCK (14q): which
-                                # reader the stage's seconds went to
-                                "wall_s": dict({"census": round(_v_census_s, 3),
-                                                "stage": round(wall["verify"], 3)},
-                                               **{k: round(v, 3)
-                                                  for k, v in sorted(_VWALL.items(),
-                                                                     key=lambda kv: -kv[1])}),
-                                "rows": {k: v for k, v in vrows.items() if v}}
+            # THE VERIFY STAGE (spec §4b.7; ``pipeline/verify_stage.py``)
+            vrows = verify(icao, surf=surf, pub=pub, pm=pm, law=law, airport=airport,
+                           report=report, wall=wall, pool_out=_vpool, out=out)
     report["cache"] = fc.finish()
     _staged = sum(wall.values())
     wall["total"] = time.perf_counter() - t_build
@@ -1752,39 +722,3 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                        else None,
                        Path(out_dir) / f"{icao}.rebake.screen.json"
                        if report.get("rebake_screen") else None)
-
-
-def shore_decision_lines(pm, airport, every: bool = False) -> list[str]:
-    """§37 (11) THE SHORE DECISION (owner RULINGS 2026-09-29a): one summary
-    line — the verdicts per witness — and one ``shore_undeclared`` row per
-    contact no witness spoke for (29a (5)), with its ``lat, lon``.
-    ``every`` lists every contact's verdict (the replay's read)."""
-    vs = getattr(pm, "shore_verdicts", ()) or ()
-    if not vs:
-        return []
-    from collections import Counter
-    c = Counter((v[1], v[2]) for v in vs)
-    parts = [f"{k} by {w} {n}" for (k, w), n in sorted(c.items())]
-    lines = [f"  [planar] shore decision (29a): {len(vs)} contact(s): "
-             + ", ".join(parts)]
-    try:
-        to_ll = airport.frame.transformers()[1]
-    except Exception:                                   # pragma: no cover
-        to_ll = None
-    for v in vs:
-        if v[2] != "default" and not every:
-            continue
-        ll = ""
-        if to_ll is not None and v[4] == v[4]:
-            la, lo = to_ll(v[4], v[5])
-            ll = f" at {la:.6f}, {lo:.6f}"
-        tail = (f"contact {v[6]:.0f} m, profile stations {v[7]} built {v[8]} "
-                f"gentle {v[9]}")
-        if v[2] == "default":
-            lines.append(f"  [planar] shore_undeclared {v[0]}{ll}: {tail} "
-                         f"— natural by default")
-        else:
-            h = "" if v[3] is None else f" height {v[3]:.2f} m"
-            lines.append(f"  [planar] shore {v[1]} by {v[2]}{h} {v[0]}{ll}: "
-                         f"{tail}")
-    return lines

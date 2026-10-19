@@ -58,7 +58,7 @@ def _live(tile, textures, suffix=""):
         name = FNAMES.dds_file_name_from_attributes(x, y, zoom, provider)
         path = os.path.join(tile.build_dir, "terrain",
                             name[:-4] + suffix + ".ter")
-        open(path, "w").close()
+        open(path, "w", encoding="utf-8", newline="\n").close()
 
 
 # -- candidates ---------------------------------------------------------
@@ -81,10 +81,10 @@ def test_built_textures_and_cached_orthophotos_are_left_out(tile):
     (built, cached, wanted) = [(x, y, z, "NEW") for (x, y, z, _) in base]
     open(os.path.join(tile.build_dir, "textures",
                       FNAMES.dds_file_name_from_attributes(*built)),
-         "w").close()
+         "w", encoding="utf-8", newline="\n").close()
     jpeg = PREFETCH._orthophoto_path(tile, cached, imagery)
     os.makedirs(os.path.dirname(jpeg))
-    open(jpeg, "w").close()
+    open(jpeg, "w", encoding="utf-8", newline="\n").close()
     assert PREFETCH.candidates(tile, imagery) == [wanted]
 
 

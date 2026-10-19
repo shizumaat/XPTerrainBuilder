@@ -1307,7 +1307,7 @@ class ParallelBuildRun:
         step obeys.  The token comes back at the prefetch's
         ``ImageryDownloadsDone`` or at the step's end, whichever is first.
         """
-        if step_key != "vector" or not cache_aware_admission_enabled():
+        if step_key != "vector":
             return False
         if "imagery" not in self._programs.get(tile, ()):
             return False

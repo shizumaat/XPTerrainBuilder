@@ -166,14 +166,13 @@ def _extend_back(seg: LineString, by: float) -> LineString:
 
 def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       cut_roles: _t.Collection[str], half: float, rim_off: float, gap: float,
-                      spacing: float, grid: float,
-                      decks_of: _t.Callable[[LineString], _t.Sequence[Polygon]]):
+                      spacing: float, grid: float, decked: _t.Sequence[Polygon]):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note)`` with the axis
     starting at the mouth that stands clear of the pavement (the module
     doc); ``axis`` is ``None`` and ``note`` the refusal when no mouth on
-    the approach does.  ``decks_of(axis)`` are the corridor's own deck
-    polygons.  ``stops`` / ``tree`` carry the building ``pads`` too
+    the approach does.  ``decked`` are the corridor's own deck polygons
+    (read on the mapped approach).  ``stops`` / ``tree`` carry the building ``pads`` too
     (``ramp_crosses_pad``: a pad stops the ramp's top but never slides
     the mouth).
 
@@ -185,8 +184,6 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     from .structure_approach import pavement_half_widths
     from .structure_geometry import ring_for
     bores = [m.bore.line for m in (group.members or ()) if getattr(m, "bore", None) is not None]
-    decked = decks_of(axis)
-
     def ring_of(s0: float):
         ln = substring(axis, s0, axis.length)
 

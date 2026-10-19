@@ -355,15 +355,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         steepen_note = ""
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
             g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
-            grid, lambda ln: [d[3] for d in deck_intervals(
-                ln, half + rim_off, bridges, bridge_lines, bridge_tree, law, [m.bore.line for m in
-                members], deck_witness_for(airport, law, [w for m in members for w in m.bore.ways]),
-                plates)] + [d[3] for d in object_deck_intervals(ln, half + rim_off, odecks)])
+            grid, [d[3] for d in deck_intervals(
+                axis_ln, half + rim_off, bridges, bridge_lines, bridge_tree, law,
+                [m.bore.line for m in members], deck_witness_for(airport, law, [
+                    w for m in members for w in m.bore.ways]), plates)]
+            + [d[3] for d in object_deck_intervals(axis_ln, half + rim_off, odecks)])
         if clear is not None and clear[0] is None:
             stats.refused.append(f"{tid}: {clear[4]}")
             continue
-        if clear is not None:
-            axis_ln, mouth = clear[0], clear[1]
+        axis_ln, mouth = (clear[0], clear[1]) if clear is not None else (axis_ln, mouth)
         # where a ramp NOTHING frames must have topped out: its road's own end
         run_ends: list[tuple[float, str]] = [(axis_ln.length, "the mapped road's end")]
         if tid in run_limits:

@@ -6,8 +6,6 @@ from the tables, never retyped."""
 from __future__ import annotations
 
 import pytest
-from shapely.geometry import LineString, Polygon
-
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, OsmWay, Runway, RunwayEnd, SceneryPack
@@ -15,6 +13,7 @@ from auto_patch_v2.model.frame import Frame
 from auto_patch_v2.planar.structure_mouth import mouth_stops
 from auto_patch_v2.planar.structure_service import airside_cut_roles
 from auto_patch_v2.planar.structures import build_structures
+from shapely.geometry import LineString, Polygon
 
 
 class _FlatDem:

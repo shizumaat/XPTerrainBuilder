@@ -83,7 +83,7 @@ class GenRows(_t.NamedTuple):
         """The rows in the generator's own order (the same objects)."""
         its = [iter(getattr(self.cs, a)) for a in _KINDS]
         out: list = []
-        for k, n in zip(self.runs[::2], self.runs[1::2]):
+        for k, n in zip(self.runs[::2], self.runs[1::2], strict=True):
             out.extend(_it.islice(its[k], n))
         return out
 

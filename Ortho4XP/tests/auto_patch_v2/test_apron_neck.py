@@ -375,3 +375,27 @@ def test_a_nanometre_does_not_move_the_cut(rules, angle):
     for eps in (1e-9, -1e-9, 3e-9):
         moved = affinity.translate(face, eps, -eps)
         assert _necks_signature(moved, rules) == base, eps
+
+
+def test_a_grid_snapped_part_still_separates(rules):
+    """#952: ``part`` carries the opening grid's FIXED precision model; a
+    buffer of it was snap-rounded INVALID and the difference raised
+    ``TopologyException: side location conflict`` on two valid inputs.
+    The fixture is the measured face (366,550 m2, 26 holes) and part."""
+    import json
+
+    import shapely
+    from shapely import wkb
+
+    from auto_patch_v2.classify.neck import _separates
+
+    data = json.loads((pathlib.Path(__file__).parent / "data"
+                       / "neck_fixed_precision_cutter.json")
+                      .read_text(encoding="utf-8"))
+    grid = rules.cells.opening_grid_m
+    face = wkb.loads(bytes.fromhex(data["face"]))
+    part = shapely.set_precision(wkb.loads(bytes.fromhex(data["part"])), grid)
+    lobes = [shapely.set_precision(wkb.loads(bytes.fromhex(h)), grid)
+             for h in data["lobes"]]
+    assert shapely.get_precision(part) == grid
+    assert _separates(face, part, lobes, rules) is True

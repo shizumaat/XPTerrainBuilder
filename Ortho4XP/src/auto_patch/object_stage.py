@@ -225,7 +225,6 @@ def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
     import O4_Scenery_Packs as _SP
     from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import dsf as _dsf2
-    from auto_patch_v2.airport import obj8 as _obj8
     from auto_patch_v2.airport import pack_art as _pa
     from auto_patch_v2.airport.dsf_write import pristine_dsf_path
     from auto_patch_v2.airport.file_hash import sha256_file
@@ -249,7 +248,9 @@ def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
     if not dump_path:
         return None
     xroot = os.path.dirname(os.path.dirname(os.path.abspath(pack_root)))
-    index = _obj8.read_library_index(_obj8.library_index_path(mod_root, xroot))
+    # the merged index, rebuilt when stale (a cache-version bump, #950),
+    # not the read-only sidecar: the art check must not judge by an old one
+    index = _agp.get_library_index(xroot)
     missing = _pa.missing_definitions(
         pack_root, dump_path, index, lambda: _agp.other_export_names(xroot))
     if missing is None:

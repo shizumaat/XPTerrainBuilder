@@ -50,7 +50,7 @@ def test_memo_crops_equal_uncached_crops(tmp_path, monkeypatch):
     with MASK.mask_square_memo():
         memo = _crops(tile, squares + squares)[:len(plain)]
     assert len(opened) == len(squares)       # one decode per square
-    for (c0, i0), (c1, i1) in zip(plain, memo):
+    for (c0, i0), (c1, i1) in zip(plain, memo, strict=True):
         assert c0 == c1 == "mask"
         assert i0.tobytes() == i1.tobytes() and i0.mode == i1.mode
 

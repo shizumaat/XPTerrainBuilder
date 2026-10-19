@@ -97,6 +97,7 @@ import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
 import O4_Qt_Text_Scale as QTTEXT
+import O4_Qt_Tile_Menu as QTTILEMENU
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -990,6 +991,7 @@ class MainWindow(QMainWindow):
         self.map = QTMAP.MapView()
         self.map.selection_changed.connect(self._selection_changed)
         self.map.active_changed.connect(self._active_changed)
+        self.map.tile_menu_requested.connect(self._tile_menu)
         self.map.hover_ll.connect(self._hover)
         self.map.status_message.connect(self._status)
         # First-visit hint over the map (#828): until the first selection
@@ -2572,6 +2574,19 @@ class MainWindow(QMainWindow):
     def show_tips(self):
         """Help > Show Tips: the map hint again (#828)."""
         self.map_hint.apply(GUIDE.SHOW_TIPS)
+
+    def _tile_folder(self, tile):
+        """The tile's build folder: the scan's, else where a build puts it."""
+        info = self._built.get(tile)
+        if info is not None and info.build_dir:
+            return info.build_dir
+        return FNAMES.build_dir(tile[0], tile[1], self.output_dir())
+
+    def _tile_menu(self, lat, lon, global_pos):
+        """Right-click on a tile (#938): its menu at the pointer."""
+        menu = QTTILEMENU.tile_menu(
+            self, lat, lon, self._tile_folder((lat, lon)))
+        menu.exec(global_pos)
 
     def _active_changed(self, tile):
         self._selection_changed()
@@ -4208,11 +4223,7 @@ class MainWindow(QMainWindow):
         if not CFG.custom_scenery_dir or tile in self._installed:
             return
         (lat, lon) = tile
-        info = self._built.get(tile)
-        build_dir = (
-            info.build_dir if info is not None and info.build_dir
-            else FNAMES.build_dir(lat, lon, self.output_dir())
-        )
+        build_dir = self._tile_folder(tile)
         try:
             LINKS.install(lat, lon, build_dir, CFG.custom_scenery_dir)
         except (OSError, ValueError) as exc:

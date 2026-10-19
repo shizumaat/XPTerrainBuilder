@@ -9,27 +9,37 @@ every preset, the cards show **Custom**.
 The table lives in `Ortho4XP/src/O4_Settings_Presets.py` (Qt app) and
 `Sources/XPTerrainBuilder/SettingsPresets.swift` (Mac app).
 `Ortho4XP/tests/test_settings_presets.py` fails when the two differ, when a
-preset writes another key set, when Recommended stops being the shipped
+preset writes another key set, when Balanced stops being the registry
 defaults, or when a GB figure below stops matching its derivation.
+
+The cards read Light on disk, Balanced, Sharper airports, left to right
+(owner, #937). **Sharper airports is the default preset:** a new user's
+first-run screen (Mac: the X-Plane folder screen; Qt: the setup assistant)
+applies it when the global config sets none of the preset keys yet
+(`O4_Settings_Presets.unset_in`, `DEFAULT_PRESET`; Swift
+`applyDefaultPresetIfUnset`, `defaultKey`). An existing config keeps its
+values. The engine's registry defaults stay Balanced, so builds outside
+the apps (the harness, the CLI) do not change.
 
 ## The keys
 
 Every preset writes the same four existing keys. None is new, and none changes
 its stored format.
 
-| Key | Where it is stored | Recommended | Sharper airports | Light on disk |
+| Key | Where it is stored | Light on disk | Balanced | Sharper airports |
 |---|---|---|---|---|
-| `zl` | Build zoom: Qt `prefs["zl"]`, Mac `@AppStorage("OrthoZoomLevel")` | 16 | 16 | 15 |
-| `cover_airports_with_highres` | Global `Ortho4XP.cfg` | False | True | False |
+| `zl` | Build zoom: Qt `prefs["zl"]`, Mac `@AppStorage("OrthoZoomLevel")` | 15 | 16 | 16 |
+| `cover_airports_with_highres` | Global `Ortho4XP.cfg` | False | False | ICAO |
 | `cover_zl` | Global `Ortho4XP.cfg` | 18 | 18 | 18 |
 | `cover_extent` | Global `Ortho4XP.cfg` | 1.0 | 1.0 | 1.0 |
 
-- **Recommended** equals the registry defaults (`O4_Cfg_Vars`; the build zoom
-  is `default_zl`'s default, 16, as both apps' zoom default).
-- **Sharper airports** turns on the existing airport high-detail zones: ZL18
-  imagery (`cover_zl` 18, about 0.6 m per pixel) over each airport and
-  1 km around it (`cover_extent`).
 - **Light on disk** builds at ZL15 (`zl` 15, about 5 m per pixel).
+- **Balanced** equals the registry defaults (`O4_Cfg_Vars`; the build zoom
+  is `default_zl`'s default, 16, as both apps' zoom default).
+- **Sharper airports** turns on the existing airport high-detail zones for
+  airports with ICAO codes (`cover_airports_with_highres` ICAO, owner
+  2026-10-19 on #937): ZL18 imagery (`cover_zl` 18, about 0.6 m per pixel)
+  over each such airport and 1 km around it (`cover_extent`).
 
 Owner rulings, 2026-10-18: detail levels are named by their ZL number,
 never by an invented name; **Light on disk** does NOT set `cleaning_level`
@@ -44,9 +54,9 @@ table never makes the cards show Custom.
 
 | Preset | Summary | Cost line |
 |---|---|---|
-| Recommended | The settings the app ships with: ZL16 everywhere. | About 1.6–3.1 GB of imagery per tile. |
-| Sharper airports | ZL16, and ZL18 imagery on and around every airport. | About 1.6–3.1 GB per tile, plus the sharper airports. |
-| Light on disk | ZL15 everywhere: coarser imagery, smaller downloads. | About 0.4–0.8 GB of imagery per tile, a quarter of Recommended. |
+| Light on disk | ZL15 everywhere: coarser imagery, smaller downloads. | About 0.4–0.8 GB of imagery per tile, a quarter of Balanced. |
+| Balanced | The standard settings: ZL16 everywhere. | About 1.6–3.1 GB of imagery per tile. |
+| Sharper airports | ZL16, and ZL18 imagery on and around airports with ICAO codes. | About 1.6–3.1 GB per tile, plus the sharper airports. |
 
 ## Where the figures come from
 
@@ -83,7 +93,7 @@ The Qt Build pane's existing rough estimate is 3.0 GB × 4^(zl − 16) per tile
 
 **Derived: relative imagery work.** Downloading and converting imagery scales
 with the texture count. Light on disk's imagery work is therefore a quarter of
-Recommended's (4^(16 − 15) = 4).
+Balanced's (4^(16 − 15) = 4).
 
 ## Measured by the master (not filled)
 
@@ -92,7 +102,7 @@ These need a corpus build. The lane that wrote this table had none.
 | Constant (`O4_Settings_Presets`) | What it is | Value |
 |---|---|---|
 | `SHARPER_AIRPORTS_EXTRA_GB` | Extra imagery GB per tile that Sharper airports adds. It depends on how many airports a tile holds, so it is a range. | not filled |
-| `RELATIVE_BUILD_TIME` | Whole-tile build time relative to Recommended, per preset. | not filled |
+| `RELATIVE_BUILD_TIME` | Whole-tile build time relative to Balanced, per preset. | not filled |
 
 The cards do not show these yet. When they are measured, add them to each
 preset's cost line, in Python and Swift together.

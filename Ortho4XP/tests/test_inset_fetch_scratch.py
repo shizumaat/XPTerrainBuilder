@@ -125,6 +125,10 @@ def test_a_failed_refetch_keeps_the_cached_inset_and_leaves_no_scratch(
                                      None, refresh=refresh,
                                      fetch_failures=failures)
         assert [row[:2] for row in failures] == [("KASE", "FAKESCR")]
+        # #924: the row names the cached inset kept and USED, so the
+        # tile's pass reports it as a note, never as "no inset".
+        assert len(failures[0]) == 4
+        assert failures[0][3].startswith("KASE_fakescr.tif (cached ")
         with open(cached, "rb") as handle:
             assert handle.read() == body
         assert sorted(os.listdir(_inset_dir())) == [

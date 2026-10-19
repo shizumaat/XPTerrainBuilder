@@ -12,11 +12,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-from PIL import Image  # noqa: E402
-
 import O4_File_Names as FNAMES  # noqa: E402
 import O4_Imagery_Utils as IMG  # noqa: E402
+import pytest  # noqa: E402
+from PIL import Image  # noqa: E402
 
 LAYER = (
     "request_type=wms\nwms_size=512\nwms_version=1.1.1\nepsg_code=3857\n"

@@ -69,8 +69,9 @@ def test_a_dual_ramp_spans_its_carriageways_until_they_part(law):
     alone, and stops where the carriageways part."""
     west = [(-5.5, 0.0), (-5.5, -40.0), (-9.0, -100.0), (-60.0, -150.0)]
     east = [(5.5, 0.0), (5.5, -40.0), (9.0, -100.0), (60.0, -150.0)]
-    mk = lambda xy, ap: Mouth(Bore([], [xy, (xy[0], 10.0)]), xy, (0.0, 1.0), 7.0,
-                              ap, ())
+
+    def mk(xy, ap):
+        return Mouth(Bore([], [xy, (xy[0], 10.0)]), xy, (0.0, 1.0), 7.0, ap, ())
     (members, _xy, _inw, width, _axis), = merge_duals(
         [mk(west[0], west), mk(east[0], east)], law, StructureStats())
     assert len(members) == 2

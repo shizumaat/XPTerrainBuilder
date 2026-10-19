@@ -81,6 +81,10 @@ OBJECT_CUT_DEPTH_M = 0.10
 #: The FEATURE classes an object cut's geometry wears beside its ramp
 #: faces: the corridor RIM (``check_grade._OBJECT_CUT_RIM_CLASSES``).
 OBJECT_CUT_RIM_FEATURES = frozenset({"structure_rim"})
+#: The role a rim FEATURE (which carries none) is priced under: the wall
+#: it is (``verify.structures.structure_rim_gap``'s spelling).  #946: an
+#: unroled rim row raised ``KeyError: ''`` and failed the VHHH build.
+RIM_ROLE = "retaining_wall"
 
 #: §34 (5) (b) / §41 (2): the strip families, as ``role_family`` names them.
 _STRIP_FAMILIES = ("runway", "taxi")
@@ -155,8 +159,9 @@ def _keepout_row(p: Patch, family: str, sh: Shape, vid: int, depth: float,
     """One PRESENCE row: the offending vertex, how far in it stands."""
     la, lo = p.ll.get(vid, (None, None))
     xy = p.xy.get(vid)
-    return row(family, (sh.role, other.role or sh.role),
-               p.side(sh.role), depth, None, None, depth, xy, xy,
+    role = sh.role or (RIM_ROLE if sh.feature in OBJECT_CUT_RIM_FEATURES else "")
+    return row(family, (role, other.role or role),
+               p.side(role), depth, None, None, depth, xy, xy,
                sh.ref, other.ref, lat=la, lon=lo)
 
 

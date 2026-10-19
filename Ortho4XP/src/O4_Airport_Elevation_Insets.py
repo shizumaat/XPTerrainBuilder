@@ -4195,6 +4195,21 @@ def warn_if_delivered_inset_clips_airport(tile, icao, boundary_box):
 OVERSAMPLED_INSET_RATIO = 0.9
 
 
+def _cached_inset_age_note(inset_path):
+    """``"KASE_usgs3dep.tif (cached 2026-09-01, 48 days old)"``: which
+    cached inset a failed refetch kept, and how old it is (#924).  The
+    age is the raster's modification time -- when the fetch landed it."""
+    name = os.path.basename(inset_path)
+    try:
+        mtime = os.path.getmtime(inset_path)
+    except OSError:
+        return "%s (age unknown)" % name
+    landed = datetime.datetime.fromtimestamp(mtime)
+    days = max(0, (datetime.datetime.now() - landed).days)
+    return "%s (cached %s, %d day%s old)" % (
+        name, landed.date().isoformat(), days, "" if days == 1 else "s")
+
+
 def _cached_inset_oversamples(inset_path, definition):
     """True when a cached inset is stored FINER than its source publishes.
 
@@ -4442,7 +4457,10 @@ def ensure_airport_insets(
     receives one ``(airport, provider code, error text)`` per fetch that
     RAISED -- the failures that left no durable answer -- so the caller
     can SURFACE them (issue #121) instead of settling a warm-looking pass.  A fully warm-cache pass leaves it at
-    zero.
+    zero.  A REFETCH that raised while a cached inset was kept and USED
+    instead (#924) is not a missing inset: its row carries a fourth
+    element, the kept inset's note (:func:`_cached_inset_age_note`), so
+    the caller tells "cached inset used" from "no inset".
 
     Returns the updated index dictionary.  Strategy-agnostic: it only calls
     :func:`discover_inset` / :func:`fetch_inset`.
@@ -4694,6 +4712,7 @@ def ensure_airport_insets(
             # still-valid cached inset survives a failed re-fetch.
             fetch_destination = FETCH_SCRATCH.scratch_destination(destination)
             fetch_raised = False
+            fetch_error = None
             provider_unavailable = None
             # One-shot heartbeat so a long transfer is visibly alive:
             # stalls are aborted by the GDAL low-speed guard and retried
@@ -4758,34 +4777,54 @@ def ensure_airport_insets(
                 # negative, so the next run retries the fetch.
                 provenance = None
                 fetch_raised = True
-                UI.vprint(
-                    1,
-                    "   WARNING: elevation inset fetch for",
-                    icao,
-                    "from",
-                    code,
-                    "failed without a durable answer:",
-                    str(error),
-                    "- it will be retried on the next run.",
-                )
-                if fetch_failures is not None:
-                    fetch_failures.append((icao, code, str(error)))
+                fetch_error = str(error)
             finally:
                 slow_note.cancel()
             if provenance is None:
                 FETCH_SCRATCH.discard(fetch_destination)
-                if cached_inset_is_stale:
+                # A refresh that failed leaves a sound cached raster on
+                # disk just as a stale-box refetch does.
+                refresh_kept = (refresh and fetch_error is not None
+                                and os.path.isfile(destination)
+                                and void_reason is None
+                                and empty_reason is None)
+                if cached_inset_is_stale or refresh_kept:
+                    # THE CACHED INSET IS KEPT AND USED (#924): a failed
+                    # REFETCH is not a missing inset -- a note naming the
+                    # kept raster and its age, never the "no inset"
+                    # warning; the pass stays unstamped, so the next run
+                    # retries the refetch.
+                    kept = _cached_inset_age_note(destination)
                     UI.vprint(
                         1,
-                        "   WARNING: could not refetch the inset for",
-                        icao,
-                        "from",
-                        code,
-                        "- keeping the cached one.",
+                        "    [insets] %s: could not refetch from %s (%s) - "
+                        "keeping and using the cached inset %s; the "
+                        "refetch is retried on the next run."
+                        % (icao, code, fetch_error or provider_unavailable
+                           or "no raster returned", kept),
                     )
+                    if fetch_error is not None and fetch_failures is not None:
+                        fetch_failures.append(
+                            (icao, code, fetch_error, kept))
                     airport_record[code] = "ok"
                     airport_record["checked"] = checked_stamp
                     break
+                if fetch_error is not None:
+                    # A raised failure (a network timeout, a server
+                    # outage, a strategy crash) with NO cached inset to
+                    # fall back on: this provider gives the airport none.
+                    UI.vprint(
+                        1,
+                        "   WARNING: elevation inset fetch for",
+                        icao,
+                        "from",
+                        code,
+                        "failed without a durable answer:",
+                        fetch_error,
+                        "- it will be retried on the next run.",
+                    )
+                    if fetch_failures is not None:
+                        fetch_failures.append((icao, code, fetch_error))
                 answered = provider_unavailable is not None or (
                     not fetch_raised)
                 if os.path.isfile(destination) and (
@@ -5844,7 +5883,19 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
             # the loud channel (issue #121: every such line used to reach
             # the console drawer only, and the build exited 0 on the base
             # DEM).
-            for (icao, code, text) in fetch_failures:
+            # A row with a fourth element kept and USED its cached inset
+            # (#924): a note naming that inset and its age -- never the
+            # "no inset" warning, never the degraded code.
+            missing = [row for row in fetch_failures if len(row) == 3]
+            for (icao, code, text, kept) in (
+                    row for row in fetch_failures if len(row) == 4):
+                UI.vprint(
+                    1,
+                    "   Airport elevation inset for %s from %s could not "
+                    "be refetched (%s) - this build uses the cached inset "
+                    "%s; the next build retries the refetch."
+                    % (icao, code, text, kept))
+            for (icao, code, text) in missing:
                 UI.loud_warning(
                     "   WARNING: airport elevation inset for %s from %s "
                     "FAILED (%s) - this build uses NO inset from %s; check "
@@ -5854,7 +5905,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
                 UNPATCHED.record_degraded(tile, "airport-insets", [
                     {"code": "inset_fetch_failed", "airport": icao,
                      "source": code, "detail": "%s: %s" % (code, text)}
-                    for (icao, code, text) in fetch_failures])
+                    for (icao, code, text) in missing])
             return
         # The pass settled every airport against every provider without
         # raising: nothing is left to fetch for THIS configuration, so

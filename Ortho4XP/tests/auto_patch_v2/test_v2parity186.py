@@ -382,3 +382,21 @@ def test_a_lawful_layout_prices_nothing_on_either_reader(family, clean,
     reader, _owed = _LOCKSTEP[family]
     assert reader(p) == [], [r["magnitude_m"] for r in reader(p)]
     assert clean_oracle[family] == []
+
+
+def test_an_unroled_rim_feature_outside_its_object_is_priced_not_raised(dirty):
+    """#946: a ``structure_rim`` FEATURE carries no role; its
+    ``object_cut_offset`` row raised ``KeyError: ''`` in ``role_side`` and
+    failed the VHHH build.  The row prices it as the wall it is."""
+    import dataclasses as _dc
+    p, _r, _s = dirty
+    ramp = next(sh for sh in p.shapes if sh.role == "tunnel_ramp"
+                and any(abs(p.z[v] - _OBJECT_FLOOR_M) < 2.0 for v in sh.ids))
+    rim = Shape(-1, "", "structure_rim", ramp.ids, ramp.xy, ramp.z,
+                feature="structure_rim")
+    p2 = _dc.replace(p, shapes=tuple(sh for sh in p.shapes if sh is not ramp),
+                     features=(rim,))
+    rows = keepout.object_cut_offset(p2)
+    assert len(rows) == 1
+    assert rows[0]["magnitude_m"] == pytest.approx(_OBJECT_OFFSET_M, abs=0.05)
+    assert keepout.RIM_ROLE in rows[0]["roles"]

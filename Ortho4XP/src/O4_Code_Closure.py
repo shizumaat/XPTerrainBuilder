@@ -12,8 +12,9 @@ held against :func:`closure` by a twin):
 
 - ``auto_patch_v2/airport/partition_code.py`` (the pack partition, #362),
 - ``auto_patch_v2/pipeline/stage_code.py`` (the v2 stages, #842),
-- ``auto_patch/provenance_code.py`` (the patch gate's whole-tree digest,
-  #346 — the digest and the file reader/writer only),
+- ``auto_patch/provenance_code.py`` (the patch freshness gate: the
+  patch build's closure, #880, and the #346 whole-tree digest behind
+  ``O4_PATCH_FRESHNESS_WHOLE_TREE=1``),
 - the tile pipeline's per-step closure (``O4_Step_Code.py``, #836).
 
 STDLIB ONLY, NO RELATIVE IMPORT, NO ENGINE IMPORT: the ``.spec`` files
@@ -106,7 +107,8 @@ def parent_packages(src_root: str, name: str,
 
 
 def closure(src_root: str, entry_modules: _t.Iterable[str],
-            prefixes: "_t.Collection[str] | None" = None) -> tuple[str, ...]:
+            prefixes: "_t.Collection[str] | None" = None, *,
+            packages: bool = False) -> tuple[str, ...]:
     """The static import closure of ``entry_modules`` under ``src_root``
     (:func:`imports_of`, followed to a fixed point), entries included,
     sorted.  A package appears as its own name (its ``__init__``).
@@ -115,9 +117,11 @@ def closure(src_root: str, entry_modules: _t.Iterable[str],
     ``__init__`` runs when the module is imported, so an edit there is an
     edit to the cached work's code).  Such a parent's OWN imports are
     followed only when the closure imports the package itself (``from
-    pkg import name``, :func:`imports_of`): a sibling the parent merely
-    loads is not code the module calls, and following every parent
-    would key each constraint generator on all of them."""
+    pkg import name``, :func:`imports_of`) — a sibling the parent merely
+    loads is not code the module calls, and following every parent would
+    key each constraint generator on all of them — or when ``packages``
+    is set: then what every parent ``__init__`` imports is followed as
+    Python loads it (the patch gate's one whole digest, #880)."""
     seen: set[str] = set()
     parents: set[str] = set()
     stack = list(entry_modules)
@@ -126,7 +130,11 @@ def closure(src_root: str, entry_modules: _t.Iterable[str],
         if name not in seen:
             seen.add(name)
             stack.extend(imports_of(src_root, name, prefixes))
-            parents |= parent_packages(src_root, name, prefixes)
+            ups = parent_packages(src_root, name, prefixes)
+            if packages:
+                stack.extend(ups)
+            else:
+                parents |= ups
     return tuple(sorted(seen | parents))
 
 

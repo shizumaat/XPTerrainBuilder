@@ -232,11 +232,14 @@ def post_solve(icao: str, pm, law: Law, airport, sol, cs, design_rep, tt_rep, fv
             "seam": report_seam, "road_agree": road_agree}
 
 
-def patch_header(airport, header_extra: _t.Mapping[str, str] | None) -> dict[str, str]:
+def patch_header(airport, header_extra: _t.Mapping[str, str] | None,
+                 osm_witness: str = "") -> dict[str, str]:
     """THE HEADER every patch write applies over the rendered body (spec
     §4b.6: applied on every write, the emit record served or not): the
-    pack's provenance, the borrowed apt.dat's stamp and the hosting tile
-    build's ``header_extra`` freshness stamps."""
+    pack's provenance, the borrowed apt.dat's stamp, the OSM feeds' witness
+    (``o4_osm``, the load's ``osm.feed_witness``; #880 — omitted when the
+    build read no OSM root) and the hosting tile build's ``header_extra``
+    freshness stamps."""
     header = {"o4_apt_dat": airport.pack.apt_dat_path,
               "o4_pack": airport.pack.name,
               # §44 (4): the Global Airports apt.dat this patch
@@ -244,6 +247,8 @@ def patch_header(airport, header_extra: _t.Mapping[str, str] | None) -> dict[str
               "o4_apt_dat_borrowed": airport.pack.borrowed_apt_dat_path}
     header.update(borrowed_apt_dat_stamp(
         airport.pack.borrowed_apt_dat_path))
+    if osm_witness:
+        header["o4_osm"] = osm_witness
     header.update(header_extra or {})
     return header
 
@@ -336,7 +341,9 @@ def emit(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
         live.append(surf_pub)
         return rec
     rec = run() if record is None else record(run)
-    paths, pieces = install(icao, rec, patch_header(airport, header_extra), out_dir, report,
+    paths, pieces = install(icao, rec, patch_header(airport, header_extra,
+                                                    getattr(lrep, "osm_witness", "")),
+                            out_dir, report,
                             wall, out, t)
     return paths, pieces, rec, (live[0] if live else None)
 

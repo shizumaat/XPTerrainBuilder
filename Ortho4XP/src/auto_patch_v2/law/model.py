@@ -365,6 +365,11 @@ class Tunnel:
     #: the way from the floor to the highest ground within the search.
     covered_rim_rise_frac: float
     covered_rim_search_m: float
+    #: #971 (owner RULINGS 2026-10-19e/n/o): the farthest a mapped mouth
+    #: slides out along its approach to stand clear of the pavement it may
+    #: not cut (``planar/structure_mouth.clear_mouth``); beyond, the bore
+    #: is refused by name.
+    mouth_slide_max_m: float
 
     @property
     def mouth_depth_m(self) -> float:

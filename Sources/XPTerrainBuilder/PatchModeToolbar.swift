@@ -14,7 +14,7 @@ struct PatchModeToolbar: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
-                .help("View the patch, or edit its nodes.")
+                .help("View the airport ground shape, or edit its nodes.")
                 Divider().frame(height: 16)
                 Button { model.undoManager?.undo() } label: { Image(systemName: "arrow.uturn.backward") }
                     .disabled(!(model.undoManager?.canUndo ?? false))

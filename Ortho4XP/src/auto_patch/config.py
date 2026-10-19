@@ -1753,7 +1753,7 @@ AGP_BUILDINGS = _os.environ.get("O4_AGP_BUILDINGS", "1") == "1"
 # docs/dsf_object_integration_spec.md): scenery authors bake many
 # buildings into one ``.obj`` whose DSF placement anchor may sit hundreds
 # of metres from any geometry.  auto_patch cannot see those buildings at
-# all today (``_building_role_for_def`` requires ``.fac`` and
+# all today (``building_role_for_def`` requires ``.fac`` and
 # ``is_agp_building_def`` whitelists ``.agp``) — roughly 105 of them at
 # KCLT.  ``dsf_reader.read_dsf_object_buildings`` parses the OBJ8,
 # partitions it into structures (connected components of the

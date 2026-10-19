@@ -32,7 +32,9 @@ three this round minted:
   * `flat_site` — the flat-site DETECTOR: 13aw reached it only THROUGH S1 and
     so never judged it, but `flat_site_mode` (production DEM prep) IS its
     caller, and copying ~250 lines of detector law into a second spelling is
-    what ruling (d) forbids.  It moved SIDE instead.
+    what ruling (d) forbids.  It moved SIDE instead.  DELETED 2026-10-18
+    (issue #932, owner option B): DEM prep now runs the v2 detector, so
+    there is one detector and nothing of v1 decides a flat site.
 
 Two more lines the same cut bought, asserted here because they are the same
 promise from the other end:
@@ -60,11 +62,9 @@ KEEP = frozenset({
     # the readers
     "auto_patch.agp_reader",
     "auto_patch.apt_dat_reader",
-    "auto_patch.cifp_reader",
     "auto_patch.dsf_reader",
     "auto_patch.osm_aeroway",
     "auto_patch.flat_site_mode",
-    "auto_patch.flat_site",
     # the object stage
     "auto_patch.mesh_sampler",
     "auto_patch.obj8_partition",

@@ -358,6 +358,13 @@ struct MapMainView: View {
                                          handledElsewhere: searchHandledElsewhere,
                                          onPick: selectAirport)
                 }
+                .overlay(alignment: .topLeading) {
+                    // Select from flight plan (#829): over the map, not a
+                    // sheet, so the selection is watched as the radius moves.
+                    FlightPlanPanel(model: buildModel.flightPlan) { tiles in
+                        controller.zoomToTiles(tiles.map { (lat: $0.lat, lon: $0.lon) })
+                    }
+                }
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)
@@ -427,6 +434,10 @@ struct MapMainView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)
             }
+            // The preset cards (#822): the first choice a new user makes.
+            PresetCardsView()
+                .frame(maxWidth: 640)
+                .padding(.top, 8)
             Text(Self.systemInfo.summary)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)

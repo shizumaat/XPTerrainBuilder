@@ -171,7 +171,7 @@ def test_the_config_points_cifp_and_scenery_at_the_fixture_it_was_given(
 
 def test_the_fixture_lays_out_an_xplane_root_cifp_resolution_accepts(
         driver, tmp_path):
-    """``auto_patch.cifp_reader.xplane_root_from_cifp_path`` walks TWO
+    """``auto_patch_v2.airport.cifp.xplane_root_from_cifp_path`` walks TWO
     levels up from the CIFP directory and requires a ``Custom Scenery``
     (or ``Resources``) there.  A fixture that got this wrong would make
     auto-patch refuse the whole tile, which is the ONE hard refusal a

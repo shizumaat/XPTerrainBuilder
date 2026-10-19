@@ -422,7 +422,7 @@ def test_skip_is_absent_from_tasks_and_the_manifest(tmp_path, monkeypatch):
     monkeypatch.delenv("O4_AUTO_PATCH_REBUILD", raising=False)
     import O4_UI_Utils as UI
     from auto_patch import build_support, driver
-    from auto_patch import cifp_reader as _cifp
+    from auto_patch_v2.airport import cifp as _cifp
     from test_auto_patch_freshness import _make_apt_dat, _stub_the_engine
 
     # The driver's airports-OSM prefetch is a live Overpass POST for a tile
@@ -442,15 +442,16 @@ def test_skip_is_absent_from_tasks_and_the_manifest(tmp_path, monkeypatch):
     rwy = {"lat": 40.1, "lon": -100.2}
     monkeypatch.setattr(driver.FNAMES, "patch_dir",
                         lambda lat, lon: str(patch_dir))
-    for target in (driver, _cifp):
-        monkeypatch.setattr(target, "discover_cifp_airports",
-                            lambda path: {"KFAK": "a.dat", "KSKP": "b.dat"})
-        monkeypatch.setattr(target, "parse_cifp_file",
-                            lambda path: {"04": rwy, "22": rwy})
-        monkeypatch.setattr(target, "airport_in_tile",
-                            lambda runways, lat, lon: True)
-        monkeypatch.setattr(target, "xplane_root_from_cifp_path",
-                            lambda path: "xp_root")
+    monkeypatch.setattr(driver, "xplane_root_from_cifp_path",
+                        lambda path: "xp_root")
+    monkeypatch.setattr(_cifp, "discover_cifp_airports",
+                        lambda path: {"KFAK": "a.dat", "KSKP": "b.dat"})
+    monkeypatch.setattr(_cifp, "read_threshold_dicts",
+                        lambda path: {"04": rwy, "22": rwy})
+    monkeypatch.setattr(_cifp, "airport_in_tile",
+                        lambda runways, lat, lon: True)
+    monkeypatch.setattr(_cifp, "xplane_root_from_cifp_path",
+                        lambda path: "xp_root")
     for target in (driver, build_support):
         monkeypatch.setattr(target, "pair_runways",
                             lambda runways: [("04", rwy, "22", rwy)])

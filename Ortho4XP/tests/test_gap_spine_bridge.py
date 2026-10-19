@@ -19,21 +19,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import Polygon
 
 _ROOT = Path(__file__).resolve().parents[1]
 for _p in (str(_ROOT / "src"), str(_ROOT), str(_ROOT / "tools")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-
-from auto_patch.apt_dat_reader import TaxiCenterline    # noqa: E402
-
-
-def _cl(pts, size="C", service=False):
-    return TaxiCenterline(line=LineString(pts),
-                          seg_sizes=[size] * (len(pts) - 1),
-                          is_service=service, name="route")
-
 
 def _apron(width=400.0, y0=-200.0, y1=400.0):
     """One continuous rectangle of apron pavement spanning both routes

@@ -125,3 +125,61 @@ Removing the core's DEM substitution (the tile mesh outside the patch
 still needs the plateau), the fast-path partition of v1, and any VHHH
 build (no data in the corpus — the declared-table example is
 illustrative only).
+
+## 6. Amendment 2026-10-18 — ONE flat-site decision (issue #932; owner option B)
+
+Owner, 2026-10-18 (supersedes RULINGS 2026-10-18f Q2): "I lean toward
+eliminating v1 to ensure we don't have two different systems or models",
+then "Proceed with B!".
+
+1. **The single decision point is DEM prep.**
+   `auto_patch/flat_site_mode.flat_site_substitutions` runs THIS detector
+   (`airport/flat_site.detect`, unchanged signals, `law/flat_site.toml`
+   incl. `[declared]` and `[datum] source`) per tile airport, after the
+   airport smoothing and the cached-inset bake and before anything consumes
+   the raster (the v1 ordering point, flat-site-mode spec §2.1), on the
+   raw raster through `dem_production.ProductionDem.over_prep` (the
+   production sampler over the host tile only).  Inputs are v2's
+   (`airport/flat_site_prep.py`): the pack `pack.select_pack` picks, the
+   airport frame `load.read_apt` builds, runway ends JOINED to CIFP
+   (`load.join_cifp`; a CIFP end with no apt.dat runway no longer counts in
+   S1), pavement ∪ runways ∪ boundary, the water cut (`_cut_water`) with
+   the apt.dat runways ∪ pavements as the land declaration (the build's
+   classified surfaces do not exist yet — reported deviation).  v1
+   `auto_patch/flat_site.py` is deleted; nothing of v1 decides.
+2. **The record.**  `airport/flat_site.record(fv)` plus `origin` (the frame
+   origin) and `region` (the dilated, water-cut rings in that frame) plus
+   `plateau` (True once the synthetic inset landed on the raster, else the
+   reason it did not).  One record per decided airport, kept on the DEM
+   object as `flat_site_decisions = {ICAO: record}` beside
+   `synthetic_flat_site_provenance` (same channel: the DEM object →
+   `_BakedTile` → `ProductionDem.flat_site_decision()`).  The bake's
+   `synthetic_flat_site` provenance entry carries the same record under
+   `record`.
+3. **The build reads it** (`airport/flat_site_read.verdict_for_build`):
+   the `flat_site` stage rebuilds the `FlatVerdict` from the record and
+   never re-measures.  The stage cache witnesses it through the DEM
+   recorder (a method call on the DEM is digested), so no key input is
+   added.  A build with NO record (flat-site mode off, an airport not in
+   the tile's airport dictionary, an authored/fixture frame) measures with
+   the same detector on the frame it holds and says so in its log line.
+4. **S4** (pack seats) is measured in the build after the planar stage,
+   as a report only (`signals["s4"]`); it never gated and never moves the
+   decision.  `[datum] source = "pack_seats"` cannot be decided before the
+   planar stage: DEM prep records the CIFP Z0 under that law value and the
+   build reports the seat median beside it (owner question, not decided).
+5. **Mismatch rule.**  A record whose verdict substitutes and whose
+   `plateau` is True requires the composed DEM to carry Z0 over the
+   record's gate extent: median |DEM − Z0| over the region's samples
+   ≤ 0.05 m (`flat_site_read.PLATEAU_TOL_M`, a mechanism tolerance: the
+   plateau is a constant raster).  Otherwise the build raises
+   `ColdDemFrame` (catalogue `airport_elevation_missing`) — the frame is
+   not the one DEM prep decided on.  A record whose frame origin differs
+   from the build's frame is the same error.  The `signals["core"]`
+   comparison and its "logged, not reconciled" note retire (§3.3
+   superseded).
+6. **Output change.**  Mesh and patch change only where v2 inputs give a
+   different verdict, Z0 or extent than v1's did.  Candidates before
+   building: any existing sidecar whose `report.load.flat_site.signals.core`
+   differs from its `auto_verdict` / `z0_m` (the build's old
+   "DISAGREEMENT" line).

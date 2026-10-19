@@ -34,7 +34,8 @@ def crossed_shoulder_caps(planar: PlanarMap, law: Law, airport: Airport
                           ) -> dict[int, float]:
     """Shoulder vertex id -> the crossing taxiway's longitudinal cap."""
     key = (id(planar), id(law), id(airport))
-    if _LAST and _LAST[0] == key:
+    if _LAST and _LAST[0] == key and _LAST[2] is planar and _LAST[3] is law \
+            and _LAST[4] is airport:                 # an id is reused once freed
         return dict(_LAST[1])
     from shapely.geometry import LineString, Point
     from shapely.strtree import STRtree
@@ -69,5 +70,5 @@ def crossed_shoulder_caps(planar: PlanarMap, law: Law, airport: Airport
                 hit = [caps[i] for i in tree.query(pt) if lines[i].covers(pt)]
                 if hit:
                     out[v] = max(hit)
-    _LAST[:] = [key, dict(out)]
+    _LAST[:] = [key, dict(out), planar, law, airport]
     return out

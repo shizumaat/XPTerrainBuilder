@@ -37,7 +37,8 @@ class Setting:
     :param label: human-readable label.
     :param scope: one of ``"app"``, ``"tile"`` or ``"pref"``.
     :param category: category key (see :data:`CATEGORIES`).
-    :param advanced: whether the setting belongs to the advanced group.
+    :param advanced: whether the setting belongs to the Expert section
+        (collapsed by default; the field keeps its historic name).
     :param vtype: value type — ``bool``, ``int``, ``float``, ``str`` or ``list``.
     :param default: default value rendered as a string.
     :param values: allowed values as strings, ``()`` when free-form.
@@ -46,6 +47,8 @@ class Setting:
         human-readable menu title per allowed value; ``()`` when the raw
         values are shown as-is. Stored values are never affected — labels
         are display-only.
+    :param summary: the one-line plain hint under a row outside Expert
+        (issue #823); ``""`` for an Expert row.
     """
 
     name: str
@@ -58,6 +61,7 @@ class Setting:
     values: tuple
     hint: str
     value_labels: tuple = ()
+    summary: str = ""
 
     def label_for(self, value: str) -> str:
         """Menu title for *value* (the raw value when unlabeled)."""
@@ -66,129 +70,218 @@ class Setting:
                 return label
         return value
 
+    def recommended(self) -> str:
+        """The recommended value as the row's control shows it.
+
+        It is the registry default — the value the app ships with;
+        ``""`` when there is none to show (a preference, an empty path).
+        """
+        if self.scope == "pref" or self.default == "":
+            return ""
+        if self.vtype is bool and self.default in ("True", "False"):
+            return "On" if self.default == "True" else "Off"
+        return self.label_for(self.default)
+
+    def secondary_text(self) -> str:
+        """The grey line under the row (issue #823).
+
+        Outside Expert: the one-line summary and the recommended value.
+        In Expert: the cfg NAME, so forum advice still maps to the row,
+        and the recommended value.  The Mac app builds the same line
+        (``SettingsLayout.secondaryText``).
+        """
+        head = self.name if self.advanced else self.summary
+        recommended = self.recommended()
+        if not recommended:
+            return head
+        tail = RECOMMENDED_PREFIX + recommended
+        return head + SECONDARY_SEPARATOR + tail if head else tail
+
+
+# The words of the secondary line; SettingsLayout.swift uses the same ones.
+RECOMMENDED_PREFIX = "Recommended: "
+SECONDARY_SEPARATOR = " · "
+EXPERT_TITLE = "Expert"
+
 
 # ---------------------------------------------------------------------------
-# Presentation layout.
+# Presentation layout — THE wording of the settings window (issue #823).
 #
-# Each category is (key, title, members); each member is either
-#   (name, label, scope, advanced)                -- registry-backed
-#   (name, label, "pref", advanced, hint)         -- preference (not in registry)
-# Order within a category is significant and preserved.
+# The Mac app mirrors this table row for row in
+# ``Sources/XPTerrainBuilder/SettingsLayout.swift``;
+# ``tests/test_settings_layout_parity.py`` fails when the two differ.
+#
+# Each category is (key, title, members); each member is
+#   (name, label, scope, expert, summary)
+# where ``scope`` is ``"app"``, ``"tile"`` or ``"pref"`` (a preference that
+# is not in the registry; its summary is also its hint).
+#
+# A row OUTSIDE Expert is a plain question (or a glossary term, issue #831)
+# with a one-line ``summary``; the window adds the recommended value (the
+# registry default).  An EXPERT row keeps its technical label and shows the
+# cfg name as secondary text, so forum advice still maps to it; its summary
+# is empty (the registry hint is its help).  Within a category the Expert
+# rows come last — they form the Expert section, collapsed by default.
+# Only wording and grouping live here: config KEYS and stored values never
+# change with them.  Order within a category is significant and preserved.
 # ---------------------------------------------------------------------------
 _LAYOUT: list = [
     ("general", "General", [
-        ("xplane_dir", "X-Plane installation", "pref", False,
-         "Your X-Plane folder. Sets the Custom Scenery target, overlay "
-         "source and the airport search index."),
-        ("output_dir", "Output folder", "pref", False,
-         "Where finished tiles are stored. Empty uses the default Tiles "
-         "folder."),
-        ("custom_scenery_dir", "X-Plane Custom Scenery folder", "app", False),
-        ("custom_overlay_src", "Overlay source scenery folder", "app", False),
-        ("custom_overlay_src_alternate", "Alternate overlay source", "app", True),
-        ("cifp_data_path", "CIFP/AIRAC data folder", "app", True),
-        ("verbosity", "Console output", "app", False),
-        ("cleaning_level", "Build file cleanup level", "app", False),
+        ("xplane_dir", "Where is X-Plane installed?", "pref", False,
+         "Your X-Plane folder. Sets where scenery goes and which airports "
+         "the map can find."),
+        ("output_dir", "Where should finished tiles be saved?", "pref", False,
+         "Empty uses the default Tiles folder."),
+        ("custom_scenery_dir", "Where is X-Plane's Custom Scenery folder?", "app", False,
+         "Finished tiles are linked into it so X-Plane finds them."),
+        ("custom_overlay_src", "Where should roads, forests and buildings come from?", "app", False,
+         "An X-Plane scenery folder, usually Global Scenery."),
+        ("verbosity", "How much should the console show?", "app", False,
+         "More detail helps when you report a problem."),
+        ("cleaning_level", "Which build files should be kept?", "app", False,
+         "Keeping more makes a rebuild faster but uses more disk."),
+        ("custom_overlay_src_alternate", "Alternate overlay source", "app", True, ""),
+        ("cifp_data_path", "X-Plane's runway data folder", "app", True, ""),
     ]),
-    ("network", "Performance & Network", [
-        ("max_build_slots", "Parallel tile builds", "app", False),
-        ("max_download_slots", "Parallel orthophoto downloads", "app", False),
-        ("max_convert_slots", "Parallel DDS conversions", "app", False),
-        ("overpass_server_choice", "OSM Overpass server", "app", False),
-        ("osm_regional_extracts", "OSM regional extracts", "app", False),
-        ("osm_extract_refresh_days", "Extract refresh age (days)", "app", True),
-        ("http_timeout", "HTTP timeout (s)", "app", True),
-        ("max_connect_retries", "Connection retries", "app", True),
-        ("max_baddata_retries", "Bad-data retries", "app", True),
-        ("check_tms_response", "Retry on imagery server errors", "app", True),
+    ("network", "Speed & Downloads", [
+        ("max_build_slots", "How many tiles should build at once?", "app", False,
+         "Auto uses this machine's processor cores."),
+        ("max_download_slots", "How many imagery downloads should run at once?", "app", False,
+         "Auto suits most connections."),
+        ("max_convert_slots", "How many imagery files should be converted at once?", "app", False,
+         "Auto uses every processor core but two."),
+        ("overpass_server_choice", "Map data server", "app", False,
+         "Where map data downloads from when no stored regional copy covers the tile."),
+        ("osm_regional_extracts", "Use stored regional map data when available?", "app", False,
+         "Faster than downloading each tile, and kinder to the map servers."),
+        ("osm_extract_refresh_days", "Extract refresh age (days)", "app", True, ""),
+        ("http_timeout", "HTTP timeout (s)", "app", True, ""),
+        ("max_connect_retries", "Connection retries", "app", True, ""),
+        ("max_baddata_retries", "Bad-data retries", "app", True, ""),
+        ("check_tms_response", "Retry on imagery server errors", "app", True, ""),
     ]),
-    ("imagery", "Imagery & Zoom Levels", [
-        ("texture_mode", "Texture mode", "tile", False),
-        ("airport_ortho_fade_width", "Airport ortho fade width (m)", "tile", False),
-        ("cover_airports_with_highres", "Airport imagery upgrade", "tile", False),
-        ("cover_zl", "Airport coverage ZL", "tile", False),
-        ("cover_extent", "Airport coverage extent (km)", "tile", False),
-        ("sea_texture_blur", "Sea texture blur (m)", "tile", True),
-        ("sea_nodata_fill", "Repair imagery no-data over water", "tile", False),
-        ("color_harmonization", "Harmonize texture colors", "tile", False),
-        ("skip_downloads", "Skip imagery downloads", "app", True),
-        ("skip_converts", "Skip DDS conversion", "app", True),
+    ("imagery", "Imagery", [
+        ("cover_airports_with_highres", "Use sharper imagery at airports?", "tile", False,
+         "The same photos at a finer detail; more download and disk."),
+        ("cover_zl", "How sharp should the airport imagery be?", "tile", False,
+         "A detail level: 17 is about 1 m per pixel, 18 about 0.6 m."),
+        ("cover_extent", "How far past the airport should it reach (km)?", "tile", False,
+         "The sharper imagery covers the airport and this band around it."),
+        ("sea_nodata_fill", "Repair blank spots in imagery over the sea?", "tile", False,
+         "Fills the white or black rectangles some providers leave over coastal water."),
+        ("color_harmonization", "Even out imagery colors across the tile?", "tile", False,
+         "Removes the patchwork of different photo dates and providers."),
+        ("texture_mode", "Texture mode", "tile", True, ""),
+        ("airport_ortho_fade_width", "Airport ortho fade width (m)", "tile", True, ""),
+        ("sea_texture_blur", "Sea texture blur (m)", "tile", True, ""),
+        ("skip_downloads", "Skip imagery downloads", "app", True, ""),
+        ("skip_converts", "Skip DDS conversion", "app", True, ""),
     ]),
-    ("mesh", "Mesh", [
-        ("curvature_tol", "Curvature tolerance", "tile", False),
-        ("apt_curv_tol", "Airport curvature tolerance", "tile", False),
-        ("apt_curv_ext", "Airport curvature extent (km)", "tile", False),
-        ("coast_curv_tol", "Coastline curvature tolerance", "tile", False),
-        ("coast_curv_ext", "Coastline curvature extent (km)", "tile", False),
-        ("limit_tris", "Max triangles (millions)", "tile", False),
-        ("min_angle", "Min triangle angle (°)", "tile", True),
-        ("sea_smoothing_mode", "Sea surface smoothing", "tile", True),
-        ("water_smoothing", "Inland water smoothing passes", "tile", True),
-        ("mesh_zl", "Max imagery zoom the mesh allows", "tile", True),
+    ("mesh", "Ground Shape", [
+        ("curvature_tol", "Curvature tolerance", "tile", True, ""),
+        ("apt_curv_tol", "Airport curvature tolerance", "tile", True, ""),
+        ("apt_curv_ext", "Airport curvature extent (km)", "tile", True, ""),
+        ("coast_curv_tol", "Coastline curvature tolerance", "tile", True, ""),
+        ("coast_curv_ext", "Coastline curvature extent (km)", "tile", True, ""),
+        ("limit_tris", "Max triangles (millions)", "tile", True, ""),
+        ("min_angle", "Min triangle angle (°)", "tile", True, ""),
+        ("sea_smoothing_mode", "Sea surface smoothing", "tile", True, ""),
+        ("water_smoothing", "Inland water smoothing passes", "tile", True, ""),
+        ("mesh_zl", "Max imagery zoom the mesh allows", "tile", True, ""),
     ]),
-    ("elevation", "Elevation", [
-        ("elevation_level", "Tile elevation detail level", "tile", False),
-        ("elevation_coastline_band_km", "Coastline lidar band width (km)", "tile", True),
-        ("base_elevation_source", "Base elevation source", "app", False),
-        ("custom_dem", "Custom elevation data (DEM)", "tile", False),
-        ("fill_nodata", "Fill missing elevation data", "tile", False),
-        ("auto_patch", "Auto-patch airports (runway slopes)", "tile", False),
-        ("auto_patch_boundary", "Airports on a tile edge", "app", False),
-        ("modify_custom_airports", "Modify custom airports (reseat objects)", "tile", False),
-        ("airport_elevation_insets", "Airport lidar insets", "tile", False),
-        ("airport_elevation_level", "Airport elevation detail level", "tile", False),
-        ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", False),
-        ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", False),
-        ("airport_elevation_providers", "Inset providers", "tile", True),
-        ("airport_inset_water", "Detect ponds in lidar", "tile", True),
-        ("apt_smoothing_pix", "Airport elevation smoothing (px)", "tile", True),
-        ("apt_smoothing_auto", "Scale smoothing to data quality", "tile", True),
-        ("working_grid_arc_seconds", "Working grid spacing", "tile", True),
-        ("iterate", "Iterative DEM refinement step", "tile", True),
+    ("elevation", "Elevation & Airports", [
+        ("elevation_level", "How detailed should the elevation be?", "tile", False,
+         "Auto uses 90 m data with high-resolution data at airports."),
+        ("base_elevation_source", "Which elevation source should be used?", "app", False,
+         "Auto picks the best source available for the tile."),
+        ("custom_dem", "Use your own elevation file?", "tile", False,
+         "Used instead of the downloaded elevation. Leave empty for automatic."),
+        ("fill_nodata", "Fill gaps in the elevation data?", "tile", False,
+         "Off turns gaps into sea level."),
+        ("auto_patch", "Grade airports to official standards (FAA / ICAO / EASA)", "tile", False,
+         "Shapes runways and taxiways to the slope rules, from X-Plane's runway data."),
+        # App-level, not tile-level: a preference about how the user is
+        # asked, not a property of a tile (spec §C.4, RULINGS 18a).
+        ("auto_patch_boundary", "What if an airport crosses a tile edge?", "app", False,
+         "Its ground shape needs the elevation of the tile next door too."),
+        ("modify_custom_airports", "Fit custom airport buildings to the new ground", "tile", False,
+         "Moves the 3-D objects of installed custom airports onto the reshaped ground."),
+        ("airport_elevation_insets", "High-resolution airport elevation", "tile", False,
+         "Downloads meter-class elevation for the airports where it exists."),
+        ("airport_elevation_level", "How detailed should airport elevation be?", "tile", False,
+         "Auto takes the finest available, down to 0.5 m."),
+        ("elevation_coastline_band_km", "Coastline lidar band width (km)", "tile", True, ""),
+        ("airport_elevation_inset_margin_m", "Lidar extent beyond airport (m)", "tile", True, ""),
+        ("airport_elevation_inset_feather_m", "Lidar edge blend width (m)", "tile", True, ""),
+        ("airport_elevation_providers", "Inset providers", "tile", True, ""),
+        ("airport_inset_water", "Detect ponds in lidar", "tile", True, ""),
+        ("apt_smoothing_pix", "Airport elevation smoothing (px)", "tile", True, ""),
+        ("apt_smoothing_auto", "Scale smoothing to data quality", "tile", True, ""),
+        ("working_grid_arc_seconds", "Working grid spacing", "tile", True, ""),
+        ("iterate", "Iterative DEM refinement step", "tile", True, ""),
     ]),
-    ("vector", "Roads & OSM Data", [
-        ("road_level", "Road detail level", "tile", False),
-        ("road_banking_limit", "Road banking limit (m)", "tile", True),
-        ("lane_width", "Road lane width (m)", "tile", True),
-        ("max_levelled_segs", "Max levelled road segments", "tile", True),
-        ("clean_bad_geometries", "Repair bad OSM geometries", "tile", True),
+    ("vector", "Roads & Map Data", [
+        ("road_level", "Which roads should the ground be levelled for?", "tile", False,
+         "Flattens the ground under roads and railways so they do not tilt."),
+        ("road_banking_limit", "Road banking limit (m)", "tile", True, ""),
+        ("lane_width", "Road lane width (m)", "tile", True, ""),
+        ("max_levelled_segs", "Max levelled road segments", "tile", True, ""),
+        ("clean_bad_geometries", "Repair bad OSM geometries", "tile", True, ""),
     ]),
-    ("water", "Water & Masks", [
-        ("water_tech", "Water rendering tech", "tile", False),
-        ("water_simplification", "Water node simplification (m)", "tile", True),
-        ("min_area", "Min water area (km²)", "tile", True),
-        ("max_area", "Max unmasked water area (km²)", "tile", True),
-        ("ratio_water", "Water transparency ratio", "tile", False),
-        ("ratio_bathy", "Bathymetry multiplier", "tile", False),
-        ("mask_zl", "Water mask resolution", "tile", False),
-        ("masks_width", "Mask width (m)", "tile", False),
-        ("masking_mode", "Coastline mask style", "tile", False),
-        ("inland_shore_feather_m", "Inland shore feather (m)", "tile", False),
-        ("coastal_foam_edge", "Wavy shoreline with foam band", "tile", False),
-        ("use_masks_for_inland", "Mask inland water", "tile", True),
-        ("imprint_masks_to_dds", "Imprint masks into DDS", "tile", True),
-        ("distance_masks_too", "Build distance masks", "tile", True),
-        ("masks_custom_extent", "Custom mask extent", "tile", True),
+    ("water", "Water & Coastlines", [
+        ("water_tech", "Which water should X-Plane draw?", "tile", False,
+         "XP12 uses X-Plane 12's water; XP11 + bathy blends the older way."),
+        ("ratio_water", "How much photo should show through lakes and rivers?", "tile", False,
+         "0 is plain X-Plane water, 1 is the photo only."),
+        ("masking_mode", "What should the shoreline look like?", "tile", False,
+         "How the land fades into the sea."),
+        ("coastal_foam_edge", "Draw a wavy shoreline with a foam band?", "tile", False,
+         "Replaces the straight land-to-water fade with a more natural edge."),
+        ("ratio_bathy", "Bathymetry multiplier", "tile", True, ""),
+        ("mask_zl", "Water mask resolution", "tile", True, ""),
+        ("masks_width", "Mask width (m)", "tile", True, ""),
+        ("inland_shore_feather_m", "Inland shore feather (m)", "tile", True, ""),
+        ("water_simplification", "Water node simplification (m)", "tile", True, ""),
+        ("min_area", "Min water area (km²)", "tile", True, ""),
+        ("max_area", "Max unmasked water area (km²)", "tile", True, ""),
+        ("use_masks_for_inland", "Mask inland water", "tile", True, ""),
+        ("imprint_masks_to_dds", "Imprint masks into DDS", "tile", True, ""),
+        ("distance_masks_too", "Build distance masks", "tile", True, ""),
+        ("masks_custom_extent", "Custom mask extent", "tile", True, ""),
     ]),
-    ("bathymetry", "Bathymetry", [
-        ("masks_use_DEM_too", "Measured depth in masks", "tile", False),
-        ("bathymetry_airport_radius_km", "Fetch radius around anchors (km)", "tile", False),
-        ("bathymetry_near_icao_airports", "Near ICAO airports", "tile", False),
-        ("bathymetry_near_other_airports", "Near small airfields (no ICAO)", "tile", False),
-        ("bathymetry_near_seaplane_bases", "Near seaplane bases", "tile", False),
-        ("bathymetry_near_heliports", "Near heliports", "tile", False),
-        ("reef_visibility_depth", "Reef visibility depth (m)", "tile", False),
-        ("osm_shallow_water_fallback", "Mapped shallow-water fallback", "tile", False),
-        ("bathymetry_band_km", "Band width along shoreline (km)", "tile", True),
-        ("dsf_bathymetry", "DSF sea level raster source", "tile", True),
+    ("bathymetry", "Underwater Depth", [
+        ("masks_use_DEM_too", "Use measured sea depth along the shore?", "tile", False,
+         "Auto uses it near airports, where you fly low over the water."),
+        ("bathymetry_airport_radius_km",
+         "How far from those places should it be used (km)?", "tile", False,
+         "In Auto, depth is fetched for shoreline this close to the places ticked below."),
+        ("bathymetry_near_icao_airports", "Use it near airports with ICAO codes?", "tile", False,
+         "Where airline and general-aviation approaches cross the water."),
+        ("bathymetry_near_other_airports", "Use it near small airfields?", "tile", False,
+         "Grass strips, bush fields and other fields without an ICAO code."),
+        ("bathymetry_near_seaplane_bases", "Use it near seaplane bases?", "tile", False,
+         "Few of them, and you land on the water there."),
+        ("bathymetry_near_heliports", "Use it near heliports?", "tile", False,
+         "Many of them, so this costs the most download."),
+        ("reef_visibility_depth",
+         "How deep can the sea floor be and still show (m)?", "tile", False,
+         "Shallower water keeps part of the photo visible, like reefs and sandbanks."),
+        ("osm_shallow_water_fallback",
+         "Use mapped shallow water where no depth is measured?", "tile", False,
+         "Mapped reefs and shoals keep their photo where no measured depth applies."),
+        ("bathymetry_band_km", "Band width along shoreline (km)", "tile", True, ""),
+        ("dsf_bathymetry", "DSF sea level raster source", "tile", True, ""),
     ]),
-    ("rendering", "Rendering & Overlays", [
-        ("overlay_lod", "Overlay draw distance (m)", "tile", False),
-        ("terrain_casts_shadows", "Terrain casts shadows", "tile", False),
-        ("use_decal_on_terrain", "Terrain decal detail", "tile", False),
-        ("normal_map_strength", "Normal map strength", "tile", True),
-        ("ovl_exclude_pol", "Exclude overlay polygon types", "app", True),
-        ("ovl_exclude_net", "Exclude overlay road types", "app", True),
+    ("rendering", "Look in the Sim", [
+        ("overlay_lod", "How far away should photos over water be drawn (m)?", "tile", False,
+         "A shorter distance helps frame rate and video memory."),
+        ("terrain_casts_shadows", "Should the ground cast shadows?", "tile", False,
+         "Only matters when scenery shadows are on in X-Plane."),
+        ("use_decal_on_terrain", "Add fine ground detail up close?", "tile", False,
+         "Noticeable at very low altitude."),
+        ("normal_map_strength", "Normal map strength", "tile", True, ""),
+        ("ovl_exclude_pol", "Exclude overlay polygon types", "app", True, ""),
+        ("ovl_exclude_net", "Exclude overlay road types", "app", True, ""),
     ]),
 ]
 
@@ -205,16 +298,14 @@ def _build_registry() -> tuple:
     for entry in _LAYOUT:
         cat_key, cat_title, members = entry
         categories.append((cat_key, cat_title))
-        for member in members:
-            if member[2] == "pref":
-                name, label, scope, advanced, hint = member
+        for name, label, scope, advanced, summary in members:
+            if scope == "pref":
                 ordered.append(Setting(
                     name=name, label=label, scope=scope, category=cat_key,
                     advanced=advanced, vtype=str, default="", values=(),
-                    hint=hint,
+                    hint=summary, summary=summary,
                 ))
                 continue
-            name, label, scope, advanced = member
             spec = cfg_vars.get(name)
             if spec is None:
                 # Var not present in the registry — omit gracefully.
@@ -231,6 +322,7 @@ def _build_registry() -> tuple:
                     for value, title
                     in spec.get("value_labels", {}).items()
                 ),
+                summary=summary,
             ))
     return ordered, categories
 

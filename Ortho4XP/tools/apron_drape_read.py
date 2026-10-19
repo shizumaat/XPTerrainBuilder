@@ -29,7 +29,7 @@ THE THREE NUMBERS, all over APRON ring vertices, all in metres:
 IT MEASURES ONLY WHAT IT SAYS.  Every elevation is read verbatim from the
 patch (``check_grade._parse_osm``, the harness library's own parser — a
 private parser here would be the census-wrapper defect); the DEM comes
-from ``flat_site_sweep``'s own loaders, so this tool sees exactly the
+from the engine's own DEM readers, so this tool sees exactly the
 surface that tool and a build see and never composes, densifies, fetches
 or writes anything.  The metre frame for the 50 m window is
 ``check_grade._ll_to_m_factory`` about the sidecar's own anchor.
@@ -97,7 +97,6 @@ for _p in (str(_ROOT / "src"), str(_ROOT), str(_HERE)):
         sys.path.insert(0, _p)
 
 import check_grade as CG                                       # noqa: E402
-import flat_site_sweep as FSS                                  # noqa: E402
 
 #: The role the reading is scoped to.  The ruling is about APRONS.
 APRON_ROLE = "apron"
@@ -136,16 +135,31 @@ def _tile_of(nodes) -> "tuple[int, int]":
 
 
 def _load_dem(tile_lat: int, tile_lon: int, icao: str, dem_source: str):
-    """The DEM, through ``flat_site_sweep``'s own loaders — read-only,
-    never composed.  Returns ``(dem, path, origin)``; ``dem`` None when
-    the requested surface is not cached, which is REPORTED, never
-    silently substituted with the other one."""
+    """The DEM, read straight off disk through the engine's own readers —
+    read-only, never composed (these loaders lived in the retired
+    ``flat_site_sweep``, issue #932).  Returns ``(dem, path, origin)``;
+    ``dem`` None when the requested surface is not cached, which is
+    REPORTED, never silently substituted with the other one."""
+    import O4_DEM_Utils as DEM
+
     if dem_source == "airport-inset":
-        dem, path, _meta = FSS._load_airport_inset_dem(
-            tile_lat, tile_lon, icao, "auto")
-        return dem, path, ("shared corpus (inset cache)" if dem else None)
-    dem, path, origin = FSS._load_base_dem(tile_lat, tile_lon, "auto")
-    return dem, path, origin
+        import O4_Airport_Elevation_Insets as INSETS
+
+        candidates = [p for p in INSETS.list_cached_inset_dems(tile_lat, tile_lon)
+                      if os.path.basename(p).upper().startswith(str(icao).upper() + "_")]
+        if not candidates:
+            return None, None, None
+        dem = DEM.DEM(tile_lat, tile_lon, candidates[0], fill_nodata=False,
+                      info_only=False, elevation_level="auto")
+        return dem, candidates[0], "shared corpus (inset cache)"
+    import O4_File_Names as FNAMES
+
+    path = FNAMES.base_file_name(tile_lat, tile_lon) + ".hgt"
+    if not os.path.isfile(path):
+        return None, None, None
+    dem = DEM.DEM(tile_lat, tile_lon, path, fill_nodata=True,
+                  info_only=False, elevation_level="auto")
+    return dem, path, "shared corpus"
 
 
 def _dem_at(dem, lat: float, lon: float, tile_lat: int, tile_lon: int

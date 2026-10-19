@@ -175,12 +175,7 @@ import O4_File_Names as FNAMES
 import O4_Tile_Failures as _FAIL
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
-from .cifp_reader import (
-    airport_in_tile,
-    discover_cifp_airports,
-    parse_cifp_file,
-    xplane_root_from_cifp_path,
-)
+from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
 from .build_support import pair_runways
 
 # ──────────────────────────────────────────────────────────────────────────────

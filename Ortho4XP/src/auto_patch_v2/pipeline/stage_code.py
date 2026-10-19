@@ -18,7 +18,13 @@ top-level ``O4_*`` modules a stage reaches are not keyed: the closure
 through them is the whole tile core (``planar`` reaches 487 modules with
 them, 200 without) — reported on #842 for the spec author to rule.
 
-Nothing reads the digests yet (the stage cache, #843, will).
+The stage cache (#843, ``pipeline/front_cache.py``) reads them through
+:func:`runtime_digests`.  ``channels`` is the build's TARGET CHANNELS
+(``pipeline/build.py`` between the road profile and the shape stage: the
+runway chord, the taxi and apron trends, the EAT reach, the road ramps and
+the coverage join).  They are not cached — they run on every build — but
+the shape stage's record is keyed on what they are handed, so their code
+is part of the shape record's key.
 
 STDLIB ONLY, NO RELATIVE IMPORT: the specs execute this file with
 ``runpy`` (they never import engine packages); the shared mechanism
@@ -30,7 +36,7 @@ import os
 
 __all__ = ["STAGES", "ENTRY_MODULES", "CODE_MODULES", "CLOSURE_PREFIXES",
            "DIGEST_FILENAME", "freeze_digests", "write_freeze_digest",
-           "frozen_digests"]
+           "frozen_digests", "runtime_digests"]
 
 #: The file the freeze writes beside this module: one ``stage digest``
 #: line per stage.
@@ -42,13 +48,16 @@ CLOSURE_PREFIXES: tuple[str, ...] = ("auto_patch_v2",)
 #: Where ``pipeline/build.build`` ENTERS each cached stage (the module
 #: that DEFINES the function it calls, not a package re-exporting it):
 #: ``classify(...)`` / ``load_rules()`` (re-exported by
-#: ``classify/__init__``), ``planar.build.build``, ``flat_site.detect``,
+#: ``classify/__init__``), ``planar.build.build``, ``flat_site_read.verdict_for_build``,
 #: ``road_profile.preferred_road_z``, ``shapes.shape_stage``.
 ENTRY_MODULES: dict[str, tuple[str, ...]] = {
     "classify": ("auto_patch_v2.classify.roles", "auto_patch_v2.classify.rules"),
     "planar": ("auto_patch_v2.planar.build",),
-    "flat_site": ("auto_patch_v2.airport.flat_site",),
+    "flat_site": ("auto_patch_v2.airport.flat_site_read",),
     "road_profile": ("auto_patch_v2.airport.road_profile",),
+    "channels": ("auto_patch_v2.airport.road_ramp", "auto_patch_v2.constraints.apron_trend",
+                 "auto_patch_v2.constraints.eat", "auto_patch_v2.constraints.runway_chord",
+                 "auto_patch_v2.constraints.taxi_trend", "auto_patch_v2.emit.road_join"),
     "shapes": ("auto_patch_v2.pipeline.shapes",),
 }
 
@@ -97,6 +106,26 @@ def frozen_digests(directory: str | None = None) -> dict[str, str] | None:
     d = directory if directory is not None else os.path.dirname(
         os.path.abspath(__file__))
     return _CLOSURE["read_digest_table"](d, DIGEST_FILENAME)
+
+
+_RUNTIME: dict[str, "str | None"] | None = None
+
+
+def runtime_digests() -> dict[str, "str | None"]:
+    """``{stage: digest}`` for THIS engine, once per process: of the sources
+    in a checkout (``src`` beside this package), else the table the freeze
+    wrote (:func:`frozen_digests`).  A stage with neither is ``None`` — the
+    stage cache then neither reads nor writes it."""
+    global _RUNTIME
+    if _RUNTIME is None:
+        src_root = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+        got = freeze_digests(src_root)
+        if any(v is None for v in got.values()):
+            frozen = frozen_digests() or {}
+            got = {s: got.get(s) or frozen.get(s) for s in STAGES}
+        _RUNTIME = got
+    return dict(_RUNTIME)
 
 
 #: Each stage's static import closure under :data:`CLOSURE_PREFIXES`,
@@ -431,7 +460,10 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.zones",
     ),
     "flat_site": (
+        "auto_patch_v2.airport.dem",
+        "auto_patch_v2.airport.dem_production",
         "auto_patch_v2.airport.flat_site",
+        "auto_patch_v2.airport.flat_site_read",
         "auto_patch_v2.geom.rotated_rect",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",
@@ -481,6 +513,74 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.airport",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.planar",
+        "auto_patch_v2.model.registries",
+        "auto_patch_v2.model.structures",
+    ),
+    "channels": (
+        "auto_patch_v2.airport.dem",
+        "auto_patch_v2.airport.road_descent",
+        "auto_patch_v2.airport.road_profile",
+        "auto_patch_v2.airport.road_ramp",
+        "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.constraints.apron",
+        "auto_patch_v2.constraints.apron_trend",
+        "auto_patch_v2.constraints.cluster_pad",
+        "auto_patch_v2.constraints.eat",
+        "auto_patch_v2.constraints.geometry",
+        "auto_patch_v2.constraints.pad_relief",
+        "auto_patch_v2.constraints.pad_warning",
+        "auto_patch_v2.constraints.pads",
+        "auto_patch_v2.constraints.platform",
+        "auto_patch_v2.constraints.precedence",
+        "auto_patch_v2.constraints.routes",
+        "auto_patch_v2.constraints.runway_chord",
+        "auto_patch_v2.constraints.runway_profile",
+        "auto_patch_v2.constraints.runway_yield",
+        "auto_patch_v2.constraints.shoulder_crossing",
+        "auto_patch_v2.constraints.stretches",
+        "auto_patch_v2.constraints.surface_trend",
+        "auto_patch_v2.constraints.taxi",
+        "auto_patch_v2.constraints.taxi_trend",
+        "auto_patch_v2.constraints.taxi_trend_cap",
+        "auto_patch_v2.constraints.trend",
+        "auto_patch_v2.emit.road_join",
+        "auto_patch_v2.geom",
+        "auto_patch_v2.geom.base_slab",
+        "auto_patch_v2.geom.cluster_outline",
+        "auto_patch_v2.geom.containment",
+        "auto_patch_v2.geom.core_clamp",
+        "auto_patch_v2.geom.coverage",
+        "auto_patch_v2.geom.pad_evidence",
+        "auto_patch_v2.geom.ramp_grade",
+        "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.triangulate",
+        "auto_patch_v2.geom.union_find",
+        "auto_patch_v2.law",
+        "auto_patch_v2.law.airports_schema",
+        "auto_patch_v2.law.base_profile_schema",
+        "auto_patch_v2.law.basin_schema",
+        "auto_patch_v2.law.cockpit_schema",
+        "auto_patch_v2.law.cutout_schema",
+        "auto_patch_v2.law.design_schema",
+        "auto_patch_v2.law.eat_schema",
+        "auto_patch_v2.law.flat_site_schema",
+        "auto_patch_v2.law.inset_class",
+        "auto_patch_v2.law.model",
+        "auto_patch_v2.law.model_types",
+        "auto_patch_v2.law.rebake_schema",
+        "auto_patch_v2.law.reference_code",
+        "auto_patch_v2.law.role_cap_schema",
+        "auto_patch_v2.law.tables",
+        "auto_patch_v2.law.terrace_schema",
+        "auto_patch_v2.law.tunnel_object_schema",
+        "auto_patch_v2.law.units",
+        "auto_patch_v2.model.airport",
+        "auto_patch_v2.model.constraints",
+        "auto_patch_v2.model.frame",
+        "auto_patch_v2.model.islands",
+        "auto_patch_v2.model.map_memo",
+        "auto_patch_v2.model.planar",
+        "auto_patch_v2.model.platform",
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.structures",
     ),

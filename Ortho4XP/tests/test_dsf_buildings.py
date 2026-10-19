@@ -1,7 +1,7 @@
 """DSF building-facade reading + term_bridge grouping (20260614-02).
 
 Covers:
-* ``_building_role_for_def`` — terminal / hangar / bridge / None.
+* ``building_role_for_def`` (v2 ``airport.dsf``, #852) — terminal / hangar / bridge / None.
 * the depth-5 facade bezier parse fix: a curved ``term_building_*.fac``
   is authored as ``(lon, lat, wall_param, ctrl_lon, ctrl_lat)`` per
   point; reading a fixed ``tok[3],tok[4]`` grabbed the wall param as the
@@ -20,7 +20,7 @@ import os
 from shapely.geometry import Polygon
 
 import auto_patch.dsf_reader as D
-from auto_patch.dsf_reader import _building_role_for_def
+from auto_patch_v2.airport.dsf import building_role_for_def as _building_role_for_def
 
 
 def test_building_role_for_def():

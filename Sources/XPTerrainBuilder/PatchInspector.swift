@@ -17,7 +17,7 @@ struct PatchInspector: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(4)
             } label: {
-                Text("Patch · \(icao)").font(.callout.weight(.semibold))
+                Text("\(O4Glossary.term("ground_shape")) · \(icao)").scaledFont(.callout, weight: .semibold)
             }
         }
     }
@@ -38,12 +38,12 @@ struct PatchInspector: View {
         case .loading:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Loading the patch…").foregroundStyle(.secondary)
+                Text("Loading the ground shape…").foregroundStyle(.secondary)
             }
         case .failed(_, let message):
             Text(message).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
         case .noPatch(_, let tileBuilt):
-            Text(tileBuilt ? "No patch was built for this airport." : "Build this tile first.")
+            Text(tileBuilt ? "No ground shape was built for this airport." : "Build this tile first.")
                 .foregroundStyle(.secondary)
         case .loaded:
             if let doc = model.document { loaded(doc) }
@@ -59,7 +59,7 @@ struct PatchInspector: View {
             note("\(meshNodes.formatted()) nodes: elevation from the mesh.")
         }
         if doc.stale {
-            note("The engine, DEM or airport data has changed since this patch was edited. The auto patch would now be different, but your edited patch is still used.",
+            note("The engine, elevation or airport data has changed since this ground shape was edited. The automatic shape would now be different, but your edited shape is still used.",
                  color: MapCanvasView.badgeStopped)
                 .help(doc.staleInputs.joined(separator: ", "))
         }
@@ -78,14 +78,14 @@ struct PatchInspector: View {
         }
     }
 
-    /// "Auto patch, built 12 Oct" / "Edited · KHIO_edited.patch.osm" /
+    /// "Automatic, built 12 Oct" / "Edited · KHIO_edited.patch.osm" /
     /// "Manual · KHIO_runways.patch.osm".
     private func sourceLine(_ doc: PatchDocument) -> String {
         let file = (doc.path as NSString).lastPathComponent
         switch doc.source {
         case .auto:
-            guard let date = model.fileDate else { return "Auto patch" }
-            return "Auto patch, built \(date.formatted(.dateTime.day().month(.abbreviated)))"
+            guard let date = model.fileDate else { return "Automatic" }
+            return "Automatic, built \(date.formatted(.dateTime.day().month(.abbreviated)))"
         case .manual:
             return doc.isHandMade ? "Manual · \(file)" : "Edited · \(file)"
         }
@@ -97,12 +97,12 @@ struct PatchInspector: View {
             Spacer(minLength: 8)
             Text(value).multilineTextAlignment(.trailing).textSelection(.enabled)
         }
-        .font(.callout)
+        .scaledFont(.callout)
     }
 
     private func note(_ text: String, color: Color = .secondary) -> some View {
         Text(text)
-            .font(.caption)
+            .scaledFont(.caption)
             .foregroundStyle(color)
             .fixedSize(horizontal: false, vertical: true)
     }

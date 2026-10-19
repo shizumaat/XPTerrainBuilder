@@ -744,12 +744,13 @@ final class BuildModel: ObservableObject {
                 label: label.isEmpty ? state.rawValue : label,
                 percent: percent,
                 detail: detail), to: coord)
-        case .stepProgress(let lat, let lon, _, let label, let percent, let indeterminate):
+        case .stepProgress(let lat, let lon, let stepKey, let label, let percent, let indeterminate):
             let coord = TileCoord(lat: lat, lon: lon)
             let previous = activity.tiles[coord]?.percent ?? 0
             applyTileEvent(TileProgress(
                 state: indeterminate ? .indeterminate : .active,
-                label: label,
+                // Wire label -> plain step name (#831); the wire is unchanged.
+                label: O4Glossary.stepDisplay(key: stepKey, label: label),
                 // Indeterminate steps report no usable percent — hold it.
                 percent: indeterminate ? previous : percent), to: coord)
         case .autoPatchBegin, .autoPatchProgress:
@@ -985,6 +986,9 @@ final class BuildModel: ObservableObject {
 
     /// The patch layer (map overlay + "Patch · ICAO" box).
     lazy var patchEdit = PatchEditModel(build: self)
+
+    /// "Select from flight plan…" (#829): the panel and the route overlay.
+    lazy var flightPlan = FlightPlanSelection(build: self)
     /// The pack reference outlines under it (spec §0 A4).
     lazy var packOutlines = PatchPackOutlines(patch: patchEdit)
 

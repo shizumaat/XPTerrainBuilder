@@ -53,7 +53,10 @@ def test_sidebar_selection_filters_to_one_category(window):
         )
         # Headers of other categories are hidden too.
         for other_key, _ in SM.CATEGORIES:
-            expected = other_key == key and len(visible) > 0
+            # An all-Expert category still shows its title and the
+            # "expert settings hidden" note when selected (issue #823).
+            expected = other_key == key and (
+                len(visible) > 0 or key in window._advanced_notes)
             assert window._headers[other_key].isHidden() == (not expected)
 
 
@@ -98,7 +101,7 @@ def test_enumerated_menus_show_labels_but_store_raw_values(window):
 def test_cleaning_level_is_a_regular_setting(window):
     setting = next(s for s in SM.settings() if s.name == "cleaning_level")
     assert setting.advanced is False
-    # Visible without "Show advanced" once its category is selected.
+    # Visible without "Show expert settings" once its category is selected.
     index = [k for k, _ in SM.CATEGORIES].index(setting.category)
     assert window.advanced_check.isChecked() is False
     window.category_list.setCurrentRow(index)
@@ -308,7 +311,42 @@ def test_grouping_audit_pins():
     assert SM.get_setting("water_simplification").category == "water"
     assert SM.get_setting("max_build_slots").category == "network"
     titles = dict(SM.CATEGORIES)
-    assert titles["network"] == "Performance & Network"
-    assert titles["vector"] == "Roads & OSM Data"
-    assert titles["mesh"] == "Mesh"
-    assert titles["elevation"] == "Elevation"
+    # Plain titles since issue #823 (the keys are unchanged).
+    assert titles["network"] == "Speed & Downloads"
+    assert titles["vector"] == "Roads & Map Data"
+    assert titles["mesh"] == "Ground Shape"
+    assert titles["elevation"] == "Elevation & Airports"
+
+
+def test_expert_section_is_collapsed_and_names_the_key(window):
+    """Issue #823: the mesh tuning is Expert — hidden until "Show expert
+    settings" is ticked, under an "Expert" sub-header, with the cfg key as
+    secondary text; the all-Expert category still shows its note."""
+    from PySide6.QtWidgets import QLabel
+    index = [k for k, _ in SM.CATEGORIES].index("mesh")
+    window.category_list.setCurrentRow(index)
+    assert window.advanced_check.text() == "Show expert settings"
+    assert window.rows["curvature_tol"].isHidden()
+    assert not window._headers["mesh"].isHidden()
+    assert not window._advanced_notes["mesh"].isHidden()
+    assert window._expert_headers["mesh"].isHidden()
+    window.advanced_check.setChecked(True)
+    assert not window.rows["curvature_tol"].isHidden()
+    assert not window._expert_headers["mesh"].isHidden()
+    texts = [label.text() for label
+             in window.rows["curvature_tol"].findChildren(QLabel)]
+    assert "curvature_tol · Recommended: 2.0" in texts
+    window.advanced_check.setChecked(False)
+
+
+def test_plain_row_shows_summary_and_recommended_value(window):
+    from PySide6.QtWidgets import QLabel
+    row = window.rows["road_level"]
+    texts = [label.text() for label in row.findChildren(QLabel)]
+    assert row.setting.secondary_text() in texts
+    assert row.setting.hint not in texts          # the hint is the tooltip
+    # Search still matches the plain label, the summary and the key.
+    for query in ("roads should the ground", "railways", "road_level"):
+        window.search_edit.setText(query)
+        assert not row.isHidden(), query
+    window.search_edit.setText("")

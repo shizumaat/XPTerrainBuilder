@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OFP>
+  <fetch>
+    <userid>123456</userid>
+    <static_id></static_id>
+    <status>Success</status>
+    <time>0.0123</time>
+  </fetch>
+  <origin>
+    <icao_code>ENGM</icao_code>
+    <iata_code>OSL</iata_code>
+    <pos_lat>60.193917</pos_lat>
+    <pos_long>11.100361</pos_long>
+  </origin>
+  <destination>
+    <icao_code>ENTC</icao_code>
+    <iata_code>TOS</iata_code>
+    <pos_lat>69.683306</pos_lat>
+    <pos_long>18.918919</pos_long>
+  </destination>
+  <navlog>
+    <fix>
+      <ident>ENGM</ident>
+      <name>OSLO GARDERMOEN</name>
+      <type>apt</type>
+      <pos_lat>60.193917</pos_lat>
+      <pos_long>11.100361</pos_long>
+    </fix>
+    <fix>
+      <ident>TOC</ident>
+      <name>TOP OF CLIMB</name>
+      <type>ltlg</type>
+      <pos_lat>61.100000</pos_lat>
+      <pos_long>11.900000</pos_long>
+    </fix>
+    <fix>
+      <ident>BDO</ident>
+      <name>BODO</name>
+      <type>vor</type>
+      <pos_lat>67.271800</pos_lat>
+      <pos_long>14.372000</pos_long>
+    </fix>
+    <fix>
+      <ident>ENTC</ident>
+      <name>TROMSO</name>
+      <type>apt</type>
+      <pos_lat>69.683306</pos_lat>
+      <pos_long>18.918919</pos_long>
+    </fix>
+  </navlog>
+</OFP>

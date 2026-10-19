@@ -51,7 +51,7 @@ def test_every_module_a_stage_imports_is_in_its_code_key(stage):
 
 def test_the_stages_are_the_specs_cached_stages():
     assert SCODE.STAGES == ("classify", "planar", "flat_site", "road_profile",
-                            "shapes")
+                            "channels", "shapes")
     assert set(SCODE.CODE_MODULES) == set(SCODE.STAGES)
 
 
@@ -59,22 +59,31 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
     """``pipeline/build.build`` calls these names; if one moves to another
     module, the stage's closure must be re-rooted there."""
     from auto_patch_v2 import classify
-    from auto_patch_v2.airport import flat_site, road_profile
+    from auto_patch_v2.airport import flat_site_read, road_profile, road_ramp
+    from auto_patch_v2.constraints import apron_trend, eat, runway_chord, taxi_trend
+    from auto_patch_v2.emit import road_join
     from auto_patch_v2.pipeline import shapes
     # ``planar/__init__`` re-exports ``build``, shadowing the submodule
     planar_build = importlib.import_module("auto_patch_v2.planar.build")
     text = (SRC / "auto_patch_v2" / "pipeline" / "build.py").read_text(encoding="utf-8")
     for line in ("from ..classify import classify, load_rules",
                  "from ..planar.build import build as build_planar",
-                 "from ..airport import flat_site as _flat",
+                 "from ..airport.flat_site_read import verdict_for_build as _flat_verdict",
                  "from ..airport.road_profile import preferred_road_z",
                  "from .shapes import joint_steps, shape_constraints, shape_stage"):
         assert line in text, line
     defined = {
         "classify": {classify.classify.__module__, classify.load_rules.__module__},
         "planar": {planar_build.build.__module__},
-        "flat_site": {flat_site.detect.__module__},
+        "flat_site": {flat_site_read.verdict_for_build.__module__},
         "road_profile": {road_profile.preferred_road_z.__module__},
+        # the target channels the shape record is keyed on (#843)
+        "channels": {runway_chord.with_runway_chord.__module__,
+                     taxi_trend.with_taxi_trend.__module__,
+                     apron_trend.with_apron_trend.__module__,
+                     eat.withdraw_trend_over_reach.__module__,
+                     road_ramp.with_road_ramp.__module__,
+                     road_join.with_road_coverage_join.__module__},
         "shapes": {shapes.shape_stage.__module__},
     }
     assert {s: set(e) for s, e in SCODE.ENTRY_MODULES.items()} == defined

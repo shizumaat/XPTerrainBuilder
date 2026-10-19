@@ -1,7 +1,7 @@
 """CIFP runway thresholds (ARINC 424 ``RWY:`` records) — the ABSOLUTE
 runway-end pins (RULINGS :511-516; CIFP thresholds absolute).
 
-Record grammar (v1 ``cifp_reader.parse_cifp_file`` is the reference)::
+Record grammar::
 
     RWY:RW14R,+0432,      ,02277, ,    , ,   ;N60431814,W135043590,0000;
 
@@ -9,10 +9,19 @@ Before the first ``;`` (comma fields): designator, magnetic bearing,
 reserved, threshold elevation FEET, reserved, ILS ident, ILS category.
 After it: latitude ``N60431814`` (DDMMSSss), longitude ``W135043590``
 (DDDMMSSss), displaced-threshold distance in feet.
+
+Tile selection, the flat-site S1 consensus and DEM prep read this file too
+(owner 2026-10-18, #911 Q1: they read below-sea-level thresholds, as the
+airport load does): :func:`read_threshold_dicts` is their shape, and the
+install-layout helpers below (:func:`xplane_root_from_cifp_path`,
+:func:`discover_cifp_airports`, :func:`airport_in_tile`) came here with the
+retired v1 ``cifp_reader`` module.
 """
 from __future__ import annotations
 
 import dataclasses as _dc
+import logging
+import os
 import re
 
 from ..law.reference_code import NPA, stronger_class
@@ -20,7 +29,11 @@ from ..law.reference_code import NPA, stronger_class
 FT_TO_M = 0.3048
 
 __all__ = ["CifpRunway", "read_cifp_runways", "read_cifp_approach_runways",
-           "parse_lat", "parse_lon", "match_designator", "match_threshold"]
+           "parse_lat", "parse_lon", "match_designator", "match_threshold",
+           "read_threshold_dicts", "xplane_root_from_cifp_path",
+           "discover_cifp_airports", "airport_in_tile"]
+
+_log = logging.getLogger(__name__)
 
 
 @_dc.dataclass(frozen=True)
@@ -85,6 +98,64 @@ def read_cifp_runways(path: str) -> dict[str, CifpRunway]:
                 key, lat, lon, int(elev) * FT_TO_M,
                 int(disp) * FT_TO_M if disp.isdigit() else 0.0, path)
     return out
+
+
+def read_threshold_dicts(path: str) -> dict[str, dict]:
+    """:func:`read_cifp_runways` in the shape tile selection and the
+    object-anchor worklist consume: ``{"RW16L": {lat, lon, elevation_m,
+    displaced_m}}`` (``build_support.pair_runways`` pairs ``RW`` keys).
+
+    An UNREADABLE file is no runways (``{}``, one log line), never an
+    exception: a CIFP file that vanished or cannot be decoded skips that
+    airport and must not fail the tile's whole selection."""
+    try:
+        runways = read_cifp_runways(path)
+    except (OSError, ValueError) as exc:
+        _log.warning("could not read CIFP file %s: %s", path, exc)
+        return {}
+    return {"RW" + key: {"lat": r.lat, "lon": r.lon,
+                         "elevation_m": r.elevation_m,
+                         "displaced_m": r.displaced_m}
+            for key, r in runways.items()}
+
+
+def xplane_root_from_cifp_path(cifp_path: str) -> str | None:
+    """The X-Plane install root two levels above a CIFP directory
+    (``<X-Plane>/Custom Data/CIFP``), or ``None`` when the derived root
+    holds neither ``Custom Scenery`` nor ``Resources``."""
+    if not cifp_path:
+        return None
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.normpath(cifp_path)))
+        if (os.path.isdir(os.path.join(root, "Custom Scenery"))
+                or os.path.isdir(os.path.join(root, "Resources"))):
+            return root
+    except OSError:
+        pass
+    return None
+
+
+def discover_cifp_airports(cifp_path: str) -> dict[str, str]:
+    """``{ICAO: file path}`` for every ``.dat`` file of a CIFP directory
+    whose stem is a 2-4 character alphanumeric code (``-`` allowed)."""
+    airports: dict[str, str] = {}
+    if not cifp_path or not os.path.isdir(cifp_path):
+        return airports
+    for fname in os.listdir(cifp_path):
+        if fname.lower().endswith(".dat"):
+            icao = fname[:-4].upper()
+            if 2 <= len(icao) <= 4 and icao.replace("-", "").isalnum():
+                airports[icao] = os.path.join(cifp_path, fname)
+    return airports
+
+
+def airport_in_tile(runways: dict, tile_lat: int, tile_lon: int) -> bool:
+    """Whether any threshold of ``runways`` (:func:`read_threshold_dicts`
+    shape) lies in the 1x1 degree tile whose SW corner is
+    ``(tile_lat, tile_lon)``; the tile is half-open on its N and E edges."""
+    return any(tile_lat <= d["lat"] < tile_lat + 1
+               and tile_lon <= d["lon"] < tile_lon + 1
+               for d in runways.values())
 
 
 #: an ``APPCH:`` procedure identifier naming its runway: one type letter

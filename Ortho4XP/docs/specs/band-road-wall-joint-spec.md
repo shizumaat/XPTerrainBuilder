@@ -154,3 +154,91 @@ What the next round has to answer (not decided by the lane):
 3. **The road-road defects at KLAX** come from 19k's release of in-band
    ribbon vertices from the 10-03b terrace while a neighbouring ribbon keeps
    it: the release reads per vertex, the roads meet per carriageway.
+
+## 7. The owner's answers (2026-10-19, relayed by the master) and round 2
+
+The owner answered §6's three questions:
+
+- **Q11 — yes:** at the wall, the top of the runway / taxi safety band holds
+  its own graded level; it does not fall to raw DEM. **Built:**
+  `zones.zone_bands` gives a band vertex at a wall
+  (`constraints/band_standoff.band_wall_vertices`: a riser's band line, a
+  road page's stand-off band vertex) the nearest pavement's graded level —
+  its zone ceiling, never above the pavement edge (`min(ceiling, 0)`) — as
+  its FLOOR (as built in round 2: see below). The one-way floor `z[band] ≥ z[road]` (§2) still holds the
+  band level with a road above it (13ar / 29r).
+- **Q12 — yes:** walls stand beside DSF road pages too, not only OSM
+  ribbons. **Built:** a road page that is not a ribbon is a groundside cell,
+  so the band is already cut back from it by `groundside_cutback_m` — the
+  riser the ribbons need §2.1 to cut is the stand-off gap itself.
+  `constraints/band_standoff.band_standoffs` pairs each runway / taxi band
+  ring vertex with the nearest road-page vertex across it (within the
+  cut-back + weld + snap horizon, never shared); the pair takes the graded
+  floor, the one-way floor, and a declared `band_road_wall` line across its
+  chord (`pipeline/band_road_wall._standoff_records`). No new geometry.
+- **Q13 — whole road:** an in-band road drops together, not per vertex.
+  **Built:** `constraints/road_ramp._whole_roads` releases from the 10-03b
+  terrace every vertex of the ribbon faces connected to an in-band vertex,
+  among the ribbon faces that stand in a runway / taxi band.
+
+Consumer census additions (§3):
+
+| consumer | reads | interaction | ruled |
+|---|---|---|---|
+| `band_riser._graded_rows` (between the stages) | band vertex at a wall, stage-1 levels | a `Band` floor at the graded level, whichever generator (zones, end skirt) shapes the band | Q11 |
+| `band_riser.riser_release` floors | stand-off pairs | one-way floor band ≥ road page | Q12 |
+| `publication.terrace_joints_ll` | stand-off pairs | a declared line per pair where the band stands above | Q12 |
+| `road_ramp.terrace_rewrite` | in-band ribbon vertices | whole connected in-band road | Q13 |
+| `constraints/groundside.groundside_ramps` | APRON ↔ groundside pairs only | band vertices are not read | unaffected |
+
+Q11 as first built (a floor raised inside `zones.zone_bands`) reached no
+riser at KLAX: the band there is the runway END area, shaped by the
+`strips` end-skirt rows (chord bounds −7.2..+4.2 m), not by the zone rows.
+It is now ONE row off the stage-1 pavement, whatever generator shapes the
+band: `constraints/band_riser._graded_rows`, a `Band` floor at the nearest
+stage-1 pavement vertex's solved level + `min(zone ceiling, 0)` at that
+distance, added between the stages. A riser vertex nearer a ribbon than one
+weld spacing less the snap margin (a median between carriageways) is no
+wall vertex (measured: a median vertex held at band level stood 3.5 m over
+both carriageways at KLAX 33.94033, −118.39618).
+
+### 7.1 Measured — round 2, two iterations (STOPPED at the cap; bars NOT met)
+
+Same replays (frames/c944, `--from planar`), base main 8f96a4c76:
+
+| | KBUR main → r2 | KLAX main → r2 |
+|---|---|---|
+| `hairline_pair` in scope | 0 → 0 | 0 → 0 |
+| `hairline_pair` raw (all `above_degenerate_floor`) | 333 → 459 | 1300 → 1345 |
+| `adjacent_ground_step` | 3 → 8 | 5 → 9 (3.90 m) |
+| `strip_seam_tear` | 0 → 0 | 4 → 12 (3.93 m) |
+| road-road rows | — | `pavement_over_road_cap` 0 → 5 (2.93 m), `terrace_actual_step` 0 → 6 (3.02 m), `road_cross_section` worst 0.81 → 2.87 m, `vertex_to_edge_step` 0 → 1 |
+| 30aa added/removed | 0/0 | 6/0 (main 6/0) |
+
+Sites:
+
+- **KLAX 33.945963, −118.436316: the wall stands.** The band line holds its
+  graded level (riser `zone2#13:riser` 26.89–31.06 m, band beyond
+  29.76–32.72 m) over the road at its ground; declared `band_road_wall`
+  risers of 3.94 / 3.22 m there. The census still reports the riser chords
+  (`adjacent_ground_step` / `strip_seam_tear` 3.90 m over 1.0 m): the
+  declared MIDLINE stops at the riser face's own end edge, so a chord along
+  that edge touches it without crossing; and the declared step is the
+  nearest-pair maximum, 0.01 m under a 3.23 m diagonal pair. Both are the
+  declaration's geometry, not the wall.
+- **#951 road** `big_roads:-2346`: 26.83–28.04 m, on its ground.
+- **KBUR building9 corner (34.19628, −118.35023): still not declared.** The
+  stand-off pairs VERTEX to vertex; there the nearest `dsf:pol122` ring
+  vertex is 2.69 m from the band corner (horizon 1.95 m) — the census's
+  1.12 m is to the road's EDGE. The pairing must read the nearest point on
+  the road page's edge (and the road level interpolated there).
+- **KLAX road-road rows** (33.9403, −118.3962 and 33.9344, −118.3962, the
+  taxiway-F end areas): released in-band roads following their ground into
+  a dip at grades over the road cap; the road's cap rows are one-sided
+  targets that the DEM fit outweighs once the 10-03b terrace target is gone.
+  Not attributed further.
+
+Next round (not done): declare the midline extended through the riser's
+end edges and the step as the largest pair within a few metres; pair road
+pages by nearest edge point; attribute the KLAX road-road rows (the road's
+own profile target inside a band).

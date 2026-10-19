@@ -127,7 +127,6 @@ __all__ = ["StructureStats", "build_structures", "carriageway_width_m"]
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 RUNWAY_FAMILY = ("runway", "runway_crossing")
 NODE_TOL = 0.05                    #: two node coords closer than this are one
-MAX_HOPS = 6                       #: hops an approach walk follows from a mouth
 PARALLEL_COS = math.cos(math.radians(30))   #: 31h's dual test / the kink test
 
 # ── build ────────────────────────────────────────────────────────────────

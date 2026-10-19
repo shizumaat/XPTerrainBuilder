@@ -607,8 +607,10 @@ def parse_patch_provenance(path: str) -> dict | None:
 # FROZEN, so an edited checkout reused its old patches.  Every "3" patch
 # rebuilds exactly once.
 # "5" (2026-10-19, #880): ``o4_code`` is the patch build's import closure,
-# not the whole tree (``provenance_code.freshness_code_digest``).  Every "4"
-# patch rebuilds exactly once — through the v2 stage cache (#843).
+# not the whole tree (``provenance_code.freshness_code_digest``), and the
+# gate reads ``o4_osm`` (the OSM feeds' witness, written by v2's emitter
+# beside ``o4_apt_dat_borrowed``).  Every "4" patch rebuilds exactly once —
+# through the v2 stage cache (#843).
 FRESHNESS_SCHEMA_VERSION = "5"
 
 # Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately

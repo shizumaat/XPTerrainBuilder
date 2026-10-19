@@ -431,6 +431,20 @@ def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
         if b_stored is None or b_now is None or abs(b_now - b_stored) >= 1e-6:
             stale.append(("o4_apt_dat_borrowed_mtime", b_stored, b_now))
 
+    # ── Input 1c: the OSM feeds the load could read (#880) ────────────────
+    # STAT ONLY: ``o4_osm`` names the airport's home tile and one digest of
+    # the size/mtime/absence of every feed file over its 3x3 neighbourhood
+    # (``auto_patch_v2.airport.osm.feed_witness``, the ONE derivation, the
+    # emitter's too).  Missing or malformed — a patch before #880 — is
+    # changed (fail-safe).
+    osm_stamp = meta.get("osm") or ""
+    m = re.fullmatch(r"(-?\d+),(-?\d+)\|[0-9a-f]{16}", osm_stamp)
+    from auto_patch_v2.airport import osm as _osm
+    osm_now = (_osm.feed_witness(FNAMES.OSM_dir, int(m.group(1)), int(m.group(2)))
+               if m else None)
+    if osm_now != osm_stamp:
+        stale.append(("o4_osm", osm_stamp or None, osm_now))
+
     # ── Inputs 2-7 ────────────────────────────────────────────────────────
     stamped = meta.get("freshness") or {}
     live = _freshness_stamps_now(tile, xp_root, icao, apt_now, cifp_file)
@@ -467,6 +481,10 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        A Global Airports update that would flip a NON-borrowing airport into
        borrowing (or out of it) is invisible here — deciding it needs the
        Global block parsed and a coverage union, which this gate does not do.
+    1c. **the OSM feeds** (#880) — ``o4_osm``: the size, mtime or absence
+       of every OSM feed file the build's loader could read (each feed over
+       the 3x3 tiles around the airport, ``osm.feed_witness``), so a
+       refreshed, new or deleted extract rebuilds the patch.
     2. **pack DSF(s)** — every DSF the build read from that pack, re-resolved
        and re-stat'ed (``o4_dsf`` / ``o4_dsf_tiles``) BY ITS INPUT IDENTITY:
        the ``<dsf>.anchor_bak`` pristine file where the object stage has

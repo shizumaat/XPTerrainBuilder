@@ -168,6 +168,10 @@ class FakeInstall:
             header["o4_dsf_tiles"] = (
                 ";".join(f"{la},{lo}" for la, lo in sorted(set(tiles)))
                 if tiles is not None else "?")
+            # v2's emitter adds the OSM feeds' witness (``patch_header``)
+            from auto_patch_v2.airport import osm as _osm
+            header["o4_osm"] = _osm.feed_witness(
+                driver.FNAMES.OSM_dir, TILE_LAT + 0.5, TILE_LON + 0.5)
         else:
             header = _legacy_header(self.apt_dat)
         return write_stamped_patch(path, header)
@@ -181,6 +185,7 @@ class FakeInstall:
 def install(tmp_path, monkeypatch, fresh_env):
     """A fake install whose apt.dat is what the selector returns."""
     fake = FakeInstall(tmp_path / "X-Plane 12")
+    monkeypatch.setattr(driver.FNAMES, "OSM_dir", str(tmp_path / "OSM_data"))
     monkeypatch.setattr(
         build_support, "_pick_best_apt_dat_against_osm",
         lambda xp_root, icao: str(fake.apt_dat))
@@ -921,6 +926,51 @@ def test_the_whole_tree_switch_keys_on_the_whole_tree(install, patch_file,
     assert not install.is_current(patch_file)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Input 1c — the OSM feeds (#880)
+# ──────────────────────────────────────────────────────────────────────
+def _feed(lat: int, lon: int, feed: str = "airports", text: str = "<osm/>\n"):
+    from auto_patch_v2.airport import osm as _osm
+    path = Path(_osm.feed_path(driver.FNAMES.OSM_dir, lat, lon, feed) + ".bz2")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(text.encode())
+    return path
+
+
+def test_an_osm_feed_appearing_in_the_neighbourhood_rebuilds(install, patch_file,
+                                                            monkeypatch):
+    seen = _reason_lines(monkeypatch)
+    _feed(TILE_LAT + 1, TILE_LON - 1, "big_roads")
+    assert not install.is_current(patch_file)
+    assert len(seen) == 1 and "o4_osm" in seen[0], seen
+
+
+def test_an_osm_feed_changed_in_place_rebuilds(install, tmp_path):
+    path = _feed(TILE_LAT, TILE_LON)
+    patch = install.emit_patch(tmp_path / "KFAKE_auto.patch.osm")
+    assert install.is_current(patch)
+    os.utime(path, ns=(1, 1))
+    assert not install.is_current(patch)
+
+
+def test_an_osm_feed_outside_the_neighbourhood_keeps_the_patch(install,
+                                                               patch_file):
+    """A change to ANOTHER airport's inputs stales only that airport."""
+    _feed(TILE_LAT + 2, TILE_LON)
+    _feed(TILE_LAT, TILE_LON - 2, "airport_small_roads")
+    assert install.is_current(patch_file)
+
+
+def test_a_patch_without_the_osm_stamp_rebuilds(install, patch_file):
+    text = patch_file.read_text(encoding="utf-8")
+    stamp = read_patch_source(str(patch_file))["osm"]
+    assert stamp.startswith(f"{TILE_LAT},{TILE_LON}|")
+    patch_file.write_text(text.replace(f" o4_osm='{stamp}'", ""),
+                          encoding="utf-8", newline="")
+    assert read_patch_source(str(patch_file))["osm"] == ""
+    assert not install.is_current(patch_file)
+
+
 def test_engine_version_stamped_from_o4_version(install, patch_file):
     import O4_Version
 
@@ -1082,6 +1132,8 @@ def test_lazy_inputs_skipped_when_patch_current(
         "tile_lat": TILE_LAT, "tile_lon": TILE_LON})
     header["o4_dsf"] = provenance.pack_dsf_identity_list([])
     header["o4_dsf_tiles"] = ""
+    from auto_patch_v2.airport import osm as _osm
+    header["o4_osm"] = _osm.feed_witness(driver.FNAMES.OSM_dir, 40.1, -100.2)
     write_stamped_patch(patch_dir / "KFAK_auto.patch.osm", header)
 
     auto_patched, providers = _drive_generate(tmp_path, monkeypatch, apt,

@@ -32,7 +32,8 @@ wrong hit.
 The switch is ``O4_OBJECT_STAGE_REUSE`` (``0`` = off; a run-environment
 variable, ``provenance_env``), READ BY THE CALLER — the v1 object
 stage's ``reuse_enabled`` — and handed here as ``on`` (``auto_patch_v2``
-reads no environment; ``engine_v2.stage_cache_enabled`` is the same split).  Every airport says ``reused`` or ``ran:
+reads no environment; ``engine_v2.stage_cache_enabled`` is the same split).  Every airport says
+``reused`` or ``ran:
 <the first input that differs>`` with its wall time.
 """
 from __future__ import annotations

@@ -970,8 +970,8 @@ def _stage_reuse(tile, mesh_path: str):
     (every airport then runs, as before)."""
     try:
         import O4_File_Names as FNAMES
-        import O4_UI_Utils as UI
         import O4_Object_Stage_Code as _osc
+        import O4_UI_Utils as UI
         from auto_patch_v2.airport import object_stage_reuse as _osr
         from auto_patch_v2.airport import pack_journal as _pj
         from auto_patch_v2.pipeline import xplat as _xplat

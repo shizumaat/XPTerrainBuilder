@@ -17,7 +17,6 @@ import os
 import types
 
 import pytest
-
 from auto_patch_v2.airport import file_witness as FW
 from auto_patch_v2.airport import object_stage_reuse as R
 from auto_patch_v2.airport import stage_cache as SC

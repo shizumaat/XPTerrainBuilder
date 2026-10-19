@@ -68,7 +68,8 @@ _RUNTIME: list = []
 def runtime_digest() -> "str | None":
     """The digest for THIS engine, once per process: of the sources in a
     checkout (``src``, this module's folder), else the file the freeze
-    wrote beside this module (``_internal`` in a frozen engine).  ``None`` with neither — the stage then neither
+    wrote beside this module (``_internal`` in a frozen engine).  ``None`` with neither — the stage
+    then neither
     reads nor writes a record."""
     if not _RUNTIME:
         here = os.path.dirname(os.path.abspath(__file__))

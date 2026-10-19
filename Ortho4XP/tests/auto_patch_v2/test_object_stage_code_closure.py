@@ -14,8 +14,8 @@ import types
 from pathlib import Path
 
 import O4_Code_Closure as CLOSURE
-from auto_patch import object_stage as STAGE
 import O4_Object_Stage_Code as OSC
+from auto_patch import object_stage as STAGE
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"

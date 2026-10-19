@@ -661,6 +661,9 @@ class _WorkerChild:
         # from the step key — that is also what makes the release
         # crash-safe (the pool's reaping path releases this same field).
         self.step_class = None
+        # True while this child's vector step holds an imagery token lent
+        # to its background orthophoto prefetch (#1002).
+        self.prefetch_token = False
         # Airports still solving while this child is in the auto-patch
         # phase of its vector step (None outside that phase).
         self.autopatch_pending = None
@@ -1274,7 +1277,14 @@ class ParallelBuildRun:
             return False
         if not self._memory_admits_locked(child.tile, step_key):
             return False
-        if child.start_step(step_key, self._tile_arguments[child.tile]):
+        arguments = self._tile_arguments[child.tile]
+        prefetch = self._may_prefetch_locked(child.tile, step_key)
+        if prefetch:
+            arguments = dict(arguments, prefetch=True)
+        if child.start_step(step_key, arguments):
+            if prefetch:
+                self._class_active["imagery"] += 1
+                child.prefetch_token = True
             self._step_started_at[(child.tile, step_key)] = time.time()
             self._tile_first_started.setdefault(child.tile, time.time())
             self._class_active[step_class] += 1
@@ -1286,6 +1296,32 @@ class ParallelBuildRun:
                 self._memory_in_use += estimate
             return True
         return False
+
+    def _may_prefetch_locked(self, tile, step_key):
+        """Whether this tile's vector step may download its likely
+        orthophotos in the background (#1002, O4_Imagery_Prefetch).
+
+        Only for a tile whose program builds imagery, and only while the
+        imagery class has room: the prefetch takes an imagery token like
+        any downloader, so the remote-server cap is the one the imagery
+        step obeys.  The token comes back at the prefetch's
+        ``ImageryDownloadsDone`` or at the step's end, whichever is first.
+        """
+        if step_key != "vector" or not cache_aware_admission_enabled():
+            return False
+        if "imagery" not in self._programs.get(tile, ()):
+            return False
+        return (self._class_active["imagery"]
+                < self._class_limits["imagery"])
+
+    def _release_prefetch_token_locked(self, child):
+        """Return the imagery token lent to a vector step's prefetch."""
+        if not getattr(child, "prefetch_token", False):
+            return False
+        child.prefetch_token = False
+        self._class_active["imagery"] = max(
+            0, self._class_active["imagery"] - 1)
+        return True
 
     def _swap_class_locked(self, child, new_class):
         """Move a running child from the class it holds to ``new_class``.
@@ -1362,6 +1398,7 @@ class ParallelBuildRun:
 
     def _release_step_resources_locked(self, child):
         """Return a finished/aborted step's class and memory budget."""
+        self._release_prefetch_token_locked(child)
         step_key = child.running_step
         if step_key is None:
             return
@@ -1587,8 +1624,11 @@ class ParallelBuildRun:
             # The imagery step's download queue drained: hand the imagery
             # token back so a queued tile can download, and let the DDS
             # conversion tail run under compute (spec §A.2).
+            # A vector step's background prefetch reports the same way
+            # (#1002): its lent token comes back.
             with self._lock:
-                if self._note_imagery_downloads_done_locked(child):
+                if (self._release_prefetch_token_locked(child)
+                        or self._note_imagery_downloads_done_locked(child)):
                     self._dispatch_locked()
             return
         if event_name == "Error" and payload.get("fatal"):

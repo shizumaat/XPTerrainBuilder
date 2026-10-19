@@ -54,6 +54,7 @@ from ..model.frame import XY
 from . import bulk_geos as _bulk
 from . import frame_entry as _fe
 from . import obj8 as _obj8
+from .obj8_clip import _bulk_polys
 
 __all__ = ["ObjectCut", "SHELL", "CRESTED", "THIN", "shell_reading", "read_shells",
            "thin_bands", "band_pairs", "cut_placement_ids", "ObjectCutStats",
@@ -144,15 +145,6 @@ def _plan_area(v: np.ndarray, tris: np.ndarray) -> np.ndarray:
     p0, p1, p2 = v[tris[:, 0]], v[tris[:, 1]], v[tris[:, 2]]
     return 0.5 * np.abs((p1[:, 0] - p0[:, 0]) * (p2[:, 2] - p0[:, 2])
                         - (p2[:, 0] - p0[:, 0]) * (p1[:, 2] - p0[:, 2]))
-
-
-def _plan_polys(v: np.ndarray, tris: np.ndarray) -> list[Polygon]:
-    out = []
-    for t in tris.tolist():
-        p = Polygon([(float(v[i][0]), float(v[i][2])) for i in t])
-        if p.area > 1e-9:
-            out.append(p.buffer(0))
-    return out
 
 
 def _plan_segments(v: np.ndarray, tris: np.ndarray) -> list[LineString]:
@@ -328,7 +320,10 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
     floor_area = float(bins[best])
     # THE TRENCH OUTLINE — every non-vertical face's plan (the floor
     # plates AND the ramps between them), never the hull.
-    interior = _largest_part(unary_union(_plan_polys(v, tris[horiz])))
+    # the plan polygons as the ONE admission takes them (#581: a face
+    # seen edge-on is no plan area), unioned under §51 Law B
+    interior = _largest_part(_fe.union(_bulk_polys(v, tris[horiz]),
+                                       "object_cut.shell_reading"))
     if interior is None or interior.area < ob.plate_min_area_m2:
         return "the shell's non-vertical faces have no plan area"
     segs = _plan_segments(v, tris[~horiz])
@@ -397,7 +392,7 @@ def _cover_plate(geom: _obj8.ObjGeometry, law) -> tuple[object | None, float]:
     sel = (ny >= ob.plate_normal_y_min) & (np.abs(cy) <= ob.cover_flush_m)
     if not sel.any():
         return None, 0.0
-    plate = unary_union(_plan_polys(v, tris[sel]))
+    plate = _fe.union(_bulk_polys(v, tris[sel]), "object_cut._cover_plate")
     return (plate if not plate.is_empty else None), float(plate.area)
 
 

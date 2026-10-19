@@ -368,6 +368,12 @@ _UNION_FUNCTIONS = {
     # — LOCAL pack geometry, the class row 16 keeps a ladder for — and
     # the bare union there aborted a tile.
     ("skirt.py", "_plan_union"),
+    # #581: the remaining unions of a resource's own plan triangles.
+    ("obj8_clip.py", "_repaired_union"),
+    ("obj8_clip.py", "_clip_component"),
+    ("obj8_clip.py", "_clip_both"),
+    ("skirt.py", "below_zero_reading"),
+    ("object_cut.py", "_cover_plate"),
 }
 
 

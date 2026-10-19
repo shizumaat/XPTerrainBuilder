@@ -261,6 +261,7 @@ PATCH_DATA_FILES: tuple[str, ...] = (
 #: packages=True)``), sorted.  Held by ``tests/test_patch_code_closure.py``;
 #: when it fails, the message names the modules to add or drop.
 PATCH_CODE_MODULES: tuple[str, ...] = (
+    "O4_Airport_Apt_Identity",
     "O4_Airport_Batch",
     "O4_Airport_Dico",
     "O4_Airport_Elevation_Insets",

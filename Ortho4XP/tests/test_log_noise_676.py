@@ -28,12 +28,20 @@ def test_neighbour_dico_is_not_persisted(monkeypatch):
                  "build_hangar_areas", "build_apron_areas",
                  "build_taxiway_areas", "update_airport_boundaries"):
         monkeypatch.setattr(APT, name, lambda *a, **k: None)
+    # the apt.dat identity steps (#997) run in the same chain; stub them too
+    import O4_Airport_Apt_Identity as APT_IDENTITY
+    for name in ("tile_apt_dat_airports", "adopt_apt_dat_identities",
+                 "drop_unclaimed_seeds"):
+        monkeypatch.setattr(APT_IDENTITY, name, lambda *a, **k: None)
     monkeypatch.setattr(APT, "save_airport_info",
                         lambda tile, dico: saved.append(tile))
-    VMAP.build_airports_dico("neighbour", None, persist=False)
+    from types import SimpleNamespace
+    neighbour = SimpleNamespace(lat=40, lon=-75)
+    home = SimpleNamespace(lat=41, lon=-75)
+    VMAP.build_airports_dico(neighbour, None, persist=False)
     assert saved == []
-    VMAP.build_airports_dico("home", None)
-    assert saved == ["home"]
+    VMAP.build_airports_dico(home, None)
+    assert saved == [home]
 
 
 def test_memory_vector_driver_is_not_the_deprecated_name():

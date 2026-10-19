@@ -218,10 +218,7 @@ def _install(tmp_path, packs, ini_order=None, default=None):
 def _fresh_parse(root):
     """The merged index computed straight from the files, cache of any
     kind bypassed — the oracle a cached read must equal."""
-    index: dict[str, str] = {}
-    for source in A._library_source_files(str(root)):
-        A._parse_library_txt(source, index)
-    return index
+    return A._merge_library_sources(A._library_source_files(str(root)))
 
 
 def _cold_index(root, counter=None):
@@ -234,9 +231,9 @@ def _cold_index(root, counter=None):
         return A.get_library_index(str(root))
     original = A._parse_library_txt
 
-    def counted(lib_path, index):
+    def counted(lib_path, *args):
         counter.append(lib_path)
-        return original(lib_path, index)
+        return original(lib_path, *args)
 
     A._parse_library_txt = counted
     try:
@@ -530,9 +527,9 @@ def test_concurrent_cold_builds_parse_once(tmp_path):
     parsed: list[str] = []
     barrier = threading.Barrier(4)
 
-    def slow_parse(lib_path, index):
+    def slow_parse(lib_path, *args):
         parsed.append(lib_path)
-        return original(lib_path, index)
+        return original(lib_path, *args)
 
     A._parse_library_txt = slow_parse
     results: list[dict] = []
@@ -737,3 +734,39 @@ def test_library_sources_follow_the_pack_order(tmp_path):
              for p in A._library_source_files(str(root))]
     assert names == ["airport scenery"] + A._scenery_pack_order(str(root))
     assert names[-1] == "Bravo"
+
+
+def _with_files(root, pack, *rel):
+    for r in rel:
+        path = root / "Custom Scenery" / pack / r
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("A\n800\nOBJ\n", encoding="utf-8", newline="")
+
+
+def test_a_backup_never_shadows_a_real_export_of_another_pack(tmp_path):
+    """#950: a HIGH-priority airport pack's EXPORT_BACKUP (to a placeholder
+    it does not even ship) must not hide a LOW-priority library's real
+    EXPORT — X-Plane uses a backup only when nothing exports the path."""
+    packs = {
+        "Library": "EXPORT lib/car.obj objects/car/object.obj\n",
+        "Airport": "EXPORT_BACKUP lib/car.obj lib/placeholder.obj\n"
+                   "EXPORT_BACKUP lib/only_backup.obj lib/placeholder.obj\n",
+    }
+    root = _install(tmp_path, packs, ini_order=["Airport", "Library"])
+    _with_files(root, "Library", "objects/car/object.obj")
+    _with_files(root, "Airport", "lib/placeholder.obj")
+    index = _cold_index(root)
+    assert index["lib/car.obj"].endswith(os.path.join("Library", "objects", "car", "object.obj"))
+    # a path ONLY a backup exports still resolves to the backup
+    assert index["lib/only_backup.obj"].endswith(os.path.join("Airport", "lib", "placeholder.obj"))
+    assert A.resolve_library_path("lib/car.obj", str(root)).endswith("object.obj")
+
+
+def test_an_absent_file_never_replaces_one_on_disk(tmp_path):
+    """A higher-priority export whose file is missing keeps the lower one
+    that exists, so the art is not called missing."""
+    packs = {"Low": "EXPORT lib/x.obj x.obj\n", "High": "EXPORT lib/x.obj gone.obj\n"}
+    root = _install(tmp_path, packs, ini_order=["High", "Low"])
+    _with_files(root, "Low", "x.obj")
+    assert _cold_index(root)["lib/x.obj"].endswith(os.path.join("Low", "x.obj"))
+

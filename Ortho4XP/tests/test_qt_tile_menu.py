@@ -19,9 +19,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_Reveal as REVEAL  # noqa: E402
+import pytest  # noqa: E402
 
 # ── the launcher (no Qt) ──────────────────────────────────────────────
 
@@ -62,13 +61,12 @@ def test_reveal_launches_without_waiting_and_refuses_a_missing_folder(
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
-from PySide6.QtGui import QMouseEvent  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
-
 import O4_Geo_Utils as GEO  # noqa: E402
 import O4_Qt_Map as QTMAP  # noqa: E402
 import O4_Qt_Tile_Menu as QTTILEMENU  # noqa: E402
+from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QMouseEvent  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="module")

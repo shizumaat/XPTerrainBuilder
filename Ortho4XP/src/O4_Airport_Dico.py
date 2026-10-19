@@ -1,7 +1,8 @@
 """The tile build's AIRPORT DICTIONARY: ``build_airports_dico`` — the
 ``O4_Airport_Utils`` chain (discovery, surfaces, runways, discards,
 hangar / apron / taxiway areas, boundaries) over an already-loaded OSM
-airport layer.
+airport layer, each airport named by apt.dat where it knows it
+(``O4_Airport_Apt_Identity``).
 
 Moved out of ``O4_Vector_Map`` (#836): the vector step builds the tile's
 own dictionary with it, the mesh step's approach rings build a
@@ -10,6 +11,7 @@ step.
 """
 from __future__ import annotations
 
+import O4_Airport_Apt_Identity as APT_IDENTITY
 import O4_Airport_Utils as APT
 
 __all__ = ["build_airports_dico"]
@@ -29,7 +31,12 @@ def build_airports_dico(tile, airport_layer, persist=True):
     neighbour's build folder that did not exist)."""
     dico_airports = {}
     APT.discover_airport_names(airport_layer, dico_airports)
+    # Identity and extent from apt.dat, OSM aerodromes the fallback
+    # (owner 2026-10-19; O4_Airport_Apt_Identity).
+    APT_IDENTITY.adopt_apt_dat_identities(
+        dico_airports, APT_IDENTITY.tile_apt_dat_airports(tile.lat, tile.lon))
     APT.attach_surfaces_to_airports(airport_layer, dico_airports)
+    APT_IDENTITY.drop_unclaimed_seeds(dico_airports)
     APT.sort_and_reconstruct_runways(tile, airport_layer, dico_airports)
     APT.discard_unwanted_airports(tile, dico_airports)
     APT.build_hangar_areas(tile, airport_layer, dico_airports)

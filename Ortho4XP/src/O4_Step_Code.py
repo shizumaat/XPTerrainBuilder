@@ -150,6 +150,7 @@ def step_digest(step: str) -> str | None:
 #: the modules to add or drop.  A package is listed as its ``__init__``.
 #: Measured 458 shared; vector 458, mesh 468, masks 476 of 584 modules.
 _SHARED: tuple[str, ...] = (
+    "O4_Airport_Apt_Identity",
     "O4_Airport_Batch",
     "O4_Airport_Dico",
     "O4_Airport_Elevation_Insets",
@@ -444,6 +445,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.law.units",
     "auto_patch_v2.law.witness",
     "auto_patch_v2.model.airport",
+    "auto_patch_v2.model.constraint_codec",
     "auto_patch_v2.model.constraints",
     "auto_patch_v2.model.end_area",
     "auto_patch_v2.model.frame",
@@ -462,10 +464,14 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.model.structures",
     "auto_patch_v2.model.threshold_datum",
     "auto_patch_v2.pipeline.authored_seats",
+    "auto_patch_v2.pipeline.back_cache",
     "auto_patch_v2.pipeline.build",
     "auto_patch_v2.pipeline.capture_state",
+    "auto_patch_v2.pipeline.constraint_records",
+    "auto_patch_v2.pipeline.emit_records",
     "auto_patch_v2.pipeline.emit_stage",
     "auto_patch_v2.pipeline.front_cache",
+    "auto_patch_v2.pipeline.late_records",
     "auto_patch_v2.pipeline.late_stage",
     "auto_patch_v2.pipeline.planar_report",
     "auto_patch_v2.pipeline.prefix",
@@ -475,6 +481,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.pipeline.runway_report",
     "auto_patch_v2.pipeline.seam_report",
     "auto_patch_v2.pipeline.shapes",
+    "auto_patch_v2.pipeline.solve_record",
     "auto_patch_v2.pipeline.stage_code",
     "auto_patch_v2.pipeline.stage_one_map",
     "auto_patch_v2.pipeline.terrace_witness",

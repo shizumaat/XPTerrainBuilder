@@ -62,6 +62,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import json
 import math
+import os
 import typing as _t
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -73,7 +74,9 @@ from ..law.tables import role_cap
 from .graded import z_decimals
 from .surface import GradedSurface
 
-__all__ = ["SIDECAR_KEYS", "PatchPaths", "write_patch", "render_patch",
+__all__ = ["SIDECAR_KEYS", "PatchPaths", "PatchFiles", "write_patch", "render_patch",
+           "render_patch_body", "root_attrs", "patch_text", "render_patch_files",
+           "write_rendered", "render_tile_pieces", "piece_dir", "piece_header",
            "render_sidecar", "tile_of_face", "write_tile_pieces",
            "WeldReport", "shore_edges_of", "weld_to_shore", "merge_sub_spacing",
            "survivor_key", "SURVIVOR_IS_MINIMUM"]
@@ -389,6 +392,29 @@ def _hole_cover(surface: GradedSurface, law: Law):
     return covered
 
 
+#: The ``.osm`` document's first line.
+XML_DECL = "<?xml version='1.0' encoding='UTF-8'?>"
+
+
+def root_attrs(surface: GradedSurface) -> dict[str, str]:
+    """The ``<osm>`` root's own attributes (a header is applied over them)."""
+    return {"version": "0.6", "upload": "false",
+            "generator": "auto_patch_v2", "o4_engine": "auto_patch_v2/M2",
+            "o4_ruleset": surface.ruleset, "o4_icao": surface.icao}
+
+
+def patch_text(attrs: _t.Mapping[str, str], header: _t.Mapping[str, str] | None,
+               body: str) -> str:
+    """THE HEADER SPLIT (v2-stage-cache spec §4b.6): the document is the XML
+    declaration, the ``<osm>`` root carrying ``attrs`` with ``header``
+    applied over them, and the BODY — every line after the root tag, the
+    part ``rebake_screen.patch_body_sha256`` hashes."""
+    full = dict(attrs)
+    full.update(header or {})
+    root = "<osm " + " ".join(f"{k}={_q(v)}" for k, v in full.items()) + ">"
+    return f"{XML_DECL}\n{root}\n{body}"
+
+
 def render_patch(surface: GradedSurface, law: Law,
                  header: _t.Mapping[str, str] | None = None,
                  face_tags: _t.Mapping[int, _t.Mapping[str, str]] | None = None
@@ -396,16 +422,18 @@ def render_patch(surface: GradedSurface, law: Law,
     """``(text, ways, nodes)`` — the ``.osm`` document.  ``face_tags``:
     extra way tags per face id (``o4_grade_law_cap`` on a road bound to a
     stricter contiguous class)."""
+    body, n_ways, n_nodes = render_patch_body(surface, law, face_tags)
+    return patch_text(root_attrs(surface), header, body), n_ways, n_nodes
+
+
+def render_patch_body(surface: GradedSurface, law: Law,
+                      face_tags: _t.Mapping[int, _t.Mapping[str, str]] | None = None
+                      ) -> tuple[str, int, int]:
+    """``(body, ways, nodes)`` — :func:`render_patch` without its first two
+    lines (no header reaches the body)."""
     dp = surface.identity_dp
     zdp = z_decimals(law)
     reg = law.tables.precedence.roles
-    lines: list[str] = ["<?xml version='1.0' encoding='UTF-8'?>"]
-    attrs = {"version": "0.6", "upload": "false",
-             "generator": "auto_patch_v2", "o4_engine": "auto_patch_v2/M2",
-             "o4_ruleset": surface.ruleset, "o4_icao": surface.icao}
-    attrs.update(header or {})
-    lines.append("<osm " + " ".join(f"{k}={_q(v)}"
-                                    for k, v in attrs.items()) + ">")
     # NODES ARE WRITTEN FOR THE WAYS THAT NAME THEM (lane ``othhjunction``,
     # issue #15).  A vertex no emitted way references — the ring of a hole
     # ``hole_cover`` suppressed (covered, or a hairline), an unemitted
@@ -418,8 +446,7 @@ def render_patch(surface: GradedSurface, law: Law,
     # The ways are rendered first, then only their nodes, in vertex order.
     nid_of: dict[int, int] = {v.id: -(v.id + 1) for v in surface.vertices}
     named: set[int] = set()
-    head = lines
-    lines = []
+    lines: list[str] = []
     wid = -10000
     n_ways = 0
 
@@ -510,7 +537,7 @@ def render_patch(surface: GradedSurface, law: Law,
         nodes.append(f"    <tag k='alt_abs' v='{_fmt(v.z, zdp)}' />")
         nodes.append("  </node>")
     n_nodes = len(nodes) // 3
-    return "\n".join(head + nodes + lines) + "\n", n_ways, n_nodes
+    return "".join(f"{ln}\n" for ln in nodes + lines), n_ways, n_nodes
 
 
 #: §39 (1) THE HAIRLINE LAW — the shore weld's report.
@@ -1102,6 +1129,65 @@ def render_sidecar(law: Law, sidecar: _t.Mapping[str, _t.Any] | None) -> dict:
     return doc
 
 
+@_dc.dataclass(frozen=True)
+class PatchFiles:
+    """One patch RENDERED and not yet written: the ``<osm>`` root's own
+    ``attrs``, the patch ``body`` (no header reaches it), the sidecar and
+    graded documents, and the counts — what the emit record stores
+    (v2-stage-cache spec §4b.6); :func:`write_rendered` applies a header."""
+
+    icao: str
+    attrs: _t.Mapping[str, str]
+    body: str
+    sidecar: str
+    graded: str
+    ways: int
+    nodes: int
+
+    def texts(self, header: _t.Mapping[str, str] | None = None) -> dict[str, str]:
+        """``{file name: text}`` of the three files under ``header``."""
+        return {f"{self.icao}_auto.patch.osm": patch_text(self.attrs, header, self.body),
+                f"{self.icao}_auto.patch.osm.axes.json": self.sidecar,
+                f"{self.icao}.graded.json": self.graded}
+
+
+def render_patch_files(surface: GradedSurface, law: Law,
+                       sidecar: _t.Mapping[str, _t.Any] | None = None,
+                       face_tags: _t.Mapping[int, _t.Mapping[str, str]] | None = None
+                       ) -> PatchFiles:
+    """:func:`write_patch`'s three documents, rendered (sidecar keys ⊆
+    :data:`SIDECAR_KEYS`; a key outside the register is an error)."""
+    body, n_ways, n_nodes = render_patch_body(surface, law, face_tags)
+    # THE HOLES ARE THE HOLES OF THE RINGS THIS WRITER WRITES (RULINGS
+    # 2026-09-13da residual; spec §41 (2)): derived here from ``surface``,
+    # after every pass that reshapes a ring (``weld_to_shore``,
+    # ``merge_sub_spacing``), so the census's solid frame is the emitted
+    # frame.  A ``face_holes`` the caller published earlier is superseded.
+    doc = dict(sidecar or {})
+    doc["face_holes"] = face_holes_ll(surface)
+    return PatchFiles(surface.icao, root_attrs(surface), body,
+                      json.dumps(render_sidecar(law, doc), separators=(",", ":")),
+                      surface.to_json(z_dp=z_decimals(law)), n_ways, n_nodes)
+
+
+def write_rendered(files: PatchFiles, out_dir: str | Path,
+                   header: _t.Mapping[str, str] | None = None) -> PatchPaths:
+    """Write a rendered patch into ``out_dir`` under ``header`` (each file
+    to a temporary name, then ``os.replace``)."""
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, text in files.texts(header).items():
+        path = out / name
+        tmp = out / f".{name}.tmp{os.getpid()}"
+        tmp.write_bytes(text.encode("utf-8"))
+        os.replace(tmp, path)
+        written.append(path)
+    patch, side, graded = written
+    return PatchPaths(patch, side, graded, files.ways, files.nodes,
+                      patch.stat().st_size, side.stat().st_size)
+
+
 def write_patch(surface: GradedSurface, law: Law, out_dir: str | Path,
                 sidecar: _t.Mapping[str, _t.Any] | None = None,
                 header: _t.Mapping[str, str] | None = None,
@@ -1110,26 +1196,8 @@ def write_patch(surface: GradedSurface, law: Law, out_dir: str | Path,
     """Write ``<out_dir>/<ICAO>_auto.patch.osm``, its ``.axes.json``
     sidecar (keys ⊆ :data:`SIDECAR_KEYS`; a key outside the register is
     an error) and ``<ICAO>.graded.json``."""
-    out = Path(out_dir)
-    out.mkdir(parents=True, exist_ok=True)
-    text, n_ways, n_nodes = render_patch(surface, law, header, face_tags)
-    patch = out / f"{surface.icao}_auto.patch.osm"
-    patch.write_text(text, encoding="utf-8", newline="\n")
-    side = Path(str(patch) + ".axes.json")
-    # THE HOLES ARE THE HOLES OF THE RINGS THIS WRITER WRITES (RULINGS
-    # 2026-09-13da residual; spec §41 (2)): derived here from ``surface``,
-    # after every pass that reshapes a ring (``weld_to_shore``,
-    # ``merge_sub_spacing``), so the census's solid frame is the emitted
-    # frame.  A ``face_holes`` the caller published earlier is superseded.
-    doc = dict(sidecar or {})
-    doc["face_holes"] = face_holes_ll(surface)
-    side.write_text(json.dumps(render_sidecar(law, doc), separators=(",", ":")),
-                    encoding="utf-8", newline="\n")
-    graded = out / f"{surface.icao}.graded.json"
-    graded.write_text(surface.to_json(z_dp=z_decimals(law)),
-                      encoding="utf-8", newline="\n")
-    return PatchPaths(patch, side, graded, n_ways, n_nodes,
-                      patch.stat().st_size, side.stat().st_size)
+    return write_rendered(render_patch_files(surface, law, sidecar, face_tags),
+                          out_dir, header)
 
 
 def _in_seam_band(ll: _t.Sequence[float], half_m: float) -> bool:
@@ -1155,11 +1223,10 @@ def tile_of_face(surface: GradedSurface, face) -> tuple[int, int]:
     return int(math.floor(lat)), int(math.floor(lon))
 
 
-def write_tile_pieces(surface: GradedSurface, law: Law, out_dir: str | Path,
-                      sidecar: _t.Mapping[str, _t.Any] | None = None,
-                      header: _t.Mapping[str, str] | None = None,
-                      face_tags: _t.Mapping[int, _t.Mapping[str, str]] | None = None
-                      ) -> dict[tuple[int, int], PatchPaths]:
+def render_tile_pieces(surface: GradedSurface, law: Law,
+                       sidecar: _t.Mapping[str, _t.Any] | None = None,
+                       face_tags: _t.Mapping[int, _t.Mapping[str, str]] | None = None
+                       ) -> dict[tuple[int, int], PatchFiles]:
     """One patch per tile the surface touches, at the mesh's own path
     ``<out_dir>/<block>/<tile>/<ICAO>_auto.patch.osm`` (``O4_File_Names.
     patch_dir``: ``Patches/-20-080/-13-077/``), each carrying only the
@@ -1187,7 +1254,7 @@ def write_tile_pieces(surface: GradedSurface, law: Law, out_dir: str | Path,
     for f in surface.faces:
         by_tile.setdefault(tile_of_face(surface, f), []).append(f)
     vs = {v.id: v for v in surface.vertices}
-    out: dict[tuple[int, int], PatchPaths] = {}
+    out: dict[tuple[int, int], PatchFiles] = {}
     for (lat, lon), faces in sorted(by_tile.items()):
         keep = {i for f in faces for i in f.ring} | \
             {i for f in faces for h in f.holes for i in h}
@@ -1207,10 +1274,27 @@ def write_tile_pieces(surface: GradedSurface, law: Law, out_dir: str | Path,
                 bls.append(_dc.replace(b, vertices=tuple(run)))
         piece = _dc.replace(surface, vertices=verts, faces=tuple(faces),
                             breaklines=tuple(bls))
-        block = f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}"
-        tile = f"{lat:+03d}{lon:+04d}"
-        hdr = dict(header or {})
-        hdr["o4_tile"] = tile
-        out[(lat, lon)] = write_patch(piece, law, Path(out_dir) / block / tile,
-                                      sidecar, hdr, face_tags)
+        out[(lat, lon)] = render_patch_files(piece, law, sidecar, face_tags)
     return out
+
+
+def piece_dir(tile: tuple[int, int]) -> str:
+    """A tile piece's folder under the patch folder, ``<block>/<tile>``."""
+    lat, lon = tile
+    return f"{(lat // 10) * 10:+03d}{(lon // 10) * 10:+04d}/{lat:+03d}{lon:+04d}"
+
+
+def piece_header(header: _t.Mapping[str, str] | None,
+                 tile: tuple[int, int]) -> dict[str, str]:
+    """A tile piece's header: the patch's, plus ``o4_tile``."""
+    return {**(header or {}), "o4_tile": f"{tile[0]:+03d}{tile[1]:+04d}"}
+
+
+def write_tile_pieces(surface: GradedSurface, law: Law, out_dir: str | Path,
+                      sidecar: _t.Mapping[str, _t.Any] | None = None,
+                      header: _t.Mapping[str, str] | None = None,
+                      face_tags: _t.Mapping[int, _t.Mapping[str, str]] | None = None
+                      ) -> dict[tuple[int, int], PatchPaths]:
+    """:func:`render_tile_pieces`, written under ``out_dir``."""
+    return {k: write_rendered(f, Path(out_dir) / piece_dir(k), piece_header(header, k))
+            for k, f in render_tile_pieces(surface, law, sidecar, face_tags).items()}

@@ -47,7 +47,8 @@ from ..model.planar import PlanarMap
 from ..planar.shapes import (NO_SHAPE, STATION_KIND, joint_planar_edges,
                              row_test_pairs, row_vertices, straddles, straddles_pairs)
 
-__all__ = ["ShapeStage", "shape_stage", "shape_constraints", "apply_joints", "joint_steps"]
+__all__ = ["ShapeStage", "shape_stage", "shape_constraints", "apply_joints", "joint_filter",
+           "joint_steps"]
 
 
 @_dc.dataclass
@@ -149,6 +150,13 @@ def shape_constraints(pm: PlanarMap, law: Law, airport: Airport, stage: ShapeSta
     carry ``joint_dropped.<generator>`` and ``yield.<family>`` beside the
     generators' own."""
     cs, counts, walls = generate(pm, law, airport, yielded_out=yielded_out)
+    return joint_filter(cs, stage, counts, walls), counts, walls
+
+
+def joint_filter(cs: ConstraintSet, stage: ShapeStage, counts: dict[str, int],
+                 walls: dict[str, float]) -> ConstraintSet:
+    """:func:`apply_joints` with its count lines (``joint_filter``,
+    ``joint_dropped.<generator>``, …) written into ``counts`` / ``walls``."""
     t = time.perf_counter()
     cs = apply_joints(cs, stage)
     walls["joint_filter"] = time.perf_counter() - t
@@ -157,7 +165,7 @@ def shape_constraints(pm: PlanarMap, law: Law, airport: Airport, stage: ShapeSta
         counts[f"joint_dropped.{gen}"] = n
     counts["joint_flats_straddling"] = stage.flats_straddling
     counts["joint_bands_withdrawn"] = stage.bands_withdrawn
-    return cs, counts, walls
+    return cs
 
 
 def joint_steps(pm: PlanarMap, law: Law, stage: ShapeStage,

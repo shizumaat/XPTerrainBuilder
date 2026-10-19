@@ -50,9 +50,41 @@ def test_every_module_a_stage_imports_is_in_its_code_key(stage):
 
 
 def test_the_stages_are_the_specs_cached_stages():
+    from auto_patch_v2.constraints import GENERATORS
     assert SCODE.STAGES == ("classify", "planar", "flat_site", "road_profile",
-                            "channels", "shapes")
+                            "channels", "shapes",
+                            *(SCODE.generator_stage(n) for n, _f in GENERATORS),
+                            "constraints.assembly", "jetway_strip",
+                            "solve", "late_cut", "late_solve", "emit", "verify")
     assert set(SCODE.CODE_MODULES) == set(SCODE.STAGES)
+
+
+def test_each_generator_is_entered_at_its_own_module():
+    """spec §4b.1: ``constraints.<generator>`` keys on the closure of
+    ``fn.__module__`` (one module's generators share the digest)."""
+    from auto_patch_v2.constraints import GENERATORS
+    assert SCODE.GENERATOR_MODULES == {
+        n: fn.__module__.rsplit(".", 1)[1] for n, fn in GENERATORS}
+    for n, fn in GENERATORS:
+        assert SCODE.ENTRY_MODULES[SCODE.generator_stage(n)] == (fn.__module__,)
+    digests = SCODE.runtime_digests()
+    assert (digests[SCODE.generator_stage("taxi_chain")]
+            == digests[SCODE.generator_stage("taxi_box")])
+    assert (digests[SCODE.generator_stage("taxi_chain")]
+            != digests[SCODE.generator_stage("water_pins")])
+
+
+def test_the_back_half_entries_are_where_the_prefix_enters_them():
+    from auto_patch_v2.airport import riders
+    from auto_patch_v2.constraints import assembly, jetway_strip
+    from auto_patch_v2.pipeline import constraint_records as CR
+    from auto_patch_v2.pipeline import shapes
+    assert CR.assemble.__module__ == assembly.__name__
+    assert CR.joint_filter.__module__ == shapes.__name__
+    assert set(SCODE.ENTRY_MODULES["constraints.assembly"]) == {
+        assembly.__name__, shapes.__name__}
+    assert set(SCODE.ENTRY_MODULES["jetway_strip"]) == {
+        riders.rider_candidates.__module__, jetway_strip.jetway_strips.__module__}
 
 
 def test_the_entry_modules_are_where_the_build_enters_each_stage():
@@ -73,7 +105,7 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
     for line in ("from ..planar.build import build as build_planar",
                  "from ..airport.flat_site_read import verdict_for_build as _flat_verdict",
                  "from ..airport.road_profile import preferred_road_z",
-                 "from .shapes import shape_constraints, shape_stage"):
+                 "from .shapes import shape_stage"):
         assert line in text, line
     defined = {
         "classify": {classify.classify.__module__, classify.load_rules.__module__},
@@ -89,7 +121,8 @@ def test_the_entry_modules_are_where_the_build_enters_each_stage():
                      road_join.with_road_coverage_join.__module__},
         "shapes": {shapes.shape_stage.__module__},
     }
-    assert {s: set(e) for s, e in SCODE.ENTRY_MODULES.items()} == defined
+    front = {s: set(e) for s, e in SCODE.ENTRY_MODULES.items() if s in defined}
+    assert front == defined
 
 
 def _toy_tree(root: Path) -> Path:
@@ -156,7 +189,8 @@ def test_the_freeze_digests_reproduce_by_path(tmp_path):
     table = SCODE.frozen_digests(str(out))
     assert table == SCODE.freeze_digests(str(SRC))
     assert set(table) == set(SCODE.STAGES)
-    assert len(set(table.values())) == len(SCODE.STAGES)
+    # one digest per distinct closure (one module's generators share one)
+    assert len(set(table.values())) == len({SCODE.CODE_MODULES[s] for s in SCODE.STAGES})
     # the partition file is unchanged in form: one line, its digest
     text = Path(paths["partition"]).read_text(encoding="ascii")
     assert text == PCODE.freeze_digest(str(SRC)) + "\n"

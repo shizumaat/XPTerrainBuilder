@@ -340,3 +340,49 @@ def test_t5_digest_of_is_stable_across_processes():
     assert one[0] == two[0], "the same product digests the same in two processes"
     assert one[1] == two[1], "a set of strings, sorted, under two hash seeds"
     assert run("k3,k2,k1", "1").split()[0] != one[0], "dict order is part of the product"
+
+
+# ── T5b: THE AIRPORT INPUT digests the same in every process (issue #844) ──
+#: A partition with no reading digest (every ``--capture``, a pack with no
+#: fingerprint) is pickled whole, and its ``frozenset[str]`` fields came
+#: out in the process's hash-seed order: three HECA captures of one tree
+#: each named a new airport and missed every front-half stage.
+_T5B = textwrap.dedent("""
+    import dataclasses as dc, sys, tempfile
+    sys.path.insert(0, sys.argv[1])
+    from auto_patch_v2.airport.pack_partition import PackPartition
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.pipeline import front_cache as FC
+    class Dem:
+        provenance = {"frame": "toy"}
+        def z(self, x, y): return 100.0
+        def posting_m(self): return 30.0
+    @dc.dataclass(frozen=True)
+    class Ap:
+        icao: str
+        dem: object
+        pack: object = None
+        dsf_objects: tuple = ()
+        partition: object = None
+    names = frozenset(f"objects/{sys.argv[2]}{i}.obj" for i in range(40))
+    part = PackPartition(icao="TOYS", pack_name="p", pack_root="/r", units=(),
+                         skipped=(), counts={}, multi_anchor=names)
+    ap = Ap("TOYS", Dem(), partition=part)
+    fc = FC.FrontCache("TOYS", ap, Law.for_airport("TOYS"), enabled=True,
+                       mod_cache_root=tempfile.mkdtemp())
+    assert fc.partition is None          # no fingerprint: the field is pickled
+    print(fc.airport_digest(fc.airport(ap)))
+""")
+
+
+def test_t5b_the_airport_digest_is_the_same_in_two_processes(tmp_path):
+    def run(stem: str, seed: str, where: Path) -> str:
+        where.mkdir(exist_ok=True)
+        env = {**os.environ, "PYTHONHASHSEED": seed, "TMPDIR": str(where)}
+        return subprocess.run([sys.executable, "-c", _T5B, str(ROOT / "src"), stem],
+                              capture_output=True, text=True, check=True, env=env,
+                              cwd=str(where)).stdout.strip()
+    one = run("o", "1", tmp_path / "a")
+    assert one and one == run("o", "2", tmp_path / "b"), \
+        "one airport, two hash seeds, two temp dirs: one digest"
+    assert run("q", "1", tmp_path / "a") != one, "a changed placement name moves it"

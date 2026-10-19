@@ -61,6 +61,9 @@ NOT_ARMS = {
     # spec §61 (6): a READ of the --replay arm's own solve (a second solve
     # beside it); the arm's product is unchanged, and it refuses elsewhere
     "--null-change",
+    # issue #844: where the front half comes from (the stage cache, served
+    # or written) — the same records, so the same product
+    "--stage-cache", "--replay-cache", "--why-miss",
 }
 
 CELLS = [(f, c) for f in A.ARM_FLAGS for c in A.CONTEXTS]

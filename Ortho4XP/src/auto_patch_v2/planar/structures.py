@@ -105,11 +105,11 @@ from .structure_approach import (FieldRegion, apply_plates, standing_cover,
 from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import resolve_overlaps
+from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
                                 owner_kept as _owner_kept, parts as _parts,
-                                osm_stops as _osm_stops,
                                 pad_relief_m as _pad_relief_m)
 from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
                              deck_items, decks_over_climb, emit_decks,
@@ -353,6 +353,17 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         spacing_g = g.spacing_m if g.spacing_m else spacing
         grade_g = g.max_grade if g.max_grade else tn.ramp_max_grade
         steepen_note = ""
+        clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
+            g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
+            grid, [d[3] for d in deck_intervals(
+                axis_ln, half + rim_off, bridges, bridge_lines, bridge_tree, law,
+                [m.bore.line for m in members], deck_witness_for(airport, law, [
+                    w for m in members for w in m.bore.ways]), plates)]
+            + [d[3] for d in object_deck_intervals(axis_ln, half + rim_off, odecks)])
+        if clear is not None and clear[0] is None:
+            stats.refused.append(f"{tid}: {clear[4]}")
+            continue
+        axis_ln, mouth = (clear[0], clear[1]) if clear is not None else (axis_ln, mouth)
         # where a ramp NOTHING frames must have topped out: its road's own end
         run_ends: list[tuple[float, str]] = [(axis_ln.length, "the mapped road's end")]
         if tid in run_limits:
@@ -601,11 +612,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                         if ref not in pad_refs or _pad_relief_m(airport, pad_poly[ref]) <= band_m}
         half_fn = g.half_fn
         traced: list[str] = []
-        # §34 (12) (3) as AMENDED (15w): an OSM corridor's ramp STOPS
-        # SHORT of airside (``structure_service.osm_stops``)
-        osm_stops, osm_tree = _osm_stops(
-            c, g, cells, polys, pads, pad_tree, _cut_roles, deck_ivals,
-            obj_ivals, grid, WALL_KIND)
+        # §34 (12) (3) / #971: a MAPPED bore's ramp stops short of airside and
+        # of the pavement over it (``structure_mouth``); a pack-stated corridor
+        # is authored geometry — its crossing of airside IS an underpass
+        # (RULINGS 2026-09-15w) — and keeps the building pads alone
+        osm_stops, osm_tree = clear[2:4] if clear is not None else (pads, pad_tree)
         if c is None:
             # THE RAMP WIDTH FROM THE PAVEMENT (2026-09-06b (2)): a pavement
             # tracing the road sets the ramp's edges per station
@@ -769,7 +780,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         wall_path = list(reversed(geom.left_rim)) + cap_mid + list(geom.right_rim) + far_mid
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
-        notes = list(deck_notes)
+        notes = list(deck_notes) + ([clear[4]] if clear is not None and clear[4] else [])
         if collapse_note:
             notes.append(collapse_note)
         if steepen_note:

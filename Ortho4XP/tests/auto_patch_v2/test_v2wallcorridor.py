@@ -255,9 +255,13 @@ def test_a_bore_end_within_the_tolerance_is_the_mouth_and_pairs(objs, law):
     assert sst.mouths_replaced_by_object == 1 and sst.bores_replaced_by_object == 0
     t = [x for x in tunnels if x.source == "object"][0]
     assert -101 in t.replaced_ways
-    # the bore's FAR mouth (y = −400) keeps its OSM ramp; none stands at the object
+    # the bore's FAR mouth keeps its OSM ramp; none stands at the object.
+    # The extended apron reaches y = −450, so the mapped mouth (y = −400)
+    # stands on pavement: under RULINGS 2026-10-19e/19n (#990) it slides
+    # out along the bore until its ramp clears that apron's edge.
     osm = [x for x in tunnels if x.source == "osm"]
-    assert len(osm) == 1 and osm[0].axis[0][1] == pytest.approx(-400.0, abs=5.0)
+    assert len(osm) == 1
+    assert -460.0 < osm[0].axis[0][1] <= -450.0, osm[0].axis[0]
 
 
 def test_the_mouth_gate_leaves_the_roofed_corridor_untouched(objs, law):

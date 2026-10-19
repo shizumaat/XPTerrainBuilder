@@ -221,14 +221,17 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
          exclude: _t.Collection[str],
          tunnel_objects: _t.Mapping[str, tuple],
          below_grade: _t.Sequence[tuple[object, _t.Collection[str]]],
-         patches: _t.Iterable[str | os.PathLike],
-         authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = ()) -> RebakeScreen | None:
+         patches: _t.Iterable[str | os.PathLike] = (),
+         authored_seats: _t.Sequence[_t.Mapping[str, _t.Any]] = (),
+         patch_bodies: _t.Iterable[str] | None = None) -> RebakeScreen | None:
     """The record of THIS patch build — its keywords are ``rebake_plan.
     plan``'s own (``pipeline.build._rebake_inputs`` assembles them) — or ``None`` when the run
     kept no partition cache (the caller then plans inline).  ``patches``
     are the patch files the build emitted (the whole patch and every tile
     piece); the solved surface is read HERE, at every deck ring, because
-    it is gone by the object step."""
+    it is gone by the object step.  ``patch_bodies``: their body sha256s
+    when the caller holds them (the emit stage renders the bodies before
+    it writes them, v2-stage-cache spec §4b.6) — then no file is read."""
     part = airport.partition
     kept = None if part is None else _pcache.filed(part.pack_root, airport.icao)
     if kept is None:
@@ -245,7 +248,8 @@ def take(airport: _t.Any, objects: _t.Sequence, law: Law, *,
          else tuple(v.to_dict() for v in part.connectors)),
         None if fv is None else (fv.verdict, fv.auto_verdict, fv.z0_m,
                                  fv.source, fv.region),
-        tuple(sorted({patch_body_sha256(p) for p in patches})),
+        tuple(sorted(set(patch_bodies) if patch_bodies is not None
+                     else {patch_body_sha256(p) for p in patches})),
         kept[0], kept[1], _extcache.base_digest(part), law_sha, ruleset,
         _pcache.code_digest(), authored_seats=tuple(dict(r) for r in authored_seats))
 

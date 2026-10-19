@@ -27,6 +27,7 @@ import dataclasses as _dc
 import shapely
 from shapely.ops import unary_union
 
+from ..geom.proportions import inscribed_width_m
 from ..law import Law
 from ..model.band_riser import RISER_SUFFIX
 
@@ -58,8 +59,29 @@ def riser_geometry(ribs, regions, air, rim_band: float, law: Law):
     if not reach.intersects(zone_u):
         return None
     riser = reach.difference(rib_u).intersection(zone_u)
-    if air is not None:
-        riser = riser.difference(air.buffer(float(rim_band), **_MITRE))
+    keep_off = air.buffer(float(rim_band), **_MITRE) if air is not None else None
+    if keep_off is not None:
+        riser = riser.difference(keep_off)
+    # THE BAND LEFT NARROWER THAN A STRIP beside the riser is the riser's
+    # too (a median between two carriageways, a sliver between the riser
+    # and a zone edge): a second line within a strip width of the first
+    # would mint a hairline and an island the solve decouples from both
+    # (KBUR iteration 1: hairline_pair 333 -> 445, 82 strip_seam_tear rows
+    # off such islands).  No new line is drawn: the part's own ring is
+    # already noded.  A part reaching the airside keep-off stays band: its
+    # riser line would end on the rim.
+    w_strip = float(law.tables.emit.terrace.strip_min_width_m)
+    rest = zone_u.difference(rib_u).difference(riser)
+    for p in shapely.get_parts(rest):
+        if p.geom_type != "Polygon" or p.is_empty or p.area <= 0.0:
+            continue
+        if p.distance(riser) > 1e-6 or (keep_off is not None
+                                         and p.distance(keep_off) <= 1e-6):
+            continue                 # never toward the finished airside (30aa)
+        per = p.length
+        if per > 0.0 and 2.0 * p.area / per < w_strip \
+                and inscribed_width_m(p) < w_strip:
+            riser = riser.union(p)
     riser = shapely.set_precision(riser, 0.0)
     return None if riser.is_empty or riser.area <= 0.0 else riser
 

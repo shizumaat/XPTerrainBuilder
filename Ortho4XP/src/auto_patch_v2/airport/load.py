@@ -721,24 +721,41 @@ def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
     18R/36L and 18C/36C as 01L/19R and 01R/19L, and before this both
     runways were built with no pins at all (#117).
 
+    A DESIGNATOR JOIN MUST AGREE IN PLACE (issue #994): a record whose
+    landing threshold lies farther than ``tol_m`` from the end it named is
+    a different runway carrying that designator (KEDW: the apt.dat keeps
+    the lakebed runways as 05L/23R, 05R/23L, 07/25 and the paved ones as
+    04L/22R, 04R/22L, 06/24, while the CIFP cycle renumbered the paved
+    ones to 05L/23R, 05R/23L, 07/25 — the paved thresholds, 11 m above the
+    lakebed and 4.6-7.2 km away, pinned the lakebed runways).  The join is
+    refused, said in one line, and the record goes back to the pool the
+    coordinate pass reads, where it finds the end it locates.
+
     Returns the record per end (``None`` = no pin), the designators left
     without one, and one line per coordinate join or ambiguity refusal."""
     out: dict[tuple[int, int], _cifp.CifpRunway | None] = {
         (i, k): _cifp.match_designator(e[0], cifp)
         for i, rw in enumerate(runways) for k, e in enumerate(rw.ends)}
+    joins: list[str] = []
+    for (i, k), r in out.items():
+        if r is None:
+            continue
+        x, y = _landing_xy(runways[i], k, to_xy)
+        rx, ry = to_xy(r.lon, r.lat)
+        dist = math.hypot(rx - x, ry - y)
+        if dist > tol_m:
+            joins.append(f"CIFP designator join refused (#994): {icao} "
+                         f"{runways[i].ends[k][0]} -> {r.designator} lies "
+                         f"{dist:.1f} m from the end (radius {tol_m:g} m)")
+            out[(i, k)] = None
     claimed = {r.designator for r in out.values() if r is not None}
     free_xy = {d: to_xy(r.lon, r.lat) for d, r in cifp.items() if d not in claimed}
     missing: list[str] = []
-    joins: list[str] = []
     for i, rw in enumerate(runways):
-        for k, (desig, lat, lon, disp, _over) in enumerate(rw.ends):
+        for k, (desig, _lat, _lon, _disp, _over) in enumerate(rw.ends):
             if out[(i, k)] is None and free_xy:
-                other = rw.ends[1 - k]
-                (x0, y0), (x1, y1) = to_xy(lon, lat), to_xy(other[2], other[1])
-                L = math.hypot(x1 - x0, y1 - y0)
-                f = disp / L if L > 0.0 else 0.0
                 got, verdict, dist = _cifp.match_threshold(
-                    (x0 + (x1 - x0) * f, y0 + (y1 - y0) * f), free_xy, tol_m)
+                    _landing_xy(rw, k, to_xy), free_xy, tol_m)
                 if verdict != "none":
                     joins.append(f"CIFP coordinate join (#119): {icao} {desig} -> "
                                  f"{got if got else '-'} {verdict} at {dist:.1f} m "
@@ -749,6 +766,19 @@ def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
             if out[(i, k)] is None:
                 missing.append(desig)
     return out, missing, joins
+
+
+def _landing_xy(rw: _t.Any, k: int, to_xy: _t.Callable[[float, float], XY]) -> XY:
+    """The landing threshold of apt.dat end ``k`` — the end advanced
+    along the runway by its displaced distance, the point a CIFP ``RWY:``
+    record locates."""
+    _desig, lat, lon, disp, _over = rw.ends[k]
+    other = rw.ends[1 - k]
+    (x0, y0), (x1, y1) = to_xy(lon, lat), to_xy(other[2], other[1])
+    L = math.hypot(x1 - x0, y1 - y0)
+    f = disp / L if L > 0.0 else 0.0
+    return x0 + (x1 - x0) * f, y0 + (y1 - y0) * f
+
 
 def _entry_quantum(law: Law) -> float:
     """§46 (4): the law's ``input_quantum_m``, or the MEASUREMENT ARM's

@@ -105,7 +105,7 @@ enum SettingsLayout {
         ]),
         SettingCategory(key: "imagery", title: "Imagery", icon: "photo", items: [
             SettingItem("cover_airports_with_highres", "Use sharper imagery at airports?", .tile, summary: "The same photos at a finer detail; more download and disk."),
-            SettingItem("cover_zl", "How sharp should the airport imagery be?", .tile, summary: "A detail level: 17 is about 1 m per pixel, 18 about 0.6 m."),
+            SettingItem("cover_zl", "Which ZL should the airport imagery use?", .tile, summary: "ZL17 is about 1 m per pixel, ZL18 about 0.6 m."),
             SettingItem("cover_extent", "How far past the airport should it reach (km)?", .tile, summary: "The sharper imagery covers the airport and this band around it."),
             SettingItem("sea_nodata_fill", "Repair blank spots in imagery over the sea?", .tile, summary: "Fills the white or black rectangles some providers leave over coastal water."),
             SettingItem("color_harmonization", "Even out imagery colors across the tile?", .tile, summary: "Removes the patchwork of different photo dates and providers."),

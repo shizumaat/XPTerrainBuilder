@@ -19,6 +19,9 @@ from ..model.rebake import Part
 from . import anchor_rule as _ar
 from . import line_object as _lo                        # noqa: F401
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from .placement_cut import _LineCutter
+
 __all__ = ["GEOM_CELL_M", "GEOM_PTS_MAX", "thin_points", "surface_many",
            "_geom_ground", "_geom_span"]
 

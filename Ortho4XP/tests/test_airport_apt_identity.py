@@ -87,7 +87,7 @@ def test_tile_selection_and_missing_index(tmp_path):
         "ZZZZ\tBig\t\t\t33.94\t-118.41\ticao_airport\t33.93\t-118.44\t33.95\t-118.38\t3000\t0\n"
         "HHHH\tPad\t\t\t33.5\t-118.5\theliport\t33.5\t-118.5\t33.5\t-118.5\t0\t9\n"
         "FARR\tFar\t\t\t40.0\t-100.0\ticao_airport\t39.9\t-100.1\t40.1\t-99.9\t2000\t2\n",
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     codes = [e.code for e in
              ID.tile_apt_dat_airports(33, -119, str(cache), xplane_root="")]
     assert codes == ["ZZZZ"]

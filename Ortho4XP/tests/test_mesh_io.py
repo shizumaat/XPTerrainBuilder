@@ -9,6 +9,7 @@ reads stays equal field by field and dtype by dtype.
 """
 
 import os
+import re
 from math import isfinite
 
 import numpy as np
@@ -169,6 +170,21 @@ def test_malformed_meshes_are_refused(tmp_path, mutation):
     path.write_text(mutation(SAMPLE), encoding="ascii", newline="\n")
     with pytest.raises(ValueError):
         MESH_IO.read_mesh(str(path))
+
+
+def test_stock_ortho4xp_two_column_normals_are_read(tmp_path):
+    """Stock Ortho4XP writes ``nx ny`` per normal; a neighbour tile it built
+    is read by the step 2.5 masks like the per-line reader did (#939)."""
+    stock = re.sub(r"(?m)^(\S+ \S+) 0$", r"\1", SAMPLE)
+    assert "0.06 -0.11\n-0.00 0.00\n1.00 -1.00\n0.50 0.25\n" in stock
+    path = tmp_path / "stock.mesh"
+    path.write_text(stock, encoding="ascii", newline="\n")
+    _assert_same_tuple(O4_Mesh_Utils.read_mesh_file(str(path)),
+                       legacy_read_mesh_file(str(path)))
+    ours = tmp_path / "ours.mesh"
+    ours.write_text(SAMPLE, encoding="ascii", newline="\n")
+    assert np.array_equal(MESH_IO.read_mesh(str(path)).coords,
+                          MESH_IO.read_mesh(str(ours)).coords)
 
 
 ################################################################################

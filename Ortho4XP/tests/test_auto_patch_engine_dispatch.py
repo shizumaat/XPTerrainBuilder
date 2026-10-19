@@ -134,6 +134,14 @@ def _stub_v2(monkeypatch, *, status="optimal", pieces_tiles=None, raise_exc=None
     def build(icao, inputs, out_dir, config=None, law=None, out=print):
         calls["inputs"] = inputs.kw
         calls["header_extra"] = dict(config.header_extra or {})
+        tiles = calls["header_extra"].get("o4_dsf_tiles", "")
+        if "," in tiles and inputs.kw.get("osm_root"):
+            # the real emitter's ``o4_osm`` (``emit_stage.patch_header``,
+            # #880) for an airport inside the hosting tile
+            from auto_patch_v2.airport import osm as _osm
+            la, lo = (int(v) for v in tiles.split(";")[0].split(","))
+            calls["header_extra"]["o4_osm"] = _osm.feed_witness(
+                inputs.kw["osm_root"], la + 0.5, lo + 0.5)
         if raise_exc is not None:
             raise raise_exc
         for stage in ("load", "planar", "constraints", "solve"):

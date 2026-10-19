@@ -176,11 +176,11 @@ def test_a_pack_stated_corridor_is_never_bound_by_clause_3(law):
     polys = [Polygon(c.ring, c.holes) for c in cells]
     tn = law.tables.structures.tunnel
     got = mouth_stops(cells, polys, law, set(airside_cut_roles(law)),
-                      LineString([(-80.0, 0.0), (-900.0, 0.0)]),
-                      [LineString([(80.0, 0.0), (-80.0, 0.0)])], (-80.0, 0.0), 3.5,
+                      LineString([(-80.0, 0.0), (-900.0, 0.0)]), (-80.0, 0.0), 3.5,
                       tn.wall_gap_m + tn.wall_band_width_m, (), 0.5)
     assert any(ref == "pav5" for _p, ref in got)
-    assert not any(ref == "lot1" for _p, ref in got)    # groundside, not over the bore
+    # a lot the ramp is not the road of stops it too (owner RULINGS 2026-10-19o)
+    assert any(ref == "lot1" for _p, ref in got)
 
 
 # ── §34 (12) (4): a bridge severs the climb only where it crosses ───────

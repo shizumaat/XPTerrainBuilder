@@ -3741,6 +3741,11 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
         dsf_dir = derived_base / "Default_DSF_cache"
         dsf_dir.mkdir(parents=True, exist_ok=True)
         os.environ["O4_DSF_CACHE_DIR"] = str(dsf_dir)
+    # The texture cache (#839) is derived and never in the corpus: always
+    # lane-local, persistent like the dump cache.
+    dds_dir = derived_base / "DDS_cache"
+    dds_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["O4_DDS_CACHE_DIR"] = str(dds_dir)
 
     if "airport_mod_cache" in authorised:
         skipped.append("airport_mod_cache")
@@ -3855,6 +3860,7 @@ def redirect_engine_caches(out_dir, tag, prog=None, authorised=(), tiles=(),
         "derived_persistent": bool(persistent),
         "dsf_dump_cache": (str(dsf_dir) if dsf_dir is not None else None),
         "airport_mod_cache": (str(mod_dir) if mod_dir is not None else None),
+        "dds_cache": str(dds_dir),
         "mod_cache_seeded": seeded,
         "masks": (str(masks_dir) if masks_dir is not None else None),
         "masks_seeded": masks_seeded,

@@ -652,6 +652,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
     "masks": (
         "O4_Coastal_Foam_Edge",
         "O4_Color_Harmonization",
+        "O4_DDS_Cache",
         "O4_DDS_Encode",
         "O4_DDS_File",
         "O4_DDS_Mips",

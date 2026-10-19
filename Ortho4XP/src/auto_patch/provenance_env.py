@@ -80,6 +80,11 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_DDS_ENCODER":
         "which DDS texture encoder converts the imagery (RULINGS 2026-10-17d); "
         "textures only, never the airport patch",
+    "O4_DDS_CACHE":
+        "whether a texture may be served from the content-keyed DDS cache "
+        "(#839); a hit is byte-identical to a conversion, textures only",
+    "O4_DDS_CACHE_DIR": "where the DDS texture cache is kept (#839)",
+    "O4_DDS_CACHE_MAX_GB": "the DDS texture cache's size cap (#839)",
     "O4_REPORT_GRADE_AUDIT": "a warn-only audit that nothing acts on",
     # ── the stamp and its gate ──────────────────────────────────────────
     "O4_AUTO_PATCH_REBUILD":

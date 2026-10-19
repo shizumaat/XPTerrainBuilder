@@ -5010,6 +5010,9 @@ def test_the_persistent_derived_root_is_REUSED_across_runs(
             "the derived root does not move with the run's tag")
         assert rec2["dsf_dump_cache"] == rec1["dsf_dump_cache"]
         assert rec2["airport_mod_cache"] == rec1["airport_mod_cache"]
+        # the texture cache (#839) is derived too: lane-persistent
+        assert rec2["dds_cache"] == rec1["dds_cache"] == str(
+            derived / "DDS_cache") == os.environ["O4_DDS_CACHE_DIR"]
         assert made.read_bytes() == b"66.6 seconds of contact-graph partition", (
             "RUN 2 SEES RUN 1's WORK — this is the entire feature; the "
             "re-seed must not clobber a lane-derived entry")

@@ -420,6 +420,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.geom.ramp_grade",
     "auto_patch_v2.geom.ramp_profile",
     "auto_patch_v2.geom.rotated_rect",
+    "auto_patch_v2.geom.slope_pad",
     "auto_patch_v2.geom.triangulate",
     "auto_patch_v2.geom.union_find",
     "auto_patch_v2.geom.vector",

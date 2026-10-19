@@ -17,6 +17,7 @@ from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..geom.slope_pad import slope_witness
 from ..geom import (cluster_building_evidence, cluster_outlines,
                     osm_building_evidence)
 from ..airport.slab_faces import witness_faces
@@ -568,7 +569,11 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
                                    admission=pad_admission(law),
                                    osm_evidence=cluster_building_evidence(
                                        getattr(airport, "buildings", ()) or ()),
-                                   refused=_refused)
+                                   refused=_refused,
+                                   # owner RULINGS 2026-10-19w: a cluster
+                                   # under the bar whose seat would float
+                                   # over the slope pads anyway
+                                   slope=slope_witness(airport, law))
     CLUSTER_PADS.update(counts)
     # the refusals, LISTED with ref + gate + measured value (and the
     # footprint's length/width, which issue #229 reads)

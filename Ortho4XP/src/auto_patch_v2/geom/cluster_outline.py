@@ -345,6 +345,7 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
                      admission=None,
                      osm_evidence=None,
                      refused=None,
+                     slope=None,
                      ) -> "tuple[list[tuple[str, _t.Any, Polygon]], dict[str, int]]":
     """``([(pad id, cluster, its pad polygon), ...], counts)`` in the
     planar frame's metres — one entry per PIECE, and each PIECE IS ITS
@@ -496,7 +497,9 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
               "post_bridged": 0,
               # §16g (10) (12), issue #101: the two ported v1 gates
               "no_tall_base": 0, "no_building_evidence": 0,
-              "unmeasured": 0, "osm_vouched": 0, "cache_vouched": 0}
+              "unmeasured": 0, "osm_vouched": 0, "cache_vouched": 0,
+              # owner RULINGS 2026-10-19w: under the bar but floating
+              "slope_padded": 0}
     if not clusters:
         return [], counts
     order = sorted(
@@ -511,7 +514,8 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         if walled_only and not int(getattr(c, "walled", 0) or 0):
             counts["leaf_dropped"] += 1          # (7): it seats on its ground
             continue
-        if min_m2 > 0.0 and float(getattr(c, "area_m2", 0.0)) < min_m2:
+        small = min_m2 > 0.0 and float(getattr(c, "area_m2", 0.0)) < min_m2
+        if small and slope is None:
             counts["under_min_m2"] += 1          # the cache's pad stands
             continue
         # ── rules 9 / 10: v1's two PAD-ADMISSION gates (issue #101) ──
@@ -557,6 +561,15 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         if u.is_empty:
             counts["no_rings"] += 1
             continue
+        # rule 7b — THE SLOPE PAD (owner RULINGS 2026-10-19w): a cluster
+        # under the bar keeps no pad UNLESS its seat would float more than
+        # the slope threshold over the ground under its closed outline
+        # (``geom/slope_pad``); every later gate still applies to it
+        if small:
+            if float(slope[0](u)) <= float(slope[1]):
+                counts["under_min_m2"] += 1
+                continue
+            counts["slope_padded"] += 1
         # rule 10 — NO BUILDING, NO PAD.  Asked on the CLOSED outline so
         # the OSM half reads the same polygon the pad would have been.
         if (admission is not None and ev is not None

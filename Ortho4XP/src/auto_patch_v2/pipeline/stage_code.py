@@ -237,6 +237,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.proportions",
         "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.law",
@@ -384,6 +385,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.ramp_profile",
         "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.geom.vector",
@@ -566,6 +568,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.law",
@@ -744,6 +747,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.ramp_grade",
         "auto_patch_v2.geom.ramp_profile",
         "auto_patch_v2.geom.rotated_rect",
+        "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.law",
@@ -883,7 +887,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.runway_chord constraints.runway_profile constraints.runway_yield
         constraints.shoulder_crossing constraints.stretches constraints.taxi
         constraints.taxi_trend constraints.taxi_trend_cap constraints.trend geom
-        geom.base_slab geom.cluster_outline geom.containment geom.core_clamp
+        geom.base_slab geom.cluster_outline geom.slope_pad geom.containment geom.core_clamp
         geom.pad_evidence geom.triangulate geom.union_find law.inset_class model.airport
         model.islands model.map_memo model.platform
     """),
@@ -895,6 +899,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
         constraints.structures geom geom.base_slab geom.cluster_outline geom.containment
+        geom.slope_pad
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.ground_fit model.islands model.map_memo model.platform
     """),
@@ -909,6 +914,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.junction_mesh constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence constraints.routes
         constraints.stretches constraints.taxi geom geom.base_slab geom.cluster_outline
+        geom.slope_pad
         geom.containment geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.islands model.map_memo model.platform
     """),
@@ -921,6 +927,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.runway_profile constraints.shoulder_crossing constraints.stretches
         constraints.strips constraints.transverse constraints.trend
         constraints.weld_floor geom geom.base_slab geom.cluster_outline geom.containment
+        geom.slope_pad
         geom.pad_evidence geom.triangulate geom.union_find model.airport model.end_area
         model.islands model.map_memo model.platform model.threshold_datum
     """),
@@ -929,6 +936,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.groundside constraints.pad_frontage_gs constraints.pad_relief
         constraints.pad_warning constraints.pads constraints.platform
         constraints.precedence geom geom.base_slab geom.cluster_outline geom.containment
+        geom.slope_pad
         geom.pad_evidence geom.triangulate geom.union_find model.airport model.islands
         model.map_memo model.platform
     """),
@@ -936,21 +944,21 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_fronting constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence geom geom.base_slab
-        geom.cluster_outline geom.containment geom.pad_evidence geom.triangulate
+        geom.cluster_outline geom.slope_pad geom.containment geom.pad_evidence geom.triangulate
         geom.union_find model.airport model.islands model.map_memo model.platform
     """),
     "pads": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence geom geom.base_slab
-        geom.cluster_outline geom.containment geom.pad_evidence geom.triangulate
+        geom.cluster_outline geom.slope_pad geom.containment geom.pad_evidence geom.triangulate
         geom.union_find model.airport model.islands model.map_memo model.platform
     """),
     "platform": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence geom geom.base_slab
-        geom.cluster_outline geom.containment geom.pad_evidence geom.triangulate
+        geom.cluster_outline geom.slope_pad geom.containment geom.pad_evidence geom.triangulate
         geom.union_find model.airport model.islands model.map_memo model.platform
     """),
     "proximity": _mods(_GENERATOR_CORE + """
@@ -964,7 +972,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.geometry constraints.pad_ramp constraints.pad_relief
         constraints.pad_warning constraints.pads constraints.platform
         constraints.precedence constraints.ramp_runout constraints.road_ramp geom
-        geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
+        geom.base_slab geom.cluster_outline geom.slope_pad geom.containment geom.pad_evidence
         geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport
         model.islands model.map_memo model.platform
     """),
@@ -973,6 +981,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
         constraints.road_ramp geom geom.base_slab geom.cluster_outline geom.containment
+        geom.slope_pad
         geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport
         model.islands model.map_memo model.platform
     """),
@@ -988,7 +997,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.platform constraints.precedence constraints.routes
         constraints.runway_chord constraints.runway_profile constraints.runway_yield
         constraints.shoulder_crossing constraints.stretches constraints.trend geom
-        geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
+        geom.base_slab geom.cluster_outline geom.slope_pad geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
     """),
@@ -999,7 +1008,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.runway_chord constraints.runway_mean_slope
         constraints.runway_profile constraints.runway_yield
         constraints.shoulder_crossing constraints.stretches constraints.trend geom
-        geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
+        geom.base_slab geom.cluster_outline geom.slope_pad geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
     """),
@@ -1018,7 +1027,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.cluster_pad constraints.geometry
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence constraints.structures geom
-        geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
+        geom.base_slab geom.cluster_outline geom.slope_pad geom.containment geom.pad_evidence
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
     """),
@@ -1027,6 +1036,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.pad_relief constraints.pad_warning constraints.pads
         constraints.platform constraints.precedence constraints.routes
         constraints.stretches constraints.taxi geom geom.base_slab geom.cluster_outline
+        geom.slope_pad
         geom.containment geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.islands model.map_memo model.platform
     """),
@@ -1086,6 +1096,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones geom geom.base_slab
     geom.cluster_outline geom.containment geom.core_clamp geom.feet_graph geom.feet_mst
+    geom.slope_pad
     geom.pad_evidence geom.parts geom.proportions geom.ramp_grade geom.ramp_profile
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
@@ -1125,7 +1136,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     constraints.precedence constraints.roads constraints.routes
     constraints.runway_profile constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.transverse constraints.trend constraints.weld_floor
-    geom geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
+    geom geom.base_slab geom.cluster_outline geom.slope_pad geom.containment geom.pad_evidence
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_site_schema law.model law.model_types
@@ -1185,7 +1196,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.runway_profile constraints.runway_yield constraints.shoulder_crossing
     constraints.stretches constraints.strips constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
-    constraints.weld_floor geom geom.base_slab geom.cluster_outline geom.containment
+    constraints.weld_floor geom geom.base_slab geom.cluster_outline geom.slope_pad geom.containment
     geom.core_clamp geom.coverage geom.pad_evidence geom.parts geom.proportions
     geom.ramp_grade geom.ramp_profile geom.rotated_rect geom.triangulate geom.union_find
     geom.vector law law.airports_schema law.approach_corridor law.base_profile_schema
@@ -1265,6 +1276,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.taxi_trend constraints.taxi_trend_cap constraints.transverse
     constraints.trend constraints.water constraints.weld_floor constraints.zones
     emit.graded emit.surface geom geom.base_slab geom.cluster_outline geom.containment
+    geom.slope_pad
     geom.core_clamp geom.coverage geom.feet_graph geom.feet_mst geom.pad_evidence
     geom.parts geom.proportions geom.ramp_grade geom.ramp_profile geom.rotated_rect
     geom.triangulate geom.union_find geom.vector law law.airports_schema
@@ -1336,7 +1348,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.strips constraints.surface_trend constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.weld_floor emit.graded emit.osm_adapter emit.rebake emit.road_join
-    emit.surface emit.terrain_edge geom geom.base_slab geom.cluster_outline
+    emit.surface emit.terrain_edge geom geom.base_slab geom.cluster_outline geom.slope_pad
     geom.containment geom.core_clamp geom.coverage geom.pad_evidence geom.parts
     geom.proportions geom.ramp_grade geom.rotated_rect geom.triangulate geom.union_find
     law law.airports_schema law.base_profile_schema law.basin_schema law.cockpit_schema
@@ -1390,7 +1402,7 @@ CODE_MODULES["verify"] = _mods("""
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
-    constraints.weld_floor emit.surface geom geom.base_slab geom.cluster_outline
+    constraints.weld_floor emit.surface geom geom.base_slab geom.cluster_outline geom.slope_pad
     geom.containment geom.core_clamp geom.pad_evidence geom.parts geom.proportions
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema

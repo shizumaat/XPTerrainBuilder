@@ -392,6 +392,11 @@ class Placement:
     #: and reaches past the apron's edge gets the ground under that part
     #: graded to the apron's level (``planar/apron_shelf``).  0 disarms.
     apron_shelf_min_share: float = 0.5
+    #: THE SLOPE PAD (owner RULINGS 2026-10-19w, extends 14n): a walled
+    #: cluster under ``cluster_pad_min_m2`` whose seat would float more
+    #: than this above the ground under its outline gets a pad
+    #: (``geom/slope_pad``).  0 disarms.
+    slope_pad_float_m: float = 0.0
     #: issue #516 (owner RULINGS 2026-09-13bi / 13cm): A RAMP END SINKS
     #: INTO THE GROUND — the ground under a unit member's sloped deck that
     #: rises through the natural ground is not the pad's

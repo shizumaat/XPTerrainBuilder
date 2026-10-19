@@ -1093,6 +1093,14 @@ post_bridge_gap_m     = 1.25
 # on" (a proposed value, not separately ruled).  KASE Atlantic FBO
 # unit:121#4: 86 % on apron pav7.  0 disarms.
 apron_shelf_min_share = 0.5
+# THE SLOPE PAD (owner RULINGS 2026-10-19w, extends 14n: "pad any building
+# that floats more than 0.5 m" — "4. Yes"): a WALLED cluster under
+# cluster_pad_min_m2 gets a pad where its seat would float more than this
+# above the ground under its closed outline — the seat read as §16g (2)'s
+# median ground, the float as that median less the lowest ground under the
+# outline (DEM, before any grading).  Every other pad gate stands (a derived
+# pad never takes airside ground, 14ah).  0 disarms.
+slope_pad_float_m     = 0.5
 
 # issue #516 (owner RULINGS 2026-09-13bi "sink into the ground so its ramp
 # meets DEM", 13cm "the top deck meeting the sloping terrain at the ramp

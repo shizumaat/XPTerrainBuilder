@@ -283,6 +283,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Config_Utils",
     "O4_Console_Encoding",
     "O4_Coral_Atlas",
+    "O4_DDS_Cache",
     "O4_DDS_Encode",
     "O4_DDS_File",
     "O4_DDS_Mips",

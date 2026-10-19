@@ -166,25 +166,21 @@ def test_a_pack_stated_corridor_is_never_bound_by_clause_3(law):
     (``tunnel middle - east`` / ``- west``, ``tunnel south west 2``)
     against aprons ``pav32`` / ``pav30``.
 
-    Asserted at the ONE site that reads the scoping: a corridor record
-    (or a wall corridor) keeps the building pads alone; an OSM bore adds
-    the airside faces."""
-    from auto_patch_v2.planar.structure_service import osm_stops
-
-    class _G:
-        kind, members, mouth = "bore", (), (0.0, 0.0)
+    Asserted at the ONE reading of what an OSM bore stops short of
+    (``structure_mouth.mouth_stops``, #971): the airside faces away from
+    its mouth are stops; a pack-stated corridor never reaches that reader
+    (``structures.build_structures`` keeps its building pads alone)."""
+    from auto_patch_v2.planar.structure_mouth import mouth_stops
 
     cells = _cells()
     polys = [Polygon(c.ring, c.holes) for c in cells]
-    pads = [(polys[1], "building1")]
-    roles = set(airside_cut_roles(law))
-    packed, _t = osm_stops(object(), _G(), cells, polys, pads, None, roles,
-                           (), (), 0.5, "wall")
-    assert packed == pads          # a pack-stated corridor: pads alone
-    osm, _t2 = osm_stops(None, _G(), cells, polys, pads, None, roles,
-                         (), (), 0.5, "wall")
-    assert len(osm) > len(pads)
-    assert any(ref == "pav5" for _p, ref in osm)
+    tn = law.tables.structures.tunnel
+    got = mouth_stops(cells, polys, law, set(airside_cut_roles(law)),
+                      LineString([(-80.0, 0.0), (-900.0, 0.0)]),
+                      [LineString([(80.0, 0.0), (-80.0, 0.0)])], (-80.0, 0.0), 3.5,
+                      tn.wall_gap_m + tn.wall_band_width_m, (), 0.5)
+    assert any(ref == "pav5" for _p, ref in got)
+    assert not any(ref == "lot1" for _p, ref in got)    # groundside, not over the bore
 
 
 # ── §34 (12) (4): a bridge severs the climb only where it crosses ───────

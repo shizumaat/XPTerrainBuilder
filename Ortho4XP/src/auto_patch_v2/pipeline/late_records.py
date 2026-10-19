@@ -99,6 +99,9 @@ class LateRecords:
         self.law, self.options = law, options
         self.passes = 0
         self._cut: str | None = None
+        #: the last late solve record's identity (its KEY and output digest;
+        #: ``None``: not cached) — how the emit record names the final map
+        self.final: str | None = None
 
     def cut(self, cl, roads_only: bool, run: _t.Callable[[_t.Callable[[str], None]], _t.Any],
             out: _t.Callable[[str], None]):
@@ -151,4 +154,5 @@ class LateRecords:
             rep["wall_s"] = {**rep["wall_s"], "cut": round(cut.wall_s, 2),
                              "derive": round(t_derive, 2)}
         self.base = _sr.identity(ident, got.digest)
+        self.final = _sr.identity(got.key, got.digest)
         return pm, sol, rep

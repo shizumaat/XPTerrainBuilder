@@ -219,7 +219,8 @@ def test_the_build_report_carries_the_verify_pool():
         assert {"say", "on_pool"} <= set(inspect.signature(fn).parameters)
     assert {"out", "on_pool"} <= set(inspect.signature(W.within_shape).parameters)
     V = importlib.import_module("auto_patch_v2.pipeline.verify_stage")
-    src = inspect.getsource(V.verify)
+    # the census runs in ``judge`` (the work a served verdict skips, #843)
+    src = inspect.getsource(V.judge)
     assert 'say=lambda m: out("  " + m),' in src
     assert "on_pool=_vpool.append)" in src
     src = inspect.getsource(B.build)

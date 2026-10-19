@@ -25,6 +25,7 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..planar.pack_reads import pool_report as _pack_read_pool
 from ..solve import DesignReport, Options, Solution, solve_design  # noqa: F401
+from . import emit_records as _emit_records
 from . import front_cache as _front
 from . import xplat as _xplat
 
@@ -34,7 +35,6 @@ from .emit_stage import (  # noqa: F401
     MOVED_M,
     borrowed_apt_dat_stamp,
     displacement_by_role,
-    emit,
     post_solve,
     with_join_yield,
 )
@@ -45,7 +45,6 @@ from .rebake_inputs import _plate_seats, _rebake_inputs, plate_stations  # noqa:
 from .late_records import prefix_identity
 from .shapes import joint_steps
 from .solve_record import identity, solve_stage
-from .verify_stage import verify
 
 __all__ = ["Config", "BuildResult", "build", "borrowed_apt_dat_stamp"]
 
@@ -603,7 +602,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # base solve's hold report is carried over it (``model.platform``)
         from ..model.platform import install_hold_report
         from .late_records import LateRecords
-        _records = LateRecords(
+        _late_records = LateRecords(
             fc, {"airport": pre.keys.get("airport"), "rules": _fc_in.get("rules"),
                  "options": fc.digest(cfg.options)},
             identity(pre.keys.get("pm"), _solved.digest), law, cfg.options)
@@ -612,7 +611,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
              "hard_conflict": hard_conflict},
             rules=load_rules(), options=cfg.options,
-            out=lambda m: _say(f"[{icao}] {m}", out), records=_records)
+            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records)
         install_hold_report(pm.registries.held, _base_rep.hold_report)
         hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
@@ -689,17 +688,30 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     #: the verify work pool's account (``report["pool"]["verify"]``)
     _vpool: list[dict] = []
     if sol.status.value in ("optimal", "feasible"):
-        # THE EMIT (spec §4b.6; ``pipeline/emit_stage.py``)
-        paths, pieces, surf, pub = emit(
-            icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,
+        # THE EMIT (spec §4b.6; ``pipeline/emit_stage.py``) through its
+        # record (``pipeline/emit_records.py``; the header is not keyed)
+        # its key names the final map, ``z``, design and constraint set by
+        # the solve record and the last late solve record (§4b.6)
+        _em_in = _emit_records.emit_inputs(
+            fc, final=_emit_records.final_identity(
+                _solved, None if _late_report is None else _late_records),
+            cl=cl, yield_records=_yield_records, lrep=lrep, airport=airport,
+            objects_out=objects_out, common=_fc_in, feather_m=cfg.feather_m)
+        _em = _emit_records.emit(
+            fc, _em_in,
+            icao=icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,
             design_rep=design_rep, hard_conflict=hard_conflict,
             yield_records=_yield_records, late_report=_late_report,
             lrep=lrep, header_extra=cfg.header_extra, out_dir=out_dir,
             objects_out=objects_out, report=report, wall=wall, out=out)
+        paths, pieces = _em.paths, _em.pieces
         if cfg.verify:
-            # THE VERIFY STAGE (spec §4b.7; ``pipeline/verify_stage.py``)
-            vrows = verify(icao, surf=surf, pub=pub, pm=pm, law=law, airport=airport,
-                           report=report, wall=wall, pool_out=_vpool, out=out)
+            # THE VERIFY STAGE (spec §4b.7; ``pipeline/verify_stage.py``):
+            # its record holds only while the bodies on disk are the judged
+            vrows = _emit_records.verify(fc, _em, pm_digest=_em_in.get("final"),
+                                    airport_digest=_em_in.get("airport"),
+                                    icao=icao, pm=pm, law=law, airport=airport,
+                                    report=report, wall=wall, pool_out=_vpool, out=out)
     report["cache"] = fc.finish()
     _staged = sum(wall.values())
     wall["total"] = time.perf_counter() - t_build

@@ -467,6 +467,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.pipeline.build",
     "auto_patch_v2.pipeline.capture_state",
     "auto_patch_v2.pipeline.constraint_records",
+    "auto_patch_v2.pipeline.emit_records",
     "auto_patch_v2.pipeline.emit_stage",
     "auto_patch_v2.pipeline.front_cache",
     "auto_patch_v2.pipeline.late_records",

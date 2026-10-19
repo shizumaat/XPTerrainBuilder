@@ -27,7 +27,7 @@ import hashlib
 import os
 import typing as _t
 
-__all__ = ["source_path", "imports_of", "closure", "digest_of",
+__all__ = ["source_path", "imports_of", "parent_packages", "closure", "digest_of",
            "modules_digest", "write_digest_file", "read_digest",
            "read_digest_table"]
 
@@ -94,19 +94,40 @@ def imports_of(src_root: str, name: str,
     return out
 
 
+def parent_packages(src_root: str, name: str,
+                    prefixes: "_t.Collection[str] | None" = None) -> set[str]:
+    """The packages Python runs before ``name`` (``a`` and ``a.b`` for
+    ``a.b.c``) that have an ``__init__.py`` under ``src_root``, limited to
+    top-level packages in ``prefixes`` when given."""
+    parts = name.split(".")
+    return {".".join(parts[:i]) for i in range(1, len(parts))
+            if _wanted(parts[0], prefixes)
+            and os.path.isfile(os.path.join(src_root, *parts[:i], "__init__.py"))}
+
+
 def closure(src_root: str, entry_modules: _t.Iterable[str],
             prefixes: "_t.Collection[str] | None" = None) -> tuple[str, ...]:
     """The static import closure of ``entry_modules`` under ``src_root``
     (:func:`imports_of`, followed to a fixed point), entries included,
-    sorted.  A package appears as its own name (its ``__init__``)."""
+    sorted.  A package appears as its own name (its ``__init__``).
+
+    Every package above a module in the closure is in it too (#993: its
+    ``__init__`` runs when the module is imported, so an edit there is an
+    edit to the cached work's code).  Such a parent's OWN imports are
+    followed only when the closure imports the package itself (``from
+    pkg import name``, :func:`imports_of`): a sibling the parent merely
+    loads is not code the module calls, and following every parent
+    would key each constraint generator on all of them."""
     seen: set[str] = set()
+    parents: set[str] = set()
     stack = list(entry_modules)
     while stack:
         name = stack.pop()
         if name not in seen:
             seen.add(name)
             stack.extend(imports_of(src_root, name, prefixes))
-    return tuple(sorted(seen))
+            parents |= parent_packages(src_root, name, prefixes)
+    return tuple(sorted(seen | parents))
 
 
 def digest_of(sources: _t.Iterable[tuple[str, "str | None"]]) -> str | None:

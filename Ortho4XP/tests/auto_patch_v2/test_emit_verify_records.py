@@ -191,7 +191,7 @@ def test_t9e_a_verdict_over_a_patch_edited_since_is_refused(solved, warm, tmp_pa
     root = _copy(warm[0], tmp_path / "c")
 
     def edit(em):
-        with open(em.paths.patch, "a", encoding="utf-8") as fh:
+        with open(em.paths.patch, "a", encoding="utf-8", newline="\n") as fh:
             fh.write("<!-- edited after emit -->\n")
     got = _arm(solved, tmp_path / "out", root, between=edit)
     assert got[4] == {"emit": "hit", "verify": "refused: body:disk"}

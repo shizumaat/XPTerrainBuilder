@@ -80,13 +80,17 @@ registry                             written by (stage)             read by     
 ``airport.anchor_rule._PAD_BOXES``,  on demand                      on demand                            NOT CARRIED: MEMOS
 ``constraints/*._CACHE``,                                                                               keyed on their input
 ``_MEMO``, ``routes._CACHE``, ...                                                                        — they recompute
-``solve.feasibility.``               after the registries           ``pipeline/publication``             NOT CARRIED: produced
-``HARD_CONFLICT``,                                                                                      BY the replay's own
-``constraints.cluster_pad.``                                                                            solve, not before it
-``{YIELDED,REFERENCE,DERIVED,
-OFFSET_SPREAD,TOUCHING_STEPS}``,
-``constraints.no_step.RUNWAY_FLEX``
+``constraints.cluster_pad.``         after the registries           ``pipeline/publication``             NOT CARRIED: produced
+``{YIELDED,REFERENCE,DERIVED,                                                                           BY the replay's own
+OFFSET_SPREAD,TOUCHING_STEPS}``                                                                         solve, not before it
 ===================================  =============================  ==========================================================
+
+The solve's former side channels ``solve.feasibility.HARD_CONFLICT`` and
+``constraints.no_step.RUNWAY_FLEX`` are no module globals any more
+(v2-stage-cache spec §3b, #843 step 6): ``hard_conflict``, ``runway_flex``
+and ``hold_report`` are FIELDS of the solve's ``DesignReport`` (the late
+stage returns its merged ``hard_conflict``), passed to ``pipeline/
+publication`` as arguments — nothing to carry.
 
 Twins: ``tests/test_v2_capture_state.py``,
 ``tests/auto_patch_v2/test_stage_registries.py``.  Offline and synthetic —

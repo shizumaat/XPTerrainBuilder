@@ -219,14 +219,15 @@ def post_solve(icao: str, pm, law: Law, airport, sol, cs, design_rep, tt_rep, fv
 
 
 def emit(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
-         yield_records, late_report, lrep, header_extra, out_dir, objects_out,
+         hard_conflict, yield_records, late_report, lrep, header_extra, out_dir, objects_out,
          report: dict, wall: dict, out: _t.Callable[[str], None]) -> tuple:
     """THE EMIT (spec §4b.6): the patch, its sidecar and tile pieces written
     into ``out_dir``, the rebake screen (or the inline plan) beside them;
     ``report`` takes ``warnings``, ``shore_weld``, ``rebake_plan``,
     ``rebake_screen`` and ``emit``, ``wall`` the stage clocks.  Returns
     ``(paths, pieces, surf, pub)`` — ``surf`` and ``pub`` are what verify
-    reads."""
+    reads.  ``hard_conflict`` is the merged conflict record list (the base
+    solve's, or the last stage's; v2-stage-cache spec §3b)."""
     pieces = None
     t = time.perf_counter()
     _pulse.tick("emitting the patch")
@@ -243,7 +244,9 @@ def emit(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
                            # stage seats the riders off this
                            "jetway_strips": _strip_records})
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
-                      strip_rep=design_rep.jetway_strip)
+                      strip_rep=design_rep.jetway_strip,
+                      hard_conflict=hard_conflict,
+                      runway_flex=design_rep.runway_flex)
     # THE DESIGN SURFACE's own publication (RULINGS 2026-09-08t/v): the
     # residual per family (``design``, replacing ``law_tiers``) and the
     # rows the surface missed (``design_target``), which the census

@@ -570,6 +570,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                  f"(high contact {r['high_ll'][0]:.7f},{r['high_ll'][1]:.7f}, "
                  f"low {r['low_ll'][0]:.7f},{r['low_ll'][1]:.7f})", out)
     _pin_yield = list(design_rep.pin_yield or ())
+    hard_conflict = design_rep.hard_conflict     # spec §3b: a record field
     _late_report: dict | None = None
     if cl_gaps is not None:
         # spec §55 (4) THE LAST STAGE: the pieces cut by the base's levels,
@@ -581,14 +582,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         _base_rep = design_rep
         # the last stage re-mints the held registry (its own prefix run): the
         # base solve's hold report is carried over it (``model.platform``)
-        from ..model.platform import hold_report, install_hold_report
-        _hold_rep = hold_report(pm.registries.held)
+        from ..model.platform import install_hold_report
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, derive,
-            {"pm": pm, "z": sol.z, "pin_yield": _pin_yield},
+            {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
+             "hard_conflict": hard_conflict},
             rules=load_rules(), options=cfg.options,
             out=lambda m: _say(f"[{icao}] {m}", out))
-        install_hold_report(pm.registries.held, _hold_rep)
+        install_hold_report(pm.registries.held, _base_rep.hold_report)
+        hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
             derive.last.stage, pm=pm)
         strips, design_rep = _late["strips"], _late["design"]
@@ -666,7 +668,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # THE EMIT (spec §4b.6; ``pipeline/emit_stage.py``)
         paths, pieces, surf, pub = emit(
             icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,
-            design_rep=design_rep, yield_records=_yield_records, late_report=_late_report,
+            design_rep=design_rep, hard_conflict=hard_conflict,
+            yield_records=_yield_records, late_report=_late_report,
             lrep=lrep, header_extra=cfg.header_extra, out_dir=out_dir,
             objects_out=objects_out, report=report, wall=wall, out=out)
         if cfg.verify:

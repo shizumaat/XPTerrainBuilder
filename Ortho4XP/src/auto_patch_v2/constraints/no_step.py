@@ -99,7 +99,7 @@ __all__ = ["route_roles", "no_step_pairs",
            "no_step_rate", "no_step_edges", "pad_contacts",
            "pad_pavement_edges", "rate_rows_for_chain", "reach_bands", "turn_cos",
            "reach_band_values", "runway_family_routes", "adjacent_taxi_vertices", "hold_interval", "hold_pass", "HoldPass",
-           "HoldInterval", "pair_graph", "runway_membership", "RUNWAY_FLEX",
+           "HoldInterval", "pair_graph", "runway_membership",
            "FLEX_RULING"]
 
 GEN = "no_step"
@@ -312,12 +312,6 @@ def _restrict(g: "RouteGraph", keep: _t.AbstractSet[int]) -> "RouteGraph":
                        cap=g.cap[sel], kind=g.kind[sel],
                        face=(g.face[sel] if len(g.face) == len(sel) else g.face))
 
-
-#: THE RUNWAY FLEX RECORDS of the last solve (flat-pad spec v2 §6 A11):
-#: one per PULLED runway, written by :meth:`HoldPass.finish`, reset by
-#: :func:`hold_pass` — the sidecar's ``runway_flex`` (``pipeline/
-#: publication``), an empty list where no runway was pulled.
-RUNWAY_FLEX: list[dict] = []
 
 #: The ruling HEAD of the runway's flex budget ``Band`` rows — named by
 #: ``[design] hard_rulings`` (flat-pad spec v2 §1 (4))
@@ -1129,6 +1123,9 @@ class HoldPass:
 
     def finish(self, z1b: _t.Mapping[int, float], z1b_all: _t.Any = None,
                caps_held: bool = True) -> list[dict]:
+        """THE RUNWAY FLEX RECORDS (flat-pad spec v2 §6 A11): one per PULLED
+        runway — ``DesignReport.runway_flex``, the sidecar's ``runway_flex``
+        (``pipeline/publication``); empty where no runway was pulled."""
         out: list[dict] = []
         res = self.result
         if res is not None:
@@ -1149,15 +1146,13 @@ class HoldPass:
                                 worst=(list(self.planar.vertices[worst].key)
                                        if worst is not None else None),
                                 columns=len(cm), caps_held=bool(caps_held)))
-        RUNWAY_FLEX[:] = out
         return out
 
 
 def hold_pass(planar: PlanarMap, law: Law, airport: Airport | None = None) -> HoldPass:
     """The caller's binding of the hold's two passes (``pipeline/build``,
-    ``tools/v2_solve_replay``); resets :data:`RUNWAY_FLEX`.  ``airport`` is
-    what the seat's reach bands are derived for (spec §57 (3))."""
-    RUNWAY_FLEX[:] = []
+    ``tools/v2_solve_replay``).  ``airport`` is what the seat's reach bands
+    are derived for (spec §57 (3))."""
     return HoldPass(planar, law, airport=airport)
 
 

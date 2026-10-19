@@ -435,7 +435,6 @@ def test_a_walled_ramp_cut_into_a_pad_is_a_declared_step(law, monkeypatch):
     from auto_patch_v2.model.constraints import ConstraintSet, Diff, Pin, Source
     from auto_patch_v2.model.platform import structure_vertices
     from auto_patch_v2.solve import solve_design
-    from auto_patch_v2.solve import feasibility
     cells = _cells() + [Cell(3, "parking_lot", "lotN", _rect(-60.0, 300.0, 60.0, 340.0),
                              (), None, None, "groundside", "lot", {})]
     airport = _airport(law, _Dem())
@@ -461,8 +460,9 @@ def test_a_walled_ramp_cut_into_a_pad_is_a_declared_step(law, monkeypatch):
     level = float(free[dv])
     pinned = cs.merged(ConstraintSet.from_rows(
         Pin(v, level - 1.40, src) for v in sorted(ramp)))
-    z = np.asarray(solve_design(pm, pinned, law)[0].z, float)
+    sol_p, rep_p = solve_design(pm, pinned, law)
+    z = np.asarray(sol_p.z, float)
     assert abs(float(z[dv]) - level) <= 0.01
     assert max(abs(float(z[v]) - float(z[dv])) for v in flat) <= 0.01   # the rim
     assert all(abs(float(z[dv]) - float(z[v]) - 1.40) <= 0.01 for v in top)  # the wall
-    assert not feasibility.HARD_CONFLICT
+    assert not rep_p.hard_conflict

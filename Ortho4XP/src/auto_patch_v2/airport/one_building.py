@@ -88,8 +88,10 @@ def span_m(boxes: _t.Sequence[tuple[float, float, float, float]]) -> float:
     """The diagonal of the boxes' joint lat/lon extent, in metres."""
     if not boxes:
         return 0.0
-    lo0 = min(b[0] for b in boxes); hi0 = max(b[2] for b in boxes)
-    lo1 = min(b[1] for b in boxes); hi1 = max(b[3] for b in boxes)
+    lo0 = min(b[0] for b in boxes)
+    hi0 = max(b[2] for b in boxes)
+    lo1 = min(b[1] for b in boxes)
+    hi1 = max(b[3] for b in boxes)
     ml, mo = _ar._m_per_deg(0.5 * (lo0 + hi0))
     return float(((hi0 - lo0) * ml) ** 2 + ((hi1 - lo1) * mo) ** 2) ** 0.5
 
@@ -136,7 +138,7 @@ def pavement_top(cc: _t.Sequence[tuple[float, float, float, float]],
         if not feet:
             continue
         rs = roles.roles_many([f[0] for f in feet], [f[1] for f in feet])
-        zs = [g - float(f[2]) for f, r in zip(feet, rs)
+        zs = [g - float(f[2]) for f, r in zip(feet, rs, strict=True)
               if r in rolled and (g := surface(f[0], f[1])) is not None]
         if zs:
             top = max(top, _median(zs))

@@ -934,6 +934,8 @@ def _ridge_stations(pm, rw, chains, z):
     runway ``rw``: the station along the threshold-to-threshold axis and
     ``z`` above the straight threshold chord at that station."""
     e0, e1 = rw.ends
+    if e0.threshold_elev_m is None or e1.threshold_elev_m is None:
+        return                       # no chord to read it against (issue #941)
     L = math.dist(e0.xy, e1.xy)
     ux, uy = (e1.xy[0] - e0.xy[0]) / L, (e1.xy[1] - e0.xy[1]) / L
     for ch in chains.get(rw.id) or []:

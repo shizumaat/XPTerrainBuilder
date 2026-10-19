@@ -2,8 +2,8 @@
 
 ``src/O4_Settings_Presets.PRESETS`` is the table; the Mac app mirrors it in
 ``Sources/XPTerrainBuilder/SettingsPresets.swift``.  This twin requires the
-two to be equal, every preset to write the same existing keys, Recommended
-to be the shipped defaults, Custom to show once a key differs, and every
+two to be equal, every preset to write the same existing keys, Balanced
+to be the registry defaults, Sharper airports to be the default preset, Custom to show once a key differs, and every
 GB figure on a card to equal its derivation in ``docs/presets.md``.
 
 Hermetic: the repo's own files, no Qt, no network.
@@ -61,6 +61,7 @@ def test_swift_words_equal_python():
     assert _swift_constant("sectionTitle") == PRESETS.SECTION_TITLE
     assert _swift_constant("sectionNote") == PRESETS.SECTION_NOTE
     assert _swift_constant("customTitle") == PRESETS.CUSTOM_TITLE
+    assert _swift_constant("defaultKey") == PRESETS.DEFAULT_PRESET
 
 
 # ── the keys ──────────────────────────────────────────────────────────
@@ -82,14 +83,33 @@ def test_every_value_is_the_stored_cfg_form():
         assert PRESETS.zoom_value(entry) in GLOSSARY.DETAIL_PIXEL_SIZES
 
 
-def test_recommended_is_the_registry_defaults():
-    recommended = PRESETS.preset("recommended")
-    for name, value in PRESETS.cfg_values(recommended).items():
+def test_balanced_is_the_registry_defaults():
+    balanced = PRESETS.preset("balanced")
+    for name, value in PRESETS.cfg_values(balanced).items():
         assert SM.values_equivalent(
             name, value, str(O4_Cfg_Vars.cfg_vars[name]["default"])), name
-    assert PRESETS.zoom_value(recommended) == PRESETS.default_zoom() == 16
+    assert PRESETS.zoom_value(balanced) == PRESETS.default_zoom() == 16
     fresh = PRESETS.current_values({}, PRESETS.default_zoom())
-    assert PRESETS.matching_preset(fresh) is recommended
+    assert PRESETS.matching_preset(fresh) is balanced
+
+
+def test_the_order_and_the_default():
+    # Owner, #937: Light on disk, Balanced, Sharper airports; the last is
+    # the default and covers airports with ICAO codes.
+    assert [p.title for p in PRESETS.PRESETS] == [
+        "Light on disk", "Balanced", "Sharper airports"]
+    default = PRESETS.default_preset()
+    assert default.key == PRESETS.DEFAULT_PRESET == "sharper_airports"
+    assert default.as_dict()["cover_airports_with_highres"] == "ICAO"
+    # It starts at the shipped zoom, so the first-run zoom already matches.
+    assert PRESETS.zoom_value(default) == PRESETS.default_zoom()
+
+
+def test_default_applies_only_while_no_preset_key_is_set():
+    assert PRESETS.unset_in({})
+    assert PRESETS.unset_in({"road_level": "4"})
+    for name in PRESETS.PRESET_KEYS[1:]:
+        assert not PRESETS.unset_in({name: "x"}), name
 
 
 def test_presets_are_distinct():
@@ -177,8 +197,8 @@ def test_card_figures_equal_their_derivation():
         low, high = imagery_gb_range(PRESETS.zoom_value(entry))
         assert "About %.1f–%.1f GB" % (low, high) in entry.cost, entry.key
     light = PRESETS.preset("light_on_disk")
-    assert "a quarter of Recommended" in light.cost
-    assert (4 ** (PRESETS.zoom_value(PRESETS.preset("recommended"))
+    assert "a quarter of Balanced" in light.cost
+    assert (4 ** (PRESETS.zoom_value(PRESETS.preset("balanced"))
                   - PRESETS.zoom_value(light))) == 4
 
 

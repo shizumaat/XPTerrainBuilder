@@ -163,8 +163,8 @@ _LAYOUT: list = [
     ("imagery", "Imagery", [
         ("cover_airports_with_highres", "Use sharper imagery at airports?", "tile", False,
          "The same photos at a finer detail; more download and disk."),
-        ("cover_zl", "How sharp should the airport imagery be?", "tile", False,
-         "A detail level: 17 is about 1 m per pixel, 18 about 0.6 m."),
+        ("cover_zl", "Which ZL should the airport imagery use?", "tile", False,
+         "ZL17 is about 1 m per pixel, ZL18 about 0.6 m."),
         ("cover_extent", "How far past the airport should it reach (km)?", "tile", False,
          "The sharper imagery covers the airport and this band around it."),
         ("sea_nodata_fill", "Repair blank spots in imagery over the sea?", "tile", False,

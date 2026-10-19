@@ -354,9 +354,11 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
         "o4_engine": _prov.engine_version(),
-        # ... and the engine's own SOURCE (#346): the version moves only
-        # when the engine is frozen, an edited checkout keeps it.
-        "o4_code": _prov_code.code_digest(),
+        # ... and the CODE the patch is built by (#346): the version moves
+        # only when the engine is frozen, an edited checkout keeps it.  The
+        # patch build's import closure (#880); the whole tree with
+        # ``O4_PATCH_FRESHNESS_WHOLE_TREE=1``.
+        "o4_code": _prov_code.freshness_code_digest(),
         # WHICH auto-patch engine wrote the patch (RULINGS 2026-09-03d).
         # v1 is retired (2026-09-13au) so this is now the constant "v2",
         # and a patch a v1 build left behind never reads as current.
@@ -429,6 +431,20 @@ def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
         if b_stored is None or b_now is None or abs(b_now - b_stored) >= 1e-6:
             stale.append(("o4_apt_dat_borrowed_mtime", b_stored, b_now))
 
+    # ── Input 1c: the OSM feeds the load could read (#880) ────────────────
+    # STAT ONLY: ``o4_osm`` names the airport's home tile and one digest of
+    # the size/mtime/absence of every feed file over its 3x3 neighbourhood
+    # (``auto_patch_v2.airport.osm.feed_witness``, the ONE derivation, the
+    # emitter's too).  Missing or malformed — a patch before #880 — is
+    # changed (fail-safe).
+    osm_stamp = meta.get("osm") or ""
+    m = re.fullmatch(r"(-?\d+),(-?\d+)\|[0-9a-f]{16}", osm_stamp)
+    from auto_patch_v2.airport import osm as _osm
+    osm_now = (_osm.feed_witness(FNAMES.OSM_dir, int(m.group(1)), int(m.group(2)))
+               if m else None)
+    if osm_now != osm_stamp:
+        stale.append(("o4_osm", osm_stamp or None, osm_now))
+
     # ── Inputs 2-7 ────────────────────────────────────────────────────────
     stamped = meta.get("freshness") or {}
     live = _freshness_stamps_now(tile, xp_root, icao, apt_now, cifp_file)
@@ -465,6 +481,10 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        A Global Airports update that would flip a NON-borrowing airport into
        borrowing (or out of it) is invisible here — deciding it needs the
        Global block parsed and a coverage union, which this gate does not do.
+    1c. **the OSM feeds** (#880) — ``o4_osm``: the size, mtime or absence
+       of every OSM feed file the build's loader could read (each feed over
+       the 3x3 tiles around the airport, ``osm.feed_witness``), so a
+       refreshed, new or deleted extract rebuilds the patch.
     2. **pack DSF(s)** — every DSF the build read from that pack, re-resolved
        and re-stat'ed (``o4_dsf`` / ``o4_dsf_tiles``) BY ITS INPUT IDENTITY:
        the ``<dsf>.anchor_bak`` pristine file where the object stage has
@@ -484,10 +504,15 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
     6. **scenery-pack enablement** — the pack that supplied the apt.dat being
        switched off (or back on) in ``scenery_packs.ini`` (``o4_pack``).
     7. **engine version** — the running ``O4_Version.version`` (``o4_engine``).
-    7b. **engine code** — one digest of the engine's source, taken from the
-       files in a checkout and written by the freeze in a frozen engine
-       (``o4_code``, ``provenance_code``; #346 — the version moves only when
-       the engine is frozen, so an edited checkout reused its old patches).
+    7b. **engine code** — one digest of the code the patch build imports
+       (its static import closure from ``auto_patch.driver`` and every
+       ``.toml`` table, #880), taken from the files in a checkout and
+       written by the freeze in a frozen engine (``o4_code``,
+       ``provenance_code``; #346 — the version moves only when the engine
+       is frozen, so an edited checkout reused its old patches).  An edit
+       outside the closure (the Qt app, the app session, the mesh) keeps
+       the patch; ``O4_PATCH_FRESHNESS_WHOLE_TREE=1`` keys on the whole
+       ``src`` tree again.
 
     FAIL-SAFE: a missing, unparseable or unrecognised stamp counts as changed.
     Every patch built before these stamps existed therefore rebuilds exactly

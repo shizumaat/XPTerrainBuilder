@@ -25,6 +25,7 @@ from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
 from ..planar.pack_reads import pool_report as _pack_read_pool
 from ..solve import DesignReport, Options, Solution, solve_design  # noqa: F401
+from . import emit_records as _emit_records
 from . import front_cache as _front
 from . import xplat as _xplat
 
@@ -34,7 +35,6 @@ from .emit_stage import (  # noqa: F401
     MOVED_M,
     borrowed_apt_dat_stamp,
     displacement_by_role,
-    emit,
     post_solve,
     with_join_yield,
 )
@@ -42,8 +42,9 @@ from .planar_report import shore_decision_lines  # noqa: F401  (read here)
 from .prefix import Deriver, PackRead, run_prefix
 from .prefix import classified_land as _classified_land  # noqa: F401  (read here)
 from .rebake_inputs import _plate_seats, _rebake_inputs, plate_stations  # noqa: F401
+from .late_records import prefix_identity
 from .shapes import joint_steps
-from .verify_stage import verify
+from .solve_record import identity, solve_stage
 
 __all__ = ["Config", "BuildResult", "build", "borrowed_apt_dat_stamp"]
 
@@ -454,10 +455,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # planar, flat_site, road_profile and the shapes are served from their
     # records when key and witnesses hold.  Off (``Config.stage_cache``
     # False, the xplat dump armed), every call below runs as it always did.
-    fc = _front.FrontCache(icao, airport, law,
-                           enabled=cfg.stage_cache and not cfg.xplat_dump,
+    fc = _front.FrontCache(icao, airport, law, enabled=cfg.stage_cache,
                            mod_cache_root=inputs.mod_cache_root,
-                           pack=(pack_objects, pack_report))
+                           pack=(pack_objects, pack_report),
+                           # the release gate measures the programme (§7):
+                           # every record reports ``bypass: xplat``
+                           bypass="xplat" if cfg.xplat_dump else None)
     airport = fc.airport(airport)
     fc.window(True)
     t = time.perf_counter()
@@ -521,7 +524,6 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     _yield_records, seam_yielded = pre.yield_records, pre.seam_yielded
     t = time.perf_counter()
     _pulse.tick("solving the surface")
-    size: dict[str, int] = {}
     # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
@@ -532,7 +534,9 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # (``pipeline/stage_one_map``); ``None`` when no ribbon was minted
     from .stage_one_map import stage_one_problem
     # the heartbeat names THIS work, not the inner planar build's last step
-    derive = Deriver(airport, law, inputs, pack,
+    # the re-runs go through the same records, keyed by their own
+    # classification (stage-cache spec §4b.3)
+    derive = Deriver(airport, law, inputs, pack, cache=fc, common=_fc_in,
                      heartbeat="stage 1 on the ribbon-free map: shapes and constraints")
     _s1 = stage_one_problem(cl, derive, pm.registries)
     _pulse.tick("solving the surface")
@@ -543,13 +547,27 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # PASS — the apron levels stage 1 solved become trend contacts, bound
     # here because ``solve`` may not import ``constraints``
     from ..constraints.taxi_trend import stage_one_retarget
-    tt2_rep: TaxiTrendReport = {}
-    sol, design_rep = solve_design(
-        pm, cs, law, cfg.options, size_out=size, strips=strips,
-        stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
-        hold=pre.hold, stage1=_s1,
-        trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
-                                                          lv, tt2_rep))
+
+    def _solve() -> tuple:
+        size: dict[str, int] = {}
+        tt2: TaxiTrendReport = {}
+        sol, rep = solve_design(
+            pm, cs, law, cfg.options, size_out=size, strips=strips,
+            stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
+            hold=pre.hold, stage1=_s1,
+            trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
+                                                              lv, tt2))
+        return sol, rep, size, tt2, None if _s1 is None else dict(_s1.report)
+    # THE SOLVE'S RECORD (stage-cache spec §4b.4; ``pipeline/solve_record``):
+    # keyed on the prefix's records and the ribbon-free prefix's, never
+    # served without its certificate
+    _solved = solve_stage(
+        fc, {**pre.keys, "stage_one": "none" if _s1 is None else prefix_identity(
+            derive.last.keys), "options": fc.digest(cfg.options)},
+        _solve, cs=cs, n=len(pm.vertices), law=law, options=cfg.options,
+        held=pm.registries.held)
+    sol, design_rep = _solved.value.sol, _solved.value.design
+    size, tt2_rep = dict(_solved.value.size), _solved.value.second_pass
     wall["solve"] = time.perf_counter() - t
     if tt2_rep:
         lrep.taxi_trend["second_pass"] = {
@@ -583,12 +601,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # the last stage re-mints the held registry (its own prefix run): the
         # base solve's hold report is carried over it (``model.platform``)
         from ..model.platform import install_hold_report
+        from .late_records import LateRecords
+        _late_records = LateRecords(
+            fc, {"airport": pre.keys.get("airport"), "rules": _fc_in.get("rules"),
+                 "options": fc.digest(cfg.options)},
+            identity(pre.keys.get("pm"), _solved.digest), law, cfg.options)
         pm, sol, _late = run_last_stages(
             cl_gaps, airport, law, derive,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
              "hard_conflict": hard_conflict},
             rules=load_rules(), options=cfg.options,
-            out=lambda m: _say(f"[{icao}] {m}", out))
+            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records)
         install_hold_report(pm.registries.held, _base_rep.hold_report)
         hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
@@ -665,17 +688,30 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     #: the verify work pool's account (``report["pool"]["verify"]``)
     _vpool: list[dict] = []
     if sol.status.value in ("optimal", "feasible"):
-        # THE EMIT (spec §4b.6; ``pipeline/emit_stage.py``)
-        paths, pieces, surf, pub = emit(
-            icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,
+        # THE EMIT (spec §4b.6; ``pipeline/emit_stage.py``) through its
+        # record (``pipeline/emit_records.py``; the header is not keyed)
+        # its key names the final map, ``z``, design and constraint set by
+        # the solve record and the last late solve record (§4b.6)
+        _em_in = _emit_records.emit_inputs(
+            fc, final=_emit_records.final_identity(
+                _solved, None if _late_report is None else _late_records),
+            cl=cl, yield_records=_yield_records, lrep=lrep, airport=airport,
+            objects_out=objects_out, common=_fc_in, feather_m=cfg.feather_m)
+        _em = _emit_records.emit(
+            fc, _em_in,
+            icao=icao, pm=pm, law=law, airport=airport, sol=sol, cs=cs, cl=cl, strips=strips,
             design_rep=design_rep, hard_conflict=hard_conflict,
             yield_records=_yield_records, late_report=_late_report,
             lrep=lrep, header_extra=cfg.header_extra, out_dir=out_dir,
             objects_out=objects_out, report=report, wall=wall, out=out)
+        paths, pieces = _em.paths, _em.pieces
         if cfg.verify:
-            # THE VERIFY STAGE (spec §4b.7; ``pipeline/verify_stage.py``)
-            vrows = verify(icao, surf=surf, pub=pub, pm=pm, law=law, airport=airport,
-                           report=report, wall=wall, pool_out=_vpool, out=out)
+            # THE VERIFY STAGE (spec §4b.7; ``pipeline/verify_stage.py``):
+            # its record holds only while the bodies on disk are the judged
+            vrows = _emit_records.verify(fc, _em, pm_digest=_em_in.get("final"),
+                                    airport_digest=_em_in.get("airport"),
+                                    icao=icao, pm=pm, law=law, airport=airport,
+                                    report=report, wall=wall, pool_out=_vpool, out=out)
     report["cache"] = fc.finish()
     _staged = sum(wall.values())
     wall["total"] = time.perf_counter() - t_build

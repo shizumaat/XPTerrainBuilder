@@ -21,8 +21,13 @@ engine):
 * it is MUTABLE when some function body mutates it (a mutating method, an
   item store or delete) or rebinds it — a constant table read everywhere
   is not state;
-* it is READ ACROSS STAGES when a module of a different sub-package names
-  it: ``from <module> import NAME``, or ``<module alias>.NAME``.
+* it is READ ACROSS STAGES when a module of a different stage names it:
+  ``from <module> import NAME``, or ``<module alias>.NAME``.  A stage is a
+  sub-package, except in the BACK HALF (spec §3b / §8 T1 extended, #843
+  step 9): every module of ``constraints``, ``solve``, ``emit``, ``verify``
+  and ``pipeline`` is a stage of its own (each generator is its own record;
+  the pipeline's modules are the stages' entry points), so a global one
+  generator fills and another reads fails here too.
 
 Offline and synthetic — no corpus, no network.
 """
@@ -46,8 +51,8 @@ _CONTAINER_CALLS = frozenset({
     "WeakValueDictionary", "WeakKeyDictionary"})
 
 _P = PKG + "."
-_UNCACHED = ("spec §3: produced by the uncached half (the solve / its "
-             "constraints), after the cached stages — unaffected")
+_UNCACHED = ("spec §3b: intra-stage scratch — written and read INSIDE one "
+             "stage (emit's publication; jetway_strip), never across a record")
 
 #: NOT CARRIED, BY RULING (spec §3, ``capture_state``'s table).  ``(module,
 #: name) -> reason``; a row here is a decision, so its reason is required.
@@ -92,10 +97,17 @@ def _modules(root: Path = V2) -> dict[str, tuple[Path, ast.Module]]:
     return out
 
 
+#: The back half's sub-packages, whose every module is its own stage.
+_BACK_HALF = frozenset({"constraints", "solve", "emit", "verify", "pipeline"})
+
+
 def _stage(mod: str) -> str:
-    """The sub-package a module belongs to (``planar``, ``constraints`` …);
-    a top-level module of the package is its own stage."""
+    """The stage a module belongs to: its sub-package (``planar``,
+    ``classify`` …), or the module itself in a back-half sub-package; a
+    top-level module of the package is its own stage."""
     parts = mod.split(".")
+    if len(parts) > 2 and parts[1] in _BACK_HALF:
+        return ".".join(parts[:3])
     return parts[1] if len(parts) > 1 else parts[0]
 
 
@@ -314,3 +326,17 @@ def test_a_planted_undeclared_cross_stage_global_is_found(tmp_path):
         f.write_text(text, encoding="utf-8", newline="\n")
     found = census(root)
     assert found == {(_P + "planar.fill", "SEEDS"): {_P + "constraints.gen"}}
+
+
+def test_a_global_one_generator_fills_and_another_reads_is_found(tmp_path):
+    """T1 EXTENDED (spec §8): inside the back half every module is a stage —
+    a memo generator ``a`` fills and generator ``b`` reads is found."""
+    files = {"__init__.py": "", "constraints/__init__.py": "",
+             "constraints/a.py": "MEMO: dict = {}\ndef gen_a(x):\n    MEMO[x] = 1\n",
+             "constraints/b.py": "from .a import MEMO\ndef gen_b():\n    return len(MEMO)\n"}
+    root = tmp_path / PKG
+    for rel, text in files.items():
+        f = root / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text, encoding="utf-8", newline="\n")
+    assert census(root) == {(_P + "constraints.a", "MEMO"): {_P + "constraints.b"}}

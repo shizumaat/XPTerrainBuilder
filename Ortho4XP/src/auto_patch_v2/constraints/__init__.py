@@ -27,7 +27,7 @@ from . import (apron, cluster_pad, eat, flat_site, foot_rows,
                taxi, transverse, water, zones)
 from .assembly import assemble, seam_exempt, water_exempt
 
-__all__ = ["GENERATORS", "generate", "stack", "seam_exempt", "water_exempt"]
+__all__ = ["GENERATORS", "generate", "run_generator", "stack", "seam_exempt", "water_exempt"]
 
 Generator = _t.Callable[[PlanarMap, Law, Airport], list[Row]]
 
@@ -152,6 +152,17 @@ def stack(rows: _t.Iterable[Row]) -> ConstraintSet:
     return ConstraintSet.from_rows(rows)
 
 
+def run_generator(fn: Generator, planar: PlanarMap, law: Law, airport: Airport
+                  ) -> tuple[list[Row], dict[str, int]]:
+    """ONE generator: its rows and its own statistics — its module's
+    ``STATS[fn name]``, published beside its count as ``<name>.<stat>``
+    (apron_within_shape: chords_outside_face, RULINGS 2026-09-05ae(1)); the
+    stage cache's per-generator record (spec §4b.1) stores both."""
+    got = fn(planar, law, airport)
+    stats = (getattr(_sys.modules.get(fn.__module__), "STATS", None) or {}).get(fn.__name__)
+    return got, {k: int(v) for k, v in (stats or {}).items()}
+
+
 def generate(planar: PlanarMap, law: Law, airport: Airport,
              only: _t.Container[str] | None = None,
              yielded_out: list[Row] | None = None,
@@ -169,15 +180,11 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
         if only is not None and name not in only:
             continue
         t0 = time.perf_counter()
-        got = fn(planar, law, airport)
+        got, stats = run_generator(fn, planar, law, airport)
         walls[name] = time.perf_counter() - t0
         counts[name] = len(got)
         rows.extend(got)
-        # a generator's own statistics (its module's ``STATS[fn name]``):
-        # published beside its count as ``<name>.<stat>`` (apron_within_shape:
-        # chords_outside_face, RULINGS 2026-09-05ae(1))
-        stats = (getattr(_sys.modules.get(fn.__module__), "STATS", None) or {}).get(fn.__name__)
-        for k, v in (stats or {}).items():
-            counts[f"{name}.{k}"] = int(v)
+        for k, v in stats.items():
+            counts[f"{name}.{k}"] = v
     rows = assemble(rows, counts, walls, planar, law, only, yielded_out)
     return stack(rows), counts, walls

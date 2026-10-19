@@ -3,12 +3,14 @@
 → the shape stage → the constraint generators → the jetway strips → the
 hold binding, for one classification.
 
-The main pass runs it on the build's classification through the front
-cache (``pipeline/front_cache.py``); the ribbon-free pass
-(``stage_one_map.stage_one_problem``), the late stage's derives
-(``late_stage``) and ``tools/v2_solve_replay.py`` run it on another
-classification with no cache — the re-runs go through the cache only at
-§10 step 9.  The main pass says its lines; a re-run is silent."""
+The main pass runs it on the build's classification through the build's
+cache (``pipeline/front_cache.py``; the constraint and jetway-strip records
+of ``pipeline/constraint_records.py``); the ribbon-free pass
+(``stage_one_map.stage_one_problem``) and the late stage's derives
+(``late_stage``) run it on another classification through the SAME records,
+each keyed by its own classification and map (spec §4b.3, a
+:class:`Deriver` holding the cache); ``tools/v2_solve_replay.py`` runs it
+with no cache.  The main pass says its lines; a re-run is silent."""
 from __future__ import annotations
 
 import dataclasses as _dc
@@ -31,8 +33,9 @@ from ..emit.road_join import with_road_coverage_join
 from ..model import pulse as _pulse
 from ..planar.build import build as build_planar
 from . import capture_state as _cstate
+from .constraint_records import constraints_stage, strips_stage
 from .planar_report import say_planar
-from .shapes import shape_constraints, shape_stage
+from .shapes import shape_stage
 
 __all__ = ["PackRead", "PrefixRecord", "Deriver", "run_prefix", "classified_land"]
 
@@ -73,6 +76,12 @@ class PrefixRecord:
     strips: _t.Any
     hold: _t.Any
     wall: dict
+    #: the run's record identities the solve and the late stage are keyed on
+    #: (``pm`` the shape stage's output digest, ``airport``, ``assembly`` the
+    #: assembly's KEY, ``strips`` the strips' output digest, ``chain`` the
+    #: DEM chain after them); empty with no cache, ``None`` where a step was
+    #: not cached
+    keys: dict = _dc.field(default_factory=dict)
 
     def derived(self) -> tuple:
         """``(pm, cs, strips, hold)`` — what ``stage_one_problem`` and
@@ -252,11 +261,12 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
                rows: _t.Callable[[_t.Any], _t.Any] | None = None) -> PrefixRecord:
     """THE PREFIX on ``cl`` (module docstring).
 
-    ``cache`` is the build's ``FrontCache`` (the main pass: its planar,
-    flat_site, road_profile and shapes records, keyed on ``common`` and the
+    ``cache`` is the build's ``FrontCache`` (its planar, flat_site,
+    road_profile and shapes records, keyed on ``common`` and the
     classification digest ``cl_digest``; the planar stage's registries record
-    is installed before the shapes and the cache closed after them), or
-    ``None`` (a re-run: every step runs plainly).  ``lrep`` (the load report)
+    is installed before the shapes and the window closed after them; then
+    the constraint and jetway-strip records), or ``None`` (every step runs
+    plainly).  ``lrep`` (the load report)
     receives the flat-site record and the channel reports; ``out`` says the
     main pass's lines (``None``: silent); ``heartbeat`` names every step's
     pulse (a re-run's own work).  ``targets(pm) -> pm`` replaces the target
@@ -357,8 +367,12 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
     t = time.perf_counter()
     tick("generating the law constraints")
     seam_yielded: list = []
-    cs, counts, gwalls = shape_constraints(pm, law, airport, stage,
-                                           yielded_out=seam_yielded)
+    # the generators' and the assembly's records (spec §4b.1), keyed on the
+    # shape stage's output (the map and its registries) and the airport
+    back_in = {"pm": cache.output_digest("shapes"), "airport": ap_digest} \
+        if cache is not None else {}
+    con = constraints_stage(cache, pm, law, airport, stage, back_in, seam_yielded)
+    cs, counts, gwalls = con.cs, con.counts, con.walls
     wall["constraints"] = time.perf_counter() - t
     if out is not None:
         _say_constraints(icao, stage, cs, counts, gwalls, wall["constraints"], out)
@@ -371,9 +385,10 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
     # two stages (``solve/project_strip.py``).
     t = time.perf_counter()
     tick("the jetway strips")
-    from ..airport.riders import rider_candidates
-    from ..constraints.jetway_strip import jetway_strips
-    strips = jetway_strips(pm, law, airport, cs, rider_candidates(airport, law))
+    # a ``rows`` filter (the replay's arm) is not in the assembly's key
+    sgot = strips_stage(cache, pm, law, airport,
+                        con._replace(cs=cs, key=con.key if rows is None else None), back_in)
+    strips = sgot.value
     wall["jetway_strip"] = time.perf_counter() - t
     say(f"[{icao}] jetway strip region (18t Q3) {wall['jetway_strip']:.2f} s: "
         + ", ".join(f"{k} {v}" for k, v in strips.counts.items()))
@@ -387,7 +402,10 @@ def run_prefix(airport, cl, law, inputs, pack: PackRead, cache=None, *,
         reports={k: getattr(lrep, k, None) for k in _REPORTS},
         yield_records=yield_records, stage=stage, pm=pm, cs=cs, counts=counts,
         gwalls=gwalls, seam_yielded=seam_yielded, strips=strips,
-        hold=hold_pass(pm, law, airport), wall=wall)
+        hold=hold_pass(pm, law, airport), wall=wall,
+        keys={} if cache is None else {
+            **back_in, "assembly": con.key if rows is None else None,
+            "strips": sgot.digest, "chain": con.chain})
 
 
 def _say_constraints(icao: str, stage, cs, counts: dict, gwalls: dict, wall_s: float,
@@ -408,14 +426,30 @@ def _say_constraints(icao: str, stage, cs, counts: dict, gwalls: dict, wall_s: f
 
 class Deriver:
     """A ``derive(cl) -> (pm, cs, strips, hold)`` over :func:`run_prefix`
-    (no cache, silent) for ``stage_one_problem`` and the late stage;
-    ``last`` is the last run's :class:`PrefixRecord`."""
+    (silent) for ``stage_one_problem`` and the late stage; ``last`` is the
+    last run's :class:`PrefixRecord`.  With the build's ``cache`` (and its
+    ``common`` inputs) every run goes through the records, keyed by its
+    own classification, and is reported as ``<stage>@prefix<n>`` (spec
+    §4b.3); with none it runs plainly."""
 
-    def __init__(self, airport, law, inputs, pack: PackRead, **kw: _t.Any) -> None:
+    def __init__(self, airport, law, inputs, pack: PackRead, cache=None,
+                 common: _t.Mapping[str, _t.Any] | None = None, **kw: _t.Any) -> None:
         self.airport, self.law, self.inputs, self.pack, self.kw = airport, law, inputs, pack, kw
+        self.cache, self.common = cache, common
+        self.runs = 0
         self.last: PrefixRecord | None = None
 
     def __call__(self, cl) -> tuple:
-        self.last = run_prefix(self.airport, cl, self.law, self.inputs, self.pack, None,
-                               **self.kw)
+        self.runs += 1
+        cl_digest = None
+        if self.cache is not None:
+            self.cache.reopen(f"prefix{self.runs}")
+            cl_digest = self.cache.digest(cl)
+        try:
+            self.last = run_prefix(self.airport, cl, self.law, self.inputs, self.pack,
+                                   self.cache, common=self.common, cl_digest=cl_digest,
+                                   **self.kw)
+        finally:
+            if self.cache is not None:
+                self.cache.tag = ""
         return self.last.derived()

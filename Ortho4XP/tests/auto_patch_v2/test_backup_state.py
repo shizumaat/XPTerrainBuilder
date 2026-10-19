@@ -770,7 +770,7 @@ def test_the_disabled_pack_gate_sits_before_the_placement_call(tmp_path):
 
     src = inspect.getsource(object_stage.rebake_after_mesh)
     gate = src.index("pack_enabled(plan_.pack_root)")
-    place = src.index("pc = _place_objects(")
+    place = src.index("return _place_objects(")
     assert gate < place, "the disabled-pack gate must precede the write path"
     assert "continue" in src[gate:place]
     # and the predicate itself answers for a pack an ini disables

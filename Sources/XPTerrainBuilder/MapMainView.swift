@@ -443,7 +443,10 @@ struct MapMainView: View {
                 .foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear { foundInstalls.value = XPlaneInstall.detectInstalls() }
+        .onAppear {
+            foundInstalls.value = XPlaneInstall.detectInstalls()
+            buildModel.applyDefaultPresetIfUnset()
+        }
     }
 
     /// Validated before it is accepted — the picker and the found-install

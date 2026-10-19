@@ -26,6 +26,9 @@ from . import bridge_family as _bf
 from . import rebake_plan as _rbp
 from .placement_carrier import is_elevated
 
+if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
+    from .placement_record import Staged as _Staged
+
 __all__ = ["_Raw", "_raw_bodies", "_whole_body"]
 
 

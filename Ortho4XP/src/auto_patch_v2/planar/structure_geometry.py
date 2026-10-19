@@ -43,6 +43,7 @@ from ..geom.vector import unit_vector
 
 if _t.TYPE_CHECKING:                      # annotations only (PEP 563 is on)
     from ..law import Law
+    from ..model.airport import Airport
     from ..model.structures import Tunnel
 
 

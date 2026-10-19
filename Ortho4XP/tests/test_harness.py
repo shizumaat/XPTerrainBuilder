@@ -8653,7 +8653,7 @@ def test_the_marker_reads_long_runs_by_the_one_ratio(cg, tmp_path):
 
 # ── RECT STRETCH CAPS (lane v2integ 2026-09-05; RULINGS 2026-09-04t-3 / 04y) ──
 
-def _rs_ll(x: float, y: float) -> Tuple[float, float]:
+def _rs_ll(x: float, y: float) -> tuple[float, float]:
     """The rect-stretch twins' metres -> lat/lon about ``_TWIN_ANCHOR``."""
     import math
     r = 6378137.0

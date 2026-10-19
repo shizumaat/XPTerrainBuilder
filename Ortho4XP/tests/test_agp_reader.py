@@ -770,3 +770,18 @@ def test_an_absent_file_never_replaces_one_on_disk(tmp_path):
     _with_files(root, "Low", "x.obj")
     assert _cold_index(root)["lib/x.obj"].endswith(os.path.join("Low", "x.obj"))
 
+
+
+def test_a_colon_in_a_physical_path_is_a_directory(tmp_path):
+    """#442: a classic-Mac ``library.txt`` (ff_library's
+    ``EXPORT lib/fence/fence.fac fence:fence.fac``) names a folder with
+    ``:`` exactly as a Windows one does with ``\\``; the index must reach
+    the file, or a stock path that is installed reads as missing art."""
+    packs = {"Lib": "EXPORT lib/fence/fence.fac fence:fence.fac\n"
+                    "EXPORT lib/a/b.obj objs\\b.obj\n"}
+    root = _install(tmp_path, packs, ini_order=["Lib"])
+    _with_files(root, "Lib", "fence/fence.fac", "objs/b.obj")
+    assert A.resolve_library_path("lib/fence/fence.fac", str(root)).endswith(
+        os.path.join("Lib", "fence", "fence.fac"))
+    assert A.resolve_library_path("lib/a/b.obj", str(root)).endswith(
+        os.path.join("Lib", "objs", "b.obj"))

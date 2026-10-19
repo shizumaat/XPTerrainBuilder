@@ -13,14 +13,17 @@ the ruling, both pure and both general — any pack, any tile:
   (``obj8.resolve_resource`` — the ONE resolver, over the engine's merged
   library index).  ``RASTER_DEF`` rows name data layers, not files, and
   ``terrain_Water`` is built into the simulator: neither is ever missing.
-  A STOCK ``lib/…`` path is X-Plane's own catalogue and is never called
-  missing either: the merged index does not model every way the
-  simulator exports its catalogue (measured 2026-10-06 over 216 cached
-  pack dumps: 437 distinct stock paths the index lacks —
-  ``lib/g10/autogen/*.ags``, the deciduous ``.for`` forests — in packs
-  that load).  A wrong "X-Plane will not load this pack" is worse than
-  none, so the same holds for any name another ``EXPORT*`` directive
-  mentions (``also_exported``).
+  A STOCK ``lib/…`` path is resolved like any other (issue #442).  It
+  was once exempt, because the merged index did not model every way the
+  simulator exports its catalogue (2026-10-06, 216 cached pack dumps:
+  437 stock paths the index lacked).  Re-measured 2026-10-19 over 834
+  dumps of 186 packs, 4,420 distinct stock paths: 373 of the 377 the
+  index lacks are named by another ``EXPORT*`` directive (seasonal,
+  regional — ``also_exported``, which a wrong "X-Plane will not load
+  this pack" is worse than none for, so it stays over-inclusive), and 36
+  more resolved to no file only because the index read the ``:`` of a
+  classic-Mac ``library.txt`` (ff_library) as a name character.  What
+  is left is 4 paths in 2 packs that no installed library provides.
 * THE OMISSION — :func:`omit_definitions`: the dump text without the
   missing definitions and without every placement, polygon and network
   segment that uses one, the surviving rows renumbered.  A row that
@@ -57,7 +60,7 @@ import os
 import re
 import typing as _t
 
-from .obj8 import is_stock_library_resource, resolve_resource
+from .obj8 import resolve_resource
 
 __all__ = ["MissingDef", "DEF_KINDS", "FIRST_PATHS", "declared_definitions",
            "missing_definitions", "omit_definitions", "unused_definitions", "can_omit",
@@ -129,7 +132,7 @@ def declared_definitions(source: str | _t.Iterable[str]) -> dict[str, list[str]]
 def _present(path: str, pack_root: str,
              index: _t.Mapping[str, str]) -> bool:
     p = path.replace("\\", "/").replace(":", "/")
-    if p.lower() in BUILT_IN or is_stock_library_resource(p):
+    if p.lower() in BUILT_IN:
         return True
     return (resolve_resource(p, pack_root, index) is not None
             or (p != path and resolve_resource(path, pack_root, index) is not None))

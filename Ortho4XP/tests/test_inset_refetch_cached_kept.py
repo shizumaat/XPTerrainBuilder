@@ -16,15 +16,14 @@ No network: the per-airport fetch is faked at its row contract.
 import os
 import time
 
-import pytest
-
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 import O4_Unpatched_Airports as UNPATCHED
 
 from test_inset_fetch_scratch import (WIDER_BOX, _corpus, _inset_dir,
-                                      littering_strategy, requires_gdal)
+                                      littering_strategy,  # noqa: F401
+                                      requires_gdal)
 from test_inset_resolution_ladder import BOX
 
 ICAO, CODE = "KASE", "FAKESCR"
@@ -109,7 +108,7 @@ def test_the_note_names_the_cached_inset_and_its_age(tmp_path):
 
 @requires_gdal
 def test_the_fetch_rows_tell_kept_from_missing(
-        tmp_path, monkeypatch, littering_strategy):
+        tmp_path, monkeypatch, littering_strategy):  # noqa: F811 (fixture)
     """End to end through the fetch loop: a refetch that fails over a
     cached inset reports the kept inset; a first fetch that fails reports
     a bare (no inset) row."""

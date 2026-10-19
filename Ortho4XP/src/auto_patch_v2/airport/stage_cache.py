@@ -54,7 +54,7 @@ import zlib
 
 __all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest", "key_of",
            "entry_path", "encode", "write", "read_header", "read", "touch", "touch_many",
-           "sweep", "peek", "Refused"]
+           "sweep", "peek", "first_difference", "why_miss", "Refused"]
 
 #: Bump when the SHAPE of a record changes (the code digests cover a change
 #: in what a stage produces).
@@ -323,3 +323,71 @@ def sweep(root: str | None, cap: int = CAP_BYTES) -> list[str]:
 def peek(path: str) -> dict | None:
     """The header of a record (why a key missed, field by field), or ``None``."""
     return read_header(path)
+
+
+#: the recipe's top-level fields in the order :func:`first_difference`
+#: reads them (any other field after these, sorted)
+_RECIPE_ORDER = ("stage", "version", "code", "env", "inputs")
+
+
+def _flat(doc: _t.Mapping[str, _t.Any]) -> dict[str, _t.Any]:
+    """``{dotted field: value}`` of a recipe, one level of nesting deep
+    (``code.<stage>``, ``inputs.<name>``), in :data:`_RECIPE_ORDER`."""
+    out: dict[str, _t.Any] = {}
+    tops = [k for k in _RECIPE_ORDER if k in doc] + sorted(
+        k for k in doc if k not in _RECIPE_ORDER)
+    for top in tops:
+        v = doc[top]
+        if isinstance(v, _t.Mapping):
+            for k in sorted(v):
+                out[f"{top}.{k}"] = v[k]
+        else:
+            out[top] = v
+    return out
+
+
+def first_difference(header: _t.Mapping[str, _t.Any] | None, stage: str,
+                     recipe: _t.Mapping[str, _t.Any]) -> str | None:
+    """The FIRST recipe field in which the record ``header`` (a
+    :func:`peek`) differs from the key a stage asked for (``stage`` +
+    ``recipe`` as :func:`key_of` reads them) — ``version``, ``code.<s>``,
+    ``env``, ``inputs.<name>`` … — or ``None`` when every field agrees
+    (the same key: a record refused by its witnesses, not by its key).
+    ``"format"`` for a header that is no record's."""
+    if not isinstance(header, _t.Mapping):
+        return "format"
+    want = _flat({"stage": stage, "version": CACHE_VERSION, **recipe})
+    had = _flat({"stage": header.get("stage"), "version": header.get("version"),
+                 **dict(header.get("recipe") or {})})
+    names = list(want) + [k for k in had if k not in want]
+    for name in names:
+        if json.dumps(want.get(name), sort_keys=True, default=str) != \
+                json.dumps(had.get(name), sort_keys=True, default=str):
+            return name
+    return None
+
+
+def why_miss(folder: str | None, icao: str, stage: str, key: str,
+             recipe: _t.Mapping[str, _t.Any]) -> list[tuple[str, str | None]]:
+    """``(record file name, first differing field)`` for every record of
+    ``stage`` for ``icao`` in ``folder`` (headers only — nothing is
+    decompressed); the field is ``None`` for the record of ``key`` itself
+    (it exists and was refused by a witness or its payload)."""
+    if not folder:
+        return []
+    head = f"{_PREFIX}{icao}_"
+    try:
+        names = sorted(e.name for e in os.scandir(folder)
+                       if e.name.startswith(head) and e.name.endswith(_SUFFIX))
+    except OSError:
+        return []
+    out: list[tuple[str, str | None]] = []
+    for name in names:
+        hd = peek(os.path.join(folder, name))
+        if hd is not None and hd.get("stage") != stage:
+            continue
+        if hd is None and not name.startswith(f"{head}{stage}_"):
+            continue
+        same = hd is not None and hd.get("key") == key
+        out.append((name, None if same else first_difference(hd, stage, recipe)))
+    return out

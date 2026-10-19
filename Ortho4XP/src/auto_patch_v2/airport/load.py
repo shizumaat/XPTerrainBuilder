@@ -157,6 +157,9 @@ class LoadReport:
     objects_restored_for_read: int = 0
     library_index_path: str | None = None
     osm_sources: tuple[str, ...] = ()
+    #: ``osm.feed_witness`` of the feeds this load could read — the patch
+    #: freshness gate's OSM input (``o4_osm``, #880); "" without a root
+    osm_witness: str = ""
     #: §25 (RULINGS 2026-09-11aq item B): relations read, outer ways given
     #: the relation's tags, rings stitched, unclosable outers, inners dropped
     osm_relations: str = ""
@@ -330,6 +333,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                         _float_or_none(w.tags.get("height")),
                         _int_or_none(w.tags.get("building:levels"))))
     rep.osm_sources = tuple(sources)
+    if inputs.osm_root:
+        rep.osm_witness = _osm.feed_witness(inputs.osm_root, lat0, lon0)
     rep.osm_shore_feeds = tuple(p for p, _s in feed_schemas.get(
         _osm.SHORE_FEED, ()))
     if inputs.osm_root and not rep.osm_shore_feeds:

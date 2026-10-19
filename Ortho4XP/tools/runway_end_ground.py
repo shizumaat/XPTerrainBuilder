@@ -189,6 +189,10 @@ def corners(patch, icao):
             runways.setdefault(way.ref or way.wid, set()).update(way.nids)
         elif way.role == "graded_strip":
             strip.update(way.nids)
+    from auto_patch_v2.verify.runway_witness import published_status
+    side = Path(str(patch) + ".axes.json")
+    published = (json.loads(side.read_text()).get("runway_axes")
+                 if side.is_file() else None)
     rows = []
     for ref, ids in sorted(runways.items()):
         pts = [xy(n) for n in ids]
@@ -200,8 +204,10 @@ def corners(patch, icao):
         a, _b, (ux, uy), length, width = ax
         code = runway_code_number(law, length)
         letter = runway_code_letter(law, width)
-        half2 = zone2_half_width_m(law, "runway", code, letter) or 0.0
-        end_len = runway_safety_area_length_m(law, code, letter)
+        # the runway's instrument status as its sidecar publishes it (#811)
+        status = published_status(published, ref)
+        half2 = zone2_half_width_m(law, "runway", code, letter, status) or 0.0
+        end_len = runway_safety_area_length_m(law, code, letter, status)
         for end, s_end in ((1, 0.0), (2, length)):
             edge = [n for n in ids if n in z
                     and abs(((xy(n)[0] - a[0]) * ux + (xy(n)[1] - a[1]) * uy)

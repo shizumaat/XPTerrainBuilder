@@ -129,8 +129,13 @@ class FrontCache:
 
     def __init__(self, icao: str, airport: _t.Any, law: _t.Any, *, enabled: bool,
                  mod_cache_root: str | None, pack: _t.Any = None,
-                 bypass: str | None = None) -> None:
+                 bypass: str | None = None, write: bool = True) -> None:
         self.icao = icao
+        #: ``False``: records are read and served, a miss is computed and
+        #: NEVER written (the ``topology_cache`` rule for replays and tools)
+        self.write = write
+        #: stage -> ``(key, recipe)`` this build asked for (``why_miss``)
+        self.recipes: dict[str, tuple[str, dict]] = {}
         self.real_law = law
         self.root = mod_cache_root
         self.folder = stage_folder(airport, mod_cache_root)
@@ -271,6 +276,7 @@ class FrontCache:
             return fn(self.stage_law())
         recipe = {"inputs": dict(inputs), "code": codes, "env": self.env}
         key = _store.key_of(stage, recipe)
+        self.recipes[stage] = (key, recipe)
         path = _store.entry_path(self.folder, self.icao, stage, key)
         rep["key"] = key[:16]
         got = self._serve(stage, key, path, rep)
@@ -325,6 +331,9 @@ class FrontCache:
         if opaque:
             rep["state"] += f"; not written: dem {opaque}"
             return blob
+        if not self.write:
+            rep["state"] += "; not written: read-only"
+            return blob
         header = {"stage": stage, "key": key, "version": _store.CACHE_VERSION,
                   "recipe": recipe, "output_digest": digest, "created": time.time(),
                   "bytes": len(blob)}
@@ -339,6 +348,15 @@ class FrontCache:
         t = time.perf_counter()
         rep["written_bytes"] = _store.write(path, header, witness, blob)
         rep["write_s"] = round(time.perf_counter() - t, 4)
+
+    def why_miss(self, stage: str) -> list[tuple[str, str | None]]:
+        """Per record of ``stage`` on disk, the first recipe field that
+        differs from the key this build asked for (``stage_cache.
+        why_miss``; ``None``: the record of that very key)."""
+        got = self.recipes.get(stage)
+        if not self.active or got is None:
+            return []
+        return _store.why_miss(self.folder, self.icao, stage, *got)
 
     def output_digest(self, stage: str) -> str | None:
         """The digest a stage's record names its output by (``None``: the

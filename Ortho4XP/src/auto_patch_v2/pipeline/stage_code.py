@@ -970,7 +970,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.precedence constraints.ramp_runout constraints.band_riser
         constraints.road_ramp geom
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
-        geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport model.band_riser
+        geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport
+        model.band_riser
         model.islands model.map_memo model.platform
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
@@ -979,7 +980,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.pads constraints.platform constraints.precedence
         constraints.band_riser constraints.road_ramp geom geom.base_slab geom.cluster_outline
         geom.containment
-        geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport model.band_riser
+        geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport
+        model.band_riser
         model.islands model.map_memo model.platform
     """),
     "roads": _mods(_GENERATOR_CORE + """
@@ -1280,7 +1282,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
-    model.airport model.band_riser model.constraint_codec model.constraints model.end_area model.frame
+    model.airport model.band_riser model.constraint_codec model.constraints model.end_area
+    model.frame
     model.ground_fit model.hard_plane model.islands model.jetway model.map_memo
     model.pad_terrace model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum

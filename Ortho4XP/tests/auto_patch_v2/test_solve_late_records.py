@@ -102,17 +102,25 @@ def _states_of(arm: dict) -> dict[str, str]:
             if not k.startswith("constraints.gen.")}
 
 
+#: report keys that are CLOCK READINGS though not named ``*_s``:
+#: ``over_budget`` (``solve/feasibility.ConflictReport``, the design
+#: report's ``stage1a/hard_feasibility``) is ``lp_wall_s >`` the §5a LP
+#: budget — a wall-clock comparison, so a loaded machine flips it
+_CLOCK_FLAGS = ("over_budget", "qp_solves")    # qp_solves: its rows carry seconds
+
+
 def _unclocked(d):
-    """``d`` without its clocks (every ``*_s`` key and the ``qp_solves``
-    log, whose rows carry seconds, at any depth)."""
+    """``d`` without its clocks (every ``*_s`` key and :data:`_CLOCK_FLAGS`,
+    at any depth; in a line, its seconds and the ``OVER BUDGET`` mark that
+    ``ConflictReport.line`` prints from ``over_budget``)."""
     if isinstance(d, dict):
         return {k: _unclocked(v) for k, v in d.items()
-                if not str(k).endswith("_s") and k != "qp_solves"}
+                if not str(k).endswith("_s") and k not in _CLOCK_FLAGS}
     if isinstance(d, (list, tuple)):
         return type(d)(_unclocked(v) for v in d)
     if isinstance(d, str):                      # a line that names its seconds
         import re
-        return re.sub(r"\d+\.\d+ s\b", "<s>", d)
+        return re.sub(r"\d+\.\d+ s\b", "<s>", d).replace(" OVER BUDGET", "")
     return d
 
 

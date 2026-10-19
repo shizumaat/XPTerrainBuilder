@@ -297,8 +297,18 @@ def _separates(face: Polygon, part: Polygon, lobes: list[Polygon],
     A NECK SEPARATES; a fringe does not.  So the component is a neck only
     where the face MINUS it falls into parts that hold different lobes —
     the owner's own picture of the rule ("the taxiway LEAVES the apron at
-    a mouth ... until it widens into ANOTHER apron")."""
-    rest = face.difference(part.buffer(rules.cells.snap_grid_m))
+    a mouth ... until it widens into ANOTHER apron").
+
+    THE CUTTER IS BUILT IN FLOATING PRECISION (#952).  ``part`` comes off
+    the 1 mm opening grid, so it carries GEOS's FIXED precision model, and
+    a buffer inherits it: the buffer is snap-rounded and can come back
+    INVALID (a MultiPolygon whose pieces overlap), and the difference
+    then raised ``TopologyException: side location conflict`` on two
+    valid inputs (measured at a 366,550 m2 face with 26 holes, a 650 m2
+    narrow part).  The part's coordinates already lie on the grid, so
+    dropping the model moves nothing; the buffer is then exact."""
+    cutter = shapely.set_precision(part, 0.0).buffer(rules.cells.snap_grid_m)
+    rest = face.difference(cutter)
     parts = [p for p in polygon_parts(rest) if p.area > 0.0]
     if len(parts) < 2:
         return False

@@ -10249,11 +10249,12 @@ def test_a_zone_beyond_the_stand_off_horizon_is_not_the_strip(cg, tmp_path):
 
 def test_groundside_cutback_is_registered_and_report_only(cg):
     """Q-97 owns the strip's intent: the family is a DIAGNOSTIC (no solve
-    row) of cockpit class ``grade`` (REPORT), never a step the gate reads."""
+    row) of cockpit class ``terrace`` (REPORT, exempt from the §31 (7)
+    cliff escape — owner RULINGS 2026-10-19l), never a step the gate reads."""
     from auto_patch_v2.law import tables as _T
     assert "groundside_cutback" in {k for k, _t, _b in cg.LAW_FAMILIES}
     fam = _T.load_default().tables.families["groundside_cutback"]
-    assert fam.solver == "diagnostic" and fam.cockpit == "grade"
+    assert fam.solver == "diagnostic" and fam.cockpit == "terrace"
 
 
 # ══════════════════════════════════════════════════════════════════════

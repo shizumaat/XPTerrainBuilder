@@ -34,14 +34,27 @@ from tests.auto_patch_v2.test_solve_late_records import (
     INPUTS, PACK, _first_difference, _late_world, _unclocked)
 
 
-def _run(root: Path | None, out_dir: Path) -> dict:
+def _two_pass_world():
+    """``_late_world`` with a gap piece beside the pad: the last stage runs
+    TWO passes (the gap pieces, then the pad road against them —
+    ``run_last_stages``), so ``late.cut.2`` digests a classification built
+    from ``late.cut.1``'s output."""
+    from auto_patch_v2.classify.roles import Cell, Classification
+    from tests.auto_patch_v2.test_pad_touch import _rect
+    law, airport, cl = _late_world()
+    gap = Cell(50, "groundside_pavement", "gap:0", _rect(200.0, 120.0, 240.0, 180.0), (),
+               None, None, "groundside", "groundside_pavement", {})
+    return law, airport, Classification(tuple(cl.cells) + (gap,), (), {}, ())
+
+
+def _run(root: Path | None, out_dir: Path, world=_late_world) -> dict:
     """One build's back half into a fresh ``out_dir`` (``root`` None: the
-    cache off)."""
+    cache off) on ``world()``."""
     if out_dir.exists():
         shutil.rmtree(out_dir)
     from auto_patch_v2.pipeline.late_stage import run_last_stages
     from auto_patch_v2.pipeline.stage_one_map import gap_free
-    law, airport, cl = _late_world()
+    law, airport, cl = world()
     fc = FC.FrontCache(ICAO, airport, law, enabled=root is not None,
                        mod_cache_root=None if root is None else str(root))
     airport = fc.airport(airport)
@@ -82,16 +95,20 @@ def _run(root: Path | None, out_dir: Path) -> dict:
                      airport_digest=em_in.get("airport"), icao=ICAO, pm=pm, law=law,
                      airport=airport, report=report, wall=wall, pool_out=[],
                      out=lines.append)
-    states = {k.split("@")[0]: v for k, v in _states(fc.finish()).items()
+    stages = _states(fc.finish())
+    states = {k.split("@")[0]: v for k, v in stages.items()
               if not k.startswith("constraints.gen.")}
     files = {str(p.relative_to(out_dir)): p.read_bytes()
              for p in sorted(out_dir.rglob("*")) if p.is_file()}
     return {"files": files, "report": report, "lines": lines, "rows": rows,
-            "states": states, "final": em_in.get("final")}
+            "states": states, "stages": stages, "final": em_in.get("final")}
 
 
 def _clockless(lines: list[str]) -> list[str]:
-    return [re.sub(r"\d+\.\d+ s\b|served", "T", ln) for ln in lines]
+    # " OVER BUDGET": ``ConflictReport.line``'s mark of ``lp_wall_s`` over
+    # the §5a budget — a clock reading (``_CLOCK_FLAGS``)
+    return [re.sub(r"\d+\.\d+ s\b|served", "T", ln).replace(" OVER BUDGET", "")
+            for ln in lines]
 
 
 def _files(arm: dict, clocks: bool) -> dict:
@@ -160,3 +177,54 @@ def test_the_records_run_in_build_order_and_a_full_hit_equals_its_writer(arms):
     assert miss["final"] is not None and miss["final"] == hit["final"]
     _same(miss, hit)                       # byte for byte, clocks and all
     _same(cold, hit, clocks=False)
+
+
+# ── two processes, one cache (the HECA second build missed late.cut.2) ──
+
+_TWIN = """
+import pickle, sys
+from pathlib import Path
+sys.path[:0] = [{src!r}, {root!r}]
+from tests.auto_patch_v2 import test_backhalf_end_to_end as E
+arm = E._run(Path({cache!r}), Path({out!r}), world=E._two_pass_world)
+Path({dump!r}).write_bytes(pickle.dumps(arm, protocol=5))
+"""
+
+
+def _arm_in_a_fresh_process(tmp: Path, name: str, seed: str, cache: Path,
+                            out: Path) -> dict:
+    import os
+    import pickle
+    import subprocess
+    import sys
+    from tests.auto_patch_v2.test_solve_late_records import ROOT
+    cwd, tdir = tmp / f"cwd_{name}", tmp / f"tmp_{name}"
+    cwd.mkdir()
+    tdir.mkdir()
+    dump = tmp / f"{name}.pkl"
+    code = _TWIN.format(src=str(ROOT / "src"), root=str(ROOT), cache=str(cache),
+                        out=str(out), dump=str(dump))
+    env = {**os.environ, "PYTHONHASHSEED": seed, "TMPDIR": str(tdir)}
+    got = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         cwd=str(cwd), env=env, timeout=900)
+    assert got.returncode == 0, got.stderr[-3000:]
+    return pickle.loads(dump.read_bytes())
+
+
+def test_a_second_build_in_another_process_hits_every_record_of_both_late_passes(tmp_path):
+    """Two builds in two FRESH processes (another hash seed, ``TMPDIR`` and
+    cwd) on one cache: the second hits EVERY record — the late stage's
+    second pass too, whose classification is built from the first pass's
+    cut (a hit hands on the decoded record; the miss hands on the same,
+    ``back_cache.record(as_served=True)``) — and equals the first byte for
+    byte (RULINGS 2026-10-18d)."""
+    cache, out = tmp_path / "cache", tmp_path / "out"   # one out_dir: the report names it
+    first = _arm_in_a_fresh_process(tmp_path, "a", "1", cache, out)
+    second = _arm_in_a_fresh_process(tmp_path, "b", "7", cache, out)
+    for s in ("late.cut.1", "late.solve.1", "late.cut.2", "late.solve.2", "emit", "verify"):
+        assert first["stages"].get(s) == "miss", (s, first["stages"])
+    assert any(k.endswith("@prefix3") for k in first["stages"]), first["stages"]
+    assert set(second["stages"].values()) == {"hit"}, \
+        {k: v for k, v in second["stages"].items() if v != "hit"}
+    assert first["final"] is not None and first["final"] == second["final"]
+    _same(first, second)

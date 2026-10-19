@@ -1,4 +1,11 @@
-grid_type=webmercator
-url_template=https://gis.apfo.usda.gov/arcgis/rest/services/NAIP/USDA_CONUS_PRIME/ImageServer/tile/{zoom}/{y}/{x}
+# USDA NAIP (latest national coverage) through the USGS National Map image
+# service. Replaces gis.apfo.usda.gov, which resets every TLS handshake (#863).
+request_type=wms
+wms_size=512
+wms_version=1.1.1
+epsg_code=3857
+url_prefix=https://imagery.nationalmap.gov/arcgis/services/USGSNAIPImagery/ImageServer/WMSServer?
+layers=USGSNAIPImagery:None
+max_threads=4
 imagery_dir=grouped
 in_GUI=False

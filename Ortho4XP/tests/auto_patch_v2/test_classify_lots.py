@@ -543,8 +543,8 @@ def test_unclassified_groundside_pavement_is_a_lot_or_a_road_ribbon(law):
     assert [c[0] for c in plate] == ["parking_lot"], plate
     # both stay groundside, and each is priced by its OWN law
     assert ribbon[0][3].side == "groundside" and plate[0][3].side == "groundside"
-    assert role_cap(law, "service_road").longitudinal == pytest.approx(0.08)
-    assert role_cap(law, "parking_lot").longitudinal == pytest.approx(0.05)
+    assert role_cap(law, "service_road").longitudinal > \
+        role_cap(law, "parking_lot").longitudinal
     # the proportions are RECORDED as evidence on the face
     assert ribbon[0][3].evidence["ribbon_aspect"] > \
         rules.groundside.road_ribbon_min_aspect

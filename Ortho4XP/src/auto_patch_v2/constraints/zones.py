@@ -74,6 +74,7 @@ import math
 import typing as _t
 
 from ..law import Law
+from ..law.reference_code import status_by_ref
 from ..law.tables import (airside_stage_roles, apron_roles, is_value_role, role_side,
                           runway_zone_edge_offset_m, snap_margin_m, strip_transverse_bound,
                           zone_bounds, zone_edge_offset_m)
@@ -301,6 +302,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
     # runway's own half-width (``tables.runway_zone_edge_offset_m``) — the
     # one the planar band was buffered by (``planar/zones._runway_band``)
     rw_half = {rw.id: 0.5 * float(rw.width_m) for rw in airport.runways}
+    rw_status = status_by_ref(airport.runways)      # #811: by instrument status
 
     lip_m = float(law.tables.zones.adjacent_ground.lip_width_m)
 
@@ -309,7 +311,7 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
             return lip_m                 # an apron edge: the lip only
         ref = _edge_runways(e)[0] if e[2] == "runway" else None
         if ref in rw_half:
-            return runway_zone_edge_offset_m(law, e[3], e[4], rw_half[ref])
+            return runway_zone_edge_offset_m(law, e[3], e[4], rw_half[ref], rw_status[ref])
         # a taxi edge reaches its letter's offset from the edge (the
         # taxiway strip from the centreline, RULINGS 2026-10-15l (1); the
         # buffer ``planar/zones.zone_regions`` drew); a runway the airport

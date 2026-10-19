@@ -34,6 +34,7 @@ from shapely.geometry import LineString, Polygon
 
 from ..classify.roles import TAXI_FAMILY
 from ..law import Law
+from ..law.reference_code import ref_status, status_by_ref
 from ..law.tables import zone_edge_offset_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
@@ -56,7 +57,7 @@ __all__ = ["underpass_bores", "approach_along", "is_aeroway_bridge",
 _RUNWAY_FAMILY = ("runway", "runway_crossing")
 
 
-def strip_half_width_m(law: Law, cell) -> float:
+def strip_half_width_m(law: Law, cell, status: int = 0) -> float:
     """§34 (5) (b) THE COVERED EXTENT INCLUDES THE GRADED STRIP (Fable
     2026-09-15; RULINGS 2026-09-15h) — how far beyond ``cell``'s own kerb
     the ground it passes over is GRADED, in metres.
@@ -82,7 +83,8 @@ def strip_half_width_m(law: Law, cell) -> float:
         return lip
     # the zone's reach from the edge (``tables.zone_edge_offset_m``: a
     # taxiway's strip is a centreline figure, RULINGS 2026-10-15l (1))
-    hw = zone_edge_offset_m(law, role, cell.code_number, cell.code_letter)
+    # ``status``: the cell's runway's instrument status (#811)
+    hw = zone_edge_offset_m(law, role, cell.code_number, cell.code_letter, status=status)
     return float(hw) if hw and hw > 0.0 else lip
 
 #: Re-exported from the RECORD (``model/structures``), where both the
@@ -581,7 +583,9 @@ def _deck_cell(axis_fn, ss, cells, polys, half_default: float,
         # way's 48 m with the last station in a 14R/32L ``runway_shoulder``
         # cell the ``DECK_CELL_MAX_RATIO`` gate refuses outright.  The
         # widest reading can therefore never differ from this one.
-        strip = strip_half_width_m(law, best_cell) if law is not None else 0.0
+        strip = (strip_half_width_m(law, best_cell, ref_status(
+            status_by_ref(getattr(airport, "runways", ())), best_cell.ref))
+                 if law is not None else 0.0)
         hl, kl = _covered_offset(p, nv, +1.0, best[1], strip, tree, cells,
                                  polys, best_cell, cut_roles, grid)
         hr, kr = _covered_offset(p, nv, -1.0, best[2], strip, tree, cells,

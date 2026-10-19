@@ -260,7 +260,7 @@ def _axes_from_sidecar(patch):
     instrument)]``
     from the patch's own sidecar (``runway_axes`` + ``runway_caps``) — the
     build's axis, never a second fit."""
-    from auto_patch_v2.verify.strips import published_instrument
+    from auto_patch_v2.verify.runway_witness import published_status
     side = Path(str(patch) + ".axes.json")
     if not side.is_file():
         return None, None
@@ -273,7 +273,7 @@ def _axes_from_sidecar(patch):
         out.append((ref, (lat0, lon0), (lat1, lon1), float(width),
                     c.get("code_number"), c.get("code_letter"),
                     # RULINGS 2026-10-15k (3): the published instrument status
-                    published_instrument([row], ref),
+                    published_status([row], ref),
                     # RULINGS 2026-10-15m (1): each end's class and displaced
                     # length (slots 13 / 14, 17 / 18), end a first
                     tuple((row[13 + k] if len(row) > 14 else None,

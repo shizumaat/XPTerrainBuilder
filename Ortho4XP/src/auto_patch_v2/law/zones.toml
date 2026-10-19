@@ -30,8 +30,25 @@ groundside_cutback_m = 0.6  # an airside zone band is cut back this far from GRO
 
 # zone 2 for the RUNWAY family (runway, runway_crossing): keyed by code NUMBER
 [adjacent_ground.runway]
-half_width_m   = { by_code = { "1" = 30.0, "2" = 40.0, "3" = 75.0, "4" = 75.0 }, default = 75.0 }  # ICAO graded strip (Annex 14 §3.4.8)
+half_width_m   = { by_code = { "1" = 30.0, "2" = 40.0, "3" = 75.0, "4" = 75.0 }, default = 75.0 }  # ICAO graded strip, NON-INSTRUMENT (Annex 14 §3.4.9)
 half_width_faa_m = { by_letter = { "A" = 18.3, "B" = 22.9, "C" = 76.2, "D" = 76.2, "E" = 76.2, "F" = 76.2 }, default = 76.2 }  # FAA RSA half-width by RDC letter
+# THE STRIP BY INSTRUMENT STATUS (#811, audit rows 7 and 12; owner RULINGS
+# 2026-10-15k "every law-table value that the standard states by runway code
+# or by instrument status is read by that code and status").  The runway's
+# status is `law.reference_code.runway_status` (0 non-instrument; 1
+# instrument: either end has an approach; 2 precision: either end is `pa`),
+# read by `tables.zone2_half_width_m`:
+# * ICAO Annex 14 §3.4.8 (CS ADR-DSN.B.175(a)): the graded portion of an
+#   INSTRUMENT runway's strip is 75 m at code 3/4 and 40 m at code 1/2 — the
+#   `half_width_m` above is §3.4.9's non-instrument 75 / 40 / 30 (v1
+#   `config.strip_half_width_m_instrument`, W1 F-1);
+# * FAA AC 150/5300-13B App. G Tables G-2 (A/B-I) and G-4 (A/B-II), column
+#   "Lower than 3/4 mile": RSA width 300 ft (half 45.7 m).  The visibility
+#   reading is the approach surface's (`rulesets.toml [faa.end_skirt]
+#   approach_surface`, spec Q2): a PRECISION end is the < 3/4 sm runway, no
+#   other witness.  C-E are 500 ft at every visibility (Tables G-7..G-12).
+half_width_instrument_m = { by_code = { "1" = 40.0, "2" = 40.0, "3" = 75.0, "4" = 75.0 }, default = 75.0 }  # ICAO §3.4.8
+half_width_faa_precision_m = { by_letter = { "A" = 45.7, "B" = 45.7, "C" = 76.2, "D" = 76.2, "E" = 76.2, "F" = 76.2 }, default = 76.2 }  # FAA G-2 / G-4, lower than 3/4 mile
 # THE BAND'S TRANSVERSE LAW BY AUTHORITY (RULINGS 2026-10-15l (2) / (4), audit
 # `docs/findings/law-table-audit-20261015.md` rows 1 and 4; lane rwyzone15c
 # phase 7).  ICAO Annex 14 §3.4.15: beyond the 3 m lip (zone 1, up to 5 %

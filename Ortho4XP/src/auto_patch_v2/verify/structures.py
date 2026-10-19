@@ -22,6 +22,7 @@ import math
 
 from ..constraints.geometry import principal_axis
 from ..law.tables import zone2_half_width_m
+from .runway_witness import published_status
 from ..model.structures import deck_z_on_faces
 
 #: The corridor ring's own identity spacing (1 m), in DEGREES — the
@@ -95,10 +96,14 @@ def wall_in_runway_strip(p: Patch) -> list[Row]:
     if not runways or not walls:
         return []
     out: list[Row] = []
+    # the half-width by the runway's published instrument status (#811)
+    rows = p.publication.get("runway_axes")
+    status = {r.ref: published_status(rows, r.ref) for r in runways}
     for w in walls:
         for k, (x, y) in enumerate(w.xy):
             for r in runways:
-                hw = zone2_half_width_m(law, "runway", r.code_number, r.code_letter)
+                hw = zone2_half_width_m(law, "runway", r.code_number, r.code_letter,
+                                        status[r.ref])
                 if not hw:
                     continue
                 if _inside(x, y, r.xy):

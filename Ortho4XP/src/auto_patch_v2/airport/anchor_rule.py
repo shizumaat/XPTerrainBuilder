@@ -913,8 +913,13 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
                pads: _t.Sequence[PadRing] = (), rims: _t.Sequence[RimRing] = (),
                *, merged_into: str = "", tol_m: float = 0.0,
                roles=None, rolled_on=None, datum: "Datum | None" = None,
-               deck_own_ground_m: float = 0.0) -> Anchor:
+               deck_own_ground_m: float = 0.0,
+               authored_agl_m: float | None = None) -> Anchor:
     """THE GENERIC RULE (module doc; 11e (2)) for one body.
+
+    ``authored_agl_m`` is the placement's own ``OBJECT_AGL`` lift: a body
+    EVERY foot of which stands on water keeps that authored seat
+    (:func:`_wet_body_anchor`, #972).
 
     ``geom.parts`` are its ground-contact components
     ``(lat, lon, base_y, feet)``; ``surface`` the design surface;
@@ -978,6 +983,9 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         if a is not None:
             return a
 
+    wet = _wet_body_anchor(body_class, geom, surface, authored_agl_m)
+    if wet is not None:
+        return wet
     # #610: A ROOF ON ITS POSTS IS NO ANCHOR.  The pick below lets a
     # feetless part stand in at its own base; where that is the part it
     # lands on and the body is a roof carried on posts
@@ -991,6 +999,47 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
         a = _generic_anchor(body_class, geom, surface, pads, tol_m, roles,
                             rolled_on, True)
     return a
+
+
+def _wet_body_anchor(body_class: BodyClass, geom: BodyGeometry,
+                     surface: Surface, authored_agl_m: float | None) -> Anchor | None:
+    """#972 (owner 2026-10-19: the pack's seawall "should be seated so the
+    top is < 1 m above the solved terrain"): A BODY STANDING IN WATER KEEPS
+    ITS AUTHORED SEAT.
+
+    Water is a mesh datum, not ground (R12 amendment 1, which §16e's
+    stations already read): a footing authored under the water line reads
+    the WATER SURFACE as its ground, and the generic rule then lifts the
+    whole body by its submerged depth.  VHHH's ``tunnel/sea.obj`` — the
+    island's seawall, feet at y -23.5 under the sea — stood its crest
+    20.6 m over the island (median over land) that way; its authored
+    seat (``OBJECT_AGL`` -4.4 at its origin on the island) puts the crest
+    -0.01 m from the land beside it.
+
+    So where every ground-contact foot stands on water, nothing on the
+    body witnesses the ground, and the pack's own seat is the one reading:
+    the anchor is the placement's origin and ``y_zero = -agl``, which
+    renders the object exactly where its author put it.  The anchor is a
+    DATUM (an authored height, §16e's flag): its ``y_zero`` is the lift by
+    construction, so it is never read as elevated, tilted or kept.  ``None`` — the
+    rule reads as before — when the surface carries no water bit, any
+    foot stands on land, the origin reads no surface or is itself water,
+    or no lift is handed in."""
+    water = getattr(surface, "water", None)
+    if water is None or authored_agl_m is None:
+        return None
+    feet = [f for _la, _lo, _by, fs in geom.parts for f in fs or ()]
+    if not feet or any(surface(f[0], f[1]) is None or not water(f[0], f[1])
+                       for f in feet):
+        return None
+    z = surface(geom.origin_lat, geom.origin_lon)
+    if z is None or water(geom.origin_lat, geom.origin_lon):
+        return None
+    return Anchor(body_class, geom.origin_lat, geom.origin_lon,
+                  -float(authored_agl_m),
+                  f"every foot ({len(feet)}) stands on water: the authored seat "
+                  f"(agl {float(authored_agl_m):+.2f} at the origin, #972)", z,
+                  datum=True)
 
 
 def _generic_anchor(body_class: BodyClass, geom: BodyGeometry,

@@ -147,16 +147,23 @@ def _floor_rows(planar: PlanarMap, risers, xy) -> list[Linear]:
 
 
 def _standoff_floors(standoffs, seen: set[int]) -> list[Linear]:
-    """The same one-way floor for a road page's stand-off pairs
-    (``constraints/band_standoff``, #951 spec Q12), against the road's level
-    at the nearest point of its edge."""
+    """The same one-way floor across a road page's stand-off
+    (``constraints/band_standoff``, #951 spec Q12): the band's level at its
+    point of the pair stands at or above the road's at its point; the band's
+    vertices follow."""
     out = []
-    for b, x, y, t, _d in standoffs:
-        if b in seen:
+    for band, road, _d in standoffs:
+        gov = tuple(v for v, _w in band)
+        if len(band) == 1 and gov[0] in seen:
             continue
-        terms = ((int(b), 1.0), (int(x), -(1.0 - t)), (int(y), -t))
-        out.append(Linear(tuple((v, c) for v, c in terms if c != 0.0), 0.0, None,
-                          Source(GEN, FLOOR_RULING, (f"vertex:{b}",)), follows=int(b)))
+        terms: dict[int, float] = {}
+        for v, w in band:
+            terms[v] = terms.get(v, 0.0) + w
+        for v, w in road:
+            terms[v] = terms.get(v, 0.0) - w
+        out.append(Linear(tuple((v, c) for v, c in terms.items() if c != 0.0), 0.0, None,
+                          Source(GEN, FLOOR_RULING, (f"vertex:{gov[0]}",)),
+                          follows=gov[0] if len(gov) == 1 else gov))
     return out
 
 

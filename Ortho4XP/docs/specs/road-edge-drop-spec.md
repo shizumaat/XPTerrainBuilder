@@ -173,3 +173,90 @@ vertices cannot carry the step. It needs a riser (#951), so it is counted as
 * `fill_road_reach_m` = 100 m is a WORKING VALUE awaiting the owner's
   confirmation. It is the depth of a terminal forecourt: kerb, drop-off
   lanes, one parking row. No airport is tuned to it.
+
+## 7. Measured (lane l1088, two iterations, replays of `frames/l1088/HECA_it1.pkl`)
+
+All iterations are compared against the base replay (`frames/l1088/HECA.pkl`,
+replayed at the branch base 8e4b38045).
+
+* **R1.** `dsf:pol10` is now a `strip` (network road 3,444 m through it,
+  0.6 x 3,789 m needed, 33 pieces, width 18.5 m). It is graded as a
+  `service_road`.
+* **R2.** Two fills run to the road. The #712 plate (`building6/landing0`)
+  grows to 46,071 m2. The #1003 piers fill (`building5/landing11`) grows to
+  77,626 m2: it is the whole T3 forecourt up to the road's NE branch. Two
+  forecourt pads ride the fill:
+  * `building21`: 92.41 m becomes 101.49 m (DEM 93.1);
+  * `building14`: 96.12 m becomes 101.53 m.
+* **R3.**
+  * Iteration 1 published no channel. The walk ran over road-owned vertices
+    only and stopped at the first kerb vertex shared with a collar or a
+    ribbon, so only 5 vertices were reached. The walk now covers every road
+    ring vertex: 238 vertices.
+  * Iteration 2 (`it2`): the rows and the §37 route-lifted ceiling
+    contested each other. 129 of 260 rows relaxed, by up to 6.05 m. The §37
+    target now leaves the vertices R3 governs (`it2b`), and 44 of 460 rows
+    relaxed.
+  * Those 44 relaxed rows lie beside the run-out strips. The run-out strips
+    now keep their own law (no replay since).
+* **R4.** No wall is declared at HECA. Along the raised access road, no
+  groundside face stands within 8 m of the high kerb runs (8 runs, all
+  `shared_kerb`). The low side is OUTSIDE the patch coverage, so the drop
+  there is the terrain mesh's own transition from the kerb to the DEM.
+* **Sites** (`it2b` against the base):
+  * #712 is 96.37-96.56 m (base 96.54-96.63);
+  * #1003 is 101.49-101.53 m (base 101.52-101.63).
+* **Airside.** 16,676 vertices joined, 0 movers over 0.05 m.
+* **The access road** stands up to 17.58 m over its DEM (base: 5.39 m). This
+  is the 5 % ramp off the T3 fill (z_hi 102.5 m) down to ground at 84-89 m.
+* **Census** (`it1` against the base): adjudicated 12,195 becomes 12,020.
+  * Groundside 1,758 becomes 1,528. Airside 10,419 becomes 10,475, all of it
+    pad / collar rows at the fills.
+  * Rises: `road_cross_section` 142 to 159, `pavement_over_road_cap` 23 to
+    27, `plane_gradient` 2 to 5 (worst 5.8 m at `building5/landing9#collar`),
+    `hard_conflict` 620 to 676.
+  * Critical motion 4, unchanged.
+
+### 7.1 Closing build
+
+The closing build is `l1088_HECA`: the branch merged with main 09f87265a.
+The control is `l1088main_HECA` (main 09f87265a, built because the
+artifact-ledger lookup missed). Both are in `frames/l1088/`.
+
+* **The owner sites.**
+  * #712: `gap:3` at 88.84-96.52 m becomes the fill `building6/landing0`
+    at **96.37-96.56 m**. The slab is at 96.62 m.
+  * #1003: `gap:5/s0` at 94.09-101.82 m becomes `building5/landing11` at
+    **101.49-101.53 m**.
+* **Airside.** 16,676 rolled-on vertices joined; **0** moved more than
+  0.05 m (worst 0.01 m).
+* **Pads (281 compared).**
+  * No pad outside the fills moved more than 0.24 m. The low-side pads keep
+    main's levels (`building22` +0.57, `68` -0.80, `63` -0.46 m against
+    their DEM, unchanged).
+  * Fill-borne pads rose: `building14` +11.75 m, `building21` +8.53 m,
+    `building7` +4.27 m.
+  * The seasonal block piece `building6` fell 0.97 m. The T3 block fell
+    0.30 m.
+* **The access road** stands up to 17.58 m over its DEM.
+* **Census** against main: adjudicated 12,182 becomes **12,751** (+569). No
+  wall is declared: R4 found no low-side face (§7).
+  * `hard_conflict` 569 to 1,016 (airside-labelled pad rows 16 to 240,
+    groundside 553 to 776).
+  * `pavement_over_road_cap` 36 to 57.
+  * `hairline_pair` 2,604 to 2,703.
+  * `road_cross_section` 270 to 283.
+  * `plane_gradient` 4 to 7 (worst 5.76 m, collar).
+  * `road_coverage_join` 17 to 4.
+  * Critical motion 4, unchanged.
+  The #1088 build alone measured +410 against its main.
+
+**Bars.** Met:
+* the sites;
+* the low-side pads;
+* airside motion.
+
+Not met:
+* the census (+569, no declared wall carries it);
+* the road caps (`road_cross_section` +13, `pavement_over_road_cap` +21);
+* the two block moves.

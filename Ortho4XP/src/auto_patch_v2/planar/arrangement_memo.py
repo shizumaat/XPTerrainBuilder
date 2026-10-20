@@ -29,7 +29,7 @@ import threading
 import typing as _t
 import weakref
 
-__all__ = ["scoped", "front_key", "served", "hold"]
+__all__ = ["scoped", "front_key", "served", "hold", "FRONTS_HELD"]
 
 _STATE = threading.local()
 
@@ -63,9 +63,11 @@ def front_key(non_late: tuple, classification, grid: float) -> bytes | None:
     return hashlib.sha256(blob).digest()
 
 
-#: fronts held per build: the base map, the ribbon-free stage-1 map and the
+#: fronts held per build (named apart from the retired ``model.platform``
+#: registry ``HELD`` — this is a per-build MEMO on the calling thread, not a
+#: map registry, and is never captured): the base map, the ribbon-free stage-1 map and the
 #: last stage's maps may interleave (each holds its own non-late set)
-HELD = 3
+FRONTS_HELD = 3
 
 
 def served(key: bytes | None, airport, law) -> dict | None:
@@ -80,7 +82,7 @@ def served(key: bytes | None, airport, law) -> dict | None:
 
 
 def hold(key: bytes | None, airport, law, front: dict) -> None:
-    """Keep ``front`` (a copy) among this build's :data:`HELD` fronts."""
+    """Keep ``front`` (a copy) among this build's :data:`FRONTS_HELD` fronts."""
     memo = getattr(_STATE, "memo", None)
     if key is None or memo is None:
         return
@@ -90,7 +92,7 @@ def hold(key: bytes | None, airport, law, front: dict) -> None:
         return
     memo.pop(key, None)
     memo[key] = {"airport": refs[0], "law": refs[1], "front": _fresh(front)}
-    while len(memo) > HELD:
+    while len(memo) > FRONTS_HELD:
         memo.pop(next(iter(memo)))
 
 

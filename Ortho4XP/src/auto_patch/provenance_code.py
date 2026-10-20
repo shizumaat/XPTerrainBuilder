@@ -645,6 +645,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.pipeline.xplat",
     "auto_patch_v2.planar",
     "auto_patch_v2.planar.apron_shelf",
+    "auto_patch_v2.planar.arrangement_memo",
     "auto_patch_v2.planar.basin_datum",
     "auto_patch_v2.planar.basin_geometry",
     "auto_patch_v2.planar.basin_rim",

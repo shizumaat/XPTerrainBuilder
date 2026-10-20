@@ -23,7 +23,7 @@ def test_obj_extent_matches_per_vertex_placement():
         verts = (rng.normal(size=(5000, 3)) * 7.0).astype(dtype)
         verts[:40] = verts[40:80]                      # authored duplicates
         geom = SimpleNamespace(vertices=verts)
-        cache = SimpleNamespace(geometry=lambda _p: geom)
+        cache = SimpleNamespace(geometry=lambda _p, g=geom: g)
         for hdg in (0.0, 37.25, 211.9):
             o = SimpleNamespace(resolved_path="j.obj", xy=(1234.5, -987.25),
                                 heading_deg=hdg)

@@ -358,3 +358,33 @@ def test_the_drivers_refresh_heals_an_empty_dump(tmp_path, monkeypatch):
 
     assert engine_v2.fresh_pack_dump(str(tmp_path), "XXXX", 47, -123) == str(empty)
     assert empty.read_text(encoding="utf-8") == DUMP_TEXT
+
+
+def test_the_drivers_refresh_makes_the_object_footprints(tmp_path, monkeypatch):
+    """Issue #713: the pack refresh every build takes also serves (or
+    makes) the OBJ8 footprint sidecar of the PRISTINE DSF, so the fallback
+    pads never depend on whether an inset pass happened to write it."""
+    dsf = _pack(tmp_path, monkeypatch)
+    _dsftool(monkeypatch)
+    seen = []
+    monkeypatch.setattr(dsf_reader, "read_dsf_object_buildings",
+                        lambda *a, **_k: seen.append(a) or [])
+
+    assert engine_v2.fresh_pack_dump(str(tmp_path), "XXXX", 47, -123)
+    assert seen == [(dsf, str(tmp_path / "cache" / "Some Pack"), str(tmp_path))]
+
+
+def test_the_footprint_sidecar_name_is_the_writers(tmp_path, monkeypatch):
+    """v2's load stage reads the file v1's writer names, for the live DSF
+    and for the pristine ``.anchor_bak`` alike (issue #713)."""
+    import O4_File_Names as FNAMES
+    monkeypatch.setattr(FNAMES, "airport_mod_cache_root",
+                        lambda: str(tmp_path / "cache"))
+    folder = tmp_path / "Pack" / "Earth nav data" / "+40-130"
+    folder.mkdir(parents=True)
+    for name in ("+40-123.dsf", "+40-123.dsf.anchor_bak"):
+        path = folder / name
+        path.write_bytes(b"x")
+        written, _fp = dsf_reader._object_footprint_sidecar(
+            str(path), str(tmp_path / "Pack"), 0.1, 1.0)
+        assert os.path.basename(written) == dsf_v2.footprint_cache_name(str(path))

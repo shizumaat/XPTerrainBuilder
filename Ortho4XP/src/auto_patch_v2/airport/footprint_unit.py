@@ -784,7 +784,8 @@ def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
 
 def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                      surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
-                     cluster_min_m2: float
+                     cluster_min_m2: float, piece_reach_m: float = 0.0,
+                     wall_min_m: float = 0.0, span_max_m: float = 0.0
                      ) -> dict[str, tuple[float, str, str]]:
     """§16g (2)'s PRIORITY DATUM, read PLAN-WIDE: ``unit id -> (zero,
     where, source)``.
@@ -813,6 +814,9 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         for mi, m in enumerate(u.members):
             by_key[(ui, mi)] = m
     out: dict[str, tuple[float, str, str]] = {}
+    parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
+    #: 19u: unit id -> (highest pavement its pieces imply, its walled files)
+    pav: dict[str, tuple[float, frozenset]] = {}
     for un in units:
         zero: float | None = None
         where = src = ""
@@ -850,8 +854,17 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                     src = "cluster_pad"
             else:
                 zero, where, src = _median([q[3] for q in cc]), "", "ground"
+            # owner RULINGS 2026-10-19u (#798 (a)): a unit standing on
+            # rolled-on pavement is read for ``one_building``, here in the
+            # plan, so the unit-carried pieces and the bind read one zero
+            from .one_building import pavement_top, walled_files
+            mine = [parts[q] for q in sorted(un.pids) if q in parts]
+            top = pavement_top(cc, mine, surface)
+            if top is not None:
+                pav[un.id] = (top, walled_files(mine, plan, wall_min_m))
         out[un.id] = (zero, where, src)
-    return out
+    from .one_building import one_building_groups
+    return one_building_groups(units, out, pav, piece_reach_m, span_max_m)
 
 
 def _airside_floor(cc: _t.Sequence[tuple[float, float, float, float]],
@@ -1049,6 +1062,17 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
         # rolled-on pavement.  Read over the candidates THIS pass holds —
         # a plan-wide unit split across passes is judged per pass, which
         # is the one place the plan-wide reading cannot reach.
+        if src == "one_building":
+            # owner RULINGS 2026-10-19u (#798 (a)): a multi-file building on
+            # rolled-on pavement seats WHOLE on the one datum the plan gave
+            # it (:func:`plan_unit_datums`) — never per piece on the
+            # pavement under its own feet, and never raised per rigid
+            # cluster (17x's floor is already in that datum)
+            counts["unit_one_building"] = counts.get("unit_one_building", 0) + 1
+            out.extend(_seat(cands, by_mi, surface, counts, per, float(zero),
+                             where, src, uid, visual_m,
+                             conn={ci: conn[ci] for ci in per if ci in conn}))
+            continue
         if all(_all_on_pavement(cc, surface) for cc in per.values()):
             counts["unit_all_on_pavement"] = \
                 counts.get("unit_all_on_pavement", 0) + 1

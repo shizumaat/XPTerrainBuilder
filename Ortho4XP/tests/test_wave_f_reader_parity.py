@@ -155,7 +155,7 @@ def test_obj8_readers_agree_on_their_shared_geometry(tmp_path):
     assert not hasattr(v2, "positional_commands")
 
 
-# ── apt_dat_reader <-> airport/apt_dat (the block reader) ────────────────
+# ── airport/apt_dat (the block reader; v1 apt_dat_reader retired) ───────
 #: three land airports, a seaplane base (row 16) and a heliport (row 17)
 #: between them, and the 99 terminator
 APT_DAT = "\n".join([
@@ -177,36 +177,28 @@ APT_DAT = "\n".join([
 ]) + "\n"
 
 
-def test_apt_dat_block_readers_agree_between_land_airports(tmp_path):
-    from auto_patch import apt_dat_reader as V1_APT
+def test_apt_dat_block_reader_reads_a_land_airport(tmp_path):
+    """v1 ``_read_airport_block`` returned the same lines here (twinned
+    until the v1 reader's deletion, #852)."""
     from auto_patch_v2.airport import apt_dat as V2_APT
 
     path = write_text(tmp_path / "apt.dat", APT_DAT)
-    v1 = V1_APT._read_airport_block(path, "aaaa")
-    v2 = V2_APT.read_airport_block(path, "aaaa")
-    assert [ln.rstrip("\n") for ln in v1] == v2
-    assert V1_APT._read_airport_block(path, "ZZZZ") is None
+    assert V2_APT.read_airport_block(path, "aaaa") == APT_DAT.splitlines()[3:7]
     assert V2_APT.read_airport_block(path, "ZZZZ") is None
 
 
-def test_apt_dat_block_readers_differ_at_row_16_17_and_99(tmp_path):
-    """v1 knows only row-1 headers: BBBB's block swallows the seaplane base
-    and the heliport behind it (their 1302 datum rows included), CCCC's
-    swallows the ``99`` terminator, and neither SSSS nor HHHH can be read.
-    v2 — the reader the BUILD uses — stops at every 1/16/17/99 boundary.
-    The three tool callers re-pointed in this wave (harness ARP sanity,
-    harness tile resolution, the inset witness) select their file with v2
-    ``select_apt_dat`` already; reading the block with v1 was the mismatch.
-    No engine caller reads ``_read_airport_block``."""
-    from auto_patch import apt_dat_reader as V1_APT
+def test_apt_dat_block_reader_stops_at_row_16_17_and_99(tmp_path):
+    """v2 — the reader the BUILD uses — stops at every 1/16/17/99
+    boundary.  v1 (deleted, #852) knew only row-1 headers: BBBB's block
+    swallowed the seaplane base and the heliport behind it, CCCC's the
+    ``99`` terminator, and neither SSSS nor HHHH could be read.  Its last
+    callers (harness ARP sanity, harness tile resolution, the inset
+    witness) moved to v2 in this wave; no engine caller read it."""
     from auto_patch_v2.airport import apt_dat as V2_APT
 
     path = write_text(tmp_path / "apt.dat", APT_DAT)
-    v1 = [ln.rstrip("\n") for ln in V1_APT._read_airport_block(path, "BBBB")]
-    v2 = V2_APT.read_airport_block(path, "BBBB")
-    assert v2 == v1[:3]
-    assert "1302 datum_lat 12.0" in v1 and "1302 datum_lat 12.0" not in v2
-    assert V1_APT._read_airport_block(path, "HHHH") is None
+    assert V2_APT.read_airport_block(path, "BBBB") == [
+        "1 200 0 0 BBBB Second", "110 1 0.25 0 Apron", "111 10.0 20.0"]
     assert V2_APT.read_airport_block(path, "HHHH")[1] == "1302 datum_lat 12.0"
-    assert V1_APT._read_airport_block(path, "CCCC")[-1].rstrip() == "99"
+    assert V2_APT.read_airport_block(path, "SSSS")[1] == "1302 datum_lat 11.0"
     assert V2_APT.read_airport_block(path, "CCCC")[-1] == "1302 datum_lat 13.0"

@@ -8,13 +8,12 @@ trench; the rules are general."""
 from __future__ import annotations
 
 import pytest
-from shapely.geometry import LineString
-
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import OsmWay
 from auto_patch_v2.planar import structure_underpass as _su
 from auto_patch_v2.planar.structure_approach import Bore, Mouth, merge_duals
 from auto_patch_v2.planar.structure_stats import StructureStats
+from shapely.geometry import LineString
 
 
 @pytest.fixture(scope="module")

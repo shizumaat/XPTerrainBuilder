@@ -432,3 +432,45 @@ def test_harness_admission_names_the_band_and_the_dem_scope(
     tile.dsf_bathymetry = "False"
     assert harness.bathymetry_band_admission(
         tile, str(_repo(tmp_path)), dsf_step_runs=True) == []
+
+
+# =====================================================================
+# (d) #389: a landlocked tile has no stamp and needs none
+# =====================================================================
+_EMPTY_OSM = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+              '<osm version="0.6" generator="Ortho4XP">\n</osm>\n')
+_ONE_COAST_WAY = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<osm version="0.6" generator="Ortho4XP">\n'
+    '  <node id="1" lat="0.05" lon="0.15"/>\n'
+    '  <node id="2" lat="0.35" lon="0.15"/>\n'
+    '  <way id="10">\n    <nd ref="1"/>\n    <nd ref="2"/>\n'
+    '    <tag k="natural" v="coastline"/>\n  </way>\n</osm>\n')
+
+
+def _write_coastline_cache(tmp_path, monkeypatch, text):
+    import bz2
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(tmp_path / "OSM_data"))
+    path = FNAMES.osm_cached(0, 0, "coastline")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with bz2.open(path, "wt", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def test_landlocked_tile_with_no_stamp_is_cached(tmp_path, monkeypatch):
+    """KASE / HECA (#389): the cached coastline layer is empty, the pass
+    stops at "no shoreline" and writes no stamp, so the pre-flight must
+    not demand one."""
+    _write_coastline_cache(tmp_path, monkeypatch, _EMPTY_OSM)
+    assert BATHYBAND.is_cached(_tile()) is True
+    assert BATHYBAND.is_cached(_tile(), False, False) is True
+
+
+def test_no_stamp_and_no_coastline_cache_is_not_cached(tmp_path, monkeypatch):
+    monkeypatch.setattr(FNAMES, "OSM_dir", str(tmp_path / "OSM_data"))
+    assert BATHYBAND.is_cached(_tile()) is False
+
+
+def test_coastal_tile_with_no_stamp_is_not_cached(tmp_path, monkeypatch):
+    _write_coastline_cache(tmp_path, monkeypatch, _ONE_COAST_WAY)
+    assert BATHYBAND.is_cached(_tile()) is False

@@ -16,6 +16,7 @@ from pathlib import Path
 
 from .model import (Cockpit, Declared, Family, FlatSite, Law,
                     RoleCap, ZoneClass, load_tables, resolve_ruleset)
+from .reference_code import INSTRUMENT, PRECISION
 
 __all__ = [
     "footprint_touch_m",
@@ -470,23 +471,30 @@ def zone_class(law: Law, role: str) -> ZoneClass | None:
 
 
 def zone2_half_width_m(law: Law, role: str, code_number: int | None = None,
-                       code_letter: str | None = None) -> float | None:
+                       code_letter: str | None = None, status: int = 0) -> float | None:
     """Zone 2's half-width FROM THE CENTRELINE (the table figure): runway
     strips key by code number (ICAO) or the FAA RSA table (FAA); taxi strips
     by letter (ICAO Annex 14 §3.11.4 graded portion; FAA AC 150/5300-13B
     §4.5.3 TSA).  Beyond it is zone 3 = the DEM.  The zone's reach from the
-    PAVEMENT EDGE is :func:`zone_edge_offset_m`."""
+    PAVEMENT EDGE is :func:`zone_edge_offset_m`.
+
+    ``status`` is the runway's instrument status (``reference_code.
+    runway_status``; #811): ICAO reads §3.4.8's instrument table on an
+    instrument runway, FAA App. G's "lower than 3/4 mile" table on a
+    precision one; a class without the table reads its own."""
     zc = zone_class(law, role)
     if zc is None:
         return None
     if law.ruleset.authority == "FAA" and zc.half_width_faa_m is not None:
-        return zc.half_width_faa_m.value(code_number, code_letter)
-    return zc.half_width_m.value(code_number, code_letter)
+        return _by_status(zc.half_width_faa_m, zc.half_width_faa_precision_m,
+                          status, code_number, code_letter, at=PRECISION)
+    return _by_status(zc.half_width_m, zc.half_width_instrument_m,
+                      status, code_number, code_letter)
 
 
 def runway_zone_edge_offset_m(law: Law, code_number: int | None,
-                              code_letter: str | None, runway_half_m: float
-                              ) -> float | None:
+                              code_letter: str | None, runway_half_m: float,
+                              status: int = 0) -> float | None:
     """THE RUNWAY ZONE'S OUTER EDGE, as an offset from the PAVEMENT EDGE
     (owner RULINGS 2026-10-15c (1) "From the centreline"): the zone-2
     half-width is a CENTRELINE figure (``zones.toml`` FAA RSA by letter,
@@ -494,8 +502,8 @@ def runway_zone_edge_offset_m(law: Law, code_number: int | None,
     − runway_half_m)`` beyond the edge — never less than the lip.  Before
     the ruling the band was buffered by the whole half-width from the edge
     (KBJC 12L: wider than its RSA by the runway's width).  ``None`` where
-    the class states no strip."""
-    hw = zone2_half_width_m(law, "runway", code_number, code_letter)
+    the class states no strip.  ``status``: :func:`zone2_half_width_m`'s."""
+    hw = zone2_half_width_m(law, "runway", code_number, code_letter, status)
     if hw is None:
         return None
     lip = float(law.tables.zones.adjacent_ground.lip_width_m)
@@ -504,7 +512,8 @@ def runway_zone_edge_offset_m(law: Law, code_number: int | None,
 
 def zone_edge_offset_m(law: Law, role: str, code_number: int | None = None,
                        code_letter: str | None = None,
-                       pavement_half_m: float | None = None) -> float | None:
+                       pavement_half_m: float | None = None,
+                       status: int = 0) -> float | None:
     """THE ZONE'S OUTER EDGE as an offset from the PAVEMENT EDGE — the ONE
     accessor every reader of a zone's reach goes through (spec
     ``regulation-conformance-20261015`` §2.A).  Both families state the
@@ -519,11 +528,13 @@ def zone_edge_offset_m(law: Law, role: str, code_number: int | None = None,
       RULINGS 2026-10-15l (1), audit row 3: Annex 14 §3.11.4, AC §4.5.3).
       ``pavement_half_m`` overrides it.
 
-    ``None`` where the role has no graded strip or the class states none."""
+    ``None`` where the role has no graded strip or the class states none.
+    ``status``: the runway's instrument status (:func:`zone2_half_width_m`;
+    the taxi family states none)."""
     fam = role_family(law, role)
     if fam == "runway":
         return runway_zone_edge_offset_m(law, code_number, code_letter,
-                                         pavement_half_m or 0.0)
+                                         pavement_half_m or 0.0, status)
     hw = zone2_half_width_m(law, role, code_number, code_letter)
     if hw is None:
         return None
@@ -535,7 +546,7 @@ def zone_edge_offset_m(law: Law, role: str, code_number: int | None = None,
 
 def runway_safety_area_length_m(law: Law, code_number: int | None = None,
                                 code_letter: str | None = None,
-                                instrument: bool = False) -> float:
+                                status: int = 0) -> float:
     """THE GRADED AREA'S LENGTH beyond each runway end, measured from the
     runway END with the blast pad inside it (owner RULINGS 2026-10-15c (2)
     "Full safety-area length"): FAA — the RSA length by design group
@@ -544,27 +555,32 @@ def runway_safety_area_length_m(law: Law, code_number: int | None = None,
     (``strip.end_length_m`` + ``end_skirt.corridor_length_m``; Annex 14
     §3.5.3 measures the RESA from the strip's end; master 2026-10-15 Q1),
     each read BY CODE AND INSTRUMENT STATUS (RULINGS 2026-10-15k (1);
-    ``instrument`` is the runway's witnessed CIFP approach,
-    ``model.airport.Runway.instrument``)."""
+    ``status`` is the runway's ``reference_code.runway_status`` — the FAA
+    length on a precision runway is App. G's "lower than 3/4 mile", #811;
+    a ``bool`` instrument flag reads as status 0 / 1)."""
     rs = law.ruleset
     sk = rs.end_skirt
     if sk.rsa_length_m is not None:
-        v = sk.rsa_length_m.value(code_number, code_letter)
+        v = _by_status(sk.rsa_length_m, sk.rsa_length_precision_m, status,
+                       code_number, code_letter, at=PRECISION)
         if v:
             return float(v)
     strip_end = _by_status(rs.strip.end_length_m, rs.strip.end_length_instrument_m,
-                           instrument, code_number, code_letter) or 0.0
+                           status, code_number, code_letter) or 0.0
     resa = _by_status(sk.corridor_length_m, sk.corridor_length_instrument_m,
-                      instrument, code_number, code_letter) or 0.0
+                      status, code_number, code_letter) or 0.0
     return float(strip_end) + float(resa)
 
 
-def _by_status(table, instrument_table, instrument: bool,
-               code_number: int | None, code_letter: str | None) -> float | None:
+def _by_status(table, status_table, status: int,
+               code_number: int | None, code_letter: str | None,
+               at: int = INSTRUMENT) -> float | None:
     """A value the standard states by INSTRUMENT STATUS (RULINGS
-    2026-10-15k): the instrument table on an instrument runway where the
-    ruleset carries one, else the table itself; ``None`` with neither."""
-    t = instrument_table if instrument and instrument_table is not None else table
+    2026-10-15k; #811): ``status_table`` on a runway whose status
+    (``reference_code.runway_status``; a ``bool`` reads 0 / 1) reaches
+    ``at`` — instrument, or precision — where the ruleset carries one,
+    else the table itself; ``None`` with neither."""
+    t = status_table if int(status) >= at and status_table is not None else table
     return None if t is None else t.value(code_number, code_letter)
 
 
@@ -572,7 +588,8 @@ def zone_bounds(law: Law, role: str, d_m: float,
                 code_number: int | None = None,
                 code_letter: str | None = None,
                 band_max_down: float | None = None,
-                half_m: float | None = None
+                half_m: float | None = None,
+                status: int = 0
                 ) -> tuple[float | None, float | None]:
     """Signed ``(floor, ceiling)`` offset from the pavement-edge elevation
     at lateral distance ``d_m`` — the accumulated two-zone corridor, or
@@ -582,14 +599,16 @@ def zone_bounds(law: Law, role: str, d_m: float,
 
     ``band_max_down`` overrides the class's zone-2 fall: §37 (11) (7)'s
     NATURAL shore falls at up to the bank slope (owner RULINGS
-    2026-09-27a (7)); the lip and the ceiling are unchanged."""
+    2026-09-27a (7)); the lip and the ceiling are unchanged.  ``status``:
+    the runway's instrument status, read where ``half_m`` is not given
+    (:func:`zone2_half_width_m`)."""
     ag = law.tables.zones.adjacent_ground
     zc = zone_class(law, role)
     # ``half_m``: the zone's outer bound FROM THE EDGE where the caller knows
     # the pavement (a runway's :func:`runway_zone_edge_offset_m`); the table
     # half-width otherwise
     half = half_m if half_m is not None else zone2_half_width_m(
-        law, role, code_number, code_letter)
+        law, role, code_number, code_letter, status)
     if zc is None or half is None or d_m > half:
         return (None, None)
     faa = law.ruleset.authority == "FAA"

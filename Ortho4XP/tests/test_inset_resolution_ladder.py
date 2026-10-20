@@ -1059,6 +1059,61 @@ def test_partial_rung_zero_stands_when_no_same_resolution_rung_covers(
     assert calls["discover"] == ["FAKE3DEP:1"]
 
 
+#: A strip west of ``_airport()`` (~15 % of BOX, above the 5 % box rule)
+#: holding none of the airport: KGRF's 1 m product (#596).
+BESIDE_THE_FIELD = (BOX[0], BOX[1], -106.890, BOX[3])
+
+
+@requires_gdal
+@pytest.mark.parametrize("same_resolution", ["transient", "unavailable"])
+def test_rung_covering_none_of_the_airport_is_not_delivered(
+        two_providers, same_resolution):
+    """#596 (KGRF): the 1 m rung passes the box rule on data beside the
+    field but covers 0 % of the airport.  It is never kept as a partial
+    delivery (the airport would be graded on the fill): the ladder climbs
+    to the 10 m rung, which is delivered."""
+    plan, calls, chain, other, _raise = two_providers
+    other["ladder_judge"] = "airport_cover"
+    plan.update({"FAKE3DEP:1": {"valid": 1.0, "listing": ["u1"],
+                                "keep": BESIDE_THE_FIELD},
+                 "FAKEPIT": {same_resolution: "outage", "listing": ["T1"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None,
+                                 airport_polygons={"KASE": _airport()})
+    ladder = _sidecar()["ladder"]
+    tried = ladder["rungs_tried"]
+    assert [r["outcome"] for r in tried] == [
+        "below-threshold", same_resolution, "delivered"]
+    assert tried[0]["airport_valid_fraction"] == 0.0
+    assert tried[0]["misses_airport"] is True
+    assert ladder["delivered_rung"] == 2
+    assert ladder["delivered_label"] == "1/3 arc-second"
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKEPIT", "FAKE3DEP:10"]
+
+
+@requires_gdal
+def test_rung_covering_none_of_the_airport_without_an_alternative(
+        tmp_path, two_providers):
+    """#596 with no same-resolution rung in the ladder: the box rule alone
+    would deliver the 1 m rung; covering none of the airport, it falls
+    through to the 10 m rung."""
+    plan, calls, chain, _other, _raise = two_providers
+    chain["resolution_ladder_rungs"] = INSETS._parse_resolution_ladder(
+        "10|1/3 arc-second|rung2")
+    plan.update({"FAKE3DEP:1": {"valid": 1.0, "listing": ["u1"],
+                                "keep": BESIDE_THE_FIELD},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    provenance = INSETS.fetch_inset(chain, BOX, 1.0,
+                                    str(tmp_path / "KASE_fake3dep.tif"),
+                                    resolution_ladder=True,
+                                    footprint_polygon=_airport())
+    ladder = provenance["ladder"]
+    assert [r["outcome"] for r in ladder["rungs_tried"]] == [
+        "below-threshold", "delivered"]
+    assert ladder["delivered_rung"] == 1
+    assert calls["fetch"] == ["FAKE3DEP:1", "FAKE3DEP:10"]
+
+
 # ---------------------------------------------------------------------
 # GLOBAL ASSEMBLY (spec us-holder-providers §1, RULINGS 2026-09-30bm):
 # every ``ladder_member=True`` provider whose coverage box reaches the

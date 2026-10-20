@@ -1164,7 +1164,14 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     # reaches it — and it stood 4.0 m over the runway edge 24 m away
     # (v367 8.54 m, runway 4.52 m) on a strip whose outer edge is at 4.0 m.
     kerb = pm.band_kerb_vertices(stage1)
-    vs = sorted(v for v in ribbon_v if (v in owned or v in kerb) and v in frame)
+    # #1071 (owner 2026-10-20): a page that is a road only by its SHAPE
+    # (§110 ``Face.road_by_proportions``) is a LOT, and a lot is not in the
+    # road terrace — no foot, no station; :func:`wall_terraces` reads it as
+    # the lot.  MEASURED HECA ``dsf:objpav2`` (86 m², 1.4 m wide) at
+    # ``metal_strip_2.obj`` comp 12
+    lot_v = _shape_only_vertices(pm, roads)
+    vs = sorted(v for v in ribbon_v if (v in owned or v in kerb) and v in frame
+                and v not in lot_v)
     out["kerb"] = {v: True for v in vs if v in kerb}
     if not vs:
         return out
@@ -1242,8 +1249,6 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     out["own"] = {v: True for v in vs if v not in rib_v and v not in beside}
     rtree = STRtree(list(retaining)) if retaining else None
     out["below_wall"] = {}
-    out["lot_at_wall"] = {}
-    by_shape = _shape_only_vertices(pm, roads) if wtree is not None else set()
     for v in vs:
         r, s_, _t_ = frame[v]
         out["station"][v] = (int(r), float(s_))
@@ -1267,17 +1272,6 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             continue
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
-        if lev and v in by_shape and _way_crosses(pm, v, lev[0][2], lev[0][3],
-                                                 lev[0][4], walls, wtree):
-            # #1071 (owner 2026-10-20): a page that is a road only by its
-            # SHAPE (§110) is the LOT at a wall's foot — across the wall
-            # from its pavement it is not bordered (10-03c: the wall is the
-            # step), it leaves the terrace and :func:`wall_terraces` reads
-            # it as the lot.  MEASURED HECA ``dsf:objpav2`` (86 m², 1.4 m
-            # wide) at ``metal_strip_2.obj`` comp 12, 30.1215552, 31.4199516
-            out["station"].pop(v, None)
-            out["lot_at_wall"][v] = True
-            continue
         if lev:
             d, ref, a, b, u = lev[0]
             out["foot"][v] = (a, b, u, ref)

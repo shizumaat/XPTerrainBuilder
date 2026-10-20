@@ -356,3 +356,6 @@ def test_a_page_that_is_a_road_only_by_its_shape_is_the_lot_at_the_wall_foot(
     rec = next(iter(recs.values()))
     strip_v = {v for f in faces for v in pm.ring_vertices(f.ring)}
     assert rec["lower"] and set(rec["lower"]) <= strip_v
+    # a lot is not in the road terrace: no foot, no station
+    assert not (strip_v & set(pm.road_terrace["foot"]))
+    assert not (strip_v & set(pm.road_terrace["station"]))

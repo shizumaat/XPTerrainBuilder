@@ -220,6 +220,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
+        "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -368,6 +369,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_mouth",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
+        "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -707,6 +709,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
+        "auto_patch_v2.classify.apt_shoulder",
         "auto_patch_v2.classify.evidence",
         "auto_patch_v2.classify.facade_mint",
         "auto_patch_v2.classify.gap_apron",
@@ -1134,7 +1137,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.rebake_plan airport.riders airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
-    airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
+    airport.topology_cache airport.wall_class classify.airside_edge classify.apt_shoulder classify.evidence
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default classify.pad_touch classify.retaining_wall
     classify.ribbon_mint classify.roles classify.rules classify.sources
@@ -1246,7 +1249,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.tunnel_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
-    airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
+    airport.wall_geometry airport.wall_mouth classify.airside_edge classify.apt_shoulder classify.evidence
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default classify.pad_touch classify.ramp_runout
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
@@ -1325,7 +1328,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.tunnel_objects airport.tunnel_walls airport.wall_class
     airport.wall_corridor_probe airport.wall_corridors airport.wall_family
-    airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
+    airport.wall_geometry airport.wall_mouth classify.airside_edge classify.apt_shoulder classify.evidence
     classify.facade_mint classify.gap_apron classify.gap_mint classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_touch classify.ramp_runout classify.retaining_wall classify.ribbon_mint
@@ -1409,7 +1412,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.road_descent airport.road_profile airport.road_ramp airport.road_ways
     airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
     airport.slab_plates airport.topology_cache airport.wall_class classify
-    classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
+    classify.airside_edge classify.apt_shoulder classify.evidence classify.facade_mint classify.gap_apron
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
     classify.pad_touch classify.retaining_wall classify.ribbon_mint classify.roles
     classify.rules classify.sources classify.taxi_letter constraints.apron
@@ -1468,7 +1471,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.rebake_plan airport.riders airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
-    airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
+    airport.topology_cache airport.wall_class classify.airside_edge classify.apt_shoulder classify.evidence
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
     classify.neck classify.open_default classify.pad_touch classify.retaining_wall
     classify.ribbon_mint classify.roles classify.rules classify.sources

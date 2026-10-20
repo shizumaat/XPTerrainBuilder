@@ -9342,12 +9342,18 @@ def test_a_forbidden_grade_break_carries_no_span_test(cg):
     """§31 (1)'s second motion clause is a RATE law: the row exists only
     because the runway/taxi curve law was exceeded, so its own bound IS
     the threshold and 12ad's span rule does not reach it (a curve is a
-    long thing by definition — a span test would delete the family)."""
+    long thing by definition — a span test would delete the family).
+
+    No family on rolled-on roles is ``grade_break`` since RULINGS
+    2026-10-19as (#265, raoa reads soft, as the engine solves it), so the
+    clause is pinned on a register with a rate family declared so."""
     law = cg.cockpit_law(refresh=True)
+    rate = dict(law, family_class={**law["family_class"],
+                                   "rate_twin": "grade_break"})
     for d in (0.1, 500.0):
         assert cg.cockpit_classify(
-            "raoa", _CkStep("runway", "runway", 0.02, distance_m=d),
-            law=law) == (cg.COCKPIT_MOTION, "grade_break")
+            "rate_twin", _CkStep("runway", "runway", 0.02, distance_m=d),
+            law=rate) == (cg.COCKPIT_MOTION, "grade_break")
     # ...and off rolled-on pavement a rate row is REPORT — it is the
     # graded strip's own arc law and nothing rolls there
     assert cg.cockpit_classify(
@@ -9361,6 +9367,25 @@ def test_a_forbidden_grade_break_carries_no_span_test(cg):
         "strip_arc", _CkStep("graded_strip", "graded_strip", 3.0,
                              distance_m=5.0), law=law) == (
         cg.COCKPIT_VISUAL, "cliff")
+
+
+def test_a_raoa_grade_break_reads_as_soft_as_the_engine_solves_it(cg):
+    """#265 (owner RULINGS 2026-10-19al): the engine's ``strips.raoa`` is not
+    a hard ruling, so its rows are a GRADE excess, never CRITICAL motion —
+    CYXY's 0.24 m over 24.1 m on the runway read critical while the engine
+    priced it as a target.  A raoa row that is ALSO a cliff still escapes
+    (§31 (7) reaches every family)."""
+    law = cg.cockpit_law(refresh=True)
+    assert law["family_class"]["raoa"] == "grade"
+    b, _why = cg.cockpit_classify(
+        "raoa", _CkStep("runway", "runway", 0.24, distance_m=24.1), law=law)
+    assert b == cg.COCKPIT_REPORT
+    # the engine side: raoa is a registered constraint and not hard law
+    from auto_patch_v2 import constraints as _C
+    from auto_patch_v2.law import tables as _T
+    assert "raoa" in dict(_C.GENERATORS)
+    hard = _T.load_default().tables.emit.design.hard_rulings
+    assert not any("raoa" in r for r in hard)
 
 
 def test_the_same_step_on_a_car_park_is_report(cg):
@@ -9451,6 +9476,7 @@ def test_the_cockpit_buckets_partition_the_census_rows(cg):
         # (Over 2 m it would be a cliff and CRITICAL MOTION — 12aj (c),
         # twinned in test_the_cliff_escape_reaches_every_family.)
         "within_shape": [_CkStep("runway", "runway", 4.0, distance_m=200.0)],
+        # SOFT since RULINGS 2026-10-19al (#265): a raoa row is REPORT
         "raoa": [_CkStep("runway", "runway", 0.02, distance_m=60.0)],
         "wall_in_runway_strip": [_CkStep("retaining_wall", "runway", 9.0,
                                          distance_m=100.0)],
@@ -9463,28 +9489,28 @@ def test_the_cockpit_buckets_partition_the_census_rows(cg):
     assert c["rows"] == n
     assert (c[cg.COCKPIT_MOTION]["n"] + c[cg.COCKPIT_VISUAL]["n"]
             + c[cg.COCKPIT_REPORT]["n"]) == n
-    assert c[cg.COCKPIT_MOTION]["n"] == 2      # the apron step, the raoa row
+    assert c[cg.COCKPIT_MOTION]["n"] == 1      # the apron step
     assert c[cg.COCKPIT_VISUAL]["n"] == 1      # the car-park 0.9 m, in view
     # a `grade` row (within_shape) and a `keepout` row are REPORT however
     # large: §31 (4), and neither is a cut, a rise or a step
     assert set(c[cg.COCKPIT_REPORT]["by_family"]) == {
         "vertex_to_edge_step", "mid_edge_step", "within_shape",
-        "wall_in_runway_strip"}
+        "wall_in_runway_strip", "raoa"}
     # the span rule's own count is REPORTED, never anonymous
     assert c[cg.COCKPIT_REPORT]["reasons"]["spanned_over_motion"] == 1
     # and the lines render without a coordinate, a family or a count
     # going missing
     txt = "\n".join(cg.cockpit_block_lines(c))
-    assert "CRITICAL motion: 2" in txt and "CRITICAL visual: 1" in txt
+    assert "CRITICAL motion: 1" in txt and "CRITICAL visual: 1" in txt
     # a critical bucket NAMES what its rows are, from the reason tally —
     # never a subtraction (round 3 printed "5 a forbidden grade BREAK" for
     # 5 cliffs because the line took `n - welded` instead of the tally)
-    assert "1 a forbidden grade BREAK" in txt
+    assert "a forbidden grade BREAK" not in txt
     assert "1 a WELDED step between two rolled-on faces" in txt
     for k in cg.COCKPIT_REASON_TEXT:
         assert k in {"step_on_pavement", "grade_break", "cliff", "taxi",
                      "approach", "unlocated"}
-    assert "REPORT: 5 row(s)" in txt
+    assert "REPORT: 6 row(s)" in txt
     assert "1 would be over the motion threshold" in txt
 
 

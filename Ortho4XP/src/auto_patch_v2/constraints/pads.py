@@ -578,9 +578,13 @@ def pad_datum_withdrawn(planar: PlanarMap, law: Law) -> set[int]:
         out.update(v for v in group if v not in sh)
     # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING is held
     # at its deck's level, never at the building's terrain
+    # A LOWER LEVEL (RULINGS 2026-10-19ai, ``planar/low_level``) is NOT
+    # withdrawn: it stands on its own ground, banded to its block
     from .platform import landing_vertices
-    for vs in landing_vertices(planar).values():
-        out.update(vs)
+    lands = planar.registries.landings
+    for ref, vs in landing_vertices(planar).items():
+        if lands.get(ref, {}).get("kind") != "low_level":
+            out.update(vs)
     return out
 
 

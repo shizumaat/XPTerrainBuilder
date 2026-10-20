@@ -35,7 +35,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
 from ..model.planar import (PlanarMap, is_bank_ref, is_collar_ref, is_strip_ref,
-                            pad_base_ref, platform_ref_of, unit_ref_of)
+                            pad_base_ref, plane_origin_ref, platform_ref_of, unit_ref_of)
 from ..model.platform import HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
 from .pad_warning import stamp_warning
 
@@ -167,7 +167,14 @@ def block_strip_rows(planar: PlanarMap, law: Law,
     collar's rows take (:func:`_bank_rows`): a strip vertex on the chord it
     shares with the next block's strip is a TERRACE row from each floor.
     A generator; it runs after ``platform_collar_rows``."""
-    rows, st = _bank_rows(planar, law, collar_faces(planar, law, is_strip_ref))
+    # A LOWER LEVEL's riser (owner RULINGS 2026-10-19ai, ``planar/low_level``)
+    # is the object's own storey — the steepest cell, never a 1:3 bank
+    # (base-profile spec §8a Q2): no bank rows, which would pull the block
+    # toward the level a storey below it (MEASURED KATL: the apron moved
+    # 0.11 m with them)
+    pairs = [q for q in collar_faces(planar, law, is_strip_ref)
+             if plane_origin_ref(q[0]) == q[0]]
+    rows, st = _bank_rows(planar, law, pairs)
     if st is not None:
         STATS["block_strip_rows"] = st
     return rows
@@ -522,11 +529,25 @@ def landing_rows(planar: PlanarMap, law: Law,
         if dv is None:
             n_none += 1
             continue
+        n += 1
+        if rec.get("kind") == "low_level":
+            # A LOWER LEVEL (owner RULINGS 2026-10-19ai, ``planar/low_level``):
+            # banded to its block, ``D + y_lo <= z <= D + y_hi`` — its own
+            # ground places it inside the object's storey
+            lo, hi = float(rec["y_lo"]), float(rec["y_hi"])
+            src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-19ai the lower "
+                         "level banded to its block within the object's storey)",
+                         (f"low_level:{ref}", ref, f"platform:{rec['block']}"))
+            for v in vs:
+                if v == dv:
+                    continue
+                rows.append(Linear(((v, 1.0), (dv, -1.0)), None, hi, src))
+                rows.append(Linear(((v, -1.0), (dv, 1.0)), None, -lo, src))
+            continue
         y = float(rec["y"])
         src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-03e the ramp "
                      "landing held at its unit's level + the deck's y)",
                      (f"landing:{ref}", ref, f"platform:{rec['block']}"))
-        n += 1
         for v in vs:
             if v == dv:
                 continue

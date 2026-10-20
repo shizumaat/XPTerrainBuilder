@@ -86,7 +86,7 @@ class SourceRecord:
     reason: str
     taxi_name: str = ""     # the description's taxiway token (04z-1), "" when it names none
     taxi_designator: str = ""  # ...and the designator after it ("Taxiway B" -> "B")
-    network_through_m: float = 0.0  # mapped NETWORK road (R1, RULINGS 2026-10-20d) running through it
+    network_through_m: float = 0.0  # NETWORK road running through it (R1, RULINGS 10-20d)
 
     def as_evidence(self) -> dict[str, float | str]:
         out: dict[str, float | str] = {

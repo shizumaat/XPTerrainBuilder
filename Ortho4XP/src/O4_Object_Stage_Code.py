@@ -85,7 +85,6 @@ def runtime_digest() -> "str | None":
 #: ``__init__``.
 CODE_MODULES: tuple[str, ...] = (
     "auto_patch.agp_reader",
-    "auto_patch.apt_dat_reader",
     "auto_patch.build_support",
     "auto_patch.config",
     "auto_patch.dsf_reader",

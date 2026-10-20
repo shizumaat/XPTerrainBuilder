@@ -41,7 +41,7 @@ from ..geom.base_slab import pad_shades, registered_faces
 from ..law.tables import base_slab_law, pad_admission, rolled_on_roles
 from ..model.airport import Airport
 from ..model.planar import (PlanarMap, block_of, is_bank_ref, pad_base_ref,
-                            plane_origin_ref, platform_ref_of, unit_ref_of)
+                            plane_of, plane_origin_ref, platform_ref_of, unit_ref_of)
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
 from ..geom.union_find import find_root
@@ -471,18 +471,25 @@ def _split_blocks(planar: PlanarMap,
     """flat-pad spec §3 C14 (RULINGS 2026-09-30r): the flat BLOCKS of a cut
     unit are ONE plane each, never one plane together — the terminal
     cluster covers all of them, so its entry is split per block ref
-    (``model.planar.block_of``); every other entry is unchanged."""
+    (``model.planar.block_of``); every other entry is unchanged.  A LEVEL
+    of a held pad (``<pad>/p<k>``, ``planar/low_level``: a storey under or
+    over it) is its own plane too, whether its pad is a block or a whole
+    unit (#1101: LPHR's conforming ``building1`` and its upper level read
+    one plane and the level's rigid row was relaxed)."""
     by_fid = {fid: g for fid, _r, g in groups}
+
+    def _key(ref):
+        return block_of(ref), plane_of(ref)
     res: list[tuple[int, str, list[int], tuple[int, ...]]] = []
     for ent in out:
         fids = ent[3]
-        keys = {block_of(planar.faces[q].ref) for q in fids}
-        if len(keys) <= 1 or all(k is None for k in keys):
+        keys = {_key(planar.faces[q].ref) for q in fids}
+        if len(keys) <= 1 or all(k == (None, None) for k in keys):
             res.append(ent)
             continue
         per: dict = {}
         for q in fids:
-            per.setdefault(block_of(planar.faces[q].ref), []).append(q)
+            per.setdefault(_key(planar.faces[q].ref), []).append(q)
         for _k, qs in sorted(per.items(), key=lambda t: min(t[1])):
             vs: list[int] = []
             seen: set[int] = set()

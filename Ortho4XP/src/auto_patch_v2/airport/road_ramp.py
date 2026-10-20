@@ -799,6 +799,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     # contact — the road at the wall's foot does not meet the top edge
     if retaining:
         from shapely.strtree import STRtree
+
         from ..law.tables import airside_stage_roles
         stage1 = airside_stage_roles(law)
         rtree = STRtree(list(retaining))

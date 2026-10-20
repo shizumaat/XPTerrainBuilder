@@ -27,7 +27,8 @@ from . import (apron, cluster_pad, eat, flat_site, foot_rows,
                taxi, transverse, water, zones)
 from .assembly import assemble, seam_exempt, water_exempt
 
-__all__ = ["GENERATORS", "generate", "run_generator", "stack", "seam_exempt", "water_exempt"]
+__all__ = ["GENERATORS", "generate", "run_generator", "post_passes", "stack", "seam_exempt",
+           "water_exempt"]
 
 Generator = _t.Callable[[PlanarMap, Law, Airport], list[Row]]
 
@@ -192,8 +193,21 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
         rows.extend(got)
         for k, v in stats.items():
             counts[f"{name}.{k}"] = v
+    rows = post_passes(rows, counts, walls, planar, law, airport, only, yielded_out)
+    return stack(rows), counts, walls
+
+
+def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
+                planar: PlanarMap, law: Law, airport: Airport,
+                only: _t.Container[str] | None = None,
+                yielded_out: list[Row] | None = None) -> list[Row]:
+    """The passes over EVERY generator's rows, ONE expression for
+    :func:`generate` and the build's per-generator records
+    (``pipeline/constraint_records``): the door pads' blend, then
+    ``assembly.assemble``.  MEASURED (#798 round 3): the records path ran
+    the assembly alone, so the KASE build solved with no blend at all and
+    read 337 apron rows in hard conflict where the replay read none."""
     # owner 2026-10-20 (#798): round a sloping building's pad the apron
     # blends at up to the tunnel-ramp cap, except along the door line
     rows = door_pad.relax_apron_caps(rows, planar, law, airport, counts)
-    rows = assemble(rows, counts, walls, planar, law, only, yielded_out)
-    return stack(rows), counts, walls
+    return assemble(rows, counts, walls, planar, law, only, yielded_out)

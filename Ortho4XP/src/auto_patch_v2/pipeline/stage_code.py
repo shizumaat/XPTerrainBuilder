@@ -1501,7 +1501,10 @@ def generator_stage(name: str) -> str:
 for _name, _module in GENERATOR_MODULES.items():
     ENTRY_MODULES[generator_stage(_name)] = (f"auto_patch_v2.constraints.{_module}",)
     CODE_MODULES[generator_stage(_name)] = _GENERATOR_CLOSURES[_module]
-ENTRY_MODULES["constraints.assembly"] = ("auto_patch_v2.constraints.assembly",
+# #798 round 3: the records' assembly enters through ``constraints.
+# post_passes`` (the door pads' blend, then ``assembly.assemble``)
+ENTRY_MODULES["constraints.assembly"] = ("auto_patch_v2.constraints",
+                                         "auto_patch_v2.constraints.assembly",
                                          "auto_patch_v2.pipeline.shapes")
 ENTRY_MODULES["jetway_strip"] = ("auto_patch_v2.airport.riders",
                                  "auto_patch_v2.constraints.jetway_strip")

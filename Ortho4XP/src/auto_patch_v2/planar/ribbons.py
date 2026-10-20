@@ -19,7 +19,7 @@ from ..model.planar import is_osm_ribbon_ref
 from ..law.tables import rolled_on_roles
 from .pad_cut import _drop_rim_midpoints, airside_clip, build_rim
 from . import overlay as _ov
-from .overlay import (Region, _claiming_region, _node_coords,
+from .overlay import (Region, _claiming_region, cell_region, _node_coords,
                       absorb_enclosed_pavement, dissolve_degenerate_holes,
                       dissolve_sliver_zones, merge_slivers)
 from .platform import merge_platform_faces
@@ -65,8 +65,7 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
                             if r.source == "cell" and r.role not in rolled
                             and not is_rigid_role(law, r.role)])
     ribs, rc = airside_clip(
-        [Region(c.role, c.ref, Polygon(c.ring, c.holes), c.code_number,
-                c.code_letter, c.side, "cell") for c in ribbon_cells],
+        [cell_region(c) for c in ribbon_cells],
         law, air=clip_f, nodes=nodes_b, rim=rim_f, select=lambda r: True,
         near_m=rim_f.band, keep_out=keep_out)
     counts.update({f"ribbon_{k}": v for k, v in rc.items()})

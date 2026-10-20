@@ -35,7 +35,7 @@ from ..model.band_riser import band_risers
 from ..model.constraints import Band, ConstraintSet, Linear, Source
 from ..model.planar import PlanarMap, is_osm_ribbon_ref
 
-__all__ = ["riser_release", "FLOOR_RULING", "GRADED_RULING"]
+__all__ = ["riser_release", "FLOOR_RULING", "GRADED_RULING", "KERB_RULING"]
 
 #: the ruling of the one-way floor that keeps the band from falling below
 #: the road across a riser (module docstring)
@@ -118,6 +118,9 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet,
         linears.append(r)
     floors = [r for r in _floor_rows(planar, risers, xy) if r.terms[0][0] in wall]
     floors += _standoff_floors(standoffs, {r.terms[0][0] for r in floors})
+    kerb_caps = _kerb_ceilings(planar, law, risers)
+    rep["kerb_ceilings"] = len(kerb_caps)
+    floors += kerb_caps
     rep["floors"] = len(floors)
     return _dc.replace(cs, diffs=tuple(diffs),
                        linears=tuple(linears) + tuple(floors),
@@ -143,6 +146,49 @@ def _floor_rows(planar: PlanarMap, risers, xy) -> list[Linear]:
             out.append(Linear(((int(v), 1.0), (int(u), -1.0)), 0.0, None,
                               Source(GEN, FLOOR_RULING, (f"vertex:{v}",)),
                               follows=int(v)))
+    return out
+
+
+#: the ruling of the ceiling that keeps a riser's kerb-side vertex at road level
+KERB_RULING = ("riser kerb vertex is road ground (#951 round 6; round 3: "
+               "a median is road ground)")
+
+
+def _kerb_ceilings(planar: PlanarMap, law: Law, risers) -> list[Linear]:
+    """A RISER VERTEX ON THE ROAD SIDE STANDS NO HIGHER THAN THE ROAD (#951
+    round 6).  ``model.band_risers`` reads a riser ring vertex within
+    ``riser_kerb_near_m`` of a ribbon's ring as the kerb — the road side of
+    the cut and the release, with the zone's cap only — but nothing tied it
+    to the road: MEASURED KLAX taxiway F (33.94031, -118.39618), the band's
+    tip between two carriageways 1 m apart, 0.5 m off both, stood at the
+    band's 32.2 m over both roads at 28.6-28.9 m (a 3.7 m spike the census
+    read as ``strip_seam_tear`` / ``adjacent_ground_step``).  One one-way
+    ceiling per such vertex off the ribbon's ring: its level at most the
+    road's at the nearest point of a ribbon edge (the vertex follows)."""
+    from ..law.tables import riser_kerb_near_m
+    from .band_standoff import _nearest_on_edges
+    rib_v: set[int] = set()
+    edges: dict[tuple[int, int], None] = {}
+    for f in planar.faces.values():
+        if not is_osm_ribbon_ref(f.ref):
+            continue
+        for cyc in (f.ring, *f.holes):
+            vs = planar.ring_vertices(cyc)
+            rib_v.update(vs)
+            for i, a in enumerate(vs):
+                b = vs[(i + 1) % len(vs)]
+                if a != b:
+                    edges[(min(a, b), max(a, b))] = None
+    pts = sorted({v for _f, lo, _u in risers for v in lo} - rib_v)
+    if not pts or not edges:
+        return []
+    out: list[Linear] = []
+    for v, (a, c, t, _d) in _nearest_on_edges(planar, pts, edges, 0.0,
+                                               riser_kerb_near_m(law)):
+        terms = [(int(v), 1.0)] + [(int(u), -w) for u, w in ((a, 1.0 - t), (c, t))
+                                   if w > 0.0]
+        out.append(Linear(tuple(terms), None, 0.0,
+                          Source(GEN, KERB_RULING, (f"vertex:{v}",)), follows=int(v)))
     return out
 
 
@@ -203,24 +249,26 @@ def _graded_rows(planar: PlanarMap, law: Law, levels: _t.Mapping[int, float],
     end = _end_profile_levels(cs, levels, wall) if cs is not None else {}
     out: list[Band] = []
     for v in sorted(wall):
-        if v in end:
-            # IN A RUNWAY END AREA THE GRADED LEVEL IS THE END PROFILE'S
-            # (round 5): the runway-end profile chord row the ``strips``
-            # generator already states for this vertex is the one law there
-            # — the lowest level it allows there, never the nearest
-            # pavement zone's (MEASURED round 4: the zone's level lifted
-            # end-area band vertices above the end profile, KBUR
-            # ``runway_end_skirt`` 3 -> 16, worst 1.57 m)
-            out.append(Band(int(v), end[v], None,
-                            Source(GEN, GRADED_RULING, (f"vertex:{v}",))))
-            continue
         d, j = tree.query(planar.vertices[v].xy)
         p = ids[int(j)]
         f = feet[p]
         _fl, ce = zone_bounds(law, f.role, float(d), f.code_number, f.code_letter)
-        if ce is None:
+        lvl = None if ce is None else float(levels[p]) + min(ce, 0.0)
+        if v in end:
+            # IN A RUNWAY END AREA THE END PROFILE BOUNDS THE GRADED LEVEL
+            # (round 6): the zone's graded level, kept inside the runway-end
+            # profile chord row the ``strips`` generator states for this
+            # vertex.  Round 4 took the zone's level alone and lifted
+            # end-area band vertices above the profile (KBUR
+            # ``runway_end_skirt`` 3 -> 16); round 5 took the profile's
+            # LOWEST level and the band line fell to the road with the rise
+            # moved into the band (KLAX 33.945963, -118.436316: 2.55 m over
+            # 7.07 m, ``adjacent_ground_step``)
+            lo, hi = end[v]
+            lvl = lo if lvl is None else min(max(lvl, lo), hi)
+        if lvl is None:
             continue
-        out.append(Band(int(v), float(levels[p]) + min(ce, 0.0), None,
+        out.append(Band(int(v), lvl, None,
                         Source(GEN, GRADED_RULING, (f"vertex:{v}",))))
     return out
 
@@ -233,15 +281,14 @@ _END_CHORD = "rulesets.end_skirt runway-end profile chord"
 
 
 def _end_profile_levels(cs: ConstraintSet, levels: _t.Mapping[int, float],
-                        wall: _t.AbstractSet[int]) -> dict[int, float]:
-    """``{vertex: level}`` for the wall vertices a runway-end profile chord
-    row governs (``constraints/strips``' ``END_PROFILE_RULING``, ``z[v] -
-    foot`` within its bounds, the foot on stage-1 levels): the level of the
-    foot moved by the row's FLOOR: the lowest level the profile allows there
-    — the band falls along the end profile as far as it lets it and no
-    further, never to raw DEM below it (round 5 iteration 1 held it flush
-    with the end instead: KLAX ``strip_seam_tear`` 4 -> 104, worst 6.6 m)."""
-    out: dict[int, float] = {}
+                        wall: _t.AbstractSet[int]
+                        ) -> dict[int, tuple[float, float]]:
+    """``{vertex: (lowest, highest)}`` for the wall vertices a runway-end
+    profile chord row governs (``constraints/strips``' ``END_PROFILE_RULING``,
+    ``z[v] - foot`` within its bounds, the foot on stage-1 levels): the
+    levels the profile allows there (an open bound reads the other one);
+    several rows intersect."""
+    out: dict[int, tuple[float, float]] = {}
     for r in cs.linears:
         if r.source.generator != _STRIPS_GEN or not r.source.ruling.startswith(_END_CHORD) \
                 or not isinstance(r.follows, int):
@@ -252,9 +299,13 @@ def _end_profile_levels(cs: ConstraintSet, levels: _t.Mapping[int, float],
         feet = r.terms[1:]
         if not feet or any(u not in levels for u, _c in feet):
             continue
-        if r.lo is None:
+        if r.lo is None and r.hi is None:
             continue
         foot = -sum(c * float(levels[u]) for u, c in feet)
-        lvl = foot + float(r.lo)
-        out[v] = lvl if v not in out else max(out[v], lvl)
+        lo = foot + float(r.lo if r.lo is not None else r.hi)
+        hi = foot + float(r.hi if r.hi is not None else r.lo)
+        if v in out:
+            lo, hi = max(out[v][0], lo), min(out[v][1], hi)
+            hi = max(hi, lo)
+        out[v] = (lo, hi)
     return out

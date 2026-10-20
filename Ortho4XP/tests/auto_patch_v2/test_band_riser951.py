@@ -59,7 +59,21 @@ def test_the_road_keeps_its_ground_and_the_riser_is_the_wall(arm, law):
     js = band_road_wall_joints(pm, law, sol.z)
     assert js and all(j["kind"] == "wall_terrace" and j["shapes"] == [LABEL]
                       for j in js)
-    assert all(j["step_m"] > 5.0 for j in js if j["faces"])   # the risers
+    # declared at the kerb (round 6), at the wall's actual height
+    assert max(j["step_m"] for j in js) > 5.0 * w
+    from auto_patch_v2.pipeline.ribbon_steps import _to_ll
+    from shapely.geometry import LineString
+    to_ll = _to_ll(pm)
+    lines = [LineString(j["points"]) for j in js]
+    # every chord from the road's kerb to the riser's band line crosses one
+    for _fid, lower, upper in band_risers(pm):
+        for a in lower & road:
+            ax, ay = pm.vertices[a].xy
+            for b in upper:
+                bx, by = pm.vertices[b].xy
+                if abs(bx - ax) <= w:
+                    chord = LineString([to_ll(ax, ay), to_ll(bx, by)])
+                    assert any(chord.intersects(g) for g in lines)
 
 
 def test_the_bending_is_cut_across_the_riser(arm):

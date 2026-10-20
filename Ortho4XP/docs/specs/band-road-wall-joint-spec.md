@@ -383,3 +383,84 @@ Open problems:
 4. **KBUR building9.** This is the known planar-gap residual in §7.4; the master is filing it.
 
 Replay recipe: frames/c944 KBUR and KLAX `--replay --from planar --emit`, plus a fresh main base for each, then `tools/harness/census.py` from this branch's tree. That tree carries the 19l exemption.
+
+### 7.6 Round 6 (lane m11, 2026-10-20) — the census was told the wrong line
+
+Re-measured first (this branch a94724033 = round 4 + round 5's end-area
+floor, never replayed): KLAX `strip_seam_tear` 4 → 14, the owner's KLAX
+site back to a 2.55 m step over 7.07 m inside the band (the end profile's
+LOWEST level let the band line fall to the road and the rise moved into the
+band), KBUR `runway_end_skirt` 3 → 16.
+
+Attribution: at taxiway F (33.9403, −118.3962) the roads and the band were
+where the owner's law puts them (roads on their ground, band at its graded
+level, a wall between); the rows were chords from the road to the band
+that crossed no declared line — the riser MIDLINE exists only where the
+riser face is, so chords past a riser's end, between a ribbon's split
+pieces and into a band tip squeezed between two carriageways crossed
+nothing. One engine defect underneath: a riser vertex within the kerb-weld
+reach (`riser_kerb_near_m`, 0.85 m) of a ribbon is "the kerb" for the cut
+and the release, but nothing held it at road level — the band tip at
+33.94031, −118.39618, 0.5 m off both carriageways, stood at 32.2 m over
+roads at 28.6–28.9 m.
+
+Changes, each at its one derivation site:
+
+1. **The wall is declared at the kerb, across the whole band**
+   (`pipeline/band_road_wall._kerb_records`): the in-band ribbons' outline
+   grown by half a weld spacing (the margin the emit's identity snap,
+   0.35 m, needs on both sides: iteration 2 put the line at 0.93 m and the
+   emit snapped the band line to 0.84 m — the owner site's 3.9 m riser
+   chords crossed nothing), with the same reach around each off-ribbon kerb
+   vertex; clipped to the runway / taxi bands; one record per connected
+   part at the LARGEST step of a road-to-band (or road-to-other-road)
+   pair within the census's 6 m pairing reach whose chord crosses it. The
+   riser midline (rounds 2–5) is deleted.
+2. **A riser's kerb vertex off the ribbon stands no higher than the road**
+   (`constraints/band_riser._kerb_ceilings`): one one-way ceiling against
+   the nearest point of a ribbon edge.
+3. **In a runway end area the zone's graded level is clamped into the end
+   profile chord row's bounds** (`band_riser._graded_rows` /
+   `_end_profile_levels`), replacing round 5's lowest level.
+
+Measured (frames/c944 `--from planar`, base main d384d336c, census from
+this tree):
+
+| | KBUR main → r6 | KLAX main → r6 |
+|---|---|---|
+| CRITICAL visual (not hairline) | 3 → 3 | 9 → **0** |
+| `strip_seam_tear` | 0 → 0 | 4 → **0** |
+| `adjacent_ground_step` | 3 → 3 (0.95 m, main's; new 0.57 m at 34.21423, −118.36181) | 5 → **0** |
+| `terrace_actual_step` | 0 → 1 (0.70 m, REPORT) | 0 → 0 |
+| `runway_end_skirt` (REPORT) | 3 → 16 (worst 1.8 → 1.57 m) | 1 → 6 (1.32 m over 22.6 m) |
+| `hairline_pair` raw | 333 → 500 | 1316 → 1361 |
+
+- KLAX 33.945963, −118.436316: no CRITICAL row (main: 1.86 / 1.19 /
+  0.99 m `adjacent_ground_step`); the riser walls stand 3.2–3.9 m and are
+  declared; REPORT end-skirt rows of 0.76–1.32 m over 10–23 m remain
+  (main's 0.85 m), each 0.2–0.25 m past the 5 % cap.
+- #951 road `big_roads:-2346`: 26.81–28.03 m (main 27.11–30.07 m), on
+  its ground.
+
+Open: the end-area rows (the band's graded level on the two sides of an
+in-band road beyond a runway end differs by up to 1.3 m over 22 m, which the
+end profile's transect pairs read across the road); the riser's hairline
+rows (all sub-centimetre); KBUR 34.21423, −118.36181 (a road 0.57 m ABOVE
+the band over 1.12 m, not its nearest kerb pair).
+
+Closing build (KLAX, `build_airport.py`, tag `KLAX_m11_951c`, inset +
+approach rings warmed by `--refresh-data dem,rings` this round) against a
+main control in the same frame (`KLAX_main_d384`, main d384d336c):
+CRITICAL visual (not hairline) 13 → 13, but a different set —
+`adjacent_ground_step` 9 → 1 (worst 3.53 → 1.97 m), while taxiway F
+(33.93418, −118.39608) gains `pavement_over_road_cap` 0 → 3 (3.91 m),
+`road_cross_section` 4.12 m, `strip_seam_tear` 1.97 m and `mid_edge_step`
+1.43 m: one vertex (`-18290` there) is a band ring vertex held at the
+band's 31.1 m AND a ring vertex of road `big_roads:-4265`, whose other
+vertices stand at 27.2–28.0 m. In the replay frame it is not shared. Not
+attributed: either the planar map puts a riser's band-line vertex (graded
+floor) within the emit's weld reach of the ribbon, or the emit welds it
+there. And `terrace_actual_step` 3.57 m at 33.94075, −118.39607 (a road
+against a `tunnel_ramp` across a declared kerb line). The owner's KLAX site
+and the #951 road read as in the replay. **The bar does NOT hold in the
+closing build.**

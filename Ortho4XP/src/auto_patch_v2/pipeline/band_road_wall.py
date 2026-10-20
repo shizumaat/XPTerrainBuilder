@@ -9,17 +9,16 @@ neither bends nor caps across it (``solve/wall_cut.riser_cut_edges``,
 band the riser is the retaining wall 19i rules, and this module declares
 it: ``terrace_joints`` records (``kind`` ``wall_terrace``, the record a
 pack retaining wall publishes, ``publication.wall_terrace_joints``) along
-the riser's MIDLINE — half a weld spacing off the ribbon, strictly between
-the kerb and the band line, so every chord across the riser crosses it
-exactly once and
-both instruments forgive the declared step and price any excess; the
+the in-band ROADS' OUTLINE half a weld spacing off the kerb
+(:func:`_kerb_records`, round 6), so every chord from the road to the band
+crosses it, and both instruments forgive the declared step and price any
+excess; the
 census exempts it from CRITICAL visual (19l) and from the runway-strip
 wall check (19i: lawful in the safety area) by its shape label
 :data:`LABEL`.  A road at or above the band (the band's cap holds it there,
 13ar / 29r) declares nothing."""
 from __future__ import annotations
 
-import math
 import typing as _t
 
 from ..law import Law
@@ -37,9 +36,10 @@ _EMIT_Z_ROUND_M = 0.01
 def band_road_wall_joints(planar: PlanarMap, law: Law,
                           z: _t.Sequence[float] | None = None
                           ) -> list[dict[str, _t.Any]]:
-    """One ``wall_terrace`` record per riser face whose band side stands
-    above its road kerb by more than the elevation materiality floor
-    (module docstring).  Empty before a solve."""
+    """The ``wall_terrace`` records of the band's walls against the roads
+    inside it: per part of the in-band roads' outline, and per road-page
+    stand-off pair, where the band stands above the road by more than the
+    elevation materiality floor (module docstring).  Empty before a solve."""
     if z is None:
         return []
     from ..law.tables import riser_kerb_near_m
@@ -51,50 +51,34 @@ def band_road_wall_joints(planar: PlanarMap, law: Law,
     from .ribbon_steps import _to_ll
     to_ll = _to_ll(planar)
     floor = float(law.tables.emit.materiality.elevation_m)
-    reach_w = float(law.tables.emit.identity.weld_spacing_m)
-    band_ids, band_tree = _band_vertices(planar)
     out: list[dict[str, _t.Any]] = _standoff_records(planar, standoffs, z, floor, to_ll)
-    for fid, lower, upper in risers:
-        if not lower or not upper:
-            continue
-        # the LARGEST pair within a few weld spacings, not the nearest
-        # partner's — and the band's vertices just beyond the riser count:
-        # the census's chords run from them across the riser to the road
-        # (round 3/4, KLAX 33.945963, -118.436316 and 33.94031, -118.39618:
-        # 3.5-4.5 m chords stood 0.05-0.35 m over the riser-only step)
-        lo_xy = [(planar.vertices[w].xy, float(z[w])) for w in lower]
-        step = 0.0
-        for kv in lower:
-            lx, ly = planar.vertices[kv].xy
-            zl = float(z[kv])
-            for b_ in band_tree.query_ball_point((lx, ly), _PAIR_REACH_W * reach_w):
-                step = max(step, float(z[band_ids[b_]]) - zl)
-        for v in upper:
-            vx, vy = planar.vertices[v].xy
-            _p, zl = min(lo_xy, key=lambda t: math.hypot(t[0][0] - vx, t[0][1] - vy))
-            step = max(step, float(z[v]) - zl)
-        if step <= floor:
-            continue
-        declared = round(step + _EMIT_Z_ROUND_M, 4)
-        for line in _midlines(planar, law, fid, lower):
-            out.append({
-                "points": [list(to_ll(x, y)) for x, y in line],
-                "step_m": declared, "declared_step_m": declared, "faced": False,
-                "kind": "wall_terrace", "faces": [fid], "shapes": [LABEL],
-                "gap": False, "roles": ["graded_strip"], "pairs": len(lower),
-                "length_m": round(sum(math.dist(line[i], line[i + 1])
-                                      for i in range(len(line) - 1)), 2),
-                "height_m": round(step, 3), "emitted_step_m": round(step, 3),
-                "agreement_m": 0.0})
+    if risers:
+        out.extend(_kerb_records(planar, law, risers, z, floor, to_ll))
     return out
 
 
-def _midlines(planar: PlanarMap, law: Law, fid: int, lower) -> list[list]:
-    """The riser face's midline parts: the boundary of its ribbons grown by
-    half a weld spacing, inside the face (plan coordinates)."""
+def _kerb_records(planar: PlanarMap, law: Law, risers, z, floor: float, to_ll
+                  ) -> list[dict[str, _t.Any]]:
+    """THE WALL IS DECLARED AT THE KERB, ACROSS THE WHOLE BAND (#951 round
+    6).  The line is the in-band ribbons' outline grown by half a weld
+    spacing, with the same reach around every riser vertex within the
+    kerb-weld reach (``law.tables.riser_kerb_near_m``) that is off the
+    ribbon (``constraints/band_riser`` holds it at road level): every kerb
+    vertex stands inside it and every band vertex outside, so EVERY chord from the
+    road to the band crosses it — past a riser's ends, between a ribbon's
+    split pieces, into a median's band tip — where the riser's midline
+    (rounds 2-5) was crossed only by the chords through the riser face
+    (MEASURED round 4, KLAX taxiway F 33.9403, -118.3962: 3.5-4.5 m chords
+    from the band tip between two carriageways touched no declared line).
+    Clipped to the runway / taxi bands (the owner's "for roads in safety
+    area, wall is correct"); one record per connected part, declared at the
+    largest step of a road-to-band (or road-to-other-road) pair within the
+    census's pairing reach whose chord crosses that part — the wall's
+    actual height there."""
     import shapely
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
+    from shapely.strtree import STRtree
 
     from ..model.planar import is_osm_ribbon_ref
 
@@ -104,26 +88,96 @@ def _midlines(planar: PlanarMap, law: Law, fid: int, lower) -> list[list]:
                  for h in f.holes]
         g = Polygon(ring, holes)
         return g if g.is_valid else g.buffer(0.0)
-    low = set(lower)
-    ribs = [poly(f) for f in planar.faces.values() if is_osm_ribbon_ref(f.ref)
-            and low & {v for c in (f.ring, *f.holes) for v in planar.ring_vertices(c)}]
-    if not ribs:
+    from ..constraints.band_standoff import is_band_zone_ref
+    band_faces = [f for f in planar.faces.values()
+                  if f.role == "graded_strip" and is_band_zone_ref(f.ref)]
+    w = float(law.tables.emit.identity.weld_spacing_m)
+    area = unary_union([poly(f) for f in band_faces]).buffer(w, **_MITRE)
+    road_of: dict[int, set[str]] = {}
+    rib_polys = []
+    for f in planar.faces.values():
+        if is_osm_ribbon_ref(f.ref):
+            g = poly(f)
+            if not g.intersects(area):
+                continue
+            rib_polys.append(g)
+            for c in (f.ring, *f.holes):
+                for v in planar.ring_vertices(c):
+                    road_of.setdefault(v, set()).add(str(f.ref).split("#", 1)[0])
+    if not rib_polys:
         return []
-    half = 0.5 * float(law.tables.emit.identity.weld_spacing_m)
-    mid = unary_union(ribs).buffer(half, join_style="mitre", mitre_limit=2.0).boundary
-    # THROUGH THE END EDGES (round 3, KLAX 33.945963, -118.436316): clipped
-    # at the riser's own ring, the line stopped ON its end edge and a census
-    # chord along that edge touched it without crossing it
-    cut = mid.intersection(poly(planar.faces[fid]).buffer(half, join_style="mitre",
-                                                          mitre_limit=2.0))
-    return [list(p.coords) for p in shapely.get_parts(shapely.line_merge(cut)
-                                                       if cut.geom_type == "MultiLineString"
-                                                       else cut)
-            if p.geom_type == "LineString" and len(p.coords) >= 2]
+    kerb = set(road_of).union(*(lo for _f, lo, _u in risers))
+    # HALF A WELD SPACING, offset as the riser is: the emit snaps every
+    # vertex to the identity lattice (up to ``snap_margin_m``, 0.35 m), so
+    # the line keeps that margin from the kerb (0 m) and from the riser's
+    # band line (1 m) — MEASURED iteration 2, KLAX 33.945963, -118.436316:
+    # a line at 0.93 m stood beyond the band line the emit snapped to
+    # 0.84 m off the kerb, and the 3.9 m riser chords crossed nothing.  A
+    # kerb vertex off the ribbon (within the kerb-weld reach) brings its
+    # own reach into the outline, so it stays on the road side.
+    grow = 0.5 * w
+    off = sorted(set().union(*(lo for _f, lo, _u in risers)) - set(road_of))
+    outline = unary_union([g.buffer(grow, **_MITRE) for g in rib_polys]
+                          + [shapely.Point(planar.vertices[v].xy).buffer(grow)
+                             for v in off]).boundary
+    cut = outline.intersection(area)
+    merged = shapely.line_merge(cut) if cut.geom_type == "MultiLineString" else cut
+    parts = [p for p in shapely.get_parts(merged)
+             if p.geom_type == "LineString" and len(p.coords) >= 2]
+    if not parts:
+        return []
+    import numpy as np
+    from scipy.spatial import cKDTree
+    kerb_ids = sorted(v for v in kerb if area.contains(shapely.Point(planar.vertices[v].xy)))
+    band_ids = sorted({v for f in band_faces for c in (f.ring, *f.holes)
+                       for v in planar.ring_vertices(c)} - kerb)
+    if not kerb_ids:
+        return []
+    ids = kerb_ids + band_ids
+    xy = np.array([planar.vertices[v].xy for v in ids], dtype=float)
+    zz = np.array([float(z[v]) for v in ids], dtype=float)
+    nk = len(kerb_ids)
+    reach = _PAIR_REACH_W * w
+    pr = cKDTree(xy).query_pairs(reach, output_type="ndarray")
+    pr = pr[(pr[:, 0] < nk) | (pr[:, 1] < nk)]        # band to band: no wall
+    i, j = np.minimum(pr[:, 0], pr[:, 1]), np.maximum(pr[:, 0], pr[:, 1])
+    d = np.where(j < nk, np.abs(zz[i] - zz[j]), zz[j] - zz[i])
+    keep = d > floor
+    i, j, d = i[keep], j[keep], d[keep]
+    # road to road only between two different roads (the next road across
+    # a narrow band: both walls, round 5)
+    ok = [jj >= nk or (ids[ii] in road_of and ids[jj] in road_of
+                       and not road_of[ids[ii]] & road_of[ids[jj]])
+          for ii, jj in zip(i.tolist(), j.tolist(), strict=True)]
+    i, j, dz = i[ok], j[ok], d[ok]
+    pa, pb = i, j
+    step = [0.0] * len(parts)
+    if len(pa):
+        segs = shapely.linestrings(np.stack([xy[pa], xy[pb]], axis=1))
+        hit = STRtree(parts).query(segs, predicate="intersects")
+        for s_i, p_i in zip(hit[0], hit[1], strict=True):
+            if dz[int(s_i)] > step[int(p_i)]:
+                step[int(p_i)] = dz[int(s_i)]
+    out: list[dict[str, _t.Any]] = []
+    for line, s in zip(parts, step, strict=True):
+        if s <= floor:
+            continue
+        declared = round(s + _EMIT_Z_ROUND_M, 4)
+        out.append({
+            "points": [list(to_ll(x, y)) for x, y in line.coords],
+            "step_m": declared, "declared_step_m": declared, "faced": False,
+            "kind": "wall_terrace", "faces": [], "shapes": [LABEL],
+            "gap": False, "roles": ["graded_strip"], "pairs": 0,
+            "length_m": round(float(line.length), 2),
+            "height_m": round(s, 3), "emitted_step_m": round(s, 3),
+            "agreement_m": 0.0})
+    return out
 
 
-#: how far (in weld spacings) a riser's band vertex reads its kerb partners
-_PAIR_REACH_W = 4.0
+_MITRE = dict(join_style="mitre", mitre_limit=2.0)
+#: how far (in weld spacings) a kerb vertex reads its band partners: the
+#: census pairs strip nodes up to 6 m apart (``strip_seam_tear``)
+_PAIR_REACH_W = 6.0
 #: half-length of the declared line across one road page's stand-off pair
 _STANDOFF_HALF_M = 0.5
 
@@ -157,19 +211,3 @@ def _standoff_records(planar: PlanarMap, standoffs, z, floor: float, to_ll
             "length_m": round(2.0 * _STANDOFF_HALF_M, 2), "height_m": round(step, 3),
             "emitted_step_m": round(step, 3), "agreement_m": 0.0})
     return out
-
-
-def _band_vertices(planar: PlanarMap):
-    """``(ids, KD-tree)`` of every runway / taxi band ring vertex that no
-    OSM ribbon carries."""
-    from scipy.spatial import cKDTree
-
-    from ..constraints.band_standoff import is_band_zone_ref
-    from ..model.planar import is_osm_ribbon_ref
-    rib = {v for f in planar.faces.values() if is_osm_ribbon_ref(f.ref)
-           for c in (f.ring, *f.holes) for v in planar.ring_vertices(c)}
-    ids = sorted({v for f in planar.faces.values()
-                  if f.role == "graded_strip" and is_band_zone_ref(f.ref)
-                  for c in (f.ring, *f.holes) for v in planar.ring_vertices(c)} - rib)
-    pts = [planar.vertices[v].xy for v in ids] or [(0.0, 0.0)]
-    return ids, cKDTree(pts)

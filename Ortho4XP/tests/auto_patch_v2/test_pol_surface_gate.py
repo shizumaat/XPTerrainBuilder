@@ -63,6 +63,9 @@ def test_hard_surface_admits_whatever_the_name(tmp_path, rel, surface, layer):
     # paint: the markings layer group refuses, whatever the name
     ("ground_marks/mark_dir_amarillo.pol", "concrete", "markings +1"),   # KCLT
     ("g/neutral_slab.pol", "asphalt", "Markings -1"),
+    # #726 KATL asp_* pages: owner 2026-10-20 "No" — still markings
+    ("pols/asp_dark.pol", "asphalt", "markings -1"),
+    ("pols/asp_light_used.pol", "asphalt", "markings -2"),
     ("lib/airport/signs/DrapedRwySigns.pol", "concrete", "markings"),
     ("lib/airport/markings/DrapedDirSigns.pol", "concrete", "markings"), # CYXY
     ("lib/airport/lines/safety_area_red.pol", "asphalt", "markings -1"),

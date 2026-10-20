@@ -23,6 +23,7 @@ from .overlay import (Region, _claiming_region, _node_coords,
                       absorb_enclosed_pavement, dissolve_degenerate_holes,
                       dissolve_sliver_zones, merge_slivers)
 from .platform import merge_platform_faces
+from .band_riser import apply_risers, riser_geometry, riser_lines
 
 __all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "airside_vertex_set"]
 
@@ -104,6 +105,11 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
                for x, y in ring.coords}
         lines, mid = _drop_rim_midpoints(ring_lines_of(ribs), rim_f, frozen,
                                          own, grid if keeps else 0.0)
+        # 19a / 19i (#951): the band's riser beside each ribbon in a safety
+        # area, noded with it in this one pass (``planar/band_riser``)
+        riser = riser_geometry(ribs, regions, clip_f, cut_w, law, keep_out)
+        if riser is not None:
+            lines = list(lines) + riser_lines(riser)
         out = shapely.unary_union(
             unary_union([noded_a, *pad_lines, *lines]), grid_size=grid)
         if out.geom_type == "LineString":
@@ -125,7 +131,8 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     counts["ribbon_rim_mints_left"] = len(bad)
     # the claim guard reads the RAW union: the grid would erase a sub-cell
     # airside needle (HECA dsf:objpav402, 0.4 m) and its face with it
-    return out, regions + ribs, frozen, air_raw, base_order
+    counts["ribbon_riser_m2"] = round(riser.area, 1) if riser is not None else 0.0
+    return out, apply_risers(regions, riser) + ribs, frozen, air_raw, base_order
 
 
 #: noding passes the rim guard may take before it reports what is left

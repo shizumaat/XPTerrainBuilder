@@ -16,7 +16,7 @@ import dataclasses as _dc
 import numpy as np
 
 __all__ = ["MIN_COMPONENT_M", "MAX_REPLY_BYTES", "Hull", "component_hull",
-           "model_hulls", "fit_to_cap", "pack_model"]
+           "model_hulls", "fit_to_cap", "pack_model", "plan_hull"]
 
 #: A component under this size in EVERY dimension is not sent.
 MIN_COMPONENT_M = 2.0
@@ -119,3 +119,23 @@ def pack_model(hulls: list[Hull]) -> tuple[np.ndarray, np.ndarray]:
         base += h.vertices.shape[0]
     return (np.concatenate(verts).astype(np.float32),
             np.concatenate(tris).astype(np.uint32))
+
+
+def plan_hull(hulls: list[Hull]) -> np.ndarray:
+    """The model's PLAN OUTLINE (issue #797): the 2-D convex hull of every
+    component hull's vertices as authored ``(x, z)`` pairs (x east, z south
+    at heading 0), float32, counter-clockwise; empty when the plan has no
+    area.  What the map's footprints draw — the same outline the clients
+    took from the full massing (``PackFootprints.planHull``), sent as a
+    few points instead of every triangle."""
+    from scipy.spatial import ConvexHull, QhullError
+    if not hulls:
+        return np.zeros((0, 2), np.float32)
+    pts = np.unique(np.concatenate([h.vertices[:, [0, 2]] for h in hulls]), axis=0)
+    if pts.shape[0] < 3:
+        return np.zeros((0, 2), np.float32)
+    try:
+        ring = pts[ConvexHull(pts).vertices]
+    except QhullError:                  # collinear: no area, no outline
+        return np.zeros((0, 2), np.float32)
+    return ring.astype(np.float32)

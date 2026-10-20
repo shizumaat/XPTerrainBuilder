@@ -15,11 +15,9 @@ Covers:
   is the building's identity and the DSF clusters majority-inside it are
   absorbed; the retired rule dropped the way instead.
 """
-import os
-
 from shapely.geometry import Polygon
 
-import auto_patch.dsf_reader as D
+from auto_patch_v2.airport import dsf as DSF_V2
 from auto_patch_v2.airport.dsf import building_role_for_def as _building_role_for_def
 
 
@@ -61,27 +59,19 @@ def test_building_role_for_stock_generic_buildings():
     assert _building_role_for_def(misc + "Cargo_Terminal.pol") is None
 
 
-def _write_fake_dsf(tmp_path, body):
-    """Create a fake .dsf + a fresh .dsf.text cache so ``_read_dsf_polys``
-    parses our synthetic text without invoking DSFTool."""
-    dsf = tmp_path / "fake.dsf"
-    dsf.write_text("binary-placeholder", encoding="utf-8", newline="")
+def _dump(tmp_path, body):
+    """A synthetic DSFTool text dump, read by v2 ``airport.dsf.read_dump``
+    (the reader the build uses; v1 ``_read_dsf_polys`` retired, #852)."""
     txt = tmp_path / "fake.dsf.text"
     txt.write_text(body, encoding="utf-8", newline="")
-    # Ensure the cache is NEWER than the dsf so no re-conversion is tried.
-    now = os.path.getmtime(txt)
-    os.utime(dsf, (now - 10, now - 10))
-    return str(dsf)
+    return DSF_V2.read_dump(str(txt), lambda p: p.lower().endswith(".fac"))
 
 
 _DEF = ("POLYGON_DEF lib/airport/Modern_Airports/Terminal_kit/"
         "term_building_Ground_01.fac\n")
 
 
-def test_depth5_facade_ring_stays_local(tmp_path, monkeypatch):
-    # Pretend DSFTool exists (we pre-seed the .text cache, so it is never
-    # actually run).
-    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
+def test_depth5_facade_ring_stays_local(tmp_path):
     # A small square facade authored at depth 5: each point is
     # (lon, lat, wall_param, ctrl_lon, ctrl_lat).  All corners here are
     # plain (ctrl == anchor), wall_param = 3.  The buggy reader would
@@ -95,13 +85,9 @@ def test_depth5_facade_ring_stays_local(tmp_path, monkeypatch):
             f"POLYGON_POINT {lon:.6f} {lat:.6f} 3.000000 "
             f"{lon:.6f} {lat:.6f}")
     lines += ["END_WINDING", "END_POLYGON"]
-    body = _DEF + "\n".join(lines) + "\n"
-    dsf = _write_fake_dsf(tmp_path, body)
-
-    polys = D._read_dsf_polys(
-        dsf, lambda p: p.lower().endswith(".fac"), cache_dir=str(tmp_path))
-    assert len(polys) == 1
-    outer, holes, path = polys[0]
+    dump = _dump(tmp_path, _DEF + "\n".join(lines) + "\n")
+    assert len(dump.polygons) == 1
+    outer = dump.polygons[0].windings[0]
     lons = [lon for lon, _ in outer]
     lats = [lat for _, lat in outer]
     # The ring must stay inside the authored ~0.001° box — NOT explode to
@@ -110,10 +96,9 @@ def test_depth5_facade_ring_stays_local(tmp_path, monkeypatch):
     assert min(lats) >= 30.09 and max(lats) <= 30.11
 
 
-def test_depth5_facade_bezier_is_curved(tmp_path, monkeypatch):
+def test_depth5_facade_bezier_is_curved(tmp_path):
     # A depth-5 point whose ctrl differs from the anchor is a real bezier
     # handle (cols 4-5) and must produce extra interpolated vertices.
-    monkeypatch.setattr(D, "_dsftool_path", lambda: "/bin/true")
     pts = [
         # (lon, lat, param, ctrl_lon, ctrl_lat)
         (31.4000, 30.1000, 0.0, 31.4000, 30.1000),   # corner
@@ -126,11 +111,7 @@ def test_depth5_facade_bezier_is_curved(tmp_path, monkeypatch):
         lines.append(
             f"POLYGON_POINT {lon:.6f} {lat:.6f} {p:.6f} {cl:.6f} {ca:.6f}")
     lines += ["END_WINDING", "END_POLYGON"]
-    body = _DEF + "\n".join(lines) + "\n"
-    dsf = _write_fake_dsf(tmp_path, body)
-    outer, _, _ = D._read_dsf_polys(
-        dsf, lambda p: p.lower().endswith(".fac"),
-        cache_dir=str(tmp_path))[0]
+    outer = _dump(tmp_path, _DEF + "\n".join(lines) + "\n").polygons[0].windings[0]
     # More than the 4 raw corners (the curved edge was tessellated), and
     # still local.
     assert len(outer) > 4

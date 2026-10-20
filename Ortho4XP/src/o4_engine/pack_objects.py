@@ -101,9 +101,17 @@ def _list(names: set[str]) -> str:
     return ", ".join(sorted(names)[:5]) + (", …" if len(names) > 5 else "")
 
 
-def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
+def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float],
+                 footprints_only: bool = False) -> dict:
     """The §2 result for the placements inside ``bbox`` (synchronous; the
-    command runs it through :func:`start_pack_objects`)."""
+    command runs it through :func:`start_pack_objects`).
+
+    ``footprints_only`` (issue #797) is the 2-D map's answer: each model is
+    ``{key, plan_hull_f32_b64}`` — its plan outline as ``(x, z)`` pairs
+    (:func:`pack_massing.plan_hull`) — instead of the massing's vertices
+    and triangles, which the map never draws (OTHH: 47.0 MB, 61 % of it
+    triangles).  Nothing is dropped to fit a cap in this mode: an outline
+    is a few points.  Placements, facades and ``missing`` are the same."""
     from auto_patch_v2.airport import dsf as _dsf
     from auto_patch_v2.airport import dsf_write as _dw
     from auto_patch_v2.airport import obj8 as _obj8
@@ -138,7 +146,7 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
                        f"({reason}). Building the tile makes it.")
         return out
     key = (pristine, os.path.getmtime(pristine), dump_path, str(icao).upper(),
-           tuple(round(v, 7) for v in (s, w, n, e)))
+           tuple(round(v, 7) for v in (s, w, n, e)), bool(footprints_only))
     with _CACHE_LOCK:
         hit = _CACHE.get(key)
     if hit is not None:
@@ -193,10 +201,16 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
             continue
         out["facades"].append({"ring": [[p[1], p[0]] for p in ring], "height_m": h})
 
-    capped = _mass.fit_to_cap(hulls, 120 * len(placements)
-                              + sum(40 * len(f["ring"]) + 40 for f in out["facades"]))
+    capped = 0 if footprints_only else _mass.fit_to_cap(
+        hulls, 120 * len(placements)
+        + sum(40 * len(f["ring"]) + 40 for f in out["facades"]))
     for path, hs in hulls.items():
-        if hs:
+        if hs and footprints_only:
+            ring = _mass.plan_hull(hs)
+            if len(ring) >= 3:
+                out["models"].append({"key": path,
+                                      "plan_hull_f32_b64": b64_array(ring, "<f4")})
+        elif hs:
             v, t = _mass.pack_model(hs)
             out["models"].append({"key": path, "vertices_f32_b64": b64_array(v, "<f4"),
                                   "triangles_u32_b64": b64_array(t, "<u4")})
@@ -226,7 +240,8 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float]) -> dict:
 
 
 def start_pack_objects(emit: _t.Callable[[_t.Any], None], tile: str, icao: str,
-                       bbox: _t.Sequence[float], request: _t.Any = None) -> dict:
+                       bbox: _t.Sequence[float], request: _t.Any = None,
+                       footprints_only: bool = False) -> dict:
     """The command: arguments are checked here (a bad one is an ``ok:false``
     reply), the pack is read on a worker thread, and ``PackObjectsReady``
     with ``request`` = the command's id completes it."""
@@ -236,7 +251,8 @@ def start_pack_objects(emit: _t.Callable[[_t.Any], None], tile: str, icao: str,
 
     def work() -> None:
         try:
-            event = PackObjectsReady(request=request, result=pack_objects(tile, icao, bbox))
+            event = PackObjectsReady(request=request, result=pack_objects(
+                tile, icao, bbox, footprints_only=bool(footprints_only)))
         except Exception as error:      # the event carries it; the session lives on
             event = PackObjectsReady(request=request, error=str(error))
         emit(event)

@@ -64,6 +64,7 @@ def test_stage_one_carries_mains_pads():
     """``stage_one_map.base_pad_map``: the classification's pad cells are
     replaced by main's (``Classification.base_pads``); nothing else moves."""
     import dataclasses as dc
+
     from auto_patch_v2.classify.roles import Cell, Classification
     from auto_patch_v2.pipeline.stage_one_map import base_pad_map
 

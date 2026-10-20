@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import box
-
 from auto_patch_v2.geom import cluster_outlines
 from auto_patch_v2.geom.slope_pad import seat_float_m, slope_witness
 from auto_patch_v2.law import Law
+from shapely.geometry import box
 
 
 def _cl(cid, x0, x1, area=400.0):

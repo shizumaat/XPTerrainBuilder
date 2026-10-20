@@ -527,8 +527,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
-    from ..constraints.road_ramp import reach_seed_rewrite
     from ..constraints.door_pad import blend_release
+    from ..constraints.road_ramp import reach_seed_rewrite
 
     def _stage2_rewrite(lv):
         # the door-line pads' blend room leaves stage 1's levels FIRST

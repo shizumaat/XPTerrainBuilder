@@ -523,8 +523,8 @@ def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple],
     cl0 = cl_r if cl_r is not None else cl_b
     if cl0 is None:
         return None
-    from . import capture_state as _cs
     from ..constraints.door_pad import stage_one as _no_door_pads
+    from . import capture_state as _cs
     saved = _cs.collect(caller) if caller is not None else None
     try:
         with _no_door_pads():

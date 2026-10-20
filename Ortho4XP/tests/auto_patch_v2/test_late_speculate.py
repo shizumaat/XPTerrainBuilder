@@ -68,11 +68,15 @@ def _arm(speculate, root=None) -> dict:
 
 
 def _fields(obj) -> str:
-    """A digest of a dataclass's FIELDS: an unpickled ``PlanarMap`` also
-    carries its ``_unpickled_defaults`` note (``model/planar``)."""
+    """A digest of a dataclass's FIELDS (an unpickled ``PlanarMap`` also
+    carries its ``_unpickled_defaults`` note, ``model/planar``), clocks
+    left out (the channel reports' ``fit_s``)."""
     if dc.is_dataclass(obj):
         return STORE.content_digest(tuple(_fields(getattr(obj, f.name)) for f in dc.fields(obj)
                                           if f.name not in _CLOCKS))
+    if isinstance(obj, dict):                 # a report: its clocks are ``*_s``
+        return STORE.content_digest({k: _fields(v) for k, v in obj.items()
+                                     if not (isinstance(k, str) and k.endswith("_s"))})
     return STORE.content_digest(obj)
 
 

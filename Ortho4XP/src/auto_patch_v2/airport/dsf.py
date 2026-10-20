@@ -36,6 +36,7 @@ __all__ = ["DsfPolygon", "DsfPlacement", "DsfDump", "find_text_dump",
            "read_dump", "PolDeclaration", "pol_declaration", "ground_photograph",
            "pavement_verdict",
            "is_pavement_def", "pavement_gate", "building_role_for_def", "read_footprint_cache",
+           "footprint_cache_name",
            "mod_cache_dir"]
 
 
@@ -666,6 +667,14 @@ def agp_building_role(path: str) -> str | None:
     if p.endswith(".agp") and p.startswith(AGP_BUILDING_PREFIX):
         return "hangar"
     return None
+
+
+def footprint_cache_name(dsf_path: str) -> str:
+    """The footprint sidecar's file name for a DSF, as v1's writer names it
+    (``dsf_reader._object_footprint_sidecar``): the DSF's stem, so the
+    pristine ``<tile>.dsf.anchor_bak`` has its own sidecar beside the live
+    file's (issue #713)."""
+    return f"o4_object_footprints_{os.path.splitext(os.path.basename(dsf_path))[0]}.cache"
 
 
 def read_footprint_cache(path: str) -> list[tuple[tuple[LonLat, ...], str]]:

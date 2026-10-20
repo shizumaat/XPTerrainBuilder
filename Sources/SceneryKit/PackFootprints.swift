@@ -4,14 +4,17 @@ import Foundation
 /// amended before L4, §4): the PLAN OUTLINE of each placed model — the
 /// 2-D convex hull of its grey-massing vertices, turned by the placement's
 /// heading — and each roofed facade's ring, all from one `pack_objects`
-/// result (the 3D window's). Pure; rings are `[lat, lon]`.
+/// result: the map asks `footprintsOnly` (each model's plan hull, #797),
+/// and a full answer (the 3D window's) serves it too. Pure; rings are
+/// `[lat, lon]`.
 public enum PackFootprints {
     /// One ring per drawn placement (a model with fewer than three distinct
     /// plan points has none), then one per facade.
     public static func outlines(_ objects: O4PackObjects) -> [[O4LatLon]] {
         var hulls: [String: [SIMD2<Double>]] = [:]
         for model in objects.models {
-            hulls[model.key] = planHull(authored: model.vertices)
+            hulls[model.key] = model.planHull.isEmpty
+                ? planHull(authored: model.vertices) : pairs(model.planHull)
         }
         var out: [[O4LatLon]] = []
         out.reserveCapacity(objects.placements.count + objects.facades.count)
@@ -21,6 +24,11 @@ public enum PackFootprints {
         }
         for f in objects.facades where f.ring.count >= 3 { out.append(f.ring) }
         return out
+    }
+
+    /// A footprints-only answer's plan hull: `(x, z)` pairs, already a hull.
+    static func pairs(_ flat: [Float]) -> [SIMD2<Double>] {
+        stride(from: 0, to: flat.count - 1, by: 2).map { SIMD2(Double(flat[$0]), Double(flat[$0 + 1])) }
     }
 
     /// The plan hull of authored `(x, y, z)` triples, as `(x, z)` points

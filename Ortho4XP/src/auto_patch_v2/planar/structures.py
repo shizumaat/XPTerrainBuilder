@@ -84,6 +84,7 @@ from shapely.strtree import STRtree
 
 from ..classify.roles import Cell, Classification, is_runway_shoulder
 from ..law import Law
+from ..law.reference_code import ref_status, status_by_ref
 from ..law.tables import role_family, role_side, zone2_half_width_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
@@ -311,6 +312,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
              if c.kind != "structure" and c.role not in RUNWAY_FAMILY]
     stop_tree = STRtree([p for p, _r in stops]) if stops else None
     strip: list[Polygon] = []
+    status_of = status_by_ref(getattr(airport, "runways", ()))    # #811
     for p, c in zip(polys, cells):
         # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
         # region.  It is runway pavement (so every surface reader above
@@ -321,7 +323,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # by 75 m).  The census of every RUNWAY_FAMILY reader is the
         # spec's §40 (4) MEASURED table.
         if c.role in RUNWAY_FAMILY and not is_runway_shoulder(c):
-            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter)
+            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
+                                    ref_status(status_of, c.ref))
             if hw:
                 strip.append(p.buffer(hw, **_MITRE))
     strip_u = unary_union(strip) if strip else None

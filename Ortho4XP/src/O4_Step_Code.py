@@ -195,7 +195,6 @@ _SHARED: tuple[str, ...] = (
     "O4_Version",
     "auto_patch",
     "auto_patch.agp_reader",
-    "auto_patch.apt_dat_reader",
     "auto_patch.build_support",
     "auto_patch.config",
     "auto_patch.driver",

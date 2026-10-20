@@ -126,12 +126,15 @@ class PatchEngine(QObject):
             work()
 
     def pack_objects(self, tile: str, icao: str, bbox: _t.Sequence[float],
-                     callback: Callback) -> None:
+                     callback: Callback, footprints_only: bool = False) -> None:
         """``pack_objects`` (async in the engine): ``callback(result,
         error)`` once its ``PackObjectsReady`` arrives.  A box already asked
         for is not asked again: the callback joins the request, or gets the
-        kept answer at once."""
-        key = (tile, icao, tuple(round(float(v), 9) for v in bbox))
+        kept answer at once.  ``footprints_only`` (#797) is the map's
+        small answer (plan outlines, no massing): the last box of EACH kind
+        is kept, so the map and the 3D window never supersede each other."""
+        only = bool(footprints_only)
+        key = (tile, icao, tuple(round(float(v), 9) for v in bbox), only)
         entry = self._pack.get(key)
         if entry is not None and entry["reply"] is not None:
             callback(*entry["reply"])
@@ -139,11 +142,13 @@ class PatchEngine(QObject):
         if entry is not None:
             entry["callbacks"].append(callback)
             return
-        self._pack = {key: {"callbacks": [callback], "reply": None}}
+        self._pack = {k: v for k, v in self._pack.items() if k[-1] != only}
+        self._pack[key] = {"callbacks": [callback], "reply": None}
         if self.process is not None:          # answered by the process: no event
             def read():                       # skipped if the box moved on meanwhile
                 return self.process.call("pack_objects", still_wanted=lambda: key in self._pack,
-                                         tile=tile, icao=icao, bbox=list(bbox))
+                                         tile=tile, icao=icao, bbox=list(bbox),
+                                         footprints_only=only)
             self.run(read, lambda r, e: self._answer(key, r, e))
             return
         token = f"qt-pack-{next(self._tokens)}"
@@ -154,7 +159,7 @@ class PatchEngine(QObject):
                 self._answer(key, None, error)
 
         self.call("pack_objects", started, tile=tile, icao=icao,
-                  bbox=list(bbox), request=token)
+                  bbox=list(bbox), request=token, footprints_only=only)
 
     def _answer(self, key: tuple, result, error) -> None:
         entry = self._pack.get(key)

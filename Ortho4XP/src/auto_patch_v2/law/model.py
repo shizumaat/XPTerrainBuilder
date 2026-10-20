@@ -157,6 +157,10 @@ class EndSkirtLaw:
     #: the RESA on an INSTRUMENT runway (owner RULINGS 2026-10-15k (1);
     #: Annex 14 §3.5.2-3.5.4); ``None`` = it reads ``corridor_length_m``
     corridor_length_instrument_m: CodeTable | None = None
+    #: the RSA length on a PRECISION runway (#811, audit row 7; AC
+    #: 150/5300-13B App. G Tables G-2 / G-4 "Lower than 3/4 mile"); ``None``
+    #: = it reads ``rsa_length_m``
+    rsa_length_precision_m: CodeTable | None = None
     #: THE APPROACH SURFACES beyond an end by the end's approach class
     #: (owner RULINGS 2026-10-15m (1); AC 150/5300-13B Tables 3-2 to 3-4);
     #: ``None`` = the authority reads the climb surface alone (ICAO)
@@ -235,6 +239,12 @@ class ZoneClass:
     band_min_down: float
     band_max_down: CodeTable
     half_width_faa_m: CodeTable | None = None
+    #: the half-width BY INSTRUMENT STATUS (#811, audit rows 7 / 12;
+    #: ``tables.zone2_half_width_m``): ICAO on an instrument runway (Annex 14
+    #: §3.4.8), FAA on a precision runway (App. G "Lower than 3/4 mile");
+    #: ``None`` = the status reads the table above
+    half_width_instrument_m: CodeTable | None = None
+    half_width_faa_precision_m: CodeTable | None = None
     #: the zone-2 band's maximum fall under the FAA ruleset, by the AAC's
     #: runway-width letter proxy (RULINGS 2026-10-15l (2), AC 150/5300-13B
     #: Table 3-6 S-3); ``None`` = the ``band_max_down`` table everywhere

@@ -14,6 +14,11 @@
       "date": "2026-10-19",
       "platform": "lin",
       "reason": "initial fixture (#856)"
+    },
+    {
+      "date": "2026-10-20",
+      "platform": "mac",
+      "reason": "mac arm64 Triangle4XP pin"
     }
   ],
   "issue": "#856 (B3-24), code-quality-beta3-spec.md section 6",
@@ -27,6 +32,14 @@
       "outputs": {
         "Data+45+007.1.ele": "cf2622e7489ce99a8f8e83f86a529e3696163ae85a94e17412720b317ee25fce",
         "Data+45+007.1.node": "c18c9c65669ef5cdedba16fe09b203eb0ea1b577ddf7c48a3d1ba63d6b9ad661"
+      }
+    },
+    "mac": {
+      "binary": "Utils/mac/Triangle4XP",
+      "binary_sha256": "5e60db3326ee345e0a06a1d460b6827cc4a9f29b34060a5cbeaf068b52b79343",
+      "outputs": {
+        "Data+45+007.1.ele": "cf2622e7489ce99a8f8e83f86a529e3696163ae85a94e17412720b317ee25fce",
+        "Data+45+007.1.node": "ba80160fd20a813ba17feb251764b12ea8a8420c3f3ed02e10d03512d3c46801"
       }
     }
   }

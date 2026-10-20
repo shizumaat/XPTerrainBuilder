@@ -265,6 +265,25 @@ def test_feet_on_pavement_take_no_row(monkeypatch):
     assert 11 not in off
 
 
+def test_the_jetway_ground_stays_pavement_senior(monkeypatch):
+    """#802 (OTHH B6): the stand apron a terminal pad took in over its
+    jetways (16b (1); ``PlanarMap.jetway_ground``) keeps the pavement's
+    seniority — a foot on it founds no target and a pad vertex on it
+    takes none, though no pavement FACE is left there."""
+    law = _law()
+    ap = _Airport(G.derive(_partition([_columns(n=3, pitch=20.0, rise=2.0)])))
+    verts = {10: (0.0, 0.0), 11: (40.0, 0.0), 12: (31.0, 0.0)}
+    pad = Polygon([(-20, -20), (80, -20), (80, 20), (-20, 20)])
+    before = _offsets(monkeypatch, law, ap, verts, pad, [])
+    assert before[11] == pytest.approx(2.0) and before[12] == pytest.approx(2.0)
+    ground = ((35.0, -30.0), (80.0, -30.0), (80.0, 30.0), (35.0, 30.0))
+    monkeypatch.setattr(_FakePlanar, "jetway_ground", (ground,), raising=False)
+    off = _offsets(monkeypatch, law, ap, verts, pad, [])
+    assert 11 not in off                         # on the jetway ground
+    # the foot at x = 40 founds nothing: x = 31 reads the x = 20 foot
+    assert off[12] == pytest.approx(1.0, abs=1e-6)
+
+
 # ── 4. THE LONG SPAN RELEASES ONLY WHEN INFEASIBLE (§11 (4)) ────────────
 
 def _building():

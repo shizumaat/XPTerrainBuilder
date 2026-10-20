@@ -41,6 +41,17 @@ population ``no_step.pad_contacts`` calls a pad's contacts.  A GROUNDSIDE
 face's shared vertex is NOT senior here: 09-01g leaves it the lot's, and
 §28 is where a groundside frontage is stated.
 
+**AND THE JETWAY GROUND STAYS PAVEMENT** (issue #802).  A terminal pad
+that grows over its jetways (owner RULINGS 2026-10-16b (1)) takes the
+stand apron under them into the pad, so the faces above stop being
+pavement — but the ground is the apron's: the seniority above holds on
+it (``PlanarMap.jetway_ground``, derived once where the pad grows).
+MEASURED OTHH B6 (app 1.0.399): a ``Terminal_Base`` foot authored
+5.58 m under its group's zero, beside the tunnel ramps under the
+jetways, stood on apron in 1.0.398 and founded no target; under the
+grown pad it founded a -5.579 m relief target that the census read as
+a 5.58 m ``plane_gradient``.
+
 **NEAREST FOOT, NEVER INTERPOLATED.**  A pad vertex takes the target of
 the nearest foot within ``[placement] relief_radius_m`` and otherwise
 keeps the level.  Two feet 40 m apart say nothing about the ground
@@ -70,6 +81,17 @@ def relief_radius_m(law: Law) -> float:
     return float(law.tables.structures.placement.relief_radius_m)
 
 
+def _jetway_ground(planar: PlanarMap) -> list:
+    """``PlanarMap.jetway_ground`` as polygons (empty on a map without it)."""
+    from shapely.geometry import Polygon
+    out = []
+    for ring in getattr(planar, "jetway_ground", ()) or ():
+        if len(ring) >= 3:
+            g = Polygon(ring)
+            out.append(g if g.is_valid else g.buffer(0.0))
+    return out
+
+
 def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
                        ) -> dict[int, float]:
     """``vertex -> the metres the terrain there stands above the pad's
@@ -93,12 +115,18 @@ def pad_relief_offsets(planar: PlanarMap, law: Law, airport: Airport
     # AND (12u, §30 (2)) a pad vertex the AIRSIDE pavement shares takes
     # none either — one read of the one derivation, `_pavement_geoms`.
     geoms = _pavement_geoms(planar, law)
-    pav = [poly for _role, _vs, poly in geoms]
+    jetway = _jetway_ground(planar)
+    pav = [poly for _role, _vs, poly in geoms] + jetway
     pav_tree = STRtree(pav) if pav else None
     senior: set[int] = set()
     for role, vs, _poly in geoms:
         if role_side(law, role) == "airside":
             senior |= vs
+    if jetway:
+        jt = STRtree(jetway)
+        senior |= {v for _f, _r, group, _p in pads for v in group
+                   if any(jetway[int(j)].covers(Point(planar.vertices[v].xy))
+                          for j in jt.query(Point(planar.vertices[v].xy)))}
 
     #: every group's feet in the frame, with the metres above its own zero
     feet: list[tuple[float, float, float]] = []

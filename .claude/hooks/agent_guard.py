@@ -9,6 +9,12 @@ owner approved that launch
 in chat; the prompt then carries `OWNER-APPROVED-FABLE: <date> "<words>"`
 and this guard refuses a Fable launch without it.  Precedent: nine Fable
 implementation lanes used half the weekly Fable allowance in a day.
+
+Owner 2026-10-20 (RULINGS 2026-10-20b), the TWO-ROUND CAP: after two Opus
+rounds fail to deliver, a Fable 5.1 SCOUT (read-only) reviews those two rounds
+and writes a new spec; it never implements.  Its prompt carries
+`TWO-ROUND-CAP-REVIEW: <issue> <the two failed rounds>` instead of a per-launch
+approval; the marker is refused on any other model or on a `lane`.
 """
 import json
 import sys
@@ -45,7 +51,20 @@ if model not in ("fable", "opus"):
     )
     sys.exit(2)
 
-if model == "fable" and "OWNER-APPROVED-FABLE:" not in (tool_input.get("prompt") or ""):
+prompt = tool_input.get("prompt") or ""
+review = "TWO-ROUND-CAP-REVIEW:" in prompt
+if review and (model != "fable" or tool_input.get("subagent_type") != "scout"):
+    # Owner 2026-10-20 (RULINGS 2026-10-20b): the two-round-cap reviewer is a
+    # READ-ONLY Fable scout that reviews and specs; it never implements.
+    print(
+        "BLOCKED (owner ruling 2026-10-20b): a TWO-ROUND-CAP-REVIEW launch is "
+        "a Fable 5.1 review on `subagent_type: \"scout\"` (read-only) that "
+        "writes a new spec and never implements; the third round that "
+        "implements it is a fresh Opus lane.",
+        file=sys.stderr,
+    )
+    sys.exit(2)
+if model == "fable" and not review and "OWNER-APPROVED-FABLE:" not in prompt:
     print(
         "BLOCKED (owner standing rule 2026-10-13, RULINGS 13c): a Fable launch "
         "needs the owner's approval of THIS launch in chat. Launch it on "

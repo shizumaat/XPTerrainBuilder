@@ -122,3 +122,126 @@ def test_a_seat_equal_to_the_drape_is_left_to_the_drape(tmp_path):
     conv, msl, _r, n = _rows(dump, tmp_path)
     assert [c.index for c in conv] == [0] and not msl
     assert n["msl_feet_left_to_the_drape"] == 1
+
+
+def _boxes(tmp_path, name, boxes):
+    """An OBJ8 of closed boxes ``(x0, y0, x1, y1)`` (2 m deep in z), one
+    genuine component each."""
+    vt, idx = [], []
+    faces = ((0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
+             (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7))
+    for x0, y0, x1, y1 in boxes:
+        k = len(vt)
+        vt += [(x0, y0, 0), (x1, y0, 0), (x1, y0, 2), (x0, y0, 2),
+               (x0, y1, 0), (x1, y1, 0), (x1, y1, 2), (x0, y1, 2)]
+        idx += [k + i for f in faces for i in f]
+    body = ["I", "800", "OBJ", f"POINT_COUNTS {len(vt)} 0 0 {len(idx)}"]
+    body += [f"VT {x} {y} {z} 0 1 0 0 0" for x, y, z in vt]
+    body += [f"IDX {i}" for i in idx]
+    body.append(f"TRIS 0 {len(idx)}")
+    (tmp_path / "objects").mkdir(exist_ok=True)
+    (tmp_path / "objects" / name).write_text("\n".join(body) + "\n", encoding="utf-8",
+                                             newline="\n")
+    return "objects/" + name
+
+
+def _read(tmp_path, rows, dem=lambda x, y: Z):
+    """``obj8.read_placed_objects`` over synthetic rows ``(id, path, xy,
+    kind)`` — the one site ``zero_y`` / ``origin_built`` are set."""
+    from auto_patch_v2.airport import obj8 as O8
+    cache = O8.ResourceCache(0.05)
+    objs, _rep = O8.read_placed_objects(
+        [(i, p, xy, 0.0, 40.0 if k == "OBJECT_MSL" else None, k) for i, p, xy, k in rows],
+        str(tmp_path), None, dem, 0.5, 0.05, 0.3, cache,
+        floor_plate_normal_y_min=0.9, msl_tol_m=0.3)
+    return objs, cache
+
+
+def _partition(objs, cache, elevated_base_m=0.5):
+    from auto_patch_v2.airport import contact as C
+    members = [(o, cache.geometry(o.resolved), list(enumerate(cache.components(o.resolved))))
+               for o in objs]
+    return C.partition(members, 0.01, 1.0, 10**9, 0.5, 50_000,
+                       elevated_base_m=elevated_base_m)
+
+
+def test_two_bodies_of_one_lifted_msl_row_each_stand_on_their_own_feet(tmp_path):
+    """#1102 (owner Q54): two boxes authored 6 m up under ONE ``OBJECT_MSL``
+    row, over ground 3 m apart.  The zero moves in the AUTHORED frame, so
+    both are ground parts with feet at authored y 0 (pre-fix: both
+    "elevated", footless, at y_zero 0.0), and the unit stays keyed at
+    ``agl_m`` 0."""
+    path = _boxes(tmp_path, "pair.obj", [(0.0, 6.0, 4.0, 10.0), (30.0, 6.0, 34.0, 9.0)])
+    objs, cache = _read(tmp_path, [("dsf:obj0", path, (0.0, 0.0), "OBJECT_MSL")],
+                        dem=lambda x, y: Z if x < 15.0 else Z + 3.0)
+    (o,) = objs
+    assert o.zero_y == 6.0 and not o.origin_built and o.agl_m == 0.0
+    part = _partition(objs, cache)
+    assert part.structures == 2 and len(part.parts) == 2
+    for p in part.parts:
+        assert p.base_y == 0.0 and p.feet.shape[0] > 0
+        assert abs(float(p.feet[:, 2].max())) < 1e-9          # authored y of the feet
+        assert abs(float(p.pts[:, 1].min()) - Z) < 1e-9        # rendered on the origin's zero
+    xs = sorted(float(p.feet[:, 0].mean()) for p in part.parts)
+    assert xs[0] < 15.0 < xs[1]                                  # over each its own ground
+
+
+def test_the_elevated_screen_is_relative_to_the_zero(tmp_path):
+    """``[rebake] elevated_base_m`` 0.5 reads ``base_y − zero_y``: a part
+    at 6.4 over a zero of 6.0 is ground, one at 7.0 is elevated."""
+    path = _boxes(tmp_path, "three.obj", [(0.0, 6.0, 4.0, 9.0), (20.0, 6.4, 24.0, 9.0),
+                                          (40.0, 7.0, 44.0, 9.0)])
+    objs, cache = _read(tmp_path, [("dsf:obj0", path, (0.0, 0.0), "OBJECT_MSL")])
+    part = _partition(objs, cache)
+    by_x = sorted(part.parts, key=lambda p: float(p.pts[:, 0].min()))
+    assert [round(p.base_y, 3) for p in by_x] == [0.0, 0.4, 1.0]
+    assert [p.feet.shape[0] > 0 for p in by_x] == [True, True, False]
+
+
+def test_a_one_body_member_read_against_its_zero_is_written_never_kept(tmp_path):
+    """The writer restores the pristine frame (``BodyCut`` offset ``oy +
+    zero_y``): the one body is WRITTEN (its authored row would float it
+    6 m) and its vertices' y_min is 0.000."""
+    from auto_patch_v2.airport import placement_file as PF
+    from auto_patch_v2.airport.placement_record import Split
+    path = str(tmp_path / _boxes(tmp_path, "tower.obj", [(0.0, 6.0, 4.0, 30.0)]))
+    body = types.SimpleNamespace(body_id=0, cut_components=(0,), tris=(), seat=None,
+                                 anchor=types.SimpleNamespace(offset=(2.0, 0.0, 1.0)),
+                                 new_resource="objects/tower__b0.obj", merged_into="")
+    rec = Split(1, "dsf:obj1", "objects/tower.obj", "", 40.0, -3.0, 0.0, (body,))
+
+    def run(zero_y, landed):
+        m = types.SimpleNamespace(id="dsf:obj1", resource="objects/tower.obj", tilted=(),
+                                  live_path=path, authored_path=path, zero_y=zero_y)
+        counts = {"kept": 0, "one_body": 0, "split": 0, "files": 0, "write_error": 0}
+        splits, kept, whole = [], [], []
+        PF._cut_and_file(rec, m, True, counts, splits, kept, whole,
+                         always_write=False, tilted_whole=[], landed=landed)
+        return splits, kept
+    for landed in (False, True):
+        splits, kept = run(0.0, landed)                       # the control: kept whole
+        assert not splits and kept
+        splits, kept = run(6.0, landed)
+        assert len(splits) == 1 and not kept
+    (f,) = splits[0].files
+    ys = [float(ln.split()[2]) for ln in f.text.splitlines() if ln.split()[:1] == ["VT"]]
+    assert min(ys) == 0.0 and max(ys) == 24.0
+
+
+def test_the_partition_guard_keeps_a_set_built_around_its_origin(tmp_path):
+    """Owner Q54: MSL rows are split like any on-ground row, except an
+    origin set with a member reaching below its origin (a hillside wing,
+    an approach-light pole) — the whole set — or one that cannot be read.
+    The verdict is ``PlacedObject.origin_built``, set where the row is
+    read; a lifted member's ``zero_y`` is its lowest static y."""
+    deep = _boxes(tmp_path, "wing_low.obj", [(0.0, -11.5, 4.0, 4.0)])
+    high = _boxes(tmp_path, "wing_high.obj", [(0.0, 2.5, 4.0, 9.0)])
+    car = _boxes(tmp_path, "car.obj", [(0.0, 6.0, 4.0, 7.5)])
+    objs, _c = _read(tmp_path, [("a", deep, (0.0, 0.0), "OBJECT_MSL"),
+                                ("b", high, (0.0, 0.0), "OBJECT_MSL"),
+                                ("c", car, (50.0, 0.0), "OBJECT_MSL"),
+                                ("d", deep, (90.0, 0.0), "OBJECT"),
+                                ("e", "objects/missing.obj", (120.0, 0.0), "OBJECT_MSL")])
+    got = {o.id: (o.origin_built, o.zero_y) for o in objs}
+    assert got == {"a": (True, 0.0), "b": (True, 0.0), "c": (False, 6.0),
+                   "d": (False, 0.0), "e": (True, 0.0)}

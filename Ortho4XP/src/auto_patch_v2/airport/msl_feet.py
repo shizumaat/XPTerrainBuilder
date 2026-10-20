@@ -49,7 +49,8 @@ import numpy as np
 
 from ..model.placement import KIND_MSL
 
-__all__ = ["lowest_feet", "feet_seats"]
+__all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "origin_key",
+           "feet_seats"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
@@ -57,23 +58,59 @@ Surface = _t.Callable[[float, float], "float | None"]
 _ORIGIN_DP = 8
 
 
-def lowest_feet(path: str, band_m: float) -> "np.ndarray | None":
-    """``(n, 3)`` authored ``(x, y, z)`` of the STATIC solid vertices of the
-    OBJ8 at ``path`` within ``band_m`` of its lowest one (an animated part
-    never witnesses — issue #612); ``None`` when the file has no static
-    solid or cannot be read."""
-    from . import obj8 as _obj8
-    try:
-        g = _obj8.parse_obj8(path)
-    except (OSError, ValueError):
-        return None
+def static_vertices(g: _t.Any) -> "np.ndarray | None":
+    """The vertices of an ``obj8.ObjGeometry``'s STATIC solid triangles
+    (an animated part never witnesses — issue #612); ``None`` when it has
+    none."""
     tris = g.solid
     if g.animated.shape[0]:
         tris = tris[~g.animated]
     if not tris.shape[0]:
         return None
-    v = g.vertices[np.unique(tris.reshape(-1))]
+    return g.vertices[np.unique(tris.reshape(-1))]
+
+
+def lowest_feet(path: str, band_m: float) -> "np.ndarray | None":
+    """``(n, 3)`` authored ``(x, y, z)`` of the static solid vertices of the
+    OBJ8 at ``path`` within ``band_m`` of its lowest one; ``None`` when the
+    file has no static solid or cannot be read."""
+    from . import obj8 as _obj8
+    try:
+        v = static_vertices(_obj8.parse_obj8(path))
+    except (OSError, ValueError):
+        return None
+    if v is None:
+        return None
     return v[v[:, 1] <= float(v[:, 1].min()) + band_m]
+
+
+def origin_set_lifts(items: _t.Iterable[tuple[str, tuple, _t.Any]],
+                     tol_m: float) -> dict[str, "float | None"]:
+    """THE GUARD AND THE READ (owner Q54, 2026-10-20: "yes with the
+    guard"), per ``OBJECT_MSL`` placement: ``items`` are ``(id, origin
+    key, parsed geometry or None)``.  The rows of one origin are one set;
+    a set holding a member whose static geometry reaches more than
+    ``tol_m`` below its origin — or one that cannot be read — is GUARDED
+    (``None`` for every member): the author built it around its origin,
+    it keeps the on-ground conversion and is never split.  Every other
+    member reads at the lift ``−y_min`` that stands its own lowest static
+    feet on the ground at its origin, so the partition finds its feet and
+    the split anchors each body on them."""
+    sets: dict[tuple, list] = {}
+    for oid, key, g in items:
+        v = static_vertices(g) if g is not None else None
+        sets.setdefault(key, []).append((oid, None if v is None else float(v[:, 1].min())))
+    out: dict[str, "float | None"] = {}
+    for members in sets.values():
+        guarded = any(y is None or y < -tol_m for _i, y in members)
+        for oid, y in members:
+            out[oid] = None if guarded else -_t.cast(float, y)
+    return out
+
+
+def origin_key(xy: _t.Sequence[float], heading_deg: float) -> tuple:
+    """One origin in the airport frame (mm) and heading (1e-3°)."""
+    return (round(float(xy[0]), 3), round(float(xy[1]), 3), round(float(heading_deg), 3))
 
 
 def _origin(p: _t.Any) -> tuple:

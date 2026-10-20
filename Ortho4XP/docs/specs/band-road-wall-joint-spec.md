@@ -242,3 +242,35 @@ Next round (not done): declare the midline extended through the riser's
 end edges and the step as the largest pair within a few metres; pair road
 pages by nearest edge point; attribute the KLAX road-road rows (the road's
 own profile target inside a band).
+
+### 7.2 Measured — round 3 (STOPPED at the cap; bar NOT met)
+
+Round 3 items: (1) the KLAX road-road rows were attributed to riser lines
+noded through a tunnel trench at 33.9403, −118.3962 (main emits only the
+`tunnel_ramp` face and `tunnel_wall` there); iteration 1 (medians between
+two mapped roads stay road ground) made it worse, iteration 2 keeps the
+riser off every other cell (`riser_geometry(keep_out=...)`). (2) road pages
+pair by the nearest point on their edge. (3) the declared riser line runs
+through the riser's end edges; the step is the largest pair within 4 weld
+spacings.
+
+| | KBUR main → r3 | KLAX main → r3 |
+|---|---|---|
+| `adjacent_ground_step` | 3 → 3 | 5 → 1 |
+| `strip_seam_tear` | 0 → 0 | 4 → 12 (3.93 m, 33.941 / 33.934, −118.396) |
+| `pavement_over_road_cap` | 0 → 1 (0.21 m) | 0 → 7 (2.86 m, 33.940, −118.396) |
+| `terrace_actual_step` | 0 → 5 (0.27 m, 34.214, −118.362) | 0 → 6 (3.02 m, 33.934, −118.396) |
+| `road_cross_section` | 30 → 76 (worst 0.43 → 0.33) | 24 → 11 |
+| hairline in scope | 0 → 0 | 0 → 0 |
+| 30aa added/removed | 0/0 | 6/0 (= main) |
+
+- KLAX 33.945963, −118.436316: **clean** — no step row left at the site
+  (only the runway-end skirt rows main carries, 0.81 / 0.76 m); declared
+  risers 3.24 / 3.94 m.
+- #951 road: 26.83–28.04 m, on its ground.
+- KBUR building9 corner: **still not declared.** The band's ring vertices
+  there are 2.1–2.9 m from the nearest `dsf:pol122` edge (horizon 1.95 m);
+  the census's 1.12 m is from the ROAD's vertex to the band — the pairing
+  must also run road vertex → nearest band edge point.
+- KLAX taxiway-F end areas (33.934–33.941, −118.396): the tunnel-trench rows
+  remain after the keep-out; not attributed further.

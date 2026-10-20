@@ -146,6 +146,21 @@ def _pad():
                                      (la1, lo0)), (PAD_Z,) * 4)
 
 
+def _terrain(z_out: float = GROUND_Z):
+    """The design surface the object stage reads: the pad's plane under
+    the terminal's own footprint (the graded pad, the surface every pad
+    body stands on — MEASURED, HECA: the T3 terminal's bodies read their
+    own ground +0.00 m off their pad), ``z_out`` beyond it, where the
+    jetway hangs.  Owner RULINGS 2026-10-19aq (#721): a body whose own
+    ground lies far below its unit's datum LEAVES the unit, so a terminal
+    standing 10 m over its own ground is no longer this twin's terminal."""
+    def z(la: float, lo: float) -> float:
+        dn, de = (la - LAT0) * _ML, (lo - LON0) * _MO
+        on = -0.1 <= dn <= TERMINAL_SIDE_M + 0.1 and -0.1 <= de <= 36.1
+        return PAD_Z if on else z_out
+    return z
+
+
 def _jetway_body(ss):
     """The one body of the jetway placement."""
     out = [b for s in ss.all if "jetway" in s.resource for b in s.bodies]
@@ -162,7 +177,7 @@ def test_a_footless_jetway_inside_its_terminal_unit_rides_the_units_datum(
     record names the carrier.  Before this rule it took the ground under
     its own footprint (``footless_own_ground``) and stood 10 m under the
     floor it is authored against."""
-    ss = PP.build_splits(_plan(tmp_path), _flat(GROUND_Z), (_pad(),),
+    ss = PP.build_splits(_plan(tmp_path), _terrain(), (_pad(),),
                          write=False, **_args())
     assert ss.counts["footless"] == 1
     assert ss.counts["footless_carried"] == 1
@@ -192,7 +207,7 @@ def test_an_animated_jetway_kept_whole_rides_the_unit_too(tmp_path):
     part cut cannot divide (§4.4) — and still footless, so it is carried
     by its unit on exactly the same reading.  The animation is why the
     class exists: no cut can give such a body feet."""
-    ss = PP.build_splits(_plan(tmp_path, animated=True), _flat(GROUND_Z),
+    ss = PP.build_splits(_plan(tmp_path, animated=True), _terrain(),
                          (_pad(),), write=False, **_args())
     assert ss.counts["footless"] == 1
     assert ss.counts["footless_carried"] == 1
@@ -208,7 +223,7 @@ def test_a_footless_object_far_from_every_unit_keeps_its_own_ground(tmp_path):
     frontage has no admissible carrier, and is written at the ground
     under its own footprint with its authored y kept."""
     ss = PP.build_splits(_plan(tmp_path, jetway_dlat_m=FAR_M),
-                         _flat(GROUND_Z), (_pad(),), write=False, **_args())
+                         _terrain(), (_pad(),), write=False, **_args())
     assert ss.counts["footless"] == 1
     assert ss.counts["footless_carried"] == 0
     assert ss.counts["footless_no_carrier"] == 1
@@ -237,7 +252,7 @@ def test_a_long_connector_span_is_not_bound_to_the_units_datum(tmp_path):
     plan = _dc.replace(plan, units=(_dc.replace(
         plan.units[0],
         members=(plan.units[0].members[0], _dc.replace(j, parts=(wide,)))),))
-    ss = PP.build_splits(plan, _flat(GROUND_Z), (_pad(),), write=False,
+    ss = PP.build_splits(plan, _terrain(), (_pad(),), write=False,
                          **_args(connector_span_m=CONNECTOR_SPAN_M))
     assert ss.counts[FU.UNIT_CARRY] == 0
     assert ss.counts["footless_unit_carry_refused_connector"] == 1
@@ -266,9 +281,9 @@ def test_the_split_report_counts_move_from_no_footed_body_to_carried(tmp_path):
         return buf.getvalue()
 
     far = _printed(PP.build_splits(_plan(tmp_path, jetway_dlat_m=FAR_M),
-                                   _flat(GROUND_Z), (_pad(),), write=False,
+                                   _terrain(), (_pad(),), write=False,
                                    **_args()))
-    near = _printed(PP.build_splits(_plan(tmp_path), _flat(GROUND_Z),
+    near = _printed(PP.build_splits(_plan(tmp_path), _terrain(),
                                     (_pad(),), write=False, **_args()))
     assert "1 with no footed body in the unit at all" in far
     assert "carried by their UNIT's datum (issue #31): 0" in far

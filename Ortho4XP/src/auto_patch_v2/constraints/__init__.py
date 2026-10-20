@@ -87,6 +87,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("no_step_pairs", no_step.no_step_pairs),
     ("no_step_rate", no_step.no_step_rate),
     ("cross_shape_pairs", proximity.cross_shape_pairs),
+    # owner RULINGS 2026-10-19an (#328): two airside pavements within the
+    # weld spacing across a non-pavement gap are one surface
+    ("airside_sliver_pairs", proximity.airside_sliver_pairs),
     ("reach_bands", no_step.reach_bands),
     ("zone_bands", zones.zone_bands),
     ("strip_transverse", zones.strip_transverse),

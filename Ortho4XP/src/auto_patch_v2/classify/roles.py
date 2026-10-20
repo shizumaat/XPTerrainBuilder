@@ -198,6 +198,9 @@ class Classification:
     #: ``cells``' pads (``pipeline/stage_one_map.base_pad_map``).  ``None``
     #: where the witness changed no pad.
     base_pads: tuple[Cell, ...] | None = None
+    #: THE JETWAY GROUND (#802, ``Evidence.jetway_ground``): exterior rings
+    #: of the pavement a terminal pad took in over its jetways.
+    jetway_ground: tuple[tuple[XY, ...], ...] = ()
 
 
 def classify(airport: Airport, law: Law, rules: Rules | None = None,
@@ -752,7 +755,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                           None, None, role_side(law, "building"), "building", {})
                      for k, (ref, g) in enumerate(ev.base_pads))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
-                          sources=tuple(sources), base_pads=base)
+                          sources=tuple(sources), base_pads=base,
+                          jetway_ground=tuple(tuple(g.exterior.coords)[:-1]
+                                              for g in ev.jetway_ground))
 
 
 def is_osm_ribbon(cell_or_region) -> bool:

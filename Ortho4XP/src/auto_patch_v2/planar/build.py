@@ -26,6 +26,7 @@ from shapely.strtree import STRtree
 
 from ..classify.roles import Classification
 from ..law import Law
+from ..law.reference_code import status_by_ref
 from ..model.airport import Airport
 from ..model.frame import XY, Key
 from ..model import pulse as _pulse
@@ -377,6 +378,7 @@ def build(airport: Airport, classification: Classification, law: Law,
                                      if r.edge_kind != "none"},
                    zone_runway_of_ref={r.ref: r.runway_ref for r in arr.regions
                                        if getattr(r, "runway_ref", None)},
+                   runway_status_of_ref=status_by_ref(getattr(airport, "runways", ())),
                    quay_refs=frozenset(r.ref for r in arr.regions
                                        if getattr(r, "quay", False)),
                    natural_shore_refs=frozenset(

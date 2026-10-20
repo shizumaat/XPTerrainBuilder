@@ -84,6 +84,15 @@ def runway_code_number(length_m: float) -> int:
 _ZONE_LAWS: dict = {}
 
 
+def _zone_law(rs):
+    """The v2 law of ``rs``'s ruleset key, loaded once (:data:`_ZONE_LAWS`)."""
+    from auto_patch_v2.law import Law
+    key = str(getattr(rs, "key", "icao")).lower()
+    if key not in _ZONE_LAWS:
+        _ZONE_LAWS[key] = Law.load(ruleset=key)
+    return _ZONE_LAWS[key]
+
+
 def taxiway_strip_edge_offset_m(code_letter, rs) -> float:
     """THE TAXIWAY STRIP'S REACH FROM THE PAVEMENT EDGE under ``rs``'s own
     authority — v2's ``tables.zone_edge_offset_m``, the ONE accessor the
@@ -92,12 +101,8 @@ def taxiway_strip_edge_offset_m(code_letter, rs) -> float:
     §3.11.4) or the FAA TSA (AC 150/5300-13B §4.5.3) is a CENTRELINE
     half-width, reached past the letter's pavement half-width.  Before this
     the census read the ICAO table, from the edge, under both rulesets."""
-    from auto_patch_v2.law import Law
-    key = str(getattr(rs, "key", "icao")).lower()
-    if key not in _ZONE_LAWS:
-        _ZONE_LAWS[key] = Law.load(ruleset=key)
     letter = str(code_letter).upper() if code_letter else None
-    return float(_v2_tables.zone_edge_offset_m(_ZONE_LAWS[key], "junction",
+    return float(_v2_tables.zone_edge_offset_m(_zone_law(rs), "junction",
                                                None, letter))
 
 
@@ -194,7 +199,7 @@ RUNWAY_END_SKIRT_MAX_DOWN_GRADE = FAA_RULESET.end_skirt_max_down_grade
 def runway_end_corridor_half_width_m(runway_width_m: float,
                                      runway_length_m: float,
                                      code_letter=None,
-                                     ruleset=None) -> float:
+                                     ruleset=None, status: int = 0) -> float:
     """Half-width (m) each side of the extended centreline of the governed
     runway-END corridor — the lateral extent of both the skirt fill and the
     RESA cut.
@@ -216,7 +221,22 @@ def runway_end_corridor_half_width_m(runway_width_m: float,
     """
     code = runway_code_number(runway_length_m)
     return max(float(runway_width_m),
-               float(ruleset_strip_half_width_m(code, code_letter, ruleset)))
+               runway_strip_half_width_m(code, code_letter, ruleset, status))
+
+
+def runway_strip_half_width_m(code, code_letter, ruleset, status: int = 0) -> float:
+    """THE RUNWAY STRIP'S HALF-WIDTH from the centreline under ``ruleset``
+    for a runway of instrument ``status`` (#811; ``auto_patch_v2.law.
+    reference_code.runway_status``, as the sidecar publishes it): the
+    reg-set table for a non-instrument runway (its parity with v2's
+    ``zones.toml`` is ``test_law_tables``'), v2's own
+    ``tables.zone2_half_width_m`` by status otherwise — ICAO Annex 14
+    §3.4.8 instrument, FAA App. G "lower than 3/4 mile" precision."""
+    if not status:
+        return float(ruleset_strip_half_width_m(code, code_letter, ruleset))
+    letter = str(code_letter).upper() if code_letter else None
+    return float(_v2_tables.zone2_half_width_m(_zone_law(get_ruleset(ruleset)), "runway",
+                                               code, letter, int(status)))
 
 
 def _convex_hull_xy(points) -> list:
@@ -359,7 +379,8 @@ def runway_axis_and_width(points) -> "Optional[tuple]":
 def runway_strip_wall_keepout_rings(
         axis_a: tuple[float, float], axis_b: tuple[float, float],
         runway_width_m: float, code_letter=None,
-        ruleset=None, end_len_m=None) -> list[list[tuple[float, float]]]:
+        ruleset=None, end_len_m=None,
+        status: int = 0) -> list[list[tuple[float, float]]]:
     """THE runway-STRIP footprint inside which a ``retaining_wall`` face is
     INADMISSIBLE (owner ruling 2026-08-01, runway-edge terrain law: "retaining
     walls are NEVER lawful at a runway edge — runway surroundings must grade
@@ -396,9 +417,10 @@ def runway_strip_wall_keepout_rings(
     ux, uy = dx / length, dy / length
     px, py = -uy, ux                      # unit normal
     code = runway_code_number(length)
-    strip_half = float(ruleset_strip_half_width_m(code, code_letter, ruleset))
+    # ``status``: the runway's published instrument status (#811)
+    strip_half = runway_strip_half_width_m(code, code_letter, ruleset, status)
     end_half = runway_end_corridor_half_width_m(
-        runway_width_m, length, code_letter, ruleset)
+        runway_width_m, length, code_letter, ruleset, status)
     end_len = float(RUNWAY_END_CLEARANCE_LENGTH_BY_CODE[code])
     # ``end_len_m`` = ``(beyond axis_a, beyond axis_b)``: the v2 RSA length
     # (owner RULINGS 2026-10-15c (2)) the caller read from the generator's

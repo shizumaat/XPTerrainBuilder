@@ -179,6 +179,9 @@ def _ruleset_checks(c: Checks, key: str, rs, v1rs, zones) -> None:
     if v1rs.strip_half_width_m.by_code is not None:
         c.table(f"{key}.zones.runway.half_width_m", v1rs.strip_half_width_m,
                 ag.runway.half_width_m, CODES)
+        # #811: the instrument table (Annex 14 §3.4.8, v1 W1 F-1)
+        c.table(f"{key}.zones.runway.half_width_instrument_m",
+                v1rs.strip_half_width_m_instrument, ag.runway.half_width_instrument_m, CODES)
     else:
         c.table(f"{key}.zones.runway.half_width_faa_m",
                 v1rs.strip_half_width_m, ag.runway.half_width_faa_m, LETTERS)

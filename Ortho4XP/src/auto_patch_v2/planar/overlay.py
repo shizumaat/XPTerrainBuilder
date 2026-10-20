@@ -32,6 +32,7 @@ from ..classify.roles import Classification, is_late_cell
 from ..geom.containment import sets_inside_one_ring
 from ..geom.proportions import inscribed_width_m
 from ..law import Law
+from ..law.reference_code import runway_status
 from ..law.tables import authority_rank, chord_cap_m, is_rigid_role, role_side
 from ..model.airport import Airport
 from ..model.registries import Registries
@@ -980,11 +981,12 @@ def _runway_records(airport, law) -> tuple:
     """``(ref, end_a, end_b, width_m, end_len_a, end_len_b, instrument)``
     per runway — the zone band's own reading (``planar/zones._runway_band``):
     the end areas' lengths from the DEM (``model/end_area``, RULINGS 15g
-    (C)) and the runway's instrument status (15k)."""
+    (C)) and the runway's instrument status (15k; ``reference_code.
+    runway_status`` 0 / 1 / 2, #811)."""
     runways = tuple(getattr(airport, "runways", ()) or ())
     if not runways:
         return ()
     lens = end_area_lengths(airport, law)
     return tuple((r.id, r.ends[0].xy, r.ends[1].xy, r.width_m) + tuple(lens.get(r.id, (None, None)))
-                 + (bool(getattr(r, "instrument", False)),)
+                 + (runway_status(r),)
                  for r in runways)

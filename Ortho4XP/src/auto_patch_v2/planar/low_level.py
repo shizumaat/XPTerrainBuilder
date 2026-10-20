@@ -19,6 +19,10 @@ the welded frontage — and its LOW parts: base ``y <= t −
 pad, closed by ``pad_frontage_m`` and kept off the airside by the same
 distance, are the LOW REGION.  Only a unit whose composed base reads
 STEPPED is read (``pad_blocks.unit_base``; RULINGS 2026-10-02aj (2)).
+The GROUND confirms it (#1115): the DEM median over the low region must lie
+at least ``low_level_min_step_m`` under the median over the high block —
+parts a storey under the frontage over level ground are a frontage raised
+a storey (EDDF Terminal 1's piers), not a stepped base.
 
 THE LEVEL IS TIED TO THE BLOCK.  The low region is minted as
 ``<block>/p1`` (the plane-pad grammar, ``model.planar.plane_ref``) and
@@ -91,10 +95,13 @@ def _ring_poly(rg, to_xy) -> "Polygon | None":
     return None if g.is_empty else g
 
 
-def plan_low(P, air, airport, law, grid: float, others=None
+def plan_low(P, air, airport, law, grid: float, others=None, refused=None
              ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, low, strip, record)`` for one held pad ``P`` (module
-    docstring), or ``None`` where its unit carries no lower storey.
+    docstring), or ``None`` where its unit carries no lower storey — or
+    where the ground under the low region does not lie at least that
+    storey under the ground of the high block (#1115; the reason is
+    appended to ``refused``).
 
     EVERY OPERAND IS A VALID AREA (#1098): a held pad, the apron or a
     neighbour pad may arrive self-touching or on a fixed precision model,
@@ -152,11 +159,27 @@ def plan_low(P, air, airport, law, grid: float, others=None
     H = valid_area(P.difference(L.buffer(w, join_style=2)))
     if H.is_empty or H.area < pmin:
         return None                  # the frontage block must stay a block
+    dem = getattr(airport, "dem", None)
+    g_lo, g_hi = _ground(L, dem, near), _ground(H, dem, near)
+    if g_lo is None or g_hi is None or g_hi - g_lo < step_min:
+        # THE GROUND IS THE OTHER HALF OF THE WITNESS (#1115): a storey of
+        # the object stands a storey down only where its own ground does.
+        # MEASURED EDDF Terminal 1: frontage parts at y 6-17 (piers, decks)
+        # made the unit's ground-floor parts "low", over ground 0.1 m and
+        # -5.9 m from the block's — a lower level 3 m into level ground
+        # that relaxed 1,092 pad rows.  KATL ``terminal_F``: 11.7 m down.
+        if refused is not None:
+            refused.append(f"ground drop {_fmt(g_hi, g_lo)} < {step_min:g} m")
+        return None
     y_floor = min(p.base_y for p in low_parts) - t
     rec = {"top_y": round(t, 3), "y_lo": round(y_floor, 3), "y_hi": round(-step_min, 3),
            "low_parts": len(low_parts), "area_m2": round(L.area, 1),
-           "ground_z": _ground(L, getattr(airport, "dem", None), near)}
+           "ground_z": g_lo, "ground_high_z": g_hi}
     return H, L, S, rec
+
+
+def _fmt(g_hi, g_lo) -> str:
+    return "n/a" if g_hi is None or g_lo is None else f"{g_hi - g_lo:+.2f}"
 
 
 def _ground(L, dem, step: float) -> "float | None":
@@ -217,7 +240,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         others = unary_union([r.polygon for r in out if str(r.ref) != ref
                               and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
         try:
-            got = plan_low(P, air, airport, law, grid, others)
+            why: list = []
+            got = plan_low(P, air, airport, law, grid, others, why)
         except GEOSException as exc:
             # an overlay GEOS still refuses on valid areas: the block stays
             # ONE level (the pre-#809 pad) and the refusal is counted, never
@@ -226,6 +250,9 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
             counts.setdefault("low_level_refused_list", []).append(f"{ref}: {exc}")
             continue
         if got is None:
+            if why:
+                counts["low_level_no_ground_step"] = counts.get("low_level_no_ground_step", 0) + 1
+                counts.setdefault("low_level_no_ground_step_list", []).append(f"{ref}: {why[0]}")
             continue
         H, L, S, rec = got
         tmpl = regs[0]

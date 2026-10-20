@@ -76,13 +76,14 @@ import typing as _t
 from ..law import Law
 from ..law.reference_code import status_by_ref
 from ..law.tables import (airside_stage_roles, apron_roles, is_value_role, role_side,
-                          runway_zone_edge_offset_m, snap_margin_m, strip_transverse_bound,
+                          runway_zone_edge_offset_m, strip_transverse_bound,
                           zone_bounds, zone_edge_offset_m)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .precedence import View, view
 from .roads import road_family_roles
+from .end_lip import natural_bank_vertices
 from .strips import end_band_vertices, runway_groups
 
 __all__ = ["zone_bands", "strip_transverse"]
@@ -521,22 +522,10 @@ def _context(planar: PlanarMap, law: Law, airport: Airport) -> _Context | None:
                  or f_[1] in own]
         return found
 
-    natural = _in_wedges(vw, natural - quay,
-                         getattr(planar, "natural_shore_wedges", ()) or (), law)
+    natural = (natural - quay) & natural_bank_vertices(vw)
     return _Context(vw, edges, by_family, cell, reach, half_of, abeam, member, own_law,
                     quay, wall_vertices, pad_rim, _found, tie_pop, rigid_rims,
                     natural, end_box)
-
-
-def _in_wedges(vw, ids: set[int], rings, law: Law) -> set[int]:
-    """§37 (11) (7): the natural-shore vertices standing inside a wedge."""
-    if not ids or not rings:
-        return set()
-    from shapely.geometry import Point, Polygon as _P
-    from shapely.ops import unary_union as _uu
-    tol = snap_margin_m(law)
-    wedges = _uu([_P(r) for r in rings]).buffer(tol)
-    return {v for v in ids if wedges.covers(Point(vw.xy[v]))}
 
 
 def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:

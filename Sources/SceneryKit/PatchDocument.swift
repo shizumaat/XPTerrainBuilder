@@ -43,6 +43,9 @@ public struct PatchWay: Equatable, Sendable {
 /// How a way is drawn on the map — the legend's classes.
 public enum PatchStyleClass: String, CaseIterable, Sendable {
     case runway, taxiway, apron, building, road
+    /// Groundside pavement — car parks and forecourts (#1099: drawn as
+    /// `apron` before, so a groundside lot read as airside on the map).
+    case groundside
     /// Graded strips, clearances, adjacent ground, walls and the engine's
     /// helper shapes: drawn as thin outlines.
     case ground
@@ -64,7 +67,8 @@ public enum PatchStyleClass: String, CaseIterable, Sendable {
     static let roleClasses: [String: PatchStyleClass] = [
         "runway": .runway,
         "taxiway": .taxiway,
-        "apron": .apron, "groundside_pavement": .apron,
+        "apron": .apron,
+        "groundside_pavement": .groundside, "parking_lot": .groundside,
         "building": .building,
         "service_road": .road, "service_junction": .road, "road": .road,
         "graded_strip": .ground, "runway_clearance": .ground, "ols_cut": .ground,

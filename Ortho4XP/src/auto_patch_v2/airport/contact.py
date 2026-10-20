@@ -134,14 +134,15 @@ class Partition:
 
 
 def _place(geom: _obj8.ObjGeometry, o: _obj8.PlacedObject, ids: np.ndarray) -> np.ndarray:
-    """The object's vertices ``ids`` in the frame with rendered y."""
+    """The object's vertices ``ids`` in the frame with rendered y — the
+    authored y read against the placement's own zero (``o.zero_y``, #1102)."""
     v = geom.vertices[ids]
     h = math.radians(o.heading_deg)
     sn, cs = math.sin(h), math.cos(h)
     out = np.empty((ids.shape[0], 3), dtype=float)
     out[:, 0] = o.xy[0] + v[:, 0] * cs - v[:, 2] * sn
     out[:, 2] = o.xy[1] - (v[:, 0] * sn + v[:, 2] * cs)
-    out[:, 1] = o.anchor_z + o.agl_m + v[:, 1]
+    out[:, 1] = o.anchor_z + o.agl_m + (v[:, 1] - o.zero_y)
     return out
 
 
@@ -633,6 +634,7 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
         ahead = None if attrs is None or contact_only else attrs[mi]
         for k, (ci, c) in enumerate(comps):
             pts, lt = _part_frame(geom, o, c)
+            base_y = float(c.min_y) - o.zero_y   # the member's own zero (#1102)
             a, b, d = pts[lt[:, 0]], pts[lt[:, 1]], pts[lt[:, 2]]
             areas = 0.5 * np.linalg.norm(np.cross(b - a, d - a), axis=1)
             total = float(areas.sum())
@@ -643,7 +645,7 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
             else:
                 cx, cy = float(pts[:, 0].mean()), float(pts[:, 2].mean())
             if contact_only:
-                parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
+                parts.append(PlacedPart(len(parts), mi, ci, pts, lt, base_y, total,
                                         (cx, cy), pts.min(axis=0), pts.max(axis=0),
                                         np.minimum(np.minimum(a, b), d),
                                         np.maximum(np.maximum(a, b), d),
@@ -651,9 +653,9 @@ def placed_parts(members: _t.Sequence[MemberGeometry], foot_band_m: float = 1.0,
                                         scatter=is_scat))
                 continue
             feet, rings, solid_h = ahead[k] if ahead is not None else part_attrs(
-                pts, lt, float(c.min_y), o, is_line, is_scat, foot_band_m,
+                pts, lt, base_y, o, is_line, is_scat, foot_band_m,
                 foot_samples_max, station_span_m, stations_max)
-            parts.append(PlacedPart(len(parts), mi, ci, pts, lt, float(c.min_y), total,
+            parts.append(PlacedPart(len(parts), mi, ci, pts, lt, base_y, total,
                                     (cx, cy), pts.min(axis=0), pts.max(axis=0),
                                     np.minimum(np.minimum(a, b), d), np.maximum(np.maximum(a, b), d),
                                     feet, is_line, rings,
@@ -703,7 +705,7 @@ def member_attrs(member: MemberGeometry, is_line: bool, is_scat: bool,
     out = []
     for _ci, c in comps:
         pts, lt = _part_frame(geom, o, c)
-        out.append(part_attrs(pts, lt, float(c.min_y), o, is_line, is_scat,
+        out.append(part_attrs(pts, lt, float(c.min_y) - o.zero_y, o, is_line, is_scat,
                               foot_band_m, foot_samples_max, station_span_m,
                               stations_max))
     return out

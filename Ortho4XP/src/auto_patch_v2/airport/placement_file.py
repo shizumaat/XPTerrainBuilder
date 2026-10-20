@@ -385,6 +385,13 @@ def _note_tilted_kept_whole(m: Member, counts: dict[str, int],
         refs.append((index, m.resource, found))
 
 
+def _pristine_offset(offset: _t.Sequence[float], zero_y: float) -> tuple[float, float, float]:
+    """A body's anchor offset in the PRISTINE file's frame: the partition
+    read the member against ``zero_y`` (``Member.zero_y``, #1102)."""
+    ox, oy, oz = offset
+    return (ox, oy + zero_y, oz) if zero_y else (ox, oy, oz)
+
+
 def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                   splits: list[Split], kept: list[Kept], whole: list[Split],
                   *, always_write: bool,
@@ -406,10 +413,12 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     (``obj8_split``'s drape cut, ``drape_law``)."""
     bodies = record.bodies
     drape_comps = frozenset(drape_comps) if drape_law is not None else frozenset()
-    if drape_comps:
+    if drape_comps or m.zero_y:
+        # a member read against its own zero (#1102) is never kept whole:
+        # its authored row would float it ``zero_y`` above its feet
         always_write = True
     index = record.index
-    if landed and not drape_comps:
+    if landed and not drape_comps and not m.zero_y:
         # owner RULINGS 2026-10-14g (3): every body would land within
         # ``authored_keep_tol_m`` of its authored seat — the split moves
         # nothing, so the placement stays one placement of the original
@@ -432,7 +441,10 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     files: tuple[_split.SplitFile, ...] = ()
     err = ""
     if write:
-        cuts = [_split.BodyCut(b.body_id, b.cut_components, b.anchor.offset,
+        # the pristine frame restored (#1102): the offset was read against
+        # the member's own zero
+        cuts = [_split.BodyCut(b.body_id, b.cut_components,
+                               _pristine_offset(b.anchor.offset, m.zero_y),
                                b.tris,
                                # 10-01k Q1: the seat tilt the writer bakes
                                (b.seat.grad if b.seat is not None

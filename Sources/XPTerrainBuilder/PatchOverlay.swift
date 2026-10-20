@@ -24,7 +24,7 @@ struct PatchMapGeometry: Sendable {
     let nodes: [Node]
 
     /// Lower first: graded ground under pavement, buildings and roads on top.
-    static let drawOrder: [PatchStyleClass] = [.ground, .apron, .taxiway, .runway, .building, .road]
+    static let drawOrder: [PatchStyleClass] = [.ground, .groundside, .apron, .taxiway, .runway, .building, .road]
 
     init(document: PatchDocument) {
         var projected: [Int64: CGPoint] = [:]
@@ -222,6 +222,7 @@ struct PatchStyle {
         case .runway: PatchStyle(fill: hex(0x8A8F99, 0.28), stroke: hex(0xD6DAE2), width: 2.4, halo: nil)
         case .taxiway: PatchStyle(fill: hex(0xD2B14A, 0.22), stroke: hex(0xE6C95C), width: 2.1, halo: nil)
         case .apron: PatchStyle(fill: hex(0x5AA0E0, 0.22), stroke: hex(0x7DB8EF), width: 2.4, halo: nil)
+        case .groundside: PatchStyle(fill: hex(0xC79A6B, 0.22), stroke: hex(0xD9B48C), width: 2.1, halo: nil)
         case .building: PatchStyle(fill: hex(0xB07AD0, 0.25), stroke: hex(0xC497E0), width: 1.95, halo: nil)
         case .road: PatchStyle(fill: hex(0x9FD18B, 0.18), stroke: hex(0x9FD18B), width: 1.8,
                                halo: hex(0x9FD18B, 0.35))
@@ -231,7 +232,11 @@ struct PatchStyle {
 
     /// Legend label per class (the mockup's words; "graded ground" is new).
     static func label(_ style: PatchStyleClass) -> String {
-        style == .ground ? "graded ground" : style.rawValue
+        switch style {
+        case .ground: "graded ground"
+        case .groundside: "groundside pavement"
+        default: style.rawValue
+        }
     }
 }
 
@@ -240,7 +245,7 @@ private struct PatchLegend: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            ForEach([PatchStyleClass.runway, .taxiway, .apron, .building, .road, .ground], id: \.self) { style in
+            ForEach([PatchStyleClass.runway, .taxiway, .apron, .groundside, .building, .road, .ground], id: \.self) { style in
                 HStack(spacing: 6) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(PatchStyle.of(style).stroke)

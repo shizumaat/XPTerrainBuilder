@@ -360,7 +360,7 @@ def _mint_spans(w, line: LineString, spans, occupied, serial: dict[str, int],
     return k - k0, area, (rib if k > k0 or lot_parts else None)
 
 
-def _ribbon_over(axes, hw: float, occupied, core_hw: float, grid: float):
+def _ribbon_over(axes, hw: float, occupied: "_Occupied", core_hw: float, grid: float):
     """The ribbon of ``axes`` at half-width ``hw`` less ``occupied``,
     widened only AROUND the core-width ribbon (``core_hw``) the same axes
     mint (issue #949): the map's width widens a road the core ribbons, and
@@ -371,12 +371,36 @@ def _ribbon_over(axes, hw: float, occupied, core_hw: float, grid: float):
     def _rib(h: float):
         g = unary_union([ax.buffer(h, cap_style="flat", join_style="mitre",
                                    mitre_limit=2.0) for ax in axes])
-        return shapely.set_precision(g.difference(occupied), grid)
+        return shapely.set_precision(occupied.cut(g), grid)
     core = _rib(core_hw)
     if hw <= core_hw or core.is_empty:
         return core
     reach = core.buffer(hw - core_hw, join_style="mitre", mitre_limit=2.0)
     return shapely.set_precision(_rib(hw).intersection(reach), grid)
+
+
+class _Occupied:
+    """What a ribbon may not overlap: the cells standing when the mint
+    began, and every ribbon minted since — held APART (issue #1083:
+    re-unioning the whole map after every way was ~60 s of HECA's
+    classify).  :meth:`cut` takes the standing cells off a ribbon, then
+    the union of only the minted ribbons whose bounds meet it."""
+
+    def __init__(self, base):
+        self.base = base
+        self.ribs: list = []
+        self.bounds: list[tuple[float, float, float, float]] = []
+
+    def add(self, rib) -> None:
+        self.ribs.append(rib)
+        self.bounds.append(rib.bounds)
+
+    def cut(self, g):
+        out = g.difference(self.base)
+        x0, y0, x1, y1 = g.bounds
+        near = [r for r, b in zip(self.ribs, self.bounds, strict=True)
+                if b[0] <= x1 and b[2] >= x0 and b[1] <= y1 and b[3] >= y0]
+        return out.difference(unary_union(near)) if near else out
 
 
 def _cover(ev: Evidence, rules: Rules):
@@ -415,11 +439,11 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     # own knife: ``groundside_cutback_m`` + the snap margin, mitred)
     knife_m = float(law.tables.structures.building_pad.groundside_cutback_m) \
         + snap_margin_m(law)
-    occupied = unary_union([Polygon(c.ring, c.holes) for c in cells]
+    occupied = _Occupied(unary_union([Polygon(c.ring, c.holes) for c in cells]
                            + ([Polygon(c.ring, c.holes).buffer(
                                knife_m, join_style="mitre", mitre_limit=2.0)
                                for c in cells if c.role == "building"]
-                              if knife_m > 0.0 else []))
+                              if knife_m > 0.0 else [])))
     n, area = 0, 0.0
     cap = role_cap(law, "service_road")
     cap_l = float(cap.longitudinal) if cap else 0.0
@@ -438,7 +462,7 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
         n += k
         area += m2
         if rib is not None:
-            occupied = unary_union([occupied, rib])
+            occupied.add(rib)
     if first_out is not None:
         first_out.update(spans=spans_of, serial=serial, extent=extent)
     return n, area
@@ -469,7 +493,7 @@ def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,
     pad_union = unary_union(pads)
     served = network_spans(ways, unary_union([first["extent"], pad_union]),
                            rules.osm_roads.road_gap_bridge_m, serve=pad_union)
-    occupied = unary_union([Polygon(c.ring, c.holes) for c in cells])
+    occupied = _Occupied(unary_union([Polygon(c.ring, c.holes) for c in cells]))
     cover = _cover(ev, rules)
     # 14a (2): a pad road's stretch along a lot is the lot.  The patch's own
     # ribbons (``mint_osm_ribbons``) are NOT read: their lot strips re-solve
@@ -490,5 +514,5 @@ def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,
         n += k
         area += m2
         if rib is not None:
-            occupied = unary_union([occupied, rib])
+            occupied.add(rib)
     return n, area

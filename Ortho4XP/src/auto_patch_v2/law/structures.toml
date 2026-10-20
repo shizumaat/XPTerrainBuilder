@@ -1114,6 +1114,12 @@ slope_pad_float_m     = 0.5
 # as the levels allow.  0.5 = the middle half of the door (a proposed value,
 # not separately ruled).  0 disarms the door-line pad.
 door_corridor_share   = 0.5
+# THE BLEND'S REACH (master 2026-10-20, pads follow the solved airside): the
+# pad, its door line and its blend are solved in stage 2 against stage 1's
+# airside; the apron vertices within this reach of a door-line pad (none
+# shared with the runway or taxi family) are solved with it, the room the
+# blend ramps in.  Inside the 60 m the master's bar reads as the pad's own.
+door_blend_reach_m    = 60.0
 
 # issue #516 (owner RULINGS 2026-09-13bi "sink into the ground so its ramp
 # meets DEM", 13cm "the top deck meeting the sloping terrain at the ramp

@@ -93,6 +93,12 @@ class Evidence:
     #: the taxi chains per letter source (``classify/taxi_letter``):
     #: ``1202`` / ``width`` / ``default``
     taxi_letter_sources: dict[str, int] = _dc.field(default_factory=dict)
+    #: MAIN'S PAD SET (master 2026-10-20 on owner RULINGS 2026-10-19w):
+    #: the pads minted with the slope witness disarmed — the set stage 1's
+    #: map carries (``pipeline/stage_one_map.base_pad_map``), so the 19w
+    #: pads, their reshaped outlines, the door lines and the blend are all
+    #: stage 2's.  ``None`` where the witness changed no pad.
+    base_pads: list[tuple[str, Polygon]] | None = None
 
 
 # ── names (the author's own word for a page) ────────────────────────────
@@ -307,8 +313,16 @@ def build_evidence(airport: Airport, rules: Rules,
                if w.closed and w.tags.get("amenity") == "parking"
                for p in [polygon_from(w.points[:-1])] if p is not None]
 
+    # main's pad set FIRST, so the module's report state is the lane's
+    base_pads = None
+    if slope_witness(airport, law) is not None:
+        base_pads = _pads(airport, rules, pad_min_area_m2, boundary,
+                          pavement_union, runway_union, law, cache,
+                          slope=False)[0]
     pads, dropped, skirted = _pads(airport, rules, pad_min_area_m2, boundary,
                                    pavement_union, runway_union, law, cache)
+    if base_pads is not None and _same_pads(base_pads, pads):
+        base_pads = None
     pad_union = unary_union([g for _i, g in pads]) if pads else Polygon()
 
     terminal = any(s.kind == "gate" for s in airport.startups) or any(
@@ -317,7 +331,7 @@ def build_evidence(airport: Airport, rules: Rules,
     return Evidence(runway_polys, runway_union, pav, pavement_union,
                     taxi_chains, truck_chains, pads, pad_union, boundary,
                     terminal, dropped, leadins, len(dsf_pav), dsf_dropped,
-                    road_chains, parking, skirted, letter_counts)
+                    road_chains, parking, skirted, letter_counts, base_pads)
 
 
 def _network_reach(edges: _t.Sequence[tuple[int, int, str | None, str]],
@@ -476,7 +490,14 @@ PAD_REFUSED: dict[str, object] = {}
 
 
 
-def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
+def _same_pads(a: list, b: list) -> bool:
+    """Two pad lists are the same set (ref and outline alike)."""
+    return len(a) == len(b) and all(
+        ra == rb and ga.equals_exact(gb, 1e-9) for (ra, ga), (rb, gb) in zip(a, b, strict=True))
+
+
+def _cluster_pads(airport: Airport, law, airside=None,
+                  slope: bool = True) -> list[Polygon]:
     """§16g (10) (2): ONE pad polygon per CLUSTER — the union of its
     member bodies' footprint rings (``PlanCluster.rings``, the §16g (7)
     (1) outlines), in the planar frame's metres.
@@ -573,7 +594,7 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
                                    # owner RULINGS 2026-10-19w: a cluster
                                    # under the bar whose seat would float
                                    # over the slope pads anyway
-                                   slope=slope_witness(airport, law))
+                                   slope=slope_witness(airport, law) if slope else None)
     CLUSTER_PADS.update(counts)
     # the refusals, LISTED with ref + gate + measured value (and the
     # footprint's length/width, which issue #229 reads)
@@ -591,7 +612,7 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
 
 
 def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
-          pavement_union, runway_union, law=None, cache=None
+          pavement_union, runway_union, law=None, cache=None, slope: bool = True
           ) -> tuple[list[tuple[str, Polygon]], int, list[str]]:
     """Building footprints -> pads: union coincident/stacked footprints
     (a terminal is several facade pieces on one outline), keep those
@@ -680,7 +701,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     _airside = unary_union([g for g in (runway_union, pavement_union)
                             if g is not None and not g.is_empty])
     cluster_pads = _cluster_pads(airport, law,
-                                 None if _airside.is_empty else _airside)
+                                 None if _airside.is_empty else _airside, slope)
     cu = None
     # issue #14 (``welded-deck-spec.md`` §2 (2)): a FALLBACK footprint is
     # trimmed by the welded decks' shades BEFORE the cover test — a deck

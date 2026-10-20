@@ -528,6 +528,15 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
     from ..constraints.road_ramp import reach_seed_rewrite
+    from ..constraints.door_pad import blend_release
+
+    def _stage2_rewrite(lv):
+        # the door-line pads' blend room leaves stage 1's levels FIRST
+        # (``constraints/door_pad.blend_release``, master 2026-10-20)
+        door = blend_release(pm, law, airport, lv)
+        cs2, rep = reach_seed_rewrite(pm, law, cs, lv)
+        rep["door_blend"] = door
+        return cs2, rep
 
     # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
     # this build's own prefix, re-run on the classification without ribbons
@@ -553,7 +562,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         tt2: TaxiTrendReport = {}
         sol, rep = solve_design(
             pm, cs, law, cfg.options, size_out=size, strips=strips,
-            stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
+            stage2_rewrite=lambda lv: _stage2_rewrite(lv),
             hold=pre.hold, stage1=_s1,
             trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
                                                               lv, tt2))

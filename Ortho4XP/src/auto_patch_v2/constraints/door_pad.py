@@ -40,6 +40,7 @@ THE RULE.
 """
 from __future__ import annotations
 
+import contextlib
 import dataclasses as _dc
 import typing as _t
 
@@ -52,7 +53,8 @@ from ..model.airport import Airport
 from ..model.constraints import Diff, Flat, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["DoorPad", "door_pads", "door_pad_level", "relax_apron_caps", "GEN"]
+__all__ = ["DoorPad", "door_pads", "stage_one", "blend_release", "door_pad_level",
+           "relax_apron_caps", "GEN"]
 
 GEN = "door_pad_level"
 RULING = ("a sloping building's pad is ONE level, the apron keeping its cap "
@@ -78,6 +80,20 @@ class DoorPad:
 
 
 _MEMO: list[tuple[int, _t.Any, list]] = []
+#: set while stage 1's map is derived (:func:`stage_one`): no door pad there
+_SUSPENDED: list[bool] = []
+
+
+@contextlib.contextmanager
+def stage_one():
+    """No door-line pad on STAGE 1'S MAP (``pipeline/stage_one_map.
+    base_pad_map``): it carries main's pads, and the door line and blend
+    are stage 2's, against the solved airside (master 2026-10-20)."""
+    _SUSPENDED.append(True)
+    try:
+        yield
+    finally:
+        _SUSPENDED.pop()
 
 
 def _poly(planar: PlanarMap, ring) -> Polygon:
@@ -90,7 +106,7 @@ def door_pads(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
     for k, pm, got in _MEMO:
         if k == id(planar) and pm is planar:
             return got
-    got = _derive(planar, law, airport)
+    got = [] if _SUSPENDED else _derive(planar, law, airport)
     _MEMO.append((id(planar), planar, got))
     del _MEMO[:-2]
     return got
@@ -168,6 +184,39 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
                   "blend_vertices": sum(len(d.blend) for d in out)}
     REFS[:] = [d.ref for d in out]
     return out
+
+
+def blend_release(planar: PlanarMap, law: Law, airport: Airport | None,
+                  levels: _t.MutableMapping[int, float]) -> dict[str, _t.Any]:
+    """THE BLEND'S ROOM, between the stages (``road_ramp.
+    reach_seed_rewrite``): stage 1 solved the airside without the 19w pads
+    (``pipeline/stage_one_map.base_pad_map``); the apron vertices within
+    ``[placement] door_blend_reach_m`` of a door-line pad, none of them
+    shared with the runway or taxi family, leave ``levels`` so stage 2
+    solves them with the pad.  MEASURED (KASE replay, every apron vertex
+    held): Hangar1's rim rows met constants up to 1.71 m off the pad's
+    level and the stage-2 hard set read 26 conflicts up to 0.63 m."""
+    st = law.tables.structures.placement
+    reach = float(getattr(st, "door_blend_reach_m", 0.0) or 0.0)
+    pads = door_pads(planar, law, airport) if reach > 0.0 else []
+    if not pads:
+        return {"pads": 0, "released": 0}
+    p = law.tables.precedence
+    king = set(p.runway_family.members) | set(p.taxi_family.members)
+    held: set[int] = set()
+    for f in planar.faces.values():
+        if f.role in king:
+            held.update(_face_vertices(planar, f))
+    zone = unary_union([Polygon([planar.vertices[v].xy for v in d.group]).convex_hull
+                        for d in pads]).buffer(reach)
+    out = [v for v in list(levels)
+           if v not in held and v in planar.vertices
+           and zone.contains(Point(planar.vertices[v].xy))
+           and any(planar.faces[f].role == "apron"
+                   for f in planar.vertices[v].incident_faces)]
+    for v in out:
+        del levels[v]
+    return {"pads": len(pads), "released": len(out), "reach_m": reach}
 
 
 def _door_cap(planar: PlanarMap, law: Law, at: Point) -> float:

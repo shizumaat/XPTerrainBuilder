@@ -402,6 +402,11 @@ class Placement:
     #: apron cap; the rest of the apron round a sloping building's pad
     #: blends at up to ``[tunnel] ramp_max_grade`` (``constraints/door_pad``).
     door_corridor_share: float = 0.0
+    #: THE BLEND'S REACH (master 2026-10-20): the apron vertices within this
+    #: distance of a door-line pad (none shared with the runway or taxi
+    #: family) are solved WITH the pad in stage 2 rather than held at stage
+    #: 1's level — the room the blend ramps in.  0 holds them all.
+    door_blend_reach_m: float = 0.0
     #: issue #516 (owner RULINGS 2026-09-13bi / 13cm): A RAMP END SINKS
     #: INTO THE GROUND — the ground under a unit member's sloped deck that
     #: rises through the natural ground is not the pad's

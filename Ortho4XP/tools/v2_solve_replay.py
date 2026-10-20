@@ -2470,6 +2470,12 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
 
         def _rewrite(lv):
+            try:
+                from auto_patch_v2.constraints.door_pad import blend_release
+                _door = blend_release(pm, law, airport, lv)
+                print(f"[{icao}] door-pad blend release: {_door}")
+            except ImportError:                   # a tree that predates it
+                pass
             out = reach_seed_rewrite(pm, law, cs, lv)
             _stage2["cs"] = out[0]
             return out

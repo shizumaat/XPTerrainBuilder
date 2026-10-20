@@ -46,3 +46,37 @@ def test_the_law_carries_the_door_corridor_and_the_ramp_cap():
     st = Law.for_airport("KASE").tables.structures
     assert st.placement.door_corridor_share == 0.5
     assert st.tunnel.ramp_max_grade == 0.1
+
+
+def test_no_door_pad_on_stage_ones_map(monkeypatch):
+    """Pads follow the solved airside (master 2026-10-20): while stage 1's
+    map is derived no door-line pad exists, so it adds no row there."""
+    monkeypatch.setattr(DP, "_derive", lambda *a: [_pad()])
+    DP._MEMO.clear()
+    with DP.stage_one():
+        assert DP.door_pads(object(), None, None) == []
+    DP._MEMO.clear()
+    assert DP.door_pads(object(), None, None) == [_pad()]
+    DP._MEMO.clear()
+
+
+def test_stage_one_carries_mains_pads():
+    """``stage_one_map.base_pad_map``: the classification's pad cells are
+    replaced by main's (``Classification.base_pads``); nothing else moves."""
+    import dataclasses as dc
+    from auto_patch_v2.classify.roles import Cell, Classification
+    from auto_patch_v2.pipeline.stage_one_map import base_pad_map
+
+    def cell(i, role, ref, kind):
+        return Cell(i, role, ref, ((0, 0), (1, 0), (1, 1)), (), None, None,
+                    "airside", kind, {})
+    apron, pad = cell(0, "apron", "pav1", "apron"), cell(1, "building", "building1", "building")
+    main = cell(9, "building", "building1", "building")
+    cl = Classification((apron, pad), (), {}, ())
+    assert base_pad_map(cl) is None
+    got = base_pad_map(dc.replace(cl, base_pads=(main,)))
+    assert got.cells == (apron, main) and got.base_pads is None
+
+
+def test_the_law_carries_the_blend_reach():
+    assert Law.for_airport("KASE").tables.structures.placement.door_blend_reach_m == 60.0

@@ -1195,7 +1195,7 @@ CODE_MODULES["solve"] = _mods("""
     classify.pad_touch classify.ramp_runout classify.retaining_wall classify.ribbon_mint
     classify.roles classify.rules classify.sources classify.taxi_letter
     constraints.apron constraints.apron_shelf constraints.ceiling
-    constraints.cluster_pad constraints.contiguity constraints.end_lip
+    constraints.cluster_pad constraints.contiguity constraints.door_pad constraints.end_lip
     constraints.geometry constraints.groundside constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
     constraints.pads constraints.platform constraints.precedence constraints.road_ramp

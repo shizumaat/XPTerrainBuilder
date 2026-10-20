@@ -193,6 +193,11 @@ class Classification:
     keepouts: tuple[tuple[XY, ...], ...] = ()
     #: Every source pavement polygon's evidence record (``sources.py``).
     sources: tuple[SourceRecord, ...] = ()
+    #: MAIN'S PAD CELLS (``Evidence.base_pads``): the pads with the 19w
+    #: slope witness disarmed, which stage 1's map carries in place of
+    #: ``cells``' pads (``pipeline/stage_one_map.base_pad_map``).  ``None``
+    #: where the witness changed no pad.
+    base_pads: tuple[Cell, ...] | None = None
 
 
 def classify(airport: Airport, law: Law, rules: Rules | None = None,
@@ -735,8 +740,15 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         outside = c.line.difference(ev.pavement_union)
         for ln in line_parts(outside):
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
+    base = None
+    if ev.base_pads is not None:
+        n0 = len(cells)
+        base = tuple(Cell(n0 + k, "building", ref, tuple(g.exterior.coords)[:-1],
+                          tuple(tuple(h.coords)[:-1] for h in g.interiors),
+                          None, None, role_side(law, "building"), "building", {})
+                     for k, (ref, g) in enumerate(ev.base_pads))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
-                          sources=tuple(sources))
+                          sources=tuple(sources), base_pads=base)
 
 
 def is_osm_ribbon(cell_or_region) -> bool:

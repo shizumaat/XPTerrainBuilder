@@ -44,9 +44,32 @@ from ..model.planar import face_vertex_set as _face_vertices
 from ..model.constraints import (Band, ConstraintSet, Diff, Flat, Linear,
                                  Offset, Pin)
 
-__all__ = ["StageOne", "ribbon_free", "stage_one_problem", "remap_row",
+__all__ = ["StageOne", "base_pad_map", "ribbon_free", "stage_one_problem", "remap_row",
            "gap_free", "late_followers", "late_fixed", "late_constraints",
            "row_vertices", "late_rim_levels", "last_stage_head"]
+
+
+def base_pad_map(cl):
+    """``cl`` with MAIN'S PAD SET in place of its own (``Classification.
+    base_pads``: the pads minted with the 19w slope witness disarmed), or
+    ``None`` when the witness changed no pad.  PADS FOLLOW THE SOLVED
+    AIRSIDE, THEY NEVER LEAD IT (master 2026-10-20 on owner RULINGS
+    2026-10-19w): stage 1 is the airside's problem with the pads the airport
+    had before 19w — the aprons cut back to THOSE pads (23a) — and the 19w
+    pads, their cluster outlines, the door lines and the blend
+    (``constraints/door_pad``, not armed on this map) are stage 2's,
+    against stage 1's constants.  MEASURED (HECA replay against no slope
+    pads): leading the airside, 19w moved 1,902 airside vertices up to
+    0.74 m and the door pads 1,974 more up to 2.27 m, far from any pad;
+    dropping the pads from stage 1 instead (main's 69 footprint pads on
+    the slope region among them) re-cut the aprons and still moved 545 up
+    to 1.10 m."""
+    base = getattr(cl, "base_pads", None)
+    if base is None:
+        return None
+    cells = tuple(c for c in cl.cells
+                  if not (c.role == "building" and c.kind == "building")) + tuple(base)
+    return _dc.replace(cl, cells=cells, base_pads=None)
 
 
 def ribbon_free(cl):
@@ -495,16 +518,25 @@ def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple],
     ribbon.  The registries the derivation fills (the ribbon-free map's
     own) are recorded as the problem's, and ``caller`` (the full map's
     ``registries``) is re-installed from its snapshot around it."""
-    cl0 = ribbon_free(cl)
+    cl_b = base_pad_map(cl)
+    cl_r = ribbon_free(cl_b if cl_b is not None else cl)
+    cl0 = cl_r if cl_r is not None else cl_b
     if cl0 is None:
         return None
     from . import capture_state as _cs
+    from ..constraints.door_pad import stage_one as _no_door_pads
     saved = _cs.collect(caller) if caller is not None else None
     try:
-        pm0, cs0, strips0, hold0 = derive(cl0)
+        with _no_door_pads():
+            pm0, cs0, strips0, hold0 = derive(cl0)
         state0 = _cs.collect(pm0.registries)
     finally:
         if caller is not None:
             _cs.install(caller, saved)
+    n_base = 0 if cl_b is None else len(cl.base_pads)
+    n_pads = 0 if cl_b is None else len(cl.cells) - len(cl_b.cells) + n_base
     return StageOne(pm0, cs0, strips0, hold0, state0,
-                    report={"ribbon_cells": len(cl.cells) - len(cl0.cells)})
+                    report={"ribbon_cells": 0 if cl_r is None else
+                            len(cl_b.cells if cl_b is not None else cl.cells)
+                            - len(cl_r.cells),
+                            "pads_main": n_base, "pads_19w": n_pads})

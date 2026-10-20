@@ -519,6 +519,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.planar.pack_reads",
     "auto_patch_v2.planar.pad_blocks",
     "auto_patch_v2.planar.pad_cut",
+    "auto_patch_v2.planar.pad_fill",
     "auto_patch_v2.planar.pad_sliver",
     "auto_patch_v2.planar.pad_terrace",
     "auto_patch_v2.planar.platform",

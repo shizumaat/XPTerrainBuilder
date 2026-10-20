@@ -455,6 +455,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.pack_reads",
         "auto_patch_v2.planar.pad_blocks",
         "auto_patch_v2.planar.pad_cut",
+        "auto_patch_v2.planar.pad_fill",
         "auto_patch_v2.planar.pad_sliver",
         "auto_patch_v2.planar.pad_terrace",
         "auto_patch_v2.planar.platform",
@@ -1244,8 +1245,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.object_corridor
-    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
-    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
+    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill
+    planar.pad_sliver planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_geometry
@@ -1328,8 +1329,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.object_corridor
-    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
-    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
+    planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_fill
+    planar.pad_sliver planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_geometry

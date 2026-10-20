@@ -14,18 +14,22 @@ from shapely.ops import unary_union
 
 from ..classify.roles import Classification, is_runway_shoulder
 from ..law import Law
+from ..law.reference_code import ref_status, status_by_ref
 from ..law.tables import runway_safety_area_length_m, zone2_half_width_m
 from ..geom.rotated_rect import long_axis, rotated_rectangle
 
 __all__ = ["strip_keepout"]
 
 
-def strip_keepout(classification: Classification, law: Law):
+def strip_keepout(classification: Classification, law: Law, runways=()):
     """The RUNWAY STRIP keep-out: every runway-family cell's long axis,
     extended by the end-skirt corridor at both ends, buffered to the
     zone-2 (strip) half width — a joint touching it is never declared."""
     polys = []
     rw_roles = set(law.tables.precedence.runway_family.members)
+    # the half-width by the runway's instrument status (#811), its runway
+    # met by the cell's ref (``runways``: ``airport.runways``)
+    status_of = status_by_ref(runways)
     for c in classification.cells:
         # §40 (4): a SHOULDER manufactures no region (the same rule the
         # strip keep-out in ``planar/structures`` and the zone bands
@@ -35,13 +39,16 @@ def strip_keepout(classification: Classification, law: Law):
         poly = Polygon(c.ring)
         if poly.is_empty or poly.area <= 0.0:
             continue
-        half = zone2_half_width_m(law, "runway", c.code_number, c.code_letter) or 0.0
+        status = ref_status(status_of, c.ref)
+        half = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
+                                  status) or 0.0
         # the RSA length (owner RULINGS 2026-10-15c (2)), from the slab end:
         # a keep-out may overshoot the band by the overrun, never fall short
-        # a cell carries no instrument status (RULINGS 2026-10-15k): the
-        # longer of the two, so the keep-out never falls short of the band
+        # the instrument length is read for every cell (RULINGS 2026-10-15k:
+        # the longer of the two, so the keep-out never falls short of the
+        # band), the precision one where the cell's runway is (#811)
         end = max(runway_safety_area_length_m(law, c.code_number, c.code_letter, ins)
-                  for ins in (False, True))
+                  for ins in (0, 1, status))
         ab = long_axis(rotated_rectangle(poly))
         if ab is None:
             polys.append(poly.buffer(half))

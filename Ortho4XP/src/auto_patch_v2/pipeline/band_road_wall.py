@@ -64,9 +64,9 @@ def band_road_wall_joints(planar: PlanarMap, law: Law,
         # 3.5-4.5 m chords stood 0.05-0.35 m over the riser-only step)
         lo_xy = [(planar.vertices[w].xy, float(z[w])) for w in lower]
         step = 0.0
-        for l in lower:
-            lx, ly = planar.vertices[l].xy
-            zl = float(z[l])
+        for kv in lower:
+            lx, ly = planar.vertices[kv].xy
+            zl = float(z[kv])
             for b_ in band_tree.query_ball_point((lx, ly), _PAIR_REACH_W * reach_w):
                 step = max(step, float(z[band_ids[b_]]) - zl)
         for v in upper:

@@ -1164,12 +1164,19 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     # reaches it — and it stood 4.0 m over the runway edge 24 m away
     # (v367 8.54 m, runway 4.52 m) on a strip whose outer edge is at 4.0 m.
     kerb = pm.band_kerb_vertices(stage1)
+    pads = frozenset(r for r in contact_roles(law)
+                     if role_side(law, r) == "airside" and r not in stage1)
+    feet = _feet_index(pm, law, stage1 | pads)
+    from shapely.strtree import STRtree
+    wtree = STRtree(list(walls)) if walls else None
     # #1071 (owner 2026-10-20): a page that is a road only by its SHAPE
-    # (§110 ``Face.road_by_proportions``) is a LOT, and a lot is not in the
-    # road terrace — no foot, no station; :func:`wall_terraces` reads it as
-    # the lot.  MEASURED HECA ``dsf:objpav2`` (86 m², 1.4 m wide) at
-    # ``metal_strip_2.obj`` comp 12
-    lot_v = _shape_only_vertices(pm, roads)
+    # (§110 ``Face.road_by_proportions``) AT A WALL'S FOOT is the LOT, and a
+    # lot is not in the road terrace — no foot, no station;
+    # :func:`wall_terraces` reads it as the lot.  Every other by-shape page
+    # stays in the terrace.  MEASURED HECA ``dsf:objpav2`` (86 m², 1.4 m
+    # wide) at ``metal_strip_2.obj`` comp 12; unscoped, ``dsf:objpav397``
+    # (no wall) left the terrace and moved 1.28 m
+    lot_v = _walled_shape_pages(pm, roads, feet, stage1, walls, wtree)
     vs = sorted(v for v in ribbon_v if (v in owned or v in kerb) and v in frame
                 and v not in lot_v)
     out["kerb"] = {v: True for v in vs if v in kerb}
@@ -1186,7 +1193,6 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     # 2.0 m under DSF road ``objpav405`` — is now one rule on both: they
     # share their bordering pavement's level).
     from shapely.geometry import Point, Polygon as _Poly
-    from shapely.strtree import STRtree
     lane = float(law.tables.emit.road_profile.lane_width_m)
 
     def _meets(role: str) -> bool:
@@ -1196,7 +1202,6 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
               for f in pm.faces.values()
               if _meets(f.role) and len(pm.ring_vertices(f.ring)) >= 3]
     others = [g if g.is_valid else g.buffer(0.0) for g in others]
-    wtree = STRtree(list(walls)) if walls else None
     out["walled"] = {}
     if others:
         otree = STRtree(others)
@@ -1226,9 +1231,6 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                 out["meet"][v] = True
             else:
                 out["walled"][v] = True
-    pads = frozenset(r for r in contact_roles(law)
-                     if role_side(law, r) == "airside" and r not in stage1)
-    feet = _feet_index(pm, law, stage1 | pads)
     # A 1206 CORRIDOR / DSF PAGE IS GOVERNED ON ITS BORDERED RUNS ONLY
     # (``own``: bordered, or straight between two bordered stations of its
     # route).  Unlike a ribbon (#100 option (c)) it IS a pad's frontage, so
@@ -1281,6 +1283,41 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
         if pad:
             out["pad"][v] = pad[0][1]
     return out
+
+
+def _walled_shape_pages(pm: PlanarMap, roads: _t.AbstractSet[str], feet,
+                        stage1: _t.AbstractSet[str], walls: _t.Sequence,
+                        wtree) -> set[int]:
+    """#1071: the own vertices (:func:`_shape_only_vertices`) of every page
+    that is a road only by its SHAPE and FRONTS A WALL — one of its vertices
+    has its nearest stage-1 pavement foot across a wall-class piece
+    (10-03c: the wall is the step).  A by-shape page at no wall is not
+    here: it stays in the road terrace."""
+    if feet is None or wtree is None:
+        return set()
+    own = _shape_only_vertices(pm, roads)
+    out: set[int] = set()
+    for f in pm.faces.values():
+        if f.role not in roads or not f.road_by_proportions:
+            continue
+        page = {v for cyc in (f.ring, *f.holes)
+                for v in pm.ring_vertices(cyc)} & own
+        if page and any(_foot_across_wall(pm, v, feet, stage1, walls, wtree)
+                        for v in page):
+            out |= page
+    return out
+
+
+def _foot_across_wall(pm: PlanarMap, v: int, feet, stage1, walls, wtree) -> bool:
+    """The way from ``v`` to its nearest stage-1 pavement foot crosses a
+    wall-class piece."""
+    lev = sorted((d, ref, a, b, u)
+                 for ref, (d, a, b, u, _dir) in feet(pm.vertices[v].xy).items()
+                 if feet.role_of.get(ref) in stage1)
+    if not lev:
+        return False
+    _d, _ref, a, b, u = lev[0]
+    return _way_crosses(pm, v, a, b, u, walls, wtree)
 
 
 def _shape_only_vertices(pm: PlanarMap, roads: _t.AbstractSet[str]) -> set[int]:

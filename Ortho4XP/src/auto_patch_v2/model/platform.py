@@ -20,7 +20,7 @@ __all__ = ["structure_vertices", "Platform", "LANDING_SEP",
            "HOLD_REPORT_KEYS", "hold_report",
            "install_hold_report",
            "datum_vertices", "stage_air_vertices",
-           "HOLD_RULING", "HOLD_DATUM_RULING"]
+           "HOLD_RULING", "HOLD_DATUM_RULING", "FILL_KINDS", "fill_levels"]
 
 #: The head of the FRONTAGE HOLD rows (flat-pad spec §1 (2); RULINGS
 #: 2026-09-30f / 30r): a held block's welded contact at the block's datum.
@@ -122,6 +122,44 @@ def is_landing_ref(ref: object) -> bool:
     r = pad_base_ref(ref)
     i = r.rfind(LANDING_SEP)
     return i > 0 and r[i + len(LANDING_SEP):].isdigit()
+
+
+#: the landing kinds that are PAD FILLS (``planar/pad_fill``, RULINGS
+#: 2026-10-19ap / 10-20d): a plate riding a block, a viaduct's ground prints
+FILL_KINDS = ("plate", "piers")
+
+
+def fill_levels(planar: _t.Any, kinds: "_t.Collection[str] | None" = None
+                ) -> dict[str, dict[str, _t.Any]]:
+    """``{landing ref: {"block", "y", "z_hi", "vertices"}}`` for every
+    landing of ``kinds`` (``None``: every landing — a deck's, and the pad
+    fills of :data:`FILL_KINDS`) — RULINGS 2026-10-20d R3 (spec
+    ``road-edge-drop-spec.md``).  ``z_hi`` is the HIGHEST level the
+    solve may hold the fill at, the run-out's own estimate
+    (``planar/landing_runout``): the block's predicted datum + its widest
+    reach band + the fill's ``y``; ``vertices`` the fill platform's own
+    ring vertices (never its collar's)."""
+    reg = planar.registries
+    out: dict[str, dict[str, _t.Any]] = {}
+    for ref, rec in reg.landings.items():
+        if kinds is not None and rec.get("kind", "deck") not in kinds:
+            continue
+        hb = reg.held.get(rec["block"]) or {}
+        if hb.get("datum_pred") is None:
+            continue
+        sr = hb.get("samples_reach")
+        reach = max((float(r) for r in (sr if sr is not None else ())), default=0.0)
+        out[ref] = {"block": rec["block"], "y": float(rec["y"]),
+                    "z_hi": float(hb["datum_pred"]) + reach + float(rec["y"]),
+                    "vertices": set()}
+    if not out:
+        return out
+    for f in planar.faces.values():
+        rec = out.get(str(f.ref))
+        if rec is not None:
+            for cyc in (f.ring, *f.holes):
+                rec["vertices"].update(planar.ring_vertices(cyc))
+    return out
 
 
 def plateau_vertices(planar: _t.Any, law: _t.Any = None) -> dict[str, set[int]]:

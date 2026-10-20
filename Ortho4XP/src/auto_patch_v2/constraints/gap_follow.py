@@ -164,6 +164,14 @@ def reach_m(law: Law, pad: bool = False) -> float:
         + snap_margin_m(law) + 2.0 * ident
 
 
+def _road_edge_upper(planar: PlanarMap) -> frozenset[int]:
+    """The road vertices on a declared road-edge drop (RULINGS 2026-10-20d
+    R4, ``airport/road_edge_wall``)."""
+    walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
+    return frozenset(v for r in walls.values() if r.get("road_edge")
+                     for v in r.get("upper") or ())
+
+
 def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
                     part_stations: _t.Mapping[str, PartStations] | None = None,
                     behind_step: BehindStep | None = None
@@ -200,6 +208,9 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
     road_i: list[int] = []
     floors = behind_step.floors if behind_step else frozenset()
     not_rim = behind_step.edges_not_rim(faces.values()) if behind_step else set()
+    # owner RULINGS 2026-10-20d R4: a piece never follows a road edge that is
+    # a declared drop (``airport/road_edge_wall``) — it keeps its own ground
+    walled = _road_edge_upper(planar)
     for f in faces.values():
         if is_gap_ref(f.ref) or f.id in follower or f.role in floors:
             continue
@@ -210,6 +221,8 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
             if e in not_rim:
                 continue
             ed = planar.edges[e]
+            if ed.a in walled and ed.b in walled:
+                continue
             # a follower follows every FIXED point of a neighbouring ring:
             # an edge with one fixed end binds at that end
             ends = [v for v in (ed.a, ed.b) if v in fixed]

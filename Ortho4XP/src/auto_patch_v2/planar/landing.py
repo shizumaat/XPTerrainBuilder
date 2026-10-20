@@ -95,6 +95,28 @@ def _free_pieces(g, taken, grid: float) -> list[Polygon]:
     return [q for q in _parts(L) if q.area >= max(grid * grid, 1.0)]
 
 
+def _to_road(f, held, airport, law, strips, collar_m: float, counts: dict):
+    """RULINGS 2026-10-20d R2 (``planar/fill_road``): the fill's extent, run
+    to the road strips within reach where its collar cannot bank down."""
+    reach = float(getattr(law.tables.structures.building_pad, "fill_road_reach_m", 0.0))
+    datum = (held.get(f.block) or {}).get("datum_pred")
+    if reach <= 0.0 or not strips or datum is None:
+        return f.extent
+    from .fill_road import cannot_bank, extend_to_roads
+    slope = float(law.tables.emit.design.bank_slope)
+    if not cannot_bank(f.extent, float(datum) + float(f.y),
+                       getattr(airport, "dem", None), collar_m, slope):
+        return f.extent
+    E = extend_to_roads(f.extent, [r.polygon for r in strips], reach)
+    if E is None or E.area <= f.extent.area + 1.0:
+        counts["pad_fill_no_road"] = counts.get("pad_fill_no_road", 0) + 1
+        return f.extent
+    counts["pad_fill_to_road"] = counts.get("pad_fill_to_road", 0) + 1
+    counts["pad_fill_to_road_m2"] = round(
+        counts.get("pad_fill_to_road_m2", 0.0) + E.area - f.extent.area, 1)
+    return E
+
+
 def _fills(part, to_xy, law, blocks, vias, collar_m: float) -> list:
     """The pad fills of ``planar/pad_fill`` over this mint's blocks and
     viaducts: prints within two bank widths are one fill."""
@@ -109,10 +131,11 @@ def _fills(part, to_xy, law, blocks, vias, collar_m: float) -> list:
 def landing_regions(out: list, split_units: _t.Mapping[str, list],
                     air_polys: _t.Sequence[Polygon], airport, law,
                     grid: float, collar_m: float,
-                    counts: dict, *, reg: Registries) -> list:
+                    counts: dict, *, reg: Registries, strips: _t.Sequence = ()) -> list:
     """The landing + collar regions to add to the pad regions ``out``
     (module docstring), registering each in ``reg.landings`` (and its
-    run-outs in ``reg.landing_runouts``)."""
+    run-outs in ``reg.landing_runouts``).  ``strips``: the ROAD STRIPS a
+    fill that cannot bank down runs to (``planar/fill_road``)."""
     held, landings, runouts = reg.held, reg.landings, reg.landing_runouts
     landings.clear()
     runouts.clear()
@@ -244,7 +267,8 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
             continue
         tmpl = template.get(f.block) or next(
             (r for r in out if str(r.ref).startswith(f.block)), None)
-        Ls = _free_pieces(f.extent, taken, grid)
+        Ls = _free_pieces(_to_road(f, held, airport, law, strips, collar_m, counts),
+                          taken, grid)
         if tmpl is None or not Ls:
             counts["pad_fill_taken"] = counts.get("pad_fill_taken", 0) + 1
             continue
@@ -334,6 +358,7 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
     if not landings:
         return base_regions
     from ..law.tables import role_side
+    from .fill_road import road_strips
     strips = unary_union([q for rec in runouts.values() for q in rec["polys"]])
     L = unary_union([r.polygon for r in pad_regions
                      if (pad_base_ref(r.ref) in landings
@@ -341,17 +366,30 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
                      and r.polygon is not None] + [strips])
     if L.is_empty:
         return base_regions
+    # RULINGS 2026-10-20d R1 (``planar/fill_road``, census row 5): a ROAD
+    # STRIP a viaduct lands on is cut under its DECK landings and their
+    # banks — the landing stands on the road, which meets it at its edge and
+    # carries the descent itself (``constraints/fill_road``); a run-out
+    # yields to it as to any road (``_runout_regions``), and a plate / piers
+    # fill runs TO it and stops at its kerb
+    deck = {ref for ref, rec in landings.items() if rec.get("kind", "deck") == "deck"}
+    L_road = unary_union([r.polygon for r in pad_regions
+                          if pad_base_ref(r.ref) in deck and r.polygon is not None])
+    air = [r.polygon for r in base_regions if r.polygon is not None
+           and role_side(law, r.role) == "airside"]
+    road_ids = {id(r) for r in road_strips(base_regions, air, law)}
     out: list = []
     n = 0
     for r in base_regions:
         P = r.polygon
-        if (P is None or P.is_empty or not P.intersects(L)
+        cut = L_road if id(r) in road_ids else L
+        if (P is None or P.is_empty or not P.intersects(cut)
                 or role_side(law, r.role) != "groundside"
-                or r.role not in LOT_ROLES):
+                or (r.role not in LOT_ROLES and id(r) not in road_ids)):
             out.append(r)
             continue
         n += 1
-        for q in _parts(P.difference(L)):
+        for q in _parts(P.difference(cut)):
             out.append(_dc.replace(r, polygon=q))
     if counts is not None:
         counts["landing_cut_regions"] = n

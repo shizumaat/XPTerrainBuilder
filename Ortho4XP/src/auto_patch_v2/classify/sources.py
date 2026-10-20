@@ -86,6 +86,7 @@ class SourceRecord:
     reason: str
     taxi_name: str = ""     # the description's taxiway token (04z-1), "" when it names none
     taxi_designator: str = ""  # ...and the designator after it ("Taxiway B" -> "B")
+    network_through_m: float = 0.0  # mapped NETWORK road (R1, RULINGS 2026-10-20d) running through it
 
     def as_evidence(self) -> dict[str, float | str]:
         out: dict[str, float | str] = {
@@ -123,6 +124,8 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules
     taxis = [c.line for c in ev.taxi_chains]
     road_tree = STRtree(roads) if roads else None
     osm_tree = STRtree(osm_roads) if osm_roads else None
+    network = _network_lines(airport, rules)
+    net_tree = STRtree(network) if network else None
     aisle_tree = STRtree(aisles) if aisles else None
     taxi_tree = STRtree(taxis) if taxis else None
     starts = [Point(s.xy) for s in airport.startups]
@@ -149,10 +152,51 @@ def classify_sources(airport: Airport, ev: Evidence, rules: Rules
                       poly, road_tree, roads, osm_tree,
                       osm_roads, aisle_tree, aisles, taxi_tree, taxis, start_tree,
                       parking, apron_u, rules)
+        rec = _network_strip(rec, poly, net_tree, network, rules)
         out.append(rec)
         if rec.cls in ("strip", "lot"):
             cut[sid] = poly
     return out, cut
+
+
+def _network_lines(airport: Airport, rules: Rules) -> list[LineString]:
+    """The mapped NETWORK roads (spec ``road-edge-drop-spec.md`` R1): the
+    at-grade classes the ribbon mint admits (``[osm_roads]
+    ribbon_highways``) less the ones the road evidence already reads
+    (``[osm_roads] highways``)."""
+    orr = rules.osm_roads
+    classes = set(getattr(orr, "ribbon_highways", ()) or ()) - set(orr.highways)
+    return [LineString(w.points) for w in airport.osm_ways
+            if w.tags.get("highway") in classes and len(w.points) >= 2]
+
+
+def _network_strip(rec: SourceRecord, poly: Polygon, tree: STRtree | None,
+                   lines: list[LineString], rules: Rules) -> SourceRecord:
+    """R1 (RULINGS 2026-10-20d; spec ``road-edge-drop-spec.md``): A PAGE A
+    NETWORK ROAD RUNS THROUGH IS THAT ROAD.  The 04j strip rung read with
+    the network roads: a page at most ``[service] free_max_width_m`` wide,
+    touching no taxi centreline, holding no startup and no apron evidence,
+    with network road running THROUGH it for ``[lot] through_min_fraction``
+    of its half-perimeter in at most ``[lot] max_road_pieces_per_100m``
+    pieces, is a road strip.  A lot whose lanes are service roads keeps its
+    verdict (14a (2)).  MEASURED HECA: ``dsf:pol10`` (18.5 m, 3,444 m of
+    ``secondary`` through it, 91 % of its half-perimeter, 0.87 pieces per
+    100 m) read 28 m of service road and was a lot."""
+    if rec.cls == "strip" or tree is None:
+        return rec
+    lot = rules.lot
+    half = max(poly.length / 2.0, 1e-6)
+    if rec.width_m > rules.service.free_max_width_m or rec.startups or \
+            rec.taxi_m >= rules.cells.min_shared_m or rec.taxi_name or \
+            rec.apron_cover >= lot.apron_cover_fraction or apron_named(rec.description, rules):
+        return rec
+    through, _dead, pieces = _through_length(poly, _inside_length(poly, tree, lines))
+    if through < lot.through_min_fraction * half or \
+            pieces * 100.0 / half > lot.max_road_pieces_per_100m:
+        return rec
+    return _dc.replace(rec, cls="strip", network_through_m=round(through, 1), reason=(
+        f"network road {through:.0f} m through >= {lot.through_min_fraction:g} x "
+        f"{half:.0f} m, {pieces} piece(s), width {rec.width_m:.1f} m (2026-10-20d R1)"))
 
 
 def _polygon(points: _t.Sequence[tuple[float, float]]) -> Polygon | None:

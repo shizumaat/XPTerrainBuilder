@@ -73,16 +73,8 @@ def value_at(tables: object, dotted: str):
 #:                 test to pass — LEMD's twenty-five 0.06-0.26 mm pairs
 #:                 became 2,301,676 sliver triangles and a tile X-Plane
 #:                 would not load.
-#: ``terrace``     the family measures a DECLARED WALL TERRACE — the step the
-#:                 build stands a band off a road by on purpose (the
-#:                 groundside cut-back; owner RULINGS 2026-10-19l: an in-band road
-#:                 below the band meets it at a retaining wall, 19i, and
-#:                 "the census exempts declared wall terraces", the same way
-#:                 19c exempts object-decked trenches).  REPORT, never
-#:                 critical: the §31 (7) cliff escape does not reach it,
-#:                 because the wall IS the designed cut.
 COCKPIT_CLASSES: tuple[str, ...] = ("step", "grade_break", "grade", "keepout",
-                                    "sentinel", "unmeshable", "terrace")
+                                    "sentinel", "unmeshable")
 
 
 @_dc.dataclass(frozen=True)

@@ -903,13 +903,6 @@ def snap_margin_m(law: Law) -> float:
     return law.tables.emit.identity.min_distinct_spacing_m * math.sqrt(2) / 2
 
 
-def riser_kerb_near_m(law: Law) -> float:
-    """How near a band riser's ring vertex may stand to a mapped-road
-    ribbon's ring and still be WELDED onto it by the emit: one identity
-    spacing plus the snap margin (#951 round 4, ``model.band_riser``)."""
-    return law.tables.emit.identity.min_distinct_spacing_m + snap_margin_m(law)
-
-
 def gap_standoff_m(law: Law) -> float:
     """THE STAND-OFF of a gap piece from a standing cell it does not weld to
     (spec §53 (12)): the pad set-back + the snap margin + one identity cell.

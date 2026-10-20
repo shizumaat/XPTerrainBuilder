@@ -69,19 +69,11 @@ def _road(pm):
             if 620.0 <= pm.vertices[v].xy[0] <= 880.0}
 
 
-def test_without_a_retaining_wall_the_road_below_the_strip_keeps_its_ground(arms):
-    """RE-READ under owner RULINGS 2026-10-19k (supersedes 15a (2) for this
-    case) and 19a/19i: a road in the safety-area band BELOW the band's
-    grade is NOT held level with the runway — wall or no pack wall, it sits
-    at its own ground (92 m here, 8 m under the runway) and the band meets
-    it at a stand-off terrace.  15a (2)'s "holds the runway level" stands
-    only for a road AT the strip's grade; the band's cap
-    (``constraints/road_band_cap``) still keeps any road from standing
-    ABOVE it."""
+def test_without_a_retaining_wall_the_road_in_the_strip_holds_the_runway_level(arms):
     for pm, sol, _rep in arms[:2]:
         road = _road(pm)
         assert road and set(pm.road_terrace["foot"]) & road
-        assert max(abs(sol.z[v] - 92.0) for v in road) <= 1.0
+        assert min(sol.z[v] for v in road) > 97.0
 
 
 def test_below_a_retaining_wall_the_road_sits_at_the_lower_ground(arms):

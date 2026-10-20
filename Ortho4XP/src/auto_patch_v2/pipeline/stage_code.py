@@ -423,7 +423,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.units",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
-        "auto_patch_v2.model.band_riser",
         "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.frame",
         "auto_patch_v2.model.islands",
@@ -439,7 +438,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.apron_shelf",
         "auto_patch_v2.planar.arrangement_memo",
-        "auto_patch_v2.planar.band_riser",
         "auto_patch_v2.planar.basin_datum",
         "auto_patch_v2.planar.basin_geometry",
         "auto_patch_v2.planar.basin_rim",
@@ -727,8 +725,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.apron",
         "auto_patch_v2.constraints.apron_shelf",
         "auto_patch_v2.constraints.assembly",
-        "auto_patch_v2.constraints.band_riser",
-        "auto_patch_v2.constraints.band_standoff",
         "auto_patch_v2.constraints.ceiling",
         "auto_patch_v2.constraints.channel",
         "auto_patch_v2.constraints.cluster_pad",
@@ -811,7 +807,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.units",
         "auto_patch_v2.model",
         "auto_patch_v2.model.airport",
-        "auto_patch_v2.model.band_riser",
         "auto_patch_v2.model.constraints",
         "auto_patch_v2.model.end_area",
         "auto_patch_v2.model.frame",
@@ -1028,11 +1023,9 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_ramp constraints.pad_relief
         constraints.pad_warning constraints.pads constraints.platform
-        constraints.precedence constraints.ramp_runout constraints.band_riser
-        constraints.band_standoff constraints.road_ramp
+        constraints.precedence constraints.ramp_runout constraints.road_ramp
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport
-        model.band_riser
         model.islands model.map_memo model.platform
         geom.slope_pad
     """),
@@ -1040,10 +1033,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.band_riser constraints.band_standoff constraints.road_ramp
-        geom.base_slab geom.cluster_outline geom.containment
+        constraints.road_ramp geom.base_slab geom.cluster_outline geom.containment
         geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport
-        model.band_riser
         model.islands model.map_memo model.platform
         geom.slope_pad
     """),
@@ -1115,7 +1106,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.geometry constraints.precedence constraints.water model.airport
     """),
     "zones": _mods(_GENERATOR_CORE + """
-        model.band_riser constraints.contiguity constraints.end_lip constraints.geometry
+        constraints.contiguity constraints.end_lip constraints.geometry
         constraints.precedence constraints.roads constraints.strips constraints.zones
         geom.containment model.airport model.end_area model.islands model.map_memo
         model.platform model.threshold_datum
@@ -1154,8 +1145,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
     constraints.pad_relief constraints.pad_warning constraints.pads
     constraints.pavement_cap constraints.platform constraints.precedence
-    constraints.proximity constraints.ramp_runout constraints.band_riser
-    constraints.band_standoff constraints.road_ramp
+    constraints.proximity constraints.ramp_runout constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
@@ -1168,7 +1158,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_site_schema law.inset_class law.model
     law.model_types law.rebake_schema law.reference_code law.role_cap_schema law.tables
-    law.terrace_schema law.tunnel_object_schema law.units model.airport model.band_riser
+    law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.ground_fit model.hard_plane
     model.islands model.map_memo model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum pipeline.shapes
@@ -1263,9 +1253,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.ceiling constraints.cluster_pad constraints.contiguity
     constraints.end_lip constraints.geometry constraints.groundside constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
-    constraints.pads constraints.platform constraints.precedence constraints.band_riser
-    constraints.band_standoff
-    constraints.road_ramp
+    constraints.pads constraints.platform constraints.precedence constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_profile constraints.runway_yield constraints.shoulder_crossing
     constraints.stretches constraints.strips constraints.taxi constraints.taxi_trend
@@ -1277,7 +1265,7 @@ CODE_MODULES["solve"] = _mods("""
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
     law.eat_schema law.flat_site_schema law.inset_class law.model law.model_types
     law.rebake_schema law.reference_code law.role_cap_schema law.tables
-    law.terrace_schema law.tunnel_object_schema law.units model.airport model.band_riser
+    law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.hard_plane model.islands
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
@@ -1289,7 +1277,7 @@ CODE_MODULES["solve"] = _mods("""
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
-    planar.pad_terrace planar.platform planar.ribbon_weld planar.band_riser planar.ribbons
+    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_geometry
@@ -1349,8 +1337,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.pad_ramp constraints.pad_relief constraints.pad_road_reach
     constraints.pad_warning constraints.pads constraints.pavement_cap
     constraints.platform constraints.precedence constraints.proximity
-    constraints.ramp_runout constraints.band_riser constraints.band_standoff
-    constraints.road_ramp constraints.roads constraints.routes
+    constraints.ramp_runout constraints.road_ramp constraints.roads constraints.routes
     constraints.runway_chord constraints.runway_mean_slope constraints.runway_profile
     constraints.runway_yield constraints.seams constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
@@ -1365,8 +1352,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
-    model.airport model.band_riser model.constraint_codec model.constraints model.end_area
-    model.frame
+    model.airport model.constraint_codec model.constraints model.end_area model.frame
     model.ground_fit model.hard_plane model.islands model.jetway model.map_memo
     model.pad_terrace model.placement model.planar model.platform model.pulse
     model.rebake model.registries model.structures model.threshold_datum
@@ -1379,7 +1365,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
-    planar.pad_terrace planar.platform planar.ribbon_weld planar.band_riser planar.ribbons
+    planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
     planar.structure_approach planar.structure_deck planar.structure_geometry
@@ -1429,9 +1415,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.end_lip constraints.flat_site constraints.geometry
     constraints.groundside constraints.junction_mesh constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
-    constraints.pads constraints.platform constraints.precedence constraints.band_riser
-    constraints.band_standoff
-    constraints.road_ramp
+    constraints.pads constraints.platform constraints.precedence constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
@@ -1445,11 +1429,11 @@ CODE_MODULES["emit"] = _mods("""
     law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
-    model.airport model.band_riser model.constraints model.end_area model.frame model.hard_plane
+    model.airport model.constraints model.end_area model.frame model.hard_plane
     model.islands model.jetway model.map_memo model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.authored_seats pipeline.emit_stage
-    pipeline.band_road_wall pipeline.publication pipeline.rebake_inputs pipeline.ribbon_steps
+    pipeline.publication pipeline.rebake_inputs pipeline.ribbon_steps
     pipeline.runway_report pipeline.seam_report pipeline.terrace_witness planar.cluster
     planar.shape_airside planar.shape_mouths planar.shape_parts planar.shapes
     planar.strip_keepout solve solve.api solve.design solve.design_assemble
@@ -1501,12 +1485,10 @@ CODE_MODULES["verify"] = _mods("""
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_site_schema law.inset_class law.model
     law.model_types law.rebake_schema law.reference_code law.role_cap_schema law.tables
-    law.terrace_schema law.tunnel_object_schema law.units model.airport model.band_riser
+    law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.islands model.map_memo
     model.placement model.planar model.platform model.pulse model.rebake
-    model.registries model.structures model.threshold_datum constraints.band_standoff
-    pipeline.band_road_wall
-    pipeline.publication
+    model.registries model.structures model.threshold_datum pipeline.publication
     pipeline.ribbon_steps pipeline.verify_stage planar.cluster planar.shape_airside
     planar.shape_mouths planar.shape_parts planar.shapes planar.strip_keepout
     solve.design_roles solve.ground_band verify verify.census verify.channel

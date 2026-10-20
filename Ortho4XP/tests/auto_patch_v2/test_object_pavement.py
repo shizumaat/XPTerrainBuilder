@@ -75,7 +75,7 @@ def test_header_facts_reads_a_command_section_layer_group(tmp_path):
     (draped texture, no group anywhere) stays refused."""
     p = _obj(tmp_path, "fs9.obj", header="TEXTURE_DRAPED\tasphalt.dds",
              quads=[(0, 0, 20, 20)])
-    text = p.read_text().replace(
+    text = p.read_text(encoding="utf-8").replace(
         "ATTR_draped\n", "ATTR_draped\nATTR_layer_group_draped\ttaxiways +1\n")
     p.write_text(text, encoding="utf-8", newline="")
     assert OP.header_facts(str(p)) == (("taxiways", 1), "asphalt.dds")

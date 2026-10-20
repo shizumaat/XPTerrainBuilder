@@ -40,7 +40,6 @@ import typing as _t
 import numpy as np
 import shapely
 from shapely.geometry import MultiPoint, Polygon
-from shapely.ops import unary_union
 
 from ..model.frame import XY
 from . import bulk_geos as _bulk
@@ -215,7 +214,7 @@ def below_zero_reading(cache: _obj8.ResourceCache, path: str, law) -> SkirtReadi
     if not below:
         return _dc.replace(_NO_GEOMETRY, below_zero=True, footprint_perimeter_m=per,
                            reason="below-zero vertices carry no genuine solid")
-    bu = unary_union(below)
+    bu = _fe.union(below, "skirt.below_zero_reading")
     if not bu.is_valid:
         bu = shapely.make_valid(bu)
     band = bu.buffer(tol)

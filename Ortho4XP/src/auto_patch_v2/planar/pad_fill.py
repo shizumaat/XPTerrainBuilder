@@ -67,7 +67,7 @@ def plate_fills(partition: _t.Any, to_xy, lw: _t.Any, faces: "_t.Callable | None
     reader (``airport/slab_faces.witness_faces``) — no reader, no plate
     (a plate is only read level by its faces)."""
     from ..airport.placement_family import member_is_deck
-    from ..geom.base_slab import _plate, _elevated, _ring_poly
+    from ..geom.base_slab import _elevated, _plate, _ring_poly
     if partition is None or faces is None or not blocks or not lw.armed:
         return []
     tree = _block_index(blocks)

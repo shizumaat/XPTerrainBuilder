@@ -8,12 +8,11 @@ from __future__ import annotations
 import types
 
 import pytest
-from shapely.geometry import box
-
 from auto_patch_v2.geom.base_slab import FaceFacts
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import base_slab_law
 from auto_patch_v2.planar import pad_fill as PF
+from shapely.geometry import box
 
 LAW = Law.for_airport("HECA")
 LW = base_slab_law(LAW)

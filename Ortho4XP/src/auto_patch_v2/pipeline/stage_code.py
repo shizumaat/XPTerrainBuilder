@@ -228,6 +228,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_touch",
+        "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
         "auto_patch_v2.classify.ribbon_mint",
         "auto_patch_v2.classify.roles",
@@ -375,6 +376,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.ramp_runout",
+        "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
         "auto_patch_v2.classify.ribbon_mint",
         "auto_patch_v2.classify.roles",
@@ -705,6 +707,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
         "auto_patch_v2.classify.pad_touch",
+        "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
         "auto_patch_v2.classify.ribbon_mint",
         "auto_patch_v2.classify.roles",
@@ -1132,6 +1135,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     model.rebake model.registries model.structures model.threshold_datum pipeline.shapes
     planar.shape_airside planar.shape_mouths planar.shape_parts planar.shapes
     planar.strip_keepout
+    classify.reachability
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport constraints model airport.anchor_rule airport.apt_dat
@@ -1252,6 +1256,7 @@ CODE_MODULES["solve"] = _mods("""
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.rows solve.wall_cut
+    classify.reachability
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport classify emit model pipeline planar solve airport.anchor_rule
@@ -1334,6 +1339,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     solve.design_junction solve.design_qp solve.design_report solve.design_roles
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.rows solve.wall_cut
+    classify.reachability
 """)
 CODE_MODULES["emit"] = _mods("""
     airport constraints emit model pipeline planar verify airport.anchor_rule
@@ -1393,6 +1399,7 @@ CODE_MODULES["emit"] = _mods("""
     solve.design_report solve.design_roles solve.design_stage solve.feasibility
     solve.flex solve.ground_band solve.linear solve.pin_yield solve.project
     solve.project_strip solve.rows solve.wall_cut verify.roads
+    classify.reachability
 """)
 CODE_MODULES["verify"] = _mods("""
     airport classify constraints emit model pipeline planar solve airport.anchor_rule
@@ -1446,6 +1453,7 @@ CODE_MODULES["verify"] = _mods("""
     verify.frontage verify.jetway verify.keepout verify.no_step verify.pads verify.pins
     verify.runway verify.runway_mean_slope verify.runway_witness verify.steps
     verify.strips verify.structures verify.transverse verify.within
+    classify.reachability
 """)
 
 

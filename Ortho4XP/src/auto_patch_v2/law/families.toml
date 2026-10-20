@@ -621,7 +621,7 @@ roles     = ["runway_family"]
 pairs     = "within"
 ruling    = "reg-set 2026-08-08; cockpit 2026-10-19as (#265)"
 solver    = "edge"
-# SOFT, AS THE ENGINE SOLVES IT (owner RULINGS 2026-10-19al, #265): the
+# SOFT, AS THE ENGINE SOLVES IT (owner RULINGS 2026-10-19as, #265): the
 # engine's ``constraints.strips.raoa`` is not in ``emit.design.hard_rulings``
 # — a target, not a law — so the census reads its rows as a grade excess
 # (REPORT, the cliff escape still reaching it), never CRITICAL motion

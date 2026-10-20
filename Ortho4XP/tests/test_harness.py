@@ -9370,7 +9370,7 @@ def test_a_forbidden_grade_break_carries_no_span_test(cg):
 
 
 def test_a_raoa_grade_break_reads_as_soft_as_the_engine_solves_it(cg):
-    """#265 (owner RULINGS 2026-10-19al): the engine's ``strips.raoa`` is not
+    """#265 (owner RULINGS 2026-10-19as): the engine's ``strips.raoa`` is not
     a hard ruling, so its rows are a GRADE excess, never CRITICAL motion —
     CYXY's 0.24 m over 24.1 m on the runway read critical while the engine
     priced it as a target.  A raoa row that is ALSO a cliff still escapes
@@ -9476,7 +9476,7 @@ def test_the_cockpit_buckets_partition_the_census_rows(cg):
         # (Over 2 m it would be a cliff and CRITICAL MOTION — 12aj (c),
         # twinned in test_the_cliff_escape_reaches_every_family.)
         "within_shape": [_CkStep("runway", "runway", 4.0, distance_m=200.0)],
-        # SOFT since RULINGS 2026-10-19al (#265): a raoa row is REPORT
+        # SOFT since RULINGS 2026-10-19as (#265): a raoa row is REPORT
         "raoa": [_CkStep("runway", "runway", 0.02, distance_m=60.0)],
         "wall_in_runway_strip": [_CkStep("retaining_wall", "runway", 9.0,
                                          distance_m=100.0)],

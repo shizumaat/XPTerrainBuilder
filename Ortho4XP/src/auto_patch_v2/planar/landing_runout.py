@@ -84,6 +84,7 @@ def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airp
     band = float(law.tables.emit.cockpit.visual_m)
     step = float(law.tables.emit.chords.station_spacing_m)
     out: dict[str, dict[str, _t.Any]] = {}
+    held_ground = taken
     stat = {"feet": 0, "no_datum": 0, "at_grade": 0, "held_ahead": 0, "taken": 0}
     for f in feet:
         (lx, ly), (dx, dy), h = f.lip, f.direction, 0.5 * f.width_m
@@ -123,8 +124,12 @@ def landing_runouts(plats: _t.Sequence[tuple], held: _t.Mapping[str, dict], airp
         R = Polygon([(lx + dx * s + nx * -h, ly + dy * s + ny * -h) for s in ss]
                     + [(lx + dx * s + nx * h, ly + dy * s + ny * h) for s in reversed(ss)])
         # a pad or the airside standing in the run: the ground between is
-        # graded between the two, never run out to the DEM short of it
-        hit = R.intersection(taken).difference(Lu.buffer(near_m))
+        # graded between the two, never run out to the DEM short of it.  A
+        # SIBLING foot's strip is not such a stand: two ramps landing side by
+        # side run out together, the later strip on the ground the earlier
+        # left (MEASURED, HECA T3, #711: the 14 % main ramp's strip crossed
+        # the run of the gentle ramp beside it, which then ran out nowhere)
+        hit = R.intersection(held_ground).difference(Lu.buffer(near_m))
         if hit.area > max(grid * grid, 1.0):
             stat["held_ahead"] += 1
             continue

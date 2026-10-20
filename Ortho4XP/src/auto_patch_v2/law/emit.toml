@@ -871,6 +871,8 @@ hard_rulings = [
   "gap slab welds to the pavement beside it across the stand-off",   # issue #712 (owner RULINGS 2026-10-10o (B)): a base-slab piece and the pack gap piece beside it meet at one level along the shared edge (constraints/slab_weld) — MEASURED unwelded at HECA: steps to 1.86 m across the 1.6 m stand-off
   "rulesets.common.pavement_max_grade ceiling, last stage",          # spec §55 (5): the ceiling between two LAST-STAGE unknowns, widened by the terrace floor over its chord by `pipeline/stage_one_map.late_constraints` (§55 (14) Q-F: `cap + pad_terrace_floor_m / d`, the cut's own pair test; the law is the head above)
   "rulesets.common.road_max_grade pavement fallback, last stage",    # the same
+  "door line keeps the apron cap",                       # #798 round 3 (owner 2026-10-20 01:15Z): a sloping building's door line keeps the apron's (yielded) cap to the nearest taxi point — ONE row (constraints/door_pad).  MEASURED soft (KASE round 7): priced at the target weight the QP traded it, Hangar1's door line 2.81 % against 2.02
+  "door airside give",                                   # #798 round 3 (owner RULINGS 2026-10-19ac): an airside vertex a door pad's hard rows reach is solved in stage 2 within door_airside_give_m of its stage-1 level (constraints/door_pad.blend_release)
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
 # RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed
@@ -904,10 +906,12 @@ hard_conflict_ranks = [
    "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis",
    "rulesets.taxi.longitudinal centreline", "rulesets.taxi.transverse lateral hop, chain",
    "rulesets.taxi.transverse raw pair", "rulesets.taxi.transverse",
-   "rulesets.common.pavement_max_grade ceiling", "rulesets.common.road_max_grade pavement fallback"],
+   "rulesets.common.pavement_max_grade ceiling", "rulesets.common.road_max_grade pavement fallback",
+   "door airside give"],                                              # #798: the airside give ranks with the taxi caps (19ac)
   ["common.roles.apron ring edge", "common.roles.apron frontage chord",
    "common.roles.apron on the shared edge portion",
-   "apron body chord, stationed across the face", "plane_gradient", "apron body chord, strict"],
+   "apron body chord, stationed across the face", "plane_gradient", "apron body chord, strict",
+   "door line keeps the apron cap"],                                  # #798: the door line is an apron law
   ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
    "structures.building_pad frontage_hold"],
   ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.mouth_depth_m",

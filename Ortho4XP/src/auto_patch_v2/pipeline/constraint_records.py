@@ -43,8 +43,7 @@ import pickle
 import time
 import typing as _t
 
-from ..constraints import GENERATORS, run_generator, stack
-from ..constraints.assembly import assemble
+from ..constraints import GENERATORS, post_passes, run_generator, stack
 from ..model import constraint_codec as _codec
 from ..model.constraints import ConstraintSet
 from . import back_cache as _bc
@@ -227,8 +226,8 @@ def constraints_stage(fc: _t.Any, pm, law, airport, stage, inputs: _t.Mapping[st
         acounts: dict = {}
         awalls: dict = {}
         yielded: list = []
-        rows = assemble([r for g in gens for r in g.rows()], acounts, awalls, pm, law,
-                        None, yielded)
+        rows = post_passes([r for g in gens for r in g.rows()], acounts, awalls, pm, law,
+                           airport, None, yielded)
         cs = joint_filter(stack(rows), stage, acounts, awalls)
         return _Assembly(cs, acounts, awalls, yielded,
                          {"dropped": dict(stage.dropped),

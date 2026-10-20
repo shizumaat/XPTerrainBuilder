@@ -492,6 +492,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.classify.pad_road_exit",
     "auto_patch_v2.classify.pad_touch",
     "auto_patch_v2.classify.ramp_runout",
+    "auto_patch_v2.classify.reachability",
     "auto_patch_v2.classify.retaining_wall",
     "auto_patch_v2.classify.ribbon_mint",
     "auto_patch_v2.classify.roles",

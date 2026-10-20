@@ -316,12 +316,18 @@ def test_the_class_table_read_on_a_real_map():
     # gap piece may not claim (``ribbon_extent``) narrows (code E 19.0 ->
     # 7.5 m past the edge) and the pack's pieces go 38 -> 42; the owner's
     # sites below keep their refs
-    assert len(pieces) + len(aprons) == 42 + n_slab == cl.stats["gap_pieces"]
+    # RE-RECORDED (lane m2, issue #808, owner RULINGS 2026-10-19ag): the
+    # reachability rule makes apron ``dsf:objpav383`` (30.1268, 31.3957, the
+    # landside strip beyond ``route11``) groundside; the 1 m seam between it
+    # and ``route11`` that was ``gapapron:4`` (gap:19, 982 m2 on 915 m of
+    # airside edge) now falls under the area floor in two parts, so the
+    # pack's pieces go 42 -> 41 and every later gap ref moves down by one
+    assert len(pieces) + len(aprons) == 41 + n_slab == cl.stats["gap_pieces"]
     assert sorted(int(c.ref.split(":")[1]) for c in pieces
-                  if c.evidence.get("base_slab")) == list(range(42, 42 + n_slab))
+                  if c.evidence.get("base_slab")) == list(range(41, 41 + n_slab))
     road = sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("touches_apron") == 1.0)
-    assert road == [0, 2, 4, 7, 11, 12, 16, 30, 31]
+    assert road == [0, 2, 4, 7, 11, 12, 16, 29, 30]          # (#808: refs only)
     assert all(c.evidence["road_evidence"] == 1.0 for c in pieces
                if c.evidence.get("touches_apron") == 1.0)
     by = {False: [], True: []}
@@ -330,16 +336,17 @@ def test_the_class_table_read_on_a_real_map():
         by[c.evidence["road_evidence"] == 1.0].append(int(c.evidence["gap_ref"].split(":")[1]))
     # (regL3 round 2: the taxi faces lettered by their pavement width move
     # the road evidence of gap:19 / gap:22 / gap:20 / gap:21 — refs only)
-    assert sorted(by[False]) == [17, 22, 39]                       # no road evidence
+    assert sorted(by[False]) == [17, 21, 38]                       # no road evidence
     # (lane xplat399: the §43 opening read on ``cells.opening_grid_m`` cuts
     # different necks/arms at HECA, so the gap pieces between them move —
     # gap:35 -> gap:34 in the share, gap:33 grows; refs only here)
     # (lane c948, issue #949: a ribbon at its mapped width takes 44 m2 of the
     # gap piece at -2751, -156 — that piece and gapapron:7's gap:24 swap
     # numbers, 24 -> 23; refs only)
-    assert sorted(by[True]) == [13, 15, 18, 19, 21, 23, 32, 33, 34, 36, 40]  # §37 (2)'s share
-    assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(14)]
-    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (14, 9)
+    # (#808: gap:19 is gone; the refs after it move down by one)
+    assert sorted(by[True]) == [13, 15, 18, 20, 22, 31, 32, 33, 35, 39]  # §37 (2)'s share
+    assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(13)]
+    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (13, 9)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)
     to_xy = airport.frame.transformers()[0]
     for (lat, lon), ref in {(30.1154841, 31.4105884): "gap:7", (30.1159784, 31.4106264): "gap:7",
@@ -378,11 +385,11 @@ def test_the_class_table_read_on_a_real_map():
                            + [flush[int(j)] for j in ftree.query(reach, predicate="intersects")])
         assert _unwelded_m2(part, near, weld, keep) < 1.0, c.ref
         grew += part.area > c.evidence["area_m2"] - 1e-6 and part.is_valid
-    assert grew == 14
+    assert grew == 13
     # the spec's sliver site (the census's apron|apron step, gap:30 | pav39
     # when recorded; gap:32 since the regL3 re-record) is inside the part now
     site = Point(*to_xy(31.4046286, 30.1278259))
-    assert Polygon(aprons[8].ring, aprons[8].holes).contains(site)
+    assert Polygon(aprons[7].ring, aprons[7].holes).contains(site)     # (#808: 8 -> 7)
 
 
 # ── S5: the sidecar's ``gap_pieces`` carries both kinds (§59 (4) row 17) ──

@@ -188,6 +188,16 @@ and for the whole pack (20ad); both statistics give the same verdicts.
   reader can recompute it from the pickled partition.
 * Nothing grades by it while `terrace = false`. Bar: the patch bodies are
   byte-identical (§5).
+* **Measured (closing build, 2026-10-20).** `lflat_HECA` (this branch,
+  main 763c89a9b + phase 1) against the control `lflatctl_HECA` (main
+  763c89a9b, artifact ledger 32cf726f2399): both bodies `76b6115e7ad9`,
+  ways 2,808, nodes 46,203, verify rows 20,453. The build says
+  `[flat-pack] HECA: flat_assumed (seats) — 240 of 249 objects at one
+  level 107.97 m (share 0.96, need > 0.90), ground relief under them
+  33.31 m vs floor 8.00 m [coarse]; flatten flag no (report only)`. Both
+  frames are registered (`frames/lflatpack/`). LEMD, KASE, KCLT, OTHH and
+  KATL are byte-identical by construction (no reader of the verdict
+  exists); their builds are the orchestrator's sweep (BUILD ECONOMY).
 
 A better pack later needs nothing from us. The verdict is re-read from the
 pack at every build, so a pack that follows the terrain is graded the way

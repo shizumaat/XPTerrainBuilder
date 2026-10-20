@@ -65,9 +65,11 @@ def test_a_road_beside_the_band_keeps_its_carriageway(law):
     assert east == pytest.approx(x - 12.25 - cut, abs=0.01)
 
 
-def test_a_road_inside_the_band_grades_with_it(law):
-    # 13ar / 29r: a road running INSIDE the band is the zone's (it is
-    # ribboned there); the band is not trimmed for it
+def test_a_road_inside_the_lip_grades_with_it(law):
+    # 13ar / 29r: a road running INSIDE zone 1 (the lip: 2.5 m off the
+    # pavement, a 3 m lip) is the zone's; the band is not trimmed for it.
+    # Through ZONE 2 it is (owner RULINGS 2026-10-20c, 39;
+    # ``test_band_road_cut951``)
     reach = zone_edge_offset_m(law, "junction", None, "C")
     road = _road(0.5 * reach, lanes="7")
     assert _bands(law, (road,)).symmetric_difference(_bands(law)).area \

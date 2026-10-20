@@ -72,6 +72,7 @@ from ..law.tables import family, role_cap, senior_role
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import PlanarMap
+from .road_stations import StationTable
 
 __all__ = ["Way", "Answer", "RoadProfiles", "stations", "clamp_profile",
            "clamp_way", "face_axis", "road_family_roles", "axis_roles",
@@ -332,6 +333,7 @@ class RoadProfiles:
     def __getstate__(self) -> dict:
         state = dict(self.__dict__)
         state.pop("_line_memo", None)      # rebuilt on use, never stored
+        state.pop("_table_memo", None)
         return state
 
     def _line(self, way: Way) -> LineString:
@@ -374,25 +376,47 @@ class RoadProfiles:
         an OSM way within the core's radius outranks the rest; else the
         DEM."""
         p = Point(pt)
-        best: tuple[int, float, Way] | None = None
-        cands: list[tuple[Way, LineString, float]] = [(w, self._line(w), r)
-                                                      for w, r in through]
-        cands += [(self.ways[i], self._lines[i], self.radius_m) for i in self.ways_near(p)]
-        bline: LineString | None = None
-        for w, line, r in cands:
-            z, lat = self.project(w, line, p)
-            if lat > r:
-                continue
-            rank = 0 if (w.kind == OSM and lat <= self.radius_m) else 1
-            if best is None or (rank, lat) < (best[0], best[1]):
-                best = (rank, lat, w)
-                bz = z
-                bline = line
-        if best is None:
+        through = list(through)
+        near = [self.ways[i] for i in self.ways_near(p)]
+        cands = through + [(w, self.radius_m) for w in near]
+        if not cands:
             return Answer(float(dem), None, None, math.inf)
-        s = float(bline.project(p)) if bline is not None else 0.0
-        return Answer(bz, best[2].kind, best[2].ref, best[1], best[2], s,
-                      _signed_offset(bline, s, pt) if bline is not None else 0.0)
+        # THE STATION TABLE (#412 C8): every candidate projected in one
+        # numpy pass, GEOS's reading (``airport/road_stations``); the
+        # through-ways' table is a face's and kept, the near ways' is the
+        # vertex's own and is not
+        x, y = float(pt[0]), float(pt[1])
+        parts = []
+        if through:
+            parts.append(self._table([w for w, _r in through]).project(x, y))
+        if near:
+            parts.append(StationTable([w.xy for w in near]).project(x, y))
+        s_all = np.concatenate([a for a, _b in parts])
+        lat_all = np.concatenate([b for _a, b in parts])
+        radius = np.fromiter((r for _w, r in cands), float, len(cands))
+        osm = np.fromiter((w.kind == OSM for w, _r in cands), bool, len(cands))
+        ok = lat_all <= radius
+        if not ok.any():
+            return Answer(float(dem), None, None, math.inf)
+        rank = np.where(osm & (lat_all <= self.radius_m), 0, 1)
+        # the first candidate at the least (rank, lateral), as the loop read
+        k = int(np.lexsort((np.arange(len(cands)), np.where(ok, lat_all, np.inf),
+                            np.where(ok, rank, 2)))[0])
+        w = cands[k][0]
+        s, lat = float(s_all[k]), float(lat_all[k])
+        return Answer(w.at(s), w.kind, w.ref, lat, w, s,
+                      _signed_offset(self._line(w), s, pt))
+
+    def _table(self, ways: _t.Sequence[Way]) -> StationTable:
+        """The station table of ``ways`` in order, built once per
+        through-set (the vertices of one face share theirs).  Keyed by
+        identity and checked by it, as :meth:`_line`."""
+        memo = self.__dict__.setdefault("_table_memo", {})
+        key = tuple(id(w) for w in ways)
+        got = memo.get(key)
+        if got is None or any(a is not b for a, b in zip(got[0], ways, strict=True)):
+            got = memo[key] = (tuple(ways), StationTable([w.xy for w in ways]))
+        return got[1]
 
     def summary(self) -> dict[str, _t.Any]:
         """Population + intervention counts (the core's own summary)."""

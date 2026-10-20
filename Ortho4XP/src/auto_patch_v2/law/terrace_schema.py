@@ -56,6 +56,14 @@ class Terrace:
     #: spec §55 (3) 1: the grid a gap piece's lot / ramp fields are sampled
     #: on (``classify/gap_terrace``) — a sampling step, read by nothing else.
     gap_cut_sample_m: float
+    #: THE STRADDLE WINDOW of a declared line (flip-readiness v2 §3(b)): a
+    #: pair of vertices speaks for the line's step only when both stand
+    #: within ``straddle_perp_m`` of it and within ``straddle_pair_m`` of
+    #: each other — the census's ``terrace_actual_step`` and the declarer
+    #: of the band's wall against a road (``pipeline/band_road_wall``)
+    #: read the same window.
+    straddle_perp_m: float
+    straddle_pair_m: float
 
 
 def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -> None:
@@ -83,3 +91,5 @@ def check_terrace(tr: Terrace, roles: _t.Container[str], err: type[Exception]) -
         raise err("emit.terrace: pad_terrace_floor_m must be positive")
     if tr.gap_cut_sample_m <= 0.0:
         raise err("emit.terrace: gap_cut_sample_m must be positive")
+    if tr.straddle_perp_m <= 0.0 or tr.straddle_pair_m <= 0.0:
+        raise err("emit.terrace: straddle_perp_m and straddle_pair_m must be positive")

@@ -9,6 +9,12 @@ vertex and "the gap terraces".  Nothing in the SOLVE prices that terrace:
 ``adjacent_ground_step`` is within ONE zone face, and ``cross_shape``
 reads a sub-metre strip as noise.
 
+A DECLARED WALL TERRACE, EXEMPT IN BOTH READERS (owner RULINGS 2026-10-19l, #988:
+"the census exempts declared wall terraces", as 19c exempts object-decked
+trenches): the family's cockpit class is ``terrace`` in ``families.toml``,
+which ``check_grade.cockpit_classify`` reports and never counts critical,
+and here it is no :data:`census.DEFECT_KEYS` family.
+
 REPORT-ONLY, exactly as on the oracle: every row carries
 :data:`OUT_OF_SCOPE`, because what the strip SHOULD carry is the owner's
 Q-97 (#58) and no law governs it yet (``families.toml`` ``solver =

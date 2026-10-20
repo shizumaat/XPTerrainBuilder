@@ -19,11 +19,17 @@ def _part(x0, y0, x1, y1, base_y):
                                  rings=(ring,), feet=(), line=False)
 
 
-def _airport(parts):
+def _stepped(x, y):
+    """KATL's ground: a storey down landside (y < 85) of the apron's."""
+    return 289.5 if y < 85.0 else 301.2
+
+
+def _airport(parts, ground=_stepped):
     unit = types.SimpleNamespace(members=[types.SimpleNamespace(parts=parts)])
     return types.SimpleNamespace(
         partition=types.SimpleNamespace(units=[unit]),
-        frame=types.SimpleNamespace(entry=lambda: (lambda lon, lat: (lon, lat))))
+        frame=types.SimpleNamespace(entry=lambda: (lambda lon, lat: (lon, lat))),
+        dem=types.SimpleNamespace(z=ground))
 
 
 @pytest.fixture(scope="module")
@@ -55,6 +61,25 @@ def test_no_storey_no_split(law):
     assert plan_low(P, AIR, _airport(FRONT + sill), law, 0.5) is None
     small = [_part(0.0, 0.0, 30.0, 30.0, -13.0)]              # under the unit-pad bar
     assert plan_low(P, AIR, _airport(FRONT + small), law, 0.5) is None
+
+
+def test_parts_a_storey_down_over_level_ground_are_no_lower_level(law):
+    """#1115 (EDDF Terminal 1, 50.0483, 8.5725): frontage parts authored a
+    storey UP (piers, decks) made the ground-floor parts read "low" over
+    ground level with the block's; the split forced a level 3 m into it
+    and 1,092 pad rows relaxed.  The ground is the other half of the
+    witness: no split where it does not drop a storey."""
+    low = [_part(0.0, 0.0, 100.0, 80.0, -13.0), _part(100.0, 0.0, 200.0, 80.0, -12.9)]
+    why: list = []
+    assert plan_low(P, AIR, _airport(FRONT + low, lambda x, y: 110.4), law, 0.5,
+                    refused=why) is None
+    assert why and why[0].startswith("ground drop +0.00")
+    def shallow(x, y):                                         # 2 m: under a storey
+        return 108.4 if y < 85.0 else 110.4
+    assert plan_low(P, AIR, _airport(FRONT + low, shallow), law, 0.5) is None
+    got = plan_low(P, AIR, _airport(FRONT + low), law, 0.5)      # KATL's 11.7 m
+    assert got is not None and got[3]["ground_z"] == pytest.approx(289.5)
+    assert got[3]["ground_high_z"] == pytest.approx(301.2)
 
 
 def test_the_object_stage_folds_the_lower_level_into_its_block():

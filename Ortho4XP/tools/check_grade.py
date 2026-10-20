@@ -6727,6 +6727,45 @@ def _is_mouth_wall_joint(row) -> bool:
                for s in (row.get("shapes") or ()))
 
 
+#: the shape label of the band's declared wall against an in-band road at
+#: their shared kerb — ``pipeline/band_road_wall.LABEL``, quoted, never
+#: imported (owner RULINGS 2026-10-19a / 19i, #951)
+BAND_ROAD_WALL_LABEL = "band_road_wall"
+
+
+def _is_band_road_wall_joint(row) -> bool:
+    """A declared band-to-road wall (RULINGS 2026-10-19i): a
+    ``wall_terrace`` record whose shape is :data:`BAND_ROAD_WALL_LABEL`."""
+    return (row.get("kind") == WALL_TERRACE_JOINT_KIND
+            and BAND_ROAD_WALL_LABEL in (row.get("shapes") or ()))
+
+
+def _band_road_walls_forgive(rows, terrace_joints_ll, ll_to_m) -> list:
+    """``rows`` less each pair whose chord crosses a declared band-road wall
+    (:data:`BAND_ROAD_WALL_LABEL`) and whose step that wall's declared step
+    covers: the runway-end profile reads the ground beyond a runway end,
+    and the band's wall against a road inside it is lawful there (owner
+    RULINGS 2026-10-19i; #951 round 7, KLAX 33.947324, -118.436533: a
+    1.86 m riser over 3.47 m read as a -53 % end-profile pair)."""
+    walls = [r for r in (terrace_joints_ll or []) if _is_band_road_wall_joint(r)]
+    if not walls or not rows:
+        return rows
+    declared = DeclaredWallSteps(walls, ll_to_m)
+    return [v for v in rows
+            if v.de_m > declared.allowance(v.pt_a[0], v.pt_a[1], v.pt_b[0], v.pt_b[1])]
+
+
+def _terrace_joint_strip_exempt(terrace_joints_ll) -> list:
+    """Per JOINT (index-aligned with :func:`_terrace_joints_to_m`): is it a
+    wall the owner ruled lawful INSIDE a safety-area band?  The band's wall
+    against a road below it (19a / 19i: "the band's edge against the road
+    is a stand-off plus retaining wall") stands in the strip by law, so
+    ``terrace_joint_strip`` (2026-08-01, walls at a runway's edge) does not
+    read it."""
+    return [_is_band_road_wall_joint(r) for r in (terrace_joints_ll or [])
+            if len(r.get("points") or []) >= 2]
+
+
 def _terrace_joint_carried_flags(terrace_joints_ll) -> list:
     """Per JOINT, per POINT: is this stretch of the declared step inside
     a below-grade region a pad/shell CARRIES? (spec
@@ -8615,11 +8654,14 @@ def _check_terrace_joint_crosses_route(terrace_joints_m, routes_ll,
 
 def _check_terrace_joint_in_runway_strip(terrace_joints_m, ways, nodes,
                                          ll_to_m,
-                                         carried_flags=None
+                                         carried_flags=None,
+                                         exempt=None
                                          ) -> List[Violation]:
     """§5(d): a declared joint inside the runway-strip footprint is an
     ERROR — walls at runway edges are NEVER lawful (owner 2026-08-01), and
-    a joint is a wall by construction."""
+    a joint is a wall by construction.  ``exempt`` (index-aligned,
+    :func:`_terrace_joint_strip_exempt`) names the walls ruled lawful in
+    the strip (19i: a band's wall against a road below it)."""
     if not terrace_joints_m:
         return []
     rings = _runway_strip_keepout_rings(ways, nodes, ll_to_m)
@@ -8627,6 +8669,8 @@ def _check_terrace_joint_in_runway_strip(terrace_joints_m, ways, nodes,
         return []
     out: List[Violation] = []
     for j, (pts, step) in enumerate(terrace_joints_m):
+        if exempt and j < len(exempt) and exempt[j]:
+            continue
         for i, (px, py) in enumerate(pts):
             if not any(_point_in_rect_ring(px, py, r, _WALL_STRIP_MARGIN_M)
                        for r in rings):
@@ -8653,8 +8697,18 @@ _TERRACE_ACTUAL_WAY = Way("terrace_step", "retaining_wall",
 # line AND close to each other: a LONG window folds lawful cap-graded
 # relief into the number, which is how the emitter's flank MEANS declared
 # ≤1.994 m while shipping 5.52 m faces (defect D2).
-_TERRACE_STRADDLE_PERP_M = 5.0
-_TERRACE_STRADDLE_PAIR_M = 5.0
+# The window is LAW (``emit.toml [terrace] straddle_perp_m`` /
+# ``straddle_pair_m``): ``pipeline/band_road_wall`` declares the band's wall
+# against a road with the same window (#951).
+try:
+    from auto_patch_v2.law import tables as _V2_STRADDLE_T
+    _TERRACE_STRADDLE_PERP_M = float(
+        _V2_STRADDLE_T.load_default().tables.emit.terrace.straddle_perp_m)
+    _TERRACE_STRADDLE_PAIR_M = float(
+        _V2_STRADDLE_T.load_default().tables.emit.terrace.straddle_pair_m)
+except Exception:                                    # pragma: no cover
+    _TERRACE_STRADDLE_PERP_M = 5.0
+    _TERRACE_STRADDLE_PAIR_M = 5.0
 _TERRACE_STEP_QUANT_M = 0.11        # 2 x emit rounding + weld noise
 # The joint FACE's own width — the band the lower panel retreats by.
 # Read from the emitter's constant so the two never drift.
@@ -11690,6 +11744,13 @@ def cockpit_classify(family: str, row, *, law: dict,
     # wedge with a Steiner cascade wherever it is.
     if cls == "unmeshable":
         return COCKPIT_VISUAL, "unmeshable"
+    # A DECLARED WALL TERRACE IS EXEMPT (owner RULINGS 2026-10-19l, #988: "the census
+    # exempts declared wall terraces", as 19c exempts object-decked
+    # trenches): the groundside cut-back is the step the build stands a band
+    # off a road by on purpose — an in-band road below the band meets it at
+    # a retaining wall (19i) — so the §31 (7) cliff escape never reaches it.
+    if cls == "terrace":
+        return COCKPIT_REPORT, "declared_terrace"
     mag = row_magnitude(row)
     roles = row_roles(row)
     rolled = law["rolled_on"]
@@ -12513,10 +12574,12 @@ def run_checks(
     # shipped OSM to confirm it here is the remaining "purist OSM-path" follow-up.
 
     skirt_edges = _fam("runway_end_skirt",
-                       _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
-                                                     runway_axes_ll,
-                                                     road_cap_governs_ll,
-                                                     end_profile_yields_ll))
+                       _band_road_walls_forgive(
+                           _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
+                                                         runway_axes_ll,
+                                                         road_cap_governs_ll,
+                                                         end_profile_yields_ll),
+                           terrace_joints_ll, ll_to_m))
     _pv("RUNWAY-END PROFILE: ground beyond a runway end outside the "
         "ruleset's end profile (strip cap / near-end cap, 5 % beyond, the "
         "climb surface above, the FAA rate) — RULINGS 2026-10-12q (1)",
@@ -12538,7 +12601,9 @@ def run_checks(
     joint_strip = _fam("terrace_joint_strip",
                        _check_terrace_joint_in_runway_strip(
                            terrace_joints_m, ways, nodes, ll_to_m,
-                           carried_flags=terrace_carried))
+                           carried_flags=terrace_carried,
+                           exempt=_terrace_joint_strip_exempt(
+                               terrace_joints_ll)))
     _pv("APRON TERRACE JOINT inside a RUNWAY STRIP footprint (owner "
         "2026-08-01 — walls at runway edges are NEVER lawful)",
         joint_strip, top_n)

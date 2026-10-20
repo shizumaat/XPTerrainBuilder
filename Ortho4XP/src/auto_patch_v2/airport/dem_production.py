@@ -597,6 +597,13 @@ class ProductionDem:
         adapter clips the core's tile-wide OSM ways to these)."""
         return frozenset(k for k, t in self._tiles.items() if t is not None)
 
+    def water_tile_keys(self) -> tuple[tuple[int, int], ...]:
+        """The 1° tiles :meth:`water_geometry` reads TODAY (every tile the
+        frame has touched, cold or warm) — the part of its answer that
+        grows as a build samples further out, so a memo of a water read
+        keys on it (``planar/zones.shore_region``)."""
+        return tuple(sorted(self._tiles))
+
     def tile_of_many(self, xs: np.ndarray, ys: np.ndarray) -> list[tuple[int, int]]:
         """The 1° tile key of every frame point."""
         lon, lat = self._inv.transform(np.asarray(xs, dtype=np.float64),

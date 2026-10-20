@@ -1,5 +1,8 @@
+import collections
+import contextlib
 import os
 import sys
+import threading
 import time
 import queue
 from math import atan, ceil, floor
@@ -90,6 +93,50 @@ def mask_name_for_texture(tile, til_x_left, til_y_top, zl, *args):
 # texture-side mask is written for it and no land pixel exists in it.
 ALL_WATER_MAX = 30
 
+# THE MASK-SQUARE MEMO (issue #850): ``land_class_for_texture`` crops one
+# texture out of a 4096 px mask square, and a lazily opened PNG decodes the
+# WHOLE square for every crop.  ``build_dsf`` asks for ~16 textures per
+# square (HK +22+113: 240 calls, 16 squares, 22.7 s of PNG decoding), so it
+# holds the decoded squares for the duration of the step.  Scoped to the
+# calling thread (``threading.local``): the imagery workers that read the
+# same squares concurrently keep their own uncached path, and nothing
+# outlives the step.  A hit returns the crop of the same decoded pixels, so
+# the masks and the DSF are byte-identical with and without it.
+_square_memo = threading.local()
+MASK_SQUARE_MEMO_SIZE = 16          # 16 squares x 16 MB (L, 4096 px) peak
+
+
+@contextlib.contextmanager
+def mask_square_memo(max_squares: int = MASK_SQUARE_MEMO_SIZE):
+    """Hold decoded mask squares (LRU, ``max_squares``) on this thread for
+    the ``with`` block; keyed on path, mtime and size."""
+    _square_memo.cache = collections.OrderedDict()
+    _square_memo.max_squares = max_squares
+    try:
+        yield
+    finally:
+        _square_memo.cache = None
+
+
+def _open_mask_square(mask_file):
+    """The mask square at ``mask_file`` as a PIL image — decoded once per
+    :func:`mask_square_memo` scope, lazily opened outside one."""
+    cache = getattr(_square_memo, "cache", None)
+    if cache is None:
+        return Image.open(mask_file)
+    stat = os.stat(mask_file)
+    key = (mask_file, stat.st_mtime_ns, stat.st_size)
+    square = cache.get(key)
+    if square is None:
+        square = Image.open(mask_file)
+        square.load()
+        cache[key] = square
+        if len(cache) > _square_memo.max_squares:
+            cache.popitem(last=False)
+    else:
+        cache.move_to_end(key)
+    return square
+
 
 def land_class_for_texture(tile, til_x_left, til_y_top, zl):
     """THE tri-state land knowledge of one texture: ``(land_class, crop)``.
@@ -117,7 +164,7 @@ def land_class_for_texture(tile, til_x_left, til_y_top, zl):
         )
     if not os.path.isfile(mask_file):
         return "land", None
-    big_img = Image.open(mask_file)
+    big_img = _open_mask_square(mask_file)
     x0 = int(rx * 4096 / factor)
     y0 = int(ry * 4096 / factor)
     small_img = big_img.crop((x0, y0, x0 + 4096 // factor, y0 + 4096 // factor))

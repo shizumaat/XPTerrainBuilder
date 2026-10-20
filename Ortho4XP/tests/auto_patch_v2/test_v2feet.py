@@ -116,3 +116,18 @@ def _rows(law, airside):
         return FR.foot_rows(_PM(airside), law, None)
     finally:
         FR.foot_targets = real
+
+
+def test_relief_is_read_between_components_only():
+    """Owner 2026-10-19 (#799, KDEN by taxiway M5): the feet of ONE
+    component target its lowest foot; relief between components stays."""
+    from auto_patch_v2.constraints.foot_rows import component_floor
+    from auto_patch_v2.planar.group import Foot
+    feet = [Foot(0.0, 0.0, 0.578, 7), Foot(0.0, 1e-5, 0.947, 7),
+            Foot(0.0, 2e-5, 0.275, 7), Foot(1e-5, 0.0, 2.9, 8),
+            Foot(1e-5, 1e-5, 3.1, 8), Foot(2e-5, 0.0, 1.5)]
+    got = [f.y for f in component_floor(feet)]
+    assert got == [0.275, 0.275, 0.275, 2.9, 2.9, 1.5]
+    # the input is untouched and positions carry through
+    assert feet[1].y == 0.947
+    assert [(f.lat, f.lon) for f in component_floor(feet)] == [(f.lat, f.lon) for f in feet]

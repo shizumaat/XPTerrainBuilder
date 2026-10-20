@@ -414,19 +414,43 @@ def test_g3_enter_is_idempotent(q):
             assert shapely.to_wkb(a) == shapely.to_wkb(b)
 
 
-def test_build_time_impact_statement_is_measurable():
-    """§51 (6): ~0.15 s per 10^5 five-vertex parts.  Held here as an ORDER
-    bar only (CI machines vary): 100k parts under 3 s, so a per-geometry
-    Python loop (the ``_rim_index`` 137 s class) cannot pass."""
-    import time
-    n = 100_000
+def _unit_parts(n):
+    """``n`` disjoint five-vertex 2 m squares, the §51 (6) workload."""
     xs = np.arange(n, dtype=float) * 3.0
     rings = np.stack([np.stack([xs, xs + 2, xs + 2, xs, xs], axis=1),
                       np.zeros((n, 5)) + np.array([0.0, 0.0, 2.0, 2.0, 0.0])], axis=2)
-    parts = shapely.polygons(rings)
+    return shapely.polygons(rings)
+
+
+def test_build_time_impact_statement_is_measurable():
+    """§51 (6): ~0.15 s per 10^5 five-vertex parts -- ``enter`` is one C
+    call per step over the whole array, so a per-geometry Python loop
+    (the ``_rim_index`` 137 s class) cannot pass.
+
+    Held as a RATIO on this machine, never a wall bar (#760: windows-latest
+    under xdist read 3.07 s against a 3.0 s bar with the vectorised form
+    intact).  The yardstick is ``enter`` itself driven one part per call --
+    exactly the per-geometry loop the law forbids -- timed beside the
+    whole-array call, best of three each, interleaved so a load spike hits
+    both arms.  The whole-array form measures ~30x cheaper per part
+    (Linux, 2026-10-19); a loop inside ``enter`` would make the two arms
+    equal.  The bar (3x) passes a slow runner and fails the loop."""
+    import time
     mat = obj8.placement_affine((10.0, -10.0), 33.0)
-    t0 = time.perf_counter()
-    out = fe.enter(parts, mat, Q)
-    dt = time.perf_counter() - t0
+    n, k = 20_000, 2_000
+    parts = _unit_parts(n)
+    sample = list(_unit_parts(k))
+    whole, looped = [], []
+    for _ in range(3):
+        t0 = time.perf_counter()
+        out = fe.enter(parts, mat, Q)
+        whole.append((time.perf_counter() - t0) / n)
+        t0 = time.perf_counter()
+        for part in sample:
+            fe.enter([part], mat, Q)
+        looped.append((time.perf_counter() - t0) / k)
     assert int(shapely.is_missing(out).sum()) == 0
-    assert dt < 3.0, f"{dt:.2f} s for {n} parts — the vectorised form is required"
+    per_part, per_call = min(whole), min(looped)
+    assert per_part * 3.0 < per_call, (
+        f"{per_part * 1e6:.1f} us/part whole-array vs {per_call * 1e6:.1f}"
+        " us/part one call per part -- the vectorised form is required")

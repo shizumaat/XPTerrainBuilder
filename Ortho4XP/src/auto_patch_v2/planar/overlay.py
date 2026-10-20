@@ -329,6 +329,10 @@ def build_arrangement(airport: Airport, classification: Classification,
                     out.append(LineString(ring))
         return out
 
+    # #770: the ZONES are not in pass A — pass A0 is the airside alone
+    # (``planar/zone_pass``); the zones join its result below
+    zone_regs = [r for r in base_regions if r.source == "zone"]
+    base_regions = [r for r in base_regions if r.source != "zone"]
     lines: list[LineString] = _ring_lines_of(base_regions)
 
     sources: list[SourceLine] = [SourceLine("runway_profile", ref, line)
@@ -350,6 +354,7 @@ def build_arrangement(airport: Airport, classification: Classification,
     noded_a = shapely.unary_union(unary_union(lines), grid_size=grid)
     if noded_a.geom_type == "LineString":
         noded_a = MultiLineString([noded_a])
+    air = shapely.set_precision(airside_union(base_regions, law), grid)
 
     # PASS B — the pads, clipped BY the airside cells pass A just fixed and
     # taking THEIR nodes (§16g (10) (12) (1)).  ``air`` is pass A's own
@@ -359,7 +364,6 @@ def build_arrangement(airport: Airport, classification: Classification,
     # quantise to is the ARRANGEMENT's node set, not the region ring's
     # (which stands a full 60 m chord apart and is why 75 of HECA's
     # crossings had no node to reach).
-    air = shapely.set_precision(airside_union(base_regions, law), grid)
     nodes_a = _node_coords(noded_a)
     rim = build_rim(air, law, nodes_a)
     if not keeps:
@@ -394,13 +398,24 @@ def build_arrangement(airport: Airport, classification: Classification,
     # the ones standing there AFTER.  ``deleted`` and ``minted`` are both
     # the defect; the bar is 0.
     _pad_clip.update(_renode_counts(nodes_a, _node_coords(noded), air))
+    # PASS A1 (#770) — THE ZONES join the finished airside and its pads,
+    # taking THEIR rim nodes and running nothing along or inside them
+    # (``planar/zone_pass``): a zone-width change moves no airside vertex
+    from .zone_pass import join_zones
+    air_nodes = set(_node_coords(noded))
+    hold = shapely.set_precision(unary_union(
+        [air, *(r.polygon for r in pad_regions)]), grid)
+    noded, _zone_counts = join_zones(noded, zone_regs, hold, law, float(grid),
+                                     _ring_lines_of)
+    _pad_clip.update(_zone_counts)
+    regions = base_regions + zone_regs + pad_regions
     frozen = None
     if ribbon_cells:
         from .ribbons import _ribbons_pass_c   # lazy: ribbons imports this module
         nodes_b = _node_coords(noded)
         noded, regions, frozen, air_f, base_order = _ribbons_pass_c(
-            ribbon_cells, noded, noded_a, pad_lines, regions, bands, law, keeps,
-            float(grid), _ring_lines_of, _pad_clip, reg)
+            ribbon_cells, noded, noded, [], regions, bands, law, keeps,
+            float(grid), _ring_lines_of, _pad_clip, reg, air_nodes=air_nodes)
         if frozen is not None:
             _pad_clip.update({f"ribbon_{k}": v for k, v in _renode_counts(
                 nodes_b, _node_coords(noded),
@@ -413,7 +428,8 @@ def build_arrangement(airport: Airport, classification: Classification,
         noded, regions, bands, law, keeps, frozen,
         air_f if frozen is not None else None,
         base_order[0] if frozen is not None else None,
-        base_order[1] if frozen is not None else None, reg=reg)
+        base_order[1] if frozen is not None else None, reg=reg,
+        air_nodes=air_nodes)
     if frozen is not None:
         # 30aa rule 10 / 30z (1) AT THE DERIVATION SITE: the airside's own
         # vertex set (aircraft pavement + pads) with the ribbons against the
@@ -648,7 +664,8 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                           host_roles: tuple[str, ...] = (),
                           refuse_roles: tuple[str, ...] = (),
                           frozen: "set | None" = None,
-                          hosts_seen: "dict | None" = None
+                          hosts_seen: "dict | None" = None,
+                          air_nodes: "set | None" = None
                           ) -> tuple[list[tuple[Polygon, Region]], int, int,
                                      float, tuple]:
     """§41 (4) — A SLIVER ZONE STRIP IS DISSOLVED (owner RULINGS
@@ -686,7 +703,14 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
     the next host, else the DEM owns it.  A sliver pass A made alone
     dissolves exactly as it always did — into the host it took there
     (``hosts_seen``: sliver geometry -> host ref, recorded by that run and
-    read back by this one, so an order-broken tie resolves the same)."""
+    read back by this one, so an order-broken tie resolves the same).
+
+    ``air_nodes`` (#770, *airside is king*): the node set the AIRSIDE
+    fixed alone (``build_arrangement``'s pass A0, before any zone).  A
+    sliver carrying a coordinate outside it never grows an aircraft-
+    pavement host either — the zone's own nodes would become airside
+    vertices, so a zone-width change would re-node the pavement (measured
+    CYXY: the last 9 gone / 17 new airside vertices of a 5 m change)."""
     if (area_min_m2 <= 0.0 and width_min_m <= 0.0) or not faces:
         return faces, 0, 0, 0.0, ()
     tree = STRtree([p for p, _r in faces])
@@ -697,8 +721,9 @@ def dissolve_sliver_zones(faces: list[tuple[Polygon, Region]],
                    key=lambda i: faces[i][0].area)
 
     def _thawed(poly) -> bool:
-        return frozen is not None and any(
-            (float(x), float(y)) not in frozen
+        fixed = air_nodes if air_nodes is not None else frozen
+        return fixed is not None and any(
+            (float(x), float(y)) not in fixed
             for ring in (poly.exterior, *poly.interiors) for x, y in ring.coords)
     dissolved = dropped = 0
     area = 0.0

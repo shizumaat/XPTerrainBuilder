@@ -885,7 +885,8 @@ def build_shapes(pm: PlanarMap, law: Law, airport: Airport,
     if not label:
         stats.wall_s = time.perf_counter() - t0
         return pm, stats
-    keep = strip_keepout(classification, law) if classification is not None else None
+    keep = (strip_keepout(classification, law, getattr(airport, "runways", ()))
+            if classification is not None else None)
     uf = _weld_strip(pm, label, keep, stats)
     weld_same_role_mouths(pm, law, label, N, uf, stats)   # 30bk: one apron, one shape
     # 10-02v (2) (issues #189 / #253): AN APRON FACE NEVER CARRIES A

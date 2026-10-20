@@ -141,11 +141,24 @@ def test_a_library_path_that_does_not_resolve_is_missing(tmp_path):
     assert [(m.path, m.uses) for m in got] == [("vendor/gone.obj", 1)]
 
 
-def test_stock_lib_builtin_water_and_raster_are_never_missing(tmp_path):
-    dump = ("TERRAIN_DEF terrain_Water\nOBJECT_DEF lib/g10/autogen/x.ags\n"
-            "RASTER_DEF elevation\nOBJECT 0 1 2 3\n")
+def test_builtin_water_and_raster_are_never_missing(tmp_path):
+    dump = ("TERRAIN_DEF terrain_Water\nRASTER_DEF elevation\n"
+            "OBJECT 0 1 2 3\n")
     pack, _ = _pack(tmp_path, dump=dump)
     assert _missing(pack, dump) == ()
+
+
+def test_a_stock_lib_path_resolves_like_any_other(tmp_path):
+    """Issue #442: no blanket exemption — a ``lib/`` path no library
+    exports is missing; one the index (or another directive) has is not."""
+    dump = ("OBJECT_DEF lib/g10/autogen/x.ags\nOBJECT_DEF lib/gone.obj\n"
+            "OBJECT_DEF lib/seasonal.for\nOBJECT 0 1 2 3\nOBJECT 1 1 2 3\n"
+            "OBJECT 2 1 2 3\n")
+    phys = _write(tmp_path / "lib_pack" / "x.ags")
+    pack, _ = _pack(tmp_path, dump=dump)
+    got = _missing(pack, dump, {"lib/g10/autogen/x.ags": str(phys)},
+                   also=lambda: {"lib/seasonal.for"})
+    assert [m.path for m in got] == ["lib/gone.obj"]
 
 
 def test_another_export_directive_keeps_a_name_present(tmp_path):

@@ -603,6 +603,12 @@ class PlanarMap:
     #: vertex to ITS runway's edges.  Empty on a map pickled before it —
     #: the join then falls back to the code-number class.
     zone_runway_of_ref: _t.Mapping[str, str] = _dc.field(default_factory=dict)
+    #: THE INSTRUMENT STATUS of each runway, by runway id (#811;
+    #: ``law.reference_code.status_by_ref``): the readers of a runway FACE's
+    #: zone reach (``tables.zone_edge_offset_m``) key it by the face's ref
+    #: through ``reference_code.ref_status``.  Empty on a map pickled before
+    #: it — every runway then reads non-instrument.
+    runway_status_of_ref: _t.Mapping[str, int] = _dc.field(default_factory=dict)
     #: §37 (11) (2) THE QUAY (owner RULINGS 2026-09-15f item 2): the refs
     #: of the adjacent-ground regions that REACH the coastline.  Their
     #: land is narrower than lip + half-width by construction, so it is

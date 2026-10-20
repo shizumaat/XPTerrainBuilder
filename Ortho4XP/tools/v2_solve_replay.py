@@ -1175,6 +1175,7 @@ def reclassify(pkl: Path, rule: dict[str, object],
     from auto_patch_v2.classify import classify, load_rules
     from auto_patch_v2.classify.roles import shoulder_band
     from auto_patch_v2.law import Law
+    from auto_patch_v2.law.reference_code import runway_status
     from auto_patch_v2.law.tables import zone2_half_width_m
     from shapely.geometry import Point, Polygon
 
@@ -1226,7 +1227,8 @@ def reclassify(pkl: Path, rule: dict[str, object],
         rw = rw_of.get(c.ref)
         if rw is None:
             continue
-        hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter) or 0.0
+        hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
+                                runway_status(rw)) or 0.0
         off = _lat_off(c.ring, rw)
         worst = max(worst, off)
         band = shoulder_band(

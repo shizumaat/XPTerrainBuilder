@@ -77,3 +77,12 @@ def test_the_bending_is_cut_across_the_riser(arm):
     upper = set().union(*(up for _f, _l, up in band_risers(pm)))
     assert all((a in lower) != (b in lower) for a, b in cut)
     assert any(a in upper or b in upper for a, b in cut)
+
+
+def test_the_end_profile_row_is_read_by_its_own_spelling():
+    """``constraints/band_riser`` quotes the runway-end profile chord row's
+    generator and ruling head rather than importing ``strips`` (the stage
+    closure): the quote must stay the row's own spelling."""
+    from auto_patch_v2.constraints import band_riser, strips
+    assert strips.GEN == band_riser._STRIPS_GEN
+    assert strips.END_PROFILE_RULING.startswith(band_riser._END_CHORD)

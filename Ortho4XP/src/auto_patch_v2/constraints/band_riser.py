@@ -60,7 +60,7 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet,
                               "standoffs": len(standoffs)}
     from .band_standoff import band_wall_vertices
     wall = band_wall_vertices(planar, law)
-    graded = _graded_rows(planar, law, levels or {}, wall)
+    graded = _graded_rows(planar, law, levels or {}, wall, cs)
     rep["graded"] = len(graded)
     if not risers:
         floors = _standoff_floors(standoffs, set())
@@ -173,7 +173,8 @@ GRADED_RULING = ("band graded level at a wall (owner 2026-10-19, #951 spec Q11: 
 
 
 def _graded_rows(planar: PlanarMap, law: Law, levels: _t.Mapping[int, float],
-                 wall: _t.AbstractSet[int]) -> list[Band]:
+                 wall: _t.AbstractSet[int], cs: ConstraintSet | None = None
+                 ) -> list[Band]:
     """AT THE WALL THE BAND HOLDS ITS OWN GRADED LEVEL (owner 2026-10-19,
     #951 spec Q11: it does not fall to raw DEM).  Per band vertex at a wall
     (``constraints/band_standoff.band_wall_vertices``), a floor at the
@@ -199,8 +200,20 @@ def _graded_rows(planar: PlanarMap, law: Law, levels: _t.Mapping[int, float],
     from scipy.spatial import cKDTree
     ids = sorted(feet)
     tree = cKDTree([planar.vertices[v].xy for v in ids])
+    end = _end_profile_levels(cs, levels, wall) if cs is not None else {}
     out: list[Band] = []
     for v in sorted(wall):
+        if v in end:
+            # IN A RUNWAY END AREA THE GRADED LEVEL IS THE END PROFILE'S
+            # (round 5): the runway-end profile chord row the ``strips``
+            # generator already states for this vertex is the one law there
+            # — the lowest level it allows there, never the nearest
+            # pavement zone's (MEASURED round 4: the zone's level lifted
+            # end-area band vertices above the end profile, KBUR
+            # ``runway_end_skirt`` 3 -> 16, worst 1.57 m)
+            out.append(Band(int(v), end[v], None,
+                            Source(GEN, GRADED_RULING, (f"vertex:{v}",))))
+            continue
         d, j = tree.query(planar.vertices[v].xy)
         p = ids[int(j)]
         f = feet[p]
@@ -209,4 +222,39 @@ def _graded_rows(planar: PlanarMap, law: Law, levels: _t.Mapping[int, float],
             continue
         out.append(Band(int(v), float(levels[p]) + min(ce, 0.0), None,
                         Source(GEN, GRADED_RULING, (f"vertex:{v}",))))
+    return out
+
+
+#: ``constraints/strips``' generator name and its ``END_PROFILE_RULING``'s
+#: head, quoted rather than imported: ``strips`` pulls the whole end-area
+#: closure into every stage that rewrites the road (``stage_code``)
+_STRIPS_GEN = "strips"
+_END_CHORD = "rulesets.end_skirt runway-end profile chord"
+
+
+def _end_profile_levels(cs: ConstraintSet, levels: _t.Mapping[int, float],
+                        wall: _t.AbstractSet[int]) -> dict[int, float]:
+    """``{vertex: level}`` for the wall vertices a runway-end profile chord
+    row governs (``constraints/strips``' ``END_PROFILE_RULING``, ``z[v] -
+    foot`` within its bounds, the foot on stage-1 levels): the level of the
+    foot moved by the row's FLOOR: the lowest level the profile allows there
+    — the band falls along the end profile as far as it lets it and no
+    further, never to raw DEM below it (round 5 iteration 1 held it flush
+    with the end instead: KLAX ``strip_seam_tear`` 4 -> 104, worst 6.6 m)."""
+    out: dict[int, float] = {}
+    for r in cs.linears:
+        if r.source.generator != _STRIPS_GEN or not r.source.ruling.startswith(_END_CHORD) \
+                or not isinstance(r.follows, int):
+            continue
+        v = r.follows
+        if v not in wall or not r.terms or r.terms[0] != (v, 1.0):
+            continue
+        feet = r.terms[1:]
+        if not feet or any(u not in levels for u, _c in feet):
+            continue
+        if r.lo is None:
+            continue
+        foot = -sum(c * float(levels[u]) for u, c in feet)
+        lvl = foot + float(r.lo)
+        out[v] = lvl if v not in out else max(out[v], lvl)
     return out

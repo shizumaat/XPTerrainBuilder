@@ -320,3 +320,66 @@ within 4 weld spacings of the kerb.
 - KBUR/KLAX `runway_end_skirt` rows are new: the Q11 graded floor (zone
   ceiling off the nearest pavement) lifts band vertices in a runway END
   area above the end-skirt profile there.
+
+### 7.4 Round 5 (the master's last round on #951)
+
+- **The walls are declared at their actual height along the whole strip.**
+  `pipeline/band_road_wall` declares one `wall_terrace` record per segment
+  of each riser's midline, at the largest step between a vertex on one side
+  and one on the other within four weld spacings (band, road, or the next
+  road across a narrow band). The owner ruled walls in safety areas
+  correct, so the KLAX taxiway-F roads at their ground, 3–4 m under the
+  band, are lawful walls; the roads are not raised.
+- **In a runway end area the graded level is the end profile's.** Q11's
+  floor for a wall vertex the `strips` runway-end profile chord row governs
+  is that row's own level — its foot on stage-1 levels moved by the bound
+  nearest zero — never the nearest pavement zone's
+  (`constraints/band_riser._end_profile_levels`, at the one derivation site
+  of the graded floor).
+- **KNOWN RESIDUAL — KBUR building9 corner (34.19628, −118.35023), not
+  declared.** In the PLANAR map the band ring
+  (`adjacent_ground:taxi:C:zone2#36`) and the `dsf:pol122` road page's ring
+  stand 2.1–2.9 m apart edge to edge, wider than the stand-off the zone
+  cut-back makes (`groundside_cutback_m` + weld + snap = 1.95 m), so no
+  stand-off pair is formed from either side; the census's 1.12 m reading is
+  between EMITTED vertices. Why the planar gap is wider than the cut-back law
+  is not attributed (filed by the master). The step reads only as the
+  `groundside_cutback` terrace class (19l), 2.69 m over 1.12 m.
+
+Measured (frames/c944 `--from planar`, base = main d384d336c; STOPPED at the
+cap, bar NOT met):
+
+| | KBUR main → r5 | KLAX main → r5 |
+|---|---|---|
+| `strip_seam_tear` | 0 → 2 (1.03 m) | 4 → 45 (4.6 m; 41 at taxiway F 33.934–33.941, −118.396) |
+| `adjacent_ground_step` | 3 → 10 (1.03 m; 5 at the #949 road 34.197, −118.349) | 5 → 14 (3.68 m) |
+| `terrace_actual_step` | 0 → 0 | **0 → 0** (round 4: 6) |
+| `runway_end_skirt` | 3 → 16 (1.57 m, unchanged) | **1 → 0** |
+| `pavement_over_road_cap` | 0 → 1 (0.21 m) | 0 → 1 (0.15 m) |
+| hairline in scope | 0 → 0 | 0 → 0 |
+
+Iteration 1 held the end-area band FLUSH with the runway end (the bound
+nearest zero): KLAX `strip_seam_tear` 4 → 104 (6.6 m), KBUR
+`runway_end_skirt` → 33. Iteration 2 holds it at the end profile's lowest
+lawful level: KLAX's end skirt clears, KBUR's 16 rows are untouched (their
+vertices carry no end-profile chord row, so the zone level still lifts
+them).
+
+The per-segment declaration cleared `terrace_actual_step`, but the
+band-to-road `strip_seam_tear` / `adjacent_ground_step` chords at taxiway F
+are not forgiven: those census readings pair nodes 1–4.5 m apart whose
+chord does not cross a declared segment (the riser midline runs only where
+the riser face is; the chords run past its ends and between the ribbons'
+own split pieces). Round 4 (`1a14e3965`) read KLAX `strip_seam_tear` 14.
+
+### 7.5 Handoff (lane m3 → the next lane, 2026-10-20)
+
+This branch is round 4 (`1a14e3965`) plus round 5's end-area change (`band_riser._end_profile_levels`: in a runway end area the wall's graded floor is the end-profile chord row's lowest lawful level). Round 5's per-segment wall declaration (§7.4 item 1) is NOT on this branch; it is kept on the local branch `m3-951-r5-backup` (fd8c32ca6). Its measurement against main d384d336c was: `terrace_actual_step` cleared, but KLAX `strip_seam_tear` went from 14 to 45.
+
+Open problems:
+1. **Taxiway F, KLAX (33.934–33.941, −118.396).** The in-band roads sit 3–4 m under the band, and these are lawful walls ("for roads in safety area, wall is correct"). The census's band-to-road chords there are 1–4.5 m long and run past the wall-strip ends and between the ribbons' split pieces, so they cross no declared line. The next move is probably a declaration along the band's own edge facing the road, not the riser midline, or an extension through the riser's ends.
+2. **The KLAX wall site (33.945963, −118.436316).** It read clean in round 4 and showed one `adjacent_ground_step` of 0.83 m over 1.0 m in round 5. Re-measure it on this branch first.
+3. **KBUR end-skirt rows (34.214, −118.362 and 34.193, −118.356; `runway_end_skirt` 3 → 16).** Their wall vertices carry no runway-end profile chord row, so the graded floor still comes from the zone off the nearest pavement and lifts them above the end profile. Find which end-area rule binds those vertices (`strips.end_band_vertices`, or the transect / foot rows) and read the floor from that rule.
+4. **KBUR building9.** This is the known planar-gap residual in §7.4; the master is filing it.
+
+Replay recipe: frames/c944 KBUR and KLAX `--replay --from planar --emit`, plus a fresh main base for each, then `tools/harness/census.py` from this branch's tree. That tree carries the 19l exemption.

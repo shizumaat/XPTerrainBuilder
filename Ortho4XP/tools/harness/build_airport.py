@@ -4285,6 +4285,11 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         prog.note("DEGRADED (accepted by flag): " + msg)
     verify = (res.report.get("verify") or {}).get("by_family")
     verify_defects = (res.report.get("verify") or {}).get("defects") or {}
+    creation_s = res.report.get("creation_s")
+    if creation_s is not None:
+        # owner decision D4: the patch's creation time, verify off it
+        prog.note(f"created {tag} [v2] in {creation_s:.1f}s (pipeline clock; "
+                  f"verify {res.wall.get('verify', 0.0):.1f}s ran after it)")
     prog.note(f"built {tag} [v2] in {dt:.1f}s  ways={res.paths.ways}  "
               f"nodes={res.paths.nodes}  status={status}  -> {osm}  "
               f"sidecar={'OK' if side.exists() else 'MISSING'}  "
@@ -4320,6 +4325,7 @@ def build_patch_v2(icao: str, root: Path, out_dir: Path, tag: str,
         "geometry_only": False,
         "engine_solve_model": None,
         "build_seconds": round(dt, 1), "shapes": res.paths.ways,
+        "creation_seconds": res.report.get("creation_s"),
         "body_sha256": body_sha256(osm),
         "sidecar_present": side.exists(),
         "write_guard_armed": guard.enabled,

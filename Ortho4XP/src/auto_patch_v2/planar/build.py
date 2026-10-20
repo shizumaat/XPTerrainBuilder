@@ -324,7 +324,8 @@ def build(airport: Airport, classification: Classification, law: Law,
         ring = walk(poly.exterior.coords, fid)
         holes = tuple(walk(h.coords, fid) for h in poly.interiors)
         faces[fid] = Face(fid, region.role, region.ref, ring, holes,
-                          region.code_number, region.code_letter, region.side)
+                          region.code_number, region.code_letter, region.side,
+                          bool(getattr(region, "road_by_proportions", False)))
         stats.faces_by_role[region.role] = stats.faces_by_role.get(region.role, 0) + 1
         stats.area_by_role_m2[region.role] = \
             stats.area_by_role_m2.get(region.role, 0.0) + poly.area

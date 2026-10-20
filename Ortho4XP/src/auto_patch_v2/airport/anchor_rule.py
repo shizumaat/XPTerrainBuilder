@@ -1056,6 +1056,7 @@ def _generic_anchor(body_class: BodyClass, geom: BodyGeometry,
     # every GROUND-CONTACT VERTEX of the body (a part with no feet stands
     # in for itself at its own base), read against the design surface
     cands: list[tuple[float, float, float, float]] = []
+    standins: set[tuple[float, float, float, float]] = set()
     for la, lo, base_y, feet in geom.parts:
         if skip_standins and not feet:
             continue
@@ -1063,6 +1064,8 @@ def _generic_anchor(body_class: BodyClass, geom: BodyGeometry,
             z = surface(f[0], f[1])
             if z is not None:
                 cands.append((float(f[0]), float(f[1]), float(f[2]), float(z)))
+                if not feet:
+                    standins.add(cands[-1])
     if not cands:
         la, lo, y = _lowest_part(geom)
         return Anchor(body_class, la, lo, y,
@@ -1124,13 +1127,43 @@ def _generic_anchor(body_class: BodyClass, geom: BodyGeometry,
                           best[3])
         # 11e (2): authored relief beyond the body's skirt — no point on
         # the footprint stands where the surface equals the zero
-        low = min(cands, key=lambda c: (c[3], c[2], c[0], c[1]))
+        low, tied = _low_side_foot(cands, standins)
+        tie = (f"; {tied} contact heights tie on its ground (#1086)"
+               if tied > 1 else "")
         return Anchor(body_class, low[0], low[1], low[2],
                       f"low-side foot (no point within {tol_m:g} m of the body's "
-                      f"zero plane: terrain spread {residual:.2f} m)"
+                      f"zero plane: terrain spread {residual:.2f} m{tie})"
                       + on_pad, low[3])
     return Anchor(body_class, best[0], best[1], best[2],
                   "surface at the body's zero" + on_pad, best[3])
+
+
+def _low_side_foot(cands: _t.Sequence[tuple[float, float, float, float]],
+                   standins: _t.Container[tuple[float, float, float, float]]
+                   ) -> tuple[tuple[float, float, float, float], int]:
+    """11e (2)'s LOW-SIDE FOOT over ``(lat, lon, y, z)`` contacts, and how
+    many distinct authored heights tie on its ground (1: no tie to
+    decide).  Ground is compared at 1e-6 m, as the best-foot key is: on a
+    flat pad the "lowest" ground otherwise differs by float noise
+    (~1e-16) and a re-triangulation flips the seat.
+
+    A tie goes to the HIGHEST REAL FOOT (owner #1086, 2026-10-20: "seated
+    on its highest foot, so nothing floats" -- the deeper tied footings
+    bury), then to the southern/western one.  A STAND-IN -- a footless
+    part's own base, in ``standins`` -- is not a foot: it never wins a tie
+    over one, and among stand-ins alone the LOWEST base seats the body
+    (as :func:`_lowest_part` does).  Measured on OTHH before ruling the
+    stand-ins out: the highest tied contact of TerminalRoads_03_003 b0 is
+    a deck part's base at y +8.25 and Terminal_Interior_8_4 b0's one at
+    +39.9, which would have buried those bodies 9.7 m and 36 m."""
+    def key(c):
+        si = c in standins
+        return (round(c[3], 6), si, c[2] if si else -c[2], c[0], c[1])
+
+    low = min(cands, key=key)
+    tied = len({round(c[2], 6) for c in cands
+                if round(c[3], 6) == round(low[3], 6)})
+    return low, tied
 
 
 def _basin_rim_anchor(geom: BodyGeometry, surface: Surface,

@@ -46,11 +46,13 @@ import dataclasses as _dc
 import statistics as _st
 import typing as _t
 
+from shapely.errors import GEOSException
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..geom.parts import nonempty_polygon_parts
+from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX, plane_ref
 from ..model.registries import Registries
 
@@ -92,7 +94,14 @@ def _ring_poly(rg, to_xy) -> "Polygon | None":
 def plan_low(P, air, airport, law, grid: float, others=None
              ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, low, strip, record)`` for one held pad ``P`` (module
-    docstring), or ``None`` where its unit carries no lower storey."""
+    docstring), or ``None`` where its unit carries no lower storey.
+
+    EVERY OPERAND IS A VALID AREA (#1098): a held pad, the apron or a
+    neighbour pad may arrive self-touching or on a fixed precision model,
+    and an overlay of the low region against it then raised ``side
+    location conflict`` and cost the airport its whole patch (EDDF).
+    ``geom/valid_area`` reads each one's area before it is cut."""
+    P, air = valid_area(P), valid_area(air)
     bp = law.tables.structures.building_pad
     step_min = float(getattr(bp, "low_level_min_step_m", 0.0) or 0.0)
     if step_min <= 0.0:
@@ -122,7 +131,7 @@ def plan_low(P, air, airport, law, grid: float, others=None
     if not polys:
         return None
     L = unary_union(polys).buffer(near, join_style=2).buffer(-near, join_style=2)
-    L = L.intersection(P).difference(air.buffer(near, join_style=2))
+    L = valid_area(valid_area(L.intersection(P)).difference(air.buffer(near, join_style=2)))
     w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
     if others is not None and not others.is_empty:
         # ANOTHER PAD the low level touches keeps its own floor (two pads
@@ -130,7 +139,7 @@ def plan_low(P, air, airport, law, grid: float, others=None
         # riser runs along it too, never one vertex at two levels
         # (MEASURED KATL: ``building34`` / ``building36`` at the apron's level
         # shared 10 vertices with the low level and held it up)
-        L = L.difference(others.buffer(w, join_style=2))
+        L = valid_area(L.difference(valid_area(others).buffer(w, join_style=2)))
     keep = [q for q in nonempty_polygon_parts(L) if q.area >= pmin]
     # A STOREY OF THE UNIT, not a sill: the low level is a unit pad's worth
     # of ground (``[placement] cluster_pad_min_m2``, the §30 (4) bar) —
@@ -138,9 +147,9 @@ def plan_low(P, air, airport, law, grid: float, others=None
     # 3 m drop of ground the apron holds, and the band was relaxed
     if sum(q.area for q in keep) < float(law.tables.structures.placement.cluster_pad_min_m2):
         return None
-    L = unary_union(keep)
-    S = P.intersection(L.buffer(w, join_style=2)).difference(L)
-    H = P.difference(L.buffer(w, join_style=2))
+    L = valid_area(unary_union(keep))
+    S = valid_area(valid_area(P.intersection(L.buffer(w, join_style=2))).difference(L))
+    H = valid_area(P.difference(L.buffer(w, join_style=2)))
     if H.is_empty or H.area < pmin:
         return None                  # the frontage block must stay a block
     y_floor = min(p.base_y for p in low_parts) - t
@@ -207,7 +216,15 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
             continue
         others = unary_union([r.polygon for r in out if str(r.ref) != ref
                               and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
-        got = plan_low(P, air, airport, law, grid, others)
+        try:
+            got = plan_low(P, air, airport, law, grid, others)
+        except GEOSException as exc:
+            # an overlay GEOS still refuses on valid areas: the block stays
+            # ONE level (the pre-#809 pad) and the refusal is counted, never
+            # a lost airport (#1098)
+            counts["low_level_refused"] = counts.get("low_level_refused", 0) + 1
+            counts.setdefault("low_level_refused_list", []).append(f"{ref}: {exc}")
+            continue
         if got is None:
             continue
         H, L, S, rec = got

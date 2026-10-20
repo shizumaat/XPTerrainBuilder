@@ -23,6 +23,7 @@ from . import bulk_geos as _bulk
 from . import frame_entry as _fe
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
+from .obj8_clip import _plan_admitted
 from ..geom.union_find import find_root
 from ..geom.vector import chord_bearing_mod180
 
@@ -215,7 +216,9 @@ def _plan_polys(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float],
     applies to them: the coordinates are snapped to ``q`` with the SAME
     ``rint(c / q) * q`` arithmetic before the rings are built, so the
     three platforms hold identical doubles here too.  The vectorised
-    valid-and-area filter stays; its floor is the derived one grid cell.
+    valid-and-area filter is the shared admission
+    (:func:`obj8_clip._plan_admitted`, #581); its floor is the derived one
+    grid cell.
     """
     if tris.shape[0] == 0:
         return []
@@ -228,7 +231,7 @@ def _plan_polys(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float],
         ys = np.rint(ys / q) * q
     polys = shapely.polygons(np.stack([xs, ys], axis=2))
     floor = q * q if q > 0.0 else 1e-9
-    ok = shapely.is_valid(polys) & (shapely.area(polys) > floor)
+    ok = _plan_admitted(pts, polys, floor)
     return [p for p, k in zip(polys, ok.tolist()) if k]
 
 

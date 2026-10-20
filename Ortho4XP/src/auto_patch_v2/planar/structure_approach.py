@@ -39,7 +39,7 @@ __all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chai
            "resample",
            "mouths", "FieldRegion", "cover_polygons", "standing_cover", "cut_gap_cells", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge",
            "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground",
-           "road_index", "road_end_m"]
+           "road_index", "road_end_m", "crossing_roads"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
 NODE_TOL = 0.05
@@ -276,12 +276,60 @@ def road_index(ways: _t.Sequence[OsmWay],
                admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES
                ) -> "tuple[list[LineString], STRtree | None]":
     """The mapped roads a ramp may follow — every non-tunnel ``highway`` /
-    ``railway`` way the approach walk reads (:func:`approach`) — as lines
-    and their tree, built once per pass for :func:`road_end_m`."""
-    lines = [LineString(w.points) for w in ways
-             if len(w.points) >= 2 and not is_tunnel(w, admitted)
-             and ("highway" in w.tags or "railway" in w.tags)]
-    return lines, (STRtree(lines) if lines else None)
+    ``railway`` way the approach walk reads (:func:`approach`) — as
+    ``(lines, tree, ways)``, built once per pass for :func:`road_end_m` and
+    :func:`crossing_roads`."""
+    kept = [w for w in ways if len(w.points) >= 2 and not is_tunnel(w, admitted)
+            and ("highway" in w.tags or "railway" in w.tags)]
+    lines = [LineString(w.points) for w in kept]
+    return lines, (STRtree(lines) if lines else None), kept
+
+
+#: A way the corridor axis stays within ``_ALONG_TOL_M`` of for longer than
+#: ``_ALONG_MIN_M`` is a road the ramp runs ALONG (its own, or its other
+#: feed's copy); a road crossing it meets the axis for ~twice the tolerance.
+_ALONG_TOL_M = 0.5
+_ALONG_MIN_M = 3.0
+
+
+def crossing_roads(axis: LineString, index, law: Law,
+                   routes: _t.Sequence[_t.Sequence[XY]] = ()) -> list[tuple[Polygon, str]]:
+    """THE RAMP NEVER GOES THROUGH ANOTHER ROAD (owner, #1028 Q32): every
+    mapped road of ``index`` (:func:`road_index`) that passes THROUGH the
+    corridor axis, as its carriageway polygon (the way buffered by half its
+    mapped width, ``carriageway_width_m``) and ``osm:<id>`` — a stop the
+    ramp's top is trimmed at like any other (``structures.
+    build_structures``'s truncation loop).  Not a road through it: a road
+    the axis or one of ``routes`` (the members' own approaches) runs ALONG
+    (the ramp's own road, or its other feed's copy), a road that only ENDS
+    on the axis (a junction with the ramp's road), and a road on a bridge
+    over it (its deck, §34 (12) (4)).  Roads the classification carries as
+    cells already stop it (``structure_mouth`` clause 4); this reads the
+    mapped way, so a road beyond the classified cover stops it too."""
+    lines, tree, ways = index
+    if tree is None:
+        return []
+    own = [axis] + [LineString(r) for r in routes if len(r) >= 2]
+    out = []
+    for j in tree.query(axis, predicate="intersects"):
+        ln, w = lines[int(j)], ways[int(j)]
+        if is_bridge(w):
+            continue
+        band = ln.buffer(_ALONG_TOL_M)
+        if any(r.intersection(band).length > _ALONG_MIN_M for r in own):
+            continue                                   # the road the ramp runs along
+        ends = (Point(ln.coords[0]), Point(ln.coords[-1]))
+        hits = [g for g in shapely.get_parts(axis.intersection(ln)) if g.geom_type == "Point"]
+        if not any(min(g.distance(e) for e in ends) > _ALONG_MIN_M for g in hits):
+            continue                                   # it ends on the axis: a junction
+        out.append((ln.buffer(carriageway_width_m(w.tags, law) / 2.0, cap_style="flat"),
+                    f"osm:{w.id}"))
+    return out
+
+
+#: A corridor whose mouth stands off the road it then joins (a plate's end,
+#: §33 (2)) is on that road if it reaches it within this many half widths.
+_JOIN_LEAD = 4.0
 
 
 def road_end_m(axis: LineString, index, reach: float, step: float) -> float | None:
@@ -293,10 +341,12 @@ def road_end_m(axis: LineString, index, reach: float, step: float) -> float | No
     into another tunnel — as a straight line; that line is no road, and a
     ramp run along it crosses whatever lies there (measured EDDF bore
     −20307: 125 m of ramp diagonally across an apron past the service
-    road's junction with the next bore).  ``None`` where the axis leaves
-    no road, or never stood on one (a bore end no way continues: its own
-    line is the only reading)."""
-    lines, tree = index
+    road's junction with the next bore).  ``None`` where the axis never
+    leaves the road, and where it reaches none within ``_JOIN_LEAD`` half
+    widths of its mouth (a bore end no way continues: its own line is the
+    only reading, and the crossing roads and pavement stop it,
+    :func:`crossing_roads`)."""
+    lines, tree = index[0], index[1]
     if tree is None or axis.length <= 0.0:
         return None
 
@@ -304,9 +354,12 @@ def road_end_m(axis: LineString, index, reach: float, step: float) -> float | No
         p = axis.interpolate(s)
         return any(lines[int(j)].distance(p) <= reach
                    for j in tree.query(p, predicate="dwithin", distance=reach))
-    if not on_road(0.0):
-        return None
-    s = step
+    s = 0.0
+    while not on_road(s):
+        s += step
+        if s > _JOIN_LEAD * reach:
+            return None     # no mapped road to follow: the bore's own line, stops trim it
+    s += step
     while s < axis.length:
         if not on_road(s):
             return s - step
@@ -684,6 +737,11 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
         on_field.not_terrain = []
     out: list[Mouth] = []
     dropped: list[tuple[str, XY, float]] = []
+    from .bore_continuation import continues_underground, tunnel_ends
+    t_ends = tunnel_ends(osm, law.tables.structures.tunnel.admitted_values)
+    no_portal: list[str] = []
+    if on_field is not None:
+        on_field.no_portal = no_portal     # #1028: named by the structures line
     for b in bores:
         width = max(carriageway_width_m(w.tags, law) for w in b.ways)
         wids = tuple(w.id for w in b.ways)
@@ -694,6 +752,10 @@ def mouths(bores: list[Bore], osm: list[OsmWay], law: Law, reach_m: float,
                             law.tables.structures.tunnel.admitted_values,
                             law.tables.structures.tunnel.approach_turn_max_deg)
             m = Mouth(b, end, inward, width, path, wids)
+            why = continues_underground(b, inward, path, t_ends, law, reach_m)
+            if why is not None:
+                no_portal.append(why)
+                continue
             if on_field is None:
                 cand.append((m, True, 0.0))
                 continue

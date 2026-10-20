@@ -202,7 +202,14 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # taxiway strip is measured from the CENTRELINE, so the band envelope a
     # gap piece may not claim narrows and the pack's pieces go 38 -> 42
     # (``test_gap_apron``) — (90, 34, 56, 9) before.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (92, 34, 60, 9)
+    # RE-RECORDED (lane m15, issue #798, owner RULINGS 2026-10-19w): the
+    # slope pads take ground from the gap pieces round them (gap:0's main
+    # lot 571,967 -> 569,933 m2, gap:2 53,392 -> 50,617 m2, gap:5/s0
+    # 15,660 -> 14,756 m2), so two parts more — gap:0/s0 leaves a third lot
+    # part (gap:0/s0/lot2, 345 m2) and the 361 m2 sliver beside the apron at
+    # 30.1250, 31.4061 is a piece of its own (gap:36, the later refs moving
+    # up by one) — (92, 34, 60, 9) before.
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (94, 34, 60, 9)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)

@@ -1203,7 +1203,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool
-    airport.rebake_plan airport.riders airport.ring_contact_batch airport.scatter airport.sheet_chain airport.skirt
+    airport.rebake_plan airport.riders
+    airport.ring_contact_batch airport.scatter airport.sheet_chain airport.skirt
     airport.slab_faces airport.slab_plates airport.topology_cache constraints.apron
     constraints.ceiling constraints.cluster_pad constraints.contiguity
     constraints.end_lip constraints.geometry constraints.groundside
@@ -1255,7 +1256,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool airport.ramp_feet
-    airport.reader_work airport.rebake_plan airport.riders airport.ring_contact_batch airport.road_profile
+    airport.reader_work airport.rebake_plan airport.riders
+    airport.ring_contact_batch airport.road_profile
     airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
@@ -1336,7 +1338,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.placement_motion airport.placement_orphan airport.placement_plan
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool airport.ramp_feet
-    airport.reader_work airport.rebake_plan airport.riders airport.ring_contact_batch airport.road_profile
+    airport.reader_work airport.rebake_plan airport.riders
+    airport.ring_contact_batch airport.road_profile
     airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
@@ -1486,7 +1489,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.placement_leaves airport.placement_motion airport.placement_orphan
     airport.placement_plan airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
-    airport.pool airport.rebake_plan airport.riders airport.ring_contact_batch airport.road_ways airport.scatter
+    airport.pool airport.rebake_plan airport.riders
+    airport.ring_contact_batch airport.road_ways airport.scatter
     airport.sheet_chain airport.skirt airport.slab_faces airport.slab_plates
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
     classify.storey_edge airport.unit_storey

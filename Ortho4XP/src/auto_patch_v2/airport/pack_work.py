@@ -184,7 +184,7 @@ def read_skirts_ahead(cache: _obj8.ResourceCache, law, paths: _t.Iterable[str],
             pool.close()
     if got is None:
         return 0
-    for path, r in zip(todo, got):
+    for path, r in zip(todo, got, strict=True):
         if r is not None:
             cache.pre[("skirt", path)] = r
     return len(todo)

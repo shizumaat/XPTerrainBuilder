@@ -256,7 +256,7 @@ def _sweep(data: tuple, touch_m: float, a0: int, a1: int) -> list[int]:
                     and boxes_touch(boxes[ai], boxes[bi], ha, hb, touch_m)):
                 cand.append((ai, bi))
     ok = polys_touch_many(rings, cand, touch_m).tolist()
-    return [v for pair, hit in zip(cand, ok) if hit for v in pair]
+    return [v for pair, hit in zip(cand, ok, strict=True) if hit for v in pair]
 
 
 def _sweep_task(_state: _t.Any, task: tuple) -> list[int]:

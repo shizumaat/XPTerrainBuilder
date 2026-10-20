@@ -112,7 +112,7 @@ Measured:
 
 **Attribution of iteration 2's +242 rows (50.0402, 8.5328).** The only difference between iteration 2 and this round is that the two `Tunnel_4` ramps are gone. With them gone, the emitted patch equals main's. So the rows came from the admitted objects, through the design LP's relaxation (groundside relaxed 220 → 399): they were not geometry at the site. This round did not re-run iteration 2 on today's main.
 
-**Blocker met on the way (#1098).** EDDF on main 5b6afc58e raises `GEOSException: side location conflict at -366.5 1257` in `planar/low_level.plan_low` (#809's lower level, `L.difference(others.buffer(w))`). It raises in the capture, in the replay and in the app (#1098). Both arms above ran with a lane-local guard: that block got no low level. The guard was never committed.
+**Blocker met on the way (#1098).** EDDF on main 5b6afc58e raises `GEOSException: side location conflict at -366.5 1257` in `planar/low_level.plan_low` (#809's lower level, `L.difference(others.buffer(w))`). It raises in the capture, in the replay and in the app (#1098). Both arms above, and the closing build, ran with a lane-local guard: that block got no low level. The guard was never committed. Main fixed it later, in #1113 (`63a8ca18f`).
 
 ### EDDF: the 13 OSM tunnels this branch no longer builds (#1062 head: 47; this branch: 36 including 2 new)
 

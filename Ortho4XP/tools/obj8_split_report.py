@@ -48,7 +48,13 @@ tool does not open the DEM.
 The design surface is sampled by linear interpolation over the emitted
 surface's own vertices (``scipy.spatial.Delaunay`` over the graded
 vertices, ``None`` outside their hull) — the surface as a continuous
-field, which is what a drape reads.
+field, which is what a drape reads.  ONLY ON THE SURFACE (#737): a point
+standing on no graded face (beyond :data:`FACE_REACH_M` of every one)
+reads ``None`` — off-sheet — and is never interpolated across the
+ungraded ground between faces, whose triangles reach to vertices far
+away and are re-drawn by any face added near them (HECA: 8 Seasonal
+Terminal bodies read up to 2.5 m worse from slab pieces the app mesh
+seats 0 bodies differently for).
 """
 from __future__ import annotations
 
@@ -154,6 +160,79 @@ class GradedInterpolator:
         return self.tri.find_simplex(self.local(las, los))
 
 
+#: THE SEAM REACH, metres (#737): a point this close to a graded face
+#: reads the surface there.  The emitted faces do not TILE the field — a
+#: graded strip stops where the next begins and the mesh carries the
+#: join — so a reading in the seam between two abutting faces is still a
+#: reading of the surface; beyond it the point stands on ungraded ground.
+#: An INSTRUMENT parameter (what this replay counts as on the sheet),
+#: never a law value.
+FACE_REACH_M = 0.5
+
+
+class GradedFaceMask:
+    """Which query points stand ON the graded surface (#737).
+
+    The interpolator answers everywhere inside the vertices' hull, and
+    between faces its triangles span ungraded ground from one face's
+    vertices to another's, tens or hundreds of metres apart; adding a
+    face (a slab piece) anywhere near re-draws them and moves the
+    reading.  The surface states nothing there, so this mask says so:
+    a point farther than ``reach_m`` from every face (its ring less its
+    holes) is OFF THE SURFACE.  Faces are indexed in a local
+    equirectangular metre frame about ``origin`` (a tolerance test, not
+    a measurement).  A document with no faces states no extent, and
+    every point reads as on it (the pre-#737 reading)."""
+
+    def __init__(self, doc: _t.Mapping[str, _t.Any], origin) -> None:
+        import math
+
+        from shapely.geometry import Polygon
+        from shapely.strtree import STRtree
+        self._la0, self._lo0 = float(origin[0]), float(origin[1])
+        r = 6_378_137.0 * math.pi / 180.0
+        self._kla, self._klo = r, r * math.cos(math.radians(self._la0))
+        by = {v[0]: (v[1], v[2]) for v in doc["vertices"]}
+        polys = []
+        for f in doc.get("faces", ()) or ():
+            ring = [self._xy(*by[i]) for i in f["ring"] if i in by]
+            if len(ring) < 3:
+                continue
+            holes = [h for h in ([self._xy(*by[i]) for i in hh if i in by]
+                                 for hh in f.get("holes", ()) or ())
+                     if len(h) >= 3]
+            poly = Polygon(ring, holes)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if not poly.is_empty:
+                polys.append(poly)
+        self.n_faces = len(polys)
+        self._tree = STRtree(polys) if polys else None
+
+    def _xy(self, la: float, lo: float) -> tuple[float, float]:
+        return ((float(lo) - self._lo0) * self._klo,
+                (float(la) - self._la0) * self._kla)
+
+    def on_surface(self, las, los, reach_m: float = FACE_REACH_M):
+        """A bool array: each point within ``reach_m`` of some face."""
+        import shapely
+        la = np.asarray(las, dtype=float).reshape(-1)
+        lo = np.asarray(los, dtype=float).reshape(-1)
+        if self._tree is None:
+            return np.ones(la.shape, dtype=bool)
+        pts = shapely.points((lo - self._lo0) * self._klo,
+                             (la - self._la0) * self._kla)
+        hit = self._tree.query(pts, predicate="dwithin", distance=reach_m)
+        out = np.zeros(la.shape, dtype=bool)
+        out[np.asarray(hit[0], dtype=np.int64)] = True
+        return out
+
+    def mask(self, las, los, z):
+        """``z`` with every point off the surface read as NaN (off-sheet)."""
+        z = np.asarray(z, dtype=float).reshape(-1)
+        return np.where(self.on_surface(las, los), z, np.nan)
+
+
 def surface_from_graded(path: str, split_tol_m: float = 0.3):
     """``(sampler, pads, rims)`` from an emitted ``<ICAO>.graded.json``."""
     d = json.loads(open(path, encoding="utf-8").read())
@@ -161,6 +240,9 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
     pts = np.asarray([[v[1], v[2]] for v in vs], dtype=float)
     zs = np.asarray([v[3] for v in vs], dtype=float)
     interp = GradedInterpolator(pts, zs)
+    # #737: a point on no graded face reads off-sheet, never across the
+    # ungraded ground between faces
+    faces = GradedFaceMask(d, interp.origin)
 
     # §17 (owner RULINGS 2026-09-12am (2)): THE FACE ROLE UNDER A POINT,
     # off the SAME parsed document — the sampler answers how HIGH the
@@ -264,7 +346,7 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
 
     def sampler(lat: float, lon: float):
         z = _mask([lat], [lon], np.asarray(interp([lat], [lon])).reshape(-1))
-        z = float(np.asarray(z).reshape(-1)[0])
+        z = float(faces.mask([lat], [lon], z)[0])
         return None if not np.isfinite(z) else z
 
     def many(las, los):
@@ -274,7 +356,7 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
         interpolation — one call per body instead of one per point."""
         z = np.asarray(interp(np.asarray(las, dtype=float),
                               np.asarray(los, dtype=float))).reshape(-1)
-        z = _mask(las, los, z)
+        z = faces.mask(las, los, _mask(las, los, z))
         return [None if not np.isfinite(q) else float(q) for q in z]
 
     sampler.many = many                       # type: ignore[attr-defined]
@@ -282,6 +364,7 @@ def surface_from_graded(path: str, split_tol_m: float = 0.3):
     sampler.rolled_on = frozenset(_T.rolled_on_roles(_law))   # type: ignore[attr-defined]
     sampler.holes_struck = (0 if _bad is None      # type: ignore[attr-defined]
                             else int(_bad.sum()))
+    sampler.faces = faces                     # type: ignore[attr-defined]
 
     # ONE derivation site for pads/rims (lane v2planfix): the shipped
     # engine path calls the same function, so the tool and the build

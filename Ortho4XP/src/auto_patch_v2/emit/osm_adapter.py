@@ -141,6 +141,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # constant of its own
     "seam_half_width_m",
     "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
+    # #1028: a slid mouth's own depth (``pipeline/publication.tunnel_mouth_depths``)
+    "tunnel_mouth_depths",
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
     "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon.  Derived by ``write_patch`` from the surface IT WRITES (``face_holes_ll``), never from the planar map (RULINGS 2026-09-13da residual: 782 sub-spacing merges after publication left stale hole rings that minted ``zone_on_pavement`` slivers)
     "design",         # RULINGS 2026-09-08t/v: the design surface's residual per family (replaces ``law_tiers``)

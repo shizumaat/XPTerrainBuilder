@@ -193,6 +193,9 @@ class Classification:
     keepouts: tuple[tuple[XY, ...], ...] = ()
     #: Every source pavement polygon's evidence record (``sources.py``).
     sources: tuple[SourceRecord, ...] = ()
+    #: THE JETWAY GROUND (#802, ``Evidence.jetway_ground``): exterior rings
+    #: of the pavement a terminal pad took in over its jetways.
+    jetway_ground: tuple[tuple[XY, ...], ...] = ()
 
 
 def classify(airport: Airport, law: Law, rules: Rules | None = None,
@@ -653,6 +656,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules,
                           [c.line for c in ev.truck_chains])
+    # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───
+    from .reachability import unreachable_aprons
+    stats.update(unreachable_aprons(final, [p for _rw, p in ev.runway_polys], law,
+                                    rules, [s.xy for s in airport.startups]))
     # ── the taxiway letter where the 1202 route states none: the chains
     # were lettered by their pavement width (``build_evidence``); a face no
     # lettered chain reaches takes its lettered neighbours' (master
@@ -736,7 +743,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         for ln in line_parts(outside):
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
-                          sources=tuple(sources))
+                          sources=tuple(sources),
+                          jetway_ground=tuple(tuple(g.exterior.coords)[:-1]
+                                              for g in ev.jetway_ground))
 
 
 def is_osm_ribbon(cell_or_region) -> bool:

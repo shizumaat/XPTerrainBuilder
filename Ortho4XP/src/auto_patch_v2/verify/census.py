@@ -223,6 +223,12 @@ def census_patch(p: Patch, *, say: _t.Callable[[str], None] = print,
     neither reaches a row."""
     import time as _time
     WALL_S.clear()
+    # ONE READER FRAME, THE ENGINE'S METRIC (#772, RULINGS 2026-10-15h):
+    # every reader measures plan distance in the transverse-Mercator frame
+    # the generators state their bounds in; every row's ``site_m`` goes
+    # back to ``p``'s census frame at the end, so the joins downstream
+    # (``mark_relaxed``, the v1 row diff) are unchanged
+    p, back = p.in_metric_frame()
     out: dict[str, list[Row]] = {k: [] for k in FAMILIES(p.law)}
     t0 = _time.perf_counter()
     within, xsec = within_shape(p, out=say, on_pool=on_pool)
@@ -245,7 +251,22 @@ def census_patch(p: Patch, *, say: _t.Callable[[str], None] = print,
     t0 = _time.perf_counter()
     out[FAMILY_PAD_FLAT] = pad_flat(p)
     WALL_S[FAMILY_PAD_FLAT] = _time.perf_counter() - t0
+    _sites_to_census(out, back)
     return out
+
+
+def _sites_to_census(rows: dict[str, list[Row]], back) -> None:
+    """Every row's ``site_m`` from the metric back to the census frame
+    (#772), at :func:`frame.row`'s 2-dp rounding; each row once."""
+    seen: set[int] = set()
+    for rs in rows.values():
+        for r in rs:
+            site = r.get("site_m") if isinstance(r, dict) else None
+            if not site or id(r) in seen:
+                continue
+            seen.add(id(r))
+            pts = [back((float(q[0]), float(q[1]))) for q in site]
+            r["site_m"] = [[round(q[0], 2), round(q[1], 2)] for q in pts]
 
 
 #: Keys of ``census_patch`` whose rows are structural DEFECTS of the

@@ -38,7 +38,8 @@ _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 __all__ = ["carriageway_width_m", "pavement_half_widths", "Bore", "Mouth", "chains", "approach",
            "resample",
            "mouths", "FieldRegion", "cover_polygons", "standing_cover", "cut_gap_cells", "wall_field", "ApproachCorridor", "RunwayViewBand", "approach_corridor_of", "runway_band_of", "field_region_for", "mouth_reports", "under_cover", "merge_duals", "unit", "is_tunnel", "is_bridge",
-           "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground"]
+           "PARALLEL_COS", "NODE_TOL", "apply_plates", "ramp_top", "approach_ground",
+           "road_index", "road_end_m"]
 
 #: Two OSM node coordinates closer than this (frame metres) are one node.
 NODE_TOL = 0.05
@@ -269,6 +270,48 @@ def approach(mouth: XY, inward: XY, ways: list[OsmWay], reach_m: float,
         path.append((cur[0] + ax / L * (reach_m - length + 1.0),
                      cur[1] + ay / L * (reach_m - length + 1.0)))
     return path
+
+
+def road_index(ways: _t.Sequence[OsmWay],
+               admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES
+               ) -> "tuple[list[LineString], STRtree | None]":
+    """The mapped roads a ramp may follow — every non-tunnel ``highway`` /
+    ``railway`` way the approach walk reads (:func:`approach`) — as lines
+    and their tree, built once per pass for :func:`road_end_m`."""
+    lines = [LineString(w.points) for w in ways
+             if len(w.points) >= 2 and not is_tunnel(w, admitted)
+             and ("highway" in w.tags or "railway" in w.tags)]
+    return lines, (STRtree(lines) if lines else None)
+
+
+def road_end_m(axis: LineString, index, reach: float, step: float) -> float | None:
+    """THE RAMP FOLLOWS THE ROAD (#1028): the station along a mapped bore's
+    corridor axis where it LEAVES the mapped road — the first station
+    farther than ``reach`` (the corridor's half width) from every road of
+    ``index`` (:func:`road_index`).  :func:`approach` continues a walk
+    that found no way on — a road that ends, turns past the cap or runs
+    into another tunnel — as a straight line; that line is no road, and a
+    ramp run along it crosses whatever lies there (measured EDDF bore
+    −20307: 125 m of ramp diagonally across an apron past the service
+    road's junction with the next bore).  ``None`` where the axis leaves
+    no road, or never stood on one (a bore end no way continues: its own
+    line is the only reading)."""
+    lines, tree = index
+    if tree is None or axis.length <= 0.0:
+        return None
+
+    def on_road(s: float) -> bool:
+        p = axis.interpolate(s)
+        return any(lines[int(j)].distance(p) <= reach
+                   for j in tree.query(p, predicate="dwithin", distance=reach))
+    if not on_road(0.0):
+        return None
+    s = step
+    while s < axis.length:
+        if not on_road(s):
+            return s - step
+        s += step
+    return None
 
 
 def _next_way(ways, at, seen: set[int], cur: XY, heading: XY, cos_max: float):

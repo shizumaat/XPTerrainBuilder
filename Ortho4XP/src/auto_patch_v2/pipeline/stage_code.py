@@ -348,6 +348,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.rebake_plan",
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.road_profile",
+        "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.road_ways",
         "auto_patch_v2.airport.scatter",
         "auto_patch_v2.airport.sheet_chain",
@@ -528,6 +529,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.road_profile",
+        "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.core_clamp",
         "auto_patch_v2.geom.coverage",
@@ -564,6 +566,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.road_descent",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_ramp",
+        "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.wall_class",
         "auto_patch_v2.constraints",
         "auto_patch_v2.constraints.apron",
@@ -1241,7 +1244,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
-    airport.road_ways airport.scatter airport.sheet_chain airport.skirt
+    airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.tunnel_objects airport.tunnel_walls airport.wall_class
@@ -1320,7 +1323,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.placement_read airport.placement_record airport.placement_seams
     airport.placement_seat_tilt airport.placement_targets airport.pool airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
-    airport.road_ways airport.scatter airport.sheet_chain airport.skirt
+    airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.slab_faces airport.slab_plates airport.stage_cache airport.sunken_ramp
     airport.sunken_roads airport.thin_plates airport.topology_cache
     airport.tunnel_objects airport.tunnel_walls airport.wall_class
@@ -1406,8 +1409,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_plan airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.rebake_plan airport.rebake_screen airport.riders
-    airport.road_descent airport.road_profile airport.road_ramp airport.road_ways
-    airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
+    airport.road_descent airport.road_profile airport.road_ramp airport.road_stations
+    airport.road_ways airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
     airport.slab_plates airport.topology_cache airport.wall_class classify
     classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
     classify.gap_mint classify.lot_roads classify.neck classify.open_default

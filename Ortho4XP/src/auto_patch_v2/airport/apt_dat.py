@@ -100,6 +100,11 @@ class AptRunway:
     #: lights (0 / 1) — the Cat II/III witness (RULINGS 2026-10-15m (2))
     approach_lights: tuple[int, int] = (0, 0)
     tdz_lights: tuple[int, int] = (0, 0)
+    #: the raw row-100 SHOULDER code (field 4): its hundreds are the
+    #: shoulder WIDTH in metres beyond each runway edge (owner RULINGS
+    #: 2026-10-20n: "727 means 7 m, Asphalt D; width = code // 100"),
+    #: read through :func:`shoulder_width_m`
+    shoulder: int = 0
 
 
 @_dc.dataclass(frozen=True)
@@ -627,7 +632,15 @@ def _runway(toks: list[str]) -> AptRunway | None:
         return None
     return AptRunway(width, surface, (ends[0], ends[1]),
                      (codes[0][0], codes[1][0]), (codes[0][1], codes[1][1]),
-                     (codes[0][2], codes[1][2]))
+                     (codes[0][2], codes[1][2]), _int_field(toks, 3))
+
+
+def shoulder_width_m(code: int) -> float:
+    """THE SHOULDER WIDTH a row-100 shoulder code states, in metres beyond
+    each runway edge: ``code // 100`` (owner RULINGS 2026-10-20n — "727
+    means 7 m, Asphalt D").  A legacy code (0 none, 1 asphalt, 2 concrete)
+    states a surface and no width: 0."""
+    return float(max(int(code), 0) // 100)
 
 
 def _int_field(block: list[str], k: int) -> int:

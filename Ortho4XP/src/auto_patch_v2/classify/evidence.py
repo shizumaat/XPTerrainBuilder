@@ -168,13 +168,17 @@ def polygon_from(outer: _t.Sequence[XY], holes: _t.Sequence[_t.Sequence[XY]] = (
 
 
 def polygon_parts(geom) -> list[Polygon]:
-    """The Polygon parts of any geometry (empty -> [])."""
+    """The Polygon parts of any geometry (empty -> []), in order — a
+    collection's members read through, so a MultiPolygon inside a
+    GeometryCollection keeps its polygons.  MEASURED (OTHH, #1103): a
+    snap-grid ``set_precision`` returned a GeometryCollection holding the
+    gap sheet's MultiPolygon and a sliver line, and the flat read dropped
+    a 47,147 m2 gap piece and a 4,187 m2 gap apron whole."""
     if geom is None or geom.is_empty:
         return []
     if geom.geom_type == "Polygon":
         return [geom]
-    return [g for g in getattr(geom, "geoms", ()) if g.geom_type == "Polygon"
-            and not g.is_empty]
+    return [p for g in getattr(geom, "geoms", ()) for p in polygon_parts(g)]
 
 
 def runway_rectangle(rw: Runway) -> Polygon:

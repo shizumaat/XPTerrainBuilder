@@ -85,6 +85,12 @@ class Runway:
     #: ``visual``); none -> non-instrument.  The law tables read the RESA
     #: and the strip's end length by it.
     instrument: bool = False
+    #: THE SHOULDER WIDTH beyond each runway edge, metres, from the apt.dat
+    #: row-100 shoulder code (``airport.apt_dat.shoulder_width_m``; owner
+    #: RULINGS 2026-10-20n): the runway's graded band reads it as its §40
+    #: shoulder where no pavement already covers it
+    #: (``classify/apt_shoulder``).  0 where the row states no width.
+    shoulder_m: float = 0.0
 
     @property
     def length_m(self) -> float:

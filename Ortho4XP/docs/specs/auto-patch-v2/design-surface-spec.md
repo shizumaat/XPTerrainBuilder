@@ -20075,3 +20075,139 @@ THE BAY (§57 (2), 08b, 12l (2) "expand terminal pads to include jetways so that
 * O3 — §57's WHOLE BAY on top of O2: the hull pocket holding a gate, both roles. KSEA's piers are open to the apron on three sides (satellites), so the pockets are small; the gain over O2 is the apron between piers at the central terminal (not measured: O2 is the prerequisite).
 
 What is NOT touched by any option: the pad OUTLINE (building faces), the object stage, kclt608's seat files. Emittable: a plateau is apron/junction faces at one z meeting neighbours over their own cap rows, today's class.
+
+
+## §40 (6) THE SHOULDER THE APT.DAT STATES, AND IT STOPS AT A TAXIWAY ENTRANCE (owner RULINGS 2026-10-20n, 20o, 20p; issue #1103; lane `lshoulder`)
+
+**THE DEFECT (owner, LPHR on 1.0.408).**  "The runway edge grading doesn't
+even cover the runway shoulders, why is it so narrow?"  LPHR's row 100
+states a 45 m runway with shoulder code `727` (7 m, asphalt); the runway
+cell is the 45 m slab and the ground beside it is zone band.  With #1107's
+draped page read, the painted shoulders are pavement and §40 (1)/(5) make
+them shoulder — but the two apron taxiways, lying inside the 75 m strip,
+were taken into the same shoulder cell (lane `llphr`): the slice's taxi
+centreline starts at the runway edge and does not split the ribbon from
+the stub.
+
+**RULED.**  (1) 20n: the runway's graded band reads the apt.dat shoulder
+width (`code // 100` metres beyond each edge, `Runway.shoulder_m`) as its
+§40 shoulder wherever no pavement already covers it.  (2) 20o + 20p: a
+shoulder may lie on pavement, but it ENDS where a taxiway enters: the
+taxiway is a taxiway inside the strip and welds directly to the runway
+edge; only the adjacent UNPAVED ground (the minted shoulder, the zone
+bands) stays off pavement.
+
+**THE TWO DERIVATION SITES** (one each, both in `classify`; RULINGS
+2026-08-30l "trim at the derivation"):
+
+* (1) `classify/apt_shoulder.mint_apt_shoulders`, called LAST by
+  `roles.classify` (after the pads, §27, the ribbons, the gap pieces and
+  the pad roads): each runway's band — the slab widened by `shoulder_m`
+  each side (`apt_shoulder_band`) — MINUS every standing cell (groundside
+  ones with the zone bands' own stand-off), each piece along its runway
+  (within `cells.on_tol_m` of the slab or its shoulder) and wider than that
+  tolerance, minted role `runway`, kind `runway_shoulder`,
+  `shoulder_source = apt.dat`.  Minted last, it never crosses pavement by
+  construction.
+* (2) `classify/apt_shoulder.taxiway_entrances`, read in the §40 shoulder
+  branch of `roles.classify` on the band part of a shoulder candidate: a
+  connected part BEYOND THE SHOULDER LINE that a taxi centreline running
+  into the shoulder line passes through, and that reads as a corridor of
+  that centreline (area / centreline length ≤ `corridor.max_width_m` — the
+  corridor ladder's own width test, no new number), is an ENTRANCE; with
+  its MOUTH (the candidate's pavement between it and the runway edge over
+  the stations it meets the shoulder line at) it goes back on the slice
+  worklist on its own and earns its taxi role there.  The shoulder line is
+  the apt.dat band; where the row states no width, the candidate's own
+  mean depth off the runway edge (its band area / shared length, the
+  §40 (1) ribbon evidence) LOCATES it.  A wide page along the runway that a
+  connector merely crosses fails the corridor test and stays shoulder
+  (§40 (5) unchanged).  The 1.5× depth arm (`claude/llphr-1100-ribbon`) is
+  not this rule and was not used.
+
+**THE CONSUMER CENSUS** (every reader of the runway family, the shoulder
+kind, the zone bands and the strip — the §40 (4)/(5) tables re-read
+against two changes: a NEW runway-shoulder cell on unpaved ground, and
+taxi-family faces where shoulder was).
+
+| # | consumer | what it reads | verdict |
+|---|---|---|---|
+| 1 | `classify/roles` §40 shoulder branch | the shoulder candidate's band part | **CUT SITE (2)** |
+| 2 | `classify/roles`, after `mint_pad_roads` | every standing cell | **MINT SITE (1)** |
+| 3 | `classify/airside_edge` §27 flip, `reachability` (19ag), `taxi_letter` | `final` before the mint | CORRECT-BY-CONSTRUCTION for (1) (an unpaved shoulder never flips a lot: it is minted after); CHANGED-report-only for (2) (an entrance is airside taxi family, as the shoulder it replaces was airside) |
+| 4 | `classify/ribbon_mint`, `gap_mint`, `facade_mint` | standing cells; `ribbon_extent` (the zone envelope of the runway + taxi family) | (1) CORRECT-BY-CONSTRUCTION (they run before the mint and the mint subtracts them). (2) CHANGED-report-only: an entrance is a taxi face, so its taxi envelope joins `ribbon_extent` and the gap knife — see OTHH below |
+| 5 | `planar/zones.zone_regions` | `is_runway_shoulder` (no band of its own) and `everything` (all cells subtracted) | (1) CHANGED-report-only: the zone 1/2 bands start at the minted shoulder's outer edge (graded_strip area falls by the minted area); (2) CHANGED-report-only: an entrance mints its taxi band, which the runway band out-claims inside the strip (seniority) |
+| 6 | `planar/structures` `strip`/`strip_u`, `planar/shapes.strip_keepout` | runway family ⊕ strip, minus shoulders | CORRECT-BY-CONSTRUCTION (both exclude the shoulder kind) |
+| 7 | `planar/structures` `runway_u`, door / airside stops, the object knife; `planar/basins` `runway_u` | runway family incl. shoulders | (1) HAZARD, named: the minted ground is protected like the runway's pavement — a ramp, knife or basin within the shoulder width is refused (the structure frame — every ramp, wall, trench and basin rim node — moved 0 nodes at all five airports, `airside_value_delta`). (2) CHANGED-report-only: an entrance loses that protection, as any taxiway |
+| 8 | `constraints/runway_profile` crown / transverse, `runway_chord` | runway family vertices | **THE POINT OF (1)**: the minted ground takes the runway's datum and the shoulder's 2.5 % cap (§40 (2)) |
+| 9 | `constraints/shoulder_crossing` | shoulder vertices a taxi route crosses | CHANGED: at an entrance the route no longer crosses a shoulder |
+| 10 | `constraints/zones.face_of_edge`, `no_step` | edge families | CHANGED-report-only: shoulder\|strip at the minted edge; taxi\|runway weld pairs at the entrances |
+| 11 | `constraints/water` pins | GROUND vertices only | HAZARD, NOT HANDLED: a minted shoulder over the sea is not pinned and is not trimmed at the water's edge (RULINGS 2026-10-20k trims the zones, which read the cells as land).  No frame here has a shoulder band over water |
+| 12 | `verify/runway`, `verify/strips`, `tools/check_grade` | runway-family ways | CHANGED-report-only: the minted ground is priced as runway family |
+| 13 | `pipeline/publication` runway half widths | the slab | UNAFFECTED |
+| 14 | `src/auto_patch` (v1) | — | UNAFFECTED |
+
+**THE LATENT DEFECT THE CENSUS FOUND (row 4).**  At OTHH the first arm
+lost two gap pieces whole (`gap:4`, 47,147 m² at 25.252980, 51.620608 and
+`gapapron:7`, 4,187 m²), 106 m off 16L/34R and 58 m from the nearest
+entrance.  Attributed offline on the gap mint's own inputs (both arms
+captured, the mint replayed alone): an entrance's taxi envelope moved
+the band knife, the snap-grid `set_precision` then returned a
+GeometryCollection holding the MultiPolygon, and
+`classify/evidence.polygon_parts` read only a collection's top-level
+Polygons — the whole MultiPolygon was dropped.  Fixed at the helper (a
+collection is read through); with it both pieces are back and OTHH's gap
+population is the base one.
+
+**MEASURED — THE ROLE CHANGES** (classify re-run on each registered
+capture, both arms on one capture, the captured `Airport` stamped with
+its row-100 shoulder width; no other variable):
+
+| airport | apt.dat shoulder | minted unpaved shoulder | shoulder → taxi family (entrances) | other role change |
+|---|---|---|---|---|
+| LPHR (lane capture, #1107 base) | 10/28: 7 m | 3 cells, 1,081 m² | 5 entrances, 13,826 m² (the two apron taxiways → junction 2,367 m² + stub 2,392 m²; both turn pads → primary_parallel 9,068 m²) | none |
+| CYXY (`m1` e2f2e7e43) | 0 / 0 / 0 | 0 | 2, 3,366 m² (stub, pav24, 60.717891, −135.070568) | none |
+| KCLT (`m2` 3e66fc52d) | 18L/36R 3 m, others 0 | 18 cells, 8,711 m² beside 18L/36R | 3, 4,926 m² (cross_connector 3,625, stub 862, junction 439; pav61/pav59 at 35.2089, −80.9355) | none |
+| HECA (`m12` 7947b7dfc) | 0 / 0 / 0 | 0 | 39, 37,464 m² (stub 32,338, junction 5,126; the rapid exits and connectors of all three runways) | none |
+| OTHH (`m12` 7947b7dfc) | 16L/34R 12 m, 16R/34L 11 m | 5 cells, 19,135 m² | 8, 15,115 m² (stub 10,716, junction 4,399) | none (gap pieces identical after the fix) |
+
+LPHR's bar: the apron taxiways at 38.5203, −28.7164 and 38.5204,
+−28.7150 are `junction` / `stub` from the runway edge (22.5 m) out — no
+shoulder cell overlaps them — and the shoulders cover 22.5 → 29.5 m off
+the centreline: the painted page to 28.6–29.5 m, the apt.dat band
+filling the rest.
+
+**MEASURED — THE MOVERS** (`tools/airside_value_delta.py`'s reader;
+movers split by whether a node's roles are the same in both arms;
+replays `--replay CAP --from classify --emit` on each arm's tree; LPHR
+the closing harness builds `lshoulder1103base` / `lshoulder1103`,
+`--no-ledger`):
+
+| airport | airside nodes moved > 0.02 m (same roles / re-kinded) | > 0.5 m | runway role in both arms, worst | census adjudicated airside | critical motion |
+|---|---|---|---|---|---|
+| LPHR | 187 / 74 | 167 / 19 | 0.09 m (centreline, 38.51991, −28.71497) | 107 → 133 | 0 → 0 |
+| CYXY | 10 / 7 | 0 / 0 | 0.01 m | 202 → 202 | 0 → 0 |
+| KCLT | 1,950 / 68 | 17 / 9 | 0.05 m | 5,185 → 5,730 | 2 → 2 |
+| HECA | 7,000 / 187 | 126 / 27 | 0.24 m (30.10509, 31.40476, a junction weld) | 10,229 → 9,373 | 4 → 6 |
+| OTHH | 49 / 51 | 0 / 0 | 0.07 m | 154 → 153 | 0 → 0 |
+
+THE NAMED CAUSES.  LPHR: every mover over 0.5 m is the terminal apron
+`pav2` behind the two entrances (38.5206, −28.7146; mean +0.84 m, its
+|z − DEM| mean 2.23 → 2.06 m, the 175 big movers' z − DEM −1.74 → −0.68
+m): the stubs it hung from were the runway's shoulder (the runway datum
+and the 2.5 % shoulder cap); as taxiways they take the taxi law, and the
+apron is no longer held to the runway's level 75 m off its centreline.
+KCLT: all 26 over 0.5 m are the 18L/36R high-speed exit `pav61` /
+`pav59` (35.2079–35.2091, −80.9356), re-kinded from shoulder to
+cross_connector / stub / junction; the census rise (+545, every class
+on a runway-family pair: `within_shape` primary_parallel|runway +295,
+cross_connector|runway +151, `strip_transverse` graded_strip|runway +31,
+`hairline_pair` runway|runway +26) is report-level (critical_visual +47,
+all welded hairlines; critical motion unchanged).  CYXY: the one
+entrance, `pav24` at 60.7181, −135.0716, ≤ 0.20 m.  HECA: every mover
+over 0.5 m (153, worst 1.03 m at 30.12392, 31.38795, `primary_parallel`)
+stands within 300 m of one of the 39 entrances, those farther are
+≤ 0.34 m; the census falls 856 adjudicated airside rows; critical motion
+4 → 6, the two new rows ≤ 0.06 m `frontage_near_miss` apron|apron at
+30.12519, 31.41499 (welded; cm-level).  OTHH: worst 0.30 m, at the
+entrances (25.2588, 51.6031); nothing over 0.5 m.

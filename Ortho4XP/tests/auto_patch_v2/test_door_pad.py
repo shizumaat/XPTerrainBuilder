@@ -7,13 +7,12 @@ from __future__ import annotations
 import dataclasses as dc
 import types
 
-from shapely.geometry import Polygon
-
 from auto_patch_v2.constraints import door_pad as DP
 from auto_patch_v2.constraints.apron import GEN as APRON_GEN
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import design as design_law
 from auto_patch_v2.model.constraints import Band, ConstraintSet, Diff, Flat, Pin, Source
+from shapely.geometry import Polygon
 
 #: pad 1-2-3 (x 0..10, y 0..10), its door wall the top edge, the taxi point
 #: 20 m north of the door's centre: the corridor is the triangle of the

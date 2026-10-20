@@ -24,11 +24,17 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import pickle
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py``.  Twin: ``tests/test_console_encoding.py``.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console  # noqa: E402
+
+_o4console.configure_console_streams()
 
 #: a give exceeded by less than this is the solver's tolerance, not a miss
 _TOL_M = 1e-3

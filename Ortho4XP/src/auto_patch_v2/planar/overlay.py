@@ -204,6 +204,14 @@ def _runway_ridges(airport: Airport, spacing: float
     return out
 
 
+def _storey_lots(cells) -> dict[str, float]:
+    """``{lot ref: storey rise}`` of the lots met across a unit's storey
+    (``classify.storey_edge``; their pad's upper level, #1101)."""
+    from ..classify.storey_edge import STOREY_Y_KEY
+    return {c.ref: float(c.evidence[STOREY_Y_KEY]) for c in cells
+            if STOREY_Y_KEY in (c.evidence or {})}
+
+
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement, with the
@@ -307,7 +315,8 @@ def build_arrangement(airport: Airport, classification: Classification,
             pad_regions, _plat = platform_split(base_regions, pad_regions, law,
                                                 float(grid),
                                                 getattr(airport, "dem", None),
-                                                airport=airport, reg=reg)
+                                                airport=airport, reg=reg,
+                                                storey=_storey_lots(cells))
             _pad_clip.update(_plat)
         _arr_memo.hold(fkey, airport, law, {
             "reg": reg, "cells": cells, "weld": weld, "ridges": ridges,

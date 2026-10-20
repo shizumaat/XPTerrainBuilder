@@ -69,11 +69,17 @@ def _road(pm):
             if 620.0 <= pm.vertices[v].xy[0] <= 880.0}
 
 
-def test_without_a_retaining_wall_the_road_in_the_strip_holds_the_runway_level(arms):
+def test_without_a_retaining_wall_the_road_below_the_strip_keeps_its_ground(arms):
+    """RE-READ under owner RULINGS 2026-10-19k / 19a / 19i and 2026-10-20c
+    (39, #951): a road through the band's zone 2 BELOW the band's grade is
+    cut out of the band and follows its own ground — wall or no pack wall,
+    it sits at 92 m here, 8 m under the runway, and the band meets it
+    across the stand-off.  The band's ceiling still keeps any road from
+    standing ABOVE it (``constraints/zones``' cap-only kerb)."""
     for pm, sol, _rep in arms[:2]:
         road = _road(pm)
-        assert road and set(pm.road_terrace["foot"]) & road
-        assert min(sol.z[v] for v in road) > 97.0
+        assert road and road <= pm.band_kerb_vertices()
+        assert max(abs(sol.z[v] - 92.0) for v in road) <= 1.0
 
 
 def test_below_a_retaining_wall_the_road_sits_at_the_lower_ground(arms):
@@ -93,8 +99,11 @@ def test_the_step_is_declared_at_the_wall_and_the_airside_is_untouched(arms):
     (pm0, sol0, _r0), _thin, (pm2, sol2, _r2) = arms
     law = Law.for_airport("SYNT")
     j = wall_terrace_joints(pm2, law, sol2.z)
-    # the step is the wall, never more (15a (2); #507): the one-way floor
-    assert len(j) == 1 and 7.0 <= j[0]["emitted_step_m"] <= 8.0 + 0.02
+    # the step is the wall, never more (15a (2); #507): the one-way floor —
+    # to the cockpit's motion step: the ribbon's END vertices are the band's
+    # kerb now (39), carry no road target, and stand 0.048 m under the floor
+    motion = float(law.tables.emit.cockpit.motion_step_m)
+    assert len(j) == 1 and 7.0 <= j[0]["emitted_step_m"] <= 8.0 + motion
     from auto_patch_v2.constraints.road_ramp import WALL_STEP_RULING, wall_terrace_rows
     assert any(r.source.ruling == WALL_STEP_RULING
                for r in wall_terrace_rows(pm2, law, None))

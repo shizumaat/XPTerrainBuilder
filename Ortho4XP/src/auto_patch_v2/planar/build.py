@@ -27,9 +27,11 @@ from shapely.strtree import STRtree
 from ..classify.roles import Classification
 from ..law import Law
 from ..law.reference_code import status_by_ref
+from ..law.tables import snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY, Key
 from ..model import pulse as _pulse
+from ..model.road_yield import is_band_zone_ref
 from ..model.planar import (Breakline, Edge, EdgeKind, Face, PlanarMap,
                             Vertex, validate)
 from .edges import EdgeTable
@@ -42,6 +44,8 @@ from .channel import ChannelStats, identify_channels
 from .channel_claims import crossing_claims
 from .structures import StructureStats, build_structures, ramp_targets
 from .covered_ground import CoveredGround, covered_ground
+from .road_shadow import road_shadow
+from .road_yield import road_cut_ground, road_cut_outlines, road_yield_records
 from .structure_approach import wall_field
 from .structure_road import mouth_pair_roads
 from ..airport.tunnel_objects import TunnelObjectStats
@@ -358,6 +362,14 @@ def build(airport: Airport, classification: Classification, law: Law,
                                               objects)
     if stats.covered_ground.rings:
         print(f"  [planar] {stats.covered_ground.line()}")
+    # 19ad / 39 (#951): a band vertex beside a road cut out of zone 2 reads
+    # the DEM past the road's cut, not the cut's slope
+    face_vs = _face_vertices(edge_list)
+    through = [y for y in arr.road_yield if y.through]
+    if through:
+        zs, shadow = road_shadow(getattr(airport, "dem", None), law, through,
+                                 _band_only_vertices(faces, face_vs), xs, ys, zs)
+        print(f"  [planar] {shadow.line()}")
     dp = frame.identity_dp
     vertices: dict[int, Vertex] = {}
     for v, p in enumerate(vertices_xy):
@@ -379,6 +391,14 @@ def build(airport: Airport, classification: Classification, law: Law,
                                      if r.edge_kind != "none"},
                    zone_runway_of_ref={r.ref: r.runway_ref for r in arr.regions
                                        if getattr(r, "runway_ref", None)},
+                   road_yield=road_yield_records(arr.road_yield, faces, face_vs,
+                                                 vertices_xy, snap_margin_m(law),
+                                                 edge_list),
+                   road_cut_outlines=road_cut_outlines(arr.road_yield),
+                   road_cut_ground=road_cut_ground(
+                       arr.road_yield, [p for p, _r in arr.faces],
+                       getattr(airport, "dem", None),
+                       float(law.tables.emit.identity.weld_spacing_m), snap_margin_m(law)),
                    runway_status_of_ref=status_by_ref(getattr(airport, "runways", ())),
                    quay_refs=frozenset(r.ref for r in arr.regions
                                        if getattr(r, "quay", False)),
@@ -422,6 +442,26 @@ def _vector_to_ll(frame):
         lon, lat = inv.transform(xs, ys)
         return np.asarray(lat), np.asarray(lon)
     return to_ll
+
+
+def _face_vertices(edge_list) -> dict[int, set[int]]:
+    """Face id -> its ring and hole vertices, read off the edges."""
+    out: dict[int, set[int]] = {}
+    for e in edge_list:
+        for f in (e.left_face, e.right_face):
+            if f is not None:
+                out.setdefault(f, set()).update((e.a, e.b))
+    return out
+
+
+def _band_only_vertices(faces, face_vs) -> set[int]:
+    """The vertices of runway / taxi band faces that touch no other face."""
+    band: set[int] = set()
+    other: set[int] = set()
+    for fid, f in faces.items():
+        (band if f.role == "graded_strip" and is_band_zone_ref(f.ref)
+         else other).update(face_vs.get(fid, ()))
+    return band - other
 
 
 def _sample(airport: Airport, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:

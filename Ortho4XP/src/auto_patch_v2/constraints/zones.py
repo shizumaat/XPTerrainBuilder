@@ -75,9 +75,15 @@ import typing as _t
 
 from ..law import Law
 from ..law.reference_code import status_by_ref
-from ..law.tables import (airside_stage_roles, apron_roles, is_value_role, role_side,
-                          runway_zone_edge_offset_m, snap_margin_m, strip_transverse_bound,
-                          zone_bounds, zone_edge_offset_m)
+from ..law.tables import (
+    airside_stage_roles,
+    apron_roles,
+    runway_zone_edge_offset_m,
+    snap_margin_m,
+    strip_transverse_bound,
+    zone_bounds,
+    zone_edge_offset_m,
+)
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
@@ -532,7 +538,8 @@ def _in_wedges(vw, ids: set[int], rings, law: Law) -> set[int]:
     """§37 (11) (7): the natural-shore vertices standing inside a wedge."""
     if not ids or not rings:
         return set()
-    from shapely.geometry import Point, Polygon as _P
+    from shapely.geometry import Point
+    from shapely.geometry import Polygon as _P
     from shapely.ops import unary_union as _uu
     tol = snap_margin_m(law)
     wedges = _uu([_P(r) for r in rings]).buffer(tol)
@@ -581,7 +588,13 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # level beneath the band's grade ("typically they are cut below") and
     # the band leads only where the road would stand above it.
     kerb = planar.band_kerb_vertices(airside_stage_roles(law))
-    for v, classes in member.items():
+    # THE SEAM BESIDE A ROAD (owner Q53 (1), 2026-10-20): where a runway
+    # band and a taxi band meet beside a road's cut, the taxi band's lift
+    # (its floor) yields to the ground; its ceiling and the runway's band
+    # stand
+    seam = frozenset(v for y in (getattr(planar, "road_yield", ()) or ())
+                     for v in getattr(y, "beside", ()))
+    for v, classes in _with_road_yield(planar, member).items():
         cap_only = v in kerb
         if (v in own_law and not cap_only) or v in wall_vertices:
             continue
@@ -662,6 +675,10 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if rank > 0 or hi is None:
                     continue         # the kerb: the nearest pavement's ceiling alone
                 lo = None
+            elif v in seam and fam != "runway":
+                if hi is None:
+                    continue         # a farther taxi band's floor: yielded
+                lo = None            # the taxi band's lift yields (Q53 (1))
             if blend is None:
                 terms = ((v, 1.0),) + _foot(a, b, t, 1.0)
             else:
@@ -676,6 +693,26 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         if beyond is not None:
             rows.append(beyond)
     return rows
+
+
+def _with_road_yield(planar: PlanarMap, member: dict[int, set[tuple]]
+                     ) -> dict[int, set[tuple]]:
+    """``member`` with every ribbon vertex standing in a road's cut out of a
+    band's zone 2 (``PlanarMap.road_yield``; owner RULINGS 2026-10-20c, 39)
+    a member of that band: the band is cut back from the road, so the road
+    is no vertex of the band's face, and it is the band's kerb all the same
+    — held under the band's ceiling, never at its floor (the caller's
+    ``cap_only``)."""
+    yields = getattr(planar, "road_yield", ()) or ()
+    if not yields:
+        return member
+    out = dict(member)
+    for y in yields:
+        cls = (_runway_class(y.runway_ref) if y.runway_ref
+               else _zone_class(y.family, y.code_number, y.code_letter))
+        for v in y.kerb:
+            out[v] = out.get(v, set()) | {cls}
+    return out
 
 
 def _foot(a: int, b: int, t: float, w: float) -> tuple[tuple[int, float], ...]:

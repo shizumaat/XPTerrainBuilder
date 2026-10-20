@@ -442,6 +442,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.pulse",
         "auto_patch_v2.model.rebake",
         "auto_patch_v2.model.registries",
+        "auto_patch_v2.model.road_yield",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.apron_shelf",
@@ -475,6 +476,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.ribbon_weld",
         "auto_patch_v2.planar.ribbons",
         "auto_patch_v2.planar.ridge_reach",
+        "auto_patch_v2.planar.road_shadow",
         "auto_patch_v2.planar.road_yield",
         "auto_patch_v2.planar.shape_airside",
         "auto_patch_v2.planar.shape_mouths",
@@ -1312,6 +1314,7 @@ CODE_MODULES["solve"] = _mods("""
     geom.valid_area
     constraints.door_pad
     geom.slope_pad
+    model.road_yield planar.road_shadow
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport classify emit model pipeline planar solve airport.anchor_rule
@@ -1403,6 +1406,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.valid_area
     constraints.door_pad
     geom.slope_pad
+    model.road_yield planar.road_shadow
 """)
 CODE_MODULES["emit"] = _mods("""
     airport constraints emit model pipeline planar verify airport.anchor_rule
@@ -1465,6 +1469,7 @@ CODE_MODULES["emit"] = _mods("""
     solve.project_strip solve.rows solve.wall_cut verify.roads
     classify.reachability
     geom.slope_pad
+    model.road_yield pipeline.band_road_wall
 """)
 CODE_MODULES["verify"] = _mods("""
     airport classify constraints emit model pipeline planar solve airport.anchor_rule
@@ -1521,6 +1526,7 @@ CODE_MODULES["verify"] = _mods("""
     verify.strips verify.structures verify.transverse verify.within
     classify.reachability
     geom.slope_pad
+    model.road_yield pipeline.band_road_wall
 """)
 
 

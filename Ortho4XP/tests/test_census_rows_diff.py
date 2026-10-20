@@ -212,3 +212,54 @@ def test_json_out_carries_every_new_and_gone_row(tmp_path):
     assert d["new"][0]["way_a"] == "-8"
     assert d["gone"][0]["way_a"] == "-7"
     assert d["law_true_knobs"] == KNOBS
+
+
+# ── site-less rows join by identity, never by site (#733) ───────────
+
+def _conflict(row, lat, lon, tier="pad", s_m=0.3):
+    """A ``hard_conflict`` row as the census dumps it: every one at
+    ``site_m`` [[0,0],[0,0]] on the shared way id, named only by its
+    way ref."""
+    r = _row(family="hard_conflict", roles="apron|apron", p0=(0, 0),
+             p1=(0, 0), mag=s_m, way_a="hard_conflict",
+             way_b="hard_conflict")
+    ref = f"hard_conflict:{tier}:{row}"
+    r.update(lat=lat, lon=lon, ref_a=ref, ref_b=ref)
+    return r
+
+
+def test_siteless_rows_join_by_identity_not_by_the_shared_origin():
+    """A holds conflicts r1, r2, r3; B holds r2, r3, r4 (equal counts).
+
+    Hand answer: EXACT 2 (r2, r3), GONE [r1], NEW [r4], MOVED 0.  Joined
+    on the shared origin site, every row paired with some other row and
+    the diff read EXACT 3 — the real change vanished (HECA's 38 far
+    "new" conflicts were the same mis-join with unequal counts).
+    """
+    r1 = _conflict("pad_flat:1", 30.10, 31.10)
+    r2 = _conflict("pad_flat:2", 30.20, 31.20)
+    r3 = _conflict("taxi_ramp:3", 30.30, 31.30)
+    r4 = _conflict("pad_flat:4", 30.40, 31.40)
+    res = CRD.diff_rows([r1, r2, r3], [r4, r3, r2], tol_m=0.5)
+    assert sorted(a["ref_a"] for a, b in res["exact"]) == [
+        "hard_conflict:pad:pad_flat:2", "hard_conflict:pad:taxi_ramp:3"]
+    assert all(a["ref_a"] == b["ref_a"] for a, b in res["exact"])
+    assert res["moved"] == []
+    assert [r["ref_a"] for r in res["gone"]] == ["hard_conflict:pad:pad_flat:1"]
+    assert [r["ref_a"] for r in res["new"]] == ["hard_conflict:pad:pad_flat:4"]
+
+
+def test_siteless_rows_never_join_as_moved_at_any_tolerance():
+    """Two different conflicts both at the origin are 0 m apart by site;
+    with no site of their own they must stay GONE + NEW, never MOVED."""
+    a = [_conflict("pad_flat:1", 30.1, 31.1)]
+    b = [_conflict("pad_flat:9", 30.9, 31.9)]
+    res = CRD.diff_rows(a, b, tol_m=1e6)
+    assert res["exact"] == [] and res["moved"] == []
+    assert len(res["gone"]) == 1 and len(res["new"]) == 1
+
+
+def test_a_sited_row_is_not_read_as_siteless():
+    assert not CRD.is_siteless(_row(p0=(0, 0), p1=(10, 0)))
+    assert CRD.is_siteless(_row(p0=(0, 0), p1=(0, 0)))
+    assert CRD.is_siteless(dict(_row(), site_m=None))

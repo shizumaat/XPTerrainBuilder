@@ -51,25 +51,39 @@ LOW_RANK_MODES: tuple[str, ...] = ("bordered", "woodbury", "dense")
 DEFAULT_LOW_RANK = "bordered"
 
 
+def _factor(M: sp.csc_matrix):
+    """THE ONE SPARSE FACTORISATION of every design solve (owner RULINGS
+    2026-10-20, #803/#412).  Every matrix factorised here is SYMMETRIC — the
+    floored normal matrix (positive definite) and its bordered form (quasi-
+    definite: ``M`` over ``−I``) — so SuperLU runs in its symmetric mode: a
+    minimum-degree ordering of ``Mᵀ + M`` and diagonal pivots preferred.
+    Measured on HECA's stage-1 bordered systems (n 19,685): 0.074 s → 0.042 s
+    per factorisation, the solution moving at 1e-13 relative (5,539
+    factorisations per HECA solve).  The answer changes at rounding level
+    only, which the owner accepted at the visibility bars."""
+    return splu(M, permc_spec="MMD_AT_PLUS_A", diag_pivot_thresh=0.1,
+                options={"SymmetricMode": True})
+
+
 def _normal_back(M: sp.csc_matrix, U: sp.csr_matrix | None, low_rank: str):
     """``back(r, rc) -> (M + UᵀU)⁻¹ (r + Uᵀ rc)`` on ONE factorisation of the
     (floored) normal matrix ``M``: the low-rank datum term by ``low_rank``
     (:data:`LOW_RANK_MODES`; ``U is None``: no such term)."""
     n = M.shape[0]
     if U is None:
-        lu = splu(M)
+        lu = _factor(M)
         return lambda r, rc=None: np.asarray(lu.solve(r), float)
     k = int(U.shape[0])
     if low_rank == "bordered":
         # the border carries ``rc`` itself: eliminating y = U x − rc gives
         # (M + UᵀU) x = r + Uᵀ rc.  ONE sparse solve of the augmented system
         # whose Schur complement onto the border is Woodbury's k × k system
-        lu = splu(sp.bmat([[M, U.T], [U, -sp.identity(k, format="csc")]],
-                          format="csc"))
+        lu = _factor(sp.bmat([[M, U.T], [U, -sp.identity(k, format="csc")]],
+                             format="csc"))
         return lambda r, rc: np.asarray(
             lu.solve(np.concatenate([r, rc]))[:n], float)
     # the identity applied explicitly: k back-solves against LU(M)
-    lu = splu(M)
+    lu = _factor(M)
     Y = lu.solve(np.asarray(U.T.toarray(), float))              # M⁻¹ Uᵀ
     S = np.eye(k) + np.asarray(U @ Y, float)                    # I + U M⁻¹ Uᵀ
 

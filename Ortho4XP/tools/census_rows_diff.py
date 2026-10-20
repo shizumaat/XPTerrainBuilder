@@ -23,6 +23,10 @@ lie, so it is explicit in three tiers:
   NEW/GONE   no partner within tolerance.  These are the rows an
              attribution owes a mechanism for.
 
+A row with NO SITE of its own (``site_m`` absent or at the origin — the
+sidecar-declared families such as ``hard_conflict``) is joined by its
+IDENTITY instead (ways, way refs, lat/lon) and is never MOVED (#733).
+
 A MOVED match is an inference and is labelled one everywhere it appears;
 raising ``--tol`` moves rows out of NEW/GONE and into MOVED, so the
 tolerance is printed with every table and the counts at two tolerances
@@ -106,15 +110,47 @@ def row_class(r: dict) -> tuple:
     return (r.get("family"), r.get("roles"), r.get("side"))
 
 
+def is_siteless(r: dict) -> bool:
+    """True for a row that carries no site of its own (#733).
+
+    A sidecar-declared family (``hard_conflict``, the platform and pad
+    reports) emits every row at the frame origin, ``site_m``
+    [[0,0],[0,0]], or none at all.  Joining such rows by site pairs
+    unrelated records — HECA read 38 far "new" conflicts whose identical
+    records stood in both arms — so they are joined by identity instead.
+    """
+    site = r.get("site_m")
+    if not site:
+        return True
+    return all(float(c) == 0.0 for p in site for c in p)
+
+
+def _identity(r: dict) -> tuple:
+    """A site-less row's own identity: its ways, their refs (the record's
+    name — ``hard_conflict:<tier>:<row>``) and the record's lat/lon."""
+    lat, lon = r.get("lat"), r.get("lon")
+    return ("id", r.get("way_a"), r.get("way_b"),
+            r.get("ref_a"), r.get("ref_b"),
+            None if lat is None else round(float(lat), 7),
+            None if lon is None else round(float(lon), 7))
+
+
 def _pts(r: dict) -> tuple:
     """Both endpoints in the patch's layout-local metre frame, ordered so
-    an A-B/B-A spelling of one edge is one key."""
+    an A-B/B-A spelling of one edge is one key.  Empty for a site-less
+    row: it has no position to move by, so it never joins as MOVED."""
+    if is_siteless(r):
+        return ()
     site = r.get("site_m") or []
     pts = tuple(tuple(round(float(c), 3) for c in p) for p in site)
     return tuple(sorted(pts))
 
 
 def exact_key(r: dict) -> tuple:
+    """The EXACT-tier key: class + site, or class + identity for a
+    site-less row."""
+    if is_siteless(r):
+        return row_class(r) + _identity(r)
     return row_class(r) + _pts(r)
 
 

@@ -12,6 +12,7 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
 from ..law import Law
+from ..law.reference_code import ref_status, status_by_ref
 from ..law.tables import (role_cap, runway_safety_area_length_m, snap_margin_m,
                           zone2_half_width_m, zone_edge_offset_m)
 from ..model.airport import Airport
@@ -30,7 +31,7 @@ __all__ = ["mint_osm_ribbons", "mint_pad_roads", "ribbon_extent", "bridge_gaps",
 
 
 
-def _rsa_rect(poly, law: Law, cn, cl, hw: float, ends=None, instrument: bool = False):
+def _rsa_rect(poly, law: Law, cn, cl, hw: float, ends=None, status: int = 0):
     """The RSA rectangle beyond a runway's ends (owner RULINGS 2026-10-15c
     (2)): the band ``planar/zones`` grades runs the RSA length past the
     runway END (``ends``: the apt.dat ends, ``planar/zones._runway_band``'s
@@ -47,7 +48,7 @@ def _rsa_rect(poly, law: Law, cn, cl, hw: float, ends=None, instrument: bool = F
     if L <= 0.0:
         return Polygon()
     ux, uy = (bx - ax) / L, (by - ay) / L
-    r = runway_safety_area_length_m(law, cn, cl, instrument)
+    r = runway_safety_area_length_m(law, cn, cl, status)
     return LineString([(ax - ux * r, ay - uy * r), (bx + ux * r, by + uy * r)]
                       ).buffer(hw, cap_style="flat")
 
@@ -59,9 +60,11 @@ def ribbon_extent(cells, law: Law, pavement_union, runways=()):
     (the half-widths ARE the zone table's)."""
     RUNWAY_FAMILY_ROLES = ("runway", "runway_crossing")   # planar/zones.RUNWAY_FAMILY
     parts = [pavement_union] if not pavement_union.is_empty else []
+    status_of = status_by_ref(runways)
     for c in cells:
         if c.role in RUNWAY_FAMILY_ROLES and not is_runway_shoulder(c):
-            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter)
+            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
+                                    ref_status(status_of, c.ref))
         elif c.role in TAXI_FAMILY:
             hw = zone_edge_offset_m(law, "junction", c.code_number, c.code_letter)
         else:
@@ -73,7 +76,7 @@ def ribbon_extent(cells, law: Law, pavement_union, runways=()):
             rw = next((r for r in runways if r.id == c.ref), None)
             ends = (rw.ends[0].xy, rw.ends[1].xy) if rw is not None else None
             parts.append(_rsa_rect(Polygon(c.ring), law, c.code_number, c.code_letter, hw,
-                                   ends, bool(getattr(rw, "instrument", False))))
+                                   ends, status_of.get(c.ref, 0)))
     return unary_union(parts) if parts else Polygon()
 
 

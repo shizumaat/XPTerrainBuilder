@@ -677,6 +677,17 @@ class PlacedObject:
     #: lift — the ids of every member, this one included), or ``()`` for a
     #: placement decided alone.  The keep follows the family.
     family: tuple[str, ...] = ()
+    #: THE AUTHORED ZERO (owner Q54, #1102): a converted ``OBJECT_MSL`` row
+    #: whose geometry stands ``zero_y`` m above its origin is read with its
+    #: authored frame shifted by it (``contact._place``), so its lowest
+    #: static feet stand on the ground at its origin and the partition
+    #: finds them; the writer restores it (``placement_file``).  0.0 for
+    #: every other row.
+    zero_y: float = 0.0
+    #: The guard (``msl_feet.origin_set_lifts``): an ``OBJECT_MSL`` row of
+    #: an origin set built around its origin (geometry below it, or a
+    #: member that cannot be read) — kept on-ground whole, never split.
+    origin_built: bool = False
 
     @property
     def base_z(self) -> float:
@@ -1063,6 +1074,23 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                          tuple(buried_wits), seated), rep)
 
 
+def _msl_lifts(placements: _t.Sequence[tuple], pack_root: str | None,
+               index: _t.Mapping[str, str] | None, cache: "ResourceCache",
+               tol_m: float) -> dict[str, "float | None"]:
+    """Owner Q54 (#1102): the lift each converted ``OBJECT_MSL`` row is
+    READ at — its feet on the ground at its origin, or ``None`` for a set
+    built around its origin (``msl_feet.origin_set_lifts``, the guard)."""
+    from . import msl_feet as _mf
+    items = []
+    for oid, dpath, xy, heading, _elev, kind in placements:
+        if kind != "OBJECT_MSL" or is_stock_library_resource(dpath):
+            continue
+        phys = resolve_resource(dpath, pack_root, index)
+        items.append((oid, _mf.origin_key(xy, heading),
+                      cache.geometry(phys) if phys is not None else None))
+    return _mf.origin_set_lifts(items, tol_m)
+
+
 def _has_hard_deck(cache: "ResourceCache", phys: str) -> bool:
     g = cache.geometry(phys)
     return g is not None and bool(g.hard_deck.shape[0])
@@ -1103,7 +1131,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         authored_depth_min_m: float = 0.0,
                         authored_rim_tol_m: float = 0.0,
                         basement_cover_min: float = 1.0,
-                        ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None
+                        ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None,
+                        msl_tol_m: float = 0.3
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -1153,6 +1182,7 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             if phys is not None and cache.geometry(phys) is not None:
                 lifted.append((oid, phys, xy, heading, float(elev)))
     fam = _family_depths(cache, lifted, authored_rim_tol_m, admission_depth_m)
+    msl_lift = _msl_lifts(placements, pack_root, index, cache, msl_tol_m)
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
         if kind == "OBJECT_AGL" and elev is not None:
@@ -1216,7 +1246,19 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             obj = _dc.replace(obj, family=ids)
         out[i] = obj
         _absorb(rep, sub)
-    return out, rep
+    return [_msl_frame(o, msl_lift) for o in out], rep
+
+
+def _msl_frame(o: PlacedObject, lifts: _t.Mapping[str, "float | None"]) -> PlacedObject:
+    """The one site ``zero_y`` / ``origin_built`` are set (#1102): the
+    zero sits at the member's lowest static y when that is above its
+    origin; a guarded set is ``origin_built``."""
+    if o.id not in lifts:
+        return o
+    lift = lifts[o.id]
+    if lift is None:
+        return _dc.replace(o, origin_built=True)
+    return _dc.replace(o, zero_y=max(0.0, -float(lift))) if lift < 0.0 else o
 
 
 def area_fraction_above(v: np.ndarray, comp: Component, plane_y: float) -> float:

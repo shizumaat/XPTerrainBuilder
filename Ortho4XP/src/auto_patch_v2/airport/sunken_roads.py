@@ -601,8 +601,9 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
                      f"trench {total:.1f} m from the cut (floor {sts[0].z:.2f}, ground "
                      f"{sts[0].ground_z:.2f}) to the top (floor {sts[-1].z:.2f}, ground "
                      f"{sts[-1].ground_z:.2f}); mean width {mean_w:.1f} m") + (
-                (f"an OPEN ramp a mapped bore enters (#1028 Q31): the bore's own mouth "
-                 f"object, cut to where its roof begins",) if is_open else ())
+                ("an OPEN ramp a mapped road runs along under a tunnel or bridge (#1028 "
+                 "Q31): the road's own ramp object, cut to where its roof begins",)
+                if is_open else ())
             out.append((o0.path, name, SunkenRoadRecord(
                 "", o0.path, tuple(sorted({o.id for o in own})), tuple(pts), tuple(sts),
                 float(total), float(mean_w), float(sts[0].z), float(sts[0].ground_z),

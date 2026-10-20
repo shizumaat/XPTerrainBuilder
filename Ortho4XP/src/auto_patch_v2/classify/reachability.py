@@ -25,7 +25,9 @@ THE READING, pure geometry over the scored faces (``roles.classify``'s
   half-width) meets a taxi-family face or a runway: an aircraft taxis in;
 * an APRON face with room, none of it reachable, is groundside
   (``open_default.unclassified_groundside_role`` names the role — the one
-  derivation site of that verdict) — when it is a LOT: at least half of it
+  derivation site of that verdict) — when it is joined to the taxi
+  network by pavement at all (a detached island is the touch-chain
+  ladder's to judge) and it is a LOT: at least half of it
   is room for the law's default taxiway (a road network one page draws as
   apron, wide only at a junction or two, is passages).  A face with no
   room at all (a strip
@@ -108,6 +110,11 @@ def unreachable_aprons(final: list[list], runways, law: Law, rules: Rules,
     ttree = STRtree([f[2] for f in taxis]) if taxis else None
     stands = [Point(xy) for xy in startups]
     stree = STRtree(stands) if stands else None
+    # only pavement JOINED to the taxi network can lie beyond a passage: a
+    # detached island is the touch-chain ladder's (``roles.classify``)
+    closed = air.buffer(weld)
+    joined = unary_union([g for g in getattr(closed, "geoms", [closed])
+                          if g.intersects(taxi)])
     rooms: dict[float, _Room] = {}
     r0 = taxi_half_width_m(law, None)
     if not r0 or r0 <= 0.0:
@@ -115,6 +122,8 @@ def unreachable_aprons(final: list[list], runways, law: Law, rules: Rules,
     lot_room = rooms[float(r0)] = _Room(air, taxi, float(r0), weld)
     for f in aprons:
         face = f[2]
+        if not face.intersects(joined):
+            continue
         if stree is not None and len(stree.query(face, predicate="contains")):
             continue
         letter = (taxis[int(ttree.query_nearest(face)[0])][3]

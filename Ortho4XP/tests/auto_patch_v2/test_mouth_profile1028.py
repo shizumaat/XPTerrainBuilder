@@ -154,3 +154,38 @@ def test_a_ramp_hosted_in_an_apron_stops_at_its_edge(law):
     assert east, st.refused
     ramps = [_P(c.ring) for c in cl2.cells if c.role == "tunnel_ramp" and c.ring[0][0] > 0]
     assert ramps and max(x for p in ramps for x, _y in p.exterior.coords) <= 160.0 + 1e-6
+
+
+def test_a_road_through_the_corridor_is_a_stop_its_own_road_a_junction_or_a_deck_is_not(law):
+    """Owner Q32: a ramp never goes through another road."""
+    from auto_patch_v2.planar.structure_approach import crossing_roads
+    road = {"highway": "service"}
+    ways = (OsmWay(-1, "small_roads", ((0.0, 0.0), (200.0, 0.0)), False, road),          # its own
+            OsmWay(-2, "small_roads", ((100.0, -50.0), (100.0, 50.0)), False, road),     # through
+            OsmWay(-3, "small_roads", ((60.0, 0.0), (60.0, 50.0)), False, road),         # junction
+            OsmWay(-4, "small_roads", ((140.0, -50.0), (140.0, 50.0)), False,
+                   {"highway": "service", "bridge": "yes"}))                             # a deck
+    got = crossing_roads(LineString([(0.0, 0.0), (200.0, 0.0)]), road_index(ways), law)
+    assert [ref for _p, ref in got] == ["osm:-2"]
+
+
+def test_a_bore_end_where_the_road_goes_on_underground_is_no_portal(law):
+    """A bore end whose road runs into another tunnel 20 m on (under the
+    shortest lawful ramp) is no portal; one whose road runs on is."""
+    from auto_patch_v2.planar.bore_continuation import continues_underground, tunnel_ends
+    from auto_patch_v2.planar.structure_approach import approach, chains
+    t = {"highway": "service", "tunnel": "yes", "layer": "-1"}
+    r = {"highway": "service"}
+    ways = [OsmWay(-1, "small_roads", ((-100.0, 0.0), (0.0, 0.0)), False, t),
+            OsmWay(-2, "small_roads", ((0.0, 0.0), (20.0, 0.0)), False, r),
+            OsmWay(-3, "small_roads", ((20.0, 0.0), (300.0, 0.0)), False, t),
+            OsmWay(-4, "small_roads", ((-100.0, 0.0), (-500.0, 0.0)), False, r)]
+    tn = law.tables.structures.tunnel
+    bore = next(b for b in chains([w for w in ways if w.tags.get("tunnel")]) if b.ways[0].id == -1)
+    ends = tunnel_ends(ways, tn.admitted_values)
+    east = approach((0.0, 0.0), (-1.0, 0.0), ways, 400.0, tn.admitted_values,
+                    tn.approach_turn_max_deg)
+    assert "no portal" in continues_underground(bore, (-1.0, 0.0), east, ends, law, 400.0)
+    west = approach((-100.0, 0.0), (1.0, 0.0), ways, 400.0, tn.admitted_values,
+                    tn.approach_turn_max_deg)
+    assert continues_underground(bore, (1.0, 0.0), west, ends, law, 400.0) is None

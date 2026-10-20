@@ -84,6 +84,7 @@ def runtime_digest() -> "str | None":
 #: names the modules to add or drop.  A package is listed as its
 #: ``__init__``.
 CODE_MODULES: tuple[str, ...] = (
+    "auto_patch",
     "auto_patch.agp_reader",
     "auto_patch.build_support",
     "auto_patch.config",
@@ -105,6 +106,8 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch.provenance_code",
     "auto_patch.provenance_env",
     "auto_patch.selection",
+    "auto_patch_v2",
+    "auto_patch_v2.airport",
     "auto_patch_v2.airport.anchor_rule",
     "auto_patch_v2.airport.apt_dat",
     "auto_patch_v2.airport.authored_landing",
@@ -185,6 +188,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.stage_cache",
     "auto_patch_v2.airport.topology_cache",
     "auto_patch_v2.airport.unpatched_pack",
+    "auto_patch_v2.geom",
     "auto_patch_v2.geom.base_slab",
     "auto_patch_v2.geom.cluster_outline",
     "auto_patch_v2.geom.pad_evidence",
@@ -208,6 +212,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.law.terrace_schema",
     "auto_patch_v2.law.tunnel_object_schema",
     "auto_patch_v2.law.units",
+    "auto_patch_v2.model",
     "auto_patch_v2.model.airport",
     "auto_patch_v2.model.frame",
     "auto_patch_v2.model.placement",
@@ -216,5 +221,6 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.model.rebake",
     "auto_patch_v2.model.registries",
     "auto_patch_v2.model.structures",
+    "auto_patch_v2.pipeline",
     "auto_patch_v2.pipeline.xplat",
 )

@@ -122,7 +122,7 @@ def drop_edges(planar: _t.Any) -> frozenset[frozenset[int]]:
     follows."""
     runs = (getattr(planar, "road_terrace", None) or {}).get("drop") or ()
     return frozenset(frozenset((a, b)) for r in runs
-                     for a, b in zip(r["run"], r["run"][1:]))
+                     for a, b in zip(r["run"], r["run"][1:], strict=False))
 
 
 def _lower_side(pm: PlanarMap, law: Law, roads) -> tuple[list[int], _t.Any]:

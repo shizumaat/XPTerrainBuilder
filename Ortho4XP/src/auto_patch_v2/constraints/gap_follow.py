@@ -334,7 +334,7 @@ def _lot_rows(planar: PlanarMap, lots, fixed, lines, meta, road_i: list[int],
     if drops is not None and len(drops):
         di, dk = STRtree(drops).query_nearest(pts, all_matches=False)
         d_drop = {int(i): float(shapely.distance(drops[k], pts[i]))
-                  for i, k in zip(di.tolist(), dk.tolist())}
+                  for i, k in zip(di.tolist(), dk.tolist(), strict=True)}
     rows: list[Linear] = []
     target: dict[int, float] = {}
     for i, k in sorted(zip(pi.tolist(), ri.tolist())):

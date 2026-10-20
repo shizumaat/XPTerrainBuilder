@@ -260,3 +260,65 @@ Not met:
 * the census (+569, no declared wall carries it);
 * the road caps (`road_cross_section` +13, `pavement_over_road_cap` +21);
 * the two block moves.
+
+## 8. Round 3 (lane l1088c; the reviewer's D1-D5, owner Q58: the 17 m ramp)
+
+Capture `frames/l1088c/HECA.pkl` (branch + main 43ab28518); base solve
+`base_it2.pkl` (`--gap-free`), last stage `late_it2.pkl`; closing build
+`frames/l1088c/l1088c_HECA.osm` at f4a0e3d93 against `l1088main_HECA`.
+
+**What changed.**
+
+* **D2, the lens.** `planar/fill_road.extend_to_roads` returns the fill and
+  the ground within reach of BOTH the fill and a strip (the mitred buffers'
+  intersection), kept BETWEEN the two (the closing of fill and strip at half
+  the reach: without it the lens wraps a strip's end and takes the far side,
+  5,720 m2 on the twin), less every strip, less what is held, the pieces
+  touching the fill.  At HECA the fills grow by 3,413 m2 in all (the hull
+  took 46,071 + 77,626 m2).  Road strips join `held_c` before PASS 2.  A
+  fill is cut back `bank_min_width_m` from every earlier landing of its
+  block at another level AND from the block itself (deviation: the block is
+  the `y = 0` level of its own; without it 159 of `building5`'s rim
+  vertices stood at the fill's `y = -0.30`, the block mean 101.774).
+* **D3.** `airport/fill_ramp`, `constraints/fill_road`, their three
+  `emit.toml` rulings and the targets withdrawal are deleted.  The mouth
+  line in `road_ramp_targets` stays.
+* **D4.** `airport/road_edge_wall.drop_runs` (base) publishes
+  `road_terrace['drop']`: 16 runs over 139 kerb vertices at HECA.
+  `late_stations` and `gap_follow` skip drop edges; a lot vertex or a follow
+  ring whose NEAREST edge is a drop takes nothing from that road (never the
+  next edge along: with the edge alone removed, lot vertices 1.6 m off the
+  drop were held 1.5 m over their DEM by the road beyond it).
+  `road_edge_walls` (late derive) declares one retaining wall per run with
+  a low side: **6** at HECA.  The last stage now applies `wall_release`.
+* **D5.** `--why-at` on `building6`'s low corner (94.43 m, DEM 90.04):
+  bound by `pavement_road_cap` to `service_road` v34952, itself on its §37
+  ramp ceiling.  `datum_vertices(fills=True)` gives a held block that welds
+  nothing and carries a fill a stage-2 column (read by
+  `platform_plane_rows` and `landing_rows` only; the stage split never
+  reads it): `building6` is flat (tilt: control 0.218 %, iteration 1 0.617 %, now 0.000 %).
+
+**Measured (build `l1088c_HECA` against `l1088main_HECA`).**
+
+* #712 (30.1096365, 31.3889978): `gap:3` 92.04 -> `building6/landing1`
+  **96.71** (slab 96.62).  #1003 (30.112939, 31.397394): inside
+  `building5/landing10` at **101.53** (101.66).
+* Airside (solve-owned, 16,676 joined): 0 moved > 0.01 m.
+* Blocks: `building5` 101.828 -> 101.829, its deck landings 0-4 unchanged;
+  `building6` 96.456 (tilt 0.218 %) -> 96.560 flat (+0.10 m).
+* Low side: `building22` 86.51, `68` 80.88, `63` 81.72, `14` 89.78, all
+  unchanged.  `building7` (inside the #712 plate's own extent, not the lens)
+  92.20 -> 96.56.
+* Gap faces within 4 m of the six drops: 28 of 37 nodes stand more than
+  0.5 m over their DEM (worst +2.42 m).  Named residuals: a mapped ribbon
+  that joins the raised road at its kerb ramps down into the piece
+  (`big_roads:-6586`, `small_roads:-3964`); `gap:2/s0` follows the T3
+  fill's collar on its far side; `gap:27/lot` beside a kerb whose §37
+  TARGET is under `visual_m` while its solved level is 1.2 m over the DEM
+  (the run is read on targets).
+* Census adjudicated 12,182 -> **12,358**; `hard_conflict` 569 -> 739;
+  `hairline_pair` 2,604 -> 2,846; `road_cross_section` 270 -> 293;
+  `pavement_over_road_cap` 36 -> 63; `plane_gradient` 4 -> 6; CRITICAL
+  motion 4 -> 4.  Wall-terrace joints 11 -> 16: the six road-edge walls in,
+  `Airport/T23/door.obj#comp870` out (its lower lot `dsf:pol10` is a road
+  since R1).

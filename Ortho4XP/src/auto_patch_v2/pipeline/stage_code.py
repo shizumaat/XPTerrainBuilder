@@ -1291,7 +1291,8 @@ CODE_MODULES["solve"] = _mods("""
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
-    planar.open_ramps planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
+    planar.open_ramps planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut
+    planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout
@@ -1382,7 +1383,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
-    planar.open_ramps planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
+    planar.open_ramps planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut
+    planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
     planar.shape_parts planar.shapes planar.shore planar.strip_keepout

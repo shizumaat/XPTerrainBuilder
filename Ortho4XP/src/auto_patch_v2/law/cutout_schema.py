@@ -49,7 +49,7 @@ class SunkenRoad:
     min_descent_m: float         # the plate descends at least this from its grade end (a kerb dip is not a road)
     min_plate_m2: float          # a connected plate smaller than this is not a road
     roof_min_fraction: float     # the plate lies under the family's above-band solids over at least this share: ROOFED (spec §3)
-    open_dem_carries_m: float    # an OPEN ramp whose floor lies within this of the DEM at every station: the ground already carries the cutting (#1028 answer 41)
+    open_dem_carries_m: float    # an OPEN ramp's floor this near the DEM everywhere: the DEM carries it
     station_m: float             # station spacing along the plate's axis
     seat: str                    # "none": the family never re-seats (spec §3)
 

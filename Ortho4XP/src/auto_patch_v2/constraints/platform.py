@@ -34,8 +34,9 @@ import typing as _t
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
-from ..model.planar import (PlanarMap, is_bank_ref, is_collar_ref, is_strip_ref,
-                            pad_base_ref, plane_origin_ref, platform_ref_of, unit_ref_of)
+from ..model.planar import (PlanarMap, face_vertex_set, is_bank_ref, is_collar_ref,
+                            is_strip_ref, pad_base_ref, plane_origin_ref,
+                            platform_ref_of, unit_ref_of)
 from ..model.platform import HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
 from .pad_warning import stamp_warning
 
@@ -155,8 +156,27 @@ def _with_runouts(planar: PlanarMap, pairs: list) -> list:
             bank.setdefault(platform_ref_of(ref), []).append(fid)
     # the landing's collar banks off the strip's first metres too; the
     # strip's own side bank (``<run-out>#collar``) banks off the strip
-    return ([(r, cs, tuple(ps) + tuple(by.get(r, ()))) for r, cs, ps in pairs]
-            + [(r, tuple(bank[r]), tuple(strip[r])) for r in sorted(bank) if r in strip])
+    out = ([(r, cs, tuple(ps) + tuple(by.get(r, ()))) for r, cs, ps in pairs]
+           + [(r, tuple(bank[r]), tuple(strip[r])) for r in sorted(bank) if r in strip])
+    fam = set(planar.registries.landings) | set(strip)
+    return [(r, cs, ps + (_sibling_strips(planar, cs, ps, strip) if r in fam else ()))
+            for r, cs, ps in out]
+
+
+def _sibling_strips(planar: PlanarMap, cfids: tuple, pfids: tuple,
+                    strip: _t.Mapping[str, list[int]]) -> tuple[int, ...]:
+    """The run-out strip faces of OTHER landings that border the landing
+    or run-out bank ``cfids`` (#711): two ramps landing side by side run out on two strips
+    (``planar/landing_runout``), and a bank between them banks off both — off
+    its own alone, its vertex beside the sibling strip had no row to it
+    (MEASURED, HECA T3 replay: 96.98 m 1.1 m from the sibling strip's
+    100.01 m edge)."""
+    own = set(pfids)
+    cand = [q for r in sorted(strip) for q in strip[r] if q not in own]
+    if not cand:
+        return ()
+    vs = {v for q in cfids for v in face_vertex_set(planar, planar.faces[q])}
+    return tuple(q for q in cand if not vs.isdisjoint(face_vertex_set(planar, planar.faces[q])))
 
 
 def block_strip_rows(planar: PlanarMap, law: Law,
@@ -327,8 +347,12 @@ def _bank_rows(planar: PlanarMap, law: Law,
                 # bending stencil alone — SPJC building14#collar at
                 # -12.02514481, -77.10577155 stood 46.26 m over a 24.7 m
                 # platform and a 30.04 m DEM.  It keeps a ONE-WAY bank row
-                # (the plate leads) unless it is another pad's rim.
-                if not other:
+                # (the plate leads) unless it is another pad's rim — and a
+                # vertex only collars share is no pad's rim but the seam of
+                # two banks (#711, the interior seam's rule below): MEASURED
+                # (HECA, #1068) the south run-out's side bank at 30.1111706,
+                # 31.3922969 had no row and stood 1.9 m under its DEM
+                if not other or all(is_collar_ref(planar.faces[q].ref) for q in inc):
                     cover.add(o)
                     keep.append(o)
                 continue
@@ -337,6 +361,15 @@ def _bank_rows(planar: PlanarMap, law: Law,
                 # TERRACE between two blocks of one unit — the 1:3 bank from
                 # each block's floor, two-sided, never the rim's cap 0
                 terrace.add(o)
+                keep.append(o)
+                continue
+            if other and all(is_collar_ref(planar.faces[q].ref) for q in inc):
+                # THE SEAM BETWEEN TWO BANKS (issue #711): a vertex only
+                # collars share is ground both banks reach — each keeps its
+                # one-way 1:3 rim row (the plate leads).  With no row at all
+                # it was a column the bending stencil held: HECA's run-out
+                # | landing collar seam at 30.1113600, 31.3922450 stood at
+                # 92.02 m, 3.3 m under its DEM, beside a 100.5 m run-out
                 keep.append(o)
                 continue
             if other:

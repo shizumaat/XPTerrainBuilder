@@ -688,9 +688,12 @@ def _extended(pts: list[XY], eps: float) -> list[XY]:
 
 
 def _joints_from(pm: PlanarMap, segs: list[LineString], pairs: list[tuple[int, int]],
-                 to_ll, extend_m: float, start: int, gap: bool) -> list[ShapeJoint]:
+                 to_ll, extend_m: float, start: int, gap: bool,
+                 sides: tuple[int, int] | None = None) -> list[ShapeJoint]:
     """Merge contour segments into polylines, each carrying the vertex
-    pairs whose midpoints lie on it."""
+    pairs whose midpoints lie on it.  ``sides``: the two shapes when the
+    caller knows them (a gap joint faced by a pad, whose rim vertices no
+    pavement labels)."""
     if not segs:
         return []
     # ``unary_union`` of ONE segment is a bare LineString, which
@@ -717,7 +720,7 @@ def _joints_from(pm: PlanarMap, segs: list[LineString], pairs: list[tuple[int, i
         roles = sorted({pm.faces[f].role for a, b in on for f in
                         (set(pm.vertices[a].incident_faces) | set(pm.vertices[b].incident_faces))})
         labs = sorted({label.get(v, NO_SHAPE) for a, b in on for v in (a, b)} - {NO_SHAPE})
-        shapes = (labs[0], labs[-1]) if labs else (NO_SHAPE, NO_SHAPE)
+        shapes = sides or ((labs[0], labs[-1]) if labs else (NO_SHAPE, NO_SHAPE))
         pts = _extended(pts, extend_m)
         out.append(ShapeJoint(start + len(out), tuple(pts),
                               tuple(tuple(map(float, to_ll(x, y))) for x, y in pts),
@@ -786,19 +789,38 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
     come within the readers' contact horizon of each other without
     sharing a face, the Voronoi midline between the facing edges
     (densified at the horizon so a long edge is represented along its
-    length), clipped to the corridor between them."""
+    length), clipped to the corridor between them.
+
+    A RIGID PAD FACES THE GAP TOO (issue #883): the connectivity union
+    carries the pads (:func:`_label_pavement`) and a pad's vertices take
+    its body's label, so a pad rim within the horizon of another shape's
+    pavement is that body's edge across the gap — the step there is the
+    08k separation step, and the solve's near-miss frontage withholds its
+    weld across it (``constraints.pads.frontage_contacts``: a pad never
+    fronts across a shape joint).  Undeclared, the census read KBOI
+    building47's corner 0.8 m from a separate junction body as 1.04 m
+    frontage / mid-edge rows."""
     tol = law.tables.emit.instrument.step_contact_tol_m
     roles = set(law.tables.emit.terrace.shape_roles)
     ring_edges: list[LineString] = []
     edge_label: list[int] = []
     edge_ends: list[tuple[int, int]] = []
+    on_net = {v for fid in net for r in (pm.faces[fid].ring, *pm.faces[fid].holes)
+              for v in pm.ring_vertices(r)}
+    bearing: set[int] = set()
     for fid, f in pm.faces.items():
-        if not bears_shape(f, roles) or fid in net:        # 08p: never between a shape and the network
-            continue
+        pad = is_rigid_role(law, f.role)
+        if fid in net or not (pad or bears_shape(f, roles)):
+            continue                                # 08p: never between a shape and the network
+        bearing.add(fid)
+        own = pm.shape_of_face.get(fid, NO_SHAPE) if pad else NO_SHAPE
         for cyc in (f.ring, *f.holes):
             vs = pm.ring_vertices(cyc)
             for a, b in zip(vs, vs[1:] + vs[:1]):
                 la, lb = label.get(a, NO_SHAPE), label.get(b, NO_SHAPE)
+                if own != NO_SHAPE and not ({a, b} & on_net):
+                    # a pad rim vertex no pavement labels stands in its pad's body
+                    la, lb = la if la != NO_SHAPE else own, lb if lb != NO_SHAPE else own
                 if la == NO_SHAPE or la != lb:
                     continue
                 ring_edges.append(LineString([pm.vertices[a].xy, pm.vertices[b].xy]))
@@ -816,8 +838,8 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
             continue
         (a, b), (c, d) = edge_ends[i], edge_ends[j]
         fi = set(pm.vertices[a].incident_faces) | set(pm.vertices[b].incident_faces)
-        if fi & (set(pm.vertices[c].incident_faces) | set(pm.vertices[d].incident_faces)):
-            continue                                # a shared face: the contour's case
+        if fi & (set(pm.vertices[c].incident_faces) | set(pm.vertices[d].incident_faces)) & bearing:
+            continue                                # a shared shape face: the contour's case
         near.setdefault((min(la, lb), max(la, lb)), set()).update((i, j))
     out: list[ShapeJoint] = []
     for (la, lb), eids in sorted(near.items()):
@@ -862,7 +884,8 @@ def _gap_joints(pm: PlanarMap, law: Law, label: _t.Mapping[int, int], to_ll, ext
             if d <= 2.0 * tol:
                 u = vb[int(k)]
                 pairs.append((min(v, u), max(v, u)))
-        out.extend(_joints_from(pm, segs, pairs, to_ll, extend_m, start + len(out), True))
+        out.extend(_joints_from(pm, segs, pairs, to_ll, extend_m, start + len(out), True,
+                                sides=(la, lb)))
     stats.gap_joints = len(out)
     stats.gap_length_m = sum(j.length_m for j in out)
     return out

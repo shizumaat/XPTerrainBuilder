@@ -714,6 +714,7 @@ class EngineSession:
         # (``build(steps=...)``): such a run covers ONE step, so the
         # per-tile total line is the parent orchestrator's to print.
         self._stepwise_run = False
+        self._prefetch_imagery = False     # see build(prefetch=...)
         # The live parallel run (subprocess scheduler), when one exists.
         self._parallel = None
         # In-process work queue: per-tile items the worker consumes and
@@ -840,7 +841,7 @@ class EngineSession:
     def build(self, tiles, provider, zoomlevel, custom_build_dir,
               do_vector=True, do_imagery=True, do_overlays=False,
               slots=None, steps=None, boundary_policy=None,
-              boundary_batch=None, missing_art=None):
+              boundary_batch=None, missing_art=None, prefetch=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -858,6 +859,12 @@ class EngineSession:
         whose DSF declares art that is not installed WITHOUT it, ``"leave"``
         leaves such a pack as it is; ``None`` (the default) names the pack
         with a ``PackMissingArt`` event and leaves it, so the user is asked.
+
+        ``prefetch`` (#1002): whether the vector step downloads the
+        tile's likely orthophotos in the background
+        (``O4_Imagery_Prefetch``).  ``None`` lets an in-process run
+        prefetch; a step-wise worker child prefetches only when its
+        parent lent it an imagery token (``True``).
         """
         if self._building:
             return False
@@ -886,6 +893,8 @@ class EngineSession:
             pass
         self._building = True
         self._stepwise_run = steps is not None
+        self._prefetch_imagery = (bool(prefetch) if prefetch is not None
+                                  else not self._stepwise_run)
         self._cancel_all = False
         self._cancelled_tiles = set()
         self._active_tile = None
@@ -938,6 +947,25 @@ class EngineSession:
                               plan)
         threading.Thread(target=self._build_worker, daemon=True).start()
         return True
+
+    def _run_step(self, function, key, tile, plan):
+        """Run one step; the vector step downloads the tile's likely
+        orthophotos alongside it when this run prefetches (#1002) — in a
+        run that builds imagery, or in a worker child its parent lent
+        an imagery token (whose plan is the one step)."""
+        if key != "vector" or not self._prefetch_imagery:
+            return function(tile)
+        if not self._stepwise_run and not any(
+                step == "imagery" for step, _, _ in plan):
+            return function(tile)
+        import O4_Imagery_Prefetch as PREFETCH
+
+        def downloads_done(downloaded, failed):
+            self.imagery_downloads_done(tile.lat, tile.lon, downloaded,
+                                        failed)
+
+        with PREFETCH.alongside(tile, on_done=downloads_done):
+            return function(tile)
 
     def _seed_work_queue(self, tiles, provider, zoomlevel,
                          custom_build_dir, plan):
@@ -1253,7 +1281,7 @@ class EngineSession:
                         self._imagery_weights = _imagery_weights_for(
                             lat, lon, provider, zoomlevel, custom_build_dir)
                     step_t0 = time.time()
-                    result = step_fn[key](tile)
+                    result = self._run_step(step_fn[key], key, tile, plan)
                     step_seconds[key] = time.time() - step_t0
                     if result == 1 and not UI.red_flag:
                         # The step ENDED with its outputs on disk: its

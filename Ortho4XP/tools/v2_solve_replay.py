@@ -2470,9 +2470,19 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
         from auto_patch_v2.constraints.road_ramp import reach_seed_rewrite
 
         def _rewrite(lv):
-            out = reach_seed_rewrite(pm, law, cs, lv)
-            _stage2["cs"] = out[0]
-            return out
+            lv1, bands, pref = dict(lv), [], {}
+            try:
+                from auto_patch_v2.constraints.door_pad import blend_release
+                _door, bands, pref = blend_release(pm, law, airport, lv, cs)
+                print(f"[{icao}] door-pad blend release: {_door}")
+            except ImportError:                   # a tree that predates it
+                pass
+            cs2, rep2 = reach_seed_rewrite(pm, law, cs, lv1)
+            if bands:
+                cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
+            rep2["preferred_z"] = pref
+            _stage2["cs"] = cs2
+            return cs2, rep2
         _kw["stage2_rewrite"] = _rewrite
     except ImportError:
         pass
@@ -2530,6 +2540,13 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
     # whatever an instrument re-solves later in this run
     hard_conflict = (_lrep["hard_conflict"] if late_from is not None
                      else rep.hard_conflict)
+    try:                                   # #798 round 3 (D3): the build's own line
+        from auto_patch_v2.constraints.door_pad import door_line_failures
+        for _line in door_line_failures(hard_conflict, float(getattr(
+                law.tables.structures.placement, "door_airside_give_m", 0.0))):
+            print(f"[{icao}] {_line}")
+    except ImportError:                    # a tree that predates it
+        pass
     if late_from is None and prob.get("stage1") is not None:
         print(f"[{icao}] stage 1 map (#100 (c)): {rep.stages.get('stage1_map')}")
     if _tt2:
@@ -2707,6 +2724,9 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                              "cs": cs_w, "z": z,
                              "pin_yield": list(getattr(rep, "pin_yield", ()) or ()),
                              "hard_conflict": [dict(r) for r in hard_conflict],
+                             # #798 round 3: stage 2's own Bands (the door
+                             # pads' airside give), for tools/door_line_read.py
+                             "stage2_bands": list(getattr(_stage2.get("cs"), "bands", ())),
                              "hold_report": _hold_report_now(pm_w),
                              **({"late_fixed": dict(_late_fixed),
                                  "late_cut": _lrep["cut"],

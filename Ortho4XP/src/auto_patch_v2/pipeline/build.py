@@ -529,7 +529,21 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # OWNER RULINGS 2026-09-27a (11): a reach contact within one lane width
     # seeds the ramp from STAGE 1's solved level — applied between the two
     # stages, bound here because ``solve`` may not import ``constraints``
+    from ..constraints.door_pad import blend_release
     from ..constraints.road_ramp import reach_seed_rewrite
+
+    def _stage2_rewrite(lv):
+        # the door-line pads' blend room and airside give leave stage 1's
+        # levels (``constraints/door_pad.blend_release``, #798 round 3); the
+        # reach seed reads the levels as stage 1 solved them
+        lv1 = dict(lv)
+        door, bands, pref = blend_release(pm, law, airport, lv, cs)
+        cs2, rep = reach_seed_rewrite(pm, law, cs, lv1)
+        if bands:
+            cs2 = _dc.replace(cs2, bands=(*cs2.bands, *bands))
+        rep["door_blend"] = door
+        rep["preferred_z"] = pref
+        return cs2, rep
 
     # #100 round 8, option (c): STAGE 1 IS ASSEMBLED ON THE RIBBON-FREE MAP —
     # this build's own prefix, re-run on the classification without ribbons
@@ -555,7 +569,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         tt2: TaxiTrendReport = {}
         sol, rep = solve_design(
             pm, cs, law, cfg.options, size_out=size, strips=strips,
-            stage2_rewrite=lambda lv: reach_seed_rewrite(pm, law, cs, lv),
+            stage2_rewrite=lambda lv: _stage2_rewrite(lv),
             hold=pre.hold, stage1=_s1,
             trend_rewrite=lambda pm_x, lv: stage_one_retarget(pm_x, law, airport,
                                                               lv, tt2))
@@ -591,6 +605,11 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                  f"low {r['low_ll'][0]:.7f},{r['low_ll'][1]:.7f})", out)
     _pin_yield = list(design_rep.pin_yield or ())
     hard_conflict = design_rep.hard_conflict     # spec §3b: a record field
+    # #798 round 3 (D3): a door line §5a relaxed is NAMED
+    from ..constraints.door_pad import door_line_failures
+    for _line in door_line_failures(hard_conflict, float(
+            law.tables.structures.placement.door_airside_give_m)):
+        _say(f"[{icao}] {_line}", out)
     _late_report: dict | None = None
     if cl_gaps is not None:
         # spec §55 (4) THE LAST STAGE: the pieces cut by the base's levels,

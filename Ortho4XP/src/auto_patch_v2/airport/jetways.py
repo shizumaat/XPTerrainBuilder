@@ -79,14 +79,19 @@ def _obj_extent(cache, o) -> tuple[XY, ...] | None:
     EVERY authored vertex (the tunnel and cab are animated geometry, so the
     solid static footprint is the rotunda alone — measured 9 m2 per OTHH
     jetway)."""
+    import numpy as np
     from shapely.geometry import MultiPoint
     from . import obj8 as _obj8
     geom = cache.geometry(o.resolved_path)
     if geom is None or geom.vertices.shape[0] < 3:
         return None
     a = _obj8.placement_affine(o.xy, o.heading_deg)
-    pts = [(a[0] * x + a[1] * z + a[4], a[2] * x + a[3] * z + a[5])
-           for x, z in geom.vertices[:, [0, 2]].tolist()]
+    # Issue #1082: the placement in numpy, handed to GEOS as one array — the
+    # same doubles in the same order, so the same hull, without a Python
+    # tuple per authored vertex (OTHH: ~105 s of classify).
+    x = geom.vertices[:, 0].astype(np.float64)
+    z = geom.vertices[:, 2].astype(np.float64)
+    pts = np.column_stack((a[0] * x + a[1] * z + a[4], a[2] * x + a[3] * z + a[5]))
     hull = MultiPoint(pts).convex_hull
     return tuple(hull.exterior.coords)[:-1] if hull.geom_type == "Polygon" else None
 

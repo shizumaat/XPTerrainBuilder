@@ -322,12 +322,20 @@ def test_the_class_table_read_on_a_real_map():
     # and ``route11`` that was ``gapapron:4`` (gap:19, 982 m2 on 915 m of
     # airside edge) now falls under the area floor in two parts, so the
     # pack's pieces go 42 -> 41 and every later gap ref moves down by one
-    assert len(pieces) + len(aprons) == 41 + n_slab == cl.stats["gap_pieces"]
+    # RE-RECORDED (lane m15, issue #798, owner RULINGS 2026-10-19w): the
+    # slope pads (212 -> 231 building cells) take ground from the gap
+    # pieces round them — gap:0 709,935 -> 706,355 m2 (30.1205, 31.4040),
+    # gap:2 53,392 -> 50,617 m2 (30.1041, 31.3899), gap:5 29,447 -> 28,543 m2
+    # (30.1139, 31.3969) and three base slabs 12-171 m2 each — and the
+    # sliver they leave beside the apron at 30.1250, 31.4061 (361 m2, a
+    # road piece) clears the area floor as gap:36: the pack's pieces go
+    # 41 -> 42, every later gap ref moves up by one (slabs 41.. -> 42..)
+    assert len(pieces) + len(aprons) == 42 + n_slab == cl.stats["gap_pieces"]
     assert sorted(int(c.ref.split(":")[1]) for c in pieces
-                  if c.evidence.get("base_slab")) == list(range(41, 41 + n_slab))
+                  if c.evidence.get("base_slab")) == list(range(42, 42 + n_slab))
     road = sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("touches_apron") == 1.0)
-    assert road == [0, 2, 4, 7, 11, 12, 16, 29, 30]          # (#808: refs only)
+    assert road == [0, 2, 4, 7, 11, 12, 16, 29, 30, 36]      # (#798: + gap:36)
     assert all(c.evidence["road_evidence"] == 1.0 for c in pieces
                if c.evidence.get("touches_apron") == 1.0)
     by = {False: [], True: []}
@@ -336,7 +344,8 @@ def test_the_class_table_read_on_a_real_map():
         by[c.evidence["road_evidence"] == 1.0].append(int(c.evidence["gap_ref"].split(":")[1]))
     # (regL3 round 2: the taxi faces lettered by their pavement width move
     # the road evidence of gap:19 / gap:22 / gap:20 / gap:21 — refs only)
-    assert sorted(by[False]) == [17, 21, 38]                       # no road evidence
+    # (#798: the gap refs after gap:36 move up by one — 38 -> 39, 39 -> 40)
+    assert sorted(by[False]) == [17, 21, 39]                       # no road evidence
     # (lane xplat399: the §43 opening read on ``cells.opening_grid_m`` cuts
     # different necks/arms at HECA, so the gap pieces between them move —
     # gap:35 -> gap:34 in the share, gap:33 grows; refs only here)
@@ -344,9 +353,9 @@ def test_the_class_table_read_on_a_real_map():
     # gap piece at -2751, -156 — that piece and gapapron:7's gap:24 swap
     # numbers, 24 -> 23; refs only)
     # (#808: gap:19 is gone; the refs after it move down by one)
-    assert sorted(by[True]) == [13, 15, 18, 20, 22, 31, 32, 33, 35, 39]  # §37 (2)'s share
+    assert sorted(by[True]) == [13, 15, 18, 20, 22, 31, 32, 33, 35, 40]  # §37 (2)'s share
     assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(13)]
-    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (13, 9)
+    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (13, 10)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)
     to_xy = airport.frame.transformers()[0]
     for (lat, lon), ref in {(30.1154841, 31.4105884): "gap:7", (30.1159784, 31.4106264): "gap:7",

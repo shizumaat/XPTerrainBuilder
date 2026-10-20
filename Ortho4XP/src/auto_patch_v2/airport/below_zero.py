@@ -55,6 +55,7 @@ from shapely.ops import unary_union
 
 from ..model.frame import XY, rotated_rectangle
 from . import obj8 as _obj8
+from .obj8_clip import _plan_admitted
 from .skirt import below_zero_perimeter_fraction, is_skirt  # noqa: F401  (re-export)
 
 __all__ = ["BelowZero", "read_below_zero", "WallHeight", "read_wall_height",
@@ -124,14 +125,16 @@ def _extent(geom, n: XY) -> float:
 
 
 def _plan_parts(v: np.ndarray, tris: np.ndarray, mat: _t.Sequence[float]) -> list:
-    """Each triangle's PLAN geometry in the frame: its polygon, or (a
-    vertical face: no plan area) the segment it draws on the ground."""
+    """Each triangle's PLAN geometry in the frame: its polygon as
+    :func:`obj8_clip._plan_admitted` admits it, or (a vertical face — one
+    seen edge-on included: no plan area) the segment it draws on the
+    ground."""
     a, b, d, e, xoff, yoff = mat
     pts = v[tris][:, :, [0, 2]]
     xs = a * pts[:, :, 0] + b * pts[:, :, 1] + xoff
     ys = d * pts[:, :, 0] + e * pts[:, :, 1] + yoff
     polys = shapely.polygons(np.stack([xs, ys], axis=2))
-    ok = shapely.is_valid(polys) & (shapely.area(polys) > 1e-9)
+    ok = _plan_admitted(pts, polys)
     parts = [p for p, k in zip(polys, ok.tolist()) if k]
     for k in np.nonzero(~ok)[0].tolist():
         P = [(float(xs[k, i]), float(ys[k, i])) for i in range(3)]

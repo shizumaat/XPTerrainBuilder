@@ -300,7 +300,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     polygons (read on the mapped approach).  ``crossing`` are the mapped
     roads through the corridor (``structure_approach.crossing_roads``, #1028):
     stops like the pavement's — a road over the bore slides the mouth out of
-    it, one across the approach trims the ramp's top.  ``stops`` / ``tree`` carry the building ``pads`` too
+    it, one across the approach trims the ramp's top.  ``stops`` / ``tree``
+    carry the building ``pads`` too
     (``ramp_crosses_pad``: a pad stops the ramp's top but never slides
     the mouth).
 

@@ -582,6 +582,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.slope_pad",
     "auto_patch_v2.geom.triangulate",
     "auto_patch_v2.geom.union_find",
+    "auto_patch_v2.geom.valid_area",
     "auto_patch_v2.geom.vector",
     "auto_patch_v2.law",
     "auto_patch_v2.law.airports_schema",

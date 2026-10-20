@@ -400,6 +400,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
+        "auto_patch_v2.geom.valid_area",
         "auto_patch_v2.geom.vector",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",
@@ -1294,6 +1295,7 @@ CODE_MODULES["solve"] = _mods("""
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
+    geom.valid_area
     constraints.door_pad
     geom.slope_pad
 """)
@@ -1383,6 +1385,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.reachability
     planar.zone_pass
     geom.fixed_overlay
+    geom.valid_area
     constraints.door_pad
     geom.slope_pad
 """)

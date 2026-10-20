@@ -77,3 +77,38 @@ def test_the_bending_skips_the_riser():
     planar = F(faces=faces, ring_vertices=lambda r: tuple(r), road_terrace={})
     tris = [(1, 2, 3), (2, 3, 4), (3, 4, 5), (0, 1, 2)]
     assert wall_cut_edges(planar, tris) == frozenset({(1, 3), (2, 3), (2, 4)})
+
+
+def test_a_self_touching_operand_never_costs_the_airport(law):
+    """#1098 (EDDF): a held pad whose ring touches itself (a notch whose
+    tip meets the shell) made ``plan_low``'s overlays raise ``side location
+    conflict`` and the airport lost its whole patch.  Every operand is read
+    as its valid area first (``geom/valid_area``); the split still lands."""
+    from shapely.geometry import Polygon
+    pad = Polygon([(0, 0), (200, 0), (200, 100), (0, 100), (0, 50),
+                   (30, 40), (30, 60), (0, 50)])                  # touches itself at (0, 50)
+    assert not pad.is_valid
+    low = [_part(0.0, 0.0, 100.0, 80.0, -13.0), _part(100.0, 0.0, 200.0, 80.0, -12.9)]
+    others = Polygon([(200, 0), (260, 0), (260, 40), (200, 20), (230, 20), (200, 40)])
+    got = plan_low(pad, AIR, _airport(FRONT + low), law, 0.5, others)
+    assert got is not None
+    H, L, S, _rec = got
+    assert H.is_valid and L.is_valid and S.is_valid
+    assert L.area > 0.5 * 200.0 * 80.0
+
+
+def test_valid_area_reads_the_area_and_drops_the_precision_model():
+    import shapely
+    from auto_patch_v2.geom.valid_area import valid_area
+    from shapely.geometry import Polygon
+    bow = Polygon([(0, 0), (10, 0), (10, 10), (5, 5), (8, 10), (0, 10), (0, 0)])
+    pinch = Polygon([(0, 0), (10, 0), (10, 10), (0, 10), (0, 5), (4, 4), (4, 6), (0, 5)])
+    for g in (bow, pinch):
+        v = valid_area(g)
+        assert v.is_valid and v.geom_type in ("Polygon", "MultiPolygon")
+        assert v.area > 0.0
+    snapped = shapely.set_precision(box(0, 0, 3, 3), 0.5)
+    assert shapely.get_precision(valid_area(snapped)) == 0.0
+    ok = box(0, 0, 1, 1)
+    assert valid_area(ok) is ok
+    assert valid_area(None).is_empty

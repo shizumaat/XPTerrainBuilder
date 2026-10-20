@@ -236,3 +236,56 @@ def test_a_single_runway_mints_no_crossing_pin_and_keeps_its_chord(law):
         want = 700.0 + 6.0 * (s + RUN_LEN / 2) / RUN_LEN
         assert abs(targets[v] - want) <= 0.05 + crown * 1.0, \
             f"a single runway's chord moved: {targets[v]:.3f} vs {want:.3f}"
+
+
+# ── 5. A MULTI-RUNWAY CROSSING IS ONE SURFACE (issue #1008) ──────────────
+
+def _three_runways():
+    """Three runways through the origin: A east-west, B north-south, C on
+    the diagonal.  A's threshold is nearest the node (it governs both
+    others); B's is nearer than C's, so pairwise B would govern C and hand
+    it B's OWN profile — a second, different value at the same node."""
+    from types import SimpleNamespace as NS
+    from auto_patch_v2.constraints.runway_chord import _Chord
+    r2 = 2 ** -0.5
+    chords = {
+        "A": _Chord((-300.0, 0.0), 1.0, 0.0, 0.0, 1000.0, 700.0, 710.0),
+        "B": _Chord((0.0, -600.0), 0.0, 1.0, 0.0, 1200.0, 690.0, 690.0),
+        "C": _Chord((-800 * r2, -800 * r2), r2, r2, 0.0, 1600.0, 695.0, 695.0),
+    }
+    airport = NS(runways=[NS(id=r, width_m=45.0, length_m=c.s1)
+                          for r, c in chords.items()])
+    return airport, chords
+
+
+def _x(pair, gov, other, xy, chords):
+    from auto_patch_v2.constraints.runway_chord import Crossing
+    cg, co = chords[gov], chords[other]
+    sg, so = cg.station(*xy), co.station(*xy)
+    return Crossing(pair, gov, other, xy, sg, so, cg.own_z(sg),
+                    cg.threshold_distance(sg), co.threshold_distance(so))
+
+
+def test_three_runways_crossing_at_one_node_resolve_to_one_level():
+    from auto_patch_v2.constraints.runway_chord import _one_surface, _with_knots
+    airport, ch = _three_runways()
+    pairwise = [_x("A+B", "A", "B", (0.0, 0.0), ch),
+                _x("A+C", "A", "C", (0.3, 0.0), ch),
+                _x("B+C", "B", "C", (0.0, 0.4), ch)]
+    # the defect: C takes two knots a fraction of a metre apart, 703 and 690
+    assert {round(x.z_pin, 1) for x in pairwise if x.other == "C"} == {703.0, 690.0}
+    got = _one_surface(airport, ch, pairwise)
+    assert sorted((x.governing, x.other) for x in got) == [("A", "B"), ("A", "C")]
+    assert len({x.z_pin for x in got}) == 1
+    assert abs(got[0].z_pin - ch["A"].own_z(ch["A"].station(*got[0].xy))) < 1e-9
+    knots = _with_knots(ch, got)
+    assert len(knots["C"].knots) == 1 and len(knots["B"].knots) == 1
+    assert not knots["A"].knots
+
+
+def test_crossings_a_runway_width_apart_stay_separate():
+    from auto_patch_v2.constraints.runway_chord import _one_surface
+    airport, ch = _three_runways()
+    apart = [_x("A+B", "A", "B", (0.0, 0.0), ch),
+             _x("B+C", "B", "C", (0.0, 100.0), ch)]
+    assert _one_surface(airport, ch, apart) == apart

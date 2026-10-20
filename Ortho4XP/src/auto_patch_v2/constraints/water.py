@@ -178,7 +178,7 @@ def _natural_shore_pins(vw, planar: PlanarMap, law: Law, airport: Airport,
     levels = water_level_beside(airport.dem, [vw.xy[v][0] for v in on],
                                 [vw.xy[v][1] for v in on]) if on else []
     rows: list[Row] = []
-    for v, lv in zip(on, levels):
+    for v, lv in zip(on, levels, strict=True):
         rows.append(Pin(v, float(lv), Source(
             GEN, RULING_NATURAL, (f"vertex:{v}", "natural_shore",
                                   f"level:{float(lv):.3f}"))))

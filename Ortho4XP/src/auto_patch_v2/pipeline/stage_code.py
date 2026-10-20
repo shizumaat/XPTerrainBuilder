@@ -1106,7 +1106,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.end_area model.islands model.map_memo model.platform model.threshold_datum
     """),
     "water": _mods(_GENERATOR_CORE + """
-        airport airport.water_level constraints.geometry constraints.precedence constraints.water model.airport
+        airport airport.water_level constraints.geometry constraints.precedence
+        constraints.water model.airport
     """),
     "zones": _mods(_GENERATOR_CORE + """
         constraints.contiguity constraints.end_lip constraints.geometry

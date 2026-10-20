@@ -812,6 +812,16 @@ def elevation_and_bathymetry_data(tile):
 
 ################################################################################
 def build_dsf(tile, download_queue):
+    """Step 4's DSF: the terrain, pools and patches of ``tile``'s mesh.
+
+    The mask squares the texture loops crop are decoded once for the step
+    (``O4_Mask_Utils.mask_square_memo``, issue #850); the body is
+    :func:`_build_dsf_body`."""
+    with MASK.mask_square_memo():
+        return _build_dsf_body(tile, download_queue)
+
+
+def _build_dsf_body(tile, download_queue):
 
     # Texture mode dispatch (see docs/specs/texture-mode-spec.md).  Every
     # branch below that reads this variable is a pure addition guarded by the

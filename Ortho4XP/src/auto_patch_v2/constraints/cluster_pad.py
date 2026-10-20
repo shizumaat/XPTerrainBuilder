@@ -364,7 +364,10 @@ def pad_cluster_mismatch(planar: PlanarMap, law: Law,
         return out
     _to_xy, to_ll = (airport.frame.transformers() if airport is not None
                      else (None, None))
-    polys = {int(q[0]): (_base_ref(q[1]), q[3]) for q in _pad_polys(planar, law)}
+    # a LOWER LEVEL (RULINGS 2026-10-19ai) is the same building's pad here:
+    # the object is one shape on two levels, never a cluster spanning pads
+    polys = {int(q[0]): (unit_ref_of(plane_origin_ref(_base_ref(q[1]))), q[3])
+             for q in _pad_polys(planar, law)}
 
     def _at(fid: int) -> tuple[float | None, float | None]:
         q = polys.get(fid)

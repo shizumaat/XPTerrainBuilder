@@ -82,8 +82,39 @@ def riser_geometry(ribs, regions, air, rim_band: float, law: Law):
         if per > 0.0 and 2.0 * p.area / per < w_strip \
                 and inscribed_width_m(p) < w_strip:
             riser = riser.union(p)
+    # A MEDIAN IS ROAD GROUND, NOT A WALL (round 3, KLAX 33.94033,
+    # -118.39618: a riser between two carriageways 1.5 m apart carried a band
+    # vertex the cut decoupled from both roads; it stood 3 m over them and the
+    # census read the spike as road-to-road steps, `pavement_over_road_cap`
+    # 0 -> 5).  The band ground within one weld spacing of TWO different
+    # mapped roads yields to them: it stays zone, a sliver
+    # ``overlay.dissolve_sliver_zones`` gives to a ribbon (as #988's median).
+    median = _median(ribs, w)
+    if median is not None and not riser.is_empty:
+        riser = riser.difference(median)
+        riser = unary_union([q for q in shapely.get_parts(riser)
+                             if q.geom_type == "Polygon" and q.area >= w * w])
     riser = shapely.set_precision(riser, 0.0)
     return None if riser.is_empty or riser.area <= 0.0 else riser
+
+
+def _median(ribs, w: float):
+    """The overlap of the one-weld-spacing reaches of two DIFFERENT mapped
+    roads (a ribbon's ref less its ``#k`` piece suffix), or ``None``."""
+    from shapely.strtree import STRtree
+    reach = [(str(r.ref).split("#", 1)[0], r.polygon.buffer(w, **_MITRE))
+             for r in ribs if not r.polygon.is_empty]
+    if len(reach) < 2:
+        return None
+    tree = STRtree([g for _r, g in reach])
+    parts = []
+    for i, (ra, ga) in enumerate(reach):
+        for j in tree.query(ga, predicate="intersects"):
+            j = int(j)
+            if j > i and reach[j][0] != ra:
+                parts.append(ga.intersection(reach[j][1]))
+    m = unary_union(parts) if parts else None
+    return None if m is None or m.is_empty else m
 
 
 def apply_risers(regions, riser):

@@ -274,3 +274,49 @@ spacings.
   must also run road vertex → nearest band edge point.
 - KLAX taxiway-F end areas (33.934–33.941, −118.396): the tunnel-trench rows
   remain after the keep-out; not attributed further.
+
+### 7.3 Measured — round 4 (STOPPED at the cap; bar NOT met)
+
+Base re-taken on current main (bfa6f11ac): the round-3 base (8f96a4c76)
+was stale — current main emits the KLAX taxiway-F roads (`big_roads:-4266`,
+`-1147`, `-313`, `-4265`) at 33.934–33.941, −118.396 as ribbons too; the
+"tunnel trench" reading of round 3 was an artefact of the stale base.
+
+Iteration 1: a riser ring vertex within one identity spacing + snap of a
+ribbon's ring (`law.tables.riser_kerb_near_m`) is the KERB — the emit welds
+it onto the ribbon (measured: KLAX 33.94047, −118.39619, a riser vertex
+0.5 m off a second carriageway, held at the band's level, shipped inside
+that road's way 2.9 m over it). It is the road side of the cut and release,
+and `zones.zone_bands` gives it the kerb's cap only. KLAX
+`pavement_over_road_cap` 7 → 1 (0.15 m).
+
+Iteration 2: stand-off pairs from both sides (road vertex → nearest point
+on the band's edge); the declared riser step counts the band vertices
+within 4 weld spacings of the kerb.
+
+| | KBUR main → r4 | KLAX main → r4 |
+|---|---|---|
+| `adjacent_ground_step` | 3 → 4 | 5 → 3 (3.68 m) |
+| `strip_seam_tear` | 0 → 0 | 4 → 14 (3.96 m) |
+| `terrace_actual_step` | 0 → 0 | 0 → 6 (3.02 m) |
+| `pavement_over_road_cap` | 0 → 1 (0.21 m) | 0 → 1 (0.15 m) |
+| `runway_end_skirt` | 3 → 16 (1.57 m) | 1 → 6 (1.32 m) |
+| hairline in scope | 0 → 0 | 0 → 0 |
+| 30aa added/removed | 0/0 | 6/0 (= main) |
+
+- KLAX 33.945963, −118.436316: clean (only main's end-skirt rows); the
+  #951 road on its ground.
+- KLAX taxiway-F (33.934 and 33.940, −118.396): the in-band roads sit on
+  their ground 3–4 m under the band's graded level — walls by 19a/19i/Q11 —
+  and the census's chords there (3.5–4.5 m, band beyond the riser to road)
+  still exceed the declared riser; `terrace_actual_step` reads two roads at
+  different levels (`-313` at 27.3 m, `-4265#1` at 30.2–31.8 m) across a
+  declared riser.
+- KBUR building9 corner: still not declared. In the PLANAR map the gap
+  between the band ring and the `dsf:pol122` ring is 2.1–2.9 m (edge to
+  edge), past the stand-off horizon (cut-back + weld + snap, 1.95 m); the
+  census's 1.12 m pair is between EMITTED vertices. The gap is wider than
+  the stand-off law makes it; why is not attributed.
+- KBUR/KLAX `runway_end_skirt` rows are new: the Q11 graded floor (zone
+  ceiling off the nearest pavement) lifts band vertices in a runway END
+  area above the end-skirt profile there.

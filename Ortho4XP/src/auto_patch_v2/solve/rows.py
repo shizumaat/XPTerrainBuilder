@@ -21,6 +21,7 @@ import scipy.sparse as sp
 
 from ..geom import face_triangles
 from ..law import Law
+from ..law.reference_code import ref_status
 from ..law.tables import zone_edge_offset_m
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import NO_SHAPE, PlanarMap
@@ -285,8 +286,10 @@ def _zone_weights(pm: PlanarMap, law: Law, pav: _t.AbstractSet[int]
     the zone corridor reaches takes no detached-body datum)."""
     import heapq
     width_of: dict[int, float] = {}
+    status_of = getattr(pm, "runway_status_of_ref", None)      # #811
     for f in pm.faces.values():
-        w = zone_edge_offset_m(law, f.role, f.code_number, f.code_letter)
+        w = zone_edge_offset_m(law, f.role, f.code_number, f.code_letter,
+                               status=ref_status(status_of, f.ref))
         if not w:
             continue
         for ring in (f.ring, *f.holes):

@@ -385,5 +385,6 @@ def test_the_footprint_sidecar_name_is_the_writers(tmp_path, monkeypatch):
     for name in ("+40-123.dsf", "+40-123.dsf.anchor_bak"):
         path = folder / name
         path.write_bytes(b"x")
-        written, _fp = dsf_reader._object_footprint_sidecar(str(path), str(tmp_path / "Pack"), 0.1, 1.0)
+        written, _fp = dsf_reader._object_footprint_sidecar(
+            str(path), str(tmp_path / "Pack"), 0.1, 1.0)
         assert os.path.basename(written) == dsf_v2.footprint_cache_name(str(path))

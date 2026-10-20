@@ -56,7 +56,8 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.reference_code import VISUAL, raoa_applies, runway_code_number
+from ..law.reference_code import (NON_INSTRUMENT, VISUAL, raoa_applies, runway_code_number,
+                                  status_by_ref)
 from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
                           runway_end_profile, runway_safety_area_length_m,
                           zone2_half_width_m)
@@ -106,8 +107,9 @@ class RunwayGroup:
     code_number: int
     code_letter: str | None
     rings: tuple[list[XY], ...]          # lateral rect, approach end, departure end
-    #: the runway's INSTRUMENT STATUS (RULINGS 2026-10-15k; ``Runway.instrument``)
-    instrument: bool = False
+    #: the runway's INSTRUMENT STATUS (RULINGS 2026-10-15k; #811:
+    #: ``reference_code.runway_status``, 0 / 1 / 2 — precision)
+    instrument: int = 0
     #: the APPROACH CLASS of the end at ``axis_a`` / ``axis_b``
     #: (``RunwayEnd.approach``, RULINGS 2026-10-15m (2) / 15n)
     end_classes: tuple[str, str] = (VISUAL, VISUAL)
@@ -163,7 +165,7 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
     disp_of = {rw.id: tuple(float(e.displaced_m or 0.0) for e in rw.ends)
                for rw in airport.runways}
     datum_of = {rw.id: threshold_datums(rw) for rw in airport.runways}
-    instrument_of = {rw.id: bool(getattr(rw, "instrument", False)) for rw in airport.runways}
+    instrument_of = status_by_ref(airport.runways)
     ends_of = {rw.id: (rw.ends[0].xy, rw.ends[1].xy) for rw in airport.runways}
     end_len = end_area_lengths(airport, law)
     out: list[RunwayGroup] = []
@@ -178,7 +180,8 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         unit = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
         code = code_of.get(ref) or runway_code_number(law, length)
         letter = letter_of.get(ref)
-        strip_half = zone2_half_width_m(law, "runway", code, letter) or 0.0
+        ins = instrument_of.get(ref, NON_INSTRUMENT)
+        strip_half = zone2_half_width_m(law, "runway", code, letter, ins) or 0.0
         end_half = max(width, strip_half)
         # THE RSA LENGTH FROM THE RUNWAY END (owner RULINGS 2026-10-15c (2)):
         # the corridor runs ``runway_safety_area_length_m`` past the runway's
@@ -187,7 +190,6 @@ def runway_groups(vw: View, airport: Airport) -> list[RunwayGroup]:
         # ...or to the top of a drop (RULINGS 2026-10-15g (C);
         # ``model/end_area``): each end its own length, end 0 / end 1 matched
         # to the slab side its END stands on
-        ins = instrument_of.get(ref, False)
         rsa = runway_safety_area_length_m(law, code, letter, ins)
         len_a = len_b = rsa
         classes = (VISUAL, VISUAL)

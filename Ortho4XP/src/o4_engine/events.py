@@ -82,6 +82,9 @@ from typing import Any, Optional
 # ``warnings`` now also carries a built tile's DEGRADED outputs
 # (white-squared textures, an airport inset not fetched, a mask built
 # without its extent).  A peer that ignores the key loses nothing.
+# Within 1.13 (2026-10-19, additive, #797): ``pack_objects`` takes
+# ``footprints_only``; its models then carry ``plan_hull_f32_b64`` (the
+# plan outline, ``(x, z)`` pairs) instead of vertices and triangles.
 PROTOCOL_VERSION = "1.13"
 
 

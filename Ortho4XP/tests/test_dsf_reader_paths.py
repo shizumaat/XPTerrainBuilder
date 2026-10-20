@@ -64,3 +64,13 @@ def test_an_apt_dat_outside_earth_nav_data_has_no_associated_dsf(tmp_path):
 @pytest.mark.parametrize("missing", ["", None, "no/such/Earth nav data/apt.dat"])
 def test_a_missing_apt_dat_has_no_associated_dsf(missing):
     assert D.find_associated_dsf(missing, 60.7, -135.07) is None
+
+
+def test_pack_root_derivation(tmp_path):
+    """``<pack>/Earth nav data/<10° block>/<tile>.dsf`` -> ``<pack>`` (moved
+    here from the retired v1 pavement-classification twins, #852)."""
+    dsf = os.path.join(str(tmp_path), "Earth nav data",
+                       "+30-090", "+35-081.dsf")
+    os.makedirs(os.path.dirname(dsf), exist_ok=True)
+    open(dsf, "w", encoding="utf-8", newline="").close()
+    assert D._pack_root_for_dsf(dsf) == str(tmp_path)

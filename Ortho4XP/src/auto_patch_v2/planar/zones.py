@@ -174,13 +174,15 @@ def runway_end_breaks(cells: tuple[Cell, ...], law: Law,
             continue
         by_ref.setdefault(c.ref, []).append(Polygon(c.ring, c.holes))
         cls.setdefault(c.ref, (c.code_number, c.code_letter))
-    # the runway's INSTRUMENT STATUS (RULINGS 2026-10-15k): the strip's end
-    # length is read by it (``overlay._runway_records``' last slot)
-    ins_of = {r[0]: bool(r[6]) for r in runways if len(r) >= 7}
+    # the runway's INSTRUMENT STATUS (RULINGS 2026-10-15k; #811 0 / 1 / 2):
+    # the strip's end length and half-width are read by it
+    # (``overlay._runway_records``' last slot)
+    ins_of = {r[0]: int(r[6]) for r in runways if len(r) >= 7}
     out: list[LineString] = []
     for ref, polys in by_ref.items():
         cn, cl = cls[ref]
-        prof = runway_end_profile(law, cn, cl, ins_of.get(ref, False))
+        ins = ins_of.get(ref, 0)
+        prof = runway_end_profile(law, cn, cl, ins)
         brk = prof.break_m
         if not brk:
             continue
@@ -194,7 +196,7 @@ def runway_end_breaks(cells: tuple[Cell, ...], law: Law,
         L = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
         ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
         px, py = -uy, ux
-        hw = (zone2_half_width_m(law, "runway", cn, cl) or 0.0) + u.area / L + 1.0
+        hw = (zone2_half_width_m(law, "runway", cn, cl, ins) or 0.0) + u.area / L + 1.0
         for s0 in (-brk, L + brk):
             cx, cy = a[0] + ux * s0, a[1] + uy * s0
             out.append(LineString([(cx - px * hw, cy - py * hw), (cx + px * hw, cy + py * hw)]))
@@ -329,6 +331,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         groups[("runway", cn, _RUNWAY_KEY + ref)] = polys
         letters[ref] = cl
 
+    status_of = {r[0]: int(r[6]) for r in runways if len(r) >= 7}
+
     def letter_of(key: tuple[str, int | None, str | None]) -> str | None:
         fam, _cn, cl = key
         return letters.get(cl[len(_RUNWAY_KEY):]) if fam == "runway" else cl
@@ -337,7 +341,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         fam, cn, cl = key
         # wider first: the runway by its centreline figure, a taxi group by
         # its reach from the edge (the buffer it is drawn with below)
-        hw = (zone2_half_width_m(law, "runway", cn, letter_of(key)) if fam == "runway"
+        hw = (zone2_half_width_m(law, "runway", cn, letter_of(key),
+                                 status_of.get(cl[len(_RUNWAY_KEY):], 0)) if fam == "runway"
               else zone_edge_offset_m(law, "junction", cn, cl)) or 0.0
         return (0 if fam == "runway" else 1, -hw, str(cl))
 
@@ -494,11 +499,13 @@ def _runway_band(u, ref: str, cn: int | None, cl: str | None, law: Law,
     (the end areas' lengths, ``airport/end_area``); a ref without
     one (synthetic fixtures) reads the pavement's own rectangle — the slab
     ends and its width."""
-    hw = zone2_half_width_m(law, "runway", cn, cl)
+    rec = next((r for r in runways if r[0] == ref), None)
+    # the runway's instrument status (RULINGS 2026-10-15k; #811)
+    ins = int(rec[6]) if rec is not None and len(rec) >= 7 else 0
+    hw = zone2_half_width_m(law, "runway", cn, cl, ins)
     if hw is None or hw <= 0 or u.is_empty:
         return None
     lip = float(law.tables.zones.adjacent_ground.lip_width_m)
-    rec = next((r for r in runways if r[0] == ref), None)
     if rec is not None:
         a, b, width = rec[1], rec[2], float(rec[3])
     else:
@@ -508,7 +515,7 @@ def _runway_band(u, ref: str, cn: int | None, cl: str | None, law: Law,
         a, b = ab
         L0 = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
         width = u.area / L0 if L0 > 0 else 0.0
-    off = runway_zone_edge_offset_m(law, cn, cl, 0.5 * width)
+    off = runway_zone_edge_offset_m(law, cn, cl, 0.5 * width, ins)
     L = ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5
     inner = u.buffer(min(lip, off), **_MITRE)
     outer = u.buffer(off, **_MITRE)
@@ -516,7 +523,6 @@ def _runway_band(u, ref: str, cn: int | None, cl: str | None, law: Law,
         ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
         # each end's own length: the RSA, or the top of a drop (15g (C);
         # ``airport/end_area``, carried in the record)
-        ins = bool(rec[6]) if rec is not None and len(rec) >= 7 else False
         rsa = runway_safety_area_length_m(law, cn, cl, ins)
         la, lb = (float(rec[4]), float(rec[5])) \
             if rec is not None and len(rec) >= 6 and rec[4] is not None else (rsa, rsa)

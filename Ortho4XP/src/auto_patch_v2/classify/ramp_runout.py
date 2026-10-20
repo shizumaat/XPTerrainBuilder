@@ -62,6 +62,10 @@ RUNOUT_PREFIX = "runout"
 #: never meets inside it is not a ramp foot's)
 MAX_RUN_M = 400.0
 
+#: the stations of the strip's sides (``mint_ramp_runouts``): a vertex on
+#: each side every this many metres along the run
+STATION_M = 10.0
+
 _KEYS = ("runout_x0", "runout_y0", "runout_dx", "runout_dy", "runout_z0",
          "runout_dem0")
 
@@ -72,6 +76,12 @@ def runout_of(cell) -> "tuple | None":
     if not ev.get("ramp_runout"):
         return None
     return tuple(float(ev[k]) for k in _KEYS)
+
+
+def _stations(s0: float, s1: float, step: float) -> list[float]:
+    """``s0``, every ``step`` after it and ``s1`` (``step`` 0: the ends)."""
+    n = int(_math.ceil((s1 - s0) / step - 1.0e-9)) if step > 0.0 and s1 > s0 else 1
+    return [s0 + (s1 - s0) * k / max(1, n) for k in range(max(1, n) + 1)]
 
 
 def _level_at(seg: LineString, xy: np.ndarray, z: np.ndarray,
@@ -130,10 +140,12 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
         (lx, ly), (dx, dy), w = f.lip, f.direction, f.width_m
         nx, ny = -dy, dx
 
-        def rect(s0: float, s1: float) -> Polygon:
+        def rect(s0: float, s1: float, step: float = 0.0) -> Polygon:
             h = 0.5 * w
+            ss = _stations(s0, s1, step)
             return Polygon([(lx + dx * s + nx * t, ly + dy * s + ny * t)
-                            for s, t in ((s0, -h), (s1, -h), (s1, h), (s0, h))])
+                            for s, t in [*((s, -h) for s in ss),
+                                         *((s, h) for s in reversed(ss))]])
         # the patch holds the ground under the ramp's last metres: else
         # nothing graded the ground to the foot and nothing runs out
         back = rect(-FOOT_SPAN_M, 0.0)
@@ -169,7 +181,11 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
         # ramp closes the ground's offset at the foot, the terrain's own
         # slope beyond is the terrain's
         run = min(MAX_RUN_M, abs(z0 - dem0) / g)
-        strip = rect(s0 - snap, s0 + run).difference(occupied)
+        # both SIDES carry a vertex every ``STATION_M`` at the same stations:
+        # the profile and its cross-fall are only what the ring's vertices
+        # can hold (MEASURED, KCLT #1093: a 61 m strip with one mid vertex on
+        # one side only, 13.4 % across the chord to the other side)
+        strip = rect(s0 - snap, s0 + run, STATION_M).difference(occupied)
         strip = shapely.set_precision(strip, snap)
         parts = [q for q in polygon_parts(strip)
                  if q.area >= touch * touch and q.distance(seg) <= touch]

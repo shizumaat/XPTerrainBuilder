@@ -14,8 +14,12 @@ macOS Swift app + vendored Python engine that builds X-Plane ortho scenery.
 
 The session is the project manager (the model the owner set for the
 session — Opus 5.5 since 2026-10-12; never switched by the session). Work is
-dispatched to subagents at MODERATE effort via the project definitions
-in `.claude/agents/`: `lane` (implementation, all tools) and `scout`
+dispatched to subagents via the project definitions in `.claude/agents/`
+(default effort medium). EFFORT (owner ruling 2026-10-20, RULINGS
+2026-10-20a): lane effort is set per task at launch: low for landing,
+rebases, ratchets, census/replay runs and cleanup; medium for fixes with
+a spec; high for geometry/solver design and spec writing; xhigh only for
+architecture work (e.g. #412 cold patch). The definitions are: `lane` (implementation, all tools) and `scout`
 (read-only research). MODEL (owner standing 2026-10-13, RULINGS 13c;
 replaces the 2026-09-03 evening amendment): lanes and scouts run on
 **Opus** (`model: "opus"`) — implementation, measurement, attribution,

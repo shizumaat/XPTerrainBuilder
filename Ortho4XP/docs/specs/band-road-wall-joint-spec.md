@@ -464,3 +464,30 @@ there. And `terrace_actual_step` 3.57 m at 33.94075, −118.39607 (a road
 against a `tunnel_ramp` across a declared kerb line). The owner's KLAX site
 and the #951 road read as in the replay. **The bar does NOT hold in the
 closing build.**
+
+### 7.7 Round 7 (lane m11) — taxiway F, the trench beside the kerb line, closing build
+
+- Taxiway F (33.93418, −118.39608): the band-line corner welded into road
+  `big_roads:-4265` was `emit/osm_adapter.merge_sub_spacing` merging a CHAIN
+  (road corner → a node 0.5 m on, minted where the riser's end edge and the
+  zone ring it was cut from were snap-rounded across each other → band
+  corner 0.5 m further). Fixed at the merge (no union leaves a member one
+  spacing or more from the survivor): its own PR, `claude/m11-merge-chain`.
+- 33.94075, −118.39607 (`terrace_actual_step` 3.57 m, road against a
+  `tunnel_ramp`): the census pairs a vertex beyond a declared line's END
+  (nearest segment within 5 m). The kerb line's stretch within that reach of
+  a cell that is neither band nor road is now its own record and declares
+  the road's step to that cell (`band_road_wall._foreign_steps`).
+- An off-ribbon kerb vertex's disk in the outline is half the identity
+  spacing (a band corner 0.5 m off stood on the half-weld-spacing disk).
+- `runway_end_skirt` drops a pair a declared band-road wall covers (19i): a
+  1.86 m riser over 3.47 m at 33.947324, −118.436533 read as a −53 %
+  end-profile pair.
+
+KLAX build `KLAX_m11_951r7` (this branch + the merge-chain fix) against the
+main control `KLAX_main_d384`, same frame, same census: CRITICAL visual
+(not hairline) 13 → 6 — `adjacent_ground_step` 9 → 1, `ramp_in_strip` 4 = 4
+(identical), and one `strip_seam_tear` that is the same pair as the one
+`adjacent_ground_step` left (33.934304, −118.396161, 1.97 m over 3.01 m; main
+2.24 m over 4.01 m at the same corner). Critical motion 5 = 5. Owner site
+33.945963, −118.436316: no row. `hairline_pair` 1368 → 1457 (residual).

@@ -60,8 +60,8 @@ __all__ = ["Region", "SourceLine", "Arrangement", "build_arrangement", "seam_ban
 #: before the slice, and ``classify`` may not import ``planar``.
 from ..classify.sources import ENCLOSED_MIN_FRAC  # noqa: E402,F401
 from ..geom.union_find import find_root
-from ..model.end_area import end_area_lengths
 from ..model.band_riser import is_band_riser_ref
+from ..model.end_area import end_area_lengths
 
 
 @_dc.dataclass(frozen=True)

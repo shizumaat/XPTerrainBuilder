@@ -9230,6 +9230,7 @@ def test_a_declared_wall_terrace_is_exempt_in_both_readers(cg):
     shape's).  The engine's own reader (``verify``) carries it as no
     structural-defect family, under the same law class."""
     import importlib
+
     from auto_patch_v2.law import Law
     vc = importlib.import_module("auto_patch_v2.verify.census")
     vcut = importlib.import_module("auto_patch_v2.verify.cutback")

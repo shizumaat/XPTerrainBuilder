@@ -1006,7 +1006,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_ramp constraints.pad_relief
         constraints.pad_warning constraints.pads constraints.platform
-        constraints.precedence constraints.ramp_runout constraints.band_riser constraints.band_standoff constraints.road_ramp
+        constraints.precedence constraints.ramp_runout constraints.band_riser
+        constraints.band_standoff constraints.road_ramp
         geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
         geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport
         model.band_riser
@@ -1016,7 +1017,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
-        constraints.band_riser constraints.band_standoff constraints.road_ramp geom.base_slab geom.cluster_outline geom.containment
+        constraints.band_riser constraints.band_standoff constraints.road_ramp
+        geom.base_slab geom.cluster_outline geom.containment
         geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport
         model.band_riser
         model.islands model.map_memo model.platform
@@ -1312,7 +1314,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.pad_ramp constraints.pad_relief constraints.pad_road_reach
     constraints.pad_warning constraints.pads constraints.pavement_cap
     constraints.platform constraints.precedence constraints.proximity
-    constraints.ramp_runout constraints.band_riser constraints.band_standoff constraints.road_ramp constraints.roads constraints.routes
+    constraints.ramp_runout constraints.band_riser constraints.band_standoff
+    constraints.road_ramp constraints.roads constraints.routes
     constraints.runway_chord constraints.runway_mean_slope constraints.runway_profile
     constraints.runway_yield constraints.seams constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips

@@ -46,6 +46,7 @@ from __future__ import annotations
 from ..law.tables import (governed_roles, is_structure_role, role_family,
                           zone_edge_offset_m)
 from .frame import Patch, Row, Shape, row
+from .runway_witness import published_status
 from .frontage import _holed
 
 __all__ = ["FAMILY_RAMP_IN_ROAD", "FAMILY_RAMP_IN_STRIP",
@@ -140,7 +141,10 @@ def strip_half_width_m(p: Patch, sh: Shape) -> float:
     key = _STRIP_KEY.get(fam) if sh.role in pavement_roles(p) else None
     if key is None:
         return 0.0
-    hw = zone_edge_offset_m(p.law, key, sh.code_number, sh.code_letter)
+    # a runway's by its published instrument status (#811)
+    hw = zone_edge_offset_m(p.law, key, sh.code_number, sh.code_letter,
+                            status=published_status(p.publication.get("runway_axes"),
+                                                    sh.ref))
     if hw and float(hw) > 0.0:
         return float(hw)
     return float(p.law.tables.zones.adjacent_ground.lip_width_m)

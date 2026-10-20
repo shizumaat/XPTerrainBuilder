@@ -21,8 +21,8 @@ Package layout
   ``engine_v2`` (the per-airport v2 adapter: build, stamp, verify),
   ``selection`` (which airports a tile builds), ``progress``,
   ``provenance`` (the freshness stamps and gate inventory)
-* the readers — ``apt_dat_reader``, ``dsf_reader``,
-  ``agp_reader``, ``obj8_reader``, ``osm_aeroway``
+* the readers — ``dsf_reader``, ``agp_reader``, ``obj8_reader``,
+  ``osm_aeroway`` (apt.dat is read by ``auto_patch_v2.airport.apt_dat``)
 * flat-site DEM prep — ``flat_site_mode`` (asks the v2 detector, issue #932)
 * the object stage (post-mesh) — ``object_stage`` (``rebake_after_mesh``,
   the placement writes), ``post_mesh``, ``object_rebake``,

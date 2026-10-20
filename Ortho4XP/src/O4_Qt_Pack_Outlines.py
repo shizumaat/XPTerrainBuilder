@@ -8,10 +8,10 @@ Two engine reads, drawn dashed under the patch when the map toolbar's
   and boundary (row 130) rings (an engine without the command is skipped).
 * building footprints from the ``pack_objects`` result — the plan outline
   of each placed model (the convex hull of its grey-massing vertices,
-  turned by the placement's heading) and each facade's ring.
-  Buildings are read once, by one command; the request box is the 3D
-  preview's (patch bbox + 500 m, A9), so the engine's session cache serves
-  both.
+  turned by the placement's heading) and each facade's ring.  Asked
+  ``footprints_only`` (#797): the engine sends each model's plan hull and
+  no massing (OTHH's full answer is 47 MB, the outlines a few points
+  each).  The request box is the 3D preview's (patch bbox + 500 m, A9).
 """
 from __future__ import annotations
 
@@ -84,8 +84,12 @@ def placed_ring(hull: _t.Sequence[tuple[float, float]], lat: float, lon: float,
 def footprints_from_pack_objects(result: _t.Mapping) -> list[list[tuple[float, float]]]:
     """Every footprint ring ``[(lat, lon), …]`` of a ``pack_objects``
     result: one per drawn placement (a model with fewer than three distinct
-    plan points has none), then one per facade."""
-    hulls = {m["key"]: model_footprint(m["vertices_f32_b64"]) for m in result.get("models") or ()}
+    plan points has none), then one per facade.  A model carries its plan
+    hull (a ``footprints_only`` answer) or its massing vertices."""
+    hulls = {m["key"]: model_footprint(m["vertices_f32_b64"]) if "plan_hull_f32_b64" not in m
+             else [(float(x), float(z)) for x, z in np.frombuffer(
+                 base64.b64decode(m["plan_hull_f32_b64"]), dtype="<f4").reshape(-1, 2)]
+             for m in result.get("models") or ()}
     out: list[list[tuple[float, float]]] = []
     for p in result.get("placements") or ():
         hull = hulls.get(p["model"])
@@ -195,8 +199,9 @@ class PackOutlines(QObject):
             else:
                 self._footprints = _path(footprints_from_pack_objects(result), self.zoomlevel)
             self.changed.emit()
-        # The 3D window's box (A9), so the engine's cache serves both.
-        self.engine.pack_objects(tile, icao, request_bbox(m.doc.nodes.values()), objects)
+        # The 3D window's box (A9); the outlines only (#797)
+        self.engine.pack_objects(tile, icao, request_bbox(m.doc.nodes.values()), objects,
+                                 footprints_only=True)
 
     def paint(self, painter, view_transform) -> None:
         """The dashed grey layer, under the patch (painter in viewport space)."""

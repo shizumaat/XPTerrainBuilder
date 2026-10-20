@@ -228,7 +228,9 @@ def test_a_wall_between_the_apron_and_a_lower_lot_is_a_declared_terrace(law, mon
     # the pair rows across the wall are the joint's, not a grade (stage 2)
     assert r1.reach_seed["wall_release"]["walls"] == 1
     assert r0.reach_seed["wall_release"]["released"] == 0
-    lot = lambda f: f.ref == "lot" and f.role == "groundside_pavement"  # noqa: E731
+    # #110 (RULINGS 2026-10-02n re-land): an unclassified groundside plate
+    # is a parking lot
+    lot = lambda f: f.ref == "lot" and f.role == "parking_lot"  # noqa: E731
     pad = lambda f: f.role == "building" and f.ref != "building1"   # noqa: E731
     apron = lambda f: f.role == "apron"                             # noqa: E731
     # the wall declares exactly one terrace, along its own line

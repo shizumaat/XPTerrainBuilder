@@ -80,6 +80,36 @@ struct PackFootprintsTests {
         #expect(await calls.read() == 3)
     }
 
+    @Test func aPlanHullAnswerDrawsTheSameOutline() throws {
+        // #797: the footprints-only model carries its (x, z) plan hull
+        let hull: [Float] = [0, 0, 10, 0, 10, -4, 0, -4]
+        let b64 = hull.withUnsafeBufferPointer { Data(buffer: $0) }.base64EncodedString()
+        let json = """
+        {"models": [{"key": "m.obj", "plan_hull_f32_b64": "\(b64)"}],
+         "placements": [{"model": "m.obj", "lat": 45.0, "lon": -122.0, "heading_deg": 0, "agl_m": 0}],
+         "facades": [], "missing": []}
+        """
+        let flat = try JSONDecoder().decode(O4PackObjects.self, from: Data(json.utf8))
+        #expect(flat.models[0].vertices.isEmpty && flat.models[0].triangles.isEmpty)
+        let corners = PackFootprints.outlines(flat)[0].map(metres)
+        let full = PackFootprints.outlines(try objects(heading: 0))[0].map(metres)
+        #expect(corners.count == 4)
+        for c in full { #expect(corners.contains { near($0, c) }, "missing corner \(c)") }
+    }
+
+    @Test @MainActor func aFootprintAnswerNeverServesTheWindow() async throws {
+        let store = PackBuildingsStore()
+        let calls = Counter()
+        let answer = try objects(heading: 0)
+        let fetch: PackBuildingsStore.Fetch = { _ in await calls.bump(); return answer }
+        let box = O4LatLonBox(minLat: 44.9, minLon: -122.1, maxLat: 45.1, maxLon: -121.9)
+        _ = try await store.objects(tile: "+45-123", icao: "ZZZZ", box: box, footprintsOnly: true, fetch: fetch)
+        _ = try await store.objects(tile: "+45-123", icao: "ZZZZ", box: box, fetch: fetch)
+        #expect(await calls.read() == 2)              // the window asks for the massing
+        _ = try await store.objects(tile: "+45-123", icao: "ZZZZ", box: box, footprintsOnly: true, fetch: fetch)
+        #expect(await calls.read() == 2)              // the full answer serves the map
+    }
+
     @Test @MainActor func aFailedRequestIsRetried() async throws {
         let store = PackBuildingsStore()
         let calls = Counter()

@@ -164,14 +164,6 @@ def reach_m(law: Law, pad: bool = False) -> float:
         + snap_margin_m(law) + 2.0 * ident
 
 
-def _road_edge_upper(planar: PlanarMap) -> frozenset[int]:
-    """The road vertices on a declared road-edge drop (RULINGS 2026-10-20d
-    R4, ``airport/road_edge_wall``)."""
-    walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
-    return frozenset(v for r in walls.values() if r.get("road_edge")
-                     for v in r.get("upper") or ())
-
-
 def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
                     part_stations: _t.Mapping[str, PartStations] | None = None,
                     behind_step: BehindStep | None = None
@@ -208,9 +200,13 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
     road_i: list[int] = []
     floors = behind_step.floors if behind_step else frozenset()
     not_rim = behind_step.edges_not_rim(faces.values()) if behind_step else set()
-    # owner RULINGS 2026-10-20d R4: a piece never follows a road edge that is
-    # a declared drop (``airport/road_edge_wall``) — it keeps its own ground
-    walled = _road_edge_upper(planar)
+    # owner RULINGS 2026-10-20d (round 3 D4 (b)): a piece never follows a
+    # road's DROP edge (``airport/road_edge_wall.drop_edges``), nor does a
+    # lot take its level across one — the low side keeps its own ground
+    from ..airport.road_edge_wall import drop_edges
+    walled = drop_edges(planar)
+    drop_segs: list = []
+    drop_names: list[str] = []
     for f in faces.values():
         if is_gap_ref(f.ref) or f.id in follower or f.role in floors:
             continue
@@ -221,7 +217,9 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
             if e in not_rim:
                 continue
             ed = planar.edges[e]
-            if ed.a in walled and ed.b in walled:
+            if frozenset((ed.a, ed.b)) in walled:
+                drop_segs.append([V[ed.a].xy, V[ed.b].xy])
+                drop_names.append(f"{f.role}:{str(f.ref).split('#')[0]}")
                 continue
             # a follower follows every FIXED point of a neighbouring ring:
             # an edge with one fixed end binds at that end
@@ -237,6 +235,8 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
         return [], rep
     lines = shapely.linestrings(segs)
     tree = STRtree(lines)
+    drops = shapely.linestrings(drop_segs) if drop_segs else None
+    drop_tree = STRtree(drops) if drops is not None else None
     rows: list[Linear] = []
     todo = sorted({v for f in (*gap, *ribbons) for v in _vertices(planar, f)}
                   - set(fixed))
@@ -264,6 +264,14 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
                 allow = cap * (max(0.0, d - knife) if pad else d)
                 at = shapely.line_interpolate_point(lines[k], t, normalized=True)
                 best[name] = (d, z, allow, (at.x, at.y))
+        if drop_tree is not None and best:
+            # a ring whose NEAREST edge here is its drop binds nothing here
+            # (never the next edge along it)
+            for k in drop_tree.query(pts[i], predicate="dwithin",
+                                     distance=max(reach, reach_pad)).tolist():
+                n_ = drop_names[int(k)]
+                if n_ in best and float(shapely.distance(drops[int(k)], pts[i])) < best[n_][0]:
+                    best.pop(n_)
         ps = part_stations.get(part_of.get(v, "")) if part_stations else None
         if ps is not None:
             for name in sorted(best):
@@ -287,7 +295,7 @@ def gap_follow_rows(planar: PlanarMap, law: Law, fixed: _t.Mapping[int, float],
     rep["vertices_in_reach"] = len(near)
     lot_rows, rep["lot_targets"] = _lot_rows(
         planar, [f for f in gap if _takes_lot_rows(f, part_stations)], fixed,
-        lines, meta, road_i, float(piece_cap.transverse) if piece_cap else 0.0)
+        lines, meta, road_i, float(piece_cap.transverse) if piece_cap else 0.0, drops)
     rep["lot_rows"] = len(lot_rows)
     return [*rows, *lot_rows], rep
 
@@ -304,11 +312,15 @@ def _takes_lot_rows(face, part_stations) -> bool:
 
 
 def _lot_rows(planar: PlanarMap, lots, fixed, lines, meta, road_i: list[int],
-              c_t: float) -> tuple[list[Linear], dict[int, float]]:
+              c_t: float, drops=None) -> tuple[list[Linear], dict[int, float]]:
     """THE LOT'S ROWS (module docstring): ``|z_v - L(v)| <= cT x d_R(v)`` on
     every unknown vertex of the ``lots`` (the lot parts that take them), ``L`` the level of the nearest
     standing road at its nearest point and ``d_R`` the distance to it.
-    ``(rows, {vertex: L})``."""
+    ``(rows, {vertex: L})``.  A vertex whose nearest road edge is a DROP
+    (``drops``, owner RULINGS 2026-10-20d round 3 D4) takes none: the lot
+    below the drop keeps its own ground, and never the level of the next
+    road edge along (MEASURED HECA lane l1088c: lot vertices 1.6 m off the
+    drop stood 1.5 m over their DEM, held to the road's level beyond it)."""
     if not lots or not road_i:
         return [], {}
     V = planar.vertices
@@ -318,6 +330,11 @@ def _lot_rows(planar: PlanarMap, lots, fixed, lines, meta, road_i: list[int],
     roads = lines[road_i]
     pts = shapely.points([V[v].xy for v in todo])
     pi, ri = STRtree(roads).query_nearest(pts, all_matches=False)
+    d_drop: dict[int, float] = {}
+    if drops is not None and len(drops):
+        di, dk = STRtree(drops).query_nearest(pts, all_matches=False)
+        d_drop = {int(i): float(shapely.distance(drops[k], pts[i]))
+                  for i, k in zip(di.tolist(), dk.tolist())}
     rows: list[Linear] = []
     target: dict[int, float] = {}
     for i, k in sorted(zip(pi.tolist(), ri.tolist())):
@@ -326,9 +343,10 @@ def _lot_rows(planar: PlanarMap, lots, fixed, lines, meta, road_i: list[int],
         length = float(shapely.length(line))
         t = float(shapely.line_locate_point(line, pts[i])) / length if length else 0.0
         level = (1.0 - t) * za + t * zb
-        allow = c_t * float(shapely.distance(line, pts[i]))
+        d_r = float(shapely.distance(line, pts[i]))
+        allow = c_t * d_r
         v = todo[i]
-        if v in target:
+        if v in target or d_drop.get(i, float("inf")) < d_r:
             continue
         target[v] = level
         rows.append(Linear(((v, 1.0),), level - allow, level + allow,

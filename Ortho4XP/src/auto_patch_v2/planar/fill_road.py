@@ -8,10 +8,13 @@ viaduct's ground prints) stands at its block's level; where its 1:3 collar
 cannot reach the ground (MEASURED HECA: the #712 plate at a predicted
 96.17 m over collar ground of 89.4-93.2 m, a 15 m collar dropping at most
 5 m), the fill takes the ground between it and the ROAD STRIPS within
-``[building_pad] fill_road_reach_m``, up to their kerb.  The road is never
-cut: its kerb is the fill's edge and the two share vertices there, so the
-landing's own rows hold the kerb at the fill's level and the road's own law
-carries it on (``constraints/fill_road``).
+``[building_pad] fill_road_reach_m``, up to their kerb — a LENS
+(:func:`extend_to_roads`), never a hull and never across the road.  The road
+is never cut: its kerb is the fill's edge and the two share vertices there,
+so the landing's own rows hold the kerb at the fill's level and the road
+climbs to it by §37 (6) alone (its kerb vertices on the fill are mouths at
+the fill's highest predicted level, ``airport/road_ramp``).  No collar goes
+over or along a strip (``planar/landing`` PASS 2).
 
 A ROAD STRIP is a road-family source cell — a pack road page, never a 1206
 route corridor or a run-out — that touches no airside region (a road a
@@ -20,7 +23,7 @@ moved stage 1, ``planar/landing.LOT_ROLES``).  The same strips are cut under
 a viaduct's DECK landings (``planar/landing.landing_cut``), because R1
 (``classify/sources._network_strip``) made the lot such a viaduct lands on a
 road: the road meets the landing at its edge and carries the descent itself
-(``airport/fill_ramp``)."""
+(§37 (6))."""
 from __future__ import annotations
 
 import math
@@ -74,19 +77,30 @@ def cannot_bank(fill: Polygon, level: float, dem, collar_m: float,
     return bool(lows) and level - min(lows) > collar_m * slope
 
 
-def extend_to_roads(fill: Polygon, strips: _t.Sequence[Polygon], reach_m: float):
-    """The ground between ``fill`` and the road ``strips`` within
-    ``reach_m``: the convex hull of the fill and the strips' parts within
-    reach, less every strip, inside the fill's reach, its pieces touching
-    the fill.  ``None`` when no strip is within reach."""
+def extend_to_roads(fill: Polygon, strips: _t.Sequence[Polygon], reach_m: float,
+                    held=None):
+    """THE LENS (spec road-edge-drop round 3, D2): ``fill`` and the ground
+    within ``reach_m`` of BOTH the fill and a road strip (the intersection
+    of their mitred buffers), less every strip, less ``held``, keeping only
+    the pieces that touch the fill.  Never a hull, never across the road:
+    the lens is also kept BETWEEN the fill and the strip (the morphological
+    closing of the two at half the reach), so the ground beyond a strip's
+    end, which is within reach of both, is never taken.  ``None`` when no
+    strip is within reach."""
     if reach_m <= 0.0 or not strips:
         return None
     zone = fill.buffer(reach_m, join_style=2)
-    near = [s.intersection(zone) for s in strips if s.distance(fill) <= reach_m]
-    near = [g for g in near if not g.is_empty]
+    near = [s for s in strips if s.distance(fill) <= reach_m]
     if not near:
         return None
-    hull = unary_union([fill, *near]).convex_hull
-    E = hull.intersection(zone).difference(unary_union(list(strips)))
+    S = unary_union([s.intersection(fill.buffer(2.0 * reach_m, join_style=2))
+                     for s in near])
+    lens = zone.intersection(S.buffer(reach_m, join_style=2))
+    half = 0.5 * reach_m
+    between = unary_union([fill, S]).buffer(half).buffer(-half)
+    E = unary_union([fill, lens.intersection(between)]).difference(
+        unary_union(list(strips)))
+    if held is not None and not held.is_empty:
+        E = E.difference(held)
     keep = [q for q in _parts(E) if q.distance(fill) <= 1e-6]
     return unary_union(keep) if keep else None

@@ -240,7 +240,8 @@ def structure_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
 
 
 def datum_vertices(planar: _t.Any, law: _t.Any,
-                   air: "_t.AbstractSet[int] | None" = None) -> dict[str, int]:
+                   air: "_t.AbstractSet[int] | None" = None, *,
+                   fills: bool = False) -> dict[str, int]:
     """``{held ref: its datum vertex}`` over the map's held platforms
     (``planar.registries.held``) — THE FRONTAGE
     DATUM COLUMN of a held pad or block (flat-pad spec §1 (2), v2 §4; spec
@@ -260,7 +261,18 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
     datum column on it seats the whole pad at the ramp).  A pad with no
     such vertex of its own has no datum column and is not held.  ONE derivation: the stage split
     (``solve/design_roles.airside_stage_vertices``) and the hold rows read
-    the same vertex."""
+    the same vertex.
+
+    ``fills`` (owner RULINGS 2026-10-20d, road-edge drop round 3 D5): a held
+    block with no welded frontage that CARRIES A PAD FILL (a landing of
+    :data:`FILL_KINDS`) gets a STAGE-2 datum column too — its own vertex
+    nearest its centre, preferring one no other ref's face carries — so the
+    block is flat at it and its fills stand at it + their ``y``
+    (``constraints/platform.platform_plane_rows`` / ``landing_rows``, the
+    two readers that pass it).  The stage split never reads it: the block
+    welds nothing, so its level is stage 2's.  MEASURED HECA (lane l1088c):
+    ``building6`` carried two fills with no column and tilted 0.62 % under
+    a road's ramp ceiling at its north corner."""
     held = planar.registries.held
     if not held:
         return {}
@@ -287,4 +299,27 @@ def datum_vertices(planar: _t.Any, law: _t.Any,
             x, y = planar.vertices[v].xy
             return (-min((x - a) ** 2 + (y - b) ** 2 for a, b in wx), v)
         out[ref] = min(inner, key=_far)
+    if fills:
+        out.update(_fill_datums(planar, own, struct, out))
+    return out
+
+
+def _fill_datums(planar: _t.Any, own: _t.Mapping[str, set[int]],
+                 struct: _t.AbstractSet[int], have: _t.Mapping[str, int]) -> dict[str, int]:
+    """The STAGE-2 datum column of every held block that carries a pad fill
+    and has none (:func:`datum_vertices` ``fills``)."""
+    carriers = {rec["block"] for rec in planar.registries.landings.values()
+                if rec.get("kind", "deck") in FILL_KINDS}
+    out: dict[str, int] = {}
+    for ref in sorted(carriers - set(have)):
+        vs = sorted(own.get(ref, set()) - set(struct))
+        if not vs:
+            continue
+        mine = {f.id for f in planar.faces.values() if str(f.ref) == ref}
+        pure = [v for v in vs if set(planar.vertices[v].incident_faces) <= mine]
+        pool = pure or vs
+        cx = sum(planar.vertices[v].xy[0] for v in pool) / len(pool)
+        cy = sum(planar.vertices[v].xy[1] for v in pool) / len(pool)
+        out[ref] = min(pool, key=lambda v: ((planar.vertices[v].xy[0] - cx) ** 2
+                                            + (planar.vertices[v].xy[1] - cy) ** 2, v))
     return out

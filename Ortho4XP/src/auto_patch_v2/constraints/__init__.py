@@ -14,7 +14,7 @@ from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
-from . import (apron, cluster_pad, eat, fill_road, flat_site, foot_rows,
+from . import (apron, cluster_pad, eat, flat_site, foot_rows,
                groundside, hard_plane, door_pad,
                junction_mesh,
                no_step, pad_frontage_gs, pad_fronting, pads,
@@ -116,9 +116,6 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # issue #711 (RULINGS 2026-10-14c (5) at a landing): the RUN-OUT off
     # a ramp foot on a landing, at road grade from the landing's level
     ("landing_runout", ramp_runout.landing_runout_rows),
-    # owner RULINGS 2026-10-20d R3: the road a pad fill runs to comes down
-    # off the fill at its design grade (``constraints/fill_road``)
-    ("fill_road", fill_road.fill_road_rows),
     # SPEC-AUTHOR RULINGS 2026-09-29s (A) (#96): the plane is CONTACT-LED —
     # one one-way level row per welded collar contact, at the plane there
     ("platform_level", platform.platform_level_rows),

@@ -759,9 +759,10 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     owned = _owned(pm, roads, law)
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
-    # RULINGS 2026-10-20d R3: a mouth on a PAD FILL is at the fill's highest
+    # RULINGS 2026-10-20d (round 3 D3): a mouth on a LANDING is at its highest
     # predicted level, never its DEM — the road reaches the high side, and
-    # the ceiling may not hold it on the ground the fill covers
+    # the ceiling may not hold it on the ground the fill covers; the road
+    # climbs to the fill by this alone (no second road profile)
     for rec in fill_levels(pm).values():
         for v in rec["vertices"] & mouths.keys():
             mouths[v] = max(mouths[v], rec["z_hi"])
@@ -1766,25 +1767,17 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     road_caps = [role_cap(law, r).longitudinal for r in _road_roles(law)
                  if role_cap(law, r)]
     terr, left = wall_keyed(terr, min(road_caps) if road_caps else None)
-    # owner RULINGS 2026-10-20d R4: THE VERTICAL DROP ON THE ROAD'S LOW SIDE
-    # — a road a pad fill runs to, standing over the ground beside it,
-    # declares a wall there (``airport/road_edge_wall``).  After the trim:
-    # these records are no placed-wall witness for 10-03l
-    from .fill_ramp import fill_ramp
-    from .road_edge_wall import road_edge_walls
-    ramp = fill_ramp(pm, law, _owned(pm, _road_roles(law), law), report)
-    terr = {**terr, "fill_ramp": ramp}
-    # the road a landing governs comes down off it by ITS rows
-    # (``constraints/fill_road``, against the landing's solved datum): the
-    # absolute §37 target and ceiling leave those vertices, as the pad
-    # road's do (``constraints/pad_ramp``) — MEASURED HECA (lane l1088 it2):
-    # with both, the route-lifted ceiling stood up to 6.05 m under the
-    # landing's ramp and 129 of its 260 rows relaxed
-    # R4 reads the level the road is predicted at BEFORE the withdrawal
-    edge = road_edge_walls(pm, law, targets,
+    # owner RULINGS 2026-10-20d (round 3 D4): THE DROP ALONG THE ROAD'S LOW
+    # SIDE (``airport/road_edge_wall``) — the high-kerb runs of a road a
+    # landing raises, and where the gap sheet stands across them (the late
+    # derive) one declared wall per run.  After the trim: these records are
+    # no placed-wall witness for 10-03l
+    from .road_edge_wall import drop_runs, road_edge_walls
+    drop = drop_runs(pm, law, targets, report)
+    edge = road_edge_walls(pm, law, drop, targets,
                            float(service.retaining_wall_reach_m) if service else 8.0,
                            report)
-    targets = {v: z for v, z in targets.items() if v not in ramp}
+    terr = {**terr, "drop": drop}
     if edge:
         walls_ = dict(terr.get("wall") or {})
         k0 = max(walls_, default=-1) + 1

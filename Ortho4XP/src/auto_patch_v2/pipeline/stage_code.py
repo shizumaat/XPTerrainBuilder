@@ -563,7 +563,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.dem",
-        "auto_patch_v2.airport.fill_ramp",
         "auto_patch_v2.airport.road_descent",
         "auto_patch_v2.airport.road_edge_wall",
         "auto_patch_v2.airport.road_profile",
@@ -737,7 +736,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.door_pad",
         "auto_patch_v2.constraints.eat",
         "auto_patch_v2.constraints.end_lip",
-        "auto_patch_v2.constraints.fill_road",
         "auto_patch_v2.constraints.flat_site",
         "auto_patch_v2.constraints.foot_rows",
         "auto_patch_v2.constraints.geometry",
@@ -897,7 +895,6 @@ GENERATOR_MODULES: dict[str, str] = {
     "platform_plane": "platform",
     "landing_level": "platform",
     "landing_runout": "ramp_runout",
-    "fill_road": "fill_road",
     "platform_level": "platform",
     "frontage_hold": "platform",
     "frontage_near_miss": "pads",
@@ -925,9 +922,6 @@ _GENERATOR_CORE = """
 
 #: The rest of each generator module's import closure, keyed by module.
 _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
-    "fill_road": _mods(_GENERATOR_CORE + """
-        constraints.fill_road geom.containment model.islands model.map_memo model.platform
-    """),
     "apron": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.geometry constraints.precedence model.airport
     """),
@@ -1177,7 +1171,6 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.reachability
     constraints.door_pad
     geom.slope_pad
-    constraints.fill_road
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport constraints model airport.anchor_rule airport.apt_dat
@@ -1396,8 +1389,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.fixed_overlay
     constraints.door_pad
     geom.slope_pad
-    constraints.fill_road
     planar.fill_road
+    airport.road_descent airport.road_edge_wall airport.road_ramp
 """)
 CODE_MODULES["emit"] = _mods("""
     airport constraints emit model pipeline planar verify airport.anchor_rule
@@ -1459,7 +1452,6 @@ CODE_MODULES["emit"] = _mods("""
     solve.project_strip solve.rows solve.wall_cut verify.roads
     classify.reachability
     geom.slope_pad
-    airport.fill_ramp
     airport.road_edge_wall
 """)
 CODE_MODULES["verify"] = _mods("""

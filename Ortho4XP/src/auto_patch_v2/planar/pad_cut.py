@@ -262,6 +262,7 @@ def airside_clip(regions, law, air=None, nodes=None, rim=None, select=None,
     counts["rim_nodes_arrangement"] = rim.nodes_kept
     out = list(regions)
     drop: set[int] = set()
+    zone = None
     for i in pad_ix:
         r = out[i]
         if near_m > 0.0:
@@ -269,9 +270,11 @@ def airside_clip(regions, law, air=None, nodes=None, rim=None, select=None,
             # a rim node (``_weld_to_rim``)
             if r.polygon.distance(air) > near_m:
                 continue
-            from .ribbon_weld import _weld_to_rim   # lazy: ribbon_weld imports this module
+            from .ribbon_weld import _weld_to_rim, rim_zone   # lazy: ribbon_weld imports this
+            if zone is None:
+                zone = rim_zone(rim, near_m)          # once per clip (#803)
             ps = _polys(_weld_to_rim(r.polygon.difference(air), rim, near_m,
-                                     counts, keep_out))
+                                     counts, keep_out, zone=zone))
             counts["welded"] = int(counts.get("welded", 0)) + 1
             if not ps:
                 counts["dropped_wholly_in_band"] = \

@@ -99,7 +99,16 @@ R, the re-derive radius, is `max(gap_follow.reach_m, reach_m(pad), pad_ramp.stan
      - **The roads stage misses, lawfully**: it carries one more non-late cell, `runout:0`.
      - Body `80456bf49005…` is identical to main.
    - Serving the roads stage would mean keying a front by its cells and patching in the run-out cells. That belongs to phase 2b.
-2. **Phase 2b, the planar intermediates past the front.**
+2. **Phase 2b, LANDED (lane m8, exact): the late derive's own repeats.**
+   - A profile of the late stage on replay (`v2_solve_replay --late-from`, HECA, loaded machine) showed two pure repeats inside every derive.
+     - Pass C's pad clip rebuilt the whole airside's mitred band buffer per ribbon (`ribbon_weld._weld_to_rim`). It is now `rim_zone`, once per clip.
+     - The road profiles built a fresh `LineString` of every `through` way for every vertex (`RoadProfiles.answer`). It is now `RoadProfiles._line`, one per way, keyed and checked by identity, never pickled.
+   - Replay A/B, same capture and base:
+     - `_weld_to_rim` 10.9 → 1.6 s; `RoadProfiles.answer` 36.9 → 23.7 s.
+     - `run_last_stages` 299.7 → 281.8 s (−6 %).
+     - Solved z identical (max |Δ| = 0 over 47,051 vertices).
+   - **Not taken:** the structure pass's per-overlap-pass `mouths()` / `mouth_at_pavement` / `pavement_half_widths` (about 19 s per late stage). Their inputs are pass-invariant, but `mouths()`' products are mutated in place (`m.approach`). Reusing them needs a copy discipline the #971 owner should rule on first.
+3. **Phase 2c (not done): the planar intermediates past the front.**
    - The base's planar build returns, beside `pm`, the arrangement intermediates: pass A's noded lines, pass B's pad lines and faces, the first `_faces_of`, and the structures/basins result. These live in memory, are never cached on disk, and are dropped after the late stage.
    - The gap stage's derive starts pass C from them. The roads-only stage starts from the gap stage's own intermediates (`pm_g` is in memory).
    - Bar: on HECA, OTHH and KCLT, every standing vertex of the cut map is at the same coordinate and level (the canonical join). The `ribbon_airside_added/removed` counters (`overlay.py:418-424`) stay 0.
@@ -111,6 +120,31 @@ R, the re-derive radius, is `max(gap_follow.reach_m, reach_m(pad), pad_ramp.stan
    - Bar: verify and census families unchanged on HECA, OTHH and KCLT, or each changed row read and within the visibility bars (pavement 0.05 m, ground 0.5 m).
    - Expected at HECA: about 70–90 s of 131 s constraints, plus about 40 s of road profiles and channels, × 2.
 4. **Not reused, by ruling:** the arrangement's ids and `build_shapes` labels are always re-derived. A remap by coordinate is the only join (canonical-identity law).
+
+## 5a. Phase 3 per-generator census (measured; phase 3 STOPPED)
+
+**Method.** I re-ran every generator in `constraints.GENERATORS` on HECA's base map and on the late stage's cut map, using `v2_solve_replay --late-from` products: capture at main 11c9b7d89 + #1069, gap stage `pm_cut_1`, roads stage `pm_cut_2`. For each generator:
+- the base rows were remapped to the cut map by coordinate (`remap_row`);
+- the two sets were compared as multisets, ignoring `source.inputs`, the face/way ids, which renumber;
+- the cut rows that name a follower (`late_followers`) were counted.
+
+**Gap stage.** Total generator wall on the cut map is 42.7 s.
+
+| class | generators | cut-map wall |
+|---|---|---|
+| SAME as the base, no follower named | runway_* (6), taxi_chain, taxi_centerlines, taxi_box, junction_mesh, junction_raw_transverse, no_step_pairs, no_step_rate, reach_bands, strip_* (3), resa_transverse, end_corridor_longitudinal, raoa, pad_frontage_level, pad_fronting_level, platform_plane, landing_level, frontage_hold, frontage_near_miss, structures, rim_level | 25.5 s (junction_mesh 15.8, taxi_box 2.6, no_step_pairs 1.2) |
+| AIRSIDE but DIFFERENT on the cut map | apron_within_shape (±7,770 of 354,462), apron_edge_portions (+2,112/−1,106), pad_flats (±36), pad_slope_ceiling, platform_collar, landing_runout | 9.0 s |
+| names FOLLOWERS (not airside-only) | **triangle_planes (80 rows)**, road_within_shape (2,190,500), road_ramp, road_contact, road_coverage_join, wall_terrace, groundside_ramp, transverse, cross_shape_pairs, zone_bands, groundside_frontage_level | 8.2 s |
+
+**Roads-only stage, against the main base.** The SAME set shrinks further: taxi_chain, no_step_pairs, pad_frontage_level, pad_fronting_level, frontage_near_miss and platform_plane all differ. Its real base is the gap stage's map, which this comparison did not use.
+
+**Verdict: phase 3 as specified is STOPPED and returned to the owner/master.**
+1. **The "no airside generator names a follower" twin would FAIL as stated.** `triangle_planes` (a taxi generator) names 80 follower vertices at HECA. The airside/groundside split is not a property of the generator families.
+2. **Equality with the base is empirical, not structural.** Six airside generators produce different rows on the cut map because pass C re-nodes faces beside the pieces. The SAME list is one airport's measurement, and no witness separates the cases in general.
+3. **Reused rows would carry the BASE's face ids in `source.inputs`.** Verify, census and publication read those ids. A face-id remap would be a new identity join.
+4. **The prize is small.** The SAME set is ~25 s per derive at HECA, about 50 s per late stage (two derives), out of ~280 s.
+
+Recommended instead: leave the generators re-derived. The one outsized cost the census surfaced is `road_within_shape` minting **2,345,423 rows on the cut map against 157,121 on the base**, 2.19 M of them naming followers. That deserves its own issue: the late assembly and `late_constraints` filter carry them.
 
 ## 6. Bars and order
 

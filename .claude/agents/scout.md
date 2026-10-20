@@ -1,6 +1,6 @@
 ---
 name: scout
-description: Read-only research / inventory / attribution lane — sweeps files, logs, docs and censuses and returns a cited report. Opus, moderate effort (owner standing 2026-10-13: Fable only with the owner's approval of that launch). No edits.
+description: Read-only research / inventory / attribution lane — sweeps files, logs, docs and censuses and returns a cited report. Opus, effort set per task at launch (default medium; owner ruling 2026-10-20) (owner standing 2026-10-13: Fable only with the owner's approval of that launch). No edits.
 model: opus
 effort: medium
 disallowedTools: Edit, Write, NotebookEdit

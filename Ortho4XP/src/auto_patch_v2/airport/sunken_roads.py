@@ -56,6 +56,7 @@ from ..model import pulse as _pulse
 from . import frame_entry as _fe
 from . import obj8 as _obj8
 from .deck_signature import family_key
+from .obj8_clip import _plan_admitted
 from .tunnel_objects import _rect_axis
 
 __all__ = ["RoadStation", "SunkenRoadRecord", "SunkenRoadStats", "RoadReader",
@@ -186,7 +187,7 @@ def _faces_below(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, dem_z, law: 
         hs = base + v[t[sel]][:, :, 1]
         polys = shapely.polygons(np.stack([xs, ys], axis=2))
         areas = shapely.area(polys)
-        valid = shapely.is_valid(polys) & (areas > 1e-9)
+        valid = _plan_admitted(pts, polys)
         # the plane through the three frame points
         m = np.stack([xs, ys, np.ones_like(xs)], axis=2)          # (n, 3, 3)
         try:

@@ -45,12 +45,14 @@ import typing as _t
 import math
 
 import numpy as np
+import shapely
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 
 from . import deck_signature, frame_entry as _fe, obj8
 from . import pack_work as _work
 from .obj8 import is_stock_library_resource, placement_affine
+from .obj8_clip import _plan_admitted
 
 if _t.TYPE_CHECKING:                                   # pragma: no cover
     from ..law import Law
@@ -162,6 +164,7 @@ def ramp_decks(o: "obj8.PlacedObject", cache: "obj8.ResourceCache",
     a, b, d, e, xoff, yoff = placement_affine(o.xy, o.heading_deg)
     comps = cache.components(o.resolved)
     faces: list[tuple] = []
+    authored: list[np.ndarray] = []
     for ci in comp_indices:
         if ci < 0 or ci >= len(comps):
             continue
@@ -176,6 +179,7 @@ def ramp_decks(o: "obj8.PlacedObject", cache: "obj8.ResourceCache",
         ny[ok] = np.abs(n[ok, 1] / ln[ok])
         zmid = base + (p0[:, 1] + p1[:, 1] + p2[:, 1]) / 3.0
         keep = (ny >= normal_y_min) & (zmid > floor_z + rise_m) & (zmid <= rim_z + band_m)
+        authored.append(v[t[keep]][:, :, [0, 2]])
         for k in np.nonzero(keep)[0].tolist():
             tri = []
             for i in t[k].tolist():
@@ -188,14 +192,10 @@ def ramp_decks(o: "obj8.PlacedObject", cache: "obj8.ResourceCache",
                           math.sqrt(max(0.0, 1.0 - nyk * nyk)) / max(nyk, 1e-6), area))
     if not faces:
         return []
-    polys = []
-    for tri, _lo, _hi, _sl, _ar in faces:
-        try:
-            p = Polygon([(q[0], q[1]) for q in tri])
-        except (ValueError, TypeError):
-            continue
-        if p.is_valid and p.area > 1e-9:
-            polys.append(p)
+    # the plan polygons as the ONE admission takes them (#581): a face
+    # seen edge-on is no plan area, read on its AUTHORED coordinates
+    plan = shapely.polygons(np.asarray([[(q[0], q[1]) for q in f[0]] for f in faces]))
+    polys = plan[_plan_admitted(np.concatenate(authored), plan)].tolist()
     if not polys:
         return []
     u = _fe.union(polys, "basin_witness.plan")

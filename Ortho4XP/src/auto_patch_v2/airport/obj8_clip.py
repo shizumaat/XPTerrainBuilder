@@ -10,7 +10,6 @@ import numpy as np
 import shapely
 from shapely.errors import GEOSException
 from shapely.geometry import Polygon
-from shapely.ops import unary_union
 
 from . import frame_entry as _fe
 
@@ -19,8 +18,8 @@ import typing as _t
 if _t.TYPE_CHECKING:  # annotations only — obj8 imports this module
     from .obj8 import Component
 
-__all__ = ["_clip", "_union_rings", "_split_at_plane", "_edge_on", "_bulk_polys",
-           "_clip_component", "_clip_both"]
+__all__ = ["_clip", "_union_rings", "_split_at_plane", "_edge_on", "_plan_admitted",
+           "_bulk_polys", "_clip_component", "_clip_both"]
 
 def _clip(corners, plane_y: float, below: bool) -> list[tuple[float, float]] | None:
     """Sutherland–Hodgman clip of one triangle to ``y <= plane_y``
@@ -91,13 +90,7 @@ def _union_rings(rings: list[list[tuple[float, float]]]):
     # §51 (4) row 16: the LOCAL repair above is KEPT (a clip of a folded
     # or sliver triangle is born invalid, before any placement), and the
     # ladder that used to be spelled here IS ``frame_entry.union``.
-    u = _fe.union(polys, "obj8_clip._union_rings")
-    if not u.is_valid:
-        u = shapely.make_valid(u)
-    parts = _polygon_parts(u)
-    if not parts:
-        return None
-    return _fe.union(parts, "obj8_clip._union_rings") if len(parts) > 1 else parts[0]
+    return _repaired_union(polys, "obj8_clip._union_rings")
 
 
 def _split_at_plane(v: np.ndarray, comp: Component, plane_y: float, below: bool
@@ -141,15 +134,46 @@ def _edge_on(pts: np.ndarray) -> np.ndarray:
     return twice_area <= step * longest
 
 
+def _plan_admitted(authored: np.ndarray, polys: np.ndarray,
+                   floor: float = 1e-9) -> np.ndarray:
+    """THE PLAN-TRIANGLE ADMISSION (#559, #581): which of ``polys`` — the
+    plan polygons of triangles whose AUTHORED ``(x, z)`` are ``authored``
+    (``(n, 3, 2)``), in the authored frame or placed — are plan area: valid,
+    area above ``floor``, and not a face seen edge-on (:func:`_edge_on`).
+
+    Every site that turns pack triangles into plan polygons admits them
+    HERE, so no consumer's union meets a needle.  The edge-on test reads
+    the AUTHORED coordinates — the file's own resolution; a placement is a
+    rotation and a translation, which keep a triangle's width — while
+    validity and area are the polygons' own (a site that snaps its frame
+    coordinates passes its own ``floor``)."""
+    return (shapely.is_valid(polys) & (shapely.area(polys) > floor)
+            & ~_edge_on(authored))
+
+
 def _bulk_polys(v: np.ndarray, tris: np.ndarray) -> list:
-    """The plan polygons of ``tris`` (authored ``(x, z)``) in bulk: the
-    valid ones with area, less the faces seen edge-on (:func:`_edge_on`)."""
+    """The plan polygons of ``tris`` (authored ``(x, z)``) in bulk, as
+    :func:`_plan_admitted` admits them."""
     if tris.shape[0] == 0:
         return []
     pts = v[tris][:, :, [0, 2]]
     polys = shapely.polygons(pts)
-    keep = shapely.is_valid(polys) & (shapely.area(polys) > 1e-9) & ~_edge_on(pts)
+    keep = _plan_admitted(pts, polys)
     return [p for p, k in zip(polys, keep.tolist()) if k]
+
+
+def _repaired_union(polys: list, site: str):
+    """The plan union of admitted triangle polygons (and a clipped part):
+    §51 Law B's union (``frame_entry.union`` — pack geometry, so it cannot
+    abort a tile), repaired, as its polygon parts unioned again; ``None``
+    when nothing is left."""
+    u = _fe.union(polys, site)
+    if not u.is_valid:
+        u = shapely.make_valid(u)
+    parts = _polygon_parts(u)
+    if not parts:
+        return None
+    return _fe.union(parts, site) if len(parts) > 1 else parts[0]
 
 
 def _clip_component(v: np.ndarray, comp: Component, plane_y: float, below: bool):
@@ -163,18 +187,11 @@ def _clip_component(v: np.ndarray, comp: Component, plane_y: float, below: bool)
     if not rings:
         if not polys:
             return None
-        u = unary_union(polys)
-        if not u.is_valid:
-            u = shapely.make_valid(u)
-        parts = _polygon_parts(u)
-        return (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
+        return _repaired_union(polys, "obj8_clip._clip_component")
     u = _union_rings(rings)
     if polys:
-        u2 = unary_union(polys + ([u] if u is not None else []))
-        if not u2.is_valid:
-            u2 = shapely.make_valid(u2)
-        parts = _polygon_parts(u2)
-        return (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
+        return _repaired_union(polys + ([u] if u is not None else []),
+                               "obj8_clip._clip_component")
     return u
 
 
@@ -205,12 +222,9 @@ def _clip_both(v: np.ndarray, comp: Component, plane_y: float):
     polys = _bulk_polys(v, whole)
     if not lines:
         return None, None
-    u = unary_union(lines)
+    u = _fe.union(lines, "obj8_clip._clip_both.lines")
     pg = _union_rings(rings)
     if polys:
-        pg = unary_union(polys + ([pg] if pg is not None else []))
-        if not pg.is_valid:
-            pg = shapely.make_valid(pg)
-        parts = _polygon_parts(pg)
-        pg = (unary_union(parts) if len(parts) > 1 else parts[0]) if parts else None
+        pg = _repaired_union(polys + ([pg] if pg is not None else []),
+                             "obj8_clip._clip_both")
     return (None if u.is_empty else u), pg

@@ -32,43 +32,63 @@ def is_band_zone_ref(ref) -> bool:
     return len(parts) > 2 and parts[0] == "adjacent_ground" and parts[1] in _BAND_FAMILIES
 
 
-def band_standoffs(planar: PlanarMap, law: Law) -> list[tuple[int, int, float]]:
-    """``(band vertex, road vertex, plan distance)`` for every runway / taxi
-    band ring vertex whose nearest road-page vertex (a road-family face that
-    is not an OSM ribbon) stands across the stand-off — within
-    ``groundside_cutback_m`` + ``weld_spacing_m`` + the snap margin, never a
-    shared vertex.  Sorted by band vertex."""
+def band_standoffs(planar: PlanarMap, law: Law
+                   ) -> list[tuple[int, int, int, float, float]]:
+    """``(band vertex, a, c, t, plan distance)`` for every runway / taxi band
+    ring vertex whose nearest point on a road page's ring (a road-family
+    face that is not an OSM ribbon) stands across the stand-off — within
+    ``groundside_cutback_m`` + ``weld_spacing_m`` + the snap margin, never
+    a shared vertex.  The nearest point is ``(1 - t) a + t c`` on the ring
+    edge ``a``-``c``: the EDGE, not its nearest vertex (round 3, KBUR
+    building9 corner 34.19628, -118.35023: the census's 1.12 m stand-off
+    is to the road's edge; its nearest ring vertex is 2.69 m away, past the
+    1.95 m horizon).  Sorted by band vertex."""
+    from shapely.geometry import LineString, Point
+    from shapely.strtree import STRtree
+
     from ..law.tables import family, snap_margin_m
     # the road family as ``constraints/roads.road_family_roles`` reads it
     # (the cross-section family's roles), without importing that generator
     roads = set(family(law, "road_cross_section").roles)
+    edges: dict[tuple[int, int], None] = {}
     road_v: set[int] = set()
     band_v: set[int] = set()
     for f in planar.faces.values():
         if f.role in roads and not is_osm_ribbon_ref(f.ref):
-            tgt = road_v
+            for cyc in (f.ring, *f.holes):
+                vs = planar.ring_vertices(cyc)
+                road_v.update(vs)
+                for i, x in enumerate(vs):
+                    y = vs[(i + 1) % len(vs)]
+                    if x != y:
+                        edges[(min(x, y), max(x, y))] = None
         elif f.role == "graded_strip" and is_band_zone_ref(f.ref):
-            tgt = band_v
-        else:
-            continue
-        for cyc in (f.ring, *f.holes):
-            tgt.update(planar.ring_vertices(cyc))
+            for cyc in (f.ring, *f.holes):
+                band_v.update(planar.ring_vertices(cyc))
     band_v -= road_v
-    if not road_v or not band_v:
+    if not edges or not band_v:
         return []
-    from scipy.spatial import cKDTree
-    ids = sorted(road_v)
-    tree = cKDTree([planar.vertices[v].xy for v in ids])
+    keys = sorted(edges)
+    lines = [LineString([planar.vertices[x].xy, planar.vertices[y].xy]) for x, y in keys]
+    tree = STRtree(lines)
     ag = law.tables.zones.adjacent_ground
     ident = law.tables.emit.identity
     horizon = (float(ag.groundside_cutback_m) + float(ident.weld_spacing_m)
                + snap_margin_m(law))
     min_d = float(ident.min_distinct_spacing_m)
-    out: list[tuple[int, int, float]] = []
-    for b in sorted(band_v):
-        d, j = tree.query(planar.vertices[b].xy)
-        if min_d <= d <= horizon:
-            out.append((b, ids[int(j)], float(d)))
+    out: list[tuple[int, int, int, float, float]] = []
+    for bv in sorted(band_v):
+        pt = Point(planar.vertices[bv].xy)
+        j = tree.nearest(pt)
+        if j is None:
+            continue
+        ln = lines[int(j)]
+        d = float(ln.distance(pt))
+        if not (min_d <= d <= horizon):
+            continue
+        t = float(ln.project(pt, normalized=True)) if ln.length > 0.0 else 0.0
+        x, y = keys[int(j)]
+        out.append((bv, x, y, t, d))
     return out
 
 
@@ -99,5 +119,5 @@ def band_wall_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
             if tree is None or not len(tree.query(p, predicate="dwithin",
                                                    distance=near_m)):
                 out.add(v)
-    out.update(b for b, _g, _d in band_standoffs(planar, law))
+    out.update(r[0] for r in band_standoffs(planar, law))
     return frozenset(out)

@@ -145,10 +145,16 @@ def _floor_rows(planar: PlanarMap, risers, xy) -> list[Linear]:
 
 def _standoff_floors(standoffs, seen: set[int]) -> list[Linear]:
     """The same one-way floor for a road page's stand-off pairs
-    (constraints/band_standoff, #951 spec Q12)."""
-    return [Linear(((int(b), 1.0), (int(g), -1.0)), 0.0, None,
-                   Source(GEN, FLOOR_RULING, (f"vertex:{b}",)), follows=int(b))
-            for b, g, _d in standoffs if b not in seen]
+    (``constraints/band_standoff``, #951 spec Q12), against the road's level
+    at the nearest point of its edge."""
+    out = []
+    for b, x, y, t, _d in standoffs:
+        if b in seen:
+            continue
+        terms = ((int(b), 1.0), (int(x), -(1.0 - t)), (int(y), -t))
+        out.append(Linear(tuple((v, c) for v, c in terms if c != 0.0), 0.0, None,
+                          Source(GEN, FLOOR_RULING, (f"vertex:{b}",)), follows=int(b)))
+    return out
 
 
 #: the ruling of the band's graded level at a wall (owner, #951 spec Q11)

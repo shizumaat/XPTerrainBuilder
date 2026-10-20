@@ -59,7 +59,7 @@ def test_the_road_keeps_its_ground_and_the_riser_is_the_wall(arm, law):
     js = band_road_wall_joints(pm, law, sol.z)
     assert js and all(j["kind"] == "wall_terrace" and j["shapes"] == [LABEL]
                       for j in js)
-    assert all(j["step_m"] > 5.0 for j in js)
+    assert all(j["step_m"] > 5.0 for j in js if j["faces"])   # the risers
 
 
 def test_the_bending_is_cut_across_the_riser(arm):

@@ -44,10 +44,13 @@ def _is_band_zone(r) -> bool:
     return r.source == "zone" and len(parts) > 1 and parts[1] in _BAND_FAMILIES
 
 
-def riser_geometry(ribs, regions, air, rim_band: float, law: Law):
+def riser_geometry(ribs, regions, air, rim_band: float, law: Law, keep_out=None):
     """The band ground within one weld spacing of the ribbons ``ribs``,
     inside a runway / taxi zone region, off the finished airside ``air`` by
-    ``rim_band``.  ``None`` where there is none."""
+    ``rim_band`` and off every other cell ``keep_out`` (a tunnel ramp or
+    trench, a lot: round 3, KLAX 33.94033, -118.39618 — riser lines noded
+    through a tunnel trench re-cut it, and the roads inside it surfaced as
+    ribbons 3 m under the band).  ``None`` where there is none."""
     zone = [r.polygon for r in regions if _is_band_zone(r)]
     polys = [r.polygon for r in ribs if not r.polygon.is_empty]
     if not zone or not polys:
@@ -59,6 +62,8 @@ def riser_geometry(ribs, regions, air, rim_band: float, law: Law):
     if not reach.intersects(zone_u):
         return None
     riser = reach.difference(rib_u).intersection(zone_u)
+    if keep_out is not None and not keep_out.is_empty:
+        riser = riser.difference(keep_out)
     keep_off = air.buffer(float(rim_band), **_MITRE) if air is not None else None
     if keep_off is not None:
         riser = riser.difference(keep_off)

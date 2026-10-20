@@ -28,15 +28,21 @@ from shapely.ops import unary_union
 
 from ..classify.pad_touch import is_rim_strip
 from ..classify.roles import TAXI_FAMILY, Cell, is_runway_shoulder
+from ..geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from ..geom.rotated_rect import long_axis, rotated_rectangle
 from ..law import Law
-from ..law.tables import (runway_end_profile, runway_safety_area_length_m,
-                          runway_zone_edge_offset_m, snap_margin_m, zone2_half_width_m,
-                          zone_edge_offset_m)
+from ..law.tables import (
+    input_quantum_m,
+    runway_end_profile,
+    runway_safety_area_length_m,
+    runway_zone_edge_offset_m,
+    snap_margin_m,
+    zone2_half_width_m,
+    zone_edge_offset_m,
+)
 from ..model.planar import is_gap_apron_ref, is_late_ref
-from .shore import (SHORE_WALL_TAGS, ShoreVerdict, shore_contact,
-                    shore_declarations, shore_verdict)
 from .road_yield import beside_road_cut
+from .shore import SHORE_WALL_TAGS, ShoreVerdict, shore_contact, shore_declarations, shore_verdict
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
 __all__ = ["ZoneRegion", "zone_regions", "shore_region", "shore_declarations",
@@ -321,14 +327,26 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # hairline, 1,689 m x 0.8 mm, beside 05C/23C again — 163 new runway
     # vertices, 11 runway nodes moved up to 0.07 m, from 27 strips at pads).
     # With the strips out the claim is the knifed cells', as it was.
+    # THE CLAIM IS DETERMINISTIC (issue #486, #637): every overlay below is
+    # FIXED-PRECISION and the claim's members are unioned in a canonical
+    # order (``geom/fixed_overlay``), so a band near a point is a function
+    # of the cells near that point.  The floating cascade it replaces
+    # re-noded every runway edge whenever any cell was added (HECA: an 11-
+    # cell apron change minted a 1.31 m2, 0.8 mm hairline beside 05C/23C,
+    # 1.6 km away; KCLT: a tunnel 940 m away moved 18 zone rings in their
+    # last bits and flipped a runway vertex 227.08 / 227.13 m).
     gap_aprons = [Polygon(c.ring, c.holes) for c in cells if _unclaimed(c)]
-    gap_apron_u = unary_union(gap_aprons) if gap_aprons else None
-    everything = unary_union(
+    gap_apron_u = canonical_union(gap_aprons) if gap_aprons else None
+    everything = canonical_union(
         [Polygon(c.ring, c.holes).buffer(cut, **_MITRE)
          if c.side == "groundside" and not is_late_ref(getattr(c, "ref", ""))
          else Polygon(c.ring, c.holes) for c in cells
          if not _unclaimed(c)]
         + [Polygon(k).buffer(cut, **_MITRE) for k in keepouts]) if cells else Polygon()
+    # A PART NARROWER THAN TWO INPUT QUANTA is below the resolution every
+    # source coordinate was snapped to (§46 (4)): an overlay residue, never
+    # ground — dropped here, at the one derivation site (RULINGS 2026-08-30l)
+    hairline_m = 2.0 * input_quantum_m(law)
     lip = ag.lip_width_m
     groups: dict[tuple[str, int | None, str | None], list[Polygon]] = {}
     letters: dict[str, str | None] = {}
@@ -435,15 +453,14 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         beside = beside_road_cut(carriageways, envelope, cut)
     for key, (u, inner, outer) in bands.items():
         fam, cn, cl = key
-        z1 = inner.difference(claimed)
-        z2 = outer.difference(inner).difference(claimed)
-        if beside is not None:
-            z1 = z1.difference(beside)
-            z2 = z2.difference(beside)
+        z1 = fixed_difference(inner, claimed)
+        z2 = fixed_difference(fixed_difference(outer, inner), claimed)
+        z1 = fixed_difference(z1, beside)
+        z2 = fixed_difference(z2, beside)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
             if gap_apron_u is not None and geom.intersects(gap_apron_u):
-                geom = geom.difference(gap_apron_u)
+                geom = fixed_difference(geom, gap_apron_u)
             if water is not None and not geom.is_empty:
                 wet = geom.intersection(water)
                 if not wet.is_empty and wet.area > 0.0:
@@ -478,7 +495,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                          for p in _break_pieces(g0, breaks)]
             k = counters.get((fam, cls, zone), 0)
             for g in parts:
-                if g.geom_type != "Polygon" or g.is_empty or g.area < 1.0:
+                if g.geom_type != "Polygon" or g.is_empty or g.area < 1.0 \
+                        or is_hairline(g, hairline_m):
                     continue
                 mine = tuple(ln for ln in clip.lines
                              if ln.distance(g) <= snap_margin_m(law))
@@ -508,7 +526,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                                       cl[len(_RUNWAY_KEY):] if fam == "runway" else None))
                 k += 1
             counters[(fam, cls, zone)] = k
-        claimed = unary_union([claimed, outer])
+        claimed = canonical_union([claimed, outer])
     return out
 
 

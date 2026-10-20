@@ -511,6 +511,14 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
     taken: list[Polygon] = []
     for i in order:
         c = clusters[i]
+        # owner RULINGS 2026-10-19ak: a piece of a FLOATING multi-file
+        # building is padded once, as the building's whole footprint, by
+        # its representative cluster (``geom/slope_pad.SlopeWitness``)
+        grp = (slope.group_of(c.id) if slope is not None
+               and hasattr(slope, "group_of") else None)
+        if grp is not None and grp[0] != str(c.id):
+            counts["slope_grouped"] = counts.get("slope_grouped", 0) + 1
+            continue
         if walled_only and not int(getattr(c, "walled", 0) or 0):
             counts["leaf_dropped"] += 1          # (7): it seats on its ground
             continue
@@ -565,7 +573,16 @@ def cluster_outlines(clusters: _t.Sequence[_t.Any],
         # under the bar keeps no pad UNLESS its seat would float more than
         # the slope threshold over the ground under its closed outline
         # (``geom/slope_pad``); every later gate still applies to it
-        if small:
+        if grp is not None:
+            # the building's whole footprint, closed as the outline is
+            u = grp[1]
+            if touch_m > 0.0:
+                u = u.buffer(touch_m, join_style=2).buffer(-touch_m, join_style=2)
+                if not u.is_valid:
+                    u = u.buffer(0.0)
+        if small and grp is not None:
+            counts["slope_padded"] += 1
+        elif small:
             if float(slope[0](u)) <= float(slope[1]):
                 counts["under_min_m2"] += 1
                 continue

@@ -67,3 +67,23 @@ def test_a_vertex_only_two_collars_share_keeps_both_banks(seamed, seam_law):
         assert {A, B} <= {ref for r in mine for ref in plate[r.b]}
         assert all(r.follows == (v,) and r.cap == pytest.approx(
             float(seam_law.tables.emit.design.bank_slope)) for r in mine)
+
+
+def test_a_coverage_edge_vertex_only_two_collars_share_keeps_both_banks(seamed, seam_law):
+    """The same seam where it meets the coverage edge (#1068, HECA: the south
+    run-out's side bank at 30.1111706, 31.3922969 had no row and stood 1.9 m
+    under its DEM): it is no pad's rim, so each bank keeps its one-way row."""
+    pm, airport = seamed
+    edge_v = {v for e in pm.edges.values() if e.left_face is None or e.right_face is None
+              for v in (e.a, e.b)}
+    seam = {v for v in edge_v if pm.vertices[v].incident_faces
+            and all(is_collar_ref(pm.faces[q].ref) for q in pm.vertices[v].incident_faces)
+            and len({pm.faces[q].ref for q in pm.vertices[v].incident_faces}) == 2}
+    assert seam, "the fixture must carry a seam vertex on the coverage edge"
+    rows = [r for r in platform.platform_collar_rows(pm, seam_law, airport) if r.a in seam]
+    plate = {v: {pm.faces[q].ref for q in vx.incident_faces}
+             for v, vx in pm.vertices.items()}
+    for v in seam:
+        mine = [r for r in rows if r.a == v]
+        assert {A, B} <= {ref for r in mine for ref in plate[r.b]}
+        assert all(r.follows == (v,) for r in mine)

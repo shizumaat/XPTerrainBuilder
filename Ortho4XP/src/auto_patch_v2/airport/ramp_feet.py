@@ -13,9 +13,11 @@ THE READING, on the member's own top surface (the raster
 solid triangle over each cell centre, ``[placement] sunken_ramp_grid_m``):
 
 * a SLOPED cell: its top surface's gradient (central differences over
-  neighbours of the same deck, a step of at most ``sunken_ramp_step_grade``
-  x the cell) lies between ``MIN_GRADE`` and that step grade — a road
-  deck's grade, never a floor, a wall or a roof's pitch;
+  neighbours of the same deck, a step of at most the AUTHORED ramp bound
+  x the cell — ``[cutout.wall_corridor] max_authored_grade``, never under
+  ``sunken_ramp_step_grade``: :func:`_foot_law`) lies between ``MIN_GRADE``
+  and that grade — a deck ramp as the pack authored it, never a floor or a
+  wall;
 * a RAMP: a 4-way component of sloped cells that climbs at least
   ``sunken_ramp_climb_min_m`` and comes down to its own zero (its lowest
   ``T`` within ``[cockpit] visual_m`` of 0 — 10-03e's landing band; a
@@ -184,6 +186,21 @@ def _member_feet(unit_id, m, origin, to_xy, law_v, cache=None) -> list[RampFoot]
     return out
 
 
+def _foot_law(law) -> tuple[float, float, float, float]:
+    """``(grid, climb, grade, band)``: the sunken-ramp raster's law with the
+    steepest grade a pack-AUTHORED ramp may carry (``[cutout.wall_corridor]
+    max_authored_grade``, RULINGS 2026-09-08n's sanity cap) as the ramp
+    bound.  The sunken-ramp step grade (12 %) keeps a building's sloped
+    surround out of a cluster's outline; here only a DECK member is read, and
+    a deck's ramp is authored at the pack's grade (issue #711, MEASURED: the
+    south ramp of HECA's T3 viaduct comes down at 14.2 %, read as no ramp,
+    and its foot got no run-out — a 5 m drop at its end)."""
+    from .sunken_ramp import _law
+    grid, climb, grade, band = _law(law)
+    wc = getattr(getattr(law.tables.structures, "cutout", None), "wall_corridor", None)
+    return grid, climb, max(grade, float(getattr(wc, "max_authored_grade", grade))), band
+
+
 _MEMO: list = []
 
 #: the last derivation's report: feet, members read, seconds, parses the
@@ -205,10 +222,9 @@ def ramp_feet(airport, law, to_xy, cache=None) -> tuple[RampFoot, ...]:
         if key is part:
             return val
     import time
-    from .sunken_ramp import _law
     from .placement_cut import pristine_path
     t0 = time.perf_counter()
-    lv = _law(law)
+    lv = _foot_law(law)
     feet: list[RampFoot] = []
     n = held = 0
     if lv[0] > 0.0:

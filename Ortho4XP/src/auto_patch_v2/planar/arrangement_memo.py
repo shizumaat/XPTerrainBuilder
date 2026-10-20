@@ -53,24 +53,34 @@ def front_key(non_late: tuple, classification, grid: float) -> bytes | None:
     """The VALUE half of the key, or ``None`` outside a build (no memo)."""
     if getattr(_STATE, "memo", None) is None:
         return None
-    blob = pickle.dumps((non_late, tuple(classification.keepouts),
+    # a cell's ID is not read by the front (the weld orders by POSITION,
+    # ``weld.weld_cells``; regions carry no id) and the last stage renumbers
+    # cells it never changed (measured HECA: 20 ``gapapron`` cells, ids only)
+    cells = tuple((c.role, c.ref, c.ring, c.holes, c.code_number, c.code_letter,
+                   c.side, c.kind, c.evidence) for c in non_late)
+    blob = pickle.dumps((cells, tuple(classification.keepouts),
                          tuple(classification.cut_lines), float(grid)), protocol=5)
     return hashlib.sha256(blob).digest()
+
+
+#: fronts held per build: the base map, the ribbon-free stage-1 map and the
+#: last stage's maps may interleave (each holds its own non-late set)
+HELD = 3
 
 
 def served(key: bytes | None, airport, law) -> dict | None:
     """The front held under ``key`` for this airport and law, copied for a
     fresh use; ``None`` on a miss."""
     memo = getattr(_STATE, "memo", None)
-    if key is None or not memo or memo.get("key") != key:
+    got = memo.get(key) if (key is not None and memo) else None
+    if got is None or got["airport"]() is not airport or got["law"]() is not law:
         return None
-    if memo["airport"]() is not airport or memo["law"]() is not law:
-        return None
-    return _fresh(memo["front"])
+    memo[key] = memo.pop(key)                       # most recently used last
+    return _fresh(got["front"])
 
 
 def hold(key: bytes | None, airport, law, front: dict) -> None:
-    """Keep ``front`` (a copy) as this build's one held front."""
+    """Keep ``front`` (a copy) among this build's :data:`HELD` fronts."""
     memo = getattr(_STATE, "memo", None)
     if key is None or memo is None:
         return
@@ -78,8 +88,10 @@ def hold(key: bytes | None, airport, law, front: dict) -> None:
         refs = (weakref.ref(airport), weakref.ref(law))
     except TypeError:                                   # pragma: no cover
         return
-    memo.clear()
-    memo.update(key=key, airport=refs[0], law=refs[1], front=_fresh(front))
+    memo.pop(key, None)
+    memo[key] = {"airport": refs[0], "law": refs[1], "front": _fresh(front)}
+    while len(memo) > HELD:
+        memo.pop(next(iter(memo)))
 
 
 #: the front's MUTABLE records, deep-copied together (one memo, so a value

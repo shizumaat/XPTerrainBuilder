@@ -90,7 +90,15 @@ R, the re-derive radius, is `max(gap_follow.reach_m, reach_m(pad), pad_ramp.stan
    - Its mutable records (registries, edge report, pad-clip and platform records) are deep-copied on store and on serve.
    - `shelf_regions` reads the late polygons, so it and everything after it (landing, plateau, pass A, pass B, pass C) still run.
    - Outside a build nothing is held.
-   - Profiled cost of the front per late derive at HECA: about 40 s (weld 7, zones 15, platforms 16, terraces/apron cut ~5).
+   - A cell's id is not in the key: the front never reads it (the weld orders by position), and the last stage renumbers cells it did not change (HECA: 20 `gapapron` cells, ids only).
+   - Up to 3 fronts are held.
+   - Profiled cost of the front per derive at HECA: about 40 s (weld 7, zones 15, platforms 16, terraces/apron cut ~5).
+   - **Measured, HECA closing build `m8late4`.** The build runs four derives: main, ribbon-free stage 1, gap stage, roads stage.
+     - The **gap stage is served** the stage-1 front.
+     - **Main misses**: its `Airport` is a different object from the one the later derives get.
+     - **The roads stage misses, lawfully**: it carries one more non-late cell, `runout:0`.
+     - Body `80456bf49005…` is identical to main.
+   - Serving the roads stage would mean keying a front by its cells and patching in the run-out cells. That belongs to phase 2b.
 2. **Phase 2b, the planar intermediates past the front.**
    - The base's planar build returns, beside `pm`, the arrangement intermediates: pass A's noded lines, pass B's pad lines and faces, the first `_faces_of`, and the structures/basins result. These live in memory, are never cached on disk, and are dropped after the late stage.
    - The gap stage's derive starts pass C from them. The roads-only stage starts from the gap stage's own intermediates (`pm_g` is in memory).

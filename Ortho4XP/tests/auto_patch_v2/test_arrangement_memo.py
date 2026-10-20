@@ -5,6 +5,8 @@ its arrangement is the one a fresh build gives; outside a build nothing is
 held."""
 from __future__ import annotations
 
+import dataclasses as _dc
+
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.planar import GAP_PREFIX
@@ -58,7 +60,9 @@ def test_a_build_serves_the_front_once_and_the_answer_is_a_fresh_builds(monkeypa
     monkeypatch.setattr(overlay, "weld_cells",
                         lambda *a, **k: calls.append(1) or real(*a, **k))
     base = Classification(_BASE, (), {}, ())
-    cut = Classification(_BASE + (_GAP,), (), {}, ())
+    # the last stage renumbers cells it never changed: an id is not a key
+    cut = Classification(tuple(_dc.replace(c, id=c.id + 10) for c in _BASE)
+                         + (_GAP,), (), {}, ())
     fresh = _faces(overlay.build_arrangement(airport, cut, law))
     assert len(calls) == 1
 

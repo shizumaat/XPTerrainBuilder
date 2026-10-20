@@ -906,8 +906,8 @@ def config_digest() -> str:
       source automatically and cannot rot as gates come and go;
     * every ``O4_`` variable actually SET in the environment that is a
       SETTING (``provenance_env.digested_environment``).  Two reasons: gates
-      read at a call site outside config.py (``O4_FORCE_APT_DAT``, the apt.dat
-      reader's curve knobs) are covered, and — the important one — a FROZEN
+      read at a call site outside config.py (``O4_FORCE_APT_DAT``) are
+      covered, and — the important one — a FROZEN
       engine ships no ``.py`` for the introspection to read, so without this
       a gate flip would be invisible in the packaged app.  The variables that
       only identify or steer the RUN (the parent's pid, the sibling count,

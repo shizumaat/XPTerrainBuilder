@@ -22,7 +22,6 @@ variable in O4_Cfg_Vars.py instead.
 
 __all__ = [
     "LOG_VERBOSITY",
-    "AGP_BUILDINGS",
     "DSF_OBJECT_BUILDINGS",
     "DSF_OBJECT_FOOTPRINT_UNION",
     "DSF_OBJECT_REANCHOR",
@@ -337,40 +336,6 @@ except ValueError:
 # SPJC 19 / CYXY 3 pads, worst tiny-pad step 12.04 m.  This is the
 # constant the pipeline's old bare 100.0 pad floor rises to.
 PAD_MIN_AREA_M2 = 250.0
-
-
-# SURFACE-attribute classification of DSF draped polygons (user
-# 2026-07-05): resolve each POLYGON_DEF ``.pol`` resource (pack file,
-# else the library.txt virtual→physical map) and read its declared
-# ``SURFACE`` — asphalt/concrete is pavement REGARDLESS of the resource
-# name, a declared soft surface (grass/dirt/gravel/…) vetoes it, and
-# resources with no SURFACE fall back to the material-token name
-# heuristics below.  See ``dsf_reader._classify_pavement_def``.
-DSF_SURFACE_POLYGONS = (
-    _os_early.environ.get("O4_DSF_SURFACE_POLYGONS", "1") == "1")
-
-# Third-party DSF pavement descriptors (user 2026-06-10, KPHX south
-# aprons): a third-party ``.pol`` is trusted as BASE pavement when its
-# path contains one of these material descriptors — the common naming
-# convention across scenery libraries (ZDP_Library/.../concrete/flat/
-# Flat_New_Uniform.pol, MisterX_Library/Ground_Textures/Asphalt_2_
-# Base.pol, …).  Per user: "asphalt" and "concrete" plus their French,
-# German, Spanish, Italian and Portuguese equivalents.  Decorative /
-# non-pavement uses of the same words (lines, markings, stains, …) are
-# rejected by the skip-token list in ``dsf_reader``.
-DSF_PAVEMENT_MATERIAL_TOKENS = (
-    # English
-    "asphalt", "concrete",
-    # French (asphalte, béton)
-    "asphalte", "beton", "béton",
-    # German (Asphalt — same spelling — and Beton, covered above)
-    # Spanish (asfalto, hormigón / concreto)
-    "asfalto", "hormigon", "hormigón", "concreto",
-    # Italian (asfalto — same as Spanish — and calcestruzzo)
-    "calcestruzzo",
-    # Portuguese (asfalto — covered — and betão / concreto — covered)
-    "betao", "betão",
-)
 
 
 # ── Aerodrome longitudinal grade standards (single source of truth) ──
@@ -1734,27 +1699,12 @@ RUNWAY_SEAM_CUTBACK_DEM_ANCHORS = (
     and _os.environ.get("O4_RUNWAY_SEAM_CUTBACK_DEM", "1") == "1")
 
 
-# (20260617) AGP HANGAR BUILDINGS (user 2026-06-17): X-Plane also places
-# airport hangars as ``.agp`` AUTOGEN POINTS — a single ``OBJECT`` handle
-# + heading in the DSF, with the footprint encoded in the ``.agp`` sidecar
-# (TILE/CROP_POLY in texture pixels × TEXTURE_WIDTH/HEIGHT ÷ TEXTURE_SCALE,
-# anchored at ANCHOR_PT).  ``dsf_reader.read_dsf_buildings`` resolves the
-# sidecar through the X-Plane ``library.txt`` map and projects the footprint
-# onto the handle, feeding it into the SAME building pool as the ``.fac``
-# facades (role ``"hangar"``).  Scoped initially to the
-# ``lib/airport/Common_Elements/Hangars/`` virtual prefix.  Default ON
-# (user 2026-06-17, for in-sim testing); O4_AGP_BUILDINGS=0 disables it
-# (byte-identical to the prior .fac-only behaviour).  Has no effect
-# unless DSF_BUILDINGS is also ON (shares the building path).
-AGP_BUILDINGS = _os.environ.get("O4_AGP_BUILDINGS", "1") == "1"
-
-
 # (20260708) DSF OBJECT BUILDINGS (user 2026-07-08, ruling R4 in
 # docs/dsf_object_integration_spec.md): scenery authors bake many
 # buildings into one ``.obj`` whose DSF placement anchor may sit hundreds
 # of metres from any geometry.  auto_patch cannot see those buildings at
-# all today (``building_role_for_def`` requires ``.fac`` and
-# ``is_agp_building_def`` whitelists ``.agp``) — roughly 105 of them at
+# all today (``building_role_for_def`` requires ``.fac`` and the
+# ``.agp`` hangar reader whitelists ``.agp``) — roughly 105 of them at
 # KCLT.  ``dsf_reader.read_dsf_object_buildings`` parses the OBJ8,
 # partitions it into structures (connected components of the
 # epsilon-contact graph — docs/obj8_structure_partition.md), and feeds

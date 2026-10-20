@@ -2848,9 +2848,9 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     from auto_patch_v2.verify.no_step import rate_breaches
     from auto_patch_v2.constraints.strips import (end_transect_foot,
                                                   end_transect_pairs)
+    from auto_patch_v2.verify.runway_witness import published_status
     from auto_patch_v2.verify.strips import (end_chord_foot, end_excess_m,
-                                             end_exempt_geometry, published_instrument,
-                                             published_slabs)
+                                             end_exempt_geometry, published_slabs)
     from shapely.geometry import Point as _Pt
     slabs = published_slabs(runway_axes_ll, ll_to_m)
     law, profile_of = _runway_end_profile_law()
@@ -2942,7 +2942,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
         """Each END's profile (RULINGS 2026-10-15m (1): the FAA approach
         surface by the end's published class and displaced length), keyed
         by corridor ring — ``verify.strips.runway_end_skirt``'s reading."""
-        ins = published_instrument(runway_axes_ll, ref)
+        ins = published_status(runway_axes_ll, ref)
         fr = end_edges_by_ref.get(ref)
         if fr is None:
             one = profile_of(law, code, letter, ins)
@@ -3582,8 +3582,10 @@ def runway_edge_tie_frame(ways: List[Way], nodes: Dict[str, Tuple[float, float]]
                 # the tie's zone is measured from the CENTRELINE (2026-10-15c (1))
                 declared = {str(r[0]): 2.0 * float(r[5]) for r in (_ACTIVE_RUNWAY_AXES or ())
                             if len(r) >= 6}
+                # the 5th: the runway's published instrument status (#811)
                 axes[ref] = ((ax0, ay0), ((bx - ax0) / L, (by - ay0) / L), L,
-                             declared.get(ref, float(_w)))
+                             declared.get(ref, float(_w)),
+                             _published_status_of(_ACTIVE_RUNWAY_AXES, ref))
     first: Dict[str, Tuple[Way, int]] = {}
     roles_at: Dict[str, set] = {}
     for w in ways:
@@ -3964,7 +3966,18 @@ def _published_end_classes(a_end, b_end, ll_to_m=None):
     return published_end_classes([row], row[0], a_end, b_end, ll_to_m)
 
 
-def _rsa_end_lengths(axis, code, letter, ll_to_m=None):
+def _published_status_of(rows, ref) -> int:
+    """The runway's published instrument status (#811;
+    ``auto_patch_v2.verify.runway_witness.published_status``), 0 without
+    the engine or the row."""
+    try:
+        from auto_patch_v2.verify.runway_witness import published_status
+    except Exception:                                   # pragma: no cover
+        return 0
+    return published_status(rows, ref)
+
+
+def _rsa_end_lengths(axis, code, letter, ll_to_m=None, status=0):
     """``(beyond axis a, beyond axis b)`` — the generator's RSA length
     (``auto_patch_v2.law.tables.runway_safety_area_length_m``) less each
     end's published overrun, the end matched to the slab end nearer it
@@ -3975,7 +3988,7 @@ def _rsa_end_lengths(axis, code, letter, ll_to_m=None):
         law, _p = _runway_end_profile_law()
     except Exception:                                   # pragma: no cover
         return None
-    rsa = runway_safety_area_length_m(law, code, letter)
+    rsa = runway_safety_area_length_m(law, code, letter, status)
     oa = ob = 0.0
     if _ACTIVE_RUNWAY_AXES and ll_to_m is not None:
         (ax, ay), (bx, by), _w = axis
@@ -4023,9 +4036,13 @@ def _strip_group_of_axis(axis, ll_to_m=None):
     # classifier (``auto_patch_v2.law.reference_code``) on the fitted axis
     row = _matched_axis_row(axis, ll_to_m)
     code, letter = _published_code_and_letter(row, length, width_m)
+    # the runway's instrument status as published (#811): the strip's
+    # half-width and the RSA are read by it
+    status = _published_status_of([row], row[0]) if row else 0
     rings = _runway_strip_wall_keepout_rings(
         (ax, ay), (bx, by), width_m, letter, _ACTIVE_RULESET,
-        end_len_m=_rsa_end_lengths(axis, code, letter, ll_to_m))
+        end_len_m=_rsa_end_lengths(axis, code, letter, ll_to_m, status),
+        status=status)
     return (rings, ((bx - ax) / length, (by - ay) / length), code, length, letter)
 
 
@@ -8018,7 +8035,7 @@ try:                                                    # pragma: no cover
 
     _STRIP_LIP_M = float(_V2_STRIP_T.load_default().tables.zones.adjacent_ground.lip_width_m)
 
-    def _strip_half_width_m(role: str, code_number, code_letter) -> float:
+    def _strip_half_width_m(role: str, code_number, code_letter, status=0) -> float:
         if role in _RAMP_IN_STRIP_RUNWAY_ROLES:
             key = "runway"
         elif role in _RAMP_IN_STRIP_TAXI_ROLES:
@@ -8026,7 +8043,7 @@ try:                                                    # pragma: no cover
         else:
             return 0.0
         hw = _V2_STRIP_T.zone_edge_offset_m(_strip_law(), key,
-                                            code_number, code_letter)
+                                            code_number, code_letter, status=status)
         return float(hw) if hw and hw > 0.0 else _STRIP_LIP_M
 except Exception:                                       # pragma: no cover
     _STRIP_LIP_M = 3.0
@@ -8034,7 +8051,7 @@ except Exception:                                       # pragma: no cover
                      "E": 7.5, "F": 9.5}
     _STRIP_RUNWAY_M = {1: 30.0, 2: 40.0, 3: 75.0, 4: 75.0}
 
-    def _strip_half_width_m(role: str, code_number, code_letter) -> float:
+    def _strip_half_width_m(role: str, code_number, code_letter, status=0) -> float:
         if role in _RAMP_IN_STRIP_RUNWAY_ROLES:
             return _STRIP_RUNWAY_M.get(code_number, 75.0)
         if role in _RAMP_IN_STRIP_TAXI_ROLES:
@@ -8089,7 +8106,8 @@ def _check_ramp_in_strip(ways, nodes, ll_to_m,
     solids, bands = [], []
     for w in ways:
         role = law_role(w)
-        hw = _strip_half_width_m(role, _code_number_of(w), _code_letter_of(w))
+        hw = _strip_half_width_m(role, _code_number_of(w), _code_letter_of(w),
+                                 _published_status_of(_ACTIVE_RUNWAY_AXES, w.ref))
         if hw <= 0.0:
             continue
         pts = [ll_to_m(*nodes[n]) for n in w.nids if n in nodes]

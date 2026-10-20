@@ -97,6 +97,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
+from ..law.reference_code import runway_status
 from ..law.tables import (is_value_role, role_side, snap_margin_m,
                           runway_safety_area_length_m, zone2_half_width_m)
 from ..model.airport import Airport
@@ -1431,7 +1432,8 @@ def shoulder_band(rw, law: Law, *, end_cap: bool = True):
     §40 (5) bounds §40 (1), it does not reverse it: a cell that shares
     ``runway_shoulder_shared_m`` with the runway ring is STILL the
     runway's — but only the part of it in here."""
-    hw = zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter)
+    status = runway_status(rw)
+    hw = zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter, status)
     if not hw or hw <= 0.0:
         return None
     a, b = rw.ends[0].xy, rw.ends[1].xy
@@ -1439,8 +1441,7 @@ def shoulder_band(rw, law: Law, *, end_cap: bool = True):
         return None
     if end_cap:
         # the RSA length from the runway END (owner RULINGS 2026-10-15c (2))
-        ext = runway_safety_area_length_m(law, rw.code_number, rw.code_letter,
-                                          bool(getattr(rw, "instrument", False)))
+        ext = runway_safety_area_length_m(law, rw.code_number, rw.code_letter, status)
         if ext > 0.0:
             length = math.hypot(b[0] - a[0], b[1] - a[1])
             ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length

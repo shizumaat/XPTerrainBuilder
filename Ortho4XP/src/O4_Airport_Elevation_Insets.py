@@ -1534,6 +1534,13 @@ def _fetch_through_resolution_ladder(
                 attempt["airport_valid_fraction"] = round(
                     raster_valid_fraction_in_box(rung_path, boundary_box),
                     6)
+                if attempt["airport_valid_fraction"] <= 0.0:
+                    # A RUNG THAT COVERS NONE OF THE AIRPORT IS NO
+                    # DELIVERY (#596): the box rule passed on data beside
+                    # the field, and keeping it would grade the whole
+                    # airport on the fill.  The ladder climbs on.
+                    attempt["outcome"] = "below-threshold"
+                    attempt["misses_airport"] = True
         return (attempt, provenance)
 
     def _say(attempt, total):
@@ -1549,6 +1556,9 @@ def _fetch_through_resolution_ladder(
         elif attempt["outcome"] == "unavailable":
             what = ("%s could not be asked: %s"
                     % (attempt["provider"], attempt["unavailable_reason"]))
+        elif attempt.get("misses_airport"):
+            what = ("valid %.2f %% but it covers none of the airport"
+                    % (100.0 * attempt["valid_fraction"]))
         elif attempt["outcome"] == "partial":
             what = ("valid %.2f %% but airport cover %.2f %% (< %.2f %%)"
                     % (100.0 * attempt["valid_fraction"],

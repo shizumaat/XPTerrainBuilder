@@ -9,7 +9,7 @@ engine** (RULINGS 2026-09-13au): it builds the planar map, generates the law
 constraints from TOML tables, solves the airport's design surface in one staged solve
 and emits the patch. Do not look here for surface construction, the solve or the law.
 
-What is here is 28 modules, declared one by one in `tests/test_v1_retired.py` (`KEEP`).
+What is here is 27 modules, declared one by one in `tests/test_v1_retired.py` (`KEEP`).
 That twin asserts three things: the production import closure reaches nothing under
 `auto_patch/` outside `KEEP`; the modules on disk ARE `KEEP`, exactly; and no production
 module names an `auto_patch` module outside `KEEP` as a string (the `__import__` blind
@@ -30,7 +30,7 @@ block of `STATUS.md` (~90k tokens of append-only history; never load it whole).
   build's import closure, #880; the whole tree under `O4_PATCH_FRESHNESS_WHOLE_TREE=1`),
   `provenance_env.py` (which `O4_` variables are patch settings and which only
   identify the run — a new `O4_` variable is classified there, #607).
-- **Readers.** `apt_dat_reader.py`, `dsf_reader.py`, `agp_reader.py`,
+- **Readers.** `dsf_reader.py` (DSFTool dumps, object placements), `agp_reader.py` (the `library.txt` index),
   `obj8_reader.py`, `osm_aeroway.py`.
 - **Flat-site DEM prep.** `flat_site_mode.py` (asks the v2 detector `auto_patch_v2/airport/flat_site_prep.py`, issue #932; production
   DEM prep's caller).

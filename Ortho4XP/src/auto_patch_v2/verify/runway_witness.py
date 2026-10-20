@@ -16,12 +16,13 @@ import math
 import typing as _t
 
 from ..law import Law
-from ..law.reference_code import runway_code_number
+from ..law.reference_code import runway_code_number, status_of_classes
 
 __all__ = ["published_row", "published_code_number", "published_code_letter",
-           "published_end_classes", "published_end_profiles"]
+           "published_end_classes", "published_end_profiles", "published_status"]
 
 #: ``runway_axes`` slots (``pipeline/publication.py``)
+_INSTRUMENT = 10
 _CODE, _LETTER, _CLASS_A, _CLASS_B = 11, 12, 13, 14
 _DISP_A, _DISP_B = 17, 18
 _DATUM_A, _DATUM_B = 20, 21
@@ -33,6 +34,28 @@ def published_row(rows, ref: str | None) -> list | None:
         if str(r[0]) == str(ref):
             return list(r)
     return None
+
+
+def published_status(rows, ref: str | None) -> int:
+    """THE RUNWAY'S INSTRUMENT STATUS as the sidecar publishes it
+    (RULINGS 2026-10-15k (3); #811): ``law.reference_code.status_of_classes``
+    over the ends' classes (slots 13 / 14) and the instrument flag (slot
+    10) — the ONE read verify and the census make, so both price the
+    strip's end, its half-width and the RSA by the status the generator
+    did.  A crossing piece's ref (``a+b``) reads the stronger of its two
+    runways (``reference_code.ref_status``).  Non-instrument (0) for a ref
+    the rows do not carry, or a row written before the status."""
+    if ref is None:
+        return 0
+    return max(_one_status(rows, r) for r in str(ref).split("+"))
+
+
+def _one_status(rows, ref: str) -> int:
+    r = published_row(rows, ref)
+    if r is None or len(r) <= _INSTRUMENT:
+        return 0
+    classes = (r[_CLASS_A], r[_CLASS_B]) if len(r) > _CLASS_B else ()
+    return status_of_classes(classes, bool(r[_INSTRUMENT]))
 
 
 def published_code_number(rows, ref: str | None, length_m: float, law: Law) -> int:

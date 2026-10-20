@@ -2223,13 +2223,30 @@ class TestKbnaStandaloneDrapeEvidence:
         )
         if not dsf_candidates:
             pytest.skip("KBNA DSF not found")
-        pavements = dsf_reader.read_dsf_pavements(
-            dsf_candidates[0],
-            cache_dir=_tempfile.gettempdir(),
-            xplane_root=os.path.dirname(_CUSTOM_SCENERY),
-        )
+        # the v2 airport load's DSF pavement gate (v1 ``read_dsf_pavements``
+        # retired, #852): pack-relative resource first, then the library
+        from auto_patch import agp_reader
+        from auto_patch_v2.airport import dsf as dsf_v2
+
+        dsf_path = dsf_candidates[0]
+        pack_root = dsf_reader._pack_root_for_dsf(dsf_path)
+        xplane_root = os.path.dirname(_CUSTOM_SCENERY)
+
+        def _resolve(def_path):
+            local = os.path.join(pack_root or "", def_path)
+            if pack_root and os.path.isfile(local):
+                return local
+            return agp_reader.resolve_library_path(def_path, xplane_root)
+
+        gate = dsf_v2.pavement_gate(_resolve)
+        text_path = dsf_reader.ensure_dsf_text_path(
+            dsf_path, _tempfile.gettempdir())
+        if text_path is None:
+            pytest.skip("KBNA DSF dump unavailable (no DSFTool)")
+        dump = dsf_v2.read_dump(
+            text_path, lambda p: gate(p)[0] == dsf_v2.SOURCE)
         pavement_polygons = []
-        for outer_ring, _holes, _definition in pavements:
+        for outer_ring in (poly.windings[0] for poly in dump.polygons):
             try:
                 polygon = Polygon(outer_ring)
                 if not polygon.is_valid:

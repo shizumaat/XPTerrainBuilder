@@ -293,6 +293,11 @@ class Anchor:
     #: cut, no carrier search, NO GROUND TEST BETWEEN MEMBERS".  Set only
     #: by ``footprint_unit._seat``.
     unit_seat: bool = False
+    #: owner RULINGS 2026-10-19aq (#721): the footprint unit this body LEFT
+    #: — its own ground lies far below that unit's datum, so it stands on
+    #: its own ground.  A piece it carries rides IT, never the unit it left
+    #: (``footprint_carry.contents_seat``).  Set only by ``footprint_unit``.
+    left_unit: str = ""
 
 
 # ── geometry helpers (plan, in degrees scaled to metres) ─────────────────

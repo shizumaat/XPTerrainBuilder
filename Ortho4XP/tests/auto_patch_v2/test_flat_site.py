@@ -395,10 +395,13 @@ def test_lp_yields_the_datum_where_a_hard_taxi_gradient_forbids(tmp_path, law):
     # centreline, the edge station's runway hop) — a little higher: the
     # preference lifts it to that ceiling and no further — under the
     # datum, the law's margin, never at it
+    # (#770: the zone lip no longer nodes the stub's edge 3 m in, so the
+    # mouth is the stub's first ring vertex past the runway edge)
     stub = next(f for f in pm.faces.values() if f.role == "stub")
-    mouth = [v for v in vw.rings[stub.id] if abs(vw.xy[v][1] - 25.5) < 1e-6]
+    y_m = min(vw.xy[v][1] for v in vw.rings[stub.id] if vw.xy[v][1] > 22.5 + 1e-6)
+    mouth = [v for v in vw.rings[stub.id] if abs(vw.xy[v][1] - y_m) < 1e-6]
     assert mouth
-    chord_ceiling = 100.2 + rw_cap * (600.0 - 11.5) + taxi * 3.0
+    chord_ceiling = 100.2 + rw_cap * (600.0 - 11.5) + taxi * (y_m - 22.5)
     for v in mouth:
         ceiling = _law_ceiling(pm, cs, v)
         assert chord_ceiling - tol <= ceiling < 110.0 - tol

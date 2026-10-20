@@ -148,11 +148,20 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
     derivation, read here so the constraints may ask it too)."""
     from ..law.tables import airside_stage_roles
     from .islands import courtyard_faces
+    from .planar import plane_origin_ref, platform_ref_of
     roles = airside_stage_roles(law)
     court = courtyard_faces(planar, law)
     out: set[int] = set()
     for f in planar.faces.values():
         if f.role not in roles or f.id in court:
+            continue
+        r = platform_ref_of(f.ref)
+        if plane_origin_ref(r) != r:
+            # A LOWER LEVEL (owner RULINGS 2026-10-19ai, ``planar/low_level``)
+            # stands a storey under the airside: a stage-2 pad on its own
+            # ground, banded to its block's datum (base-profile spec C14) —
+            # MEASURED KATL: in stage 1 its own-ground row was a conforming
+            # row stage 1 refuses, and bending alone set it 2 m over its ground
             continue
         for ring in (f.ring, *f.holes):
             out.update(planar.ring_vertices(ring))

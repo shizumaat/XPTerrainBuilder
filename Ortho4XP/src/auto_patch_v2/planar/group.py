@@ -103,6 +103,10 @@ class Foot:
     lat: float
     lon: float
     y: float
+    #: the plan part (``Part.pid``) this foot is a seat sample of; ``-1``
+    #: for a group derived before the field.  ``constraints/foot_rows``
+    #: reads relief only BETWEEN parts (owner 2026-10-19, issue #799)
+    part: int = -1
 
 
 @_dc.dataclass(frozen=True)
@@ -274,9 +278,9 @@ def _feet_of(parts: _t.Sequence[Part]) -> list[Foot]:
     out: list[Foot] = []
     for p in parts:
         if p.feet:
-            out.extend(Foot(float(a), float(b), float(y)) for a, b, y in p.feet)
+            out.extend(Foot(float(a), float(b), float(y), int(p.pid)) for a, b, y in p.feet)
         else:
-            out.append(Foot(float(p.lat), float(p.lon), float(p.base_y)))
+            out.append(Foot(float(p.lat), float(p.lon), float(p.base_y), int(p.pid)))
     return out
 
 

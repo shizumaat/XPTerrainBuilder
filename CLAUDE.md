@@ -14,8 +14,12 @@ macOS Swift app + vendored Python engine that builds X-Plane ortho scenery.
 
 The session is the project manager (the model the owner set for the
 session — Opus 5.5 since 2026-10-12; never switched by the session). Work is
-dispatched to subagents at MODERATE effort via the project definitions
-in `.claude/agents/`: `lane` (implementation, all tools) and `scout`
+dispatched to subagents via the project definitions in `.claude/agents/`
+(default effort medium). EFFORT (owner ruling 2026-10-20, RULINGS
+2026-10-20a): lane effort is set per task at launch: low for landing,
+rebases, ratchets, census/replay runs and cleanup; medium for fixes with
+a spec; high for geometry/solver design and spec writing; xhigh only for
+architecture work (e.g. #412 cold patch). The definitions are: `lane` (implementation, all tools) and `scout`
 (read-only research). MODEL (owner standing 2026-10-13, RULINGS 13c;
 replaces the 2026-09-03 evening amendment): lanes and scouts run on
 **Opus** (`model: "opus"`) — implementation, measurement, attribution,
@@ -25,7 +29,14 @@ the brief and why Opus is not enough, and waits for the yes. "The brief
 needs judgement" is not a reason; a brief with law in it is still an Opus
 brief. The approved launch's prompt carries the line
 `OWNER-APPROVED-FABLE: <date> "<the owner's words>"`, without which the
-hook refuses it. A Fable lane is never resumed (`SendMessage`) for a new
+hook refuses it. TWO-ROUND CAP (owner 2026-10-20, RULINGS 2026-10-20b):
+when two Opus rounds on a task fail to deliver, the master stops that lane
+and launches a Fable 5.1 reviewer — `subagent_type: "scout"` (read-only),
+prompt carrying `TWO-ROUND-CAP-REVIEW: <issue> <the two failed rounds>` —
+that reviews the two failed rounds and writes a new spec; it NEVER
+implements. A fresh Opus lane then runs the third round from that spec.
+This is the only Fable use that needs no per-launch yes. A Fable lane is
+never resumed (`SendMessage`) for a new
 piece of work — each round re-reads its whole context at Fable price; its
 follow-up goes to a fresh Opus lane on its branch. The master reads
 `get_usage` (Weekly · Fable) at session start and before asking for a

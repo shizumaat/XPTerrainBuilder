@@ -27,7 +27,8 @@ from .platform import merge_platform_faces
 __all__ = ["_ribbons_pass_c", "_faces_of", "_grid_parts", "airside_vertex_set"]
 
 def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law: Law,
-                    keeps: bool, grid: float, ring_lines_of, counts: dict, reg):
+                    keeps: bool, grid: float, ring_lines_of, counts: dict, reg,
+                    air_nodes=None):
     """RULINGS 2026-09-30aa rules 2, 9-10 (#100) — THE MAPPED-ROAD RIBBONS
     JOIN THE FINISHED AIRSIDE.  The arrangement WITHOUT them (pass A and
     the pads, ``noded``) is finished first — claimed, merged, absorbed and
@@ -43,7 +44,7 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
     from ..law.tables import rolled_on_roles
     hosts_seen: dict = {}
     got = _faces_of(noded, regions, bands, law, keeps, None, hosts_seen=hosts_seen,
-                    reg=reg)
+                    reg=reg, air_nodes=air_nodes)
     base_faces = got[0]
     base_order = ({shapely.normalize(g).wkb: k for k, g in enumerate(got[-1])},
                   hosts_seen, airside_vertex_set(base_faces, law))
@@ -132,13 +133,15 @@ _RIM_GUARD_PASSES = 4
 
 
 def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
-              air_f=None, order=None, hosts_seen=None, *, reg):
+              air_f=None, order=None, hosts_seen=None, *, reg, air_nodes=None):
     """Polygonise ``noded`` and give every face its region, then the
     derivation-site merges (§41 (1)/(4), 08d (4a), 10h (1)).  ``air_f``
     (30aa, the ribbons' pass): the FINISHED airside — a face outside it is
     never an aircraft pavement's (a strip between a ribbon and the rim the
     raw apron cell overlaps is not apron).  ``reg``: the arrangement's
-    registries (``platforms`` read, ``pad_airside`` written)."""
+    registries (``platforms`` read, ``pad_airside`` written).  ``air_nodes``:
+    the airside's own node set (pass A0, #770) — see
+    ``overlay.dissolve_sliver_zones``."""
     if air_f is not None:
         from ..law.tables import rolled_on_roles
         rolled = rolled_on_roles(law)
@@ -196,7 +199,7 @@ def _faces_of(noded, regions, bands, law: Law, keeps: bool, frozen,
         tuple(law.tables.emit.terrace.shape_roles),
         tuple(r for r, spec in law.tables.precedence.roles.items()
               if spec.rigid),
-        frozen=frozen, hosts_seen=hosts_seen)
+        frozen=frozen, hosts_seen=hosts_seen, air_nodes=air_nodes)
     faces, holes_gone = dissolve_degenerate_holes(
         faces, law.tables.emit.terrace.separation_m, ident ** 2)
     # spec §56 (10) R-F: a surplus pad scrap its own plateau surrounds is

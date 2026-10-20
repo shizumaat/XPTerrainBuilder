@@ -1,3 +1,4 @@
+import contextlib
 import errno
 import io
 import os
@@ -18,6 +19,7 @@ import requests
 
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Color_Harmonization as HARMONIZE
+import O4_DDS_Cache as DDSCACHE
 import O4_DDS_Encode as DDSENC
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
@@ -1889,7 +1891,15 @@ def download_jpeg_ortho(
     zoomlevel,
     provider_code,
     super_resol_factor=1,
+    require_complete=False,
 ):
+    """Download one orthophoto into ``file_dir``; 1 on success, 0 if not.
+
+    ``require_complete`` (the background prefetch, #1002): a texture with
+    a part the provider did not answer is NOT saved (no white-filled
+    file, nothing registered for removal), and a whole one is written
+    under a temporary name and renamed, so a reader never sees half a
+    file — the imagery step downloads anything the prefetch did not."""
     provider = providers_dict[provider_code]
     if ("super_resol_factor" in provider) and (super_resol_factor == 1):
         super_resol_factor = int(provider["super_resol_factor"])
@@ -1920,6 +1930,8 @@ def download_jpeg_ortho(
     # if stop flag we do not wish to imprint a white texture
     if UI.red_flag:
         return 0
+    if require_complete and not success:
+        return 0
     tile_coords = Path(file_dir).parent.name
     if not success:
         UI.lvprint(
@@ -1936,9 +1948,11 @@ def download_jpeg_ortho(
     if not os.path.exists(file_dir):
         os.makedirs(file_dir)
     destination = os.path.join(file_dir, file_name)
+    written = destination + ".part" if require_complete else destination
+    image_format = "JPEG" if require_complete else None
     try:
         if super_resol_factor == 1:
-            big_image.save(destination)
+            big_image.save(written, format=image_format)
         else:
             big_image.resize(
                 (
@@ -1946,8 +1960,13 @@ def download_jpeg_ortho(
                     int(height / super_resol_factor),
                 ),
                 Image.Resampling.BICUBIC,
-            ).save(destination)
+            ).save(written, format=image_format)
+        if written != destination:
+            os.replace(written, destination)
     except Exception as e:
+        if written != destination and os.path.exists(written):
+            with contextlib.suppress(OSError):
+                os.remove(written)
         UI.lvprint(
             0,
             "OS Error : could not save orthophoto on disk, ",
@@ -2916,6 +2935,21 @@ def _encode_in_process(source, dxt5, dds_partial, dds_final):
     return False
 
 
+def _dds_cache_key(source, dxt5, inproc):
+    """The DDS cache key (#839, ``O4_DDS_Cache``) of converting ``source``
+    with the converter this call runs: the in-process encoder, or the
+    subprocess converter's binary and flags (the arguments but the paths)."""
+    if not DDSCACHE.enabled():
+        return None
+    if inproc:
+        identity = DDSCACHE.converter_identity("inproc")
+    else:
+        cmd = _dds_tool_cmd("", dxt5, "")
+        identity = DDSCACHE.converter_identity("tool", cmd[0],
+                                               tuple(cmd[1:-2]))
+    return DDSCACHE.texture_key(source, "bc3" if dxt5 else "bc1", identity)
+
+
 def _file_for_tool(source, png_file_name):
     """``(path, is_temporary)`` the subprocess converter reads: ``source`` if
     it is already a path, else the pixels saved to a temporary PNG."""
@@ -2957,6 +2991,8 @@ def convert_texture(
     erase_tmp_png = False
     erase_tmp_tif = False
     inproc_done = False
+    cache_served = False
+    cache_key = None
     dxt5 = False
     masked_texture = False
     if tile.imprint_masks_to_dds and type == "dds":
@@ -3104,13 +3140,21 @@ def convert_texture(
         dds_final = os.path.join(tile.build_dir, "textures", out_file_name)
         DDS.sweep_partials(dds_final)
         dds_partial = DDS.partial_name(dds_final)
-        if inproc:
+        # #839: a texture whose source and converter were seen before is
+        # served from the content-keyed cache, byte for byte.
+        cache_key = _dds_cache_key(file_to_convert, dxt5, inproc)
+        if DDSCACHE.serve(cache_key, dds_final):
+            inproc_done = cache_served = True
+        elif inproc:
             if _encode_in_process(file_to_convert, dxt5, dds_partial, dds_final):
                 inproc_done = True
             else:  # #900: this texture goes to the subprocess converter
                 file_to_convert, temp_png = _file_for_tool(
                     file_to_convert, png_file_name)
                 erase_tmp_png = erase_tmp_png or temp_png
+                cache_key = _dds_cache_key(file_to_convert, dxt5, False)
+                inproc_done = cache_served = DDSCACHE.serve(
+                    cache_key, dds_final)
         conv_cmd = _dds_tool_cmd(file_to_convert, dxt5, dds_partial)
     else:
         (latmax, lonmin) = GEO.gtile_to_wgs84(til_x_left, til_y_top, zoomlevel)
@@ -3210,6 +3254,8 @@ def convert_texture(
             os.path.join(tile.build_dir, "textures", out_file_name),
         )
         time.sleep(1)
+    if dds_final is not None and not cache_served:
+        DDSCACHE.store(cache_key, dds_final)
     if erase_tmp_png:
         try:
             os.remove(os.path.join(FNAMES.Tmp_dir, png_file_name))

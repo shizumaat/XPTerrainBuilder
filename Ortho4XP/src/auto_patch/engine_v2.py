@@ -225,11 +225,13 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
     # refused with "the pack DSF is newer than every cached text dump" —
     # the wrong cause, and one no retry could clear (2026-10-11: DSFTool
     # crashed on a stock Global Airports tile, six airports refused twice).
+    cache_dir = _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(), sel.name)
     try:
-        return _DSFR.ensure_dsf_text_path(
-            dsf_path,
-            _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(), sel.name),
-            raise_on_failure=True)
+        dump = _DSFR.ensure_dsf_text_path(dsf_path, cache_dir,
+                                          raise_on_failure=True)
+        if dump:
+            fresh_object_footprints(dsf_path, cache_dir, xplane_root)
+        return dump
     except DsfToolError as exc:
         raise DsfToolError(
             f"{icao}: the scenery pack {sel.name!r} cannot be read — {exc}. "
@@ -240,6 +242,33 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         logging.getLogger(__name__).warning(
             "pack dump refresh skipped for %s: %s", icao, exc)
         return None
+
+
+def fresh_object_footprints(dsf_path: str, cache_dir: str,
+                            xplane_root: str) -> None:
+    """THE PACK'S OBJ8 STRUCTURE FOOTPRINTS, made with the pack dump
+    (issue #713).  v2's load stage reads them from the per-pack sidecar
+    ``o4_object_footprints_<pristine-dsf-stem>.cache`` (the fallback pad
+    half and the cluster half's vouched evidence), and nothing in the v2
+    path wrote it: only the inset pass did, and only when an inset needed
+    a building mask — so HECA had 930 rings and KASE none, and a fresh
+    machine built approved airports differently from the owner's.
+
+    The reading is v1's ``dsf_reader.read_dsf_object_buildings`` on the
+    PRISTINE DSF (the read frame every object-stage read takes, 11m),
+    which serves the sidecar on a fingerprint match and recomputes and
+    writes it otherwise — so every build reads a sidecar that describes
+    the pack on disk.  Measured: HECA's 930 rings come back identical to
+    the inset pass's file; the cold computation is 111 s at HECA, once
+    per pack version.  A failure is logged and leaves the load stage to
+    build without the rings, as it did before."""
+    try:
+        from . import dsf_reader as _DSFR
+        _DSFR.read_dsf_object_buildings(dsf_path, cache_dir, xplane_root)
+    except Exception as exc:                # noqa: BLE001 — never fails a build
+        import logging
+        logging.getLogger(__name__).warning(
+            "object footprint refresh skipped for %s: %s", dsf_path, exc)
 
 
 def _pack_dump_naming_its_pack(xplane_root: str, icao: str, lat: int,

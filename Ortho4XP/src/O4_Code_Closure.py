@@ -28,7 +28,7 @@ import hashlib
 import os
 import typing as _t
 
-__all__ = ["source_path", "imports_of", "closure", "digest_of",
+__all__ = ["source_path", "imports_of", "parent_packages", "closure", "digest_of",
            "modules_digest", "write_digest_file", "read_digest",
            "read_digest_table"]
 
@@ -95,16 +95,15 @@ def imports_of(src_root: str, name: str,
     return out
 
 
-def _parent_packages(src_root: str, name: str) -> list[str]:
-    """Every package above ``name`` that has an ``__init__.py`` under
-    ``src_root`` (``a.b.c`` -> ``a``, ``a.b``)."""
+def parent_packages(src_root: str, name: str,
+                    prefixes: "_t.Collection[str] | None" = None) -> set[str]:
+    """The packages Python runs before ``name`` (``a`` and ``a.b`` for
+    ``a.b.c``) that have an ``__init__.py`` under ``src_root``, limited to
+    top-level packages in ``prefixes`` when given."""
     parts = name.split(".")
-    found = []
-    for i in range(1, len(parts)):
-        pkg = ".".join(parts[:i])
-        if os.path.isfile(os.path.join(src_root, *parts[:i], "__init__.py")):
-            found.append(pkg)
-    return found
+    return {".".join(parts[:i]) for i in range(1, len(parts))
+            if _wanted(parts[0], prefixes)
+            and os.path.isfile(os.path.join(src_root, *parts[:i], "__init__.py"))}
 
 
 def closure(src_root: str, entry_modules: _t.Iterable[str],
@@ -114,22 +113,29 @@ def closure(src_root: str, entry_modules: _t.Iterable[str],
     (:func:`imports_of`, followed to a fixed point), entries included,
     sorted.  A package appears as its own name (its ``__init__``).
 
-    ``packages``: also every package ABOVE a module in the closure — its
-    ``__init__`` runs when the module is imported (issue #880) — and what
-    that ``__init__`` imports, as Python loads it (``o4_engine``'s imports
-    the app session).  Off by default: the stage, step and partition
-    closures were declared without them."""
+    Every package above a module in the closure is in it too (#993: its
+    ``__init__`` runs when the module is imported, so an edit there is an
+    edit to the cached work's code).  Such a parent's OWN imports are
+    followed only when the closure imports the package itself (``from
+    pkg import name``, :func:`imports_of`) — a sibling the parent merely
+    loads is not code the module calls, and following every parent would
+    key each constraint generator on all of them — or when ``packages``
+    is set: then what every parent ``__init__`` imports is followed as
+    Python loads it (the patch gate's one whole digest, #880)."""
     seen: set[str] = set()
+    parents: set[str] = set()
     stack = list(entry_modules)
     while stack:
         name = stack.pop()
         if name not in seen:
             seen.add(name)
             stack.extend(imports_of(src_root, name, prefixes))
+            ups = parent_packages(src_root, name, prefixes)
             if packages:
-                stack.extend(p for p in _parent_packages(src_root, name)
-                             if _wanted(p, prefixes))
-    return tuple(sorted(seen))
+                stack.extend(ups)
+            else:
+                parents |= ups
+    return tuple(sorted(seen | parents))
 
 
 def digest_of(sources: _t.Iterable[tuple[str, "str | None"]]) -> str | None:

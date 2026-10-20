@@ -127,6 +127,17 @@ reconverts everything. Design:
 
 Gate: `.dds` sha256-identical whether served from the cache or converted.
 
+As built (#839, `src/O4_DDS_Cache.py`): the source half of the key is what
+the converter is HANDED — the JPEG's bytes, the temporary PNG's bytes, or
+the in-process encoder's pixel array — so the filter, harmonization field,
+mask and sea fill are in it by construction rather than by list; the
+converter half is the encoder modules' source digest + mip mode + numpy /
+Pillow / ispc_texcomp versions, or the tool binary's digest (+ libraries
+beside it) + its flags + platform. The image preparation still runs on a
+hit; only the encode is skipped. Cap `O4_DDS_CACHE_MAX_GB` (default 20,
+RULINGS 2026-10-17a Q1); root `O4_DDS_CACHE_DIR` (the harness sets it
+lane-persistent).
+
 ## 3. Interfaces and files touched (`tools/blast.py`, 2026-10-17)
 
 | File | Hazards from blast |

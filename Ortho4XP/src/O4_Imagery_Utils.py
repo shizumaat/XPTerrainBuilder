@@ -18,6 +18,7 @@ import requests
 
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Color_Harmonization as HARMONIZE
+import O4_DDS_Cache as DDSCACHE
 import O4_DDS_Encode as DDSENC
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
@@ -2916,6 +2917,21 @@ def _encode_in_process(source, dxt5, dds_partial, dds_final):
     return False
 
 
+def _dds_cache_key(source, dxt5, inproc):
+    """The DDS cache key (#839, ``O4_DDS_Cache``) of converting ``source``
+    with the converter this call runs: the in-process encoder, or the
+    subprocess converter's binary and flags (the arguments but the paths)."""
+    if not DDSCACHE.enabled():
+        return None
+    if inproc:
+        identity = DDSCACHE.converter_identity("inproc")
+    else:
+        cmd = _dds_tool_cmd("", dxt5, "")
+        identity = DDSCACHE.converter_identity("tool", cmd[0],
+                                               tuple(cmd[1:-2]))
+    return DDSCACHE.texture_key(source, "bc3" if dxt5 else "bc1", identity)
+
+
 def _file_for_tool(source, png_file_name):
     """``(path, is_temporary)`` the subprocess converter reads: ``source`` if
     it is already a path, else the pixels saved to a temporary PNG."""
@@ -2957,6 +2973,8 @@ def convert_texture(
     erase_tmp_png = False
     erase_tmp_tif = False
     inproc_done = False
+    cache_served = False
+    cache_key = None
     dxt5 = False
     masked_texture = False
     if tile.imprint_masks_to_dds and type == "dds":
@@ -3104,13 +3122,21 @@ def convert_texture(
         dds_final = os.path.join(tile.build_dir, "textures", out_file_name)
         DDS.sweep_partials(dds_final)
         dds_partial = DDS.partial_name(dds_final)
-        if inproc:
+        # #839: a texture whose source and converter were seen before is
+        # served from the content-keyed cache, byte for byte.
+        cache_key = _dds_cache_key(file_to_convert, dxt5, inproc)
+        if DDSCACHE.serve(cache_key, dds_final):
+            inproc_done = cache_served = True
+        elif inproc:
             if _encode_in_process(file_to_convert, dxt5, dds_partial, dds_final):
                 inproc_done = True
             else:  # #900: this texture goes to the subprocess converter
                 file_to_convert, temp_png = _file_for_tool(
                     file_to_convert, png_file_name)
                 erase_tmp_png = erase_tmp_png or temp_png
+                cache_key = _dds_cache_key(file_to_convert, dxt5, False)
+                inproc_done = cache_served = DDSCACHE.serve(
+                    cache_key, dds_final)
         conv_cmd = _dds_tool_cmd(file_to_convert, dxt5, dds_partial)
     else:
         (latmax, lonmin) = GEO.gtile_to_wgs84(til_x_left, til_y_top, zoomlevel)
@@ -3210,6 +3236,8 @@ def convert_texture(
             os.path.join(tile.build_dir, "textures", out_file_name),
         )
         time.sleep(1)
+    if dds_final is not None and not cache_served:
+        DDSCACHE.store(cache_key, dds_final)
     if erase_tmp_png:
         try:
             os.remove(os.path.join(FNAMES.Tmp_dir, png_file_name))

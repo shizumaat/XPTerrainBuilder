@@ -339,8 +339,12 @@ def _bank_rows(planar: PlanarMap, law: Law,
                 # bending stencil alone — SPJC building14#collar at
                 # -12.02514481, -77.10577155 stood 46.26 m over a 24.7 m
                 # platform and a 30.04 m DEM.  It keeps a ONE-WAY bank row
-                # (the plate leads) unless it is another pad's rim.
-                if not other:
+                # (the plate leads) unless it is another pad's rim — and a
+                # vertex only collars share is no pad's rim but the seam of
+                # two banks (#711, the interior seam's rule below): MEASURED
+                # (HECA, #1068) the south run-out's side bank at 30.1111706,
+                # 31.3922969 had no row and stood 1.9 m under its DEM
+                if not other or all(is_collar_ref(planar.faces[q].ref) for q in inc):
                     cover.add(o)
                     keep.append(o)
                 continue

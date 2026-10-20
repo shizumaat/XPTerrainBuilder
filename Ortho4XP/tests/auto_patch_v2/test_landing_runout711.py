@@ -272,3 +272,23 @@ def test_a_mapped_road_on_the_strip_rides_it():
     other = Band(1, None, 99.0, Source("roads", "road_cross_section"))
     rows, n = RR.runout_exempt([on, off, other], planar)
     assert n == 1 and rows == [off, other]
+
+
+def test_a_runout_strip_is_its_own_route():
+    """§37 (7) on a run-out strip (#1068): its vertices are stationed along
+    its own direction of travel from the lip, one route per strip.
+    MEASURED (HECA): the mapped ways crossing the strips answered them, so
+    their pairs priced a 10 % run-out at 8.3 %."""
+    from auto_patch_v2.airport import road_ramp as RR
+    F = types.SimpleNamespace
+    xy = {1: (0.0, 0.0), 2: (0.0, 30.0), 3: (4.0, 30.0), 4: (4.0, 0.0)}
+    pm = F(faces={7: F(ref="runout:u/landing0", ring=(1, 2, 3, 4), holes=())},
+           vertices={v: F(xy=p) for v, p in xy.items()},
+           registries=Registries(), ring_vertices=lambda ring: ring)
+    pm.registries.landing_runouts["runout:u/landing0"] = {
+        "landing": "u/landing0", "lip": (2.0, 0.0), "dir": (0.0, 1.0)}
+    fr, refs = RR.runout_frames(pm, base=10)
+    assert refs == ("runout:u/landing0",)
+    assert fr[2] == (10, pytest.approx(30.0), pytest.approx(2.0))
+    assert fr[4] == (10, pytest.approx(0.0), pytest.approx(-2.0))
+    assert RR.runout_frames(F(registries=Registries()))[0] == {}

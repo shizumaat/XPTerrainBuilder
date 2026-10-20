@@ -634,7 +634,10 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
             p = Point(xy[v])
             s2 = float(ln.project(p))
             out[v] = (dst, s2, _signed_offset(ln, s2, xy[v]))
+    own, refs = runout_frames(pm, base=len(all_ways))
+    out.update(own)
     rep = {"vertices": len(seen), "framed": len(out),
+           "runout_routes": len(refs),
            "merged_routes": len(into), "merged_pairs": merged,
            "no_route": len(seen) - len(out), "routes": len(prof.all_ways),
            # the ways BY ROUTE ID, so a caller reads the clamp on the route
@@ -642,6 +645,37 @@ def road_route_frame(pm: PlanarMap, law: Law, airport: Airport,
            # nearest-way answer that can pick another way for the kerb
            "_ways": dict(enumerate(prof.all_ways))}
     return out, rep
+
+
+def runout_frames(pm: PlanarMap, base: int = 0
+                  ) -> tuple[dict[int, tuple[int, float, float]], tuple[str, ...]]:
+    """§37 (7) for a landing's RUN-OUT strip (``planar/landing_runout``,
+    ``registries.landing_runouts``; issue #711): the strip IS its own route.
+    ``(vertex -> (route id, s, t), the strip refs)``, ``s`` the distance
+    along the strip's direction of travel from the foot's lip and ``t`` the
+    signed offset across it — the axis its run-out rows
+    (``constraints/ramp_runout``) read.  Route ids start at ``base`` (past
+    every mapped way), one per strip.  MEASURED (HECA, #1068): the strips
+    were answered by the mapped ways crossing them (up to six routes on one
+    strip, stations running backwards), so their pairs priced the run-out's
+    10 % descent at 8.3 % and the run-out ceiling was relaxed by 1-2 m."""
+    recs = getattr(getattr(pm, "registries", None), "landing_runouts", None) or {}
+    if not recs:
+        return {}, ()
+    out: dict[int, tuple[int, float, float]] = {}
+    refs = tuple(sorted(recs))
+    rid = {r: base + k for k, r in enumerate(refs)}
+    for f in pm.faces.values():
+        rec = recs.get(str(f.ref))
+        if rec is None:
+            continue
+        (x0, y0), (dx, dy) = rec["lip"], rec["dir"]
+        for cyc in (f.ring, *f.holes):
+            for v in pm.ring_vertices(cyc):
+                x, y = pm.vertices[v].xy
+                out[v] = (rid[str(f.ref)], float((x - x0) * dx + (y - y0) * dy),
+                          float(-(x - x0) * dy + (y - y0) * dx))
+    return out, refs
 
 
 def _floors(pm: PlanarMap, owned: _t.Iterable[int],

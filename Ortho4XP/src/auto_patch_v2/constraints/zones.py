@@ -697,25 +697,37 @@ def _merge(terms: tuple[tuple[int, float], ...]) -> tuple[tuple[int, float], ...
 
 def _blend_partner(ctx: "_Context", v: int, k: int, t: float, d: float
                    ) -> tuple[int, float, float, float] | None:
-    """THE OTHER EDGE OF THE SAME PAVEMENT a vertex is almost as near to
-    (master's reading (ii) under RULINGS 2026-10-16c): the zone's
-    reference foot jumps where the nearest edge switches between two edges
-    of one pavement whose feet stand at different levels — measured KDEN
-    39.858136, −104.663917: two taxi F zone-2 vertices 2 m apart
-    referenced pav139's road-welded corner (1636.41) and its far edge
-    (1638.5), a 1.31 m step.  Within ``reference_blend_m`` of the switch
-    the reference is blended: ``(k2, t2, d2, w2)`` with
+    """THE OTHER EDGE a vertex is almost as near to (master's reading (ii)
+    under RULINGS 2026-10-16c): the zone's reference foot jumps where the
+    nearest edge switches between two edges whose feet stand at different
+    levels — measured KDEN 39.858136, −104.663917: two taxi F zone-2
+    vertices 2 m apart referenced pav139's road-welded corner (1636.41) and
+    its far edge (1638.5), a 1.31 m step.  Within ``reference_blend_m`` of
+    the switch the reference is blended: ``(k2, t2, d2, w2)`` with
     ``w2 = ½ (1 − (d2 − d) / reference_blend_m)``, so at the switch both
     feet weigh ½ and the band is continuous; ``None`` past it, where the
     partner's foot is the nearest foot itself (a shared corner), or where
-    the pavement has no other edge near."""
+    no other edge is near.
+
+    THE SWITCH BETWEEN TWO PAVEMENTS IS THE SAME SWITCH (issue #799; the
+    pocket rule, 08-01: pockets between graded zones FILL, and the
+    reference changes continuously with the nearest edge): outside the
+    runway family the partner may be an edge of ANOTHER taxi-family or
+    apron pavement.  Measured KBJC 39.912928, −105.119265, 100 m from
+    taxiway A: an apron 1.8 m under junction pav13 5.6 m away; a strip
+    vertex 2.4 m off the apron took the apron's lip (16c (i)), its
+    neighbour 3.35 m away the junction's, a 1.65 m step.  A RUNWAY edge
+    blends with its own runway's edges only: its band is built per runway
+    (``_runway_class``) and the strip tie owns the ground beside it."""
     blend_m = float(ctx.vw.law.tables.zones.adjacent_ground.reference_blend_m)
     if blend_m <= 0.0:
         return None
     vw, edges = ctx.vw, ctx.edges
     e = edges[k]
-    grid = ctx.by_family.get(e[2])
-    if not grid:
+    fams = ((e[2],) if e[2] == "runway"
+            else tuple(f for f in ctx.by_family if f != "runway"))
+    grids = [g for g in (ctx.by_family.get(f) for f in fams) if g]
+    if not grids:
         return None
     x, y = vw.xy[v]
     (ax, ay), (bx, by) = vw.xy[e[0]], vw.xy[e[1]]
@@ -723,26 +735,33 @@ def _blend_partner(ctx: "_Context", v: int, k: int, t: float, d: float
     tol = float(ctx.vw.law.tables.emit.identity.min_distinct_spacing_m)
     cx, cy = int(x // ctx.cell), int(y // ctx.cell)
     span = int(math.ceil((d + blend_m) / ctx.cell)) + 1
+    cand = {k2 for g in grids for dx in range(-span, span + 1)
+            for dy in range(-span, span + 1) for k2 in g.get((cx + dx, cy + dy), ())}
+    # ANOTHER PAVEMENT FIRST: along one pavement's ring the level runs on,
+    # across a gap it jumps — a vertex near both a second edge of its own
+    # pavement and another pavement blends with the other pavement
+    # (measured KBJC v3566: a nearer pav13 edge at pav13's own level hid
+    # the apron 5.8 m off, and the 1.65 m step stood at 1.05 m)
     best: tuple[int, float, float] | None = None
-    for dx in range(-span, span + 1):
-        for dy in range(-span, span + 1):
-            for k2 in grid.get((cx + dx, cy + dy), ()):
-                e2 = edges[k2]
-                if k2 == k or e2[5] != e[5]:
-                    continue
-                (px, py), (qx, qy) = vw.xy[e2[0]], vw.xy[e2[1]]
-                ux, uy = qx - px, qy - py
-                l2 = ux * ux + uy * uy
-                t2 = 0.0 if l2 < 1e-18 else max(0.0, min(
-                    1.0, ((x - px) * ux + (y - py) * uy) / l2))
-                fx, fy = px + t2 * ux, py + t2 * uy
-                if math.hypot(fx - f1[0], fy - f1[1]) <= tol:
-                    continue         # the same foot (a shared corner)
-                d2 = math.hypot(x - fx, y - fy)
-                if d2 - d >= blend_m:
-                    continue
-                if best is None or d2 < best[2]:
-                    best = (k2, t2, d2)
+    best_key: tuple[bool, float] | None = None
+    for k2 in sorted(cand):
+        e2 = edges[k2]
+        if k2 == k or (e[2] == "runway" and e2[5] != e[5]):
+            continue
+        (px, py), (qx, qy) = vw.xy[e2[0]], vw.xy[e2[1]]
+        ux, uy = qx - px, qy - py
+        l2 = ux * ux + uy * uy
+        t2 = 0.0 if l2 < 1e-18 else max(0.0, min(
+            1.0, ((x - px) * ux + (y - py) * uy) / l2))
+        fx, fy = px + t2 * ux, py + t2 * uy
+        if math.hypot(fx - f1[0], fy - f1[1]) <= tol:
+            continue                 # the same foot (a shared corner)
+        d2 = math.hypot(x - fx, y - fy)
+        if d2 - d >= blend_m:
+            continue
+        key = (e2[5] == e[5], d2)
+        if best_key is None or key < best_key:
+            best, best_key = (k2, t2, d2), key
     if best is None:
         return None
     k2, t2, d2 = best

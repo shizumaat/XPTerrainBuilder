@@ -42,12 +42,14 @@ from ..model.structures import UNDERPASS_NOTE as _UNDERPASS_NOTE
 from shapely.geometry import Point
 from shapely.strtree import STRtree
 
-from .structure_approach import carriageway_width_m, is_bridge, is_tunnel_way, unit
+from ..airport.deck_signature import DEFAULT_TUNNEL_VALUES
+from ..geom.union_find import find_root
+from .structure_approach import approach, carriageway_width_m, is_bridge, is_tunnel_way, unit
 from .structure_service import airside_cut_roles
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
-__all__ = ["underpass_bores", "approach_along", "is_aeroway_bridge",
+__all__ = ["underpass_bores", "approach_along", "crossing_pieces", "mouth_parent", "is_aeroway_bridge",
            "strip_half_width_m", "UNDERPASS_TAG", "UNDERPASS_NOTE"]
 
 #: §34 (5) (b) (Fable 2026-09-15; RULINGS 2026-09-15h): the RUNWAY family
@@ -263,7 +265,7 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
         ribbon, from_cell = _cell_ribbon(axis_fn, ss, offs, rim_off + grid, grid)
         if ribbon is None:
             ribbon = ln.buffer(half_clip, **_MITRE)
-        n = 0
+        pieces: list[tuple[OsmWay, LineString]] = []
         for r in roads:
             piece = LineString(r.points).intersection(ribbon)
             for g in getattr(piece, "geoms", [piece]):
@@ -273,9 +275,12 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                 sw = OsmWay(r.id, r.kind, pts, False,
                             {**dict(r.tags), "tunnel": tn.admitted_values[0],
                              UNDERPASS_TAG: str(w.id)})
-                out.append(sw)
-                parents[id(sw)] = LineString(r.points)
-                n += 1
+                pieces.append((sw, LineString(r.points)))
+        kept, beside = crossing_pieces(pieces, ln)
+        n = len(kept)
+        for sw, parent in kept:
+            out.append(sw)
+            parents[id(sw)] = parent
         notes.append(f"underpass {w.tags.get('aeroway')} {w.id} (layer {w.tags.get('layer')}, "
                      f"deck half-width {half:.1f} m, clip "
                      + (f"the deck CELL's footprint across the axis PLUS its graded "
@@ -291,8 +296,53 @@ def underpass_bores(airport: Airport, law: Law, cells, polys
                         + ", ".join(f"{r} x{k}" for r, k in
                                     sorted(stopped.items()))
                         if stopped else "")
-                     + f"): {n} road(s) bored")
+                     + f"): {n} road(s) bored"
+                     + (f"; {len(beside)} beside the deck, never under it, left at "
+                        f"grade (#806): " + ", ".join(str(sw.id) for sw in beside)
+                        if beside else ""))
     return out, parents, notes
+
+
+#: Two piece ends closer than this are one OSM node (``structure_approach.
+#: NODE_TOL``'s figure: the frame coordinates of one shared node).
+_JOIN_TOL_M = 0.05
+
+
+def crossing_pieces(pieces: _t.Sequence[tuple[OsmWay, LineString]],
+                    deck_line: LineString
+                    ) -> tuple[list[tuple[OsmWay, LineString]], list[OsmWay]]:
+    """A BORE PASSES UNDER THE DECK (issue #806): ``(the pieces kept, the
+    pieces left at grade)``.
+
+    The clip ribbon is the deck's pavement AND its graded strip (§34 (5)
+    (b)), so a road running BESIDE the taxiway inside its strip — never
+    under it — lands in the ribbon too.  KCLT's service road −32134 runs
+    parallel to taxiway U ~50 m off its axis, at grade, onto its own
+    bridge over the tertiary's trench; it was bored and its ramp cut a
+    false tunnel.  The bridge states a crossing only for what CROSSES it.
+
+    The pieces are joined into routes where their ends meet (a road mapped
+    as several ways is one route: the tertiary's pieces between the
+    taxiway and the service bridge never touch the axis themselves), and a
+    route is kept only when one of its pieces crosses the aeroway's own
+    centreline."""
+    n = len(pieces)
+    root = list(range(n))
+
+    def find(i: int) -> int:
+        return find_root(root, i)
+
+    ends = [(p.points[0], p.points[-1]) for p, _ln in pieces]
+    for i in range(n):
+        for j in range(i + 1, n):
+            if any(math.hypot(a[0] - b[0], a[1] - b[1]) <= _JOIN_TOL_M
+                   for a in ends[i] for b in ends[j]):
+                root[find(i)] = find(j)
+    crossing = {find(i) for i, (p, _ln) in enumerate(pieces)
+                if LineString(p.points).intersects(deck_line)}
+    kept = [pc for i, pc in enumerate(pieces) if find(i) in crossing]
+    beside = [p for i, (p, _ln) in enumerate(pieces) if find(i) not in crossing]
+    return kept, beside
 
 
 def _frange(a: float, b: float, step: float) -> list[float]:
@@ -305,13 +355,18 @@ def _frange(a: float, b: float, step: float) -> list[float]:
 
 
 def approach_along(parent: LineString, mouth: XY, inward: XY,
-                   reach_m: float) -> list[XY]:
+                   reach_m: float, ways: _t.Sequence[OsmWay] = (),
+                   admitted: _t.Sequence[str] = DEFAULT_TUNNEL_VALUES,
+                   turn_max_deg: float = 180.0) -> list[XY]:
     """THE RAMP'S ROUTE OUT OF AN UNDERPASS MOUTH (spec §34 (1)/(5)): the
     PARENT road's own centreline, walked outward from the mouth (a mouth
     the bore's clip made stands mid-way along the road, at no mapped node,
     so ``approach``'s node index finds nothing there and falls back to a
-    straight extension).  Extended straight past the road's end, exactly
-    as ``approach`` does."""
+    straight extension).  Past the parent's end node the walk continues
+    over ``ways`` exactly as a mapped bore's ``approach`` does (issue
+    #807: KCLT's tertiary is mapped as 2-node ways, and the ramp ran
+    straight off the last one while the road curved away); with no
+    ``ways`` it is extended straight past the road's end."""
     s0 = parent.project(__import__("shapely").geometry.Point(mouth))
     out_dir = (-inward[0], -inward[1])
     cs = list(parent.coords)
@@ -333,6 +388,14 @@ def approach_along(parent: LineString, mouth: XY, inward: XY,
         if LineString(path).length >= reach_m:
             return path
     ln = LineString(path) if len(path) >= 2 else None
+    if ways and ln is not None:
+        # issue #807: past the parent's own end the route is the ROAD's,
+        # walked by the mapped-bore walk (``approach``: smallest turn,
+        # the arrival chord at a flare, #948) — never a straight line off
+        # a short way's last hop.
+        a = unit(path[-2], path[-1])
+        return path + approach(path[-1], (-a[0], -a[1]), list(ways),
+                               reach_m - ln.length, admitted, turn_max_deg)[1:]
     if ln is None:
         path.append((mouth[0] + out_dir[0] * (reach_m + 1.0),
                      mouth[1] + out_dir[1] * (reach_m + 1.0)))
@@ -342,6 +405,24 @@ def approach_along(parent: LineString, mouth: XY, inward: XY,
         path.append((path[-1][0] + a[0] * (reach_m - ln.length + 1.0),
                      path[-1][1] + a[1] * (reach_m - ln.length + 1.0)))
     return path
+
+
+def mouth_parent(mouth, parents: _t.Mapping[int, LineString]) -> LineString | None:
+    """The parent road of the bore piece the MOUTH stands at (issue #807):
+    the piece with an end nearest the mouth.  A bore chained from several
+    pieces has a parent per piece, and its first piece's parent is the
+    road at the OTHER mouth for half of them — KCLT's south ramp walked
+    the tertiary's northern way and ran straight off its end."""
+    best, best_d = None, math.inf
+    for w in mouth.bore.ways:
+        par = parents.get(id(w))
+        if par is None:
+            continue
+        d = min(math.hypot(e[0] - mouth.xy[0], e[1] - mouth.xy[1])
+                for e in (w.points[0], w.points[-1]))
+        if d < best_d:
+            best, best_d = par, d
+    return best
 
 
 def _stations(parent: LineString, s0: float, fwd: bool) -> list[float]:

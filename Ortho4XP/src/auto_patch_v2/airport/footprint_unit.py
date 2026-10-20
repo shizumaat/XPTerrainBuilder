@@ -1139,10 +1139,11 @@ def _far_below(cc: _t.Sequence[tuple], zero: float, visual_m: float) -> bool:
     """owner RULINGS 2026-10-19aq (#721): is this body's own ground FAR
     below its unit's datum ``zero``?  Asked only of a STRUCTURE datum (a
     pad, a cluster pad, a deck): a unit on its median ground has no level
-    of its own for a member to stand off — its spread is the terrain's.  "Far" is the cockpit's visual bar
-    (``[cockpit] visual_m``, §31 (1): a float over it is a defect the pilot
-    sees) — the same number :func:`_seat` reports a member off the plane
-    by; no threshold of its own.  ``visual_m`` 0 disarms."""
+    of its own for a member to stand off — its spread is the terrain's.
+    "Far" is the cockpit's visual bar (``[cockpit] visual_m``, §31 (1): a
+    float over it is a defect the pilot sees) — the same number
+    :func:`_seat` reports a member off the plane by; no threshold of its
+    own.  ``visual_m`` 0 disarms."""
     return visual_m > 0.0 and bool(cc) and zero - _own_zero(cc) > visual_m
 
 

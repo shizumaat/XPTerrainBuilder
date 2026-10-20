@@ -151,7 +151,8 @@ struct PatchEditorTests {
         #expect(styles[-107] == .ground)        // untagged helper line
         #expect(doc.ways.first { $0.id == -106 }?.isClosed == false)
         #expect(PatchStyleClass(tags: ["aeroway": "taxiway", "role": "junction"]) == .taxiway)
-        #expect(PatchStyleClass(tags: ["role": "groundside_pavement"]) == .apron)
+        #expect(PatchStyleClass(tags: ["role": "groundside_pavement"]) == .groundside)   // #1099
+        #expect(PatchStyleClass(tags: ["role": "parking_lot", "aeroway": "apron"]) == .groundside)
         #expect(PatchStyleClass(tags: ["aeroway": "aerodrome"]) == .ground)
         #expect(PatchStyleClass(tags: ["highway": "residential"]) == .road)
     }

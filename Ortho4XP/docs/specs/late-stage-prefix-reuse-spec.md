@@ -1,6 +1,6 @@
 # Late stage reuses the base map's prefix: spec and consumer census (2026-10-20)
 
-Status: PROPOSAL, with phase 1 landed by lane m8. Owner approval: RULINGS via #1056, 2026-10-20 (Q21 (b)): "the late stage reuses the base map's prefix products (planar arrangement, constraints) outside the gap pieces". Issues: #803, #412. Census law: RULINGS 2026-08-30l.
+Status: PROPOSAL; phases 1 and 2a landed by lane m8 (exact: HECA body identical). Owner approval: RULINGS via #1056, 2026-10-20 (Q21 (b)): "the late stage reuses the base map's prefix products (planar arrangement, constraints) outside the gap pieces". Issues: #803, #412. Census law: RULINGS 2026-08-30l.
 
 ## 1. Problem (measured)
 
@@ -84,7 +84,14 @@ R, the re-derive radius, is `max(gap_follow.reach_m, reach_m(pad), pad_ramp.stan
 ## 5. The design
 
 1. **Phase 1, exact, LANDED (lane m8).** The pad-road exit walk no longer overlays every tile way with the whole airport's union. `ribbon_mint._way_intervals` answers a way that does not meet the extent with the prepared predicate. An empty intersection is exactly a false `intersects`, so the output is byte-identical. Expected: most of the 30 s.
-2. **Phase 2, the planar intermediates.**
+2. **Phase 2a, exact, LANDED (lane m8): the arrangement's FRONT.**
+   - `planar/arrangement_memo` is new. `build_arrangement`'s front (the runway ridges, the weld, the zones, the apron cut, the pad terraces, the platforms) reads only the NON-late cells, which are the same objects and values in the base map and in both late derives.
+   - It is held for the build (`pipeline/build.build` is `@scoped`) and served on a value-identical key: the pickled digest of the non-late cells, keepouts, cut lines and grid, plus the airport and law held weakly.
+   - Its mutable records (registries, edge report, pad-clip and platform records) are deep-copied on store and on serve.
+   - `shelf_regions` reads the late polygons, so it and everything after it (landing, plateau, pass A, pass B, pass C) still run.
+   - Outside a build nothing is held.
+   - Profiled cost of the front per late derive at HECA: about 40 s (weld 7, zones 15, platforms 16, terraces/apron cut ~5).
+2. **Phase 2b, the planar intermediates past the front.**
    - The base's planar build returns, beside `pm`, the arrangement intermediates: pass A's noded lines, pass B's pad lines and faces, the first `_faces_of`, and the structures/basins result. These live in memory, are never cached on disk, and are dropped after the late stage.
    - The gap stage's derive starts pass C from them. The roads-only stage starts from the gap stage's own intermediates (`pm_g` is in memory).
    - Bar: on HECA, OTHH and KCLT, every standing vertex of the cut map is at the same coordinate and level (the canonical join). The `ribbon_airside_added/removed` counters (`overlay.py:418-424`) stay 0.

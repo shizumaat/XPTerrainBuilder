@@ -421,6 +421,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.planar.apron_shelf",
+        "auto_patch_v2.planar.arrangement_memo",
         "auto_patch_v2.planar.basin_datum",
         "auto_patch_v2.planar.basin_geometry",
         "auto_patch_v2.planar.basin_rim",
@@ -1197,7 +1198,8 @@ CODE_MODULES["solve"] = _mods("""
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
-    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.basin_datum
+    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
+    planar.basin_datum
     planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
@@ -1278,7 +1280,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.rebake model.registries model.structures model.threshold_datum
     pipeline.back_cache pipeline.capture_state pipeline.constraint_records
     pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
-    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.basin_datum
+    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
+    planar.basin_datum
     planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps

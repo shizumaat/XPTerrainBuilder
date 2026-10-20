@@ -543,6 +543,7 @@ def bay_m(law) -> float:
 def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
                 near: float) -> "BlockPlan | None":
     """The §2 test and partition for one platform pad (module docstring)."""
+    from ..law.reference_code import ref_status, status_by_ref
     from ..law.tables import (frontage_roles, role_cap, zone2_half_width_m)
     if dem is None or airport is None:
         return None
@@ -587,11 +588,13 @@ def plan_blocks(ref: str, P: Polygon, base_regions, law, dem, airport,
     taxis = [r.polygon for r in base_regions if r.source == "cell" and r.role in taxi_roles
              and r.polygon is not None and not r.polygon.is_empty]
     pins = []
+    status_of = status_by_ref(getattr(airport, "runways", ()))    # #811
     for r in base_regions:
         if r.source == "cell" and r.role in runway_roles and r.polygon is not None \
                 and not r.polygon.is_empty:
             w = zone2_half_width_m(law, r.role, getattr(r, "code_number", None),
-                                   getattr(r, "code_letter", None)) or 0.0
+                                   getattr(r, "code_letter", None),
+                                   ref_status(status_of, getattr(r, "ref", None))) or 0.0
             pins.append(r.polygon.buffer(float(w), join_style=2, mitre_limit=2.0)
                         if w > 0.0 else r.polygon)
     fronted = [q for q in aprons if q.distance(P) <= near]

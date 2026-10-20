@@ -273,3 +273,26 @@ def test_over_the_cap_the_smallest_parts_go_first():
     dropped = PM.fit_to_cap(models, 0, cap=2 * each)
     assert dropped == 2
     assert [h.size_m for h in models["a"]] == [30.0] and [h.size_m for h in models["b"]] == [9.0]
+
+
+def test_footprints_only_sends_the_plan_outline_not_the_massing(pack):
+    """#797: the 2-D map's answer carries each model's plan hull as (x, z)
+    pairs and no vertices or triangles; the placements are the same."""
+    full = PO.pack_objects(TILE, "ZZZZ", BBOX)
+    flat = PO.pack_objects(TILE, "ZZZZ", BBOX, footprints_only=True)
+    assert flat is not full                      # its own cache entry
+    (m,) = flat["models"]
+    assert set(m) == {"key", "plan_hull_f32_b64"}
+    ring = _arr(m["plan_hull_f32_b64"], "<f4", 2)
+    verts = _arr(full["models"][0]["vertices_f32_b64"], "<f4", 3)
+    want = {(float(x), float(z)) for x, _y, z in verts}
+    assert {tuple(map(float, p)) for p in ring} <= want and len(ring) >= 3
+    assert flat["placements"] == full["placements"]
+    json.dumps(flat)
+
+
+def test_plan_hull_drops_interior_points():
+    from o4_engine import pack_massing as PM
+    v = np.array([[0, 0, 0], [10, 5, 0], [10, 0, 10], [0, 9, 10], [5, 3, 5]], float)
+    ring = PM.plan_hull([PM.Hull(v, np.zeros((0, 3), int), 10.0)])
+    assert sorted(map(tuple, ring.tolist())) == [(0.0, 0.0), (0.0, 10.0), (10.0, 0.0), (10.0, 10.0)]

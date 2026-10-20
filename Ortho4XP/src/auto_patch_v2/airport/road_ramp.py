@@ -67,6 +67,7 @@ import math
 import typing as _t
 
 from ..law import Law
+from ..law.reference_code import ref_status
 from ..law.tables import (family, is_structure_role, is_value_role, role_cap,
                           role_side, senior_role, zone2_half_width_m,
                           zone_edge_offset_m)
@@ -942,11 +943,13 @@ def _feet_index(pm: PlanarMap, law: Law, roles: _t.AbstractSet[str]
     # [adjacent_ground.taxi] half_width_m.default``) — the #291 wall-terrace
     # contact (``test_wallterrace291``: a 1206 route 10 m off an apron).
     taxi_default = zone2_half_width_m(law, "junction", None, None)
+    status_of = getattr(pm, "runway_status_of_ref", None)      # #811
     for fid, f in pm.faces.items():
         if f.role not in roles:
             continue
         role = fam.get(f.role)
-        half = (zone_edge_offset_m(law, role, f.code_number, f.code_letter)
+        half = (zone_edge_offset_m(law, role, f.code_number, f.code_letter,
+                                   status=ref_status(status_of, f.ref))
                 if role is not None else taxi_default)
         if not half:
             continue

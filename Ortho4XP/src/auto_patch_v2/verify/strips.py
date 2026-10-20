@@ -64,7 +64,8 @@ from ..law.tables import (end_profile_noise_m, runway_end_profile,
                           zone_bounds)
 from .frame import Patch, Row, Shape, pair_side, row
 from .runway_witness import (published_code_letter, published_code_number,
-                             published_end_classes, published_end_profiles)
+                             published_end_classes, published_end_profiles,
+                             published_status)
 from .no_step import rate_breaches
 
 __all__ = ["groups", "published_slabs", "end_groups", "strip_longitudinal", "strip_arc", "resa_transverse",
@@ -131,7 +132,13 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
     side is unchanged."""
     if not edges:
         return []
-    cell = max(zone2_half_width_m(law, "runway", e[3], e[4]) or 0.0 for e in edges)
+    def status(ref) -> int:
+        # the 5th axis slot: the runway's instrument status (#811)
+        ax5 = axes.get(ref)
+        return int(ax5[4]) if ax5 is not None and len(ax5) > 4 else 0
+
+    cell = max(zone2_half_width_m(law, "runway", e[3], e[4], status(e[2])) or 0.0
+               for e in edges)
     if cell <= 0.0:
         return []
     grid: dict[tuple[int, int], list[int]] = {}
@@ -159,9 +166,11 @@ def runway_edge_tie(points: _t.Iterable[TiePoint], edges: _t.Sequence[TieEdge],
                         # FROM THE CENTRELINE (2026-10-15c (1)): an axis that
                         # carries the runway's width reads the edge offset
                         ax4 = axes.get(ref)
-                        half_of[key] = (runway_zone_edge_offset_m(law, cn, cl, 0.5 * ax4[3])
+                        half_of[key] = (runway_zone_edge_offset_m(law, cn, cl, 0.5 * ax4[3],
+                                                                  status(ref))
                                         if ax4 is not None and len(ax4) > 3
-                                        else zone2_half_width_m(law, "runway", cn, cl))
+                                        else zone2_half_width_m(law, "runway", cn, cl,
+                                                                status(ref)))
                     half = half_of[key]
                     if half is None:
                         continue
@@ -238,25 +247,13 @@ def groups(p: Patch):
         rows = p.publication.get("runway_axes")
         code = published_code_number(rows, ref, L, law)
         lt = published_code_letter(rows, ref, letter.get(ref))
-        half = zone2_half_width_m(law, "runway", code, lt) or 0.0
+        half = zone2_half_width_m(law, "runway", code, lt, published_status(rows, ref)) or 0.0
         end_half = max(width, half)
         len_a, len_b = rsa_end_lengths(p, ref, a, b, code, lt)
         rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -len_a, 0.0, end_half),
                  rect_ring(a, b, L, L + len_b, end_half))
         out.append((rings, unit, code, L, lt, a, b))
     return out
-
-
-def published_instrument(rows, ref: str | None) -> bool:
-    """THE RUNWAY'S INSTRUMENT STATUS as the sidecar publishes it
-    (``runway_axes`` slot 10, RULINGS 2026-10-15k (3)) — the ONE read both
-    readers make, so the census and verify price the strip's end and the
-    RESA by the status the generator did.  ``False`` (non-instrument) for a
-    ref the rows do not carry, or a row written before the status."""
-    for r in rows or ():
-        if len(r) >= 11 and str(r[0]) == str(ref):
-            return bool(r[10])
-    return False
 
 
 def rsa_end_lengths(p: Patch, ref: str | None, a, b, code, letter
@@ -266,7 +263,7 @@ def rsa_end_lengths(p: Patch, ref: str | None, a, b, code, letter
     past the slab end less that end's published overrun — the generator's
     ``constraints.strips.runway_groups`` reading, the slab end matched to
     the nearer of ``a`` / ``b``."""
-    rsa = runway_safety_area_length_m(p.law, code, letter, published_instrument(
+    rsa = runway_safety_area_length_m(p.law, code, letter, published_status(
         p.publication.get("runway_axes"), ref))
     for r in p.publication.get("runway_axes") or ():
         if len(r) < 8 or str(r[0]) != str(ref):
@@ -349,7 +346,8 @@ def end_groups(p: Patch):
             L = math.hypot(b[0] - a[0], b[1] - a[1])
             unit = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
             code = published_code_number(p.publication.get("runway_axes"), ref, L, law)
-            half = zone2_half_width_m(law, "runway", code, letter) or 0.0
+            half = zone2_half_width_m(law, "runway", code, letter, published_status(
+                p.publication.get("runway_axes"), ref)) or 0.0
             len_a, len_b = rsa_end_lengths(p, ref, a, b, code, letter)
             end_half = max(width, half)
             rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -len_a, 0.0, end_half),
@@ -595,7 +593,7 @@ def runway_end_skirt(p: Patch) -> list[Row]:
         # published class and displaced length (RULINGS 2026-10-15m (1))
         profs = dict(zip((1, 2), published_end_profiles(
             law, axes, ref, a0, b0, p.to_m, code, letter,
-            published_instrument(axes, ref))))
+            published_status(axes, ref))))
         prof = profs[1]                   # the end-independent ``rate``
         ux, uy = unit
 
@@ -926,7 +924,8 @@ def strip_transverse(p: Patch) -> list[Row]:
     widths = {ref: w for ref, w in _runway_widths(p).items()}
     for rings, unit, _code, L, _letter, a, _b in groups(p):
         ref_ = _ref_of(p, rings)
-        axes[ref_] = (a, unit, L, widths.get(ref_, 0.0))
+        axes[ref_] = (a, unit, L, widths.get(ref_, 0.0),
+                      published_status(p.publication.get("runway_axes"), ref_))
     edges: list[TieEdge] = []
     for sh in p.shapes:
         if sh.role not in RUNWAY_FAMILY:

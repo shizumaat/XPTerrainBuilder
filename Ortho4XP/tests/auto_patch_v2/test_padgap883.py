@@ -22,7 +22,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from auto_patch_v2.classify.roles import Cell
 from auto_patch_v2.law import Law
 

@@ -4,9 +4,8 @@ coordinate, the per-vertex Python placement it replaced."""
 from types import SimpleNamespace
 
 import numpy as np
-from shapely.geometry import MultiPoint
-
 from auto_patch_v2.airport import jetways, obj8
+from shapely.geometry import MultiPoint
 
 
 def _reference(verts, xy, hdg):

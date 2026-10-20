@@ -107,7 +107,7 @@ def _ribbons_pass_c(ribbon_cells, noded, noded_a, pad_lines, regions, bands, law
                                          own, grid if keeps else 0.0)
         # 19a / 19i (#951): the band's riser beside each ribbon in a safety
         # area, noded with it in this one pass (``planar/band_riser``)
-        riser = riser_geometry(ribs, regions, clip_f, cut_w, law, keep_out)
+        riser = riser_geometry(ribs, regions, clip_f, cut_w, law, keep_out, counts)
         if riser is not None:
             lines = list(lines) + riser_lines(riser)
         out = shapely.unary_union(

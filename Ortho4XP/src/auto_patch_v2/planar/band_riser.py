@@ -44,15 +44,44 @@ def _is_band_zone(r) -> bool:
     return r.source == "zone" and len(parts) > 1 and parts[1] in _BAND_FAMILIES
 
 
-def riser_geometry(ribs, regions, air, rim_band: float, law: Law, keep_out=None):
+def _polygonal(g):
+    """``g`` made valid, its polygonal part only (``None`` stays ``None``):
+    the riser's overlay inputs come from several cut stages, and one
+    invalid ring threw a GEOS TopologyException that crashed a whole build
+    (HECA, ``side location conflict at -2647 527.5`` in :func:`_median`)."""
+    if g is None or g.is_empty or g.is_valid:
+        return g
+    v = shapely.make_valid(g)
+    parts = [q for q in shapely.get_parts(v) if q.geom_type in ("Polygon", "MultiPolygon")]
+    return unary_union(parts) if parts else shapely.Polygon()
+
+
+def riser_geometry(ribs, regions, air, rim_band: float, law: Law, keep_out=None,
+                   counts: dict | None = None):
+    """:func:`_riser_geometry`, never crashing the build: its inputs are made
+    valid first, and a GEOS failure still left yields NO riser there, counted
+    in ``counts["ribbon_riser_refused"]`` (the band keeps its shared kerb, as
+    before #951)."""
+    from shapely.errors import GEOSException
+    try:
+        return _riser_geometry(ribs, regions, _polygonal(air), rim_band, law,
+                               _polygonal(keep_out), counts)
+    except GEOSException:
+        if counts is not None:
+            counts["ribbon_riser_refused"] = counts.get("ribbon_riser_refused", 0) + 1
+        return None
+
+
+def _riser_geometry(ribs, regions, air, rim_band: float, law: Law, keep_out=None,
+                    counts: dict | None = None):
     """The band ground within one weld spacing of the ribbons ``ribs``,
     inside a runway / taxi zone region, off the finished airside ``air`` by
     ``rim_band`` and off every other cell ``keep_out`` (a tunnel ramp or
     trench, a lot: round 3, KLAX 33.94033, -118.39618 — riser lines noded
     through a tunnel trench re-cut it, and the roads inside it surfaced as
     ribbons 3 m under the band).  ``None`` where there is none."""
-    zone = [r.polygon for r in regions if _is_band_zone(r)]
-    polys = [r.polygon for r in ribs if not r.polygon.is_empty]
+    zone = [_polygonal(r.polygon) for r in regions if _is_band_zone(r)]
+    polys = [_polygonal(r.polygon) for r in ribs if not r.polygon.is_empty]
     if not zone or not polys:
         return None
     w = float(law.tables.emit.identity.weld_spacing_m)
@@ -94,7 +123,7 @@ def riser_geometry(ribs, regions, air, rim_band: float, law: Law, keep_out=None)
     # 0 -> 5).  The band ground within one weld spacing of TWO different
     # mapped roads yields to them: it stays zone, a sliver
     # ``overlay.dissolve_sliver_zones`` gives to a ribbon (as #988's median).
-    median = _median(ribs, w)
+    median = _median(ribs, w, counts)
     if median is not None and not riser.is_empty:
         riser = riser.difference(median)
         riser = unary_union([q for q in shapely.get_parts(riser)
@@ -103,11 +132,14 @@ def riser_geometry(ribs, regions, air, rim_band: float, law: Law, keep_out=None)
     return None if riser.is_empty or riser.area <= 0.0 else riser
 
 
-def _median(ribs, w: float):
+def _median(ribs, w: float, counts: dict | None = None):
     """The overlap of the one-weld-spacing reaches of two DIFFERENT mapped
-    roads (a ribbon's ref less its ``#k`` piece suffix), or ``None``."""
+    roads (a ribbon's ref less its ``#k`` piece suffix), or ``None``.  A
+    pair whose overlay GEOS refuses even on valid inputs is skipped and
+    counted (``counts["ribbon_median_refused"]``), never raised."""
+    from shapely.errors import GEOSException
     from shapely.strtree import STRtree
-    reach = [(str(r.ref).split("#", 1)[0], r.polygon.buffer(w, **_MITRE))
+    reach = [(str(r.ref).split("#", 1)[0], _polygonal(_polygonal(r.polygon).buffer(w, **_MITRE)))
              for r in ribs if not r.polygon.is_empty]
     if len(reach) < 2:
         return None
@@ -117,7 +149,12 @@ def _median(ribs, w: float):
         for j in tree.query(ga, predicate="intersects"):
             j = int(j)
             if j > i and reach[j][0] != ra:
-                parts.append(ga.intersection(reach[j][1]))
+                try:
+                    parts.append(ga.intersection(reach[j][1]))
+                except GEOSException:
+                    if counts is not None:
+                        counts["ribbon_median_refused"] = \
+                            counts.get("ribbon_median_refused", 0) + 1
     m = unary_union(parts) if parts else None
     return None if m is None or m.is_empty else m
 

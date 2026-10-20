@@ -100,3 +100,22 @@ def test_the_end_profile_row_is_read_by_its_own_spelling():
     from auto_patch_v2.constraints import band_riser, strips
     assert strips.GEN == band_riser._STRIPS_GEN
     assert strips.END_PROFILE_RULING.startswith(band_riser._END_CHORD)
+
+
+def test_an_invalid_ring_never_crashes_the_riser(law):
+    """A HECA build died in ``_median`` on a GEOS TopologyException (``side
+    location conflict``) from an invalid input ring: the riser's inputs are
+    made valid, and a failure still left yields no riser, counted."""
+    import types
+
+    from auto_patch_v2.planar.band_riser import _median, riser_geometry
+    from shapely.geometry import Polygon
+    bow = Polygon([(0, 0), (10, 10), (10, 0), (0, 10)])          # self-crossing
+    road = types.SimpleNamespace(ref="osm_road:1", polygon=bow)
+    other = types.SimpleNamespace(ref="osm_road:2",
+                                  polygon=Polygon([(0, 11), (10, 11), (10, 12), (0, 12)]))
+    assert _median([road, other], 1.0) is not None
+    zone = types.SimpleNamespace(ref="adjacent_ground:runway:09:zone1#0", source="zone",
+                                 polygon=Polygon([(-20, -20), (30, -20), (30, 30), (-20, 30)]))
+    counts: dict = {}
+    riser_geometry([road, other], [zone], None, 1.0, law, None, counts)

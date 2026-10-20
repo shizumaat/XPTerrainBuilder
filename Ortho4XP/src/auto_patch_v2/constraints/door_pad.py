@@ -25,7 +25,11 @@ THE RULE.
   the apron's rows choose it.
 * THE DOOR LINE: the door wall is the pad's hull edge nearest the taxi
   family (no open-side reading yet: the pack's wall geometry is not read
-  here).  ONE HARD ROW (:data:`DOOR_RULING`, ``[design] hard_rulings``,
+  here), among the edges whose door vertex is shared with apron or taxi
+  pavement, and the taxi point lies within ``[placement]
+  door_blend_reach_m`` of the door's centre — else the pad has NO door
+  line and keeps its flat weld (:func:`_door_line`).
+  ONE HARD ROW (:data:`DOOR_RULING`, ``[design] hard_rulings``,
   apron tier): the pad at the door's centre within the apron's (yielded)
   cap of the taxi-family vertex nearest it.  The CORRIDOR is the triangle
   of the middle ``[placement] door_corridor_share`` of the door wall and
@@ -139,10 +143,13 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
     STATS[GEN] = {"pads": 0}
     if share_c <= 0.0 or t <= 0.0 or min_m2 <= 0.0 or dem is None:
         return []
+    reach = float(getattr(st, "door_blend_reach_m", 0.0) or 0.0)
     p = law.tables.precedence
-    king = set(p.runway_family.members) | set(p.taxi_family.members)
+    taxi = set(p.taxi_family.members)
+    king = set(p.runway_family.members) | taxi
     pads: dict[str, list] = {}
     apron_v: set[int] = set()
+    taxi_vs: set[int] = set()
     apron_g, king_g, king_v = [], [], set()
     for f in planar.faces.values():
         vs = set(planar.ring_vertices(f.ring))
@@ -156,6 +163,8 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
         elif f.role in king:
             king_v.update(vs)
             king_g.append(_poly(planar, f.ring))
+            if f.role in taxi:
+                taxi_vs.update(vs)
     if not pads or not apron_v or not king_g:
         return []
     king_u = unary_union(king_g)
@@ -170,30 +179,62 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
             continue
         if seat_float_m(P, dem.z) <= t:
             continue
-        hull = P.convex_hull
-        cs = list(hull.exterior.coords)[:-1]
-        walls = [LineString([cs[i], cs[(i + 1) % len(cs)]]) for i in range(len(cs))]
-        door = min(walls, key=lambda w: w.interpolate(0.5, normalized=True)
-                   .distance(king_u))
-        mid = door.interpolate(0.5, normalized=True)
-        tp = nearest_points(mid, king_u)[1]
-        corridor = _corridor(door, tp, share_c)
         # EVERY vertex of the pad, the ones it shares with a taxiway too:
         # the tower's door wall IS a junction's edge, and a pad left uneven
         # along it is no level pad (measured, KASE replay: 0.39 m)
         group = tuple(sorted(v for f in fs for v in _face_vertices(planar, f)))
         if len(group) < 2:
             continue
-        door_v = min(group, key=lambda v: mid.distance(Point(planar.vertices[v].xy)))
-        taxi_v = min(king_v, key=lambda v: tp.distance(Point(planar.vertices[v].xy)))
-        # the pad is ONE level, so its value at the door's centre is the
-        # door vertex's: the line is priced over the CENTRE's own distance
-        dxy = mid.distance(Point(planar.vertices[taxi_v].xy))
+        line = _door_line(planar, P, group, apron_v | taxi_vs, king_u, king_v,
+                          share_c, reach)
+        if line is None:                  # no door: the flat weld alone
+            c = P.centroid
+            out.append(DoorPad(ref, group, Polygon(), (c.x, c.y)))
+            continue
+        corridor, mid, door_v, taxi_v, dxy = line
         out.append(DoorPad(ref, group, corridor, (mid.x, mid.y),
-                           door_v, taxi_v, float(dxy), _door_cap(planar, law, mid)))
+                           door_v, taxi_v, dxy, _door_cap(planar, law, mid)))
     STATS[GEN] = {"pads": len(out)}
     REFS[:] = [d.ref for d in out]
     return out
+
+
+def _door_line(planar: PlanarMap, P, group: tuple[int, ...], pave_v: set[int],
+               king_u, king_v: set[int], share: float, reach: float):
+    """THE DOOR LINE of one pad, or ``None`` where it has no door
+    (master 2026-10-20 on lane m15's HECA reading):
+
+    * the door wall is the hull edge nearest the taxi family AMONG THOSE
+      whose door vertex (the pad vertex nearest the wall's centre) is
+      shared with pavement an aircraft stands on (apron or taxi family).
+      MEASURED (HECA building97): the hull edge nearest the taxi family
+      faced a parking lot and its door line read 4.45 m infeasible;
+    * the taxi point lies within ``[placement] door_blend_reach_m`` of the
+      door's centre.  MEASURED (HECA building116 / building123): a door on
+      the apron 209 / 262 m from the nearest taxi point asked an apron-wide
+      chord at the apron cap, 9.42 / 8.54 m infeasible — not a door onto a
+      taxiway.
+
+    Returns ``(corridor, door centre, door vertex, taxi vertex, the
+    line's distance)``."""
+    def door_v_of(w):
+        m = w.interpolate(0.5, normalized=True)
+        return min(group, key=lambda v: m.distance(Point(planar.vertices[v].xy)))
+    cs = list(P.convex_hull.exterior.coords)[:-1]
+    walls = [w for w in (LineString([cs[i], cs[(i + 1) % len(cs)]]) for i in range(len(cs)))
+             if door_v_of(w) in pave_v]
+    if not walls:
+        return None
+    door = min(walls, key=lambda w: w.interpolate(0.5, normalized=True).distance(king_u))
+    mid = door.interpolate(0.5, normalized=True)
+    tp = nearest_points(mid, king_u)[1]
+    if reach > 0.0 and mid.distance(tp) > reach:
+        return None
+    taxi_v = min(king_v, key=lambda v: tp.distance(Point(planar.vertices[v].xy)))
+    # the pad is ONE level, so its value at the door's centre is the door
+    # vertex's: the line is priced over the CENTRE's own distance
+    return (_corridor(door, tp, share), mid, door_v_of(door), taxi_v,
+            float(mid.distance(Point(planar.vertices[taxi_v].xy))))
 
 
 def _corridor(door: LineString, tp: Point, share: float) -> Polygon:

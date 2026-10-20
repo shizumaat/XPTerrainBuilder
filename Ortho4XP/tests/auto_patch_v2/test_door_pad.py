@@ -289,3 +289,25 @@ def test_the_door_line_read_reads_the_toy(monkeypatch):
     assert b["spread_m"] < 1e-4 and a["rim_edge_pct"] > 0.0 and a["rim_edge_at"]
     assert got["give"]["vertices"] == 3 and got["give"]["over_give"] == 0
     assert got["give"]["worst_m"] <= 0.3 + 1e-3 and got["failures"] == []
+
+
+def test_a_door_opens_onto_pavement_within_the_reach():
+    """Master 2026-10-20 (HECA building97 / building116): the door wall is
+    chosen among hull edges whose door vertex is shared with apron or taxi
+    pavement, and a door line exists only when the taxi point lies within
+    ``door_blend_reach_m`` of the door's centre."""
+    from shapely.geometry import box
+    pm = _map({1: (0.0, 0.0), 2: (10.0, 0.0), 3: (10.0, 10.0), 4: (0.0, 10.0),
+               5: (5.0, 10.0), 6: (10.0, 5.0), 9: (5.0, 30.0), 19: (25.0, 5.0)})
+    pad, group = box(0, 0, 10, 10), (1, 2, 3, 4, 5, 6)
+    near = box(-50, 30, 60, 40)                                # 20 m north
+    got = DP._door_line(pm, pad, group, {1, 2, 3, 4, 5, 6}, near, {9}, 0.5, 60.0)
+    assert got is not None and got[2] == 5 and got[3] == 9 and abs(got[4] - 20.0) < 1e-9
+    # the north wall's door vertex is on no pavement: the east wall is the door
+    east = box(25, -50, 35, 60)
+    got = DP._door_line(pm, pad, group, {1, 2, 3, 4, 6}, near.union(east), {9, 19}, 0.5, 60.0)
+    assert got is not None and got[2] == 6 and got[3] == 19
+    # no wall's door vertex is on pavement: no door
+    assert DP._door_line(pm, pad, group, set(), near, {9}, 0.5, 60.0) is None
+    # the taxi point 70 m off the door: no door line (the flat weld alone)
+    assert DP._door_line(pm, pad, group, set(group), box(-50, 80, 60, 90), {9}, 0.5, 60.0) is None

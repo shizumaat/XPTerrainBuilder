@@ -11,6 +11,7 @@ worker's records serve a later serial build."""
 from __future__ import annotations
 
 import dataclasses as dc
+import re
 import shutil
 
 import numpy as np
@@ -31,6 +32,8 @@ from tests.auto_patch_v2.test_solve_late_records import INPUTS, PACK
 _OWN = ("C4b", "[pool]")
 #: a stage's clocks (``ShapeStage.wall_s``, ``PrefixRecord.wall``)
 _CLOCKS = ("wall_s", "wall")
+#: a line's clock text (``cut (...) 0.1 s:``): wall time, never a result
+_CLOCK_TEXT = re.compile(r"\b\d+\.\d+ s\b")
 
 
 class _BulkDem(_FallingDem):
@@ -87,7 +90,14 @@ def _same(a: dict, b: dict) -> None:
     for f in ("pm", "cs", "strips", "stage", "planar_pm", "road_rep", "reports"):
         assert _fields(getattr(a["last"], f)) == _fields(getattr(b["last"], f)), f
     assert a["last"].airport.flat_site == b["last"].airport.flat_site
-    assert [ln for ln in a["lines"] if not any(o in ln for o in _OWN)] == b["lines"]
+    assert _lines(a) == _lines(b)
+
+
+def _lines(arm: dict) -> list[str]:
+    """The arm's lines but the speculation's own, clock text masked (a
+    stage's wall time differs between a worker and the parent)."""
+    return [_CLOCK_TEXT.sub("<t> s", ln) for ln in arm["lines"]
+            if not any(o in ln for o in _OWN)]
 
 
 class _Kept:

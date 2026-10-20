@@ -115,7 +115,7 @@ from ..law.tables import is_value_role, role_side
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..geom.feet_graph import neighbour_pairs_fast as _pairs_fast
-from ..model.ground_fit import GroundFit, ground_fit
+from ..model.ground_fit import Foot, GroundFit, ground_fit
 from ..model.planar import PlanarMap
 from .structures import WALL_ROLE
 
@@ -157,7 +157,7 @@ STATS: dict[str, dict[str, int]] = {}
 #: a diagnostic, never read by a row
 VERDICTS: list["BodyVerdict"] = []
 
-__all__ = ["FootTarget", "BodyVerdict", "foot_targets", "foot_rows", "GEN",
+__all__ = ["FootTarget", "BodyVerdict", "foot_targets", "foot_rows", "component_floor", "GEN",
            "RULING", "STATS", "VERDICTS"]
 
 
@@ -315,8 +315,8 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
             verdicts.append(_verdict(g, "padded", roles, None, 0))
             counts["padded"] += 1
             continue
-        fit = ground_fit(g.feet, g.y_zero, _sampler(dem, to_xy), bank,
-                         pairs=_pairs_fast)
+        fit = ground_fit(component_floor(g.feet), g.y_zero, _sampler(dem, to_xy),
+                         bank, pairs=_pairs_fast)
         if fit is None or len(fit.keep) != len(g.feet):
             # ALL OR NOTHING (11x (1)): a fit over a SUBSET of the feet
             # would mint a partial profile exactly as an off-sheet foot
@@ -335,6 +335,15 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
             verdicts.append(_verdict(g, "off_sheet", roles, fit, 0,
                                      off_sheet=missing))
             continue
+        raw = _raw_fit(g, dem, to_xy, bank) if fit.feasible else None
+        if raw is not None and not raw.feasible:
+            # THE POPULATION STAYS 11x (2)'s (issue #799, measured KDEN):
+            # read on the authored feet, 383 sign bodies are infeasible and
+            # state no rows; floored, 378 of them turned bare, and their
+            # rows on long strip triangles minted new steps (1.26 m by
+            # pav198, 0.52 m by 16L/34R).  The floor sets the TARGETS of a
+            # body that was feasible; it never admits a new one.
+            fit = raw
         if not fit.feasible:
             # §11b (3): the terrain cannot carry this body's relief
             # between two of its feet and stay a bank.  No rows, the
@@ -353,6 +362,32 @@ def foot_targets(planar: PlanarMap, law: Law, airport: Airport
         counts["partial"] += int(fired != len(g.feet))   # 0 by construction
         verdicts.append(_verdict(g, "bare", roles, fit, fired))
     return rows, verdicts, counts
+
+
+def _raw_fit(g, dem, to_xy, bank: float) -> GroundFit | None:
+    """11x (2)'s fit on the body's AUTHORED feet (before the floor)."""
+    return ground_fit(g.feet, g.y_zero, _sampler(dem, to_xy), bank, pairs=_pairs_fast)
+
+
+def component_floor(feet: _t.Sequence[Foot]) -> list[Foot]:
+    """RELIEF IS READ BETWEEN COMPONENTS ONLY (owner 2026-10-19, issue
+    #799): the feet of ONE component are seat samples within
+    ``basin.contact_band_m`` of its own minimum (``model/rebake.Part``), so
+    their spread is not authored ground relief — on a taxiway sign they are
+    panel bottoms.  Every foot of a component targets the component's
+    LOWEST foot; the relief between components (LEMD's colonnade, 2.63 m
+    over its columns) is unchanged.  Measured KDEN 39.840940, −104.662021
+    by taxiway M5: the sign ``Lg-CM5-…_Text#b0``'s one component carried
+    feet at y 0.275 … 0.947, and the 0.67 m it asked of the ground tilted
+    two zone-2 triangles into a 0.64 m step.  A foot with no part (a group
+    derived before ``Foot.part``) keeps its own ``y``."""
+    low: dict[int, float] = {}
+    for f in feet:
+        k = getattr(f, "part", -1)
+        if k >= 0:
+            low[k] = min(low.get(k, f.y), f.y)
+    return [_dc.replace(f, y=low[f.part]) if getattr(f, "part", -1) >= 0 else f
+            for f in feet]
 
 
 def _sampler(dem, to_xy) -> _t.Callable[[float, float], float | None]:

@@ -386,6 +386,13 @@ def test_a_v2_report_becomes_a_store_record_and_is_read_back(tmp_path):
         "TEST", str(tmp_path), finished_after=50.0)
     assert measurement["total_seconds"] == 3.75
     assert measurement["phase_seconds"] == {"load": 1.5, "solve": 2.25}
+    # the report's own ``total`` is the total, never a phase (it doubled
+    # every v2 record until 2026-10-19)
+    record = check_build_time.v2_report_to_store_record(
+        {"wall_s": {"load": 1.5, "solve": 2.25, "unclocked": 0.25,
+                    "total": 4.0}}, 100.0)
+    assert "total" not in record["phase_seconds"]
+    assert record["total_seconds"] == 4.0
     import inspect
     body = inspect.getsource(check_build_time.run_one_airport_build)
     assert "auto_patch.pipeline import" not in body

@@ -1003,6 +1003,12 @@ def row_record(cg, family: str, r) -> dict:
         "lon": getattr(r, "lon", None),
         "way_a": getattr(wa, "wid", None),
         "way_b": getattr(wb, "wid", None),
+        # THE ROW'S OWN IDENTITY where it has no site (#733): a
+        # sidecar-declared family (``hard_conflict``, …) emits every row at
+        # ``site_m`` [[0,0],[0,0]] with one shared way id, and names the
+        # record only in its way's ``ref`` — the row diff joins on these
+        "ref_a": getattr(wa, "ref", None),
+        "ref_b": getattr(wb, "ref", None),
         "out_of_scope": getattr(r, "out_of_scope", None),
         # WHICH READING priced it where a family has more than one — the
         # short-chord BOX (RULINGS 2026-09-06q (1)) or the family default

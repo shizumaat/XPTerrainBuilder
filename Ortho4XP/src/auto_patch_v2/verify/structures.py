@@ -426,6 +426,17 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
         if len(pts) >= 2:
             obj_axes.append((pts, float(rec.get("width_m", 0.0)) / 2.0 + reach))
 
+    # #1028: a mouth that SLID onto the road's own profile stands its own
+    # depth over its floor (``pipeline/publication.tunnel_mouth_depths``)
+    slid = [(p.to_m(float(r["mouth_ll"][0]), float(r["mouth_ll"][1])), float(r["depth_m"]))
+            for r in p.publication.get("tunnel_mouth_depths") or []]
+
+    def depth_at(pt) -> float:
+        got = [(_dist(pt, xy), d) for xy, d in slid]
+        best = min(got, default=None)
+        return best[1] if best is not None and best[0] <= reach + tn.wall_gap_m else \
+            tn.mouth_depth_m
+
     def on_object(pt) -> bool:
         for pts, half in obj_axes:
             if any(_seg_dist(pt[0], pt[1], pts[k], pts[k + 1]) <= half
@@ -470,7 +481,8 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
         # (09-03b): the cap edge's value at the point nearest the mouth
         # line's centre, interpolated along that edge (the crest follows
         # the DEM ACROSS the cap — SPJC's cap spans 0.5 m of relief)
-        want = zmouth + tn.mouth_depth_m
+        depth = depth_at(mouth)
+        want = zmouth + depth
         best = None
         for w, k in cap:
             n = len(w.xy)
@@ -489,7 +501,7 @@ def tunnel_mouth_canonical(p: Patch) -> list[Row]:
             out.append(row("tunnel_mouth_canonical", ("tunnel_ramp", "retaining_wall"), "mixed",
                            worst, None, None, None, mouth, mouth, low.key, cap[0][0].key,
                            out_of_scope=f"{tid}: mouth wall {best[1]:.2f} vs ramp mouth "
-                                        f"{zmouth:.2f} + {tn.mouth_depth_m}"))
+                                        f"{zmouth:.2f} + {depth}"))
         if len(pieces) > 1:
             out.append(row("tunnel_mouth_canonical", ("retaining_wall",) * 2, "airside",
                            float(len(pieces)), None, None, None, mouth, mouth, low.key, None,

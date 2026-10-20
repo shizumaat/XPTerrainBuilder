@@ -209,3 +209,32 @@ def test_a_road_wider_than_its_drawn_page_is_walled_at_its_lanes(law):
     off = 5.25 + 0.5 * _cut(law)
     assert min(g.distance(Point(300.0 + off, -40.0)) for g in lines) < 0.05
     assert min(g.distance(Point(300.0 - off, -40.0)) for g in lines) < 0.05
+
+
+def test_the_seam_beside_a_road_is_where_a_runway_and_a_taxi_band_meet():
+    """Owner Q53 (1), 2026-10-20: "where the runway band and a taxiway band
+    meet beside a road, the taxiway band's lift yields to the road's own
+    ground" (KLAX 33.945981, -118.436151: the runway 4 / taxiway F seam
+    vertex 7 m along the ring from the cut edge, held 2.44 m over its DEM
+    by taxiway F's floor).  The seam is the vertex on BOTH a runway band
+    face and a taxi band face sharing a band ring edge with a vertex on
+    the road's cut edge; a runway-only neighbour is not."""
+    from types import SimpleNamespace as NS
+
+    from shapely.geometry import box
+
+    from auto_patch_v2.planar.road_yield import BandYield, _seam_beside
+    faces = {0: NS(role="graded_strip", ref="adjacent_ground:runway:4:zone2#17"),
+             1: NS(role="graded_strip", ref="adjacent_ground:taxi:F:zone2#15")}
+    # v0 on the cut edge (x = 0); v1 the seam 7 m along the ring; v2 runway
+    # only; v3 taxi only, beyond the seam
+    xy = {0: (0.0, 0.0), 1: (7.0, 0.0), 2: (0.0, 7.0), 3: (14.0, 0.0)}
+    face_vs = {0: {0, 1, 2}, 1: {1, 3}}
+    edges = [NS(a=0, b=1, left_face=0, right_face=None),
+             NS(a=0, b=2, left_face=0, right_face=None),
+             NS(a=1, b=3, left_face=1, right_face=None)]
+    cut = box(-10.0, -10.0, 0.0, 10.0)
+    y = BandYield(cut, LineString([(-5.0, -10.0), (-5.0, 10.0)]), 4.0,
+                  "runway", 4, None, "06L/24R", True)
+    assert _seam_beside([y], faces, face_vs, edges, xy, 0.35) == {0: frozenset({1})}
+    assert _seam_beside([_dc.replace(y, through=False)], faces, face_vs, edges, xy, 0.35) == {}

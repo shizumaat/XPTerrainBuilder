@@ -391,7 +391,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                    zone_runway_of_ref={r.ref: r.runway_ref for r in arr.regions
                                        if getattr(r, "runway_ref", None)},
                    road_yield=road_yield_records(arr.road_yield, faces, face_vs,
-                                                 vertices_xy, snap_margin_m(law)),
+                                                 vertices_xy, snap_margin_m(law),
+                                                 edge_list),
                    road_cut_outlines=road_cut_outlines(arr.road_yield),
                    road_cut_ground=road_cut_ground(
                        arr.road_yield, [p for p, _r in arr.faces],

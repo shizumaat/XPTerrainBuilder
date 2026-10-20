@@ -39,3 +39,7 @@ class RoadYield:
     code_letter: str | None
     #: a runway band's runway (``ZoneRegion.runway_ref``)
     runway_ref: str | None = None
+    #: THE SEAM BESIDE THE ROAD (owner Q53 (1), 2026-10-20): the vertices
+    #: where a runway band and a taxi band meet beside the cut — the taxi
+    #: band's lift (its floor) yields there (``constraints/zones``)
+    beside: frozenset[int] = frozenset()

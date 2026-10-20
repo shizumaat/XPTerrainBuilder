@@ -129,8 +129,8 @@ def road_cut_pieces(carriageways, envelope, standoff_m: float, extent=None,
     return pieces
 
 
-def road_yield_records(yields, faces, face_vs, vertices_xy, tol_m: float
-                       ) -> tuple[RoadYield, ...]:
+def road_yield_records(yields, faces, face_vs, vertices_xy, tol_m: float,
+                       edges=()) -> tuple[RoadYield, ...]:
     """Per :class:`BandYield`, the :class:`~..model.road_yield.RoadYield`
     record of the vertices standing in its cut (within ``tol_m``: the
     identity snap), keyed by the band it was cut from: the mapped-road
@@ -139,7 +139,7 @@ def road_yield_records(yields, faces, face_vs, vertices_xy, tol_m: float
     road's kerb, never a band vertex holding the lip's floor two metres off
     a road in its own cut (#951 iteration 2, KLAX taxiway F 33.934549,
     -118.396285: a free lip corner at 32.24 m 2.0 m from the kerb at
-    27.97 m)."""
+    27.97 m) — plus the record's ``beside`` set (:func:`_seam_beside`)."""
     if not yields:
         return ()
     from shapely import points
@@ -152,16 +152,60 @@ def road_yield_records(yields, faces, face_vs, vertices_xy, tol_m: float
     if not rib:
         return ()
     tree = STRtree(points([vertices_xy[v] for v in rib]))
+    seam = _seam_beside(yields, faces, face_vs, edges, vertices_xy, tol_m)
     out = []
-    for y in yields:
+    for k, y in enumerate(yields):
         if not y.through:
             continue
         hit = tree.query(y.polygon, predicate="dwithin", distance=tol_m)
         kerb = frozenset(rib[int(i)] for i in hit)
-        if kerb:
+        if kerb or seam.get(k):
             out.append(RoadYield(kerb, y.family, y.code_number, y.code_letter,
-                                 y.runway_ref))
+                                 y.runway_ref, seam.get(k, frozenset())))
     return tuple(out)
+
+
+def _seam_beside(yields, faces, face_vs, edges, vertices_xy, tol_m: float
+                 ) -> dict[int, frozenset[int]]:
+    """Per through-yield index, THE SEAM BESIDE THE ROAD (owner Q53 (1),
+    2026-10-20: "where the runway band and a taxiway band meet beside a
+    road, the taxiway band's lift yields to the road's own ground"): the
+    vertices standing on BOTH a runway band face and a taxi band face that
+    share a band ring edge with a band vertex on the road's cut edge.
+    MEASURED KLAX 33.945981, -118.436151 (#951 round 3): the runway 4 /
+    taxiway F seam vertex held 2.44 m over its DEM by taxiway F's floor,
+    7.07 m along the ring from the cut edge's vertex at its ground."""
+    from shapely import points
+    from shapely.strtree import STRtree
+
+    from ..model.road_yield import is_band_zone_ref
+    fam: dict[int, set[str]] = {}
+    band_faces = {fid for fid, f in faces.items()
+                  if f.role == "graded_strip" and is_band_zone_ref(f.ref)}
+    for fid in band_faces:
+        kind = str(faces[fid].ref).split(":")[1]
+        for v in face_vs.get(fid, ()):
+            fam.setdefault(v, set()).add(kind)
+    if not fam or not edges:
+        return {}
+    nbr: dict[int, set[int]] = {}
+    for e in edges:
+        if e.left_face in band_faces or e.right_face in band_faces:
+            nbr.setdefault(e.a, set()).add(e.b)
+            nbr.setdefault(e.b, set()).add(e.a)
+    ids = sorted(fam)
+    tree = STRtree(points([vertices_xy[v] for v in ids]))
+    out: dict[int, frozenset[int]] = {}
+    for k, y in enumerate(yields):
+        if not y.through:
+            continue
+        edge_vs = {ids[int(i)] for i in tree.query(y.polygon.boundary,
+                                                   predicate="dwithin", distance=tol_m)}
+        got = frozenset(n for v in edge_vs for n in nbr.get(v, ())
+                        if fam.get(n, set()) >= {"runway", "taxi"})
+        if got:
+            out[k] = got
+    return out
 
 
 def _is_zone1_ref(ref) -> bool:

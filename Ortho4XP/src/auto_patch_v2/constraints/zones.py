@@ -588,6 +588,12 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # level beneath the band's grade ("typically they are cut below") and
     # the band leads only where the road would stand above it.
     kerb = planar.band_kerb_vertices(airside_stage_roles(law))
+    # THE SEAM BESIDE A ROAD (owner Q53 (1), 2026-10-20): where a runway
+    # band and a taxi band meet beside a road's cut, the taxi band's lift
+    # (its floor) yields to the ground; its ceiling and the runway's band
+    # stand
+    seam = frozenset(v for y in (getattr(planar, "road_yield", ()) or ())
+                     for v in getattr(y, "beside", ()))
     for v, classes in _with_road_yield(planar, member).items():
         cap_only = v in kerb
         if (v in own_law and not cap_only) or v in wall_vertices:
@@ -669,6 +675,10 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 if rank > 0 or hi is None:
                     continue         # the kerb: the nearest pavement's ceiling alone
                 lo = None
+            elif v in seam and fam != "runway":
+                if hi is None:
+                    continue         # a farther taxi band's floor: yielded
+                lo = None            # the taxi band's lift yields (Q53 (1))
             if blend is None:
                 terms = ((v, 1.0),) + _foot(a, b, t, 1.0)
             else:

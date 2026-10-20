@@ -59,7 +59,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from .ribbon_mint import (_arc_cuts, _mint_spans, _ribbon_ways, _way_intervals,
+from .ribbon_mint import (_Occupied, _arc_cuts, _mint_spans, _ribbon_ways, _way_intervals,
                           bridge_gaps)
 from .rules import Rules
 
@@ -265,6 +265,7 @@ def extend_pad_roads(cl, airport, law: Law, rules: Rules,
         cells.append(Cell(len(cells), role, ref, tuple(part.exterior.coords)[:-1],
                           tuple(tuple(h.coords)[:-1] for h in part.interiors), cn, cl_,
                           role_side(law, role), kind, dict(ev)))
+    occupied = _Occupied(occupied)
     for i in sorted(walked):
         w, line = ways[i]
         spans = bridge_gaps(sorted(walked[i]), 1e-6)
@@ -273,7 +274,7 @@ def extend_pad_roads(cl, airport, law: Law, rules: Rules,
         rep["cells"] += k
         rep["run_m"] += sum(b - a for a, b in spans) if k else 0.0
         if rib is not None:
-            occupied = unary_union([occupied, rib])
+            occupied.add(rib)
     rep["run_m"] = round(rep["run_m"], 1)
     # THE ONE TOUCH WITNESS (09j (2)), read on the new cells only and never
     # holding a hillside terrace (13a (3)), as ``roles`` reads the pad roads

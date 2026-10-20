@@ -398,7 +398,7 @@ class _Occupied:
     def cut(self, g):
         out = g.difference(self.base)
         x0, y0, x1, y1 = g.bounds
-        near = [r for r, b in zip(self.ribs, self.bounds)
+        near = [r for r, b in zip(self.ribs, self.bounds, strict=True)
                 if b[0] <= x1 and b[2] >= x0 and b[1] <= y1 and b[3] >= y0]
         return out.difference(unary_union(near)) if near else out
 

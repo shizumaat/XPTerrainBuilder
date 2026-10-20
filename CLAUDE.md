@@ -31,7 +31,8 @@ and launches a Fable 5.1 reviewer — `subagent_type: "scout"` (read-only),
 prompt carrying `TWO-ROUND-CAP-REVIEW: <issue> <the two failed rounds>` —
 that reviews the two failed rounds and writes a new spec; it NEVER
 implements. A fresh Opus lane then runs the third round from that spec.
-This is the only Fable use that needs no per-launch yes. A Fable lane is never resumed (`SendMessage`) for a new
+This is the only Fable use that needs no per-launch yes. A Fable lane is
+never resumed (`SendMessage`) for a new
 piece of work — each round re-reads its whole context at Fable price; its
 follow-up goes to a fresh Opus lane on its branch. The master reads
 `get_usage` (Weekly · Fable) at session start and before asking for a

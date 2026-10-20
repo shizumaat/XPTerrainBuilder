@@ -112,6 +112,7 @@ from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m,
                         is_held_step, is_touching, part_evidence,
                         touch_distances)
 from .rules import Rules, load_rules
+from .shoulder_ribbon import ribbon_half_width_m
 from .sources import (SourceRecord, apron_union, classify_sources,
                       object_body_cuts)
 from ..geom.parts import line_parts
@@ -219,6 +220,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     rw_edges = [(rw, poly, poly.exterior.buffer(rules.cells.on_tol_m,
                                                 cap_style="flat"))
                 for rw, poly in ev.runway_polys]
+    slab_of = {rw.id: poly for rw, poly in ev.runway_polys}
     src_of = {r.id: r for r in sources}
     cut_ids = list(cut_polys)
     cut_tree = STRtree([cut_polys[i] for i in cut_ids]) if cut_ids else None
@@ -351,7 +353,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
             # v2lemdstruct2 r5 §2).
             band = (shoulder_band(
                         sh[0], law,
-                        end_cap=rules.corridor.runway_shoulder_band_end_cap)
+                        end_cap=rules.corridor.runway_shoulder_band_end_cap,
+                        cap_m=ribbon_half_width_m(
+                            face, sh[0], slab_of[sh[0].id], rules.cells.on_tol_m,
+                            rules.corridor.runway_shoulder_max_depth_m,
+                            rules.corridor.runway_shoulder_ribbon_factor))
                     if rules.corridor.runway_shoulder_band else None)
             if band is None:
                 shoulders.append((face, sh[0], sh[1],
@@ -1425,7 +1431,8 @@ def _runway_shoulder(face: Polygon, rw_edges, rules: Rules):
     return best
 
 
-def shoulder_band(rw, law: Law, *, end_cap: bool = True):
+def shoulder_band(rw, law: Law, *, end_cap: bool = True,
+                  cap_m: float | None = None):
     """§40 (5) (1) THE RUNWAY'S GRADED STRIP AS A BAND about its
     CENTRELINE (Fable 2026-09-15; owner RULINGS 2026-09-15az) — the
     region a pavement cell must lie inside to be the runway's, or
@@ -1457,6 +1464,10 @@ def shoulder_band(rw, law: Law, *, end_cap: bool = True):
     hw = zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter, status)
     if not hw or hw <= 0.0:
         return None
+    if cap_m is not None:
+        # THE RIBBON'S OWN DEPTH (``shoulder_ribbon``, issue #1100): a
+        # taxiway leaving the shoulder ribbon is not the shoulder
+        hw = min(hw, cap_m)
     a, b = rw.ends[0].xy, rw.ends[1].xy
     if a == b:
         return None

@@ -44,6 +44,7 @@ class Corridor:
     runway_shoulder_max_wrap: float
     runway_shoulder_band: bool
     runway_shoulder_band_end_cap: bool
+    runway_shoulder_ribbon_factor: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

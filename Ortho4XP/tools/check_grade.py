@@ -6614,15 +6614,41 @@ def _segments_cross(p, q, r, s) -> bool:
 
 
 def _terrace_joints_to_m(terrace_joints_ll, ll_to_m):
-    """Sidecar rows → ``[(points_m, step_m), …]`` in the audit frame."""
+    """Sidecar rows → ``[(points_m, step_m), …]`` in the audit frame; a
+    pack wall's step is :func:`_declared_joint_step`'s."""
     out = []
     for row in (terrace_joints_ll or []):
         pts = row.get("points") or []
         if len(pts) < 2:
             continue
         out.append(([ll_to_m(float(la), float(lo)) for (la, lo) in pts],
-                    float(row.get("step_m") or 0.0)))
+                    _declared_joint_step(row)))
     return out
+
+
+#: the patch writes elevations to the centimetre — the rounding the
+#: emitter adds to a retaining wall's declared height
+#: (``pipeline/publication._EMIT_Z_ROUND_M``, quoted, never imported)
+_WALL_EMIT_ROUND_M = 0.01
+
+
+def _declared_joint_step(row) -> float:
+    """The step a declared joint forgives.  A PACK WALL (``wall_terrace``,
+    not a walled tunnel mouth) declares its OWN HEIGHT along its whole
+    outline (owner RULINGS 2026-10-19ao, #507: "a declared pack wall may
+    bound an airside apron step at its own height ... declared at wall
+    height in the census only") — never the emitter's ``step_m``, which
+    reads the step at the wall's lot pairings only (one pairing at HECA's
+    ``metal_strip_2.obj`` comp12: 1.60 m declared under a 3.10 m wall).
+    The census-only reading: the sidecar and the geometry are unchanged.
+    Every other joint declares its sidecar ``step_m``."""
+    step = float(row.get("step_m") or 0.0)
+    if row.get("kind") != WALL_TERRACE_JOINT_KIND or _is_mouth_wall_joint(row):
+        return step
+    h = row.get("height_m")
+    if h is None:
+        return step
+    return max(step, round(float(h) + _WALL_EMIT_ROUND_M, 4))
 
 
 #: ``kind`` of a declared joint that is a below-grade TRENCH WALL, not a

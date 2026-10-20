@@ -204,7 +204,7 @@ def test_the_strip_sides_carry_matching_stations(tmp_path, law):
     ring = cl.cells[-1].ring
     sides = [sorted(round(y, 1) for x, y in ring if (x < 4.0) == west) for west in (True, False)]
     assert sides[0] == sides[1] and len(sides[0]) > 2
-    assert max(b - a for a, b in zip(sides[0], sides[0][1:])) <= STATION_M + 0.5
+    assert max(b - a for a, b in zip(sides[0][:-1], sides[0][1:], strict=True)) <= STATION_M + 0.5
 
 
 class _Tilted:

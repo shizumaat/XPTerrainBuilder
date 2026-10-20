@@ -698,6 +698,7 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                           else _eat_rects(planar, cs)
                           + _eat_report_rects(planar, law, airport)),
             "tunnel_objects": tunnel_objects(planar, airport),
+            "tunnel_mouth_depths": tunnel_mouth_depths(planar, airport),
             # THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i):
             # one record per channel the map carries — the FLOOR the
             # record declares per station and the CREST the design
@@ -1137,6 +1138,23 @@ def pad_terrace_joints(planar: PlanarMap, law: Law,
                         "kind": "pad_terrace", "faces": [], "shapes": [pad_ref, other],
                         "gap": True, "roles": [], "pairs": len(pairs),
                         "length_m": 0.0})
+    return out
+
+
+def tunnel_mouth_depths(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
+    """THE SLID MOUTHS' OWN DEPTHS (#1028, ``planar/structure_mouth``): one
+    record per mapped bore whose mouth slid onto the road's own profile —
+    its id, the mouth point (lat/lon) and the depth its mouth wall stands
+    over its floor — so ``verify/structures.tunnel_mouth_canonical`` reads
+    that depth and not ``tunnel.mouth_depth_m``.  Empty where no mouth slid."""
+    to_ll = airport.frame.transformers()[1]
+    out: list[dict[str, _t.Any]] = []
+    for tn in planar.structures:
+        if tn.source != "osm" or tn.depth_m <= 0.0 or not tn.axis:
+            continue
+        la, lo = to_ll(*tn.axis[0])
+        out.append({"id": tn.id, "mouth_ll": [round(la, 8), round(lo, 8)],
+                    "depth_m": round(float(tn.depth_m), 3)})
     return out
 
 

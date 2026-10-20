@@ -63,7 +63,9 @@ Tile-coordinate scripts (switch on ``lat``):
 ``STUB_WORKER_PHASE_BARRIER=N`` makes the solve / conversion phases wait
 for N workers to reach them before their start marker is written, so a
 concurrency twin measures admission width and not this machine's process
-spawn stagger (see ``_await_phase_barrier``).
+spawn stagger (see ``_await_phase_barrier``).  A worker whose barrier
+assembled writes ``phaseassembled_<phase>_<lat>_<lon>``: N such markers
+prove N workers were inside the phase at once (#729).
 
 ``STUB_WORKER_CONSOLE_LINE`` is written to stderr at start as UTF-8
 bytes — a real worker's pinned console — so a test can read what the
@@ -134,6 +136,13 @@ _PHASE_BARRIER_SECONDS = float(
     os.environ.get("STUB_WORKER_PHASE_BARRIER_SECONDS", "20.0"))
 _PHASE_BARRIER_POLL = 0.01
 _PHASE_BARRIER_PREFIX = "phasearrival"
+# Written by a worker whose barrier ASSEMBLED.  It is the concurrency
+# proof itself (#729): a worker leaves the barrier only after seeing N
+# arrivals, and arrival happens inside the admitted phase, so N workers
+# were in the phase at once at that instant -- a fact no amount of
+# post-barrier preemption on a loaded runner can undo, unlike the
+# overlap of the start/end intervals sampled after it.
+_PHASE_ASSEMBLED_PREFIX = "phaseassembled"
 
 _cancel_flag = threading.Event()
 _build_queue: "queue.Queue" = queue.Queue()
@@ -194,6 +203,8 @@ def _await_phase_barrier(phase, lat, lon):
         except OSError:
             return True
         if arrived >= _PHASE_BARRIER_PARTY:
+            _write_marker("%s_%s" % (_PHASE_ASSEMBLED_PREFIX, phase),
+                          lat, lon)
             return True
         if time.time() >= deadline:
             _chatter("stub worker phase barrier", phase, "timed out with",

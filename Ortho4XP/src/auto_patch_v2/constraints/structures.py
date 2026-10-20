@@ -563,10 +563,13 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 # ``[design] hard_rulings`` — makes them CONSTRAINTS of the
                 # active set.  The value is unchanged: z_mouth − z_cap =
                 # −mouth_depth_m.
+                # A SLID mouth's depth is its own (#1028): the road's
+                # profile carried it up from the mapped portal
+                # (``planar/structure_mouth``; ``Tunnel.depth_m``)
+                depth = tn.depth_m if tn.depth_m > 0.0 else tn_law.mouth_depth_m
                 terms = ((group[0], 1.0), (cap_reps[0], -1.0))
-                rows.append(Linear(terms, None, -tn_law.mouth_depth_m, src_mouth))
-                rows.append(Linear(tuple((v, -c) for v, c in terms), None,
-                                   tn_law.mouth_depth_m, src_mouth))
+                rows.append(Linear(terms, None, -depth, src_mouth))
+                rows.append(Linear(tuple((v, -c) for v, c in terms), None, depth, src_mouth))
             else:
                 pin(group[0], tn.mouth_z, src_mouth)
         # ── decks ───────────────────────────────────────────────────

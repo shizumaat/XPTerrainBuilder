@@ -142,7 +142,8 @@ def test_the_twin_bites(tmp_path):
     fails the check — at module level and inside a function."""
     src = _toy_tree(tmp_path)
     entries = ("auto_patch_v2.pipeline.entry",)
-    declared = ("auto_patch_v2.pipeline.entry", "auto_patch_v2.pipeline.helper")
+    declared = ("auto_patch_v2", "auto_patch_v2.pipeline",
+                "auto_patch_v2.pipeline.entry", "auto_patch_v2.pipeline.helper")
     prefixes = ("auto_patch_v2",)
     assert _drift(src, entries, declared, prefixes) == ([], [])
     (src / "auto_patch_v2" / "pipeline" / "entry.py").write_text(
@@ -158,6 +159,33 @@ def test_the_twin_bites(tmp_path):
                   if m != "auto_patch_v2.law.tables")
     assert _drift(SRC, SCODE.ENTRY_MODULES["flat_site"], short,
                   SCODE.CLOSURE_PREFIXES)[0] == ["auto_patch_v2.law.tables"]
+
+
+def test_an_edit_to_a_parent_package_init_moves_the_key(tmp_path):
+    """#993: ``a.b.c``'s import runs ``a/__init__`` and ``a/b/__init__``,
+    so both are in the closure and an edit to either moves the digest.
+    What a parent ``__init__`` imports is followed only when the closure
+    imports the package itself (``from pkg import name``)."""
+    src = _toy_tree(tmp_path)
+    pipe = src / "auto_patch_v2" / "pipeline"
+    (pipe / "__init__.py").write_text("from . import later\n", encoding="utf-8",
+                                      newline="\n")
+    prefixes = ("auto_patch_v2",)
+    got = CLOSURE.closure(str(src), ("auto_patch_v2.pipeline.entry",), prefixes)
+    assert got == ("auto_patch_v2", "auto_patch_v2.pipeline",
+                   "auto_patch_v2.pipeline.entry", "auto_patch_v2.pipeline.helper")
+    before = CLOSURE.modules_digest(str(src), got)
+    (pipe / "__init__.py").write_text("from . import later\nZ = 3\n",
+                                      encoding="utf-8", newline="\n")
+    assert CLOSURE.modules_digest(str(src), got) != before
+    # the package imported itself: its __init__'s imports are followed
+    (pipe / "entry.py").write_text("from . import helper\nfrom auto_patch_v2.pipeline "
+                                   "import Z\n", encoding="utf-8", newline="\n")
+    assert "auto_patch_v2.pipeline.later" in CLOSURE.closure(
+        str(src), ("auto_patch_v2.pipeline.entry",), prefixes)
+    # a parent outside the prefixes is not keyed
+    assert CLOSURE.parent_packages(str(src), "auto_patch_v2.pipeline.entry",
+                                   ("other",)) == set()
 
 
 _FREEZE = r"""

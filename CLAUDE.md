@@ -59,7 +59,13 @@ in `docs/cloud-briefs/<date>/` and the trigger prompt just points at the
 file) — report ONLY to the master: a local lane through its final report, a
 cloud lane through its PR body. Lanes NEVER comment on issues, NEVER merge,
 NEVER create a routine/trigger or follow-up, NEVER notify the owner. The
-master merges one PR at a time with a sweep after each, posts the one
+master lands PRs in batches (owner standing 2026-10-20T00:34:25Z: "If we
+did say 10 at a time, we would only need to revert and test one at a time
+if something failed"): it merges up to ~10 ready PRs onto one integration
+branch from main and runs CI and the landing check ONCE on the batch (all
+of `tests/auto_patch_v2`, the closure and registry twins, `test_v1_retired`,
+and each PR's own site gate on one merged build). Green lands the batch;
+red is bisected and only the PR that broke it is dropped. It posts the one
 evidence comment per issue, and messages the owner once per decision or
 ready build (PushNotification when Remote Control is on). Handoff between
 master sessions is the memory checkpoint + `Ortho4XP/docs/RULINGS.md` + the

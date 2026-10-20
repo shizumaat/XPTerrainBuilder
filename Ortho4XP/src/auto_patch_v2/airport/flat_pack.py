@@ -1,5 +1,5 @@
 """THE FLAT-PACK WITNESS (owner direction 2026-10-20 17:44Z; answers
-59-66, 18:14Z; spec ``docs/specs/flat-pack-terracing-spec.md`` §1) — did
+59-66, RULINGS 2026-10-20w-ad; spec ``docs/specs/flat-pack-terracing-spec.md`` §1) — did
 the pack's author build for a FLAT airport?  A pure MEASUREMENT at load over
 the pack partition (``Airport.partition``) and the DEM; PHASE 1 only
 REPORTS it (``law/flat_pack.toml`` ``terrace = false``): nothing grades by
@@ -9,7 +9,7 @@ X-Plane draws an OBJ from its origin: the object's ``y = 0`` is the terrain
 at its placement point, so a grounded foot is DRAWN at ``DEM(origin) +
 AGL + y`` whatever the ground under the foot is.  Two witnesses:
 
-* **seats** (answer 60, "Greater than 90% of objects would all be at the
+* **seats** (RULINGS 2026-10-20x, "Greater than 90% of objects would all be at the
   same level"): per grounded OBJECT (a partition member with grounded
   feet) its drawn level is the median of its grounded feet's drawn
   heights; the LEVEL SHARE is the largest share of objects whose levels
@@ -20,7 +20,7 @@ AGL + y`` whatever the ground under the foot is.  Two witnesses:
   (``flat_site.detector.relief_floor_m``; a lidar or unknown class reads
   the fine floor).  Without the relief gate a pack on a genuinely flat
   site would read flat-assumed, and nothing about it would be wrong.
-* **flatten_flag** (answer 65): the airport block's ``1302 flatten 1``
+* **flatten_flag** (RULINGS 2026-10-20ac): the airport block's ``1302 flatten 1``
   (``SceneryPack.flatten_declared``) — the author asked X-Plane to
   flatten the airport.
 
@@ -29,7 +29,7 @@ A grounded foot is a non-scatter, non-line part's foot within
 (``base_profile['feet_y']``, else its lowest foot).  ``verdict`` =
 ``flat_assumed`` when either witness holds, ``no_data`` with fewer than
 ``[detector] min_members`` grounded objects and no flag, else
-``follows_terrain``.  Terracing needs MORE than this verdict (answer 59:
+``follows_terrain``.  Terracing needs MORE than this verdict (RULINGS 2026-10-20w:
 failure evidence — buildings that cannot be seated, steep paved grades);
 that is phase 2's, not this module's.
 

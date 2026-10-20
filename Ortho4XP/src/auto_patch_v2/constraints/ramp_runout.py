@@ -39,9 +39,14 @@ RUNOUT_RULING = ("roads.ramp_runout ramp foot to raw DEM "
 
 
 def runout_rows(planar: PlanarMap, law: Law, cs: ConstraintSet,
-                levels: _t.Mapping[int, float] | None = None
+                levels: _t.Mapping[int, float] | None = None, dem=None
                 ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
-    """``cs`` with the run-out profile rows added (module docstring)."""
+    """``cs`` with the run-out profile rows added (module docstring).
+    ``dem`` (the airport's, ``.z(x, y)``): the ground the profile reads is
+    the strip's AXIS at the vertex's station, never the vertex's own — the
+    road's cross-fall cap holds the two sides together, and a target off
+    each side's ground contests it (MEASURED, KCLT #1093: an 11 % cross
+    slope under the strip's end; HECA #711 the same for the landing's)."""
     from ..law.tables import is_rigid_role
     runs = getattr(planar, "ramp_runouts", None) or {}
     rep = {"faces": 0, "rows": 0}
@@ -69,6 +74,8 @@ def runout_rows(planar: PlanarMap, law: Law, cs: ConstraintSet,
             seen.add(v)
             x, y = planar.vertices[v].xy
             s = max(0.0, (x - x0) * dx + (y - y0) * dy)
+            if dem is not None:
+                dv = dem.z(x0 + dx * s, y0 + dy * s)
             t = z0 + ramp_delta(float(dv), z0, d0, g, s)
             rows.append(Linear(((v, 1.0),), t, t,
                                Source(GEN, RUNOUT_RULING, (f"vertex:{v}", str(f.ref)))))
@@ -240,7 +247,12 @@ def runout_exempt(rows: list, planar: PlanarMap) -> tuple[list, int]:
     road-grade profile.  MEASURED (HECA, ``small_roads:-3964`` / ``-19455``
     inside ``runout:building4/landing3``): 8 ramp-ceiling rows relaxed by
     6.4-12.5 m against the strip.  ``(rows, withdrawn)``."""
-    runouts = planar.registries.landing_runouts
+    # a ramp foot's run-out (``runout_rows``, #1093) the same: its own
+    # profile rows are the road-grade profile of every vertex it holds —
+    # MEASURED (KCLT, ``runout:1``): the §37 target off the DEM held the
+    # strip's mid vertex 1.9 m under its run-out profile
+    runouts = {**planar.registries.landing_runouts,
+               **(getattr(planar, "ramp_runouts", None) or {})}
     from .road_ramp import GEN as _ROAD_RAMP
     if not runouts:
         return rows, 0

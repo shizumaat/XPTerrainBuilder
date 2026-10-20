@@ -316,7 +316,8 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     from ..constraints.pad_ramp import pad_ramp_rewrite
     cs, pad_ramp = pad_ramp_rewrite(pm, law, cs, fixed)
     from ..constraints.ramp_runout import runout_rows
-    cs, pad_ramp["runout_rows"] = runout_rows(pm, law, cs, fixed)
+    cs, pad_ramp["runout_rows"] = runout_rows(pm, law, cs, fixed,
+                                              dem=getattr(airport, "dem", None))
     pad_joins = pad_ramp.pop("joins")
     # 13d "road ramps first": where no cap-grade ramp fits between the pad
     # and the road's other standing end — the remainder.  13f: ONLY A

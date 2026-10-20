@@ -196,7 +196,47 @@ def test_the_runout_rows_lay_the_design_grade_to_the_dem(law):
     assert all(r.lo == pytest.approx(10.0) for r in rows)
 
 
+def test_the_strip_sides_carry_matching_stations(tmp_path, law):
+    # #1093: a profile and its cross-fall are only what the ring's vertices
+    # hold — both sides take a vertex at the same stations, STATION_M apart
+    from auto_patch_v2.classify.ramp_runout import STATION_M
+    cl, rep = _mint(tmp_path, law)
+    ring = cl.cells[-1].ring
+    sides = [sorted(round(y, 1) for x, y in ring if (x < 4.0) == west) for west in (True, False)]
+    assert sides[0] == sides[1] and len(sides[0]) > 2
+    assert max(b - a for a, b in zip(sides[0], sides[0][1:])) <= STATION_M + 0.5
 
+
+class _Tilted:
+    """A ground falling 10 % across the strip (east up)."""
+
+    def z(self, x, y):
+        return 10.0 + 0.1 * (x - 4.0)
+
+
+def test_the_runout_rows_read_the_axis_ground(law):
+    # #1093: the two sides at one station take ONE target, off the axis's
+    # ground — never each side's own, which the cross-fall cap contests
+    pm = _Planar([(0, -3), (8, -3), (8, -43), (0, -43)], 10.0)
+    pm.vertices[2].dem_z, pm.vertices[3].dem_z = 10.4, 9.6
+    cs, _rep = runout_rows(pm, law, ConstraintSet(), levels={0: 14.0, 1: 14.0},
+                           dem=_Tilted())
+    lo = {r.terms[0][0]: r.lo for r in cs.linears if r.source.ruling == RUNOUT_RULING}
+    assert lo[2] == pytest.approx(lo[3])
+
+
+def test_a_road_ramp_row_on_a_ramp_foot_runout_is_withdrawn(law):
+    # #1093: the run-out's own rows are its vertices' road-grade profile;
+    # the §37 target off the DEM held KCLT's strip 1.9 m under it
+    from auto_patch_v2.constraints import road_ramp
+    from auto_patch_v2.constraints.ramp_runout import runout_exempt
+    from auto_patch_v2.model.constraints import Linear, Source
+    pm = _Planar([(0, -3), (8, -3), (8, -83), (0, -83)], 10.0)
+    pm.registries = types.SimpleNamespace(landing_runouts={})
+    on = Linear(((2, 1.0),), 9.0, 9.0, Source(road_ramp.GEN, road_ramp.RULING, ("vertex:2",)))
+    off = Linear(((7, 1.0),), 9.0, 9.0, Source(road_ramp.GEN, road_ramp.RULING, ("vertex:7",)))
+    rows, n = runout_exempt([on, off], pm)
+    assert n == 1 and rows == [off]
 
 
 def test_a_landing_foot_keeps_its_collar(tmp_path, law):

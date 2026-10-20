@@ -27,7 +27,9 @@ if _t.TYPE_CHECKING:  # pragma: no cover
 
 __all__ = ["ReferenceCode", "APPROACH_CLASSES", "VISUAL", "NPA", "APV", "PA",
            "runway_code_number", "runway_code_letter", "taxi_code_letter", "is_instrument",
-           "is_precision", "stronger_class", "raoa_class", "raoa_applies"]
+           "is_precision", "stronger_class", "raoa_class", "raoa_applies",
+           "NON_INSTRUMENT", "INSTRUMENT", "PRECISION", "status_of_classes",
+           "runway_status", "status_by_ref", "ref_status"]
 
 #: An end's APPROACH CLASS, weakest first (spec §3.4; RULINGS 15m (2), 15n):
 #: no approach, non-precision, approach with vertical guidance (CIFP
@@ -37,6 +39,10 @@ APPROACH_CLASSES: tuple[str, ...] = (VISUAL, NPA, APV, PA)
 #: The classes the RAOA binds before (Annex 14 §3.8.1: precision approach
 #: runways only — audit row 8).
 _RAOA_CLASSES = frozenset((PA,))
+#: A RUNWAY's INSTRUMENT STATUS, the key of every law table the standard
+#: states by status (#811; :func:`status_of_classes`).  ``True`` / ``False``
+#: read as 1 / 0, the instrument flag before the precision step.
+NON_INSTRUMENT, INSTRUMENT, PRECISION = 0, 1, 2
 
 
 @_dc.dataclass(frozen=True)
@@ -122,6 +128,46 @@ def is_instrument(cls: str | None) -> bool:
 def is_precision(cls: str | None) -> bool:
     """A precision approach end (RULINGS 2026-10-15m (2))."""
     return str(cls) == PA
+
+
+def status_of_classes(classes: _t.Iterable[str | None], instrument: bool = False) -> int:
+    """THE RUNWAY'S INSTRUMENT STATUS from its ends' approach classes
+    (#811; owner RULINGS 2026-10-15k): :data:`PRECISION` where an end is
+    precision, :data:`INSTRUMENT` where an end has any approach (or the
+    caller's ``instrument`` flag says so), else :data:`NON_INSTRUMENT`.
+    The law tables stated by status read it (``tables._by_status``); a
+    ``bool`` instrument flag is the same number (``True`` = 1)."""
+    status = INSTRUMENT if instrument else NON_INSTRUMENT
+    for c in classes:
+        if is_precision(c):
+            return PRECISION
+        if is_instrument(c):
+            status = INSTRUMENT
+    return status
+
+
+def runway_status(rw) -> int:
+    """:func:`status_of_classes` of a ``model.airport.Runway`` — its ends'
+    ``approach`` and its stamped ``instrument`` flag."""
+    return status_of_classes((getattr(e, "approach", None)
+                              for e in getattr(rw, "ends", ()) or ()),
+                             bool(getattr(rw, "instrument", False)))
+
+
+def status_by_ref(runways) -> dict[str, int]:
+    """``{runway id: status}`` for a reader that meets a runway by its ref
+    (a cell, a face); read it through :func:`ref_status`."""
+    return {str(rw.id): runway_status(rw) for rw in runways or ()}
+
+
+def ref_status(status_of: _t.Mapping[str, int] | None, ref: str | None) -> int:
+    """The status of the runway ``ref`` names; a crossing piece (``a+b``)
+    is pavement of both runways and reads the stronger.  A ref the map
+    does not list reads non-instrument."""
+    if not status_of or ref is None:
+        return NON_INSTRUMENT
+    return max((int(status_of.get(r, NON_INSTRUMENT)) for r in str(ref).split("+")),
+               default=NON_INSTRUMENT)
 
 
 def raoa_class(cls: str | None) -> bool:

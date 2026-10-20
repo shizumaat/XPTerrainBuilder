@@ -200,7 +200,8 @@ def header_facts(path: str) -> tuple[tuple[str, int] | None, str]:
     """``((layer group, offset) | None, draped texture)`` read from the
     file HEADER — the bytes before the first geometry line.  This is the
     whole pre-screen: a resource with no pavement draped layer group is
-    never parsed."""
+    never parsed.  A header with a draped texture and no group has its
+    command section read for the group (:func:`_command_layer_group`)."""
     try:
         with open(path, "rb") as fh:
             head = fh.read(_HEADER_BYTES)
@@ -216,14 +217,43 @@ def header_facts(path: str) -> tuple[tuple[str, int] | None, str]:
         if kw in _GEOMETRY_KEYWORDS:
             break
         if kw == b"ATTR_layer_group_draped" and len(toks) >= 2:
-            try:
-                off = int(toks[2]) if len(toks) >= 3 else 0
-            except ValueError:
-                off = 0
-            group = (toks[1].decode("ascii", "replace").lower(), off)
+            group = _layer_group(toks)
         elif kw == b"TEXTURE_DRAPED" and len(toks) >= 2:
             texture = toks[1].decode("utf-8", "replace")
+    if group is None and texture:
+        group = _command_layer_group(path)
     return group, texture
+
+
+def _layer_group(toks: list[bytes]) -> tuple[str, int]:
+    """``(group, offset)`` of one ``ATTR_layer_group_draped`` line."""
+    try:
+        off = int(toks[2]) if len(toks) >= 3 else 0
+    except ValueError:
+        off = 0
+    return toks[1].decode("ascii", "replace").lower(), off
+
+
+def _command_layer_group(path: str) -> tuple[str, int] | None:
+    """The FIRST ``ATTR_layer_group_draped`` of the COMMAND section, for a
+    file whose header declares a draped texture but no draped layer group
+    (issue #1100).  FS2XPlane conversions write the draped state after the
+    index table (``ATTR_LOD_draped`` / ``ATTR_draped`` /
+    ``ATTR_layer_group_draped taxiways +1`` / ``TRIS``) and X-Plane honours
+    it there: LPHRx ``lphr_solowiz_fs9-lphr_asphalt.obj`` is the whole
+    apron and its taxiways, 135,693 m2, refused as "no draped layer group"
+    by the header-only read.  Only draped-texture files are read past the
+    header, so the screen's cost is unchanged for every other resource."""
+    try:
+        with open(path, "rb") as fh:
+            for raw in fh:
+                if raw.startswith(b"ATTR_layer_group_draped"):
+                    toks = raw.split()
+                    if len(toks) >= 2:
+                        return _layer_group(toks)
+    except OSError:
+        return None
+    return None
 
 
 def draped_footprint(geom: _obj8.ObjGeometry, y_tol_m: float):

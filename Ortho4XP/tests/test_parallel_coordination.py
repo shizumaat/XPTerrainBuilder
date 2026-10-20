@@ -937,6 +937,24 @@ def _phase_interval(tmp_path, tile, kind_start, kind_end):
     return float(start.read_text(encoding="utf-8")), float(end.read_text(encoding="utf-8"))
 
 
+def _phase_assembled(tmp_path, tiles, phase):
+    """Tiles whose stub-worker barrier for ``phase`` ASSEMBLED.
+
+    The concurrency proof for a full-width twin (#729).  A worker writes
+    its arrival inside the admitted phase and leaves only after seeing
+    the whole party, so an assembled barrier means that many workers were
+    in the phase AT ONCE.  The overlap of the start/end intervals written
+    after the barrier is not that proof: on a loaded runner (more
+    processor burners than free cores) one worker can be starved until
+    another's phase has ended -- windows-latest read 3 of 4 with the
+    scheduler behaving perfectly, 1 ms apart.  A scheduler admitting
+    fewer than the party still fails: the missing worker never arrives
+    and every barrier times out unassembled."""
+    return [tile for tile in tiles
+            if (tmp_path / ("phaseassembled_%s_%d_%d"
+                            % (phase, tile[0], tile[1]))).exists()]
+
+
 def test_auto_patch_solves_run_at_full_width(
     monkeypatch, tmp_path, stub_worker_command, collector
 ):
@@ -954,18 +972,18 @@ def test_auto_patch_solves_run_at_full_width(
     tiles = [(63, -100), (63, -101), (63, -102), (63, -103)]
     result = _run_build(session, collector, tiles, slots=4)
     assert (result.done_count, result.error_count) == (4, 0)
-    solves = [
+    for tile in tiles:                       # every solve ran to its end
         _phase_interval(tmp_path, tile, "solvestart", "solveend")
-        for tile in tiles
-    ]
     fetches = [
         (_step_interval(tmp_path, tile, "vector")[0],
          float((tmp_path / ("fetchend_%d_%d" % tile)).read_text(encoding="utf-8")))
         for tile in tiles
     ]
-    assert _max_concurrency(solves) == 4, (
-        "the auto-patch solve must run at full slot width, saw %d"
-        % _max_concurrency(solves))
+    assembled = _phase_assembled(tmp_path, tiles, "solve")
+    assert assembled == tiles, (
+        "the auto-patch solve must run at full slot width: four workers"
+        " in the solve at once, but only %s saw the party assemble"
+        % assembled)
     assert _max_concurrency(fetches) <= 2, (
         "remote fetch concurrency must be unchanged, saw %d"
         % _max_concurrency(fetches))
@@ -980,6 +998,12 @@ def test_auto_patch_solves_serialise_without_the_split(
     monkeypatch.setenv("STUB_WORKER_MARK_DIR", str(tmp_path))
     monkeypatch.setenv("O4_OSM_CLASS_LIMIT", "2")
     monkeypatch.setattr(parallel, "VECTOR_SOLVE_CLASS", "osm")
+    # The barrier proof of the AFTER arm must fail here: the first two
+    # solves hold the osm tokens while they wait, so tiles three and four
+    # arrive only after those two gave up -- a party of four never stands
+    # in the solve at once, and the first two never see it assemble.
+    monkeypatch.setenv("STUB_WORKER_PHASE_BARRIER", "4")
+    monkeypatch.setenv("STUB_WORKER_PHASE_BARRIER_SECONDS", "0.5")
     session = EngineSession()
     tiles = [(63, -100), (63, -101), (63, -102), (63, -103)]
     result = _run_build(session, collector, tiles, slots=4)
@@ -991,6 +1015,7 @@ def test_auto_patch_solves_serialise_without_the_split(
     assert _max_concurrency(solves) <= 2, (
         "the osm cap throttled the solve before the split, saw %d"
         % _max_concurrency(solves))
+    assert len(_phase_assembled(tmp_path, tiles, "solve")) <= 2
 
 
 def test_imagery_conversion_tails_run_at_full_width(
@@ -1025,18 +1050,18 @@ def test_imagery_conversion_tails_run_at_full_width(
     result = _run_build(session, collector, tiles, slots=6, timeout=60.0,
                         do_imagery=True)
     assert (result.done_count, result.error_count) == (6, 0)
-    converts = [
+    for tile in tiles:                       # every tail ran to its end
         _phase_interval(tmp_path, tile, "convertstart", "convertend")
-        for tile in tiles
-    ]
     downloads = [
         (_step_interval(tmp_path, tile, "imagery")[0],
          float((tmp_path / ("downloadend_%d_%d" % tile)).read_text(encoding="utf-8")))
         for tile in tiles
     ]
-    assert _max_concurrency(converts) == 6, (
-        "the DDS conversion tail must run at full slot width, saw %d"
-        % _max_concurrency(converts))
+    assembled = _phase_assembled(tmp_path, tiles, "convert")
+    assert assembled == tiles, (
+        "the DDS conversion tail must run at full slot width: six workers"
+        " in the tail at once, but only %s saw the party assemble"
+        % assembled)
     assert _max_concurrency(downloads) <= 4, (
         "imagery download concurrency must stay within the class cap,"
         " saw %d" % _max_concurrency(downloads))
@@ -1084,13 +1109,12 @@ def test_cached_tiles_reach_full_width_past_the_fetch_cap(
     session = EngineSession()
     result = _run_build(session, collector, tiles, slots=6, timeout=60.0)
     assert (result.done_count, result.error_count) == (6, 0)
-    solves = [
+    for tile in tiles:                       # every solve ran to its end
         _phase_interval(tmp_path, tile, "solvestart", "solveend")
-        for tile in tiles
-    ]
-    assert _max_concurrency(solves) == 6, (
-        "cached tiles must reach full slot width, saw %d"
-        % _max_concurrency(solves))
+    assembled = _phase_assembled(tmp_path, tiles, "solve")
+    assert assembled == tiles, (
+        "cached tiles must reach full slot width: six workers in the solve"
+        " at once, but only %s saw the party assemble" % assembled)
     # And the vector steps themselves overlapped six ways, which the
     # 4-tile fetch cap would have forbidden had they taken tokens.
     vectors = [_step_interval(tmp_path, tile, "vector") for tile in tiles]
@@ -1439,20 +1463,27 @@ def _barrier_module(monkeypatch, tmp_path, party, seconds=1.0):
 
 def test_the_phase_barrier_releases_when_the_party_assembles(
         monkeypatch, tmp_path):
-    stub = _barrier_module(monkeypatch, tmp_path, party=3)
-    started = time.time()
+    # Released by ARRIVAL, not by the deadline: the barrier's own answer
+    # (True = assembled, False = deadline), never a wall-clock bar -- a
+    # loaded runner started the three threads 1.14 s late against a
+    # 1.0 s bar (#729).  The deadline is long so a slow start still
+    # assembles; a barrier that released on the deadline answers False.
+    stub = _barrier_module(monkeypatch, tmp_path, party=3, seconds=30.0)
+    outcomes = []
     threads = [
-        threading.Thread(target=stub._await_phase_barrier,
-                         args=("solve", 63, -100 - index))
+        threading.Thread(
+            target=lambda n: outcomes.append(
+                stub._await_phase_barrier("solve", 63, -100 - n)),
+            args=(index,))
         for index in range(3)
     ]
     for thread in threads:
         thread.start()
     for thread in threads:
-        thread.join(timeout=10.0)
+        thread.join(timeout=60.0)
     assert not any(t.is_alive() for t in threads), "the barrier never released"
-    # Released by ARRIVAL, not by the 1.0 s deadline.
-    assert time.time() - started < 1.0
+    assert outcomes == [True, True, True], outcomes
+    assert len(list(tmp_path.glob("phaseassembled_solve_*"))) == 3
 
 
 def test_the_phase_barrier_does_not_wait_forever_on_a_short_party(

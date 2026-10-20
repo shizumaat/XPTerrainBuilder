@@ -19,7 +19,8 @@ from auto_patch_v2.planar.low_level import plan_up
 from shapely.geometry import box
 
 LAW = Law.for_airport("SYNT")
-XY = (lambda lon, lat: (lon, lat))
+def XY(lon, lat):
+    return (lon, lat)
 
 
 def _part(x0, y0, x1, y1, base_y, feet=False):

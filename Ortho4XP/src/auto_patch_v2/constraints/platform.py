@@ -543,6 +543,7 @@ def landing_rows(planar: PlanarMap, law: Law,
                     continue
                 rows.append(Linear(((v, 1.0), (dv, -1.0)), None, hi, src))
                 rows.append(Linear(((v, -1.0), (dv, 1.0)), None, -lo, src))
+            rows.extend(_own_ground_rows(planar, ref, vs, rec.get("ground_z")))
             continue
         y = float(rec["y"])
         src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-03e the ramp "
@@ -556,6 +557,28 @@ def landing_rows(planar: PlanarMap, law: Law,
     STATS["landing_rows"] = {"landings": n, "landings_no_datum": n_none,
                              "rows": len(rows)}
     return rows
+
+
+def _own_ground_rows(planar: PlanarMap, ref: str, vs: _t.Sequence[int],
+                     ground: "float | None") -> list[Row]:
+    """A LOWER LEVEL STANDS ON ITS OWN GROUND (owner RULINGS 2026-10-19ai):
+    its mean is its ground's (``planar/low_level._ground``: the DEM
+    median over its area, read at the mint), at the pad's frontage-level price (the
+    ``frontage_level`` head: ``pad_flat``, the pad follows) — the band to
+    the block bounds it.  Without it the level has no datum at all: its
+    shape is the apron's (pads are value roles), whose body carries the
+    apron trend, so no §9b plane reaches it — MEASURED KATL on the gap-free
+    base map, where no road holds it, it floated to its band's top."""
+    from .pads import LEVEL_RULING
+    if not vs or ground is None:
+        return []
+    w = 1.0 / len(vs)
+    mean = float(ground)
+    src = Source(GEN, LEVEL_RULING + " (RULINGS 2026-10-19ai the lower level "
+                 "on its own ground)", (f"low_level:{ref}", ref))
+    fol = tuple(vs)
+    return [Linear(tuple((v, w) for v in vs), None, mean, src, follows=fol),
+            Linear(tuple((v, -w) for v in vs), None, -mean, src, follows=fol)]
 
 
 def _contact_sets(planar: PlanarMap, law: Law

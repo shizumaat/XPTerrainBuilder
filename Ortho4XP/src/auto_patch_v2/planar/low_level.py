@@ -145,8 +145,36 @@ def plan_low(P, air, airport, law, grid: float, others=None
         return None                  # the frontage block must stay a block
     y_floor = min(p.base_y for p in low_parts) - t
     rec = {"top_y": round(t, 3), "y_lo": round(y_floor, 3), "y_hi": round(-step_min, 3),
-           "low_parts": len(low_parts), "area_m2": round(L.area, 1)}
+           "low_parts": len(low_parts), "area_m2": round(L.area, 1),
+           "ground_z": _ground(L, getattr(airport, "dem", None), near)}
     return H, L, S, rec
+
+
+def _ground(L, dem, step: float) -> "float | None":
+    """THE LOWER LEVEL'S OWN GROUND: the median DEM over its AREA (a grid
+    of ``step`` metres, at least 400 samples' worth) — never its ring's
+    mean, whose riser side stands on the slope up to the block (MEASURED
+    KATL: the ring read 292.9 m, the area 289.5)."""
+    import math
+    if dem is None or L.is_empty:
+        return None
+    x0, y0, x1, y1 = L.bounds
+    h = max(step, math.sqrt(L.area / 400.0))
+    zs = []
+    y = y0 + 0.5 * h
+    while y < y1:
+        x = x0 + 0.5 * h
+        while x < x1:
+            if L.contains(Point(x, y)):
+                try:
+                    z = float(dem.z(x, y))
+                except Exception:  # noqa: BLE001 — off the raster
+                    z = float("nan")
+                if z == z:
+                    zs.append(z)
+            x += h
+        y += h
+    return round(_st.median(zs), 3) if zs else None
 
 
 def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,

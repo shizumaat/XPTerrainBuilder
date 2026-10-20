@@ -40,7 +40,7 @@ from ..geom.base_slab import pad_shades, registered_faces
 from ..law.tables import base_slab_law, pad_admission, rolled_on_roles
 from ..model.airport import Airport
 from ..model.planar import (PlanarMap, block_of, is_bank_ref, pad_base_ref,
-                            platform_ref_of, unit_ref_of)
+                            plane_origin_ref, platform_ref_of, unit_ref_of)
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
 from ..geom.union_find import find_root
@@ -231,8 +231,16 @@ def _base_ref(ref: object) -> str:
     spelling, one join."""
     # flat-pad spec §3 C3/C14 (RULINGS 2026-09-30r): the flat BLOCKS of a
     # cut unit are one PAD to the cluster (the cluster stands on the unit);
-    # their PLANES are split per block by ``_split_blocks``
-    return unit_ref_of(pad_base_ref(ref))
+    # their PLANES are split per block by ``_split_blocks``.  A LOWER LEVEL
+    # (owner RULINGS 2026-10-19ai, ``planar/low_level``) is its OWN pad: a
+    # storey under its block, never in the block's plane group (MEASURED
+    # KATL: folded in, the block's apron ``frontage_level`` row held the
+    # lower level's mean at the apron, and on the gap-free base map it rose
+    # to its band's top, 8 m over its ground)
+    base = pad_base_ref(ref)
+    if plane_origin_ref(base) != platform_ref_of(base):
+        return base
+    return unit_ref_of(base)
 
 
 def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,

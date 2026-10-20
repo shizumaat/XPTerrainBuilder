@@ -23,7 +23,14 @@ the vertices nearest the wall (a road's near kerb), so an edge from the
 upper strip to the road's FAR kerb crossed the wall with neither end in
 it.  MEASURED (``test_wall_step715``, main 2026-10-16): 11.51 of 25.53
 of the stage-2 bending weight on the wall's edges stayed uncut, and
-cutting it moved the road 0.858 -> 0.580 m from its 92 m ground."""
+cutting it moved the road 0.858 -> 0.580 m from its 92 m ground.
+
+THE BAND'S RISER beside a road inside a safety-area band (owner RULINGS
+2026-10-19a / 19i / 19k, #951; ``planar/band_riser``) is the same cut, with
+no pack object: an edge from a road ribbon's vertex to a band
+(``graded_strip``) vertex that crosses a riser face is skipped, so the
+bending neither lifts the road toward the band nor drags the band down to
+the road — the riser carries the step (:func:`riser_cut_edges`)."""
 from __future__ import annotations
 
 import math
@@ -31,7 +38,7 @@ import typing as _t
 
 from ..model.planar import PlanarMap
 
-__all__ = ["wall_cut_edges"]
+__all__ = ["wall_cut_edges", "riser_cut_edges"]
 
 class _Wall(_t.NamedTuple):
     poly: _t.Any
@@ -73,12 +80,12 @@ def _side_of(planar: PlanarMap, w: _Wall, v: int,
     return found
 
 
-def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
-                   ) -> frozenset[tuple[int, int]]:
+def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]],
+                   law=None) -> frozenset[tuple[int, int]]:
     """``(min, max)`` vertex pairs of the triangle edges across a declared
     wall terrace (module docstring); empty without one."""
     tris = list(tris)
-    out_r = _riser_edges(planar, tris)
+    out_r = _riser_edges(planar, tris) | riser_cut_edges(planar, tris, law)
     walls = _walls(planar)
     if not walls:
         return out_r
@@ -131,4 +138,53 @@ def _riser_edges(planar: PlanarMap, tris) -> frozenset[tuple[int, int]]:
         for i, j in ((a, b), (b, c), (c, a)):
             if (i in low) != (j in low) and (i in strip and j in strip):
                 out.add((min(i, j), max(i, j)))
+    return frozenset(out)
+
+
+def riser_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]],
+                    law=None) -> frozenset[tuple[int, int]]:
+    """``(min, max)`` pairs of the triangle edges from a road ribbon vertex
+    to a band vertex across a band riser face (module docstring); empty
+    without a riser."""
+    from ..model.band_riser import band_risers
+    from ..model.planar import is_osm_ribbon_ref
+    near = 0.0
+    if law is not None:
+        from ..law.tables import riser_kerb_near_m
+        near = riser_kerb_near_m(law)
+    risers = band_risers(planar, near)
+    if not risers:
+        return frozenset()
+    from shapely.geometry import LineString, Polygon
+    from shapely.strtree import STRtree
+    rib: set[int] = set()
+    band: set[int] = set()
+    for f in planar.faces.values():
+        tgt = rib if is_osm_ribbon_ref(f.ref) else (
+            band if f.role == "graded_strip" else None)
+        if tgt is not None:
+            for cyc in (f.ring, *f.holes):
+                tgt.update(planar.ring_vertices(cyc))
+    for _fid, lo, _up in risers:
+        rib |= lo              # a riser vertex the emit welds onto a ribbon
+    band -= rib
+    polys = []
+    for fid, _lo, _up in risers:
+        f = planar.faces[fid]
+        ring = [planar.vertices[v].xy for v in planar.ring_vertices(f.ring)]
+        if len(ring) >= 3:
+            g = Polygon(ring)
+            polys.append(g if g.is_valid else g.buffer(0.0))
+    tree = STRtree(polys)
+    out: set[tuple[int, int]] = set()
+    for a, b, c in tris:
+        for i, j in ((a, b), (b, c), (c, a)):
+            if not ((i in rib and j in band) or (j in rib and i in band)):
+                continue
+            key = (min(i, j), max(i, j))
+            if key in out:
+                continue
+            seg = LineString([planar.vertices[i].xy, planar.vertices[j].xy])
+            if len(tree.query(seg, predicate="intersects")):
+                out.add(key)
     return frozenset(out)

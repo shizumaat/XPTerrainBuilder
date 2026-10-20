@@ -390,6 +390,9 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # levels still takes the LOWER one (rule 8 of 30aa: 29x stands)
     cs, rep["terrace"] = terrace_rewrite(planar, law, cs, levels)
     cs, rep["wall_release"] = wall_release(planar, law, cs)
+    # 19a / 19i (#951): the band's riser beside a road inside it is the step
+    from .band_riser import riser_release
+    cs, rep["riser_release"] = riser_release(planar, law, cs, levels)
     cs, rep["between_levels"] = between_levels_rewrite(planar, law, cs, levels)
     cs, rep["welded_join"] = welded_join_release(planar, law, cs, levels)
     # LAST: the rewrites above carry every vertex's §37 (6) row as the
@@ -631,6 +634,17 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     for v in terr.get("meet") or {}:
         if v in floor and v not in joins:
             joins[v] = floor[v]
+    # 19a / 19k (#951): INSIDE a band the band's cap alone governs a
+    # mapped-road ribbon — a ribbon vertex on the band kerb, or bordered by
+    # the runway or taxi family (it stands in that pavement's band), leaves
+    # the terrace entirely: no target at the pavement's level and no bare
+    # run climbing from it (``zones.zone_bands`` caps the kerb at the band).
+    # A ribbon beside an apron, and every 1206 corridor / DSF page, keeps
+    # 10-03b.
+    in_band = _in_band_ribbon_vertices(planar, law, terr)
+    if in_band:
+        terr = {k: ({v: x for v, x in d.items() if v not in in_band}
+                    if isinstance(d, dict) else d) for k, d in terr.items()}
     prof, rep = terrace_profile(
         terr, levels, floor, cap, joins,
         design=float(law.tables.emit.road_contact.ramp_grade),
@@ -644,6 +658,7 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # toward the runway end; the band's ceiling is ``zones.zone_bands``'
     # kerb row, so above the band's grade the band still leads.
     prof = {v: z for v, z in prof.items() if v in floor}
+    rep["in_band_released"] = len(in_band)
     rep["governed"] = len(prof)
     if not prof:
         return cs, rep
@@ -662,6 +677,63 @@ def terrace_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
                 r = _dc.replace(r, hi=prof[v] + vis)
         bands.append(r)
     return _dc.replace(cs, linears=tuple(linears), bands=tuple(bands)), rep
+
+
+def _in_band_ribbon_vertices(planar: PlanarMap, law: Law, terr) -> set[int]:
+    """The ribbon vertices a band governs (19a / 19k): the band kerb and
+    every OSM-ribbon vertex whose bordering foot (``road_terrace``'s
+    ``foot``) is a runway- or taxi-family pavement — it stands in that
+    pavement's band."""
+    from ..law.tables import airside_stage_roles, apron_roles
+    from ..model.planar import is_osm_ribbon_ref
+    out = set(terr.get("kerb") or ())
+    out |= set(planar.band_kerb_vertices(airside_stage_roles(law)))
+    banded = set(airside_stage_roles(law)) - set(apron_roles(law))
+    role_of = {f.ref: f.role for f in planar.faces.values()}
+    rib = {v for f in planar.faces.values() if is_osm_ribbon_ref(f.ref)
+           for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+    for v, ft in (terr.get("foot") or {}).items():
+        if v in rib and role_of.get(ft[3]) in banded:
+            out.add(v)
+    return _whole_roads(planar, out)
+
+
+def _whole_roads(planar: PlanarMap, seed: set[int]) -> set[int]:
+    """THE WHOLE ROAD DROPS TOGETHER (owner 2026-10-19, #951 spec Q13: "an
+    in-band road drops together, not per vertex"): every vertex of the
+    OSM-ribbon faces connected (through shared vertices) to one carrying a
+    ``seed`` vertex, among the ribbon faces that stand in a runway / taxi
+    band — touch its zone or carry a seed vertex.  MEASURED (lane m3,
+    iteration 2, KLAX): released per vertex, a carriageway stepped against
+    its neighbour (``pavement_over_road_cap`` 0 -> 5, 2.72 m)."""
+    if not seed:
+        return seed
+    from ..model.planar import is_osm_ribbon_ref
+    from .band_standoff import is_band_zone_ref
+    band = {v for f in planar.faces.values()
+            if f.role == "graded_strip" and is_band_zone_ref(f.ref)
+            for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+    faces = {}
+    for f in planar.faces.values():
+        if is_osm_ribbon_ref(f.ref):
+            vs = {v for cyc in (f.ring, *f.holes) for v in planar.ring_vertices(cyc)}
+            if vs & band or vs & seed:
+                faces[f.id] = vs
+    by_v: dict[int, list[int]] = {}
+    for fid, vs in faces.items():
+        for v in vs:
+            by_v.setdefault(v, []).append(fid)
+    out = set(seed)
+    todo = [fid for fid, vs in faces.items() if vs & seed]
+    done: set[int] = set()
+    while todo:
+        fid = todo.pop()
+        if fid in done:
+            continue
+        done.add(fid)
+        out |= faces[fid]
+        todo.extend(g for v in faces[fid] for g in by_v[v] if g not in done)
+    return out
 
 
 def welded_join_release(planar: PlanarMap, law: Law, cs: ConstraintSet,

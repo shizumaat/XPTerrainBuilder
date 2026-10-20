@@ -581,6 +581,12 @@ def zone_bands(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     # level beneath the band's grade ("typically they are cut below") and
     # the band leads only where the road would stand above it.
     kerb = planar.band_kerb_vertices(airside_stage_roles(law))
+    # ...and a band riser's vertex the emit welds onto a ribbon's ring is
+    # that kerb too (#951 round 4, ``model.band_riser``)
+    from ..law.tables import riser_kerb_near_m
+    from ..model.band_riser import band_risers
+    kerb = kerb | {v for _f, lo, _u in band_risers(planar, riser_kerb_near_m(law))
+                   for v in lo}
     for v, classes in member.items():
         cap_only = v in kerb
         if (v in own_law and not cap_only) or v in wall_vertices:

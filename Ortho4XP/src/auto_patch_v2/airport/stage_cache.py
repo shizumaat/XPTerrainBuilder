@@ -52,9 +52,9 @@ import time
 import typing as _t
 import zlib
 
-__all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest", "key_of",
-           "entry_path", "encode", "write", "read_header", "read", "touch", "touch_many",
-           "sweep", "peek", "first_difference", "why_miss", "Refused"]
+__all__ = ["CACHE_VERSION", "CAP_BYTES", "MAGIC", "digest_of", "canonical_digest",
+           "content_digest", "key_of", "entry_path", "encode", "write", "read_header", "read",
+           "touch", "touch_many", "sweep", "peek", "first_difference", "why_miss", "Refused"]
 
 #: Bump when the SHAPE of a record changes (the code digests cover a change
 #: in what a stage produces).
@@ -98,6 +98,20 @@ def canonical_digest(obj: _t.Any) -> str:
     product it derives between two stages, never for a stage output)."""
     buf = io.BytesIO()
     _Canonical(buf, protocol=5).dump(obj)
+    return hashlib.sha256(buf.getvalue()).hexdigest()
+
+
+def content_digest(obj: _t.Any) -> str:
+    """:func:`canonical_digest` with no pickle memo: every reference is
+    written out in full, so two EQUAL products digest alike whatever objects
+    they happen to share — one built here and one built from an unpickled
+    copy in another process (``pipeline/late_speculate``; a pickle
+    round-trip alone changes :func:`canonical_digest`).  Not for an object
+    that contains itself."""
+    buf = io.BytesIO()
+    p = _Canonical(buf, protocol=5)
+    p.fast = True
+    p.dump(obj)
     return hashlib.sha256(buf.getvalue()).hexdigest()
 
 

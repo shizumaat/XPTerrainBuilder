@@ -1233,7 +1233,12 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     rib_v = {v for f in pm.faces.values()
              if f.role in roads and is_osm_ribbon_ref(f.ref)
              for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
-    out["own"] = {v: True for v in vs if v not in rib_v}
+    # #786: a DSF page / 1206 corridor that runs BESIDE a ribbon of its own
+    # route is that road's other carriageway — one road, one profile (the
+    # #291 intent for this very pair), so it is not ``own``
+    beside = _beside_ribbon(pm, roads, decks, frame,
+                            [v for v in vs if v not in rib_v])
+    out["own"] = {v: True for v in vs if v not in rib_v and v not in beside}
     rtree = STRtree(list(retaining)) if retaining else None
     out["below_wall"] = {}
     for v in vs:
@@ -1267,6 +1272,56 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
                      if feet.role_of.get(ref) in pads)
         if pad:
             out["pad"][v] = pad[0][1]
+    return out
+
+
+def _beside_ribbon(pm: PlanarMap, roads: _t.AbstractSet[str],
+                   decks: _t.AbstractSet[str],
+                   frame: _t.Mapping[int, tuple[int, float, float]],
+                   cands: _t.Iterable[int]) -> set[int]:
+    """Issue #786: the non-ribbon road vertices (``cands``) whose route
+    station a RIBBON EDGE of the same route spans — the ribbon's pavement
+    stands beside them in one cross-section, so they are one road with it.
+    A page that only continues a ribbon end to end is spanned by no ribbon
+    edge and stays ``own`` (owner RULINGS 2026-10-03l).
+
+    MEASURED (HECA 30.133878, 31.412821): DSF page ``dsf:objpav405`` and
+    ribbon ``small_roads:-4043`` are one route side by side; the ribbon took
+    apron ``objpav115``'s level (75.46 m) by 10-03b, the page left the
+    terrace by 10-03l and kept its DEM target (77.1 m): ``mid_edge_step``
+    rows of 0.55-1.37 m along the seam of one road."""
+    import bisect
+    from ..model.planar import is_osm_ribbon_ref
+    spans: dict[int, list[tuple[float, float]]] = {}
+    for f in pm.faces.values():
+        if f.role not in roads or f.ref in decks or not is_osm_ribbon_ref(f.ref):
+            continue
+        for cyc in (f.ring, *f.holes):
+            ring = list(pm.ring_vertices(cyc))
+            for a, b in zip(ring, ring[1:] + ring[:1], strict=True):
+                if a in frame and b in frame and frame[a][0] == frame[b][0]:
+                    sa, sb = float(frame[a][1]), float(frame[b][1])
+                    spans.setdefault(int(frame[a][0]), []).append((min(sa, sb), max(sa, sb)))
+    merged: dict[int, tuple[list[float], list[float]]] = {}
+    for r, lst in spans.items():
+        lo: list[float] = []
+        hi: list[float] = []
+        for a, b in sorted(lst):
+            if lo and a <= hi[-1]:
+                hi[-1] = max(hi[-1], b)
+            else:
+                lo.append(a)
+                hi.append(b)
+        merged[r] = (lo, hi)
+    out: set[int] = set()
+    for v in cands:
+        if v not in frame or int(frame[v][0]) not in merged:
+            continue
+        lo, hi = merged[int(frame[v][0])]
+        s_ = float(frame[v][1])
+        i = bisect.bisect_right(lo, s_) - 1
+        if i >= 0 and s_ <= hi[i]:
+            out.add(v)
     return out
 
 

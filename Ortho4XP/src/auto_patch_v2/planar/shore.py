@@ -57,6 +57,7 @@ from shapely.geometry import LineString, Polygon
 from ..law import Law
 from ..law.tables import snap_margin_m
 from ..airport.dem import dem_z_many
+from ..airport.water_level import water_level_beside
 
 __all__ = ["SHORE_WALL_TAGS", "SHORE_WITNESSES", "ShoreVerdict", "PackWall",
            "shore_declarations", "pack_shore_walls", "shore_contact",
@@ -87,10 +88,6 @@ BUILT_SHORE_SPILL = 0.1
 #: at unbounded cost).  Sampling choices, not law.
 PROFILE_STATION_M = 5.0
 PROFILE_MAX_STATIONS = 400
-#: The level the water line stands at: the shore region is the SEA alone
-#: (``planar/zones.shore_region``), and the sea's level is the mesh's
-#: ``O4_Vector_Map.SEAWALL_SEA_LEVEL_M``.
-SEA_LEVEL_M = 0.0
 #: The profile's sample step across the run (metres).
 PROFILE_STEP_M = 1.0
 #: The gradient tolerance the 1:3 test is read with: the law spells the
@@ -235,8 +232,9 @@ def shore_profile(contact, water, dem, law: Law):
     # THE WATER LINE STANDS AT THE WATER'S LEVEL: the drop is the land's
     # fall TO THE WATER (the natural band "ends in a 1:3 slope to the water
     # line", the water datum pins the line there).  The shore region is the
-    # SEA alone (``planar/zones.shore_region``), whose level is 0.
-    z[:, 0] = SEA_LEVEL_M
+    # water BESIDE the contact (RULINGS 2026-10-20k: every body, the sea's
+    # level 0, an inland body's own — ``airport/water_level``)
+    z[:, 0] = water_level_beside(dem, px, py)[ok]
     if not len(z):
         return 0, 0, 0, []
     step = run_m / k

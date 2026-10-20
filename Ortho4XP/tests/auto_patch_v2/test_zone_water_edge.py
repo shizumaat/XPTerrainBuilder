@@ -40,12 +40,32 @@ def test_inland_water_cuts_every_zone(law):
         assert r.polygon.intersection(wet).area < 1e-6, r.ref
 
 
-def test_inland_water_makes_no_shore_decision(law):
-    for r in zone_regions(_zone_cells(), law, (), _InlandDem(), ()):
-        assert r.shore is None and not r.quay and not r.natural_shore
+def test_inland_water_is_decided_as_the_coast_is(law):
+    """The part reaching the inland edge takes the ONE shore decision."""
+    wet = _InlandDem().water_geometry()
+    reach = [r for r in zone_regions(_zone_cells(), law, (), _InlandDem(), ())
+             if r.polygon.distance(wet) < 0.5]
+    assert reach
+    assert all(r.shore is not None and (r.quay or r.natural_shore) for r in reach)
 
 
 def test_without_water_the_zones_reach_past_it(law):
     """The control: the same cells over a dry plane reach y < -30."""
     regions = zone_regions(_zone_cells(), law, (), _PlaneDem(), ())
     assert min(r.polygon.bounds[1] for r in regions) < -30.0
+
+
+class _LevelDem:
+    """A witness that reads water east of x = 0 at level 2.5 m."""
+
+    def water_many(self, xs, ys):
+        import numpy as np
+        wet = np.asarray(xs) > 0.0
+        return wet, np.where(wet, 2.5, np.nan)
+
+
+def test_the_level_beside_a_shore_point_is_its_bodys():
+    from auto_patch_v2.airport.water_level import water_level_beside
+    lv = water_level_beside(_LevelDem(), [0.0, -100.0], [0.0, 0.0])
+    assert lv[0] == 2.5          # on the line: a ring sample is wet
+    assert lv[1] == 0.0          # far from any water: the sea's level

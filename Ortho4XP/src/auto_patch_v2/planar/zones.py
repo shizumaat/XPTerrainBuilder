@@ -92,8 +92,12 @@ def shore_region(cells: tuple[Cell, ...], dem, sea_only: bool = True):
     (``dem.water_geometry``), minus the same land: THE ZONE CUT of owner
     RULINGS 2026-10-20k — runway end areas, safety areas and the adjacent
     graded ground stop at ANY water's edge (KOTH's estuary is an inland
-    body to the coastline partition).  Only the CUT reads it; the shore
-    DECISION (quay / natural bank / wedge) stays the sea's alone."""
+    body to the coastline partition).  The cut AND the shore decision
+    (quay / natural bank / wedge) read it; the sea-only reading above is
+    the structures' (``planar/structures``, §34 (12) (2)).  This
+    supersedes the inland carve-out argued above for the ZONES: an inland
+    body's edge is decided as the coast's is, at that body's own level
+    (``planar/shore.water_level_beside``)."""
     # THE SEA WITNESS ONLY.  A sampler that answers "is this wet" but not
     # "is this the SEA" claims NO shore here: no witness, no trim.
     fn = getattr(dem, "sea_geometry", None)
@@ -424,10 +428,9 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # and the mesh's own Round 7 / R17-3 sea-wall breaklines
     # (``O4_Vector_Map.seawall_breaklines``, authored for this airport)
     # make the vertical face from the ring the patch ends at.
-    water = shore_region(cells, dem)
-    # owner RULINGS 2026-10-20k: the CUT is every water body's edge (the
-    # sea's is part of it); the shore DECISION below reads the sea alone
-    wet_cut = shore_region(cells, dem, sea_only=False)
+    # owner RULINGS 2026-10-20k: EVERY water body's edge (the sea's is
+    # part of it) — the cut and the shore decision below read one region
+    water = shore_region(cells, dem, sea_only=False)
     claimed = everything
     out: list[ZoneRegion] = []
     counters: dict[tuple, int] = {}
@@ -476,10 +479,10 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
             if gap_apron_u is not None and geom.intersects(gap_apron_u):
                 geom = fixed_difference(geom, gap_apron_u)
-            if wet_cut is not None and not geom.is_empty:
-                wet = geom.intersection(wet_cut)
+            if water is not None and not geom.is_empty:
+                wet = geom.intersection(water)
                 if not wet.is_empty and wet.area > 0.0:
-                    geom = geom.difference(wet_cut)
+                    geom = geom.difference(water)
                     # the difference can hand back a GeometryCollection
                     # (zero-area slivers along the coast), whose
                     # ``boundary`` is None — VMMC's dry planar died here
@@ -494,7 +497,7 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                         edge_report.shore_regions += 1
                         edge_report.shore_edge_m += float(
                             geom.boundary.intersection(
-                                wet_cut.boundary.buffer(snap_margin_m(law))).length)
+                                water.boundary.buffer(snap_margin_m(law))).length)
             # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c, spec §19):
             # the extent ends at the physical edge, HERE, so every reader
             # downstream sees one trimmed polygon

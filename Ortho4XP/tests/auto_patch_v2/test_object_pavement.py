@@ -69,6 +69,23 @@ def test_header_facts_reads_texture_and_group_and_stops_at_geometry(tmp_path):
     assert OP.header_facts(str(tmp_path / "absent.obj")) == (None, "")
 
 
+def test_header_facts_reads_a_command_section_layer_group(tmp_path):
+    """Issue #1100: an FS2XPlane conversion declares its draped layer group
+    AFTER the index table; the page is pavement all the same.  A shadow
+    (draped texture, no group anywhere) stays refused."""
+    p = _obj(tmp_path, "fs9.obj", header="TEXTURE_DRAPED\tasphalt.dds",
+             quads=[(0, 0, 20, 20)])
+    text = p.read_text().replace(
+        "ATTR_draped\n", "ATTR_draped\nATTR_layer_group_draped\ttaxiways +1\n")
+    p.write_text(text, encoding="utf-8", newline="")
+    assert OP.header_facts(str(p)) == (("taxiways", 1), "asphalt.dds")
+    bodies, rep = OP.read_object_pavements([_place(p)], LAW)
+    assert [round(b.polygon.area) for b in bodies] == [400]
+    shadow = _obj(tmp_path, "ao.obj", header="TEXTURE_DRAPED\tao.dds",
+                  quads=[(0, 0, 20, 20)])
+    assert OP.header_facts(str(shadow)) == (None, "ao.dds")
+
+
 def test_two_disjoint_bodies_and_a_solid(tmp_path):
     """The brief's twin: two disjoint draped bodies -> two sources; the
     solid box is NOT one of them, and the pad that covers it takes

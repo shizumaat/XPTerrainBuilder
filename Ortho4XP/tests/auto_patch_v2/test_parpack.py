@@ -166,6 +166,25 @@ def test_resource_readings_read_ahead_equal_the_serial_readings(world):
     assert W.read_resources_ahead(None, cache, paths) == 0
 
 
+def test_skirt_readings_read_ahead_equal_the_serial_readings(world, monkeypatch):
+    """#412: ``read_skirts_ahead`` (``skirt.skirted_placements``' pool)
+    puts on ``cache.pre`` exactly the below-zero readings the serial
+    reader derives, and only for resources past its pre-screen."""
+    paths = [o.resolved for o in world.objs]
+    here = O.ResourceCache(THICK)
+    want = {p: repr(S.reading(here, p, LAW)) for p in paths if here.geometry(p) is not None}
+    monkeypatch.setattr(W, "SKIRT_POOL_MIN", 1)
+    cache = O.ResourceCache(THICK)
+    with W.open_pool(LAW, cache, workers=2, out=lambda s: None) as pool:
+        n = W.read_skirts_ahead(cache, LAW, paths, pool=pool)
+    below = {p for p in want if here.y_range(p)[0] < -1e-9}
+    assert n == len(below) and {k[1] for k in cache.pre} == below
+    assert {p: repr(S.reading(cache, p, LAW)) for p in want} == want
+    assert not cache.pre
+    monkeypatch.setattr(W, "SKIRT_POOL_MIN", 10**6)
+    assert W.read_skirts_ahead(O.ResourceCache(THICK), LAW, paths) == 0
+
+
 def test_part_readings_derived_ahead_equal_the_placing(world, serial):
     cache = O.ResourceCache(THICK)
     members, lines, scat = [], set(), set()

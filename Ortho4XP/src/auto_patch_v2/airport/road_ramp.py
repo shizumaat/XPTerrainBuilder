@@ -68,12 +68,19 @@ import typing as _t
 
 from ..law import Law
 from ..law.reference_code import ref_status
-from ..law.tables import (family, is_structure_role, is_value_role, role_cap,
-                          role_side, senior_role, zone2_half_width_m,
-                          zone_edge_offset_m)
+from ..law.tables import (
+    family,
+    is_structure_role,
+    is_value_role,
+    role_cap,
+    role_side,
+    senior_role,
+    zone2_half_width_m,
+    zone_edge_offset_m,
+)
 from ..model.airport import Airport
-from ..model.planar import PlanarMap
 from ..model.frame import rotated_rectangle
+from ..model.planar import PlanarMap
 from .road_descent import STAND_M, descend
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
@@ -1178,7 +1185,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     # road here (10-03b's ribbon-to-1206 meet — HECA ``small_roads:-4043``
     # 2.0 m under DSF road ``objpav405`` — is now one rule on both: they
     # share their bordering pavement's level).
-    from shapely.geometry import Point, Polygon as _Poly
+    from shapely.geometry import Point
+    from shapely.geometry import Polygon as _Poly
     from shapely.strtree import STRtree
     lane = float(law.tables.emit.road_profile.lane_width_m)
 
@@ -1292,6 +1300,7 @@ def _beside_ribbon(pm: PlanarMap, roads: _t.AbstractSet[str],
     terrace by 10-03l and kept its DEM target (77.1 m): ``mid_edge_step``
     rows of 0.55-1.37 m along the seam of one road."""
     import bisect
+
     from ..model.planar import is_osm_ribbon_ref
     spans: dict[int, list[tuple[float, float]]] = {}
     for f in pm.faces.values():
@@ -1473,8 +1482,10 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
     out: dict[int, dict[str, _t.Any]] = {}
     if not walls:
         return out
-    from shapely.geometry import LineString, Point, Polygon as _Poly
+    from shapely.geometry import LineString, Point
+    from shapely.geometry import Polygon as _Poly
     from shapely.strtree import STRtree
+
     from ..law.tables import airside_stage_roles
     stage1 = airside_stage_roles(law)
     roads = _road_roles(law)

@@ -2507,6 +2507,40 @@ def triangle_switches(min_angle, do_refine, tri_verbosity, output_poly,
 
 
 ################################################################################
+def triangle4xp_command(binary, tri_option, lat, dem, curvature_tol,
+                        alt_file, weight_file, poly_file):
+    """Triangle4XP's argument vector for one ``build_mesh`` run.
+
+    ``dem`` carries ``nxdem``/``nydem`` and the raster extent
+    ``x0``/``y0``/``x1``/``y1`` plus ``nodata``.  ONE builder for
+    ``build_mesh`` and the frozen mesh/DSF fixture recipe (#856,
+    ``tools/fixtures/make_mesh_dsf_fixture.py``), so the oracle runs the
+    mesher exactly as a build does.
+    """
+    return [
+        binary,
+        tri_option.strip(),
+        "{:.9g}".format(GEO.lon_to_m(lat)),
+        "{:.9g}".format(GEO.lat_to_m),
+        # "{:d}", never "{:n}": the locale-aware "n" format inserts
+        # grouping separators under a non-C LC_NUMERIC (e.g. in-process
+        # Qt GUI builds, where QApplication calls setlocale(LC_ALL, ""))
+        # and Triangle4XP's atoi("7,345") reads 7 — the mesh then samples
+        # a 7x7 phantom DEM and the whole tile flattens.
+        "{:d}".format(dem.nxdem),
+        "{:d}".format(dem.nydem),
+        "{:.9g}".format(dem.x0),
+        "{:.9g}".format(dem.y0),
+        "{:.9g}".format(dem.x1),
+        "{:.9g}".format(dem.y1),
+        "{:.9g}".format(dem.nodata),
+        "{:.9g}".format(curvature_tol),
+        alt_file,
+        weight_file,
+        poly_file,
+    ]
+
+
 def build_mesh(tile):
     if UI.is_working:
         return 0
@@ -2701,28 +2735,9 @@ def build_mesh(tile):
     # curv_tol_scaling = sqrt(tile.dem.nxdem / (3601 * (tile.dem.x1 - tile.dem.x0))
     # )
 
-    mesh_cmd = [
-        Triangle4XP_cmd.strip(),
-        Tri_option.strip(),
-        "{:.9g}".format(GEO.lon_to_m(tile.lat)),
-        "{:.9g}".format(GEO.lat_to_m),
-        # "{:d}", never "{:n}": the locale-aware "n" format inserts
-        # grouping separators under a non-C LC_NUMERIC (e.g. in-process
-        # Qt GUI builds, where QApplication calls setlocale(LC_ALL, ""))
-        # and Triangle4XP's atoi("7,345") reads 7 — the mesh then samples
-        # a 7x7 phantom DEM and the whole tile flattens.
-        "{:d}".format(tile.dem.nxdem),
-        "{:d}".format(tile.dem.nydem),
-        "{:.9g}".format(tile.dem.x0),
-        "{:.9g}".format(tile.dem.y0),
-        "{:.9g}".format(tile.dem.x1),
-        "{:.9g}".format(tile.dem.y1),
-        "{:.9g}".format(tile.dem.nodata),
-        "{:.9g}".format(tile.curvature_tol),
-        alt_file,
-        weight_file,
-        poly_file,
-    ]
+    mesh_cmd = triangle4xp_command(Triangle4XP_cmd.strip(), Tri_option,
+                                   tile.lat, tile.dem, tile.curvature_tol,
+                                   alt_file, weight_file, poly_file)
 
     # §39 (3) THE MESH PRE-FLIGHT (owner RULINGS 2026-09-13an / 13bk):
     # audit the assembled ``.poly`` BEFORE Triangle4XP, so an unmeshable

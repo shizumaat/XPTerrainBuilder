@@ -302,6 +302,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Imagery_Async",
     "O4_Imagery_Certs",
     "O4_Imagery_Fetch",
+    "O4_Imagery_Prefetch",
     "O4_Imagery_Progress",
     "O4_Imagery_Utils",
     "O4_Mask_Utils",

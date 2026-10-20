@@ -483,6 +483,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.unframed_ramp",
         "auto_patch_v2.planar.wall_corridor_ramps",
         "auto_patch_v2.planar.weld",
+        "auto_patch_v2.planar.zone_pass",
         "auto_patch_v2.planar.zones",
     ),
     "flat_site": (
@@ -1257,6 +1258,7 @@ CODE_MODULES["solve"] = _mods("""
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.rows solve.wall_cut
     classify.reachability
+    planar.zone_pass
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport classify emit model pipeline planar solve airport.anchor_rule
@@ -1340,6 +1342,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     solve.design_stage solve.feasibility solve.flex solve.linear solve.pin_yield
     solve.project solve.project_strip solve.rows solve.wall_cut
     classify.reachability
+    planar.zone_pass
 """)
 CODE_MODULES["emit"] = _mods("""
     airport constraints emit model pipeline planar verify airport.anchor_rule

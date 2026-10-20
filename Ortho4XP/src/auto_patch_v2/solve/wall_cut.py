@@ -32,12 +32,12 @@ from ..model.planar import PlanarMap
 __all__ = ["wall_cut_edges", "riser_cut_edges"]
 
 
-def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
-                   ) -> frozenset[tuple[int, int]]:
+def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]],
+                   law=None) -> frozenset[tuple[int, int]]:
     """``(min, max)`` vertex pairs of the triangle edges across a declared
     wall terrace (module docstring); empty without one."""
     tris = list(tris)
-    riser = riser_cut_edges(planar, tris)
+    riser = riser_cut_edges(planar, tris, law)
     walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
     if not walls:
         return riser
@@ -66,14 +66,18 @@ def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
     return frozenset(out)
 
 
-def riser_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
-                    ) -> frozenset[tuple[int, int]]:
+def riser_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]],
+                    law=None) -> frozenset[tuple[int, int]]:
     """``(min, max)`` pairs of the triangle edges from a road ribbon vertex
     to a band vertex across a band riser face (module docstring); empty
     without a riser."""
     from ..model.band_riser import band_risers
     from ..model.planar import is_osm_ribbon_ref
-    risers = band_risers(planar)
+    near = 0.0
+    if law is not None:
+        from ..law.tables import riser_kerb_near_m
+        near = riser_kerb_near_m(law)
+    risers = band_risers(planar, near)
     if not risers:
         return frozenset()
     from shapely.geometry import LineString, Polygon
@@ -86,6 +90,8 @@ def riser_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
         if tgt is not None:
             for cyc in (f.ring, *f.holes):
                 tgt.update(planar.ring_vertices(cyc))
+    for _fid, lo, _up in risers:
+        rib |= lo              # a riser vertex the emit welds onto a ribbon
     band -= rib
     polys = []
     for fid, _lo, _up in risers:

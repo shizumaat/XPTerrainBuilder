@@ -21,23 +21,43 @@ def is_band_riser_ref(ref) -> bool:
     return str(ref or "").endswith(RISER_SUFFIX)
 
 
-def band_risers(pm) -> list[tuple[int, frozenset[int], frozenset[int]]]:
+def band_risers(pm, near_m: float = 0.0
+                ) -> list[tuple[int, frozenset[int], frozenset[int]]]:
     """``(face id, lower, upper)`` per band riser face: ``lower`` its ring
-    vertices an OSM ribbon face carries (the road's kerb), ``upper`` the
-    rest (the band line one weld spacing off).  Derived from the map, in
-    face-id order; empty without a riser."""
+    vertices an OSM ribbon face carries (the road's kerb) — and, with
+    ``near_m``, every other ring vertex within ``near_m`` of a ribbon's
+    ring, which the emit welds onto that ring (round 4, KLAX 33.94047,
+    -118.39619: a riser vertex 0.5 m off a second carriageway, held at the
+    band's level, shipped inside that road's way and stood 2.9 m over it);
+    ``upper`` the rest (the band line one weld spacing off).  Derived from
+    the map, in face-id order; empty without a riser."""
     ids = [f.id for f in pm.faces.values()
            if f.role == "graded_strip" and is_band_riser_ref(f.ref)]
     if not ids:
         return []
     rib: set[int] = set()
+    lines = []
     for f in pm.faces.values():
         if is_osm_ribbon_ref(f.ref):
             for cyc in (f.ring, *f.holes):
-                rib.update(pm.ring_vertices(cyc))
+                vs = pm.ring_vertices(cyc)
+                rib.update(vs)
+                if near_m > 0.0 and len(vs) >= 2:
+                    lines.append([pm.vertices[v].xy for v in (*vs, vs[0])])
+    tree = None
+    if lines:
+        from shapely.geometry import LineString, Point
+        from shapely.strtree import STRtree
+        tree = STRtree([LineString(c) for c in lines])
     out = []
     for fid in sorted(ids):
         f = pm.faces[fid]
         vs = {v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)}
-        out.append((fid, frozenset(vs & rib), frozenset(vs - rib)))
+        low = vs & rib
+        if tree is not None:
+            low |= {v for v in vs - rib
+                    if len(tree.query(Point(pm.vertices[v].xy), predicate="dwithin",
+                                      distance=near_m))}
+        out.append((fid, frozenset(low), frozenset(vs - low)))
     return out
+

@@ -113,7 +113,8 @@ def band_wall_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
             ribs.append(g if g.is_valid else g.buffer(0.0))
     tree = STRtree(ribs) if ribs else None
     out: set[int] = set()
-    for _fid, _lo, up in band_risers(planar):
+    from ..law.tables import riser_kerb_near_m
+    for _fid, _lo, up in band_risers(planar, riser_kerb_near_m(law)):
         for v in up:
             p = Point(planar.vertices[v].xy)
             if tree is None or not len(tree.query(p, predicate="dwithin",

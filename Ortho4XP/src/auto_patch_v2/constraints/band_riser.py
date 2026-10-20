@@ -52,7 +52,8 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet,
                   ) -> tuple[ConstraintSet, dict[str, _t.Any]]:
     """``cs`` without the pair rows across a band riser (module docstring)
     and the count released."""
-    risers = band_risers(planar)
+    from ..law.tables import riser_kerb_near_m
+    risers = band_risers(planar, riser_kerb_near_m(law))
     from .band_standoff import band_standoffs
     standoffs = band_standoffs(planar, law)
     rep: dict[str, _t.Any] = {"risers": len(risers), "released": 0,
@@ -76,6 +77,8 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet,
         if tgt is not None:
             for cyc in (f.ring, *f.holes):
                 tgt.update(planar.ring_vertices(cyc))
+    for _fid, lo, _up in risers:
+        rib |= lo              # a riser vertex the emit welds onto a ribbon
     band -= rib
     polys = []
     for fid, _lo, _up in risers:

@@ -42,7 +42,8 @@ def band_road_wall_joints(planar: PlanarMap, law: Law,
     (module docstring).  Empty before a solve."""
     if z is None:
         return []
-    risers = band_risers(planar)
+    from ..law.tables import riser_kerb_near_m
+    risers = band_risers(planar, riser_kerb_near_m(law))
     from ..constraints.band_standoff import band_standoffs
     standoffs = band_standoffs(planar, law)
     if not risers and not standoffs:

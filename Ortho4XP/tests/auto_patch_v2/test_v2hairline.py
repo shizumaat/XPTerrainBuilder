@@ -198,6 +198,23 @@ def test_a_sub_spacing_segment_is_merged_away(law):
     assert tiny not in [v.ll for v in out.vertices]
 
 
+def test_a_chain_is_never_merged_into_one_vertex(law):
+    """NO CHAIN MERGE (#951 round 7, KLAX taxiway F 33.93418, -118.39608):
+    a corner, a vertex 0.45 m on and one 0.45 m further are two sub-spacing
+    pairs, but the first and the last stand 0.9 m apart — more than the
+    spacing — so they are never ONE vertex (a road corner took a band-line
+    vertex's level 3.3 m above it that way).  One pair merges; the far
+    member stays."""
+    from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
+    e1 = (40.4763 - 0.45 / M_LAT, -3.5460)
+    e2 = (40.4763 - 0.90 / M_LAT, -3.5460)
+    rep = WeldReport()
+    out = merge_sub_spacing(_square(law, e1, e2), law, rep)
+    assert rep.merged == 1
+    kept = [v.ll for v in out.vertices]
+    assert sum(p in kept for p in ((40.4763, -3.5460), e1, e2)) == 2
+
+
 def test_the_survivor_keeps_its_coordinate(law):
     """Nothing MOVES: one of the two disappears and the other stands where
     it stood.  WHICH one is :func:`survivor_key`'s — the lower canonical

@@ -389,6 +389,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.containment",
         "auto_patch_v2.geom.core_clamp",
         "auto_patch_v2.geom.coverage",
+        "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.proportions",
@@ -1275,6 +1276,7 @@ CODE_MODULES["solve"] = _mods("""
     solve.project solve.project_strip solve.rows solve.wall_cut
     classify.reachability
     planar.zone_pass
+    geom.fixed_overlay
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport classify emit model pipeline planar solve airport.anchor_rule
@@ -1362,6 +1364,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     solve.project solve.project_strip solve.rows solve.wall_cut
     classify.reachability
     planar.zone_pass
+    geom.fixed_overlay
 """)
 CODE_MODULES["emit"] = _mods("""
     airport constraints emit model pipeline planar verify airport.anchor_rule

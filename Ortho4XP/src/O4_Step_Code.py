@@ -421,6 +421,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.geom.coverage",
     "auto_patch_v2.geom.feet_graph",
     "auto_patch_v2.geom.feet_mst",
+    "auto_patch_v2.geom.fixed_overlay",
     "auto_patch_v2.geom.pad_evidence",
     "auto_patch_v2.geom.parts",
     "auto_patch_v2.geom.proportions",
@@ -671,6 +672,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
     "masks": (
         "O4_Coastal_Foam_Edge",
         "O4_Color_Harmonization",
+        "O4_DDS_Cache",
         "O4_DDS_Encode",
         "O4_DDS_File",
         "O4_DDS_Mips",

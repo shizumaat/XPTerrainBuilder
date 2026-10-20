@@ -826,6 +826,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "no_step_pairs": "no_step",
     "no_step_rate": "no_step",
     "cross_shape_pairs": "proximity",
+    "airside_sliver_pairs": "proximity",
     "reach_bands": "no_step",
     "zone_bands": "zones",
     "strip_transverse": "zones",

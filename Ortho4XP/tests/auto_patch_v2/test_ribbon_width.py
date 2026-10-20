@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 from auto_patch_v2.airport.road_ways import mapped_width_m, ribbon_half_width_m
-from auto_patch_v2.classify.ribbon_mint import _ribbon_over
+from auto_patch_v2.classify.ribbon_mint import _Occupied, _ribbon_over
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar.structure_approach import carriageway_width_m
 from shapely.geometry import LineString, box
@@ -39,12 +39,12 @@ def test_the_structures_read_the_same_width(law):
 
 def test_a_wide_ribbon_grows_around_the_core_ribbon_only():
     axis = [LineString([(0.0, 0.0), (100.0, 0.0)])]
-    free = _ribbon_over(axis, 12.0, box(500, 500, 501, 501), 4.0, 0.01)
+    free = _ribbon_over(axis, 12.0, _Occupied(box(500, 500, 501, 501)), 4.0, 0.01)
     assert free.area == pytest.approx(100.0 * 24.0, rel=1e-3)
     # pavement traces the road over its first 60 m (covers the core ribbon,
     # not the wider buffer): no strip is laid along that pavement's edge
     paved = box(-1.0, -5.0, 60.0, 5.0)
-    rib = _ribbon_over(axis, 12.0, paved, 4.0, 0.01)
+    rib = _ribbon_over(axis, 12.0, _Occupied(paved), 4.0, 0.01)
     assert rib.intersection(box(0.0, -20.0, 50.0, 20.0)).area == pytest.approx(0.0, abs=1e-6)
     assert rib.intersection(box(70.0, -20.0, 100.0, 20.0)).area == pytest.approx(
         30.0 * 24.0, rel=1e-3)

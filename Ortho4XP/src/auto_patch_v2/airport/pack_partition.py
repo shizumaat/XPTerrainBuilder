@@ -65,7 +65,6 @@ from . import contact as _contact
 from . import deck_signature as _deck
 from . import extension_cache as _extcache
 from . import line_object as _line
-from . import msl_feet as _msl_feet
 from . import obj8 as _obj8
 from . import obj8_grade as _obj8_grade
 from . import pack_work as _work
@@ -486,7 +485,8 @@ def _build_member(o: _obj8.PlacedObject, cache: _obj8.ResourceCache, law: Law,
                     skirted=skirted, elevated_deck=deck_body,
                     scatter=is_scatter, base_profile=base_prof,
                     origin=(None if origin is None
-                            else (float(origin[0]), float(origin[1]))))
+                            else (float(origin[0]), float(origin[1]))),
+                    zero_y=float(o.zero_y))
     return member, (o, geom, list(comps)), bool(is_line)
 
 
@@ -615,8 +615,6 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     apt = airport.pack.apt_dat_path
     pack_root = os.path.dirname(os.path.dirname(apt)) if apt else ""
 
-    msl_guarded = _msl_feet.below_origin_ids(
-        objects, cache.geometry, float(law.tables.structures.placement.split_tol_m))
     anchors_by_resource: dict[str, set[tuple[float, float, float]]] = {}
     keyed: list[tuple[tuple[float, float, float], _obj8.PlacedObject]] = []
     for o in objects:
@@ -645,10 +643,10 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
             skipped.setdefault(o.path, "resolves outside the pack (a shared library "
                                        "object never carries one airport's offsets)")
             continue
-        if o.id in msl_guarded:
+        if o.origin_built:
             # owner Q54 (2026-10-20, #1102): a converted OBJECT_MSL row is
             # split like any on-ground row EXCEPT where its origin set
-            # reaches below its origin (``msl_feet.below_origin_ids``)
+            # reaches below its origin (``obj8.PlacedObject.origin_built``)
             counts["msl"] += 1
             skipped.setdefault(o.path, "OBJECT_MSL built around its origin "
                                        "(geometry below it): kept on-ground whole")

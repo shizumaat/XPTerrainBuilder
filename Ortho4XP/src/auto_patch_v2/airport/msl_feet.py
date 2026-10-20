@@ -50,7 +50,7 @@ import numpy as np
 from ..model.placement import KIND_MSL
 
 __all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "origin_key",
-           "below_origin_ids", "feet_seats"]
+           "feet_seats"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
@@ -111,17 +111,6 @@ def origin_set_lifts(items: _t.Iterable[tuple[str, tuple, _t.Any]],
 def origin_key(xy: _t.Sequence[float], heading_deg: float) -> tuple:
     """One origin in the airport frame (mm) and heading (1e-3°)."""
     return (round(float(xy[0]), 3), round(float(xy[1]), 3), round(float(heading_deg), 3))
-
-
-def below_origin_ids(objects: _t.Sequence[_t.Any], geometry: _t.Callable,
-                     tol_m: float) -> set[str]:
-    """The ids :func:`origin_set_lifts` GUARDS among ``obj8.PlacedObject``
-    readings; ``geometry(resolved)`` the parsed file."""
-    lifts = origin_set_lifts(
-        ((o.id, origin_key(o.xy, o.heading_deg),
-          geometry(o.resolved) if o.resolved is not None else None)
-         for o in objects if o.kind == KIND_MSL), tol_m)
-    return {i for i, v in lifts.items() if v is None}
 
 
 def _origin(p: _t.Any) -> tuple:

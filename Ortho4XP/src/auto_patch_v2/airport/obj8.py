@@ -677,6 +677,17 @@ class PlacedObject:
     #: lift — the ids of every member, this one included), or ``()`` for a
     #: placement decided alone.  The keep follows the family.
     family: tuple[str, ...] = ()
+    #: THE AUTHORED ZERO (owner Q54, #1102): a converted ``OBJECT_MSL`` row
+    #: whose geometry stands ``zero_y`` m above its origin is read with its
+    #: authored frame shifted by it (``contact._place``), so its lowest
+    #: static feet stand on the ground at its origin and the partition
+    #: finds them; the writer restores it (``placement_file``).  0.0 for
+    #: every other row.
+    zero_y: float = 0.0
+    #: The guard (``msl_feet.origin_set_lifts``): an ``OBJECT_MSL`` row of
+    #: an origin set built around its origin (geometry below it, or a
+    #: member that cannot be read) — kept on-ground whole, never split.
+    origin_built: bool = False
 
     @property
     def base_z(self) -> float:
@@ -1178,7 +1189,6 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             agl = float(elev)
         elif kind == "OBJECT_MSL":
             rep.msl_notes += 1
-            agl = msl_lift.get(oid) or 0.0
         phys = resolve_resource(dpath, pack_root, index)
         anchor_z = float(dem_z(xy[0], xy[1]))
         if phys is None:
@@ -1236,7 +1246,19 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             obj = _dc.replace(obj, family=ids)
         out[i] = obj
         _absorb(rep, sub)
-    return out, rep
+    return [_msl_frame(o, msl_lift) for o in out], rep
+
+
+def _msl_frame(o: PlacedObject, lifts: _t.Mapping[str, "float | None"]) -> PlacedObject:
+    """The one site ``zero_y`` / ``origin_built`` are set (#1102): the
+    zero sits at the member's lowest static y when that is above its
+    origin; a guarded set is ``origin_built``."""
+    if o.id not in lifts:
+        return o
+    lift = lifts[o.id]
+    if lift is None:
+        return _dc.replace(o, origin_built=True)
+    return _dc.replace(o, zero_y=max(0.0, -float(lift))) if lift < 0.0 else o
 
 
 def area_fraction_above(v: np.ndarray, comp: Component, plane_y: float) -> float:

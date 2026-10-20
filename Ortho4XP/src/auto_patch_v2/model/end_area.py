@@ -27,17 +27,19 @@ from __future__ import annotations
 import math
 
 from ..law import Law
+from ..law.reference_code import runway_status
 from ..law.tables import runway_end_profile, runway_safety_area_length_m
 from .airport import Airport
 
 __all__ = ["end_area_lengths", "end_area_length"]
 
 
-def end_area_length(dem, end_xy, unit, law: Law, cn, cl, instrument: bool = False) -> float:
+def end_area_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0) -> float:
     """The end area's length past one runway END (module docstring);
-    ``unit`` points outward along the extended centreline; ``instrument``
-    the runway's status (RULINGS 2026-10-15k)."""
-    rsa = runway_safety_area_length_m(law, cn, cl, instrument)
+    ``unit`` points outward along the extended centreline; ``status`` the
+    runway's instrument status (RULINGS 2026-10-15k; ``reference_code.
+    runway_status``, #811)."""
+    rsa = runway_safety_area_length_m(law, cn, cl, status)
     if dem is None or rsa <= 0.0:
         return rsa
     d_ = law.tables.emit.design
@@ -45,7 +47,7 @@ def end_area_length(dem, end_xy, unit, law: Law, cn, cl, instrument: bool = Fals
     probe = float(d_.edge_probe_m)
     drop = float(d_.edge_min_drop_m)
     grade = float(law.tables.zones.adjacent_ground.end_drop_min_grade)
-    prof = runway_end_profile(law, cn, cl, instrument)
+    prof = runway_end_profile(law, cn, cl, status)
     try:
         z0 = float(dem.z(*end_xy))
     except Exception:                                    # pragma: no cover
@@ -68,17 +70,17 @@ def end_area_length(dem, end_xy, unit, law: Law, cn, cl, instrument: bool = Fals
     return rsa
 
 
-def _end_length(dem, end_xy, unit, law: Law, cn, cl, instrument: bool = False) -> float:
+def _end_length(dem, end_xy, unit, law: Law, cn, cl, status: int = 0) -> float:
     """The end area's length past one END: the SHORTEST over the extended
     centreline and the RSA's two side lines (``zone2_half_width_m`` from it,
     the band's own edges) — an escarpment running OBLIQUELY across the end
     area reaches a side line first (measured CYXY 14L/32R: the centreline
     keeps 184 m while the band's corner stood 34 m over the valley floor)."""
     from ..law.tables import zone2_half_width_m
-    hw = float(zone2_half_width_m(law, "runway", cn, cl) or 0.0)
+    hw = float(zone2_half_width_m(law, "runway", cn, cl, status) or 0.0)
     px, py = -unit[1], unit[0]
     lens = [end_area_length(dem, (end_xy[0] + px * t, end_xy[1] + py * t), unit, law, cn, cl,
-                            instrument)
+                            status)
             for t in (0.0, -hw, hw)]
     return min(lens)
 
@@ -94,7 +96,7 @@ def end_area_lengths(airport: Airport, law: Law) -> dict[str, tuple[float, float
         if L <= 0.0:
             continue
         ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
-        cn, cl, ins = rw.code_number, rw.code_letter, bool(getattr(rw, "instrument", False))
+        cn, cl, ins = rw.code_number, rw.code_letter, runway_status(rw)
         out[rw.id] = (_end_length(dem, a, (-ux, -uy), law, cn, cl, ins),
                       _end_length(dem, b, (ux, uy), law, cn, cl, ins))
     return out

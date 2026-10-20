@@ -63,6 +63,9 @@ def test_hard_surface_admits_whatever_the_name(tmp_path, rel, surface, layer):
     # paint: the markings layer group refuses, whatever the name
     ("ground_marks/mark_dir_amarillo.pol", "concrete", "markings +1"),   # KCLT
     ("g/neutral_slab.pol", "asphalt", "Markings -1"),
+    # #726 KATL asp_* pages: owner 2026-10-20 "No" — still markings
+    ("pols/asp_dark.pol", "asphalt", "markings -1"),
+    ("pols/asp_light_used.pol", "asphalt", "markings -2"),
     ("lib/airport/signs/DrapedRwySigns.pol", "concrete", "markings"),
     ("lib/airport/markings/DrapedDirSigns.pol", "concrete", "markings"), # CYXY
     ("lib/airport/lines/safety_area_red.pol", "asphalt", "markings -1"),
@@ -93,6 +96,24 @@ def test_markings_terrain_soft_and_undeclared_stay_refused(tmp_path, rel, surfac
     _pol(tmp_path, rel, surface, f"LAYER_GROUP {layer}" if layer else "")
     assert not S.is_pavement_def(rel)
     assert _gate(tmp_path)(rel)[0] is None
+
+
+def test_a_terrain_word_is_a_word_not_a_substring(tmp_path):
+    """#726 (KATL ``pols/concrete_dirty.pol``, 2.33 km2): ``dirty`` is
+    weathered concrete, not dirt — a terrain word vetoes only as a WORD of
+    the path (or its plural)."""
+    for rel in ("pols/concrete_dirty.pol", "g/asphalt_soiled.pol",
+                "g/concrete-snowy.pol"):
+        _pol(tmp_path, rel, "concrete", "LAYER_GROUP taxiways +1")
+        assert S.is_pavement_def(rel), rel
+        assert _gate(tmp_path)(rel)[0] == S.SOURCE, rel
+    for name in ("ground/poly/grass3.pol", "g/dirt/x.pol", "g/gravels.pol",
+                 "g/grasses_a.pol", "g/snow.pol", "lib/terrain/x.pol",
+                 "g/mud-1.pol"):
+        assert S.names_soft_ground(name), name
+    for name in ("pols/concrete_dirty.pol", "g/muddy.pol", "g/soiled.pol",
+                 "g/grassland.pol", "g/snowfield.pol"):
+        assert not S.names_soft_ground(name), name
 
 
 def test_paint_layer_wins_wherever_its_row_sits(tmp_path):

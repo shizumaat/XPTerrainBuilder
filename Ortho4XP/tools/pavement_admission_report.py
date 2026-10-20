@@ -161,7 +161,7 @@ def why_refused(path: str, layer: str | None) -> str:
     p = path.lower()
     if any(s in p for s in D.PAVEMENT_SKIP):
         return "decorative namespace"
-    if any(s in p for s in D.SOFT_NAME_TOKENS):
+    if D.names_soft_ground(p):
         return "terrain word in the name"
     if layer == D.PAINT:
         return "paint layer group"

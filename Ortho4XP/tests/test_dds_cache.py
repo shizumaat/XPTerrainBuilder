@@ -18,14 +18,13 @@ import os
 import shutil
 
 import numpy
-import pytest
-from PIL import Image
-
 import O4_DDS_Cache as CACHE
 import O4_DDS_Encode as DDSENC
 import O4_DDS_File as DDS
 import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
+import pytest
+from PIL import Image
 
 needs_ispc = pytest.mark.skipif(not DDSENC.ispc_available(),
                                 reason="needs ispc_texcomp")

@@ -12,15 +12,13 @@ from __future__ import annotations
 import random
 
 import shapely
-from shapely import affinity
-from shapely.geometry import Polygon, box
-
 from auto_patch_v2.classify.roles import Cell
-from auto_patch_v2.geom.fixed_overlay import (canonical_union, fixed_difference,
-                                              is_hairline)
+from auto_patch_v2.geom.fixed_overlay import canonical_union, fixed_difference, is_hairline
 from auto_patch_v2.law import Law
 from auto_patch_v2.law.tables import role_side
 from auto_patch_v2.planar.zones import zone_regions
+from shapely import affinity
+from shapely.geometry import Polygon, box
 
 LAW = Law.for_airport("HECA")
 _ANG = 23.7                       # off-axis, so every overlay node is inexact

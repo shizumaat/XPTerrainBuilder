@@ -534,7 +534,17 @@ def _engine_metric(ll_to_m):
     engine's 128.34 m and read as breaches at the census's 128.17 m).
     Its rows' points go back through ``to_census`` so every join on the
     census frame (the senior-role stamp, the relaxed rows) is unchanged.
-    A frame with no inverse (no nodes) is returned as it is."""
+    A frame with no inverse (no nodes) is returned as it is.
+
+    EVERY FAMILY reads here since #772: ``run_checks`` wraps its frame
+    once and maps every row back at the end
+    (:func:`_rows_to_census_frame`).  The metric carries ``inverse`` (its
+    own ``to_ll``, for the row-site stamp) and ``census_frame`` (the
+    frame it wraps), so a family wrapping it again gets it back as it is.
+    The frame's origin maps to the origin exactly: the sidecar-declared
+    families mint at ``(0, 0)`` (no site), and stay there."""
+    if getattr(ll_to_m, "census_frame", None) is not None:
+        return ll_to_m, (lambda pt: pt)
     inv = getattr(ll_to_m, "inverse", None)
     if inv is None:
         return ll_to_m, (lambda pt: pt)
@@ -546,14 +556,55 @@ def _engine_metric(ll_to_m):
     def to_m(lat: float, lon: float) -> Tuple[float, float]:
         got = memo.get((lat, lon))
         if got is None:
-            got = memo[(lat, lon)] = fwd(lat, lon)
+            got = fwd(lat, lon)
+            if not (math.isfinite(got[0]) and math.isfinite(got[1])):
+                # not a coordinate of this airport — the "metre pair read
+                # as lat/lon" probe of the senior-role and relaxed-row
+                # joins: a finite point that lands nowhere, as before
+                return ll_to_m(lat, lon)
+            memo[(lat, lon)] = got
             census[got] = ll_to_m(lat, lon)
         return got
 
     def to_census(pt):
         got = census.get(pt)
-        return got if got is not None else ll_to_m(*to_ll(*pt))
+        if got is not None:
+            return got
+        if float(pt[0]) == 0.0 and float(pt[1]) == 0.0:
+            return (0.0, 0.0)
+        return ll_to_m(*to_ll(*pt))
+    to_m.inverse = to_ll
+    to_m.census_frame = ll_to_m
     return to_m, to_census
+
+
+def _rows_to_census_frame(row_lists, to_census) -> int:
+    """Map every row's two points from the engine metric back to the
+    census frame (#772), each row once however many lists carry it, so
+    ``site_m``, ``--sites`` clustering and the cockpit ranges read the
+    frame they always did.  A row whose points are LAT/LON
+    (``points_ll``: the published-edge family) is left as it is.
+    Returns the number of rows mapped."""
+    seen: set = set()
+    n = 0
+    for rows in row_lists:
+        if not isinstance(rows, (list, tuple)):
+            continue
+        for r in rows:
+            if id(r) in seen or getattr(r, "points_ll", False):
+                continue
+            for first, second in ROW_POINT_KEYS:
+                a = getattr(r, first, None)
+                if a is None:
+                    continue
+                seen.add(id(r))
+                b = getattr(r, second, None)
+                setattr(r, first, to_census(a))
+                if b is not None:
+                    setattr(r, second, to_census(b))
+                n += 1
+                break
+    return n
 
 from check_grade_lib.context import (  # noqa: E402,F401,I001
     _frame_datum_points,
@@ -5213,6 +5264,7 @@ def _check_published_law_edges(
             pt_a=(float(a_ll[0]), float(a_ll[1])),
             pt_b=(float(b_ll[0]), float(b_ll[1])),
             elev_a=za, elev_b=zb, cap_pct=cap)
+        v.points_ll = True      # lat/lon points: no frame to map back
         v.lat = 0.5 * (float(a_ll[0]) + float(b_ll[0]))
         v.lon = 0.5 * (float(a_ll[1]) + float(b_ll[1]))
         out.append(v)
@@ -6614,15 +6666,41 @@ def _segments_cross(p, q, r, s) -> bool:
 
 
 def _terrace_joints_to_m(terrace_joints_ll, ll_to_m):
-    """Sidecar rows → ``[(points_m, step_m), …]`` in the audit frame."""
+    """Sidecar rows → ``[(points_m, step_m), …]`` in the audit frame; a
+    pack wall's step is :func:`_declared_joint_step`'s."""
     out = []
     for row in (terrace_joints_ll or []):
         pts = row.get("points") or []
         if len(pts) < 2:
             continue
         out.append(([ll_to_m(float(la), float(lo)) for (la, lo) in pts],
-                    float(row.get("step_m") or 0.0)))
+                    _declared_joint_step(row)))
     return out
+
+
+#: the patch writes elevations to the centimetre — the rounding the
+#: emitter adds to a retaining wall's declared height
+#: (``pipeline/publication._EMIT_Z_ROUND_M``, quoted, never imported)
+_WALL_EMIT_ROUND_M = 0.01
+
+
+def _declared_joint_step(row) -> float:
+    """The step a declared joint forgives.  A PACK WALL (``wall_terrace``,
+    not a walled tunnel mouth) declares its OWN HEIGHT along its whole
+    outline (owner RULINGS 2026-10-19ao, #507: "a declared pack wall may
+    bound an airside apron step at its own height ... declared at wall
+    height in the census only") — never the emitter's ``step_m``, which
+    reads the step at the wall's lot pairings only (one pairing at HECA's
+    ``metal_strip_2.obj`` comp12: 1.60 m declared under a 3.10 m wall).
+    The census-only reading: the sidecar and the geometry are unchanged.
+    Every other joint declares its sidecar ``step_m``."""
+    step = float(row.get("step_m") or 0.0)
+    if row.get("kind") != WALL_TERRACE_JOINT_KIND or _is_mouth_wall_joint(row):
+        return step
+    h = row.get("height_m")
+    if h is None:
+        return step
+    return max(step, round(float(h) + _WALL_EMIT_ROUND_M, 4))
 
 
 #: ``kind`` of a declared joint that is a below-grade TRENCH WALL, not a
@@ -12130,15 +12208,23 @@ def run_checks(
               f"— rows adjudicated 'role_less_host_duplicate')")
     if family_out is not None:
         family_out["_feature_hosts"] = _feature_hosts
-    ll_to_m = _ll_to_m_factory(nodes, anchor=anchor)
+    census_to_m = _ll_to_m_factory(nodes, anchor=anchor)
+    # ONE READER FRAME, THE ENGINE'S METRIC (#772, RULINGS 2026-10-15h):
+    # every family measures plan distance in the transverse-Mercator frame
+    # the generators state their bounds in — the census's spherical
+    # equirectangular is 0.1-0.7 % off it, so a row held exactly at its
+    # bound read as a breach.  Every row goes back to the census frame at
+    # the end (``_rows_to_census_frame``): joins and ``site_m`` unchanged.
+    ll_to_m, _to_census = _engine_metric(census_to_m)
     # THE COCKPIT FRAME's two RANGES (§31 (2)), taken off the SAME parsed
     # patch every family below is read from — the boundary rings and the
-    # runway geometry, never a second read of the file and never a second
-    # projection.  Published through ``family_out`` so the census, this
-    # module's CLI and the fixtures classify in one frame.
+    # runway geometry, never a second read of the file.  In the CENSUS
+    # frame: the classifier reads the rows after they are mapped back.
+    # Published through ``family_out`` so the census, this module's CLI
+    # and the fixtures classify in one frame.
     if family_out is not None:
         family_out["_cockpit_geometry"] = cockpit_geometry(
-            ways, nodes, ll_to_m)
+            ways, nodes, census_to_m)
     # CAP BY EDGE PORTION (owner RULINGS 2026-09-04t-2): mark every
     # apron-adopting way's long shared runs ONCE, before any check, so the
     # within-shape, cross-shape and step readers price one reading.
@@ -13188,6 +13274,11 @@ def run_checks(
             if _r.out_of_scope is None and role_less_host_duplicate(_r):
                 _r.out_of_scope = "role_less_host_duplicate"
 
+    # BACK TO THE CENSUS FRAME (#772), last: every stamp and join above
+    # ran in the metric every family read in.
+    _rows_to_census_frame(
+        [within, cross, steps, mid_steps, rw_steps,
+         *((family_out or {}).values())], _to_census)
     return within, cross, steps + mid_steps + rw_steps
 
 

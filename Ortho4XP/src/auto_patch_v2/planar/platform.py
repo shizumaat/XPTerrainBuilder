@@ -312,6 +312,12 @@ def platform_split(base_regions, pad_regions, law: Law,
         airport, law, float(grid),
         # the LANDING BANK's width (master ruling 2026-10-08 R3 (1))
         float(bp.platform_collar_max_m), counts, reg=reg))
+    # owner RULINGS 2026-10-19ai (#809): a held block whose unit carries
+    # its own one-storey step gets a second, LOWER level along it, tied to
+    # the block's datum (``planar/low_level``); after the landings, which
+    # clear the registry it is recorded in
+    from .low_level import low_level_split
+    out = low_level_split(out, air_polys, airport, law, float(grid), counts, reg=reg)
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

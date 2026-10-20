@@ -92,6 +92,11 @@ class Evidence:
     #: the taxi chains per letter source (``classify/taxi_letter``):
     #: ``1202`` / ``width`` / ``default``
     taxi_letter_sources: dict[str, int] = _dc.field(default_factory=dict)
+    #: THE JETWAY GROUND (issue #802): the PAVEMENT a terminal pad took in
+    #: when it grew over its jetways (owner RULINGS 2026-10-16b (1),
+    #: :func:`_with_jetways`) — the ground stays pavement-senior for the
+    #: pad's relief target (``constraints/pad_relief``).
+    jetway_ground: list[Polygon] = _dc.field(default_factory=list)
 
 
 # ── names (the author's own word for a page) ────────────────────────────
@@ -306,8 +311,13 @@ def build_evidence(airport: Airport, rules: Rules,
                if w.closed and w.tags.get("amenity") == "parking"
                for p in [polygon_from(w.points[:-1])] if p is not None]
 
+    gained: list = []
     pads, dropped, skirted = _pads(airport, rules, pad_min_area_m2, boundary,
-                                   pavement_union, runway_union, law, cache)
+                                   pavement_union, runway_union, law, cache,
+                                   gained=gained)
+    jetway_ground = [q for g in gained
+                     for q in polygon_parts(g.intersection(pavement_union))
+                     if q.area > 0.0]
     pad_union = unary_union([g for _i, g in pads]) if pads else Polygon()
 
     terminal = any(s.kind == "gate" for s in airport.startups) or any(
@@ -316,7 +326,8 @@ def build_evidence(airport: Airport, rules: Rules,
     return Evidence(runway_polys, runway_union, pav, pavement_union,
                     taxi_chains, truck_chains, pads, pad_union, boundary,
                     terminal, dropped, leadins, len(dsf_pav), dsf_dropped,
-                    road_chains, parking, skirted, letter_counts)
+                    road_chains, parking, skirted, letter_counts,
+                    jetway_ground=jetway_ground)
 
 
 def _network_reach(edges: _t.Sequence[tuple[int, int, str | None, str]],
@@ -586,7 +597,7 @@ def _cluster_pads(airport: Airport, law, airside=None) -> list[Polygon]:
 
 
 def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
-          pavement_union, runway_union, law=None, cache=None
+          pavement_union, runway_union, law=None, cache=None, gained=None
           ) -> tuple[list[tuple[str, Polygon]], int, list[str]]:
     """Building footprints -> pads: union coincident/stacked footprints
     (a terminal is several facade pieces on one outline), keep those
@@ -745,7 +756,7 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # every jetway the scenery declares joins the pad it serves — here, at
     # the ONE derivation site, so the arrangement's apron cut (23a) and
     # every pad consumer inherit the expanded outline
-    parts = _with_jetways(parts, airport, law, cache, runway_union)
+    parts = _with_jetways(parts, airport, law, cache, runway_union, gained)
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
     # RULINGS 2026-09-14ax: THE PAD CLIP IS THE ARRANGEMENT'S, NOT THIS
     # SITE'S.  Round 1 clipped every pad here by ``runway_union |
@@ -937,11 +948,13 @@ def _absorb_enclosed(parts: list, weld_m: float = 0.0) -> list:
 JETWAY_PADS: dict[str, _t.Any] = {}
 
 
-def _with_jetways(parts: list, airport: Airport, law, cache, runway_union) -> list:
+def _with_jetways(parts: list, airport: Airport, law, cache, runway_union,
+                  gained: "list | None" = None) -> list:
     """Each pad part unioned with the declared jetways it serves (owner
     RULINGS 2026-10-16b (1); ``airport/jetways``): a jetway serves the part
     whose outline is nearest its ROOT, within ``[building_pad]
-    jetway_root_reach_m``.  A jetway never takes runway ground (14ah)."""
+    jetway_root_reach_m``.  A jetway never takes runway ground (14ah).
+    ``gained``, when given, receives what each grown part took in."""
     from ..airport.jetways import JETWAYS, declared_jetways
     JETWAY_PADS.clear()
     bp = law.tables.structures.building_pad if law is not None else None
@@ -984,6 +997,8 @@ def _with_jetways(parts: list, airport: Airport, law, cache, runway_union) -> li
         grown = max(polygon_parts(grown), key=lambda q: q.area) \
             if grown.geom_type != "Polygon" else grown
         JETWAY_PADS["grown_m2"].append(round(grown.area - out[k].area, 1))
+        if gained is not None:
+            gained.append(grown.difference(out[k]))
         out[k] = grown
     return out
 

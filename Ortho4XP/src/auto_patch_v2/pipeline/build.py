@@ -23,6 +23,7 @@ from ..law import Law
 from ..model import pulse as _pulse
 from ..model.constraints import ConstraintSet
 from ..model.planar import PlanarMap
+from ..planar import arrangement_memo as _arr_memo
 from ..planar.pack_reads import pool_report as _pack_read_pool
 from ..solve import DesignReport, Options, Solution, solve_design  # noqa: F401
 from . import emit_records as _emit_records
@@ -384,6 +385,7 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
             "pool": _wpool.report()}
 
 
+@_arr_memo.scoped   # the arrangement's front, read once per build (#803)
 def build(icao: str, inputs: Inputs, out_dir: str | Path,
           config: Config | None = None, law: Law | None = None,
           out: _t.Callable[[str], None] = print) -> BuildResult:

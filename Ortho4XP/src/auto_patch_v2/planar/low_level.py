@@ -39,26 +39,45 @@ own ground.  Between the two levels a RISER STRIP ``<block>/p1#strip``
 The object stage never sees a second level: ``airport/placement_read``
 publishes the low pad and its strip under the BLOCK's ref at the block's
 plane (``model.planar.plane_origin_ref``), so the unit is seated as one
-body at the airside datum — the anchor of 19y."""
+body at the airside datum — the anchor of 19y.
+
+THE UPPER LEVEL, ITS MIRROR (owner answer 47, 2026-10-20, #1101: "the pad
+gets a second, UPPER rigid level, a storey above the airside level and
+tied to it; landside lots and roads meet it").  A lot §27 read as meeting
+the apron ACROSS a unit's storey (``classify.storey_edge``; it carries the
+storey's authored rise, and the classifier welded it to the pad) meets the
+held pad it touches at that storey: the pad's strip along the lot, of
+``pad_frontage_m``, kept the same distance off the airside, is minted
+``<block>/p<k>`` (``kind = "upper_level"``) with its riser strip, and
+registered with ``y`` = the rise — the LANDING's rigid row, ``z = D + y``
+(``constraints/platform.landing_rows``), so it stands a storey above the
+block and the lot comes to it.  MEASURED LPHR (38.521557, −28.716632): the
+terminal's floor at y 0 on the apron, its forecourt parapet, kerb columns
+and landside hall at +6.0; the forecourt sat at the pad's 28.6 m with the
+DEM at 34."""
 from __future__ import annotations
 
 import dataclasses as _dc
 import statistics as _st
 import typing as _t
 
+from shapely.errors import GEOSException
 from shapely.geometry import Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..geom.parts import nonempty_polygon_parts
+from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["LOW_KIND", "low_level_split", "plan_low"]
+__all__ = ["LOW_KIND", "UP_KIND", "low_level_split", "plan_low", "plan_up"]
 
 #: the ``Registries.landings`` record kind of a lower level (a ramp
 #: landing's record carries no kind)
 LOW_KIND = "low_level"
+#: the record kind of an upper level: held like a landing (``z = D + y``)
+UP_KIND = "upper_level"
 
 
 def _unit_parts(P: Polygon, airport, to_xy) -> list:
@@ -92,7 +111,14 @@ def _ring_poly(rg, to_xy) -> "Polygon | None":
 def plan_low(P, air, airport, law, grid: float, others=None
              ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, low, strip, record)`` for one held pad ``P`` (module
-    docstring), or ``None`` where its unit carries no lower storey."""
+    docstring), or ``None`` where its unit carries no lower storey.
+
+    EVERY OPERAND IS A VALID AREA (#1098): a held pad, the apron or a
+    neighbour pad may arrive self-touching or on a fixed precision model,
+    and an overlay of the low region against it then raised ``side
+    location conflict`` and cost the airport its whole patch (EDDF).
+    ``geom/valid_area`` reads each one's area before it is cut."""
+    P, air = valid_area(P), valid_area(air)
     bp = law.tables.structures.building_pad
     step_min = float(getattr(bp, "low_level_min_step_m", 0.0) or 0.0)
     if step_min <= 0.0:
@@ -122,7 +148,7 @@ def plan_low(P, air, airport, law, grid: float, others=None
     if not polys:
         return None
     L = unary_union(polys).buffer(near, join_style=2).buffer(-near, join_style=2)
-    L = L.intersection(P).difference(air.buffer(near, join_style=2))
+    L = valid_area(valid_area(L.intersection(P)).difference(air.buffer(near, join_style=2)))
     w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
     if others is not None and not others.is_empty:
         # ANOTHER PAD the low level touches keeps its own floor (two pads
@@ -130,7 +156,7 @@ def plan_low(P, air, airport, law, grid: float, others=None
         # riser runs along it too, never one vertex at two levels
         # (MEASURED KATL: ``building34`` / ``building36`` at the apron's level
         # shared 10 vertices with the low level and held it up)
-        L = L.difference(others.buffer(w, join_style=2))
+        L = valid_area(L.difference(valid_area(others).buffer(w, join_style=2)))
     keep = [q for q in nonempty_polygon_parts(L) if q.area >= pmin]
     # A STOREY OF THE UNIT, not a sill: the low level is a unit pad's worth
     # of ground (``[placement] cluster_pad_min_m2``, the §30 (4) bar) —
@@ -138,9 +164,9 @@ def plan_low(P, air, airport, law, grid: float, others=None
     # 3 m drop of ground the apron holds, and the band was relaxed
     if sum(q.area for q in keep) < float(law.tables.structures.placement.cluster_pad_min_m2):
         return None
-    L = unary_union(keep)
-    S = P.intersection(L.buffer(w, join_style=2)).difference(L)
-    H = P.difference(L.buffer(w, join_style=2))
+    L = valid_area(unary_union(keep))
+    S = valid_area(valid_area(P.intersection(L.buffer(w, join_style=2))).difference(L))
+    H = valid_area(P.difference(L.buffer(w, join_style=2)))
     if H.is_empty or H.area < pmin:
         return None                  # the frontage block must stay a block
     y_floor = min(p.base_y for p in low_parts) - t
@@ -148,6 +174,31 @@ def plan_low(P, air, airport, law, grid: float, others=None
            "low_parts": len(low_parts), "area_m2": round(L.area, 1),
            "ground_z": _ground(L, getattr(airport, "dem", None), near)}
     return H, L, S, rec
+
+
+def plan_up(P, air, lots, rise: float, law, grid: float, others=None
+            ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
+    """``(high, upper, strip, record)`` for one held pad ``P`` touching the
+    storey lots ``lots`` (one geometry) whose storey stands ``rise`` above
+    the pad's floor (module docstring), or ``None``."""
+    from ..law.tables import design as design_law
+    near = float(design_law(law).pad_frontage_m)
+    pmin = float(law.tables.structures.building_pad.min_area_m2)
+    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
+    U = (P.intersection(lots.buffer(near, join_style=2))
+         .difference(air.buffer(near + w, join_style=2)))
+    if others is not None and not others.is_empty:
+        U = U.difference(others.buffer(w, join_style=2))
+    # a piece the riser could not stand beside is no level
+    keep = [q for q in nonempty_polygon_parts(U) if q.area >= near * 2.0 * w]
+    if not keep:
+        return None
+    U = unary_union(keep)
+    S = P.intersection(U.buffer(w, join_style=2)).difference(U)
+    H = P.difference(U.buffer(w, join_style=2))
+    if H.is_empty or H.area < pmin:
+        return None
+    return H, U, S, {"y": round(float(rise), 3), "area_m2": round(U.area, 1)}
 
 
 def _ground(L, dem, step: float) -> "float | None":
@@ -178,11 +229,13 @@ def _ground(L, dem, step: float) -> "float | None":
 
 
 def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
-                    law, grid: float, counts: dict, *, reg: Registries) -> list:
+                    law, grid: float, counts: dict, *, reg: Registries,
+                    storey_lots: _t.Sequence = ()) -> list:
     """The pad regions ``out`` with every held block whose unit carries a
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
-    ``reg.landings``."""
+    ``reg.landings``.  ``storey_lots`` — ``(polygon, rise)`` of the lots
+    met across a storey — give the held pads they touch an UPPER level."""
     from ..airport.obj8_grade import STEPPED
     from .pad_blocks import unit_base
     if (airport is None or getattr(airport, "frame", None) is None
@@ -194,10 +247,12 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     for r in out:
         ref = str(r.ref)
         h = held.get(ref)
-        if h is not None and not h.get("conforming") and r.polygon is not None:
+        if h is not None and r.polygon is not None:
             groups.setdefault(ref, []).append(r)
     done: dict[str, list | None] = {}
     for ref, regs in sorted(groups.items()):
+        if held[ref].get("conforming"):
+            continue
         P = unary_union([r.polygon for r in regs])
         if P.is_empty or unit_base(P, airport)[0] != STEPPED:
             continue
@@ -207,7 +262,15 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
             continue
         others = unary_union([r.polygon for r in out if str(r.ref) != ref
                               and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
-        got = plan_low(P, air, airport, law, grid, others)
+        try:
+            got = plan_low(P, air, airport, law, grid, others)
+        except GEOSException as exc:
+            # an overlay GEOS still refuses on valid areas: the block stays
+            # ONE level (the pre-#809 pad) and the refusal is counted, never
+            # a lost airport (#1098)
+            counts["low_level_refused"] = counts.get("low_level_refused", 0) + 1
+            counts.setdefault("low_level_refused_list", []).append(f"{ref}: {exc}")
+            continue
         if got is None:
             continue
         H, L, S, rec = got
@@ -219,6 +282,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                         for q in nonempty_polygon_parts(S)])
         reg.landings[low] = {"block": ref, "y": rec["y_lo"], "deck": None,
                              "kind": LOW_KIND, **rec}
+    _upper_split(groups, done, out, tree, air_polys, storey_lots, law, grid, reg)
     if not done:
         return out
     res: list = []
@@ -234,4 +298,40 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     counts["low_level_list"] = "; ".join(
         f"{k} on {v['block']} band [{v['y_lo']:+.2f}, {v['y_hi']:+.2f}] {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == LOW_KIND)
+    counts["upper_levels"] = "; ".join(
+        f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"
+        for k, v in sorted(reg.landings.items()) if v.get("kind") == UP_KIND)
     return res
+
+
+def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,
+                 grid: float, reg: Registries) -> None:
+    """THE UPPER LEVELS (module docstring): every held pad in ``groups``
+    no lower level split, touching a storey lot."""
+    if not storey_lots:
+        return
+    lots = [g for g, _y in storey_lots]
+    ltree = STRtree(lots)
+    for ref, regs in sorted(groups.items()):
+        if ref in done:
+            continue
+        P = unary_union([r.polygon for r in regs])
+        hit = [int(j) for j in ltree.query(P, predicate="dwithin", distance=max(grid, 0.01))]
+        if P.is_empty or not hit:
+            continue
+        air = unary_union([air_polys[int(j)] for j in
+                           tree.query(P.buffer(50.0), predicate="intersects")])
+        others = unary_union([r.polygon for r in out if str(r.ref) != ref
+                              and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
+        got = plan_up(P, air, unary_union([lots[j] for j in hit]),
+                      min(storey_lots[j][1] for j in hit), law, grid, others)
+        if got is None:
+            continue
+        H, U, S, rec = got
+        tmpl = regs[0]
+        up = plane_ref(ref, 1)
+        done[ref] = ([_dc.replace(tmpl, polygon=q) for q in nonempty_polygon_parts(H)]
+                     + [_dc.replace(tmpl, ref=up, polygon=q) for q in nonempty_polygon_parts(U)]
+                     + [_dc.replace(tmpl, ref=up + STRIP_SUFFIX, polygon=q)
+                        for q in nonempty_polygon_parts(S)])
+        reg.landings[up] = {"block": ref, "deck": None, "kind": UP_KIND, **rec}

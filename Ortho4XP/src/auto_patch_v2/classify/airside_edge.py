@@ -243,7 +243,8 @@ def _is_mouth(face: Polygon, other: Polygon, contact, factor: float,
 def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
                        air: list[tuple[Polygon, bool]], weld_m: float,
                        factor: float, cache: dict | None = None,
-                       roads: _Roads | None = None) -> float:
+                       roads: _Roads | None = None, storey=None,
+                       across: list | None = None) -> float:
     """Metres of ``face``'s boundary running LATERALLY along airside
     pavement, measured WELD-TOLERANT at ``emit.identity.weld_spacing_m``.
 
@@ -255,6 +256,12 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
     spacing and the face's boundary is measured INSIDE that band.  MOUTH
     contacts (§27 (5)) are dropped; the remainder is UNIONED, so two
     airside faces claiming the same run of boundary count it once.
+
+    A contact ACROSS A UNIT'S OWN STOREY is no apron contact (owner answer
+    47, 2026-10-20, #1099): the run of it inside ``storey`` — the plan
+    footprints of pack parts authored a storey above their unit's airside
+    floor (``airport.unit_storey``), widened by the weld — is dropped, and
+    appended to ``across`` when one is handed in.
     """
     lateral = []
     for j in tree.query(face.buffer(weld_m), predicate="intersects"):
@@ -265,16 +272,36 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
         if _is_mouth(face, other, contact, factor, face_is_road,
                      other_is_road, cache, roads):
             continue
+        if storey is not None:
+            if across is not None:
+                across.append(contact.intersection(storey))
+            contact = contact.difference(storey)
+            if contact.is_empty:
+                continue
         lateral.append(contact)
     if not lateral:
         return 0.0
     return float(unary_union(lateral).length)
 
 
+def _keep_across(final: list[list], i: int, run, storey, cuts, to_xy) -> None:
+    """Record on ``final[i]`` that §27 kept it groundside across a storey
+    (``classify.storey_edge``), and hand its run to ``cuts``."""
+    from .storey_edge import STOREY_M_KEY, STOREY_Y_KEY, storey_height
+    h = storey_height(storey, run, to_xy) if to_xy is not None else None
+    ev = dict(final[i][4], **{STOREY_M_KEY: round(float(run.length), 1)})
+    if h is not None:
+        ev[STOREY_Y_KEY] = h
+    final[i][4] = ev
+    if cuts is not None:
+        cuts[i] = run
+
+
 def airside_edge_flip(final: list[list], cells, law: Law,
                        rules: Rules, roads=(),
-                       road_class: _t.AbstractSet[int] | None = None
-                       ) -> tuple[int, int]:
+                       road_class: _t.AbstractSet[int] | None = None,
+                       storey=None, storey_cuts: dict | None = None,
+                       to_xy=None) -> tuple[int, int]:
     """§27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c:
     "shapeID 81 ... cannot be groundside because it shares a long edge
     with an apron. Something can only be groundside if it has no
@@ -316,6 +343,14 @@ def airside_edge_flip(final: list[list], cells, law: Law,
     ``final`` that are road-class, whatever role they were born with (a gap
     piece is born ``groundside_pavement``; ``roles._road_evidence`` says
     whether a road reaches it).  ``None`` reads the born role, as ever.
+
+    ``storey`` (``classify.storey_edge.StoreyBand``), when given, is the
+    plan footprint of the pack units' UPPER STOREYS: a contact's run across
+    it is no apron contact (owner answer 47, 2026-10-20, #1099;
+    ``_lateral_airside_m``).  A face that run alone kept groundside carries
+    ``storey_edge.STOREY_M_KEY`` / ``STOREY_Y_KEY`` (the storey's rise,
+    read through ``to_xy``), and its run lands in ``storey_cuts`` (face
+    index -> run) for ``storey_edge.knife_storeys``.
     """
     min_m = float(rules.lot.airside_edge_min_m)
     frac = float(rules.lot.road_airside_edge_frac)
@@ -355,9 +390,14 @@ def airside_edge_flip(final: list[list], cells, law: Law,
             per = face.length
             if per <= 0.0 or face.area / per < _LOT_SLIVER_RADIUS_M:
                 continue
+            across: list = []
             shared = _lateral_airside_m(face, was_road[i], tree, air, weld_m,
-                                        factor, cache, road_ctx)
+                                        factor, cache, road_ctx,
+                                        None if storey is None else storey.geom, across)
             if shared < min_m:
+                run = unary_union(across) if across else None
+                if run is not None and run.length >= min_m:
+                    _keep_across(final, i, run, storey, storey_cuts, to_xy)
                 continue
             # §37 (2) A ROAD FLIPS BY SHARE, A LOT BY EDGE (owner RULINGS
             # 2026-09-13q KCLT item 7, over 13j item 7).  A STRIP-class

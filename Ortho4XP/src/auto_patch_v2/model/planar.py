@@ -284,6 +284,10 @@ class Face:
     code_number: int | None = None
     code_letter: str | None = None
     side: str = "airside"
+    #: #1071 (owner 2026-10-20): a road by its SHAPE alone (§110 ribbon,
+    #: ``road_by_proportions``) — still the LOT at a wall's foot
+    #: (``airport.road_ramp.wall_terraces``, 10-03c)
+    road_by_proportions: bool = False
 
 
 def face_edge_ids(face) -> set[int]:

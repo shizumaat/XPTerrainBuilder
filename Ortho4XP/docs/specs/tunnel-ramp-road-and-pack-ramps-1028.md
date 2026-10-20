@@ -16,20 +16,20 @@ How each column is measured:
 
 | # | tunnel | landmark | walk end (evidence) | grade needed | class | now (this branch) |
 |---|---|---|---|---|---|---|
-| 1 | EDDF `-35458+-18828@0` (service, layer −1, 75 m bore) | 1.3 km NE of the 25C threshold, 581 m from taxiway N | at the portal the roads leave at 88° (a T junction); 0 m walked | 102 % | **shape**: the portal opens onto a crossing road | refused: no road to climb along after the mouth slides out of the crossing road |
-| 2 | EDDF `-35430+-18812@0` (service, layer −1, 295 m) | 846 m NE of the 25R threshold | the service road dead-ends 43 m out | 16 % | **steeper** (over the cap), and the road ends | refused |
+| 1 | EDDF `-35458+-18828@0` (service, layer −1, 75 m bore) | 1.3 km NE of the 25C threshold, 581 m from taxiway N | at the portal the roads leave at 88° (a T junction); 0 m walked | 102 % | **shape**: the portal opens onto a crossing road | the mouth slides 13 m out of the crossing road; the ramp is trimmed at road `-4128` (36 m) |
+| 2 | EDDF `-35430+-18812@0` (service, layer −1, 295 m) | 846 m NE of the 25R threshold | the service road dead-ends 43 m out | 16 % | **steeper** (over the cap), and the road ends | the mouth slides out of the crossing road; the ramp is trimmed at road `-35452` (60 m) |
 | 3 | EDDF `-25266+-13396@0` (service, layer −1) | 1.7 km NW of the 25R threshold | the second feed's copy `-33590` of the same tunnel continues at 0°; 0 m walked | 42 % | **no real portal**: duplicate ways from two feeds split the chain (four ways meet at the node) | not a mouth |
 | 4 | EDDF `-21432+-11431@0` (service, 52 m) | 831 m N of the 25C threshold | tunnel `-21450` (layer −3) continues at 25° | — (the road leaves at 0 m) | **no real portal**: the road goes on down into a deeper level | not a mouth |
 | 5 | EDDF `-20307+-11008@0` (service) | 1.9 km E of the 25R threshold, apron edge, 330 m from N8 | 101 m of layer +1 service road, then tunnel `-29600` at 2° | 133 % | **no real portal**: the road between the two bores is mapped above ground, not in a cutting | refused (the road leaves the corridor 12 m out) |
 | 6 | EDDF `-16931+-9518@0` (service, 4 lanes, no layer, 15 m bore) | 1.9 km W of the 25C threshold | nothing continues at the end | 21 % | **no real tunnel** (a 15 m passage) | trimmed at the crossing road `-25918` (12 m) |
 | 7 | EDDF `-14187+-8545@0` (track, layer −1) | 2.8 km N of the 25R threshold, by trunk road `-16028` | the track turns 90° 10 m out | 34 % | **shape**: the track turns at the portal | refused |
 | 8 | EDDF `-11095+-6523@0` (track, layer −1) | 2.3 km N of the 25R threshold | junction 47 m out; the continuations turn 93° and 114° | 13 % | **steeper** (over the cap) | refused |
-| 9 | EDDF `-3189+-1462@0` (track) | 2.1 km NE of the 25C threshold | the track dead-ends 9 m out | 50 % | **shape**: the road ends at the portal | refused |
+| 9 | EDDF `-3189+-1462@0` (track) | 2.1 km NE of the 25C threshold | the track dead-ends 9 m out | 50 % | **shape**: the road ends at the portal | the mouth slides out of track `-3187`; the ramp runs 156 m on the bore's own line and crosses no road or pavement (rule 6) |
 | 10 | EDDF `-27364+-478@0` (rail, layer −1, 494 m) | 989 m E of the 25R threshold | rail tunnel `-10179` continues at 1°, 7 m out | — | **no real portal**: duplicate-feed split | not a mouth |
 | 11 | EDDF `-9546@1` (rail, layer −1) | 1.5 km NE of the 25C threshold | the bore's end meets no way at all | 23.5 % | **no real portal**: a dangling rail-tunnel end | trimmed at track `-8725` (36 m) |
-| 12 | EDDF `-2201@1` (rail, layer −1) | 2.8 km NE of the 25C threshold | rail tunnel `-2200` continues at 1°, 36 m out | 7.7 % | **no real portal**: an open slot between two bores, shorter than the shortest lawful ramp | not a mouth |
+| 12 | EDDF `-2201@1` (rail, layer −1) | 2.8 km NE of the 25C threshold | rail tunnel `-2200` continues at 1°, 36 m out | 7.7 % | **no real portal**: an open slot between two bores, shorter than the shortest lawful ramp | built at 60 m, topping out before the road leaves the corridor |
 | 13 | KCLT `-6954@1` (service, layer −1) | 1.3 km SW of the 18L threshold, 28 m from taxiway M | tunnel `-8739` continues at 0°, 19 m out | 35 % | **no real portal**: a 19 m gap between two bores | not a mouth (the `-8739` far end builds as before) |
-| 14 | KCLT `-30363…@1` (an underpass under taxiway U, tertiary dual) | 570 m W of the 36R threshold, 88 m from U | the two carriageways part 48–56 m out (one runs into a roundabout) | 7.5–8.7 % | **shape**: the dual's mean axis stops being a road where the carriageways part | refused: it cannot top out before the parting. **Regression on #1035's ramp**; per-carriageway ramps past the parting are the fix |
+| 14 | KCLT `-30363…@1` (an underpass under taxiway U, tertiary dual) | 570 m W of the 36R threshold, 88 m from U | the two carriageways part 48–56 m out (one runs into a roundabout) | 7.5–8.7 % | **shape**: the dual's mean axis stops being a road where the carriageways part | built: 60 m at 8.6 %, topping out at the parting (rule 5) |
 | 15, 16 | LEMD `-15336@0/@1` (service, layer −1, 37 m bore) | 2.2 km W of the 32L threshold, 274 m from I7 | the service road dead-ends 96 m out; tertiary `-5293` crosses at 72 m | 10.0 / 10.6 % | **steeper** (at or over the cap), and a road crosses | trimmed at road `-5293` (72 m) |
 | 17 | LEMD `-12795@1` (service, layer −1, 17 m bore) | 2.7 km W of the 32L threshold, 140 m from C2 | the road dead-ends 6 m out | 16 % | **no real tunnel** (a 17 m passage whose road ends) | refused |
 | 18 | LEMD `-4439@1` (track, layer −1, 106 m) | 3.6 km SE of the 32L threshold | the bore's end meets no way | 68 % | **no real portal**: a dangling end | refused |
@@ -92,7 +92,7 @@ An open plate that a tunnel or shell corridor already reads is dropped: one whos
 
 **For a next round.** An open pack ramp should govern only where the DEM does NOT already carry the cutting: the plate deeper than `mouth_depth_m` under the DEM. It should also be judged against the taxiway strip, since 19e and 19q forbid cutting a taxiway strip. That needs a spec author's ruling (Law B is ruled ROOFED, RULINGS 2026-09-08b/c).
 
-### EDDF: the 13 OSM tunnels this branch no longer builds (#1062 head: 47; this branch: 38 including 4 new)
+### EDDF: the 13 OSM tunnels this branch no longer builds (#1062 head: 47; this branch: 36 including 2 new)
 
 | tunnel | reason |
 |---|---|
@@ -108,4 +108,4 @@ An open plate that a tunnel or shell corridor already reads is dropped: one whos
 | `-12878@0` | road (service road `-12962` crosses at the mouth) |
 | `-9351@0` | road (`-5159` crosses at the mouth) |
 
-New: `sunken-road:Tunnel_4.obj@0/@1` (the pack's ramps), `-30642@0` (12 m) and `-9543@0` (24 m).
+New: `-30642@0` (12 m) and `-9543@0` (24 m).

@@ -28,13 +28,15 @@ THE RULE.
   here); the corridor is the line from that wall's centre to the nearest
   taxi-family point, ``[placement] door_corridor_share`` of the wall wide.
   Its apron rows keep their cap.
-* THE BLEND: every other apron vertex within the pad's reach — the DEM
-  relief under the pad over ``[tunnel] ramp_grade`` (the design grade a
-  ramp is built at) — and the pad's own rim outside the corridor, carry the
-  apron's HARD cap raised to ``[tunnel] ramp_max_grade``
-  (:func:`relax_apron_caps`); the apron's preference and trend rows are
-  untouched, so the ramps stay as gentle as the levels allow.  Taxi and
-  runway rows are never relaxed.
+* THE BLEND: the apron's HARD cap rows with one end ON THE PAD'S RIM
+  outside the corridor are raised to ``[tunnel] ramp_max_grade``
+  (:func:`relax_apron_caps`): the ramps run from the pad's edge, and the
+  apron away from the pad keeps its own cap between its own vertices.
+  MEASURED (KASE replay): relaxing every apron vertex within a reach of the
+  pad let the apron's outer edge east of Hangar1 hump 0.5 m (a +2.8 / -8.9 %
+  grade break, the §1.2 rate read 11.7 %).  The apron's preference and
+  trend rows are untouched, so the ramps stay as gentle as the levels
+  allow.  Taxi and runway rows are never relaxed.
 """
 from __future__ import annotations
 
@@ -104,7 +106,6 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
     STATS[GEN] = {"pads": 0}
     if share_c <= 0.0 or t <= 0.0 or min_m2 <= 0.0 or dem is None:
         return []
-    tun = law.tables.structures.tunnel
     p = law.tables.precedence
     king = set(p.runway_family.members) | set(p.taxi_family.members)
     pads: dict[str, list] = {}
@@ -148,16 +149,8 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
         line = LineString([hull.centroid, mid, tp]) if mid.distance(tp) > 0 else \
             LineString([hull.centroid, mid])
         corridor = line.buffer(0.5 * share_c * door.length)
-        zs = [dem.z(x, y) for x, y in cs]
-        zs = [z for z in zs if z is not None]
-        relief = (max(zs) - min(zs)) if zs else 0.0
-        reach = relief / float(tun.ramp_grade) if float(tun.ramp_grade) > 0 else 0.0
-        zone = P.buffer(reach)
-        blend = set()
-        for v in apron_v | rim:
-            q = Point(planar.vertices[v].xy)
-            if zone.contains(q) and not corridor.contains(q):
-                blend.add(v)
+        blend = {v for v in rim
+                 if not corridor.contains(Point(planar.vertices[v].xy))}
         # EVERY vertex of the pad, the ones it shares with a taxiway too:
         # the tower's door wall IS a junction's edge, and a pad left uneven
         # along it is no level pad (measured, KASE replay: 0.39 m)

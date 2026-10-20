@@ -41,7 +41,9 @@ How each column is measured:
 1. **A bore end is no portal** where the road goes on underground: another tunnel way leaves the end's node within the turn cap. That includes a second feed's copy of the same way, and a tunnel reached after an open stretch shorter than `mouth_depth_m / ramp_max_grade` (75 m). The end builds no mouth, and the structures line names it. Implemented in `planar/bore_continuation.py`.
 2. **A ramp never goes through another road.** Every mapped road that passes through the corridor axis is a stop. Excluded: a road the ramp runs along (its own, or another feed's copy), a road that only ends on the axis (a junction), and a bridge over it (its deck). These stops slide the mouth out of a road over the bore, as pavement does (`structure_mouth`), and they trim the ramp's top. Implemented in `structure_approach.crossing_roads`.
 3. **A ramp never leaves its road.** If no grade up to the 10 % cap tops out before the axis leaves its mapped road, the ramp is refused by name. A corridor that reaches no road within 4 half widths of its mouth has no road to follow and is refused too. This replaces #1062's "built past it as before".
-4. **Pavement edges.** These were already stops (#971, `structure_mouth.mouth_stops`). One gap remains: a ramp hosted inside an apron (clause 3) is not stopped at that apron's own edge. Not changed here.
+4. **Pavement edges.** These were already stops (#971, `structure_mouth.mouth_stops`). Now a ramp hosted inside an apron or a lot (clause 3) also stops at that host's own edge. The part of the edge at the mouth's own end does not count, and neither does a road the ramp runs along.
+5. **The road's end keeps one station of slack**, the same slack `ramp_top` gives a top. KCLT `-30363…@1` (#1035's ramp) tops out at the parting at 8.7 % and builds again.
+6. **A bore whose walk followed no mapped way** has no road end. Its own straight line is the only reading, and rules 2 and 4 trim it.
 
 The follow-ups this table points at:
 
@@ -64,3 +66,46 @@ The objects: EDDF `GP/Bridges/Tunnel_3.obj` (379 × 75 m) and `Tunnel_4.obj` (22
 | basin / object-cut readers | refuse Tunnel_3/4 ("no floor plate", rule 5b) | unchanged |
 
 Check: OTHH, VHHH and KATL tunnels that already follow pack objects must not change. Measured by structure replay.
+
+### What was measured. Verdict: NOT LANDED (two iterations, RULINGS convergence guard)
+
+The witness. An open plate is admitted when:
+
+- a mapped road runs ALONG it, inside the plate for at least half its length; and
+- a mapped tunnel or bridge way crosses that road inside the object's region. A taxiway bridge over an underpass counts.
+
+An open plate that a tunnel or shell corridor already reads is dropped: one whose footprint meets the corridor's, or that shares a placement with it.
+
+- **Iteration 1:** any tunnel way meeting the plate. It admitted VHHH `sea.obj` (809 m wide), VHHH `TUNNEL2_DONE`, which object-cut already governs, and the KATL control tower. Refused.
+- **Iteration 2:** the witness above. At structure level the pack-object tunnels at OTHH, VHHH and KATL were unchanged, and it admitted only EDDF `Tunnel_4.obj`: two ramps, 30.7 m and 10.5 m, 0.44 m and 1.79 m deep. `Tunnel_3.obj` gave trenches under one station.
+- **The EDDF census replay of iteration 2 fails the bar.** All arms are `v2_solve_replay --from classify --emit --verify` plus `census.py`:
+
+  | arm | ADJUDICATED |
+  |---|---|
+  | #1062 head | 1358 |
+  | part A only | 1333 |
+  | part A + part B | **1931** |
+
+  Groundside rows relaxed in the design LP went 220 → 399. New rows sit at the two `Tunnel_4` cuts beside taxiway P: `ramp_in_strip` 2 → 10, plus within-shape rows. The largest cluster is groundside pavement at 50.0402, 8.5328 (+242 hard_conflict / road_cross_section / transverse rows), away from any structure that changed.
+
+**Why there is little to gain at EDDF.** The DEM inset (HESSE1M lidar) already holds the real road cuttings. The pack's ramp floors sit within 0.4–1.8 m of it, and one end lies 6 m above it. The owner's mismatched trenches were the OSM mouths. #1062 already stopped building those as fresh 7.5 m trenches where the road is at grade.
+
+**For a next round.** An open pack ramp should govern only where the DEM does NOT already carry the cutting: the plate deeper than `mouth_depth_m` under the DEM. It should also be judged against the taxiway strip, since 19e and 19q forbid cutting a taxiway strip. That needs a spec author's ruling (Law B is ruled ROOFED, RULINGS 2026-09-08b/c).
+
+### EDDF: the 13 OSM tunnels this branch no longer builds (#1062 head: 47; this branch: 38 including 4 new)
+
+| tunnel | reason |
+|---|---|
+| `-9870@0`, `-9870@1` (rail, near the Fernbahnhof) | continues (the rail tunnel goes on as `-31310` / `-44819`) |
+| `-27364@0` (rail) | continues (`-10179`) |
+| `-25266@0` | duplicate (the second feed's copy `-33590`) |
+| `-35396@0` | duplicate (`-35395`) |
+| `-21432@0`, `-21450@0` | continues (into a deeper level) |
+| `-9543+-2200@1` | continues (`-2201`); `-9543@0` is built in its place |
+| `-20307@0` | steeper (133 % to top out before the road enters the next bore) |
+| `-11095@0` | steeper (13 %) |
+| `-14187@0` | shape (the track turns 90° 10 m out) |
+| `-12878@0` | road (service road `-12962` crosses at the mouth) |
+| `-9351@0` | road (`-5159` crosses at the mouth) |
+
+New: `sunken-road:Tunnel_4.obj@0/@1` (the pack's ramps), `-30642@0` (12 m) and `-9543@0` (24 m).

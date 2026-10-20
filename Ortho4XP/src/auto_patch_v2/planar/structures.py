@@ -92,8 +92,7 @@ from ..model.structures import Channel, Deck, Tunnel
 from .basins import object_decks
 from .channel_claims import add_channel_cells, channel_yields
 from .bore_continuation import walked_m
-from .object_corridor import (Group, mouth_covered_by, object_groups, open_ramp_precedence,
-                              open_ramps_unclaimed, trench_outside_m)
+from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
@@ -219,8 +218,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
                            if bores else ([], []))
     stats.refused.extend(getattr(on_field, "no_portal", ()))      # #1028
-    extra_groups = open_ramps_unclaimed(list(extra_groups), corridors, stats)   # #1028 Q31
-    mouth_list = open_ramp_precedence(mouth_list, extra_groups, tn, stats)
     for m in mouth_list if up_parents else ():
         par = mouth_parent(m, up_parents)
         if par is not None:                  # §34 (5): the ramp follows the road

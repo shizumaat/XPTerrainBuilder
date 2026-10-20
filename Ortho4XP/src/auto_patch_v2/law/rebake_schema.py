@@ -407,6 +407,11 @@ class Placement:
     #: family) are solved WITH the pad in stage 2 rather than held at stage
     #: 1's level — the room the blend ramps in.  0 holds them all.
     door_blend_reach_m: float = 0.0
+    #: THE AIRSIDE GIVE (owner RULINGS 2026-10-19ac; #798 round 3): the
+    #: airside vertices a door-line pad's hard rows reach move in stage 2 up
+    #: to this from their stage-1 level (``constraints/door_pad``).  0
+    #: disarms.
+    door_airside_give_m: float = 0.0
     #: issue #516 (owner RULINGS 2026-09-13bi / 13cm): A RAMP END SINKS
     #: INTO THE GROUND — the ground under a unit member's sloped deck that
     #: rises through the natural ground is not the pad's

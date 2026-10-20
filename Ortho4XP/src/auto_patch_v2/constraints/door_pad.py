@@ -25,18 +25,27 @@ THE RULE.
   the apron's rows choose it.
 * THE DOOR LINE: the door wall is the pad's hull edge nearest the taxi
   family (no open-side reading yet: the pack's wall geometry is not read
-  here); the corridor is the line from that wall's centre to the nearest
-  taxi-family point, ``[placement] door_corridor_share`` of the wall wide.
-  Its apron rows keep their cap.
-* THE BLEND: the apron's HARD cap rows with one end ON THE PAD'S RIM
-  outside the corridor are raised to ``[tunnel] ramp_max_grade``
-  (:func:`relax_apron_caps`): the ramps run from the pad's edge, and the
-  apron away from the pad keeps its own cap between its own vertices.
-  MEASURED (KASE replay): relaxing every apron vertex within a reach of the
-  pad let the apron's outer edge east of Hangar1 hump 0.5 m (a +2.8 / -8.9 %
-  grade break, the §1.2 rate read 11.7 %).  The apron's preference and
-  trend rows are untouched, so the ramps stay as gentle as the levels
-  allow.  Taxi and runway rows are never relaxed.
+  here).  ONE HARD ROW (:data:`DOOR_RULING`, ``[design] hard_rulings``,
+  apron tier): the pad at the door's centre within the apron's (yielded)
+  cap of the taxi-family vertex nearest it.  The CORRIDOR is the triangle
+  of the middle ``[placement] door_corridor_share`` of the door wall and
+  that taxi point.
+* THE BLEND: every other APRON-generator cap row with one end ON THE PAD
+  (:func:`relax_apron_caps`) is raised to ``[tunnel] ramp_max_grade``
+  unless its other end lies inside the corridor; a row between two pads'
+  vertices is raised too.  Chord geometry, not a vertex list: the §62 (4)
+  cross-ring chords from the door vertex to the junction's outer ring held
+  KASE's Hangar1 1 m above what the tower pad 8 m away allowed (round 7).
+  The apron away from the pad keeps its own cap between its own vertices;
+  the apron's preference and trend rows are untouched, so the ramps stay
+  as gentle as the levels allow.  Taxi and runway rows are never relaxed.
+* THE AIRSIDE GIVE (owner RULINGS 2026-10-19ac, ``[placement]
+  door_airside_give_m``): between the stages (:func:`blend_release`) the
+  pad's taxi-shared vertices and the far end of every hard row touching
+  the pad leave stage 1's levels, each held within the give of its stage-1
+  level by a HARD Band (:data:`GIVE_RULING`, taxi tier) and preferring it.
+  A door line the give cannot satisfy is relaxed by §5a and NAMED
+  (:func:`door_line_failures`).
 """
 from __future__ import annotations
 
@@ -49,16 +58,22 @@ from shapely.ops import nearest_points, unary_union
 
 from ..geom.slope_pad import seat_float_m
 from ..law import Law
+from ..law.tables import design as design_law
 from ..model.airport import Airport
-from ..model.constraints import Diff, Flat, Row, Source
+from ..model.constraints import Band, ConstraintSet, Diff, Flat, Offset, Row, Source
 from ..model.planar import PlanarMap
 
 __all__ = ["DoorPad", "door_pads", "stage_one", "blend_release", "door_pad_level",
-           "relax_apron_caps", "GEN"]
+           "relax_apron_caps", "door_line_failures", "GEN", "DOOR_HEAD", "GIVE_HEAD"]
 
 GEN = "door_pad_level"
-RULING = ("a sloping building's pad is ONE level, the apron keeping its cap "
-          "along the door line and blending elsewhere (owner 2026-10-20)")
+RULING = "a sloping building's pad is ONE level (owner 2026-10-20, #798)"
+#: the door line's own law: a HARD row (``[design] hard_rulings``, apron tier)
+DOOR_HEAD = "door line keeps the apron cap"
+DOOR_RULING = DOOR_HEAD + " (owner 2026-10-20, #798)"
+#: the airside give's Band: HARD (``[design] hard_rulings``, taxi tier)
+GIVE_HEAD = "door airside give"
+GIVE_RULING = GIVE_HEAD + " (owner RULINGS 2026-10-19ac, #798)"
 
 STATS: dict[str, _t.Any] = {}
 #: the last map's door-line pad refs, for the report
@@ -69,7 +84,9 @@ REFS: list[str] = []
 class DoorPad:
     ref: str
     group: tuple[int, ...]
-    blend: frozenset[int]
+    #: the door line's corridor: the triangle of the door wall's middle
+    #: ``door_corridor_share`` and the taxi point (module docstring)
+    corridor: Polygon
     door: tuple[float, float]
     #: the door line: the pad vertex at the door's centre, the taxi-family
     #: vertex it leads to, their distance and the apron cap it keeps
@@ -147,9 +164,7 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
         P = unary_union([_poly(planar, f.ring) for f in fs])
         if P.is_empty or P.area >= min_m2:
             continue
-        rim = set()
-        for f in fs:
-            rim.update(planar.ring_vertices(f.ring))
+        rim = {v for f in fs for v in planar.ring_vertices(f.ring)}
         on = sum(1 for v in rim if v in apron_v)
         if not rim or on < share * len(rim):
             continue
@@ -162,16 +177,7 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
                    .distance(king_u))
         mid = door.interpolate(0.5, normalized=True)
         tp = nearest_points(mid, king_u)[1]
-        # the corridor runs FROM THE DOOR WALL (flat-ended there, so the
-        # rim behind the door blends).  MEASURED (KASE closing build, pads
-        # following stage 1): a corridor from the pad's centroid held the
-        # far wall's rim rows at the apron cap and the stage-2 hard set went
-        # infeasible (0.27 m), the door line giving 3.6 % against 2.02
-        hw = 0.5 * share_c * door.length
-        corridor = (LineString([mid, tp]).buffer(hw, cap_style="flat").buffer(0.5)
-                    if mid.distance(tp) > 0 else mid.buffer(hw))
-        blend = {v for v in rim
-                 if not corridor.contains(Point(planar.vertices[v].xy))}
+        corridor = _corridor(door, tp, share_c)
         # EVERY vertex of the pad, the ones it shares with a taxiway too:
         # the tower's door wall IS a junction's edge, and a pad left uneven
         # along it is no level pad (measured, KASE replay: 0.39 m)
@@ -183,35 +189,72 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
         # the pad is ONE level, so its value at the door's centre is the
         # door vertex's: the line is priced over the CENTRE's own distance
         dxy = mid.distance(Point(planar.vertices[taxi_v].xy))
-        out.append(DoorPad(ref, group, frozenset(blend), (mid.x, mid.y),
+        out.append(DoorPad(ref, group, corridor, (mid.x, mid.y),
                            door_v, taxi_v, float(dxy), _door_cap(planar, law, mid)))
-    STATS[GEN] = {"pads": len(out),
-                  "blend_vertices": sum(len(d.blend) for d in out)}
+    STATS[GEN] = {"pads": len(out)}
     REFS[:] = [d.ref for d in out]
     return out
 
 
+def _corridor(door: LineString, tp: Point, share: float) -> Polygon:
+    """THE DOOR LINE'S CORRIDOR: the triangle of the door wall's middle
+    ``share`` and the taxi point ``tp``.  MEASURED (KASE round 7): a strip
+    as wide as the door share held rows off the door's far corners at the
+    apron cap; the triangle narrows to the one point the aircraft taxis
+    from."""
+    lo, hi = 0.5 - 0.5 * share, 0.5 + 0.5 * share
+    wl = door.interpolate(lo, normalized=True)
+    wr = door.interpolate(hi, normalized=True)
+    tri = Polygon([(wl.x, wl.y), (wr.x, wr.y), (tp.x, tp.y)])
+    if tri.is_valid and tri.area > 0.0:
+        return tri
+    return door.interpolate(0.5, normalized=True).buffer(0.5 * share * door.length)
+
+
 def blend_release(planar: PlanarMap, law: Law, airport: Airport | None,
-                  levels: _t.MutableMapping[int, float]) -> dict[str, _t.Any]:
-    """THE BLEND'S ROOM, between the stages (``road_ramp.
-    reach_seed_rewrite``): stage 1 solved the airside without the 19w pads
-    (``pipeline/stage_one_map.base_pad_map``); the apron vertices within
-    ``[placement] door_blend_reach_m`` of a door-line pad, none of them
-    shared with the runway or taxi family, leave ``levels`` so stage 2
-    solves them with the pad.  MEASURED (KASE replay, every apron vertex
-    held): Hangar1's rim rows met constants up to 1.71 m off the pad's
-    level and the stage-2 hard set read 26 conflicts up to 0.63 m."""
+                  levels: _t.MutableMapping[int, float],
+                  cs: ConstraintSet | None = None
+                  ) -> tuple[dict[str, _t.Any], list[Band], dict[int, float]]:
+    """THE BLEND'S ROOM AND THE AIRSIDE GIVE, between the stages (bound with
+    ``road_ramp.reach_seed_rewrite``): stage 1 solved the airside without
+    the 19w pads (``pipeline/stage_one_map.base_pad_map``).  Leaving
+    ``levels`` so stage 2 solves them with the pad:
+
+    * the pad's own vertices and the apron vertices within ``[placement]
+      door_blend_reach_m`` of a door-line pad, none of them shared with the
+      runway or taxi family (the blend's room);
+    * THE GIVE (owner RULINGS 2026-10-19ac, ``[placement]
+      door_airside_give_m``; 0 disarms): the pad's taxi-shared vertices
+      and the far end of every HARD row of ``cs`` touching a pad vertex,
+      within the same reach and never a runway-family vertex.  MEASURED
+      (KASE replay, every far end): a long route pair or body chord
+      reached 38 vertices up to 404 m off, which drifted up to 0.036 m and
+      flipped marginal census rows there; a far end that distant meets
+      the pad over a long run, its bound loose.  Each is returned with a HARD
+      ``Band`` within the give of its stage-1 level and that level as its
+      preferred value, so the airside moves no more than the give and as
+      little as the pad allows.  MEASURED (KASE round 7): with the airside
+      frozen Hangar1's door line needed the pad >= 2356.558 against a
+      tower pad and junction constants allowing <= 2356.347.
+
+    Returns ``(report, bands, preferred_z)``."""
     st = law.tables.structures.placement
     reach = float(getattr(st, "door_blend_reach_m", 0.0) or 0.0)
+    give_m = float(getattr(st, "door_airside_give_m", 0.0) or 0.0)
     pads = door_pads(planar, law, airport) if reach > 0.0 else []
     if not pads:
-        return {"pads": 0, "released": 0}
+        return {"pads": 0, "released": 0}, [], {}
     p = law.tables.precedence
     king = set(p.runway_family.members) | set(p.taxi_family.members)
+    rwy_roles = set(p.runway_family.members)
     held: set[int] = set()
+    rwy: set[int] = set()
     for f in planar.faces.values():
         if f.role in king:
-            held.update(_face_vertices(planar, f))
+            vs = _face_vertices(planar, f)
+            held.update(vs)
+            if f.role in rwy_roles:
+                rwy.update(vs)
     zone = unary_union([Polygon([planar.vertices[v].xy for v in d.group]).convex_hull
                         for d in pads]).buffer(reach)
     # the pad's own vertices too: one the stage-1 map also carries (an apron
@@ -223,9 +266,51 @@ def blend_release(planar: PlanarMap, law: Law, airport: Airport | None,
            and (v in own or (zone.contains(Point(planar.vertices[v].xy))
                              and any(planar.faces[f].role == "apron"
                                      for f in planar.vertices[v].incident_faces)))]
-    for v in out:
+    give = sorted(v for v in _give_set(own, held, cs, law) - rwy
+                  if v in levels and (v in own or zone.contains(Point(planar.vertices[v].xy)))) \
+        if give_m > 0.0 else []
+    bands = [Band(v, levels[v] - give_m, levels[v] + give_m,
+                  Source(GEN, GIVE_RULING, (f"vertex:{v}", f"give_m:{give_m:g}")))
+             for v in give]
+    pref = {v: float(levels[v]) for v in give}
+    for v in {*out, *give}:
         del levels[v]
-    return {"pads": len(pads), "released": len(out), "reach_m": reach}
+    return ({"pads": len(pads), "released": len(out), "reach_m": reach,
+             "give": len(give), "give_m": give_m}, bands, pref)
+
+
+def _give_set(own: set[int], held: set[int], cs: ConstraintSet | None,
+              law: Law) -> set[int]:
+    """The pad's taxi-shared vertices and the far end of every HARD row of
+    ``cs`` touching a pad vertex (:func:`blend_release`)."""
+    got = own & held
+    if cs is None:
+        return got
+    d = design_law(law)
+    heads = {*d.hard_rulings, *d.fronting_hard_rulings, *d.apron_hard_rulings}
+    for r in (*cs.diffs, *cs.offsets, *cs.linears):
+        if r.source.ruling.split(" (")[0].strip() not in heads:
+            continue
+        vs = (r.a, r.b) if isinstance(r, (Diff, Offset)) else \
+            tuple(v for v, _c in r.terms)
+        if any(v in own for v in vs):
+            got.update(v for v in vs if v not in own)
+    return got
+
+
+def door_line_failures(conflicts: _t.Iterable[dict], give_m: float) -> list[str]:
+    """THE NAMED FAILURE (round-3 spec D3): one line per DOOR LINE row §5a
+    relaxed (``hard_conflict``, the sidecar's own records)."""
+    out = []
+    for c in conflicts:
+        if c.get("row") != DOOR_HEAD:
+            continue
+        ref = (c.get("inputs") or ["?"])[0]
+        site = c.get("site") or [float("nan"), float("nan")]
+        out.append(f"DOOR LINE {ref} at {float(site[0]):.7f},{float(site[1]):.7f} "
+                   f"INFEASIBLE by {float(c.get('s_m', 0.0)):.3f} m with "
+                   f"{give_m:g} m airside give")
+    return out
 
 
 def _door_cap(planar: PlanarMap, law: Law, at: Point) -> float:
@@ -254,36 +339,40 @@ def _face_vertices(planar: PlanarMap, f) -> set[int]:
 def door_pad_level(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """ONE ``Flat`` per door-line pad, and its DOOR LINE: the pad at the
     door's centre within the apron cap of the taxi-family vertex the line
-    leads to — HARD, so the pad's level is chosen where an aircraft can
-    still taxi in (module docstring)."""
+    leads to — ONE HARD ROW (:data:`DOOR_RULING`), so the pad's level is
+    chosen where an aircraft can still taxi in (module docstring)."""
     rows: list[Row] = []
     for d in door_pads(planar, law, airport):
         rows.append(Flat(d.group, Source(GEN, RULING, (d.ref, f"vertices:{len(d.group)}"))))
         if d.door_v >= 0 and d.taxi_v >= 0 and d.door_v != d.taxi_v \
                 and d.door_m > 0.0 and d.door_cap > 0.0:
             rows.append(Diff(d.door_v, d.taxi_v, d.door_cap, d.door_m,
-                             Source(GEN, RULING + " (the door line)",
+                             Source(GEN, DOOR_RULING,
                                     (d.ref, f"door:{d.door_v}", f"taxi:{d.taxi_v}"))))
     return rows
 
 
 def relax_apron_caps(rows: list[Row], planar: PlanarMap, law: Law,
                      airport: Airport, counts: dict | None = None) -> list[Row]:
-    """The APRON generator's HARD cap rows (``constraints/apron``) with a
-    foot in a door pad's blend raised to ``[tunnel] ramp_max_grade``
-    (module docstring); every other row as is."""
+    """The APRON generator's cap rows (``constraints/apron``) with one end
+    on a door pad raised to ``[tunnel] ramp_max_grade`` — unless the other
+    end lies inside that pad's corridor; a row between two pads' vertices
+    is raised either way (module docstring).  Every other row as is."""
     from .apron import GEN as APRON_GEN
     pads = door_pads(planar, law, airport)
     if not pads:
         return rows
-    blend = frozenset().union(*(d.blend for d in pads))
+    pad_of = {v: d for d in pads for v in d.group}
+    # the corridor read with half a metre's tolerance: the taxi point is a
+    # projection, the vertex the door line ends on lies beside it
+    inside = {d.ref: d.corridor.buffer(0.5) for d in pads}
     top = float(law.tables.structures.tunnel.ramp_max_grade)
     out: list[Row] = []
     n = 0
     for r in rows:
         if (isinstance(r, Diff) and r.soft is None and r.cap < top
                 and r.source.generator == APRON_GEN
-                and (r.a in blend or r.b in blend)):
+                and _blends(r, pad_of, inside, planar)):
             out.append(_dc.replace(r, cap=top))
             n += 1
         else:
@@ -291,3 +380,16 @@ def relax_apron_caps(rows: list[Row], planar: PlanarMap, law: Law,
     if counts is not None:
         counts[f"{GEN}.apron_rows_relaxed"] = n
     return out
+
+
+def _blends(r: Diff, pad_of: dict[int, DoorPad], inside: dict[str, Polygon],
+            planar: PlanarMap) -> bool:
+    """Whether a cap row is one of the pad's blend ramps
+    (:func:`relax_apron_caps`)."""
+    pa, pb = pad_of.get(r.a), pad_of.get(r.b)
+    if pa is not None and pb is not None:
+        return True
+    if pa is None and pb is None:
+        return False
+    pad, other = (pa, r.b) if pa is not None else (pb, r.a)
+    return not inside[pad.ref].contains(Point(planar.vertices[other].xy))

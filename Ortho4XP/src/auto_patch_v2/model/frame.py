@@ -170,7 +170,7 @@ class Frame:
 
 # The oriented-envelope guard lives in the ``geom`` leaf (every layer may
 # read it); re-exported here for the callers that already import it.
-from ..geom.rotated_rect import rotated_rectangle  # noqa: E402,F401
+from ..geom.rotated_rect import rectangle_axes, rotated_rectangle  # noqa: E402,F401
 
 
 def m_per_deg_exact(lat: float) -> tuple[float, float]:

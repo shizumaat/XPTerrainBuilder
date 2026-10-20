@@ -122,8 +122,11 @@ def test_synthetic_verdicts(law):
     # the apron body beyond 50 m of the route is apron; the band nearer is junction
     assert "apron" in names and "junction" in names
     assert roles[("apron", "apron")] > roles[("junction", "apron")] > 0
-    # the detached island is landside at a gate airport
-    assert ("groundside_pavement", "island") in roles
+    # the detached island is landside at a gate airport.  Its ROLE moved on
+    # 2026-10-02 (§110, issue #110): the island is unclassified groundside
+    # pavement, 100 x 100 m, so it is a `parking_lot` where it used to be
+    # `groundside_pavement`.  What this line pins is LANDSIDE.
+    assert ("parking_lot", "island") in roles, roles
     # the lead-in onto the stand (4 -> 6, 60 m, leaf, near the startup) was
     # trimmed from the slice: no taxi cut inside the apron reaches x > 540
     assert not any(ln.kind == "taxi_centerline"
@@ -183,7 +186,12 @@ def test_cyxy_cells(cyxy_cl):
                for c in cl.cells)
     assert any(c.role in TAXI_FAMILY and c.code_letter for c in cl.cells)
     assert any(c.role == "building" for c in cl.cells)
-    assert any(c.role == "groundside_pavement" for c in cl.cells)  # CYXY has a terminal
+    # CYXY has a terminal, so it HAS landside pavement.  §110 (issue #110,
+    # 2026-10-02) renamed every unclassified groundside face: CYXY's five
+    # `groundside_pavement` cells became 3 `parking_lot` + 2 `service_road`
+    # (road proportions), so the test is the SIDE, not the old role name.
+    assert any(c.side == "groundside" and c.role != "building" for c in cl.cells)
+    assert not any(c.role == "groundside_pavement" for c in cl.cells)
     assert {cl_.kind for cl_ in cl.cut_lines} >= {"taxi_centerline", "road_centerline"}
     for c in cl.cells:
         assert c.role in law.tables.precedence.roles, c.role

@@ -84,6 +84,7 @@ from shapely.strtree import STRtree
 
 from ..classify.roles import Cell, Classification, is_runway_shoulder
 from ..law import Law
+from ..law.reference_code import ref_status, status_by_ref
 from ..law.tables import role_family, role_side, zone2_half_width_m
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
@@ -116,7 +117,8 @@ from .structure_deck import (PavementDeck, deck_intervals, deck_witness_notes,
                              object_deck_intervals, pavement_deck_intervals)
 from .structure_stats import StructureStats
 from .structure_underpass import (underpass_bores as _underpass_bores,
-                                  approach_along, UNDERPASS_TAG, UNDERPASS_NOTE)
+                                  approach_along, mouth_parent, UNDERPASS_TAG,
+                                  UNDERPASS_NOTE)
 from .structure_geometry import (beyond_strip, collapse_for_ramp, corner_distance,
                                  pad_hit as _pad_hit,
                                  ramp_targets, reseat_expect as _reseat_expect,
@@ -214,9 +216,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
                            if bores else ([], []))
     for m in mouth_list if up_parents else ():
-        par = next((up_parents[id(w)] for w in m.bore.ways if id(w) in up_parents), None)
+        par = mouth_parent(m, up_parents)
         if par is not None:                  # §34 (5): the ramp follows the road
-            m.approach = approach_along(par, m.xy, m.inward, reach)
+            m.approach = approach_along(par, m.xy, m.inward, reach, airport.osm_ways,
+                                        tn.admitted_values, tn.approach_turn_max_deg)
     # THE PACK'S WALL OBJECTS GOVERN THE MOUTH (spec §33 (2)): a mouth
     # inside a thin plate spanning its bore moves to the object's end and
     # takes the object's width, before anything is reported or built.
@@ -309,6 +312,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
              if c.kind != "structure" and c.role not in RUNWAY_FAMILY]
     stop_tree = STRtree([p for p, _r in stops]) if stops else None
     strip: list[Polygon] = []
+    status_of = status_by_ref(getattr(airport, "runways", ()))    # #811
     for p, c in zip(polys, cells):
         # §40 (4) (owner RULINGS 2026-09-14s): a SHOULDER manufactures no
         # region.  It is runway pavement (so every surface reader above
@@ -319,7 +323,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # by 75 m).  The census of every RUNWAY_FAMILY reader is the
         # spec's §40 (4) MEASURED table.
         if c.role in RUNWAY_FAMILY and not is_runway_shoulder(c):
-            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter)
+            hw = zone2_half_width_m(law, "runway", c.code_number, c.code_letter,
+                                    ref_status(status_of, c.ref))
             if hw:
                 strip.append(p.buffer(hw, **_MITRE))
     strip_u = unary_union(strip) if strip else None

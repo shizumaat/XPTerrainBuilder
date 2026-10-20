@@ -22,10 +22,18 @@ Owner 2026-09-04j (``sources.py``): a source polygon read as a road
 STRIP is its own face and a road (``service_road``); one read as a
 parking LOT is its own face and ``parking_lot``; both are cut from
 their neighbours at their own boundary (the mouth), so an apron never
-absorbs groundside pavement.  A demoted (landside) cell with road
-evidence is a ``parking_lot``; one with none stays
-``groundside_pavement``.  Pavement a network taxiway runs onto is
+absorbs groundside pavement.  Pavement a network taxiway runs onto is
 airside even without a pavement touch-chain (item 4).
+
+§110 UNCLASSIFIED GROUNDSIDE PAVEMENT IS A PARKING LOT (owner remark
+RULINGS 2026-09-30b, issue #110): a demoted (landside) cell, and a face
+the 04u open default sends groundside, is a road RIBBON when its
+proportions say so (``open_default.road_ribbon``) and a ``parking_lot``
+otherwise — one derivation, ``open_default.
+unclassified_groundside_role``, never re-spelled here.  Until #110 this
+pass read road evidence for the verdict ("a lot when a road reaches it,
+else ``groundside_pavement``"), which left every untouched landside face
+in a role with no plate law of its own.
 
 §27 AN AIRSIDE EDGE MAKES A LOT AIRSIDE (owner RULINGS 2026-09-12c and
 2026-09-12f; ``rules.lot.airside_edge_min_m`` / ``mouth_width_factor``,
@@ -89,6 +97,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
+from ..law.reference_code import runway_status
 from ..law.tables import (is_value_role, role_side, snap_margin_m,
                           runway_safety_area_length_m, zone2_half_width_m)
 from ..model.airport import Airport
@@ -97,7 +106,8 @@ from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbo
 from .airside_edge import airside_edge_flip
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
-from .open_default import apron_evidence, open_pavement_role
+from .open_default import (apron_evidence, open_pavement_role,
+                           unclassified_groundside_role)
 from .pad_touch import (EVIDENCE_KEY, HELD_KEY, STRIP_KEY, WELD_KEY, dem_step_m, gridded,
                         is_held_step, is_touching, part_evidence,
                         touch_distances)
@@ -564,12 +574,19 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         if i in demoted and ev.terminal_present and role in ("apron", *TAXI_FAMILY) \
                 and apron_evidence(face, src_of.get(ref), evid, start_tree,
                                    rules) is None:
-            # landside: a lot when a road reaches it or a road/lot face
-            # touches it (the roads-and-lots complex, owner 2026-09-04j),
-            # else the paved island it always was
-            role = "parking_lot" if i in road_ev and not evid.get("taxi_name") \
-                else "groundside_pavement"
-            evid = dict(evid, demoted=1.0, road_evidence=float(i in road_ev))
+            # landside: §110's unclassified verdict (owner remark RULINGS
+            # 2026-09-30b, issue #110) — a road RIBBON by its proportions,
+            # else a parking LOT.  ONE derivation with the 04u open default
+            # below (``open_default.unclassified_groundside_role``), which
+            # this branch used to re-spell: the two-way "a lot when a road
+            # reaches it, else the paved island it always was" shipped
+            # ``groundside_pavement`` — a role with no plate law of its own
+            # — for every landside face no road happened to touch.  The
+            # 04z-1 taxi-name veto rides into it as ``taxi_named``.
+            role, _why = unclassified_groundside_role(
+                face, rules, road_reached=i in road_ev,
+                taxi_named=bool(evid.get("taxi_name")))
+            evid = dict(evid, demoted=1.0, **_why)
             stats["demoted_lots"] += int(role == "parking_lot")
             letter = None
         elif role == "apron" and ev.terminal_present:
@@ -1415,7 +1432,8 @@ def shoulder_band(rw, law: Law, *, end_cap: bool = True):
     §40 (5) bounds §40 (1), it does not reverse it: a cell that shares
     ``runway_shoulder_shared_m`` with the runway ring is STILL the
     runway's — but only the part of it in here."""
-    hw = zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter)
+    status = runway_status(rw)
+    hw = zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter, status)
     if not hw or hw <= 0.0:
         return None
     a, b = rw.ends[0].xy, rw.ends[1].xy
@@ -1423,8 +1441,7 @@ def shoulder_band(rw, law: Law, *, end_cap: bool = True):
         return None
     if end_cap:
         # the RSA length from the runway END (owner RULINGS 2026-10-15c (2))
-        ext = runway_safety_area_length_m(law, rw.code_number, rw.code_letter,
-                                          bool(getattr(rw, "instrument", False)))
+        ext = runway_safety_area_length_m(law, rw.code_number, rw.code_letter, status)
         if ext > 0.0:
             length = math.hypot(b[0] - a[0], b[1] - a[1])
             ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length

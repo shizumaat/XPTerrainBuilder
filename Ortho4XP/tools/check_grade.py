@@ -9769,7 +9769,8 @@ def _check_cross_shape_proximity(
 def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
                               apron_tier: Optional[dict] = None,
                               face_holes_m: Optional[dict] = None,
-                              feature_ways: "Optional[List[Way]]" = None
+                              feature_ways: "Optional[List[Way]]" = None,
+                              terrace_joints_m: Optional[list] = None
                               ) -> List[Violation]:
     """NEAR-MISS BUILDING FRONTAGE — the validator twin of the solve's
     near-miss frontage LAW EDGES (cycle-5 instrument-fix spec item 6).
@@ -9832,6 +9833,13 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
     inside a hole is judged against THAT hole ring's nodes (their ``z`` is
     the emitted vertex at the ring coordinate, within the 0.5 m canonical
     radius; a ring vertex with no emitted node is not a witness).
+
+    ACROSS A DECLARED JOINT (issue #883).  The solve withholds the weld
+    where the pad and the soft face lie in two SHAPES (``constraints.pads.
+    frontage_contacts``: a pad never fronts across a shape joint, RULINGS
+    2026-09-06n / 08k); the gap joint there is declared in
+    ``terrace_joints``, and its step is forgiven exactly as the step
+    families forgive it (:func:`_terrace_step_allowance`).
     """
     if (_near_miss_frontage_budget is None
             or not _NEAR_MISS_FRONTAGE_SOFT_ROLES):
@@ -10039,6 +10047,9 @@ def _check_frontage_near_miss(ways: List[Way], nodes, ll_to_m,
                         st["max_grade"] = max(st["max_grade"], round(g, 6))
                     else:
                         budget = _near_miss_frontage_budget(d)
+                    if terrace_joints_m:
+                        budget += _terrace_step_allowance(
+                            terrace_joints_m, x, y, wx, wy)
                     if de <= budget + ELEV_ROUNDING_NOISE_M:
                         continue
                     grade = (de / d) if d > 1e-9 else float("inf")
@@ -13120,7 +13131,8 @@ def run_checks(
                          ways, nodes, ll_to_m, apron_tier=apron_tier,
                          face_holes_m=face_holes_m,
                          feature_ways=[w for v in open_features.values()
-                                       for w in v]))
+                                       for w in v],
+                         terrace_joints_m=terrace_joints_m))
     _pv(f"NEAR-MISS BUILDING FRONTAGE (soft pavement within "
         f"{_BUILDING_FRONTAGE_NEAR_MISS_M:g} m of a pad, across the sliver, "
         f"vs the pad's own node at the apron cap)",

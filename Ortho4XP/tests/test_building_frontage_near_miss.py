@@ -165,6 +165,30 @@ def test_census_ignores_a_pair_beyond_the_recognition_radius(tmp_path):
         "the census twin has widened the law's scope")
 
 
+def test_census_forgives_the_step_across_a_declared_gap_joint(tmp_path):
+    """Issue #883: where the pad and the apron are two SHAPES the solve
+    withholds the frontage weld (``constraints.pads.frontage_contacts``)
+    and the gap joint between them is declared in ``terrace_joints``; the
+    family forgives the declared step across it as the step families do.
+    The same 0.66 m step, undeclared, is :func:`test_census_flags_a_near_
+    miss_frontage_step`'s row."""
+    import json
+    cg = _load_check_grade()
+    pad = [(0.0, 0.0), (30.0, 0.0), (30.0, 20.0), (0.0, 20.0)]
+    apron = [(0.0, 20.7), (30.0, 20.7), (30.0, 60.0), (0.0, 60.0)]
+    osm = _write_patch(tmp_path, [("building", "building29", pad, PAD_SEAT),
+                                  ("apron", "apron1", apron, PAD_SEAT - 0.66)])
+    mid = [[_LAT0 + 20.35 / _M_PER_DEG, _LON0 + x / _M_PER_DEG] for x in (-1.0, 31.0)]
+    side = tmp_path / "patch.osm.axes.json"
+    sc = json.loads(side.read_text(encoding="utf-8"))
+    sc["terrace_joints"] = [{"points": mid, "step_m": 0.67, "declared_step_m": 0.67,
+                             "faced": False, "kind": "apron_terrace", "gap": True}]
+    side.write_text(json.dumps(sc), encoding="utf-8", newline="")
+    fam = {}
+    cg.run_checks_law_true(osm, family_out=fam, quiet=True, top_n=0)
+    assert fam["frontage_near_miss"] == []
+
+
 def test_census_never_judges_a_welded_frontage(tmp_path):
     """A SHARED ring node means identity already reconciles the corner, and
     the edge legitimately grades away from the seat.

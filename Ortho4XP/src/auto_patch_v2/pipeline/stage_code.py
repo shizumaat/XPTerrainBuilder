@@ -239,6 +239,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom",
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
+        "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.proportions",
@@ -781,6 +782,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.core_clamp",
         "auto_patch_v2.geom.feet_graph",
         "auto_patch_v2.geom.feet_mst",
+        "auto_patch_v2.geom.fixed_overlay",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.proportions",
@@ -1156,6 +1158,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.strips constraints.structures constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones geom geom.base_slab
+    geom.fixed_overlay
     geom.cluster_outline geom.containment geom.core_clamp geom.feet_graph geom.feet_mst
     geom.pad_evidence geom.parts geom.proportions geom.ramp_grade geom.ramp_profile
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
@@ -1429,6 +1432,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.weld_floor emit.graded emit.osm_adapter emit.rebake emit.road_join
     emit.surface emit.terrain_edge geom geom.base_slab geom.cluster_outline
+    geom.fixed_overlay
     geom.containment geom.core_clamp geom.coverage geom.pad_evidence geom.parts
     geom.proportions geom.ramp_grade geom.rotated_rect geom.triangulate geom.union_find
     law law.airports_schema law.base_profile_schema law.basin_schema law.cockpit_schema
@@ -1486,6 +1490,7 @@ CODE_MODULES["verify"] = _mods("""
     constraints.strips constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.weld_floor emit.surface geom geom.base_slab geom.cluster_outline
+    geom.fixed_overlay
     geom.containment geom.core_clamp geom.pad_evidence geom.parts geom.proportions
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema

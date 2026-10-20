@@ -125,6 +125,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.law.cutout_schema",
     "auto_patch_v2.law.design_schema",
     "auto_patch_v2.law.eat_schema",
+    "auto_patch_v2.law.flat_pack_schema",
     "auto_patch_v2.law.flat_site_schema",
     "auto_patch_v2.law.model",
     "auto_patch_v2.law.model_types",

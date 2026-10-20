@@ -1,0 +1,16 @@
+# auto_patch_v2 LAW — THE FLAT-PACK WITNESS (owner direction 2026-10-20
+# 17:44Z; answers 59-66, 18:14Z; spec docs/specs/flat-pack-terracing-spec.md
+# §1).  A pack whose ground objects nearly all stand at ONE level over
+# terrain with real relief was authored for a flat airport.  PHASE 1 only
+# REPORTS the verdict (sidecar/report `load.flat_pack`, one log line); no
+# geometry reads it while `terrace = false`.  The level window and the
+# relief floor are flat_site.toml's (detector.seat_spread_max_m,
+# detector.relief_floor_m), never restated here.  None names an airport
+# (RULINGS 2026-10-05e).
+
+terrace = false         # phase gate (spec §5): true only when phase 2 lands with failure evidence (answer 59)
+
+[detector]
+level_share_min = 0.9   # answer 60: "Greater than 90% of objects would all be at the same level for a true flattened airport package" — the share of the pack's grounded objects whose seat lies in ONE seat_spread_max_m window; the witness needs MORE than this
+grounded_band_m = 1.0   # a foot within this of the member's own ground read (base_profile feet_y) is a GROUNDED foot (the S4 below-grade magnitude, flat_site.detector.below_grade_base_y_m)
+min_members     = 3     # fewer grounded objects than this is `no_data`: one or two objects cannot state an airport-wide level

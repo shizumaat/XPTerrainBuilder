@@ -337,6 +337,14 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
     # issue #516: the sunken ramps' ground, beside the clusters it trims
     from ..airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law, ocache)
+    # THE FLAT-PACK WITNESS (owner direction 2026-10-20, answers 59-66; spec
+    # ``flat-pack-terracing-spec.md`` §1): read once the partition is, a
+    # REPORT in phase 1 (``law/flat_pack.toml`` ``terrace = false``).
+    from ..airport import flat_pack as _flat_pack
+    _fpv = _flat_pack.detect(airport, law)
+    airport = _dc.replace(airport, flat_pack=_fpv)
+    lrep.flat_pack = _flat_pack.record(_fpv)
+    _say("  " + _flat_pack.log_line(icao, _fpv), out)
     # §16g (8)/(9) (owner RULINGS 2026-09-14w): the cluster count, SAID.
     # HECA's round-5 build priced 0 cluster cross-links while
     # ``plan_clusters`` on the same plan returned 2, and nothing in the

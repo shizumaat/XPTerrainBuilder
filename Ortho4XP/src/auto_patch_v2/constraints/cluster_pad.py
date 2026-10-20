@@ -34,13 +34,14 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.strtree import STRtree
 
+from ..geom.slope_pad import slope_witness
 from ..geom import cluster_building_evidence, cluster_outlines
 from ..law import Law
 from ..geom.base_slab import pad_shades, registered_faces
 from ..law.tables import base_slab_law, pad_admission, rolled_on_roles
 from ..model.airport import Airport
 from ..model.planar import (PlanarMap, block_of, is_bank_ref, pad_base_ref,
-                            platform_ref_of, unit_ref_of)
+                            plane_origin_ref, platform_ref_of, unit_ref_of)
 from .pads import _pad_groups, _pad_polys
 from .precedence import view
 from ..geom.union_find import find_root
@@ -105,8 +106,8 @@ _AIRSIDE_MEMO: list[tuple[int, _t.Any, _t.Any]] = []
 
 def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
                   law_touch: float | None = None, airside=None,
-                  bridge_m: float = 0.0, admission=None, slab_law=None
-                  ) -> list[tuple[str, _t.Any, Polygon]]:
+                  bridge_m: float = 0.0, admission=None, slab_law=None,
+                  slope=None) -> list[tuple[str, _t.Any, Polygon]]:
     """§30 (4): each CLUSTER carried on ``Airport.clusters``
     (``planar/cluster.py``, computed once at load beside the pack
     partition and the groups) with its FOOTPRINT UNION as one plan
@@ -140,7 +141,8 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
         return []
     touch = float(law_touch) if law_touch is not None else 0.0
     got = counts = None
-    akey = (id(airside), min_m2, float(bridge_m), admission, slab_law)
+    akey = (id(airside), min_m2, float(bridge_m), admission, slab_law,
+            None if slope is None else float(slope[1]))
     for k, ap, t0, cached in _POLY_MEMO:
         if k == id(airport) and ap is airport and t0 == (touch, akey):
             got, counts = cached, {}
@@ -175,7 +177,9 @@ def cluster_polys(airport: Airport | None, min_m2: float = 0.0,
             # rules 9/10)
             admission=admission,
             osm_evidence=cluster_building_evidence(
-                getattr(airport, "buildings", ()) or ()))
+                getattr(airport, "buildings", ()) or ()),
+            # owner RULINGS 2026-10-19w: the SAME slope pads the mint gave
+            slope=slope)
         _POLY_MEMO.append((id(airport), airport, (touch, akey), got))
         del _POLY_MEMO[:-2]
     if counts.get("no_rings"):
@@ -231,8 +235,16 @@ def _base_ref(ref: object) -> str:
     spelling, one join."""
     # flat-pad spec §3 C3/C14 (RULINGS 2026-09-30r): the flat BLOCKS of a
     # cut unit are one PAD to the cluster (the cluster stands on the unit);
-    # their PLANES are split per block by ``_split_blocks``
-    return unit_ref_of(pad_base_ref(ref))
+    # their PLANES are split per block by ``_split_blocks``.  A LOWER LEVEL
+    # (owner RULINGS 2026-10-19ai, ``planar/low_level``) is its OWN pad: a
+    # storey under its block, never in the block's plane group (MEASURED
+    # KATL: folded in, the block's apron ``frontage_level`` row held the
+    # lower level's mean at the apron, and on the gap-free base map it rose
+    # to its band's top, 8 m over its ground)
+    base = pad_base_ref(ref)
+    if plane_origin_ref(base) != platform_ref_of(base):
+        return base
+    return unit_ref_of(base)
 
 
 def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
@@ -266,7 +278,8 @@ def _face_map(planar: PlanarMap, law: Law, airport: Airport | None,
         airport, min_m2, footprint_touch_m(law),
         None if bool(law.tables.structures.placement.pad_airside_clip)
         else airside_union(planar, law), _bridge_m(law),
-        pad_admission(law), base_slab_law(law))
+        pad_admission(law), base_slab_law(law),
+        slope_witness(airport, law))       # 19w: the mint's own slope pads
     # §16g (10) (11) A PIECE THE MINT NEVER PADDED IS NOT A PAD.  The
     # mint drops every piece under ``[building_pad] min_area_m2``
     # (``classify/evidence._pads``), so a 7 m2 sliver of a cluster's
@@ -356,7 +369,10 @@ def pad_cluster_mismatch(planar: PlanarMap, law: Law,
         return out
     _to_xy, to_ll = (airport.frame.transformers() if airport is not None
                      else (None, None))
-    polys = {int(q[0]): (_base_ref(q[1]), q[3]) for q in _pad_polys(planar, law)}
+    # a LOWER LEVEL (RULINGS 2026-10-19ai) is the same building's pad here:
+    # the object is one shape on two levels, never a cluster spanning pads
+    polys = {int(q[0]): (unit_ref_of(plane_origin_ref(_base_ref(q[1]))), q[3])
+             for q in _pad_polys(planar, law)}
 
     def _at(fid: int) -> tuple[float | None, float | None]:
         q = polys.get(fid)

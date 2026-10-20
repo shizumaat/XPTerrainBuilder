@@ -141,6 +141,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # constant of its own
     "seam_half_width_m",
     "tunnel_objects",   # RULINGS 2026-09-05k-1: the object corridors (``pipeline/publication.tunnel_objects``)
+    # #1028: a slid mouth's own depth (``pipeline/publication.tunnel_mouth_depths``)
+    "tunnel_mouth_depths",
     "taxi_route_pairs",  # RULINGS 2026-09-05ab: taxi within-shape pairs priced over the centreline route (``taxi.taxi_pair_routes``)
     "face_holes",  # RULINGS 2026-09-05ae(1): each face's holes by shapeID — the oracle's visibility polygon.  Derived by ``write_patch`` from the surface IT WRITES (``face_holes_ll``), never from the planar map (RULINGS 2026-09-13da residual: 782 sub-spacing merges after publication left stale hole rings that minted ``zone_on_pavement`` slivers)
     "design",         # RULINGS 2026-09-08t/v: the design surface's residual per family (replaces ``law_tiers``)
@@ -1034,6 +1036,7 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
         return x
 
     pxy = {i: xy(ll) for i, ll in vll.items()}
+    members: dict[int, list[int]] = {}
     for _w, _o, ids, closed in seqs:
         n = len(ids)
         if n < 2:
@@ -1047,7 +1050,22 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             if math.hypot(pa[0] - pb[0], pa[1] - pb[1]) >= spacing:
                 continue
             keep, drop = (a, b) if key(a) <= key(b) else (b, a)
+            # NO CHAIN MERGE (#951 round 7): the merge joins two vertices
+            # closer than the spacing, never a chain of them.  MEASURED KLAX
+            # taxiway F (33.93418, -118.39608): road corner -> a node 0.5 m
+            # on -> a band-line corner 0.5 m further, each pair just under
+            # the spacing, were folded into ONE vertex, and the road's ring
+            # took the band's level 3.3 m over the road.  A union that would
+            # leave any member of either group one spacing or more from the
+            # survivor is refused; the segment stays as written.
+            group = members.get(a, [a]) + members.get(b, [b])
+            kx, ky = pxy[keep]
+            if any(math.hypot(pxy[m][0] - kx, pxy[m][1] - ky) >= spacing
+                   for m in group):
+                continue
             parent[drop] = keep
+            members[keep] = group
+            members.pop(drop, None)
     remap = {i: find(i) for i in vll}
     if all(t == i for i, t in remap.items()):
         return surface

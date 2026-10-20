@@ -510,6 +510,7 @@ frontage_near_miss_m      = 1.0    # a soft-pavement ring edge within this of a 
 platform_collar_max_m     = 15.0   # THE LANDING BANK'S WIDTH (owner RULINGS 2026-10-03e, #290; master ruling 2026-10-08 R3 (1), pending spec-author review): the 1:3 bank minted around a viaduct ramp landing (planar/landing.py, <unit>/landing<k>#collar), out to this width over what no pad, airside or other landing holds.  The key's first reader - the UNIT PLATFORM's collar (unit-platform spec §1 (2), RULINGS 2026-09-28a / 10-02v (5) / 10-02z) - is DELETED (spec §56 (3), owner RULINGS 2026-10-07b (4) / 07c (6)): a unit pad is one flat face with no collar.  The SOLID-connector step bound this × emit.design.bank_slope once gave is its own key, [placement] connector_step_max_m
 frontage_hold             = true   # flat-pad spec §1 (owner RULINGS 2026-09-30f; 30k Q5 hold ON; 30r Q-111b option (1); #111): every minted platform is TESTED at the mint (planar/pad_blocks.py) and a unit that fails is CUT into flat blocks at its necks (<ref>/b<k>); each block's welded frontage is held at its flat datum in stage 1 (constraints/platform.frontage_hold_rows) and the object stage seats each block on its own floor; false = 29s contact-led tilt
 frontage_hold_margin_m    = 0.3    # flat-pad spec §2 (1): the DEM proxy's allowance in the mint-time feasibility test (= the §17 body float bar)
+low_level_min_step_m      = 3.0    # owner RULINGS 2026-10-19ai (#809; amends 30r): a held block whose pack unit has parts authored at least this far (one storey) below its frontage level gets a second, LOWER level over their footprint, tied to the block's datum by the ground's step within the object's storey (planar/low_level.py, <block>/p1, its riser <block>/p1#strip); landside roads meet it.  KATL terminal_F: frontage parts at y 0, landside parts at -13
 frontage_blocks_max       = 5      # flat-pad spec §2 (4) (e) / §6 Q4 (30k): a unit needing more blocks is a STOP for the owner
 frontage_soft_roles       = ["apron", "junction"]   # the soft-pavement roles the frontage law binds across the sliver (NEAR_MISS_FRONTAGE_SOFT_ROLES)
 
@@ -1093,6 +1094,40 @@ post_bridge_gap_m     = 1.25
 # on" (a proposed value, not separately ruled).  KASE Atlantic FBO
 # unit:121#4: 86 % on apron pav7.  0 disarms.
 apron_shelf_min_share = 0.5
+# THE SLOPE PAD (owner RULINGS 2026-10-19w, extends 14n: "pad any building
+# that floats more than 0.5 m" — "4. Yes"): a WALLED cluster under
+# cluster_pad_min_m2 gets a pad where its seat would float more than this
+# above the ground under its closed outline — the seat read as §16g (2)'s
+# median ground, the float as that median less the lowest ground under the
+# outline (DEM, before any grading).  Every other pad gate stands (a derived
+# pad never takes airside ground, 14ah).  0 disarms.
+slope_pad_float_m     = 0.5
+# THE HANGAR DOOR LINE (owner 2026-10-20 01:15Z: "the slope of the apron to
+# the center of the door that the aircraft would follow needs to stay within
+# grade limits, but laterally either edge of the building away from that
+# center line can carry the extra slope to blend back into the apron";
+# 01:17Z: the blend "like a tunnel ramp ... up to 10%, with the goal being
+# the smallest possible"; the tower too).  A slope pad welded into the apron
+# is ONE level (constraints/door_pad); the apron keeps its cap along the
+# door line — the door wall's centre to the nearest taxiway, this share of
+# the door wall wide — and blends elsewhere round the pad at up to
+# [tunnel] ramp_max_grade, the apron's preference rows keeping it as gentle
+# as the levels allow.  0.5 = the middle half of the door (a proposed value,
+# not separately ruled).  0 disarms the door-line pad.
+door_corridor_share   = 0.5
+# THE BLEND'S REACH (master 2026-10-20, pads follow the solved airside): the
+# pad, its door line and its blend are solved in stage 2 against stage 1's
+# airside; the apron vertices within this reach of a door-line pad (none
+# shared with the runway or taxi family) are solved with it, the room the
+# blend ramps in.  Inside the 60 m the master's bar reads as the pad's own.
+door_blend_reach_m    = 60.0
+# THE AIRSIDE GIVE (owner RULINGS 2026-10-19ac: airside moves up to 0.5 m
+# are accepted; #798 round 3): the door-line pad's taxi-shared vertices and
+# the far end of every hard row touching the pad are solved in stage 2
+# within this of their stage-1 level (constraints/door_pad.blend_release),
+# hard, at the taxi tier.  MEASURED (KASE round 7): with the airside frozen
+# Hangar1's door line had no feasible level.  0 disarms.
+door_airside_give_m   = 0.5
 
 # issue #516 (owner RULINGS 2026-09-13bi "sink into the ground so its ramp
 # meets DEM", 13cm "the top deck meeting the sloping terrain at the ramp

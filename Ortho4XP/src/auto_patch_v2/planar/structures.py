@@ -91,6 +91,7 @@ from ..model.frame import XY
 from ..model.structures import Channel, Deck, Tunnel
 from .basins import object_decks
 from .channel_claims import add_channel_cells, channel_yields
+from .bore_continuation import walked_m
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
@@ -102,7 +103,8 @@ from .structure_approach import (FieldRegion, apply_plates, standing_cover,
                                  carriageway_width_m, cut_gap_cells,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
-                                 pavement_half_widths, ramp_top as _ramp_top, unit)
+                                 pavement_half_widths, ramp_top as _ramp_top, road_end_m,
+                                 road_index, crossing_roads, unit)
 from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import resolve_overlaps
@@ -215,6 +217,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     stats.runway_bands = len(on_field.band or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
                            if bores else ([], []))
+    stats.refused.extend(getattr(on_field, "no_portal", ()))      # #1028
     for m in mouth_list if up_parents else ():
         par = mouth_parent(m, up_parents)
         if par is not None:                  # §34 (5): the ramp follows the road
@@ -328,6 +331,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if hw:
                 strip.append(p.buffer(hw, **_MITRE))
     strip_u = unary_union(strip) if strip else None
+    roads_ix = road_index(airport.osm_ways, tn.admitted_values)     # #1028
     bridges = [w for w in airport.osm_ways if is_bridge(w) and len(w.points) >= 2]
     bridge_lines = [LineString(w.points) for w in bridges]
     bridge_tree = STRtree(bridge_lines) if bridge_lines else None
@@ -364,13 +368,23 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 axis_ln, half + rim_off, bridges, bridge_lines, bridge_tree, law,
                 [m.bore.line for m in members], deck_witness_for(airport, law, [
                     w for m in members for w in m.bore.ways]), plates)]
-            + [d[3] for d in object_deck_intervals(axis_ln, half + rim_off, odecks)])
+            + [d[3] for d in object_deck_intervals(axis_ln, half + rim_off, odecks)],
+            airport=airport, crossing=crossing_roads(       # #1028 Q32: never through a road
+                axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]))
         if clear is not None and clear[0] is None:
             stats.refused.append(f"{tid}: {clear[4]}")
             continue
         axis_ln, mouth = (clear[0], clear[1]) if clear is not None else (axis_ln, mouth)
         # where a ramp NOTHING frames must have topped out: its road's own end
-        run_ends: list[tuple[float, str]] = [(axis_ln.length, "the mapped road's end")]
+        # (#1028: where the axis leaves the mapped road, not its straight extension)
+        # (a bore whose approach walked no mapped way at all follows its own line)
+        road_end = road_end_m(axis_ln, roads_ix, half, spacing_g) if c is None and any(
+            walked_m(m.approach, m.inward, reach) > 0.0 for m in members
+            if hasattr(m, "approach")) else None
+        # (the top's one station of slack, ``ramp_top``, may stand past it)
+        run_ends: list[tuple[float, str]] = [(axis_ln.length if road_end is None
+                                              else road_end + spacing_g,
+                                              "the mapped road's end")]
         if tid in run_limits:
             run_ends.append(run_limits[tid])
         # 2026-10-08c (1): grade_g is a CAP; a ramp no object frames is
@@ -416,6 +430,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     f"overbridge embankment, not the portal's cover (§33 (3))")
                 mouth_dem = cap_z
         mouth_z = c.floor_z if c is not None else mouth_dem - tn.mouth_depth_m
+        slid_depth = None                       # #1028: a slid mouth on the road's own profile
+        if clear is not None and clear[5] is not None and clear[5] > mouth_z:
+            mouth_z, slid_depth = clear[5], mouth_dem - clear[5]
         # decks across the corridor.  TWO orthogonal readings at one
         # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the
         # cutting witness), §33 (6) C3' its LATERAL EXTENT (the pack's
@@ -673,6 +690,16 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             if geom_fit is not None and _pad_hit(geom_fit.outer, osm_stops, osm_tree, gap) is None:
                 ss, s_top, geom, design_grade, steepen_note = ss_fit, s_fit, geom_fit, got, note
                 clipped_by, top_pinned = "", True
+        if c is None and g.climbs and road_end is not None \
+                and s_top - spacing_g > road_end + gap:   # ramp_top's one station of slack
+            # #1028 Q32: a ramp NEVER leaves its mapped road — no straight
+            # extension across whatever lies past the road's end
+            stats.refused.append(
+                f"{tid}: the ramp cannot top out on its mapped road — the road leaves the "
+                f"corridor {road_end:.0f} m out and no grade up to the cap "
+                f"{100.0 * tn.ramp_max_grade:.0f} % reaches the ground before it (#1028: a "
+                f"ramp never crosses a pavement edge or another road)")
+            continue
         # §34 (7) THE STATIONS ARE THE SAMPLING, NOT THE EMITTED SHAPE
         # (owner RULINGS 2026-09-14n item 2 / 2026-09-14p): a straight
         # constant-grade run collapses to its two end chords.  The knees —
@@ -815,7 +842,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          f"{', '.join(traced)} — {min(a + b for a, b in hws):.1f}-"
                          f"{max(a + b for a, b in hws):.1f} m over {len(hws)} stations "
                          f"(lanes default {width:.1f} m)")
-        extra: dict = {}
+        extra: dict = {} if slid_depth is None else dict(depth_m=slid_depth)
         profile_out: tuple = ()
         if c is not None:
             outside = trench_outside_m(ramp_parts, c, grid)

@@ -81,7 +81,19 @@ def ribbon_extent(cells, law: Law, pavement_union, runways=()):
 
 
 def _way_intervals(line: LineString, inside) -> list[tuple[float, float]]:
-    """The arclength intervals of ``line`` inside ``inside``."""
+    """The arclength intervals of ``line`` inside ``inside``.
+
+    A way that does not meet ``inside`` has none, and is answered by the
+    prepared predicate instead of a full overlay (issue #803: the pad-road
+    exit walk asked this of every tile way against the whole airport's
+    union — 30 s of HECA's last stage, nearly all of it for ways nowhere
+    near the field).  ``inside`` is prepared in place, once; the answer is
+    the overlay's own, because an empty intersection is exactly a false
+    ``intersects``."""
+    if not shapely.is_prepared(inside):
+        shapely.prepare(inside)
+    if not inside.intersects(line):
+        return []
     out = []
     for part in line_parts(line.intersection(inside)):
         a = line.project(Point(part.coords[0]))

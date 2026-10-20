@@ -93,7 +93,7 @@ DEFAULT_STORE = Path(os.environ.get(
 
 #: Per-run by construction — including them would make every key unique and
 #: the ledger a write-only directory.
-VOLATILE_ENV = ("O4_HARNESS_IN_LEDGER", "O4_DSF_CACHE_DIR",
+VOLATILE_ENV = ("O4_HARNESS_IN_LEDGER", "O4_DSF_CACHE_DIR", "O4_DDS_CACHE_DIR",
                 "O4_AIRPORT_MOD_CACHE_DIR", "O4_RUN_LEDGER_PATH",
                 "O4_ARTIFACT_LEDGER_DIR", "O4_ARTIFACT_LEDGER_MAX_MB",
                 # WHERE a corpus lives is not WHICH corpus it is: the

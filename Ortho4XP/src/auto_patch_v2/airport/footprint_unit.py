@@ -127,7 +127,7 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
     by_mi = {st.mi: st for st in staged}
     if plan_wide:
         return _bind_plan_wide(cands, by_mi, surface, counts, plan_wide,
-                               visual_m=visual_m,
+                               visual_m=visual_m, touch_m=touch_m,
                                connector_span_m=connector_span_m,
                                cluster_of=cluster_of,
                                airside_floor=airside_floor,
@@ -210,11 +210,14 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
         for ci, cc in sorted(per.items()):
             c = cands[ci]
             st = by_mi[c.member]
+            if src != "ground" and _far_below(cc, zero, visual_m):
+                # owner RULINGS 2026-10-19aq (#721): it leaves the unit
+                counts["unit_members_left_far_below"] = \
+                    counts.get("unit_members_left_far_below", 0) + 1
+                _leave(cands, ci, st, unit_id or "unit")
+                continue
             n_contacts += len(cc)
-            _st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
-            if (visual_m > 0.0
-                    and abs(_median([q[3] - q[2] for q in cc[::_st]]) - zero)
-                    > visual_m):
+            if visual_m > 0.0 and abs(_own_zero(cc) - zero) > visual_m:
                 n_off += 1
             best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - zero), 6),
                                           round(abs(q[2]), 6), q[0], q[1]))
@@ -784,7 +787,8 @@ def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],
 
 def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                      surface: _ar.Surface, pads: _t.Sequence[_ar.PadRing],
-                     cluster_min_m2: float
+                     cluster_min_m2: float, piece_reach_m: float = 0.0,
+                     wall_min_m: float = 0.0, span_max_m: float = 0.0
                      ) -> dict[str, tuple[float, str, str]]:
     """§16g (2)'s PRIORITY DATUM, read PLAN-WIDE: ``unit id -> (zero,
     where, source)``.
@@ -813,6 +817,9 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         for mi, m in enumerate(u.members):
             by_key[(ui, mi)] = m
     out: dict[str, tuple[float, str, str]] = {}
+    parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
+    #: 19u: unit id -> (highest pavement its pieces imply, its walled files)
+    pav: dict[str, tuple[float, frozenset]] = {}
     for un in units:
         zero: float | None = None
         where = src = ""
@@ -850,8 +857,17 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                     src = "cluster_pad"
             else:
                 zero, where, src = _median([q[3] for q in cc]), "", "ground"
+            # owner RULINGS 2026-10-19u (#798 (a)): a unit standing on
+            # rolled-on pavement is read for ``one_building``, here in the
+            # plan, so the unit-carried pieces and the bind read one zero
+            from .one_building import pavement_top, walled_files
+            mine = [parts[q] for q in sorted(un.pids) if q in parts]
+            top = pavement_top(cc, mine, surface)
+            if top is not None:
+                pav[un.id] = (top, walled_files(mine, plan, wall_min_m))
         out[un.id] = (zero, where, src)
-    return out
+    from .one_building import one_building_groups
+    return one_building_groups(units, out, pav, piece_reach_m, span_max_m)
 
 
 def _airside_floor(cc: _t.Sequence[tuple[float, float, float, float]],
@@ -930,6 +946,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                     surface: _ar.Surface, counts: dict,
                     plan_wide: _t.Mapping[int, tuple],
                     *, visual_m: float, connector_span_m: float,
+                    touch_m: float = 0.0,
                     cluster_of: "_t.Mapping[int, int] | None" = None,
                     airside_floor: bool = False,
                     pads: _t.Sequence[_ar.PadRing] = (),
@@ -969,6 +986,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     per_uid: dict[str, dict[int, list]] = {}
     info: dict[str, tuple[float, str, str]] = {}
     conn: dict[int, tuple[str, str]] = {}
+    left: dict[str, dict[int, list]] = {}
     for ci, c in enumerate(cands):
         if c.body_class in (_ar.LINE_SEGMENT, _ar.BASIN):
             continue
@@ -1029,6 +1047,18 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             uid, z, where, src = high
             counts["unit_connectors_seated"] = \
                 counts.get("unit_connectors_seated", 0) + 1
+        elif src != "ground" and _far_below(cc, z, visual_m):
+            # owner RULINGS 2026-10-19aq (#721): A BODY WHOSE OWN GROUND
+            # IS FAR BELOW ITS UNIT'S DATUM LEAVES THE UNIT and keeps the
+            # seat §16c gave it on its own ground.  A body the §16c (7)
+            # bind put on a senior still follows that senior
+            # (``placement_atom.follow_seniors``), so a rigid cluster never
+            # splits here: only a senior or an unbound body leaves.
+            counts["unit_members_left_far_below"] = \
+                counts.get("unit_members_left_far_below", 0) + 1
+            _leave(cands, ci, st, uid)
+            left.setdefault(uid, {})[ci] = cc
+            continue
         per_uid.setdefault(uid, {})[ci] = cc
         info[uid] = (z, where, src)
     out: list[Family] = []
@@ -1049,6 +1079,17 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
         # rolled-on pavement.  Read over the candidates THIS pass holds —
         # a plan-wide unit split across passes is judged per pass, which
         # is the one place the plan-wide reading cannot reach.
+        if src == "one_building":
+            # owner RULINGS 2026-10-19u (#798 (a)): a multi-file building on
+            # rolled-on pavement seats WHOLE on the one datum the plan gave
+            # it (:func:`plan_unit_datums`) — never per piece on the
+            # pavement under its own feet, and never raised per rigid
+            # cluster (17x's floor is already in that datum)
+            counts["unit_one_building"] = counts.get("unit_one_building", 0) + 1
+            out.extend(_seat(cands, by_mi, surface, counts, per, float(zero),
+                             where, src, uid, visual_m,
+                             conn={ci: conn[ci] for ci in per if ci in conn}))
+            continue
         if all(_all_on_pavement(cc, surface) for cc in per.values()):
             counts["unit_all_on_pavement"] = \
                 counts.get("unit_all_on_pavement", 0) + 1
@@ -1067,7 +1108,83 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
                          src, uid, visual_m,
                          conn={ci: conn[ci] for ci in per if ci in conn},
                          floors=floors))
+    for uid, per in sorted(left.items()):
+        out.extend(_left_units(cands, by_mi, surface, counts, per, uid,
+                               touch_m, visual_m))
     return out
+
+
+def _left_units(cands: list, by_mi: _t.Mapping[int, _t.Any],
+                surface: _ar.Surface, counts: dict,
+                per: _t.Mapping[int, list], uid: str, touch_m: float,
+                visual_m: float) -> list[Family]:
+    """owner RULINGS 2026-10-19aq (#721): the bodies of ONE MEMBER that
+    LEFT unit ``uid`` and still touch each other stand on their OWN ground
+    TOGETHER — §16g (1)'s chaining read over that member's leavers alone,
+    each chain one zero at the median ground under its contacts (§16g
+    (2)'s last datum), so one building's wings never step apart where the
+    unit let them go.  Read per member: chained across members the leavers
+    of a whole terminal fall into one group whose median is the pad edge's
+    (MEASURED, HECA replay: T3_14 then stood 5.8 m over its ground).  A
+    lone leaver keeps the seat §16c gave it."""
+    if touch_m <= 0.0:
+        return []
+    by_m: dict[int, list[int]] = {}
+    for ci in sorted(per):
+        by_m.setdefault(cands[ci].member, []).append(ci)
+    groups: list[list[int]] = []
+    for _m, ids in sorted(by_m.items()):
+        if len(ids) < 2:
+            continue
+        cls, _adj = _clusters([cands[ci] for ci in ids], touch_m,
+                              min_members=1)
+        groups.extend([ids[j] for j in cl] for cl in cls if len(cl) >= 2)
+    out: list[Family] = []
+    for k, grp in enumerate(groups):
+        sub = {ci: per[ci] for ci in grp}
+        zero = _median([q[3] - q[2] for cc in sub.values() for q in cc])
+        got = _seat(cands, by_mi, surface, counts, sub, zero, "", "ground",
+                    f"{uid}/left{k}", visual_m)
+        for ci in sub:
+            _leave(cands, ci, by_mi[cands[ci].member], uid)
+        out.extend(got)
+    return out
+
+
+def _own_zero(cc: _t.Sequence[tuple]) -> float:
+    """The zero a body's own contacts ask for: the median of ``ground z -
+    authored y`` over (at most ``GROUND_OFF_FEET_MAX``-strided) contacts —
+    the reading :func:`_seat` reports a member's off-plane residual by."""
+    st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
+    return _median([q[3] - q[2] for q in cc[::st]])
+
+
+def _far_below(cc: _t.Sequence[tuple], zero: float, visual_m: float) -> bool:
+    """owner RULINGS 2026-10-19aq (#721): is this body's own ground FAR
+    below its unit's datum ``zero``?  Asked only of a STRUCTURE datum (a
+    pad, a cluster pad, a deck): a unit on its median ground has no level
+    of its own for a member to stand off — its spread is the terrain's.
+    "Far" is the cockpit's visual bar (``[cockpit] visual_m``, §31 (1): a
+    float over it is a defect the pilot sees) — the same number
+    :func:`_seat` reports a member off the plane by; no threshold of its
+    own.  ``visual_m`` 0 disarms."""
+    return visual_m > 0.0 and bool(cc) and zero - _own_zero(cc) > visual_m
+
+
+def _leave(cands: list, ci: int, st: _t.Any, uid: str) -> None:
+    """Mark candidate ``ci`` as having LEFT unit ``uid`` (2026-10-19aq): its
+    seat is the one §16c gave it; only the anchor learns the unit it left,
+    so the pieces it carries ride it (``footprint_carry.contents_seat``)."""
+    c = cands[ci]
+    a = _dc.replace(c.anchor, left_unit=uid)
+    grp0 = (st.groups[c.group] if 0 <= c.group < len(st.groups) else ())
+    if grp0:
+        from . import placement_carrier as _pc
+        k0 = _pc.senior_of(st.raw, grp0)
+        r0 = st.raw[k0]
+        if r0[2] is c.anchor:
+            st.raw[k0] = (r0[0], r0[1], a) + tuple(r0[3:])
+    cands[ci] = _dc.replace(c, anchor=a)
 
 
 def _cluster_floors(per: _t.Mapping[int, list], surface: _ar.Surface,
@@ -1137,10 +1254,7 @@ def _seat(cands: list, by_mi: _t.Mapping[int, _t.Any], surface: _ar.Surface,
         # ``z_i``, so the anchor, the off-plane report and the residual
         # in the reason are all one number.
         z_i = max(zero, float(floors[ci])) if (floors and ci in floors) else zero
-        _st = max(1, len(cc) // _pb.GROUND_OFF_FEET_MAX)
-        if (visual_m > 0.0
-                and abs(_median([q[3] - q[2] for q in cc[::_st]]) - z_i)
-                > visual_m):
+        if visual_m > 0.0 and abs(_own_zero(cc) - z_i) > visual_m:
             n_off += 1
         best = min(cc, key=lambda q: (round(abs(q[3] - q[2] - z_i), 6),
                                       round(abs(q[2]), 6), q[0], q[1]))

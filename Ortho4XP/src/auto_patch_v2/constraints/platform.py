@@ -34,8 +34,9 @@ import typing as _t
 from ..law import Law
 from ..model.airport import Airport
 from ..model.constraints import Diff, Linear, Row, Source
-from ..model.planar import (PlanarMap, is_bank_ref, is_collar_ref, is_strip_ref,
-                            pad_base_ref, platform_ref_of, unit_ref_of)
+from ..model.planar import (PlanarMap, face_vertex_set, is_bank_ref, is_collar_ref,
+                            is_strip_ref, pad_base_ref, plane_origin_ref,
+                            platform_ref_of, unit_ref_of)
 from ..model.platform import HOLD_DATUM_RULING, HOLD_RULING, datum_vertices
 from .pad_warning import stamp_warning
 
@@ -155,8 +156,27 @@ def _with_runouts(planar: PlanarMap, pairs: list) -> list:
             bank.setdefault(platform_ref_of(ref), []).append(fid)
     # the landing's collar banks off the strip's first metres too; the
     # strip's own side bank (``<run-out>#collar``) banks off the strip
-    return ([(r, cs, tuple(ps) + tuple(by.get(r, ()))) for r, cs, ps in pairs]
-            + [(r, tuple(bank[r]), tuple(strip[r])) for r in sorted(bank) if r in strip])
+    out = ([(r, cs, tuple(ps) + tuple(by.get(r, ()))) for r, cs, ps in pairs]
+           + [(r, tuple(bank[r]), tuple(strip[r])) for r in sorted(bank) if r in strip])
+    fam = set(planar.registries.landings) | set(strip)
+    return [(r, cs, ps + (_sibling_strips(planar, cs, ps, strip) if r in fam else ()))
+            for r, cs, ps in out]
+
+
+def _sibling_strips(planar: PlanarMap, cfids: tuple, pfids: tuple,
+                    strip: _t.Mapping[str, list[int]]) -> tuple[int, ...]:
+    """The run-out strip faces of OTHER landings that border the landing
+    or run-out bank ``cfids`` (#711): two ramps landing side by side run out on two strips
+    (``planar/landing_runout``), and a bank between them banks off both — off
+    its own alone, its vertex beside the sibling strip had no row to it
+    (MEASURED, HECA T3 replay: 96.98 m 1.1 m from the sibling strip's
+    100.01 m edge)."""
+    own = set(pfids)
+    cand = [q for r in sorted(strip) for q in strip[r] if q not in own]
+    if not cand:
+        return ()
+    vs = {v for q in cfids for v in face_vertex_set(planar, planar.faces[q])}
+    return tuple(q for q in cand if not vs.isdisjoint(face_vertex_set(planar, planar.faces[q])))
 
 
 def block_strip_rows(planar: PlanarMap, law: Law,
@@ -167,7 +187,14 @@ def block_strip_rows(planar: PlanarMap, law: Law,
     collar's rows take (:func:`_bank_rows`): a strip vertex on the chord it
     shares with the next block's strip is a TERRACE row from each floor.
     A generator; it runs after ``platform_collar_rows``."""
-    rows, st = _bank_rows(planar, law, collar_faces(planar, law, is_strip_ref))
+    # A LOWER LEVEL's riser (owner RULINGS 2026-10-19ai, ``planar/low_level``)
+    # is the object's own storey — the steepest cell, never a 1:3 bank
+    # (base-profile spec §8a Q2): no bank rows, which would pull the block
+    # toward the level a storey below it (MEASURED KATL: the apron moved
+    # 0.11 m with them)
+    pairs = [q for q in collar_faces(planar, law, is_strip_ref)
+             if plane_origin_ref(q[0]) == q[0]]
+    rows, st = _bank_rows(planar, law, pairs)
     if st is not None:
         STATS["block_strip_rows"] = st
     return rows
@@ -320,8 +347,12 @@ def _bank_rows(planar: PlanarMap, law: Law,
                 # bending stencil alone — SPJC building14#collar at
                 # -12.02514481, -77.10577155 stood 46.26 m over a 24.7 m
                 # platform and a 30.04 m DEM.  It keeps a ONE-WAY bank row
-                # (the plate leads) unless it is another pad's rim.
-                if not other:
+                # (the plate leads) unless it is another pad's rim — and a
+                # vertex only collars share is no pad's rim but the seam of
+                # two banks (#711, the interior seam's rule below): MEASURED
+                # (HECA, #1068) the south run-out's side bank at 30.1111706,
+                # 31.3922969 had no row and stood 1.9 m under its DEM
+                if not other or all(is_collar_ref(planar.faces[q].ref) for q in inc):
                     cover.add(o)
                     keep.append(o)
                 continue
@@ -330,6 +361,15 @@ def _bank_rows(planar: PlanarMap, law: Law,
                 # TERRACE between two blocks of one unit — the 1:3 bank from
                 # each block's floor, two-sided, never the rim's cap 0
                 terrace.add(o)
+                keep.append(o)
+                continue
+            if other and all(is_collar_ref(planar.faces[q].ref) for q in inc):
+                # THE SEAM BETWEEN TWO BANKS (issue #711): a vertex only
+                # collars share is ground both banks reach — each keeps its
+                # one-way 1:3 rim row (the plate leads).  With no row at all
+                # it was a column the bending stencil held: HECA's run-out
+                # | landing collar seam at 30.1113600, 31.3922450 stood at
+                # 92.02 m, 3.3 m under its DEM, beside a 100.5 m run-out
                 keep.append(o)
                 continue
             if other:
@@ -522,11 +562,26 @@ def landing_rows(planar: PlanarMap, law: Law,
         if dv is None:
             n_none += 1
             continue
+        n += 1
+        if rec.get("kind") == "low_level":
+            # A LOWER LEVEL (owner RULINGS 2026-10-19ai, ``planar/low_level``):
+            # banded to its block, ``D + y_lo <= z <= D + y_hi`` — its own
+            # ground places it inside the object's storey
+            lo, hi = float(rec["y_lo"]), float(rec["y_hi"])
+            src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-19ai the lower "
+                         "level banded to its block within the object's storey)",
+                         (f"low_level:{ref}", ref, f"platform:{rec['block']}"))
+            for v in vs:
+                if v == dv:
+                    continue
+                rows.append(Linear(((v, 1.0), (dv, -1.0)), None, hi, src))
+                rows.append(Linear(((v, -1.0), (dv, 1.0)), None, -lo, src))
+            rows.extend(_own_ground_rows(planar, ref, vs, rec.get("ground_z")))
+            continue
         y = float(rec["y"])
         src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-03e the ramp "
                      "landing held at its unit's level + the deck's y)",
                      (f"landing:{ref}", ref, f"platform:{rec['block']}"))
-        n += 1
         for v in vs:
             if v == dv:
                 continue
@@ -535,6 +590,28 @@ def landing_rows(planar: PlanarMap, law: Law,
     STATS["landing_rows"] = {"landings": n, "landings_no_datum": n_none,
                              "rows": len(rows)}
     return rows
+
+
+def _own_ground_rows(planar: PlanarMap, ref: str, vs: _t.Sequence[int],
+                     ground: "float | None") -> list[Row]:
+    """A LOWER LEVEL STANDS ON ITS OWN GROUND (owner RULINGS 2026-10-19ai):
+    its mean is its ground's (``planar/low_level._ground``: the DEM
+    median over its area, read at the mint), at the pad's frontage-level price (the
+    ``frontage_level`` head: ``pad_flat``, the pad follows) — the band to
+    the block bounds it.  Without it the level has no datum at all: its
+    shape is the apron's (pads are value roles), whose body carries the
+    apron trend, so no §9b plane reaches it — MEASURED KATL on the gap-free
+    base map, where no road holds it, it floated to its band's top."""
+    from .pads import LEVEL_RULING
+    if not vs or ground is None:
+        return []
+    w = 1.0 / len(vs)
+    mean = float(ground)
+    src = Source(GEN, LEVEL_RULING + " (RULINGS 2026-10-19ai the lower level "
+                 "on its own ground)", (f"low_level:{ref}", ref))
+    fol = tuple(vs)
+    return [Linear(tuple((v, w) for v in vs), None, mean, src, follows=fol),
+            Linear(tuple((v, -w) for v in vs), None, -mean, src, follows=fol)]
 
 
 def _contact_sets(planar: PlanarMap, law: Law

@@ -392,6 +392,26 @@ class Placement:
     #: and reaches past the apron's edge gets the ground under that part
     #: graded to the apron's level (``planar/apron_shelf``).  0 disarms.
     apron_shelf_min_share: float = 0.5
+    #: THE SLOPE PAD (owner RULINGS 2026-10-19w, extends 14n): a walled
+    #: cluster under ``cluster_pad_min_m2`` whose seat would float more
+    #: than this above the ground under its outline gets a pad
+    #: (``geom/slope_pad``).  0 disarms.
+    slope_pad_float_m: float = 0.0
+    #: THE HANGAR DOOR LINE (owner 2026-10-20 01:15Z): the share of the door
+    #: wall, about its centre, whose line to the nearest taxiway keeps the
+    #: apron cap; the rest of the apron round a sloping building's pad
+    #: blends at up to ``[tunnel] ramp_max_grade`` (``constraints/door_pad``).
+    door_corridor_share: float = 0.0
+    #: THE BLEND'S REACH (master 2026-10-20): the apron vertices within this
+    #: distance of a door-line pad (none shared with the runway or taxi
+    #: family) are solved WITH the pad in stage 2 rather than held at stage
+    #: 1's level — the room the blend ramps in.  0 holds them all.
+    door_blend_reach_m: float = 0.0
+    #: THE AIRSIDE GIVE (owner RULINGS 2026-10-19ac; #798 round 3): the
+    #: airside vertices a door-line pad's hard rows reach move in stage 2 up
+    #: to this from their stage-1 level (``constraints/door_pad``).  0
+    #: disarms.
+    door_airside_give_m: float = 0.0
     #: issue #516 (owner RULINGS 2026-09-13bi / 13cm): A RAMP END SINKS
     #: INTO THE GROUND — the ground under a unit member's sloped deck that
     #: rises through the natural ground is not the pad's

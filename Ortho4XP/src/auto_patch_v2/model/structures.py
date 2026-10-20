@@ -242,6 +242,8 @@ class Tunnel:
     #: it replaced.
     resource: str = ""
     objects: tuple[str, ...] = ()
+    #: also an OSM bore's own mouth depth where its mouth SLID onto the
+    #: road's profile (#1028, ``planar/structure_mouth``); 0 = the bore law's
     depth_m: float = 0.0
     #: The crest plate's height above the seat — the SEAT datum (05n-4:
     #: crest flush at grade); equals ``depth_m`` for a full wall, the

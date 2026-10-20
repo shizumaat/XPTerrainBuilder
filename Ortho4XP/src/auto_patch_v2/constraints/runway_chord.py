@@ -377,6 +377,84 @@ def runway_crossings(pm: PlanarMap, law: Law, airport: Airport,
         out.append(Crossing(f.ref, gov, other, xy, s_gov, s_other, z_pin,
                             cg.threshold_distance(s_gov),
                             co.threshold_distance(s_other) if co is not None else float("inf")))
+    return _one_surface(airport, chords, out)
+
+
+def _surfaces(airport: Airport, crossings: list[Crossing]) -> list[list[int]]:
+    """The crossings grouped into SURFACES: two crossings that share a
+    runway are one surface when their nodes lie closer than the narrowest
+    half-width of the runways the two crossings involve — the node of one
+    then stands on the pavement of every runway of the other (three or
+    more runways crossing at one place).  Union-find; indices into
+    ``crossings``, each group in input order."""
+    half = {rw.id: rw.width_m / 2.0 for rw in airport.runways}
+    parent = list(range(len(crossings)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, a in enumerate(crossings):
+        ra = {a.governing, a.other}
+        for j in range(i + 1, len(crossings)):
+            b = crossings[j]
+            rb = {b.governing, b.other}
+            if not ra & rb or ra == rb:
+                continue
+            reach = min(half.get(r, 0.0) for r in ra | rb)
+            if (a.xy[0] - b.xy[0]) ** 2 + (a.xy[1] - b.xy[1]) ** 2 < reach ** 2:
+                parent[root(j)] = root(i)
+    groups: dict[int, list[int]] = {}
+    for i in range(len(crossings)):
+        groups.setdefault(root(i), []).append(i)
+    return list(groups.values())
+
+
+def _one_surface(airport: Airport, chords: dict[str, "_Chord"],
+                 crossings: list[Crossing]) -> list[Crossing]:
+    """A RUNWAY CROSSING IS ONE SURFACE (issue #1008).  Where three or more
+    runways cross at one place, the pairwise records each picked their own
+    governor and handed the node their governor's OWN profile — so a runway
+    that is graded by two of them took two knots a fraction of a metre
+    apart at two different values, and a runway that is itself graded
+    handed the third runway a value it does not stand at.  Here the whole
+    surface takes ONE governor (:func:`crossing_governor`'s rule over every
+    runway of the surface, read at the surface's node, the mean of its
+    pairwise nodes) and ONE value, its own profile there; every other
+    runway of the surface grades to that value through one record.  A
+    surface of one crossing is returned untouched."""
+    out: list[Crossing] = []
+    for grp in _surfaces(airport, crossings):
+        if len(grp) == 1:
+            out.append(crossings[grp[0]])
+            continue
+        recs = [crossings[i] for i in grp]
+        xy = (sum(x.xy[0] for x in recs) / len(recs),
+              sum(x.xy[1] for x in recs) / len(recs))
+        rws = sorted({r for x in recs for r in (x.governing, x.other)})
+        gov = rws[0]
+        for r in rws[1:]:
+            pick = crossing_governor(airport, chords, xy, gov, r)
+            if pick is not None:
+                gov = pick[0]
+        cg = chords.get(gov)
+        if cg is None:
+            out.extend(recs)
+            continue
+        s_gov = cg.station(*xy)
+        z_pin = cg.own_z(min(max(s_gov, cg.s0), cg.s1))
+        for r in rws:
+            if r == gov:
+                continue
+            pair = next((x.pair for x in recs if {x.governing, x.other} == {gov, r}),
+                        "+".join(sorted((gov, r))))
+            co = chords.get(r)
+            s_o = co.station(*xy) if co is not None else 0.0
+            out.append(Crossing(pair, gov, r, xy, s_gov, s_o, z_pin,
+                                cg.threshold_distance(s_gov),
+                                co.threshold_distance(s_o) if co is not None else float("inf")))
     return out
 
 

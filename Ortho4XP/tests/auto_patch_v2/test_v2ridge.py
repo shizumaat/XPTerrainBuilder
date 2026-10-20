@@ -72,12 +72,24 @@ def build_ridge(law):
     cells = (
         Cell(0, "runway", "09/27", _rect(r, -600, -HALF_WIDTH, 600, HALF_WIDTH), (),
              3, "D", "airside", "runway", {}),
-        Cell(1, "primary_parallel", "taxiA", _rect(r, -400, 80, 400, 103), (), None,
+        # taxiA's south rim carries a vertex of its own at x = 203.7, inside
+        # a centreline segment (#770: the zone lip no longer nodes the rim
+        # there, so the fixture states the vertex its foot test reads)
+        Cell(1, "primary_parallel", "taxiA",
+             tuple(r(p) for p in ((-400.0, 80.0), (203.7, 80.0), (400.0, 80.0),
+                                  (400.0, 103.0), (-400.0, 103.0))), (), None,
              "D", "airside", "taxi", {}),
         Cell(2, "stub", "stubB", _rect(r, -11.5, HALF_WIDTH, 11.5, 80), (), None, "D",
              "airside", "taxi", {}),
-        Cell(3, "stub", "stubC", _rect(r, STUB_X0, HALF_WIDTH, STUB_X1,
-                                       HALF_WIDTH + STUB_LEN), (), None, "D",
+        # stubC's end edges carry a vertex 3 m off the runway edge (the
+        # rim neighbours 4 m apart test_v2ridge3 reads; until #770 the zone
+        # lip noded them)
+        Cell(3, "stub", "stubC",
+             tuple(r(p) for p in ((STUB_X0, HALF_WIDTH), (STUB_X1, HALF_WIDTH),
+                                  (STUB_X1, HALF_WIDTH + 3.0),
+                                  (STUB_X1, HALF_WIDTH + STUB_LEN),
+                                  (STUB_X0, HALF_WIDTH + STUB_LEN),
+                                  (STUB_X0, HALF_WIDTH + 3.0))), (), None, "D",
              "airside", "taxi", {}),
     )
     cuts = (CutLine("taxi_centerline", "taxiA", (r((-400.0, 91.5)), r((400.0, 91.5)))),

@@ -47,6 +47,8 @@ DIGEST_FILENAME = "partition_code.sha256"
 #: reverse).  The price is named: an edit to any of these re-reads the
 #: pack once.  A package is listed as its ``__init__``.
 CODE_MODULES: tuple[str, ...] = (
+    "auto_patch_v2",
+    "auto_patch_v2.airport",
     "auto_patch_v2.airport.anchor_rule",
     "auto_patch_v2.airport.apt_dat",
     "auto_patch_v2.airport.authored_landing",
@@ -75,6 +77,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.obj8_grade",
     "auto_patch_v2.airport.obj8_roof",
     "auto_patch_v2.airport.obj8_split",
+    "auto_patch_v2.airport.one_building",
     "auto_patch_v2.airport.pack",
     "auto_patch_v2.airport.pack_partition",
     "auto_patch_v2.airport.pack_work",
@@ -132,6 +135,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.law.terrace_schema",
     "auto_patch_v2.law.tunnel_object_schema",
     "auto_patch_v2.law.units",
+    "auto_patch_v2.model",
     "auto_patch_v2.model.airport",
     "auto_patch_v2.model.frame",
     "auto_patch_v2.model.placement",
@@ -140,6 +144,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.model.rebake",
     "auto_patch_v2.model.registries",
     "auto_patch_v2.model.structures",
+    "auto_patch_v2.planar",
     "auto_patch_v2.planar.cluster",
 )
 

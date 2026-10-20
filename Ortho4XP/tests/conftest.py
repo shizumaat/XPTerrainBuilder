@@ -25,6 +25,7 @@ collect zero items.  This is intentional: the project should not
 ship a hidden hard-coded list of canonical airports — every run
 must be explicit about what it tests against.
 """
+import hashlib
 import json
 import os
 import sys
@@ -326,6 +327,27 @@ def _no_modal_first_run_wizard(monkeypatch):
     if gui is not None and hasattr(gui, "MainWindow"):
         monkeypatch.setattr(gui.MainWindow, "run_wizard",
                             lambda self: None)
+    yield
+
+
+_DDS_CACHE_BASE = None
+
+
+@pytest.fixture(autouse=True)
+def _dds_cache_is_per_test(monkeypatch, tmp_path_factory, request):
+    """Each test gets its OWN texture cache (``O4_DDS_CACHE_DIR``, #839).
+
+    Lane-local, so no test writes the data root's ``DDS_cache``; and per
+    test, because the twins swap in fake converters for the same source
+    JPEG — one test's fake texture served to the next would skip the
+    converter the next one counts.  The directory is only named here;
+    nothing is created until a texture is stored.
+    """
+    global _DDS_CACHE_BASE
+    if _DDS_CACHE_BASE is None:
+        _DDS_CACHE_BASE = str(tmp_path_factory.mktemp("dds_cache"))
+    slot = hashlib.sha256(request.node.nodeid.encode()).hexdigest()[:16]
+    monkeypatch.setenv("O4_DDS_CACHE_DIR", os.path.join(_DDS_CACHE_BASE, slot))
     yield
 
 

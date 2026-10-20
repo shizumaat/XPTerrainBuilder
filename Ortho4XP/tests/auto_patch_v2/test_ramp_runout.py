@@ -84,10 +84,23 @@ def test_the_foot_of_a_ramp_and_its_direction_of_travel(tmp_path, law):
 def test_a_slab_a_roof_and_a_steep_pitch_are_not_ramps(tmp_path, law):
     for quads in ([(0, 8, 0, -100, 0.0, 0.0)],          # a slab at its zero
                   [(0, 8, 0, -100, 5.0, 11.0)],         # a deck never down to zero
-                  [(0, 8, 0, -20, 0.0, 5.0)]):          # a 25 % pitch
+                  [(0, 8, 0, -20, 0.0, 6.0)]):          # a 30 % pitch: over any authored ramp
         part = _partition(tmp_path, quads)
         rf._MEMO.clear()
         assert rf.ramp_feet(types.SimpleNamespace(partition=part), law, to_xy) == ()
+
+
+def test_a_steep_authored_ramp_has_a_foot(tmp_path, law):
+    # issue #711: HECA's T3 viaduct's south ramp comes down at 14.2 %, over
+    # the sunken-ramp step grade (12 %) — read as no ramp, its foot got no
+    # run-out.  A deck ramp is read up to the pack's authored bound
+    # (``[cutout.wall_corridor] max_authored_grade``).
+    part = _partition(tmp_path, [(0, 8, 0, -50, 0.0, 7.0)])     # 14 %
+    rf._MEMO.clear()
+    feet = rf.ramp_feet(types.SimpleNamespace(partition=part), law, to_xy)
+    assert len(feet) == 1
+    assert feet[0].direction[1] == pytest.approx(-1.0, abs=0.02)
+    assert feet[0].climb_m >= 5.0
 
 
 def test_a_member_that_is_no_deck_is_not_read(tmp_path, law):

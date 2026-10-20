@@ -198,7 +198,11 @@ def test_16b_a_declared_jetway_joins_the_pad_it_serves(tmp_path, synthetic, law)
     apt.write_text(f"I\n1200\n1 700 0 0 ZZZZ Synthetic\n1500 {lat:.9f} {lon:.9f} 180.0 1 1 180.0 15.0 180.0\n",
                    encoding="utf-8", newline="\n")
     ap = dc.replace(airport, pack=dc.replace(airport.pack, apt_dat_path=str(apt)))
-    out = E._with_jetways([pad], ap, law, None, P())
+    gained: list = []
+    out = E._with_jetways([pad], ap, law, None, P(), gained)
     assert E.JETWAY_PADS["found"] == 1 and E.JETWAY_PADS["attached"] == 1
     grown = E.JETWAY_PADS["grown_m2"][0]
     assert grown == pytest.approx(19.0 * 4.0, rel=0.05) and out[0].area > pad.area
+    # #802: what the pad took in is handed back (the jetway ground)
+    assert len(gained) == 1 and gained[0].area == pytest.approx(out[0].area - pad.area)
+    assert not gained[0].intersects(pad.buffer(-1e-6))

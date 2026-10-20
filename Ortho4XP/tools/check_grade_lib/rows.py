@@ -3,7 +3,7 @@
 (issue #857), which re-exports both."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
 
@@ -63,3 +63,7 @@ class Violation:
     #: the RING a pair was walked on and not what meets there.
     role_a: Optional[str] = None
     role_b: Optional[str] = None
+    #: ``pt_a``/``pt_b`` are LAT/LON, not metres (the published-edge
+    #: family): ``run_checks`` maps every other row's points from the
+    #: engine metric back to the census frame and leaves these (#772)
+    points_ll: bool = field(default=False, repr=False, compare=False)

@@ -131,7 +131,8 @@ def test_dual_bore_is_one_ramp_per_mouth_with_gap_wall_cap(synthetic, law):
     assert all(c.ref == "tunnel_ramp" for c in cl2.cells if c.role == "tunnel_ramp")
     assert all(c.ref == "tunnel_wall" for c in cl2.cells if c.role == "retaining_wall")
     for t in tunnels:
-        assert t.mouth_z == pytest.approx(t.mouth_dem_z - tn.mouth_depth_m)
+        # #1028: a slid mouth stands its own depth (the road's profile)
+        assert t.mouth_z == pytest.approx(t.mouth_dem_z - (t.depth_m or tn.mouth_depth_m))
         # THE MOUTH STOPS AT THE PAVEMENT (owner 2026-10-19, #971): the
         # bore's mapped end (x = ±80) is the apron's edge, so the mouth line
         # stands where the rim cap clears the apron by the gap — never cuts it
@@ -258,15 +259,18 @@ def test_generator_rows_and_solve_round_trip(synthetic, law, tmp_path):
     assert len(lin) % 2 == 0 and len(lin) >= 2
     assert all(r.lo is None and r.hi is not None for r in lin), (
         "an lo == hi Linear never reaches [design] hard_rulings")
-    assert {r.hi for r in lin} == {-tn.mouth_depth_m, tn.mouth_depth_m}
+    # #1028: each tunnel's own depth (a slid mouth's is the road's profile's)
+    depths = {t.depth_m or tn.mouth_depth_m for t in tunnels}
+    assert {abs(r.hi) for r in lin} == depths and {r.hi for r in lin} == (
+        {-d for d in depths} | depths)
     for r in lin:
         # each row, in its own sense, is MET (a constraint now, not a target)
         assert sum(c * sol.z[v] for v, c in r.terms) <= (
             r.hi + law.tables.emit.materiality.elevation_m)
         assert abs(sum(c * sol.z[v] for v, c in r.terms)) == pytest.approx(
-            tn.mouth_depth_m, abs=law.tables.emit.materiality.elevation_m)
+            abs(r.hi), abs=law.tables.emit.materiality.elevation_m)
     wz = [sol.z[v] for f in walls[east.id] for v in pm.ring_vertices(f.ring)]
-    assert max(wz) - min(zs) >= tn.mouth_depth_m - 1e-6
+    assert max(wz) - min(zs) >= (east.depth_m or tn.mouth_depth_m) - 1e-6
     # the deck stands the clearance above the ramp beneath
     deck = [f for f in pm.faces.values() if f.ref.startswith("bridge_deck:")]
     dz = min(sol.z[v] for f in deck for v in pm.ring_vertices(f.ring))

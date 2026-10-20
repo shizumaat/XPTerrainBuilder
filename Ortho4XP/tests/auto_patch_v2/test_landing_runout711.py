@@ -9,6 +9,7 @@ import types
 
 import pytest
 from shapely.geometry import Point, box
+from shapely.ops import unary_union
 
 from auto_patch_v2.airport import ramp_feet as RF
 from auto_patch_v2.geom.ramp_profile import ramp_delta, runout_profile
@@ -101,6 +102,25 @@ def test_a_pad_in_the_run_stops_the_runout(law):
     got = landing_runouts(_plats(), {"u": {"datum_pred": 106.0}}, _airport([_foot()]),
                           law, taken, 1.0, 0.5, counts)
     assert got == {} and counts["landing_runout_feet"]["held_ahead"] == 1
+
+
+def test_two_ramps_landing_side_by_side_both_run_out(law):
+    # issue #711 (HECA T3): a steep ramp and a gentle one land side by side
+    # and their runs converge — the sibling's strip is no pad in the run;
+    # the later foot runs out on the ground the earlier strip left
+    from auto_patch_v2.planar.landing_runout import landing_runouts
+    plats = _plats() + [("u/landing1", [box(0, 12, 10, 22)], box(0, 12, 10, 22), 0.0,
+                         "deck", "u", 3, "u", None)]
+    a = RF.RampFoot("u", "deck", (10.0, 5.0), (1.0, 0.0), 8.0, 0.0, 4.0)
+    b = RF.RampFoot("u", "deck", (10.0, 17.0), (0.96, -0.28), 8.0, 0.0, 4.0)
+    counts: dict = {}
+    taken = box(0, 0, 10, 10).union(box(0, 12, 10, 22))
+    got = landing_runouts(plats, {"u": {"datum_pred": 106.0}}, _airport([a, b]),
+                          law, taken, 1.0, 0.5, counts)
+    assert sorted(got) == ["runout:u/landing0", "runout:u/landing1"]
+    assert counts["landing_runout_feet"]["held_ahead"] == 0
+    p0, p1 = (unary_union(got[r]["polys"]) for r in sorted(got))
+    assert p0.intersection(p1).area < 1e-6
 
 
 def test_no_predicted_datum_or_ground_at_grade_asks_nothing(law):
@@ -220,6 +240,27 @@ def test_the_collar_banks_the_strips_sides(monkeypatch):
                    ("runout:u/landing0", (4,), (3,))]
 
 
+def test_a_bank_between_two_strips_banks_off_both():
+    # #711 (HECA T3): two ramps land side by side and run out on two strips;
+    # the first landing's bank borders the sibling's strip and banks off it
+    # too (off its own alone a seam vertex 1.1 m from the sibling strip had
+    # no row to it and stood 3 m under it)
+    from auto_patch_v2.constraints import platform as CP
+    F = types.SimpleNamespace
+    pm = F(faces={1: F(ref="u/landing0", ring=(1, 2, 3)),
+                  2: F(ref="u/landing0#collar", ring=(3, 4, 5)),
+                  3: F(ref="runout:u/landing0", ring=(6, 7, 8)),
+                  5: F(ref="u/landing1", ring=(20, 21, 22)),
+                  6: F(ref="runout:u/landing1", ring=(5, 9, 10))},
+           registries=Registries(), ring_vertices=lambda ring: ring)
+    pm.registries.landings.update({"u/landing0": {}, "u/landing1": {}})
+    pm.registries.landing_runouts.update({"runout:u/landing0": {"landing": "u/landing0"},
+                                          "runout:u/landing1": {"landing": "u/landing1"}})
+    got = CP._with_runouts(pm, [("u/landing0", (2,), (1,)), ("v/b0", (7,), (8,))])
+    assert got[0] == ("u/landing0", (2,), (1, 3, 6))
+    assert got[1] == ("v/b0", (7,), (8,))
+
+
 def test_a_mapped_road_on_the_strip_rides_it():
     from auto_patch_v2.constraints import ramp_runout as RR
     from auto_patch_v2.constraints.road_ramp import GEN as ROAD_RAMP
@@ -231,3 +272,23 @@ def test_a_mapped_road_on_the_strip_rides_it():
     other = Band(1, None, 99.0, Source("roads", "road_cross_section"))
     rows, n = RR.runout_exempt([on, off, other], planar)
     assert n == 1 and rows == [off, other]
+
+
+def test_a_runout_strip_is_its_own_route():
+    """§37 (7) on a run-out strip (#1068): its vertices are stationed along
+    its own direction of travel from the lip, one route per strip.
+    MEASURED (HECA): the mapped ways crossing the strips answered them, so
+    their pairs priced a 10 % run-out at 8.3 %."""
+    from auto_patch_v2.airport import road_ramp as RR
+    F = types.SimpleNamespace
+    xy = {1: (0.0, 0.0), 2: (0.0, 30.0), 3: (4.0, 30.0), 4: (4.0, 0.0)}
+    pm = F(faces={7: F(ref="runout:u/landing0", ring=(1, 2, 3, 4), holes=())},
+           vertices={v: F(xy=p) for v, p in xy.items()},
+           registries=Registries(), ring_vertices=lambda ring: ring)
+    pm.registries.landing_runouts["runout:u/landing0"] = {
+        "landing": "u/landing0", "lip": (2.0, 0.0), "dir": (0.0, 1.0)}
+    fr, refs = RR.runout_frames(pm, base=10)
+    assert refs == ("runout:u/landing0",)
+    assert fr[2] == (10, pytest.approx(30.0), pytest.approx(2.0))
+    assert fr[4] == (10, pytest.approx(0.0), pytest.approx(-2.0))
+    assert RR.runout_frames(F(registries=Registries()))[0] == {}

@@ -99,7 +99,8 @@ def test_the_twin_bites(tmp_path):
     (src / "O4_Entry.py").write_text(
         "import O4_Helper\n\ndef f():\n    from pkg.later import Y\n    return Y\n",
         encoding="utf-8", newline="\n")
-    assert _drift(src, entries, declared) == (["pkg.later"], [])
+    # the package above the new module is imported too (#993)
+    assert _drift(src, entries, declared) == (["pkg", "pkg.later"], [])
     # on the real tree: drop one module from the mesh step's list
     short = tuple(m for m in STEPCODE.CODE_MODULES["mesh"]
                   if m != "auto_patch.post_mesh")

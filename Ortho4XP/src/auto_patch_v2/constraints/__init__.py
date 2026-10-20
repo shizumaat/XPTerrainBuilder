@@ -15,7 +15,7 @@ from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
 from . import (apron, cluster_pad, eat, flat_site, foot_rows,
-               groundside, hard_plane,
+               groundside, hard_plane, door_pad,
                junction_mesh,
                no_step, pad_frontage_gs, pad_fronting, pads,
                platform,
@@ -27,7 +27,8 @@ from . import (apron, cluster_pad, eat, flat_site, foot_rows,
                taxi, transverse, water, zones)
 from .assembly import assemble, seam_exempt, water_exempt
 
-__all__ = ["GENERATORS", "generate", "run_generator", "stack", "seam_exempt", "water_exempt"]
+__all__ = ["GENERATORS", "generate", "run_generator", "post_passes", "stack", "seam_exempt",
+           "water_exempt"]
 
 Generator = _t.Callable[[PlanarMap, Law, Airport], list[Row]]
 
@@ -54,6 +55,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # §42 (1b) (owner RULINGS 2026-09-27a (5)): a hard ground plane is ONE
     # level (a Flat), its level the runway-edge frontage's
     ("hard_plane_level", hard_plane.hard_plane_level),
+    # owner 2026-10-20 (#798): a sloping building's pad welded into the
+    # apron is ONE level; the door line keeps the apron cap
+    ("door_pad_level", door_pad.door_pad_level),
     ("apron_edge_portions", apron.apron_edge_portions),
     ("road_within_shape", roads.road_within_shape),
     # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE DEM
@@ -84,6 +88,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("no_step_pairs", no_step.no_step_pairs),
     ("no_step_rate", no_step.no_step_rate),
     ("cross_shape_pairs", proximity.cross_shape_pairs),
+    # owner RULINGS 2026-10-19an (#328): two airside pavements within the
+    # weld spacing across a non-pavement gap are one surface
+    ("airside_sliver_pairs", proximity.airside_sliver_pairs),
     ("reach_bands", no_step.reach_bands),
     ("zone_bands", zones.zone_bands),
     ("strip_transverse", zones.strip_transverse),
@@ -186,5 +193,21 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
         rows.extend(got)
         for k, v in stats.items():
             counts[f"{name}.{k}"] = v
-    rows = assemble(rows, counts, walls, planar, law, only, yielded_out)
+    rows = post_passes(rows, counts, walls, planar, law, airport, only, yielded_out)
     return stack(rows), counts, walls
+
+
+def post_passes(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
+                planar: PlanarMap, law: Law, airport: Airport,
+                only: _t.Container[str] | None = None,
+                yielded_out: list[Row] | None = None) -> list[Row]:
+    """The passes over EVERY generator's rows, ONE expression for
+    :func:`generate` and the build's per-generator records
+    (``pipeline/constraint_records``): the door pads' blend, then
+    ``assembly.assemble``.  MEASURED (#798 round 3): the records path ran
+    the assembly alone, so the KASE build solved with no blend at all and
+    read 337 apron rows in hard conflict where the replay read none."""
+    # owner 2026-10-20 (#798): round a sloping building's pad the apron
+    # blends at up to the tunnel-ramp cap, except along the door line
+    rows = door_pad.relax_apron_caps(rows, planar, law, airport, counts)
+    return assemble(rows, counts, walls, planar, law, only, yielded_out)

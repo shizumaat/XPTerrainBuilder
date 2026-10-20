@@ -368,7 +368,10 @@ def test_the_reader_prices_the_same_magnitudes_as_the_oracle(family, dirty,
     ``de_m`` (metres, or m² for the AREA family ``zone_on_pavement``)."""
     p, _r, _s = dirty
     reader, _owed = _LOCKSTEP[family]
-    v2 = sorted(round(float(r["magnitude_m"]), 2) for r in reader(p))
+    # both instruments read in the ENGINE'S METRIC (#772): ``census_patch``
+    # hands every reader ``p.in_metric_frame()``, as ``run_checks`` does
+    v2 = sorted(round(float(r["magnitude_m"]), 2)
+                for r in reader(p.in_metric_frame()[0]))
     v1 = sorted(round(float(r.de_m), 2) for r in dirty_oracle[family])
     assert v1 == v2, (family, v1, v2)
 

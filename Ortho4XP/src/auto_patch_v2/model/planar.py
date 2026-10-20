@@ -41,7 +41,7 @@ from .structures import Basin, Channel, Tunnel
 
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
-           "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "BLOCK_SEP",
+           "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
@@ -191,6 +191,18 @@ def plane_of(ref: object) -> "tuple[str, int] | None":
     if not tail.isdigit():
         return None
     return r[:i], int(tail)
+
+
+def plane_origin_ref(ref: object) -> str:
+    """The pad a plane pad ``k >= 1`` (or its strip) stands beside — the
+    ref before its ``/p<k>`` — and the bank's platform ref otherwise
+    (:func:`platform_ref_of`).  The object stage folds a lower level into
+    its block here (``airport/placement_read``; RULINGS 2026-10-19ai)."""
+    r = platform_ref_of(ref)
+    pl = plane_of(r)
+    if pl is not None and pl[1] >= 1 and block_of(r) is None:
+        return r[:r.rfind(PLANE_SEP)]
+    return r
 
 
 def unit_ref_of(ref: object) -> str:
@@ -673,6 +685,12 @@ class PlanarMap:
     #: ``planar/covered_ground``; ``airport/road_ramp`` reads each as a wall
     #: that retains its height (the road past the mouth at its own floor).
     mouth_walls: tuple[tuple[tuple[tuple[float, float], ...], float, str], ...] = ()
+    #: THE JETWAY GROUND (issue #802; owner RULINGS 2026-10-16b (1)): the
+    #: exterior rings of the PAVEMENT a terminal pad took in when it grew
+    #: over its jetways — derived ONCE in ``classify/evidence._with_jetways``.
+    #: ``constraints/pad_relief`` keeps it pavement-senior: a foot standing
+    #: on it founds no relief target, a pad vertex on it takes none.
+    jetway_ground: tuple[tuple[tuple[float, float], ...], ...] = ()
     #: THE PLANAR STAGE'S REGISTRIES (stage-cache spec §10 step 2, #841):
     #: the held platforms, plateaus, landings, run-outs, platform verdicts,
     #: declared terraces and the pad/airside publication this map's

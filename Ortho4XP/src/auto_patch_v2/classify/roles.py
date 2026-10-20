@@ -193,6 +193,14 @@ class Classification:
     keepouts: tuple[tuple[XY, ...], ...] = ()
     #: Every source pavement polygon's evidence record (``sources.py``).
     sources: tuple[SourceRecord, ...] = ()
+    #: MAIN'S PAD CELLS (``Evidence.base_pads``): the pads with the 19w
+    #: slope witness disarmed, which stage 1's map carries in place of
+    #: ``cells``' pads (``pipeline/stage_one_map.base_pad_map``).  ``None``
+    #: where the witness changed no pad.
+    base_pads: tuple[Cell, ...] | None = None
+    #: THE JETWAY GROUND (#802, ``Evidence.jetway_ground``): exterior rings
+    #: of the pavement a terminal pad took in over its jetways.
+    jetway_ground: tuple[tuple[XY, ...], ...] = ()
 
 
 def classify(airport: Airport, law: Law, rules: Rules | None = None,
@@ -653,6 +661,10 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
         airside_edge_flip(final, cells, law, rules,
                           [c.line for c in ev.truck_chains])
+    # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───
+    from .reachability import unreachable_aprons
+    stats.update(unreachable_aprons(final, [p for _rw, p in ev.runway_polys], law,
+                                    rules, [s.xy for s in airport.startups]))
     # ── the taxiway letter where the 1202 route states none: the chains
     # were lettered by their pavement width (``build_evidence``); a face no
     # lettered chain reaches takes its lettered neighbours' (master
@@ -735,8 +747,17 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         outside = c.line.difference(ev.pavement_union)
         for ln in line_parts(outside):
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
+    base = None
+    if ev.base_pads is not None:
+        n0 = len(cells)
+        base = tuple(Cell(n0 + k, "building", ref, tuple(g.exterior.coords)[:-1],
+                          tuple(tuple(h.coords)[:-1] for h in g.interiors),
+                          None, None, role_side(law, "building"), "building", {})
+                     for k, (ref, g) in enumerate(ev.base_pads))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
-                          sources=tuple(sources))
+                          sources=tuple(sources), base_pads=base,
+                          jetway_ground=tuple(tuple(g.exterior.coords)[:-1]
+                                              for g in ev.jetway_ground))
 
 
 def is_osm_ribbon(cell_or_region) -> bool:

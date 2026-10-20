@@ -140,7 +140,7 @@ def test_the_unit_carry_reads_the_surface_at_its_anchor(tmp_path):
 
     def bump(la: float, lo: float) -> float:
         d = ((la - c_lat) * J._ML) ** 2 + ((lo - c_lon) * J._MO) ** 2
-        return J.GROUND_Z + (3.0 if d < 0.25 else 0.0)
+        return J._terrain()(la, lo) + (3.0 if d < 0.25 else 0.0)
 
     ss = PP.build_splits(_two_part_plan(tmp_path, dlat), bump,
                          (J._pad(),), write=False, **J._args())
@@ -164,7 +164,7 @@ def test_the_contents_census_reads_the_stages_own_unit_map(tmp_path):
         os.path.abspath(__file__)))), "tools"))
     import contents_census as CC
 
-    ss = PP.build_splits(J._plan(tmp_path), J._flat(J.GROUND_Z), (J._pad(),),
+    ss = PP.build_splits(J._plan(tmp_path), J._terrain(), (J._pad(),),
                          write=False, **J._args())
     assert ss.plan_wide
     c = CC.census_unit_levels(ss)

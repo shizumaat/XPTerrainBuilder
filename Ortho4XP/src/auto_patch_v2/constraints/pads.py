@@ -191,6 +191,14 @@ def airside_vertices(planar: PlanarMap, law: Law) -> frozenset[int]:
     return frozenset(out)
 
 
+def is_lower_level(ref: object) -> bool:
+    """A LOWER LEVEL of a held block or its riser (owner RULINGS
+    2026-10-19ai, ``planar/low_level``): ``<block>/p<k>``, ``k >= 1``."""
+    from ..model.planar import plane_origin_ref
+    r = platform_ref_of(str(ref))
+    return plane_origin_ref(r) != r
+
+
 def _pad_groups(planar: PlanarMap, law: Law) -> list[tuple[int, str, list[int]]]:
     """``(face id, ref, rim vertices)`` per rigid face — ONE derivation of
     the pad's vertex set, read by both row generators.  A vertex a
@@ -572,15 +580,19 @@ def pad_datum_withdrawn(planar: PlanarMap, law: Law) -> set[int]:
     shared = pad_shared(planar, law)
     out: set[int] = set()
     for fid, _ref, group in _pad_groups(planar, law):
-        if not front.get(fid):
+        if not front.get(fid) or is_lower_level(_ref):
             continue
         sh = shared.get(fid, set())
         out.update(v for v in group if v not in sh)
     # owner RULINGS 2026-10-03e (#290): a viaduct's ramp LANDING is held
     # at its deck's level, never at the building's terrain
+    # A LOWER LEVEL (RULINGS 2026-10-19ai, ``planar/low_level``) is NOT
+    # withdrawn: it stands on its own ground, banded to its block
     from .platform import landing_vertices
-    for vs in landing_vertices(planar).values():
-        out.update(vs)
+    lands = planar.registries.landings
+    for ref, vs in landing_vertices(planar).items():
+        if lands.get(ref, {}).get("kind") != "low_level":
+            out.update(vs)
     return out
 
 
@@ -983,6 +995,13 @@ def pad_frontage_level(planar: PlanarMap, law: Law, airport: Airport
     from ..model.platform import datum_vertices
     held = datum_vertices(planar, law)
     for fid, ref, group, fids in plane_groups(planar, law, airport):
+        if is_lower_level(ref):
+            # a LOWER LEVEL (owner RULINGS 2026-10-19ai) fronts nothing at
+            # the airside's level: its block does, and it stands a storey
+            # down, banded to that block (``platform.landing_rows``) —
+            # MEASURED KATL: facing the apron across its riser, its mean was
+            # held toward the apron and it rose to the band's top
+            continue
         if held and platform_ref_of(str(ref)) in held:
             # flat-pad spec §3 C6 (RULINGS 2026-09-30f/r): a HELD block's
             # level IS its frontage hold (``platform.frontage_hold_rows``)

@@ -8654,12 +8654,11 @@ def test_the_marker_reads_long_runs_by_the_one_ratio(cg, tmp_path):
 # ── RECT STRETCH CAPS (lane v2integ 2026-09-05; RULINGS 2026-09-04t-3 / 04y) ──
 
 def _rs_ll(x: float, y: float) -> tuple[float, float]:
-    """The rect-stretch twins' metres -> lat/lon about ``_TWIN_ANCHOR``."""
-    import math
-    r = 6378137.0
-    cos0 = math.cos(math.radians(_TWIN_ANCHOR[0]))
-    return (_TWIN_ANCHOR[0] + math.degrees(y / r),
-            _TWIN_ANCHOR[1] + math.degrees(x / (r * cos0)))
+    """The rect-stretch twins' metres -> lat/lon about ``_TWIN_ANCHOR``,
+    in the ENGINE'S METRIC — the frame every census family reads in
+    (#772), so a 200 m edge reads 200 m."""
+    from auto_patch_v2.verify.frame import metric_frame
+    return metric_frame(*_TWIN_ANCHOR)[1](x, y)
 
 
 def _rect_stretch_patch(tmp_path: Path, *, step_grade: float, stretch_cap,
@@ -8668,14 +8667,10 @@ def _rect_stretch_patch(tmp_path: Path, *, step_grade: float, stretch_cap,
     west-edge vertices (0,0)-(0,40) are level and whose east edge rises
     ``step_grade`` over the 200 m; a sidecar STRETCH of cap ``stretch_cap``
     runs along the north edge (0,40)-(200,40) — both its nodes are ring
-    nodes — or none when ``stretch_cap`` is None."""
-    import math
-    r = 6378137.0
-    cos0 = math.cos(math.radians(_TWIN_ANCHOR[0]))
-
-    def ll(x, y):
-        return (_TWIN_ANCHOR[0] + math.degrees(y / r),
-                _TWIN_ANCHOR[1] + math.degrees(x / (r * cos0)))
+    nodes — or none when ``stretch_cap`` is None.  Laid out in the
+    ENGINE'S METRIC, the frame every census family reads in (#772), so
+    the 200 m edge reads 200 m."""
+    ll = _rs_ll
 
     rise = step_grade * 200.0
     pts = [(0.0, 0.0, 0.0), (200.0, 0.0, rise), (200.0, 40.0, rise), (0.0, 40.0, 0.0)]
@@ -9667,7 +9662,10 @@ def test_a_rate_rows_span_is_the_separation_its_de_is_taken_over(cg):
             # theirs can fall a little under it — what must never happen
             # again is the HALF span, and 0.55x is the bound that says so
             # whatever the obliquity.
-            floor = sep - 1e-6 if key == "airside_no_step" else 0.55 * sep
+            # The span is the ENGINE metric's and the points the census
+            # frame's (#772): the two differ by at most 0.7 %.
+            floor = (sep * (1.0 - 0.01) if key == "airside_no_step"
+                     else 0.55 * sep)
             assert float(r.distance_m) >= floor, (
                 f"{key}: distance_m {r.distance_m} against a straight-line "
                 f"separation {sep} of its own endpoints — the half-span "

@@ -10,7 +10,19 @@ from shapely.ops import unary_union
 __all__ = ["_weld_to_rim"]
 
 
-def _weld_to_rim(g, rim, band: float, counts: dict, keep_out=None):
+def rim_zone(rim, band: float) -> tuple:
+    """``(airside floating, its band zone)`` — what :func:`_weld_to_rim`
+    cuts every ribbon with; a caller welding many ribbons to ONE rim at ONE
+    band computes it once (issue #803: HECA's pass C rebuilt the whole
+    airside's mitred buffer per ribbon, ~9 s per derive)."""
+    # the airside union carries the IDENTITY GRID's precision model, and a
+    # buffer of it would round the band edge onto that grid (a 0.75 m band
+    # read 0.5 m on one side, 1.0 m on the other): the band is cut FLOATING
+    air0 = shapely.set_precision(rim.airside, 0.0)
+    return air0, air0.buffer(band, join_style="mitre", mitre_limit=2.0)
+
+
+def _weld_to_rim(g, rim, band: float, counts: dict, keep_out=None, zone=None):
     """RULINGS 2026-09-30aa rules 2 and 9 — A RIBBON'S CONTACT IS A WELD AT
     THE RIM'S OWN NODES.  ``g`` is the ribbon already clipped by the
     airside.  Its part within ``band`` of the airside (the hot-pixel band,
@@ -26,11 +38,8 @@ def _weld_to_rim(g, rim, band: float, counts: dict, keep_out=None):
     from .pad_cut import _polys   # lazy: pad_cut imports this module at call time
     if g is None or g.is_empty or rim.boundary is None:
         return g
-    # the airside union carries the IDENTITY GRID's precision model, and a
-    # buffer of it would round the band edge onto that grid (a 0.75 m band
-    # read 0.5 m on one side, 1.0 m on the other): the band is cut FLOATING
-    air0 = shapely.set_precision(rim.airside, 0.0)
-    zone = air0.buffer(band, join_style="mitre", mitre_limit=2.0)
+    # ``zone``: :func:`rim_zone`'s answer for this rim and band, or None
+    air0, zone = zone if zone is not None else rim_zone(rim, band)
     g = shapely.set_precision(g, 0.0)
     # A RIBBON WITHIN THE BAND OF THE RIM TOUCHES IT: it is grown to the rim
     # there (never more than the band), so its contact is a run of rim

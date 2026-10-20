@@ -138,3 +138,28 @@ def test_a_mouth_wall_is_the_deck_edge_under_a_deep_pack_object():
     assert not any(Polygon(r).intersects(LineString([(40.0, 50.0), (60.0, 50.0)]))
                    for r, _d, _p in got)
     assert _mouth_walls(cuts, pav, [obj(3.0)], 7.5) == []
+
+
+def test_the_bending_is_cut_on_every_edge_across_the_wall(arms):
+    """#767: an edge whose segment crosses the wall with its ends on
+    opposite sides is cut, though its low end is the road's FAR kerb
+    (y = -34), not in the record's ``lower`` set (the near kerb, -26)."""
+    from auto_patch_v2.solve.rows import _face_triangles
+    from auto_patch_v2.solve.wall_cut import wall_cut_edges
+    pm, _sol, _rep = arms[2]
+    tris = [t for fid in pm.faces for t in _face_triangles(pm, fid)]
+    cut = wall_cut_edges(pm, tris)
+    low = set(next(iter(pm.road_terrace["wall"].values()))["lower"])
+    across = set()
+    for a, b, c in tris:
+        for i, j in ((a, b), (b, c), (c, a)):
+            (xi, yi), (xj, yj) = pm.vertices[i].xy, pm.vertices[j].xy
+            if (min(yi, yj) < -22.0 and max(yi, yj) > -20.0
+                    and 570.0 <= min(xi, xj) and max(xi, xj) <= 930.0):
+                across.add((min(i, j), max(i, j)))
+    assert across and across <= cut
+    # the case the one-end-in-lower rule missed is present, and now cut
+    assert any(i not in low and j not in low for i, j in across)
+    # an edge wholly north of the wall is never cut
+    assert not any(min(pm.vertices[i].xy[1], pm.vertices[j].xy[1]) > -20.0
+                   for i, j in cut)

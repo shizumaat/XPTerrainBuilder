@@ -329,6 +329,22 @@ class RoadProfiles:
         self._lines = [w.line for w in self.ways]
         self._tree = STRtree(self._lines) if self._lines else None
 
+    def __getstate__(self) -> dict:
+        state = dict(self.__dict__)
+        state.pop("_line_memo", None)      # rebuilt on use, never stored
+        return state
+
+    def _line(self, way: Way) -> LineString:
+        """``way.line``, built once per way (issue #803: :meth:`answer` built
+        a fresh LineString of every ``through`` way for every vertex, ~9 s
+        of HECA's road profiles per derive).  Keyed by identity and checked
+        by it, so a reused id can never answer for another way."""
+        memo = self.__dict__.setdefault("_line_memo", {})
+        got = memo.get(id(way))
+        if got is None or got[0] is not way:
+            got = memo[id(way)] = (way, way.line)
+        return got[1]
+
     @property
     def all_ways(self) -> tuple[Way, ...]:
         return self.ways + tuple(self.axes.values())
@@ -359,7 +375,8 @@ class RoadProfiles:
         DEM."""
         p = Point(pt)
         best: tuple[int, float, Way] | None = None
-        cands: list[tuple[Way, LineString, float]] = [(w, w.line, r) for w, r in through]
+        cands: list[tuple[Way, LineString, float]] = [(w, self._line(w), r)
+                                                      for w, r in through]
         cands += [(self.ways[i], self._lines[i], self.radius_m) for i in self.ways_near(p)]
         bline: LineString | None = None
         for w, line, r in cands:

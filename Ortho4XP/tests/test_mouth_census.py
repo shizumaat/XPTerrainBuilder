@@ -92,3 +92,18 @@ def test_adjacent_ground_step_across_a_wall_reads_the_wall_once():
     bare = cg._check_adjacent_ground_steps(
         [_ag_way([110.0, 100.0, 110.0])], nodes, _xy, 0.5, 0.5)
     assert under == [] and len(over) == 2 and len(bare) == 2
+
+
+def test_pack_wall_declares_its_height_along_its_outline():
+    """owner RULINGS 2026-10-19ao (#507): a pack wall's declared step is its
+    HEIGHT, read along the whole outline — never the step at its one lot
+    pairing the emitter published; a mouth keeps the step it carries."""
+    wall = dict(_joint(WALL, 1.6049), height_m=3.102)
+    mouth = dict(_joint(MOUTH, 1.0), height_m=8.0)
+    tall_step = dict(_joint(WALL, 4.0), height_m=3.102)
+    jm = cg._terrace_joints_to_m([wall, mouth, tall_step], _xy)
+    assert [s for _p, s in jm] == [3.112, 1.0, 4.0]
+    walls = cg.DeclaredWallSteps([wall], _xy)
+    assert walls.allowance(-1.0, 0.0, 1.0, 0.0) == 3.112
+    # a row without a height (an older sidecar) reads as published
+    assert cg._declared_joint_step(_joint(WALL, 1.6)) == 1.6

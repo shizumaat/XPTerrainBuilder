@@ -435,6 +435,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.structures",
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.apron_shelf",
+        "auto_patch_v2.planar.arrangement_memo",
         "auto_patch_v2.planar.band_riser",
         "auto_patch_v2.planar.basin_datum",
         "auto_patch_v2.planar.basin_geometry",
@@ -452,6 +453,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
+    "auto_patch_v2.planar.low_level",
         "auto_patch_v2.planar.object_corridor",
         "auto_patch_v2.planar.overlay",
         "auto_patch_v2.planar.pack_reads",
@@ -868,6 +870,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "no_step_pairs": "no_step",
     "no_step_rate": "no_step",
     "cross_shape_pairs": "proximity",
+    "airside_sliver_pairs": "proximity",
     "reach_bands": "no_step",
     "zone_bands": "zones",
     "strip_transverse": "zones",
@@ -1251,11 +1254,12 @@ CODE_MODULES["solve"] = _mods("""
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.back_cache pipeline.capture_state
-    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.basin_datum
+    pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
+    planar.basin_datum
     planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
-    planar.edges planar.landing planar.landing_runout planar.object_corridor
+    planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.band_riser planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
@@ -1337,11 +1341,12 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.rebake model.registries model.structures model.threshold_datum
     pipeline.back_cache pipeline.capture_state pipeline.constraint_records
     pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
-    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.basin_datum
+    pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
+    planar.basin_datum
     planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
-    planar.edges planar.landing planar.landing_runout planar.object_corridor
+    planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.band_riser planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths

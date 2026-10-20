@@ -193,6 +193,9 @@ class Classification:
     keepouts: tuple[tuple[XY, ...], ...] = ()
     #: Every source pavement polygon's evidence record (``sources.py``).
     sources: tuple[SourceRecord, ...] = ()
+    #: THE JETWAY GROUND (#802, ``Evidence.jetway_ground``): exterior rings
+    #: of the pavement a terminal pad took in over its jetways.
+    jetway_ground: tuple[tuple[XY, ...], ...] = ()
 
 
 def classify(airport: Airport, law: Law, rules: Rules | None = None,
@@ -740,7 +743,9 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
         for ln in line_parts(outside):
             cut.append(CutLine("road_centerline", f"route{c.id}", tuple(ln.coords)))
     return Classification(tuple(cells), tuple(cut), stats, tuple(notes),
-                          sources=tuple(sources))
+                          sources=tuple(sources),
+                          jetway_ground=tuple(tuple(g.exterior.coords)[:-1]
+                                              for g in ev.jetway_ground))
 
 
 def is_osm_ribbon(cell_or_region) -> bool:

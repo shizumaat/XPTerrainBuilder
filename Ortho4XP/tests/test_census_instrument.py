@@ -97,21 +97,29 @@ ANCHOR = (1.5, 1.5)   # deliberately NOT an integer degree: a node on an
 class _PatchBuilder:
     """Metres in, one ``.patch.osm`` + ``.axes.json`` out.
 
-    The same equirectangular formula ``check_grade._ll_to_m_factory`` uses
-    with an anchor, so a corner placed at x=20 m comes back out of the
-    parser at x=20 m to float precision.
+    Laid out in THE ENGINE'S METRIC about the anchor
+    (``verify.frame.metric_frame``) — the frame every census family
+    measures plan distance in since #772 — so a 20 m edge reads 20 m.
+    ``frame="census"`` lays it out in the census's own equirectangular
+    instead, for a twin whose hand answer is a census-frame quantity (the
+    ``--zone-split`` areas are measured in that frame).
     """
 
-    def __init__(self, cg):
-        self._r = cg.R_EARTH
-        self._cos0 = math.cos(math.radians(ANCHOR[0]))
+    def __init__(self, cg, frame: str = "metric"):
+        from auto_patch_v2.verify.frame import metric_frame
+        if frame == "census":
+            r, cos0 = cg.R_EARTH, math.cos(math.radians(ANCHOR[0]))
+            self._to_ll = lambda x, y: (
+                ANCHOR[0] + math.degrees(y / r),
+                ANCHOR[1] + math.degrees(x / (r * cos0)))
+        else:
+            self._to_ll = metric_frame(*ANCHOR)[1]
         self.nodes: list = []
         self.ways: list = []
         self._next = 0
 
     def ll(self, x: float, y: float):
-        return (ANCHOR[0] + math.degrees(y / self._r),
-                ANCHOR[1] + math.degrees(x / (self._r * self._cos0)))
+        return self._to_ll(x, y)
 
     def _id(self) -> str:
         self._next -= 1
@@ -166,7 +174,8 @@ class _PatchBuilder:
 
 
 def _build_fixture(cg, tmp_path: Path, *, root_attrs: str = "") -> Path:
-    b = _PatchBuilder(cg)
+    # the zone-split areas below are hand answers in the census frame
+    b = _PatchBuilder(cg, frame="census")
     b.square(0, 0, 20, [0.0, 0.0, 1.2, 0.0],
              {"role": "apron", "shapeID": "A1"})
     b.square(20, 0, 20, [0.1, 0.0, H, 0.0],

@@ -500,6 +500,10 @@ class BuildingPad:
     frontage_hold_margin_m: float
     #: flat-pad spec §2 (4) (e) / §6 Q4: a unit needing more blocks STOPS
     frontage_blocks_max: int
+    #: owner RULINGS 2026-10-19ai (#809): a held block's unit whose parts
+    #: stand at least this far under its frontage level carries a LOWER
+    #: level (``planar/low_level``); ``0`` disarms it
+    low_level_min_step_m: float = 0.0
     #: THE TERMINAL PAD TAKES ITS JETWAYS (owner RULINGS 2026-10-16b (1);
     #: ``airport/jetways.py``): ``None`` = no expansion
     jetway_root_reach_m: float | None = None

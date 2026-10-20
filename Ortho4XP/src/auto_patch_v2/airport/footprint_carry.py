@@ -259,6 +259,10 @@ def contents_seat(over: _t.Sequence[tuple], pids: _t.AbstractSet[int],
                 else float(a.surface_z) - float(a.y_zero))
 
     def _at(c: _t.Any) -> bool:
+        # owner RULINGS 2026-10-19aq (#721): a carrier that LEFT this unit
+        # (its own ground far below the datum) still carries what it holds
+        if getattr(c.anchor, "left_unit", "") == uc.unit:
+            return True
         z = _zero(c)
         return z is not None and abs(z - float(uc.zero_z)) <= tol_m
 

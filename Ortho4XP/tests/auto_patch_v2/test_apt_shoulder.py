@@ -127,8 +127,8 @@ def test_a_shoulder_stops_at_a_taxiway_entrance(law, rules, shoulder_m):
 def test_polygon_parts_reads_through_a_collection():
     """A MultiPolygon inside a GeometryCollection keeps its polygons (the
     OTHH gap piece a snap-grid collection dropped, #1103)."""
-    from shapely.geometry import GeometryCollection, LineString, MultiPolygon
     from auto_patch_v2.classify.evidence import polygon_parts
+    from shapely.geometry import GeometryCollection, LineString, MultiPolygon
     a, b = box(0, 0, 1, 1), box(2, 0, 3, 1)
     gc = GeometryCollection([MultiPolygon([a, b]), LineString([(5, 5), (6, 6)]), box(4, 0, 5, 1)])
     assert [p.bounds for p in polygon_parts(gc)] == [a.bounds, b.bounds, (4, 0, 5, 1)]

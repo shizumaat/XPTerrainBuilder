@@ -41,7 +41,7 @@ from .structures import Basin, Channel, Tunnel
 
 __all__ = ["NO_SHAPE", "EdgeKind", "Vertex", "Edge", "Face", "Breakline",
            "ShapeJoint", "PlanarMap", "PlanarError", "validate", "vertex_tier",
-           "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "BLOCK_SEP",
+           "COLLAR_SUFFIX", "is_collar_ref", "platform_ref_of", "plane_origin_ref", "BLOCK_SEP",
            "STRIP_SUFFIX", "is_strip_ref", "is_bank_ref", "pad_base_ref",
            "block_ref", "unit_ref_of", "block_of", "PLANE_SEP", "plane_ref",
            "plane_of", "FACADE_STRIP_PREFIX", "FACADE_LOT_PREFIX",
@@ -191,6 +191,18 @@ def plane_of(ref: object) -> "tuple[str, int] | None":
     if not tail.isdigit():
         return None
     return r[:i], int(tail)
+
+
+def plane_origin_ref(ref: object) -> str:
+    """The pad a plane pad ``k >= 1`` (or its strip) stands beside — the
+    ref before its ``/p<k>`` — and the bank's platform ref otherwise
+    (:func:`platform_ref_of`).  The object stage folds a lower level into
+    its block here (``airport/placement_read``; RULINGS 2026-10-19ai)."""
+    r = platform_ref_of(ref)
+    pl = plane_of(r)
+    if pl is not None and pl[1] >= 1 and block_of(r) is None:
+        return r[:r.rfind(PLANE_SEP)]
+    return r
 
 
 def unit_ref_of(ref: object) -> str:

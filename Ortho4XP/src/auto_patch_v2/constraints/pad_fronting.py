@@ -239,7 +239,10 @@ def analysis(planar: PlanarMap, law: Law, airport: Airport | None) -> dict:
             lower.setdefault(t.other_ref, []).append((t.front_level, t.other_level))
     n_across = 0
     groups: dict[int, dict] = {}
+    from .pads import is_lower_level
     for gid, ref, group, fids in plane_groups(planar, law, airport):
+        if is_lower_level(ref):
+            continue      # a LOWER LEVEL faces nothing (RULINGS 2026-10-19ai; ``pads``)
         per: list[tuple[int, list[tuple[int, float]]]] = []
         junior = any(touch.get(q) for q in fids)
         levels = ([lv for q in fids for lv in lower.get(ref_of.get(q, ""), ())]

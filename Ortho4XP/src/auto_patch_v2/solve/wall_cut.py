@@ -29,9 +29,11 @@ def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
                    ) -> frozenset[tuple[int, int]]:
     """``(min, max)`` vertex pairs of the triangle edges across a declared
     wall terrace (module docstring); empty without one."""
+    tris = list(tris)
+    out_r = _riser_edges(planar, tris)
     walls = (getattr(planar, "road_terrace", None) or {}).get("wall") or {}
     if not walls:
-        return frozenset()
+        return out_r
     from shapely.geometry import LineString, Polygon
     from shapely.strtree import STRtree
     polys, low = [], set()
@@ -41,7 +43,7 @@ def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
             polys.append(g if g.is_valid else g.buffer(0.0))
             low.update(int(v) for v in r["lower"])
     if not polys:
-        return frozenset()
+        return out_r
     tree = STRtree(polys)
     out: set[tuple[int, int]] = set()
     for a, b, c in tris:
@@ -54,4 +56,31 @@ def wall_cut_edges(planar: PlanarMap, tris: _t.Iterable[tuple[int, int, int]]
             seg = LineString([planar.vertices[i].xy, planar.vertices[j].xy])
             if len(tree.query(seg, predicate="intersects")):
                 out.add(key)
+    return frozenset(out) | out_r
+
+
+def _riser_edges(planar: PlanarMap, tris) -> frozenset[tuple[int, int]]:
+    """THE RISER OF A LOWER LEVEL (owner RULINGS 2026-10-19ai,
+    ``planar/low_level``): the object's own storey between a held block and
+    its lower level ``<block>/p1``, across the strip ``<block>/p1#strip`` —
+    a declared step like a wall's, so the bending skips every triangle edge
+    from a lower-level vertex to a strip vertex off that level.  MEASURED
+    KATL: bent across the 1 m strip, the 13 m riser held the lower level
+    2 m over its own ground."""
+    from ..model.planar import plane_origin_ref, platform_ref_of
+    low: set[int] = set()
+    strip: set[int] = set()
+    for f in planar.faces.values():
+        r = platform_ref_of(f.ref)
+        if plane_origin_ref(r) == r:
+            continue
+        vs = {v for ring in (f.ring, *f.holes) for v in planar.ring_vertices(ring)}
+        (strip if str(f.ref) != r else low).update(vs)
+    if not low or not strip:
+        return frozenset()
+    out: set[tuple[int, int]] = set()
+    for a, b, c in tris:
+        for i, j in ((a, b), (b, c), (c, a)):
+            if (i in low) != (j in low) and (i in strip and j in strip):
+                out.add((min(i, j), max(i, j)))
     return frozenset(out)

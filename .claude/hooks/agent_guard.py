@@ -3,8 +3,9 @@
 
 Owner standing rule 2026-10-13 (root CLAUDE.md "Lanes", RULINGS 13c;
 memory: agents-run-on-opus): every subagent runs on OPUS (effort set per task
-at launch, owner ruling 2026-10-20), model passed explicitly, through the project definitions `lane` /
-`scout`.  Fable 5.1 is launched only after the owner approved that launch
+at launch, owner ruling 2026-10-20), model passed explicitly, through the
+project definitions `lane` / `scout`.  Fable 5.1 is launched only after the
+owner approved that launch
 in chat; the prompt then carries `OWNER-APPROVED-FABLE: <date> "<words>"`
 and this guard refuses a Fable launch without it.  Precedent: nine Fable
 implementation lanes used half the weekly Fable allowance in a day.

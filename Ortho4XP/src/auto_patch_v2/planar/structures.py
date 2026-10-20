@@ -91,7 +91,9 @@ from ..model.frame import XY
 from ..model.structures import Channel, Deck, Tunnel
 from .basins import object_decks
 from .channel_claims import add_channel_cells, channel_yields
-from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
+from .bore_continuation import walked_m
+from .object_corridor import (Group, mouth_covered_by, object_groups, open_ramp_precedence,
+                              open_ramps_unclaimed, trench_outside_m)
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
@@ -217,6 +219,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)
                            if bores else ([], []))
     stats.refused.extend(getattr(on_field, "no_portal", ()))      # #1028
+    extra_groups = open_ramps_unclaimed(list(extra_groups), corridors, stats)   # #1028 Q31
+    mouth_list = open_ramp_precedence(mouth_list, extra_groups, tn, stats)
     for m in mouth_list if up_parents else ():
         par = mouth_parent(m, up_parents)
         if par is not None:                  # §34 (5): the ramp follows the road
@@ -376,7 +380,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         axis_ln, mouth = (clear[0], clear[1]) if clear is not None else (axis_ln, mouth)
         # where a ramp NOTHING frames must have topped out: its road's own end
         # (#1028: where the axis leaves the mapped road, not its straight extension)
-        road_end = road_end_m(axis_ln, roads_ix, half, spacing_g) if c is None else None
+        # (a bore whose approach walked no mapped way at all follows its own line)
+        road_end = road_end_m(axis_ln, roads_ix, half, spacing_g) if c is None and any(
+            walked_m(m.approach, m.inward, reach) > 0.0 for m in members
+            if hasattr(m, "approach")) else None
         # (the top's one station of slack, ``ramp_top``, may stand past it)
         run_ends: list[tuple[float, str]] = [(axis_ln.length if road_end is None
                                               else road_end + spacing_g,

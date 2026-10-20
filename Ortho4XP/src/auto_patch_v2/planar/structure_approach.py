@@ -342,10 +342,10 @@ def road_end_m(axis: LineString, index, reach: float, step: float) -> float | No
     ramp run along it crosses whatever lies there (measured EDDF bore
     −20307: 125 m of ramp diagonally across an apron past the service
     road's junction with the next bore).  ``None`` where the axis never
-    leaves the road; ``0`` where it never reaches one within ``_JOIN_LEAD``
-    half widths of its mouth (a bore end no way
-    continues — owner #1028 Q32: a ramp follows its road, so with no road
-    it has nowhere to climb)."""
+    leaves the road, and where it reaches none within ``_JOIN_LEAD`` half
+    widths of its mouth (a bore end no way continues: its own line is the
+    only reading, and the crossing roads and pavement stop it,
+    :func:`crossing_roads`)."""
     lines, tree = index[0], index[1]
     if tree is None or axis.length <= 0.0:
         return None
@@ -358,7 +358,7 @@ def road_end_m(axis: LineString, index, reach: float, step: float) -> float | No
     while not on_road(s):
         s += step
         if s > _JOIN_LEAD * reach:
-            return 0.0      # #1028 Q32: a ramp with no mapped road to follow
+            return None     # no mapped road to follow: the bore's own line, stops trim it
     s += step
     while s < axis.length:
         if not on_road(s):

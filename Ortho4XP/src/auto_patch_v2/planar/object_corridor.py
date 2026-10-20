@@ -40,7 +40,9 @@ from ..airport.deck_signature import DEFAULT_TUNNEL_VALUES
 from .structure_approach import PARALLEL_COS, approach, is_tunnel, unit
 from .structure_geometry import rim_standoff
 
-__all__ = ["Group", "object_groups", "mouth_covered_by", "trench_outside_m", "climb_path"]
+__all__ = ["Group", "object_groups", "mouth_covered_by", "open_ramp_precedence",
+           "open_ramps_unclaimed",
+           "trench_outside_m", "climb_path"]
 
 
 @_dc.dataclass
@@ -223,6 +225,49 @@ def mouth_covered_by(pt: XY, corridors: _t.Sequence, tol: float) -> str | None:
         if c.footprint.buffer(tol).contains(p):
             return c.id
     return None
+
+
+def open_ramps_unclaimed(extra_groups: list, corridors: _t.Sequence, stats) -> list:
+    """An OPEN ramp object (#1028 Q31) another object reading already
+    governs — a tunnel wall or shell corridor whose footprint it meets, or
+    that reads one of its placements — is that reading's, never read twice:
+    the open group is dropped, named."""
+    feet = [c.footprint for c in corridors]
+    read = {o for c in corridors for o in (getattr(c, "objects", ()) or ())}
+    out = []
+    for g in extra_groups:
+        c = g.corridor
+        if getattr(c, "open_ramp", False) and (any(c.footprint.intersects(f) for f in feet)
+                                               or read & set(c.objects or ())):
+            stats.refused.append(f"{g.tid}: the open ramp object is already a tunnel "
+                                 f"corridor's (#1028 Q31: one object reading)")
+            continue
+        out.append(g)
+    return out
+
+
+def open_ramp_precedence(mouth_list: list, extra_groups: _t.Sequence, tn, stats) -> list:
+    """THE PACK'S OPEN RAMP IS THE BORE'S MOUTH (owner #1028 Q31: "objects
+    around a tunnel take priority for defining the size, shape, depth and
+    location of tunnel trenches"; 05n-3 per mouth): an OSM mouth standing in
+    an OPEN sunken-road group's footprint ⊕ ``bore_end_tolerance_m``
+    (``airport/sunken_roads``, ``RampCorridor.open_ramp``) is that object's
+    and builds no OSM ramp; the rest stand."""
+    opens = [g.corridor for g in extra_groups
+             if getattr(g.corridor, "open_ramp", False)]
+    if not opens:
+        return mouth_list
+    kept = []
+    for m in mouth_list:
+        cid = mouth_covered_by(m.xy, opens, tn.object.bore_end_tolerance_m)
+        if cid is None:
+            kept.append(m)
+            continue
+        stats.mouths_replaced_by_object += 1
+        stats.bore_precedence.append(f"mouth of bore {'+'.join(str(i) for i in m.ways)}: "
+                                     f"inside the open pack ramp {cid} — the object's "
+                                     f"(#1028 Q31)")
+    return kept
 
 
 def trench_outside_m(ramp_rings: _t.Sequence[Polygon], corridor,

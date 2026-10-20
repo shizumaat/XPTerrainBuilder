@@ -28,7 +28,7 @@ from ..model.airport import OsmWay
 from ..model.frame import XY
 from .structure_approach import _key, is_tunnel, unit
 
-__all__ = ["tunnel_ends", "continues_underground"]
+__all__ = ["tunnel_ends", "continues_underground", "walked_m"]
 
 
 def tunnel_ends(osm: _t.Sequence[OsmWay], admitted: _t.Sequence[str]
@@ -55,6 +55,13 @@ def _walked(path: _t.Sequence[XY], inward: XY, reach_m: float
     last = path[-2]
     heading = unit(path[-3], path[-2]) if len(path) >= 3 else (-inward[0], -inward[1])
     return walked, last, heading
+
+
+def walked_m(path: _t.Sequence[XY], inward: XY, reach_m: float) -> float:
+    """How far ``structure_approach.approach`` walked mapped ways before its
+    straight extension (``inf``: the road runs on for the whole reach)."""
+    got = _walked(path, inward, reach_m)
+    return math.inf if got is None else got[0]
 
 
 def continues_underground(bore, inward: XY, path: _t.Sequence[XY], ends, law: Law,

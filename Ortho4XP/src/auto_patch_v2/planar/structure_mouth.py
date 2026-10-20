@@ -132,7 +132,9 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
             # clause 3: the ramp's host — cut, but never crossed out of
             # (owner #1028 Q32: "never cross a pavement edge"): its edge,
             # clear of the mouth's own cap, stops the ramp's top
-            edge = None if _own_road(axis, p, half + rim_off, grid) else \
+            # (a road hosting it is the ramp's own: its pavement traces the ramp)
+            edge = None if (not airside and c.role != "parking_lot") \
+                or _own_road(axis, p, half + rim_off, grid) else \
                 p.exterior.buffer(grid).difference(mouth_end)
             if edge is not None and not edge.is_empty:   # (the ramp's own road IS it)
                 out.append((edge, f"{c.ref}#edge"))

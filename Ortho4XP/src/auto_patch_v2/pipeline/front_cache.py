@@ -178,6 +178,45 @@ class FrontCache:
         self.pack = (None if self.partition is not None
                      else _sha(_store.digest_of(pack), _resource_stamps(airport)))
 
+    # ── the same records from another process ───────────────────────
+    def worker_state(self) -> dict[str, _t.Any]:
+        """What :meth:`in_worker` rebuilds this cache from in a pool worker
+        (``pipeline/late_speculate``): its identity as computed HERE (the
+        code and environment digests, the partition and pack names, the
+        whole law's digest — a non-canonical digest need not repeat in
+        another process) and the
+        law read so far, so a worker's record is witnessed as cumulatively
+        as this build's own re-run would be."""
+        st = {k: getattr(self, k) for k in ("icao", "write", "root", "folder", "bypass",
+                                            "active")}
+        if self.active:
+            st.update(code=self.code, env=self.env, partition=self.partition, pack=self.pack,
+                      law_read=self.law_rec.record(), law_digest=self.law_digest())
+        return st
+
+    @classmethod
+    def in_worker(cls, state: _t.Mapping[str, _t.Any], airport: _t.Any,
+                  law: _t.Any) -> "FrontCache":
+        """This build's cache in a worker process (:meth:`worker_state`);
+        ``airport`` with its own DEM (the worker records its own reads)."""
+        fc = cls.__new__(cls)
+        for k in ("icao", "write", "root", "folder", "bypass", "active"):
+            setattr(fc, k, state[k])
+        fc.recipes, fc.real_law, fc.digests, fc.tag, fc._used = {}, law, {}, "", []
+        fc.report = {"stages": {}, "state": "on" if fc.active else "bypass: worker"}
+        fc._law_digest, fc._field_digests, fc._writer, fc._pending = None, {}, None, []
+        if fc.active:
+            for k in ("code", "env", "partition", "pack"):
+                setattr(fc, k, state[k])
+            # the back half's law key, as named HERE: the worker's law is an
+            # unpickled copy, and its value digest need not repeat
+            fc._law_digest = state["law_digest"]
+            fc.law_rec = _law.LawRecorder(law)
+            fc.law_rec.replay(state["law_read"])
+            fc.dem_rec = _dem.DemRecorder(airport.dem)
+            fc.file_rec = _files.FileRecorder()
+        return fc
+
     def _bypass(self, airport: _t.Any, enabled: bool) -> str | None:
         if not enabled:
             return "off"

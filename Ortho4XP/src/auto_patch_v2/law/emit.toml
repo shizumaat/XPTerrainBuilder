@@ -300,6 +300,14 @@ strip_min_width_m  = 3.0    # ... or narrower than this at its WIDEST place (the
 # AREA one, at this slack.
 hole_cover_eps     = 0.02   # inner faces covering >= 1 - this of the hole's area ARE the hole's constraint
 groundside_ramp_max = 0.05    # 08d change 4 (b): the apron edge RAMPS to the groundside ring across the stand-off at this grade (v1 GROUNDSIDE_MAX_GRADE, config.py:1519), never a step
+# THE STRADDLE WINDOW of a declared terrace line (flip-readiness v2 §3(b);
+# moved from ``check_grade._TERRACE_STRADDLE_*`` for #951 so the census and
+# the declarer read one number): a pair speaks for a joint's step only when
+# both vertices sit within straddle_perp_m of the line and within
+# straddle_pair_m of each other — a LONG window folds lawful cap-graded relief
+# into the number (defect D2).
+straddle_perp_m     = 5.0
+straddle_pair_m     = 5.0
 
 [verify]
 # THE DEFECT MATERIALITY FLOOR (owner RULINGS 2026-09-14bx).  A row of a

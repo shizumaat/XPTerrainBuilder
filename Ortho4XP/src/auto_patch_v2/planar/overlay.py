@@ -173,6 +173,9 @@ class Arrangement:
     #: report and the census read it, never re-derive it.  ``planar/build``
     #: puts the record on the map.
     registries: Registries = _dc.field(default_factory=Registries)
+    #: OWNER RULINGS 2026-10-20c (39): every carriageway's cut out of the
+    #: bands (``planar/road_yield.BandYield``)
+    road_yield: tuple = ()
 
 
 def _faces_of_lazy():
@@ -270,6 +273,7 @@ def build_arrangement(airport: Airport, classification: Classification,
         # and the tile's OSM road centrelines
         erep = EdgeReport()
         edge_lines: list[LineString] = []
+        yields: list = []
         for z in zone_regions(cells, law, classification.keepouts,
                               getattr(airport, "dem", None),
                               road_edges(getattr(airport, "osm_ways", ()), law), erep,
@@ -277,7 +281,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                               shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
                               pack_shore_walls(airport),
                               _runway_records(airport, law),
-                              road_carriageways(getattr(airport, "osm_ways", ()), law)):
+                              road_carriageways(getattr(airport, "osm_ways", ()), law),
+                              yields):
             regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                                   z.code_letter, role_side(law, "graded_strip"),
                                   "zone", z.zone, z.edge_kind, z.quay,
@@ -333,12 +338,14 @@ def build_arrangement(airport: Airport, classification: Classification,
         _arr_memo.hold(fkey, airport, law, {
             "reg": reg, "cells": cells, "weld": weld, "ridges": ridges,
             "regions": regions, "erep": erep, "edge_lines": edge_lines,
+            "yields": yields,
             "base_regions": base_regions, "pad_regions": pad_regions,
             "pad_clip": _pad_clip if keeps else None,
             "plat": _plat if keeps else None})
     else:
         reg, cells, weld, ridges = front["reg"], front["cells"], front["weld"], front["ridges"]
         regions, erep, edge_lines = front["regions"], front["erep"], front["edge_lines"]
+        yields = front.get("yields", [])
         base_regions, pad_regions = front["base_regions"], front["pad_regions"]
         keeps = bool(getattr(law.tables.structures.placement,
                              "pad_keeps_footprint", False))
@@ -488,7 +495,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                        tuple(edge_lines), erep, holes_gone,
                        absorbed, detached,
                        zs_dissolved, zs_dropped, zs_area, zs_rows,
-                       registries=reg)
+                       registries=reg, road_yield=tuple(yields))
 
 
 

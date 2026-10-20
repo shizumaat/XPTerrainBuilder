@@ -440,6 +440,7 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                    base_solution: _t.Mapping[str, _t.Any], *, rules=None,
                    options=None, out: _t.Callable[[str], None] = print,
                    roads_only: bool = False, records: _t.Any = None,
+                   before_derive: _t.Callable[[LateCut], None] | None = None,
                    **solve_kw) -> tuple[_t.Any, _t.Any, dict]:
     """THE LAST STAGE (spec §55 (4)).  ``base_solution`` is the base map and
     its solved levels (``{"pm", "z"}``, and the base's ``hard_conflict``
@@ -458,20 +459,33 @@ def run_late_stage(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
 
     ``records`` (``pipeline/late_records.LateRecords``): the cut and the
     solve through their stage-cache records, the derive through the
-    prefix's; ``None`` runs them plainly."""
+    prefix's; ``None`` runs them plainly.  ``before_derive(cut)`` is called
+    between the cut and the derive (``run_last_stages``' speculation)."""
     if records is None:
         cut = late_cut(cl, airport, law, base_solution, rules=rules, out=out,
                        roads_only=roads_only)
+        if before_derive is not None:
+            before_derive(cut)
         derived, t_derive = late_derive(derive, cut)
         return late_solve(cut, derived, t_derive, airport, law, base_solution,
                           options=options, out=out, roads_only=roads_only, **solve_kw)
     # the stage-cache records (``pipeline/late_records``; spec §4b.5)
     cut = records.cut(cl, roads_only, lambda o: late_cut(
         cl, airport, law, base_solution, rules=rules, out=o, roads_only=roads_only), out)
+    if before_derive is not None:
+        before_derive(cut)
     derived, t_derive = late_derive(derive, cut)
     return records.solve(cut, derive, derived, t_derive, roads_only, lambda o: late_solve(
         cut, derived, t_derive, airport, law, base_solution, options=options, out=o,
         roads_only=roads_only, **solve_kw), out)
+
+
+def _with_roads(cl_cut, roads: _t.Sequence[_t.Any]):
+    """The roads pass's classification: the gap stage's cut ``cl_cut`` with
+    the pad road cells appended under fresh ids."""
+    nid = max((c.id for c in cl_cut.cells), default=-1) + 1
+    return _dc.replace(cl_cut, cells=tuple(cl_cut.cells) + tuple(
+        _dc.replace(c, id=nid + k) for k, c in enumerate(roads)))
 
 
 def _has_pad_road(c) -> bool:
@@ -480,7 +494,8 @@ def _has_pad_road(c) -> bool:
 
 def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
                     base_solution: _t.Mapping[str, _t.Any], *,
-                    out: _t.Callable[[str], None] = print, **kw
+                    out: _t.Callable[[str], None] = print,
+                    speculate: _t.Callable[..., _t.Any] | None = None, **kw
                     ) -> tuple[_t.Any, _t.Any, dict]:
     """THE LAST STAGE, AND THE PAD ROADS AFTER IT (issue #609; owner RULINGS
     2026-10-13a (1): a pad road is junior to every pavement it meets — the
@@ -492,7 +507,13 @@ def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
     MEASURED before the order (HECA, one stage for both): 24 gap parts moved,
     worst 7.36 m; and with the order inside ONE derive (gap pieces' pass
     with the pad roads' vertices and rows dropped, OTHH): 12 gap nodes
-    still moved up to 0.20 m — the rings the pad roads re-node."""
+    still moved up to 0.20 m — the rings the pad roads re-node.
+
+    ``speculate`` (the build's ``pipeline/late_speculate.speculate``; spec
+    cold-patch-300s §3.1 C4b): the pad roads' cut and derive started BESIDE
+    the gap stage off the main base the moment the gap pieces are cut, its
+    answer used only when the real cut digests the same.  ``None``: in
+    sequence, as the replay runs it."""
     from .stage_one_map import remap_row
     roads = [c for c in cl.cells if _has_pad_road(c)]
     gaps = any(is_gap_ref(c.ref) for c in cl.cells)
@@ -500,17 +521,26 @@ def run_last_stages(cl, airport, law: Law, derive: _t.Callable[[_t.Any], tuple],
         return run_late_stage(cl, airport, law, derive, base_solution, out=out,
                               roads_only=not gaps, **kw)
     plain = _dc.replace(cl, cells=tuple(c for c in cl.cells if not _has_pad_road(c)))
-    pm_g, sol_g, rep_g = run_late_stage(plain, airport, law, derive, base_solution,
-                                        out=out, **kw)
-    nid = max((c.id for c in rep_g["cl"].cells), default=-1) + 1
-    cl_all = _dc.replace(rep_g["cl"], cells=tuple(rep_g["cl"].cells) + tuple(
-        _dc.replace(c, id=nid + k) for k, c in enumerate(roads)))
-    out(f"LAST STAGE, then the pad roads ({len(roads)} cells) against it (13a (1))")
-    pm, sol, rep = run_late_stage(
-        cl_all, airport, law, derive,
-        {"pm": pm_g, "z": sol_g.z, "pin_yield": rep_g["pin_yield"],
-         "hard_conflict": rep_g["hard_conflict"]},
-        out=out, roads_only=True, **kw)
+    ahead: list = []
+
+    def _speculate(cut: LateCut) -> None:
+        ahead.append(speculate(derive, _with_roads(cut.cl, roads), airport, law,
+                               base_solution, rules=kw.get("rules"), out=out))
+    try:
+        pm_g, sol_g, rep_g = run_late_stage(
+            plain, airport, law, derive, base_solution, out=out,
+            before_derive=None if speculate is None else _speculate, **kw)
+        cl_all = _with_roads(rep_g["cl"], roads)
+        out(f"LAST STAGE, then the pad roads ({len(roads)} cells) against it (13a (1))")
+        pm, sol, rep = run_late_stage(
+            cl_all, airport, law, (ahead[0] if ahead and ahead[0] is not None else derive),
+            {"pm": pm_g, "z": sol_g.z, "pin_yield": rep_g["pin_yield"],
+             "hard_conflict": rep_g["hard_conflict"]},
+            out=out, roads_only=True, **kw)
+    finally:
+        for spec in ahead:
+            if spec is not None:
+                spec.close()
     # the gap stage's records stand; its follow rows cross to the final map
     # by the canonical join (vertex coordinate)
     at = {tuple(v.xy): i for i, v in pm.vertices.items()}

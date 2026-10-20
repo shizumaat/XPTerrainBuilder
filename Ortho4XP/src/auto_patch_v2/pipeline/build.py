@@ -617,6 +617,7 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # against constants.  Everything below reads the full map.
         t = time.perf_counter()
         _pulse.tick("the last stage: the gap pieces")
+        from .late_speculate import speculate as speculate_roads
         from .late_stage import run_last_stages
         _base_rep = design_rep
         # the last stage re-mints the held registry (its own prefix run): the
@@ -632,7 +633,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             {"pm": pm, "z": sol.z, "pin_yield": _pin_yield,
              "hard_conflict": hard_conflict},
             rules=load_rules(), options=cfg.options,
-            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records)
+            out=lambda m: _say(f"[{icao}] {m}", out), records=_late_records,
+            speculate=speculate_roads)
         install_hold_report(pm.registries.held, _base_rep.hold_report)
         hard_conflict = _late["hard_conflict"]
         cl, cs, stage = _late["cl"], _late["cs_full"], _dc.replace(
@@ -726,6 +728,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
             lrep=lrep, header_extra=cfg.header_extra, out_dir=out_dir,
             objects_out=objects_out, report=report, wall=wall, out=out)
         paths, pieces = _em.paths, _em.pieces
+        # THE CREATION CLOCK ENDS HERE (owner decision D4, Noah 2026-10-20;
+        # cold-patch spec §6): the patch and its sidecar are written; verify
+        # still runs and reports below, off the creation time
+        report["creation_s"] = round(time.perf_counter() - t_build, 3)
+        _say(f"[{icao}] patch created {report['creation_s']:.2f} s  -> {out_dir}"
+             + ("  (verify follows, off the creation clock)" if cfg.verify else ""), out)
         if cfg.verify:
             # THE VERIFY STAGE (spec §4b.7; ``pipeline/verify_stage.py``):
             # its record holds only while the bodies on disk are the judged

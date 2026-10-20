@@ -182,7 +182,7 @@ def test_a_placement_carrying_a_draped_slab_is_never_kept_by_rule_3():
     from auto_patch_v2.airport.placement_record import Split
     m = types.SimpleNamespace(id="dsf:obj1", resource="objects/lot.obj", tilted=(),
                               live_path="/nonexistent/lot.obj",
-                              authored_path="/nonexistent/lot.obj")
+                              authored_path="/nonexistent/lot.obj", zero_y=0.0)
     body = types.SimpleNamespace(body_id=0, new_resource="objects/lot__b0.obj", seat=None,
                                  merged_into="")
     rec = Split(1, "dsf:obj1", "objects/lot.obj", "", 40.0, -3.0, 0.0, (body,))

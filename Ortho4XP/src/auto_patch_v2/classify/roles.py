@@ -104,6 +104,8 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
 from .airside_edge import airside_edge_flip
+from .apt_shoulder import mint_apt_shoulders, taxiway_entrances
+from .storey_edge import STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
 from .open_default import (apron_evidence, open_pavement_role,
@@ -359,11 +361,31 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                 continue
             inside = face.intersection(band)
             outside = face.difference(band)
+            # §40 (6) (2) THE SHOULDER STOPS AT A TAXIWAY ENTRANCE (owner
+            # RULINGS 2026-10-20o, 20p): a taxiway leaving the runway
+            # through this cell is a taxiway, welded to the runway edge —
+            # it goes back on the worklist on its own, never as shoulder
+            ents = taxiway_entrances(inside, sh[0], taxi_parts, taxi_tree,
+                                     rules, inside.area / sh[1])
+            if ents:
+                inside = inside.difference(unary_union(ents))
+                stats["shoulder_taxiway_entrances"] = \
+                    stats.get("shoulder_taxiway_entrances", 0) + len(ents)
+                stats["shoulder_taxiway_entrance_m2"] = \
+                    stats.get("shoulder_taxiway_entrance_m2", 0.0) \
+                    + sum(p.area for p in ents)
+                for p in ents:
+                    queue.append((p, dict(neck_ev, shoulder_beyond_band=1.0,
+                                          shoulder_band_of=sh[0].id,
+                                          shoulder_entrance_of=sh[0].id)))
             kept = [p for p in polygon_parts(inside)
                     if p.area >= rules.cells.min_area_m2]
             beyond = [p for p in polygon_parts(outside)
                       if p.area >= rules.cells.min_area_m2]
-            if kept:
+            # a cell that is all taxiway entrance keeps no shoulder, but
+            # its entrances are already queued: only its beyond-band rest
+            # follows them (never the whole face a second time)
+            if kept or ents:
                 page = _ref_for(face, pav_tree, ev)
                 for p in kept:
                     shoulders.append((p, sh[0], sh[1], page))
@@ -658,9 +680,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                      f"{shared:,.1f} m with runway {rw.id} (§40 (1))")
 
     # ── §27: an airside edge makes a lot (and a road) airside ──────
+    # (a contact across a unit's own storey is none, owner answer 47 #1099:
+    # the lot is cut back along it, ``storey_edge``)
+    from .storey_edge import knife_storeys, storey_band
+    band, storey_cuts = storey_band(airport, law, cells, final), {}
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
-        airside_edge_flip(final, cells, law, rules,
-                          [c.line for c in ev.truck_chains])
+        airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],
+                          storey=band, storey_cuts=storey_cuts,
+                          to_xy=None if airport.frame is None else airport.frame.entry())
+    stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
+                                         rules.cells.min_area_m2, band)
     # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───
     from .reachability import unreachable_aprons
     stats.update(unreachable_aprons(final, [p for _rw, p in ev.runway_polys], law,
@@ -727,6 +756,12 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["mixed_pad_cutbacks"] += n_cut_rib
     stats["ribbon_pad_welds"] = sum(1 for c in cells[n_before:]
                                     if c.evidence.get(WELD_KEY))
+    # §40 (6) (1) THE APT.DAT SHOULDER, LAST (owner RULINGS 2026-10-20n):
+    # the runway's graded band reads the row-100 shoulder width as its
+    # shoulder where no pavement already covers it — minted after every
+    # cell is standing, so it fills only unpaved ground (20o, 20p)
+    stats.update(mint_apt_shoulders(airport, cells, law, rules, add,
+                                    SHOULDER_KIND))
     stats["taxi_chains"] = len(ev.taxi_chains)
     stats["truck_chains"] = len(ev.truck_chains)
     stats["terminal_present"] = float(ev.terminal_present)
@@ -1006,8 +1041,10 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
             if ref not in knives:
                 knives[ref] = pads[ref].buffer(knife_m, join_style="mitre",
                                                mitre_limit=2.0)
-            if hold and is_held_step(law, dem_step_m(g, pads[ref], knives[ref],
-                                                     airside, dem, law)):
+            # a lot a storey up (``storey_edge``) meets the pad's UPPER
+            # LEVEL: welded, never held off as a hillside (#1101)
+            if hold and STOREY_Y_KEY not in c.evidence and is_held_step(
+                    law, dem_step_m(g, pads[ref], knives[ref], airside, dem, law)):
                 held.append(ref)
                 cutters.append(knives[ref])    # HELD: the terrace's knife
             else:

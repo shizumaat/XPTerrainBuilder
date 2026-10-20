@@ -293,6 +293,11 @@ class AdjacentGround:
     #: profile's lawful fall AND falls steeper than this over
     #: ``emit.design.edge_probe_m`` — PROPOSED, for the owner's ratification
     end_drop_min_grade: float
+    #: 19ad THE BAND HOLDS ITS GRADE BESIDE A ROAD THROUGH ZONE 2 (owner
+    #: RULINGS 2026-10-20c, 39; ``planar/road_shadow``): a band vertex within
+    #: the probe of a road's axis reads the DEM at the probe — the road's
+    #: half-width, the stand-off and this many DEM postings past them
+    road_shadow_dem_cells: float
 
 
 @_dc.dataclass(frozen=True)

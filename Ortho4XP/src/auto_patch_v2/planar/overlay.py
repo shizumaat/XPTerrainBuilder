@@ -89,6 +89,19 @@ class Region:
     shore: _t.Any = None
     #: a runway band's own runway: ``ZoneRegion.runway_ref``
     runway_ref: str | None = None
+    #: #1071: a road by its SHAPE alone (§110 ``road_by_proportions``), carried
+    #: to the map face (``Face.road_by_proportions``)
+    road_by_proportions: bool = False
+
+
+def cell_region(c) -> Region:
+    """THE REGION OF A CLASSIFIED CELL — its role, ref, polygon, code and
+    side, and whether it is a road by its SHAPE alone (§110 ribbon,
+    ``classify.open_default.unclassified_groundside_role``'s
+    ``road_by_proportions``; #1071: the wall pass reads it on the face)."""
+    by_shape = bool((getattr(c, "evidence", None) or {}).get("road_by_proportions"))
+    return Region(c.role, c.ref, Polygon(c.ring, c.holes), c.code_number,
+                  c.code_letter, c.side, "cell", road_by_proportions=by_shape)
 
 
 @_dc.dataclass(frozen=True)
@@ -160,6 +173,9 @@ class Arrangement:
     #: report and the census read it, never re-derive it.  ``planar/build``
     #: puts the record on the map.
     registries: Registries = _dc.field(default_factory=Registries)
+    #: OWNER RULINGS 2026-10-20c (39): every carriageway's cut out of the
+    #: bands (``planar/road_yield.BandYield``)
+    road_yield: tuple = ()
 
 
 def _faces_of_lazy():
@@ -204,6 +220,14 @@ def _runway_ridges(airport: Airport, spacing: float
     return out
 
 
+def _storey_lots(cells) -> dict[str, float]:
+    """``{lot ref: storey rise}`` of the lots met across a unit's storey
+    (``classify.storey_edge``; their pad's upper level, #1101)."""
+    from ..classify.storey_edge import STOREY_Y_KEY
+    return {c.ref: float(c.evidence[STOREY_Y_KEY]) for c in cells
+            if STOREY_Y_KEY in (c.evidence or {})}
+
+
 def build_arrangement(airport: Airport, classification: Classification,
                       law: Law, grid_m: float | None = None) -> Arrangement:
     """Regions + breakline sources -> ONE noded arrangement, with the
@@ -243,13 +267,13 @@ def build_arrangement(airport: Airport, classification: Classification,
             0.5 * law.tables.emit.identity.min_distinct_spacing_m)
         regions: list[Region] = []
         for c in cells:
-            regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),
-                                  c.code_number, c.code_letter, c.side, "cell"))
+            regions.append(cell_region(c))
         # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19): the zones
         # are clipped at their own derivation site, against the airport's DEM
         # and the tile's OSM road centrelines
         erep = EdgeReport()
         edge_lines: list[LineString] = []
+        yields: list = []
         for z in zone_regions(cells, law, classification.keepouts,
                               getattr(airport, "dem", None),
                               road_edges(getattr(airport, "osm_ways", ()), law), erep,
@@ -257,7 +281,8 @@ def build_arrangement(airport: Airport, classification: Classification,
                               shore_wedge_m(law, getattr(airport, "elevation_m", 0.0) or 0.0),
                               pack_shore_walls(airport),
                               _runway_records(airport, law),
-                              road_carriageways(getattr(airport, "osm_ways", ()), law)):
+                              road_carriageways(getattr(airport, "osm_ways", ()), law),
+                              yields):
             regions.append(Region("graded_strip", z.ref, z.polygon, z.code_number,
                                   z.code_letter, role_side(law, "graded_strip"),
                                   "zone", z.zone, z.edge_kind, z.quay,
@@ -307,17 +332,20 @@ def build_arrangement(airport: Airport, classification: Classification,
             pad_regions, _plat = platform_split(base_regions, pad_regions, law,
                                                 float(grid),
                                                 getattr(airport, "dem", None),
-                                                airport=airport, reg=reg)
+                                                airport=airport, reg=reg,
+                                                storey=_storey_lots(cells))
             _pad_clip.update(_plat)
         _arr_memo.hold(fkey, airport, law, {
             "reg": reg, "cells": cells, "weld": weld, "ridges": ridges,
             "regions": regions, "erep": erep, "edge_lines": edge_lines,
+            "yields": yields,
             "base_regions": base_regions, "pad_regions": pad_regions,
             "pad_clip": _pad_clip if keeps else None,
             "plat": _plat if keeps else None})
     else:
         reg, cells, weld, ridges = front["reg"], front["cells"], front["weld"], front["ridges"]
         regions, erep, edge_lines = front["regions"], front["erep"], front["edge_lines"]
+        yields = front.get("yields", [])
         base_regions, pad_regions = front["base_regions"], front["pad_regions"]
         keeps = bool(getattr(law.tables.structures.placement,
                              "pad_keeps_footprint", False))
@@ -467,7 +495,7 @@ def build_arrangement(airport: Airport, classification: Classification,
                        tuple(edge_lines), erep, holes_gone,
                        absorbed, detached,
                        zs_dissolved, zs_dropped, zs_area, zs_rows,
-                       registries=reg)
+                       registries=reg, road_yield=tuple(yields))
 
 
 

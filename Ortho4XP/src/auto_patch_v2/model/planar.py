@@ -284,6 +284,10 @@ class Face:
     code_number: int | None = None
     code_letter: str | None = None
     side: str = "airside"
+    #: #1071 (owner 2026-10-20): a road by its SHAPE alone (§110 ribbon,
+    #: ``road_by_proportions``) — still the LOT at a wall's foot
+    #: (``airport.road_ramp.wall_terraces``, 10-03c)
+    road_by_proportions: bool = False
 
 
 def face_edge_ids(face) -> set[int]:
@@ -615,6 +619,18 @@ class PlanarMap:
     #: vertex to ITS runway's edges.  Empty on a map pickled before it —
     #: the join then falls back to the code-number class.
     zone_runway_of_ref: _t.Mapping[str, str] = _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-10-20c (39): each mapped carriageway's cut out of a
+    #: band's zone 2 (``model/road_yield.RoadYield``) — its ribbon vertices
+    #: are band kerb.  Empty on a map pickled before it.
+    road_yield: tuple = ()
+    #: ... and every carriageway cut from a band, through zone 2 or beside
+    #: it (#944), as its footprint by its lanes — ``(exterior, holes)``
+    #: frame rings (``planar/road_yield.road_cut_outlines``): the road's
+    #: edge the band's wall stands off (``pipeline/band_road_wall``).
+    road_cut_outlines: tuple = ()
+    #: ... and that edge's GROUND where no patch face stands, ``(x, y, z)``
+    #: (``planar/road_yield.road_cut_ground``): the road the core mesh draws.
+    road_cut_ground: tuple = ()
     #: THE INSTRUMENT STATUS of each runway, by runway id (#811;
     #: ``law.reference_code.status_by_ref``): the readers of a runway FACE's
     #: zone reach (``tables.zone_edge_offset_m``) key it by the face's ref
@@ -786,7 +802,11 @@ class PlanarMap:
         that pavement's — the apron's rows lead there, not the band's — so
         the kerb reading, which withholds the pavement-ceiling twin from
         every row leaving the kerb (``constraints/ceiling``), never reaches
-        the airside's own rows."""
+        the airside's own rows.
+
+        A ROAD THROUGH ZONE 2 (owner RULINGS 2026-10-20c, 39): the band is
+        cut back from it (``road_yield``), so it shares no vertex — its
+        ribbon vertices standing in the cut are the kerb all the same."""
         rib: set[int] = set()
         band: set[int] = set()
         air: set[int] = set()
@@ -801,7 +821,11 @@ class PlanarMap:
                 continue
             for cyc in (f.ring, *f.holes):
                 tgt.update(self.ring_vertices(cyc))
-        return frozenset((rib & band) - air)
+        # 39 (owner RULINGS 2026-10-20c): a ribbon vertex in a road's cut
+        # out of zone 2 is the band's kerb too, across the stand-off, and so
+        # is the zone-1 lip's where the road crosses it (``road_yield``)
+        cut = {v for y in (getattr(self, "road_yield", ()) or ()) for v in y.kerb}
+        return frozenset(((rib & band) | cut) - air)
 
     def roles_at(self, v: int) -> tuple[str, ...]:
         """THE VERTEX-OWNERSHIP VIEW (RULINGS 2026-09-04q-3): the roles of

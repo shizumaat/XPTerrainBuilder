@@ -167,14 +167,19 @@ def rim_relief_m(P: Polygon, air, near_m: float, dem, slope_max: float
 
 def platform_split(base_regions, pad_regions, law: Law,
                    grid: float = 0.0, dem=None, airport=None, *,
-                   reg: Registries) -> tuple[list, dict]:
+                   reg: Registries, storey: _t.Mapping[str, float] | None = None
+                   ) -> tuple[list, dict]:
     """THE BLOCK PLANNER (module docstring).  Returns ``(pad_regions,
     counts)``.
 
     Flat-pad spec §2 (RULINGS 2026-09-30f): with ``[building_pad]
     frontage_hold`` on, every unit pad is TESTED and PARTITIONED per rigid
     block here (``planar.pad_blocks``), the verdicts published in
-    ``pad_blocks.BLOCK_PLANS``."""
+    ``pad_blocks.BLOCK_PLANS``.
+
+    ``storey`` maps a lot's ref to the rise of the unit storey it meets the
+    apron across (``classify.storey_edge``): the held pad it touches gets
+    an UPPER level (``planar/low_level``, #1101)."""
     platforms, held = reg.platforms, reg.held
     platforms.clear()
     held.clear()
@@ -324,7 +329,10 @@ def platform_split(base_regions, pad_regions, law: Law,
     # the block's datum (``planar/low_level``); after the landings, which
     # clear the registry it is recorded in
     from .low_level import low_level_split
-    out = low_level_split(out, air_polys, airport, law, float(grid), counts, reg=reg)
+    out = low_level_split(out, air_polys, airport, law, float(grid), counts, reg=reg,
+                          storey_lots=[(r.polygon, float(storey[str(r.ref)]))
+                                       for r in base_regions if storey
+                                       and str(r.ref) in storey and r.polygon is not None])
     counts["platforms"] = sum(1 for p in platforms if not p.refused)
     counts["platforms_refused"] = sum(1 for p in platforms if p.refused)
     counts["platform_list"] = "; ".join(

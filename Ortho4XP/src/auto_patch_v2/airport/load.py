@@ -272,7 +272,8 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         instrument = any(is_instrument(e.approach) for e in ends)
         r = Runway(f"{ends[0].name}/{ends[1].name}", rw.width_m,
                    normalise_surface(rw.surface), (ends[0], ends[1]), None,
-                   runway_code_letter(law, rw.width_m), instrument)
+                   runway_code_letter(law, rw.width_m), instrument,
+                   _apt.shoulder_width_m(rw.shoulder))
         # THE ONE CODE-NUMBER / LETTER STAMP (regulation-conformance spec
         # §3.1/§3.2): every reader takes these, the census from the sidecar
         runways.append(_dc.replace(r, code_number=runway_code_number(law, r.length_m)))

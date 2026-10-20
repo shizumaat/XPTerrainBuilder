@@ -19,11 +19,17 @@ def _part(x0, y0, x1, y1, base_y):
                                  rings=(ring,), feet=(), line=False)
 
 
-def _airport(parts):
+def _stepped(x, y):
+    """KATL's ground: a storey down landside (y < 85) of the apron's."""
+    return 289.5 if y < 85.0 else 301.2
+
+
+def _airport(parts, ground=_stepped):
     unit = types.SimpleNamespace(members=[types.SimpleNamespace(parts=parts)])
     return types.SimpleNamespace(
         partition=types.SimpleNamespace(units=[unit]),
-        frame=types.SimpleNamespace(entry=lambda: (lambda lon, lat: (lon, lat))))
+        frame=types.SimpleNamespace(entry=lambda: (lambda lon, lat: (lon, lat))),
+        dem=types.SimpleNamespace(z=ground))
 
 
 @pytest.fixture(scope="module")
@@ -57,6 +63,25 @@ def test_no_storey_no_split(law):
     assert plan_low(P, AIR, _airport(FRONT + small), law, 0.5) is None
 
 
+def test_parts_a_storey_down_over_level_ground_are_no_lower_level(law):
+    """#1115 (EDDF Terminal 1, 50.0483, 8.5725): frontage parts authored a
+    storey UP (piers, decks) made the ground-floor parts read "low" over
+    ground level with the block's; the split forced a level 3 m into it
+    and 1,092 pad rows relaxed.  The ground is the other half of the
+    witness: no split where it does not drop a storey."""
+    low = [_part(0.0, 0.0, 100.0, 80.0, -13.0), _part(100.0, 0.0, 200.0, 80.0, -12.9)]
+    why: list = []
+    assert plan_low(P, AIR, _airport(FRONT + low, lambda x, y: 110.4), law, 0.5,
+                    refused=why) is None
+    assert why and why[0].startswith("ground drop +0.00")
+    def shallow(x, y):                                         # 2 m: under a storey
+        return 108.4 if y < 85.0 else 110.4
+    assert plan_low(P, AIR, _airport(FRONT + low, shallow), law, 0.5) is None
+    got = plan_low(P, AIR, _airport(FRONT + low), law, 0.5)      # KATL's 11.7 m
+    assert got is not None and got[3]["ground_z"] == pytest.approx(289.5)
+    assert got[3]["ground_high_z"] == pytest.approx(301.2)
+
+
 def test_the_object_stage_folds_the_lower_level_into_its_block():
     assert plane_of("building31/b0/p1") == ("building31/b0", 1)
     assert plane_origin_ref("building31/b0/p1") == "building31/b0"
@@ -77,3 +102,38 @@ def test_the_bending_skips_the_riser():
     planar = F(faces=faces, ring_vertices=lambda r: tuple(r), road_terrace={})
     tris = [(1, 2, 3), (2, 3, 4), (3, 4, 5), (0, 1, 2)]
     assert wall_cut_edges(planar, tris) == frozenset({(1, 3), (2, 3), (2, 4)})
+
+
+def test_a_self_touching_operand_never_costs_the_airport(law):
+    """#1098 (EDDF): a held pad whose ring touches itself (a notch whose
+    tip meets the shell) made ``plan_low``'s overlays raise ``side location
+    conflict`` and the airport lost its whole patch.  Every operand is read
+    as its valid area first (``geom/valid_area``); the split still lands."""
+    from shapely.geometry import Polygon
+    pad = Polygon([(0, 0), (200, 0), (200, 100), (0, 100), (0, 50),
+                   (30, 40), (30, 60), (0, 50)])                  # touches itself at (0, 50)
+    assert not pad.is_valid
+    low = [_part(0.0, 0.0, 100.0, 80.0, -13.0), _part(100.0, 0.0, 200.0, 80.0, -12.9)]
+    others = Polygon([(200, 0), (260, 0), (260, 40), (200, 20), (230, 20), (200, 40)])
+    got = plan_low(pad, AIR, _airport(FRONT + low), law, 0.5, others)
+    assert got is not None
+    H, L, S, _rec = got
+    assert H.is_valid and L.is_valid and S.is_valid
+    assert L.area > 0.5 * 200.0 * 80.0
+
+
+def test_valid_area_reads_the_area_and_drops_the_precision_model():
+    import shapely
+    from auto_patch_v2.geom.valid_area import valid_area
+    from shapely.geometry import Polygon
+    bow = Polygon([(0, 0), (10, 0), (10, 10), (5, 5), (8, 10), (0, 10), (0, 0)])
+    pinch = Polygon([(0, 0), (10, 0), (10, 10), (0, 10), (0, 5), (4, 4), (4, 6), (0, 5)])
+    for g in (bow, pinch):
+        v = valid_area(g)
+        assert v.is_valid and v.geom_type in ("Polygon", "MultiPolygon")
+        assert v.area > 0.0
+    snapped = shapely.set_precision(box(0, 0, 3, 3), 0.5)
+    assert shapely.get_precision(valid_area(snapped)) == 0.0
+    ok = box(0, 0, 1, 1)
+    assert valid_area(ok) is ok
+    assert valid_area(None).is_empty

@@ -1148,7 +1148,8 @@ def _msl_census(a, plan, ss, sampler) -> None:
         for d, s in over[:15]:
             print(f"    {d:+7.2f} m  {s.resource.split('/')[-1][:46]:46s} "
                   f"{s.lat:.7f},{s.lon:.7f}  why={s.why}")
-    for line in authored_rows_lines(dump, plan, ss, sampler):
+    for line in authored_rows_lines(dump, plan, ss, sampler,
+                                    getattr(plan, "pack_root", "") or ""):
         print(line)
 
 
@@ -1166,7 +1167,8 @@ def authored_rows_lines(dump, plan, ss, sampler, pack_root: str = "") -> list[st
         dump, plan, ss, splits, sampler, pack_root,
         tol_m=float(_L2.load().tables.emit.design.hard_tol_m),
         keep_tol_m=float(_L2.load().tables.structures.placement
-                         .authored_keep_tol_m))
+                         .authored_keep_tol_m),
+        feet_tol_m=float(_L2.load().tables.structures.placement.split_tol_m))
     kept = sorted(_as.kept_rows(getattr(plan, "authored_seats", ()) or ()))
     touched = ({c.index: "CONVERTED to on-ground" for c in conv}
                | {m.index: f"SEATED at OBJECT_MSL {m.elevation:+.3f}" for m in msl}
@@ -1182,6 +1184,13 @@ def authored_rows_lines(dump, plan, ss, sampler, pack_root: str = "") -> list[st
         elev = "" if p.elevation is None else f" {p.elevation:+.3f}"
         out.append(f"  row {i}: {p.kind}{elev}  {p.def_path}  -> "
                    f"{touched.get(i, 'kept as authored')}")
+    feet = [m for m in msl if m.why == "geometry_feet"]
+    out.append(f"FEET SEATS (owner answer 48, #1102): {len(feet)} converted "
+               f"OBJECT_MSL row(s) seated by their geometry's feet")
+    for m in feet:
+        z = sampler(m.lat, m.lon)
+        lift = "" if z is None else f" (drape at origin {float(z):.3f}, {m.elevation - float(z):+.2f})"
+        out.append(f"  row {m.index}: OBJECT_MSL {m.elevation:.3f}{lift}  {m.resource}")
     return out
 
 
@@ -1259,7 +1268,8 @@ def _write_pack(a, plan, ss, sampler) -> None:
         tol_m=float(_law2.tables.emit.design.hard_tol_m), pads=_pads,
         jetway_strips=_strips,
         gate_m=float(_law2.tables.emit.design.jetway_strip_m),
-        keep_tol_m=float(_law2.tables.structures.placement.authored_keep_tol_m))
+        keep_tol_m=float(_law2.tables.structures.placement.authored_keep_tol_m),
+        feet_tol_m=float(_law2.tables.structures.placement.split_tol_m))
     counts = dict(ss.counts)
     counts.update(_rows)
     pl = PlacementPlan(icao=plan.icao, pack_name=os.path.basename(root),

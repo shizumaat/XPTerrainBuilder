@@ -136,6 +136,7 @@ def natural_bank_vertices(vw: View) -> frozenset[int]:
         from shapely import prepared
         from shapely.geometry import Point, Polygon
         from shapely.ops import unary_union
+
         from ..law.tables import snap_margin_m
         polys = [Polygon(r) for r in rings if len(r) >= 3]
         if polys:

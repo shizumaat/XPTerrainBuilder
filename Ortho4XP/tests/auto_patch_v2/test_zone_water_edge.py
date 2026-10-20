@@ -6,11 +6,9 @@ the shore DECISION (quay / natural bank / wedge) stays the sea's."""
 from __future__ import annotations
 
 import pytest
-from shapely.geometry import Polygon
-
 from auto_patch_v2.law import Law
 from auto_patch_v2.planar.zones import zone_regions
-
+from shapely.geometry import Point, Polygon
 from test_v2vmmcshore import _PlaneDem, _zone_cells
 
 
@@ -69,3 +67,29 @@ def test_the_level_beside_a_shore_point_is_its_bodys():
     lv = water_level_beside(_LevelDem(), [0.0, -100.0], [0.0, 0.0])
     assert lv[0] == 2.5          # on the line: a ring sample is wet
     assert lv[1] == 0.0          # far from any water: the sea's level
+
+
+# ── owner answer Q52 (2026-10-20): the natural-shore bank yields the end
+#    profile, the strip longitudinal / arc laws and the RESA transverse ──
+
+_WEDGE = ((0.0, 0.0), (20.0, 0.0), (20.0, 10.0), (0.0, 10.0), (0.0, 0.0))
+
+
+def test_the_generator_reads_the_bank_off_the_published_wedges(law):
+    from types import SimpleNamespace
+
+    from auto_patch_v2.constraints.end_lip import natural_bank_vertices
+    vw = SimpleNamespace(pm=SimpleNamespace(natural_shore_wedges=(_WEDGE,)), law=law,
+                         xy={1: (5.0, 5.0), 2: (50.0, 5.0), 3: (20.0, 5.0)})
+    assert natural_bank_vertices(vw) == frozenset({1, 3})
+    bare = SimpleNamespace(pm=SimpleNamespace(), law=law, xy={1: (5.0, 5.0)})
+    assert natural_bank_vertices(bare) == frozenset()
+
+
+def test_the_readers_take_the_same_bank_into_the_end_exemption(law):
+    from auto_patch_v2.verify.strips import end_exempt_geometry
+    ll = [[[y, x] for x, y in _WEDGE]]          # [lat, lon] = (y, x) here
+    to_m = lambda lat, lon: (lon, lat)          # noqa: E731
+    g = end_exempt_geometry(None, None, to_m, law, ll)
+    assert g is not None and g.covers(Point(5.0, 5.0)) and not g.covers(Point(50.0, 5.0))
+    assert end_exempt_geometry(None, None, to_m, law) is None

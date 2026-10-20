@@ -374,8 +374,12 @@ def test_the_taxi_side_vertices_beyond_the_edge_still_obey_the_band(two_runways,
     tol = law.tables.emit.design.hard_tol_m
     assert all(z[u] <= zf[u] + tol for u in beyond), \
         max((z[u] - zf[u], u) for u in beyond)
-    assert any(z[u] < zf[u] - 0.01 for u in beyond), \
-        sorted(round(float(zf[u] - z[u]), 4) for u in beyond)
+    # every one stands at or under its band's ceiling.  (Until #770 the
+    # zone lip noded taxiA's edge and one such node stood above its
+    # ceiling band-free; the airside no longer carries it, and no vertex
+    # of this fixture reaches its ceiling either way.)
+    assert all(z[u] <= banded[u][1] + tol for u in beyond), \
+        max((float(z[u] - banded[u][1]), u) for u in beyond)
 
 
 def test_the_adjacent_stub_follows_the_edge_with_no_grade_break(two_runways, law):

@@ -348,6 +348,10 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
 #: carries must appear here or in ``SIDECAR_LAW_KEYS`` (twin-asserted), so a
 #: newly emitted key can never be silently ignored by every reader.
 SIDECAR_EVIDENCE_KEYS: Tuple[str, ...] = (
+    # #1028: a SLID tunnel mouth's own depth over its floor (the road's
+    # profile, ``pipeline/publication.tunnel_mouth_depths``).  EVIDENCE: v2
+    # verify's ``tunnel_mouth_canonical`` reads it off the publication.
+    "tunnel_mouth_depths",
     # §34 (9) THE PINCHED RAMP (owner RULINGS 2026-09-14ak/14am, sidecar
     # ``lifted_caps``): ``[shapeID, corridor, road ref, span m, designed
     # grade]`` per ramp face whose within-shape LONGITUDINAL cap is LIFTED

@@ -375,6 +375,8 @@ def structure_records(airport, cl, law) -> dict:
                                           measure=True, field=wall_field(cl, law))
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
+    from .open_ramps import admitted_open_ramps      # #1028: as ``planar.build.build``
+    extra = admitted_open_ramps(extra, corridors, cl, airport, law, rstats.refused)
     from .channel_claims import crossing_claims
     # §45 (13) (d) AMENDED (RULINGS 2026-09-15aw): the basin pass decides
     # first — THE ONE ordering site, shared with ``planar.build.build``

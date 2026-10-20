@@ -85,6 +85,9 @@ class RampCorridor:
     far_closed: bool = False
     flat: bool = False
     edge_wall: bool = False
+    #: #1028 Q31: an OPEN ramp object a mapped bore enters — the OSM mouths
+    #: standing in its footprint are its own (``structures`` precedence)
+    open_ramp: bool = False
 
     @property
     def ends(self) -> str:
@@ -199,7 +202,7 @@ def sunken_groups(roads: _t.Sequence, law: Law, refused: list[str] | None = None
         c = RampCorridor(r.id, r.resource, tuple(r.objects), tuple(axis), L, r.width_m,
                          t_side, t_side, "cut", r.mouth_dem_z, r.floor_z,
                          r.region, r.plate, r.region, r.anchor_xy, r.anchor_dem_z, r.agl_m,
-                         r.depth_m, notes)
+                         r.depth_m, notes, open_ramp=getattr(r, "open", False))
         out.append(Group([], axis[0], (-u0[0], -u0[1]), r.width_m, axis, c, r.id, L, True, True,
                          False, half_fn, rim_fn, standoff, None,
                          min(tn.ramp_max_grade, r.depth_m / max(L, 1e-9)), kind="sunken_road",

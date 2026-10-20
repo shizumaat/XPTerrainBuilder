@@ -92,6 +92,28 @@ An open plate that a tunnel or shell corridor already reads is dropped: one whos
 
 **For a next round.** An open pack ramp should govern only where the DEM does NOT already carry the cutting: the plate deeper than `mouth_depth_m` under the DEM. It should also be judged against the taxiway strip, since 19e and 19q forbid cutting a taxiway strip. That needs a spec author's ruling (Law B is ruled ROOFED, RULINGS 2026-09-08b/c).
 
+### Round 2 (lane lportal, 2026-10-20): the owner's two gates. LANDED
+
+Owner, 2026-10-20, answer 41: "Pack open-portal objects set the tunnel mouth only where the ground doesn't already carry the cutting, and never inside a taxiway strip."
+
+The iteration-2 witness is restored as it was, plus two gates. Every open ramp that is not its own leaves at ONE site, `planar/open_ramps.admitted_open_ramps`. That call sits in `planar/build` (and the dry replay `planar/__main__`), before the channel, basin and structure passes read the groups. In iteration 2 the drop happened inside `build_structures`, after `channels_after_basins` had already read the groups.
+
+- **(a) The ground already carries the cutting.** An open ramp whose floor lies within `cutout.sunken_road.open_dem_carries_m` (0.5 m, the ground visibility bar) of the DEM at every station is refused (`sunken_roads._dem_carries`). `channel_geometry._lidar_cut` does not fit this test. It witnesses BANKS standing on both sides of a channel axis, not the floor's agreement with the DEM, and it reads only where a credible lidar inset exists. The floor-to-DEM test reads any DEM.
+- **(b) Never inside a taxiway strip.** An open ramp whose footprint meets a runway or taxi-family cell ⊕ `structure_underpass.strip_half_width_m` is refused (`open_ramps.open_ramps_off_strip`). That half width is the derivation `verify/keepout.ramp_in_strip` prices. Runway shoulders manufacture no region (§40 (4)).
+
+Measured:
+
+| | result |
+|---|---|
+| EDDF `Tunnel_4.obj` ramp 1 (50.044406, 8.542157) | refused by (a): the floor lies within 0.44 m of the DEM along its length |
+| EDDF `Tunnel_4.obj@0` (cut at 50.0439911, 8.5410487, 1.79 m deep, 10.5 m) | refused by (b): it meets the taxiway strip over 3,184 m² (beside taxiway P) |
+| EDDF census replay (`v2_solve_replay --from classify --emit --verify` off `c971/EDDF.pkl`, then `census.py`) | the patch is BYTE-IDENTICAL to the main arm's: adjudicated 2,496 = 2,496. Main is no longer 1,334: batch D/E landed since |
+| OTHH / VHHH / KATL dry structure replay (`structure_replay_diff`, base = origin/main 5b6afc58e) | tunnels 22 / 21 / 9 and basins 10 / 10 / 0, IDENTICAL. VHHH's sunken-road refusal lines change only on the open path: `ROAD.obj` ×4 is refused for trench length or grade instead of roof cover, and `tunnel3_done.obj` ×2 is dropped as already a corridor's |
+
+**Attribution of iteration 2's +242 rows (50.0402, 8.5328).** The only difference between iteration 2 and this round is that the two `Tunnel_4` ramps are gone. With them gone, the emitted patch equals main's. So the rows came from the admitted objects, through the design LP's relaxation (groundside relaxed 220 → 399): they were not geometry at the site. This round did not re-run iteration 2 on today's main.
+
+**Blocker met on the way (#1098).** EDDF on main 5b6afc58e raises `GEOSException: side location conflict at -366.5 1257` in `planar/low_level.plan_low` (#809's lower level, `L.difference(others.buffer(w))`). It raises in the capture, in the replay and in the app (#1098). Both arms above ran with a lane-local guard: that block got no low level. The guard was never committed.
+
 ### EDDF: the 13 OSM tunnels this branch no longer builds (#1062 head: 47; this branch: 36 including 2 new)
 
 | tunnel | reason |

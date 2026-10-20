@@ -55,7 +55,7 @@ from ..model.frame import XY
 from ..model import pulse as _pulse
 from . import frame_entry as _fe
 from . import obj8 as _obj8
-from .deck_signature import family_key
+from .deck_signature import family_key, is_bridge_way, is_tunnel_way
 from .obj8_clip import _plan_admitted
 from .tunnel_objects import _rect_axis
 
@@ -108,6 +108,9 @@ class SunkenRoadRecord:
     anchor_dem_z: float
     agl_m: float
     notes: tuple[str, ...] = ()
+    #: #1028 Q31: an UNROOFED plate a mapped bore enters — the bore's own ramp
+    #: object (Law B's roof is waived; the cut runs to where the roof begins)
+    open: bool = False
 
     @property
     def depth_m(self) -> float:
@@ -302,6 +305,8 @@ class RoadReader:
     #: reader, never per family (KASE: 2,191 families, 12 s of a 0.3 s read)
     to_ll: _t.Any
     cover: dict = _dc.field(default_factory=dict)
+    #: the mapped roads and the ways over them (``_bore_enters``), once per reader
+    bores: _t.Any = None
 
 
 def road_reader(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
@@ -368,6 +373,118 @@ def read_sunken_roads(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject]
         for _fk, ks in _pulse.each(fams, "sunken roads", "families")))
     stats.read_s = time.perf_counter() - t0
     return out, stats
+
+
+def _aeroway_bridge(tags) -> bool:
+    """A mapped aeroway on a bridge (a taxiway over an underpass, §34 (5));
+    never a jet bridge (RULINGS 2026-09-13bm item 1)."""
+    b = tags.get("bridge")
+    return bool(b) and b != "no" and "aeroway" in tags and tags.get("aeroway") != "jet_bridge"
+
+
+def _bore_enters(rd: "RoadReader", plate: Polygon, region: Polygon) -> bool:
+    """THE TUNNEL WITNESS of an open plate (#1028 Q31): a mapped road runs
+    ALONG the plate (``highway`` / ``railway`` line inside it for at least
+    half the plate's length) AND goes under something there — a mapped
+    tunnel way or bridge way (an aeroway bridge over an underpass, §34 (5))
+    crosses that road inside the object's region.  A descending plate a road runs along
+    with nothing over it is a cutting or a drainage bowl, never a tunnel's
+    ramp.  The ways are read once per reader."""
+    if rd.bores is None:
+        adm = rd.law.tables.structures.tunnel.admitted_values
+        roads, over = [], []
+        for w in rd.airport.osm_ways:
+            if len(w.points) < 2:
+                continue
+            ln = LineString(w.points)
+            if is_tunnel_way(w.tags, adm) or is_bridge_way(w.tags) or _aeroway_bridge(w.tags):
+                over.append(ln)
+            if "highway" in w.tags or "railway" in w.tags:
+                roads.append(ln)
+        rd.bores = (roads, STRtree(roads) if roads else None, STRtree(over) if over else None)
+    roads, rtree, otree = rd.bores
+    if rtree is None or otree is None:
+        return False
+    ra = _rect_axis(plate)
+    if ra is None:
+        return False
+    length = ra[0]
+    for k in rtree.query(plate, predicate="intersects"):
+        inside = roads[int(k)].intersection(region)
+        # the road runs ALONG the object — the ramp carries it — and the way
+        # over it (a tunnel, an aeroway bridge) crosses THAT road there
+        if roads[int(k)].intersection(plate).length < 0.5 * length:
+            continue
+        if any(over.intersects(inside) for over in
+               (otree.geometries[int(j)] for j in otree.query(region, predicate="intersects"))):
+            return True
+    return False
+
+
+def _dem_carries(sts: _t.Sequence[RoadStation], sr) -> str | None:
+    """THE GROUND ALREADY CARRIES THE CUTTING (owner 2026-10-20 answer 41,
+    #1028): an open ramp whose floor lies within ``open_dem_carries_m`` of
+    the DEM at EVERY station sets no mouth — the refusal line, or ``None``
+    when the plate stands deeper than that somewhere along its length."""
+    deep = max(st.ground_z - st.z for st in sts)
+    if deep > sr.open_dem_carries_m:
+        return None
+    return (f"an open ramp whose floor lies within {deep:.2f} m of the DEM along its "
+            f"length (<= open_dem_carries_m {sr.open_dem_carries_m}): the ground "
+            f"already carries the cutting (#1028 answer 41)")
+
+
+def _one_ramp(ordered, rows, axis: LineString, sr, roof):
+    """ONE ramp of a plate walked from its grade end (``ordered``): ``(trench
+    length, stations, axis points, cut note)`` or the refusal line.  The cut
+    is where the plate reaches ``max_depth_m`` (Law B: deeper is the road
+    under the building's tube) — or, for an OPEN ramp (``roof`` given, #1028
+    Q31), where the roof begins over it or the plate is deepest, whichever
+    comes first: no tube hides a terrain end wall there."""
+    dep = [r[4] - r[1] for r in ordered]
+    i_top = next((i for i, d in enumerate(dep) if d > sr.top_depth_m), None)
+    if i_top is None:
+        return "the plate never leaves the top band"
+    s_top = ordered[i_top][0] if i_top == 0 else _cross(ordered, i_top - 1, i_top, sr.top_depth_m)
+    if roof is not None:
+        i_deep = max(range(len(dep)), key=lambda k: dep[k])
+        i_roof = next((k for k in range(i_top, i_deep + 1)
+                       if roof.intersects(axis.interpolate(ordered[k][0]))), None)
+        i_cut = i_deep if i_roof is None else i_roof
+        s_cut = ordered[i_cut][0]
+        cut_note = ("cut ends where the roof (the bore) begins" if i_roof is not None
+                    else "cut ends at the plate's deepest station")
+    else:
+        i_cut = next((i for i, d in enumerate(dep) if d >= sr.max_depth_m), None)
+        if i_cut is None:
+            s_cut = ordered[-1][0]
+            cut_note = (f"the plate ends {dep[-1]:.2f} m under the ground (< max_depth_m "
+                        f"{sr.max_depth_m})")
+        else:
+            s_cut = _cross(ordered, i_cut - 1, i_cut, sr.max_depth_m) if i_cut > 0 \
+                else ordered[0][0]
+            cut_note = f"cut ends where the plate reaches max_depth_m {sr.max_depth_m}"
+    if abs(s_cut - s_top) < sr.station_m:
+        return (f"the trench would be {abs(s_cut - s_top):.1f} m long (< station_m "
+                f"{sr.station_m})")
+    # re-sample s = 0 at the cut, growing toward the top
+    sign = 1.0 if s_top > s_cut else -1.0
+    total = abs(s_top - s_cut)
+    ss = [sr.station_m * k for k in range(int(total // sr.station_m) + 1)]
+    if total - ss[-1] > 1e-6:
+        ss.append(total)
+    sts: list[RoadStation] = []
+    pts: list[XY] = []
+    for s in ss:
+        so = s_cut + sign * s
+        p = axis.interpolate(so)
+        pts.append((p.x, p.y))
+        z = _interp(rows, so, 1)
+        hl, hr = _interp(rows, so, 2), _interp(rows, so, 3)
+        if sign < 0:
+            hl, hr = hr, hl
+        sts.append(RoadStation(s, z, hl, hr, _interp(rows, so, 4)))
+    return total, sts, pts, cut_note
 
 
 def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
@@ -452,42 +569,6 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
                                  f"{shallow:.2f} m under the ground (> contact_band_m "
                                  f"{bl.contact_band_m}) — a basement or a pit, the basin pass's")
             continue
-        # walk from the grade end down: the top, then the cut
-        ordered = rows if deep_end == 1 else list(reversed(rows))
-        dep = [r[4] - r[1] for r in ordered]
-        i_top = next((i for i, d in enumerate(dep) if d > sr.top_depth_m), None)
-        if i_top is None:
-            stats.refused.append(f"{name} at {site}: the plate never leaves the top band")
-            continue
-        s_top = ordered[i_top][0] if i_top == 0 else _cross(ordered, i_top - 1, i_top, sr.top_depth_m)
-        i_cut = next((i for i, d in enumerate(dep) if d >= sr.max_depth_m), None)
-        if i_cut is None:
-            s_cut = ordered[-1][0]
-            cut_note = f"the plate ends {dep[-1]:.2f} m under the ground (< max_depth_m {sr.max_depth_m})"
-        else:
-            s_cut = _cross(ordered, i_cut - 1, i_cut, sr.max_depth_m) if i_cut > 0 else ordered[0][0]
-            cut_note = f"cut ends where the plate reaches max_depth_m {sr.max_depth_m}"
-        if abs(s_cut - s_top) < sr.station_m:
-            stats.refused.append(f"{name} at {site}: the trench would be {abs(s_cut - s_top):.1f} m "
-                                 f"long (< station_m {sr.station_m})")
-            continue
-        # re-sample s = 0 at the cut, growing toward the top
-        sign = 1.0 if s_top > s_cut else -1.0
-        total = abs(s_top - s_cut)
-        ss = [sr.station_m * k for k in range(int(total // sr.station_m) + 1)]
-        if total - ss[-1] > 1e-6:
-            ss.append(total)
-        sts: list[RoadStation] = []
-        pts: list[XY] = []
-        for s in ss:
-            so = s_cut + sign * s
-            p = axis.interpolate(so)
-            pts.append((p.x, p.y))
-            z = _interp(rows, so, 1)
-            hl, hr = _interp(rows, so, 2), _interp(rows, so, 3)
-            if sign < 0:
-                hl, hr = hr, hl
-            sts.append(RoadStation(s, z, hl, hr, _interp(rows, so, 4)))
         region = None
         if region_u is not None:
             cands = [g for g in shapely.get_parts(region_u)
@@ -503,28 +584,47 @@ def read_family(rd: RoadReader, members: _t.Sequence[_obj8.PlacedObject]
                 cover_cache[o.id] = _obj8.above_grade_footprint(o, cache, dem_z, bl.contact_band_m)
             if cover_cache[o.id] is not None:
                 covering.append(cover_cache[o.id])
-        if covering:
-            cover = _fe.union(covering, "sunken_roads.cover") \
-                .intersection(plate).area / plate.area
-        if cover < sr.roof_min_fraction:
-            stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 ({length:.0f} x "
-                                 f"{width:.0f} m, {shallow:.2f}..{deepest:.2f} m under) is roofed "
-                                 f"over {cover:.0%} of its area (< roof_min_fraction "
-                                 f"{sr.roof_min_fraction:.0%}) — an open ramp, not a sunken road "
-                                 f"under a building (spec §3)")
-            continue
-        mean_w = 2.0 * sum((st.half_l + st.half_r) / 2.0 for st in sts) / len(sts)
-        notes = (f"plate {plate.area:.0f} m2 ({length:.0f} x {width:.0f} m) from {len(own)} face(s) "
-                 f"of {len({o.id for o in own})} placement(s); the family's cover over it {cover:.0%}",
-                 f"profile: shallow end {shallow:.2f} m under the ground (<= contact_band_m "
-                 f"{bl.contact_band_m}), deepest {deepest:.2f} m; {cut_note}",
-                 f"trench {total:.1f} m from the cut (floor {sts[0].z:.2f}, ground "
-                 f"{sts[0].ground_z:.2f}) to the top (floor {sts[-1].z:.2f}, ground "
-                 f"{sts[-1].ground_z:.2f}); mean width {mean_w:.1f} m")
-        out.append((o0.path, name, SunkenRoadRecord(
-            "", o0.path, tuple(sorted({o.id for o in own})), tuple(pts), tuple(sts),
-            float(total), float(mean_w), float(sts[0].z), float(sts[0].ground_z),
-            float(sts[-1].z), float(sts[-1].ground_z), plate,
-            Polygon(region.exterior.coords), float(cover),
-            o0.xy, float(o0.anchor_z), float(o0.agl_m), notes)))
+        roof = _fe.union(covering, "sunken_roads.cover") if covering else None
+        if roof is not None:
+            cover = roof.intersection(plate).area / plate.area
+        # #1028 Q31: an UNROOFED plate a mapped bore enters is that bore's own
+        # ramp object (owner: "objects around a tunnel take priority for the
+        # size, shape, depth and location of tunnel trenches") — one ramp per
+        # grade end, each cut down to where the roof (the bore) begins
+        is_open = cover < sr.roof_min_fraction and _bore_enters(rd, plate, region)
+        ends = [1, 0] if is_open and max(d_first, d_last) <= bl.contact_band_m else [deep_end]
+        for de in ends:
+            ordered = rows if de == 1 else list(reversed(rows))
+            got = _one_ramp(ordered, rows, axis, sr, roof if is_open else None)
+            if isinstance(got, str):
+                stats.refused.append(f"{name} at {site}: {got}")
+                continue
+            total, sts, pts, cut_note = got
+            if not is_open and cover < sr.roof_min_fraction:
+                stats.refused.append(f"{name} at {site}: plate {plate.area:.0f} m2 ({length:.0f} x "
+                                     f"{width:.0f} m, {shallow:.2f}..{deepest:.2f} m under) is roofed "
+                                     f"over {cover:.0%} of its area (< roof_min_fraction "
+                                     f"{sr.roof_min_fraction:.0%}) — an open ramp, not a sunken road "
+                                     f"under a building (spec §3)")
+                continue
+            if is_open and (why := _dem_carries(sts, sr)) is not None:
+                stats.refused.append(f"{name} at {site}: {why}")
+                continue
+            mean_w = 2.0 * sum((st.half_l + st.half_r) / 2.0 for st in sts) / len(sts)
+            notes = (f"plate {plate.area:.0f} m2 ({length:.0f} x {width:.0f} m) from {len(own)} face(s) "
+                     f"of {len({o.id for o in own})} placement(s); the family's cover over it {cover:.0%}",
+                     f"profile: shallow end {shallow:.2f} m under the ground (<= contact_band_m "
+                     f"{bl.contact_band_m}), deepest {deepest:.2f} m; {cut_note}",
+                     f"trench {total:.1f} m from the cut (floor {sts[0].z:.2f}, ground "
+                     f"{sts[0].ground_z:.2f}) to the top (floor {sts[-1].z:.2f}, ground "
+                     f"{sts[-1].ground_z:.2f}); mean width {mean_w:.1f} m") + (
+                ("an OPEN ramp a mapped road runs along under a tunnel or bridge (#1028 "
+                 "Q31): the road's own ramp object, cut to where its roof begins",)
+                if is_open else ())
+            out.append((o0.path, name, SunkenRoadRecord(
+                "", o0.path, tuple(sorted({o.id for o in own})), tuple(pts), tuple(sts),
+                float(total), float(mean_w), float(sts[0].z), float(sts[0].ground_z),
+                float(sts[-1].z), float(sts[-1].ground_z), plate,
+                Polygon(region.exterior.coords), float(cover),
+                o0.xy, float(o0.anchor_z), float(o0.agl_m), notes, is_open)))
     return stats, out

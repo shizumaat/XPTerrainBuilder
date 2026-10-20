@@ -50,6 +50,7 @@ from ..airport.sunken_roads import SunkenRoadStats
 from .pack_reads import pack_reads, ring_reads, wall_corridor_reads
 from ..airport.wall_corridors import WallCorridorStats
 from .door_ramps import door_groups, sunken_groups
+from .open_ramps import admitted_open_ramps
 from .wall_corridor_ramps import wall_corridor_groups
 
 __all__ = ["BuildStats", "build"]
@@ -245,6 +246,9 @@ def build(airport: Airport, classification: Classification, law: Law,
     rings = ring_reads(airport, objects, cache, law)
     extra = door_groups(wells, law) + sunken_groups(roads, law, rstats.refused) \
         + wall_corridor_groups(walls_c, law)
+    # #1028 Q31 / answer 41: an OPEN pack ramp that is not its own leaves
+    # HERE, before the channel, basin and structure passes read the groups
+    extra = admitted_open_ramps(extra, corridors, classification, airport, law, rstats.refused)
     # the reads are done: what follows is the channel / structure / basin
     # decision, and the heartbeat says so (not the last read's label)
     _pulse.tick("channels, structures and basins")

@@ -306,6 +306,7 @@ top_depth_m      = 0.1              # the trench's top station: the first statio
 min_descent_m    = 1.0              # the plate descends at least this between its grade end and its deep end (a kerb dip is not a sunken road)
 min_plate_m2     = 200.0            # a connected near-horizontal plate smaller than this is not a road (a ramp panel, a step)
 roof_min_fraction = 0.5             # the plate lies under the family's own above-band solids (basin.contact_band_m; obj8.above_grade_footprint) over at least this share of its area — a sunken road is ROOFED (spec §3 "a floor plate below the seat that is ROOFED"); less is an open ramp the tunnel / basin laws own (measured OTHH: the bus bridges' bank plates 16-20 % under their decks, 1.8 m deep, would otherwise be cut)
+open_dem_carries_m = 0.5           # owner 2026-10-20 answer 41 (#1028): a pack OPEN ramp (an unroofed plate a mapped road runs along under a tunnel or bridge, airport/sunken_roads._bore_enters) sets the tunnel mouth ONLY where the ground does not already carry the cutting — a ramp whose floor lies within this of the DEM at every one of its stations is refused, the DEM's own cutting stands (the ground visibility bar, owner 2026-10-15).  MEASURED EDDF HESSE1M: the pack's Tunnel_3/4 floors sit 0.4-1.8 m under the lidar
 station_m        = 10.0             # station spacing along the plate's axis (the profile is sampled here; the within-shape law prices every ring pair)
 seat             = "none"           # the family is NEVER re-seated by its trench (spec §3: unit:26's 399 members stay)
 

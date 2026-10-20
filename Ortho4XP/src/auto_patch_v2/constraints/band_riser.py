@@ -65,6 +65,8 @@ def riser_release(planar: PlanarMap, law: Law, cs: ConstraintSet,
     if not risers:
         floors = _standoff_floors(standoffs, set())
         rep["floors"] = len(floors)
+        if not floors and not graded:
+            return cs, rep               # nothing here: the set itself
         return _dc.replace(cs, linears=tuple(cs.linears) + tuple(floors),
                            bands=tuple(cs.bands) + tuple(graded)), rep
     from shapely.geometry import LineString, Polygon

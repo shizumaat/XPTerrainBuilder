@@ -50,7 +50,11 @@ def band_road_wall_joints(planar: PlanarMap, law: Law,
         return []
     from .ribbon_steps import _to_ll
     to_ll = _to_ll(planar)
-    floor = float(law.tables.emit.materiality.elevation_m)
+    # a wall under the cockpit's visual step is ground, not a wall: no
+    # census family reads a step that small, and a declared line would only
+    # re-price the pairs across it (``terrace_actual_step``)
+    floor = max(float(law.tables.emit.materiality.elevation_m),
+                float(law.tables.emit.cockpit.visual_m))
     out: list[dict[str, _t.Any]] = _standoff_records(planar, standoffs, z, floor, to_ll)
     if risers:
         out.extend(_kerb_records(planar, law, risers, z, floor, to_ll))

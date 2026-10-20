@@ -27,7 +27,7 @@ def _obj(tmp_path, name, y0, y1, *, anim_y=None, dx=0.0):
     if anim_y is not None:
         body += ["ANIM_begin", "TRIS 6 3", "ANIM_end"]
     (tmp_path / "objects").mkdir(exist_ok=True)
-    (tmp_path / "objects" / name).write_text("\n".join(body) + "\n")
+    (tmp_path / "objects" / name).write_text("\n".join(body) + "\n", encoding="utf-8", newline="\n")
     return "objects/" + name
 
 

@@ -165,7 +165,7 @@ def _seat_set(members: list, feet: list, rows: list, surface: Surface,
     if _on_unit_pad(unit_seats, float(p.lat), float(p.lon), z0, tol_m):
         _bump(c, "msl_feet_on_unit_pad", len(members))
         return []
-    needs = [n for m, f in zip(members, feet)
+    needs = [n for m, f in zip(members, feet, strict=True)
              for n in _foot_needs(rows[m.index], f, surface)]
     if not needs:
         _bump(c, "msl_feet_off_sheet", len(members))

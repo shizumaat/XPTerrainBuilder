@@ -135,3 +135,22 @@ def test_the_run_ends_where_the_axis_leaves_the_mapped_road():
     assert road_end_m(LineString([(0.0, 0.0), (90.0, 0.0)]), ix, 3.5, 1.0) is None
     # a TUNNEL way is no road the ramp may follow: no road at all ends the run at once
     assert road_end_m(LineString([(150.0, 50.0), (300.0, 50.0)]), ix, 3.5, 1.0) == 0.0
+
+
+def test_a_ramp_hosted_in_an_apron_stops_at_its_edge(law):
+    """Clause 3: an apron the ramp lies within from its mouth HOSTS it (and
+    is cut) — but the ramp never crosses OUT of it (#1028 Q32: never cross a
+    pavement edge).  The design ramp would run ~150 m; the apron (off-centre,
+    so no pavement traces the ramp's width from it) ends 100 m
+    past the portal, and no ramp cell stands beyond that edge."""
+    from shapely.geometry import Polygon as _P
+    cells = (Cell(0, "runway", "09/27", _rect(-600, 800, 600, 845), (), 3, "D", "airside",
+                  "runway", {}),
+             Cell(1, "apron", "host", _rect(55, -12, 160, 40), (), None, "D", "airside",
+                  "apron", {}))
+    cl2, tunnels, st = build_structures(_airport(law, _Dem()),
+                                        Classification(cells, (), {}, ()), law)
+    east = [t for t in tunnels if t.axis[0][0] > 0]
+    assert east, st.refused
+    ramps = [_P(c.ring) for c in cl2.cells if c.role == "tunnel_ramp" and c.ring[0][0] > 0]
+    assert ramps and max(x for p in ramps for x, _y in p.exterior.coords) <= 160.0 + 1e-6

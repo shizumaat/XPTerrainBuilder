@@ -377,7 +377,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # where a ramp NOTHING frames must have topped out: its road's own end
         # (#1028: where the axis leaves the mapped road, not its straight extension)
         road_end = road_end_m(axis_ln, roads_ix, half, spacing_g) if c is None else None
-        run_ends: list[tuple[float, str]] = [(axis_ln.length if road_end is None else road_end,
+        # (the top's one station of slack, ``ramp_top``, may stand past it)
+        run_ends: list[tuple[float, str]] = [(axis_ln.length if road_end is None
+                                              else road_end + spacing_g,
                                               "the mapped road's end")]
         if tid in run_limits:
             run_ends.append(run_limits[tid])

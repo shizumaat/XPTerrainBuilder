@@ -28,7 +28,9 @@ object the rule names, and keeps its building-pad stops alone):
    runs INSIDE from the mouth for at least the shortest lawful ramp
    (``mouth_depth_m / ramp_max_grade``) HOSTS the ramp — the tunnel is
    "entirely within pavement" — and is cut, as 08-07 ruling 4 has always
-   cut it.  A taxi face never hosts (clause 1).
+   cut it.  A taxi face never hosts (clause 1).  The host's own EDGE,
+   clear of the mouth's cap, still stops the ramp (#1028 Q32: a ramp never
+   crosses a pavement edge).
 
 4. **Nor the road or lot it runs beside** (owner RULINGS 2026-10-19o):
    every other road or parking face stops the corridor too, save the
@@ -105,6 +107,11 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
     keep = unary_union(list(decked)).buffer(grid) if decked else None
     min_run = tn.mouth_depth_m / tn.ramp_max_grade
     mp = Point(mouth)
+    # the mouth's own end (its cap behind the mouth line, the first metres of
+    # ramp): a host's edge there is where the ramp enters it, never a stop
+    lead = min(axis.length, 2.0 * (half + rim_off))
+    mouth_end = _extend_back(substring(axis, 0.0, lead), 2.0 * rim_off).buffer(
+        half + 2.0 * rim_off + grid, cap_style="flat") if lead > 0.0 else mp.buffer(half + rim_off)
     out: list[tuple[Polygon, str]] = []
     for p, c in zip(polys, cells):
         if c.kind == "structure" or c.role == "building" or not is_value_role(law, c.role) \
@@ -122,7 +129,14 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
                 out.append((p, c.ref))                # §34 (12) (3), unchanged
             continue
         if at_mouth and _host_run_m(axis, p, grid) >= min_run:
-            continue                                  # clause 3: the ramp's host
+            # clause 3: the ramp's host — cut, but never crossed out of
+            # (owner #1028 Q32: "never cross a pavement edge"): its edge,
+            # clear of the mouth's own cap, stops the ramp's top
+            edge = None if _own_road(axis, p, half + rim_off, grid) else \
+                p.exterior.buffer(grid).difference(mouth_end)
+            if edge is not None and not edge.is_empty:   # (the ramp's own road IS it)
+                out.append((edge, f"{c.ref}#edge"))
+            continue
         if not airside and _own_road(axis, p, half + rim_off, grid):
             continue                                  # clause 4: the ramp's own road
         out.append((p, c.ref))                        # clauses 2 and 4

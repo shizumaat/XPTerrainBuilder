@@ -279,6 +279,13 @@ class Member:
     #: then falls back to the VERTICAL-ONLY roll-up and SAYS SO (the
     #: per-member upper bound §1 (3) names as "what a dry report reads").
     origin: "LL | None" = None
+    #: THE AUTHORED ZERO (owner Q54, #1102; ``obj8.PlacedObject.zero_y``):
+    #: the authored y the partition read this member's frame against — a
+    #: converted ``OBJECT_MSL`` row standing above its origin.  Every
+    #: ``Part.base_y`` is relative to it; the writer restores the pristine
+    #: frame by it (``placement_file``), so such a member is never kept
+    #: whole.  0.0 for every other member (and absent from the plan).
+    zero_y: float = 0.0
 
 
 @_dc.dataclass(frozen=True)
@@ -434,6 +441,7 @@ class RebakePlan:
                     "base_profile": dict(m.base_profile or {}),
                     "origin": (None if m.origin is None
                                else [float(m.origin[0]), float(m.origin[1])]),
+                    **({"zero_y": m.zero_y} if m.zero_y else {}),
                 } for m in u.members],
             } for u in self.units],
         }
@@ -532,6 +540,7 @@ class RebakePlan:
                 base_profile=dict(m.get("base_profile") or {}),
                 origin=(None if m.get("origin") is None
                         else (float(m["origin"][0]), float(m["origin"][1]))),
+                zero_y=float(m.get("zero_y") or 0.0),
             ) for m in u["members"])) for u in d["units"])
         return cls(icao=str(d["icao"]), pack_name=str(d["pack_name"]),
                    pack_root=str(d["pack_root"]), units=units,

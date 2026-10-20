@@ -104,3 +104,79 @@ landing registry and rows. It adds no column class and no generator.
 
 The strip's two rims stand 1 m apart (the riser width), the wall-gap form
 (RULINGS 2026-09-01c); the object's facade covers it.
+
+## §5 THE UPPER LEVEL — the mirror (#1101 / #1099)
+
+Owner answer 47 (2026-10-20 15:46Z, "yes to both"): the pad gets a second,
+UPPER rigid level, a storey above the airside level and tied to it, and
+landside lots and roads meet it; a lot that touches the apron only across
+that object-witnessed storey stays groundside under §27.
+
+### §5.1 Measured (LPHR terminal, 38.521557, −28.716632)
+
+- **The object.** The terminal unit (`lphr_tps_01…06`) stands with its
+  grounded parts at y 0 on the apron. Its forecourt parapet (`tps_06`, a
+  68 m × 1 m part) runs at y +6.0 exactly along the forecourt `pav2`'s
+  68 m contact with the apron (`dsf:objpav0`); the landside columns and
+  hall stand at +6.0 too.
+- **The pad.** `building1` (1,662 m², held CONFORMING; the cluster reads
+  FEET, not STEPPED — so §2's gate never reads it).
+- **The defect.** With the apron restored (#1100), §27 flipped `pav2` to
+  apron across that contact: 8.96 m under its ground. As a lot it was
+  held off `building1` as a §28 (6) hillside and sat at the pad's level
+  where it met the apron.
+- **The DEM** rises 26.8 → 34 m from the apron to the forecourt but
+  smoothly (~2 m across the parapet line, +2.0 m between the pad's two
+  rims): it does not witness the storey. The object does.
+
+### §5.2 The rule
+
+1. **The storey** (`airport/unit_storey.py`, one reader for classify and
+   planar). A unit's airside FLOOR `t` is the base most of its GROUNDED
+   parts (`Part.feet`) within `pad_frontage_m` of airside pavement stand
+   at; its UPPER STOREY is its parts authored at least `[building_pad]
+   low_level_min_step_m` above `t`, read by their plan footprints.
+2. **§27 across the storey** (`classify/storey_edge.py`, called by
+   `roles.classify` around `airside_edge_flip`). A contact's run inside
+   the weld-widened storey footprint is no apron contact. A lot that run
+   alone keeps groundside (≥ `airside_edge_min_m` of it) carries
+   `airside_edge_storey_m` and `airside_edge_storey_y` (the most common
+   authored rise of the upper parts along the run), and is CUT BACK from
+   the airside along its whole airside contact by the pad set-back
+   (`groundside_cutback_m` + snap margin): the storey is a riser.
+3. **The weld.** `roles._cut_back_groundside` welds such a lot to the pad
+   it touches instead of holding it off as a §28 (6) hillside — it meets
+   the upper level, not the floor.
+4. **The mint** (`planar/low_level.plan_up`, after the lower levels, for
+   any HELD pad — conforming too — no lower level split). The pad's strip
+   within `pad_frontage_m` of the storey lots it touches, kept
+   `pad_frontage_m` + the riser width off the airside and off every other
+   pad, is `<pad>/p1` (`kind = "upper_level"`), the riser `<pad>/p1#strip`
+   between it and the pad (§2 (4)'s width). A piece narrower than the
+   riser can stand beside is dropped; the pad must keep `min_area_m2`.
+5. **The level** is the LANDING's rigid row: `landing_rows` holds every
+   vertex at `z = D + y` (`y` = the storey's rise) against the pad's datum
+   column — "a storey above the airside level and tied to it". No own-
+   ground row (a landing's datum is its deck; the DEM does not witness the
+   storey). Withdrawn from the pad datum like a landing.
+
+### §5.3 Consumer census (RULINGS 2026-08-30l)
+
+| # | consumer | ruling |
+|---|---|---|
+| U1 | `classify/airside_edge.airside_edge_flip` / `_lateral_airside_m` | EDITED: `storey=` drops the run across the storey; `storey_cuts=` collects it |
+| U2 | `classify/roles.classify` | EDITED: the band, the flip, `knife_storeys` (stat `storey_lots`) |
+| U3 | `classify/roles._cut_back_groundside` | EDITED: a storey lot is welded, never §28 (6)-held |
+| U4 | `classify/gap_apron` (second §27 caller) | UNCHANGED: no storey (gap pieces are no lots beside a unit) |
+| U5 | `planar/overlay.build_arrangement` → `platform_split` → `low_level_split` | EDITED: the storey lots' `(polygon, rise)` ride in |
+| U6 | `constraints/platform.landing_rows` | UNCHANGED: an `upper_level` record is a landing (equality at `y`) |
+| U7 | `constraints/pads.pad_datum_withdrawn` | UNCHANGED: withdrawn as a landing |
+| U8 | `constraints/cluster_pad._split_blocks` (plane groups) | EDITED: a level `/p<k>` is its own plane for a whole-unit pad too (MEASURED LPHR: in `building1`'s cluster group its 46 rigid rows were relaxed and it sat at the floor) |
+| U9 | `pad_frontage_level`, `pad_fronting`, `stage_air_vertices`, `block_strip_rows`, `wall_cut._riser_edges`, `placement_read` | UNCHANGED: keyed on the `/p<k>` spelling (§3 rows 7–12) |
+| U10 | `pipeline/stage_code`, `O4_Step_Code`, `provenance_code` | EDITED: `airport.unit_storey`, `classify.storey_edge` keyed |
+
+### §5.4 Emittability
+
+As §4: the strip's two rims stand one riser width apart; inside the pad
+the terminal's own facade covers it, and along the forecourt's apron
+contact the knifed stand-off is the parapet's retaining wall.

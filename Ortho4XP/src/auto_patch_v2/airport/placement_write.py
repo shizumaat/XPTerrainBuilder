@@ -197,7 +197,7 @@ def build_plan(rebake_plan: _t.Any, dump: _t.Any, surface: _t.Callable,
     conversions, msl, riders, counts_extra = dump_rows(
         dump, rebake_plan, ss, splits, surface, pack_root, tol_m=hard_tol_m,
         pads=pads, jetway_strips=jetway_strips, gate_m=jetway_strip_m,
-        keep_tol_m=authored_keep_tol_m)
+        keep_tol_m=authored_keep_tol_m, feet_tol_m=split_tol_m)
     files = tuple(f for s in ss.splits for f in s.files)
     counts = dict(ss.counts)
     counts.update(counts_extra)
@@ -215,7 +215,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
               surface: _t.Callable, pack_root: str, *, tol_m: float,
               pads: _t.Sequence = (), jetway_strips: _t.Sequence = (),
               gate_m: float | None = None,
-              keep_tol_m: float = 0.0) -> tuple[tuple, tuple, tuple, dict]:
+              keep_tol_m: float = 0.0,
+              feet_tol_m: float = 0.3) -> tuple[tuple, tuple, tuple, dict]:
     """THE ROW HALF of the plan — ``(conversions, msl seats, riders,
     counts)``: what becomes of every DSF row the SPLIT did not replace.
     ONE implementation, two callers (:func:`build_plan` and
@@ -239,7 +240,10 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     * the riders (:func:`seat_riders`);
     * 14g (2): an ``OBJECT_AGL`` row whose written ``OBJECT_MSL`` would
       equal its drape within ``keep_tol_m`` stays AGL
-      (:func:`_agl_rows_kept`; 0 disarms)."""
+      (:func:`_agl_rows_kept`; 0 disarms);
+    * owner answer 48 (#1102): a converted ``OBJECT_MSL`` row is seated
+      on its row with its geometry's feet on the surface under them
+      (``msl_feet.feet_seats``) instead of converted."""
     _records = getattr(rebake_plan, "authored_seats", ()) or ()
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
@@ -262,6 +266,14 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
         dump, jetway_strips, pads, surface, settled, msl, conv0, conversions,
         tol_m=tol_m, authored_ground=ground, gate_m=gate_m)
     msl, agl_kept = _agl_rows_kept(dump, msl, surface, keep_tol_m)
+    # owner answer 48 (2026-10-20, #1102): a converted OBJECT_MSL row is
+    # seated by its geometry's FEET, on its row, not by its origin
+    from . import msl_feet as _mf
+    # (``feet_tol_m`` = ``[placement] split_tol_m``, the seat's materiality)
+    feet, conversions = _mf.feet_seats(dump, conversions, surface, pack_root,
+                                       ss.unit_seats, tol_m=feet_tol_m,
+                                       drape_tol_m=tol_m, counts=msl_counts)
+    msl = tuple(msl) + feet
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,

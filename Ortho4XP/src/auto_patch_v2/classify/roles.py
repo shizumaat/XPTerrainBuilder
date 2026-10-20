@@ -104,6 +104,7 @@ from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
 from .airside_edge import airside_edge_flip
+from .storey_edge import STOREY_Y_KEY
 from .evidence import Chain, Evidence, build_evidence, polygon_parts
 from .neck import necks_of, split_at_necks
 from .open_default import (apron_evidence, open_pavement_role,
@@ -658,9 +659,16 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
                      f"{shared:,.1f} m with runway {rw.id} (§40 (1))")
 
     # ── §27: an airside edge makes a lot (and a road) airside ──────
+    # (a contact across a unit's own storey is none, owner answer 47 #1099:
+    # the lot is cut back along it, ``storey_edge``)
+    from .storey_edge import knife_storeys, storey_band
+    band, storey_cuts = storey_band(airport, law, cells, final), {}
     stats["airside_edge_lots"], stats["airside_edge_rounds"] = \
-        airside_edge_flip(final, cells, law, rules,
-                          [c.line for c in ev.truck_chains])
+        airside_edge_flip(final, cells, law, rules, [c.line for c in ev.truck_chains],
+                          storey=band, storey_cuts=storey_cuts,
+                          to_xy=None if airport.frame is None else airport.frame.entry())
+    stats["storey_lots"] = knife_storeys(final, storey_cuts, law,
+                                         rules.cells.min_area_m2, band)
     # ── 19ag: pavement aircraft cannot reach is groundside (#808) ───
     from .reachability import unreachable_aprons
     stats.update(unreachable_aprons(final, [p for _rw, p in ev.runway_polys], law,
@@ -1006,8 +1014,10 @@ def _cut_back_groundside(cells: list[Cell], law: Law, rules: Rules,
             if ref not in knives:
                 knives[ref] = pads[ref].buffer(knife_m, join_style="mitre",
                                                mitre_limit=2.0)
-            if hold and is_held_step(law, dem_step_m(g, pads[ref], knives[ref],
-                                                     airside, dem, law)):
+            # a lot a storey up (``storey_edge``) meets the pad's UPPER
+            # LEVEL: welded, never held off as a hillside (#1101)
+            if hold and STOREY_Y_KEY not in c.evidence and is_held_step(
+                    law, dem_step_m(g, pads[ref], knives[ref], airside, dem, law)):
                 held.append(ref)
                 cutters.append(knives[ref])    # HELD: the terrace's knife
             else:

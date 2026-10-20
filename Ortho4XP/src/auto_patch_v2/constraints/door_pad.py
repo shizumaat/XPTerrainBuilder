@@ -162,9 +162,14 @@ def _derive(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
                    .distance(king_u))
         mid = door.interpolate(0.5, normalized=True)
         tp = nearest_points(mid, king_u)[1]
-        line = LineString([hull.centroid, mid, tp]) if mid.distance(tp) > 0 else \
-            LineString([hull.centroid, mid])
-        corridor = line.buffer(0.5 * share_c * door.length)
+        # the corridor runs FROM THE DOOR WALL (flat-ended there, so the
+        # rim behind the door blends).  MEASURED (KASE closing build, pads
+        # following stage 1): a corridor from the pad's centroid held the
+        # far wall's rim rows at the apron cap and the stage-2 hard set went
+        # infeasible (0.27 m), the door line giving 3.6 % against 2.02
+        hw = 0.5 * share_c * door.length
+        corridor = (LineString([mid, tp]).buffer(hw, cap_style="flat").buffer(0.5)
+                    if mid.distance(tp) > 0 else mid.buffer(hw))
         blend = {v for v in rim
                  if not corridor.contains(Point(planar.vertices[v].xy))}
         # EVERY vertex of the pad, the ones it shares with a taxiway too:
@@ -209,11 +214,15 @@ def blend_release(planar: PlanarMap, law: Law, airport: Airport | None,
             held.update(_face_vertices(planar, f))
     zone = unary_union([Polygon([planar.vertices[v].xy for v in d.group]).convex_hull
                         for d in pads]).buffer(reach)
+    # the pad's own vertices too: one the stage-1 map also carries (an apron
+    # vertex the 23a weld put on the rim) would hold the whole level there
+    # (MEASURED, KASE: Hangar1's door vertex held 0.21 m off its door line)
+    own = {v for d in pads for v in d.group}
     out = [v for v in list(levels)
            if v not in held and v in planar.vertices
-           and zone.contains(Point(planar.vertices[v].xy))
-           and any(planar.faces[f].role == "apron"
-                   for f in planar.vertices[v].incident_faces)]
+           and (v in own or (zone.contains(Point(planar.vertices[v].xy))
+                             and any(planar.faces[f].role == "apron"
+                                     for f in planar.vertices[v].incident_faces)))]
     for v in out:
         del levels[v]
     return {"pads": len(pads), "released": len(out), "reach_m": reach}

@@ -89,6 +89,19 @@ class Region:
     shore: _t.Any = None
     #: a runway band's own runway: ``ZoneRegion.runway_ref``
     runway_ref: str | None = None
+    #: #1071: a road by its SHAPE alone (§110 ``road_by_proportions``), carried
+    #: to the map face (``Face.road_by_proportions``)
+    road_by_proportions: bool = False
+
+
+def cell_region(c) -> Region:
+    """THE REGION OF A CLASSIFIED CELL — its role, ref, polygon, code and
+    side, and whether it is a road by its SHAPE alone (§110 ribbon,
+    ``classify.open_default.unclassified_groundside_role``'s
+    ``road_by_proportions``; #1071: the wall pass reads it on the face)."""
+    by_shape = bool((getattr(c, "evidence", None) or {}).get("road_by_proportions"))
+    return Region(c.role, c.ref, Polygon(c.ring, c.holes), c.code_number,
+                  c.code_letter, c.side, "cell", road_by_proportions=by_shape)
 
 
 @_dc.dataclass(frozen=True)
@@ -243,8 +256,7 @@ def build_arrangement(airport: Airport, classification: Classification,
             0.5 * law.tables.emit.identity.min_distinct_spacing_m)
         regions: list[Region] = []
         for c in cells:
-            regions.append(Region(c.role, c.ref, Polygon(c.ring, c.holes),
-                                  c.code_number, c.code_letter, c.side, "cell"))
+            regions.append(cell_region(c))
         # THE TERRAIN EDGE (owner RULINGS 2026-09-10b/10c; spec §19): the zones
         # are clipped at their own derivation site, against the airport's DEM
         # and the tile's OSM road centrelines

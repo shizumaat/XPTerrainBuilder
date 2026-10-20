@@ -656,6 +656,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar.basin_geometry",
     "auto_patch_v2.planar.basin_rim",
     "auto_patch_v2.planar.basins",
+    "auto_patch_v2.planar.bore_continuation",
     "auto_patch_v2.planar.build",
     "auto_patch_v2.planar.channel",
     "auto_patch_v2.planar.channel_claims",

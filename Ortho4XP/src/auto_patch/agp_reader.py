@@ -1,40 +1,22 @@
-"""Resolve and parse X-Plane AGP (AutoGen Point) building footprints.
+"""Resolve X-Plane library virtual paths: the ``library.txt`` index.
 
-Unlike ``.fac`` facades — which X-Plane places in the DSF as full
-draped POLYGONs whose ring geometry the ``dsf_reader`` walks directly —
-an ``.agp`` building is placed as a single ``OBJECT`` point plus a
-heading (the "handle").  The footprint is NOT in the DSF at all; it is
-encoded inside the ``.agp`` sidecar file, which we must locate (via the
-X-Plane ``library.txt`` virtual→physical map) and parse ourselves.
+``get_library_index(xplane_root)`` builds (once, memoized in-process AND
+on disk) the ``library.txt`` ``EXPORT`` table mapping a virtual library
+path (e.g. ``lib/airport/Common_Elements/Hangars/Lg_Maint_Gray.agp``) to
+the absolute path of the physical resource on disk;
+``resolve_library_path`` answers one lookup through it.  The object stage
+and the DSF readers resolve every ``OBJECT_DEF`` / ``POLYGON_DEF`` through
+it.
 
-This module owns that work, kept independent of the DSF reader so it is
-unit-testable in isolation:
-
-  1. ``get_library_index(xplane_root)`` — build (once, memoized
-     in-process AND on disk) the ``library.txt`` ``EXPORT`` table
-     mapping a virtual library path (e.g.
-     ``lib/airport/Common_Elements/Hangars/Lg_Maint_Gray.agp``) to the
-     absolute path of the physical resource on disk.
-  2. ``parse_agp(path)`` — read (once, memoized) an ``.agp`` file and
-     return its footprint as a polygon in LOCAL METERS relative to the
-     placement anchor, before any placement heading is applied.
-  3. ``agp_footprint_lonlat(...)`` — given a placement (virtual path,
-     handle lon/lat, heading) project the local footprint to a
-     lon/lat ring ready to hand to the building pipeline.
-
-Footprint geometry (per design decision 2026-06-17): the encoded
-``CROP_POLY`` (the draped ground polygon), falling back to the ``TILE``
-rectangle, scaled from texture pixels to meters via
-``TEXTURE_WIDTH/HEIGHT ÷ TEXTURE_SCALE`` and re-centred on ``ANCHOR_PT``
-(the pixel that lands on the DSF handle; defaults to the tile centre
-when absent).
+The ``.agp`` footprint half (``parse_agp`` / ``agp_footprint_lonlat`` /
+``is_agp_building_def``) fed only v1's facade reader and was deleted with
+it in #740 wave F (#852); the build reads ``.agp`` hangars through
+``auto_patch_v2.airport.riders`` and ``auto_patch_v2.airport.dsf``.
 """
 from __future__ import annotations
 
-import math
 import os
 import threading
-from collections import namedtuple
 
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).  It
 # is stdlib-only and imports no Ortho4XP module, so importing it here at
@@ -42,14 +24,6 @@ from collections import namedtuple
 # PyInstaller see it (a lazy import shipped a broken frozen engine on
 # 2026-09-10).
 import O4_Scenery_Packs as _scenery_packs
-
-
-# Parsed footprint of one .agp: ``local_poly`` is a list of (x, y) in
-# meters relative to the anchor (x = texture S / east, y = texture T /
-# north) BEFORE the placement heading; ``rotation`` is the tile's own
-# internal ROTATION (degrees, almost always 0) which combines with the
-# placement heading at projection time.
-AgpFootprint = namedtuple("AgpFootprint", ["local_poly", "rotation"])
 
 
 # Memoized library index, keyed by absolute xplane_root.  Built once per
@@ -66,12 +40,6 @@ _LIB_INDEX_CACHE: dict[str, dict[str, str]] = {}
 # readers' per-DSF lock precedent, commit a4133d8).
 _LIB_INDEX_LOCKS: dict[str, threading.Lock] = {}
 _LIB_INDEX_LOCKS_GUARD = threading.Lock()
-
-# Memoized .agp parse results, keyed by absolute physical path.  An .agp
-# referenced by many placements / many airports is read and parsed from
-# disk exactly once; footprint geometry is immutable so no invalidation.
-_AGP_CACHE: dict[str, AgpFootprint | None] = {}
-
 
 # ── library.txt resolution ───────────────────────────────────────────
 def _scenery_pack_order(xplane_root: str) -> list[str]:
@@ -389,8 +357,7 @@ def _write_library_index_sidecar(
     unchanged install.
 
     Written to a unique temp file in the cache directory and moved into
-    place with ``os.replace`` (the ``apt_dat_reader`` persistence
-    pattern): concurrent auto_patch PROCESSES may build the same index
+    place with ``os.replace``: concurrent auto_patch PROCESSES may build the same index
     at the same time, and an atomic rename is what makes every reader
     see either the old file or a complete new one, never a torn write.
     A write failure must never break a build (read-only volume, out of
@@ -504,156 +471,3 @@ def resolve_library_path(virtual_path: str,
     if phys and os.path.isfile(phys):
         return phys
     return None
-
-
-# ── .agp parsing ─────────────────────────────────────────────────────
-def _crop_or_tile_pixels(tile, crop):
-    """Return the footprint vertices in texture pixels: the CROP_POLY
-    pairs when present, else the four TILE corners.  ``tile`` is
-    (left, bottom, right, top); ``crop`` is a flat list of pixel
-    coords."""
-    if crop and len(crop) >= 6:
-        pts = [(crop[i], crop[i + 1])
-               for i in range(0, len(crop) - 1, 2)]
-        if len(pts) >= 3:
-            return pts
-    if tile is not None:
-        left, bottom, right, top = tile
-        return [(left, bottom), (right, bottom),
-                (right, top), (left, top)]
-    return None
-
-
-def parse_agp(path: str) -> AgpFootprint | None:
-    """Parse an ``.agp`` file into a local-meter footprint polygon
-    (memoized by absolute path).  Returns None when the file is missing
-    or lacks the fields needed to derive a metric footprint."""
-    key = os.path.abspath(path)
-    if key in _AGP_CACHE:
-        return _AGP_CACHE[key]
-
-    result: AgpFootprint | None = None
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-    except OSError:
-        _AGP_CACHE[key] = None
-        return None
-
-    scale_s = scale_t = None
-    tex_w = tex_h = None
-    tile = None
-    crop = None
-    anchor = None
-    rotation = 0.0
-    # Use the FIRST TILE / CROP_POLY block (an .agp may list several tile
-    # variants chosen randomly by the sim; for hangars they share one
-    # footprint extent, and the first is representative).
-    for raw in lines:
-        line = raw.strip()
-        if not line:
-            continue
-        tok = line.split()
-        kw = tok[0]
-        try:
-            if kw == "TEXTURE_SCALE" and len(tok) >= 3:
-                scale_s, scale_t = float(tok[1]), float(tok[2])
-            elif kw == "TEXTURE_WIDTH" and len(tok) >= 2:
-                tex_w = float(tok[1])
-            elif kw == "TEXTURE_HEIGHT" and len(tok) >= 2:
-                tex_h = float(tok[1])
-            elif kw == "TILE" and tile is None and len(tok) >= 5:
-                tile = (float(tok[1]), float(tok[2]),
-                        float(tok[3]), float(tok[4]))
-            elif kw == "CROP_POLY" and crop is None and len(tok) >= 7:
-                crop = [float(v) for v in tok[1:]]
-            elif kw == "ANCHOR_PT" and anchor is None and len(tok) >= 3:
-                anchor = (float(tok[1]), float(tok[2]))
-            elif kw == "ROTATION" and len(tok) >= 2:
-                rotation = float(tok[1])
-        except (ValueError, IndexError):
-            continue
-
-    # Need a pixel→meter scale and a footprint outline to proceed.
-    if not scale_s or tex_w is None:
-        _AGP_CACHE[key] = None
-        return None
-    if tex_h is None:           # assume square pixels when height absent
-        tex_h = tex_w
-        scale_t = scale_t or scale_s
-    if not scale_t:
-        scale_t = scale_s
-    mpp_x = tex_w / scale_s
-    mpp_y = tex_h / scale_t
-
-    pixels = _crop_or_tile_pixels(tile, crop)
-    if not pixels:
-        _AGP_CACHE[key] = None
-        return None
-    if anchor is None:
-        if tile is not None:
-            left, bottom, right, top = tile
-            anchor = ((left + right) / 2.0, (bottom + top) / 2.0)
-        else:
-            xs = [p[0] for p in pixels]
-            ys = [p[1] for p in pixels]
-            anchor = ((min(xs) + max(xs)) / 2.0,
-                      (min(ys) + max(ys)) / 2.0)
-
-    ax, ay = anchor
-    local = [((px - ax) * mpp_x, (py - ay) * mpp_y) for px, py in pixels]
-    result = AgpFootprint(local_poly=local, rotation=rotation)
-    _AGP_CACHE[key] = result
-    return result
-
-
-# ── placement → lon/lat ──────────────────────────────────────────────
-_LAT_M_PER_DEG = 111320.0
-
-
-def _rotate_clockwise(x_east: float, y_north: float,
-                      heading_deg: float) -> tuple[float, float]:
-    """Rotate a local (east, north) point by an X-Plane heading
-    (degrees clockwise from true north)."""
-    if heading_deg % 360.0 == 0.0:
-        return x_east, y_north
-    th = math.radians(heading_deg)
-    s, c = math.sin(th), math.cos(th)
-    east = x_east * c + y_north * s
-    north = -x_east * s + y_north * c
-    return east, north
-
-
-def agp_footprint_lonlat(virtual_path: str,
-                         lon: float, lat: float, heading_deg: float,
-                         xplane_root: str) -> list[tuple[float, float]] | None:
-    """Resolve + parse the ``.agp`` for a placement and return its
-    footprint as an (unclosed) list of (lon, lat).  None when the
-    resource can't be resolved or parsed."""
-    phys = resolve_library_path(virtual_path, xplane_root)
-    if phys is None:
-        return None
-    fp = parse_agp(phys)
-    if fp is None or len(fp.local_poly) < 3:
-        return None
-    # The tile's own ROTATION combines with the DSF placement heading.
-    total_heading = heading_deg + fp.rotation
-    cos_lat = math.cos(math.radians(lat))
-    if abs(cos_lat) < 1e-9:
-        return None
-    ring: list[tuple[float, float]] = []
-    for x_east, y_north in fp.local_poly:
-        east, north = _rotate_clockwise(x_east, y_north, total_heading)
-        plon = lon + east / (_LAT_M_PER_DEG * cos_lat)
-        plat = lat + north / _LAT_M_PER_DEG
-        ring.append((plon, plat))
-    return ring
-
-
-def is_agp_building_def(path: str) -> bool:
-    """True when an ``OBJECT_DEF`` path is a hangar ``.agp`` we admit as
-    a building footprint — restricted (per the initial scope) to the
-    ``lib/airport/Common_Elements/Hangars/`` virtual prefix."""
-    p = path.lower()
-    return (p.endswith(".agp")
-            and p.startswith("lib/airport/common_elements/hangars/"))

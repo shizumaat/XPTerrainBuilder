@@ -1,10 +1,9 @@
 """``ribbon_mint._way_intervals`` answers a way that misses the extent by the
 prepared predicate (issue #803) and every other way by the overlay, so its
 intervals are the plain overlay's on every case."""
-from shapely.geometry import LineString, Point, box
-
 from auto_patch_v2.classify.ribbon_mint import _way_intervals
 from auto_patch_v2.geom.parts import line_parts
+from shapely.geometry import LineString, Point, box
 
 
 def _overlay(line, inside):

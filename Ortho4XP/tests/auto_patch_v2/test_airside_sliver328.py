@@ -12,7 +12,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from auto_patch_v2.constraints import proximity
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.constraints import Diff, Linear

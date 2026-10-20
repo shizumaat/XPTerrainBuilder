@@ -7,11 +7,10 @@ from __future__ import annotations
 import types
 
 import pytest
-from shapely.geometry import box
-
 from auto_patch_v2.law import Law
-from auto_patch_v2.model.planar import plane_origin_ref, plane_of
+from auto_patch_v2.model.planar import plane_of, plane_origin_ref
 from auto_patch_v2.planar.low_level import plan_low
+from shapely.geometry import box
 
 
 def _part(x0, y0, x1, y1, base_y):

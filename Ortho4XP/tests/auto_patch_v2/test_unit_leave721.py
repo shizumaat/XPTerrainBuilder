@@ -10,9 +10,7 @@ import dataclasses as _dc
 import types
 
 import auto_patch_v2.airport.anchor_rule as AR
-
-from test_v2connector import (_blk, _cand, _lat, _PMember, _PPart, _PPlan,
-                              _PUnit, _Staged)
+from test_v2connector import _blk, _cand, _lat, _PMember, _PPart, _PPlan, _PUnit, _Staged
 
 
 def _bind(ground_b: float):

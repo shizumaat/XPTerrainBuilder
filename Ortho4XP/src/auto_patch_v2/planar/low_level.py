@@ -183,8 +183,8 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     lower storey split into its high block, its low level ``<ref>/p1`` and
     the riser strip (module docstring); each low level registered in
     ``reg.landings``."""
-    from .pad_blocks import unit_base
     from ..airport.obj8_grade import STEPPED
+    from .pad_blocks import unit_base
     if (airport is None or getattr(airport, "frame", None) is None
             or not air_polys):
         return out

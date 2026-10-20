@@ -4,11 +4,10 @@ zone computed once, and the answer is the per-call one."""
 import pickle
 
 import numpy as np
-from shapely.geometry import Polygon, box
-
 from auto_patch_v2.airport.road_profile import OSM, RoadProfiles, Way
 from auto_patch_v2.geom.cluster_outline import AirsideRim
 from auto_patch_v2.planar.ribbon_weld import _weld_to_rim, rim_zone
+from shapely.geometry import Polygon, box
 
 
 def _profiles():

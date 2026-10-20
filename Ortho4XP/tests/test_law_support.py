@@ -65,8 +65,8 @@ def test_the_package_imports_no_v1_module():
 
     pkg = pathlib.Path(inspect.getfile(roles)).parent
     allowed_prefixes = ("auto_patch.config", "auto_patch_v2",
-                        "auto_patch.build_support", "auto_patch.apt_dat_reader")
-    allowed_plain = {"config", "build_support", "apt_dat_reader"}
+                        "auto_patch.build_support")
+    allowed_plain = {"config", "build_support"}
     offenders = []
     for path in sorted(pkg.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))

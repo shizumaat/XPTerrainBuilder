@@ -61,7 +61,6 @@ KEEP = frozenset({
     "auto_patch",
     # the readers
     "auto_patch.agp_reader",
-    "auto_patch.apt_dat_reader",
     "auto_patch.dsf_reader",
     "auto_patch.osm_aeroway",
     "auto_patch.flat_site_mode",
@@ -357,7 +356,7 @@ def test_the_census_library_imports_no_v1_module():
     src = (ENGINE / "tools" / "check_grade.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     allowed = ("auto_patch.config", "auto_patch.build_support",
-               "auto_patch.apt_dat_reader", "auto_patch_v2")
+               "auto_patch_v2")
     offenders = []
     for node in ast.walk(tree):
         names = []

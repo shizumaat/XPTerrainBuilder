@@ -75,14 +75,18 @@ def test_each_generator_is_entered_at_its_own_module():
 
 
 def test_the_back_half_entries_are_where_the_prefix_enters_them():
+    from auto_patch_v2 import constraints
     from auto_patch_v2.airport import riders
     from auto_patch_v2.constraints import assembly, jetway_strip
     from auto_patch_v2.pipeline import constraint_records as CR
     from auto_patch_v2.pipeline import shapes
-    assert CR.assemble.__module__ == assembly.__name__
+    # #798 round 3: the post-passes (the door pads' blend, then the
+    # assembly) are ONE expression for ``generate`` and the records
+    assert CR.post_passes.__module__ == constraints.__name__
+    assert constraints.post_passes.__globals__["assemble"].__module__ == assembly.__name__
     assert CR.joint_filter.__module__ == shapes.__name__
     assert set(SCODE.ENTRY_MODULES["constraints.assembly"]) == {
-        assembly.__name__, shapes.__name__}
+        constraints.__name__, assembly.__name__, shapes.__name__}
     assert set(SCODE.ENTRY_MODULES["jetway_strip"]) == {
         riders.rider_candidates.__module__, jetway_strip.jetway_strips.__module__}
 

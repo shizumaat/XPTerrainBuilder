@@ -156,6 +156,35 @@ def stage_air_vertices(planar: _t.Any, law: _t.Any) -> set[int]:
             continue
         for ring in (f.ring, *f.holes):
             out.update(planar.ring_vertices(ring))
+    return out - loose_hole_vertices(planar, roles)
+
+
+def loose_hole_vertices(planar: _t.Any, roles: _t.AbstractSet[str]) -> set[int]:
+    """OWNER RULINGS 2026-10-19ak, AIRSIDE IS KING: the vertices of a hole
+    ring of a ``roles`` face that NO other face shares — the hole the apron
+    keeps under a building pad stood off its rim (``planar/pad_cut.
+    _stand_off_airside_pads``); every other hole (a welded pad, an island)
+    is shared with the face inside it.  They are the building's footprint
+    edge, not airside the aircraft reads: §20b's stage 1 leaves them to
+    stage 2, which takes the solved airside as constants.  MEASURED (KASE
+    replay against no slope pads): stage 1 holding them moved 173 airside
+    vertices more than 3 m outside the footprints by up to 0.16 m; leaving
+    them to stage 2, 93 by up to 0.09 m."""
+    seen: dict[int, int] = {}
+    for f in planar.faces.values():
+        vs: set[int] = set()
+        for ring in (f.ring, *f.holes):
+            vs.update(planar.ring_vertices(ring))
+        for v in vs:
+            seen[v] = seen.get(v, 0) + 1
+    out: set[int] = set()
+    for f in planar.faces.values():
+        if f.role not in roles:
+            continue
+        for h in f.holes:
+            vs = planar.ring_vertices(h)
+            if vs and all(seen.get(v, 0) == 1 for v in vs):
+                out.update(vs)
     return out
 
 

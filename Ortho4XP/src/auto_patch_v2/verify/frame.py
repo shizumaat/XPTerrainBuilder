@@ -22,7 +22,8 @@ from ..law.tables import is_rigid_role, role_cap, role_family, role_side
 from ..model.frame import Frame
 from ..model.planar import face_vertex_ids
 
-__all__ = ["R_EARTH", "Shape", "Patch", "Row", "row", "noise_m", "metric_frame"]
+__all__ = ["R_EARTH", "Shape", "Patch", "Row", "row", "noise_m", "metric_frame",
+           "metric_points"]
 
 R_EARTH = 6_378_137.0
 
@@ -47,6 +48,23 @@ def metric_frame(lat0: float, lon0: float
     engine's distance."""
     to_xy, to_ll = Frame("", (float(lat0), float(lon0)), 11).transformers()
     return (lambda lat, lon: to_xy(lon, lat)), to_ll
+
+
+def metric_points(lat0: float, lon0: float,
+                  lls: _t.Sequence[tuple[float, float]]
+                  ) -> list[tuple[float, float]]:
+    """:func:`metric_frame`'s ``to_m`` over MANY ``(lat, lon)`` in one
+    projection call — the same transform, vectorised (#772: the whole
+    in-build verify reads in this frame, every vertex of the airport)."""
+    if not lls:
+        return []
+    import numpy as _np
+    from pyproj import Transformer
+    crs = Frame("", (float(lat0), float(lon0)), 11).crs
+    t = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    a = _np.asarray(lls, dtype=float)
+    xs, ys = t.transform(a[:, 1], a[:, 0])
+    return [(float(x), float(y)) for x, y in zip(xs, ys, strict=True)]
 
 
 @_dc.dataclass(frozen=True)
@@ -122,14 +140,26 @@ class Patch:
         through lat/lon) — so a row's ``site_m`` joins as before.  A patch
         built in metres with no lat/lon (a synthetic twin) is its own
         metric: it comes back unchanged."""
-        if not self.ll or any(v not in self.ll for v in self.xy):
+        if (self.metric is not None or not self.ll
+                or any(v not in self.ll for v in self.xy)):
             return self, (lambda pt: pt)
         fwd, inv = metric_frame(self.lat0, self.lon0)
-        xy = {v: fwd(*ll) for v, ll in self.ll.items()}
+        ids = list(self.ll)
+        xy = dict(zip(ids, metric_points(self.lat0, self.lon0,
+                                         [self.ll[v] for v in ids]),
+                      strict=True))
         census = {xy[v]: self.xy[v] for v in xy if v in self.xy}
+        # a row's ``site_m`` is rounded to 2 dp (``row``): a vertex read
+        # back from it still lands exactly on the vertex
+        census_2dp = {(round(k[0], 2), round(k[1], 2)): c
+                      for k, c in census.items()}
 
         def back(pt):
             got = census.get(pt)
+            if got is None:
+                got = census_2dp.get((round(pt[0], 2), round(pt[1], 2)))
+            if got is None and pt[0] == 0.0 and pt[1] == 0.0:
+                got = (0.0, 0.0)          # the site-less sentinel stays
             return got if got is not None else self.to_m(*inv(*pt))
 
         def move(sh: Shape) -> Shape:

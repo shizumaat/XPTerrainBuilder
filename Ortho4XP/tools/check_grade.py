@@ -6662,6 +6662,21 @@ def _is_band_road_wall_joint(row) -> bool:
             and BAND_ROAD_WALL_LABEL in (row.get("shapes") or ()))
 
 
+def _band_road_walls_forgive(rows, terrace_joints_ll, ll_to_m) -> list:
+    """``rows`` less each pair whose chord crosses a declared band-road wall
+    (:data:`BAND_ROAD_WALL_LABEL`) and whose step that wall's declared step
+    covers: the runway-end profile reads the ground beyond a runway end,
+    and the band's wall against a road inside it is lawful there (owner
+    RULINGS 2026-10-19i; #951 round 7, KLAX 33.947324, -118.436533: a
+    1.86 m riser over 3.47 m read as a -53 % end-profile pair)."""
+    walls = [r for r in (terrace_joints_ll or []) if _is_band_road_wall_joint(r)]
+    if not walls or not rows:
+        return rows
+    declared = DeclaredWallSteps(walls, ll_to_m)
+    return [v for v in rows
+            if v.de_m > declared.allowance(v.pt_a[0], v.pt_a[1], v.pt_b[0], v.pt_b[1])]
+
+
 def _terrace_joint_strip_exempt(terrace_joints_ll) -> list:
     """Per JOINT (index-aligned with :func:`_terrace_joints_to_m`): is it a
     wall the owner ruled lawful INSIDE a safety-area band?  The band's wall
@@ -12452,10 +12467,12 @@ def run_checks(
     # shipped OSM to confirm it here is the remaining "purist OSM-path" follow-up.
 
     skirt_edges = _fam("runway_end_skirt",
-                       _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
-                                                     runway_axes_ll,
-                                                     road_cap_governs_ll,
-                                                     end_profile_yields_ll))
+                       _band_road_walls_forgive(
+                           _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
+                                                         runway_axes_ll,
+                                                         road_cap_governs_ll,
+                                                         end_profile_yields_ll),
+                           terrace_joints_ll, ll_to_m))
     _pv("RUNWAY-END PROFILE: ground beyond a runway end outside the "
         "ruleset's end profile (strip cap / near-end cap, 5 % beyond, the "
         "climb surface above, the FAA rate) — RULINGS 2026-10-12q (1)",

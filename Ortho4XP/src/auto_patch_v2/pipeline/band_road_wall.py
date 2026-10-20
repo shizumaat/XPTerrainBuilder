@@ -114,16 +114,42 @@ def _kerb_records(planar: PlanarMap, law: Law, risers, z, floor: float, to_ll
     # a line at 0.93 m stood beyond the band line the emit snapped to
     # 0.84 m off the kerb, and the 3.9 m riser chords crossed nothing.  A
     # kerb vertex off the ribbon (within the kerb-weld reach) brings its
-    # own reach into the outline, so it stays on the road side.
+    # own reach into the outline, so it stays on the road side: half the
+    # identity spacing, since a band vertex may stand one spacing from it
+    # (round 7, KLAX 33.934182, -118.39605: a disk of half a weld spacing
+    # reached the band corner 0.5 m off and the 3.39 m chord crossed nothing)
     grow = 0.5 * w
+    disk = 0.5 * float(law.tables.emit.identity.min_distinct_spacing_m)
     off = sorted(set().union(*(lo for _f, lo, _u in risers)) - set(road_of))
     outline = unary_union([g.buffer(grow, **_MITRE) for g in rib_polys]
-                          + [shapely.Point(planar.vertices[v].xy).buffer(grow)
+                          + [shapely.Point(planar.vertices[v].xy).buffer(disk)
                              for v in off]).boundary
     cut = outline.intersection(area)
     merged = shapely.line_merge(cut) if cut.geom_type == "MultiLineString" else cut
     parts = [p for p in shapely.get_parts(merged)
              if p.geom_type == "LineString" and len(p.coords) >= 2]
+    # THE LINE'S END BESIDE A FOREIGN CELL (#951 round 7): where the road's
+    # outline runs within the census's straddle reach of a cell that is
+    # neither band nor road (a tunnel ramp, pavement), that stretch is its
+    # own record and declares the road's step to that cell's vertices too
+    # — the census pairs a vertex beyond a line's END with the line
+    # (``check_grade._check_terrace_actual_step``: nearest segment within
+    # 5 m).  MEASURED KLAX 33.94075, -118.39607: road ``big_roads:-1147`` at
+    # 28.42 m against a ``tunnel_ramp`` vertex at 24.85 m 0.94 m past the
+    # kerb line's end, 3.57 m against a declared 2.70 m.
+    foreign = [f for f in planar.faces.values()
+               if not is_osm_ribbon_ref(f.ref)
+               and not (f.role == "graded_strip" and is_band_zone_ref(f.ref))]
+    near = unary_union([poly(f) for f in foreign if poly(f).intersects(
+        area.buffer(_STRADDLE_M))]).buffer(_STRADDLE_M) if foreign else None
+    if near is not None and not near.is_empty:
+        split = []
+        for p in parts:
+            for g in (p.intersection(near), p.difference(near)):
+                g = shapely.line_merge(g) if g.geom_type == "MultiLineString" else g
+                split.extend(q for q in shapely.get_parts(g)
+                             if q.geom_type == "LineString" and len(q.coords) >= 2)
+        parts = split
     if not parts:
         return []
     import numpy as np
@@ -158,6 +184,9 @@ def _kerb_records(planar: PlanarMap, law: Law, risers, z, floor: float, to_ll
         for s_i, p_i in zip(hit[0], hit[1], strict=True):
             if dz[int(s_i)] > step[int(p_i)]:
                 step[int(p_i)] = dz[int(s_i)]
+    if near is not None and not near.is_empty:
+        _foreign_steps(planar, z, parts, step, near, foreign,
+                       set(kerb_ids), floor)
     out: list[dict[str, _t.Any]] = []
     for line, s in zip(parts, step, strict=True):
         if s <= floor:
@@ -174,6 +203,43 @@ def _kerb_records(planar: PlanarMap, law: Law, risers, z, floor: float, to_ll
     return out
 
 
+def _foreign_steps(planar: PlanarMap, z, parts, step, near, foreign, kerb,
+                   floor: float) -> None:
+    """Raise ``step`` of each line part inside ``near`` (the straddle reach
+    of a foreign cell) to the largest road-to-foreign-vertex step the census
+    reads beside it: a kerb vertex and a foreign cell's vertex both within
+    the straddle reach of the part and of each other."""
+    import shapely
+    from scipy.spatial import cKDTree
+    fv = sorted({v for f in foreign for c in (f.ring, *f.holes)
+                 for v in planar.ring_vertices(c)} - kerb)
+    kv = sorted(kerb)
+    if not fv or not kv:
+        return
+    ftree = cKDTree([planar.vertices[v].xy for v in fv])
+    ktree = cKDTree([planar.vertices[v].xy for v in kv])
+    for n, p in enumerate(parts):
+        mid = p.interpolate(0.5, normalized=True)
+        if not near.contains(mid):
+            continue
+        r = 0.5 * float(p.length) + _STRADDLE_M
+        for jk in ktree.query_ball_point((mid.x, mid.y), r):
+            k = kv[jk]
+            pk = shapely.Point(planar.vertices[k].xy)
+            if p.distance(pk) > _STRADDLE_M:
+                continue
+            for j in ftree.query_ball_point(planar.vertices[k].xy, _STRADDLE_M):
+                f = fv[j]
+                if p.distance(shapely.Point(planar.vertices[f].xy)) > _STRADDLE_M:
+                    continue
+                d = abs(float(z[f]) - float(z[k]))
+                if d > floor and d > step[n]:
+                    step[n] = d
+
+
+#: the census's straddle reach of a declared line
+#: (``check_grade._TERRACE_STRADDLE_PERP_M`` / ``_PAIR_M``, quoted)
+_STRADDLE_M = 5.0
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 #: how far (in weld spacings) a kerb vertex reads its band partners: the
 #: census pairs strip nodes up to 6 m apart (``strip_seam_tear``)

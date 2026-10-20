@@ -1,3 +1,4 @@
+import contextlib
 import errno
 import io
 import os
@@ -1890,7 +1891,15 @@ def download_jpeg_ortho(
     zoomlevel,
     provider_code,
     super_resol_factor=1,
+    require_complete=False,
 ):
+    """Download one orthophoto into ``file_dir``; 1 on success, 0 if not.
+
+    ``require_complete`` (the background prefetch, #1002): a texture with
+    a part the provider did not answer is NOT saved (no white-filled
+    file, nothing registered for removal), and a whole one is written
+    under a temporary name and renamed, so a reader never sees half a
+    file — the imagery step downloads anything the prefetch did not."""
     provider = providers_dict[provider_code]
     if ("super_resol_factor" in provider) and (super_resol_factor == 1):
         super_resol_factor = int(provider["super_resol_factor"])
@@ -1921,6 +1930,8 @@ def download_jpeg_ortho(
     # if stop flag we do not wish to imprint a white texture
     if UI.red_flag:
         return 0
+    if require_complete and not success:
+        return 0
     tile_coords = Path(file_dir).parent.name
     if not success:
         UI.lvprint(
@@ -1937,9 +1948,11 @@ def download_jpeg_ortho(
     if not os.path.exists(file_dir):
         os.makedirs(file_dir)
     destination = os.path.join(file_dir, file_name)
+    written = destination + ".part" if require_complete else destination
+    image_format = "JPEG" if require_complete else None
     try:
         if super_resol_factor == 1:
-            big_image.save(destination)
+            big_image.save(written, format=image_format)
         else:
             big_image.resize(
                 (
@@ -1947,8 +1960,13 @@ def download_jpeg_ortho(
                     int(height / super_resol_factor),
                 ),
                 Image.Resampling.BICUBIC,
-            ).save(destination)
+            ).save(written, format=image_format)
+        if written != destination:
+            os.replace(written, destination)
     except Exception as e:
+        if written != destination and os.path.exists(written):
+            with contextlib.suppress(OSError):
+                os.remove(written)
         UI.lvprint(
             0,
             "OS Error : could not save orthophoto on disk, ",

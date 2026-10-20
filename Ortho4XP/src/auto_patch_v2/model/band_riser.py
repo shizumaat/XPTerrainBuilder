@@ -32,7 +32,7 @@ def band_risers(pm, near_m: float = 0.0
     ``upper`` the rest (the band line one weld spacing off).  Derived from
     the map, in face-id order; empty without a riser."""
     ids = [f.id for f in pm.faces.values()
-           if f.role == "graded_strip" and is_band_riser_ref(f.ref)]
+           if getattr(f, "role", None) == "graded_strip" and is_band_riser_ref(f.ref)]
     if not ids:
         return []
     rib: set[int] = set()

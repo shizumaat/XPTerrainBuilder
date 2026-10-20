@@ -122,3 +122,22 @@ def test_a_seat_equal_to_the_drape_is_left_to_the_drape(tmp_path):
     conv, msl, _r, n = _rows(dump, tmp_path)
     assert [c.index for c in conv] == [0] and not msl
     assert n["msl_feet_left_to_the_drape"] == 1
+
+
+def test_the_partition_guard_keeps_a_set_built_around_its_origin(tmp_path):
+    """Owner Q54: MSL rows are split like any on-ground row, except an
+    origin set with a member reaching below its origin (a hillside wing,
+    an approach-light pole) — the whole set — or one that cannot be read."""
+    from auto_patch_v2.airport import obj8 as O8
+    deep = str(tmp_path / _obj(tmp_path, "wing_low.obj", -11.5, 4.0))
+    high = str(tmp_path / _obj(tmp_path, "wing_high.obj", 2.5, 9.0))
+    car = str(tmp_path / _obj(tmp_path, "car.obj", 6.0, 7.5))
+
+    def po(i, path, xy, kind="OBJECT_MSL"):
+        return types.SimpleNamespace(id=i, resolved=path, xy=xy, heading_deg=0.0,
+                                     kind=kind)
+    objs = [po("a", deep, (0.0, 0.0)), po("b", high, (0.0, 0.0)),
+            po("c", car, (50.0, 0.0)), po("d", deep, (90.0, 0.0), kind="OBJECT"),
+            po("e", None, (120.0, 0.0))]
+    got = MF.below_origin_ids(objs, O8.parse_obj8, 0.3)
+    assert got == {"a", "b", "e"}

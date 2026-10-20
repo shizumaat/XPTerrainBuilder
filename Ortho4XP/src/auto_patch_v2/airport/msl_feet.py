@@ -49,7 +49,7 @@ import numpy as np
 
 from ..model.placement import KIND_MSL
 
-__all__ = ["lowest_feet", "feet_seats"]
+__all__ = ["static_vertices", "lowest_feet", "below_origin_ids", "feet_seats"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
@@ -57,23 +57,55 @@ Surface = _t.Callable[[float, float], "float | None"]
 _ORIGIN_DP = 8
 
 
-def lowest_feet(path: str, band_m: float) -> "np.ndarray | None":
-    """``(n, 3)`` authored ``(x, y, z)`` of the STATIC solid vertices of the
-    OBJ8 at ``path`` within ``band_m`` of its lowest one (an animated part
-    never witnesses — issue #612); ``None`` when the file has no static
-    solid or cannot be read."""
-    from . import obj8 as _obj8
-    try:
-        g = _obj8.parse_obj8(path)
-    except (OSError, ValueError):
-        return None
+def static_vertices(g: _t.Any) -> "np.ndarray | None":
+    """The vertices of an ``obj8.ObjGeometry``'s STATIC solid triangles
+    (an animated part never witnesses — issue #612); ``None`` when it has
+    none."""
     tris = g.solid
     if g.animated.shape[0]:
         tris = tris[~g.animated]
     if not tris.shape[0]:
         return None
-    v = g.vertices[np.unique(tris.reshape(-1))]
+    return g.vertices[np.unique(tris.reshape(-1))]
+
+
+def lowest_feet(path: str, band_m: float) -> "np.ndarray | None":
+    """``(n, 3)`` authored ``(x, y, z)`` of the static solid vertices of the
+    OBJ8 at ``path`` within ``band_m`` of its lowest one; ``None`` when the
+    file has no static solid or cannot be read."""
+    from . import obj8 as _obj8
+    try:
+        v = static_vertices(_obj8.parse_obj8(path))
+    except (OSError, ValueError):
+        return None
+    if v is None:
+        return None
     return v[v[:, 1] <= float(v[:, 1].min()) + band_m]
+
+
+def below_origin_ids(objects: _t.Sequence[_t.Any], geometry: _t.Callable,
+                     tol_m: float) -> set[str]:
+    """THE GUARD (owner Q54, 2026-10-20: "yes with the guard"): the ids of
+    the ``OBJECT_MSL`` placements whose origin set holds a member whose
+    static geometry reaches more than ``tol_m`` below its origin — or one
+    that cannot be read.  They keep the on-ground conversion and are never
+    split: the author built that model around its origin.  ``objects``
+    are ``obj8.PlacedObject``; ``geometry(resolved)`` the parsed file."""
+    sets: dict[tuple, list] = {}
+    for o in objects:
+        if o.kind == KIND_MSL:
+            key = (round(float(o.xy[0]), 3), round(float(o.xy[1]), 3),
+                   round(float(o.heading_deg), 3))
+            sets.setdefault(key, []).append(o)
+    out: set[str] = set()
+    for members in sets.values():
+        for o in members:
+            g = geometry(o.resolved) if o.resolved is not None else None
+            v = static_vertices(g) if g is not None else None
+            if v is None or float(v[:, 1].min()) < -tol_m:
+                out.update(m.id for m in members)
+                break
+    return out
 
 
 def _origin(p: _t.Any) -> tuple:

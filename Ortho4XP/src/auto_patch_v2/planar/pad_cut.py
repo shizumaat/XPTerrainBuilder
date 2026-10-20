@@ -184,13 +184,6 @@ def apron_cut_to_pads(base_regions, pad_regions, law,
         for extra in sorted(ps, key=lambda q: -q.area)[1:]:
             out.append(_dc.replace(r, polygon=extra))
     counts["apron_faces_cut"] = cut
-    # owner RULINGS 2026-10-19ak: A PAD UNDER AN AIRSIDE BUILDING'S OWN
-    # FOOTPRINT, THE SURROUNDING PAVEMENT UNTOUCHED.  The apron keeps the
-    # hole the footprint cut; a small pad standing mostly on it is
-    # stood off its rim (``_stand_off_airside_pads``) so no apron vertex
-    # is shared with it and stage 1 never sees it
-    pads_out = _stand_off_airside_pads(pads_out, base_regions, cut_roles, law,
-                                       grid, counts)
     # WHICH apron faces yielded, and how much each gave — the read the
     # owner's "airside lost under a terminal" question asks (a string, so
     # the arrangement's publication stays scalar-per-key)
@@ -202,56 +195,6 @@ def apron_cut_to_pads(base_regions, pad_regions, law,
     counts["pad_airside_weld_pairs"] = welds
     counts["pad_area_kept_m2"] = round(pad_u.area, 1)
     return [r for r in out if r is not None], pads_out, counts
-
-
-def _stand_off_airside_pads(pads, base_regions, cut_roles, law, grid: float,
-                            counts: dict) -> list:
-    """OWNER RULINGS 2026-10-19ak ("allow a pad under an airside building's
-    own footprint only"; KASE tower, 39.22574, -106.86832): a building pad
-    UNDER ``[placement] cluster_pad_min_m2`` that stands at least
-    ``[placement] apron_shelf_min_share`` on the apron cells (the airside
-    apron class, ``cut_roles``) is a pad under an airside building.  23a
-    already cut the apron back to its footprint; here the pad is shrunk by
-    the apron-edge shelf's own stand-off (``[identity] weld_spacing_m`` plus
-    one identity cell) so it shares no vertex with the apron.  The apron
-    then keeps its own law to the footprint's edge and stage 1 never sees
-    the pad; the strip between the two edges carries no face and stands
-    under the building's walls.  MEASURED (KASE replay, welded): the slope
-    pads under the tower and Hangar1 moved 283 apron vertices up to 0.83 m
-    outside their footprints.  A big unit pad keeps 23a's weld and its
-    platform (unit-platform spec), which this does not touch."""
-    st = law.tables.structures.placement
-    min_m2 = float(st.cluster_pad_min_m2)
-    share = float(getattr(st, "apron_shelf_min_share", 0.0) or 0.0)
-    if min_m2 <= 0.0 or share <= 0.0 or not pads:
-        return pads
-    ident = law.tables.emit.identity
-    off = float(ident.weld_spacing_m) + float(ident.min_distinct_spacing_m)
-    apron = unary_union([r.polygon for r in base_regions
-                         if r.source == "cell" and r.role in cut_roles
-                         and r.polygon is not None and not r.polygon.is_empty])
-    if apron.is_empty:
-        return pads
-    # the apron cells are already cut back to the pads: "standing on the
-    # apron" is read against the apron's own outer extent
-    ext = unary_union([Polygon(p.exterior) for p in _polys(apron)])
-    out = []
-    n = 0
-    for r in pads:
-        g = r.polygon
-        if (g is None or g.is_empty or g.area >= min_m2
-                or g.intersection(ext).area < share * g.area):
-            out.append(r)
-            continue
-        q = g.buffer(-off, join_style=2)
-        if grid > 0.0 and not q.is_empty:
-            q = shapely.set_precision(q, grid)
-            q = q if q.is_valid else q.buffer(0.0)
-        parts = [p for p in _polys(q) if p.area > 0.0]
-        n += 1
-        out.extend(_dc.replace(r, polygon=p) for p in parts)
-    counts["airside_pads_stood_off"] = n
-    return out
 
 
 def airside_clip(regions, law, air=None, nodes=None, rim=None, select=None,

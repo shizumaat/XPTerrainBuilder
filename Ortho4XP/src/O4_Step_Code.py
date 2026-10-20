@@ -354,6 +354,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.constraints.channel",
     "auto_patch_v2.constraints.cluster_pad",
     "auto_patch_v2.constraints.contiguity",
+    "auto_patch_v2.constraints.door_pad",
     "auto_patch_v2.constraints.eat",
     "auto_patch_v2.constraints.end_lip",
     "auto_patch_v2.constraints.flat_site",

@@ -694,6 +694,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.channel",
         "auto_patch_v2.constraints.cluster_pad",
         "auto_patch_v2.constraints.contiguity",
+        "auto_patch_v2.constraints.door_pad",
         "auto_patch_v2.constraints.eat",
         "auto_patch_v2.constraints.end_lip",
         "auto_patch_v2.constraints.flat_site",
@@ -818,6 +819,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "junction_mesh": "junction_mesh",
     "apron_within_shape": "apron",
     "hard_plane_level": "hard_plane",
+    "door_pad_level": "door_pad",
     "apron_edge_portions": "apron",
     "road_within_shape": "roads",
     "road_ramp": "road_ramp",
@@ -908,6 +910,10 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
     "hard_plane": _mods(_GENERATOR_CORE + """
         constraints.hard_plane model.airport model.hard_plane
+    """),
+    "door_pad": _mods(_GENERATOR_CORE + """
+        constraints.apron constraints.door_pad constraints.geometry constraints.precedence
+        geom.slope_pad model.airport
     """),
     "junction_mesh": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1085,6 +1091,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.contiguity constraints.eat constraints.end_lip constraints.flat_site
     constraints.foot_rows constraints.geometry constraints.groundside
     constraints.hard_plane constraints.junction_mesh constraints.no_step
+    constraints.door_pad
     constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
     constraints.pad_relief constraints.pad_warning constraints.pads
     constraints.pavement_cap constraints.platform constraints.precedence
@@ -1264,6 +1271,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.cluster_pad constraints.contiguity constraints.eat constraints.end_lip
     constraints.flat_site constraints.foot_rows constraints.gap_follow
     constraints.geometry constraints.groundside constraints.hard_plane
+    constraints.door_pad
     constraints.jetway_strip constraints.junction_mesh constraints.no_step
     constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
     constraints.pad_relief constraints.pad_road_reach constraints.pad_warning

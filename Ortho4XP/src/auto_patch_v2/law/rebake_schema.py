@@ -397,6 +397,11 @@ class Placement:
     #: than this above the ground under its outline gets a pad
     #: (``geom/slope_pad``).  0 disarms.
     slope_pad_float_m: float = 0.0
+    #: THE HANGAR DOOR LINE (owner 2026-10-20 01:15Z): the share of the door
+    #: wall, about its centre, whose line to the nearest taxiway keeps the
+    #: apron cap; the rest of the apron round a sloping building's pad
+    #: blends at up to ``[tunnel] ramp_max_grade`` (``constraints/door_pad``).
+    door_corridor_share: float = 0.0
     #: issue #516 (owner RULINGS 2026-09-13bi / 13cm): A RAMP END SINKS
     #: INTO THE GROUND — the ground under a unit member's sloped deck that
     #: rises through the natural ground is not the pad's

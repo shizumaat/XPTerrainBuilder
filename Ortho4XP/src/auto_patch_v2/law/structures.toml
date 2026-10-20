@@ -1101,6 +1101,19 @@ apron_shelf_min_share = 0.5
 # outline (DEM, before any grading).  Every other pad gate stands (a derived
 # pad never takes airside ground, 14ah).  0 disarms.
 slope_pad_float_m     = 0.5
+# THE HANGAR DOOR LINE (owner 2026-10-20 01:15Z: "the slope of the apron to
+# the center of the door that the aircraft would follow needs to stay within
+# grade limits, but laterally either edge of the building away from that
+# center line can carry the extra slope to blend back into the apron";
+# 01:17Z: the blend "like a tunnel ramp ... up to 10%, with the goal being
+# the smallest possible"; the tower too).  A slope pad welded into the apron
+# is ONE level (constraints/door_pad); the apron keeps its cap along the
+# door line — the door wall's centre to the nearest taxiway, this share of
+# the door wall wide — and blends elsewhere round the pad at up to
+# [tunnel] ramp_max_grade, the apron's preference rows keeping it as gentle
+# as the levels allow.  0.5 = the middle half of the door (a proposed value,
+# not separately ruled).  0 disarms the door-line pad.
+door_corridor_share   = 0.5
 
 # issue #516 (owner RULINGS 2026-09-13bi "sink into the ground so its ramp
 # meets DEM", 13cm "the top deck meeting the sloping terrain at the ramp

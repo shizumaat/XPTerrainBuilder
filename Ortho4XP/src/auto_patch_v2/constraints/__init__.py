@@ -15,7 +15,7 @@ from ..model.airport import Airport
 from ..model.constraints import ConstraintSet, Row
 from ..model.planar import PlanarMap
 from . import (apron, cluster_pad, eat, flat_site, foot_rows,
-               groundside, hard_plane,
+               groundside, hard_plane, door_pad,
                junction_mesh,
                no_step, pad_frontage_gs, pad_fronting, pads,
                platform,
@@ -54,6 +54,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # §42 (1b) (owner RULINGS 2026-09-27a (5)): a hard ground plane is ONE
     # level (a Flat), its level the runway-edge frontage's
     ("hard_plane_level", hard_plane.hard_plane_level),
+    # owner 2026-10-20 (#798): a sloping building's pad welded into the
+    # apron is ONE level; the door line keeps the apron cap
+    ("door_pad_level", door_pad.door_pad_level),
     ("apron_edge_portions", apron.apron_edge_portions),
     ("road_within_shape", roads.road_within_shape),
     # §37 (6) A GROUNDSIDE ROAD IS A RAMP FROM ITS AIRSIDE CONTACT TO THE DEM
@@ -186,5 +189,8 @@ def generate(planar: PlanarMap, law: Law, airport: Airport,
         rows.extend(got)
         for k, v in stats.items():
             counts[f"{name}.{k}"] = v
+    # owner 2026-10-20 (#798): round a sloping building's pad the apron
+    # blends at up to the tunnel-ramp cap, except along the door line
+    rows = door_pad.relax_apron_caps(rows, planar, law, airport, counts)
     rows = assemble(rows, counts, walls, planar, law, only, yielded_out)
     return stack(rows), counts, walls

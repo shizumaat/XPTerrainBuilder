@@ -1242,6 +1242,8 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
     out["own"] = {v: True for v in vs if v not in rib_v and v not in beside}
     rtree = STRtree(list(retaining)) if retaining else None
     out["below_wall"] = {}
+    out["lot_at_wall"] = {}
+    by_shape = _shape_only_vertices(pm, roads) if wtree is not None else set()
     for v in vs:
         r, s_, _t_ = frame[v]
         out["station"][v] = (int(r), float(s_))
@@ -1265,6 +1267,17 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
             continue
         lev = sorted(((d, ref, a, b, u) for ref, (d, a, b, u, _dir) in fs.items()
                       if feet.role_of.get(ref) in stage1), key=lambda t: (t[0], t[1]))
+        if lev and v in by_shape and _way_crosses(pm, v, lev[0][2], lev[0][3],
+                                                 lev[0][4], walls, wtree):
+            # #1071 (owner 2026-10-20): a page that is a road only by its
+            # SHAPE (§110) is the LOT at a wall's foot — across the wall
+            # from its pavement it is not bordered (10-03c: the wall is the
+            # step), it leaves the terrace and :func:`wall_terraces` reads
+            # it as the lot.  MEASURED HECA ``dsf:objpav2`` (86 m², 1.4 m
+            # wide) at ``metal_strip_2.obj`` comp 12, 30.1215552, 31.4199516
+            out["station"].pop(v, None)
+            out["lot_at_wall"][v] = True
+            continue
         if lev:
             d, ref, a, b, u = lev[0]
             out["foot"][v] = (a, b, u, ref)
@@ -1274,6 +1287,20 @@ def road_terrace(pm: PlanarMap, law: Law, owned: _t.Mapping[int, str],
         if pad:
             out["pad"][v] = pad[0][1]
     return out
+
+
+def _shape_only_vertices(pm: PlanarMap, roads: _t.AbstractSet[str]) -> set[int]:
+    """#1071: the road vertices every road face of which is a road by its
+    SHAPE alone (§110 ``Face.road_by_proportions``) — a page's own
+    vertices, never one it shares with a road by evidence."""
+    shape_v: set[int] = set()
+    other_v: set[int] = set()
+    for f in pm.faces.values():
+        if f.role not in roads:
+            continue
+        into = shape_v if f.road_by_proportions else other_v
+        into.update(v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc))
+    return shape_v - other_v
 
 
 def _beside_ribbon(pm: PlanarMap, roads: _t.AbstractSet[str],
@@ -1429,6 +1456,17 @@ def wall_midline(g) -> list[tuple[float, float]]:
             ((a1[0] + b0[0]) / 2, (a1[1] + b0[1]) / 2)]
 
 
+def _is_lot_page(face, lot_roles: frozenset, roads: frozenset) -> bool:
+    """A LOT at a wall's foot (10-03c): a groundside lot / pavement page —
+    or a page that became a road only by its SHAPE (§110
+    ``road_by_proportions``; owner 2026-10-20, #1071: HECA ``dsf:objpav2``
+    at ``metal_strip_2.obj`` comp 12 still counts as the lot)."""
+    if face.role in lot_roles:
+        return True
+    return (face.role in roads and face.side == "groundside"
+            and bool(getattr(face, "road_by_proportions", False)))
+
+
 def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
                   terr: _t.Mapping[str, _t.Mapping], reach: float
                   ) -> dict[int, dict[str, _t.Any]]:
@@ -1493,7 +1531,7 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
         ring = list(pm.ring_vertices(f.ring))
         if f.role in stage1:
             up_v.update(ring)
-        elif f.role in lot_roles and len(ring) >= 3:
+        elif _is_lot_page(f, lot_roles, roads) and len(ring) >= 3:
             g = _Poly([pm.vertices[v].xy for v in ring])
             lot_f[fid] = g if g.is_valid else g.buffer(0.0)
         elif f.role in pad_roles and len(ring) >= 3:
@@ -1537,7 +1575,8 @@ def wall_terraces(pm: PlanarMap, law: Law, walls: _t.Sequence[WallPiece],
             # lower ground, released from the upper level") — a road the
             # terrace still borders is in ``up_v`` and never here
             inc = pm.vertices[v].incident_faces
-            on_road = any(pm.faces[g_].role in roads for g_ in inc)
+            on_road = any(pm.faces[g_].role in roads
+                          and not pm.faces[g_].road_by_proportions for g_ in inc)
             if w.retains and on_road:
                 return True
             return not on_road and any(g_ in lot_set for g_ in inc)

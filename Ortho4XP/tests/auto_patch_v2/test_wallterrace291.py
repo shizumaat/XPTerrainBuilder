@@ -325,3 +325,34 @@ def test_the_pair_rows_across_a_bent_wall_to_its_lot_side_are_released(law):
     out, rep = wall_release(pm, law, cs)
     assert rep["released"] == 1
     assert [(d.a, d.b) for d in out.diffs] == [(0, 2), (0, 3)]
+
+
+def test_a_page_that_is_a_road_only_by_its_shape_is_the_lot_at_the_wall_foot(
+        law, monkeypatch):
+    """#1071 (owner 2026-10-20, answer 43; HECA ``dsf:objpav2`` at
+    ``metal_strip_2.obj`` comp 12, 30.1215552, 31.4199516): a pavement page
+    that became ``service_road`` only by its PROPORTIONS (§110
+    ``road_by_proportions``) still counts as the LOT at a wall's foot —
+    the wall is declared (10-03c).  The flag reaches the map face
+    (``Face.road_by_proportions``); a road by EVIDENCE is unchanged."""
+    from auto_patch_v2.airport import road_ramp as rr
+    from auto_patch_v2.airport.road_ramp import WallPiece
+    from auto_patch_v2.model.airport import Building, Pavement, Surface
+    from test_classify import _rect, _synthetic
+    a = _synthetic(gate=True, island=False)
+    # a 6 m x 200 m page at the wall's foot (aspect ~33): a road by shape
+    strip = Pavement("strip", Surface.CONCRETE, _rect(300.0, 506.0, 500.0, 512.0), ())
+    bld = Building("b9", _rect(320.0, 516.0, 480.0, 546.0), (), "osm", None, None)
+    a = _dc.replace(a, pavements=tuple(a.pavements) + (strip,),
+                    buildings=tuple(a.buildings) + (bld,), dem=_LotDem())
+    monkeypatch.setattr(rr, "wall_pieces", lambda _ap, _cfg=None: (
+        WallPiece(WALL, 3.0, "wall.obj#comp0"),))
+    pm, _sol, _rep = _solve(a, law)
+    faces = [f for f in pm.faces.values() if str(f.ref).startswith("strip")]
+    assert faces and all(f.role == "service_road" and f.road_by_proportions
+                         for f in faces), [(f.ref, f.role) for f in faces]
+    recs = pm.road_terrace["wall"]
+    assert len(recs) == 1, recs
+    rec = next(iter(recs.values()))
+    strip_v = {v for f in faces for v in pm.ring_vertices(f.ring)}
+    assert rec["lower"] and set(rec["lower"]) <= strip_v

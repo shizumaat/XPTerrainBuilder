@@ -442,6 +442,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.basin_geometry",
         "auto_patch_v2.planar.basin_rim",
         "auto_patch_v2.planar.basins",
+        "auto_patch_v2.planar.bore_continuation",
         "auto_patch_v2.planar.build",
         "auto_patch_v2.planar.channel",
         "auto_patch_v2.planar.channel_claims",
@@ -1272,7 +1273,8 @@ CODE_MODULES["solve"] = _mods("""
     model.threshold_datum pipeline.back_cache pipeline.capture_state
     pipeline.solve_record pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
     planar.basin_datum
-    planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
+    planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
+    planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
@@ -1360,7 +1362,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     pipeline.late_records pipeline.late_stage pipeline.shapes pipeline.solve_record
     pipeline.stage_code pipeline.stage_one_map planar.apron_shelf planar.arrangement_memo
     planar.basin_datum
-    planar.basin_geometry planar.basin_rim planar.basins planar.build planar.channel
+    planar.basin_geometry planar.basin_rim planar.basins planar.bore_continuation
+    planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
     planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor

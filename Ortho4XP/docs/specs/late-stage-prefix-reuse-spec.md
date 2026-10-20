@@ -99,7 +99,16 @@ R, the re-derive radius, is `max(gap_follow.reach_m, reach_m(pad), pad_ramp.stan
      - **The roads stage misses, lawfully**: it carries one more non-late cell, `runout:0`.
      - Body `80456bf49005…` is identical to main.
    - Serving the roads stage would mean keying a front by its cells and patching in the run-out cells. That belongs to phase 2b.
-2. **Phase 2b, the planar intermediates past the front.**
+2. **Phase 2b, LANDED (lane m8, exact): the late derive's own repeats.**
+   - A profile of the late stage on replay (`v2_solve_replay --late-from`, HECA, loaded machine) showed two pure repeats inside every derive.
+     - Pass C's pad clip rebuilt the whole airside's mitred band buffer per ribbon (`ribbon_weld._weld_to_rim`). It is now `rim_zone`, once per clip.
+     - The road profiles built a fresh `LineString` of every `through` way for every vertex (`RoadProfiles.answer`). It is now `RoadProfiles._line`, one per way, keyed and checked by identity, never pickled.
+   - Replay A/B, same capture and base:
+     - `_weld_to_rim` 10.9 → 1.6 s; `RoadProfiles.answer` 36.9 → 23.7 s.
+     - `run_last_stages` 299.7 → 281.8 s (−6 %).
+     - Solved z identical (max |Δ| = 0 over 47,051 vertices).
+   - **Not taken:** the structure pass's per-overlap-pass `mouths()` / `mouth_at_pavement` / `pavement_half_widths` (about 19 s per late stage). Their inputs are pass-invariant, but `mouths()`' products are mutated in place (`m.approach`). Reusing them needs a copy discipline the #971 owner should rule on first.
+3. **Phase 2c (not done): the planar intermediates past the front.**
    - The base's planar build returns, beside `pm`, the arrangement intermediates: pass A's noded lines, pass B's pad lines and faces, the first `_faces_of`, and the structures/basins result. These live in memory, are never cached on disk, and are dropped after the late stage.
    - The gap stage's derive starts pass C from them. The roads-only stage starts from the gap stage's own intermediates (`pm_g` is in memory).
    - Bar: on HECA, OTHH and KCLT, every standing vertex of the cut map is at the same coordinate and level (the canonical join). The `ribbon_airside_added/removed` counters (`overlay.py:418-424`) stay 0.

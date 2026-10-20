@@ -279,6 +279,14 @@ Running totals (loaded → quiet ×0.78):
 | D3 | The late cells present and dormant from the first derive; the late stage edits the solved map locally (§55 (4) and 13a (1) re-read: the base is the map WITH the late cells' outlines, their rows dropped)? | ASK AFTER phases 0–3 are measured: its net prize is then ≈ 30 s and its engineering is the largest | measured once: OTHH 12 gap nodes up to 0.20 m (pavement bar 0.05 m); every standing ring a late cell touches gains vertices |
 | D4 | "Initial creation" ends when the patch and its sidecar are written; verify runs beside the tile's next step? | YES | nothing in the patch; verify's report arrives later |
 
+### 6a. D1, D2 and D4 measured (lane l412d, 2026-10-20, owner answer 46 "Yes to all three")
+
+One HECA capture at main `1de777c3b`, replayed `--from constraints` per arm; movers by canonical join of the emitted patches against main's replay of the same capture. Bars: runway and pavement 0.05 m, ground 0.5 m.
+
+- **D1 (the retarget rides pass 1b): out of the bars, not shipped.** Pass 1a ran one QP instead of two (73.6 → 34.2 s). Movers: runway 25 vertices over 0.05 m (worst 0.11 m at 30.13504, 31.40194: 05L/23R, ≈ 2.7 km from the 05L threshold); pavement 6,398 over 0.05 m (worst 0.48 m on a cross connector at 30.12038, 31.41446, ≈ 0.7 km NW of 05C/23C); apron and taxi p90 0.10–0.17 m; ground none over 0.5 m. Mechanism: `hold.derive` (runway Band centres, block datums, fronting references) reads pass 1a's levels, so un-retargeted levels set pass 1b a different problem. The levels D1 removes are the input the derive reads, so no reordering keeps the output.
+- **D2 (the re-widen decided before pass 1b): out of the bars, not shipped.** The welds were read from §5a's LP on pass 1b's own hard set, run before its QP. Pass 1a's LP cannot see a weld, because the hold rows are stripped there. That LP relaxes one row, which re-widens 4 contacts; today's post-QP read re-widens 24. The other 20 are the QP's residual, not LP relaxations: pass 1b's hard set does not settle (93 hard rows over 0.02 m, worst 0.14 m), and those welds stand 0.05–0.15 m off. Left un-widened, 19 welds stay off (max 0.148 m, as the D2 arm's seal reports them). Movers: runway none; pavement 3,248 over 0.05 m (worst 0.75 m on a service road at 30.13940, 31.41007, ≈ 220 m SE of 05L/23R and 3.65 km from the 05L threshold; aprons up to 0.44 m); ground none over 0.5 m.
+- **D4 (verify off the creation clock): shipped.** The pipeline writes `report["creation_s"]` and the line `[ICAO] patch created …` once the patch and sidecar are on disk; verify then runs as before. The harness reports `creation_seconds`. Nothing in the patch can change.
+
 ## 7. Not done here, and open items
 
 - **Builds after batch D were not run.** These numbers are the pre-D base (`7947b7dfc`); phase 0 re-measures. When this spec was written the machine was at load 61.

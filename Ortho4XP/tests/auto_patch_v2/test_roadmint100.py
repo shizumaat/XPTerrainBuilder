@@ -168,16 +168,19 @@ def test_the_airside_is_unchanged_by_a_ribbon_and_the_kerb_is_shared(law):
     assert rib
     band = set()
     for f in pm1.faces.values():
-        if f.role == "graded_strip":            # the ribbon is the band's HOLE
+        if f.role == "graded_strip":            # the ribbon stands in the band's HOLE
             for cyc in (f.ring, *f.holes):
                 band.update(pm1.ring_vertices(cyc))
-    kerb = set()
-    for f in rib:
-        kerb.update(v for v in pm1.ring_vertices(f.ring) if v in band)
-    # IN-BAND: the ribbon shares its kerb vertices with the band (30e (4)),
-    # and those are exactly the model's band-kerb set
-    assert len(kerb) >= 4
-    assert kerb <= pm1.band_kerb_vertices()
+    ribv = {v for f in rib for v in pm1.ring_vertices(f.ring)}
+    # THROUGH ZONE 2 (owner RULINGS 2026-10-20c, 39): the band is cut back
+    # from the ribbon (no shared vertex), and the ribbon's vertices are the
+    # model's band kerb all the same (30e (4), via ``road_yield``) — the
+    # kerb inside the band (y = -36; the far kerb at y = -44 is past the
+    # band's outer edge at y = -40 and is no band's)
+    assert not ribv & band
+    inside = {v for v in ribv if pm1.vertices[v].xy[1] > -40.0}
+    assert len(inside) >= 4 and inside <= pm1.band_kerb_vertices()
+    assert not (ribv - inside) & pm1.band_kerb_vertices()
 
 
 # ── THE ROAD-EXIT LAW (owner RULINGS 2026-09-29y / 30z (1) / 10-02v (1);
@@ -243,22 +246,26 @@ def test_a_ribbon_leaving_the_patch_onto_a_shelf_reaches_the_terrain(law):
     assert _ribbons(classify(off, law)) == []
 
 
-def test_a_band_is_not_cut_back_from_a_ribbon(law):
-    """13ar / 30e (4): the zone band shares the ribbon's kerb (no 0.6 m
-    stand-off strip), while a 1206 route corridor keeps its cut-back."""
+def test_zone_two_is_cut_back_from_a_ribbon_through_it(law):
+    """Owner RULINGS 2026-10-20c (39): a road through zone 2 is cut out of
+    it — the zone-2 band stands off the ribbon by the stand-off (less the
+    identity snap) — while a 1206 route corridor keeps its cut-back."""
+    from auto_patch_v2.law.tables import snap_margin_m
+    from auto_patch_v2.planar.road_yield import road_carriageways
     from auto_patch_v2.planar.zones import zone_regions
     a1 = _with(_way(-3, SOUTH, highway="tertiary"))
     cl = classify(a1, law)
     rib = _ribbons(cl)[0]
-    zones = zone_regions(tuple(cl.cells), law)
+    zones = zone_regions(tuple(cl.cells), law,
+                         carriageways=road_carriageways(a1.osm_ways, law))
     ribbon = Polygon(rib.ring, rib.holes)
-    touching = [z for z in zones if z.zone == 2 and
-                z.polygon.distance(ribbon) < 1e-6]
-    assert touching, "the zone-2 band abuts the ribbon with no stand-off"
+    cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
+    z2 = [z for z in zones if z.zone == 2 and z.polygon.distance(ribbon) < 5.0]
+    assert z2 and all(z.polygon.distance(ribbon) >= cut - 1e-6 for z in z2)
+    assert snap_margin_m(law) < cut
     routes = [c for c in cl.cells if c.role == "service_road" and not is_osm_ribbon(c)]
     assert routes
     corridor = Polygon(routes[0].ring, routes[0].holes)
-    cut = float(law.tables.zones.adjacent_ground.groundside_cutback_m)
     assert all(z.polygon.distance(corridor) >= cut - 1e-6 for z in zones)
 
 

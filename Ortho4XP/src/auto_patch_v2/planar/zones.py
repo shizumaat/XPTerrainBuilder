@@ -41,7 +41,7 @@ from ..law.tables import (
     zone_edge_offset_m,
 )
 from ..model.planar import is_gap_apron_ref, is_late_ref
-from .road_yield import beside_road_cut
+from .road_yield import BandYield, road_cut_pieces
 from .shore import SHORE_WALL_TAGS, ShoreVerdict, shore_contact, shore_declarations, shore_verdict
 from .terrain_edge import EdgeReport, clip_to_terrain_edge
 
@@ -266,7 +266,8 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
                  declared: tuple = (),
                  shore_wedge_m: float | None = None,
                  pack_walls: tuple = (), runways: tuple = (),
-                 carriageways: tuple = ()) -> list[ZoneRegion]:
+                 carriageways: tuple = (),
+                 yields: list | None = None) -> list[ZoneRegion]:
     """Zone 1 / zone 2 regions around the airside runway and taxi faces,
     minus every cell (pavement, pads, roads), minus senior strips and
     minus the ``keepouts`` (structure footprints: the zones stop at the
@@ -280,7 +281,10 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
 
     ``carriageways`` (``planar/road_yield.road_carriageways``: centreline,
     half-width) are the mapped roads; the bands yield the carriageway of
-    every road running BESIDE them (owner 2026-10-19, #944)."""
+    every road running BESIDE them (owner 2026-10-19, #944), and zone 2
+    yields the carriageway of every road running THROUGH it (owner RULINGS
+    2026-10-20c, 39); each zone-2 yield is appended to ``yields`` as a
+    :class:`~.road_yield.BandYield`."""
     ag = law.tables.zones.adjacent_ground
     # groundside pavement (roads, lots) buffered by the stand-off: a zone
     # band never shares a vertex with it — the gap terraces (groundside
@@ -444,19 +448,32 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # band envelope (and off the airside pavement) is the core's groundside
     # road — the bands yield its carriageway plus the groundside stand-off.
     # A road INSIDE a band is ribboned and grades with the zone (13ar/29r).
-    beside = None
+    # A ROAD THROUGH ZONE 2 IS CUT OUT OF IT (owner RULINGS 2026-10-20c, 39,
+    # #951): the same cut with the zone-1 LIPS as the envelope, so every
+    # carriageway whose centreline runs outside the lips leaves zone 2 its
+    # half-width plus the stand-off — the road follows its own ground and
+    # the band stops at the road's edge.  Zone 1 keeps the outer cut (13ar:
+    # the road there is welded to the lip).
+    beside = through = None
     if carriageways and bands:
-        envelope = unary_union(
-            [b[2] for b in bands.values()]
-            + [Polygon(c.ring, c.holes) for c in cells
-               if c.side != "groundside" and len(c.ring) >= 3])
-        beside = beside_road_cut(carriageways, envelope, cut)
+        airside = [Polygon(c.ring, c.holes) for c in cells
+                   if c.side != "groundside" and len(c.ring) >= 3]
+        envelope = unary_union([b[2] for b in bands.values()] + airside)
+        pieces = road_cut_pieces(carriageways, envelope, cut)
+        beside = unary_union([g for _a, _h, g in pieces]) if pieces else None
+        if yields is not None:
+            yields.extend(BandYield(g, a, float(h)) for a, h, g in pieces)
+        through = road_cut_pieces(carriageways,
+                                  unary_union([b[1] for b in bands.values()] + airside),
+                                  cut, extent=envelope, cap_style="square")
     for key, (u, inner, outer) in bands.items():
         fam, cn, cl = key
         z1 = fixed_difference(inner, claimed)
         z2 = fixed_difference(fixed_difference(outer, inner), claimed)
         z1 = fixed_difference(z1, beside)
         z2 = fixed_difference(z2, beside)
+        if through:
+            z2 = _yield_zone2(z2, outer, key, through, yields)
         cls = f"{cn}" if fam == "runway" else f"{cl or 'default'}"
         for zone, geom, seed in ((1, z1, u), (2, z2, inner)):
             if gap_apron_u is not None and geom.intersects(gap_apron_u):
@@ -528,6 +545,27 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
             counters[(fam, cls, zone)] = k
         claimed = canonical_union([claimed, outer])
     return out
+
+
+def _yield_zone2(z2, outer, key, through, yields: list | None):
+    """``z2`` less every through-road cut that reaches it, each cut clipped
+    to ``outer`` (this band's zone-2 extent) and recorded in ``yields``."""
+    fam, cn, cl = key
+    rwy = cl[len(_RUNWAY_KEY):] if fam == "runway" else None
+    mine = []
+    for axis, half, g in through:
+        if not g.intersects(z2):
+            continue
+        piece = g.intersection(outer)
+        if piece.is_empty or piece.area <= 0.0:
+            continue
+        mine.append(g)
+        # a road BESIDE the band (its axis outside it) is #944's cut, already
+        # made: only an axis through this band's zone 2 is its yield
+        if yields is not None and axis.intersects(outer):
+            yields.append(BandYield(piece, axis, float(half), fam, cn,
+                                    None if fam == "runway" else cl, rwy, True))
+    return fixed_difference(z2, unary_union(mine)) if mine else z2
 
 
 #: The runway group key's third slot: the runway REF behind this prefix (a

@@ -988,6 +988,9 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
     from .ribbon_steps import ribbon_contact_steps
     out.extend(ribbon_contact_steps(planar, law, z))
     out.extend(wall_terrace_joints(planar, law, z))
+    # 19i (#951): the band's riser against a road below it
+    from .band_road_wall import band_road_wall_joints
+    out.extend(band_road_wall_joints(planar, law, z))
     return out
 
 

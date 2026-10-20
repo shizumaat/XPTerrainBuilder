@@ -310,19 +310,27 @@ public struct O4MeshCrop: Decodable, Equatable, Sendable {
 public struct O4PackObjects: Decodable, Equatable, Sendable {
     public struct Model: Decodable, Equatable, Sendable {
         public let key: String
-        /// Authored (x, y, z) metres, triples.
+        /// Authored (x, y, z) metres, triples (empty in a footprints-only answer).
         public let vertices: [Float]
         public let triangles: [UInt32]
+        /// The plan outline, authored (x, z) pairs — a footprints-only
+        /// answer's model carries this instead of the massing (#797).
+        public let planHull: [Float]
 
         private enum CodingKeys: String, CodingKey {
             case key, verticesF32B64 = "vertices_f32_b64", trianglesU32B64 = "triangles_u32_b64"
+            case planHullF32B64 = "plan_hull_f32_b64"
         }
 
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             key = try c.decode(O4WireKey.self, forKey: .key).value
-            vertices = try O4Binary.float32(base64: c.decode(String.self, forKey: .verticesF32B64))
-            triangles = try O4Binary.uint32(base64: c.decode(String.self, forKey: .trianglesU32B64))
+            vertices = try c.decodeIfPresent(String.self, forKey: .verticesF32B64)
+                .map { try O4Binary.float32(base64: $0) } ?? []
+            triangles = try c.decodeIfPresent(String.self, forKey: .trianglesU32B64)
+                .map { try O4Binary.uint32(base64: $0) } ?? []
+            planHull = try c.decodeIfPresent(String.self, forKey: .planHullF32B64)
+                .map { try O4Binary.float32(base64: $0) } ?? []
         }
     }
 

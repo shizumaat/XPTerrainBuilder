@@ -239,7 +239,10 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     * the riders (:func:`seat_riders`);
     * 14g (2): an ``OBJECT_AGL`` row whose written ``OBJECT_MSL`` would
       equal its drape within ``keep_tol_m`` stays AGL
-      (:func:`_agl_rows_kept`; 0 disarms)."""
+      (:func:`_agl_rows_kept`; 0 disarms);
+    * owner answer 48 (#1102): a converted ``OBJECT_MSL`` row whose
+      geometry stands above its origin is seated on its row by its feet
+      (``msl_feet.feet_seats``) instead of converted."""
     _records = getattr(rebake_plan, "authored_seats", ()) or ()
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
@@ -262,6 +265,13 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
         dump, jetway_strips, pads, surface, settled, msl, conv0, conversions,
         tol_m=tol_m, authored_ground=ground, gate_m=gate_m)
     msl, agl_kept = _agl_rows_kept(dump, msl, surface, keep_tol_m)
+    # owner answer 48 (2026-10-20, #1102): a converted OBJECT_MSL row whose
+    # geometry stands above its origin is seated by its FEET, on its row
+    from . import msl_feet as _mf
+    feet, conversions = _mf.feet_seats(dump, conversions, surface, pack_root,
+                                       ss.unit_seats, tol_m=tol_m,
+                                       counts=msl_counts)
+    msl = tuple(msl) + feet
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,

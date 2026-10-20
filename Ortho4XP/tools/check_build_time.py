@@ -456,15 +456,22 @@ def run_one_airport_build(icao: str,
 
 def v2_report_to_store_record(report: dict, finished_at: float) -> dict:
     """A store record from a v2 ``<ICAO>.report.json``: one phase per v2
-    stage clock (``wall_s``), the total their sum."""
+    stage clock (``wall_s``), the total their sum.  The report's own
+    ``wall_s.total`` (the stages plus ``unclocked``) is the total, never a
+    phase: summed with the stages it DOUBLED every v2 record (lane m8,
+    2026-10-19: HECA 1,068.6 s wall stored as 2,110.9 s)."""
+    clocks = dict(report.get("wall_s") or {})
+    stated_total = clocks.pop("total", None)
     phase_seconds = {str(stage): float(seconds)
-                     for stage, seconds in (report.get("wall_s") or {}).items()
+                     for stage, seconds in clocks.items()
                      if isinstance(seconds, (int, float))}
     if not phase_seconds:
         raise RuntimeError("the v2 report carries no wall_s stage clocks")
+    total = (float(stated_total) if isinstance(stated_total, (int, float))
+             else sum(phase_seconds.values()))
     return {"finished_at": finished_at, "engine": "v2",
             "phase_seconds": phase_seconds,
-            "total_seconds": round(sum(phase_seconds.values()), 3)}
+            "total_seconds": round(total, 3)}
 
 
 def append_store_record(store_directory: str, name: str,

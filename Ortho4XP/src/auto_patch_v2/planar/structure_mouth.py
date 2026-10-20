@@ -271,7 +271,7 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
 def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       cut_roles: _t.Collection[str], half: float, rim_off: float, gap: float,
                       spacing: float, grid: float, decked: _t.Sequence[Polygon],
-                      airport=None):
+                      airport=None, crossing: _t.Sequence[tuple[Polygon, str]] = ()):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -281,7 +281,10 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     profile, held under the pavement it slid out of (:func:`road_profile`;
     ``None`` for a mouth that did not slide, or without ``airport``): the
     caller's datum is never deeper.  ``decked`` are the corridor's own deck
-    polygons (read on the mapped approach).  ``stops`` / ``tree`` carry the building ``pads`` too
+    polygons (read on the mapped approach).  ``crossing`` are the mapped
+    roads through the corridor (``structure_approach.crossing_roads``, #1028):
+    stops like the pavement's — a road over the bore slides the mouth out of
+    it, one across the approach trims the ramp's top.  ``stops`` / ``tree`` carry the building ``pads`` too
     (``ramp_crosses_pad``: a pad stops the ramp's top but never slides
     the mouth).
 
@@ -319,7 +322,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         here = substring(axis, total, axis.length)
         mouth = here.coords[0] if total > 0.0 else group.mouth
         stops = mouth_stops(cells, polys, law, cut_roles, here, mouth, half, rim_off, decked,
-                            grid)
+                            grid) + list(crossing)
         s0, ref = clear_mouth(here, stops, half, rim_off, gap, spacing, grid,
                               lambda s, _t=total: ring_of(_t + s),
                               law.tables.structures.tunnel.mouth_slide_max_m - total)

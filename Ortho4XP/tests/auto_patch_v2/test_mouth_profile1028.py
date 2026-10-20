@@ -133,5 +133,5 @@ def test_the_run_ends_where_the_axis_leaves_the_mapped_road():
     end = road_end_m(LineString([(0.0, 0.0), (300.0, 0.0)]), ix, 3.5, 1.0)
     assert end == pytest.approx(103.0, abs=1.01)       # the road's end + the half width
     assert road_end_m(LineString([(0.0, 0.0), (90.0, 0.0)]), ix, 3.5, 1.0) is None
-    # a TUNNEL way is no road the ramp may follow
-    assert road_end_m(LineString([(150.0, 50.0), (300.0, 50.0)]), ix, 3.5, 1.0) is None
+    # a TUNNEL way is no road the ramp may follow: no road at all ends the run at once
+    assert road_end_m(LineString([(150.0, 50.0), (300.0, 50.0)]), ix, 3.5, 1.0) == 0.0

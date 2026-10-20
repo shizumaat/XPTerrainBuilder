@@ -1034,6 +1034,7 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
         return x
 
     pxy = {i: xy(ll) for i, ll in vll.items()}
+    members: dict[int, list[int]] = {}
     for _w, _o, ids, closed in seqs:
         n = len(ids)
         if n < 2:
@@ -1047,7 +1048,22 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             if math.hypot(pa[0] - pb[0], pa[1] - pb[1]) >= spacing:
                 continue
             keep, drop = (a, b) if key(a) <= key(b) else (b, a)
+            # NO CHAIN MERGE (#951 round 7): the merge joins two vertices
+            # closer than the spacing, never a chain of them.  MEASURED KLAX
+            # taxiway F (33.93418, -118.39608): road corner -> a node 0.5 m
+            # on -> a band-line corner 0.5 m further, each pair just under
+            # the spacing, were folded into ONE vertex, and the road's ring
+            # took the band's level 3.3 m over the road.  A union that would
+            # leave any member of either group one spacing or more from the
+            # survivor is refused; the segment stays as written.
+            group = members.get(a, [a]) + members.get(b, [b])
+            kx, ky = pxy[keep]
+            if any(math.hypot(pxy[m][0] - kx, pxy[m][1] - ky) >= spacing
+                   for m in group):
+                continue
             parent[drop] = keep
+            members[keep] = group
+            members.pop(drop, None)
     remap = {i: find(i) for i in vll}
     if all(t == i for i, t in remap.items()):
         return surface

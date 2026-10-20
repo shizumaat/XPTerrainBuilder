@@ -1063,6 +1063,23 @@ def read_placement(cache: "ResourceCache", job: PlacementJob, law: ReadLaw
                          tuple(buried_wits), seated), rep)
 
 
+def _msl_lifts(placements: _t.Sequence[tuple], pack_root: str | None,
+               index: _t.Mapping[str, str] | None, cache: "ResourceCache",
+               tol_m: float) -> dict[str, "float | None"]:
+    """Owner Q54 (#1102): the lift each converted ``OBJECT_MSL`` row is
+    READ at — its feet on the ground at its origin, or ``None`` for a set
+    built around its origin (``msl_feet.origin_set_lifts``, the guard)."""
+    from . import msl_feet as _mf
+    items = []
+    for oid, dpath, xy, heading, _elev, kind in placements:
+        if kind != "OBJECT_MSL" or is_stock_library_resource(dpath):
+            continue
+        phys = resolve_resource(dpath, pack_root, index)
+        items.append((oid, _mf.origin_key(xy, heading),
+                      cache.geometry(phys) if phys is not None else None))
+    return _mf.origin_set_lifts(items, tol_m)
+
+
 def _has_hard_deck(cache: "ResourceCache", phys: str) -> bool:
     g = cache.geometry(phys)
     return g is not None and bool(g.hard_deck.shape[0])
@@ -1103,7 +1120,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                         authored_depth_min_m: float = 0.0,
                         authored_rim_tol_m: float = 0.0,
                         basement_cover_min: float = 1.0,
-                        ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None
+                        ahead: "_t.Callable[[list, ReadLaw], list | None] | None" = None,
+                        msl_tol_m: float = 0.3
                         ) -> tuple[list[PlacedObject], ObjReport]:
     """``placements``: ``(id, def_path, xy, heading_deg, elevation, kind)``
     per ``OBJECT*`` row (``elevation`` is the AGL offset for
@@ -1153,12 +1171,14 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
             if phys is not None and cache.geometry(phys) is not None:
                 lifted.append((oid, phys, xy, heading, float(elev)))
     fam = _family_depths(cache, lifted, authored_rim_tol_m, admission_depth_m)
+    msl_lift = _msl_lifts(placements, pack_root, index, cache, msl_tol_m)
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
         if kind == "OBJECT_AGL" and elev is not None:
             agl = float(elev)
         elif kind == "OBJECT_MSL":
             rep.msl_notes += 1
+            agl = msl_lift.get(oid) or 0.0
         phys = resolve_resource(dpath, pack_root, index)
         anchor_z = float(dem_z(xy[0], xy[1]))
         if phys is None:

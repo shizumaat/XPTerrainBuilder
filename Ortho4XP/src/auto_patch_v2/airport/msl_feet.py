@@ -49,7 +49,8 @@ import numpy as np
 
 from ..model.placement import KIND_MSL
 
-__all__ = ["static_vertices", "lowest_feet", "below_origin_ids", "feet_seats"]
+__all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "origin_key",
+           "below_origin_ids", "feet_seats"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
@@ -83,29 +84,44 @@ def lowest_feet(path: str, band_m: float) -> "np.ndarray | None":
     return v[v[:, 1] <= float(v[:, 1].min()) + band_m]
 
 
+def origin_set_lifts(items: _t.Iterable[tuple[str, tuple, _t.Any]],
+                     tol_m: float) -> dict[str, "float | None"]:
+    """THE GUARD AND THE READ (owner Q54, 2026-10-20: "yes with the
+    guard"), per ``OBJECT_MSL`` placement: ``items`` are ``(id, origin
+    key, parsed geometry or None)``.  The rows of one origin are one set;
+    a set holding a member whose static geometry reaches more than
+    ``tol_m`` below its origin — or one that cannot be read — is GUARDED
+    (``None`` for every member): the author built it around its origin,
+    it keeps the on-ground conversion and is never split.  Every other
+    member reads at the lift ``−y_min`` that stands its own lowest static
+    feet on the ground at its origin, so the partition finds its feet and
+    the split anchors each body on them."""
+    sets: dict[tuple, list] = {}
+    for oid, key, g in items:
+        v = static_vertices(g) if g is not None else None
+        sets.setdefault(key, []).append((oid, None if v is None else float(v[:, 1].min())))
+    out: dict[str, "float | None"] = {}
+    for members in sets.values():
+        guarded = any(y is None or y < -tol_m for _i, y in members)
+        for oid, y in members:
+            out[oid] = None if guarded else -_t.cast(float, y)
+    return out
+
+
+def origin_key(xy: _t.Sequence[float], heading_deg: float) -> tuple:
+    """One origin in the airport frame (mm) and heading (1e-3°)."""
+    return (round(float(xy[0]), 3), round(float(xy[1]), 3), round(float(heading_deg), 3))
+
+
 def below_origin_ids(objects: _t.Sequence[_t.Any], geometry: _t.Callable,
                      tol_m: float) -> set[str]:
-    """THE GUARD (owner Q54, 2026-10-20: "yes with the guard"): the ids of
-    the ``OBJECT_MSL`` placements whose origin set holds a member whose
-    static geometry reaches more than ``tol_m`` below its origin — or one
-    that cannot be read.  They keep the on-ground conversion and are never
-    split: the author built that model around its origin.  ``objects``
-    are ``obj8.PlacedObject``; ``geometry(resolved)`` the parsed file."""
-    sets: dict[tuple, list] = {}
-    for o in objects:
-        if o.kind == KIND_MSL:
-            key = (round(float(o.xy[0]), 3), round(float(o.xy[1]), 3),
-                   round(float(o.heading_deg), 3))
-            sets.setdefault(key, []).append(o)
-    out: set[str] = set()
-    for members in sets.values():
-        for o in members:
-            g = geometry(o.resolved) if o.resolved is not None else None
-            v = static_vertices(g) if g is not None else None
-            if v is None or float(v[:, 1].min()) < -tol_m:
-                out.update(m.id for m in members)
-                break
-    return out
+    """The ids :func:`origin_set_lifts` GUARDS among ``obj8.PlacedObject``
+    readings; ``geometry(resolved)`` the parsed file."""
+    lifts = origin_set_lifts(
+        ((o.id, origin_key(o.xy, o.heading_deg),
+          geometry(o.resolved) if o.resolved is not None else None)
+         for o in objects if o.kind == KIND_MSL), tol_m)
+    return {i for i, v in lifts.items() if v is None}
 
 
 def _origin(p: _t.Any) -> tuple:

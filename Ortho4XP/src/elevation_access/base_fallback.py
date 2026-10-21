@@ -1,19 +1,23 @@
-"""Base-tile fallback: another source when the configured one is down.
+"""Base-tile fallback: another source when the configured one has nothing.
 
-THE RULE (issue #561).  A whole base cell comes from, in this order:
+THE RULE (issue #561; owner Q77, RULINGS 2026-10-20ap).  A whole base
+cell comes from, in this order:
 
 1. the configured source's cached file, when it is valid;
 2. the configured source's download;
-3. ONLY when that download died on the TRANSPORT after its retries
-   (``O4_DEM_Utils.ElevationTransportRefused``): each fallback source in
-   ``fallback_rank`` order -- a ``role=base`` definition whose ``.elv``
-   carries ``fallback_rank=N`` (``N`` >= 1, lowest first).
+3. when that download died on the TRANSPORT after its retries
+   (``O4_DEM_Utils.ElevationTransportRefused``) OR the source answered
+   "not there" for a LAND cell (``O4_DEM_Utils.ElevationAbsentRefused``:
+   an archive 404/410, or an archive without the cell's member): each
+   fallback source in ``fallback_rank`` order -- a ``role=base``
+   definition whose ``.elv`` carries ``fallback_rank=N`` (``N`` >= 1,
+   lowest first).  Owner Q77: "if no data is found, definitely fall back
+   to next best available."
 
-A source that answered "not there" for a land cell, refused this client
-or looped on redirects still refuses the tile (issues #173, #124, #193):
-those are defects to see, not outages to route around.  When every
-source fails the tile is refused, naming each source and its failure --
-never meshed at 0 m.
+A source that refused THIS CLIENT (403/407/429..., issue #124/#173) or
+looped on redirects (#193) still refuses the tile: those are client
+defects to see, not missing data.  When every source fails the tile is
+refused, naming each source and its failure -- never meshed at 0 m.
 
 PROVENANCE.  A fallback file lives at its OWN cache path (the fallback
 strategy's ``tile_cache_path``, keyed by the fallback's CODE), never at
@@ -239,14 +243,15 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
     the first fallback is asked -- the pipeline's remote-read set-up.
 
     Raises ``O4_DEM_Utils.ElevationDownloadRefused`` exactly where the
-    strategy alone did, except for a transport failure that a fallback
-    source could cover.
+    strategy alone did, except for a transport failure or an absent land
+    cell that a fallback source could cover.
     """
     cache_path = _cache_path(strategy, definition, lat, lon)
     if cache_path and cached_elevation_file_is_valid(cache_path):
         return strategy.ensure_tile(definition, lat, lon, verbose)
     host = _source_host(strategy, definition, lat, lon)
     failure = _remembered_failure(host)
+    absent = False
     if failure is None:
         try:
             return strategy.ensure_tile(definition, lat, lon, verbose)
@@ -254,6 +259,11 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
             failure = str(error)
             _unreachable[host] = (time.monotonic(), failure)
             _proxied[host] = FAIL.is_proxy_refusal(error)
+        except DEM.ElevationAbsentRefused as error:
+            # Per cell, not per host: the host answered, so the other
+            # cells of this build still ask it first.
+            failure = str(error)
+            absent = True
     else:
         UI.vprint(
             1, "    ", source_label(definition), "did not answer earlier "
@@ -264,12 +274,14 @@ def ensure_tile_or_fallback(strategy, definition, lat, lon, verbose,
     if before_fallback is not None:
         before_fallback()
     return _take_fallback(definition, lat, lon, failure, verbose, providers,
-                          _proxied.get(host, False))
+                          False if absent else _proxied.get(host, False),
+                          absent)
 
 
 def _take_fallback(configured, lat, lon, configured_failure, verbose,
-                   providers, configured_proxied=False):
+                   providers, configured_proxied=False, absent=False):
     cell = _cell_label(lat, lon)
+    said = "has no data for this cell" if absent else "did not answer"
     failures = [(source_label(configured), configured_failure)]
     # Whether EVERY source that was asked was refused by a proxy: the
     # user's own proxy or VPN, not the servers (the refusal then says so).
@@ -282,7 +294,7 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
                 failures.append((label, "does not cover this cell"))
                 continue
             UI.vprint(
-                1, "    ", source_label(configured), "did not answer; "
+                1, "    ", source_label(configured), said + "; "
                 "asking", label, "for elevation cell", cell + ".")
             obtained = strategy.ensure_tile(definition, lat, lon, verbose)
         except Exception as error:
@@ -291,21 +303,24 @@ def _take_fallback(configured, lat, lon, configured_failure, verbose,
             continue
         if obtained:
             UI.lvprint(
-                1, "    %s did not answer; elevation cell %s taken from %s "
+                1, "    %s %s; elevation cell %s taken from %s "
                 "instead (%s). %s is asked again on the next build. "
                 "Reason: %s"
-                % (source_label(configured), cell, label,
+                % (source_label(configured), said, cell, label,
                    _cache_path(strategy, definition, lat, lon),
                    source_label(configured), configured_failure))
             return 1
         failures.append((label, "has no data for this cell"))
-    refusal = DEM.ElevationTransportRefused(
+    refused = DEM.ElevationAbsentRefused if absent else (
+        DEM.ElevationTransportRefused)
+    advice = ("" if absent else " Check the network connection (a proxy, "
+              "or antivirus HTTPS inspection, can block every source at "
+              "once) and build again.")
+    refusal = refused(
         "elevation cell %s could not be fetched from any source -- "
-        "REFUSING to build this tile on an all-zero elevation raster. %s "
-        "Check the network connection (a proxy, or antivirus HTTPS "
-        "inspection, can block every source at once) and build again."
+        "REFUSING to build this tile on an all-zero elevation raster. %s%s"
         % (cell, " ".join("%s: %s." % (label, str(text).rstrip("."))
-                          for (label, text) in failures)))
+                          for (label, text) in failures), advice))
     if all(proxied):
         refusal.failure_code = "proxy_refused"
     raise refusal

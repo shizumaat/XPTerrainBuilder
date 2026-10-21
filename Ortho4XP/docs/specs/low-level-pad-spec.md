@@ -52,12 +52,15 @@ landing registry and rows. It adds no column class and no generator.
    - `<block>/p1` is registered in `Registries.landings` with
      `kind = "low_level"`, `y_lo` = the lowest low part − `t`, and
      `y_hi = −low_level_min_step_m`.
-5. **The level.** The lower level is a flat pad on its own ground:
-   - `ground_z` is the DEM median over the region's AREA, read at the
-     mint. The ring mean would read the slope up to the block.
-   - `landing_rows` states one soft own-ground row on the pad's mean, at
-     the `frontage_level` head's `pad_flat` price, and a hard band against
-     the block's datum column, `D + y_lo ≤ z ≤ D + y_hi`.
+5. **The level.** The lower level is a flat pad held RIGID at the
+   object's own lower floor (#1141, owner 2026-10-20: "the bottom road deck
+   sits at ground level"; amends the own-ground placement below):
+   - `landing_rows` holds every vertex at `z = D + y_lo` against the
+     block's datum column — a landing's two-sided row.
+   - `ground_z` (the DEM median over the region's AREA, read at the mint)
+     stays the #1115 witness only. Measured KATL: on its own ground the
+     level stood at 289.45 m, 1.64 m over the object's floor (287.78), and
+     the roadway's towers were buried by that much.
    - The lower level is a stage-2 pad, so it is left out of
      `stage_air_vertices`.
    - It fronts nothing: `pad_frontage_level`, `pad_fronting` and

@@ -1,6 +1,9 @@
 # Flat-pack terracing: read a pack that assumed a flat airport, and terrace groundside for it
 
-Lane lflatpack, 2026-10-20. A spec only: no engine code is in this branch.
+Lane lflatpack, 2026-10-20. Revision 2 (same day): the owner's answers
+59-66 (RULINGS 2026-10-20w-ad) are folded in. Phase 1, the report-only
+detector, is implemented on this branch (§1.4); terracing (phases 2-4) is
+spec only.
 
 **Owner direction** (Noah, 2026-10-20 17:44Z): "With packages like the
 TaiModels HECA, we are making compromises to adapt groundside terrain to
@@ -13,6 +16,22 @@ new/better airport package could allow us to re-grade more faithfully in
 the future."
 
 **Law this builds on:**
+
+* RULINGS 2026-10-20w-ad (answers 59-66 to this spec's first questions):
+  * w: terracing needs evidence beyond a flat pack (buildings that cannot
+    be seated, steep paved-grade violations); pads seated on real terrain
+    are preferred when feasible; LEMD is not a terrace test case;
+  * x: a pack is flat-designed when MORE THAN 90 % of its objects sit at
+    one level;
+  * y: an area with no terminal to match takes the midrange of its ground;
+  * z: no fixed 4.95 m split; where to split follows the object, road and
+    lot layout, and walls or terraces taller than that are allowed;
+  * aa: airside stays fixed; groundside terraces adjust as far as their
+    service roads allow within the roads' max grade;
+  * ab: areas with no pack objects keep today's grading;
+  * ac: the `1302 flatten 1` flag is a second witness (report-only until a
+    test airport uses it) and is removed when the airport is modified;
+  * ad: flatness is decided for the whole pack, not per object family.
 
 * RULINGS 2026-10-20d (Q40): compromises are accepted so that likely
   inaccurate objects work on sloping terrain. Where banks cannot reach the
@@ -59,136 +78,126 @@ The engine already reads everything this needs at load:
 * the DEM.
 
 **Definitions.** All of these are read from the load-time partition. No
-planar product is used.
+planar product is used. The decision is for the WHOLE PACK (20ad).
 
-* **Family.** A `Unit` of the partition: every placement sharing one
-  anchor spelling.
-* **Grounded feet of a member.** Its non-scatter, non-line parts' feet
-  with authored `y <= feet_y + 1.0 m`. Here `feet_y` is
-  `base_profile['feet_y']`, or the lowest foot when absent. The 1.0 m is
-  the S4 below-grade magnitude, `flat_site.detector.below_grade_base_y_m`.
-* **Seat of a grounded foot `f`.** `seat(f) = DEM(member origin) +
-  unit.agl_m + y_f`. This is where X-Plane draws the foot.
-* **Ground of `f`.** `ground(f) = DEM(f)`.
-* **A family is FLAT-ASSUMED when all three of these hold:**
-  1. Its seats agree: `p95 - p5` of `seat(f)` over its grounded feet is at
-     most `flat_site.detector.seat_spread_max_m` (3.0 m, the S4 consensus
-     spread).
-  2. The ground under it is real relief: `p95 - p5` of `ground(f)` exceeds
-     the relief floor of the DEM's source class,
-     `flat_site.detector.relief_floor_m` (coarse 8.0 m, fine 2.0 m). A
-     lidar-class source reads the fine floor.
-  3. The seats miss the ground: the median of `|seat(f) - ground(f)|`
-     exceeds the collar drop, `structures.building_pad
-     platform_collar_max_m` x `emit.design.bank_slope` = 15.0 x 0.33 =
-     **4.95 m** (equal to `[placement] connector_step_max_m`). That is the
-     depth past which a fill "cannot bank down" (road-edge-drop R2).
-* **The pack statistic `F`.** The share of the pack's grounded feet that
-  belong to flat-assumed families. Weighting by feet makes a structure
-  count by its size, and a lone prop or mast family weighs nothing.
+* **Object.** A member of the partition (one pack resource placement) with
+  grounded feet; scatter members and line parts are not objects.
+* **Grounded feet of an object.** Its non-scatter, non-line parts' feet
+  with authored `y <= feet_y + grounded_band_m` (1.0 m, the S4 below-grade
+  magnitude). `feet_y` is `base_profile['feet_y']`, or the lowest foot when
+  absent.
+* **Drawn height of a grounded foot `f`.** `DEM(object origin) +
+  unit.agl_m + y_f`: where X-Plane draws it.
+* **The object's level.** The median drawn height of its grounded feet.
+* **The level share `L`.** The largest share of the pack's objects whose
+  levels lie in ONE window `flat_site.detector.seat_spread_max_m` (3.0 m)
+  wide. The window's median level is THE PACK LEVEL.
+* **The relief `R`.** `p95 - p5` of the DEM under the grounded feet of the
+  objects at that level.
+* **Witness 1, seats (20x).** `L > [flat_pack] level_share_min` (0.9,
+  "Greater than 90% of objects would all be at the same level") AND `R`
+  exceeds the relief floor of the DEM's source class,
+  `flat_site.detector.relief_floor_m` (coarse 8.0 m, fine 2.0 m; a lidar
+  or unknown class reads the fine floor). Without the relief gate a pack on
+  a genuinely flat site reads flat-designed, and nothing about it would be
+  wrong.
+* **Witness 2, flatten flag (20ac).** The airport block carries
+  `1302 flatten 1` (`SceneryPack.flatten_declared`).
 * **Verdict.**
-  * `flat_assumed` when `F >= [flat_pack] share_min`. The working value is
-    **0.5**, a majority (Q2).
+  * `flat_assumed` when either witness holds; the record names which
+    (`seats`, `flatten_flag`, or both).
+  * `no_data` with fewer than `[flat_pack] min_members` (3) objects and no
+    flag.
   * `follows_terrain` otherwise.
-  * `no_pack` with no partition.
+
+The verdict is necessary for terracing, never sufficient: a flat-assumed
+pack terraces only where today's grading FAILS (§3.0, 20w).
 
 ### 1.2 Measured
 
-The table comes from the registered captures, through the production
-loader's partition and DEM.
+Measured by the implemented detector (`airport/flat_pack.detect`, this
+branch) on the registered captures, through the production loader's
+partition and DEM:
 
-* Captures: `l786/HECA.pkl` (b57fe46d7), `m15/KASE.pkl`, `m2/KCLT.pkl`,
-  `m12/OTHH.pkl`, `c971/LEMD.pkl` and `m5/KATL2.pkl`, all under
+* `l786/HECA.pkl` (b57fe46d7), `c971/LEMD.pkl`, `m15/KASE.pkl`,
+  `m2/KCLT.pkl`, `m12/OTHH.pkl` and `m5/KATL2.pkl`, all under
   `/Users/noah/XPTerrainBuilderData/.harness/frames/`.
-* `members` counts the members with grounded feet.
-* `seat`, `ground` and `|seat - ground|` are pack-wide, member-weighted:
-  * `seat` is the `p95 - p5` of the seats;
-  * `ground` is the `p95 - p5` of the ground under the feet;
-  * `|seat - ground|` is the median.
-* `beta` is the weighted slope of `seat` on `ground`: 1 means the seats
-  follow the terrain, 0 means they are flat.
 
-| airport (pack) | DEM class | members / families | top anchor's share of members | seat p95-p5 | ground p95-p5 | median \|seat-ground\| | beta | **F** | verdict |
+| airport (pack) | DEM class | objects | at one level | **L** | pack level | **R** (floor) | median miss at that level | flatten flag | verdict |
 |---|---|---|---|---|---|---|---|---|---|
-| **HECA** (TaiModels) | coarse | 249 / 7 | 379 of 429 (DEM 108.44 m) | **1.43 m** | **34.04 m** | **17.91 m** | **0.02** | **0.9986** | flat_assumed |
-| **LEMD** (Aerosoft) | fine | 166 / 11 | 184 of 327 (DEM 596.0 m) | 3.22 m | 50.52 m | 7.12 m | 0.04 | **0.9554** | flat_assumed |
-| KASE (Aerosoft) | lidar | 187 / 155 | 13 of 217 | 53.53 m | 54.33 m | 0.41 m | 1.01 | **0.0000** | follows_terrain |
-| KCLT (Nimbus) | lidar | 73 / 49 | 22 of 106 | 7.01 m | 9.93 m | 1.51 m | 0.61 | **0.0000** | follows_terrain |
-| OTHH (Aeroscape) | coarse | 436 / 103 | 198 of 1,087 | 6.52 m | 0.00 m | 0.07 m | n/a (flat site) | **0.0000** | follows_terrain |
-| KATL (Nimbus) | lidar | 60 / 33 | 14 of 88 | 36.89 m | 26.53 m | 1.68 m | 0.92 | **0.0037** | follows_terrain |
+| **HECA** (TaiModels) | coarse | 249 | 240 | **0.964** | 107.97 m | **33.31 m** (8.0) | 18.07 m | no | **flat_assumed** (seats) |
+| **LEMD** (Aerosoft) | fine | 166 | 153 | **0.922** | 595.38 m | **54.81 m** (2.0) | 7.68 m | no | **flat_assumed** (seats) |
+| OTHH (Aeroscape) | coarse | 436 | 375 | 0.860 | 3.96 m | 0.00 m (8.0) | 0.03 m | no | follows_terrain |
+| KCLT (Nimbus) | lidar | 73 | 38 | 0.521 | 220.06 m | 13.38 m (2.0) | 1.20 m | no | follows_terrain |
+| KATL (Nimbus) | lidar | 60 | 16 | 0.267 | 288.94 m | 6.18 m (2.0) | 0.73 m | no | follows_terrain |
+| KASE (Aerosoft) | lidar | 187 | 43 | 0.230 | 2,368.91 m | 2.59 m (2.0) | 0.42 m | no | follows_terrain |
 
-The flat-assumed families:
+* HECA's level is the pack's shared anchor: 379 of its 429 members are
+  placed from one anchor (30.112118, 31.412026), where the DEM is 108.44 m.
+* OTHH is the case the relief gate exists for. It also places 198 of its
+  1,087 members from one anchor and stands 86 % at one level, but its ground
+  is flat. Its share is also under the bar.
+* The nearest terrain-following pack to the bar is OTHH at 0.860; the
+  nearest with real relief is KCLT at 0.521. LEMD clears it at 0.922, a
+  margin of 0.022 (13 of its 166 objects off the level).
 
-* **HECA:** `unit:43` (138 members, ground 25.5 m, seat 1.26 m, median
-  miss 18.4 m), `unit:42` (78; 32.3 m; 0.52 m; 35.5 m), `unit:41` (29;
-  35.7 m; 0.33 m; 25.2 m), `unit:38` and `unit:39` (1 each). The three
-  large families share one anchor (30.112118, 31.412026), where the DEM is
-  108.44 m.
-* **LEMD:** `unit:25` (86 members; ground 53.1 m; seat 2.24 m; median miss
-  16.8 m) and `unit:27` (70; 26.8 m; 0.80 m; 8.9 m).
-* **KATL:** four one-member families, 0.37 % of its feet.
-* **KASE, KCLT, OTHH:** none.
+**The first revision's statistic** (the feet-weighted share of
+flat-assumed anchor FAMILIES, with a 4.95 m median-miss gate) read HECA
+0.9986, LEMD 0.9554, KATL 0.0037 and KASE, KCLT, OTHH 0. It is replaced by
+the object level share, because the owner ruled the bar in objects (20x)
+and for the whole pack (20ad); both statistics give the same verdicts.
 
-**Sensitivity** (`F`, feet-weighted):
+### 1.3 Findings
 
-* With the miss bar halved to 2.475 m: KCLT rises to 0.319. Its `unit:3`
-  (7 members, 17.9 m of ground) has a median miss of 3.64 m, and
-  `unit:31` (17 members) 1.72 m. KATL rises to 0.048.
-* With the miss bar doubled to 9.9 m: LEMD falls to 0.722 and HECA stays
-  at 0.9986.
-* The working bar therefore sits inside a window of about 3.7–9.9 m, in
-  which every verdict above is unchanged.
-* Without the relief gate, OTHH's one-member families reach 0.0085.
+* **LEMD reads flat-assumed, and does not terrace (20w).** Its pack
+  stands 92 % at one level over 55 m of ground, and Aerosoft ships its own
+  mesh that flattens the airport (a plateau at 594.625 m: 2,474 of 2,774
+  nodes, memory `lemd-aerosoft-patch-ground-truth`). The owner: "I think
+  LEMD does not need terraces". The verdict is not the trigger; §3.0's
+  failure evidence is. LEMD's expected evidence is none, and the phase-2
+  bar is "LEMD mints no terrace".
+* **The `1302 flatten 1` flag.** None of the six packs carries it; 261
+  airport entries in the installed Custom Scenery do. It is a strong
+  witness (20ac: "a strong clue the author was not planning for terrain
+  so we may have to do more terrain adapting to objects than we would
+  like"), read and reported now.
+* **Flat site and flat pack cannot both hold through the seats witness.**
+  The flat-site detector (S2) needs no credible relief; the seats witness
+  needs relief above the same floor. A flatten flag can still stand on a
+  flat site; there it changes nothing, because a flat site has no failure
+  evidence to terrace.
 
-**Not every shared anchor means a flat pack.** OTHH also places 198 of its
-1,087 members from one anchor, but its ground is flat, so gate 2 fails. A
-shared anchor is only half of the witness; the relief under it is the
-other half.
+### 1.4 Where it lives (IMPLEMENTED, phase 1)
 
-### 1.3 Findings for the master
-
-* **LEMD reads flat-assumed.** The brief listed LEMD among the packs that
-  follow the terrain. The statistic says otherwise (F = 0.955).
-  * This agrees with what is already known about the pack. Aerosoft ships
-    LEMD with its own mesh pack (`Aerosoft - LEMD Madrid - 2 - Mesh`). Its
-    airport interior is a dead-flat plateau at 594.625 m: 2,474 of 2,774
-    nodes (memory `lemd-aerosoft-patch-ground-truth`, measured
-    2026-08-26).
-  * The author flattened the ground himself.
-  * So under this spec LEMD is a second test case, not an
-    unchanged-control airport (Q1).
-* **The `1302 flatten 1` metadata.** This apt.dat key asks X-Plane to
-  flatten the airport, so it is an explicit declaration of a flat
-  airport. None of the six packs carries it. 261 airport entries in the
-  installed Custom Scenery do. It is offered as a second, declared witness
-  (Q7). No measured case exercises it.
-* **Flat site and flat pack cannot both be true.** The flat-site detector
-  (`airport/flat_site.py`, S2) needs no credible relief. The flat-pack
-  verdict needs relief above the same floor. So the two verdicts exclude
-  each other by construction. The detector asserts this; it does not
-  arbitrate.
-
-### 1.4 Where it lives
-
-* `airport/flat_pack.py` holds `detect(airport, law) -> FlatPackVerdict`.
-  It is a new family member beside `airport/flat_site.py`, it imports only
-  `law` and `model`, and it is a pure reading of `Airport.partition` plus
-  the DEM.
-* `model/airport.py` gains `FlatPackVerdict` (verdict, F, per-family rows)
-  and the field `Airport.flat_pack` (None before it runs). The pipeline
-  sets it after the partition, as it does `flat_site`.
-* The law goes in `law/flat_pack.toml` plus `law/flat_pack_schema.py`:
-  * `share_min = 0.5`;
-  * `grounded_band_m = 1.0`;
-  * `terrace = true|false` (§5, phase gate).
-* Every other threshold is read by reference from `flat_site.toml` and
-  `structures.toml`, never copied.
-* It is published in two places. The sidecar's `flat_pack` record has the
-  verdict, F and the family rows. One log line has the same shape as
-  `flat_site.log_line`.
-* A capture written before the field existed re-derives it at replay. It
-  is pure, so a replay recomputes it from the pickled partition, and
-  `--from` makes no difference.
+* `airport/flat_pack.py`: `detect(airport, law) -> FlatPackVerdict`,
+  `record`, `log_line`. A pure reading of `Airport.partition`, the DEM and
+  `Airport.pack.flatten_declared`; it imports `law` and `model` only.
+* `model/airport.py`: `FlatPackVerdict` (verdict, witness, level_share,
+  level_m, relief_m, signals) and `Airport.flat_pack` (None before it
+  runs); `SceneryPack.flatten_declared`, read by
+  `airport/pack.flatten_declared(block)` from the airport's apt.dat block.
+* `law/flat_pack.toml` + `law/flat_pack_schema.py`:
+  `[detector] level_share_min = 0.9`, `grounded_band_m = 1.0`,
+  `min_members = 3`, and the phase gate `terrace = false`. The level
+  window and the relief floor are read from `flat_site.toml`, never
+  restated. The freeze specs' law-table count guard is 9.
+* `pipeline/build.pack_stage` sets it once the partition is read, writes
+  the report's `load.flat_pack` record, and says one `[flat-pack]` line.
+  `tools/v2_solve_replay.py --capture` does the same, so a capture carries
+  it; an older capture lacks it (`None`), and the detector is pure, so a
+  reader can recompute it from the pickled partition.
+* Nothing grades by it while `terrace = false`. Bar: the patch bodies are
+  byte-identical (§5).
+* **Measured (closing build, 2026-10-20).** `lflat_HECA` (this branch,
+  main 763c89a9b + phase 1) against the control `lflatctl_HECA` (main
+  763c89a9b, artifact ledger 32cf726f2399): both bodies `76b6115e7ad9`,
+  ways 2,808, nodes 46,203, verify rows 20,453. The build says
+  `[flat-pack] HECA: flat_assumed (seats) — 240 of 249 objects at one
+  level 107.97 m (share 0.96, need > 0.90), ground relief under them
+  33.31 m vs floor 8.00 m [coarse]; flatten flag no (report only)`. Both
+  frames are registered (`frames/lflatpack/`). LEMD, KASE, KCLT, OTHH and
+  KATL are byte-identical by construction (no reader of the verdict
+  exists); their builds are the orchestrator's sweep (BUILD ECONOMY).
 
 A better pack later needs nothing from us. The verdict is re-read from the
 pack at every build, so a pack that follows the terrain is graded the way
@@ -203,7 +212,7 @@ From the `l786/HECA.pkl` planar map (main b57fe46d7):
 * **Cut by the road family,** that groundside falls into **82 cells**.
   * The largest is 73.3 ha. Its DEM runs 64.3–98.7 m (p5–p95, a span of
     34.3 m), centred near 30.1203, 31.3980.
-  * Three more span more than 9.9 m: 6.5 ha (10.6 m), 6.4 ha (10.3 m) and
+  * Three more span more than 10 m: 6.5 ha (10.6 m), 6.4 ha (10.3 m) and
     3.6 ha (10.6 m).
   * The other 78 span 1.6–7.8 m.
 * **The l1088 closing build** (`frames/l1088/l1088_HECA`, against
@@ -231,16 +240,42 @@ Everything in §3 runs only when `Airport.flat_pack.verdict ==
 the planar build mints no terrace, and the patch is byte-identical to
 today's (§5 bars).
 
+### 3.0 Failure evidence first (20w): pads on real terrain are preferred
+
+A flat-assumed pack is graded TODAY'S way first: pads and buildings seated
+on the real terrain. A cell (§3.1) terraces only when that grading fails
+there, by one of these witnesses, each measured on the today-way surface
+with the existing instruments and judged at the visibility bars (pavement
+0.05 m, ground 0.5 m):
+
+* **E1, a building that cannot be seated:** a pack body in the cell whose
+  seat misses the solved surface under it by more than 0.5 m, or a pad the
+  pack groups call infeasible (`groups.counts['infeasible']`, per body);
+  or a fill that "cannot bank down" (road-edge-drop R2).
+* **E2, a steep paved grade:** a groundside pavement or road face in the
+  cell with a census row over its cap (`within_shape`, `plane_gradient`,
+  `pavement_over_road_cap`, `road_cross_section`) by more than the
+  pavement bar.
+
+A cell with no evidence keeps today's grading. This is a TWO-PASS
+decision: the evidence needs the today-way solve, so phase 2 reads it from
+the stage-1 solve (or the census of a today-way build) and re-runs the
+planar terrace mint for the evidenced cells only. The cost (one extra
+planar + solve pass on flat-assumed packs with evidence) is a build-time
+item for phase 2's brief. LEMD, per the owner, is expected to carry no
+evidence and to mint no terrace.
+
 ### 3.1 The terrace region and its cells
 
 * **T1. What can terrace.** Groundside faces that are not road-family
-  faces, and that lie in a cell with PACK content. A cell has pack content
+  faces, and that lie in a cell with PACK content and failure evidence
+  (§3.0). A cell has pack content
   when it holds one of these:
-  * a grounded foot of a flat-assumed family;
+  * a grounded foot of a pack object (the verdict is the whole pack's, 20ad);
   * a pack draped pavement page (`dsf:pol*`) or gap sheet;
-  * a detached groundside pad of such a family's body.
+  * a detached groundside pad of a pack body.
 
-  A cell holding only OSM lots keeps today's grading (Q6). Never part of a
+  A cell holding only OSM lots keeps today's grading (20ab). Never part of a
   terrace:
   * an airside face;
   * an airside bank (the landing's `base_hard`);
@@ -269,27 +304,42 @@ today's (§5 bars).
      it, because the cell's hard rows are its own flatness only. So the
      relation runs airside → groundside, never back.
   2. **Any other cell** takes a soft preference toward the MIDRANGE of its
-     DEM, `(p5 + p95) / 2`. That gives the smallest worst cut or fill (Q3).
-     The preference is priced in the `flat_datum`-style preference group,
-     below law and above seam.
-  3. **Several frontage blocks at different levels** in one cell: the cell
+     DEM, `(p5 + p95) / 2` (20y). The preference is priced in the
+     `flat_datum`-style preference group, below law and above seam.
+  3. **The service roads bound the level (20aa).** Airside stays fixed.
+     A terrace's level may move only as far as its service roads allow
+     within their max grade: from each road's fixed end (its airside
+     contact or its own ground), the road's longitudinal cap over the
+     route distance to the terrace's mouth gives an interval; the level is
+     the midrange target CLIPPED to the intersection of its roads'
+     intervals. A terrace whose roads give no common interval takes the
+     level of its most important road's interval (the one serving an
+     airside-tied block, else the longest frontage), and the other kerbs
+     carry walls (T7).
+  4. **Several frontage blocks at different levels** in one cell: the cell
      is cut between them (T4), and each block of the cell takes its own
      frontage.
 
 ### 3.3 Splitting deep cells and joining terraces
 
-* **T4. The depth bound and the split.** A terrace may stand at most
-  `connector_step_max_m` (4.95 m) off its DEM at any vertex, so a cell
-  whose DEM span exceeds 9.9 m cannot hold one level. Such a cell is cut
-  into blocks by the pad-block bisection of `planar/pad_blocks`:
-  * the chord crossing the fewest metres of footed pack parts (the neck);
-  * each side keeps at least `frontage_blocks` worth of area;
-  * the worst block is bisected until every block holds;
-  * the cap is `[building_pad] frontage_blocks_max`.
+* **T4. The split follows the layout (20z).** There is no fixed depth
+  bound: walls, cliffs and terraces taller than 4.95 m are allowed where
+  the layout needs them ("HECA likely requires some cliff/wall/terraces
+  greater than that"). A cell is cut into terrace blocks along its own
+  layout lines, in this order:
+  1. a lot boundary inside the cell (two lots are two terraces when their
+     service roads give them different levels, T3 (3));
+  2. the outline of an object cluster (`planar/cluster` / one-building
+     groups): a cluster is never cut, and the ground between two clusters
+     at different seated levels is where their terraces meet;
+  3. a mapped kerb, fence or wall object (10-03c: the wall is the step).
 
-  At HECA four cells split: the 73.3 ha cell into at least 4 blocks (34.3 m
-  over 4.95 m x 2), and the three 10.3–10.6 m cells into 2 each. Of the
-  remaining 78 cells, the largest needs at most 3.9 m of cut or fill.
+  A cell with none of these and with evidence keeps one level. The
+  phase-2 lane reports, per cell, the block count and the tallest joint;
+  a joint taller than one storey (`low_level_min_step_m`, 3.0 m) is listed
+  for the sim read, not refused. At HECA the 73.3 ha cell (34.3 m of
+  ground) is where splits are expected; the three cells spanning
+  10.3–10.6 m are the next.
 * **T5. Terrace joints.** Two blocks of one cell meet along their cut
   chord.
   * Where their solved levels differ by at most `[cockpit] visual_m`
@@ -318,9 +368,11 @@ A terrace never bends a road off that law. Per the round-3 design (§4.4,
 D3), the road climbs by §37 (6) alone: a terrace edge on a road is a MOUTH,
 and its §37 (6) mouth level is the terrace's level (`datum_pred` of its
 column, never the DEM). So the road ramps from each terrace it serves,
-toward its own ground or toward the next mouth. Two mouths that cannot be
-joined within the cap over their route distance follow 20d: the road
-reaches the HIGHER, and the lower terrace takes a drop at its kerb (T7).
+toward its own ground or toward the next mouth. The road is never moved to
+suit a terrace; the terrace moves to suit its roads (T3 (3), 20aa). Two
+mouths that cannot be joined within the cap over their route distance
+follow 20d: the road reaches the HIGHER, and the lower terrace takes a
+drop at its kerb (T7).
 
 **T7. The kerb.** At a road kerb where the road and the terrace beside it
 differ by more than `visual_m`:
@@ -361,8 +413,17 @@ instead of its DEM.
   does at a road wall (19ad).
 * The runway and zone outer edges still go to the raw DEM (15g (B)); a
   terrace never extends past them.
-* **Bar:** at HECA, no airside vertex moves more than 0.05 m against main.
-  That is the l1088 bar, stricter than the 0.5 m that 19ac accepts.
+* **Bar:** airside stays FIXED (20aa): at HECA no airside vertex moves
+  more than 0.05 m against main (the pavement bar; stricter than 19ac's
+  0.5 m, which covers groundside-caused movement in general).
+
+**T11. The flatten flag is removed when we grade (20ac).** When the
+patch grades an airport whose block carries `1302 flatten 1`, X-Plane must
+not flatten our graded mesh, so the scenery we write drops the flag. The
+engine has no apt.dat writer today (the pack's apt.dat is read, never
+written: "never writing the real X-Plane install"); phase 4 names the site
+that carries the override (the output pack's own apt.dat for the airport)
+in its own census before it is built. No test airport carries the flag.
 
 **T10. A terrain-following pack.** The verdict gates T1–T9 at their single
 derivation site (`planar/flat_terrace.py`, called once from the planar
@@ -379,7 +440,9 @@ and the road mouths on their edges.
 | # | reader | reads | change | ruling |
 |---|---|---|---|---|
 | 1 | `airport/pack_partition` (load) | units, members, parts, feet | the detector's input | unchanged |
-| 2 | `airport/flat_pack.detect` (NEW) | partition + DEM | the verdict | THE derivation site of §1 |
+| 2 | `airport/flat_pack.detect` (BUILT, phase 1) | partition + DEM + `pack.flatten_declared` | the verdict, report `load.flat_pack` | THE derivation site of §1 |
+| 2a | `airport/pack.signature` | the airport's apt.dat block | `SceneryPack.flatten_declared` | BUILT (phase 1) |
+| 2b | stage-1 solve, census instruments | the today-way surface | §3.0 evidence per cell | READ (phase 2), no edit |
 | 3 | `airport/flat_site` S2/S4 | DEM relief, seats | excludes `flat_assumed` by construction (§1.3) | unchanged; detector asserts |
 | 4 | `airport/footprint_connector.authored_units` §16g | shared-datum groups | same families, read here as `Unit` | unchanged |
 | 5 | `classify` roles, `lot_roads`, `airside_edge` §27, `retaining_wall` | source cells | no role changes; terraces are planar | unchanged |
@@ -452,10 +515,10 @@ Under a flat-assumed pack, terracing is D1–D4 generalised:
 
 | phase | what | cost | bars |
 |---|---|---|---|
-| 1 | Detector + record, REPORT ONLY (`[flat_pack] terrace = false`). | twins + ONE HECA closing build | §1.2 reproduced within 0.01 on the six captures. A twin on three synthetic packs: a shared anchor on a 30 m slope gives `flat_assumed`; per-object anchors on the same slope give `follows_terrain`; a shared anchor on flat ground gives `follows_terrain`. Patch bodies byte-identical to main (sidecar adds a record only). |
-| 2 | Cells, levels, holds, terrace mouths and kerb drops (T1–T3, T6–T9), on top of the merged round-3 PR. `terrace = true`. | synthetic twin; HECA replay `--from planar`; ONE HECA build | see below |
-| 3 | The deep-cell split and the terrace riser (T4, T5). | HECA replay; ONE HECA build | the 73.3 ha cell and the three 10 m cells split; every block within 4.95 m of its DEM; every step over 0.5 m between blocks is declared |
-| 4 | Optional: `1302 flatten 1` as a declared witness (Q7). | twin only (no measured airport) | the pack verdict reads it |
+| 1 (BUILT) | Detector + record, REPORT ONLY (`[flat_pack] terrace = false`). | synthetic twin + ONE HECA closing build | §1.2 reproduced; the twin (`tests/auto_patch_v2/test_flat_pack.py`): a shared anchor over a 30 m slope gives `flat_assumed`, the same objects on their own ground give `follows_terrain`, a shared anchor on flat ground gives `follows_terrain`, the flag alone gives `flat_assumed`, two objects give `no_data`. Patch bodies byte-identical. |
+| 2 | §3.0 evidence + cells, levels bounded by the roads, holds, terrace mouths and kerb drops (T1–T3, T6–T9), on top of the merged round-3 PR. `terrace = true`. | synthetic twin; HECA replay `--from planar`; ONE HECA build | see below |
+| 3 | The layout split and the terrace riser (T4, T5). | HECA replay; ONE HECA build | every evidenced cell split only along lot, cluster or wall lines; every step over 0.5 m between blocks declared; joints over one storey listed |
+| 4 | The flatten-flag removal (T11), with its own census of the writing site. | twin only (no measured airport) | an airport with the flag graded by us ships without it |
 
 **Phase 2 bars at HECA** (the test case; no code names it):
 
@@ -481,49 +544,40 @@ Under a flat-assumed pack, terracing is D1–D4 generalised:
 
 * **KASE, KCLT, OTHH, KATL** (verdict `follows_terrain`) and CYXY: patch
   body byte-identical. This is the orchestrator's sweep, never a lane's.
-* **LEMD** (`flat_assumed`): it changes. Its numbers are reported and the
-  owner reads it in the sim (Q1).
+* **LEMD** (`flat_assumed`, 20w): no failure evidence expected, so NO
+  terrace minted and the body byte-identical. Any LEMD cell that does show
+  evidence is reported with its witnesses, for the owner, before it is
+  terraced.
 
 **Two rounds per phase** (2026-10-20b): a phase that misses its bars
 after two rounds stops and goes to review.
 
-## 6. Owner questions (each with the recommended default)
+## 6. Owner questions — answered 2026-10-20 18:14Z (RULINGS 2026-10-20w-ad)
 
-1. **LEMD measures flat-assumed** (F = 0.955; Aerosoft's own mesh is a
-   flat plateau). The brief listed it as following the terrain. Should
-   LEMD terrace too?
-   *Default: yes.* The rule is general (05e). LEMD becomes the second test
-   case, with its own sim read. No LEMD switch is written.
-2. **The share bar.** `F >= 0.5` (a majority of the pack's grounded
-   feet).
-   *Default: 0.5.* The measured gap is 0.955 against 0.0037.
-3. **The level of a cell with no airside-tied block.** The options are
-   the midrange of its DEM (smallest worst cut or fill), its median DEM,
-   or its bodies' highest foot.
-   *Default: midrange.*
-4. **The depth bound.** A terrace stands at most 4.95 m (the collar drop)
-   off its DEM before the cell splits.
-   *Default: yes.* It is the same number that says a fill "cannot bank
-   down".
-5. **Road against terrace.** The road keeps its law and the terrace takes
-   the wall. Where two terraces cannot be joined within the cap, the road
-   reaches the higher one (20d).
+| Q | asked | ruled | where in the spec |
+|---|---|---|---|
+| 1 (59) | LEMD terraces too? | w: terracing needs failure evidence; pads on real terrain preferred; LEMD does not need terraces | §3.0, §5 |
+| 2 (60) | share bar 0.5 | x: more than 90 % of objects at one level | §1.1 |
+| 3 (61) | cell level | y: midrange | T3 (2) |
+| 4 (62) | 4.95 m split | z: no fixed number; the layout decides; taller walls allowed | T4 |
+| 5 (63) | road against terrace | aa: airside fixed; terraces move as far as their service roads allow | T3 (3), T6, T9 |
+| 6 (64) | OSM-only cells | ab: today's grading | T1 |
+| 7 (65) | flatten flag | ac: a witness, report-only until a test airport uses it; removed when we grade | §1.1, T11 |
+| 8 (66) | granularity | ad: whole pack | §1.1 |
+
+**New questions (revision 2), each with a default:**
+
+1. **Evidence scope.** Is §3.0 evidence judged per road-bounded cell (a
+   cell with one unseatable building terraces, its neighbours do not)?
+   *Default: per cell.*
+2. **A road interval that cannot hold a flat terrace** (T3 (3) gives no
+   common level): the terrace takes its most important road's interval and
+   the other kerbs carry walls.
    *Default: yes.*
-6. **Cells with no pack content** (OSM-only lots): today's grading.
-   *Default: yes.*
-7. **`1302 flatten 1`** as a second, declared witness, on its own.
-   *Default: yes, but report-only until a test airport carries it.*
-8. **Granularity.** One pack-level verdict gates terracing, and families
-   only decide where. The alternative is family-level everywhere, which
-   would terrace KCLT's two partial families (median miss 1.7 m and
-   3.6 m).
-   *Default: pack-level.* "the author expected the entire airport to be
-   flat".
 
 ## 7. Not in this spec
 
-* No engine code. The detector's statistic was measured by a lane scratch
-  reading of the captures; phase 1 replaces it with `airport/flat_pack.py`.
+* Phases 2-4 are spec only; phase 1 (the report) is the only code.
 * No terrace build was made. The §2 cell spans are read from the planar
   map's DEM samples, not from a solve.
 * The round-3 access-road design is folded in from the master's relay

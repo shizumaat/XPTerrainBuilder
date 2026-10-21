@@ -103,8 +103,11 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 if sum(g.length for g in polys) / 2.0 < \
                         float(cfg.retaining_wall_min_length_m):
                     continue
+                # #1139: an object that IS one wall (its only part) may
+                # retain only what stands under its zero
+                depth = _depth_under_zero(p) if len(m.parts) == 1 else None
                 retains = _retains_its_height(airport, whole, wide,
-                                              float(p.height_m), cfg)
+                                              float(p.height_m), cfg, depth)
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
                     continue
                 out.append(WallComponent(tuple(polys), float(p.height_m),
@@ -118,7 +121,19 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
 ACROSS_PERCENTILE = 90.0
 
 
-def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg) -> bool:
+def _depth_under_zero(part) -> float | None:
+    """How far a part reaches UNDER its object's zero (``-base_y``), or
+    ``None`` for a part standing on it.  A retaining wall's zero is the
+    upper ground it holds (KATL ``muro_concreto5``: y −9.70 .. +0.95), so
+    this is the face it retains; the rest of its height stands proud — a
+    parapet (#1139, KATL ``muro_ladrillo``: 16.64 m solid, 10.52 m under
+    its zero, the ground stepping 11.08 m across it)."""
+    by = getattr(part, "base_y", None)
+    return -float(by) if by is not None and float(by) < 0.0 else None
+
+
+def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg,
+                        depth: float | None = None) -> bool:
     """A WALL THAT RETAINS ITS OWN HEIGHT (owner RULINGS 2026-10-15a (2),
     issue #715): slender for its height (``wide <= height x
     retaining_wall_thick_width_per_height``: KATL's 10.65 m concrete
@@ -136,7 +151,16 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
     facade or a building on level ground has no step; a building on a
     slope is not slender.  MEASURED (dry census, registered captures):
     KATL ``muro_concreto5`` 10.65 m and ``muro_concreto`` 12.01 m admitted
-    (#715); see ``docs/briefs/katl714-notes.md`` (#715) for the sweep airports."""
+    (#715); see ``docs/briefs/katl714-notes.md`` (#715) for the sweep airports.
+
+    THE HEIGHT IT RETAINS (#1139): its solid height, or its ``depth`` under
+    its own zero (:func:`_depth_under_zero`) where it stands proud of the
+    upper ground — the step matches either.  The depth is read only for a
+    placed object that IS one wall (its only part): read for every part it
+    admitted 73 HECA, 32 EDDF and 22 KLAX building parts (facades on a
+    slope stand under their zero too); read for single-part objects it
+    admits KATL ``muro_ladrillo`` alone over the 33 registered captures.
+    Slenderness is judged on the solid height, as before."""
     per = getattr(cfg, "retaining_wall_thick_width_per_height", None)
     lo = getattr(cfg, "retaining_wall_step_min_fraction", None)
     hi = getattr(cfg, "retaining_wall_step_max_fraction", None)
@@ -147,7 +171,10 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
     if wide > height * float(per):
         return False
     step = _step_across(dem, whole, wide, max(float(ring_m), height))
-    return step is not None and float(lo) * height <= step <= float(hi) * height
+    if step is None:
+        return False
+    return any(float(lo) * h <= step <= float(hi) * h
+               for h in (height, depth) if h is not None and h > 0.0)
 
 
 def _step_across(dem, whole, wide: float, ring_m: float) -> float | None:

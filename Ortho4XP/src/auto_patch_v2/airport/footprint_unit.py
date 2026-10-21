@@ -210,7 +210,9 @@ def bind_footprint_units(cands: list, staged: _t.Sequence[_t.Any],
         for ci, cc in sorted(per.items()):
             c = cands[ci]
             st = by_mi[c.member]
-            if src != "ground" and _far_below(cc, zero, visual_m):
+            if (src != "ground" and _far_below(cc, zero, visual_m)
+                    and not _rests_on_unit(cands[ci], cc, _others(cands, per, ci),
+                                           zero, touch_m, visual_m)):
                 # owner RULINGS 2026-10-19aq (#721): it leaves the unit
                 counts["unit_members_left_far_below"] = \
                     counts.get("unit_members_left_far_below", 0) + 1
@@ -987,6 +989,7 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
     info: dict[str, tuple[float, str, str]] = {}
     conn: dict[int, tuple[str, str]] = {}
     left: dict[str, dict[int, list]] = {}
+    far: list[tuple[int, _t.Any, str, list]] = []
     for ci, c in enumerate(cands):
         if c.body_class in (_ar.LINE_SEGMENT, _ar.BASIN):
             continue
@@ -1053,14 +1056,34 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             # seat §16c gave it on its own ground.  A body the §16c (7)
             # bind put on a senior still follows that senior
             # (``placement_atom.follow_seniors``), so a rigid cluster never
-            # splits here: only a senior or an unbound body leaves.
-            counts["unit_members_left_far_below"] = \
-                counts.get("unit_members_left_far_below", 0) + 1
-            _leave(cands, ci, st, uid)
-            left.setdefault(uid, {})[ci] = cc
-            continue
+            # splits here: only a senior or an unbound body leaves.  The
+            # verdict waits for the unit's other contacts (#1140,
+            # :func:`_rests_on_unit`).
+            far.append((ci, st, uid, cc))
         per_uid.setdefault(uid, {})[ci] = cc
         info[uid] = (z, where, src)
+    resting: set[int] = set()
+    grew = True
+    while grew:          # a deck on a deck that rests on the unit rests on it
+        grew = False
+        for ci, _st, uid, cc in far:
+            if ci not in resting and _rests_on_unit(
+                    cands[ci], cc, _others(cands, per_uid[uid], ci, resting),
+                    info[uid][0], touch_m, visual_m):
+                resting.add(ci)
+                grew = True
+    for ci, st, uid, cc in far:
+        if ci in resting:
+            counts["unit_members_kept_resting_on_unit"] = \
+                counts.get("unit_members_kept_resting_on_unit", 0) + 1
+            continue
+        counts["unit_members_left_far_below"] = \
+            counts.get("unit_members_left_far_below", 0) + 1
+        _leave(cands, ci, st, uid)
+        del per_uid[uid][ci]
+        left.setdefault(uid, {})[ci] = cc
+    for uid in [k for k, per in per_uid.items() if not per]:
+        del per_uid[uid]
     out: list[Family] = []
     for uid, per in sorted(per_uid.items()):
         zero, where, src = info[uid]
@@ -1169,6 +1192,62 @@ def _far_below(cc: _t.Sequence[tuple], zero: float, visual_m: float) -> bool:
     :func:`_seat` reports a member off the plane by; no threshold of its
     own.  ``visual_m`` 0 disarms."""
     return visual_m > 0.0 and bool(cc) and zero - _own_zero(cc) > visual_m
+
+
+def _rests_on_unit(c: _t.Any, cc: _t.Sequence[tuple],
+                   others: _t.Iterable[tuple[_t.Any, _t.Sequence[tuple], bool]],
+                   zero: float, touch_m: float, visual_m: float) -> bool:
+    """#1140: does this body REST ON ITS UNIT rather than on the ground? Its
+    lowest vertices are no ground contact where another body of its unit
+    stands UNDER it -- that body's feet inside this one's part boxes, or
+    this one's feet inside that body's part boxes (each closed by
+    ``touch_m``) -- authored more than ``visual_m`` lower, AND that lower
+    body's feet stand on their ground at the unit's datum ``zero`` (median
+    ``|ground - (zero + y)|`` within ``visual_m``) or itself rests on the
+    unit (``rests``: a deck on a deck, read to a fixed point by the
+    caller). Then the unit's own floor there IS on the ground and this
+    body is a deck of the structure standing on it: its "own ground" is
+    not far below the datum -- it has none -- so it never leaves the unit
+    (2026-10-19aq reads a body that stands ON the ground). A unit seated
+    above the ground under it (#721, HECA ``T3_14``: its foundation 1.6 m
+    under the leaver, on ground 8 m under the datum) witnesses nothing and
+    its body still leaves. MEASURED KATL ``terminal_F``: five garage and
+    roadway decks (feet y -0.89 ... -10.21 over the unit's floor at
+    -13.03, on its lower level) left the cluster-pad unit and were seated
+    by their own feet, 1.55-10.87 m under the terminal. The candidates of
+    one bind are one anchor family (one authored frame), so their authored
+    heights compare."""
+    if not cc or visual_m <= 0.0:
+        return False
+    mine = tuple(c.part_boxes or ((c.box,) if c.box else ()))
+    if not mine:
+        return False
+    y_min = min(q[2] for q in cc)
+    ky, kx = m_per_deg_exact(0.5 * (mine[0][0] + mine[0][2]))
+    dla, dlo = touch_m / ky, touch_m / kx
+
+    def inside(q, boxes) -> bool:
+        return any(b[0] - dla <= q[0] <= b[2] + dla
+                   and b[1] - dlo <= q[1] <= b[3] + dlo for b in boxes)
+
+    for o, occ, rests in others:
+        low = [q for q in occ if q[2] < y_min - visual_m]
+        if not low or (not rests and _median([abs(q[3] - zero - q[2])
+                                              for q in low]) > visual_m):
+            continue
+        theirs = tuple(o.part_boxes or ((o.box,) if o.box else ()))
+        if (any(inside(q, mine) for q in low)
+                or any(inside(q, theirs) for q in cc)):
+            return True
+    return False
+
+
+def _others(cands: _t.Sequence[_t.Any], per: _t.Mapping[int, _t.Sequence[tuple]],
+            ci: int, resting: _t.AbstractSet[int] = frozenset()
+            ) -> list[tuple[_t.Any, _t.Sequence[tuple], bool]]:
+    """``(candidate, its contacts, does it already rest on the unit)`` of
+    the unit's candidates in ``per`` but ``ci``."""
+    return [(cands[cj], occ, cj in resting) for cj, occ in per.items() if cj != ci]
 
 
 def _leave(cands: list, ci: int, st: _t.Any, uid: str) -> None:

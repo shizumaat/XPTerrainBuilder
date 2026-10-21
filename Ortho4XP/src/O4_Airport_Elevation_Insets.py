@@ -7261,6 +7261,34 @@ def _isthmus_base_offset_m(tile, polygon, z0_m):
         return None
 
 
+def _restore_off_site_relief(tile, relief_before, record, z0_m, icao):
+    """#1137 — hand one airport's baked window to
+    ``auto_patch.flat_site_relief`` and say what came back."""
+    from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
+
+    site = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
+        record, int(math.floor(tile.lat)), int(math.floor(tile.lon)))
+    if site is None:
+        UI.vprint(1, "   [flat-site] %s: the decision carries no gate — the "
+                     "off-site relief rule has no site to keep." % icao)
+        return None
+    centre_latitude = tile.lat + 0.5
+    report = FLAT_SITE_RELIEF.restore_off_site_relief(
+        tile.dem, relief_before, site, z0_m, INSET_DATUM_WARNING_THRESHOLD_M,
+        (GEO.lon_to_m(centre_latitude), GEO.lat_to_m))
+    if report["restored_posts"]:
+        UI.vprint(
+            0,
+            "   [flat-site] %s: %.4f km2 of ground OUTSIDE the airport's own "
+            "surfaces stood more than %g m above Z0 %.2f m (up to %.1f m) — a "
+            "hill is not the site; it keeps the real surface."
+            % (icao, report["restored_km2"],
+               INSET_DATUM_WARNING_THRESHOLD_M
+               * FLAT_SITE_RELIEF.BAND_FULL_FRACTION,
+               float(z0_m), report["max_offset_m"]))
+    return report
+
+
 def overlay_flat_site_insets(tile, dico_airports=None):
     """Blend a constant-Z0 inset over every flat airport on the tile.
 
@@ -7303,6 +7331,7 @@ def overlay_flat_site_insets(tile, dico_airports=None):
     base_dem.flat_site_decisions = decisions
     try:
         from auto_patch import flat_site_mode as FLAT_SITE_MODE
+        from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
 
         substitutions = FLAT_SITE_MODE.flat_site_substitutions(
             tile, dico_airports=dico_airports, decisions_out=decisions
@@ -7339,6 +7368,13 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         # OUTSIDE the declared extent -- Z0 holds to the wall line.  The
         # provenance below keeps the DECLARED box.
         record = substitution["record"]
+        # #1137: the honest surface under every rectangle this airport is
+        # about to bake, for the off-site relief rule after its clusters.
+        relief_before = FLAT_SITE_RELIEF.snapshot_window(base_dem, [
+            _feather_outward_extent(tile, *box, feather_m)
+            for box in [substitution["extent_deg"]] + [
+                cluster["extent_deg"]
+                for cluster in (substitution.get("object_clusters") or ())]])
         # #945: the airport's OWN pavement over water (a viaduct taxiway)
         # is land for this cut, exactly as the decision record reads it.
         inset, water_frac = _flat_site_inset(
@@ -7504,6 +7540,10 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                    cluster.get("placements") or 0,
                    cluster.get("extent_area_km2") or 0.0, feather_m),
             )
+        # #1137 A HILL IS NOT THE SITE: off the airport's own surfaces the
+        # plateau stands only where the honest surface was near Z0.
+        airport_entry["off_site_relief"] = _restore_off_site_relief(
+            tile, relief_before, record, substitution["z0_m"], icao)
         # R11-1/R11-2: the refusals this airport collected, counted once
         # and carried on its provenance entry.  Refusals raised BEFORE
         # the bake (the R11-1 distance bound, recorded by

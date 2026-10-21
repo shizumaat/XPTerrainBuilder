@@ -34,7 +34,8 @@ import typing as _t
 
 from .precedence import View
 
-__all__ = ["end_lip_vertices", "nonrunway_pavement_roles", "pavement_edge_junction"]
+__all__ = ["end_lip_vertices", "natural_bank_vertices", "nonrunway_pavement_roles",
+           "pavement_edge_junction"]
 
 #: the ref prefix of a TAXI-family zone face (``planar/zones.zone_regions``:
 #: ``adjacent_ground:<family>:<class>:zone<k>#<n>``)
@@ -113,3 +114,34 @@ def _lip(vw: View) -> frozenset[int]:
                  for v in vw.face_vertices(f.id)} - vw.pavement_vertices
     return frozenset(v for v in strip
                      if v in taxi_band or lip.covers(Point(*vw.xy[v])))
+
+
+def natural_bank_vertices(vw: View) -> frozenset[int]:
+    """THE NATURAL-SHORE BANK, where the strip and end laws yield (owner
+    answer Q52, 2026-10-20, under RULINGS 2026-10-20k; §37 (11) (7)):
+    every map vertex inside a published natural-shore wedge
+    (``PlanarMap.natural_shore_wedges``), grown by the snap margin — the
+    reading ``verify.strips.natural_shore_geometry`` takes of the same
+    wedges in the sidecar.  Inside it the bank falls to the water at the
+    bank slope (the zone law's natural relaxation, ``constraints/zones``),
+    and the runway-end profile, the strip's longitudinal and arc laws and
+    the end corridor's transverse law state no row, as the strip's
+    transverse tie already yields there.  Memoised on the view."""
+    memo = vw.__dict__.get("_natural_bank")
+    if memo is not None:
+        return memo
+    rings = getattr(vw.pm, "natural_shore_wedges", ()) or ()
+    out: frozenset[int] = frozenset()
+    if rings:
+        from shapely import prepared
+        from shapely.geometry import Point, Polygon
+        from shapely.ops import unary_union
+
+        from ..law.tables import snap_margin_m
+        polys = [Polygon(r) for r in rings if len(r) >= 3]
+        if polys:
+            wedge = prepared.prep(unary_union([p if p.is_valid else p.buffer(0)
+                                               for p in polys]).buffer(snap_margin_m(vw.law)))
+            out = frozenset(v for v, xy in vw.xy.items() if wedge.covers(Point(*xy)))
+    object.__setattr__(vw, "_natural_bank", out)
+    return out

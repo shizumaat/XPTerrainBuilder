@@ -68,7 +68,8 @@ from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
                        principal_axis, rect_ring)
-from .end_lip import end_lip_vertices, nonrunway_pavement_roles, pavement_edge_junction
+from .end_lip import (end_lip_vertices, natural_bank_vertices, nonrunway_pavement_roles,
+                      pavement_edge_junction)
 from .precedence import View, view
 
 __all__ = ["RunwayGroup", "runway_groups",
@@ -288,6 +289,7 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
     # the reader's population helper, on the reader's pavement (05ae-3)
     pav = pavement_ring_vertices((vw.caps[fid], vw.rings[fid]) for fid in planar.faces)
     owned = _nonrunway_pavement_vertices(vw)
+    bank = natural_bank_vertices(vw)          # Q52: the bank yields
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     for g in runway_groups(vw, airport):
         cap = law.ruleset.strip.longitudinal.value(g.code_number, g.code_letter)
@@ -299,7 +301,7 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
             for i, j, ds in strip_longitudinal_pairs(ids, xy, g.unit, g.rings[0], pav, owned):
                 a, b = ids[i], ids[j]
                 key = (min(a, b), max(a, b))
-                if key in seen:
+                if key in seen or a in bank or b in bank:
                     continue
                 seen.add(key)
                 rows.append(Linear(((a, 1.0), (b, -1.0)), -cap * ds - q,
@@ -313,6 +315,7 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     owned = _nonrunway_pavement_vertices(vw)
+    bank = natural_bank_vertices(vw)          # Q52: the bank yields
     rows: list[Row] = []
     seen: set[tuple[int, int, int]] = set()
     for g in runway_groups(vw, airport):
@@ -327,7 +330,8 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 for k in range(1, len(run) - 1):
                     a, b, c = ids[run[k - 1]], ids[run[k]], ids[run[k + 1]]
                     key = tuple(sorted((a, b, c)))
-                    if key in seen or len(set(key)) < 3 or pavement_edge_junction(key, owned):
+                    if key in seen or len(set(key)) < 3 or pavement_edge_junction(key, owned) \
+                            or any(v in bank for v in key):
                         continue
                     dp, dn = abs(s[k] - s[k - 1]), abs(s[k + 1] - s[k])
                     if dp < 1e-6 or dn < 1e-6:
@@ -532,11 +536,15 @@ def _end_yields(vw: View) -> set[int]:
     any form prices them:
 
     * the road cap (owner RULINGS 2026-10-02ag (2));
-    * a non-runway pavement's own lip (2026-10-15j, :mod:`.end_lip`).
+    * a non-runway pavement's own lip (2026-10-15j, :mod:`.end_lip`);
+    * the natural-shore bank (owner answer Q52 under 2026-10-20k,
+      :func:`.end_lip.natural_bank_vertices`).
 
-    The build publishes the two sets as ``road_cap_governs`` and
-    ``end_profile_yields``, and the readers skip both."""
-    return set(vw.pm.road_cap_vertices(airside_stage_roles(vw.law))) | end_lip_vertices(vw)
+    The build publishes the first two as ``road_cap_governs`` and
+    ``end_profile_yields`` and the bank as ``natural_shore``; the readers
+    skip all three."""
+    return (set(vw.pm.road_cap_vertices(airside_stage_roles(vw.law)))
+            | end_lip_vertices(vw) | natural_bank_vertices(vw))
 
 
 def end_corridor_longitudinal(planar: PlanarMap, law: Law, airport: Airport

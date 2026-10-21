@@ -124,6 +124,26 @@ def test_a_shoulder_stops_at_a_taxiway_entrance(law, rules, shoulder_m):
     assert cl.stats["shoulder_taxiway_entrances"] >= 1
 
 
+def test_the_mouth_never_widens_past_the_entrance(rules):
+    """#1135: the touch tolerance finds the entrance's seam with the
+    shoulder line but never widens the mouth past the entrance's own
+    stations — a 1 m buffer carried the mouth 0.68 m past an entrance
+    abutting a parallel runway's end, minting a vertex beside that
+    runway's corner (EDTK ``runway_step`` 1.66 m)."""
+    from types import SimpleNamespace
+    from auto_patch_v2.classify.apt_shoulder import _mouth, _shoulder_line
+    rw = SimpleNamespace(slab_corners=((0.0, -15.0), (1000.0, -15.0),
+                                       (1000.0, 15.0), (0.0, 15.0)),
+                         width_m=30.0, shoulder_m=10.0)
+    line, half = _shoulder_line(rw, 0.0)
+    inside = box(300.0, 15.0, 700.0, 25.0)       # the shoulder ribbon
+    comp = box(490.0, 25.0, 510.0, 40.0)         # the entrance beyond it
+    m = _mouth(comp, rw, line, half, inside, rules)
+    assert m is not None
+    x0, _y0, x1, _y1 = m.bounds
+    assert (x0, x1) == pytest.approx((490.0, 510.0), abs=1e-6)
+
+
 def test_polygon_parts_reads_through_a_collection():
     """A MultiPolygon inside a GeometryCollection keeps its polygons (the
     OTHH gap piece a snap-grid collection dropped, #1103)."""

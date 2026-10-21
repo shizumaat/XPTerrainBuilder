@@ -573,6 +573,31 @@ def runway_crown(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     return rows
 
 
+def _transverse_owners(vw, chains: dict, half_of: dict) -> dict[int, str]:
+    """A vertex on the faces of TWO runways belongs to the runway whose own
+    edge it lies on (#1149): the one it lies least far beyond the
+    half-width of (``d − half``, measured to each runway's own ridge).  A
+    runway's shoulder that reaches a parallel runway does not hold that
+    runway's edge to its own cross-fall.  Vertices on one runway's faces
+    only are not listed (their face owns them)."""
+    best: dict[int, tuple[float, str]] = {}
+    seen: dict[int, set[str]] = {}
+    for f in vw.faces_of_role(("runway",)):
+        chs = chains.get(f.ref, [])
+        if not chs:
+            continue
+        half = half_of.get(f.ref, 0.0)
+        for v in vw.face_vertices(f.id):
+            ft = _foot(vw, v, chs)
+            if ft is None:
+                continue
+            seen.setdefault(v, set()).add(f.ref)
+            beyond = ft[0] - half
+            if v not in best or beyond < best[v][0]:
+                best[v] = (beyond, f.ref)
+    return {v: best[v][1] for v, refs in seen.items() if len(refs) > 1}
+
+
 def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """The runway TRANSVERSE MAXIMUM as HARD law (RULINGS 2026-09-05o; spec
     ``runway-transverse-max-spec.md`` §3): for every off-ridge ``runway``
@@ -597,6 +622,7 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
         xing.update(vw.face_vertices(f.id))
     rows: list[Row] = []
     done: set[int] = set()
+    owner = _transverse_owners(vw, chains, half_of)
     for f in vw.faces_of_role(("runway",)):
         chs = chains.get(f.ref, [])
         if not chs:
@@ -608,6 +634,8 @@ def runway_transverse(planar: PlanarMap, law: Law, airport: Airport) -> list[Row
         for v in vw.face_vertices(f.id):
             if v in done or v in own_ridge or v in xing:
                 continue
+            if owner.get(v, f.ref) != f.ref:
+                continue           # another runway's own edge (#1149)
             ft = _foot(vw, v, chs)
             if ft is None or ft[0] <= 0.0:
                 continue

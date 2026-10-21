@@ -101,6 +101,40 @@ class TestSealingPredicate:
     def test_no_seeds_is_a_no_op(self):
         assert VMAP.audit_interp_alt_seed_sealing(VECT.Vector_Map()) == 0
 
+    def test_a_SUB_QUANTUM_split_ring_is_sealed_after_the_snap(self):
+        # Issue #1199 (+59-136), the failing geometry: one patch-ring
+        # vertex spelled by two producers 2.7e-15 apart, so the ring is
+        # two chains that meet at two distinct nodes.  Before the 1e-9
+        # snap the arrangement is open and the seed reads as unsealed;
+        # the snap welds the two nodes and the ring Triangle4XP reads is
+        # closed.  The audit must judge the snapped map (see
+        # test_the_audit_runs_after_the_last_node_move).
+        bit = VMAP.PATCH_RING_MARKER
+        vector_map = VECT.Vector_Map()
+        y_a, y_b = 0.45534709999999734, 0.4553471
+        assert y_a != y_b and round(y_a, 9) == round(y_b, 9)
+        first = numpy.array([[0.6743223, y_a, 0.0], [0.6760, 0.4540, 0.0],
+                             [0.6725, 0.4542, 0.0]])
+        second = numpy.array([[0.6725, 0.4542, 0.0],
+                              [0.6743223, y_b, 0.0]])
+        vector_map.insert_way(first, bit, check=True)
+        vector_map.insert_way(second, bit, check=True)
+        vector_map.seeds["INTERP_ALT"] = [numpy.array((0.6743, 0.4546))]
+        with pytest.raises(VMAP.UnsealedInterpAltSeed):
+            VMAP.audit_interp_alt_seed_sealing(vector_map)
+        vector_map.snap_to_grid(9)
+        assert VMAP.audit_interp_alt_seed_sealing(vector_map) == 1
+
+    def test_the_audit_runs_after_the_last_node_move(self):
+        import inspect
+        source = inspect.getsource(VMAP.build_poly_file)
+        audit = source.index("audit_interp_alt_seed_sealing(vector_map)")
+        for last_move in ("vector_map.snap_to_grid(9)",
+                          "vector_map.node_vertices_on_edges(",
+                          "vector_map.weld_hairlines("):
+            assert source.index(last_move) < audit, last_move
+        assert audit < source.index("vector_map.write_poly_file(")
+
     def test_a_ROAD_RIBBON_ring_seals_its_own_seed(self):
         # include_roads marks the banked road buffers INTERP_ALT and
         # seeds each one: lawful, and it must not read as a leak.

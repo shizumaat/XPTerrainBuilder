@@ -22,7 +22,7 @@ from .roles import TAXI_FAMILY, is_runway_shoulder
 from .lot_roads import lot_cells, split_lot_ribbon
 from .pad_touch import touch_limit_m
 from .rules import Rules
-from ..geom.parts import line_parts
+from ..geom.parts import areal_part, line_parts
 from ..airport.road_ways import ribbon_half_width_m
 
 __all__ = ["mint_osm_ribbons", "mint_pad_roads", "ribbon_extent", "bridge_gaps",
@@ -371,12 +371,15 @@ def _ribbon_over(axes, hw: float, occupied: "_Occupied", core_hw: float, grid: f
     def _rib(h: float):
         g = unary_union([ax.buffer(h, cap_style="flat", join_style="mitre",
                                    mitre_limit=2.0) for ax in axes])
-        return shapely.set_precision(occupied.cut(g), grid)
+        return shapely.set_precision(areal_part(occupied.cut(g)), grid)
+    # a ribbon is an AREA (``geom/parts.areal_part``): the collapsed edges
+    # an overlay hands back with it would ride into ``_Occupied`` and the
+    # next way's cut would refuse them (#1147, KCLT)
     core = _rib(core_hw)
     if hw <= core_hw or core.is_empty:
         return core
     reach = core.buffer(hw - core_hw, join_style="mitre", mitre_limit=2.0)
-    return shapely.set_precision(_rib(hw).intersection(reach), grid)
+    return shapely.set_precision(areal_part(_rib(hw).intersection(reach)), grid)
 
 
 class _Occupied:

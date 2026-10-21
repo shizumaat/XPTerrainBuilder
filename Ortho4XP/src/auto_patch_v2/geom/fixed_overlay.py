@@ -17,6 +17,8 @@ from __future__ import annotations
 import shapely
 from shapely.geometry import Polygon
 
+from .parts import areal_part
+
 __all__ = ["OVERLAY_GRID_M", "canonical_union", "fixed_difference",
            "is_hairline"]
 
@@ -43,10 +45,14 @@ def canonical_union(geoms, grid: float = OVERLAY_GRID_M):
 
 
 def fixed_difference(a, b, grid: float = OVERLAY_GRID_M):
-    """``a`` minus ``b`` on ``grid`` (``b`` ``None`` or empty: ``a``)."""
+    """``a`` minus ``b`` on ``grid`` (``b`` ``None`` or empty: ``a``).  An
+    AREA less anything is an area: a sliver the snap-rounding collapses
+    comes back as a line, which is dropped here (``parts.areal_part``;
+    #1136) so the result can be the next overlay's operand."""
     if b is None or b.is_empty or a.is_empty:
         return a
-    return shapely.difference(a, b, grid_size=grid)
+    out = shapely.difference(a, b, grid_size=grid)
+    return areal_part(out) if shapely.get_dimensions(a) == 2 else out
 
 
 def is_hairline(poly, width_m: float) -> bool:

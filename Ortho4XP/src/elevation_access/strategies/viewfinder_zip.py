@@ -49,7 +49,9 @@ def refuse_absent_base_archive(definition, lat, lon, url, detail):
     before it asks for a cell at all (``O4_DEM_Utils.tile_is_land``, the
     ONE predicate): an OCEAN-only tile is lawfully absent and keeps the
     historic 0, a LAND tile refuses the build naming the URL, the tile
-    and what came back.
+    and what came back.  The refusal is ``ElevationAbsentRefused``: the
+    base-tile fallback takes the next ranked source for it (owner Q77,
+    RULINGS 2026-10-20ap), and refuses only when every source fails.
     """
     code = definition.get("code") or "base elevation source"
     cell = "%+03d%+04d" % (lat, lon)
@@ -60,13 +62,13 @@ def refuse_absent_base_archive(definition, lat, lon, url, detail):
             cell + ";", "it is zero-filled, which is lawful.",
         )
         return 0
-    raise DEM.ElevationDownloadRefused(
+    raise DEM.ElevationAbsentRefused(
         "%s has no elevation for the LAND cell %s: %s (%s) -- REFUSING "
         "to build this tile on an all-zero elevation raster.  The cell "
-        "is land in Utils/world_tiles.png and this source covers it, so "
-        "this is a MAPPING defect (the archive name or the member name), "
-        "not missing data; re-run with the URL above to confirm what the "
-        "server serves" % (code, cell, url, detail))
+        "is land in Utils/world_tiles.png, so either the source does not "
+        "hold it or the archive / member name is wrong; re-run with the "
+        "URL above to confirm what the server serves"
+        % (code, cell, url, detail))
 
 
 @register_access_strategy("viewfinder_zip")

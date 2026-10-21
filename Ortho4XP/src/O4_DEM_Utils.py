@@ -1317,7 +1317,22 @@ class ElevationTransportRefused(ElevationDownloadRefused):
     source (``elevation_access.base_fallback``, issue #561).  A host that
     refused this client, a redirect loop and a land cell the source does
     not hold stay plain :class:`ElevationDownloadRefused`: they are
-    defects to see, never outages to route around.
+    defects to see, never outages to route around.  (A land cell the
+    source answered "not there" for is :class:`ElevationAbsentRefused`,
+    which the fallback covers too -- owner Q77, RULINGS 2026-10-20ap.)
+    """
+
+
+class ElevationAbsentRefused(ElevationDownloadRefused):
+    """The source LOOKED and has no elevation for a LAND cell: its archive
+    answered 404/410, or the archive came back without the cell's member
+    (``elevation_access.strategies.viewfinder_zip.
+    refuse_absent_base_archive``).  Owner Q77 (RULINGS 2026-10-20ap,
+    reversing the #561 rule for this case): "if no data is found,
+    definitely fall back to next best available" -- so the base-tile
+    fallback covers it exactly as it covers a transport failure.  A host
+    that refused THIS CLIENT (403/407/429...) or looped on redirects is
+    not this: those stay plain :class:`ElevationDownloadRefused`.
     """
 
 

@@ -14,14 +14,21 @@ from __future__ import annotations
 
 import math
 
-import pytest
-from shapely.geometry import Polygon
-
 import O4_Airport_Elevation_Insets as INSETS
+import pytest
 from auto_patch import flat_site_mode
-from tests.test_flat_site_mode import (ANCHOR, FEATHER_M, MARGIN_M, R_EARTH,
-                                       dico, flat_dem, make_tile,
-                                       substitutions, wire_airport)
+from shapely.geometry import Polygon
+from tests.test_flat_site_mode import (
+    ANCHOR,
+    FEATHER_M,
+    MARGIN_M,
+    R_EARTH,
+    dico,
+    flat_dem,
+    make_tile,
+    substitutions,
+    wire_airport,
+)
 
 _W, _H = 0.012, 0.008          # half-extents in degrees (~1.3 km x 0.9 km)
 #: An L: the bounding box minus its north-east quarter.

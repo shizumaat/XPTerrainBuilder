@@ -27,6 +27,13 @@ The contract a caller relies on:
   the room runs the stage on one core, the same computation.  Which bound
   decided (``cores`` / ``share`` / ``memory`` / ``tasks`` / ``pinned``) is
   in :meth:`WorkPool.report` and on the ``[pool]`` line.
+* **and the machine's slots** (``O4_Machine_Slots``, issue #1225): the
+  workers a pool starts each hold one slot of the engine session's budget,
+  shared with every airport and pool of every tile building at once.  A
+  pool takes what is free when it starts, never waiting (``machine`` bound);
+  with fewer than two free it does not start and the stage runs serially in
+  the build's own process, which already holds a slot.  A pinned budget
+  (:func:`configure`) is verbatim.
 * **the suite pins 1** (``tests/conftest.py`` calls ``configure(1)``): the
   engine never guesses that it is under test — a library importing pytest
   must not serialise a production build.
@@ -100,6 +107,8 @@ import weakref
 import numpy as np
 from multiprocessing import connection as _mpc
 from multiprocessing import shared_memory as _shm
+
+import O4_Machine_Slots as _slots
 
 from . import frame_entry as _fe
 from ..model import pulse as _pulse
@@ -409,6 +418,7 @@ class WorkPool:
         self._out, self._stall = out, float(stall_s)
         self._isolate = bool(isolate)
         self._ex: _cf.ProcessPoolExecutor | None = None
+        self._held = None                 # the machine slots its workers hold
         self._dead = False
         #: why no pool answers (``""`` while one does): the budget, or what
         #: made it give up — said through ``out`` AND kept for the report
@@ -436,9 +446,27 @@ class WorkPool:
         except Exception:
             pass
 
+    def _take_slots(self) -> bool:
+        """One machine slot per worker (module doc), or ``False`` — the
+        pool is then a budget-1 pool and the stage runs serially.  A pinned
+        budget (:func:`configure`: a test, a tool arm) is honoured verbatim."""
+        if self._isolate or _explicit[0] is not None:
+            return True
+        held = _slots.try_take(self.workers)
+        if held.count < 2:
+            held.release()
+            self.workers, self.bound, self.reason = 1, "machine", "budget 1"
+            return False
+        if held.count < self.workers:
+            self.workers, self.bound = held.count, "machine"
+        self._held = held
+        return True
+
     def _start(self) -> bool:
         if self._ex is not None:
             return True
+        if not self._take_slots():
+            return False
         try:
             self._ex = _cf.ProcessPoolExecutor(
                 max_workers=self.workers, mp_context=_mp.get_context("spawn"),
@@ -488,8 +516,18 @@ class WorkPool:
         close takes ``TEARDOWN_S + 2 * SIGNAL_S`` at most, whatever the
         worker count, and a worker still running after it is NAMED."""
         ex, self._ex = self._ex, None
+        held, self._held = self._held, None
         if ex is None:
+            if held is not None:
+                held.release()
             return
+        try:
+            self._close_executor(ex)
+        finally:
+            if held is not None:          # after the teardown: the workers are gone
+                held.release()
+
+    def _close_executor(self, ex) -> None:
         procs = list((getattr(ex, "_processes", None) or {}).values())
         # ``shutdown(wait=False)`` forgets its manager thread, which keeps
         # the workers' ``Process`` objects — and on Windows their process

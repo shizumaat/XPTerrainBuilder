@@ -54,6 +54,12 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_PARALLEL_AIRPORTS":
         "scheduling only; the parallel path is byte-identical to serial",
     "O4_PARALLEL_AIRPORTS_N": "the airport worker cap",
+    "O4_MACHINE_SLOTS_DIR":
+        "the engine session's machine worker budget (O4_Machine_Slots, "
+        "#1225): where its slot files are — scheduling only",
+    "O4_MACHINE_SLOTS":
+        "how many heavy processes the session's budget runs at once — "
+        "scheduling only",
     "O4_STEP_REUSE":
         "whether a tile build may skip a step whose output is current "
         "(O4_Step_Reuse, #615); a step that runs builds the same patch",

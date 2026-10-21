@@ -149,7 +149,7 @@ def step_digest(step: str) -> str | None:
 #: its own ``_BEYOND_SHARED[step]`` — the code half of its key.  Held by
 #: ``tests/test_step_code_closure.py``; when it fails, the message names
 #: the modules to add or drop.  A package is listed as its ``__init__``.
-#: Measured 458 shared; vector 458, mesh 468, masks 476 of 584 modules.
+#: Measured 459 shared; vector 459, mesh 469, masks 477 of 585 modules.
 _SHARED: tuple[str, ...] = (
     "O4_Airport_Apt_Identity",
     "O4_Airport_Batch",
@@ -180,6 +180,7 @@ _SHARED: tuple[str, ...] = (
     "O4_OSM_Extract_Filter",
     "O4_OSM_Extracts",
     "O4_OSM_Utils",
+    "O4_Machine_Slots",
     "O4_Parallel_Utils",
     "O4_Process_Liveness",
     "O4_Proj_Runtime",

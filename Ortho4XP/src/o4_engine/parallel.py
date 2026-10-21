@@ -63,6 +63,7 @@ from collections import deque
 from typing import Optional
 
 import O4_Console_Encoding
+import O4_Machine_Slots
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
 
@@ -864,6 +865,11 @@ class ParallelBuildRun:
             else mesh_memory_budget_gigabytes())
         self._memory_in_use = 0.0
         self._memory_holders: dict = {}   # (tile, step) -> gigabytes
+        # THE MACHINE WORKER BUDGET (issue #1225): one slot pool for the
+        # engine session, published in os.environ so every tile child —
+        # and every airport process and work pool under it — shares it.
+        # Opened once per session; a later run reuses it.
+        O4_Machine_Slots.ensure_session()
         # Cache-aware fetch admission (spec §A.2): the per-subsystem
         # predicates' verdict per (tile, step), memoised because a tile's
         # first step is re-evaluated on every dispatch sweep and the

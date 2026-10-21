@@ -8,10 +8,8 @@ from __future__ import annotations
 import random
 
 import numpy as np
-
 from auto_patch_v2.airport import placement_boxes as _pb
-from auto_patch_v2.airport.placement_contact import (_any_within, _polys_touch,
-                                                     ring_metres)
+from auto_patch_v2.airport.placement_contact import _any_within, _polys_touch, ring_metres
 from auto_patch_v2.airport.ring_contact_batch import polys_touch_many
 
 EPS = 0.5

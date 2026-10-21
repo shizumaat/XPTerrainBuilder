@@ -16,14 +16,20 @@ from __future__ import annotations
 import types
 
 import numpy as np
-import pytest
-from shapely.geometry import box
-
 import O4_Airport_Elevation_Insets as INSETS
+import pytest
 from auto_patch import flat_site_relief as RELIEF
-from tests.test_flat_site_mode import (ANCHOR, BOUNDARY, FakeDEM, LAND_BASE_M,
-                                       dico, make_tile, substitutions,
-                                       wire_airport)
+from shapely.geometry import box
+from tests.test_flat_site_mode import (
+    ANCHOR,
+    BOUNDARY,
+    LAND_BASE_M,
+    FakeDEM,
+    dico,
+    make_tile,
+    substitutions,
+    wire_airport,
+)
 
 Z0 = 3.96
 N = 3601

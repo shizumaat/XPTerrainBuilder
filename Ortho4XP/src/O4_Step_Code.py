@@ -202,6 +202,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch.dsf_reader",
     "auto_patch.engine_v2",
     "auto_patch.flat_site_mode",
+    "auto_patch.flat_site_relief",
     "auto_patch.geom_safe",
     "auto_patch.mesh_sampler",
     "auto_patch.obj8_partition",

@@ -5024,6 +5024,43 @@ def test_wcs_kvp_requests_target_resolution_pixels():
     assert fine_url == native_url
 
 
+def test_france1m_is_the_rge_alti_fallback_getmap():
+    """#1217: RGE ALTI 1 m backs FRANCE50CM up in France, as a WMS
+    GetMap tiled to the server's 5010 px MaxWidth (no network)."""
+    pytest.importorskip("osgeo.gdal")  # the warp needs GDAL; CI's mac/linux legs drop it
+    import re
+    from elevation_access.strategies.wcs_kvp import WcsKvpStrategy
+
+    parsed = INSETS.initialize_elevation_providers_dict(
+        _SHIPPED_PROVIDERS_DIR
+    )
+    rge, lidar = parsed["FRANCE1M"], parsed["FRANCE50CM"]
+    assert rge["country"] == lidar["country"] == "FRA"
+    assert float(rge["priority"]) < float(lidar["priority"])
+    box = (2.50, 48.98, 2.62, 49.03)  # ~9 x 5.5 km
+    assert ea_definitions._coverage_bbox_intersects(rge, box)
+    urls = WcsKvpStrategy()._request_urls(rge, box)
+    assert all("REQUEST=GetMap" in u and "FORMAT=image/geotiff" in u
+               for u in urls)
+    def size(url):
+        return tuple(int(re.search(key + r"=(\d+)", url).group(1))
+                     for key in ("WIDTH", "HEIGHT"))
+    def bbox(url):
+        return [float(v) for v in
+                re.search(r"BBOX=([^&]+)", url).group(1).split(",")]
+    # Tiled at the native 1 m, every request within MaxWidth/MaxHeight,
+    # pixels exactly 1 m: nothing is silently coarsened.
+    assert len(urls) > 1
+    for url in urls:
+        (w, h), (x0, y0, x1, y1) = size(url), bbox(url)
+        assert 0 < w <= 5010 and 0 < h <= 5010
+        assert abs((x1 - x0) / w - 1.0) < 1e-3
+        assert abs((y1 - y0) / h - 1.0) < 1e-3
+    # A 4 m target needs one request.
+    assert len(WcsKvpStrategy()._request_urls(
+        rge, box, target_resolution_m=4.0)) == 1
+
+
 @requires_gdal
 def test_zero_byte_cached_inset_is_swept_and_refetched(tmp_path, monkeypatch):
     """A hard-killed fetch's 0-byte relic (2026-07-23: LSZC_italy10m.tif)

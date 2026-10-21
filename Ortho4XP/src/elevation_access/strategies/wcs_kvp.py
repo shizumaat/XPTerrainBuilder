@@ -53,10 +53,23 @@ class WcsKvpStrategy:
 
     def _request_url(self, definition, bounding_box_wgs84,
                      target_resolution_m=None):
+        """The first (for an untiled definition, the only) request."""
+        return self._request_urls(definition, bounding_box_wgs84,
+                                  target_resolution_m)[0]
+
+    def _request_urls(self, definition, bounding_box_wgs84,
+                      target_resolution_m=None):
+        """The padded box as one request, or -- when the definition
+        declares the server's ``max_request_pixels`` -- as a grid of
+        requests each within that size at the requested pixel (#1217:
+        a WMS GetMap above MaxWidth is refused, and capping one request
+        would silently coarsen a large airport's inset)."""
         source_epsg = int(float(definition.get("source_epsg", 25832)))
         (x_min, y_min, x_max, y_max) = transform_bounding_box_to_epsg(
             bounding_box_wgs84, source_epsg
         )
+        x_min, y_min = x_min - self.PAD_M, y_min - self.PAD_M
+        x_max, y_max = x_max + self.PAD_M, y_max + self.PAD_M
         native = _parse_float(
             definition.get("native_resolution_m"), 1.0
         )
@@ -68,21 +81,42 @@ class WcsKvpStrategy:
         target = _parse_float(target_resolution_m, 0.0)
         if target and target > native:
             pixel_m = target
-        width = max(
-            1, int(round((x_max - x_min + 2 * self.PAD_M) / pixel_m))
-        )
-        height = max(
-            1, int(round((y_max - y_min + 2 * self.PAD_M) / pixel_m))
-        )
+        width = max(1, int(round((x_max - x_min) / pixel_m)))
+        height = max(1, int(round((y_max - y_min) / pixel_m)))
+        declared = _parse_float(definition.get("max_request_pixels"), 0.0)
+        if not declared:
+            # Legacy single request: ArcGIS exportImage caps at 8000 px.
+            return [self._fill(definition, (x_min, y_min, x_max, y_max),
+                               min(width, 8000), min(height, 8000))]
+        limit = int(declared)
+        columns = -(-width // limit)
+        rows = -(-height // limit)
+        urls = []
+        for row in range(rows):
+            for column in range(columns):
+                pixels_x = min(limit, width - column * limit)
+                pixels_y = min(limit, height - row * limit)
+                left = x_min + column * limit * pixel_m
+                bottom = y_min + row * limit * pixel_m
+                urls.append(self._fill(
+                    definition,
+                    (left, bottom, left + pixels_x * pixel_m,
+                     bottom + pixels_y * pixel_m),
+                    pixels_x, pixels_y))
+        return urls
+
+    @staticmethod
+    def _fill(definition, box, width, height):
+        (x_min, y_min, x_max, y_max) = box
         return (
             definition["wcs_getcoverage_template"]
-            .replace("{xmin}", repr(round(x_min - self.PAD_M, 2)))
-            .replace("{ymin}", repr(round(y_min - self.PAD_M, 2)))
-            .replace("{xmax}", repr(round(x_max + self.PAD_M, 2)))
-            .replace("{ymax}", repr(round(y_max + self.PAD_M, 2)))
-            # ArcGIS exportImage endpoints want an explicit pixel size.
-            .replace("{width}", str(min(width, 8000)))
-            .replace("{height}", str(min(height, 8000)))
+            .replace("{xmin}", repr(round(x_min, 2)))
+            .replace("{ymin}", repr(round(y_min, 2)))
+            .replace("{xmax}", repr(round(x_max, 2)))
+            .replace("{ymax}", repr(round(y_max, 2)))
+            # ArcGIS exportImage / WMS GetMap want an explicit pixel size.
+            .replace("{width}", str(width))
+            .replace("{height}", str(height))
             # #155: an ArcGIS exportImage template sends noData={nodata},
             # filled from the definition's own nodata key -- never empty.
             .replace("{nodata}", str(definition.get("nodata", "")).strip())
@@ -91,7 +125,8 @@ class WcsKvpStrategy:
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
-        return [{"url": self._request_url(definition, bounding_box_wgs84)}]
+        return [{"url": url} for url in
+                self._request_urls(definition, bounding_box_wgs84)]
 
     def fetch(
         self,
@@ -100,8 +135,6 @@ class WcsKvpStrategy:
         target_resolution_m,
         destination_path,
     ):
-        import requests
-
         if not has_gdal:
             return None
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
@@ -109,10 +142,32 @@ class WcsKvpStrategy:
         refusal = export_image_definition_refusal(definition)
         if refusal:
             raise ProviderUnavailable(refusal)
-        url = self._request_url(definition, bounding_box_wgs84,
-                                target_resolution_m=target_resolution_m)
+        urls = self._request_urls(definition, bounding_box_wgs84,
+                                  target_resolution_m=target_resolution_m)
         os.makedirs(os.path.dirname(destination_path), exist_ok=True)
-        scratch_path = destination_path + ".getcoverage.tif"
+        scratch_paths = []
+        try:
+            for index, url in enumerate(urls):
+                scratch_path = "%s.getcoverage%d.tif" % (
+                    destination_path, index)
+                if not self._download(definition, url, scratch_path):
+                    return None
+                scratch_paths.append(scratch_path)
+            return self._warp(definition, bounding_box_wgs84,
+                              target_resolution_m, destination_path,
+                              scratch_paths, urls)
+        finally:
+            for scratch_path in scratch_paths:
+                try:
+                    os.remove(scratch_path)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _download(definition, url, scratch_path):
+        """One GeoTIFF answer written to ``scratch_path``, or ``None``."""
+        import requests
+
         try:
             response = requests.get(url, timeout=300)
             if response.status_code != 200 or not response.content[
@@ -149,8 +204,13 @@ class WcsKvpStrategy:
                     "%r - refused (an untagged answer reads 0.0 where the "
                     "service has no data, #155)"
                     % (definition.get("code"), tag, declared))
+        return True
+
+    @staticmethod
+    def _warp(definition, bounding_box_wgs84, target_resolution_m,
+              destination_path, scratch_paths, urls):
         warped = warp_vsicurl_sources_to_geotiff(
-            [scratch_path],
+            scratch_paths,
             bounding_box_wgs84,
             target_resolution_m,
             destination_path,
@@ -158,10 +218,6 @@ class WcsKvpStrategy:
             vertical_unit=_raster_vertical_unit(definition),
             provider_code=definition.get("code"),
         )
-        try:
-            os.remove(scratch_path)
-        except OSError:
-            pass
         if not warped:
             return None
         if not _geotiff_has_valid_data(destination_path):
@@ -173,7 +229,7 @@ class WcsKvpStrategy:
         return {
             "provider": definition.get("code"),
             "access_strategy": definition.get("access_strategy"),
-            "source_urls": [url],
+            "source_urls": list(urls),
             "native_resolution_m": definition.get("native_resolution_m"),
             "license": definition.get("license"),
             "attribution": definition.get("attribution"),

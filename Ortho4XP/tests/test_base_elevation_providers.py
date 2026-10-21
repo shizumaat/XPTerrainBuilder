@@ -86,6 +86,7 @@ def test_shipped_definitions_parse(shipped_registry):
         "AUSTRALIA5M",
         "TAIWAN20M",
         "FRANCE50CM",
+        "FRANCE1M",
         "BAVARIA1M",
         "NRW1M",
         "THURINGIA1M",

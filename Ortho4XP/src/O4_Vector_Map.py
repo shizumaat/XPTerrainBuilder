@@ -1370,12 +1370,6 @@ def build_poly_file(tile):
     # apron.  Purely additive (see ``seed_interp_alt_subcells``).
     seed_interp_alt_subcells(vector_map)
 
-    # R18-1c: every INTERP_ALT seed must be ENCLOSED by INTERP_ALT edges
-    # before the plague ever runs — the last point at which the seeds and
-    # the marked edges are both in hand.  Loud refusal, never a silent
-    # clip (see :func:`audit_interp_alt_seed_sealing`).
-    audit_interp_alt_seed_sealing(vector_map)
-
     # Buildings
     # include_buildings(vector_map)
     # if UI.red_flag: UI.exit_message_and_bottom_line(); return 0
@@ -1507,6 +1501,16 @@ def build_poly_file(tile):
     # never disagree about where the annulus is.  Purely additive: a seed
     # that gets no area is written exactly as before.
     size_bank_annulus_regions(vector_map, tile)
+    # R18-1c: every INTERP_ALT seed must be ENCLOSED by INTERP_ALT edges
+    # before the plague ever runs.  Loud refusal, never a silent clip (see
+    # :func:`audit_interp_alt_seed_sealing`).  Judged HERE, on the
+    # arrangement Triangle4XP reads — after the 1e-9 snap, the noding and
+    # the hairline weld, the last moves any node makes.  Issue #1199
+    # (+59-136): judged before the snap, a patch ring whose vertex two
+    # producers spelled 2.7e-15 apart (0.45534709999999734 / 0.4553471)
+    # read as an open ring and refused a tile whose written .poly is
+    # sealed; the snap welds those two nodes into one.
+    audit_interp_alt_seed_sealing(vector_map)
     vector_map.write_node_file(node_file)
     vector_map.write_poly_file(poly_file)
 

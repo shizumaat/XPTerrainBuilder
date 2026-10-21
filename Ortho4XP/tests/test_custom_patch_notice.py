@@ -4,10 +4,9 @@ trace of a custom patch replacing the auto patch was printed when an old
 ``<ICAO>_auto.patch.osm`` also sat in the folder)."""
 import types
 
-import pytest
-
 import O4_File_Names as FNAMES
 import O4_Vector_Map as VMAP
+import pytest
 
 
 class _Stop(Exception):

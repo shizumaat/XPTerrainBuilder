@@ -50,7 +50,7 @@ import numpy as np
 from ..model.placement import KIND_MSL
 
 __all__ = ["static_vertices", "lowest_feet", "origin_set_lifts", "origin_key",
-           "feet_seats"]
+           "origin_of_row", "feet_seats"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
@@ -113,7 +113,9 @@ def origin_key(xy: _t.Sequence[float], heading_deg: float) -> tuple:
     return (round(float(xy[0]), 3), round(float(xy[1]), 3), round(float(heading_deg), 3))
 
 
-def _origin(p: _t.Any) -> tuple:
+def origin_of_row(p: _t.Any) -> tuple:
+    """One DSF row's origin set key: lat, lon, heading and elevation (the
+    author's one frame)."""
     return (round(float(p.lat), _ORIGIN_DP), round(float(p.lon), _ORIGIN_DP),
             round(float(p.heading_deg), 3),
             round(float(p.elevation or 0.0), 3))
@@ -166,7 +168,7 @@ def feet_seats(dump: _t.Any, conversions: _t.Sequence[_t.Any], surface: Surface,
     sets: dict[tuple, list] = {}
     for cv in conversions:
         if cv.kind_before == KIND_MSL and 0 <= cv.index < len(rows):
-            sets.setdefault(_origin(rows[cv.index]), []).append(cv)
+            sets.setdefault(origin_of_row(rows[cv.index]), []).append(cv)
     memo: dict[str, "np.ndarray | None"] = {}
 
     def feet(res: str) -> "np.ndarray | None":

@@ -12,6 +12,7 @@ import O4_Airport_Apt_Identity as ID
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Airport_Index as AIRPORT_INDEX
 import O4_File_Names as FNAMES
+import pytest
 from elevation_access import definitions as ea_definitions
 from elevation_access import registry as ea_registry
 
@@ -26,6 +27,7 @@ def _definition(code, country, priority):
 
 def _run(tmp_path, monkeypatch, definitions, icao, country):
     """Run the fetch loop for one airport; return (asked codes, record)."""
+    pytest.importorskip("osgeo.gdal")  # the fetch loop needs GDAL; CI's mac/linux legs drop it
     monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
     asked = []
 

@@ -287,3 +287,94 @@ def test_the_sidecar_publishes_each_landing_with_its_deck_and_level(monkeypatch)
     assert got == [{"ref": "u/landing0", "block": "u", "deck": "d.obj",
                     "y": -0.2, "area_m2": 12.0, "level": 99.8}]
     assert PB._landings(pm, None)[0]["level"] is None
+
+
+# ── issue #1179: a viaduct is ONE CONNECTED deck structure ──────────────
+# (owner RULINGS 2026-10-03e read with 2026-09-13bo).  A pack that
+# authors one deck resource across the whole airport (tyres, carts,
+# masts, ground plates under one shared datum) is many structures
+# separated by open ground: each connected piece of the footprint is
+# claimed on its own, and only bodies standing in a claimed piece ride
+# the unit's level.
+
+RES = "LY/TEH_tyres.obj"
+
+
+def _two_pieces() -> BF.DeckPrint:
+    """Piece 0: a 20 m plate at lat 40.0; piece 1: a 20 m plate ~500 m
+    north, open ground between them — one resource, two structures."""
+    tris = []
+    for la in (40.0, 40.0045):
+        a, b = (la, -3.0), (la, -2.9998)
+        c, d = (la + 0.0002, -2.9998), (la + 0.0002, -3.0)
+        tris += [(a, b, c), (a, c, d)]
+    p = BF.DeckPrint(key=RES, unit=0, member=0, under_y=0.0,
+                     box=(40.0, -3.0, 40.0047, -2.9998), tris=tuple(tris),
+                     ys=((0.0,) * 3,) * 4)
+    p.index()
+    return p
+
+
+def _tyre_plan():
+    deck = _member(RES, [_part(1, 40.0001, -2.9999)], deck_kind="flag")
+    # the unit's parts stand inside piece 0 only, and outside the deck
+    pier = _member("LY/T2_a.obj", [_part(2, 40.0001, -2.9999),
+                                   _part(3, 40.00015, -2.9999)])
+    terminal = _member("LY/T2_b.obj", [_part(4, 40.002, -2.999)])
+    return types.SimpleNamespace(units=[types.SimpleNamespace(
+        members=[deck, pier, terminal])])
+
+
+def _tyre_pw():
+    row = (UID, U_ZERO, "building9/b9", "cluster_pad")
+    return {2: row, 3: row, 4: row}
+
+
+def test_a_deck_footprint_splits_into_its_connected_pieces():
+    pieces = BF.deck_components(_two_pieces())
+    assert [q.key for q in pieces] == [RES + "#0", RES + "#1"]
+    assert pieces[0].contains(40.0001, -2.9999)
+    assert not pieces[0].contains(40.0046, -2.9999)
+    # ONE connected deck is its own single piece, key unchanged
+    r = _ramp()
+    assert BF.deck_components(r) == [r]
+
+
+def test_each_piece_is_claimed_on_its_own():
+    counts: dict = {}
+    v = BF.unit_viaducts([_two_pieces()], _tyre_plan(), _tyre_pw(), counts)
+    assert set(v) == {RES + "#0"}
+    w = v[RES + "#0"]
+    assert (w.resource, w.whole, w.uid, w.voters) == (RES, False, UID, 2)
+    assert counts["viaduct_decks_free_standing"] == 1
+    # the #290 viaduct: one connected deck, ONE rigid viaduct, whole
+    h = BF.unit_viaducts([_ramp()], _plan(), _pw(), {})
+    assert set(h) == {"T23/T3_road.obj"} and h["T23/T3_road.obj"].whole
+
+
+def test_only_bodies_of_the_claimed_piece_ride_the_unit():
+    import dataclasses as dc
+    v = BF.unit_viaducts([_two_pieces()], _tyre_plan(), _tyre_pw(), {})
+    # the deck member's two bodies: a tyre in the claimed piece, and the
+    # same resource's tyre 500 m away on open ground
+    st, c0 = _body(0, RES, AR.DECK, [(40.0001, -2.9999, 0.0)],
+                   ("low-side foot", 0.0))
+    st1, c1 = _body(0, RES, AR.DECK, [(40.0046, -2.9999, 0.0)],
+                    ("low-side foot", 0.0))
+    st.raw.append(st1.raw[0])
+    st.groups.append([1])
+    st.ground_off.append(0.0)
+    c1 = dc.replace(c1, group=1)
+    # a body §16e (3) names as the resource's, standing in piece 1
+    st2, c2 = _body(1, "LY/cart.obj", AR.LINE_SEGMENT,
+                    [(40.0046, -2.99985, 0.0)], ("line segment", 0.0),
+                    bridge=RES)
+    cands = [c0, c1, c2]
+    before = [c1.anchor, c2.anchor]
+    counts: dict = {}
+    FU.seat_viaducts(cands, [st, st2], _surface, counts, v, unit_index=0)
+    assert cands[0].anchor.unit_seat
+    assert abs(float(cands[0].anchor.surface_z)
+               - float(cands[0].anchor.y_zero) - U_ZERO) < 1e-9
+    assert [cands[1].anchor, cands[2].anchor] == before
+    assert counts["viaduct_bodies_seated"] == 1

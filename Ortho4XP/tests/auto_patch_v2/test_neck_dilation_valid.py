@@ -9,7 +9,6 @@ got no patch.  The lobe is the exact one from that build."""
 from __future__ import annotations
 
 import shapely
-
 from auto_patch_v2.classify.neck import _dilated
 
 LOBE = (

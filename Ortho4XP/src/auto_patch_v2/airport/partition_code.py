@@ -106,6 +106,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.placement_targets",
     "auto_patch_v2.airport.pool",
     "auto_patch_v2.airport.rebake_plan",
+    "auto_patch_v2.airport.ring_contact_batch",
     "auto_patch_v2.airport.scatter",
     "auto_patch_v2.airport.sheet_chain",
     "auto_patch_v2.airport.skirt",

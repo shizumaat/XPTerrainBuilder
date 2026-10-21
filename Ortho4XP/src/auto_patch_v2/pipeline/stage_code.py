@@ -377,7 +377,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_family",
         "auto_patch_v2.airport.wall_geometry",
         "auto_patch_v2.airport.wall_mouth",
-        "auto_patch_v2.airport.water_level",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -416,6 +415,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.union_find",
         "auto_patch_v2.geom.valid_area",
         "auto_patch_v2.geom.vector",
+        "auto_patch_v2.geom.water_level",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.approach_corridor",
@@ -731,7 +731,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
-        "auto_patch_v2.airport.water_level",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -817,6 +816,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
+        "auto_patch_v2.geom.water_level",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.base_profile_schema",
@@ -1136,7 +1136,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.end_area model.islands model.map_memo model.platform model.threshold_datum
     """),
     "water": _mods(_GENERATOR_CORE + """
-        airport airport.water_level constraints.geometry constraints.precedence
+        geom.water_level constraints.geometry constraints.precedence
         constraints.water model.airport
     """),
     "zones": _mods(_GENERATOR_CORE + """
@@ -1151,7 +1151,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
-    airport.deck_signature airport.dem airport.water_level airport.dem_witness airport.dsf
+    airport.deck_signature airport.dem geom.water_level airport.dem_witness airport.dsf
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
@@ -1262,7 +1262,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
-    airport.contents airport.deck_signature airport.dem airport.water_level airport.dem_production
+    airport.contents airport.deck_signature airport.dem geom.water_level airport.dem_production
     airport.dem_record airport.dem_shared airport.dem_witness airport.door_wells
     airport.dsf airport.extension_cache airport.file_hash airport.file_witness
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
@@ -1346,7 +1346,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
-    airport.contents airport.deck_signature airport.dem airport.water_level airport.dem_production
+    airport.contents airport.deck_signature airport.dem geom.water_level airport.dem_production
     airport.dem_record airport.dem_shared airport.dem_witness airport.door_wells
     airport.dsf airport.extension_cache airport.file_hash airport.file_witness
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
@@ -1577,21 +1577,21 @@ ENTRY_MODULES["constraints.assembly"] = ("auto_patch_v2.constraints",
 ENTRY_MODULES["jetway_strip"] = ("auto_patch_v2.airport.riders",
                                  "auto_patch_v2.constraints.jetway_strip")
 ENTRY_MODULES["solve"] = ("auto_patch_v2.solve.design", "auto_patch_v2.solve.api",
-                          "auto_patch_v2.constraints.road_ramp",
                           "auto_patch_v2.constraints.no_step",
+                          "auto_patch_v2.constraints.road_ramp",
                           "auto_patch_v2.constraints.taxi_trend",
                           "auto_patch_v2.pipeline.stage_one_map",
                           "auto_patch_v2.pipeline.solve_record")
 ENTRY_MODULES["late_cut"] = ("auto_patch_v2.pipeline.late_stage",
-                             "auto_patch_v2.pipeline.late_records",
                              "auto_patch_v2.classify.gap_terrace",
+                             "auto_patch_v2.pipeline.late_records",
                              "auto_patch_v2.classify.gap_mint")
 ENTRY_MODULES["late_solve"] = ("auto_patch_v2.pipeline.late_stage",
-                               "auto_patch_v2.pipeline.late_records",
                                "auto_patch_v2.constraints.gap_follow",
-                               "auto_patch_v2.solve.design",
-                               "auto_patch_v2.constraints.road_ramp",
                                "auto_patch_v2.constraints.no_step",
+                               "auto_patch_v2.constraints.road_ramp",
+                               "auto_patch_v2.pipeline.late_records",
+                               "auto_patch_v2.solve.design",
                                "auto_patch_v2.constraints.taxi_trend")
 # THE EMIT AND THE VERIFY (spec §4b.6, §4b.7; #843 step 9c): entered at
 # ``pipeline/emit_stage`` (``render`` / ``install``, the post-solve glue

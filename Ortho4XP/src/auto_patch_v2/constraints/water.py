@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..airport.water_level import SEA_LEVEL_M, water_level_beside
+from ..geom.water_level import SEA_LEVEL_M, water_level_beside
 from ..law import Law
 from ..law.tables import is_structure_role
 from ..model.airport import Airport

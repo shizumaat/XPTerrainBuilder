@@ -63,7 +63,7 @@ class _LevelDem:
 
 
 def test_the_level_beside_a_shore_point_is_its_bodys():
-    from auto_patch_v2.airport.water_level import water_level_beside
+    from auto_patch_v2.geom.water_level import water_level_beside
     lv = water_level_beside(_LevelDem(), [0.0, -100.0], [0.0, 0.0])
     assert lv[0] == 2.5          # on the line: a ring sample is wet
     assert lv[1] == 0.0          # far from any water: the sea's level

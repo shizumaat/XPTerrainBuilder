@@ -57,7 +57,7 @@ from shapely.geometry import LineString, Polygon
 from ..law import Law
 from ..law.tables import snap_margin_m
 from ..airport.dem import dem_z_many
-from ..airport.water_level import water_level_beside
+from ..geom.water_level import water_level_beside
 
 __all__ = ["SHORE_WALL_TAGS", "SHORE_WITNESSES", "ShoreVerdict", "PackWall",
            "shore_declarations", "pack_shore_walls", "shore_contact",

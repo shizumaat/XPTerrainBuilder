@@ -788,6 +788,11 @@ def _pads(airport: Airport, rules: Rules, min_area: float, boundary,
     # the ONE derivation site, so the arrangement's apron cut (23a) and
     # every pad consumer inherit the expanded outline
     parts = _with_jetways(parts, airport, law, cache, runway_union, gained)
+    # A PAD NEVER FILLS A MAPPED CUTTING (issue #1179): the corridor of
+    # every ``cutting=*`` road / railway leaves every pad part here, at the
+    # one derivation site, so every pad consumer inherits it
+    from .pad_cut_corridor import trim_cut_corridors
+    parts = trim_cut_corridors(parts, airport, law)
     gate = boundary if boundary is not None else pavement_union.buffer(200.0)
     # RULINGS 2026-09-14ax: THE PAD CLIP IS THE ARRANGEMENT'S, NOT THIS
     # SITE'S.  Round 1 clipped every pad here by ``runway_union |

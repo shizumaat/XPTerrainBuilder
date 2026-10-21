@@ -253,6 +253,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
+        "auto_patch_v2.geom.valid_area",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",
         "auto_patch_v2.law.base_profile_schema",
@@ -824,6 +825,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.slope_pad",
         "auto_patch_v2.geom.triangulate",
         "auto_patch_v2.geom.union_find",
+        "auto_patch_v2.geom.valid_area",
         "auto_patch_v2.geom.water_level",
         "auto_patch_v2.law",
         "auto_patch_v2.law.airports_schema",
@@ -1201,6 +1203,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones geom geom.base_slab
     geom.fixed_overlay
+    geom.valid_area
     geom.cluster_outline geom.containment geom.core_clamp geom.feet_graph geom.feet_mst
     geom.pad_evidence geom.parts geom.proportions geom.ramp_grade geom.ramp_profile
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
@@ -1499,6 +1502,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.weld_floor emit.graded emit.osm_adapter emit.rebake emit.road_join
     emit.surface emit.terrain_edge geom geom.base_slab geom.cluster_outline
     geom.fixed_overlay
+    geom.valid_area
     geom.containment geom.core_clamp geom.coverage geom.pad_evidence geom.parts
     geom.proportions geom.ramp_grade geom.rotated_rect geom.triangulate geom.union_find
     law law.airports_schema law.base_profile_schema law.basin_schema law.cockpit_schema
@@ -1563,6 +1567,7 @@ CODE_MODULES["verify"] = _mods("""
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.weld_floor emit.surface geom geom.base_slab geom.cluster_outline
     geom.fixed_overlay
+    geom.valid_area
     geom.containment geom.core_clamp geom.pad_evidence geom.parts geom.proportions
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema

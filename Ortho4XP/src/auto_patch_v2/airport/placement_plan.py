@@ -116,6 +116,7 @@ from .placement_file import (  # noqa: E402,F401
     OWN_GROUND, authored_offset, _carried_file, _cut_and_file,
     _deck_rider, _geom_hull, _geom_pts, _group_bodies,
     _note_tilted_kept_whole, _own_ground_file, _split_by_unit,
+    own_ground_zeros,
     _unit_carried_file)
 
 
@@ -964,12 +965,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # ``merged_into``
             for _gi, _b in enumerate(bodies):
                 file_of[(st.mi, _gi)] = _b.new_resource
-            for grp in st.own_ground:
+            _og_zero = own_ground_zeros(st.own_ground, st.part_boxes,     # #1146
+                                        surface, touch_m)
+            for grp, _z in zip(st.own_ground, _og_zero, strict=True):
                 bodies.append(_deck.deck_seat(                          # §49
                     _own_ground_file(st.raw, grp, m, u, surface,
                                      len(bodies), counts, by_class,
                                      st.part_boxes, st.bridge,
-                                     st.geom_boxes),
+                                     st.geom_boxes, zero=_z),
                     u, m, decks, on_fraction=deck_on_fraction, edge_m=deck_edge_m,
                     surface=surface, under_m=deck_under_m, counts=counts))
             # issue #31: the unit-carried pieces, BEFORE the §15 carries

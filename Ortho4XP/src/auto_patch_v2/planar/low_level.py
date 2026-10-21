@@ -27,17 +27,17 @@ a storey (EDDF Terminal 1's piers), not a stepped base.
 THE LEVEL IS TIED TO THE BLOCK.  The low region is minted as
 ``<block>/p1`` (the plane-pad grammar, ``model.planar.plane_ref``) and
 registered in ``Registries.landings`` with ``kind = "low_level"``: it is an
-ordinary pad (flat, priced to its own ground like every pad), and
-``constraints/platform.landing_rows`` BANDS every vertex of it against the
-block's DATUM COLUMN, ``D + y_lo <= z <= D + y_hi`` (hard, after stage 1 —
-the airside never follows it): never below the object's lowest low part
-(``y_lo``, its foundation) and at least one storey under the block
-(``y_hi`` = −``low_level_min_step_m``).  The ground decides where in the
-object's storey the low level sits (KATL: 289.5 m under a block solved at
-300.76, the parts reaching 16.4 m down), so the landside roads meet their
-own ground.  Between the two levels a RISER STRIP ``<block>/p1#strip``
-(the block strip's spelling: a bank, skipped by every pad reader) of
-``max(identity spacing, 2 x grid)`` — the base-profile spec's riser
+ordinary pad (flat), and ``constraints/platform.landing_rows`` HOLDS every
+vertex of it RIGID against the block's DATUM COLUMN at the object's own
+lower floor, ``z = D + y_lo`` (hard, after stage 1 -- the airside never
+follows it): ``y_lo`` the lowest low part, the floor the object's lower
+storey stands on (#1141: "the bottom road deck sits at ground level").
+``y_hi`` (= −``low_level_min_step_m``) and ``ground_z`` stay on the record
+as the mint's witnesses; the ground no longer places the level (KATL: it
+stood at the DEM median 289.45 m, 1.64 m over the object's floor at
+287.78, and buried the roadway's towers).  Between the two levels a
+RISER STRIP ``<block>/p1#strip`` (the block strip's spelling: a bank,
+skipped by every pad reader) of ``max(identity spacing, 2 x grid)`` — the base-profile spec's riser
 (§2 (3), Q2: the steepest cell, never a 1:3 bank under a building).
 
 The object stage never sees a second level: ``airport/placement_read``

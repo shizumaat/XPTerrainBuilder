@@ -229,12 +229,74 @@ def _carried_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
 OWN_GROUND = "footless_own_ground"
 
 
+def _own_ground_z(grp: _t.Sequence[int], part_boxes: _t.Sequence[_t.Sequence[tuple]],
+                  surface: _ar.Surface, parts: _t.Sequence = ()) -> "float | None":
+    """The ground under one own-ground group's footprint (§16 (3))."""
+    box = (_pc.hull_of(b for i in grp for b in part_boxes[i]) if part_boxes
+           else _pc.box_of((), parts))
+    return _pc.ground_under(surface, _pc.foot_boxes(
+        [b for i in grp for b in part_boxes[i]]) if part_boxes else (), box)
+
+
+def own_ground_zeros(groups: _t.Sequence[_t.Sequence[int]],
+                     part_boxes: _t.Sequence[_t.Sequence[tuple]],
+                     surface: _ar.Surface, touch_m: float
+                     ) -> list["float | None"]:
+    """#1146: ONE CONNECTED STRUCTURE TAKES ONE SEAT.  The own-ground
+    groups of one member (§16 (3): footless pieces no carrier accepts,
+    cut apart by the ground under them) whose part boxes touch within
+    ``touch_m`` chain into one structure, and every piece of a chain is
+    written at ONE zero -- the median of its pieces' own ground -- with
+    its authored heights kept relative to the others.  Seated each on its
+    own ground, neighbouring pieces of one elevated rail stepped by the
+    ground's difference (MEASURED KLAX ``People_Mover/Tracks``: 32 pieces
+    at 30.01-32.72 m, touching pieces 0.1-1.0 m apart) and the rail read
+    broken.  ``None`` for a piece that touches no other (it keeps its own
+    ground); ``touch_m <= 0`` chains nothing."""
+    n = len(groups)
+    out: list["float | None"] = [None] * n
+    if touch_m <= 0.0 or n < 2 or not part_boxes:
+        return out
+    boxes = [[b for i in g for b in part_boxes[i]] for g in groups]
+    root = list(range(n))
+
+    def find(a: int) -> int:
+        while root[a] != a:
+            root[a] = root[root[a]]
+            a = root[a]
+        return a
+
+    hulls = [_pc.hull_of(bs) if bs else None for bs in boxes]
+    for a in range(n):
+        for b in range(a + 1, n):
+            if (hulls[a] is None or hulls[b] is None
+                    or _pc.box_gap_m(hulls[a], hulls[b]) > touch_m):
+                continue
+            if any(_pc.box_gap_m(x, y) <= touch_m for x in boxes[a] for y in boxes[b]):
+                root[find(a)] = find(b)
+    chains: dict[int, list[int]] = {}
+    for a in range(n):
+        chains.setdefault(find(a), []).append(a)
+    for ids in chains.values():
+        if len(ids) < 2:
+            continue
+        zs = sorted(z for k in ids
+                    if (z := _own_ground_z(groups[k], part_boxes, surface)) is not None)
+        if not zs:
+            continue
+        zero = zs[len(zs) // 2] if len(zs) % 2 else 0.5 * (zs[len(zs) // 2 - 1] + zs[len(zs) // 2])
+        for k in ids:
+            out[k] = zero
+    return out
+
+
 def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
                      u: Unit, surface: _ar.Surface, body_id: int,
                      counts: dict[str, int], by_class: dict[str, int],
                      part_boxes: _t.Sequence[_t.Sequence[tuple]] = (),
                      bridge: _t.Sequence[str] = (),
-                     geom_boxes: _t.Sequence = ()) -> Body:
+                     geom_boxes: _t.Sequence = (),
+                     zero: "float | None" = None) -> Body:
     """§16 (3): the body written at the GROUND UNDER ITS OWN FOOTPRINT.
 
     §14 (1) left a footless placement whose unit held no footed body on
@@ -244,18 +306,27 @@ def _own_ground_file(raw: _t.Sequence[_Raw], grp: _t.Sequence[int], m: Member,
     is anchored at its footprint centroid, where the design surface is
     read like any other body's, and its AUTHORED y is kept (``y_zero``
     0), so a roof authored 12 m up renders 12 m over the ground it stands
-    on instead of on it."""
+    on instead of on it.
+
+    ``zero`` (#1146, :func:`own_ground_zeros`): the one zero of the
+    connected structure this piece belongs to; the piece's ``y_zero`` is
+    then its own ground's height over that zero, so its authored y lands
+    where its neighbours' do."""
     parts = [p for i in grp for p in raw[i][0]]
     cls = raw[max(grp, key=lambda i: len(raw[i][0]))][1]
     box = (_pc.hull_of(b for i in grp for b in part_boxes[i]) if part_boxes
            else _pc.box_of((), parts))
     clat, clon = 0.5 * (box[0] + box[2]), 0.5 * (box[1] + box[3])
-    z = _pc.ground_under(surface, _pc.foot_boxes(
-        [b for i in grp for b in part_boxes[i]]) if part_boxes else (), box)
-    off = authored_offset(clat, clon, 0.0, u.anchor[0], u.anchor[1], m.heading_deg)
-    a = _ar.Anchor(cls, clat, clon, 0.0,
+    z = _own_ground_z(grp, part_boxes, surface, parts)
+    y0, why = 0.0, ""
+    if zero is not None and z is not None:
+        y0 = float(z) - float(zero)
+        why = f"; one zero {float(zero):.2f} with its connected pieces (#1146)"
+        counts["own_ground_chained"] = counts.get("own_ground_chained", 0) + 1
+    off = authored_offset(clat, clon, y0, u.anchor[0], u.anchor[1], m.heading_deg)
+    a = _ar.Anchor(cls, clat, clon, y0,
                    f"{OWN_GROUND}: no carrier the law accepts — the ground "
-                   f"under its own footprint, authored y kept", z, off)
+                   f"under its own footprint, authored y kept" + why, z, off)
     by_class[cls] = by_class.get(cls, 0) + 1
     counts["footless_own_ground"] = counts.get("footless_own_ground", 0) + 1
     tris = tuple(t for i in grp for t in raw[i][5])

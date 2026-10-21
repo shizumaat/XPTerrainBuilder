@@ -17,7 +17,7 @@ class _Stop(Exception):
 def _include(tmp_path, monkeypatch, names):
     for name in names:
         (tmp_path / name).write_text("<osm version='0.6'></osm>\n",
-                                     encoding="utf-8")
+                                     encoding="utf-8", newline="")
     monkeypatch.setattr(FNAMES, "patch_dir", lambda lat, lon: str(tmp_path))
 
     def stop():

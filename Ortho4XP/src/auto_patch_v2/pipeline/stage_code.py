@@ -218,6 +218,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.skirt",
         "auto_patch_v2.airport.slab_faces",
         "auto_patch_v2.airport.slab_plates",
+        "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
@@ -367,6 +368,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.slab_plates",
         "auto_patch_v2.airport.sunken_ramp",
         "auto_patch_v2.airport.sunken_roads",
+        "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.thin_plates",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.tunnel_objects",
@@ -730,6 +732,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.skirt",
         "auto_patch_v2.airport.slab_faces",
         "auto_patch_v2.airport.slab_plates",
+        "auto_patch_v2.airport.terrain_feature",
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
@@ -1161,6 +1164,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
+    airport.terrain_feature
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.pack airport.pack_partition airport.pack_work
     airport.pad_block_seat airport.partition_cache airport.partition_code
@@ -1222,7 +1226,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     airport.deck_signature airport.dem_witness airport.dsf airport.extension_cache
     airport.file_hash airport.footprint_carry airport.footprint_connector
     airport.footprint_seats airport.footprint_unit airport.one_building airport.frame_entry
-    airport.line_object airport.msl_feet airport.obj8 airport.obj8_clip airport.obj8_drape
+    airport.line_object airport.msl_feet airport.obj8
+    airport.terrain_feature airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof airport.obj8_split airport.pack
     airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
@@ -1276,7 +1281,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
-    airport.line_object airport.msl_feet airport.obj8 airport.obj8_clip airport.obj8_drape
+    airport.line_object airport.msl_feet airport.obj8
+    airport.terrain_feature airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof airport.obj8_split airport.object_cut
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
@@ -1362,7 +1368,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
     airport.footprint_unit
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
-    airport.line_object airport.msl_feet airport.obj8 airport.obj8_clip airport.obj8_drape
+    airport.line_object airport.msl_feet airport.obj8
+    airport.terrain_feature airport.obj8_clip airport.obj8_drape
     airport.obj8_grade airport.obj8_roof airport.obj8_split airport.object_cut
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
@@ -1455,6 +1462,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
+    airport.terrain_feature
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.pack airport.pack_partition airport.pack_work
     airport.pad_block_seat airport.partition_cache airport.partition_code
@@ -1522,6 +1530,7 @@ CODE_MODULES["verify"] = _mods("""
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
+    airport.terrain_feature
     airport.obj8_clip airport.obj8_drape airport.obj8_grade airport.obj8_roof
     airport.obj8_split airport.pack airport.pack_partition airport.pack_work
     airport.pad_block_seat airport.partition_cache airport.partition_code

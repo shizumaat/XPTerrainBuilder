@@ -622,6 +622,12 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
         if o.resolved is None:
             counts["unresolved"] += 1
             continue
+        if o.terrain_feature:
+            counts["terrain_feature"] = counts.get("terrain_feature", 0) + 1
+            skipped.setdefault(o.path, "terrain feature (RULINGS 2026-10-20aq, "
+                                       "terrain_feature): kept as authored, nothing "
+                                       "graded to it")
+            continue
         if o.id in sc.excluded:
             counts["terrain_adapted"] += 1
             skipped.setdefault(o.path, "basin facility / structure member: the terrain "

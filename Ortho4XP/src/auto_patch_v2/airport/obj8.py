@@ -688,6 +688,10 @@ class PlacedObject:
     #: an origin set built around its origin (geometry below it, or a
     #: member that cannot be read) — kept on-ground whole, never split.
     origin_built: bool = False
+    #: owner RULINGS 2026-10-20aq (#1169): a TERRAIN FEATURE's origin set
+    #: (``terrain_feature``) — kept as authored and never read: no
+    #: witness, no feet, nothing the patch grades to.
+    terrain_feature: bool = False
 
     @property
     def base_z(self) -> float:
@@ -1091,6 +1095,12 @@ def _msl_lifts(placements: _t.Sequence[tuple], pack_root: str | None,
     return _mf.origin_set_lifts(items, tol_m)
 
 
+def _geometry_of(dpath: str, pack_root: str | None, index: _t.Mapping[str, str] | None,
+                 cache: "ResourceCache") -> "ObjGeometry | None":
+    phys = resolve_resource(dpath, pack_root, index)
+    return cache.geometry(phys) if phys is not None else None
+
+
 def _has_hard_deck(cache: "ResourceCache", phys: str) -> bool:
     g = cache.geometry(phys)
     return g is not None and bool(g.hard_deck.shape[0])
@@ -1183,6 +1193,8 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
                 lifted.append((oid, phys, xy, heading, float(elev)))
     fam = _family_depths(cache, lifted, authored_rim_tol_m, admission_depth_m)
     msl_lift = _msl_lifts(placements, pack_root, index, cache, msl_tol_m)
+    from . import terrain_feature as _tf
+    features = _tf.feature_ids(placements, lambda d: _geometry_of(d, pack_root, index, cache))
     for oid, dpath, xy, heading, elev, kind in placements:
         agl = 0.0
         if kind == "OBJECT_AGL" and elev is not None:
@@ -1203,6 +1215,11 @@ def read_placed_objects(placements: _t.Sequence[tuple[str, str, XY, float, float
         if phys not in seen:
             rep.resources_parsed += 1
         seen.add(phys)
+        if oid in features:
+            out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,
+                                    None, None, None, None, None, None,
+                                    terrain_feature=True))
+            continue
         if math.isnan(anchor_z):
             rep.no_dem_at_anchor += 1
             out.append(PlacedObject(oid, dpath, phys, xy, heading, agl, kind, anchor_z,

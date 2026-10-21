@@ -112,6 +112,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.skirt",
     "auto_patch_v2.airport.slab_faces",
     "auto_patch_v2.airport.slab_plates",
+    "auto_patch_v2.airport.terrain_feature",
     "auto_patch_v2.geom",
     "auto_patch_v2.geom.base_slab",
     "auto_patch_v2.geom.cluster_outline",

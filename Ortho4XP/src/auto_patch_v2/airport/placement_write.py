@@ -248,7 +248,11 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     conversions, _kept = _dw.conversions_for_dump(
         dump, pack_root, convert_agl=_seat.reseated_rows(_records))
     kept_idx = _seat.kept_rows(_records)
-    settled = frozenset(s.placement.index for s in splits) | kept_idx
+    # owner RULINGS 2026-10-20aq (#1169): a terrain feature's origin set
+    # keeps its authored row — never converted, never re-seated
+    from . import terrain_feature as _tf
+    features = _tf.feature_rows(dump, pack_root)
+    settled = frozenset(s.placement.index for s in splits) | kept_idx | features
     _rows = list(getattr(dump, "placements", ()) or ())
     authored_rows = sum(1 for i in kept_idx if 0 <= i < len(_rows)
                         and _rows[i].kind in _dw.CONVERTIBLE_KINDS)
@@ -278,7 +282,8 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,
                               "msl_seats": len(msl),
-                              "agl_rows_kept_unchanged": agl_kept}
+                              "agl_rows_kept_unchanged": agl_kept,
+                              "terrain_feature_rows_kept": len(features)}
     counts.update(msl_counts)
     counts.update(_riders.rider_census(riders))
     counts.update(_fu.multi_anchor_census(dump, rebake_plan, msl, settled,

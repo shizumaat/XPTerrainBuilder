@@ -333,6 +333,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.wall_family",
     "auto_patch_v2.airport.wall_geometry",
     "auto_patch_v2.airport.wall_mouth",
+    "auto_patch_v2.airport.water_level",
     "auto_patch_v2.classify",
     "auto_patch_v2.classify.airside_edge",
     "auto_patch_v2.classify.apt_shoulder",

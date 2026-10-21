@@ -374,6 +374,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.wall_family",
         "auto_patch_v2.airport.wall_geometry",
         "auto_patch_v2.airport.wall_mouth",
+        "auto_patch_v2.airport.water_level",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -722,6 +723,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.topology_cache",
         "auto_patch_v2.airport.unit_storey",
         "auto_patch_v2.airport.wall_class",
+        "auto_patch_v2.airport.water_level",
         "auto_patch_v2.classify",
         "auto_patch_v2.classify.airside_edge",
         "auto_patch_v2.classify.apt_shoulder",
@@ -1124,7 +1126,8 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.end_area model.islands model.map_memo model.platform model.threshold_datum
     """),
     "water": _mods(_GENERATOR_CORE + """
-        constraints.geometry constraints.precedence constraints.water model.airport
+        airport airport.water_level constraints.geometry constraints.precedence
+        constraints.water model.airport
     """),
     "zones": _mods(_GENERATOR_CORE + """
         constraints.contiguity constraints.end_lip constraints.geometry
@@ -1138,7 +1141,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
-    airport.deck_signature airport.dem airport.dem_witness airport.dsf
+    airport.deck_signature airport.dem airport.water_level airport.dem_witness airport.dsf
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
@@ -1245,7 +1248,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
-    airport.contents airport.deck_signature airport.dem airport.dem_production
+    airport.contents airport.deck_signature airport.dem airport.water_level airport.dem_production
     airport.dem_record airport.dem_shared airport.dem_witness airport.door_wells
     airport.dsf airport.extension_cache airport.file_hash airport.file_witness
     airport.footprint_carry airport.footprint_connector airport.footprint_seats
@@ -1327,7 +1330,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
     airport.bridge_family airport.bulk_geos airport.cluster_profile airport.contact
-    airport.contents airport.deck_signature airport.dem airport.dem_production
+    airport.contents airport.deck_signature airport.dem airport.water_level airport.dem_production
     airport.dem_record airport.dem_shared airport.dem_witness airport.door_wells
     airport.dsf airport.extension_cache airport.file_hash airport.file_witness
     airport.footprint_carry airport.footprint_connector airport.footprint_seats

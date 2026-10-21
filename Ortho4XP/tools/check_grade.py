@@ -2811,7 +2811,8 @@ def _check_runway_end_skirt_edges(ways: List[Way],
                                   ll_to_m,
                                   runway_axes_ll: Optional[list] = None,
                                   road_cap_governs_ll: Optional[list] = None,
-                                  end_profile_yields_ll: Optional[list] = None
+                                  end_profile_yields_ll: Optional[list] = None,
+                                  natural_shore_ll: Optional[list] = None
                                   ) -> List[Violation]:
     """THE GROUND BEYOND A RUNWAY END, as v2 emits it (owner RULINGS
     2026-10-12q (1) (d); #620): every ``graded_strip`` ring in a runway's
@@ -2862,7 +2863,7 @@ def _check_runway_end_skirt_edges(ways: List[Way],
     # ... and the end-area lip of non-runway pavement (RULINGS 2026-10-15j):
     # ONE exemption with the generator and verify (``end_exempt_geometry``)
     cap_geom = end_exempt_geometry(road_cap_governs_ll, end_profile_yields_ll,
-                                   ll_to_m, law)
+                                   ll_to_m, law, natural_shore_ll)
 
     def road(pt) -> bool:
         return cap_geom is not None and cap_geom.covers(_Pt(pt[0], pt[1]))
@@ -4136,7 +4137,8 @@ def _pavement_edge_junction_nids(ways):
     return owned, pavement_edge_junction
 
 
-def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
+def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m,
+                                    natural_shore_ll: Optional[list] = None
                                     ) -> Tuple[List[Violation], int, int]:
     """``(violations, n_pairs, n_ways)`` — every strip-band pair whose
     ALONG-RUNWAY slope exceeds the strip's by-code longitudinal cap.
@@ -4162,6 +4164,7 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
         if w.role in _STRIP_PAVEMENT_ROLES:
             pavement_nids.update(w.nids)
     owned, junction = _pavement_edge_junction_nids(ways)
+    bank = _natural_bank(natural_shore_ll, ll_to_m)
     out: List[Violation] = []
     n_pairs = 0
     hit_ways: set = set()
@@ -4204,6 +4207,8 @@ def _check_strip_longitudinal_grade(ways: List[Way], nodes, ll_to_m
                         continue
                     if junction((nn[a], nn[b]), owned):
                         continue      # a pavement-edge junction (end_lip, #763 phase 8)
+                    if _in_bank(bank, pts[a], pts[b]):
+                        continue      # the natural-shore bank yields (Q52)
                     ds = abs((pts[b][0] - pts[a][0]) * axis[0]
                              + (pts[b][1] - pts[a][1]) * axis[1])
                     if ds < _STRIP_LONGITUDINAL_MIN_RUN_M:
@@ -4322,7 +4327,23 @@ def _site_key(*pts) -> tuple:
                         for (x, y) in pts))
 
 
-def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
+def _natural_bank(natural_shore_ll, ll_to_m):
+    """Q52 (owner, under RULINGS 2026-10-20k): the published natural-shore
+    wedges, where the strip and end laws yield — the verify reading
+    (``auto_patch_v2.verify.strips.natural_shore_geometry``)."""
+    if not natural_shore_ll:
+        return None
+    from auto_patch_v2.verify.strips import natural_shore_geometry
+    return natural_shore_geometry(natural_shore_ll, ll_to_m, runway_edge_tie_law())
+
+
+def _in_bank(bank, *pts) -> bool:
+    from shapely.geometry import Point as _Pt
+    return bank is not None and any(bank.covers(_Pt(x, y)) for x, y in pts)
+
+
+def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m,
+                          natural_shore_ll: Optional[list] = None
                           ) -> Tuple[List[Violation], int, int]:
     """§A3(b) twin — strip stations whose GRADE CHANGE along the runway
     axis outruns the strip's rate-of-change law.
@@ -4338,6 +4359,7 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
     if not groups:
         return [], 0, 0
     owned, junction = _pavement_edge_junction_nids(ways)
+    bank = _natural_bank(natural_shore_ll, ll_to_m)
     out: List[Violation] = []
     n_stations = 0
     hit_ways: set = set()
@@ -4380,6 +4402,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
                         continue
                     if junction((nn[a], nn[b], nn[c]), owned):
                         continue      # a pavement-edge junction (end_lip, #763 phase 8)
+                    if _in_bank(bank, pts[a], pts[b], pts[c]):
+                        continue      # the natural-shore bank yields (Q52)
                     dp = abs(s[k] - s[k - 1])
                     dn = abs(s[k + 1] - s[k])
                     if dp < 1e-6 or dn < 1e-6:
@@ -4417,7 +4441,8 @@ def _check_strip_arc_rate(ways: List[Way], nodes, ll_to_m
 
 def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
                                  road_cap_governs_ll: Optional[list] = None,
-                                 end_profile_yields_ll: Optional[list] = None
+                                 end_profile_yields_ll: Optional[list] = None,
+                                 natural_shore_ll: Optional[list] = None
                                  ) -> Tuple[List[Violation], int, int]:
     """§A1 twin — the END-corridor ACROSS-corridor grade, a family
     NOTHING read before (the count therefore RISES on first sight; that
@@ -4441,12 +4466,11 @@ def _check_resa_transverse_grade(ways: List[Way], nodes, ll_to_m,
     if not groups:
         return [], 0, 0
     cap_geom = None
-    if road_cap_governs_ll or end_profile_yields_ll:
-        from auto_patch_v2.law import Law
+    if road_cap_governs_ll or end_profile_yields_ll or natural_shore_ll:
         from auto_patch_v2.verify.strips import end_exempt_geometry
         cap_geom = end_exempt_geometry(
             road_cap_governs_ll, end_profile_yields_ll, ll_to_m,
-            Law.load(ruleset=str(_ACTIVE_RULESET or _DEFAULT_RULESET).lower()))
+            runway_edge_tie_law(), natural_shore_ll)
     from shapely.geometry import Point as _Pt
     out: List[Violation] = []
     n_pairs = 0
@@ -12578,7 +12602,8 @@ def run_checks(
                            _check_runway_end_skirt_edges(ways, nodes, ll_to_m,
                                                          runway_axes_ll,
                                                          road_cap_governs_ll,
-                                                         end_profile_yields_ll),
+                                                         end_profile_yields_ll,
+                                                         natural_shore_ll),
                            terrace_joints_ll, ll_to_m))
     _pv("RUNWAY-END PROFILE: ground beyond a runway end outside the "
         "ruleset's end profile (strip cap / near-end cap, 5 % beyond, the "
@@ -12997,7 +13022,7 @@ def run_checks(
     within = within + lateral
 
     strip_long, n_sl_pairs, n_sl_ways = _check_strip_longitudinal_grade(
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, natural_shore_ll)
     _fam("strip_longitudinal", strip_long)
     _pv("STRIP ABEAM-LONGITUDINAL grade > the by-code strip cap (ICAO "
         "Annex 14 §3.4.13 / FAA AC 150/5300-13B §3.16.5 item 1 — "
@@ -13010,7 +13035,7 @@ def run_checks(
 
     # ── §A3(b) — the strip's CURVATURE law ───────────────────────────
     strip_arc, n_sa_st, n_sa_ways = _check_strip_arc_rate(
-        ways, nodes, ll_to_m)
+        ways, nodes, ll_to_m, natural_shore_ll)
     _fam("strip_arc", strip_arc)
     _pv("STRIP LONGITUDINAL grade-CHANGE rate > the strip arc law "
         "(FAA AC §3.16.5 item 5 ±2%/30.5 m; ICAO §3.4.14 is qualitative "
@@ -13026,7 +13051,8 @@ def run_checks(
 
     # ── §A1 — the END-corridor TRANSVERSE law ────────────────────────
     resa_tr, n_rt_pairs, n_rt_ways = _check_resa_transverse_grade(
-        ways, nodes, ll_to_m, road_cap_governs_ll, end_profile_yields_ll)
+        ways, nodes, ll_to_m, road_cap_governs_ll, end_profile_yields_ll,
+        natural_shore_ll)
     _fam("resa_transverse", resa_tr)
     _pv("RESA / END-CORRIDOR TRANSVERSE grade > the per-authority cap "
         "(FAA Table 3-6 S-3 inside 61 m, Fig 3-35 ±5% beyond; ICAO "

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..airport.water_level import SEA_LEVEL_M, water_level_beside
 from ..law import Law
 from ..law.tables import is_structure_role
 from ..model.airport import Airport
@@ -130,11 +131,6 @@ def water_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     return rows
 
 
-#: The tile's sea level (``O4_Vector_Map.SEAWALL_SEA_LEVEL_M``, the level the
-#: mesh levels the coastline at) — restated, not imported: core v2 never
-#: imports the vector map.
-SEA_LEVEL_M = 0.0
-
 RULING_NATURAL = ("a natural shore slopes to the water line: its coastline "
                   "vertices take the sea level (owner RULINGS 2026-09-27a (7))")
 
@@ -150,7 +146,11 @@ def _natural_shore_pins(vw, planar: PlanarMap, law: Law, airport: Airport,
     clipped BY the sea), and left free it sits on the DEM's last on-land
     post — 1.29 m over the sea at NLWF's 07 end, a wall."""
     refs = frozenset(getattr(planar, "natural_shore_refs", ()) or ())
-    fn = getattr(airport.dem, "sea_geometry", None)
+    # owner RULINGS 2026-10-20k: the shore is EVERY water body's edge
+    # (``planar/zones.shore_region``), each pinned at its own level
+    fn = getattr(airport.dem, "water_geometry", None)
+    if not callable(fn):
+        fn = getattr(airport.dem, "sea_geometry", None)
     STATS["water_pins"]["natural_shore"] = 0
     if not refs or not callable(fn):
         return []
@@ -174,12 +174,14 @@ def _natural_shore_pins(vw, planar: PlanarMap, law: Law, airport: Airport,
     if sea is None or sea.is_empty:
         return []
     tol = snap_margin_m(law)
+    on = [v for v in sorted(ids) if sea.distance(Point(vw.xy[v])) <= tol]
+    levels = water_level_beside(airport.dem, [vw.xy[v][0] for v in on],
+                                [vw.xy[v][1] for v in on]) if on else []
     rows: list[Row] = []
-    for v in sorted(ids):
-        if sea.distance(Point(vw.xy[v])) <= tol:
-            rows.append(Pin(v, SEA_LEVEL_M, Source(
-                GEN, RULING_NATURAL, (f"vertex:{v}", "natural_shore",
-                                      f"level:{SEA_LEVEL_M:.3f}"))))
+    for v, lv in zip(on, levels, strict=True):
+        rows.append(Pin(v, float(lv), Source(
+            GEN, RULING_NATURAL, (f"vertex:{v}", "natural_shore",
+                                  f"level:{float(lv):.3f}"))))
     STATS["water_pins"]["natural_shore"] = len(rows)
     return rows
 

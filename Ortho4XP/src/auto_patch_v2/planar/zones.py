@@ -52,7 +52,7 @@ RUNWAY_FAMILY = ("runway", "runway_crossing")
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 
 
-def shore_region(cells: tuple[Cell, ...], dem):
+def shore_region(cells: tuple[Cell, ...], dem, sea_only: bool = True):
     """§37 (11) (1) THE WATER REGION THE SHORE TRIMS THE ZONES WITH (owner
     RULINGS 2026-09-15f item 2; Fable 2026-09-15i).
 
@@ -86,14 +86,30 @@ def shore_region(cells: tuple[Cell, ...], dem):
     are §24's region and not this one's.
 
     ``None`` where there is no witness (every synthetic fixture) or no
-    sea beside the field — and the regions are then what they were."""
+    sea beside the field — and the regions are then what they were.
+
+    ``sea_only=False`` reads EVERY water body of the same witness
+    (``dem.water_geometry``), minus the same land: THE ZONE CUT of owner
+    RULINGS 2026-10-20k — runway end areas, safety areas and the adjacent
+    graded ground stop at ANY water's edge (KOTH's estuary is an inland
+    body to the coastline partition).  The cut AND the shore decision
+    (quay / natural bank / wedge) read it; the sea-only reading above is
+    the structures' (``planar/structures``, §34 (12) (2)).  This
+    supersedes the inland carve-out argued above for the ZONES: an inland
+    body's edge is decided as the coast's is, at that body's own level
+    (``planar/shore.water_level_beside``)."""
     # THE SEA WITNESS ONLY.  A sampler that answers "is this wet" but not
     # "is this the SEA" claims NO shore here: no witness, no trim.
     fn = getattr(dem, "sea_geometry", None)
     if not callable(fn) or not cells:
         return None
+    # every water body where the witness names them; a sampler that
+    # knows only the sea cuts at the sea
+    every = getattr(dem, "water_geometry", None)
+    if not sea_only and callable(every):
+        fn = every
     tiles = getattr(dem, "water_tile_keys", None)
-    key = (id(dem), tiles(), tuple((c.ring, c.holes) for c in cells)) \
+    key = (id(dem), sea_only, tiles(), tuple((c.ring, c.holes) for c in cells)) \
         if callable(tiles) else None     # only a frame that names its water reads
     if key is not None:
         with _SHORE_LOCK:
@@ -416,7 +432,9 @@ def zone_regions(cells: tuple[Cell, ...], law: Law,
     # and the mesh's own Round 7 / R17-3 sea-wall breaklines
     # (``O4_Vector_Map.seawall_breaklines``, authored for this airport)
     # make the vertical face from the ring the patch ends at.
-    water = shore_region(cells, dem)
+    # owner RULINGS 2026-10-20k: EVERY water body's edge (the sea's is
+    # part of it) — the cut and the shore decision below read one region
+    water = shore_region(cells, dem, sea_only=False)
     claimed = everything
     out: list[ZoneRegion] = []
     counters: dict[tuple, int] = {}

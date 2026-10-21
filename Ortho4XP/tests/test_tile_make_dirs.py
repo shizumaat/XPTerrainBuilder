@@ -29,6 +29,9 @@ class _Dir:
 
     make_dirs = CFG.Tile.make_dirs
 
+    def _check_elevation_folder(self):
+        """The elevation-link pre-flight (#1167) has its own twin."""
+
 
 @pytest.fixture
 def said(monkeypatch):

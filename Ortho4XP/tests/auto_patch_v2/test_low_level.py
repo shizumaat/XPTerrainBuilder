@@ -137,3 +137,23 @@ def test_valid_area_reads_the_area_and_drops_the_precision_model():
     ok = box(0, 0, 1, 1)
     assert valid_area(ok) is ok
     assert valid_area(None).is_empty
+
+
+def test_the_lower_level_is_held_rigid_at_the_objects_lower_floor(monkeypatch, law):
+    """#1141 (KATL east terminal): the lower level is a RIGID level tied
+    to its block at the object's own lower floor, ``z = D + y_lo`` -- its
+    own ground no longer chooses where in the storey it sits (it stood
+    1.64 m over the floor and buried the roadway's towers)."""
+    from auto_patch_v2.constraints import platform as CP
+    from auto_patch_v2.model.registries import Registries
+    monkeypatch.setattr(CP, "landing_vertices", lambda _p: {"b/p1": [1, 2, 3]})
+    monkeypatch.setattr(CP, "datum_vertices", lambda _p, _l: {"b": 0})
+    pm = types.SimpleNamespace(registries=Registries())
+    pm.registries.landings["b/p1"] = {"kind": "low_level", "block": "b", "y_lo": -13.029,
+                                      "y_hi": -3.0, "ground_z": 289.5}
+    rows = CP.landing_rows(pm, law)
+    assert len(rows) == 6                                   # two per vertex, no own-ground row
+    for r in rows:
+        (v, cv), (d, cd) = r.terms
+        assert d == 0 and cv == -cd
+        assert r.hi == pytest.approx(-13.029 * cv)          # z_v - D = y_lo, both ways

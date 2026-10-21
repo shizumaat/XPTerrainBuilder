@@ -582,9 +582,13 @@ def build_tile(tile):
         )
         UI.exit_message_and_bottom_line("", code="imagery_download_failed")
         return 0
-    missing = STAGING.missing_textures(tile)
+    # #901: X-Plane stops on a terrain file whose texture is missing.  The
+    # guard judges a build that was asked to MAKE its textures; with
+    # skip_downloads / skip_converts the person (or the release smoke)
+    # supplies them, and the build stays DSF-only as it always was.
+    missing = (STAGING.missing_textures(tile)
+               if not (skip_downloads or skip_converts) else [])
     if missing:
-        # #901: X-Plane stops on a terrain file whose texture is missing.
         UI.lvprint(
             0,
             "ERROR: %d texture(s) named by the new terrain files are missing "

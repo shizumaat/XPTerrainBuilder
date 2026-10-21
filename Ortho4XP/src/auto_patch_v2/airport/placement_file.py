@@ -396,7 +396,7 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
                   splits: list[Split], kept: list[Kept], whole: list[Split],
                   *, always_write: bool,
                   tilted_whole: list[tuple[int, str, tuple[str, ...]]],
-                  landed: bool = False,
+                  landed: "bool | None" = None,
                   drape_comps: "frozenset[int]" = frozenset(),
                   drape_law: _t.Any = None) -> None:
     """The OBJ8 cut for one member's bodies, and where the record lands.
@@ -405,7 +405,9 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
     written even when it is one body, because its row must MOVE to the
     carrier's anchor — where the pre-§14 reading left a one-body placement
     exactly as authored (``one_body``), which for a shared-datum unit is
-    the datum point 15.7 m under the building.
+    the datum point 15.7 m under the building.  ``landed`` is 14g (3)'s
+    reading — ``True`` lands, ``False`` is known not to (a lone body is
+    then written, issue #1172), ``None`` unread (kept as before).
 
     ``drape_comps`` (owner RULINGS 2026-10-14d (1)): the member's base-slab
     components that DRAPE — a placement carrying one is WRITTEN even as
@@ -431,6 +433,12 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         _note_tilted_kept_whole(m, counts, tilted_whole, index)
         whole.append(record)
         return
+    if landed is False:
+        # issue #1172: a lone body whose seat is KNOWN not to land on its
+        # authored row is written — kept whole, the drape at the authored
+        # anchor floated LEMD's runway-end localizer array 1.53 m off the
+        # low-side foot its seat named
+        always_write = True
     if len(bodies) < 2 and not always_write:
         counts["kept"] += 1
         counts["one_body"] += 1

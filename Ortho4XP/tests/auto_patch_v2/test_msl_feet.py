@@ -218,11 +218,15 @@ def test_a_one_body_member_read_against_its_zero_is_written_never_kept(tmp_path)
         PF._cut_and_file(rec, m, True, counts, splits, kept, whole,
                          always_write=False, tilted_whole=[], landed=landed)
         return splits, kept
-    for landed in (False, True):
+    for landed in (None, True):
         splits, kept = run(0.0, landed)                       # the control: kept whole
         assert not splits and kept
         splits, kept = run(6.0, landed)
         assert len(splits) == 1 and not kept
+    # issue #1172: a lone body KNOWN not to land on its authored row is
+    # written, never kept whole on the row's drape
+    lone, kept = run(0.0, False)
+    assert len(lone) == 1 and not kept
     (f,) = splits[0].files
     ys = [float(ln.split()[2]) for ln in f.text.splitlines() if ln.split()[:1] == ["VT"]]
     assert min(ys) == 0.0 and max(ys) == 24.0

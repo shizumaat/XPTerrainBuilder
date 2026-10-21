@@ -949,10 +949,26 @@ class EngineSession:
         return True
 
     def _run_step(self, function, key, tile, plan):
-        """Run one step; the vector step downloads the tile's likely
-        orthophotos alongside it when this run prefetches (#1002) — in a
-        run that builds imagery, or in a worker child its parent lent
-        an imagery token (whose plan is the one step)."""
+        """Run one step and, however it ends, mark this process idle.
+
+        Every step function opens with ``if UI.is_working: return 0`` and
+        sets the flag; only its own normal exits clear it.  A step that
+        RAISES (an elevation refusal out of the vector step, #1175) left
+        the flag set, and every later step in this process — a parallel
+        worker child is reused for the next tile — returned 0 at once,
+        printing nothing: the tile "failed" with no cause.  The session
+        runs one step at a time, so when this returns no step is
+        working."""
+        try:
+            return self._run_step_body(function, key, tile, plan)
+        finally:
+            UI.is_working = False
+
+    def _run_step_body(self, function, key, tile, plan):
+        """The vector step downloads the tile's likely orthophotos
+        alongside it when this run prefetches (#1002) — in a run that
+        builds imagery, or in a worker child its parent lent an imagery
+        token (whose plan is the one step)."""
         if key != "vector" or not self._prefetch_imagery:
             return function(tile)
         if not self._stepwise_run and not any(

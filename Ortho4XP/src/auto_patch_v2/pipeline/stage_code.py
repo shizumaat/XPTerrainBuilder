@@ -408,6 +408,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.core_clamp",
         "auto_patch_v2.geom.coverage",
         "auto_patch_v2.geom.fixed_overlay",
+        "auto_patch_v2.geom.grid_pickle",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.proportions",
@@ -1316,7 +1317,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.stretches constraints.strips constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.weld_floor geom geom.base_slab geom.cluster_outline geom.containment
-    geom.core_clamp geom.coverage geom.pad_evidence geom.parts geom.proportions
+    geom.core_clamp geom.coverage geom.grid_pickle geom.pad_evidence geom.parts geom.proportions
     geom.ramp_grade geom.ramp_profile geom.rotated_rect geom.triangulate geom.union_find
     geom.vector law law.airports_schema law.approach_corridor law.base_profile_schema
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
@@ -1411,7 +1412,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.taxi_trend_cap constraints.transverse constraints.trend
     constraints.water constraints.weld_floor constraints.zones emit.graded emit.surface
     geom geom.base_slab geom.cluster_outline geom.containment geom.core_clamp
-    geom.coverage geom.feet_graph geom.feet_mst geom.pad_evidence geom.parts
+    geom.coverage geom.grid_pickle geom.feet_graph geom.feet_mst geom.pad_evidence geom.parts
     geom.proportions geom.ramp_grade geom.ramp_profile geom.rotated_rect
     geom.triangulate geom.union_find geom.vector law law.airports_schema
     law.approach_corridor law.base_profile_schema law.basin_schema law.cockpit_schema

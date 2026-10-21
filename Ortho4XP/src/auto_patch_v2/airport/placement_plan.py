@@ -334,7 +334,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       piece_reach_m=piece_reach_m)  # 19u
     # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
     # derived once per plan; their whole viaduct rides the unit's level
-    _viaducts = _bf.unit_viaducts(prints, plan, _pw, counts) if _pw else {}
+    _viaducts = (_bf.unit_viaducts(prints, plan, _pw, counts,
+                                   surface=surface,  # 20av (#1179)
+                                   bar_m=bind_ground_m) if _pw else {})
     _deck_by_key = {p.key: p for p in prints}
     # issue #1179: a viaduct is ONE connected piece of its deck's footprint
     _deck_by_key.update({k: v.print for k, v in _viaducts.items()

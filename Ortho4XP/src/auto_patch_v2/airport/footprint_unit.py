@@ -719,7 +719,7 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
             is_footed=lambda i: shims[i].footed,
             ml=_ml, mo=_mo, counts=counts, prefix="unit_", pool=pool,
-            top_y=lambda i: _top_y(shims[i].pids, parts_of))
+            top_y=lambda i, _s=shims, _p=parts_of: _top_y(_s[i].pids, _p))
         if links:
             clusters = [cl for cl in merge_by_sheets(clusters, links)
                         if len(cl) >= 2]

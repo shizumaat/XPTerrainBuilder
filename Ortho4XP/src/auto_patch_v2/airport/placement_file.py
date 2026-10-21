@@ -254,12 +254,12 @@ def own_ground_zeros(groups: _t.Sequence[_t.Sequence[int]],
     broken.  ``None`` for a piece that touches no other (it keeps its own
     ground); ``touch_m <= 0`` chains nothing.
 
-    ``held``: the zeros of the member's pieces a footprint unit seats
+    ``held``: one zero per footprint unit that seats pieces of the member
     (§16g (11), ``_unit_carried_file``).  The member is one rigid file, so
     a chain of it takes THEIR seat (the median of them) rather than its
     own ground's: at KLAX the rail's two station pieces ride their units at
-    32.72 and 31.30 m, and the rail's own-ground median (30.49) would have
-    stepped it 2.2 m at the first."""
+    32.72 and 31.30 m; the rail's own-ground median (30.49) stepped it
+    2.2 m at the first, their median 0.71 m at each."""
     n = len(groups)
     out: list["float | None"] = [None] * n
     if touch_m <= 0.0 or n < 2 or not part_boxes:

@@ -5027,6 +5027,7 @@ def test_wcs_kvp_requests_target_resolution_pixels():
 def test_france1m_is_the_rge_alti_fallback_getmap():
     """#1217: RGE ALTI 1 m backs FRANCE50CM up in France, as a WMS
     GetMap tiled to the server's 5010 px MaxWidth (no network)."""
+    pytest.importorskip("osgeo.gdal")  # the warp needs GDAL; CI's mac/linux legs drop it
     import re
     from elevation_access.strategies.wcs_kvp import WcsKvpStrategy
 

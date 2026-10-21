@@ -1094,12 +1094,14 @@ def _lifted(record: Split, rows: "_t.Sequence | None",
 
 
 def _lands(record: Split, rows: "_t.Sequence | None", surface: _ar.Surface,
-           tol_m: float) -> bool:
+           tol_m: float) -> "bool | None":
     """14g (3) for one placement's bodies, read against ITS dump row
-    (``authored_landing.lands_on_authored_seat``)."""
+    (``authored_landing.lands_on_authored_seat``); ``None`` where there is
+    no row to read it against (issue #1172: unknown is not "does not
+    land")."""
     row = _row_of(record, rows)
     if row is None or tol_m <= 0.0:
-        return False
+        return None
     from . import authored_landing as _al
     return _al.lands_on_authored_seat(record.bodies, row, surface, tol_m)
 

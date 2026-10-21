@@ -30,6 +30,13 @@ THE RULE, ONE DERIVATION, asked by both chain sites
   pad 504,448 m2; elevated leaves only 61 pads, site pad 484,190 m2 (the
   othhjunction figure 484,538); HECA every leaf 93 pads (fourteen 34 m2
   slivers minted by ground slabs), elevated only 79;
+* a sheet authored WHOLLY below ``contents.CONTENTS_BELOW_M`` of its own
+  zero (its top under it) is no roof or floor of anything standing at
+  grade, and links nothing (issue #1172) — the same below-grade refusal
+  §48 (1) (d) gives CONTENTS, read on the sheet's top.  MEASURED (LEMD):
+  a converted 1,408 m square quad authored at y = -50 m overlapped 1,336
+  walled bodies and chained a runway-end localizer array 600 m off into
+  the T4 terminal unit, whose pad datum floated it 6.16 m;
 * it LINKS every walled body whose footprint it OVERLAPS by at least
   ``[placement] sheet_chain_min_fraction`` of the SMALLER of the two
   footprints (overlap, not touch: a sheet resting against a wall's face
@@ -45,7 +52,7 @@ import typing as _t
 
 import shapely
 
-from .contents import _poly
+from .contents import CONTENTS_BELOW_M, _poly
 from .pool import share_object, shared_object, spec_key
 
 __all__ = ["sheet_links", "merge_by_sheets"]
@@ -134,14 +141,17 @@ def sheet_links(shims: _t.Sequence[_t.Any], walled_ix: _t.Sequence[int],
                 *, is_deck: _t.Callable[[int], bool],
                 is_footed: _t.Callable[[int], bool], ml: float, mo: float,
                 counts: "dict | None" = None, prefix: str = "",
-                fractions: "list | None" = None, pool: _t.Any = None
+                fractions: "list | None" = None, pool: _t.Any = None,
+                top_y: "_t.Callable[[int], float | None] | None" = None
                 ) -> list[tuple[int, tuple[int, ...]]]:
     """``[(sheet shim index, (walled shim indices it links, sorted))]`` —
     only sheets that link TWO or more walled bodies, in shim order.
 
     ``fractions`` (a list) receives every ``(sheet, body, fraction)`` the
     overlap reading computed (the measuring hook; the rule never reads
-    it).  0 ``min_fraction`` disarms.
+    it).  0 ``min_fraction`` disarms.  ``top_y`` (shim index -> the
+    body's highest authored y, or ``None``) refuses a sheet wholly below
+    grade (issue #1172); omitted, no sheet is refused for it.
 
     THE READING, THEN THE VERDICT (issue #362): each candidate sheet's
     overlaps (:func:`_sheet_rows`) are read first — by ``pool``'s workers
@@ -151,13 +161,16 @@ def sheet_links(shims: _t.Sequence[_t.Any], walled_ix: _t.Sequence[int],
     if min_fraction <= 0.0 or len(walled_ix) < 2 or not leaves:
         return []
     bodies = [(shims[i].rings, shims[i].part_boxes) for i in walled_ix]
-    n_deck = n_footed = 0
+    n_deck = n_footed = n_below = 0
     cand: list[int] = []
     for i in leaves:
+        top = top_y(i) if top_y is not None else None
         if is_deck(i):
             n_deck += 1
         elif is_footed(i):
             n_footed += 1
+        elif top is not None and top < -CONTENTS_BELOW_M:
+            n_below += 1
         else:
             cand.append(i)
     sheets = [(shims[i].rings, shims[i].part_boxes) for i in cand]
@@ -190,6 +203,7 @@ def sheet_links(shims: _t.Sequence[_t.Any], walled_ix: _t.Sequence[int],
         counts[prefix + "sheet_over_one_body"] = n_single
         counts[prefix + "sheet_refused_deck"] = n_deck
         counts[prefix + "sheet_refused_footed"] = n_footed
+        counts[prefix + "sheet_refused_below_grade"] = n_below
     return out
 
 

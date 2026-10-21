@@ -678,7 +678,8 @@ def plan_clusters(plan: _t.Any, contact_eps_m: float, min_m2: float = 0.0,
             links = sheet_links(
                 shims, walled, leaves, sheet_chain_min_fraction,
                 is_deck=lambda i: member_is_deck(u.members[shims[i].member]),
-                is_footed=lambda i: shims[i].footed, ml=ml, mo=mo, pool=pool)
+                is_footed=lambda i: shims[i].footed, ml=ml, mo=mo, pool=pool,
+                top_y=lambda i: (shims[i].span[1] if shims[i].span else None))
             if links:
                 chains = merge_by_sheets(chains, links, adj)
         sheets = {s for s, _b in links}

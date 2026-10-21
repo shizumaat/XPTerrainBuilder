@@ -663,6 +663,9 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     airport = _dc.replace(airport, clusters=_derive_clusters(airport, law))
     from auto_patch_v2.airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law)       # issue #516
+    from auto_patch_v2.airport import flat_pack as _flat_pack     # flat-pack spec §1
+    airport = _dc.replace(airport, flat_pack=_flat_pack.detect(airport, law))
+    print(f"[{icao}] " + _flat_pack.log_line(icao, airport.flat_pack))
     print(f"[{icao}] clusters {len(airport.clusters)} "
           f"({time.perf_counter() - _cl_t:.0f} s)")
     print(f"[{icao}] pack partition {time.perf_counter() - t:.0f} s  "

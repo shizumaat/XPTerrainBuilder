@@ -81,8 +81,9 @@ class EdgeReport:
 
     def line(self) -> str:
         shore = "" if self.shore_regions == 0 else (
-            f"; THE SHORE (§37 (11) (1)) cut {self.shore_cut_m2:,.0f} m² off "
-            f"{self.shore_regions} region(s), {self.shore_edge_m:,.0f} m of sea wall")
+            f"; THE SHORE (§37 (11) (1); every water edge, RULINGS 2026-10-20k) "
+            f"cut {self.shore_cut_m2:,.0f} m² off "
+            f"{self.shore_regions} region(s), {self.shore_edge_m:,.0f} m of water edge")
         return (f"terrain edge: {self.trimmed_crest} region(s) cut at a CREST, "
                 f"{self.trimmed_road} at a ROAD ({self.roads_governing} road run(s)), "
                 f"{self.emptied} emptied; {self.area_cut_m2:,.0f} m² beyond the "

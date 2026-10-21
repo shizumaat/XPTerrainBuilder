@@ -378,6 +378,7 @@ def strip_longitudinal(p: Patch) -> list[Row]:
     q = law.tables.emit.instrument.coarse_noise_m
     pav = _pavement_ids(p)
     owned = _nonrunway_pavement_ids(p)
+    bank = natural_shore_geometry(p.publication.get("natural_shore"), p.to_m, law)
     out: list[Row] = []
     seen: set = set()
     for rings, unit, code, L, letter, _a, _b in groups(p):
@@ -389,7 +390,7 @@ def strip_longitudinal(p: Patch) -> list[Row]:
             for i, j, ds in strip_longitudinal_pairs(sh.ids, sh.xy, unit, rings[0], pav, owned):
                 site = tuple(sorted((tuple(round(c, 3) for c in sh.xy[i]),
                                      tuple(round(c, 3) for c in sh.xy[j]))))
-                if site in seen:
+                if site in seen or _in_bank(bank, sh.xy[i], sh.xy[j]):
                     continue
                 seen.add(site)
                 dz = abs(sh.z[j] - sh.z[i])
@@ -407,6 +408,7 @@ def strip_arc(p: Patch) -> list[Row]:
     rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m
     owned = _nonrunway_pavement_ids(p)
+    bank = natural_shore_geometry(p.publication.get("natural_shore"), p.to_m, law)
     out: list[Row] = []
     seen: set = set()
     for rings, unit, code, L, letter, _a, _b in groups(p):
@@ -422,7 +424,8 @@ def strip_arc(p: Patch) -> list[Row]:
                     A, B, C = run[a], run[b], run[c]
                     site = tuple(sorted(tuple(round(v, 3) for v in sh.xy[i]) for i in (A, B, C)))
                     if site in seen or pavement_edge_junction(
-                            (sh.ids[A], sh.ids[B], sh.ids[C]), owned):
+                            (sh.ids[A], sh.ids[B], sh.ids[C]), owned) or _in_bank(
+                            bank, sh.xy[A], sh.xy[B], sh.xy[C]):
                         continue
                     seen.add(site)
                     out.append(row("strip_arc", ("graded_strip",) * 2, p.side("graded_strip"),
@@ -438,7 +441,8 @@ def resa_transverse(p: Patch) -> list[Row]:
     out: list[Row] = []
     # ROAD CAP GOVERNS (owner RULINGS 2026-10-02ag (2)): the published set
     cap_geom = end_exempt_geometry(p.publication.get("road_cap_governs"),
-                                   p.publication.get("end_profile_yields"), p.to_m, law)
+                                   p.publication.get("end_profile_yields"), p.to_m, law,
+                                   p.publication.get("natural_shore"))
     for rings, unit, code, L, letter, a0, _b in groups(p):
         ux, uy = unit
         px, py = -uy, ux
@@ -580,7 +584,8 @@ def runway_end_skirt(p: Patch) -> list[Row]:
     # mapped-road ribbon is the road's — the generator states no end row
     # on it and the family reads none (the published set, one reading)
     cap_geom = end_exempt_geometry(p.publication.get("road_cap_governs"),
-                                   p.publication.get("end_profile_yields"), p.to_m, law)
+                                   p.publication.get("end_profile_yields"), p.to_m, law,
+                                   p.publication.get("natural_shore"))
 
     def road(xy) -> bool:
         return cap_geom is not None and cap_geom.covers(_ShPoint(xy[0], xy[1]))
@@ -977,14 +982,26 @@ def road_cap_geometry(points_ll, to_m, law):
     return unary_union(pts) if pts else None
 
 
-def end_exempt_geometry(road_cap_ll, lip_ll, to_m, law):
+def end_exempt_geometry(road_cap_ll, lip_ll, to_m, law, natural_ll=None):
     """THE END LAWS' EXEMPTION, the one reading both readers share: the
     published ``road_cap_governs`` vertices (owner RULINGS 2026-10-02ag
     (2)) and ``end_profile_yields`` — a non-runway pavement's own lip
     inside a runway end area (2026-10-15j; ``constraints.end_lip``) — as
-    ONE geometry (:func:`road_cap_geometry`).  ``None`` with neither."""
+    ONE geometry (:func:`road_cap_geometry`), and with ``natural_ll`` the
+    published natural-shore wedges (owner answer Q52 under 2026-10-20k;
+    :func:`natural_shore_geometry`, the generator's ``constraints.end_lip.
+    natural_bank_vertices``).  ``None`` with none."""
     pts = list(road_cap_ll or ()) + list(lip_ll or ())
-    return road_cap_geometry(pts, to_m, law)
+    geom = road_cap_geometry(pts, to_m, law)
+    bank = natural_shore_geometry(natural_ll, to_m, law)
+    if bank is None:
+        return geom
+    return bank if geom is None else geom.union(bank)
+
+
+def _in_bank(bank, *xys) -> bool:
+    """Q52: a pair / triple touching the natural-shore bank yields."""
+    return bank is not None and any(bank.covers(_ShPoint(x, y)) for x, y in xys)
 
 
 def natural_shore_geometry(rings_ll, to_m, law):

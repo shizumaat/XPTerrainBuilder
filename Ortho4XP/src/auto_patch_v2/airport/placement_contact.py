@@ -130,6 +130,33 @@ def rings_touch(ra, rb, eps_m: float) -> bool:
             or _inside(va, vb[0][0], vb[0][1]))
 
 
+def _any_within(xs, ys, eps_m: float) -> bool:
+    """``any(box_gap_m(x, y) <= eps_m for x in xs for y in ys)`` with
+    ``box_gap_m``'s arithmetic inline and ``x``'s metres per degree read
+    once per ``x`` (issue #412: 21.5 M pairs at OTHH, a call and a memo
+    lookup each).  The same doubles in the same operations — the same
+    answer."""
+    m_per_deg = _ar._m_per_deg
+    empty = 0.0 <= eps_m                   # box_gap_m reads 0.0 for no box
+    for x in xs:
+        if not x:
+            if empty and ys:
+                return True
+            continue
+        x0, x1, x2, x3 = x
+        ml, mo = m_per_deg(0.5 * (x0 + x2))
+        for y in ys:
+            if not y:
+                if empty:
+                    return True
+                continue
+            dla = max(0.0, max(x0 - y[2], y[0] - x2)) * ml
+            dlo = max(0.0, max(x1 - y[3], y[1] - x3)) * mo
+            if (dla * dla + dlo * dlo) ** 0.5 <= eps_m:
+                return True
+    return False
+
+
 def boxes_touch(ba: _t.Sequence[tuple[float, float, float, float]],
                 bb: _t.Sequence[tuple[float, float, float, float]],
                 ha: tuple[float, float, float, float],
@@ -156,7 +183,7 @@ def boxes_touch(ba: _t.Sequence[tuple[float, float, float, float]],
     if not ba or not bb:
         return False
     if len(ba) * len(bb) <= _PAIR_PRODUCT_MAX:
-        return any(_pb.box_gap_m(x, y) <= eps_m for x in ba for y in bb)
+        return _any_within(ba, bb, eps_m)
     xs = [x for x in ba if _pb.box_gap_m(x, hb) <= eps_m]
     if not xs:
         return False
@@ -164,7 +191,7 @@ def boxes_touch(ba: _t.Sequence[tuple[float, float, float, float]],
     if not ys:
         return False
     if len(xs) * len(ys) <= _PAIR_PRODUCT_MAX:
-        return any(_pb.box_gap_m(x, y) <= eps_m for x in xs for y in ys)
+        return _any_within(xs, ys, eps_m)
     slack = eps_m / 111_132.0
     xs.sort(key=lambda b: b[0])
     ys.sort(key=lambda b: b[0])

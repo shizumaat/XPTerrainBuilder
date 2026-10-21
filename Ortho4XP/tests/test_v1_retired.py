@@ -64,6 +64,7 @@ KEEP = frozenset({
     "auto_patch.dsf_reader",
     "auto_patch.osm_aeroway",
     "auto_patch.flat_site_mode",
+    "auto_patch.flat_site_relief",
     # the object stage
     "auto_patch.mesh_sampler",
     "auto_patch.obj8_partition",

@@ -255,3 +255,38 @@ def test_either_witness_alone_still_admits(tmp_path):
     # a commented-out image row is no image
     p = _photo(tmp_path, "g/tiled.pol", texture="TEXTURE t.png")
     assert S.pol_declaration(p).image is False
+
+
+# ── #1153: an invisible hard surface's SURFACE is no pavement witness ────
+
+def _hard_surface(root, rel, alpha):
+    """LPPT (MKStudios) ``ZZ_DF-Hard_Surface/pol/Hard_Surface.pol``'s rows,
+    with a 32x32 texture of the given alpha beside it."""
+    from PIL import Image
+    path = os.path.join(str(root), rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    rows = ["I", "850", "DRAPED_POLYGON", "", "TEXTURE\t\tHard_Surface.png",
+            "SCALE\t\t512 512", "SURFACE concrete", "LAYER_GROUP airports -1"]
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(rows) + "\n")
+    Image.new("RGBA", (32, 32), (0, 0, 0, alpha)).save(
+        os.path.join(os.path.dirname(path), "Hard_Surface.png"))
+    return path
+
+
+def test_invisible_hard_surface_is_not_a_gap_sheet(tmp_path):
+    """Issue #1153 (LPPT): a fully transparent page declares ``SURFACE
+    concrete`` for physics only; it paints nothing and is refused."""
+    path = _hard_surface(tmp_path, "objects/ZZ_DF-Hard_Surface/pol/Hard_Surface.pol", 0)
+    assert S.pol_declaration(path).invisible
+    assert _gate(tmp_path)("objects/ZZ_DF-Hard_Surface/pol/Hard_Surface.pol") \
+        == (None, "concrete")
+
+
+def test_visible_texture_still_admits(tmp_path):
+    # one opaque texel is paint: the sheet stands, as §60 built it
+    path = _hard_surface(tmp_path, "g/hard_surface.pol", 255)
+    assert not S.pol_declaration(path).invisible
+    assert _gate(tmp_path)("g/hard_surface.pol") == (S.SHEET, "concrete")
+    # a missing texture is no witness
+    assert S.pol_declaration(_pol(tmp_path, "g/x.pol", "concrete")).invisible is False

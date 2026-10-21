@@ -12,11 +12,11 @@ from __future__ import annotations
 import pickle
 
 import shapely
-from shapely.geometry import Polygon
 from auto_patch_v2.airport import stage_cache as SC
 from auto_patch_v2.geom import grid_pickle as GP
 from auto_patch_v2.pipeline import front_cache as FC
 from auto_patch_v2.planar import arrangement_memo as AM
+from shapely.geometry import Polygon
 
 GRID = 0.01
 

@@ -29,6 +29,8 @@ import threading
 import typing as _t
 import weakref
 
+from ..geom import grid_pickle as _grid_pickle  # noqa: F401  (#1092: front copies carry the grid)
+
 __all__ = ["scoped", "front_key", "served", "hold", "FRONTS_HELD"]
 
 _STATE = threading.local()

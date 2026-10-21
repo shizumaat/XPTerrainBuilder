@@ -263,7 +263,7 @@ class DeckPrint:
         e_lo = (r / self._mo if self._mo else 0.0) + _BOX_EPS_DEG
         qi, ti = self._boxes[0].query(shapely.box(
             lo[live] - e_lo, la[live] - e_la, lo[live] + e_lo, la[live] + e_la))
-        for i, q in zip(live[qi].tolist(), ti.tolist()):
+        for i, q in zip(live[qi].tolist(), ti.tolist(), strict=True):
             out[i].append(q)
         for i, qs in out.items():
             keys = self._keys(float(lats[i]), float(lons[i]), reach_m)
@@ -539,7 +539,7 @@ def assign_bodies(prints: _t.Sequence[DeckPrint], staged: _t.Sequence,
     las, los = [e[2] for e in at], [e[3] for e in at]
     held = [p.contains_many(las, los, CONTACT_M) for p in prints]
     for i, (st, bi, _la, _lo, tp) in enumerate(at):
-        hit = _pick_bridge([p for p, h in zip(prints, held) if h[i]], tp)
+        hit = _pick_bridge([p for p, h in zip(prints, held, strict=True) if h[i]], tp)
         if hit is not None:
             st.bridge[bi] = hit.key
             counts["bridge_bodies"] = counts.get("bridge_bodies", 0) + 1
@@ -805,7 +805,7 @@ def _touch_components(p: DeckPrint, gap_m: float) -> list[int]:
             hit = (shapely.dwithin(ta, tb, gap_m)
                    | shapely.dwithin(tb, ta, gap_m))
             for x, y in zip(lo_r[first][hit].tolist(),
-                            hi_r[first][hit].tolist()):
+                            hi_r[first][hit].tolist(), strict=True):
                 while parent[x] != x:
                     x = parent[x]
                 while parent[y] != y:
@@ -876,7 +876,7 @@ def viaduct_units(prints: _t.Sequence[DeckPrint], plan: _t.Any,
             continue
         own = [e for e in keyed.get(frame, ()) if e[0] != (p.unit, p.member)]
         hit = p.contains_many([e[1] for e in own], [e[2] for e in own])
-        inside = [e[1:] for e, h in zip(own, hit) if h]
+        inside = [e[1:] for e, h in zip(own, hit, strict=True) if h]
         # issue #1179: each CONNECTED piece of the footprint is claimed on
         # its own — the votes are the parts inside THAT piece
         pieces = deck_components(p) if inside else [p]
@@ -885,7 +885,7 @@ def viaduct_units(prints: _t.Sequence[DeckPrint], plan: _t.Any,
             on = ([True] * len(inside) if c is p else
                   c.contains_many([e[0] for e in inside],
                                   [e[1] for e in inside]))
-            for (la, lo, k), h in zip(inside, on):
+            for (_la, _lo, k), h in zip(inside, on, strict=True):
                 if h:
                     votes[k] = votes.get(k, 0) + 1
             votes = {k: v for k, v in votes.items() if total.get(k, 0) > v}

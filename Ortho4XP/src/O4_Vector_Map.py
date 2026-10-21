@@ -3873,6 +3873,24 @@ def include_patches(vector_map, tile):
         for candidate in (getattr(tile, "auto_patch_selection", None) or ())
         if candidate.disposition == "boundary_skipped"
     }
+    # SAID AT VERBOSITY 0, ONCE PER AIRPORT, whether or not an auto patch
+    # file exists (#1229; lane ``othhjunction``, #13/#15): the owner's
+    # build-350 OTHH read was on a JOSM-saved ``OTHH.patch.osm`` that
+    # silently replaced the auto patch.  A custom patch is always honoured
+    # — this line is how the user learns the airport is not auto-patched.
+    # A5 (spec patch-editor-20261015 §1.3): a file the patch editor wrote
+    # is LABELLED (user-edited).
+    for icao in sorted(i for i in manual_icao_codes if i):
+        manual = [
+            f + (" (user-edited)" if _is_user_edited_patch(
+                os.path.join(patch_dir, f)) else "")
+            for f in _SELECTION.manual_patch_files_for(patch_dir, icao)]
+        UI.vprint(
+            0,
+            "   %s: using the CUSTOM patch %s — the airport is not "
+            "auto-patched. Remove or rename the custom file to use the "
+            "auto patch." % (icao, ", ".join(manual) or "(custom)"),
+        )
     # Process manual patches first, then auto patches
     ordered_patch_files = manual_patches + auto_patches
     for pfile_name in ordered_patch_files:
@@ -3900,26 +3918,9 @@ def include_patches(vector_map, tile):
                     "(boundary choice: skipped).")
                 continue
             if auto_icao in manual_icao_codes:
-                # SAID AT VERBOSITY 0 (lane ``othhjunction``, #13/#15):
-                # the owner's build-350 OTHH read was on a JOSM-saved
-                # ``OTHH.patch.osm`` that silently replaced the auto patch
-                # (and the selector never built OTHH at all) — the only
-                # trace was this line at verbosity 1.
-                # A5 (spec patch-editor-20261015 §1.3): a file the patch
-                # editor wrote is LABELLED — its grade law is not checked
-                # (A3) and nothing fails on it.  One root-line read.
-                manual = [
-                    f + (" (user-edited)" if _is_user_edited_patch(
-                        os.path.join(patch_dir, f)) else "")
-                    for f in _SELECTION.manual_patch_files_for(patch_dir, auto_icao)]
-                UI.vprint(
-                    0,
-                    "   %s: using the MANUAL patch %s — %s is NOT applied "
-                    "and the airport is not auto-patched. Remove or rename "
-                    "the manual file to use the auto patch." % (
-                        auto_icao, ", ".join(manual) or "(manual)",
-                        pfile_name),
-                )
+                # Said once per airport, above, at verbosity 0.
+                UI.vprint(1, "   Skipping auto-patch", pfile_name,
+                          "(custom patch in use).")
                 continue
         UI.vprint(1, "   Patching", pfile_name)
         patch_layer = OSM.OSM_layer()

@@ -200,7 +200,6 @@ a = Analysis(
         ('./Extents',             './Ortho4XP_Data/Extents'),
         ('./Filters',             './Ortho4XP_Data/Filters'),
         ('./Licence',             './Ortho4XP_Data/Licence'),
-        ('./Patches',             './Ortho4XP_Data/Patches'),
         ('./Previews',            './Ortho4XP_Data/Previews'),
         ('./Providers',           './Ortho4XP_Data/Providers'),
         ('community_server.txt',  './Ortho4XP_Data/'),

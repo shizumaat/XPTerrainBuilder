@@ -965,8 +965,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             # ``merged_into``
             for _gi, _b in enumerate(bodies):
                 file_of[(st.mi, _gi)] = _b.new_resource
-            _og_zero = own_ground_zeros(st.own_ground, st.part_boxes,     # #1146
-                                        surface, touch_m)
+            _og_zero = own_ground_zeros(                                  # #1146
+                st.own_ground, st.part_boxes, surface, touch_m,
+                held=[float(uc.zero_z) for _g, uc in st.unit_carried])
             for grp, _z in zip(st.own_ground, _og_zero, strict=True):
                 bodies.append(_deck.deck_seat(                          # §49
                     _own_ground_file(st.raw, grp, m, u, surface,

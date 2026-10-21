@@ -31,3 +31,10 @@ def test_touching_pieces_share_one_zero_and_a_lone_piece_keeps_its_ground():
 def test_no_touch_distance_chains_nothing():
     part_boxes = [[_box(0, 40)], [_box(40, 80)]]
     assert own_ground_zeros([[0], [1]], part_boxes, lambda la, lo: 1.0, 0.0) == [None, None]
+
+
+def test_a_chain_of_a_member_its_units_hold_takes_their_seat():
+    part_boxes = [[_box(0, 40)], [_box(40, 80)]]
+    got = own_ground_zeros([[0], [1]], part_boxes, lambda la, lo: 30.0, 0.5,
+                           held=[32.72, 31.30])
+    assert got == [pytest.approx(32.01), pytest.approx(32.01)]

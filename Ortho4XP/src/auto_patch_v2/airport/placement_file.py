@@ -240,8 +240,8 @@ def _own_ground_z(grp: _t.Sequence[int], part_boxes: _t.Sequence[_t.Sequence[tup
 
 def own_ground_zeros(groups: _t.Sequence[_t.Sequence[int]],
                      part_boxes: _t.Sequence[_t.Sequence[tuple]],
-                     surface: _ar.Surface, touch_m: float
-                     ) -> list["float | None"]:
+                     surface: _ar.Surface, touch_m: float,
+                     held: _t.Sequence[float] = ()) -> list["float | None"]:
     """#1146: ONE CONNECTED STRUCTURE TAKES ONE SEAT.  The own-ground
     groups of one member (§16 (3): footless pieces no carrier accepts,
     cut apart by the ground under them) whose part boxes touch within
@@ -252,7 +252,14 @@ def own_ground_zeros(groups: _t.Sequence[_t.Sequence[int]],
     ground's difference (MEASURED KLAX ``People_Mover/Tracks``: 32 pieces
     at 30.01-32.72 m, touching pieces 0.1-1.0 m apart) and the rail read
     broken.  ``None`` for a piece that touches no other (it keeps its own
-    ground); ``touch_m <= 0`` chains nothing."""
+    ground); ``touch_m <= 0`` chains nothing.
+
+    ``held``: the zeros of the member's pieces a footprint unit seats
+    (§16g (11), ``_unit_carried_file``).  The member is one rigid file, so
+    a chain of it takes THEIR seat (the median of them) rather than its
+    own ground's: at KLAX the rail's two station pieces ride their units at
+    32.72 and 31.30 m, and the rail's own-ground median (30.49) would have
+    stepped it 2.2 m at the first."""
     n = len(groups)
     out: list["float | None"] = [None] * n
     if touch_m <= 0.0 or n < 2 or not part_boxes:
@@ -280,8 +287,9 @@ def own_ground_zeros(groups: _t.Sequence[_t.Sequence[int]],
     for ids in chains.values():
         if len(ids) < 2:
             continue
-        zs = sorted(z for k in ids
-                    if (z := _own_ground_z(groups[k], part_boxes, surface)) is not None)
+        zs = sorted(float(z) for z in held) or sorted(
+            z for k in ids
+            if (z := _own_ground_z(groups[k], part_boxes, surface)) is not None)
         if not zs:
             continue
         zero = zs[len(zs) // 2] if len(zs) % 2 else 0.5 * (zs[len(zs) // 2 - 1] + zs[len(zs) // 2])

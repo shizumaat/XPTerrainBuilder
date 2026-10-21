@@ -32,8 +32,8 @@ import typing as _t
 from . import anchor_rule as _ar
 from . import placement_boxes as _pb
 from .pool import share_object, shared_object
-from .placement_contact import (_polys_touch, boxes_touch,
-                                m_per_deg_exact, ring_metres)
+from .placement_contact import boxes_touch, m_per_deg_exact, ring_metres
+from .ring_contact_batch import polys_touch_many
 
 if _t.TYPE_CHECKING:  # annotations only (PEP 563 is on)
     from .footprint_unit import _PShim
@@ -234,11 +234,17 @@ def _sweep(data: tuple, touch_m: float, a0: int, a1: int) -> list[int]:
     positions ``a0 .. a1``: every touching pair ``(a, b > a)`` as a flat
     ``[a, b, a, b, …]`` of POSITIONS, in sweep order.  A pure function of
     the bodies — each ``a``'s row is its own, so any split of the range
-    concatenates to the whole sweep."""
+    concatenates to the whole sweep.
+
+    The footprint-polygon test runs LAST and in one batch over the pairs
+    the boxes admit (``ring_contact_batch.polys_touch_many``, issue #412):
+    it is a pure boolean of the pair, so asking it of the admitted pairs
+    together gives the pairs, in sweep order, that asking it per pair
+    gave."""
     hull, boxes, rings = data
     slack = touch_m / 111_132.0
     n = len(hull)
-    out: list[int] = []
+    cand: list[tuple[int, int]] = []
     for ai in range(a0, a1):
         ha = hull[ai]
         north = ha[2] + slack
@@ -247,11 +253,10 @@ def _sweep(data: tuple, touch_m: float, a0: int, a1: int) -> list[int]:
             if hb[0] > north:
                 break
             if (_pb.box_gap_m(ha, hb) <= touch_m
-                    and boxes_touch(boxes[ai], boxes[bi], ha, hb, touch_m)
-                    and _polys_touch(rings[ai], rings[bi], touch_m)):
-                out.append(ai)
-                out.append(bi)
-    return out
+                    and boxes_touch(boxes[ai], boxes[bi], ha, hb, touch_m)):
+                cand.append((ai, bi))
+    ok = polys_touch_many(rings, cand, touch_m).tolist()
+    return [v for pair, hit in zip(cand, ok, strict=True) if hit for v in pair]
 
 
 def _sweep_task(_state: _t.Any, task: tuple) -> list[int]:

@@ -368,6 +368,7 @@ EXCEPTION_CODES = {
     # elevation
     "ElevationDownloadRefused": "elevation_download_failed",
     "ElevationTransportRefused": "elevation_download_failed",
+    "ElevationAbsentRefused": "elevation_download_failed",
     "ProviderUnavailable": "elevation_download_failed",
     "TransientFetchError": "elevation_download_failed",
     "AltFrameRefused": "elevation_cache_bad",

@@ -15,10 +15,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_Config_Utils as CFG  # noqa: E402
 import O4_UI_Utils as UI  # noqa: E402
+import pytest  # noqa: E402
 
 
 class _Dir:

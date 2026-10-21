@@ -87,6 +87,10 @@ GEN = "taxi"
 #: ``runway_profile.GEN`` (stated here: ``runway_profile`` imports this module)
 RUNWAY_GEN = "runway_profile"
 _GRADIENT_DIRECTIONS = 16
+#: A plane row's coefficient below this fraction of its largest is the
+#: rounding residue of ``cos·gx + sin·gy`` where the true value is 0
+#: (``cos(pi/2)`` = 6e-17), never a term (issue #1166).
+_RESIDUE = 1e-12
 #: The short-pair box row's citation (module docstring); ``tools/v2_why_solve``
 #: keys the ``taxi_box`` family on it.
 BOX_RULING = "short-pair box |dz| <= cL*|ds| + cT*|dt| vs the nearest stretch axis (2026-09-06s)"
@@ -312,6 +316,16 @@ def plane_gradient_terms(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float,
     return gx, gy
 
 
+def _exact_terms(terms: _t.Sequence[tuple[int, float]]) -> tuple[tuple[int, float], ...]:
+    """``terms`` with every rounding residue (:data:`_RESIDUE`) set to an
+    exact 0.  A residue is not harmless: when the row's real corners are
+    fixed by an earlier stage it is the row's ONLY free term, and the hard
+    set's per-row scaling (2 / the reduced row sum) multiplies the row's
+    right-hand side by ~1e16 — LPPS #1166 stood a building pad 1.2e11 m up."""
+    big = max((abs(c) for _v, c in terms), default=0.0)
+    return tuple((v, c if abs(c) > _RESIDUE * big else 0.0) for v, c in terms)
+
+
 def plane_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
                cap: float, src: Source) -> list[Row]:
     """``|∇z| ≤ cap`` over one triangle as 16 half-plane ``Linear`` rows
@@ -325,7 +339,7 @@ def plane_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
     for k in range(_GRADIENT_DIRECTIONS):
         th = 2.0 * math.pi * k / _GRADIENT_DIRECTIONS
         c, s = math.cos(th), math.sin(th)
-        terms = tuple((tri[i], c * gx[i] + s * gy[i]) for i in range(3))
+        terms = _exact_terms([(tri[i], c * gx[i] + s * gy[i]) for i in range(3)])
         rows.append(Linear(terms, None, bound, src))
     return rows
 
@@ -346,8 +360,8 @@ def box_rows(tri: _t.Sequence[int], xy: _t.Mapping[int, tuple[float, float]],
         return []
     gx, gy = g
     ux, uy = axis[0] / n, axis[1] / n
-    along = tuple((tri[i], ux * gx[i] + uy * gy[i]) for i in range(3))
-    across = tuple((tri[i], -uy * gx[i] + ux * gy[i]) for i in range(3))
+    along = _exact_terms([(tri[i], ux * gx[i] + uy * gy[i]) for i in range(3)])
+    across = _exact_terms([(tri[i], -uy * gx[i] + ux * gy[i]) for i in range(3)])
     return [Linear(along, -cap_along, cap_along, src),
             Linear(across, -cap_across, cap_across, src)]
 

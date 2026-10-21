@@ -1,10 +1,8 @@
 """Issue #1179: a flat pad never fills a mapped cutting."""
 from types import SimpleNamespace as NS
 
+from auto_patch_v2.classify.pad_cut_corridor import CUT_TRIMMED, trim_cut_corridors
 from shapely.geometry import box
-
-from auto_patch_v2.classify.pad_cut_corridor import (CUT_TRIMMED,
-                                                     trim_cut_corridors)
 
 
 def _law():

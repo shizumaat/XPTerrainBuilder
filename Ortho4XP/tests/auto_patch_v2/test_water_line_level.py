@@ -2,9 +2,8 @@
 ``water_smoothing`` rides the body up the bank), never at the body's median
 below it; the SEA (``sea_smoothing_mode=zero``) is met at its level, 0."""
 import numpy as np
-from shapely.geometry import box
-
 from auto_patch_v2.geom.water_level import water_line_level
+from shapely.geometry import box
 
 
 class _Dem:

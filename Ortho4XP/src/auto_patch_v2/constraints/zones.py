@@ -78,8 +78,6 @@ from ..law.reference_code import status_by_ref
 from ..law.tables import (
     airside_stage_roles,
     apron_roles,
-    is_value_role,
-    role_side,
     runway_zone_edge_offset_m,
     strip_transverse_bound,
     zone_bounds,
@@ -88,9 +86,9 @@ from ..law.tables import (
 from ..model.airport import Airport
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
+from .end_lip import natural_bank_vertices
 from .precedence import View, view
 from .roads import road_family_roles
-from .end_lip import natural_bank_vertices
 from .strips import end_band_vertices, runway_groups
 
 __all__ = ["zone_bands", "strip_transverse"]

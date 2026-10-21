@@ -1,6 +1,5 @@
 import os
 import re
-import shutil
 import sys
 from math import floor
 
@@ -270,17 +269,6 @@ def set_data_root(path):
     _data_root_override = os.path.abspath(path)
     _apply_data_root()
 
-
-def seed_shipped_patches():
-    """Copy the patches shipped with the app into a data root that has no
-    Patches folder yet. A data root that already has one — e.g. the user
-    selected their existing Ortho4XP folder — is left completely untouched."""
-    shipped = resource_path("Patches")
-    if os.path.normpath(shipped) == os.path.normpath(Patch_dir):
-        return
-    if os.path.isdir(Patch_dir) or not os.path.isdir(shipped):
-        return
-    shutil.copytree(shipped, Patch_dir)
 
 ##############################################################################
 def short_latlon(lat, lon):

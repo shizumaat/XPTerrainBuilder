@@ -1445,7 +1445,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
-    airport.deck_signature airport.dem airport.dem_witness airport.dsf
+    airport.deck_signature airport.dem airport.dem_witness airport.dsf geom.water_level
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8

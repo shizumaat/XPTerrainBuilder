@@ -1109,7 +1109,8 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     from auto_patch_v2.constraints.pad_warning import warnings_of
     for _w in warnings_of(pub.get("platforms")):
         print(f"[{icao}] WARNED: {_w}")
-    pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+    from auto_patch_v2.geom.water_level import shore_edge_records
+    pub["shore_edges"] = shore_edge_records(airport.dem, shore)
     from auto_patch_v2.pipeline.publication import gap_pieces
     _gap_records = gap_pieces(late_cut, cells)
     if late_cut is not None or _gap_records:

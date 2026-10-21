@@ -42,6 +42,7 @@ from ..emit.osm_adapter import (
     write_rendered,
 )
 from ..emit.terrain_edge import with_terrain_edges
+from ..geom.water_level import shore_edge_records
 from ..law import Law
 from ..model import pulse as _pulse
 from ..model.planar import PlanarMap
@@ -435,7 +436,7 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     surf_out = merge_sub_spacing(surf_out, law, wrep)
     out(wrep.line(icao))
     report["shore_weld"] = _dc.asdict(wrep)
-    pub["shore_edges"] = [[a[0], a[1], b[0], b[1]] for a, b in shore]
+    pub["shore_edges"] = shore_edge_records(airport.dem, shore)
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is
     # withdrawn under (road cap governs) — the census reads the same set
     from ..law.tables import airside_stage_roles as _asr

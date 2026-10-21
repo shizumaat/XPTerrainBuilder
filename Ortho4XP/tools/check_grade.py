@@ -7527,22 +7527,34 @@ def _shore_index(shore_edges_ll, ll_to_m):
             b = ll_to_m(float(e[2]), float(e[3]))
         except (TypeError, ValueError):
             continue
-        segs.append((a, b))
+        # #1177: the fifth field is the water line's level there (an
+        # inland body's bank terrain, the sea's 0); absent, the sea's 0
+        try:
+            lvl = float(e[4]) if len(e) > 4 else 0.0
+        except (TypeError, ValueError):
+            lvl = 0.0
+        segs.append((a, b, lvl))
     return segs or None
 
 
 def _on_shore(pt, segs, tol_m: float) -> bool:
     """``pt`` (metres) lies ON one of ``segs`` within ``tol_m``."""
+    return _shore_level(pt, segs, tol_m) is not None
+
+
+def _shore_level(pt, segs, tol_m: float):
+    """The water line's level of the first of ``segs`` ``pt`` (metres) lies
+    ON within ``tol_m``; ``None`` when it lies on none."""
     x, y = pt
-    for (ax, ay), (bx, by) in segs:
+    for (ax, ay), (bx, by), lvl in segs:
         vx, vy = bx - ax, by - ay
         l2 = vx * vx + vy * vy
         t = 0.0 if l2 < 1e-18 else max(0.0, min(
             1.0, ((x - ax) * vx + (y - ay) * vy) / l2))
         dx, dy = x - (ax + t * vx), y - (ay + t * vy)
         if dx * dx + dy * dy <= tol_m * tol_m:
-            return True
-    return False
+            return lvl
+    return None
 
 
 def _check_sea_wall(shore_edges_ll, nodes, ways, ll_to_m,
@@ -7580,21 +7592,23 @@ def _check_sea_wall(shore_edges_ll, nodes, ways, ll_to_m,
                 continue
             pa = ll_to_m(*nodes[na])
             pb = ll_to_m(*nodes[nb])
-            if not (_on_shore(pa, segs, SEA_WALL_ON_SHORE_M)
-                    and _on_shore(pb, segs, SEA_WALL_ON_SHORE_M)):
+            la = _shore_level(pa, segs, SEA_WALL_ON_SHORE_M)
+            lb = _shore_level(pb, segs, SEA_WALL_ON_SHORE_M)
+            if la is None or lb is None:
                 continue
+            water = max(float(water_level_m), (la + lb) / 2.0)
             length = math.hypot(pb[0] - pa[0], pb[1] - pa[1])
             if length <= 0.0:
                 continue
             level = (float(za) + float(zb)) / 2.0
-            drop = level - float(water_level_m)
+            drop = level - water
             if drop <= 0.0:
                 continue
             v = Violation(
                 grade_pct=0.0, excess_pct=0.0, distance_m=length,
                 de_m=drop, way_a=w, way_b=w,
                 pt_a=(0.0, 0.0), pt_b=(0.0, 0.0),
-                elev_a=level, elev_b=float(water_level_m))
+                elev_a=level, elev_b=water)
             v.lat, v.lon = nodes[na]
             v.out_of_scope = SEA_WALL_OUT_OF_SCOPE
             out.append(v)

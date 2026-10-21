@@ -231,6 +231,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
+        "auto_patch_v2.classify.pad_cut_corridor",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
@@ -387,6 +388,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
+        "auto_patch_v2.classify.pad_cut_corridor",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.ramp_runout",
         "auto_patch_v2.classify.reachability",
@@ -741,6 +743,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.classify.lot_roads",
         "auto_patch_v2.classify.neck",
         "auto_patch_v2.classify.open_default",
+        "auto_patch_v2.classify.pad_cut_corridor",
         "auto_patch_v2.classify.pad_touch",
         "auto_patch_v2.classify.reachability",
         "auto_patch_v2.classify.retaining_wall",
@@ -1174,7 +1177,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
-    classify.neck classify.open_default classify.pad_touch classify.retaining_wall
+    classify.neck classify.open_default
+    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter constraints constraints.apron constraints.apron_shelf
     constraints.assembly constraints.ceiling constraints.channel constraints.cluster_pad
@@ -1293,7 +1297,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.wall_geometry airport.wall_mouth classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
-    classify.neck classify.open_default classify.pad_touch classify.ramp_runout
+    classify.neck classify.open_default
+    classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
     classify.sources classify.taxi_letter constraints.apron constraints.apron_shelf
     constraints.ceiling constraints.cluster_pad constraints.contiguity
@@ -1379,7 +1384,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.gap_terrace
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
-    classify.pad_touch classify.ramp_runout classify.retaining_wall classify.ribbon_mint
+    classify.pad_cut_corridor classify.pad_touch
+    classify.ramp_runout classify.retaining_wall classify.ribbon_mint
     classify.roles classify.rules classify.sources classify.taxi_letter constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
@@ -1445,7 +1451,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
     airport.bulk_geos airport.cluster_profile airport.contact airport.contents
-    airport.deck_signature airport.dem airport.dem_witness airport.dsf
+    airport.deck_signature airport.dem airport.dem_witness airport.dsf geom.water_level
     airport.extension_cache airport.file_hash airport.footprint_carry
     airport.footprint_connector airport.footprint_seats airport.footprint_unit airport.one_building
     airport.frame_entry airport.jetways airport.line_object airport.msl_feet airport.obj8
@@ -1467,7 +1473,8 @@ CODE_MODULES["emit"] = _mods("""
     classify.airside_edge classify.evidence classify.facade_mint classify.gap_apron
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.gap_mint classify.lot_roads classify.neck classify.open_default
-    classify.pad_touch classify.retaining_wall classify.ribbon_mint classify.roles
+    classify.pad_cut_corridor classify.pad_touch
+    classify.retaining_wall classify.ribbon_mint classify.roles
     classify.rules classify.sources classify.taxi_letter constraints.apron
     constraints.apron_shelf constraints.apron_trend constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
@@ -1531,7 +1538,8 @@ CODE_MODULES["verify"] = _mods("""
     airport.topology_cache airport.wall_class classify.airside_edge classify.evidence
     classify.apt_shoulder classify.storey_edge airport.unit_storey
     classify.facade_mint classify.gap_apron classify.gap_mint classify.lot_roads
-    classify.neck classify.open_default classify.pad_touch classify.retaining_wall
+    classify.neck classify.open_default
+    classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     classify.ribbon_mint classify.roles classify.rules classify.sources
     classify.taxi_letter constraints.apron constraints.ceiling constraints.channel
     constraints.cluster_pad constraints.contiguity constraints.eat constraints.end_lip

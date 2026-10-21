@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..geom.water_level import SEA_LEVEL_M, water_level_beside
+from ..geom.water_level import SEA_LEVEL_M, water_line_level
 from ..law import Law
 from ..law.tables import is_structure_role
 from ..model.airport import Airport
@@ -117,9 +117,11 @@ def water_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
         wet, level = fn(xs, ys)
     except Exception:                                     # pragma: no cover
         return []
+    level = _shore_levels(planar, law, airport, cand, xs, ys,
+                          np.asarray(wet, bool), np.asarray(level, float))
     rows: list[Row] = []
     pinned: set[int] = set()
-    for v, is_wet, z in zip(cand, np.asarray(wet), np.asarray(level, float)):
+    for v, is_wet, z in zip(cand, np.asarray(wet), level, strict=True):
         if not bool(is_wet) or not np.isfinite(z):
             continue
         z = float(z)
@@ -129,6 +131,46 @@ def water_pins(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     STATS["water_pins"]["wet"] = len(rows)
     rows.extend(_natural_shore_pins(vw, planar, law, airport, pinned))
     return rows
+
+
+def _shore_levels(planar: PlanarMap, law: Law, airport: Airport, cand, xs, ys,
+                  wet: np.ndarray, level: np.ndarray) -> np.ndarray:
+    """#1177: a wet vertex ON the water line (within the snap margin of the
+    body's edge) takes the level the land meets the water at
+    (``geom/water_level.water_line_level``), not the body's median; a vertex
+    deeper in the body keeps the median."""
+    fn = getattr(airport.dem, "water_geometry", None)
+    if not callable(fn) or not wet.any():
+        return level
+    import shapely
+    from ..law.tables import snap_margin_m
+    idx = np.flatnonzero(wet & np.isfinite(level))
+    if not idx.size:
+        return level
+    pad = 50.0
+    try:
+        water = fn((float(xs[idx].min()) - pad, float(ys[idx].min()) - pad,
+                    float(xs[idx].max()) + pad, float(ys[idx].max()) + pad))
+    except Exception:                                     # pragma: no cover
+        return level
+    if water is None or water.is_empty:
+        return level
+    edge = np.asarray(shapely.distance(water.boundary,
+                                       shapely.points(xs[idx], ys[idx])))
+    line = idx[edge <= snap_margin_m(law)]
+    if not line.size:
+        return level
+    out = level.copy()
+    out[line] = water_line_level(airport.dem, xs[line], ys[line],
+                                 [_dem_z(planar, cand[i]) for i in line])
+    return out
+
+
+def _dem_z(planar: PlanarMap, v: int) -> float:
+    """The production DEM under map vertex ``v`` (NaN when unknown)."""
+    vx = planar.vertices.get(v)
+    z = getattr(vx, "dem_z", None)
+    return float(z) if z is not None else float("nan")
 
 
 RULING_NATURAL = ("a natural shore slopes to the water line: its coastline "
@@ -175,8 +217,11 @@ def _natural_shore_pins(vw, planar: PlanarMap, law: Law, airport: Airport,
         return []
     tol = snap_margin_m(law)
     on = [v for v in sorted(ids) if sea.distance(Point(vw.xy[v])) <= tol]
-    levels = water_level_beside(airport.dem, [vw.xy[v][0] for v in on],
-                                [vw.xy[v][1] for v in on]) if on else []
+    # #1177: the level the land meets the water at — the sea's 0, an
+    # inland body's bank terrain (``geom/water_level.water_line_level``)
+    levels = water_line_level(airport.dem, [vw.xy[v][0] for v in on],
+                              [vw.xy[v][1] for v in on],
+                              [_dem_z(planar, v) for v in on]) if on else []
     rows: list[Row] = []
     for v, lv in zip(on, levels, strict=True):
         rows.append(Pin(v, float(lv), Source(

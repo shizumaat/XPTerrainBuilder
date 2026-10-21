@@ -231,6 +231,50 @@ def test_make_dirs_raises_the_typed_failure(tmp_path, scenery):
     link = scenery / "zOrtho4XP_+10+010"
     os.symlink(_missing_volume_target(), link)
     tile = CFG.Tile.__new__(CFG.Tile)
+    tile.lat, tile.lon = 10, 10
     tile.build_dir = str(link)
     with pytest.raises(UL.UnmountedLink):
         tile.make_dirs()
+
+
+def test_dangling_elevation_bucket_refuses_and_keeps_the_link(
+        tmp_path, monkeypatch):
+    """#1167: an ``Elevation_data/<bucket>`` folder that is a dangling link
+    stops the tile with one message naming the link and its missing
+    target, before any makedirs; the user's link is not removed."""
+    import O4_Config_Utils as CFG
+    import O4_File_Names as FNAMES
+    elevation = tmp_path / "Elevation_data"
+    elevation.mkdir()
+    gone = str(tmp_path / "elsewhere" / "Elevation_data" / "+50-010")
+    link = elevation / FNAMES.round_latlon(55, -5)
+    os.symlink(gone, link)
+    with pytest.raises(FileExistsError):      # the defect, as the user hit it
+        os.makedirs(str(link), exist_ok=True)
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(elevation))
+    tile = CFG.Tile.__new__(CFG.Tile)
+    tile.lat, tile.lon = 55, -5
+    tile.build_dir = str(tmp_path / "zOrtho4XP_+55-005")
+    with pytest.raises(UL.ElevationLinkBroken) as raised:
+        tile.make_dirs()
+    assert os.path.islink(link)
+    assert not os.path.exists(tile.build_dir)
+    assert FAIL.code_for_exception(raised.value) == "elevation_link_broken"
+    rec = FAIL.record(FAIL.code_for_exception(raised.value), "d",
+                      **FAIL.params_for_exception(raised.value))
+    [failure] = FAIL.fold([rec], "+55-005")
+    assert "+50-010" in failure["why"] and gone in failure["why"]
+    assert "no longer exists" in failure["why"]
+    assert failure["link"] == ""                 # no removal offered
+    assert "replace the link" in failure["remedy"]
+
+
+def test_healthy_elevation_bucket_passes(tmp_path, monkeypatch):
+    import O4_File_Names as FNAMES
+    real = tmp_path / "real"
+    real.mkdir()
+    elevation = tmp_path / "Elevation_data"
+    elevation.mkdir()
+    os.symlink(str(real), elevation / "+50-010")
+    UL.check_elevation_folder(str(elevation / "+50-010"))
+    UL.check_elevation_folder(str(elevation / "+40-010"))   # absent: fine

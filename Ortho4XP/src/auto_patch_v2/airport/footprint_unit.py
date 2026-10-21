@@ -718,7 +718,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
             is_deck=lambda i: member_is_deck(
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
             is_footed=lambda i: shims[i].footed,
-            ml=_ml, mo=_mo, counts=counts, prefix="unit_", pool=pool)
+            ml=_ml, mo=_mo, counts=counts, prefix="unit_", pool=pool,
+            top_y=lambda i, _s=shims, _p=parts_of: _top_y(_s[i].pids, _p))
         if links:
             clusters = [cl for cl in merge_by_sheets(clusters, links)
                         if len(cl) >= 2]
@@ -779,6 +780,17 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         conns.extend(connectors_of_cluster(cl, uid, shims, touch_m,
                                            connector_span_m, index, pool))
     return out, conns
+
+
+def _top_y(pids: _t.AbstractSet[int], parts_of: _t.Mapping[int, _t.Any]
+           ) -> "float | None":
+    """A body's highest authored y over its solid parts (``base_y +
+    height_m``) — the reading ``sheet_chain`` refuses a below-grade sheet
+    on (issue #1172); ``None`` where no part is known."""
+    tops = [float(parts_of[q].base_y)
+            + float(getattr(parts_of[q], "height_m", 0.0) or 0.0)
+            for q in pids if q in parts_of and not parts_of[q].line]
+    return max(tops) if tops else None
 
 
 def _centres(boxes: _t.Sequence[tuple[float, float, float, float]],

@@ -219,7 +219,8 @@ struct MapCanvasView: View {
         let bounds = (minLon: minLon, maxLon: maxLon, minLat: minLat, maxLat: maxLat)
         drawTileLabels(context: context, size: size, cam: cam, bounds: bounds,
                        built: sceneryFilter != .othersOnly ? buildModel.built : nil,
-                       orthoTiles: sceneryFilter != .builtOnly ? overlays.orthoTileKeys : nil)
+                       orthoTiles: sceneryFilter != .builtOnly ? overlays.orthoTileKeys : nil,
+                       orthoImagery: overlays.orthoImagery)
 
         // Airports by size (#817): large fields marked and labelled from
         // far out, small ones as you zoom in; labels never overlap. The

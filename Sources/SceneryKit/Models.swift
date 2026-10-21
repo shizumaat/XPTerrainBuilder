@@ -66,6 +66,9 @@ public struct SceneryPack: Codable, Sendable {
     public var hasTerrain: Bool = false
     /// textures/ holds photo-tile quantities of images (Ortho4XP-style).
     public var isPhotoTextured: Bool = false
+    /// Provider/ZL read from the pack's own texture/terrain names (or its
+    /// Ortho4XP cfg) — labels ortho tiles the app did not build (#1227).
+    public var imagery: PackImagery? = nil
     /// A plugins/ folder exists — the pack is a legitimate plugin carrier
     /// even with no DSF tiles or airports.
     public var hasPlugins: Bool = false

@@ -102,6 +102,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch.object_terrain_features",
     "auto_patch.object_terrain_kinds",
     "auto_patch.post_mesh",
+    "auto_patch.progress",
     "auto_patch.provenance",
     "auto_patch.provenance_code",
     "auto_patch.provenance_env",

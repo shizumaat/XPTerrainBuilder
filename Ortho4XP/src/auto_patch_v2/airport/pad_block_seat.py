@@ -381,8 +381,9 @@ def split_units(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     ref_lat = rings[0][2][0][0]
     out: list = []
     n_split = 0
+    bodies = _plan_bodies(plan)
     for un in units:
-        per_body, regions = _bodies_regions(un, plan, of)
+        per_body, regions = _bodies_regions(un, plan, of, bodies)
         if len(regions) < 2 or len({b[0] for b in regions}) != 1:
             out.append(un)
             continue
@@ -407,14 +408,15 @@ def _split_by_level(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     polys_ref = _polys_of(rings)
     out: list = []
     n_split = 0
+    bodies = _plan_bodies(plan)
     for un in units:
-        _pb, refs = _bodies_regions(un, plan, of_ref)
+        _pb, refs = _bodies_regions(un, plan, of_ref, bodies)
         grp = level_groups(pad_levels(pads, refs), tol_m) if len(refs) > 1 else {}
         if len(set(grp.values())) < 2:
             out.append(un)
             continue
         of = {q: ("level", grp[r]) for q, r in of_ref.items() if r in grp}
-        per_body, regions = _bodies_regions(un, plan, of)
+        per_body, regions = _bodies_regions(un, plan, of, bodies)
         polys: dict = {}
         for r, k in grp.items():
             polys.setdefault(("level", k), []).extend(polys_ref.get(r, ()))
@@ -427,13 +429,22 @@ def _split_by_level(units: list, plan: _t.Any, pads: _t.Sequence[_ar.PadRing],
     return out
 
 
-def _bodies_regions(un, plan: _t.Any, of: _t.Mapping[int, _t.Any]
-                    ) -> "tuple[dict, set]":
+def _plan_bodies(plan: _t.Any) -> dict:
+    """``placement_family.bodies_of_plan``'s body table, read ONCE per
+    plan by the unit loops (issue #1213: per unit it was 596 whole-plan
+    body cuts, ~80 s at KMCI's 77 k parts)."""
+    from .placement_family import bodies_of_plan
+    return bodies_of_plan(plan)[0]
+
+
+def _bodies_regions(un, plan: _t.Any, of: _t.Mapping[int, _t.Any],
+                    bodies: "dict | None" = None) -> "tuple[dict, set]":
     """``(body key -> the region most of its parts stand in or None, the
     regions any part of the unit stands in)`` over ``of``
-    (``part id -> region``)."""
-    from .placement_family import bodies_of_plan
-    bodies, _ = bodies_of_plan(plan)
+    (``part id -> region``); ``bodies`` is :func:`_plan_bodies` of
+    ``plan`` when the caller holds it."""
+    if bodies is None:
+        bodies = _plan_bodies(plan)
     per_body: dict = {}
     regions: set = set()
     for key in un.bodies:

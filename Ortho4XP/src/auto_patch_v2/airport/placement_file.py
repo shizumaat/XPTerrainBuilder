@@ -529,7 +529,8 @@ def _deck_rider(deck: "_bf.DeckPrint | None", parts: _t.Sequence[_t.Any],
     railings (y 16.93) stand 1-3 m off its edge."""
     if deck is None or not parts:
         return False
-    tops = [deck.top_at(float(p.lat), float(p.lon), edge_m) for p in parts]
+    tops = deck.top_at_many([float(p.lat) for p in parts],
+                            [float(p.lon) for p in parts], edge_m)
     n_over = sum(1 for y in tops if y is not None)
     if 2 * n_over < len(parts):
         return False

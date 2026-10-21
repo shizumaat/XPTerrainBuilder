@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import Polygon, box
-
 from auto_patch_v2.airport import wall_class
 from auto_patch_v2.constraints import wall_zone as wz
 from auto_patch_v2.model.constraints import Linear, Source
+from shapely.geometry import Polygon, box
 
 SRC = Source("zones", "zones.adjacent_ground (2026-08-01)", ())
 # a 5 m wall along x = -2 .. 0 (reach 20 m, smear 5 m); upper side west

@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import pytest
 import shapely
-from shapely.errors import GEOSException
-from shapely.geometry import LineString, Polygon, box
-
 from auto_patch_v2.classify import ribbon_mint
 from auto_patch_v2.geom.fixed_overlay import fixed_difference
 from auto_patch_v2.geom.parts import areal_part
+from shapely.errors import GEOSException
+from shapely.geometry import LineString, Polygon, box
 
 #: a 10 m square with a 0.1 um wide, 15 m long spike: on the 1e-6 m
 #: overlay grid the spike collapses to a line (HEAZ runway 18/36's zone 2

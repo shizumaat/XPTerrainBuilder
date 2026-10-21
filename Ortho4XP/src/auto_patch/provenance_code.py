@@ -563,6 +563,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.constraints.taxi_trend_cap",
     "auto_patch_v2.constraints.transverse",
     "auto_patch_v2.constraints.trend",
+    "auto_patch_v2.constraints.wall_zone",
     "auto_patch_v2.constraints.water",
     "auto_patch_v2.constraints.weld_floor",
     "auto_patch_v2.constraints.zones",

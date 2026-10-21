@@ -796,6 +796,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.taxi_trend_cap",
         "auto_patch_v2.constraints.transverse",
         "auto_patch_v2.constraints.trend",
+        "auto_patch_v2.constraints.wall_zone",
         "auto_patch_v2.constraints.water",
         "auto_patch_v2.constraints.weld_floor",
         "auto_patch_v2.constraints.zones",
@@ -1053,6 +1054,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         model.map_memo model.platform model.threshold_datum
     """),
     "ramp_runout": _mods(_GENERATOR_CORE + """
+        constraints.wall_zone
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_ramp constraints.pad_relief
         constraints.pad_warning constraints.pads constraints.platform
@@ -1063,6 +1065,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.slope_pad
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
+        constraints.wall_zone
         constraints.apron constraints.apron_shelf constraints.cluster_pad
         constraints.geometry constraints.pad_relief constraints.pad_warning
         constraints.pads constraints.platform constraints.precedence
@@ -1205,6 +1208,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     classify.reachability
     constraints.door_pad
     geom.slope_pad
+    constraints.wall_zone
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport constraints model airport.anchor_rule airport.apt_dat
@@ -1340,6 +1344,7 @@ CODE_MODULES["solve"] = _mods("""
     constraints.door_pad
     geom.slope_pad
     model.road_yield planar.road_shadow
+    constraints.wall_zone
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport classify emit model pipeline planar solve airport.anchor_rule
@@ -1433,6 +1438,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.door_pad
     geom.slope_pad
     model.road_yield planar.road_shadow
+    constraints.wall_zone
 """)
 CODE_MODULES["emit"] = _mods("""
     airport constraints emit model pipeline planar verify airport.anchor_rule
@@ -1498,6 +1504,7 @@ CODE_MODULES["emit"] = _mods("""
     classify.reachability
     geom.slope_pad
     model.road_yield pipeline.band_road_wall
+    constraints.wall_zone
 """)
 CODE_MODULES["verify"] = _mods("""
     airport classify constraints emit model pipeline planar solve airport.anchor_rule

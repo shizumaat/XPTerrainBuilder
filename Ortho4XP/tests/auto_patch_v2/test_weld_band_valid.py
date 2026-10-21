@@ -6,9 +6,8 @@ precision model, so the twin re-applies the planar grid's 0.01 m) gives a
 the grid; the contact intersection then raised ``side location conflict``.
 """
 import shapely
-from shapely.geometry import Polygon
-
 from auto_patch_v2.classify.airside_edge import _weld_band
+from shapely.geometry import Polygon
 
 _CELL_WKB = (
     "0103000000010000006300000048e17a14aea776408fc2f5285c2f56c085eb51b81e4977"

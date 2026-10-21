@@ -7,7 +7,6 @@ senior, a hole crossed the shell; ``buffer(0)`` handed that back as a
 union raised ``unable to assign free hole to a shell``.
 """
 import shapely
-
 from auto_patch_v2.planar import weld
 
 _CELL_WKB = (

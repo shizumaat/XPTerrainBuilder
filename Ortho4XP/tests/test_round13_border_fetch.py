@@ -24,6 +24,7 @@ import json
 import os
 
 import numpy
+from inset_relief import with_relief  # noqa: E402
 import pytest
 
 import O4_File_Names as FNAMES
@@ -78,7 +79,7 @@ def _write_geotiff(path, values, bounding_box=BBOX):
     dataset.SetProjection(spatial_reference.ExportToWkt())
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(NODATA)
-    band.WriteArray(values.astype(numpy.float32))
+    band.WriteArray(with_relief(values, NODATA))
     band.FlushCache()
     dataset = None
     ea_warp._inset_valid_fraction_cache.clear()
@@ -212,7 +213,7 @@ def test_a_record_with_a_valid_raster_is_left_alone(tmp_path, monkeypatch):
             if ".invalid-" in name] == []
     with open(sidecar, "r", encoding="utf-8") as handle:
         assert json.load(handle)["provider"] == "USGS3DEP"
-    assert numpy.all(_values_of(destination) == 250.0)
+    assert numpy.allclose(_values_of(destination), 250.0, atol=0.03)
 
 
 # =====================================================================
@@ -249,8 +250,10 @@ def test_the_newer_source_wins_only_where_it_has_data(tmp_path, monkeypatch):
     values = _values_of(destination)
     columns = values.shape[1]
     assert not numpy.any(values == NODATA)
-    assert numpy.all(values[:, : columns // 2 - 1] == 200.0)   # newer
-    assert numpy.all(values[:, columns // 2 + 1:] == 100.0)    # older
+    assert numpy.allclose(values[:, : columns // 2 - 1], 200.0,
+                          atol=0.03)                         # newer
+    assert numpy.allclose(values[:, columns // 2 + 1:], 100.0,
+                          atol=0.03)                         # older
     assert provenance["valid_fraction"] == 1.0
     assert [entry["source_id"] for entry in provenance["sources_used"]] == [
         "newer", "older"
@@ -274,7 +277,7 @@ def test_a_source_empty_over_the_box_contributes_nothing_and_is_named(
     destination = os.path.join(str(tmp_path), "KMCI_usgs3dep.tif")
     provenance = strategy.fetch(DEFINITION, BBOX, 3000.0, destination)
 
-    assert numpy.all(_values_of(destination) == 100.0)
+    assert numpy.allclose(_values_of(destination), 100.0, atol=0.03)
     assert provenance["valid_fraction"] == 1.0
     assert [e["source_id"] for e in provenance["sources_used"]] == ["missouri"]
     assert [e["source_id"] for e in provenance["sources_empty_over_bbox"]] == [

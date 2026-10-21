@@ -15,6 +15,7 @@ import json
 import os
 
 import numpy
+from inset_relief import with_relief  # noqa: E402
 import pytest
 
 import O4_File_Names as FNAMES
@@ -45,7 +46,7 @@ def _write(path, size, values):
     dataset.SetProjection(srs.ExportToWkt())
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(NODATA)
-    band.WriteArray(values.astype(numpy.float32))
+    band.WriteArray(with_relief(values, NODATA))
     dataset = None
     return str(path)
 
@@ -121,9 +122,9 @@ def test_edge_holes_fill_down_the_ladder_interior_ones_interpolate(
         hole_c["ring_median_m"], abs=0.05)
     assert values[230, 130] == pytest.approx(101.13, abs=0.05)
     assert values[20, 20] == pytest.approx(101.02, abs=0.01)
-    assert values[300, 500] == pytest.approx(100.0)       # 3 m inside A
-    assert values[590, 150] == pytest.approx(99.0)        # 10 m inside B
-    assert values[5, 5] == pytest.approx(101.005)         # the core
+    assert values[300, 500] == pytest.approx(100.0, abs=0.03)  # 3 m in A
+    assert values[590, 150] == pytest.approx(99.0, abs=0.03)  # 10 m in B
+    assert values[5, 5] == pytest.approx(101.005, abs=0.03)  # the core
     # FEATHERED: across hole A's west edge the core ramps to the fill
     # over 60 m with no cliff
     transect = values[300, 280:400]
@@ -229,7 +230,8 @@ def ladder(monkeypatch, tmp_path):
             srs.ImportFromEPSG(4326)
             dataset.SetProjection(srs.ExportToWkt())
             dataset.GetRasterBand(1).SetNoDataValue(NODATA)
-            dataset.GetRasterBand(1).WriteArray(values)
+            dataset.GetRasterBand(1).WriteArray(
+                with_relief(values, NODATA, metres=0.1))
             dataset = None
             return {"provider": definition["code"],
                     "native_resolution_m": definition["native_resolution_m"],
@@ -413,8 +415,8 @@ def test_a_box_edge_sliver_beyond_every_rung_never_runs_the_ladder_out(
     srs.ImportFromEPSG(4326)
     dataset.SetProjection(srs.ExportToWkt())
     dataset.GetRasterBand(1).SetNoDataValue(NODATA)
-    dataset.GetRasterBand(1).WriteArray(
-        numpy.full((size, size), 99.0, dtype=numpy.float32))
+    dataset.GetRasterBand(1).WriteArray(with_relief(
+        numpy.full((size, size), 99.0, dtype=numpy.float32), NODATA))
     dataset = None
     assembly = INSETS.LadderInsetAssembly(core_path, core_region_is_box=True)
     assert assembly.needs_fill()

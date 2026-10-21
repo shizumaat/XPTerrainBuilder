@@ -170,7 +170,8 @@ from elevation_access.vertical_units import (
     VERTICAL_UNIT_STAMP_DECLARED,
     VERTICAL_UNIT_STAMP_SOURCE,
 )
-from elevation_access.warp import inset_valid_fraction
+from elevation_access.warp import (
+    INSET_MIN_RELIEF_M, inset_carries_no_relief, inset_valid_fraction)
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
@@ -4322,9 +4323,8 @@ def cached_inset_declined_reason(inset_path):
     (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
     if not is_empty:
         return None
-    return ("it holds %.2f %% valid pixels (< %.2f %%) — it carries no "
-            "coverage and the bake DECLINES it"
-            % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC))
+    return ("it %s — it carries no coverage and the bake DECLINES it"
+            % inset_empty_reason(inset_path, valid_fraction))
 
 
 def _void_inset_record_reason(inset_path, definition=None):
@@ -4358,10 +4358,8 @@ def _void_inset_record_reason(inset_path, definition=None):
         return pre_key
     (is_empty, valid_fraction) = inset_is_effectively_empty(inset_path)
     if is_empty:
-        return (
-            "its raster holds %.2f %% valid pixels (< %.2f %%)"
-            % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC)
-        )
+        return "its raster %s" % inset_empty_reason(inset_path,
+                                                     valid_fraction)
     return None
 
 
@@ -4790,6 +4788,19 @@ def ensure_airport_insets(
                 fetch_error = str(error)
             finally:
                 slow_note.cancel()
+            if provenance is not None and inset_carries_no_relief(
+                    fetch_destination):
+                # THE FLAT-FILL RULE (#1171): a provider asked beyond its
+                # extent answered a constant fill.  That is a durable
+                # no-coverage answer; the next provider is asked.
+                UI.vprint(
+                    1,
+                    "    [insets] %s: %s returned a flat fill with no "
+                    "relief - not elevation data; recorded as no-coverage "
+                    "and the next provider (else the base DEM) is used."
+                    % (icao, code),
+                )
+                provenance = None
             if provenance is None:
                 FETCH_SCRATCH.discard(fetch_destination)
                 # A refresh that failed leaves a sound cached raster on
@@ -6507,9 +6518,26 @@ def _inset_source_project(inset_path):
 
 
 def inset_is_effectively_empty(inset_path):
-    """``(is_empty, valid_fraction)`` for one cached inset (R11-3)."""
+    """``(is_empty, valid_fraction)`` for one cached inset (R11-3).
+
+    Empty too when its valid pixels carry no relief (#1171, the flat-fill
+    rule :func:`elevation_access.warp.inset_carries_no_relief`): a
+    constant fill is not elevation data, whatever its valid share."""
     fraction = inset_valid_fraction(inset_path)
-    return (fraction < INSET_MIN_VALID_FRAC, fraction)
+    if fraction < INSET_MIN_VALID_FRAC:
+        return (True, fraction)
+    return (inset_carries_no_relief(inset_path), fraction)
+
+
+def inset_empty_reason(inset_path, valid_fraction):
+    """The plain words for why :func:`inset_is_effectively_empty` said
+    empty -- too few valid pixels, or a flat fill with no relief."""
+    if valid_fraction >= INSET_MIN_VALID_FRAC:
+        return ("holds no relief (every valid pixel within %.2f m of "
+                "one value: a provider fill, not elevation data)"
+                % INSET_MIN_RELIEF_M)
+    return ("holds %.2f %% valid pixels (< %.2f %%)"
+            % (100.0 * valid_fraction, 100.0 * INSET_MIN_VALID_FRAC))
 
 
 def bake_candidate_inset_paths(tile):
@@ -6604,11 +6632,11 @@ def bake_airport_insets_into_alt_dem(tile):
             nodata_refused.append(entry)
             UI.vprint(
                 0,
-                "   [inset] %s holds %.2f %% valid pixels (< %.2f %%) - NO "
+                "   [inset] %s %s - NO "
                 "INSET: it is not baked and carries no coverage; the build "
                 "proceeds on the base DEM. Source project(s): %s."
-                % (os.path.basename(inset_path), 100.0 * valid_fraction,
-                   100.0 * INSET_MIN_VALID_FRAC,
+                % (os.path.basename(inset_path),
+                   inset_empty_reason(inset_path, valid_fraction),
                    _inset_source_project(inset_path)),
             )
             continue

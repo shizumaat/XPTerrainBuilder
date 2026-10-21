@@ -22,6 +22,7 @@ import os
 import types
 
 import numpy
+from inset_relief import with_relief  # noqa: E402
 import pytest
 
 import O4_File_Names as FNAMES
@@ -57,7 +58,8 @@ def _write_constant_geotiff(
     dataset.SetProjection(spatial_reference.ExportToWkt())
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(-9999.0)
-    band.WriteArray(numpy.full((rows, columns), value, dtype=numpy.float32))
+    band.WriteArray(with_relief(
+        numpy.full((rows, columns), value, dtype=numpy.float32), -9999.0))
     band.FlushCache()
     dataset = None
 

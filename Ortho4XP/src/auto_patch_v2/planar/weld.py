@@ -55,6 +55,7 @@ from shapely.strtree import STRtree
 
 from ..classify.pad_touch import weld_partners
 from ..classify.roles import Cell
+from ..geom.valid_area import valid_area
 from ..law import Law
 from ..law.tables import authority_rank, is_rigid_role, is_value_role
 
@@ -196,7 +197,12 @@ def _weld_one(poly: Polygon, ref, tol: float, frozen=None,
     except (ValueError, TypeError):
         return None, 0, 0, passes
     if not q.is_valid:
-        q = q.buffer(0)
+        # the AREA of the bent ring (``geom.valid_area``), never
+        # ``buffer(0)``: MEASURED #1198 KBLI, a junction cell (64.1 m2)
+        # whose projected hole crossed its shell came back from buffer(0)
+        # as a 46.66 m2 Polygon still self-crossing at (140.962, -385.578),
+        # and the zone union raised ``unable to assign free hole``
+        q = valid_area(q)
     if q.is_empty:
         return None, 0, 0, passes
     if q.geom_type != "Polygon":

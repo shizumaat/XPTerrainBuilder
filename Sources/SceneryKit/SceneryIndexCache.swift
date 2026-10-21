@@ -23,6 +23,8 @@ public enum SceneryIndexCache {
         public let isOverlay: Bool?
         public let hasTerrain: Bool
         public let isPhotoTextured: Bool
+        /// Provider/ZL read from an ortho pack's file names (#1227).
+        public let imagery: PackImagery?
         public let hasPlugins: Bool
         public let sizeBytes: Int64
         public let modifiedDate: Date?
@@ -30,6 +32,7 @@ public enum SceneryIndexCache {
         public init(signature: String, airports: [String: AirportInfo],
                     tiles: Set<String>, isLibrary: Bool,
                     isOverlay: Bool?, hasTerrain: Bool, isPhotoTextured: Bool,
+                    imagery: PackImagery? = nil,
                     hasPlugins: Bool, sizeBytes: Int64, modifiedDate: Date?) {
             self.signature = signature
             self.airports = airports
@@ -38,6 +41,7 @@ public enum SceneryIndexCache {
             self.isOverlay = isOverlay
             self.hasTerrain = hasTerrain
             self.isPhotoTextured = isPhotoTextured
+            self.imagery = imagery
             self.hasPlugins = hasPlugins
             self.sizeBytes = sizeBytes
             self.modifiedDate = modifiedDate
@@ -50,7 +54,9 @@ public enum SceneryIndexCache {
         let probes: [String: CachedProbe]
     }
 
-    static let version = 3
+    // v4: probes gained `imagery` (#1227) — a v3 entry would reuse a
+    // matching signature and never read it.
+    static let version = 4
 
     /// One cache file per X-Plane root, under the user's Caches directory.
     public static func cacheURL(for root: URL) -> URL {

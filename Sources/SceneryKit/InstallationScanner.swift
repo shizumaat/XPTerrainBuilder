@@ -72,6 +72,7 @@ public struct InstallationScanner {
                     let isOverlay: Bool?
                     let hasTerrain: Bool
                     let isPhotoTextured: Bool
+                    let imagery: PackImagery?
                     let sizeBytes: Int64
                     let modifiedDate: Date?
                     if let cached = cache[url.path], cached.signature == signature {
@@ -81,6 +82,7 @@ public struct InstallationScanner {
                         isOverlay = cached.isOverlay
                         hasTerrain = cached.hasTerrain
                         isPhotoTextured = cached.isPhotoTextured
+                        imagery = cached.imagery
                         sizeBytes = cached.sizeBytes
                         modifiedDate = cached.modifiedDate
                     } else {
@@ -95,6 +97,10 @@ public struct InstallationScanner {
                         let content = terrainAndTextureProbe(contentURL)
                         hasTerrain = content.hasTerrain
                         isPhotoTextured = content.isPhotoTextured
+                        // Ortho4XP-shaped names first; the pack's cfg only
+                        // for photo packs whose names don't parse (#1227).
+                        imagery = content.imagery ?? (content.isPhotoTextured
+                            ? PackImagery.fromConfig(inPack: contentURL) : nil)
                         sizeBytes = stats.sizeBytes
                         modifiedDate = stats.latestModified
                     }
@@ -105,6 +111,7 @@ public struct InstallationScanner {
                         isOverlay: isOverlay,
                         hasTerrain: hasTerrain,
                         isPhotoTextured: isPhotoTextured,
+                        imagery: imagery,
                         hasPlugins: fm.fileExists(
                             atPath: contentURL.appendingPathComponent("plugins").path),
                         signature: signature,
@@ -122,6 +129,7 @@ public struct InstallationScanner {
                     isOverlay: probe.isOverlay,
                     hasTerrain: probe.hasTerrain,
                     isPhotoTextured: probe.isPhotoTextured,
+                    imagery: probe.imagery,
                     hasPlugins: probe.hasPlugins,
                     sizeBytes: probe.sizeBytes,
                     modifiedDate: probe.modifiedDate)
@@ -175,6 +183,7 @@ public struct InstallationScanner {
         let isOverlay: Bool?
         let hasTerrain: Bool
         let isPhotoTextured: Bool
+        let imagery: PackImagery?
         let hasPlugins: Bool
         let signature: String
         let sizeBytes: Int64
@@ -209,6 +218,7 @@ public struct InstallationScanner {
             signature: probe.signature,
             hasTerrain: probe.hasTerrain,
             isPhotoTextured: probe.isPhotoTextured,
+            imagery: probe.imagery,
             hasPlugins: probe.hasPlugins,
             sizeBytes: probe.sizeBytes,
             modifiedDate: probe.modifiedDate,
@@ -266,6 +276,7 @@ public struct InstallationScanner {
                 isOverlay: cached.isOverlay,
                 hasTerrain: cached.hasTerrain,
                 isPhotoTextured: cached.isPhotoTextured,
+                imagery: cached.imagery,
                 hasPlugins: cached.hasPlugins,
                 signature: cached.signature,
                 sizeBytes: cached.sizeBytes,
@@ -470,14 +481,17 @@ public struct InstallationScanner {
     /// SpainUHD keeps the .dds right beside each .ter in terrain/ — while a
     /// plain elevation mesh ships a handful. Name guessing misclassified
     /// packs like z_SpainUHDv2: ortho tiles with no "ortho" in the name.
-    func terrainAndTextureProbe(_ packURL: URL) -> (hasTerrain: Bool, isPhotoTextured: Bool) {
+    func terrainAndTextureProbe(_ packURL: URL)
+        -> (hasTerrain: Bool, isPhotoTextured: Bool, imagery: PackImagery?) {
         var terCount = 0
         var imageCount = 0
+        var names: [String] = []
         let imageSuffixes = [".dds", ".png", ".jpg", ".jpeg"]
         for folder in ["terrain", "textures"] {
             guard let entries = try? fm.contentsOfDirectory(
                 atPath: packURL.appendingPathComponent(folder).path) else { continue }
             for name in entries.prefix(500) {
+                names.append(name)
                 let lower = name.lowercased()
                 if lower.hasSuffix(".ter") { terCount += 1 }
                 if imageSuffixes.contains(where: { lower.hasSuffix($0) }) { imageCount += 1 }
@@ -487,7 +501,7 @@ public struct InstallationScanner {
         // dds beside every ter; Ortho4XP: the same volume in textures/). An
         // elevation mesh has hundreds of .ter sharing a handful of textures.
         let photoTextured = imageCount >= 20 || (imageCount >= 5 && imageCount >= terCount)
-        return (terCount > 0, photoTextured)
+        return (terCount > 0, photoTextured, PackImagery.fromFileNames(names))
     }
 
     /// The pack folder's symlink target as an absolute, standardized URL —

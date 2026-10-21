@@ -26,6 +26,7 @@ from shapely.geometry import LineString, Polygon
 from shapely.ops import nearest_points, unary_union
 from shapely.strtree import STRtree
 
+from ..geom.valid_area import valid_area
 from ..law import Law
 from ..law.tables import role_side
 from ..model.frame import rectangle_axes
@@ -240,6 +241,20 @@ def _is_mouth(face: Polygon, other: Polygon, contact, factor: float,
     return _centreline_mouth(face, contact, factor, roads)
 
 
+def _weld_band(face: Polygon, weld_m: float):
+    """The band ``weld_m`` either side of ``face``'s boundary, VALID.  A
+    cell carries the planar grid's precision model, and a buffer made from
+    it inherits the model: GEOS rounds the offset arcs onto the grid, and
+    where two arcs meet within a cell the band's ring self-crosses —
+    MEASURED #1198 KBLI: a 21,019.8 m2 airside cell's 1 m band
+    self-crossed at (384.225, -298.143) and the contact intersection
+    raised ``side location conflict``.  The band is made from the cell's
+    floating valid area (``geom.valid_area``: the coordinates lie where
+    they lie), so the buffer is exact; repairing the rounded band instead
+    fills its hole (8,763 m2 for 3,556 m2) and is refused."""
+    return valid_area(face).boundary.buffer(weld_m)
+
+
 def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
                        air: list[tuple[Polygon, bool]], weld_m: float,
                        factor: float, cache: dict | None = None,
@@ -266,7 +281,7 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
     lateral = []
     for j in tree.query(face.buffer(weld_m), predicate="intersects"):
         other, other_is_road = air[int(j)]
-        contact = face.boundary.intersection(other.boundary.buffer(weld_m))
+        contact = face.boundary.intersection(_weld_band(other, weld_m))
         if contact.is_empty or contact.length <= 0.0:
             continue
         if _is_mouth(face, other, contact, factor, face_is_road,

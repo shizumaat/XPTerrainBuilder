@@ -131,7 +131,15 @@ def _mouth(comp, rw, line, half: float, inside, rules: Rules):
     """THE ENTRANCE'S MOUTH: the part of ``inside`` between the runway's
     centreline and its shoulder line over the stations ``comp`` meets the
     shoulder line at, on ``comp``'s side — the taxiway carried straight
-    across the shoulder to the runway edge, so it welds to the runway."""
+    across the shoulder to the runway edge, so it welds to the runway.
+
+    The touch tolerance FINDS the seam; it never WIDENS it: the stations
+    are clamped to ``comp``'s own station extent.  MEASURED (EDTK, #1135):
+    the 1 m mitred buffer carried the mouth 0.68 m past the entrance's
+    edge where it abuts a parallel runway's end, carving a sliver off the
+    shoulder there and minting a vertex 0.68 m from that runway's corner —
+    the corner left the shoulder's datum and dropped 1.66 m under it, a
+    ``runway_step`` cliff between the two runways."""
     seam = comp.buffer(rules.cells.on_tol_m, **_MITRE).intersection(line)
     if seam.is_empty:
         return None
@@ -144,7 +152,11 @@ def _mouth(comp, rw, line, half: float, inside, rules: Rules):
     st = [((x - ax) * ux + (y - ay) * uy) for x, y in pts]
     side = sum(-(x - ax) * uy + (y - ay) * ux for x, y in pts)
     t = (1.0 if side >= 0.0 else -1.0) * half
-    s0, s1 = min(st), max(st)
+    own = [((x - ax) * ux + (y - ay) * uy) for g in polygon_parts(comp)
+           for x, y in g.exterior.coords]
+    s0, s1 = max(min(st), min(own)), min(max(st), max(own))
+    if s1 <= s0:
+        return None
     rect = Polygon([(ax + ux * s - uy * tt, ay + uy * s + ux * tt)
                     for s, tt in ((s0, 0.0), (s1, 0.0), (s1, t), (s0, t))])
     m = rect.intersection(inside)

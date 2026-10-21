@@ -1197,26 +1197,26 @@ def _far_below(cc: _t.Sequence[tuple], zero: float, visual_m: float) -> bool:
 def _rests_on_unit(c: _t.Any, cc: _t.Sequence[tuple],
                    others: _t.Iterable[tuple[_t.Any, _t.Sequence[tuple], bool]],
                    zero: float, touch_m: float, visual_m: float) -> bool:
-    """#1140: does this body REST ON ITS UNIT rather than on the ground?
-    Its lowest vertices are no ground contact where another body of its
-    unit stands UNDER it -- that body's feet inside this one's part boxes,
-    or this one's feet inside that body's part boxes (each closed by
+    """#1140: does this body REST ON ITS UNIT rather than on the ground? Its
+    lowest vertices are no ground contact where another body of its unit
+    stands UNDER it -- that body's feet inside this one's part boxes, or
+    this one's feet inside that body's part boxes (each closed by
     ``touch_m``) -- authored more than ``visual_m`` lower, AND that lower
     body's feet stand on their ground at the unit's datum ``zero`` (median
     ``|ground - (zero + y)|`` within ``visual_m``) or itself rests on the
     unit (``rests``: a deck on a deck, read to a fixed point by the
-    caller).  Then the unit's own floor there IS on the ground and this
-    body is a deck of the structure standing on it: its "own ground" is not far below the datum -- it has
-    none -- so it never leaves the unit (2026-10-19aq reads a body that
-    stands ON the ground).  A unit seated above the ground under it (#721,
-    HECA ``T3_14``: its foundation 1.6 m under the leaver, on ground 8 m
-    under the datum) witnesses nothing and its body still leaves.
-    MEASURED KATL ``terminal_F``: five garage and roadway decks (feet y
-    -0.89 ... -10.21 over the unit's floor at -13.03, on its lower level)
-    left the cluster-pad unit and were seated by their own feet,
-    1.55-10.87 m under the terminal.  The candidates of one bind are one
-    anchor family (one authored frame), so their authored heights
-    compare."""
+    caller). Then the unit's own floor there IS on the ground and this
+    body is a deck of the structure standing on it: its "own ground" is
+    not far below the datum -- it has none -- so it never leaves the unit
+    (2026-10-19aq reads a body that stands ON the ground). A unit seated
+    above the ground under it (#721, HECA ``T3_14``: its foundation 1.6 m
+    under the leaver, on ground 8 m under the datum) witnesses nothing and
+    its body still leaves. MEASURED KATL ``terminal_F``: five garage and
+    roadway decks (feet y -0.89 ... -10.21 over the unit's floor at
+    -13.03, on its lower level) left the cluster-pad unit and were seated
+    by their own feet, 1.55-10.87 m under the terminal. The candidates of
+    one bind are one anchor family (one authored frame), so their authored
+    heights compare."""
     if not cc or visual_m <= 0.0:
         return False
     mine = tuple(c.part_boxes or ((c.box,) if c.box else ()))

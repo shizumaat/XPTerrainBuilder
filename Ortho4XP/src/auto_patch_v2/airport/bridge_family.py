@@ -87,6 +87,7 @@ import math as _math
 
 __all__ = ["DeckPrint", "deck_prints", "bridge_of_point", "CONTACT_M",
            "assign_bodies", "body_bridge", "Viaduct", "unit_viaducts", "frame_of", "viaduct_units",
+           "deck_components", "viaduct_of",
            "landing_pieces",
            "census_bridges", "census_bridges_lines", "bridge_tag"]
 
@@ -126,6 +127,8 @@ class DeckPrint:
     #: reads None.
     ys: tuple[tuple[float, float, float], ...] = ()
     _grid: dict = _dc.field(default_factory=dict, repr=False)
+    #: issue #1179: :func:`deck_components`'s memo, per gap
+    _pieces: dict = _dc.field(default_factory=dict, repr=False)
     _ml: float = 1.0
     _mo: float = 1.0
 
@@ -463,6 +466,16 @@ class Viaduct:
     #: the deck's placement frame ``(lat, lon, heading)`` — what a piece
     #: BESIDE the plate must share to be the viaduct's (:func:`frame_of`)
     frame: tuple = ()
+    #: issue #1179: the deck RESOURCE the viaduct is a connected piece of
+    #: (``deck`` is that piece's key — the resource itself where the
+    #: resource's footprint is ONE connected structure)
+    resource: str = ""
+    #: issue #1179: the viaduct's own footprint — ONE connected component
+    #: of the deck's model footprint (:func:`deck_components`)
+    print: _t.Any = _dc.field(default=None, compare=False, repr=False)
+    #: the component is the WHOLE deck footprint: every body of the
+    #: resource is the viaduct's without asking where it stands
+    whole: bool = True
 
 
 def frame_of(m: _t.Any) -> "tuple | None":
@@ -503,9 +516,96 @@ def unit_viaducts(prints: _t.Sequence[DeckPrint], plan: _t.Any,
             prints, plan, lambda q: (plan_wide.get(q.pid) or ("",))[0],
             counts).items()):
         row = rows[uid]
+        res = key.split(_PIECE, 1)[0]
         out[key] = Viaduct(key, p.unit, p.member, uid, float(row[1]),
-                           str(row[2]), str(row[3]), voters, frame)
+                           str(row[2]), str(row[3]), voters, frame,
+                           res, p, key == res)
     return out
+
+
+#: issue #1179: how a connected piece of a deck footprint is keyed —
+#: ``<resource>#<k>``; a footprint that is ONE piece keeps its resource
+_PIECE = "#"
+
+
+def deck_components(p: DeckPrint, gap_m: float = CONTACT_M
+                    ) -> list[DeckPrint]:
+    """issue #1179 (owner RULINGS 2026-10-03e read with 2026-09-13bo): a
+    VIADUCT IS ONE CONNECTED DECK STRUCTURE, NOT A RESOURCE.
+
+    The deck's model footprint split into its CONNECTED pieces —
+    triangles chained where they come within ``gap_m`` of each other in
+    plan (§16e (3)'s contact reach).  A pack that authors one resource
+    across the whole airport (tyres, carts, masts, ground plates under a
+    shared datum) is many structures separated by open ground, and each
+    is claimed — or not — on its own.  A footprint that is ONE piece is
+    returned as itself (key unchanged); otherwise piece ``k`` is keyed
+    ``<resource>#<k>`` in the order of its first triangle.  Memoised on
+    the print."""
+    memo = p._pieces.get(gap_m)                              # noqa: SLF001
+    if memo is not None:
+        return memo
+    n = len(p.tris)
+    root = list(range(n))
+
+    def find(i: int) -> int:
+        while root[i] != i:
+            root[i] = root[root[i]]
+            i = root[i]
+        return i
+    if n > 1:
+        import numpy as np
+        import shapely
+        ml, mo = p._ml, p._mo                                # noqa: SLF001
+        xy = np.array([[(q[0] * ml, q[1] * mo) for q in t] for t in p.tris],
+                      dtype=float)
+        geo = shapely.polygons(np.concatenate([xy, xy[:, :1]], axis=1))
+        tree = shapely.STRtree(geo)
+        a, b = tree.query(geo, predicate="dwithin", distance=float(gap_m))
+        for i, j in zip(a.tolist(), b.tolist()):
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                root[max(ri, rj)] = min(ri, rj)
+    groups: dict[int, list[int]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    if len(groups) <= 1:
+        out = [p]
+    else:
+        out = []
+        for k, idx in enumerate(sorted(groups.values(), key=lambda g: g[0])):
+            tris = tuple(p.tris[i] for i in idx)
+            ys = (tuple(p.ys[i] for i in idx)
+                  if len(p.ys) == len(p.tris) else ())
+            las = [q[0] for t in tris for q in t]
+            los = [q[1] for t in tris for q in t]
+            c = DeckPrint(key=f"{p.key}{_PIECE}{k}", unit=p.unit,
+                          member=p.member,
+                          under_y=(min(y for t in ys for y in t) if ys
+                                   else p.under_y),
+                          box=(min(las), min(los), max(las), max(los)),
+                          tris=tris, ys=ys)
+            c.index()
+            out.append(c)
+    p._pieces[gap_m] = out                                   # noqa: SLF001
+    return out
+
+
+def viaduct_of(vias: "_t.Sequence[Viaduct] | None",
+               parts: _t.Sequence[_t.Any]) -> "Viaduct | None":
+    """issue #1179: WHICH of a deck resource's claimed viaducts a body is
+    a piece of — the WHOLE-footprint viaduct outright (one connected
+    structure: every body of the resource is it), otherwise the first
+    (by key) connected piece whose footprint holds one of the body's
+    parts' plan centres (§16e (3)'s contact reach).  None: the body
+    stands on open ground away from every claimed piece and keeps its
+    own seat."""
+    for v in vias or ():
+        if v.whole or v.print is None:
+            return v
+        if any(v.print.contains(float(q.lat), float(q.lon)) for q in parts):
+            return v
+    return None
 
 
 def viaduct_units(prints: _t.Sequence[DeckPrint], plan: _t.Any,
@@ -541,24 +641,33 @@ def viaduct_units(prints: _t.Sequence[DeckPrint], plan: _t.Any,
         frame = frame_of(plan.units[p.unit].members[p.member])
         if frame is None:
             continue
-        votes: dict[str, int] = {}
+        inside: list = []
         for fr, ui, mi, q, k in keyed:
             if fr != frame or (ui, mi) == (p.unit, p.member):
                 continue
             b = q.box
-            if p.contains(0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])):
-                votes[k] = votes.get(k, 0) + 1
-        votes = {k: v for k, v in votes.items() if total.get(k, 0) > v}
-        if not votes:
+            la, lo = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
+            if p.contains(la, lo):
+                inside.append((la, lo, k))
+        # issue #1179: each CONNECTED piece of the footprint is claimed on
+        # its own — the votes are the parts inside THAT piece
+        pieces = deck_components(p) if inside else [p]
+        for c in pieces:
+            votes: dict[str, int] = {}
+            for la, lo, k in inside:
+                if c is p or c.contains(la, lo):
+                    votes[k] = votes.get(k, 0) + 1
+            votes = {k: v for k, v in votes.items() if total.get(k, 0) > v}
+            if not votes:
+                if counts is not None:
+                    counts["viaduct_decks_free_standing"] = \
+                        counts.get("viaduct_decks_free_standing", 0) + 1
+                continue
+            k = min(votes, key=lambda x: (-votes[x], x))
+            out[c.key] = (k, votes[k], frame, c)
             if counts is not None:
-                counts["viaduct_decks_free_standing"] = \
-                    counts.get("viaduct_decks_free_standing", 0) + 1
-            continue
-        k = min(votes, key=lambda x: (-votes[x], x))
-        out[p.key] = (k, votes[k], frame, p)
-        if counts is not None:
-            counts["viaduct_decks_of_a_unit"] = \
-                counts.get("viaduct_decks_of_a_unit", 0) + 1
+                counts["viaduct_decks_of_a_unit"] = \
+                    counts.get("viaduct_decks_of_a_unit", 0) + 1
     return out
 
 

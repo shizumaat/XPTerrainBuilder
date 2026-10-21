@@ -290,25 +290,32 @@ def seat_viaducts(cands: list, staged: _t.Sequence[_t.Any],
     so whatever rides the deck rides it at the unit's level."""
     if not viaducts or not cands:
         return []
-    from .bridge_family import body_bridge, frame_of
+    from .bridge_family import body_bridge, frame_of, viaduct_of
     by_mi = {st.mi: st for st in staged}
-    mine = {(v.unit, v.member): v for v in viaducts.values()}
+    # issue #1179: a deck resource may be SEVERAL connected structures,
+    # each claimed (or not) on its own — a body is the viaduct's only
+    # where it stands in a claimed piece (``bridge_family.viaduct_of``)
+    mine: dict[tuple, list] = {}
+    by_res: dict[str, list] = {}
+    for _k, w in sorted(viaducts.items()):
+        mine.setdefault((w.unit, w.member), []).append(w)
+        by_res.setdefault(w.resource or w.deck, []).append(w)
     per_v: dict[str, dict[int, list]] = {}
     for ci, c in enumerate(cands):
         st = by_mi.get(c.member)
         if st is None or c.body_class == _ar.BASIN:
             continue
-        v = mine.get((unit_index, c.member))
+        grp = (st.groups[c.group]
+               if 0 <= c.group < len(st.groups) else ())
+        parts = [q for i in grp for q in st.raw[i][0]]
+        v = viaduct_of(mine.get((unit_index, c.member)), parts)
         if v is None:
             if getattr(c.anchor, "unit_seat", False):
                 continue
-            grp = (st.groups[c.group]
-                   if 0 <= c.group < len(st.groups) else ())
             key = body_bridge(getattr(st, "bridge", ()) or (), grp)
-            v = viaducts.get(key) if key else None
+            v = viaduct_of(by_res.get(key), parts) if key else None
             if v is None and beside is not None:
                 fr = frame_of(getattr(st, "m", None))
-                parts = [q for i in grp for q in st.raw[i][0]]
                 v = next((w for _k, w in sorted(viaducts.items())
                           if fr is not None and w.frame == fr
                           and beside(w.deck, parts)), None)

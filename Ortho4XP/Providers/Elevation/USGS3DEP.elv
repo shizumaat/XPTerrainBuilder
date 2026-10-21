@@ -9,6 +9,10 @@
 # airport bounding boxes. Tile-wide "base" sources are the Phase A2 refactor.
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=USA,PRI,VIR,GUM,ASM,MNP
+
 # Named fetch strategy implemented in code (strategy registry in the module).
 access_strategy=tnm_cog
 

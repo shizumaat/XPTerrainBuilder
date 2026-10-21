@@ -6,6 +6,10 @@
 # docs/specs/us-holder-providers-spec.md §3.1/§4; RULINGS 2026-09-30bm.
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=USA
+
 # Strategy: windowed /vsicurl reads straight out of NOAA's dataset VRTs
 # (44,813 Float32 COG tiles, ~5.2 MB each).  NOAA split the tiles over TWO
 # EPSG-named VRTs: the first declares the horizontal CRS only, the second

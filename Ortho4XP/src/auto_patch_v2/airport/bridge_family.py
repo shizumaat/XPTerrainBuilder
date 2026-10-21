@@ -87,6 +87,7 @@ import math as _math
 
 __all__ = ["DeckPrint", "deck_prints", "bridge_of_point", "CONTACT_M",
            "assign_bodies", "body_bridge", "Viaduct", "unit_viaducts", "frame_of", "viaduct_units",
+           "ground_plate_on_relief",
            "deck_components", "viaduct_of",
            "landing_pieces",
            "census_bridges", "census_bridges_lines", "bridge_tag"]
@@ -604,7 +605,9 @@ def frame_of(m: _t.Any) -> "tuple | None":
 
 def unit_viaducts(prints: _t.Sequence[DeckPrint], plan: _t.Any,
                   plan_wide: _t.Mapping[int, tuple],
-                  counts: "dict | None" = None) -> dict[str, Viaduct]:
+                  counts: "dict | None" = None, *,
+                  surface: "_t.Callable[[float, float], float | None] | None"
+                  = None, bar_m: float = 0.0) -> dict[str, Viaduct]:
     """owner RULINGS 2026-10-03e: WHICH DECKS ARE A UNIT'S — derived ONCE
     PER PLAN, keyed by the deck's resource.
 
@@ -619,7 +622,12 @@ def unit_viaducts(prints: _t.Sequence[DeckPrint], plan: _t.Any,
     09-30g (3) — it is not in the result.
 
     A plan without placement origins (``Member.origin`` None, version
-    < 12) names no viaduct: shared origin is the ruling's own evidence."""
+    < 12) names no viaduct: shared origin is the ruling's own evidence.
+
+    owner RULINGS 2026-10-20av (#1179): with ``surface`` (the placement
+    ground) and ``bar_m`` (the visibility bar) a claimed piece that is a
+    GROUND PLATE ON REAL RELIEF (:func:`ground_plate_on_relief`) is no
+    viaduct — it is free-standing and keeps 2026-09-30g (3)."""
     out: dict[str, Viaduct] = {}
     if not prints or not plan_wide:
         return out
@@ -629,12 +637,46 @@ def unit_viaducts(prints: _t.Sequence[DeckPrint], plan: _t.Any,
     for key, (uid, voters, frame, p) in sorted(viaduct_units(
             prints, plan, lambda q: (plan_wide.get(q.pid) or ("",))[0],
             counts).items()):
+        if surface is not None and ground_plate_on_relief(p, surface,
+                                                          bar_m):
+            if counts is not None:
+                counts["viaduct_ground_plates_free_standing"] = \
+                    counts.get("viaduct_ground_plates_free_standing", 0) + 1
+            continue
         row = rows[uid]
         res = key.split(_PIECE, 1)[0]
         out[key] = Viaduct(key, p.unit, p.member, uid, float(row[1]),
                            str(row[2]), str(row[3]), voters, frame,
                            res, p, key == res)
     return out
+
+
+def ground_plate_on_relief(p: DeckPrint,
+                           surface: _t.Callable[[float, float], "float | None"],
+                           bar_m: float) -> bool:
+    """owner RULINGS 2026-10-20av (#1179): A GROUND PLATE ON REAL RELIEF
+    IS FREE-STANDING, NOT A VIADUCT.
+
+    True where the piece is a PLATE AT THE GROUND — its authored surface
+    never rises above its placement's ground (highest ``y`` within
+    ``bar_m`` of 0 or below it: a sheet laid on, or draped down over, the
+    terrain from its datum, never a deck held up on piers) — AND the
+    ground under its footprint (``surface`` at its vertices) varies by
+    more than ``bar_m``: no one level seats it, so each piece on it stands
+    on its own ground.  A print without heights, or with no ground read
+    under it, is no plate.
+
+    MEASURED (LFLL plan replay): the ground sheets a unit claimed author
+    ``y`` from 0 down to -10 m (terrain draped from the pack's datum); the
+    decks a unit rightly carries (#290's ramp, terminal floors at +4 m,
+    concourse roofs) all rise metres above 0."""
+    if bar_m <= 0.0 or not p.tris or len(p.ys) != len(p.tris):
+        return False
+    if max(y for t in p.ys for y in t) > bar_m:
+        return False
+    gz = [g for t in p.tris for q in t
+          for g in (surface(float(q[0]), float(q[1])),) if g is not None]
+    return bool(gz) and max(gz) - min(gz) > bar_m
 
 
 #: issue #1179: how a connected piece of a deck footprint is keyed —

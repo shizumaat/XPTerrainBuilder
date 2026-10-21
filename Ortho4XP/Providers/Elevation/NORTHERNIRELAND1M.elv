@@ -15,6 +15,10 @@
 # source (OpenDataNI's raw DTM downloads are the lead to probe).
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=GBR
 access_strategy=arcgis_lerc_tiles
 
 tile_url_template=https://tiles-eu1.arcgis.com/kswen6BYexuc1SUk/arcgis/rest/services/Full_NI_Elevation/ImageServer/tile/{level}/{row}/{col}

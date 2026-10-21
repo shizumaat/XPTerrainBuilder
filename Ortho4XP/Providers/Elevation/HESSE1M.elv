@@ -8,6 +8,10 @@
 # strategy with the GetCoverage request spelled out.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=DEU
 access_strategy=wcs_kvp
 
 wcs_getcoverage_template=https://inspire-hessen.de/raster/dgm1/ows?SERVICE=WCS&VERSION=2.0.1&REQUEST=GetCoverage&COVERAGEID=he_dgm1&SUBSET=E({xmin},{xmax})&SUBSET=N({ymin},{ymax})&FORMAT=image/tiff

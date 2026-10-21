@@ -8,6 +8,10 @@
 # strategy with metre-named tiles.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=AUT
 access_strategy=tile_grid_http
 
 tile_url_template=https://data.bev.gv.at/download/ALS/DTM/20190915/CRS3035RES50000mN{northing_m}E{easting_m}.tif

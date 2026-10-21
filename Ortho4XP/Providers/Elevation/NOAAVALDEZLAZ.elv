@@ -9,6 +9,10 @@
 # coverage box reaches the airport box; standalone only when pinned
 # (airport_elevation_providers=NOAAVALDEZLAZ).
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=USA
 access_strategy=las_tile_index
 
 # The tile index is the dataset's GeoPackage on NOAA's anonymous S3

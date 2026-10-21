@@ -12,6 +12,10 @@
 
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=BRA
+
 access_strategy=arcgis_lerc_tiles
 
 tile_url_template=https://tiles.arcgis.com/tiles/OlP4dGNtIcnD3RYf/arcgis/rest/services/Painel_de_Monitoramento_3D_Reviver_Centro__23032022__WEL/ImageServer/tile/{level}/{row}/{col}

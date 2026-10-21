@@ -10,6 +10,10 @@
 # national lidar campaign and ranks one notch below PORTUGAL50CM.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=PRT
 access_strategy=authenticated_token_search
 
 search_url=https://cdd.dgterritorio.gov.pt/dgt-be/v1/search

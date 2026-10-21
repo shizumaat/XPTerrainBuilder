@@ -14,6 +14,10 @@
 
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=GBR
+
 access_strategy=os_grid_bucket
 
 bucket_url=https://srsp-open-data.s3.eu-west-2.amazonaws.com

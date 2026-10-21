@@ -2055,6 +2055,8 @@ def warm_airport_insets(icaos, root, lat, lon, prog, *,
     INSETS.ensure_airport_insets(lat, lon, wanted, definitions,
                                  resolution_m, refresh=refresh,
                                  fetch_counter=fetch_counter,
+                                 airport_countries=INSETS._airport_countries(
+                                     dico_airports),
                                  **({"airport_polygons": polygons}
                                     if polygons else {}))
     summary = {"airports": sorted(wanted), "fetch_attempts": fetch_counter[0],

@@ -58,6 +58,8 @@ __all__ = [
     "is_closed",
     "custom_pack_serves",
     "CLOSED_PREFIX",
+    "COUNTRY_KEY",
+    "iso_country",
 ]
 
 #: apt.dat categories that name a land airport (heliports and seaplane
@@ -70,6 +72,24 @@ _KEY_TYPE = {"icao_airport": "icao", "airport": "local_ref"}
 
 #: apt.dat's name prefix for a CLOSED field.
 CLOSED_PREFIX = "[X]"
+
+#: The record key holding the airport's ISO 3166-1 alpha-3 country, read
+#: by the elevation-inset country rule (RULINGS 2026-10-20bc).
+COUNTRY_KEY = "country"
+
+
+def iso_country(text: str) -> str:
+    """The ISO alpha-3 code apt.dat's ``1302 country`` value leads with
+    (``"CAN"``, ``"USA United States"``), or ``""`` when it has none."""
+    token = (str(text or "").split() or [""])[0]
+    return token.upper() if len(token) == 3 and token.isalpha() else ""
+
+
+def _stamp_country(record: dict, entry) -> None:
+    country = iso_country(getattr(entry, "country", ""))
+    if country:
+        record[COUNTRY_KEY] = country
+
 
 #: Marks an entry seeded from apt.dat until a surface claims it.
 SEED_FLAG = "apt_dat_seed"
@@ -250,6 +270,7 @@ def adopt_apt_dat_identities(dico_airports: dict, entries: Iterable,
         if dico_airports[key].get("key_type") != "icao":
             dico_airports[key]["key_type"] = _KEY_TYPE[entry.category]
         _mark_closed(dico_airports[key], entry.code, excluded)
+        _stamp_country(dico_airports[key], entry)
         adopted.add(key)
     others = [k for k in dico_airports if k not in adopted]
     for (key, entry) in _matches_by_overlap(
@@ -267,6 +288,7 @@ def adopt_apt_dat_identities(dico_airports: dict, entries: Iterable,
                   "in apt.dat (" + entry.name + ").")
         record = dico_airports.pop(key)
         _mark_closed(record, entry.code, excluded)
+        _stamp_country(record, entry)
         record["key_type"] = _KEY_TYPE[entry.category]
         if record.get("name", "****") == "****":
             record["name"] = entry.name
@@ -287,6 +309,7 @@ def adopt_apt_dat_identities(dico_airports: dict, entries: Iterable,
             "apron": [], "hangar": [],
             SEED_FLAG: True,
         }
+        _stamp_country(dico_airports[entry.code], entry)
         seeds += 1
     return seeds
 

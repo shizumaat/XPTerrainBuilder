@@ -10,6 +10,10 @@
 # values (UInt16 source).
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=BRA
 access_strategy=tile_grid_http
 
 tile_url_template=https://one.s3.es.gov.br/pr-geobases-public/MAP_ES_2012_2015/MDT/{easting_index}_{northing_index}.img

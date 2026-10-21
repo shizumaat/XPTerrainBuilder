@@ -8,6 +8,10 @@
 # src/O4_Airport_Elevation_Insets.py:initialize_elevation_providers_dict.
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=USA
+
 # Strategy: ONE statewide tile-index FeatureServer layer (EPSG:3857,
 # maxRecordCount 2000), filtered to the best-available tile of each
 # quarter-quad cell; each feature names a TILE (tileid) of a COLLECTION

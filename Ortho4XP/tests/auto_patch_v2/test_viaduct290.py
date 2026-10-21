@@ -378,3 +378,45 @@ def test_only_bodies_of_the_claimed_piece_ride_the_unit():
                - float(cands[0].anchor.y_zero) - U_ZERO) < 1e-9
     assert [cands[1].anchor, cands[2].anchor] == before
     assert counts["viaduct_bodies_seated"] == 1
+
+
+# ── owner RULINGS 2026-10-20av (#1179): a ground plate on real relief ──
+
+def _plate(ys=0.0) -> BF.DeckPrint:
+    """A flat sheet 100 m long laid at its placement's ground (y ``ys``)."""
+    a, b = (40.0, -3.0), (40.0, -2.9998)
+    c, d = (40.0009, -2.9998), (40.0009, -3.0)
+    p = BF.DeckPrint(key="T23/T3_road.obj", unit=0, member=0, under_y=ys,
+                     box=(40.0, -3.0, 40.0009, -2.9998),
+                     tris=((a, b, c), (a, c, d)),
+                     ys=((ys, ys, ys), (ys, ys, ys)))
+    p.index()
+    return p
+
+
+def test_a_ground_plate_on_real_relief_is_free_standing():
+    # 4 m of real relief under a sheet at the ground: no one level seats it
+    assert BF.ground_plate_on_relief(_plate(), _surface, 0.5)
+    # a sheet draped DOWN from its datum over the terrain is a plate too
+    assert BF.ground_plate_on_relief(_plate(-6.0), _surface, 0.5)
+    counts: dict = {}
+    assert BF.unit_viaducts([_plate()], _plan(), _pw(), counts,
+                            surface=_surface, bar_m=0.5) == {}
+    assert counts["viaduct_ground_plates_free_standing"] == 1
+
+
+def test_a_plate_on_flat_ground_or_held_up_stays_a_viaduct():
+    flat = lambda la, lo: 93.1                                  # noqa: E731
+    assert not BF.ground_plate_on_relief(_plate(), flat, 0.5)
+    # a floor held 4 m above its ground is a deck, not a plate
+    assert not BF.ground_plate_on_relief(_plate(4.0), _surface, 0.5)
+    assert set(BF.unit_viaducts([_plate()], _plan(), _pw(), {},
+                                surface=flat, bar_m=0.5)) == {"T23/T3_road.obj"}
+
+
+def test_the_290_ramp_on_real_relief_stays_one_viaduct():
+    # HECA's T23/T3_road: 10 m of ramp over 4 m of ground is a deck
+    assert not BF.ground_plate_on_relief(_ramp(), _surface, 0.5)
+    v = BF.unit_viaducts([_ramp()], _plan(), _pw(), {},
+                         surface=_surface, bar_m=0.5)
+    assert set(v) == {"T23/T3_road.obj"} and v["T23/T3_road.obj"].whole

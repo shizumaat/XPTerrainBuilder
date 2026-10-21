@@ -21,6 +21,10 @@
 
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=GLOBAL
+
 access_strategy=degree_named_cog
 
 url_template=https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_{latitude_token}_00_{longitude_token}_00_DEM/Copernicus_DSM_COG_10_{latitude_token}_00_{longitude_token}_00_DEM.tif

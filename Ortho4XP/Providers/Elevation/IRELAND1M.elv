@@ -10,6 +10,10 @@
 # wall-to-wall; uncovered airports keep the base tier.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=IRL
 access_strategy=arcgis_feature_tiles
 
 catalog_folder_url=https://gsi.geodata.gov.ie/server/rest/services/Lidar

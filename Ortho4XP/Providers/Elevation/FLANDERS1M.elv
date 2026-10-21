@@ -7,6 +7,10 @@
 # in Flanders).  Heights are TAW (Tweede Algemene Waterpassing).
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=BEL
 access_strategy=wcs
 
 wcs_service_url=https://geo.api.vlaanderen.be/DHMV/wcs

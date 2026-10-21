@@ -19,6 +19,10 @@
 # Declarative inset provider, parsed by
 # src/O4_Airport_Elevation_Insets.py:initialize_elevation_providers_dict.
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=USA,PRI,VIR,GUM,ASM,MNP
 access_strategy=tnm_cog
 
 # The TNM Access API listing of the OPR dataset over the inset box (paged:

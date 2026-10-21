@@ -8,6 +8,10 @@
 # (about +/-5 m class) -- still far better than the 90 m base.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=HKG,CHN
 access_strategy=arcgis_lerc_tiles
 
 tile_url_template=https://tiles.arcgis.com/tiles/6j1KwZfY2fZrfNMR/arcgis/rest/services/HK_DTM/ImageServer/tile/{level}/{row}/{col}

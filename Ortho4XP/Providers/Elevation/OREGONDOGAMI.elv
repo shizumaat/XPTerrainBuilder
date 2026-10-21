@@ -11,6 +11,10 @@
 # Declarative inset provider, parsed by
 # src/O4_Airport_Elevation_Insets.py:initialize_elevation_providers_dict.
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=USA
 access_strategy=arcgis_export_image
 export_url=https://gis.dogami.oregon.gov/arcgis/rest/services/lidar/DIGITAL_TERRAIN_MODEL_MOSAIC/ImageServer
 # The request grid is laid in the service's own frame: NAD83(2011) Oregon

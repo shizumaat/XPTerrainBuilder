@@ -238,10 +238,26 @@ def _own_ground_z(grp: _t.Sequence[int], part_boxes: _t.Sequence[_t.Sequence[tup
         [b for i in grp for b in part_boxes[i]]) if part_boxes else (), box)
 
 
+def _piece_base(raw: _t.Sequence[_Raw], grp: _t.Sequence[int]) -> float:
+    """The lowest authored y of one own-ground group: its pieces' own
+    lowest vertices (a terrain-cut piece's ``raw[3]``), else the samples
+    of its written geometry (``raw[6]``), else its parts' bases -- a piece
+    of a long welded component carries the WHOLE component's parts, whose
+    base is the far end's (KLAX's rail: -5.4 m at its ramp, 11-19 m along
+    the viaduct)."""
+    for k in (3, 6):
+        ys = [float(f[2]) for i in grp for f in raw[i][k]]
+        if ys:
+            return min(ys)
+    return min((float(p.base_y) for i in grp for p in raw[i][0]), default=0.0)
+
+
 def own_ground_zeros(groups: _t.Sequence[_t.Sequence[int]],
                      part_boxes: _t.Sequence[_t.Sequence[tuple]],
                      surface: _ar.Surface, touch_m: float,
-                     held: _t.Sequence[float] = ()) -> list["float | None"]:
+                     held: _t.Sequence[float] = (),
+                     elevated: "_t.Sequence[bool] | None" = None
+                     ) -> list["float | None"]:
     """#1146: ONE CONNECTED STRUCTURE TAKES ONE SEAT.  The own-ground
     groups of one member (§16 (3): footless pieces no carrier accepts,
     cut apart by the ground under them) whose part boxes touch within
@@ -252,7 +268,11 @@ def own_ground_zeros(groups: _t.Sequence[_t.Sequence[int]],
     ground's difference (MEASURED KLAX ``People_Mover/Tracks``: 32 pieces
     at 30.01-32.72 m, touching pieces 0.1-1.0 m apart) and the rail read
     broken.  ``None`` for a piece that touches no other (it keeps its own
-    ground); ``touch_m <= 0`` chains nothing.
+    ground); ``touch_m <= 0`` chains nothing.  Only ELEVATED pieces chain
+    (``elevated``: the group's lowest authored y over ``[rebake]
+    elevated_base_m``): a sheet authored at y 0 follows the ground under
+    each piece (MEASURED HECA ``OB-asphalt_3``: chained, its 75 pieces
+    stood up to 1.44 m off their ground).
 
     ``held``: one zero per footprint unit that seats pieces of the member
     (§16g (11), ``_unit_carried_file``).  The member is one rigid file, so
@@ -273,7 +293,8 @@ def own_ground_zeros(groups: _t.Sequence[_t.Sequence[int]],
             a = root[a]
         return a
 
-    hulls = [_pc.hull_of(bs) if bs else None for bs in boxes]
+    hulls = [_pc.hull_of(bs) if bs and (elevated is None or elevated[k]) else None
+             for k, bs in enumerate(boxes)]
     for a in range(n):
         for b in range(a + 1, n):
             if (hulls[a] is None or hulls[b] is None

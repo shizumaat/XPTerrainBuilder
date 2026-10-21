@@ -38,3 +38,10 @@ def test_a_chain_of_a_member_its_units_hold_takes_their_seat():
     got = own_ground_zeros([[0], [1]], part_boxes, lambda la, lo: 30.0, 0.5,
                            held=[32.72, 31.30])
     assert got == [pytest.approx(32.01), pytest.approx(32.01)]
+
+
+def test_a_sheet_on_the_ground_never_chains():
+    part_boxes = [[_box(0, 40)], [_box(40, 80)]]
+    got = own_ground_zeros([[0], [1]], part_boxes, lambda la, lo: 30.0, 0.5,
+                           elevated=[False, False])
+    assert got == [None, None]

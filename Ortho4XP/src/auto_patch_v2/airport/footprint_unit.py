@@ -1062,9 +1062,18 @@ def _bind_plan_wide(cands: list, by_mi: _t.Mapping[int, _t.Any],
             far.append((ci, st, uid, cc))
         per_uid.setdefault(uid, {})[ci] = cc
         info[uid] = (z, where, src)
+    resting: set[int] = set()
+    grew = True
+    while grew:          # a deck on a deck that rests on the unit rests on it
+        grew = False
+        for ci, _st, uid, cc in far:
+            if ci not in resting and _rests_on_unit(
+                    cands[ci], cc, _others(cands, per_uid[uid], ci, resting),
+                    info[uid][0], touch_m, visual_m):
+                resting.add(ci)
+                grew = True
     for ci, st, uid, cc in far:
-        if _rests_on_unit(cands[ci], cc, _others(cands, per_uid[uid], ci),
-                          info[uid][0], touch_m, visual_m):
+        if ci in resting:
             counts["unit_members_kept_resting_on_unit"] = \
                 counts.get("unit_members_kept_resting_on_unit", 0) + 1
             continue
@@ -1186,7 +1195,7 @@ def _far_below(cc: _t.Sequence[tuple], zero: float, visual_m: float) -> bool:
 
 
 def _rests_on_unit(c: _t.Any, cc: _t.Sequence[tuple],
-                   others: _t.Iterable[tuple[_t.Any, _t.Sequence[tuple]]],
+                   others: _t.Iterable[tuple[_t.Any, _t.Sequence[tuple], bool]],
                    zero: float, touch_m: float, visual_m: float) -> bool:
     """#1140: does this body REST ON ITS UNIT rather than on the ground?
     Its lowest vertices are no ground contact where another body of its
@@ -1194,9 +1203,10 @@ def _rests_on_unit(c: _t.Any, cc: _t.Sequence[tuple],
     or this one's feet inside that body's part boxes (each closed by
     ``touch_m``) -- authored more than ``visual_m`` lower, AND that lower
     body's feet stand on their ground at the unit's datum ``zero`` (median
-    ``|ground - (zero + y)|`` within ``visual_m``).  Then the unit's own
-    floor there IS on the ground and this body is a deck of the structure
-    standing on it: its "own ground" is not far below the datum -- it has
+    ``|ground - (zero + y)|`` within ``visual_m``) or itself rests on the
+    unit (``rests``: a deck on a deck, read to a fixed point by the
+    caller).  Then the unit's own floor there IS on the ground and this
+    body is a deck of the structure standing on it: its "own ground" is not far below the datum -- it has
     none -- so it never leaves the unit (2026-10-19aq reads a body that
     stands ON the ground).  A unit seated above the ground under it (#721,
     HECA ``T3_14``: its foundation 1.6 m under the leaver, on ground 8 m
@@ -1220,9 +1230,10 @@ def _rests_on_unit(c: _t.Any, cc: _t.Sequence[tuple],
         return any(b[0] - dla <= q[0] <= b[2] + dla
                    and b[1] - dlo <= q[1] <= b[3] + dlo for b in boxes)
 
-    for o, occ in others:
+    for o, occ, rests in others:
         low = [q for q in occ if q[2] < y_min - visual_m]
-        if not low or _median([abs(q[3] - zero - q[2]) for q in low]) > visual_m:
+        if not low or (not rests and _median([abs(q[3] - zero - q[2])
+                                              for q in low]) > visual_m):
             continue
         theirs = tuple(o.part_boxes or ((o.box,) if o.box else ()))
         if (any(inside(q, mine) for q in low)
@@ -1232,10 +1243,11 @@ def _rests_on_unit(c: _t.Any, cc: _t.Sequence[tuple],
 
 
 def _others(cands: _t.Sequence[_t.Any], per: _t.Mapping[int, _t.Sequence[tuple]],
-            ci: int) -> list[tuple[_t.Any, _t.Sequence[tuple]]]:
-    """``(candidate, its contacts)`` of the unit's candidates in ``per``
-    but ``ci``."""
-    return [(cands[cj], occ) for cj, occ in per.items() if cj != ci]
+            ci: int, resting: _t.AbstractSet[int] = frozenset()
+            ) -> list[tuple[_t.Any, _t.Sequence[tuple], bool]]:
+    """``(candidate, its contacts, does it already rest on the unit)`` of
+    the unit's candidates in ``per`` but ``ci``."""
+    return [(cands[cj], occ, cj in resting) for cj, occ in per.items() if cj != ci]
 
 
 def _leave(cands: list, ci: int, st: _t.Any, uid: str) -> None:

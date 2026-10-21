@@ -7,6 +7,10 @@
 # Vilnius).  EPSG:3346 is the Lithuanian national grid.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=LTU
 access_strategy=wcs_kvp
 
 wcs_getcoverage_template=https://utility.arcgis.com/usrsvcs/servers/fef66dec83c14b0295180ecafa662aa0/rest/services/DTM_LT2020/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=3346&imageSR=3346&format=tiff&pixelType=F32&noData={nodata}&size={width},{height}&f=image

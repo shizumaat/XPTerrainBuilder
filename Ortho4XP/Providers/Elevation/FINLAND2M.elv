@@ -10,6 +10,10 @@
 
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=FIN
+
 access_strategy=stac
 
 discovery_url_template=https://paituli.csc.fi/geoserver/ogc/stac/v1/search

@@ -12,6 +12,7 @@ from elevation_access.gdal_support import osr
 
 __all__ = [
     "EXPORT_IMAGE_FORMATS",
+    "GLOBAL_COUNTRY",
     "ROLE_AIRPORT_INSET",
     "ROLE_BASE",
     "ROLE_BATHYMETRY",
@@ -25,6 +26,9 @@ __all__ = [
     "_parse_float",
     "coverage_boxes",
     "export_image_definition_refusal",
+    "provider_countries",
+    "provider_serves_country",
+    "providers_share_country",
     "transform_bounding_box_to_epsg",
 ]
 
@@ -143,6 +147,59 @@ def _bounding_boxes_intersect(box_a, box_b):
         or north_a < south_b
         or north_b < south_a
     )
+
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc, #1205).  A national or
+# regional provider serves ONLY airports inside its own country, whatever
+# coverage its catalog or box reports; with no provider of the airport's
+# country the inset comes from the highest-resolution GLOBAL source.
+# Every ``role=airport_inset`` ``.elv`` declares ``country=``: ISO 3166-1
+# alpha-3 codes (the codes apt.dat's ``1302 country`` row leads with),
+# comma-separated, or ``GLOBAL``.  A definition without the key (a user's
+# own file) is treated as global -- the shipped set is twin-checked.
+GLOBAL_COUNTRY = "GLOBAL"
+
+
+def provider_countries(definition):
+    """The provider's countries as a frozenset of ISO alpha-3 codes, or
+    ``None`` for a global provider (``country=GLOBAL`` or undeclared)."""
+    value = (definition or {}).get("country")
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, set, frozenset)):
+        tokens = [str(token) for token in value]
+    else:
+        tokens = str(value).split(",")
+    codes = frozenset(token.strip().upper() for token in tokens
+                      if token.strip())
+    if not codes or GLOBAL_COUNTRY in codes:
+        return None
+    return codes
+
+
+def provider_serves_country(definition, country):
+    """May this provider serve an airport in ``country`` (ISO alpha-3)?
+
+    A global provider serves every airport.  An airport whose country is
+    unknown (``None``/``""``: no apt.dat country row) keeps the coverage
+    box as its only test, as before the rule."""
+    countries = provider_countries(definition)
+    if countries is None or not country:
+        return True
+    return str(country).strip().upper() in countries
+
+
+def providers_share_country(member, root):
+    """May ``member`` join ``root``'s resolution ladder?  A national rung
+    joins only a ladder rooted in one of its own countries; a global rung
+    joins any ladder.  (A global root therefore takes no national rung:
+    the airport's own national providers were ranked above it.)"""
+    member_countries = provider_countries(member)
+    if member_countries is None:
+        return True
+    root_countries = provider_countries(root)
+    return root_countries is not None and bool(
+        member_countries & root_countries)
 
 
 _WEB_MERCATOR_HALF_CIRCUMFERENCE = 20037508.342789244

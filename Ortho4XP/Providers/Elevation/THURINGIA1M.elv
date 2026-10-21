@@ -8,6 +8,10 @@
 # 2020-2025 epoch is the newest naming scheme.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=DEU
 access_strategy=tile_grid_http
 
 tile_url_template=https://geoportal.geoportal-th.de/hoehendaten/DGM/dgm_2020-2025/dgm1_32_{easting_km}_{northing_km}_1_th_2020-2025.zip

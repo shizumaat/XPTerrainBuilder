@@ -13,6 +13,10 @@
 # LVGL documents the value semantics (or opens the native DGM1).
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=DEU
 access_strategy=wcs_kvp
 
 wcs_getcoverage_template=https://geoportal.saarland.de/gdi-sl/inspireraster/inspirewcsel?service=WCS&version=2.0.1&request=GetCoverage&coverageId=EL.GridCoverage&subset=x({xmin},{xmax})&subset=y({ymin},{ymax})&format=image/tiff

@@ -13,6 +13,10 @@
 
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=NZL
+
 access_strategy=static_stac
 
 catalog_url=https://nz-elevation.s3-ap-southeast-2.amazonaws.com/catalog.json

@@ -20,6 +20,10 @@
 # src/O4_Airport_Elevation_Insets.py:initialize_elevation_providers_dict.
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=USA
+
 access_strategy=aoi_zip_download
 query_url=https://lidarportal.dnr.wa.gov/query
 download_url=https://lidarportal.dnr.wa.gov/download

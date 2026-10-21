@@ -9,6 +9,10 @@
 # fall through to the base tier.
 
 role=airport_inset
+
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=BRA
 access_strategy=wcs_kvp
 
 wcs_getcoverage_template=https://geocuritiba.ippuc.org.br/server/rest/services/GeoCuritiba/MDT_2019/ImageServer/exportImage?bbox={xmin},{ymin},{xmax},{ymax}&bboxSR=31982&imageSR=31982&format=tiff&pixelType=F32&noData={nodata}&size={width},{height}&f=image

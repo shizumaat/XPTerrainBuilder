@@ -5,6 +5,10 @@
 # 2026-09-30bm.
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=USA
+
 # Strategy: windowed /vsicurl reads out of NOAA's dataset VRT (compound
 # CRS NAD83(2011) / UTM 4N + NAVD88 height, metre; 750 m tiles).
 access_strategy=direct_cog

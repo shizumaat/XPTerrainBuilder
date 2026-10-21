@@ -159,6 +159,8 @@ from elevation_access.definitions import (
     _parse_float,
     coverage_boxes,
     export_image_definition_refusal,
+    provider_serves_country,
+    providers_share_country,
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
@@ -1208,6 +1210,7 @@ def _ladder_rung_definitions(definition, bounding_box_wgs84=None):
         member = elevation_providers_dict[code]
         if (str(member.get("code")) in named
                 or not _is_global_ladder_member(member)
+                or not providers_share_country(member, definition)
                 or not _coverage_bbox_intersects(member,
                                                  bounding_box_wgs84)):
             continue
@@ -4413,6 +4416,31 @@ def _archive_void_inset_record(inset_path, icao, code, reason):
     )
 
 
+def _set_aside_foreign_inset(inset_path, icao, code, country):
+    """Rename aside an inset a provider of ANOTHER country delivered for
+    this airport before the country rule (RULINGS 2026-10-20bc): every
+    disk-driven consumer globs ``*.tif``, so the raster must leave that
+    name.  Evidence, not deletion: ``<name>.out-of-country-<date>``."""
+    suffix = ".out-of-country-" + datetime.date.today().isoformat()
+    moved = False
+    for path in (inset_path, os.path.splitext(inset_path)[0] + ".json"):
+        if not os.path.exists(path):
+            continue
+        try:
+            os.replace(path, path + suffix)
+            moved = True
+        except OSError as error:                         # pragma: no cover
+            UI.vprint(1, "   [inset] could not set aside",
+                      os.path.basename(path), ":", str(error))
+    if moved:
+        UI.vprint(
+            0,
+            "   [inset] %s from %s: the provider serves another country "
+            "than the airport's (%s) - its inset is set aside (%s)."
+            % (icao, code, country, suffix.lstrip(".")),
+        )
+
+
 def ensure_airport_insets(
     lat,
     lon,
@@ -4424,8 +4452,17 @@ def ensure_airport_insets(
     meter_key="airport-insets",
     fetch_failures=None,
     airport_polygons=None,
+    airport_countries=None,
 ):
     """Ensure a cached inset exists for each airport, per provider ranking.
+
+    ``airport_countries`` (optional ``{airport: ISO alpha-3}``, from
+    apt.dat) applies THE COUNTRY RULE (owner RULINGS 2026-10-20bc): a
+    national provider is skipped for an airport of another country -- it
+    is recorded ``no-coverage`` and a raster it delivered there earlier is
+    set aside -- so the ranking falls to the airport's own country's
+    providers, then to the global ones.  An airport with no country keeps
+    the coverage box as its only test.
 
     ``airport_polygons`` (optional ``{airport: shapely geometry}``, the
     aerodrome boundaries :func:`_airport_bounding_boxes` fills) rides the
@@ -4509,9 +4546,15 @@ def ensure_airport_insets(
             recorded_box is not None
             and _bounding_box_extends_beyond(bounding_box, recorded_box)
         )
+        country = (airport_countries or {}).get(icao)
         for definition in provider_definitions:
             code = definition["code"]
             destination = FNAMES.airport_inset_dem(lat, lon, icao, code)
+            if not provider_serves_country(definition, country):
+                _set_aside_foreign_inset(destination, icao, code, country)
+                airport_record[code] = NO_COVERAGE
+                airport_record["checked"] = checked_stamp
+                continue
             # R13-1, BEFORE the cache is consulted: a record whose raster
             # is gone or holds no data is treated as UNFETCHED.  Without
             # this the empty-cut inset is a permanent cache -- the reuse
@@ -5812,6 +5855,15 @@ def _inset_target_resolution_m(definition, target_resolution_m):
     return max(float(target_resolution_m), float(native_resolution_m))
 
 
+def _airport_countries(dico_airports):
+    """``{airport: ISO alpha-3}`` for the airports apt.dat names a country
+    for (``O4_Airport_Apt_Identity`` stamps it on the record)."""
+    return {key: record["country"]
+            for (key, record) in dico_airports.items()
+            if isinstance(key, str) and isinstance(record, dict)
+            and record.get("country")}
+
+
 def ensure_insets_for_tile(tile, dico_airports, refresh=False,
                            meter_key="airport-insets"):
     """Fetch/refresh every airport inset on the tile (step-1 download hook).
@@ -5875,6 +5927,7 @@ def ensure_insets_for_tile(tile, dico_airports, refresh=False,
             refresh=refresh,
             fetch_counter=fetch_counter,
             fetch_failures=fetch_failures,
+            airport_countries=_airport_countries(dico_airports),
             **extra,
             **_footprint_kwargs(airport_boundary_polygons(
                 tile, dico_airports, only=selected), "airport_polygons"),

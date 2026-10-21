@@ -11,6 +11,10 @@
 
 role=airport_inset
 
+# THE COUNTRY RULE (owner RULINGS 2026-10-20bc): ISO 3166-1 alpha-3 codes of
+# the airports this provider may serve (apt.dat 1302 country), or GLOBAL.
+country=URY
+
 access_strategy=geojson_tile_index
 
 index_url=https://catalogodatos.gub.uy/dataset/cd4b81ab-3943-4bc5-8075-bb1fab4bef9c/resource/e33f0906-3b82-4a98-ad83-c9862eb5e86e/download/grilla_mdt_nacional_epsg4326.geojson

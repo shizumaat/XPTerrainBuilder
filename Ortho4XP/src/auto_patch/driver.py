@@ -173,6 +173,7 @@ def describe_auto_patch_failures(failures: list) -> str:
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
 import O4_Tile_Failures as _FAIL
+import O4_Machine_Slots as _SLOTS
 # The ONE derivation site for pack enablement (RULINGS 2026-09-17b).
 import O4_Scenery_Packs as _scenery_packs
 from auto_patch_v2.airport.cifp import xplane_root_from_cifp_path
@@ -1004,7 +1005,11 @@ def _build_write_verify_one(task: dict) -> dict:
     # — still escapes Python and is handled as a dead future in
     # ``_run_build_tasks``.)
     try:
-        return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
+        # ONE machine slot for the whole build (issue #1225): an airport
+        # beyond the session's budget queues here, in a light process,
+        # until a heavy one — of this tile or another — finishes.
+        with _SLOTS.take(1):
+            return _engine_v2.build_write_verify_one_v2(task, _WORKER_DEM)
     except Exception as _e:
         return {"icao": icao, "ok": False, "stage": "build",
                 "engine": _engine_v2.ENGINE_V2, "error": f"[v2] {_e}",
@@ -1247,10 +1252,15 @@ def _run_build_tasks(tasks: list, tile, auto_patched: list,
         import concurrent.futures as _cf
         import multiprocessing as _mp
         import queue as _queue
-        n = _cfg.parallel_airports_worker_count(len(tasks))
+        # The machine budget is shared with every tile of the session
+        # (issue #1225): opened BEFORE the pool so its workers inherit it,
+        # and no tile starts more airport processes than it could run.
+        _slots_cap = _SLOTS.ensure_session()[1]
+        n = min(_cfg.parallel_airports_worker_count(len(tasks)), _slots_cap)
         UI.lvprint(0, "   Auto-patch: building", len(tasks), "airports (" +
                    ", ".join(t["icao"] for t in tasks) +
-                   ") in parallel across", n, "workers.")
+                   ") in parallel across", n, "workers (machine budget:",
+                   _slots_cap, "slots shared by every tile of the session).")
         mgr = None
         try:
             ctx = _mp.get_context("spawn")

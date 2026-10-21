@@ -52,9 +52,11 @@ __all__ = [
 BAND_FULL_FRACTION = 0.5
 
 
-def site_geometry_tile_degrees(record, tile_lat: int, tile_lon: int):
-    """The record's ``gate_ll`` rings as ONE tile-relative geometry, or
-    ``None`` when the record carries no gate."""
+def site_geometry_tile_degrees(record, tile_lat: int, tile_lon: int,
+                               key: str = "gate_ll"):
+    """The record's ``gate_ll`` rings (or another ring list named by
+    ``key`` — ``region_ll``, the plateau's footprint, #1144) as ONE
+    tile-relative geometry, or ``None`` when the record carries none."""
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
 
@@ -63,7 +65,7 @@ def site_geometry_tile_degrees(record, tile_lat: int, tile_lon: int):
                 for lo, la in points]
 
     polys = []
-    for outer, holes in (record.get("gate_ll") or ()):
+    for outer, holes in (record.get(key) or ()):
         if len(outer) < 3:
             continue
         poly = Polygon(_ring(outer), [_ring(h) for h in holes if len(h) >= 3])

@@ -6815,14 +6815,22 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
     centre_latitude = tile.lat + (y0 + y1) / 2.0
     metres_per_degree_longitude = GEO.lon_to_m(centre_latitude)
     metres_per_degree_latitude = GEO.lat_to_m
-    distance_west = (mesh_x - inset.x0) * metres_per_degree_longitude
-    distance_east = (inset.x1 - mesh_x) * metres_per_degree_longitude
-    distance_south = (mesh_y - inset.y0) * metres_per_degree_latitude
-    distance_north = (inset.y1 - mesh_y) * metres_per_degree_latitude
-    distance_to_edge = numpy.minimum(
-        numpy.minimum(distance_west, distance_east),
-        numpy.minimum(distance_south, distance_north),
-    )
+    footprint = getattr(inset, "footprint", None)
+    if footprint is not None:
+        # #1144: a FLAT-SITE plateau feathers from its footprint's own
+        # edge (the airport boundary), never from a rectangle.
+        distance_to_edge = _footprint_edge_distance_m(
+            footprint, mesh_x, mesh_y, feather_m,
+            metres_per_degree_longitude, metres_per_degree_latitude)
+    else:
+        distance_west = (mesh_x - inset.x0) * metres_per_degree_longitude
+        distance_east = (inset.x1 - mesh_x) * metres_per_degree_longitude
+        distance_south = (mesh_y - inset.y0) * metres_per_degree_latitude
+        distance_north = (inset.y1 - mesh_y) * metres_per_degree_latitude
+        distance_to_edge = numpy.minimum(
+            numpy.minimum(distance_west, distance_east),
+            numpy.minimum(distance_south, distance_north),
+        )
     weight = feather_weight(distance_to_edge, feather_m)
     weight = numpy.where(valid, weight, 0.0)
 
@@ -6893,6 +6901,59 @@ def _bake_one_inset(tile, inset_path, feather_m, inset=None,
 # refresh ledger's meaning, so nothing here writes a file -- the value
 # reaches the mesher only through ``tile.dem.alt_dem`` and the tile's own
 # ``.alt`` build product.
+
+
+def _footprint_edge_distance_m(footprint, mesh_x, mesh_y, feather_m,
+                               metres_per_degree_longitude,
+                               metres_per_degree_latitude):
+    """The bake's ``distance_to_edge`` for a FOOTPRINT-shaped inset (#1144).
+
+    R17c-2 with the footprint as the wall line: every post ON the
+    footprint reads ``feather_m`` (full weight), a post outside it reads
+    ``feather_m`` minus its distance to the footprint in metres, so the
+    ramp lies wholly OUTSIDE the footprint and reaches 0 ``feather_m``
+    beyond it.  Distances are taken only for posts within that ring of
+    the footprint's grown copy; everything farther reads ``-1``.
+    """
+    from shapely import affinity, contains_xy, distance, points
+
+    feather = float(feather_m or 0.0)
+    xs = numpy.ravel(mesh_x)
+    ys = numpy.ravel(mesh_y)
+    out = numpy.full(xs.shape, feather, dtype=numpy.float64)
+    inside = contains_xy(footprint, xs, ys)
+    outside = numpy.nonzero(~inside)[0]
+    if len(outside):
+        out[outside] = -1.0
+        if feather > 0:
+            metric = affinity.scale(
+                footprint, metres_per_degree_longitude,
+                metres_per_degree_latitude, origin=(0.0, 0.0))
+            near = outside[contains_xy(
+                metric.buffer(feather), xs[outside]
+                * metres_per_degree_longitude,
+                ys[outside] * metres_per_degree_latitude)]
+            if len(near):
+                out[near] = feather - distance(metric, points(
+                    xs[near] * metres_per_degree_longitude,
+                    ys[near] * metres_per_degree_latitude))
+    return out.reshape(numpy.shape(mesh_x))
+
+
+def _grow_footprint(tile, footprint, feather_m):
+    """``footprint ⊕ feather_m`` in tile-relative degrees, grown in METRES
+    (R17c-2: the raster reaches ``feather_m`` past the wall line so the
+    whole ramp lands outside it)."""
+    if not feather_m or feather_m <= 0:
+        return footprint
+    from shapely import affinity
+
+    _minx, miny, _maxx, maxy = footprint.bounds
+    lon_m = GEO.lon_to_m(tile.lat + (miny + maxy) / 2.0) or GEO.lat_to_m
+    lat_m = GEO.lat_to_m
+    metric = affinity.scale(footprint, lon_m, lat_m, origin=(0.0, 0.0))
+    return affinity.scale(metric.buffer(float(feather_m)), 1.0 / lon_m,
+                          1.0 / lat_m, origin=(0.0, 0.0))
 
 
 def _feather_outward_extent(tile, x0, y0, x1, y1, feather_m):
@@ -6998,7 +7059,8 @@ class _MaskedConstantInset(_ConstantInset):
     """
 
     def __init__(self, polygon, elevation_m, x_step, y_step, *, label=None,
-                 nodata=-32768.0, base_reader=None, band_m=None, bounds=None):
+                 nodata=-32768.0, base_reader=None, band_m=None, bounds=None,
+                 footprint=None):
         # ``bounds`` pins the RECTANGLE (2026-09-09o (2)): the flat-site
         # water cut hands in a polygon that may not reach its own
         # rectangle's corners, and the bake's feather is driven from the
@@ -7023,6 +7085,9 @@ class _MaskedConstantInset(_ConstantInset):
             mask = self._within_band(mask, base_reader, float(band_m))
         self.alt_dem[mask] = numpy.float32(self.elevation_m)
         self.mask_valid_posts = int(mask.sum())
+        # #1144: the FLAT-SITE plateau's wall line — the bake feathers
+        # outward from it (``_footprint_edge_distance_m``).
+        self.footprint = footprint
 
     def _within_band(self, mask, base_reader, band_m):
         """R21 datum band — grade only ground already NEAR Z0.
@@ -7082,47 +7147,55 @@ class _MaskedConstantInset(_ConstantInset):
         return numpy.array(image, dtype=bool)
 
 
-def _flat_site_inset(tile, extent_deg, z0_m, feather_m, label, water):
-    """The synthetic flat-site raster for one rectangle — WATER CUT OUT.
+def _flat_site_inset(tile, footprint, z0_m, feather_m, label, water):
+    """The synthetic flat-site raster over one FOOTPRINT — WATER CUT OUT.
 
-    Owner RULINGS 2026-09-09m, mechanism 09o (2).  ``water`` is the
-    tile's water geometry (``auto_patch.flat_site_mode.water_cutout``,
-    tile-relative) or ``None``.  With no water over the rectangle this
-    returns exactly the ``_ConstantInset`` the pre-change code built, so
-    an inland airport (CYXY, HECA, LEMD) is untouched; with water it
-    returns a ``_MaskedConstantInset`` over ``rectangle − water``,
-    pinned to the SAME rectangle so the bake's feather does not move.
+    Owner RULINGS 2026-10-20ag (#1144): the plateau follows the airport
+    boundary, never a box.  ``footprint`` (tile-relative degrees) is the
+    decision record's region — pavement ∪ runways ∪ boundary ⊕ margin —
+    or one claimed-object cluster's hull ⊕ margin; the raster covers it
+    grown by ``feather_m`` (R17c-2, :func:`_grow_footprint`) and the bake
+    feathers outward from the footprint's own edge.  RULINGS 2026-09-09m,
+    09o (2): ``water`` (``auto_patch.flat_site_mode.water_cutout``,
+    tile-relative, or ``None``) is cut out, a hard sea wall.
 
-    Returns ``(inset, water_cut_frac)`` — the fraction of the rectangle
-    the water removed (``0.0`` when none), for the provenance stamp.
+    Returns ``(inset, water_cut_frac)`` — the fraction of the grown
+    footprint the water removed (``0.0`` when none), for the provenance
+    stamp — or ``(None, 1.0)`` when nothing is left.
     """
-    rect = _feather_outward_extent(tile, *extent_deg, feather_m)
-    if water is None or water.is_empty:
-        return _ConstantInset(*rect, z0_m, label=label), 0.0
-    from shapely import geometry as _geometry
-
-    box = _geometry.box(*rect)
-    try:
-        if not water.intersects(box):
-            return _ConstantInset(*rect, z0_m, label=label), 0.0
-        land = box.difference(water)
-    except Exception:                                      # pragma: no cover
-        return _ConstantInset(*rect, z0_m, label=label), 0.0
+    grown = _grow_footprint(tile, footprint, feather_m)
+    land = grown
+    if water is not None and not water.is_empty:
+        try:
+            if water.intersects(grown):
+                land = grown.difference(water)
+        except Exception:                                  # pragma: no cover
+            land = grown
     if land.is_empty:
         return None, 1.0
-    frac = 0.0 if box.area <= 0 else float(1.0 - land.area / box.area)
-    if frac < 1e-6:
-        return _ConstantInset(*rect, z0_m, label=label), 0.0
+    frac = 0.0 if grown.area <= 0 else float(1.0 - land.area / grown.area)
     base_dem = tile.dem
     x_step = ((base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
               if base_dem.nxdem > 1 else 0.0)
     y_step = ((base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
               if base_dem.nydem > 1 else 0.0)
     inset = _MaskedConstantInset(land, z0_m, x_step, y_step, label=label,
-                                 bounds=rect)
+                                 bounds=grown.bounds, footprint=footprint)
     if not inset.mask_valid_posts:                         # pragma: no cover
         return None, 1.0
-    return inset, round(frac, 4)
+    return inset, (round(frac, 4) if frac >= 1e-6 else 0.0)
+
+
+def _footprint_of(entry):
+    """A substitution's (or cluster's) plateau footprint: its
+    ``footprint_deg`` polygon, or — for a caller that hands only a box —
+    that box."""
+    footprint = entry.get("footprint_deg")
+    if footprint is not None and not footprint.is_empty:
+        return footprint
+    from shapely import geometry
+
+    return geometry.box(*entry["extent_deg"])
 
 
 def _bake_island_continuity(tile, stamped, feather_m):
@@ -7290,7 +7363,9 @@ def _restore_off_site_relief(tile, relief_before, record, z0_m, icao):
 
 
 def overlay_flat_site_insets(tile, dico_airports=None):
-    """Blend a constant-Z0 inset over every flat airport on the tile.
+    """Blend a constant-Z0 inset over every flat airport's FOOTPRINT
+    (its boundary ⊕ margin, and each claimed-object cluster's hull ⊕
+    margin — never a box, RULINGS 2026-10-20ag / #1144).
 
     THE DEM-ASSEMBLY STEP (spec section 2.1), called by
     ``O4_Airport_Utils.smooth_raster_over_airports`` on EVERY build --
@@ -7371,14 +7446,14 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         # #1137: the honest surface under every rectangle this airport is
         # about to bake, for the off-site relief rule after its clusters.
         relief_before = FLAT_SITE_RELIEF.snapshot_window(base_dem, [
-            _feather_outward_extent(tile, *box, feather_m)
-            for box in [substitution["extent_deg"]] + [
-                cluster["extent_deg"]
-                for cluster in (substitution.get("object_clusters") or ())]])
+            _feather_outward_extent(tile, *_footprint_of(entry).bounds,
+                                    feather_m)
+            for entry in [substitution] + list(
+                substitution.get("object_clusters") or ())])
         # #945: the airport's OWN pavement over water (a viaduct taxiway)
         # is land for this cut, exactly as the decision record reads it.
         inset, water_frac = _flat_site_inset(
-            tile, (x0, y0, x1, y1), substitution["z0_m"], feather_m,
+            tile, _footprint_of(substitution), substitution["z0_m"], feather_m,
             "%s synthetic flat-site inset" % icao,
             FLAT_SITE_MODE.water_beside_site(
                 water, record, int(math.floor(tile.lat)),
@@ -7459,13 +7534,13 @@ def overlay_flat_site_insets(tile, dico_airports=None):
             # channel this law already refuses to span must not be
             # flattened from either side.
             cluster_inset, cluster_water_frac = _flat_site_inset(
-                tile, (cx0, cy0, cx1, cy1), substitution["z0_m"], feather_m,
+                tile, _footprint_of(cluster), substitution["z0_m"], feather_m,
                 "%s synthetic flat-site object-cluster inset" % icao, water)
             cluster["water_cut_frac"] = float(cluster_water_frac)
             if cluster_inset is None:
                 UI.vprint(
                     0,
-                    "   [flat-site] %s: a claimed-object cluster rectangle is "
+                    "   [flat-site] %s: a claimed-object cluster footprint is "
                     "entirely WATER — not substituted." % icao)
                 continue
             try:

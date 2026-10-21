@@ -336,6 +336,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # derived once per plan; their whole viaduct rides the unit's level
     _viaducts = _bf.unit_viaducts(prints, plan, _pw, counts) if _pw else {}
     _deck_by_key = {p.key: p for p in prints}
+    # issue #1179: a viaduct is ONE connected piece of its deck's footprint
+    _deck_by_key.update({k: v.print for k, v in _viaducts.items()
+                         if v.print is not None})
 
     # issue #31: the §16g unit footprints a FOOTLESS piece with no footed
     # carrier is asked against — built ONCE, and only if one asks, so a
@@ -583,7 +586,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 plan, ui, staged, cands, _cut29q,
                 contacts=unit_pairs.get(ui, ()), counts=counts)
             forced.update(_rides29q)
-        def _viaduct_carrier(st, grp, ui_, cands_):
+        def _viaduct_carrier(st, grp, ui_, cands_, staged_):
             fr = _bf.frame_of(st.m)
             if fr is None or st.m.deck_kind in ("flag", "signature"):
                 return None
@@ -595,6 +598,15 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                    deck_edge_m):
                     continue
                 dc = [c for c in cands_ if c.member == v.member]
+                if not v.whole:
+                    # issue #1179: the deck body of THIS connected piece
+                    _sd = next((s_ for s_ in staged_ if s_.mi == v.member),
+                               None)
+                    dc = [c for c in dc if _sd is not None
+                          and 0 <= c.group < len(_sd.groups)
+                          and _bf.viaduct_of([v], [
+                              q for i in _sd.groups[c.group]
+                              for q in _sd.raw[i][0]]) is v]
                 if not dc:
                     continue
                 counts["viaduct_riders_to_deck"] = \
@@ -790,7 +802,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 # ``_deck_rider``) — rides the deck, whatever else the
                 # search found to rest on (a sidewalk beside the ramp)
                 if _viaducts and over:
-                    _vd = _viaduct_carrier(st, grp, ui, cands)
+                    _vd = _viaduct_carrier(st, grp, ui, cands, staged)
                     if _vd is not None:
                         over = [_vd]
                 # issue #10 [HECA-5]: a UNIT'S CONTENTS RIDE THE UNIT — a

@@ -132,6 +132,8 @@ REMEDIES = {
     "unmounted_output": "{connect} and build the tile again, or remove the "
                         "link to build on this computer's drive.",
     "unmounted_pack": "{connect} and build the tile again.",
+    "elevation_link": "{connect}, or replace the link with an empty "
+                      "folder, then build the tile again.",
 }
 
 UNMAPPED = "unexpected_error"          # an exception nobody catalogued
@@ -300,6 +302,12 @@ CATALOGUE = {
         "its folder in Custom Scenery could not be reached.",
         "“{link_name}” is a link to “{target}”, {missing}.",
         "unmounted_output"),
+    # ...the tile's elevation bucket folder is such a link (#1167): the
+    # link is the user's, so the remedy names it and nothing removes it
+    "elevation_link_broken": Entry(
+        "its elevation data folder could not be reached.",
+        "“{link_name}” is a link to “{target}”, {missing}.",
+        "elevation_link"),
     # ...and a pack the build only READS: the tile builds, the airport is
     # graded from X-Plane's own data (the #564 "built, but" path)
     "airport_pack_unmounted": Entry(
@@ -408,6 +416,7 @@ EXCEPTION_CODES = {
     "Superseded": UNMAPPED,
     # O4_Unmounted_Links (#668) names its code with ``failure_code``
     "UnmountedLink": "output_link_unmounted",
+    "ElevationLinkBroken": "elevation_link_broken",
     "LoginError": UNMAPPED,
     "CredentialStoreUnavailable": UNMAPPED,
     # O4_Flight_Plan (#829): a plan the "Select from flight plan" dialog

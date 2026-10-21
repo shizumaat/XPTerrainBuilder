@@ -100,6 +100,11 @@ CONTACT_M = 0.5
 #: triangle whose cell the query shares is tested exactly.
 _CELL_M = 25.0
 
+#: :meth:`DeckPrint.contains_many`'s candidate-box margin, in degrees
+#: (~0.1 mm): far above the barycentric test's rounding at a few 1e-14
+#: degrees, so no triangle :meth:`DeckPrint.contains` accepts is missed.
+_BOX_EPS_DEG = 1e-9
+
 
 @_dc.dataclass
 class DeckPrint:
@@ -129,6 +134,10 @@ class DeckPrint:
     _grid: dict = _dc.field(default_factory=dict, repr=False)
     #: issue #1179: :func:`deck_components`'s memo, per gap
     _pieces: dict = _dc.field(default_factory=dict, repr=False)
+    #: issue #1213: :meth:`contains_many`'s triangle-box tree, built once
+    _boxes: list = _dc.field(default_factory=list, repr=False)
+    #: issue #1213: each triangle's cell range (None: ``"big"``), as indexed
+    _cells: list = _dc.field(default_factory=list, repr=False)
     _ml: float = 1.0
     _mo: float = 1.0
 
@@ -153,7 +162,9 @@ class DeckPrint:
             j1 = int(max(q[1] for q in t) * self._mo // c)
             if (i1 - i0 + 1) * (j1 - j0 + 1) > 4096:
                 self._grid.setdefault(("big",), []).append(k)
+                self._cells.append(None)
                 continue
+            self._cells.append((i0, i1, j0, j1))
             for i in range(i0, i1 + 1):
                 for j in range(j0, j1 + 1):
                     self._grid.setdefault((i, j), []).append(k)
@@ -162,33 +173,121 @@ class DeckPrint:
         """Is this point inside the deck's footprint, or within ``tol_m``
         of it?  Exact point-in-triangle over the deck's own mesh — the
         polygon §16e (3) names, never its bbox."""
-        if not self.tris:
+        if not self.tris or self._off_box(lat, lon, tol_m):
             return False
-        pad_la = tol_m / self._ml if self._ml else 0.0
-        pad_lo = tol_m / self._mo if self._mo else 0.0
-        if (lat < self.box[0] - pad_la or lat > self.box[2] + pad_la
-                or lon < self.box[1] - pad_lo or lon > self.box[3] + pad_lo):
-            return False
+        return self._contains_near(lat, lon, tol_m,
+                                   self._near(lat, lon, tol_m))
+
+    def contains_many(self, lats: _t.Sequence[float], lons: _t.Sequence[float],
+                      tol_m: float = CONTACT_M) -> list[bool]:
+        """:meth:`contains` for a batch of points — the SAME booleans
+        (issue #1213: KMCI's 77 k part centres against 49 deck prints, one
+        Python cell walk each, ran 25+ min); see :meth:`_near_many`."""
+        out = [False] * len(lats)
+        for i, near in self._near_many(lats, lons, tol_m).items():
+            out[i] = self._contains_near(float(lats[i]), float(lons[i]),
+                                         tol_m, near)
+        return out
+
+    def _off_box(self, lat: float, lon: float, reach_m: float) -> bool:
+        pad_la = reach_m / self._ml if self._ml else 0.0
+        pad_lo = reach_m / self._mo if self._mo else 0.0
+        return (lat < self.box[0] - pad_la or lat > self.box[2] + pad_la
+                or lon < self.box[1] - pad_lo or lon > self.box[3] + pad_lo)
+
+    def _keys(self, lat: float, lon: float, reach_m: float) -> list:
+        """The grid keys a query at the point walks, in walk order.
+
+        THE NEIGHBOURING CELLS TOO, whenever there is a reach to serve: a
+        point ``reach_m`` OUTSIDE the plate can fall in a cell no triangle
+        was bucketed in, and the 0.5 m reach then never ran at all (caught
+        by this module's own twin).  The reach is a half metre against a
+        25 m cell, so one ring of neighbours is exact."""
         c = _CELL_M
-        # THE NEIGHBOURING CELLS TOO, whenever there is a reach to serve:
-        # a point ``tol_m`` OUTSIDE the plate can fall in a cell no
-        # triangle was bucketed in, and the 0.5 m reach then never ran at
-        # all (caught by this module's own twin).  ``tol_m`` is a half
-        # metre against a 25 m cell, so one ring of neighbours is exact.
         ci = int(lat * self._ml // c)
         cj = int(lon * self._mo // c)
-        keys: list = [("big",)]
-        rng = (0,) if tol_m <= 0.0 else (0, -1, 1)
-        for di in rng:
-            for dj in rng:
-                keys.append((ci + di, cj + dj))
+        rng = (0,) if reach_m <= 0.0 else (0, -1, 1)
+        return [("big",)] + [(ci + di, cj + dj) for di in rng for dj in rng]
+
+    def _near(self, lat: float, lon: float, reach_m: float) -> list[int]:
+        """The triangles of the point's cells, in walk order, once each."""
         seen: set[int] = set()
         near: list[int] = []
-        for k in keys:
+        for k in self._keys(lat, lon, reach_m):
             for q in self._grid.get(k, ()):  # noqa: SIM118
                 if q not in seen:
                     seen.add(q)
                     near.append(q)
+        return near
+
+    def _near_many(self, lats: _t.Sequence[float], lons: _t.Sequence[float],
+                   reach_m: float) -> dict[int, list[int]]:
+        """issue #1213: :meth:`_near` for a batch, cut to the triangles
+        that can answer — ``{point index: triangles}`` for every point on
+        the padded box.  ONE STRtree query over the triangles' plan boxes,
+        each padded by ``reach_m`` and :data:`_BOX_EPS_DEG` (the
+        barycentric rounding), yields a superset of every triangle that
+        holds the point or comes within the reach of it; each point keeps
+        those of its candidates :meth:`_near` walks, IN ITS WALK ORDER
+        (``top_at``'s reach breaks a tie by that order), so the answer is
+        the per-point one triangle for triangle."""
+        n = len(lats)
+        if not self.tris or not n:
+            return {}
+        if len(self._cells) != len(self.tris):            # never indexed
+            return {i: self._near(float(lats[i]), float(lons[i]), reach_m)
+                    for i in range(n)
+                    if not self._off_box(float(lats[i]), float(lons[i]),
+                                         reach_m)}
+        import numpy as np
+        import shapely
+        la = np.asarray(lats, dtype=float)
+        lo = np.asarray(lons, dtype=float)
+        pad_la = reach_m / self._ml if self._ml else 0.0
+        pad_lo = reach_m / self._mo if self._mo else 0.0
+        live = np.nonzero(~((la < self.box[0] - pad_la)
+                            | (la > self.box[2] + pad_la)
+                            | (lo < self.box[1] - pad_lo)
+                            | (lo > self.box[3] + pad_lo)))[0]
+        out: dict[int, list[int]] = {int(i): [] for i in live.tolist()}
+        if not live.size:
+            return out
+        if not self._boxes:
+            t = np.asarray(self.tris, dtype=float)          # (n, 3, 2)
+            self._boxes.append(shapely.STRtree(shapely.box(
+                t[:, :, 1].min(axis=1), t[:, :, 0].min(axis=1),
+                t[:, :, 1].max(axis=1), t[:, :, 0].max(axis=1))))
+        r = max(reach_m, 0.0)
+        e_la = (r / self._ml if self._ml else 0.0) + _BOX_EPS_DEG
+        e_lo = (r / self._mo if self._mo else 0.0) + _BOX_EPS_DEG
+        qi, ti = self._boxes[0].query(shapely.box(
+            lo[live] - e_lo, la[live] - e_la, lo[live] + e_lo, la[live] + e_la))
+        for i, q in zip(live[qi].tolist(), ti.tolist()):
+            out[i].append(q)
+        for i, qs in out.items():
+            keys = self._keys(float(lats[i]), float(lons[i]), reach_m)
+            ranked = []
+            for q in qs:
+                rk = self._walk_rank(q, keys)
+                if rk is not None:
+                    ranked.append((rk, q))
+            ranked.sort()
+            out[i] = [q for _r, q in ranked]
+        return out
+
+    def _walk_rank(self, q: int, keys: list) -> "int | None":
+        """The first of ``keys`` whose cell bucket holds triangle ``q``."""
+        cr = self._cells[q]
+        if cr is None:
+            return 0
+        i0, i1, j0, j1 = cr
+        for r, k in enumerate(keys[1:], 1):
+            if i0 <= k[0] <= i1 and j0 <= k[1] <= j1:
+                return r
+        return None
+
+    def _contains_near(self, lat: float, lon: float, tol_m: float,
+                       near: _t.Sequence[int]) -> bool:
         if not near and tol_m <= 0.0:
             return False
         for q in near:
@@ -204,7 +303,6 @@ class DeckPrint:
                 return True
         return False
 
-
     def top_at(self, lat: float, lon: float,
                reach_m: float = 0.0) -> "float | None":
         """issue #290: the deck's authored SURFACE height at a plan point
@@ -214,25 +312,25 @@ class DeckPrint:
         but within ``reach_m`` of one (a parapet or lamp post set on the
         deck's edge) reads that nearest triangle's nearest vertex.
         ``None`` beyond it, or for a print with no heights."""
+        if (not self.tris or len(self.ys) != len(self.tris)
+                or self._off_box(lat, lon, reach_m)):
+            return None
+        return self._top_near(lat, lon, reach_m, self._near(lat, lon, reach_m))
+
+    def top_at_many(self, lats: _t.Sequence[float], lons: _t.Sequence[float],
+                    reach_m: float = 0.0) -> "list[float | None]":
+        """:meth:`top_at` for a batch of points, value for value (issue
+        #1213; :meth:`_near_many`)."""
+        out: "list[float | None]" = [None] * len(lats)
         if not self.tris or len(self.ys) != len(self.tris):
-            return None
-        pad_la = reach_m / self._ml if self._ml else 0.0
-        pad_lo = reach_m / self._mo if self._mo else 0.0
-        if (lat < self.box[0] - pad_la or lat > self.box[2] + pad_la
-                or lon < self.box[1] - pad_lo or lon > self.box[3] + pad_lo):
-            return None
-        c = _CELL_M
-        ci = int(lat * self._ml // c)
-        cj = int(lon * self._mo // c)
-        rng = (0,) if reach_m <= 0.0 else (0, -1, 1)
-        keys = [("big",)] + [(ci + di, cj + dj) for di in rng for dj in rng]
-        near: list[int] = []
-        seen: set[int] = set()
-        for k in keys:
-            for q in self._grid.get(k, ()):
-                if q not in seen:
-                    seen.add(q)
-                    near.append(q)
+            return out
+        for i, near in self._near_many(lats, lons, reach_m).items():
+            out[i] = self._top_near(float(lats[i]), float(lons[i]), reach_m,
+                                    near)
+        return out
+
+    def _top_near(self, lat: float, lon: float, reach_m: float,
+                  near: _t.Sequence[int]) -> "float | None":
         best: "float | None" = None
         for q in near:
             w = _bary(self.tris[q], lat, lon)
@@ -390,7 +488,14 @@ def bridge_of_point(prints: _t.Sequence[DeckPrint], lat: float, lon: float,
     rest-on reading, which is what "the deck it is under" means when two
     decks overlap in plan.  With no top to read, the LOWER underside
     wins (the deck a body between two of them is under)."""
-    hits = [p for p in prints if p.contains(lat, lon, tol_m)]
+    return _pick_bridge([p for p in prints if p.contains(lat, lon, tol_m)],
+                        top_y)
+
+
+def _pick_bridge(hits: _t.Sequence[DeckPrint],
+                 top_y: "float | None") -> "DeckPrint | None":
+    """:func:`bridge_of_point`'s choice among the prints that hold the
+    point (in ``prints`` order)."""
     if not hits:
         return None
     if len(hits) == 1:
@@ -415,6 +520,9 @@ def assign_bodies(prints: _t.Sequence[DeckPrint], staged: _t.Sequence,
     if not prints:
         return
     from .placement_carrier import hull_of
+    # issue #1213: every body centre of the call in ONE batch per print
+    # (:meth:`DeckPrint.contains_many`), then :func:`bridge_of_point`'s pick
+    at: list = []
     for st in staged:
         st.bridge = [""] * len(st.raw)
         for bi in range(len(st.raw)):
@@ -423,11 +531,17 @@ def assign_bodies(prints: _t.Sequence[DeckPrint], staged: _t.Sequence,
                 continue
             tp = (max(st.part_tops[bi])
                   if bi < len(st.part_tops) and st.part_tops[bi] else None)
-            hit = bridge_of_point(prints, 0.5 * (bx[0] + bx[2]),
-                                  0.5 * (bx[1] + bx[3]), tp, CONTACT_M)
-            if hit is not None:
-                st.bridge[bi] = hit.key
-                counts["bridge_bodies"] = counts.get("bridge_bodies", 0) + 1
+            at.append((st, bi, 0.5 * (bx[0] + bx[2]), 0.5 * (bx[1] + bx[3]),
+                       tp))
+    if not at:
+        return
+    las, los = [e[2] for e in at], [e[3] for e in at]
+    held = [p.contains_many(las, los, CONTACT_M) for p in prints]
+    for i, (st, bi, _la, _lo, tp) in enumerate(at):
+        hit = _pick_bridge([p for p, h in zip(prints, held) if h[i]], tp)
+        if hit is not None:
+            st.bridge[bi] = hit.key
+            counts["bridge_bodies"] = counts.get("bridge_bodies", 0) + 1
 
 
 def body_bridge(bridge: _t.Sequence[str], grp: _t.Sequence[int]) -> str:
@@ -546,29 +660,10 @@ def deck_components(p: DeckPrint, gap_m: float = CONTACT_M
     if memo is not None:
         return memo
     n = len(p.tris)
-    root = list(range(n))
-
-    def find(i: int) -> int:
-        while root[i] != i:
-            root[i] = root[root[i]]
-            i = root[i]
-        return i
-    if n > 1:
-        import numpy as np
-        import shapely
-        ml, mo = p._ml, p._mo                                # noqa: SLF001
-        xy = np.array([[(q[0] * ml, q[1] * mo) for q in t] for t in p.tris],
-                      dtype=float)
-        geo = shapely.polygons(np.concatenate([xy, xy[:, :1]], axis=1))
-        tree = shapely.STRtree(geo)
-        a, b = tree.query(geo, predicate="dwithin", distance=float(gap_m))
-        for i, j in zip(a.tolist(), b.tolist()):
-            ri, rj = find(i), find(j)
-            if ri != rj:
-                root[max(ri, rj)] = min(ri, rj)
+    lab = _touch_components(p, float(gap_m)) if n > 1 else [0] * n
     groups: dict[int, list[int]] = {}
     for i in range(n):
-        groups.setdefault(find(i), []).append(i)
+        groups.setdefault(lab[i], []).append(i)
     if len(groups) <= 1:
         out = [p]
     else:
@@ -591,6 +686,96 @@ def deck_components(p: DeckPrint, gap_m: float = CONTACT_M
     return out
 
 
+def _first_per_key(key, k: int):
+    """Indices of the first ``k`` entries (in order) of each distinct
+    ``key`` value."""
+    import numpy as np
+    order = np.argsort(key, kind="stable")
+    ks = key[order]
+    start = np.r_[0, np.nonzero(ks[1:] != ks[:-1])[0] + 1]
+    rank = np.arange(ks.size) - np.repeat(start, np.diff(np.r_[start, ks.size]))
+    return np.sort(order[rank < k])
+
+
+def _touch_components(p: DeckPrint, gap_m: float) -> list[int]:
+    """The component label of each triangle of ``p`` — triangles chained
+    where they come within ``gap_m`` in plan (GEOS ``dwithin``, the
+    predicate :func:`deck_components` always read).
+
+    issue #1213: the SAME PARTITION as testing every pair, at a fraction
+    of the cost (KMCI's 325 k-triangle steel frame: 373 M box-near pairs,
+    222 s).  Triangles sharing a vertex (the same plan coordinate) touch,
+    so they are chained first with no test.  The box-near pairs are then
+    read in source CHUNKS, and a pair is tested only while its two
+    triangles are still in different components — one pair per component
+    pair in the first round (4, 16, ... after), the components re-read
+    after each round's unions — so
+    a pair is skipped only once its answer can no longer change the
+    partition."""
+    import numpy as np
+    import shapely
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    n = len(p.tris)
+    ml, mo = p._ml, p._mo                                    # noqa: SLF001
+    xy = np.array([[(q[0] * ml, q[1] * mo) for q in t] for t in p.tris],
+                  dtype=float)
+    u, vid = np.unique(xy.reshape(-1, 2), axis=0, return_inverse=True)
+    m = len(u)
+    g = coo_matrix((np.ones(3 * n, dtype=np.int8),
+                    (np.repeat(np.arange(n), 3), n + vid.reshape(-1))),
+                   shape=(n + m, n + m))
+    lab0 = connected_components(g, directed=False)[1][:n]   # shared vertex
+    parent = np.arange(int(lab0.max()) + 1)
+    geo = shapely.polygons(np.concatenate([xy, xy[:, :1]], axis=1))
+    tree = shapely.STRtree(geo)
+    shapely.prepare(geo)
+    r = gap_m + 1e-3                     # a millimetre over: a superset
+    lo, hi = xy.min(axis=1), xy.max(axis=1)
+    boxes = shapely.box(lo[:, 0] - r, lo[:, 1] - r, hi[:, 0] + r, hi[:, 1] + r)
+
+    def _flat(par: np.ndarray) -> np.ndarray:
+        while True:
+            nxt = par[par]
+            if np.array_equal(nxt, par):
+                return par
+            par = nxt
+    step = 4096
+    for c0 in range(0, n, step):
+        qa, qb = tree.query(boxes[c0:c0 + step])
+        qa = qa + c0
+        keep = qa < qb
+        qa, qb = qa[keep], qb[keep]
+        k_max = 1
+        while qa.size:
+            parent = _flat(parent)
+            ra, rb = parent[lab0[qa]], parent[lab0[qb]]
+            live = ra != rb
+            qa, qb, ra, rb = qa[live], qb[live], ra[live], rb[live]
+            if not qa.size:
+                break
+            lo_r, hi_r = np.minimum(ra, rb), np.maximum(ra, rb)
+            first = _first_per_key(lo_r * (len(parent) + 1) + hi_r, k_max)
+            k_max *= 4
+            # the tree's own reading: the SOURCE geometry prepared, either
+            # way round (a polygon collapsed to a point reads no distance)
+            ta, tb = geo[qa[first]], geo[qb[first]]
+            hit = (shapely.dwithin(ta, tb, gap_m)
+                   | shapely.dwithin(tb, ta, gap_m))
+            for x, y in zip(lo_r[first][hit].tolist(),
+                            hi_r[first][hit].tolist()):
+                while parent[x] != x:
+                    x = parent[x]
+                while parent[y] != y:
+                    y = parent[y]
+                if x != y:
+                    parent[max(x, y)] = min(x, y)
+            done = np.ones(qa.size, dtype=bool)
+            done[first] = False
+            qa, qb = qa[done], qb[done]
+    return _flat(parent)[lab0].tolist()
+
+
 def viaduct_of(vias: "_t.Sequence[Viaduct] | None",
                parts: _t.Sequence[_t.Any]) -> "Viaduct | None":
     """issue #1179: WHICH of a deck resource's claimed viaducts a body is
@@ -603,7 +788,8 @@ def viaduct_of(vias: "_t.Sequence[Viaduct] | None",
     for v in vias or ():
         if v.whole or v.print is None:
             return v
-        if any(v.print.contains(float(q.lat), float(q.lon)) for q in parts):
+        if any(v.print.contains_many([float(q.lat) for q in parts],
+                                     [float(q.lon) for q in parts])):
             return v
     return None
 
@@ -627,7 +813,9 @@ def viaduct_units(prints: _t.Sequence[DeckPrint], plan: _t.Any,
     if not prints:
         return out
     total: dict[str, int] = {}
-    keyed: list = []
+    #: the keyed part centres per authored FRAME (a deck reads only its
+    #: own frame's), in plan order
+    keyed: dict[tuple, list] = {}
     for ui, u in enumerate(plan.units):
         for mi, mm in enumerate(u.members):
             fr = frame_of(mm)
@@ -636,26 +824,27 @@ def viaduct_units(prints: _t.Sequence[DeckPrint], plan: _t.Any,
                 if not k:
                     continue
                 total[k] = total.get(k, 0) + 1
-                keyed.append((fr, ui, mi, q, k))
-    for p in prints:
+                b = q.box
+                keyed.setdefault(fr, []).append(
+                    ((ui, mi), 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3]), k))
+    from ..model import pulse as _pulse
+    for p in _pulse.each(prints, "viaducts: deck footprints", "decks"):
         frame = frame_of(plan.units[p.unit].members[p.member])
         if frame is None:
             continue
-        inside: list = []
-        for fr, ui, mi, q, k in keyed:
-            if fr != frame or (ui, mi) == (p.unit, p.member):
-                continue
-            b = q.box
-            la, lo = 0.5 * (b[0] + b[2]), 0.5 * (b[1] + b[3])
-            if p.contains(la, lo):
-                inside.append((la, lo, k))
+        own = [e for e in keyed.get(frame, ()) if e[0] != (p.unit, p.member)]
+        hit = p.contains_many([e[1] for e in own], [e[2] for e in own])
+        inside = [e[1:] for e, h in zip(own, hit) if h]
         # issue #1179: each CONNECTED piece of the footprint is claimed on
         # its own — the votes are the parts inside THAT piece
         pieces = deck_components(p) if inside else [p]
         for c in pieces:
             votes: dict[str, int] = {}
-            for la, lo, k in inside:
-                if c is p or c.contains(la, lo):
+            on = ([True] * len(inside) if c is p else
+                  c.contains_many([e[0] for e in inside],
+                                  [e[1] for e in inside]))
+            for (la, lo, k), h in zip(inside, on):
+                if h:
                     votes[k] = votes.get(k, 0) + 1
             votes = {k: v for k, v in votes.items() if total.get(k, 0) > v}
             if not votes:

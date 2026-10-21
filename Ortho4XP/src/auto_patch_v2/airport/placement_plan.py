@@ -54,6 +54,7 @@ import math
 import os as _os
 import typing as _t
 
+from ..model import pulse as _pulse
 from ..model.rebake import Member, Part, RebakePlan, Unit
 from . import anchor_rule as _ar
 from . import basin_ring as _br
@@ -318,12 +319,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             _cutters[id_of((ui, mi))] = hit
         return hit
 
+    _pulse.tick("placement: deck footprints")             # issue #1213
     prints = _bf.deck_prints(plan, _cutter_for)
     counts["bridge_deck_footprints"] = len(prints)
     # issue #290: the deck footprint of a (unit, member), for the
     # deck-rider test ``footprint_unit.contents_seat`` asks
     _deck_of = {(p.unit, p.member): p for p in prints}
 
+    _pulse.tick("placement: plan-wide seats")
     _pw, _seats = _fu.plan_wide_seats(plan, surface, pads, touch_m,  # §16g (1)
                                       cluster_min_m2, counts,
                                       connector_span_m,  # §16g (6)
@@ -334,6 +337,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       piece_reach_m=piece_reach_m)  # 19u
     # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
     # derived once per plan; their whole viaduct rides the unit's level
+    _pulse.tick("placement: viaducts")
     _viaducts = _bf.unit_viaducts(prints, plan, _pw, counts) if _pw else {}
     _deck_by_key = {p.key: p for p in prints}
     # issue #1179: a viaduct is ONE connected piece of its deck's footprint
@@ -356,7 +360,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     from . import footprint_connector as _fc
     _st29q = _fc.verdicts_of(plan) if connector_span_m > 0.0 else None
     _cut29q = _fc.linear_pids(_st29q) if _st29q else frozenset()   # 29v
-    for ui, u in enumerate(plan.units):
+    _pulse.tick("placement: units")
+    for ui, u in _pulse.each(list(enumerate(plan.units)),
+                             "placement: units", "units"):
         # ── PASS 1: every member's bodies ────────────────────────────
         # §14a (2): each basin ring's DEPTH, read ONCE per unit — a pit is
         # authored as several resources on one row, so no member can read

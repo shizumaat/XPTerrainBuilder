@@ -7,9 +7,9 @@ shares with other strategies is imported from ``elevation_access``.
 """
 
 import datetime
-import numpy
 import os
 
+import numpy
 import O4_UI_Utils as UI
 
 from elevation_access.base import ProviderUnavailable

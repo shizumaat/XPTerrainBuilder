@@ -28,6 +28,7 @@ import os
 import types
 
 import numpy
+
 import pytest
 
 import O4_Airport_Elevation_Insets as INSETS
@@ -69,8 +70,10 @@ def _write_raster(path, *, valid):
                              north, 0.0, -(north - south) / 32.0))
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(-32768.0)
-    band.WriteArray(numpy.full((32, 32), 412.0 if valid else -32768.0,
-                               dtype=numpy.float32))
+    # A valid inset carries relief: a flat fill is declined (#1171).
+    values = (412.0 + numpy.tile(numpy.linspace(0.0, 0.02, 32), (32, 1))
+              if valid else numpy.full((32, 32), -32768.0))
+    band.WriteArray(values.astype(numpy.float32))
     band.FlushCache()
     dataset = None
 

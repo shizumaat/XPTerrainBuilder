@@ -30,6 +30,7 @@ __all__ = [
     "_geotiff_has_valid_data",
     "_source_contribution_entry",
     "_source_holds_data_over_bbox",
+    "inset_carries_no_relief",
     "inset_valid_fraction",
     "warp_vsicurl_sources_to_geotiff",
 ]
@@ -475,3 +476,56 @@ def inset_valid_fraction(inset_path):
             fraction = 1.0
     _inset_valid_fraction_cache[key] = fraction
     return fraction
+
+
+#: THE FLAT-FILL RULE (#1171).  Valid samples spanning less than this
+#: many metres are not elevation data: a national coverage service asked
+#: beyond its extent can answer with a constant FILL (the Spanish
+#: provider serves 0.0 over Morocco) that is neither nodata nor
+#: terrain.  No inset box -- an aerodrome plus its margin -- is flat to
+#: a centimetre in real survey data.
+INSET_MIN_RELIEF_M = 0.01
+
+#: ``{(path, mtime, size): bool}`` -- same lifetime as the fraction cache.
+_inset_no_relief_cache = {}
+
+
+def inset_carries_no_relief(inset_path):
+    """True when every valid sample of ``inset_path`` lies within
+    ``INSET_MIN_RELIEF_M`` of one value: a flat FILL, not terrain.
+
+    Read decimated like :func:`inset_valid_fraction` (a constant raster
+    is constant at any sampling).  False when the raster cannot be read
+    or holds no valid sample -- those belong to the valid-fraction rule.
+    """
+    try:
+        stat = os.stat(inset_path)
+        key = (inset_path, stat.st_mtime, stat.st_size)
+    except OSError:
+        return False
+    if key in _inset_no_relief_cache:
+        return _inset_no_relief_cache[key]
+    flat = False
+    if has_gdal:
+        try:
+            dataset = gdal.Open(inset_path)
+            band = dataset.GetRasterBand(1)
+            nodata = band.GetNoDataValue()
+            values = band.ReadAsArray(
+                buf_xsize=min(_INSET_VALID_SAMPLES_PER_AXIS,
+                              dataset.RasterXSize),
+                buf_ysize=min(_INSET_VALID_SAMPLES_PER_AXIS,
+                              dataset.RasterYSize),
+            )
+            if values is not None:
+                valid = numpy.isfinite(values)
+                if nodata is not None:
+                    valid &= values != nodata
+                samples = values[valid]
+                if samples.size:
+                    flat = bool(float(samples.max()) - float(samples.min())
+                                < INSET_MIN_RELIEF_M)
+        except Exception:                                # pragma: no cover
+            flat = False
+    _inset_no_relief_cache[key] = flat
+    return flat

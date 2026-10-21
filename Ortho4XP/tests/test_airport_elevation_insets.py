@@ -22,6 +22,7 @@ import os
 import types
 
 import numpy
+from inset_relief import with_relief  # noqa: E402
 import pytest
 
 import O4_File_Names as FNAMES
@@ -77,7 +78,8 @@ def _write_constant_geotiff(
     dataset.SetProjection(spatial_reference.ExportToWkt())
     band = dataset.GetRasterBand(1)
     band.SetNoDataValue(-32768.0)
-    band.WriteArray(numpy.full((rows, columns), value, dtype=numpy.float32))
+    band.WriteArray(with_relief(
+        numpy.full((rows, columns), value, dtype=numpy.float32), -32768.0))
     band.FlushCache()
     dataset = None
     return path
@@ -687,8 +689,8 @@ def test_alt_bake_applies_inset_with_feather(tmp_path, monkeypatch):
     # Interior of the inset -> full inset value.
     assert cell(0.50, 0.50) == pytest.approx(100.0, abs=0.5)
     # Well outside the inset -> untouched base.
-    assert cell(0.10, 0.10) == pytest.approx(0.0, abs=0.001)
-    assert cell(0.90, 0.90) == pytest.approx(0.0, abs=0.001)
+    assert cell(0.10, 0.10) == pytest.approx(0.0, abs=0.03)
+    assert cell(0.90, 0.90) == pytest.approx(0.0, abs=0.03)
     # A cell just inside the inset edge sits in the feather ramp:
     # strictly between base and inset value.
     ramp_value = cell(0.355, 0.50)
@@ -696,7 +698,7 @@ def test_alt_bake_applies_inset_with_feather(tmp_path, monkeypatch):
 
     # The whole raster stays within [base, inset] -- no overshoot / cliff.
     assert written.min() >= -0.001
-    assert written.max() <= 100.001
+    assert written.max() <= 100.03
 
 
 def _bake_tile_with_insets(tmp_path, monkeypatch, insets):
@@ -1282,7 +1284,7 @@ def test_composite_with_empty_base_token_resolves_default_base(
     # The composite the step hooks assemble when custom_dem is "".
     dem = DEM.DEM(0, 0, ";" + inset_path, fill_nodata=False)
     # The BASE grid must be the resolved default, not zeros.
-    assert dem.alt_dem.max() == pytest.approx(42.0)
+    assert dem.alt_dem.max() == pytest.approx(42.0, abs=0.03)
     assert dem.alt_dem.min() == pytest.approx(42.0)
     # And the composite query path overlays the inset.
     assert dem.alt((0.5, 0.5)) == pytest.approx(100.0, abs=0.5)
@@ -1617,7 +1619,7 @@ def _write_geotiff_with_nodata_band(path, west, south, east, north,
     array = numpy.full((rows, columns), value, dtype=numpy.float32)
     latitudes = north + (numpy.arange(rows) + 0.5) * (south - north) / rows
     array[latitudes > nodata_north_of, :] = -32768.0
-    band.WriteArray(array)
+    band.WriteArray(with_relief(array, -32768.0))
     band.FlushCache()
     dataset = None
     return path
@@ -1636,12 +1638,12 @@ def test_windowed_samples_return_nan_over_nodata(tmp_path):
             [0.5010, 0.5010], [0.5005, 0.5015])  # south=valid, north=nodata
     # Nodata-aware: the sentinel never blends into a returned elevation.
     aware = INSETS._windowed_bilinear_samples(*args, nodata=-32768.0)
-    assert aware[0] == pytest.approx(250.0)
+    assert aware[0] == pytest.approx(250.0, abs=0.03)
     assert numpy.isnan(aware[1])
     # Omitted, the historic raw blend is unchanged (the bug, pinned so a
     # caller that has no nodata value still behaves as before).
     raw = INSETS._windowed_bilinear_samples(*args)
-    assert raw[0] == pytest.approx(250.0)
+    assert raw[0] == pytest.approx(250.0, abs=0.03)
     assert raw[1] < -1000.0
 
 

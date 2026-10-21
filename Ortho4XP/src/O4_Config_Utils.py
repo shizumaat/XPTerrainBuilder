@@ -182,6 +182,7 @@ class Tile:
             exec("self." + var + "=" + var)
 
     def make_dirs(self):
+        self._check_elevation_folder()
         if os.path.isdir(self.build_dir):
             if not os.access(self.build_dir, os.W_OK):
                 UI.vprint(
@@ -215,6 +216,21 @@ class Tile:
                     e,
                 )
                 raise Exception
+
+    def _check_elevation_folder(self):
+        """Refuse a tile whose ``Elevation_data/<bucket>`` folder is a
+        dangling link (#1167): every ``os.makedirs`` under it raised
+        FileExistsError/FileNotFoundError, which named nothing.  The link
+        is left alone; the message names it and its missing target."""
+        bucket = os.path.join(FNAMES.Elevation_dir,
+                              FNAMES.round_latlon(self.lat, self.lon))
+        try:
+            UNMOUNTED.check_elevation_folder(bucket)
+        except UNMOUNTED.ElevationLinkBroken as error:
+            UI.vprint(0, "OS error: elevation folder is a symlink whose "
+                      "target is missing:", error.failure_params["link"],
+                      "->", error.failure_params["target"] or "?")
+            raise
 
     def _tile_cfg_path(self):
         """This tile's own config file path (build dir + canonical name)."""

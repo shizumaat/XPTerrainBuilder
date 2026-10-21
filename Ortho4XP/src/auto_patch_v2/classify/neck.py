@@ -89,6 +89,7 @@ import shapely
 from shapely.geometry import LineString, MultiLineString, Polygon
 from shapely.ops import unary_union
 
+from ..geom.parts import areal_part
 from .evidence import polygon_parts
 from .rules import Rules
 
@@ -197,7 +198,7 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
         # deliberate narrowing of "one, two or none": see the lane report.
         return [], []
     reach = [_polygonal(shapely.intersection(
-                 shapely.set_precision(b.buffer(half), grid), face_g,
+                 _dilated(b, half, grid), face_g,
                  grid_size=grid), grid) for b in lobes]
     wide = shapely.union_all(reach, grid_size=grid)
     out: list[Neck] = []
@@ -257,6 +258,21 @@ def _read(face: Polygon, w: float, rules: Rules, within: Polygon | None
                         part.area, len(touching), curved, kind,
                         aspect, factor))
     return out, refused
+
+
+def _dilated(lobe: Polygon, half: float, grid: float):
+    """A wide lobe dilated back by ``half``, on the grid, and VALID.  The
+    lobe carries the grid's precision model, so GEOS rounds the buffer's
+    offset arcs onto the grid, and where two arcs meet within a cell the
+    ring self-crosses — MEASURED #1178
+    EGLF: a 5,258.6 m2 lobe's dilation self-crossed at (824.618, 807.739)
+    and the reach intersection raised ``side location conflict``.  Such a
+    ring is repaired here, at its producer, to its area (``areal_part`` of
+    ``make_valid``); a valid dilation is returned unchanged."""
+    out = shapely.set_precision(lobe.buffer(half), grid)
+    if out.is_valid:
+        return out
+    return shapely.set_precision(areal_part(shapely.make_valid(out)), grid)
 
 
 def _polygonal(geom, grid: float):

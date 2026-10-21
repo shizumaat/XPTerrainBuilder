@@ -79,11 +79,10 @@ own 0.5 m contact reach.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math as _math
 import typing as _t
 
 from .rebake_plan import _mpd as _m_per_deg
-
-import math as _math
 
 __all__ = ["DeckPrint", "deck_prints", "bridge_of_point", "CONTACT_M",
            "assign_bodies", "body_bridge", "Viaduct", "unit_viaducts", "frame_of", "viaduct_units",

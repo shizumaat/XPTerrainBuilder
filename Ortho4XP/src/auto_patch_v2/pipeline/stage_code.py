@@ -258,6 +258,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.cutout_schema",
         "auto_patch_v2.law.design_schema",
         "auto_patch_v2.law.eat_schema",
+        "auto_patch_v2.law.flat_pack_schema",
         "auto_patch_v2.law.flat_site_schema",
         "auto_patch_v2.law.model",
         "auto_patch_v2.law.model_types",
@@ -422,6 +423,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.cutout_schema",
         "auto_patch_v2.law.design_schema",
         "auto_patch_v2.law.eat_schema",
+        "auto_patch_v2.law.flat_pack_schema",
         "auto_patch_v2.law.flat_site_schema",
         "auto_patch_v2.law.inset_class",
         "auto_patch_v2.law.model",
@@ -523,6 +525,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.cutout_schema",
         "auto_patch_v2.law.design_schema",
         "auto_patch_v2.law.eat_schema",
+        "auto_patch_v2.law.flat_pack_schema",
         "auto_patch_v2.law.flat_site_schema",
         "auto_patch_v2.law.inset_class",
         "auto_patch_v2.law.model",
@@ -555,6 +558,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.cutout_schema",
         "auto_patch_v2.law.design_schema",
         "auto_patch_v2.law.eat_schema",
+        "auto_patch_v2.law.flat_pack_schema",
         "auto_patch_v2.law.flat_site_schema",
         "auto_patch_v2.law.model",
         "auto_patch_v2.law.model_types",
@@ -625,6 +629,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.cutout_schema",
         "auto_patch_v2.law.design_schema",
         "auto_patch_v2.law.eat_schema",
+        "auto_patch_v2.law.flat_pack_schema",
         "auto_patch_v2.law.flat_site_schema",
         "auto_patch_v2.law.inset_class",
         "auto_patch_v2.law.model",
@@ -817,6 +822,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.cutout_schema",
         "auto_patch_v2.law.design_schema",
         "auto_patch_v2.law.eat_schema",
+        "auto_patch_v2.law.flat_pack_schema",
         "auto_patch_v2.law.flat_site_schema",
         "auto_patch_v2.law.inset_class",
         "auto_patch_v2.law.model",
@@ -933,7 +939,8 @@ GENERATOR_MODULES: dict[str, str] = {
 _GENERATOR_CORE = """
     constraints geom geom.rotated_rect law law.airports_schema law.base_profile_schema
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
-    law.eat_schema law.flat_site_schema law.model law.model_types law.rebake_schema
+    law.eat_schema law.flat_pack_schema
+    law.flat_site_schema law.model law.model_types law.rebake_schema
     law.reference_code law.role_cap_schema law.tables law.terrace_schema
     law.tunnel_object_schema law.units model model.constraints model.frame model.planar
     model.registries model.structures
@@ -1182,7 +1189,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     geom.pad_evidence geom.parts geom.proportions geom.ramp_grade geom.ramp_profile
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
-    law.design_schema law.eat_schema law.flat_site_schema law.inset_class law.model
+    law.design_schema law.eat_schema law.flat_pack_schema
+    law.flat_site_schema law.inset_class law.model
     law.model_types law.rebake_schema law.reference_code law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.ground_fit model.hard_plane
@@ -1225,7 +1233,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     geom geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
-    law.design_schema law.eat_schema law.flat_site_schema law.model law.model_types
+    law.design_schema law.eat_schema law.flat_pack_schema
+    law.flat_site_schema law.model law.model_types
     law.rebake_schema law.reference_code law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.islands model.jetway
@@ -1290,7 +1299,8 @@ CODE_MODULES["solve"] = _mods("""
     geom.ramp_grade geom.ramp_profile geom.rotated_rect geom.triangulate geom.union_find
     geom.vector law law.airports_schema law.approach_corridor law.base_profile_schema
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
-    law.eat_schema law.flat_site_schema law.inset_class law.model law.model_types
+    law.eat_schema law.flat_pack_schema
+    law.flat_site_schema law.inset_class law.model law.model_types
     law.rebake_schema law.reference_code law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.hard_plane model.islands
@@ -1380,7 +1390,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.proportions geom.ramp_grade geom.ramp_profile geom.rotated_rect
     geom.triangulate geom.union_find geom.vector law law.airports_schema
     law.approach_corridor law.base_profile_schema law.basin_schema law.cockpit_schema
-    law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
+    law.cutout_schema law.design_schema law.eat_schema law.flat_pack_schema law.flat_site_schema
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
     model.airport model.constraint_codec model.constraints model.end_area model.frame
@@ -1462,7 +1472,7 @@ CODE_MODULES["emit"] = _mods("""
     geom.containment geom.core_clamp geom.coverage geom.pad_evidence geom.parts
     geom.proportions geom.ramp_grade geom.rotated_rect geom.triangulate geom.union_find
     law law.airports_schema law.base_profile_schema law.basin_schema law.cockpit_schema
-    law.cutout_schema law.design_schema law.eat_schema law.flat_site_schema
+    law.cutout_schema law.design_schema law.eat_schema law.flat_pack_schema law.flat_site_schema
     law.inset_class law.model law.model_types law.rebake_schema law.reference_code
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
     model.airport model.constraints model.end_area model.frame model.hard_plane
@@ -1522,7 +1532,8 @@ CODE_MODULES["verify"] = _mods("""
     geom.containment geom.core_clamp geom.pad_evidence geom.parts geom.proportions
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
-    law.design_schema law.eat_schema law.flat_site_schema law.inset_class law.model
+    law.design_schema law.eat_schema law.flat_pack_schema
+    law.flat_site_schema law.inset_class law.model
     law.model_types law.rebake_schema law.reference_code law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.islands model.map_memo

@@ -318,9 +318,9 @@ def test_the_class_table_read_on_a_real_map():
     # RE-RECORDED (lane l1246r, issue #1246, owner RULINGS 2026-10-22g): every
     # mapped road inside the aerodrome boundary + 50 m is ribboned (1,399
     # ribbon faces, 1.21 km2 at this capture), and the ribbons cut the
-    # groundside gap sheet into many more pieces: 42 -> 330, slabs 21 -> 25,
+    # groundside gap sheet into many more pieces: 42 -> 334, slabs 21 -> 25,
     # gap-apron parts 13 -> 15; the owner's site at 30.1193169, 31.4085087
-    # stands in gap:46 (a road between it and gap:0's lot)
+    # stands in gap:47 (a road between it and gap:0's lot)
     assert n_slab == 25  # #712: the thin paved plates are slabs too (21 before #1246)
     # RE-RECORDED (lane regL3, RULINGS 2026-10-15l (1), audit row 3): the
     # taxiway strip is measured from the CENTRELINE, so the band envelope a
@@ -341,12 +341,12 @@ def test_the_class_table_read_on_a_real_map():
     # sliver they leave beside the apron at 30.1250, 31.4061 (361 m2, a
     # road piece) clears the area floor as gap:36: the pack's pieces go
     # 41 -> 42, every later gap ref moves up by one (slabs 41.. -> 42..)
-    assert len(pieces) + len(aprons) == 330 + n_slab == cl.stats["gap_pieces"]
+    assert len(pieces) + len(aprons) == 334 + n_slab == cl.stats["gap_pieces"]
     assert sorted(int(c.ref.split(":")[1]) for c in pieces
-                  if c.evidence.get("base_slab")) == list(range(330, 330 + n_slab))
+                  if c.evidence.get("base_slab")) == list(range(334, 334 + n_slab))
     road = sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("touches_apron") == 1.0)
-    assert road == [1, 7, 11, 19, 46, 53, 99, 211, 241, 301, 311]   # (#1246)
+    assert road == [6, 7, 11, 20, 47, 54, 97, 213, 243, 275, 305, 315]   # (#1246)
     assert all(c.evidence["road_evidence"] == 1.0 for c in pieces
                if c.evidence.get("touches_apron") == 1.0)
     by = {False: [], True: []}
@@ -356,7 +356,7 @@ def test_the_class_table_read_on_a_real_map():
     # (regL3 round 2: the taxi faces lettered by their pavement width move
     # the road evidence of gap:19 / gap:22 / gap:20 / gap:21 — refs only)
     # (#798: the gap refs after gap:36 move up by one — 38 -> 39, 39 -> 40)
-    assert sorted(by[False]) == [114, 134, 313]                    # no road evidence
+    assert sorted(by[False]) == [113, 133, 317]                    # no road evidence
     # (lane xplat399: the §43 opening read on ``cells.opening_grid_m`` cuts
     # different necks/arms at HECA, so the gap pieces between them move —
     # gap:35 -> gap:34 in the share, gap:33 grows; refs only here)
@@ -364,14 +364,14 @@ def test_the_class_table_read_on_a_real_map():
     # gap piece at -2751, -156 — that piece and gapapron:7's gap:24 swap
     # numbers, 24 -> 23; refs only)
     # (#808: gap:19 is gone; the refs after it move down by one)
-    assert sorted(by[True]) == [4, 13, 25, 36, 117, 127, 156, 247, 250, 254, 257,
-                                315]                               # §37 (2)'s share
+    assert sorted(by[True]) == [3, 13, 26, 37, 116, 126, 155, 250, 253, 257, 260,
+                                319]                               # §37 (2)'s share
     assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(15)]
-    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (15, 11)
+    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (15, 12)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)
     to_xy = airport.frame.transformers()[0]
     for (lat, lon), ref in {(30.1154841, 31.4105884): "gap:7", (30.1159784, 31.4106264): "gap:7",
-                            (30.1193169, 31.4085087): "gap:46"}.items():
+                            (30.1193169, 31.4085087): "gap:47"}.items():
         pt = Point(*to_xy(lon, lat))
         assert [c.ref for c in pieces if Polygon(c.ring, c.holes).contains(pt)] == [ref]
     # THE RIM CLOSURE (§59 (2) 4): no apron|apron rim pair of a gap-apron face

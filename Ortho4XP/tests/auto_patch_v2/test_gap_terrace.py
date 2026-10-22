@@ -211,15 +211,15 @@ def test_the_rule_read_on_a_real_map_gives_the_recorded_counts():
     # up by one) — (92, 34, 60, 9) before.
     # RE-RECORDED (lane l1246r, issue #1246, owner RULINGS 2026-10-22g): every
     # mapped road inside the aerodrome boundary + 50 m is ribboned, and the
-    # ribbons cut the gap sheet into 330 pieces (``test_gap_apron``); the
+    # ribbons cut the gap sheet into 334 pieces (``test_gap_apron``); the
     # cut reads them against this frame's BASE solved map, which predates the
     # ribbons (so fewer pad knives stand on a piece) — (94, 34, 60, 9) before.
-    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (360, 12, 66, 99)
+    assert (rep["parts"], rep["knives"], rep["merged"], int(dropped)) == (364, 12, 66, 99)
     to_xy = airport.frame.transformers()[0]
     # (the second site read gap:7/ramp0 at the 8 % cap: under 10 % the lot
     # reaches it and no ramp part is cut there)
     sites = {(30.1154841, 31.4105884): "gap:7/lot", (30.1159784, 31.4106264): "gap:7/lot1",
-             (30.1193169, 31.4085087): "gap:46/lot"}           # (#1246: gap:0/s4/lot)
+             (30.1193169, 31.4085087): "gap:47/lot"}           # (#1246: gap:0/s4/lot)
     for (lat, lon), ref in sites.items():
         pt = Point(*to_xy(lon, lat))
         hit = [c.ref for c in cl2.cells if str(c.ref).startswith("gap:")

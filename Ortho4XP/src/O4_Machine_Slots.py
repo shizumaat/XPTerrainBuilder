@@ -62,13 +62,17 @@ if sys.platform == "win32":                # module level: a freezer sees it
 else:
     import fcntl as _oslock
 
-__all__ = ["BUDGET", "ENV_DIR", "ENV_CAPACITY", "Held", "capacity",
+__all__ = ["BUDGET", "ENV_DIR", "ENV_CAPACITY", "ENV_UNGATED", "Held", "capacity",
            "ensure_session", "lend", "lower_priority", "memory_admits",
            "qos_command", "session_capacity", "step", "try_take", "take"]
 
 #: the session's slot directory and its capacity, inherited by every child
 ENV_DIR = "O4_MACHINE_SLOTS_DIR"
 ENV_CAPACITY = "O4_MACHINE_SLOTS"
+#: set only by a session that proves MECHANICS, not the machine (the pool
+#: self-check, the tests): its explicit capacity is not shrunk by the live
+#: memory gate.  A real build never sets it.
+ENV_UNGATED = "O4_MACHINE_SLOTS_UNGATED"
 
 #: THE BUDGET LAW (gigabytes / fractions).  Kept here, not in an auto-patch
 #: law table: those are hashed into the partition cache key, and how many
@@ -120,7 +124,10 @@ def _headroom(total_gb: float, budget: dict = BUDGET) -> float:
 def memory_admits(budget: dict = BUDGET) -> bool:
     """THE LIVE GATE: may one more heavy process start now?  Free memory
     is read afresh (``O4_Parallel_Utils`` caches it two seconds) and must
-    keep the headroom after one more worker's estimate."""
+    keep the headroom after one more worker's estimate (always yes in a
+    session that set :data:`ENV_UNGATED`)."""
+    if os.environ.get(ENV_UNGATED):
+        return True
     total = _PU.machine_memory_gigabytes()
     return (_PU.machine_available_memory_gigabytes() - budget["worker_gb"]
             >= _headroom(total, budget))

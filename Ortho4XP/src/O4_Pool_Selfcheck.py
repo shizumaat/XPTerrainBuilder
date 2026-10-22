@@ -415,10 +415,13 @@ def _nested_arm(workers: int, work: str) -> list:
 def _own_slots() -> None:
     """The self-check proves the pool's mechanics, not the machine budget
     (``O4_Machine_Slots``, issue #1225): it runs in a slot session of its
-    own, wide enough for every arm whatever the machine has free."""
+    own, wide enough for every arm whatever the machine has free — the
+    live memory gate does not shrink it either (a small CI runner is always
+    "under pressure" against the 8 GB headroom)."""
     import O4_Machine_Slots as S
     os.environ.pop(S.ENV_DIR, None)
     os.environ[S.ENV_CAPACITY] = str(max(64, 4 * (os.cpu_count() or 1)))
+    os.environ[S.ENV_UNGATED] = "1"
     S.ensure_session()
 
 

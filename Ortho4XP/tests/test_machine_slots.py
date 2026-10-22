@@ -37,12 +37,16 @@ def test_headroom_is_the_larger_of_fraction_and_floor():
 
 
 @pytest.fixture
-def session(tmp_path, monkeypatch):
+def session(tmp_path, monkeypatch, request):
+    gated = "free_gb" in request.fixturenames       # the gate is under test
     def make(cap):
         d = tmp_path / f"slots{cap}"
         d.mkdir()
         monkeypatch.setenv(SLOTS.ENV_DIR, str(d))
         monkeypatch.setenv(SLOTS.ENV_CAPACITY, str(cap))
+        # the runner's free memory is not under test (``free_gb`` pins it)
+        if not gated:
+            monkeypatch.setenv(SLOTS.ENV_UNGATED, "1")
         return d
     return make
 
@@ -149,7 +153,9 @@ def test_a_pinned_budget_is_verbatim(session):
 
 @pytest.fixture
 def free_gb(monkeypatch):
-    """Pin the machine at 128 GB with ``free_gb(x)`` GB free right now."""
+    """Pin the machine at 128 GB with ``free_gb(x)`` GB free right now —
+    the live gate armed."""
+    monkeypatch.delenv(SLOTS.ENV_UNGATED, raising=False)
     monkeypatch.setattr(SLOTS._PU, "machine_memory_gigabytes", lambda: 128.0)
 
     def set_free(x):
@@ -285,3 +291,15 @@ def test_the_driver_starts_each_airport_worker_after_its_slot(session, free_gb,
     assert sorted(r["icao"] for r in results) == ["ZZ00", "ZZ01", "ZZ02"]
     assert not any(r["ok"] for r in results) and len(reported) == 3
     assert SLOTS.try_take(2).count == 2
+
+
+def test_an_ungated_session_keeps_its_capacity_under_pressure(session, free_gb,
+                                                               monkeypatch):
+    """The pool self-check's own session (a small CI runner is always
+    below the headroom) — the real build never sets the variable."""
+    session(4)
+    free_gb(4.0)
+    assert SLOTS.try_take(4).count == 1
+    monkeypatch.setenv(SLOTS.ENV_UNGATED, "1")
+    with SLOTS.try_take(4) as all_four:
+        assert all_four.count == 4

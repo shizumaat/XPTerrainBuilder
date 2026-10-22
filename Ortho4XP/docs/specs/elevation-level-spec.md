@@ -231,7 +231,9 @@ Surgical edits elsewhere:
 - `O4_Settings_Model.py` — `elevation_level` joins the
   "Elevation & Airport Lidar" category.
 - `O4_Qt_GUI.py` — per-tile "Elevation detail" combo in the tile
-  panel, mirroring the texture-mode combo pattern
+  panel, mirroring the texture-mode combo pattern (removed 2026-10-22,
+  #1243: both elevation levels are set in Settings ▸ Elevation only, as in
+  the Mac app)
   (`read_tile_raw`/`write_tile`).
 
 ## 5. Acceptance

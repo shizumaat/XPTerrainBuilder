@@ -184,6 +184,15 @@ private struct GeneralPane: View {
             // The preset cards (#822): one click sets a fixed set of keys.
             Section {
                 PresetCardsView()
+                // The build detail level (#1242): here, not in the build pane.
+                Picker(O4Glossary.term("detail"), selection: Binding(
+                    get: { buildModel.buildZL },
+                    set: { buildModel.objectWillChange.send(); buildModel.buildZL = $0 })) {
+                    ForEach(12...21, id: \.self) { zl in
+                        Text(O4Glossary.detailChoice(zl)).tag(zl)
+                    }
+                }
+                .help("More detail means sharper imagery and much larger downloads: one step (one ZL) ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
             }
             Section("Application") {
                 LabeledContent("Version") {

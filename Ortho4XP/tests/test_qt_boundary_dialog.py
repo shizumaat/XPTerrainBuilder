@@ -550,7 +550,7 @@ def test_a_second_build_press_during_the_ask_starts_no_second_run(
     _no_dialog(monkeypatch)
     win.imagery_combo.addItems(["TEST_PROVIDER"])
     win.imagery_combo.setCurrentText("TEST_PROVIDER")
-    win.zl_combo.setCurrentText("16")
+    win.build_zl = 16
     monkeypatch.setattr(win, "xplane_block_reason", lambda: None)
     said = []
     monkeypatch.setattr(win, "_status", said.append)

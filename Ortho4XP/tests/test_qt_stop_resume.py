@@ -356,10 +356,10 @@ def test_resume_while_idle_rebuilds_with_the_runs_own_settings(make_window):
     window._start_run([TILE], dict(SETTINGS))
     window._cancel_tile_clicked(TILE)
     window._building = False
-    # The toolbar has moved on since the run started — resume must not
+    # The build controls have moved on since the run started — resume must not
     # adopt it.
     window.imagery_combo.setCurrentText("OSM")
-    window.zl_combo.setCurrentText("17")
+    window.build_zl = 17
     make_window.enqueued.clear()
 
     _stop_button(window, TILE).click()

@@ -306,6 +306,34 @@ def _restore_ambient_data_root():
         os.environ.pop(_AMBIENT_DATA_ROOT_VARIABLE, None)
 
 
+#: The Qt window's user files: its preferences and the tile-scan cache.
+_QT_USER_FILES = ("PREFS_FILE", "TILE_SCAN_CACHE_FILE")
+
+
+@pytest.fixture(autouse=True)
+def _qt_user_files_never_reach_the_checkout(tmp_path_factory):
+    """No test writes the REAL Qt preferences (issue #1240).
+
+    ``O4_Qt_GUI`` resolves them at import, under the data root, which a
+    test run makes the checkout itself.  Each window fixture monkeypatches
+    them, but a window saves again when it closes, and one closed at
+    garbage collection or at the QApplication's exit closes AFTER that
+    monkeypatch is undone: the checkout's ``.qt_prefs.json`` was left with
+    a deleted pytest folder as its output folder, so the Qt app run from
+    the checkout found no built tiles (no patch editor) on the owner's Mac.
+    Pointed here, for the whole run and never undone, at a session folder;
+    a test's own monkeypatch restores to it."""
+    gui = sys.modules.get("O4_Qt_GUI")
+    if gui is not None:
+        folder = tmp_path_factory.getbasetemp() / "qt_user_files"
+        folder.mkdir(exist_ok=True)
+        for name in _QT_USER_FILES:
+            current = getattr(gui, name, "")
+            if not str(current).startswith(str(folder)):
+                setattr(gui, name, str(folder / os.path.basename(current)))
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _no_modal_first_run_wizard(monkeypatch):
     """No test opens the REAL first-run wizard by accident.

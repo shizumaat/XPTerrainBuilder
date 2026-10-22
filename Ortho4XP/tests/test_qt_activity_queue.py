@@ -52,7 +52,7 @@ def window(qapp, tmp_path, monkeypatch):
     # Headless runs skip provider initialization; seed a stand-in code.
     win.imagery_combo.addItems(["TEST_PROVIDER"])
     win.imagery_combo.setCurrentText("TEST_PROVIDER")
-    win.zl_combo.setCurrentText("16")
+    win.build_zl = 16
     monkeypatch.setattr(win, "refresh_tiles", lambda: None)
     # No boundary-airport preflight in these tests: a session that
     # does not answer the ask (spec insets-follow-patch-set-spec.md

@@ -95,6 +95,11 @@ existing mechanism. They must also be registered in
 
 ### 3.2 Qt UI (frozen copy and placement)
 
+> **Superseded placement (2026-10-22, #1243):** the build-area row below was
+> removed to match the Mac app; texture mode is set in Settings only
+> (Imagery ▸ Expert), in both apps. `tests/test_qt_layout_parity.py` holds
+> the build box's controls. The copy and values below still apply.
+
 In the PySide6 app build area (`src/O4_Qt_GUI.py`), **after the existing build
 checkboxes**: a label `Textures:` followed by a popup menu (`QComboBox`) with
 items, in order: `Full Ortho`, `Airport Ortho`, `Default X-Plane` — mapping

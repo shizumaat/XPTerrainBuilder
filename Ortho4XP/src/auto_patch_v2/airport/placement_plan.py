@@ -901,6 +901,9 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
 
         # ── PASS 4: the cut, carriers first ──────────────────────────
         by_mi = {st.mi: st for st in staged}
+        # owner RULINGS 2026-10-22b (#1214): a frame the law seats on our
+        # ground by its FEET moves as one and keeps no authored lift
+        footed_frame = any(not st.footless for st in staged)
         written_of: dict[int, bool] = {}
         # 14at: the FILE a carrier group was actually written as.  A
         # candidate's own ``resource`` is a body SLOT's id — it is
@@ -949,10 +952,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                m.authored_path, u.anchor[0], u.anchor[1],
                                m.heading_deg, (body,))
                 before = len(splits)
-                record = _lifted(record, rows, reseated)
+                record, landed = _lifted(record, rows, reseated, surface,
+                                          authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=_lands(record, rows, surface,
-                                            authored_keep_tol_m),
+                              landed=landed,
                               always_write=True, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
@@ -1035,10 +1038,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if not all(b.merged_into_written for b in bodies):
                     counts["footless_carrier_kept_whole"] = \
                         counts.get("footless_carrier_kept_whole", 0) + 1
-                record = _lifted(record, rows, reseated)
+                record, landed = _lifted(record, rows, reseated, surface,
+                                          authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=_lands(record, rows, surface,
-                                            authored_keep_tol_m),
+                              landed=landed,
                               always_write=True, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
@@ -1065,10 +1068,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     off_row = True
                     counts["one_body_carrier_written"] = \
                         counts.get("one_body_carrier_written", 0) + 1
-                record = _lifted(record, rows, reseated)
+                record, landed = _lifted(record, rows, reseated, surface,
+                                          authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
-                              landed=_lands(record, rows, surface,
-                                            authored_keep_tol_m),
+                              landed=landed,
                               always_write=off_row, tilted_whole=tilted_whole,
                               drape_comps=(drape or {}).get(m.id, frozenset()),
                               drape_law=drape_law)
@@ -1099,18 +1102,37 @@ def _row_of(record: Split, rows: "_t.Sequence | None") -> _t.Any:
 
 
 def _lifted(record: Split, rows: "_t.Sequence | None",
-            reseated: _t.AbstractSet[int]) -> Split:
+            reseated: _t.AbstractSet[int], surface: _ar.Surface,
+            tol_m: float, footed_frame: bool) -> tuple[Split, "bool | None"]:
     """14g (1): every body of an ``OBJECT_AGL`` placement keeps the
     author's lift on its row (``authored_landing.body_lift`` decides
-    which bodies do)."""
+    which bodies do) — and 14g (3): does the placement land on its
+    authored seat?  Returns ``(record, landed)``.
+
+    AS AMENDED BY owner RULINGS 2026-10-22b (#1214): a placement the law
+    RE-SEATS (it does not land) in a FOOTED frame keeps NO lift.  The seat
+    already puts the frame's feet on OUR ground — a group seat from its
+    walls, a pad, a datum or its own low-side foot — so the author's lift,
+    his correction for another ground, would float the whole frame by it
+    (KMCI's terminal, ``OBJECT_AGL`` +8.5 m, stood 8.5 m over its own
+    apron, and the eight rim bodies the lift never reached stood 8.5 m
+    under the rest of it).  Every body of the frame moves together, so
+    the lift is dropped for all of them.  A frame with no footed member
+    (a dock head, a beacon, clutter on a rack) keeps it: nothing in it
+    reads our ground, and the lift is the only seat it has."""
     row = _row_of(record, rows)
     if row is None:
-        return record
+        return record, None
     from . import authored_landing as _al
     bodies = tuple(_dc.replace(b, lift_m=_al.body_lift(
         row, b.anchor, reseated=record.index in reseated))
         for b in record.bodies)
-    return _dc.replace(record, bodies=bodies)
+    record = _dc.replace(record, bodies=bodies)
+    landed = _lands(record, rows, surface, tol_m)
+    if footed_frame and not landed and any(b.lift_m for b in bodies):
+        record = _dc.replace(record, bodies=tuple(
+            _dc.replace(b, lift_m=0.0) for b in bodies))
+    return record, landed
 
 
 def _lands(record: Split, rows: "_t.Sequence | None", surface: _ar.Surface,

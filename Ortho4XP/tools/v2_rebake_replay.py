@@ -275,7 +275,13 @@ def cmd_plan(args: argparse.Namespace) -> int:
         for _u in plan_.units:
             _ms = []
             for _m in _u.members:
-                if (_m.deck_kind in ("flag", "signature")
+                # ONLY a FLAG deck: the patch half stamps stations for a
+                # flag deck over no graded face and never for a signature
+                # deck (``rebake_plan._with_deck``), so back-filling a
+                # signature deck replayed a law the app never runs — KMCI's
+                # terminal and LFPG's T2 roads took deck-top datums in the
+                # replay alone (lane l1214, #1214)
+                if (_m.deck_kind == "flag"
                         and _m.deck_datum_z is None and _m.deck_ring
                         and not _m.deck_end_stations):
                     _e = ring_ends(_m.deck_ring)

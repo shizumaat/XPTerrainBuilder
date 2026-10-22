@@ -561,7 +561,8 @@ class Datum:
 
 def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
              abutment_walk_max_m: float = 0.0,
-             level_tol_m: float = 0.0) -> "Datum | None":
+             level_tol_m: float = 0.0,
+             free_standing: bool = False) -> "Datum | None":
     """§16e: the datum ONE MEMBER carries, or ``None``.
 
     Read off the plan's own member record by attribute, so that a twin
@@ -589,7 +590,18 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
     solid has no foot anywhere).
 
     §16e (6): the walk's three numbers ride the Datum rather than this
-    module, which holds no law constant."""
+    module, which holds no law constant.
+
+    AS AMENDED BY owner RULINGS 2026-10-22d (#1214): "For all bridges,
+    the priority is the road/taxiway deck sitting flush with terrain,
+    even if that requires some of its pillar/supports to sink OR float."
+    A FREE-STANDING deck (``free_standing``: every member of its shared
+    frame is a deck — a bridge, not a terminal's viaduct, which 10-03e
+    keeps riding its unit) takes the deck-top datum WITH its feet, and a
+    signature deck that the plan stamped no stations for reads them off
+    its own END LINES (``deck_ends``, ``rebake_plan.end_line_stations``
+    — the one derivation).  KMCI's perimeter highway bridges seated on
+    their low-side pier, their deck ends metres off the road."""
     plate_y = getattr(m, "plate_y", None)
     if plate_y is not None and float(plate_y) > 0.0:
         st = tuple(getattr(m, "plate_stations", ()) or ())
@@ -600,9 +612,13 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
     if (top is not None and getattr(m, "deck_datum_z", None) is None
             and getattr(m, "deck_kind", "") in ("flag", "signature")):
         st = tuple(getattr(m, "deck_end_stations", ()) or ())
-        if st and not any(getattr(p, "feet", ()) for p in getattr(m, "parts", ())):
-            ends = tuple(tuple((float(q[0]), float(q[1])) for q in ln)
-                         for ln in (getattr(m, "deck_ends", None) or ()))
+        ends = tuple(tuple((float(q[0]), float(q[1])) for q in ln)
+                     for ln in (getattr(m, "deck_ends", None) or ()))
+        if free_standing and not st and len(ends) >= 2 and abutment_step_m > 0.0:
+            from .rebake_plan import end_line_stations
+            st = tuple(end_line_stations(ends, abutment_step_m))
+        if st and (free_standing or not any(
+                getattr(p, "feet", ()) for p in getattr(m, "parts", ()))):
             return Datum(float(top), st, "deck top",
                          ends=ends if len(ends) >= 2 else (),
                          step_m=float(abutment_step_m),

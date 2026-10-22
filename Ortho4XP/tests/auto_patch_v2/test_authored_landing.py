@@ -127,7 +127,9 @@ def test_a_rigid_placement_over_sloping_ground_is_still_split(tmp_path):
     """The other way: the ground falls 1 m per 100 m along the fence, so a
     rigid placement at its row floats or sinks by metres at its far end —
     our ground requires the split, and it stands.  An AGL fence's bodies
-    keep the author's 3 m lift on their rows."""
+    are seated by their own feet on our ground, so they keep NO lift (owner
+    RULINGS 2026-10-22b, #1214: a re-seated footed frame moves as one and
+    the author's lift would float it); the rows are written on-ground."""
     path, _n = _fence(tmp_path, 400.0)
     plan = _fence_plan(path, 400.0)
     slope = lambda la, lo: 100.0 + (lo + 3.0) * 85000.0 * 0.01    # noqa: E731
@@ -139,10 +141,10 @@ def test_a_rigid_placement_over_sloping_ground_is_still_split(tmp_path):
                          rows=_rows_for(path, "OBJECT_AGL", 3.0),
                          authored_keep_tol_m=TOL)
     assert len(ss.splits) == 1
-    assert all(b.lift_m == 3.0 for b in ss.splits[0].bodies)
+    assert all(b.lift_m == 0.0 for b in ss.splits[0].bodies)
     splits, _k = PP.to_placement_records(ss)
-    assert all(b.lift_m == 3.0 for b in splits[0].bodies)
-    assert all(b.to_dict()["lift_m"] == 3.0 for b in splits[0].bodies)
+    assert all(b.lift_m == 0.0 for b in splits[0].bodies)
+    assert all("lift_m" not in b.to_dict() for b in splits[0].bodies)
 
 
 def test_lands_needs_a_row_and_a_surface():

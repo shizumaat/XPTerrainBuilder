@@ -132,3 +132,19 @@ def test_free_standing_is_every_member_a_deck():
     assert PF.frame_is_bridge(types.SimpleNamespace(members=(deck, flag)))
     assert not PF.frame_is_bridge(types.SimpleNamespace(members=(deck, hall)))
     assert not PF.frame_is_bridge(types.SimpleNamespace(members=()))
+
+
+def test_a_signature_deck_in_a_buildings_frame_is_the_buildings_own():
+    """10-22b: the wall chain and the contents refuse a deck verdict only
+    for a bridge; a flag deck or one over a deck face keeps §48 (1) (c)."""
+    sig = types.SimpleNamespace(deck_kind="signature", deck_datum_z=None)
+    flag = types.SimpleNamespace(deck_kind="flag", deck_datum_z=None)
+    faced = types.SimpleNamespace(deck_kind="signature", deck_datum_z=101.0)
+    hall = types.SimpleNamespace(deck_kind="", deck_datum_z=None)
+    building = types.SimpleNamespace(members=(sig, flag, faced, hall))
+    bridge = types.SimpleNamespace(members=(sig,))
+    assert not PF.member_is_bridge_deck(building, sig)
+    assert PF.member_is_bridge_deck(building, flag)
+    assert PF.member_is_bridge_deck(building, faced)
+    assert not PF.member_is_bridge_deck(building, hall)
+    assert PF.member_is_bridge_deck(bridge, sig)

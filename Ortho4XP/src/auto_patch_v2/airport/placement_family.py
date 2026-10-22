@@ -381,8 +381,13 @@ def member_is_bridge_deck(u: _t.Any, m: _t.Any) -> bool:
     signature 'decks' (its floors, its forecourt road: the departures
     viaduct's mapped bridge way carries the frame's deck plane); with all
     42 refused as walls and as contents its pieces seated one by one and
-    came apart by up to 8 m."""
-    return member_is_deck(m) and frame_is_bridge(u)
+    came apart by up to 8 m.  A FLAG deck (the pack's own hard deck) or
+    one over an emitted deck face keeps its own datum law (§16e / §49) in
+    any frame — §48 (1) (c) stands for it."""
+    if not member_is_deck(m):
+        return False
+    return (frame_is_bridge(u) or str(getattr(m, "deck_kind", "") or "") == "flag"
+            or getattr(m, "deck_datum_z", None) is not None)
 
 
 #: §16g (10) (2) AMENDED (issue #73, spec-author ruling to lane

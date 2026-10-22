@@ -144,17 +144,9 @@ struct MapMainView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Refresh + imagery picker up front (own buttons, away from the
-        // search cluster), search and inspector trailing.
-        ToolbarItem(placement: .navigation) {
-            Button {
-                controller.refreshInstallation()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-            .help("Refresh the map's scenery overlays")
-            .disabled(controller.isScanningInstallation)
-        }
+        // Imagery picker up front (its own button, away from the search
+        // cluster), search and inspector trailing.  No refresh button
+        // (#1258): the Custom Scenery watcher rescans on any change.
         ToolbarItem(placement: .navigation) {
             // Live map imagery source — independent of the build provider.
             Menu {

@@ -47,6 +47,9 @@ final class AnalysisController: ObservableObject {
     /// scenery_packs.ini: external adds/removes/renames trigger a rescan
     /// (which reconciles the ini), external ini edits refresh statuses.
     private var watcher: FileSystemWatcher?
+    /// The X-Plane root the watcher is armed on: a new folder re-arms it
+    /// (there is no refresh button to fall back on, #1258).
+    private var watchedRoot: URL?
     /// Our own ini writes fire the watcher too — events inside this window
     /// (or while we're scanning) are ours and get ignored.
     private var watcherCooldownUntil = ContinuousClock.now
@@ -202,7 +205,10 @@ final class AnalysisController: ObservableObject {
     /// then repairs the ini. Our own writes are filtered by the cooldown
     /// and the scanning flag.
     private func startWatchingIfNeeded() {
-        guard watcher == nil, let root = rootURL else { return }
+        guard let root = rootURL else { return }
+        if watcher != nil, watchedRoot == root { return }
+        watcher?.stop()
+        watchedRoot = root
         let service = PackActionService(root: root)
         let watched = FileSystemWatcher(paths: [
             root.appendingPathComponent("Custom Scenery").path,

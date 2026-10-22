@@ -99,6 +99,7 @@ import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Qt_Tile_Menu as QTTILEMENU
+import O4_Qt_Scenery_Watcher as QTSCW
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -188,6 +189,27 @@ def _zoom_level(value, fallback):
     except (TypeError, ValueError):
         return fallback
     return zl if 12 <= zl <= 21 else fallback
+
+
+def write_default_preset_if_unset():
+    """While the global config sets none of the preset keys, write the
+    default preset's (Sharper airports, #937; owner 2026-10-22, "what I
+    want the default to be") and return its zoom; else None.  The Mac app
+    does the same (BuildModel.applyDefaultPresetIfUnset)."""
+    import O4_Settings_Model as SM
+    import O4_Settings_Presets as PRESETS
+
+    try:
+        if not PRESETS.unset_in(SM.read_global_raw()):
+            return None
+        entry = PRESETS.default_preset()
+        values = PRESETS.cfg_values(entry)
+        SM.write_global(values)
+        SM.apply_runtime(values)
+    except OSError as exc:
+        print("Could not save the default preset:", exc)
+        return None
+    return PRESETS.zoom_value(entry)
 
 
 def load_prefs():
@@ -843,6 +865,13 @@ class MainWindow(QMainWindow):
 
         if self._first_run:
             self._after(200, self.run_wizard)
+        else:
+            self._after(200, self._apply_default_preset_if_unset)
+        # Custom Scenery changed outside the app (a pack added, removed or
+        # renamed, X-Plane rewriting the ini): rescan, as the Mac does
+        # (#1258).  refresh_tiles points it at the current folder.
+        self._scenery_watcher = QTSCW.SceneryWatcher(
+            self._on_scenery_changed, self)
         self._after(300, self.refresh_tiles)
         self._after(400, self._load_airports_async)
 
@@ -893,15 +922,11 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         # The Mac app's toolbar, item for item (#1243, MapMainView.swift
-        # toolbarContent): refresh and the map's imagery preview on the
-        # left; the scenery filter, the search and the side-panel switch
-        # on the right.  The BUILD source and the detail level are not
-        # here: the source is in the Build box, the detail in Settings.
-        self.refresh_btn = refresh_btn = QToolButton()
-        refresh_btn.setText("⟳")
-        refresh_btn.setToolTip("Refresh the map's scenery overlays")
-        refresh_btn.clicked.connect(self.refresh_tiles)
-        toolbar.addWidget(refresh_btn)
+        # toolbarContent): the map's imagery preview on the left; the
+        # scenery filter, the search and the side-panel switch on the
+        # right.  The BUILD source and the detail level are not here: the
+        # source is in the Build box, the detail in Settings.  No refresh
+        # button (#1258): a Custom Scenery change rescans by itself.
         # Live map imagery source — INDEPENDENT of the build source (the
         # Build box's Imagery; MapMainView.swift's mapPreviewProvider):
         # previewing a source must never rewrite what the next build
@@ -1219,6 +1244,13 @@ class MainWindow(QMainWindow):
         self.build_btn = QPushButton("▶ Build")
         self.build_btn.clicked.connect(self.start_build)
         bg.addWidget(self.build_btn)
+        # Why Build is off, in words under the button (the Mac app's
+        # build box shows it; a tooltip alone was never seen).
+        self.build_block_label = QLabel("")
+        self.build_block_label.setWordWrap(True)
+        self.build_block_label.setStyleSheet("color: #D9822B;")
+        self.build_block_label.setVisible(False)
+        bg.addWidget(self.build_block_label)
 
         # Activity box — live per-tile progress of the run in progress.
         # Hidden while idle; a running build shows it WITHOUT hiding the
@@ -1526,10 +1558,21 @@ class MainWindow(QMainWindow):
                 SM.apply_runtime(wizard.preset_values)
             except OSError as exc:
                 print("Could not save the preset:", exc)
+        self._apply_default_preset_if_unset()
         self._seed_paths_from_xplane()
         self._apply_prefs()
         self._load_airports_async()
         self.refresh_tiles()
+
+    def _apply_default_preset_if_unset(self):
+        """A skipped first-run assistant, or prefs that predate it, left
+        the engine's Balanced defaults: start from the default preset
+        (:func:`write_default_preset_if_unset`)."""
+        zoom = write_default_preset_if_unset()
+        if zoom is not None:
+            self.build_zl = zoom
+            self.prefs["zl"] = zoom
+            self._update_build_summary()
 
     def _seed_paths_from_xplane(self):
         """Fill empty scenery/overlay paths from the X-Plane folder."""
@@ -1951,7 +1994,8 @@ class MainWindow(QMainWindow):
         # the ones that compete with our tiles for the ground.  Airport
         # and landmark packs say what they are with their own marks.
         self.map.set_scenery_regions(
-            (pack.name, pack.tiles, pack.status != "enabled", pack.kind)
+            (pack.name, pack.tiles, pack.status != "enabled", pack.kind,
+             pack.imagery)
             for pack in self._scenery_packs
             if pack.kind in ("ortho", "mesh") and pack.tiles
         )
@@ -2286,6 +2330,12 @@ class MainWindow(QMainWindow):
             if conflicted else ""
         )
 
+    def _on_scenery_changed(self):
+        """A settled burst of Custom Scenery changes.  A scan already
+        running reads the new state; a build rescans when its run ends."""
+        if not self._scanning and not self._building:
+            self.refresh_tiles()
+
     def refresh_tiles(self):
         import O4_Config_Utils as CFG
 
@@ -2298,6 +2348,7 @@ class MainWindow(QMainWindow):
         self._scanning = True
         working_dir = self.working_dir()
         self._scan_dirs = (working_dir, CFG.custom_scenery_dir)
+        self._scenery_watcher.watch(CFG.custom_scenery_dir)
         self._session.scan(working_dir, CFG.custom_scenery_dir)
         # An already-shown "(not built)" verdict is stale the moment a
         # rescan starts — repaint the active tile as pending.
@@ -2495,6 +2546,7 @@ class MainWindow(QMainWindow):
                 "" if fresh else
                 "The selected tiles are already queued or building in "
                 "the current run.")
+            self._show_build_block(None)
         else:
             self.build_btn.setText(
                 "▶ Build %d tile%s" % (n, "s" if n > 1 else "")
@@ -2502,6 +2554,12 @@ class MainWindow(QMainWindow):
             blocked = self.xplane_block_reason()
             self.build_btn.setEnabled(blocked is None)
             self.build_btn.setToolTip(blocked or "")
+            self._show_build_block(blocked)
+
+    def _show_build_block(self, reason):
+        """The Build box's visible why-not line; hidden when Build is on."""
+        self.build_block_label.setText(reason or "")
+        self.build_block_label.setVisible(bool(reason))
 
     def _refresh_empty_state(self):
         """The no-selection explanation (#828), with the how-to-start

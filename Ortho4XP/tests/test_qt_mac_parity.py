@@ -885,3 +885,37 @@ def test_the_x_plane_folder_is_found_above_custom_scenery(tmp_path, monkeypatch)
     assert GUI._xplane_above_custom_scenery() == str(tmp_path / "X-Plane 12")
     monkeypatch.setattr(CFG, "custom_scenery_dir", "")
     assert GUI._xplane_above_custom_scenery() == ""
+
+
+def test_an_unset_global_config_starts_from_sharper_airports(tmp_path, monkeypatch):
+    """Owner 2026-10-22: the default preset is Sharper airports, also for
+    a user who skipped the first-run assistant (it used to stay Balanced)."""
+    import O4_Settings_Model as SM
+    import O4_Settings_Presets as PRESETS
+
+    cfg = tmp_path / "Ortho4XP.cfg"
+    monkeypatch.setattr(SM, "_default_global_cfg", lambda: str(cfg))
+    monkeypatch.setattr(SM, "apply_runtime", lambda values: None)
+    entry = PRESETS.preset("sharper_airports")
+    assert GUI.write_default_preset_if_unset() == PRESETS.zoom_value(entry)
+    written = SM.read_global_raw()
+    assert all(written[name] == value
+               for name, value in PRESETS.cfg_values(entry).items())
+    # Once any preset key is set, nothing is overwritten.
+    assert GUI.write_default_preset_if_unset() is None
+
+
+def test_why_build_is_off_shows_as_text(make_window, monkeypatch):
+    """The Mac's build box says why Build is off; a tooltip alone was
+    never seen."""
+    window = make_window()
+    reason = "Your X-Plane folder has no runway data (CIFP)."
+    monkeypatch.setattr(window, "xplane_block_reason", lambda: reason)
+    window._update_build_summary()
+    assert not window.build_btn.isEnabled()
+    assert window.build_block_label.isVisibleTo(window)
+    assert window.build_block_label.text() == reason
+    monkeypatch.setattr(window, "xplane_block_reason", lambda: None)
+    window._update_build_summary()
+    assert window.build_btn.isEnabled()
+    assert not window.build_block_label.isVisibleTo(window)

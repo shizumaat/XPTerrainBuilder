@@ -37,6 +37,10 @@ __all__ = [
     "iter_packs",
     "scan_packs",
     "packs_covering",
+    "pack_imagery",
+    "parse_texture_stem",
+    "imagery_from_file_names",
+    "TEXTURE_STEM_RE",
 ]
 
 # Pack kinds, mirroring the macOS app's PackKind (Sources/SceneryKit/
@@ -82,6 +86,9 @@ class SceneryPack:
     kind: str = "other"
     tiles: frozenset = field(default_factory=frozenset)
     airports: tuple = ()
+    #: ``(provider, zl)`` an ortho pack's imagery reads as (:func:`pack_imagery`),
+    #: ``zl`` may be None; None when nothing names it.
+    imagery: Optional[Tuple[str, Optional[int]]] = None
 
     def covers(self, lat: int, lon: int) -> bool:
         return (int(lat), int(lon)) in self.tiles
@@ -112,6 +119,67 @@ def disabled_pack_names(scenery_dir: str) -> Set[str]:
     user re-enables one.
     """
     return _scenery_packs.disabled_pack_names(scenery_dir)
+
+
+#: An Ortho4XP texture or terrain file stem, ``{y}_{x}_{provider}{zl}``
+#: with an optional ``_suffix`` (the Mac app's ``TileTextureAudit``).  The
+#: two-digit ZL anchor lets a provider code that itself ends in digits
+#: ("USA_2" -> "…_USA_216") parse.
+TEXTURE_STEM_RE = re.compile(r"\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$")
+
+
+def parse_texture_stem(stem: str) -> Optional[Tuple[str, int]]:
+    """``(provider, zl)`` of an Ortho4XP texture/terrain file stem, or None."""
+    match = TEXTURE_STEM_RE.fullmatch(stem)
+    return (match.group(1), int(match.group(2))) if match else None
+
+
+def imagery_from_file_names(names) -> Optional[Tuple[str, int]]:
+    """The dominant provider among Ortho4XP-named ``.dds``/``.ter`` files,
+    and that provider's most common ZL (the tile's base level: airport
+    covers are fewer files); ties go to the lower name and ZL so the label
+    is stable.  None when no name parses.  ``PackImagery.fromFileNames``."""
+    counts: dict = {}
+    for name in names:
+        if not name.lower().endswith((".dds", ".ter")):
+            continue
+        parsed = parse_texture_stem(name[:-4])
+        if parsed is not None:
+            zls = counts.setdefault(parsed[0], {})
+            zls[parsed[1]] = zls.get(parsed[1], 0) + 1
+    if not counts:
+        return None
+    provider = min(counts, key=lambda p: (-sum(counts[p].values()), p))
+    zls = counts[provider]
+    return (provider, min(zls, key=lambda z: (-zls[z], z)))
+
+
+def pack_imagery(content_root: str) -> Optional[Tuple[str, Optional[int]]]:
+    """``(provider, zl)`` an installed ortho pack carries (#1227, #1257):
+    from its ``terrain``/``textures`` file names, else the
+    ``Ortho4XP*.cfg`` Ortho4XP copies into the pack root.  Capped
+    listings, as :func:`_terrain_probe`; ``PackImagery`` in the Mac app."""
+    names = []
+    for folder in ("terrain", "textures"):
+        try:
+            names.extend(os.listdir(os.path.join(content_root, folder))[:500])
+        except OSError:
+            continue
+    found = imagery_from_file_names(names)
+    if found is not None:
+        return found
+    try:
+        cfgs = sorted(n for n in os.listdir(content_root)
+                      if n.startswith("Ortho4XP") and n.lower().endswith(".cfg"))
+    except OSError:
+        return None
+    import O4_Tile_Info as TINFO
+
+    for name in cfgs:
+        provider, zl = TINFO._parse_cfg(os.path.join(content_root, name))[:2]
+        if provider:
+            return (provider, zl)
+    return None
 
 
 def _pack_tiles(content_root: str) -> frozenset:
@@ -243,15 +311,18 @@ def iter_packs(scenery_dir: str,
                 tiles = _pack_tiles(content_root)
                 airports = _pack_airports(content_root)
                 if tiles or airports:
+                    kind = _classify(entry, content_root, tiles, airports)
                     pack = SceneryPack(
                         name=entry,
                         path=path,
                         content_root=content_root,
                         status=("disabled" if entry in disabled
                                 else "enabled"),
-                        kind=_classify(entry, content_root, tiles, airports),
+                        kind=kind,
                         tiles=tiles,
                         airports=airports,
+                        imagery=(pack_imagery(content_root)
+                                 if kind == "ortho" else None),
                     )
         yield done, total, pack
 

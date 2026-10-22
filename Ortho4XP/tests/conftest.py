@@ -355,6 +355,10 @@ def _no_modal_first_run_wizard(monkeypatch):
     if gui is not None and hasattr(gui, "MainWindow"):
         monkeypatch.setattr(gui.MainWindow, "run_wizard",
                             lambda self: None)
+        # Its sibling at launch writes the global config (the checkout's,
+        # under a test run): off unless a test patches it back.
+        monkeypatch.setattr(gui.MainWindow, "_apply_default_preset_if_unset",
+                            lambda self: None)
     yield
 
 

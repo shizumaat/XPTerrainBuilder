@@ -101,6 +101,7 @@ class OsmRoads:
     min_len_m: float
     ribbon_highways: tuple[str, ...]
     road_gap_bridge_m: float
+    boundary_reach_m: float
 
 
 @_dc.dataclass(frozen=True)

@@ -28,6 +28,13 @@ tiles, config) goes to a user-chosen data folder via
 `ORTHO4XP_DATA_ROOT`; the engine copy inside the app bundle stays
 read-only.
 
+## Before your first build
+
+1. **First downloads take longer.** Where available, XPTerrainBuilder downloads high-resolution lidar elevation for airports, and bathymetry along coastlines so reefs and atolls are covered automatically. Both are cached, so only the first build of an area waits for them.
+2. **OSM data comes from regional extracts.** The public OSM servers have been busy and slow, so XPTerrainBuilder downloads a regional OSM extract and pulls out what each airport needs. This is more reliable, but the first download depends on your connection speed.
+3. **A big airport's first auto-patch can take up to 30 minutes.** On tiles with large airports and detailed scenery packs installed, auto-patch reads every object and polygon, and grades all the airport's pavement to FAA or ICAO rules.
+4. **Edit the patch from the map.** Once a tile is built, zoom in on the airport in the map view to see the generated patch, then adjust its elevations or shapes.
+
 ## Core Features
 
 **Airport terrain grading (`auto_patch`)**

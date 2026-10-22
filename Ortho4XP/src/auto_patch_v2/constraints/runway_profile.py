@@ -167,7 +167,11 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
     tilt, §21.2 (2)).  With ONE CIFP pin the CIFP end keeps its pin and the
     missing end takes the datum line's value, pulled toward the pin until
     the chord between them sits within that cap (the datum yields to the
-    specific witness, never the reverse).  These are HARD pins, exactly a
+    specific witness, never the reverse).  AMENDED (issue #1238, owner
+    RULINGS 2026-10-22a): with ONE CIFP pin the missing end FOLLOWS THE
+    DEM (:func:`_dem_at_end`), never the apt.dat header — CYYJ's header
+    reads 19 ft against thresholds of 44 and 58 ft, and the header line
+    pinned 32 at or below 5.8 m, 8+ m under its ground.  These are HARD pins, exactly a
     CIFP threshold's (``threshold_pins`` merges them): no stage-1
     perturbation moves the runway (the #117 floating-runway lesson, 30q),
     and every pin consumer — the pin rows, the chord/trend target, the
@@ -230,6 +234,8 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
                 continue
             v = end_v[end.name]
             z = level + slope * (along(v) - s_top)
+            if pinned and not degraded:
+                z = _dem_at_end(planar, t, along(v), v, z)
             for vp, zp in pinned:
                 if lim is None or vp == v:
                     continue
@@ -237,6 +243,20 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
                 z = max(zp - reach, min(zp + reach, z))
             out[v] = (z, rw.id, end.name)
     return out
+
+
+def _dem_at_end(planar: PlanarMap, trend, s: float, v: int, fallback: float) -> float:
+    """THE GROUND AT AN UNMATCHED END of a runway with one CIFP pin (owner
+    RULINGS 2026-10-22a, "I would have expected it to move toward DEM, not
+    0"): the §21 trend at the end's station, else the end vertex's own DEM,
+    else ``fallback`` (the apt.dat datum line; a DEGRADED frame never comes
+    here, §21.2 (2))."""
+    if trend is not None:
+        z = trend.at(min(max(s, trend.s[0]), trend.s[-1]))
+        if z is not None:
+            return float(z)
+    dz = planar.vertices[v].dem_z
+    return float(dz) if dz is not None else fallback
 
 
 def _ridge_trends(planar: PlanarMap, vw: View, airport: Airport,

@@ -148,7 +148,12 @@ def test_a_road_reaching_a_pad_inside_the_reach_stays_a_pad_road(law):
     mint_osm_ribbons(*args, first)
     mint_pad_roads(*args, first)
     pad_roads = [(r, p, ev) for r, p, ev in out if ev.get("pad_road")]
-    assert pad_roads and all(not ev.get("road_reach") for _r, _p, ev in pad_roads)
+    # a pad road of the reach: standing for the structures, but no field
+    from auto_patch_v2.planar import structure_approach as sa
+    assert pad_roads and all(ev.get("road_reach") for _r, _p, ev in pad_roads)
+    assert not any(sa._late(Cell(9, "service_road", r, tuple(p.exterior.coords)[:-1], (),
+                                 None, None, "groundside", "service_road", ev))
+                   for r, p, ev in pad_roads)
     assert min(p.distance(box(*pad)) for _r, p, _e in pad_roads) < 1e-6   # meets the rim
-    reach = [p for _r, p, ev in out if ev.get("road_reach")]
+    reach = [p for _r, p, ev in out if ev.get("road_reach") and not ev.get("pad_road")]
     assert reach and min(p.bounds[1] for p in reach) < -300.0             # the way beyond

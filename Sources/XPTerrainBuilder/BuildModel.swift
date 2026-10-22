@@ -161,10 +161,12 @@ final class BuildModel: ObservableObject {
     }
     /// The user's data folder: downloads, caches, built tiles and the
     /// engine's global config. Chosen on first run, changeable in Settings;
-    /// handed to every engine process as ORTHO4XP_DATA_ROOT.
+    /// handed to every engine process as ORTHO4XP_DATA_ROOT, and shared
+    /// with the Qt app through DataRootPointer (#1266).
     @AppStorage(PrefKeys.dataRoot) var dataRootPath: String = "" {
         didSet {
             OrthoProcessRunner.dataRoot = dataRootPath.isEmpty ? nil : dataRootPath
+            DataRootPointer.write(dataRootPath)
             reloadEngine()
         }
     }
@@ -332,6 +334,7 @@ final class BuildModel: ObservableObject {
         schema = OrthoConfigSchema.bundledSnapshot()
             ?? OrthoConfigSchema(engineVersion: "", groups: [:], vars: [:])
         OrthoProcessRunner.dataRoot = dataRootPath.isEmpty ? nil : dataRootPath
+        DataRootPointer.write(dataRootPath)
         reloadEngine()
         loadCachedTileStates()
         loadCachedGlobalAirports()

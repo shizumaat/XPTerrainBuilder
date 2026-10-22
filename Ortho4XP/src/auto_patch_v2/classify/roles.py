@@ -750,9 +750,11 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["osm_ribbons"] = n_rib + n_pad
     stats["osm_ribbon_m2"] = m_rib + m_pad
     stats["pad_roads"] = n_pad
+    # (the reach's pad roads, RULINGS 2026-10-22g, were minted with the
+    # ribbons, before ``n_before``: they are read by the witness as well)
     cells, n_cut_rib = _cut_back_groundside(
         cells, law, rules, airport, hold=False,
-        only=range(n_before, len(cells)))
+        only=[i for i, c in enumerate(cells) if i >= n_before or c.evidence.get("pad_road")])
     stats["mixed_pad_cutbacks"] += n_cut_rib
     stats["ribbon_pad_welds"] = sum(1 for c in cells[n_before:]
                                     if c.evidence.get(WELD_KEY))

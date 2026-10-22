@@ -481,36 +481,71 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     serial: dict[str, int] = {}
     spans_of: dict[tuple, list[tuple[float, float]]] = {}
 
-    def _pass(inside, minus: dict | None, extra: dict) -> tuple[int, float]:
+    def _pass(inside, minus: dict | None, extra: dict, pads: dict | None = None
+              ) -> tuple[int, float]:
         n, area = 0, 0.0
         for w, line in ways:
+            key = (w.kind, w.id)
             spans = sorted(exit_reach(line, a, b, dem, airside, cap_l, hw, 2.0 * hw, near=zone)
                            for a, b in bridge_gaps(_way_intervals(line, inside),
                                                    orr.road_gap_bridge_m))
             if minus is not None:
-                spans = _interval_minus(spans, bridge_gaps(minus.get((w.kind, w.id), []), 1e-6))
-            if spans:
-                spans_of[(w.kind, w.id)] = sorted(spans_of.get((w.kind, w.id), []) + spans)
-            k, m2, rib = _mint_spans(w, line, spans, occupied, serial, cover, law,
-                                     rules, add, extra)
-            n += k
-            area += m2
-            if rib is not None:
-                occupied.add(rib)
+                spans = _interval_minus(spans, bridge_gaps(minus.get(key, []), 1e-6))
+            held = sorted((pads or {}).get(key, []))
+            if held:
+                spans = _interval_minus(spans, bridge_gaps(held, 1e-6))
+            for sp, ex, occ, kw in ((spans, extra, occupied, {}),
+                                    (held, {"pad_road": 1.0}, at_pads,
+                                     {"min_len": 0.0, "lots": lots})):
+                if not sp:
+                    continue
+                spans_of[key] = sorted(spans_of.get(key, []) + sp)
+                k, m2, rib = _mint_spans(w, line, sp, occ, serial, cover, law,
+                                         rules, add, ex, **kw)
+                n += k
+                area += m2
+                if rib is not None:
+                    occupied.add(rib)
         return n, area
 
     # THE BANDS' ENVELOPE FIRST (30e (2)), then THE REACH beyond it (RULINGS
     # 2026-10-22g): the envelope's ribbons are the cells they were, and the
     # reach's are what remains of each way, marked ``ROAD_REACH_KEY`` — they
-    # never lead a structure (``planar/structure_approach.standing_cover``)
+    # never lead a structure (``planar/structure_approach.standing_cover``).
+    # A PAD ROAD inside the reach stays a pad road (:func:`mint_pad_roads`'
+    # own spans, read on the envelope as before, 13a): minted here, at the
+    # pad's FOOTPRINT, and welded by the touch witness like every pad road
+    # (MEASURED KPHX, way -21842 by Terminal 3: as a reach ribbon it was held
+    # off the terminal's pad and fell to 339.55 m against the pad's 342.48)
+    at_pads, lots = occupied, None
     n, area = _pass(zone, None, {})
     if extent is not zone:
-        n2, area2 = _pass(extent, {key: list(v) for key, v in spans_of.items()},
-                          {ROAD_REACH_KEY: 1.0})
+        at_pads = _Occupied(unary_union([Polygon(c.ring, c.holes) for c in cells]))
+        at_pads.ribs, at_pads.bounds = occupied.ribs, occupied.bounds   # one ribbon list
+        lots = lot_cells(cells)
+        first = {key: list(v) for key, v in spans_of.items()}
+        n2, area2 = _pass(extent, first, {ROAD_REACH_KEY: 1.0},
+                          _pad_road_spans(ways, cells, zone, orr.road_gap_bridge_m, first))
         n, area = n + n2, area + area2
     if first_out is not None:
         first_out.update(spans=spans_of, serial=serial, extent=extent)
     return n, area
+
+
+def _pad_road_spans(ways, cells, extent, gap_m: float, mine: dict) -> dict:
+    """Per way, the spans :func:`mint_pad_roads` reads from ``extent`` and
+    the pads: the network bridge a pad serves, less the ribbons' own."""
+    pads = [Polygon(c.ring, c.holes) for c in cells if c.role == "building"]
+    if not pads:
+        return {}
+    pad_union = unary_union(pads)
+    served = network_spans(ways, unary_union([extent, pad_union]), gap_m, serve=pad_union)
+    out = {}
+    for (w, _line), spans in zip(ways, served, strict=True):
+        rest = _interval_minus(spans, bridge_gaps(mine.get((w.kind, w.id), []), 1e-6))
+        if rest:
+            out[(w.kind, w.id)] = rest
+    return out
 
 
 def mint_pad_roads(airport: Airport, ev: Evidence, cells: list, law: Law,

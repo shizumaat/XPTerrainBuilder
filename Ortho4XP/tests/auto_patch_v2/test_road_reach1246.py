@@ -119,3 +119,36 @@ def test_a_reach_ribbon_is_marked_and_never_leads_a_structure(law):
     off = {c.ref: c for c in _ribbons(classify(_with(inside, reach, boundary=False), law))}
     assert set(off) == {"small_roads:-7"}
     assert off["small_roads:-7"].ring == rib["small_roads:-7"].ring
+
+
+def test_a_road_reaching_a_pad_inside_the_reach_stays_a_pad_road(law):
+    """A pad road is not taken into the reach: the stretch from the bands'
+    envelope to a pad is minted as the pad road it was (at the pad's
+    footprint, ``pad_road``, standing), and only the way beyond it is a
+    reach ribbon (MEASURED KPHX way -21842: as a reach ribbon it was held
+    off the terminal's pad and fell 2.9 m below it)."""
+    import types
+
+    from auto_patch_v2.classify.ribbon_mint import mint_osm_ribbons, mint_pad_roads
+    from auto_patch_v2.classify.roles import Cell
+    from shapely.geometry import box
+    way = _way(-3, ((600.0, -40.0), (900.0, -40.0), (900.0, -200.0), (900.0, -400.0)),
+               highway="service")
+    pad = (880.0, -260.0, 920.0, -180.0)
+    cells = [Cell(0, "runway", "09/27", tuple(box(0, -15, 1060, 15).exterior.coords)[:-1],
+                  (), 2, "B", "airside", "runway", {}),
+             Cell(1, "building", "pad0", tuple(box(*pad).exterior.coords)[:-1], (),
+                  None, None, "airside", "pad", {})]
+    out, first = [], {}
+    args = (types.SimpleNamespace(osm_ways=(way,), dem=None),
+            types.SimpleNamespace(pavement_union=box(0, -15, 1060, 15), truck_chains=(),
+                                  boundary=box(-200, -500, 1300, 700)),
+            cells, law, load_rules(),
+            lambda role, ref, part, kind, cn, cl, ev: out.append((ref, part, ev)))
+    mint_osm_ribbons(*args, first)
+    mint_pad_roads(*args, first)
+    pad_roads = [(r, p, ev) for r, p, ev in out if ev.get("pad_road")]
+    assert pad_roads and all(not ev.get("road_reach") for _r, _p, ev in pad_roads)
+    assert min(p.distance(box(*pad)) for _r, p, _e in pad_roads) < 1e-6   # meets the rim
+    reach = [p for _r, p, ev in out if ev.get("road_reach")]
+    assert reach and min(p.bounds[1] for p in reach) < -300.0             # the way beyond

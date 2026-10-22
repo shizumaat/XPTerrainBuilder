@@ -444,7 +444,8 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     (``planar/terrain_edge.road_ways`` — the one at-grade road source) of
     an ``osm_roads.ribbon_highways`` class, over its parts inside the
     airside bands' envelope (the reach beyond it is
-    :func:`mint_reach_ribbons`', RULINGS 2026-10-22g) plus the same-way gaps up to ``osm_roads.road_gap_bridge_m``; parts
+    :func:`mint_reach_ribbons`', RULINGS 2026-10-22g) plus the same-way
+    gaps up to ``osm_roads.road_gap_bridge_m``; parts
     within ``osm_roads.dedup_m`` of a 1206 route dropped (the network is
     senior); half-width = the way's own (``airport/road_ways.
     ribbon_half_width_m``: its mapped carriageway, never under the core's

@@ -12,14 +12,12 @@ from __future__ import annotations
 import dataclasses as _dc
 
 import pytest
-from shapely.geometry import LineString, Polygon
-
 from auto_patch_v2.classify import classify, load_rules
 from auto_patch_v2.classify.ribbon_mint import exit_reach
 from auto_patch_v2.classify.roles import is_osm_ribbon
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Boundary, OsmWay
-
+from shapely.geometry import LineString, Polygon
 from test_classify import _rect, _synthetic
 
 #: the synthetic's boundary: the field and 500 m round the runway's axis

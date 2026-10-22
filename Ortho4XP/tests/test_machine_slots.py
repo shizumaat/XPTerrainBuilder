@@ -215,12 +215,12 @@ def test_lower_priority_is_inherited_below_normal():
     assert int(out.stdout.strip()) >= SLOTS.NICE
 
 
-def test_qos_command_clamps_on_macos_only():
-    cmd = SLOTS.qos_command(["engine", "--x"])
-    if sys.platform == "darwin" and os.path.exists(SLOTS._TASKPOLICY):
-        assert cmd == [SLOTS._TASKPOLICY, "-c", "utility", "engine", "--x"]
-    else:
-        assert cmd == ["engine", "--x"]
+def test_workers_start_without_a_qos_clamp():
+    """RULINGS 2026-10-22k: no ``taskpolicy -c utility`` clamp (it kept
+    workers on the efficiency cores); nice 10 alone lowers them."""
+    par = Path(SLOTS.__file__).parent / "o4_engine" / "parallel.py"
+    assert not hasattr(SLOTS, "qos_command")
+    assert "taskpolicy" not in par.read_text(encoding="utf-8")
 
 
 def _hold(seconds):

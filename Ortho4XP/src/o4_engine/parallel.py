@@ -719,9 +719,9 @@ class _WorkerChild:
             # (Ortho4XP.py --engine-jsonl); leaving close_fds off is safe
             # since PEP 446 makes descriptors non-inheritable by default.
             self.process = subprocess.Popen(
-                # Under the macOS utility QoS clamp (#1225): the window
-                # server and input stay responsive however busy it is.
-                O4_Machine_Slots.qos_command(tile_worker_command()),
+                # Normal QoS (RULINGS 2026-10-22k): no utility clamp, so
+                # workers reach the performance cores; nice 10 is inherited.
+                tile_worker_command(),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

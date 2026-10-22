@@ -627,10 +627,10 @@ public final class OrthoEngineClient: @unchecked Sendable {
             for waiter in eventWaiters { waiter(nil) }
             self.onExit(proc.terminationStatus)
         }
-        // Utility QoS (#1225): the engine and every build process it starts
-        // run below the user's apps, so the window server and input stay
-        // responsive however busy a build is.
-        process.qualityOfService = .utility
+        // Normal QoS (owner RULINGS 2026-10-22k, amending #1225): utility
+        // confined the engine and its workers to the efficiency cores. The
+        // engine's nice 10, slot budget and memory gate keep the Mac usable.
+        process.qualityOfService = .default
         try process.run()
     }
 

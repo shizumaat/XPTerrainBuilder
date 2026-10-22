@@ -495,7 +495,7 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
             if held:
                 spans = _interval_minus(spans, bridge_gaps(held, 1e-6))
             for sp, ex, occ, kw in ((spans, extra, occupied, {}),
-                                    (held, {"pad_road": 1.0}, at_pads,
+                                    (held, {"pad_road": 1.0, ROAD_REACH_KEY: 1.0}, at_pads,
                                      {"min_len": 0.0, "lots": lots})):
                 if not sp:
                     continue
@@ -514,7 +514,9 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     # never lead a structure (``planar/structure_approach.standing_cover``).
     # A PAD ROAD inside the reach stays a pad road (:func:`mint_pad_roads`'
     # own spans, read on the envelope as before, 13a): minted here, at the
-    # pad's FOOTPRINT, and welded by the touch witness like every pad road
+    # pad's FOOTPRINT, welded by the touch witness like every pad road, and
+    # standing for the structures as a pad road always did — but no FIELD
+    # (``structure_approach.cover_polygons``; marked ``ROAD_REACH_KEY`` too)
     # (MEASURED KPHX, way -21842 by Terminal 3: as a reach ribbon it was held
     # off the terminal's pad and fell to 339.55 m against the pad's 342.48)
     at_pads, lots = occupied, None

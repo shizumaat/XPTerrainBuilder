@@ -98,7 +98,7 @@ from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
                                   wall_corridor_note, wall_corridor_profile)
 from ..airport.dem import dem_z_at
-from .structure_approach import (FieldRegion, apply_plates, standing_cover,
+from .structure_approach import (FieldRegion, apply_plates, cover_polygons, standing_cover,
                                  approach_ground as _approach_ground,
                                  carriageway_width_m, cut_gap_cells,
                                  chains, field_region_for, mouth_reports, under_cover,
@@ -211,7 +211,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # corridor runs BEYOND each threshold and never BESIDE the runway),
     # one derivation the harness's cockpit block reads through the same
     # classes.
-    on_field = field_region_for(airport, law, polys + [c.footprint for c in corridors],
+    # the FIELD is the airport's cover (``cover_polygons``): a pad road of
+    # the road reach stands (stops a mouth, clips a ramp) but admits none (22g)
+    on_field = field_region_for(airport, law, cover_polygons(classification)
+                                + [c.footprint for c in corridors],
                                 corridors)  # 27a (3): never a pack building
     stats.approach_corridors = len(on_field.corridor or ())
     stats.runway_bands = len(on_field.band or ())

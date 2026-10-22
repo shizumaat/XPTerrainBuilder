@@ -538,14 +538,19 @@ def cover_polygons(classification) -> list[Polygon]:
     road -22826 by Terminal 4 was admitted on one and sank the road 5.2 m
     into a 12 m ramp (33.43602, -111.99307); bore -7353+-10192's portal
     was refused at another (#971) and bore -13436+-23951's ramp was
-    clipped at a third and moved 110 m."""
+    clipped at a third and moved 110 m.  A PAD ROAD of the reach stands
+    (:func:`standing_cover`: it stops a mouth and clips a ramp, as every
+    pad road does) but is no field either — MEASURED KPHX: pad road
+    ``small_roads:-9405``, 259 m from bore -26323+-41006's end, admitted
+    the bore within its 603 m ramp reach."""
     return [Polygon(c.ring, c.holes) for c in classification.cells
-            if not _late(c)]
+            if not is_gap_ref(c.ref) and not is_road_reach(c)]
 
 
 def _late(c) -> bool:
-    """A cell that FOLLOWS the structures: a gap piece or a road-reach ribbon."""
-    return is_gap_ref(c.ref) or is_road_reach(c)
+    """A cell that FOLLOWS the structures: a gap piece, or a road-reach
+    ribbon that is not a pad road."""
+    return is_gap_ref(c.ref) or (is_road_reach(c) and not c.evidence.get("pad_road"))
 
 
 def standing_cover(classification) -> tuple[list, list, list[Polygon]]:
@@ -557,10 +562,11 @@ def standing_cover(classification) -> tuple[list, list, list[Polygon]]:
     carry).  The pieces are set aside and cut by the finished footprints
     last (:func:`cut_gap_cells`); a ROAD-REACH ribbon (RULINGS 2026-10-22g)
     is set aside with them and cut flush there.  The polygons are
-    :func:`cover_polygons`, index-aligned with the standing cells."""
+    index-aligned with the standing cells; the FIELD is
+    :func:`cover_polygons`."""
     cells = [c for c in classification.cells if not _late(c)]
     gap = [c for c in classification.cells if _late(c)]
-    return cells, gap, cover_polygons(classification)
+    return cells, gap, [Polygon(c.ring, c.holes) for c in cells]
 
 
 def cut_gap_cells(gap_cells, knife, law: Law, cut) -> None:

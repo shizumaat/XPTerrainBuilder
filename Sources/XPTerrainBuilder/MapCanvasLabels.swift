@@ -103,7 +103,13 @@ extension MapCanvasView {
                 let key = Int32((lat + 90) * 360 + lon + 180)
                 let imagery: String?
                 if let info = built?[coord] {
-                    imagery = MapLabelLayout.imageryLabel(provider: info.provider, zl: info.zl,
+                    // A tile built in the working dir whose cfg names no
+                    // provider (renamed .pre352.bak, or never written) falls
+                    // back to the installed pack's own file names (#1227).
+                    let known = !info.provider.trimmingCharacters(in: .whitespaces).isEmpty
+                    let pack = known ? nil : orthoImagery[key]
+                    imagery = MapLabelLayout.imageryLabel(provider: known ? info.provider : pack?.provider,
+                                                          zl: known ? info.zl : (pack?.zl ?? info.zl),
                                                           hasZones: info.hasZones)
                 } else if orthoTiles?.contains(key) == true {
                     let pack = orthoImagery[key]

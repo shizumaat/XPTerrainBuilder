@@ -41,8 +41,10 @@ from PySide6.QtWidgets import (
 )
 
 import O4_File_Names as FNAMES
+import O4_Glossary as GLOSSARY
 import O4_Settings_Model as SM
 import O4_Settings_Presets as PRESETS
+from O4_Qt_Detail_Combo import DetailCombo
 from O4_Qt_Preset_Cards import PresetCards
 from O4_Qt_Widgets import (
     ElidedRowLabel,
@@ -52,6 +54,11 @@ from O4_Qt_Widgets import (
     wrap_and_never_widen,
 )
 
+#: The Detail row's help (the Mac app's Settings picker says the same).
+DETAIL_HELP = ("More detail means sharper imagery and much larger downloads: "
+               "one step (one ZL) \u2248 4\u00d7 the data. Most sources top out "
+               "below ZL21 \u2014 the map's zoom badge shows each source's "
+               "ceiling.")
 DOT_STYLE = "color: #C7861B; font-weight: bold;"
 INVALID_STYLE = "border: 1px solid #C03030;"
 PATH_SUFFIXES = ("_dir", "_src", "_path", "_src_alternate")
@@ -999,6 +1006,19 @@ class SettingsWindow(QDialog):
         self.preset_cards.chosen.connect(self._apply_preset)
         root.addWidget(self.preset_cards)
 
+        # The build detail level (#1242): here, and no longer in the main
+        # window, as in the Mac app's Settings (General, under the cards).
+        detail_row = QHBoxLayout()
+        detail_row.addWidget(QLabel("%s:" % GLOSSARY.TERMS["detail"]))
+        self.detail_combo = DetailCombo(range(12, 22))
+        self.detail_combo.setToolTip(DETAIL_HELP)
+        self.detail_combo.setCurrentText(str(
+            self.prefs.get(PRESETS.ZOOM_PREF, PRESETS.default_zoom())))
+        self.detail_combo.currentIndexChanged.connect(self._detail_changed)
+        detail_row.addWidget(self.detail_combo)
+        detail_row.addStretch(1)
+        root.addLayout(detail_row)
+
         # Sidebar + content
         middle = QHBoxLayout()
         side = QVBoxLayout()
@@ -1195,6 +1215,12 @@ class SettingsWindow(QDialog):
     def _refresh_presets(self):
         self.preset_cards.set_current(self._preset_current())
 
+    def _detail_changed(self, _index):
+        text = self.detail_combo.currentText()     # the zoom level
+        if text:
+            self.prefs[PRESETS.ZOOM_PREF] = int(text)
+            self._refresh_presets()
+
     def _apply_preset(self, key):
         """Write the preset's config keys in one global write, its zoom to
         the preferences, and show the new values in their rows."""
@@ -1211,6 +1237,9 @@ class SettingsWindow(QDialog):
         for name, value in values.items():
             self._show_global_value(SM.get_setting(name), value)
         self.prefs[PRESETS.ZOOM_PREF] = PRESETS.zoom_value(entry)
+        self.detail_combo.blockSignals(True)
+        self.detail_combo.setCurrentText(str(self.prefs[PRESETS.ZOOM_PREF]))
+        self.detail_combo.blockSignals(False)
         self._refresh_presets()
 
     def _refresh_customized_chip(self):

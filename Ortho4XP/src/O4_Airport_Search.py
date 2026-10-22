@@ -30,6 +30,7 @@ from typing import Iterable, List, Optional, Sequence
 import O4_Airport_Rank as RANK
 
 __all__ = [
+    "NO_INDEX_TEXT",
     "MIN_QUERY_LENGTH",
     "RESULT_LIMIT",
     "normalize",
@@ -66,6 +67,11 @@ def result_label(code: str, name: str, city: str = "",
     left out)."""
     place = ", ".join(p for p in (city.strip(), country.strip()) if p)
     return _SEPARATOR.join(p for p in (code, name.strip(), place) if p)
+
+
+#: The result list's only row when there is no airport index at all.
+NO_INDEX_TEXT = ("Airport search needs your X-Plane folder: set it in "
+                 "Settings \u25b8 General")
 
 
 def no_match_text(query: str) -> str:

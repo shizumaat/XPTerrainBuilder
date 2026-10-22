@@ -1,7 +1,8 @@
 """Main window of the Ortho4XP Qt UI (map-first shell).
 
-Layout: toolbar (search, imagery, build ZL) / live map / context panel on the
-right / collapsible console drawer below / status bar.
+Layout: toolbar (refresh, imagery preview, scenery filter, search, side
+panel switch) / live map / context panel on the right / collapsible
+console drawer below / status bar.
 
 The build pipeline is untouched: this window talks to it exactly the way the
 legacy Tk GUI does — a worker thread runs the step functions, progress arrives
@@ -105,7 +106,6 @@ import O4_Qt_Tile_Menu as QTTILEMENU
 # aliases keep this file's ~20 existing call sites unchanged.
 from O4_Qt_Click_Row import ClickableRow  # noqa: E402
 from O4_Qt_Map_Hint import MapHint  # noqa: E402
-from O4_Qt_Detail_Combo import DetailCombo  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
     may_be_squeezed as _may_be_squeezed,
@@ -141,6 +141,8 @@ AUTO_INSTALL_KEY = "auto_install"
 # Prefs key for the map's scenery-layer filter — the mac app's
 # ``MapSceneryFilter`` (MapMainView.swift).
 SCENERY_FILTER_KEY = "scenery_filter"
+# Prefs key: whether the side panel shows (the toolbar's switch).
+SIDE_PANEL_KEY = "side_panel_visible"
 
 # Persisted tile-scan results for the optimistic launch overlay
 # (docs/specs/qt-backlog-parity2-spec.md §QB1).  A CACHE, not user state:
@@ -169,65 +171,23 @@ STOP_SIGN_COLOR = "#E5372B"
 RESUME_COLOR = "#2E9E5B"
 STOPPED_COLOR = QTMAP.STOPPED_COLOR
 
-# Build-area texture-mode selector: user-visible label -> tile config value.
-# Order is significant (it is the popup-menu item order).
-TEXTURE_MODE_CHOICES = (
-    ("Full Ortho", "full_ortho"),
-    ("Airport Ortho", "airport_ortho"),
-    ("Default X-Plane", "default_xplane"),
-)
+def _xplane_above_custom_scenery():
+    """The X-Plane folder holding the configured Custom Scenery folder
+    (when it has the airport data), or ``""``."""
+    import O4_Config_Utils as CFG
 
-# Build-area elevation-detail selector: user-visible label -> tile config
-# value (the elevation analogue of the imagery zoom level; see
-# docs/specs/elevation-level-spec.md).  Order is the popup-menu order.
-ELEVATION_LEVEL_CHOICES = (
-    ("Auto", "auto"),
-    ("Auto + coastline", "coastline"),
-    ("90 m", "90"),
-    ("30 m", "30"),
-    ("10 m", "10"),
-    ("5 m", "5"),
-    ("1 m", "1"),
-)
+    scenery = getattr(CFG, "custom_scenery_dir", "") or ""
+    root = os.path.dirname(os.path.normpath(scenery)) if scenery else ""
+    return root if root and APT.find_apt_dats(root) else ""
 
-ELEVATION_LEVEL_TOOLTIP = (
-    "Tile-wide elevation detail level.\n"
-    "Auto: 90 m base data (small downloads) plus meter-class lidar at\n"
-    "airports, where the detail is actually visible (standard).\n"
-    "Auto + coastline: additionally drapes a lidar band along shorelines,\n"
-    "graded by approach visibility — about 10 m detail within 20 km of an\n"
-    "airport, 20 m out to 50 km, 30 m beyond.\n"
-    "90 m pins the automatic base class explicitly. 30 m and finer\n"
-    "restore the 1 arc-second base class and fetch the finest wide-area\n"
-    "elevation source covering the whole tile, densifying the mesh grid\n"
-    "to match. Levels never coarsen the automatic choice and cap\n"
-    "themselves to the finest source actually available. Higher levels\n"
-    "mean substantially larger downloads, working files, memory use and\n"
-    "triangle counts."
-)
 
-# Popup choices for the per-tile ``airport_elevation_level`` config value
-# (the warp/storage resolution of the airport lidar insets).  Order is
-# the popup-menu order.
-AIRPORT_ELEVATION_LEVEL_CHOICES = (
-    ("Auto", "auto"),
-    ("0.5 m", "0.5"),
-    ("1 m", "1"),
-    ("5 m", "5"),
-    ("10 m", "10"),
-    ("30 m", "30"),
-)
-
-AIRPORT_ELEVATION_LEVEL_TOOLTIP = (
-    "Airport elevation detail level — the resolution the airport lidar\n"
-    "insets are warped to and stored at.\n"
-    "Auto: each provider's best available native resolution, never finer\n"
-    "than 0.5 m (standard).\n"
-    "A numeric level pins the warp target instead: coarser stores fewer\n"
-    "bytes and warps faster; finer only helps where a provider actually\n"
-    "publishes data that fine. Cached insets fetched at an earlier level\n"
-    "are recycled as-is until refreshed."
-)
+def _zoom_level(value, fallback):
+    """``value`` as a zoom level 12–21, else ``fallback``."""
+    try:
+        zl = int(float(value))
+    except (TypeError, ValueError):
+        return fallback
+    return zl if 12 <= zl <= 21 else fallback
 
 
 def load_prefs():
@@ -474,7 +434,7 @@ def enqueue_resume(tile, queue):
 def _batched_by_settings(pairs):
     """``(tile, settings)`` pairs as ``([tiles], settings)`` batches, one
     per distinct settings set in first-seen order; a tile with no
-    settings (toolbar unresolved) is skipped."""
+    settings (Build box unresolved) is skipped."""
     batches = []
     for (tile, settings) in pairs:
         if settings is None:
@@ -666,7 +626,7 @@ def map_preview_codes():
     ``mapPreviewProvider``) offers only sources the map can render
     directly — a combined or non-webmercator source silently falls back
     to OSM, which makes for a picker whose entries lie.  Order follows
-    :func:`gui_provider_codes` so the two toolbar combos read alike.
+    :func:`gui_provider_codes` so the two imagery combos read alike.
     """
     return [c for c in gui_provider_codes() if QTMAP.provider_is_mappable(c)]
 
@@ -711,6 +671,14 @@ class MainWindow(QMainWindow):
 
         self.prefs = load_prefs()
         self._first_run = not os.path.isfile(PREFS_FILE)
+        # A remembered tiles folder that is gone lists no built tiles at
+        # all, so the patch editor never appears (#1240): fall back to the
+        # default Tiles folder and say so.
+        gone = self.prefs.get("output_dir", "")
+        if gone and not os.path.isdir(gone):
+            print("The tiles folder %s is missing; using the default "
+                  "Tiles folder (Settings ▸ General to pick another)." % gone)
+            self.prefs["output_dir"] = ""
         self._airports = []
         self._built = {}
         self._installed = set()
@@ -730,12 +698,12 @@ class MainWindow(QMainWindow):
         self._resume_queue = []
         # What each tile of the current run was STARTED with — the resume
         # path's settings source, so resuming a tile rebuilds it as it was
-        # queued and not with whatever the toolbar says now.
+        # queued and not with whatever the Build box says now.
         self._run_settings = {}
         # #821: the last run's failed and never-started tiles, each with
         # its run settings — what "Build failed tiles again" re-queues.
         self._retry_tiles = []
-        # Last (output dir, selection) the toolbar combos were synced to:
+        # Last (output dir, selection) the build controls were synced to:
         # _sync_build_controls_to_selection runs once per selection so
         # panel refreshes never clobber a user-picked imagery source/ZL.
         self._combos_synced_to = None
@@ -848,7 +816,7 @@ class MainWindow(QMainWindow):
         # Optimistic launch: last session's squares are on the map before
         # the engine has finished booting.  Runs BEFORE the selection
         # restore below, so the restored active tile's info panel and
-        # toolbar combos see `_built` exactly as they do on a user click.
+        # build controls see `_built` exactly as they do on a user click.
         self._load_cached_tile_states()
 
         # Persisted window layout: geometry (size + position), console
@@ -892,7 +860,7 @@ class MainWindow(QMainWindow):
         # The selection outlives the app: last session's selected set and
         # its active tile come back on launch, the same doctrine as the
         # built-tile overlay.  Restored LAST, so the map, the info panel
-        # and the toolbar combos see it exactly the way they see a click.
+        # and the build controls see it exactly the way they see a click.
         selection, active = self._restore_selection()
         lat = int(self.prefs.get("last_lat", 48))
         lon = int(self.prefs.get("last_lon", -6))
@@ -916,13 +884,58 @@ class MainWindow(QMainWindow):
     # Widgets
     # ------------------------------------------------------------------
     def _make_widgets(self):
-        toolbar = QToolBar()
+        self.toolbar = toolbar = QToolBar()
         toolbar.setMovable(False)
         # Breathing room: keep controls off the window edges and apart.
         toolbar.setStyleSheet(
             "QToolBar { padding: 6px 10px; spacing: 6px; }"
         )
         self.addToolBar(toolbar)
+
+        # The Mac app's toolbar, item for item (#1243, MapMainView.swift
+        # toolbarContent): refresh and the map's imagery preview on the
+        # left; the scenery filter, the search and the side-panel switch
+        # on the right.  The BUILD source and the detail level are not
+        # here: the source is in the Build box, the detail in Settings.
+        self.refresh_btn = refresh_btn = QToolButton()
+        refresh_btn.setText("⟳")
+        refresh_btn.setToolTip("Refresh the map's scenery overlays")
+        refresh_btn.clicked.connect(self.refresh_tiles)
+        toolbar.addWidget(refresh_btn)
+        # Live map imagery source — INDEPENDENT of the build source (the
+        # Build box's Imagery; MapMainView.swift's mapPreviewProvider):
+        # previewing a source must never rewrite what the next build
+        # downloads, and judging a source on the map is exactly why one
+        # looks at it.  Only mappable providers are offered; the build
+        # combo keeps the full list.
+        toolbar.addWidget(QLabel(" Imagery Preview "))
+        self.map_provider_combo = QComboBox()
+        self.map_provider_combo.addItems(map_preview_codes())
+        self.map_provider_combo.setToolTip(
+            "Choose which imagery source the map previews — independent "
+            "of the provider used for building"
+        )
+        self.map_provider_combo.currentTextChanged.connect(
+            self._map_provider_changed
+        )
+        toolbar.addWidget(self.map_provider_combo)
+        spacer = QWidget()
+        spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy().Expanding,
+                             spacer.sizePolicy().verticalPolicy().Preferred)
+        toolbar.addWidget(spacer)
+        # Scenery layer filter (MapSceneryFilter); View ▸ Scenery too.
+        self.scenery_filter_combo = QComboBox()
+        for (mode, label) in QTMAP.SCENERY_FILTER_LABELS:
+            self.scenery_filter_combo.addItem(label, mode)
+        self.scenery_filter_combo.setToolTip(
+            "Show the tiles you built, other installed ortho/mesh "
+            "packages, or both"
+        )
+        self.scenery_filter_combo.activated.connect(
+            lambda index: self._set_scenery_filter(
+                self.scenery_filter_combo.itemData(index))
+        )
+        toolbar.addWidget(self.scenery_filter_combo)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(
@@ -940,48 +953,13 @@ class MainWindow(QMainWindow):
         self.search_popup.setWindowFlags(Qt.ToolTip)
         self.search_popup.itemClicked.connect(self._search_accept_item)
 
-        toolbar.addSeparator()
-        toolbar.addWidget(QLabel(" Imagery "))
-        self.imagery_combo = QComboBox()
-        self.imagery_combo.addItems(gui_provider_codes())
-        # "--" shows when the selected tiles' configs disagree
-        # (currentIndex -1); start_build refuses to run until resolved.
-        self.imagery_combo.setPlaceholderText("--")
-        # No map hookup: the BUILD source is what the next build
-        # downloads, never what the basemap draws (see the Map combo).
-        toolbar.addWidget(self.imagery_combo)
-        toolbar.addWidget(QLabel(" %s " % GLOSSARY.TERMS["detail"]))
-        self.zl_combo = DetailCombo(range(12, 22))
-        self.zl_combo.setPlaceholderText("--")
-        self.zl_combo.currentTextChanged.connect(
-            lambda _text: self._update_build_summary()
-        )
-        toolbar.addWidget(self.zl_combo)
-        toolbar.addSeparator()
-        # Live map imagery source — INDEPENDENT of the build provider
-        # above (mac-app parity, MapMainView.swift's mapPreviewProvider):
-        # previewing a source must never rewrite what the next build
-        # downloads, and judging a source on the map is exactly why one
-        # looks at it.  Only mappable providers are offered; the build
-        # combo keeps the full list.
-        toolbar.addWidget(QLabel(" Map "))
-        self.map_provider_combo = QComboBox()
-        self.map_provider_combo.addItems(map_preview_codes())
-        self.map_provider_combo.setToolTip(
-            "Which imagery source the map previews — independent of the "
-            "source used for building."
-        )
-        self.map_provider_combo.currentTextChanged.connect(
-            self._map_provider_changed
-        )
-        toolbar.addWidget(self.map_provider_combo)
-        spacer = QWidget()
-        spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy().Expanding,
-                             spacer.sizePolicy().verticalPolicy().Preferred)
-        toolbar.addWidget(spacer)
-        settings_btn = QPushButton("⚙ Settings")
-        settings_btn.clicked.connect(self.open_settings)
-        toolbar.addWidget(settings_btn)
+        self.panel_toggle = QToolButton()
+        self.panel_toggle.setText("◨")
+        self.panel_toggle.setCheckable(True)
+        self.panel_toggle.setChecked(True)
+        self.panel_toggle.setToolTip("Hide the side panel")
+        self.panel_toggle.toggled.connect(self._show_side_panel)
+        toolbar.addWidget(self.panel_toggle)
 
         # Map + right panel
         # Tile -> the search codes that picked it (#667), shown after the
@@ -1142,6 +1120,25 @@ class MainWindow(QMainWindow):
         # its width — the scroll-area oscillation the class avoids.
         self.build_summary = TwoLineElidedLabel("No tiles selected")
         bg.addWidget(self.build_summary)
+        # The BUILD imagery source, first in the box as in the Mac app's
+        # BuildPane (#1243); the detail level lives in Settings (#1242).
+        # Label + combo row: the label PREFERS its full text but yields
+        # first when the panel is tighter than the platform font wants —
+        # the combo beside it must stay usable.
+        imagery_build_row = QWidget()
+        ibl = QHBoxLayout(imagery_build_row)
+        ibl.setContentsMargins(0, 0, 0, 0)
+        ibl.addWidget(ElidedRowLabel("Imagery:"))
+        self.imagery_combo = QComboBox()
+        self.imagery_combo.addItems(gui_provider_codes())
+        # "--" shows when the selected tiles' configs disagree
+        # (currentIndex -1); start_build refuses to run until resolved.
+        self.imagery_combo.setPlaceholderText("--")
+        # No map hookup: the BUILD source is what the next build
+        # downloads, never what the basemap draws (Imagery Preview).
+        _may_be_squeezed(self.imagery_combo)
+        ibl.addWidget(self.imagery_combo, 1)
+        bg.addWidget(imagery_build_row)
         # Selection-wide mixed-sources offer (mac-app parity: BuildPane's
         # combinedConflictPopover).  Hidden unless more than one tile is
         # selected and at least one of them mixes sources.
@@ -1201,13 +1198,14 @@ class MainWindow(QMainWindow):
         self.chk_modify_airports.toggled.connect(
             self._modify_custom_airports_changed
         )
+        # The Mac app's BuildPane order (tests/test_qt_layout_parity.py).
         for c in (
             self.chk_vector,
             self.chk_imagery,
             self.chk_overlays,
+            self.chk_modify_airports,
             self.chk_skip_built,
             self.chk_auto_install,
-            self.chk_modify_airports,
         ):
             # A QCheckBox neither wraps nor elides, so its label width is
             # a hard floor under the panel — and the floor grows with the
@@ -1217,65 +1215,6 @@ class MainWindow(QMainWindow):
             # width the panel has, clipping its own tail at worst.
             _never_widen(c)
             bg.addWidget(c)
-
-        # Texture mode: what the base mesh is textured with (per-tile config).
-        self.texture_row = QWidget()
-        trl = QHBoxLayout(self.texture_row)
-        trl.setContentsMargins(0, 0, 0, 0)
-        # Label + combo rows: the label PREFERS its full text (nothing
-        # moves where the row has room) but yields first when the panel
-        # is tighter than the platform font wants — the combo beside it
-        # must stay usable.
-        self.texture_label = ElidedRowLabel("Textures:")
-        trl.addWidget(self.texture_label)
-        self.texture_combo = QComboBox()
-        _may_be_squeezed(self.texture_combo)
-        for label, value in TEXTURE_MODE_CHOICES:
-            self.texture_combo.addItem(label, value)
-        self.texture_combo.currentIndexChanged.connect(
-            self._texture_mode_changed
-        )
-        trl.addWidget(self.texture_combo, 1)
-        bg.addWidget(self.texture_row)
-
-        # Tile elevation detail level: how fine the tile-wide terrain
-        # data is (per-tile config), mirroring the texture-mode row above.
-        self.elevation_row = QWidget()
-        erl = QHBoxLayout(self.elevation_row)
-        erl.setContentsMargins(0, 0, 0, 0)
-        self.elevation_label = ElidedRowLabel("Tile elevation:")
-        erl.addWidget(self.elevation_label)
-        self.elevation_combo = QComboBox()
-        _may_be_squeezed(self.elevation_combo)
-        for label, value in ELEVATION_LEVEL_CHOICES:
-            self.elevation_combo.addItem(label, value)
-        self.elevation_combo.setToolTip(ELEVATION_LEVEL_TOOLTIP)
-        self.elevation_combo.currentIndexChanged.connect(
-            self._elevation_level_changed
-        )
-        erl.addWidget(self.elevation_combo, 1)
-        bg.addWidget(self.elevation_row)
-
-        # Airport elevation detail level: the warp/storage resolution of
-        # the airport lidar insets (per-tile config), the airport sibling
-        # of the tile-wide row above.
-        self.airport_elevation_row = QWidget()
-        arl = QHBoxLayout(self.airport_elevation_row)
-        arl.setContentsMargins(0, 0, 0, 0)
-        self.airport_elevation_label = ElidedRowLabel("Airport elevation:")
-        arl.addWidget(self.airport_elevation_label)
-        self.airport_elevation_combo = QComboBox()
-        _may_be_squeezed(self.airport_elevation_combo)
-        for label, value in AIRPORT_ELEVATION_LEVEL_CHOICES:
-            self.airport_elevation_combo.addItem(label, value)
-        self.airport_elevation_combo.setToolTip(
-            AIRPORT_ELEVATION_LEVEL_TOOLTIP
-        )
-        self.airport_elevation_combo.currentIndexChanged.connect(
-            self._airport_elevation_level_changed
-        )
-        arl.addWidget(self.airport_elevation_combo, 1)
-        bg.addWidget(self.airport_elevation_row)
 
         self.build_btn = QPushButton("▶ Build")
         self.build_btn.clicked.connect(self.start_build)
@@ -1340,6 +1279,7 @@ class MainWindow(QMainWindow):
         panel_scroll.setFrameShape(QFrame.NoFrame)
         panel_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         panel_scroll.setFixedWidth(280)
+        self.panel_scroll = panel_scroll
 
         center = QWidget()
         ch = QHBoxLayout(center)
@@ -1493,7 +1433,12 @@ class MainWindow(QMainWindow):
             for i in range(self.imagery_combo.count())
         ]:
             self.imagery_combo.setCurrentText(imagery)
-        self.zl_combo.setCurrentText(str(self.prefs.get("zl", 16)))
+        # The build detail level (ZL): set in Settings (#1242), adopted
+        # from a selected built tile (_sync_build_controls_to_selection).
+        self.build_zl = _zoom_level(self.prefs.get("zl"), 16)
+        shown = bool(self.prefs.get(SIDE_PANEL_KEY, True))
+        self.panel_toggle.setChecked(shown)
+        self.panel_scroll.setVisible(shown)
         xplane = self.prefs.get("xplane_dir", "")
         if xplane and not CFG.custom_scenery_dir:
             candidate = os.path.join(xplane, "Custom Scenery")
@@ -1659,10 +1604,9 @@ class MainWindow(QMainWindow):
         selected = sorted(self.map.selection())
         if not selected and self.map.active_tile():
             selected = [self.map.active_tile()]
-        # The preset cards (#822) read and set the build zoom: hand the
-        # dialog the zoom the toolbar shows, not the one saved at launch.
-        if self.zl_combo.currentIndex() >= 0:
-            self.prefs["zl"] = int(self.zl_combo.currentText())
+        # The dialog's Detail and preset cards (#822, #1242) read and set
+        # the build zoom: hand it the one the next build uses.
+        self.prefs["zl"] = self.build_zl
         dialog = QTSET.SettingsWindow(
             self.prefs,
             selected,
@@ -1713,7 +1657,10 @@ class MainWindow(QMainWindow):
 
         def work():
             try:
-                paths = APT.find_apt_dats(xplane) if xplane else []
+                # No X-Plane folder set (#1241): the one above the
+                # configured Custom Scenery folder, which the build uses.
+                root = xplane or _xplane_above_custom_scenery()
+                paths = APT.find_apt_dats(root) if root else []
                 if paths and APT.index_is_stale(paths, AIRPORT_CACHE):
                     if os.path.isfile(AIRPORT_CACHE):
                         print(
@@ -1819,8 +1766,10 @@ class MainWindow(QMainWindow):
             self.search_popup.addItem(item)
         if (not self.search_popup.count()
                 and len(SEARCH.normalize(text)) >= SEARCH.MIN_QUERY_LENGTH):
-            # The no-match state: one row that says so, not an empty void.
-            item = QListWidgetItem(SEARCH.no_match_text(text))
+            # The no-match state: one row that says so, not an empty void;
+            # with no airport index at all, the row says why (#1241).
+            item = QListWidgetItem(SEARCH.no_match_text(text) if self._airports
+                                   else SEARCH.NO_INDEX_TEXT)
             item.setData(Qt.UserRole, ("none", None))
             item.setFlags(Qt.NoItemFlags)
             self.search_popup.addItem(item)
@@ -2055,13 +2004,26 @@ class MainWindow(QMainWindow):
             self._other_scenery_rows.addWidget(row)
         self._info_layout.setRowVisible(self.other_scenery_row, True)
 
+    def _show_side_panel(self, shown):
+        """The toolbar's side-panel switch (Mac: the inspector toggle)."""
+        self.panel_scroll.setVisible(shown)
+        self.panel_toggle.setToolTip(
+            "Hide the side panel" if shown else "Show the side panel")
+        if self.prefs.get(SIDE_PANEL_KEY, True) != shown:
+            self.prefs[SIDE_PANEL_KEY] = shown
+            save_prefs(self.prefs)
+
     def _set_scenery_filter(self, mode, persist=True):
-        """Point the map at one scenery-layer filter and tick its menu."""
+        """Point the map at one scenery-layer filter and tick its menu
+        and the toolbar's combo."""
         self.map.set_scenery_filter(mode)
         mode = self.map.scenery_filter()
         for (key, action) in getattr(
                 self, "_scenery_filter_actions", {}).items():
             action.setChecked(key == mode)
+        combo = getattr(self, "scenery_filter_combo", None)
+        if combo is not None:
+            combo.setCurrentIndex(max(combo.findData(mode), 0))
         if persist and self.prefs.get(SCENERY_FILTER_KEY) != mode:
             self.prefs[SCENERY_FILTER_KEY] = mode
             save_prefs(self.prefs)
@@ -2442,14 +2404,17 @@ class MainWindow(QMainWindow):
         return tiles, active
 
     def _sync_build_controls_to_selection(self, selection):
-        """Point the Imagery / Build ZL combos at the selection's config.
+        """Point the Imagery combo and the build detail level at the
+        selection's config.
 
         Tiles whose per-tile config records build provenance
-        (``default_website`` / ``default_zl``) drive the toolbar combos:
-        one agreed value is selected outright; disagreement unresolves the
-        combo (it shows "--") and :meth:`start_build` refuses to run until
-        the user picks a value.  Tiles with no recorded value impose
-        nothing, and an empty selection leaves the combos alone.
+        (``default_website`` / ``default_zl``) drive the build controls:
+        one agreed value is selected outright.  Disagreeing sources
+        unresolve the Imagery combo (it shows "--") and
+        :meth:`start_build` refuses to run until the user picks one;
+        disagreeing detail levels keep the Settings value.  Tiles with no
+        recorded value impose nothing, and an empty selection leaves the
+        controls alone.
 
         The sync runs once per selection: panel refreshes on an UNCHANGED
         selection (scan results streaming in, build bookkeeping) must not
@@ -2479,7 +2444,11 @@ class MainWindow(QMainWindow):
                     pass
                 zoomlevels.add(zoomlevel)
         _sync_combo_to_agreed_value(self.imagery_combo, websites)
-        _sync_combo_to_agreed_value(self.zl_combo, zoomlevels)
+        # One agreed detail level is adopted for the next build (the Mac
+        # app's adoptActiveTileConfig); disagreement keeps the setting.
+        if len(zoomlevels) == 1:
+            self.build_zl = _zoom_level(next(iter(zoomlevels)), self.build_zl)
+            self.prefs["zl"] = self.build_zl
 
     def _update_build_summary(self, sel=None):
         if sel is None:
@@ -2488,11 +2457,7 @@ class MainWindow(QMainWindow):
         if not n:
             self.build_summary.setText("No tiles selected")
         else:
-            try:
-                zl = int(self.zl_combo.currentText())
-            except ValueError:
-                zl = 16
-            est = n * 3.0 * 4 ** (zl - 16)
+            est = n * 3.0 * 4 ** (self.build_zl - 16)
             summary_text = "%d tile%s selected · rough est. %.1f GB" % (
                 n,
                 "s" if n > 1 else "",
@@ -2590,9 +2555,6 @@ class MainWindow(QMainWindow):
 
     def _active_changed(self, tile):
         self._selection_changed()
-        self._refresh_texture_mode(tile)
-        self._refresh_elevation_level(tile)
-        self._refresh_airport_elevation_level(tile)
         self._refresh_empty_state()
         if tile is None:
             self.info_group.setVisible(False)
@@ -2735,119 +2697,6 @@ class MainWindow(QMainWindow):
         else:
             self.install_check.setToolTip("")
 
-    def _refresh_texture_mode(self, tile):
-        """Load the active tile's ``texture_mode`` into the build-area combo.
-
-        Reads the per-tile config via :mod:`O4_Settings_Model`; falls back to
-        the registry default (``full_ortho``) when the tile has no config or
-        the value is unknown.  Signals are blocked so the programmatic update
-        does not trigger a write back to disk.
-        """
-        import O4_Settings_Model as SM
-
-        value = "full_ortho"
-        if tile is not None:
-            raw = SM.read_tile_raw(tile[0], tile[1], self.output_dir())
-            if raw and raw.get("texture_mode"):
-                value = raw["texture_mode"]
-        index = self.texture_combo.findData(value)
-        if index < 0:
-            index = 0
-        self.texture_combo.blockSignals(True)
-        self.texture_combo.setCurrentIndex(index)
-        self.texture_combo.blockSignals(False)
-
-    def _refresh_elevation_level(self, tile):
-        """Load the active tile's ``elevation_level`` into the build-area combo.
-
-        Mirrors :meth:`_refresh_texture_mode`: reads the per-tile config via
-        :mod:`O4_Settings_Model`, falls back to "auto" when the tile has no
-        config or an unknown value, and blocks signals so the programmatic
-        update does not write back to disk.
-        """
-        import O4_Settings_Model as SM
-
-        value = "auto"
-        if tile is not None:
-            raw = SM.read_tile_raw(tile[0], tile[1], self.output_dir())
-            if raw and raw.get("elevation_level"):
-                value = raw["elevation_level"]
-        index = self.elevation_combo.findData(value)
-        if index < 0:
-            index = 0
-        self.elevation_combo.blockSignals(True)
-        self.elevation_combo.setCurrentIndex(index)
-        self.elevation_combo.blockSignals(False)
-
-    def _elevation_level_changed(self, index):
-        """Persist the chosen elevation detail level to the tile's config.
-
-        No-ops when no tile is active.  Writes only the ``elevation_level``
-        key; :func:`O4_Settings_Model.write_tile` preserves every other
-        tile var.
-        """
-        tile = self.map.active_tile()
-        if tile is None:
-            return
-        value = self.elevation_combo.itemData(index)
-        if value is None:
-            return
-        import O4_Settings_Model as SM
-
-        try:
-            SM.write_tile(
-                tile[0],
-                tile[1],
-                self.output_dir(),
-                {"elevation_level": value},
-            )
-        except OSError as exc:
-            print("Could not save elevation level:", exc)
-
-    def _refresh_airport_elevation_level(self, tile):
-        """Load the active tile's ``airport_elevation_level`` into its combo.
-
-        Mirrors :meth:`_refresh_elevation_level` for the airport-inset
-        detail level.
-        """
-        import O4_Settings_Model as SM
-
-        value = "auto"
-        if tile is not None:
-            raw = SM.read_tile_raw(tile[0], tile[1], self.output_dir())
-            if raw and raw.get("airport_elevation_level"):
-                value = raw["airport_elevation_level"]
-        index = self.airport_elevation_combo.findData(value)
-        if index < 0:
-            index = 0
-        self.airport_elevation_combo.blockSignals(True)
-        self.airport_elevation_combo.setCurrentIndex(index)
-        self.airport_elevation_combo.blockSignals(False)
-
-    def _airport_elevation_level_changed(self, index):
-        """Persist the chosen airport elevation detail level to the tile.
-
-        No-ops when no tile is active; mirrors
-        :meth:`_elevation_level_changed`.
-        """
-        tile = self.map.active_tile()
-        if tile is None:
-            return
-        value = self.airport_elevation_combo.itemData(index)
-        if value is None:
-            return
-        import O4_Settings_Model as SM
-
-        try:
-            SM.write_tile(
-                tile[0],
-                tile[1],
-                self.output_dir(),
-                {"airport_elevation_level": value},
-            )
-        except OSError as exc:
-            print("Could not save airport elevation level:", exc)
-
     def _modify_custom_airports_changed(self, checked):
         """Persist the global modify-custom-airports switch.
 
@@ -2879,27 +2728,6 @@ class MainWindow(QMainWindow):
             )
         except OSError as exc:
             print("Could not update the tile's modify_custom_airports:", exc)
-
-    def _texture_mode_changed(self, index):
-        """Persist the chosen texture mode to the active tile's config.
-
-        No-ops when no tile is active.  Writes only the ``texture_mode`` key;
-        :func:`O4_Settings_Model.write_tile` preserves every other tile var.
-        """
-        tile = self.map.active_tile()
-        if tile is None:
-            return
-        value = self.texture_combo.itemData(index)
-        if value is None:
-            return
-        import O4_Settings_Model as SM
-
-        try:
-            SM.write_tile(
-                tile[0], tile[1], self.output_dir(), {"texture_mode": value}
-            )
-        except OSError as exc:
-            print("Could not save texture mode:", exc)
 
     def _compute_size_async(self, info):
         try:
@@ -3317,21 +3145,19 @@ class MainWindow(QMainWindow):
         unresolved = []
         if self.imagery_combo.currentIndex() < 0:
             unresolved.append("imagery source")
-        if self.zl_combo.currentIndex() < 0:
-            unresolved.append("build zoom level")
         if unresolved:
             self._status(
                 "The selected tiles disagree on the %s — pick one in the "
-                "toolbar before building." % " and the ".join(unresolved)
+                "Build box before building." % " and the ".join(unresolved)
             )
             return
-        # Freeze the toolbar choices NOW: the panel refreshes below
+        # Freeze the Build box choices NOW: the panel refreshes below
         # (_active_changed → _sync_build_controls_to_selection) re-read
         # the selected tiles' recorded provenance and could otherwise
         # snap the combos back to it, silently overriding what the user
         # just picked for this build.
         provider = self.imagery_combo.currentText()
-        zoomlevel = int(self.zl_combo.currentText())
+        zoomlevel = self.build_zl
         if self.chk_skip_built.isChecked():
             todo = [t for t in selection if t not in self._built]
             skipped = len(selection) - len(todo)
@@ -4013,7 +3839,7 @@ class MainWindow(QMainWindow):
 
     def _resume_tile_clicked(self, tile):
         """The row's green resume: rebuild this tile with the settings ITS
-        run was started with, not whatever the toolbar says now.
+        run was started with, not whatever the Build box says now.
 
         A run in progress is left alone — the tile joins a client-side
         queue and starts as one follow-up run when the current one ends
@@ -4040,15 +3866,13 @@ class MainWindow(QMainWindow):
         self._start_run([tile], settings)
 
     def _toolbar_settings(self):
-        """The run settings the toolbar currently spells out, or None while
+        """The run settings the Build box currently spells out, or None while
         a combo is unresolved ("--")."""
         if self.imagery_combo.currentIndex() < 0:
             return None
-        if self.zl_combo.currentIndex() < 0:
-            return None
         return {
             "provider": self.imagery_combo.currentText(),
-            "zoomlevel": int(self.zl_combo.currentText()),
+            "zoomlevel": self.build_zl,
             "do_vector": self.chk_vector.isChecked(),
             "do_imagery": self.chk_imagery.isChecked(),
             "do_overlays": self.chk_overlays.isChecked(),
@@ -4456,8 +4280,7 @@ class MainWindow(QMainWindow):
         # An unresolved combo ("--", index -1) keeps the previous pref.
         if self.imagery_combo.currentIndex() >= 0:
             self.prefs["imagery"] = self.imagery_combo.currentText()
-        if self.zl_combo.currentIndex() >= 0:
-            self.prefs["zl"] = int(self.zl_combo.currentText())
+        self.prefs["zl"] = self.build_zl
         self.prefs["window_geometry"] = bytes(
             self.saveGeometry().toBase64()
         ).decode("ascii")

@@ -847,3 +847,41 @@ def test_simbrief_uses_the_fetch_seam_and_reports_errors(make_window):
     assert dialog.summary.text().startswith("ENGM \u2192 ENTC")
     assert (60, 11) in window.map.selection() and (69, 18) in window.map.selection()
     assert _prefs(make_window)["simbrief_user"] == "123456"
+
+
+# ===========================================================================
+# A Qt run that cannot see its tiles or airports says so (#1240, #1241)
+# ===========================================================================
+def test_a_missing_tiles_folder_falls_back_to_the_default(make_window, tmp_path):
+    """A remembered output folder that is gone (the owner's pointed at a
+    deleted pytest folder) listed no built tiles, so the patch editor
+    never appeared: the window falls back to the default Tiles folder."""
+    with open(make_window.prefs_path, "w", encoding="utf-8", newline="") as handle:
+        json.dump({"output_dir": str(tmp_path / "gone")}, handle)
+    window = make_window()
+    assert window.prefs["output_dir"] == ""
+    assert window.working_dir() == GUI.FNAMES.Tile_dir
+
+
+def test_search_without_an_airport_index_says_why(make_window):
+    window = make_window()
+    window._airports = []
+    window._airport_search_index = None
+    window._update_search_popup("KSEA")
+    rows = [window.search_popup.item(i).text()
+            for i in range(window.search_popup.count())]
+    assert rows == [GUI.SEARCH.NO_INDEX_TEXT]
+
+
+def test_the_x_plane_folder_is_found_above_custom_scenery(tmp_path, monkeypatch):
+    import O4_Config_Utils as CFG
+
+    apt = tmp_path / "X-Plane 12" / "Global Scenery" / "Global Airports" / "Earth nav data"
+    apt.mkdir(parents=True)
+    (apt / "apt.dat").write_text("I\n1100 Version\n99\n", encoding="utf-8", newline="")
+    (tmp_path / "X-Plane 12" / "Custom Scenery").mkdir()
+    monkeypatch.setattr(CFG, "custom_scenery_dir",
+                        str(tmp_path / "X-Plane 12" / "Custom Scenery"))
+    assert GUI._xplane_above_custom_scenery() == str(tmp_path / "X-Plane 12")
+    monkeypatch.setattr(CFG, "custom_scenery_dir", "")
+    assert GUI._xplane_above_custom_scenery() == ""

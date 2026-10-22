@@ -351,12 +351,6 @@ struct BuildPane: View {
                         .tag(provider.code)
                 }
             }
-            Picker(O4Glossary.term("detail"), selection: zlBinding) {
-                ForEach(12...21, id: \.self) { zl in
-                    Text(O4Glossary.detailChoice(zl)).tag(zl)
-                }
-            }
-            .help("More detail means sharper imagery and much larger downloads: one step (one ZL) ≈ 4× the data. Most sources top out below ZL21 — the map's zoom badge shows each source's ceiling.")
             Divider()
             Toggle(O4Glossary.term("terrain_steps"), isOn: boolBinding(\.doVector))
                 .help("Downloads map data (roads, water, airports), shapes the ground and blends coastlines and water — the tile's terrain.")
@@ -876,11 +870,6 @@ struct BuildPane: View {
     private var providerBinding: Binding<String> {
         Binding(get: { buildModel.buildProvider },
                 set: { buildModel.objectWillChange.send(); buildModel.buildProvider = $0 })
-    }
-
-    private var zlBinding: Binding<Int> {
-        Binding(get: { buildModel.buildZL },
-                set: { buildModel.objectWillChange.send(); buildModel.buildZL = $0 })
     }
 
     private func boolBinding(_ keyPath: ReferenceWritableKeyPath<BuildModel, Bool>) -> Binding<Bool> {

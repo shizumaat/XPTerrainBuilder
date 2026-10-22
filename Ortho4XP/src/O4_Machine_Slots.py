@@ -38,9 +38,11 @@ process that finds no session (a command-line tile, the harness) opens its
 own with the same rule.
 
 :func:`lower_priority` runs the engine below the user's applications (nice
-10 / Windows below-normal, inherited by every child) and :func:`qos_command`
-starts a worker under the macOS utility QoS clamp, so the window server and
-input stay responsive however busy the build is.
+10 / Windows below-normal, inherited by every child).  Workers run at
+NORMAL QoS — no macOS utility clamp, which confined them to the efficiency
+cores (owner RULINGS 2026-10-22k): nice only yields time to the user's apps,
+it still runs on the performance cores; the slot budget and the memory gate
+are what keep the machine from freezing.
 
 Standard library only (with :mod:`O4_Parallel_Utils`' memory probes): the
 airport pool, the tile driver and the orchestrator all import it.
@@ -64,7 +66,7 @@ else:
 
 __all__ = ["BUDGET", "ENV_DIR", "ENV_CAPACITY", "ENV_UNGATED", "Held", "capacity",
            "ensure_session", "lend", "lower_priority", "memory_admits",
-           "qos_command", "session_capacity", "step", "try_take", "take"]
+           "session_capacity", "step", "try_take", "take"]
 
 #: the session's slot directory and its capacity, inherited by every child
 ENV_DIR = "O4_MACHINE_SLOTS_DIR"
@@ -333,14 +335,3 @@ def lower_priority() -> None:
             os.setpriority(os.PRIO_PROCESS, 0, NICE)
     except Exception:
         pass
-
-
-_TASKPOLICY = "/usr/sbin/taskpolicy"
-
-
-def qos_command(command: list) -> list:
-    """``command`` started under the macOS utility QoS clamp (inherited by
-    its children) when ``taskpolicy`` exists; unchanged elsewhere."""
-    if sys.platform == "darwin" and os.path.exists(_TASKPOLICY):
-        return [_TASKPOLICY, "-c", "utility"] + list(command)
-    return list(command)

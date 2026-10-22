@@ -50,15 +50,29 @@ def _wait_for(qapp, predicate, seconds=5.0):
     return predicate()
 
 
-def test_a_burst_of_changes_fires_once(qapp, tmp_path, monkeypatch):
+def test_a_change_on_disk_fires(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(QTSCW, "DEBOUNCE_MS", 100)
     root = _scenery(tmp_path)
     fired = []
     watcher = QTSCW.SceneryWatcher(lambda: fired.append(1))
     try:
         watcher.watch(str(root))
-        for name in ("zOrtho_A", "zOrtho_B", "zOrtho_C"):
-            (root / name).mkdir()
+        (root / "zOrtho_A").mkdir()
+        assert _wait_for(qapp, lambda: fired)
+    finally:
+        watcher.deleteLater()
+
+
+def test_a_burst_of_changes_fires_once(qapp, monkeypatch):
+    """The debounce itself, without the platform's event timing (macOS
+    delivers a burst's events spread over more than a short debounce)."""
+    monkeypatch.setattr(QTSCW, "DEBOUNCE_MS", 100)
+    fired = []
+    watcher = QTSCW.SceneryWatcher(lambda: fired.append(1))
+    try:
+        for _ in range(3):
+            watcher._bump()
+            qapp.processEvents()
         assert _wait_for(qapp, lambda: fired)
         _wait_for(qapp, lambda: len(fired) > 1, seconds=0.5)
         assert fired == [1]

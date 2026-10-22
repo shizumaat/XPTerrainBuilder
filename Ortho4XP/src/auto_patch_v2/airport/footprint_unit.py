@@ -761,7 +761,9 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
             is_deck=lambda i: member_is_bridge_deck(           # 10-22b
                 plan.units[shims[i].key[0]],
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
-            base_y=lambda i: shims[i].base_y, ml=ml, mo=mo)
+            base_y=lambda i: shims[i].base_y, ml=ml, mo=mo,
+            deck_verdict=lambda i: member_is_deck(
+                plan.units[shims[i].key[0]].members[shims[i].key[1]]))
     held: dict[int, list[int]] = {}
     for i, k in sorted(contents.items()):
         held.setdefault(k, []).append(i)

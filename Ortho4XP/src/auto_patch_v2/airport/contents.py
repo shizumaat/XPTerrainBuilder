@@ -103,7 +103,8 @@ def attach_contents(shims: _t.Sequence[_t.Any],
                     touch_m: float, min_fraction: float, counts: "dict | None",
                     *, is_deck: _t.Callable[[int], bool],
                     base_y: _t.Callable[[int], "float | None"],
-                    ml: float, mo: float
+                    ml: float, mo: float,
+                    deck_verdict: "_t.Callable[[int], bool] | None" = None
                     ) -> "tuple[dict[int, int], list[int]]":
     """``(leaf shim index -> host key, walled singletons that host
     contents)``.
@@ -113,7 +114,17 @@ def attach_contents(shims: _t.Sequence[_t.Any],
     chains with nothing — it becomes a unit of its own only because it
     holds contents).  The best host is the one covering the largest share
     of the leaf; ties go to the larger host outline, then the lower key —
-    deterministic, never by name."""
+    deterministic, never by name.
+
+    ``deck_verdict`` (owner RULINGS 2026-10-22b, #1214): the member's own
+    deck verdict, whatever its frame.  A deck that rides a building as its
+    own (``is_deck`` False) is still never the contents of a walled body
+    authored BELOW GRADE (``base_y`` under ``-CONTENTS_BELOW_M``: a sunken
+    channel, a pit) that chains with nothing: that body is a retaining
+    structure with ground on both sides, and the deck over it is its
+    cover.  KDAL's drainage cap otherwise became its channel's contents,
+    the unit claimed it as a viaduct and seated the channel walls 3-10 m
+    under the ground."""
     if min_fraction <= 0.0 or not leaves or not walled_ix:
         return {}, []
     in_cluster = {i for cl in clusters for i in cl}
@@ -159,7 +170,12 @@ def attach_contents(shims: _t.Sequence[_t.Any],
         if best is None:
             n_free += 1
             continue
-        out[i] = best[1]
+        k = best[1]
+        if (k < 0 and deck_verdict is not None and deck_verdict(i)
+                and (base_y(-1 - k) or 0.0) < -CONTENTS_BELOW_M):
+            n_deck += 1
+            continue
+        out[i] = k
     singles = sorted({-1 - k for k in out.values() if k < 0})
     if counts is not None:
         counts["contents_bodies"] = len(out)

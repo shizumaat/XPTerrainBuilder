@@ -99,3 +99,25 @@ def test_a_mouth_far_from_the_airside_leaves_at_its_own_ground():
     # level, and the ribbon runs on 10 m / 8 % past it
     _a, b_old = exit_reach(line, 0.0, 400.0, _Slope(), airside, 0.08, 2.0, 8.0)
     assert b_old >= 400.0 + 10.0 / 0.08
+
+
+def test_a_reach_ribbon_is_marked_and_never_leads_a_structure(law):
+    """The envelope's ribbons are minted first and unmarked (the cells they
+    were before the reach); what the reach adds is marked ``road_reach`` and
+    is no cover for the structures (``structure_approach.cover_polygons``:
+    a bore mouth is admitted on the airport's cover, not on a road)."""
+    from auto_patch_v2.model.planar import is_road_reach
+    from auto_patch_v2.planar.structure_approach import cover_polygons, standing_cover
+    inside = _way(-7, ((600.0, -40.0), (900.0, -40.0)), highway="tertiary")   # zone 2
+    reach = _way(-8, ((200.0, -300.0), (800.0, -300.0)), highway="tertiary")
+    cl = classify(_with(inside, reach), law)
+    rib = {c.ref: c for c in _ribbons(cl)}
+    assert set(rib) == {"small_roads:-7", "small_roads:-8"}
+    assert not is_road_reach(rib["small_roads:-7"]) and is_road_reach(rib["small_roads:-8"])
+    cells, late, polys = standing_cover(cl)
+    assert rib["small_roads:-8"] in late and rib["small_roads:-8"] not in cells
+    assert len(cover_polygons(cl)) == len(cells) == len(polys)
+    # no boundary: the same envelope ribbon, unmarked, and nothing else
+    off = {c.ref: c for c in _ribbons(classify(_with(inside, reach, boundary=False), law))}
+    assert set(off) == {"small_roads:-7"}
+    assert off["small_roads:-7"].ring == rib["small_roads:-7"].ring

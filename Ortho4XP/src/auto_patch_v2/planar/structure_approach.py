@@ -22,7 +22,7 @@ from ..law.approach_corridor import ApproachCorridor, RunwayViewBand
 from ..law.tables import role_family
 from ..model.airport import Airport, OsmWay
 from ..model.frame import XY
-from ..model.planar import is_gap_ref
+from ..model.planar import is_gap_ref, is_road_reach
 from ..airport.deck_signature import (DEFAULT_TUNNEL_VALUES, is_bridge_way,
                                       is_tunnel_way)
 from ..classify.roles import Cell
@@ -530,9 +530,22 @@ def cover_polygons(classification) -> list[Polygon]:
     (``build_structures``' :class:`FieldRegion`) and the kerb corridors'
     FIELD clause (:func:`wall_field`, spec §12h (1)) both read.  A late gap
     piece (spec §53 (18), ``model.planar.is_gap_ref``) is never cover: it
-    follows the structures and may not admit, move or re-shape one."""
+    follows the structures and may not admit, move or re-shape one.  Nor is
+    a ribbon of the aerodrome's ROAD REACH (owner RULINGS 2026-10-22g,
+    ``model.planar.is_road_reach``): a road graded because it lies inside
+    the boundary admits, moves or refuses no structure.  MEASURED KPHX
+    (#1246), with the reach ribbons standing: bore -2553's end on primary
+    road -22826 by Terminal 4 was admitted on one and sank the road 5.2 m
+    into a 12 m ramp (33.43602, -111.99307); bore -7353+-10192's portal
+    was refused at another (#971) and bore -13436+-23951's ramp was
+    clipped at a third and moved 110 m."""
     return [Polygon(c.ring, c.holes) for c in classification.cells
-            if not is_gap_ref(c.ref)]
+            if not _late(c)]
+
+
+def _late(c) -> bool:
+    """A cell that FOLLOWS the structures: a gap piece or a road-reach ribbon."""
+    return is_gap_ref(c.ref) or is_road_reach(c)
 
 
 def standing_cover(classification) -> tuple[list, list, list[Polygon]]:
@@ -542,10 +555,11 @@ def standing_cover(classification) -> tuple[list, list, list[Polygon]]:
     intervals read them, and a piece beside a tunnel would re-shape it
     (MEASURED at HECA: 15 wall / ramp vertices the base map does not
     carry).  The pieces are set aside and cut by the finished footprints
-    last (:func:`cut_gap_cells`).  The polygons are :func:`cover_polygons`,
-    index-aligned with the standing cells."""
-    cells = [c for c in classification.cells if not is_gap_ref(c.ref)]
-    gap = [c for c in classification.cells if is_gap_ref(c.ref)]
+    last (:func:`cut_gap_cells`); a ROAD-REACH ribbon (RULINGS 2026-10-22g)
+    is set aside with them and cut flush there.  The polygons are
+    :func:`cover_polygons`, index-aligned with the standing cells."""
+    cells = [c for c in classification.cells if not _late(c)]
+    gap = [c for c in classification.cells if _late(c)]
     return cells, gap, cover_polygons(classification)
 
 
@@ -554,14 +568,16 @@ def cut_gap_cells(gap_cells, knife, law: Law, cut) -> None:
     cell (spec §53 (13)): each piece goes through ``build_structures``' own
     ``cut(cell, polygon, blade)`` with the structure footprints grown by the
     mint's stand-off as the blade.  LAST, so every standing and structure
-    cell keeps the base map's place."""
+    cell keeps the base map's place.  A ROAD-REACH ribbon (RULINGS
+    2026-10-22g) is cut by the footprints themselves, as every standing
+    ribbon is (30e (3): no ribbon inside a structure face, no stand-off)."""
     if not gap_cells:
         return
     from ..classify.gap_mint import standoff_m
     blade = None if knife.is_empty else knife.buffer(
         standoff_m(law), join_style="mitre", mitre_limit=2.0)
     for c in gap_cells:
-        cut(c, Polygon(c.ring, c.holes), blade)
+        cut(c, Polygon(c.ring, c.holes), knife if is_road_reach(c) else blade)
 
 
 def wall_field(classification, law: Law) -> WallField:

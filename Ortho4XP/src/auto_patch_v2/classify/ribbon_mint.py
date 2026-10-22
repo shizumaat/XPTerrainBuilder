@@ -16,7 +16,7 @@ from ..law.reference_code import ref_status, status_by_ref
 from ..law.tables import (role_cap, runway_safety_area_length_m, snap_margin_m,
                           zone2_half_width_m, zone_edge_offset_m)
 from ..model.airport import Airport
-from ..model.planar import OSM_RIBBON_FEEDS
+from ..model.planar import OSM_RIBBON_FEEDS, ROAD_REACH_KEY
 from .evidence import Evidence, polygon_parts
 from .roles import TAXI_FAMILY, is_runway_shoulder
 from .lot_roads import lot_cells, split_lot_ribbon
@@ -473,7 +473,6 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
                                knife_m, join_style="mitre", mitre_limit=2.0)
                                for c in cells if c.role == "building"]
                               if knife_m > 0.0 else [])))
-    n, area = 0, 0.0
     cap = role_cap(law, "service_road")
     cap_l = float(cap.longitudinal) if cap else 0.0
     dem = getattr(airport, "dem", None)
@@ -481,17 +480,34 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
                            if c.side == "airside"]) if cells else Polygon()
     serial: dict[str, int] = {}
     spans_of: dict[tuple, list[tuple[float, float]]] = {}
-    for w, line in ways:
-        spans = [exit_reach(line, a, b, dem, airside, cap_l, hw, 2.0 * hw, near=zone)
-                 for a, b in bridge_gaps(_way_intervals(line, extent),
-                                         orr.road_gap_bridge_m)]
-        spans_of[(w.kind, w.id)] = sorted(spans)
-        k, m2, rib = _mint_spans(w, line, spans, occupied, serial, cover, law,
-                                 rules, add, {})
-        n += k
-        area += m2
-        if rib is not None:
-            occupied.add(rib)
+
+    def _pass(inside, minus: dict | None, extra: dict) -> tuple[int, float]:
+        n, area = 0, 0.0
+        for w, line in ways:
+            spans = sorted(exit_reach(line, a, b, dem, airside, cap_l, hw, 2.0 * hw, near=zone)
+                           for a, b in bridge_gaps(_way_intervals(line, inside),
+                                                   orr.road_gap_bridge_m))
+            if minus is not None:
+                spans = _interval_minus(spans, bridge_gaps(minus.get((w.kind, w.id), []), 1e-6))
+            if spans:
+                spans_of[(w.kind, w.id)] = sorted(spans_of.get((w.kind, w.id), []) + spans)
+            k, m2, rib = _mint_spans(w, line, spans, occupied, serial, cover, law,
+                                     rules, add, extra)
+            n += k
+            area += m2
+            if rib is not None:
+                occupied.add(rib)
+        return n, area
+
+    # THE BANDS' ENVELOPE FIRST (30e (2)), then THE REACH beyond it (RULINGS
+    # 2026-10-22g): the envelope's ribbons are the cells they were, and the
+    # reach's are what remains of each way, marked ``ROAD_REACH_KEY`` — they
+    # never lead a structure (``planar/structure_approach.standing_cover``)
+    n, area = _pass(zone, None, {})
+    if extent is not zone:
+        n2, area2 = _pass(extent, {key: list(v) for key, v in spans_of.items()},
+                          {ROAD_REACH_KEY: 1.0})
+        n, area = n + n2, area + area2
     if first_out is not None:
         first_out.update(spans=spans_of, serial=serial, extent=extent)
     return n, area

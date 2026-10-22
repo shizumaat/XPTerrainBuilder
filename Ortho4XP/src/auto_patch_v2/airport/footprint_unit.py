@@ -40,7 +40,7 @@ from .footprint_connector import (CONNECTOR_BOXES_MAX, ClusterTopology,
                                   cluster_topology, connectors_of_cluster,
                                   contact_graph)
 from .placement_family import (FAMILY_CONTACTS_MAX, Family, _all_on_pavement,
-                               member_is_deck,
+                               member_is_bridge_deck, member_is_deck,
                                _clusters, _contacts_of, _median,
                                bodies_of_plan, cluster_plane, pad_plurality,
                                union_area_m2)
@@ -687,7 +687,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
                        default=0.0)
             walled = (chain_min_height_m <= 0.0 or not any_height
                       or (tall >= chain_min_height_m
-                          and not member_is_deck(plan.units[ui].members[mi])))
+                          and not member_is_bridge_deck(       # 10-22b
+                              plan.units[ui], plan.units[ui].members[mi])))
             shims.append(_PShim(len(shims), key, bx, frozenset(pids),
                                 plan.units[ui].members[mi].resource,
                                 tuple(r for q in live
@@ -722,7 +723,8 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         _ml, _mo = m_per_deg_exact(shims[walled_ix[0]].box[0])
         links = sheet_links(
             shims, walled_ix, leaves, sheet_chain_min_fraction,
-            is_deck=lambda i: member_is_deck(
+            is_deck=lambda i: member_is_bridge_deck(           # 10-22b
+                plan.units[shims[i].key[0]],
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
             is_footed=lambda i: shims[i].footed,
             ml=_ml, mo=_mo, counts=counts, prefix="unit_", pool=pool,
@@ -756,9 +758,12 @@ def plan_units_and_connectors(plan: _t.Any, touch_m: float,
         contents, singles = attach_contents(
             shims, clusters, walled_ix, leaves, touch_m,
             contents_min_fraction, counts,
-            is_deck=lambda i: member_is_deck(
+            is_deck=lambda i: member_is_bridge_deck(           # 10-22b
+                plan.units[shims[i].key[0]],
                 plan.units[shims[i].key[0]].members[shims[i].key[1]]),
-            base_y=lambda i: shims[i].base_y, ml=ml, mo=mo)
+            base_y=lambda i: shims[i].base_y, ml=ml, mo=mo,
+            deck_verdict=lambda i: member_is_deck(
+                plan.units[shims[i].key[0]].members[shims[i].key[1]]))
     held: dict[int, list[int]] = {}
     for i, k in sorted(contents.items()):
         held.setdefault(k, []).append(i)

@@ -23,6 +23,7 @@ from . import anchor_rule as _ar
 from . import basin_ring as _br
 from . import placement_carrier as _pc
 from . import bridge_family as _bf
+from . import placement_family as _pf
 from . import rebake_plan as _rbp
 from .placement_carrier import is_elevated
 
@@ -400,7 +401,8 @@ def _raw_bodies(m: Member, u: Unit, edges: _t.Sequence[tuple[int, int]],
                                             m,
                                             abutment_step_m=abutment_step_m,
                                             abutment_walk_max_m=abutment_walk_max_m,
-                                            level_tol_m=split_tol_m))
+                                            level_tol_m=split_tol_m,
+                                            free_standing=_pf.frame_is_bridge(u)))
                     # §16 (1): a triangle group of a body with no ground
                     # contact has none either (the VOR-marker class)
                     tfootless = (not any(p.feet for p in parts)
@@ -539,7 +541,8 @@ def _whole_body(parts: _t.Sequence[Part], m: Member, u: Unit,
                        datum=_ar.datum_of(                       # §16e
                            m, abutment_step_m=abutment_step_m,
                            abutment_walk_max_m=abutment_walk_max_m,
-                           level_tol_m=split_tol_m))
+                           level_tol_m=split_tol_m,
+                           free_standing=_pf.frame_is_bridge(u)))
     feet = tuple((f[0], f[1], f[2]) for p in parts for f in p.feet) \
         or tuple((p.lat, p.lon, p.base_y) for p in parts)
     footless = (not any(p.feet for p in parts)

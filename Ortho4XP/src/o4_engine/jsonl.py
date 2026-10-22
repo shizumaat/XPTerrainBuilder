@@ -63,6 +63,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, TextIO
 
 import O4_Console_Encoding
+import O4_Machine_Slots
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
 import O4_Unmounted_Links as UNMOUNTED
@@ -466,6 +467,9 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         if owns_process:
             _install_terminate_signal_handler(session)
             _start_parent_death_watchdog(session)
+            # Below the user's applications, inherited by every tile,
+            # airport and pool process this engine starts (#1225).
+            O4_Machine_Slots.lower_priority()
         session.subscribe(lambda event: write_obj(serialize_event(event)))
         # The session's construction-time hello had no subscriber; the
         # transport owns the handshake framing and writes it first.

@@ -60,6 +60,12 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_MACHINE_SLOTS":
         "how many heavy processes the session's budget runs at once — "
         "scheduling only",
+    "O4_MACHINE_SLOTS_UNGATED":
+        "a slot session that proves mechanics (the pool self-check) skips "
+        "the live memory gate — scheduling only",
+    "O4_ENGINE_PRIORITY_LOWERED":
+        "the engine's process tree already runs at lowered CPU priority "
+        "(O4_Machine_Slots.lower_priority, #1225) — scheduling only",
     "O4_STEP_REUSE":
         "whether a tile build may skip a step whose output is current "
         "(O4_Step_Reuse, #615); a step that runs builds the same patch",

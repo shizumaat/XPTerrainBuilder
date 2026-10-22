@@ -56,10 +56,20 @@ PINNED_CORES = 8
 PINNED_MEMORY_GB = 64.0
 
 
+#: the machine slot budget these tests run under (#1225): wide, so the
+#: scheduler's own rules are what binds; the cap has its own tests
+PINNED_MACHINE_SLOTS = 64
+
+
 @pytest.fixture(autouse=True)
-def pinned_machine_capacity(monkeypatch):
+def pinned_machine_capacity(monkeypatch, tmp_path):
     """Measure the scheduler, never the runner (see above)."""
+    import O4_Machine_Slots as SLOTS
     import O4_Parallel_Utils as PARALLEL_UTILS
+
+    (tmp_path / "machine-slots").mkdir()
+    monkeypatch.setenv(SLOTS.ENV_DIR, str(tmp_path / "machine-slots"))
+    monkeypatch.setenv(SLOTS.ENV_CAPACITY, str(PINNED_MACHINE_SLOTS))
 
     monkeypatch.setattr(
         PARALLEL_UTILS, "machine_core_count", lambda: PINNED_CORES)

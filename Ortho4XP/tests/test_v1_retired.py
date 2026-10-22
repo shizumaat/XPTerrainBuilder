@@ -85,6 +85,9 @@ KEEP = frozenset({
     "auto_patch.object_stage",
     "auto_patch.geom_safe",
     "auto_patch.progress",
+    # the driver's airport workers, each started only once its machine
+    # slot is granted (#1225)
+    "auto_patch.slot_gated_pool",
     "auto_patch.provenance",
     # the freshness gate's CODE digest (#346) — provenance's own family
     "auto_patch.provenance_code",

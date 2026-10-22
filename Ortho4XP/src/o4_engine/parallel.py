@@ -53,6 +53,7 @@ lifecycle bookkeeping; this module reports back through
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import json
 import os
 import subprocess
@@ -285,6 +286,13 @@ FETCH_CLASSES = ("osm", "imagery")
 # if they have all their data downloaded").
 CACHED_STEP_CLASS = "compute"
 
+# How many queued tiles, from the head, the dispatcher considers for an
+# idle child and the OpenStreetMap warmer downloads ahead (#1225: the
+# queue may hold every tile of the planet).
+QUEUE_SCAN_WINDOW = 64
+# How often a warmer that has warmed the whole head looks again.
+WARM_AHEAD_POLL_SECONDS = 1.0
+
 OSM_CLASS_LIMIT = 4
 IMAGERY_CLASS_LIMIT = 4
 # The pre-2026-07-30 caps, restored when the admission gate below is off
@@ -354,7 +362,10 @@ def compute_class_limit(slots):
         return slots
     import O4_Parallel_Utils as PARALLEL_UTILS
 
-    return max(1, PARALLEL_UTILS.machine_core_count())
+    # ... and never above the session's machine budget (#1225: cores - 2
+    # and the memory headroom), which every heavy process shares.
+    return max(1, min(PARALLEL_UTILS.machine_core_count(),
+                      O4_Machine_Slots.session_capacity()))
 
 
 def class_limits(slots):
@@ -708,7 +719,9 @@ class _WorkerChild:
             # (Ortho4XP.py --engine-jsonl); leaving close_fds off is safe
             # since PEP 446 makes descriptors non-inheritable by default.
             self.process = subprocess.Popen(
-                tile_worker_command(),
+                # Under the macOS utility QoS clamp (#1225): the window
+                # server and input stay responsive however busy it is.
+                O4_Machine_Slots.qos_command(tile_worker_command()),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -818,7 +831,14 @@ class ParallelBuildRun:
         self._session = session
         self._queue = deque()
         self._total = 0
-        self._slots = slots
+        # THE MACHINE BUDGET (issue #1225): one slot pool for the engine
+        # session, published in os.environ so every tile child — and every
+        # airport process and work pool under it — shares it.  No more
+        # tile children than it has slots: a queued tile is a queue entry,
+        # never a process (the whole planet may be queued).
+        self._slots = max(1, min(int(slots),
+                                 O4_Machine_Slots.session_capacity()))
+        slots = self._slots
         # Per-tile build state: a batch enqueued into a LIVE run may
         # carry different build arguments (imagery source, zoom level,
         # output folder, step selection) than the batch that started it,
@@ -865,11 +885,6 @@ class ParallelBuildRun:
             else mesh_memory_budget_gigabytes())
         self._memory_in_use = 0.0
         self._memory_holders: dict = {}   # (tile, step) -> gigabytes
-        # THE MACHINE WORKER BUDGET (issue #1225): one slot pool for the
-        # engine session, published in os.environ so every tile child —
-        # and every airport process and work pool under it — shares it.
-        # Opened once per session; a later run reuses it.
-        O4_Machine_Slots.ensure_session()
         # Cache-aware fetch admission (spec §A.2): the per-subsystem
         # predicates' verdict per (tile, step), memoised because a tile's
         # first step is re-evaluated on every dispatch sweep and the
@@ -924,12 +939,27 @@ class ParallelBuildRun:
         program = [key for (key, _base, _width) in full_plan]
         if not program:
             return []
+        with tile_time_model.batch_reads():
+            admitted = self._admit_tiles_locked(
+                tiles, full_plan, program, provider, zoomlevel,
+                custom_build_dir, boundary_policy, missing_art)
+        self._total += len(admitted)
+        return admitted
+
+    def _admit_tiles_locked(self, tiles, full_plan, program, provider,
+                            zoomlevel, custom_build_dir, boundary_policy,
+                            missing_art):
         admitted = []
+        queued = set(self._queue)              # a planet queue: O(1) checks
+        # ONE list for the whole batch, shared by its tiles: a copy per
+        # tile was quadratic (3,000 queued tiles held ~0.8 GB, #1225).
+        boundary_batch = [[int(t[0]), int(t[1])] for t in tiles]
+        carried = {child.tile for child in self._children}
         for tile in tiles:
-            if (tile in self._queue or tile in self._next_step_index
-                    or any(child.tile == tile
-                           for child in self._children)):
+            if (tile in queued or tile in self._next_step_index
+                    or tile in carried):
                 continue
+            queued.add(tile)
             admitted.append(tile)
             self._tile_arguments[tile] = {
                 "provider": provider,
@@ -942,7 +972,7 @@ class ParallelBuildRun:
                 # THE PRESS'S OWN TILE SET (issue #51): the child builds
                 # one tile per command, so without this every sibling of
                 # the batch reads as "a tile this build is not building".
-                "boundary_batch": [[int(t[0]), int(t[1])] for t in tiles],
+                "boundary_batch": boundary_batch,
                 # #433: the batch's missing-art answer, per batch likewise
                 "missing_art": missing_art,
             }
@@ -974,7 +1004,6 @@ class ParallelBuildRun:
             self._percent_high_water.pop(tile, None)
             self._forget_cache_state_locked(tile)
             self._queue.append(tile)
-        self._total += len(admitted)
         return admitted
 
     # -- lifecycle -----------------------------------------------------
@@ -1442,7 +1471,10 @@ class ParallelBuildRun:
         than queueing behind them (spec §A.2).
         """
         tile = None
-        for candidate in self._queue:
+        # Only the head of the queue is considered: a planet-sized queue
+        # must cost nothing per queued tile (#1225), and the cache
+        # predicates build a tile's configuration on first ask.
+        for candidate in itertools.islice(self._queue, QUEUE_SCAN_WINDOW):
             if candidate == self._warming_tile:
                 continue
             first_step = self._programs[candidate][0]
@@ -1962,13 +1994,22 @@ class ParallelBuildRun:
             with self._lock:
                 if self._finished or self._cancel_all:
                     return
+                # Only the head of the queue (#1225): a planet-sized
+                # queue must not be downloaded ahead of its builds.
                 tile = next(
-                    (t for t in self._queue if t not in self._warmed_tiles),
+                    (t for t in itertools.islice(self._queue,
+                                                 QUEUE_SCAN_WINDOW)
+                     if t not in self._warmed_tiles),
                     None,
                 )
-                if tile is None:
+                behind = len(self._queue) > QUEUE_SCAN_WINDOW
+                if tile is not None:
+                    self._warming_tile = tile
+            if tile is None:
+                if not behind:
                     return
-                self._warming_tile = tile
+                time.sleep(WARM_AHEAD_POLL_SECONDS)   # the head moves on
+                continue
             # The warmer exists to spare the OVERPASS servers.  A tile
             # fully covered by locally stored regional extracts never
             # touches Overpass — and warming it would run country-sized

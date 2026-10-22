@@ -31,6 +31,7 @@ always returns a usable dict (falling back to fixed constants), so a
 corrupt store or a missing home directory can never take down a build.
 """
 
+import contextlib
 import json
 import math
 import os
@@ -256,7 +257,35 @@ def _load_all_records() -> list:
     unlike the same-tile path this pools all records rather than only
     the newest per tile.  Each unreadable file is skipped individually,
     so one corrupt file cannot poison the whole cross-tile basis.
+
+    Inside :func:`batch_reads` the store is read once for the whole batch
+    (#1225: a queue of thousands of tiles re-read every file twice per
+    tile).
     """
+    if _BATCH_MEMO:
+        if "records" not in _BATCH_MEMO:
+            _BATCH_MEMO["records"] = _read_all_records()
+        return list(_BATCH_MEMO["records"])
+    return _read_all_records()
+
+
+_BATCH_MEMO: dict = {}
+
+
+@contextlib.contextmanager
+def batch_reads():
+    """Read the record store once for every prediction made inside."""
+    if _BATCH_MEMO:
+        yield
+        return
+    _BATCH_MEMO["open"] = True
+    try:
+        yield
+    finally:
+        _BATCH_MEMO.clear()
+
+
+def _read_all_records() -> list:
     all_records: list = []
     try:
         file_names = os.listdir(STORE_DIRECTORY)

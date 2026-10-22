@@ -64,12 +64,18 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
                       tile_key: Callable[[int, int], str],
                       built: Optional[Dict[Tile, object]],
                       ortho_tiles: Optional[Set[Tile]],
-                      text_scale: float = TS.DEFAULT) -> None:
+                      text_scale: float = TS.DEFAULT,
+                      ortho_imagery: Optional[Dict[Tile, tuple]] = None,
+                      ) -> None:
     """Coordinate top-left on every visible tile; imagery bottom-left on
     a ``built`` tile (its ``provider``/``zl``/``has_zones``) or on one an
-    installed ortho pack covers (``imagery ?``).  ``None`` for ``built``
-    or ``ortho_tiles`` hides that layer (the scenery filter).
-    ``text_scale`` is the apps' text size (#827)."""
+    installed ortho pack covers.  Where the build record names no
+    provider, or the tile is another pack's, ``ortho_imagery``'s
+    ``(provider, zl)`` read from the pack's files fills in (#1257, the
+    Mac's MapCanvasLabels); with neither the label says ``imagery ?``.
+    ``None`` for ``built`` or ``ortho_tiles`` hides that layer (the
+    scenery filter).  ``text_scale`` is the apps' text size (#827)."""
+    ortho_imagery = ortho_imagery or {}
     if scale < LABELS.TILE_LABEL_MIN_SCALE:
         return
     (lat_lo, lat_hi, lon_lo, lon_hi) = bounds
@@ -83,12 +89,18 @@ def paint_tile_labels(painter, point_of: PointOf, scale: float,
             _pill(painter, tile_key(lat, lon), top_left.x() + 4,
                   top_left.y() + 4, True, font)
             info = built.get((lat, lon)) if built is not None else None
+            pack = ortho_imagery.get((lat, lon))
             if info is not None:
+                provider = getattr(info, "provider", "")
+                zl = getattr(info, "zl", None)
+                if not provider and pack is not None:
+                    provider = pack[0]
+                    zl = pack[1] if pack[1] is not None else zl
                 text = LABELS.imagery_label(
-                    getattr(info, "provider", ""), getattr(info, "zl", None),
-                    bool(getattr(info, "has_zones", False)))
+                    provider, zl, bool(getattr(info, "has_zones", False)))
             elif ortho_tiles is not None and (lat, lon) in ortho_tiles:
-                text = LABELS.imagery_label(None, None)
+                text = (LABELS.imagery_label(pack[0], pack[1])
+                        if pack is not None else LABELS.imagery_label(None, None))
             else:
                 continue
             _pill(painter, text, bottom_left.x() + 4, bottom_left.y() - 4,

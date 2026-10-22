@@ -470,6 +470,9 @@ final class BuildModel: ObservableObject {
             if let extracted {
                 self.schema = extracted
                 self.reloadGlobalConfig()
+                // Not only on the first-run page: a user who never saw it
+                // starts from the default preset too (owner 2026-10-22).
+                self.applyDefaultPresetIfUnset()
             }
         }
     }

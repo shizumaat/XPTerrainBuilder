@@ -159,3 +159,47 @@ def test_iter_packs_reports_progress_over_the_whole_listing(tmp_path):
     assert [done for (done, _total, _pack) in rows] == [1, 2]
     assert {total for (_done, total, _pack) in rows} == {2}
     assert [p.name for (_d, _t, p) in rows if p is not None] == ["SomeMesh"]
+
+
+# --- the pack's own imagery (#1257, the Mac's PackImageryTests) -----------
+
+def test_dominant_provider_and_base_zoom_from_file_names():
+    names = ["%d_10752_BI16.dds" % (25000 + i * 16) for i in range(30)]
+    names += ["%d_10752_BI18.dds" % (25000 + i * 16) for i in range(4)]
+    names += ["25000_10752_GO216.dds", "25000_10752_BI16_sea.ter", "readme.txt"]
+    assert PACKS.imagery_from_file_names(names) == ("BI", 16)
+
+
+def test_provider_codes_ending_in_digits_parse():
+    names = ["24576_10240_USA_216.dds", "24592_10240_USA_216.ter"]
+    assert PACKS.imagery_from_file_names(names) == ("USA_2", 16)
+
+
+def test_no_ortho4xp_names_means_unknown():
+    assert PACKS.imagery_from_file_names(["grass.dds", "rock_01.ter"]) is None
+
+
+def test_pack_imagery_reads_textures_then_the_cfg(tmp_path):
+    named = tmp_path / "named"
+    (named / "textures").mkdir(parents=True)
+    (named / "textures" / "25000_10752_GO218.dds").write_text(
+        "", encoding="utf-8", newline="")
+    assert PACKS.pack_imagery(str(named)) == ("GO2", 18)
+    cfg_only = tmp_path / "cfg_only"
+    cfg_only.mkdir()
+    (cfg_only / "Ortho4XP_+47-006.cfg").write_text(
+        "default_website='Arc'\ndefault_zl=17\nzone_list=[]\n",
+        encoding="utf-8", newline="")
+    assert PACKS.pack_imagery(str(cfg_only)) == ("Arc", 17)
+    assert PACKS.pack_imagery(str(tmp_path / "missing")) is None
+
+
+def test_ortho_packs_carry_their_imagery(tmp_path):
+    scenery_dir = _scenery_dir(tmp_path)
+    pack = _make_pack(scenery_dir, "zOrtho_Other", tiles=[(47, -6)], ter=3)
+    for index in range(3):
+        open(os.path.join(pack, "terrain", "%d_10752_BI16.ter" % index), "w",
+             encoding="utf-8", newline="").close()
+    (found,) = [p for p in PACKS.scan_packs(scenery_dir) if p.name == "zOrtho_Other"]
+    assert found.kind == "ortho"
+    assert found.imagery == ("BI", 16)

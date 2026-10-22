@@ -40,8 +40,9 @@ SWIFT = Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
 
 # ─── THE MANIFEST ──────────────────────────────────────────────────────────
 #: The map toolbar, left to right: (key, Swift marker, Qt window attribute).
+#: No refresh button in either app (#1258): both rescan Custom Scenery
+#: when it changes.
 TOOLBAR = (
-    ("refresh", 'Image(systemName: "arrow.clockwise")', "refresh_btn"),
     ("imagery_preview", 'Picker("Imagery Preview"', "map_provider_combo"),
     ("scenery_filter", 'Picker("Scenery"', "scenery_filter_combo"),
     ("search", "ToolbarSearchField(", "search_edit"),

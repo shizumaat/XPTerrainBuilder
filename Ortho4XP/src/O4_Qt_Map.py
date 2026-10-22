@@ -14,11 +14,11 @@ Fetched tiles are cached on disk under Previews/livemap/<provider>/.
 
 import math
 import os
-import re
 import threading
 import time
 from collections import deque
 
+import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
@@ -67,6 +67,8 @@ LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 # Built tiles are plain green — the ZL stays readable in the center
 # label ("PROV 16*"); no per-ZL color coding, no legend.
 BUILT_COLOR = "#4CAF6E"
+#: The selection ring (the Mac app's buildSelection).
+SELECTION_COLOR = "#FFD60A"
 
 
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
@@ -124,10 +126,8 @@ parse_tile_key = FNAMES.parse_tile_key
 # Files carrying any other provider token are dead weight from an earlier
 # build with a different source.  Imagery zones legitimately mix ZOOM
 # LEVELS, so only the provider token decides foreignness; masks and other
-# non-.dds files are ignored.  The two-digit ZL anchor is what lets a
-# provider code that itself ends in digits ("USA_2" -> "…_USA_216.dds")
-# parse correctly.
-_TEXTURE_DDS_RE = re.compile(r"\d+_\d+_(.+?)(\d{2})(?:_[A-Za-z_]+)?$")
+# non-.dds files are ignored.  The name grammar is
+# O4_Custom_Scenery.parse_texture_stem's (one parser, two readers).
 
 
 def texture_provider(name):
@@ -139,8 +139,8 @@ def texture_provider(name):
     """
     if not isinstance(name, str) or not name.lower().endswith(".dds"):
         return None
-    match = _TEXTURE_DDS_RE.fullmatch(name[:-4])
-    return match.group(1) if match else None
+    parsed = PACKS.parse_texture_stem(name[:-4])
+    return parsed[0] if parsed else None
 
 
 def has_foreign_sources(textures_dir, provider):
@@ -369,6 +369,8 @@ class MapView(QGraphicsView):
         # kind); the tiles ORTHO packs cover carry an imagery label.
         self._regions = []
         self._ortho_tiles = set()
+        # (lat, lon) -> (provider, zl) the covering ortho pack's files say.
+        self._ortho_imagery = {}
         self._scenery_filter = SCENERY_FILTER_ALL
 
         # Layers drawn over the map that take the mouse first (the patch
@@ -556,18 +558,24 @@ class MapView(QGraphicsView):
 
     def set_scenery_regions(self, regions):
         """Other installed ortho/mesh packages: ``(name, tiles, dim)``
-        or ``(name, tiles, dim, kind)`` rows, ``tiles`` an iterable of the
-        (lat, lon) they cover; an ``"ortho"`` kind's tiles carry an
-        imagery label (#817)."""
+        or ``(name, tiles, dim, kind[, imagery])`` rows, ``tiles`` an
+        iterable of the (lat, lon) they cover; an ``"ortho"`` kind's tiles
+        carry an imagery label (#817), its ``imagery`` ``(provider, zl)``
+        when the pack's files name one (#1257, the Mac's PackImagery)."""
         self._regions = []
         self._ortho_tiles = set()
+        self._ortho_imagery = {}
         for row in regions:
             (name, tiles, dim) = row[:3]
             kind = row[3] if len(row) > 3 else ""
+            imagery = row[4] if len(row) > 4 else None
             covered = {(int(la), int(lo)) for (la, lo) in tiles}
             self._regions.append((str(name), covered, bool(dim), str(kind)))
             if kind == "ortho":
                 self._ortho_tiles |= covered
+                if imagery:
+                    for tile in covered:
+                        self._ortho_imagery.setdefault(tile, imagery)
         self.viewport().update()
 
     def scenery_filter(self):
@@ -1144,20 +1152,25 @@ class MapView(QGraphicsView):
         r = self._tile_rect(*tile)
         px = r.width() * scale  # tile size on screen
 
+        # Strokes only, never a fill: a tint colours the very imagery the
+        # user is judging (#1256; MapCanvasView.swift draws the same).
+        painter.setBrush(Qt.NoBrush)
         if built is not None:
+            # Built: a green border; installed adds the inset double border.
             base = QColor(BUILT_COLOR)
-            fill = QColor(base)
-            fill.setAlpha(70)
-            painter.fillRect(r, fill)
-            border = QPen(base.darker(140))
-            border.setCosmetic(True)
-            border.setWidth(2)
-            painter.setPen(border)
+            border = QColor(base)
+            border.setAlphaF(0.85)
+            pen = QPen(border)
+            pen.setCosmetic(True)
+            pen.setWidth(2)
+            painter.setPen(pen)
             painter.drawRect(r)
             if tile in self._installed:
-                pen = QPen(QColor(20, 28, 36, 210))
+                inner = QColor(base)
+                inner.setAlphaF(0.9)
+                pen = QPen(inner)
                 pen.setCosmetic(True)
-                pen.setWidth(3)
+                pen.setWidthF(1.5)
                 painter.setPen(pen)
                 inset = r.adjusted(
                     r.width() * 0.03, r.height() * 0.03,
@@ -1172,16 +1185,29 @@ class MapView(QGraphicsView):
                 self._draw_conflict_badge(painter, r, px, scale)
 
         if selected:
-            fill = QColor("#FFD60A")
-            fill.setAlpha(36)
-            painter.fillRect(r, fill)
-            pen = QPen(QColor("#FFD60A"))
-            pen.setCosmetic(True)
-            pen.setWidth(3 if active else 2)
-            if not active:
-                pen.setStyle(Qt.DashLine)
+            # Selection: a focus ring.  Active: solid with a soft outer
+            # glow; other selected tiles: dashed.
+            ring = QColor(SELECTION_COLOR)
+            px1 = 1.0 / scale if scale else 0.0     # one screen pixel
+            if active:
+                glow = QColor(ring)
+                glow.setAlphaF(0.35)
+                pen = QPen(glow)
+                pen.setCosmetic(True)
+                pen.setWidth(5)
+                painter.setPen(pen)
+                painter.drawRect(r.adjusted(-1.5 * px1, -1.5 * px1,
+                                            1.5 * px1, 1.5 * px1))
+                pen = QPen(ring)
+                pen.setCosmetic(True)
+                pen.setWidthF(2.5)
+            else:
+                pen = QPen(ring)
+                pen.setCosmetic(True)
+                pen.setWidth(2)
+                pen.setDashPattern([5 / 2, 4 / 2])  # 5 px on, 4 off at width 2
             painter.setPen(pen)
-            painter.drawRect(r)
+            painter.drawRect(r.adjusted(px1, px1, -px1, -px1))
 
         if progress:
             self._draw_progress_badge(painter, r, px, progress)
@@ -1245,7 +1271,7 @@ class MapView(QGraphicsView):
             else None,
             self._ortho_tiles if self._scenery_filter != SCENERY_FILTER_BUILT
             else None,
-            QTTEXT.current_scale())
+            QTTEXT.current_scale(), self._ortho_imagery)
 
     def _draw_airports(self, painter):
         """Sectional-style airport marks by size (#817, mac-app parity).

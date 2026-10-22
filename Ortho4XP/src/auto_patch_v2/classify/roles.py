@@ -730,13 +730,18 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     # inside a facade lot is the lot)
     from .facade_mint import mint_facade_cells
     stats.update(mint_facade_cells(airport, cells, law, rules, add))
-    from .ribbon_mint import mint_osm_ribbons, mint_pad_roads   # lazy: it imports this module
+    from .ribbon_mint import (mint_osm_ribbons, mint_pad_roads,   # lazy: it imports this module
+                              mint_reach_ribbons)
     first: dict = {}
     n_rib, m_rib = mint_osm_ribbons(airport, ev, cells, law, rules, add, first)
     # §53 (RULINGS 2026-10-04o (a)): the gap pieces — after the patch's
     # ribbons, so every pavement the engine already knows keeps its ground
     from .gap_mint import mint_gap_pieces
     stats.update(mint_gap_pieces(airport, ev, cells, law, rules, add, notes))
+    # THE ROAD REACH (RULINGS 2026-10-22g): after the gap pieces, so it re-cuts
+    # no gap-apron part (stage-1 airside) and no piece the envelope minted
+    n_reach, m_reach = mint_reach_ribbons(airport, ev, cells, law, rules, add, first)
+    n_rib, m_rib = n_rib + n_reach, m_rib + m_reach
     # THE PAD ROADS, LAST (issue #609; owner RULINGS 2026-10-13a (1), 13d):
     # nothing standing is overlapped or re-cut by them.  Each is read by
     # THE ONE TOUCH WITNESS (09j (2)): a mapped road reaching a pad in

@@ -129,7 +129,11 @@ def test_a_road_reaching_a_pad_inside_the_reach_stays_a_pad_road(law):
     off the terminal's pad and fell 2.9 m below it)."""
     import types
 
-    from auto_patch_v2.classify.ribbon_mint import mint_osm_ribbons, mint_pad_roads
+    from auto_patch_v2.classify.ribbon_mint import (
+        mint_osm_ribbons,
+        mint_pad_roads,
+        mint_reach_ribbons,
+    )
     from auto_patch_v2.classify.roles import Cell
     from shapely.geometry import box
     way = _way(-3, ((600.0, -40.0), (900.0, -40.0), (900.0, -200.0), (900.0, -400.0)),
@@ -146,6 +150,7 @@ def test_a_road_reaching_a_pad_inside_the_reach_stays_a_pad_road(law):
             cells, law, load_rules(),
             lambda role, ref, part, kind, cn, cl, ev: out.append((ref, part, ev)))
     mint_osm_ribbons(*args, first)
+    mint_reach_ribbons(*args, first)
     mint_pad_roads(*args, first)
     pad_roads = [(r, p, ev) for r, p, ev in out if ev.get("pad_road")]
     # a pad road of the reach: standing for the structures, but no field

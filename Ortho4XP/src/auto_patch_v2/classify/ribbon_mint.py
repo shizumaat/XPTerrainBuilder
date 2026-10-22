@@ -25,7 +25,8 @@ from .rules import Rules
 from ..geom.parts import areal_part, line_parts
 from ..airport.road_ways import ribbon_half_width_m
 
-__all__ = ["mint_osm_ribbons", "mint_pad_roads", "ribbon_extent", "road_extent",
+__all__ = ["mint_osm_ribbons", "mint_reach_ribbons", "mint_pad_roads", "ribbon_extent",
+           "road_extent",
            "bridge_gaps", "network_spans", "exit_reach"]
 
 
@@ -442,8 +443,8 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     """30e (1)-(3), (6): the RIBBON FACE of every mapped at-grade road
     (``planar/terrain_edge.road_ways`` — the one at-grade road source) of
     an ``osm_roads.ribbon_highways`` class, over its parts inside the
-    aerodrome's reach (:func:`road_extent`, RULINGS 2026-10-22g) plus
-    the same-way gaps up to ``osm_roads.road_gap_bridge_m``; parts
+    airside bands' envelope (the reach beyond it is
+    :func:`mint_reach_ribbons`', RULINGS 2026-10-22g) plus the same-way gaps up to ``osm_roads.road_gap_bridge_m``; parts
     within ``osm_roads.dedup_m`` of a 1206 route dropped (the network is
     senior); half-width = the way's own (``airport/road_ways.
     ribbon_half_width_m``: its mapped carriageway, never under the core's
@@ -455,15 +456,61 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
     the ribbons at the structure pass like every other cell.
     ``first_out`` receives what :func:`mint_pad_roads` reads: each way's
     ribboned spans and the serial of its refs.  Returns (faces minted, m2)."""
-    orr = rules.osm_roads
+    cx = _context(airport, ev, cells, law, rules)
+    if cx is None:
+        return 0, 0.0
+    # THE BANDS' ENVELOPE (30e (2)) here; THE REACH beyond it (RULINGS
+    # 2026-10-22g) in :func:`mint_reach_ribbons`, after the gap pieces
+    n, area = _mint_pass(cx, cx.zone, None, {}, add)
+    if first_out is not None:
+        first_out.update(spans=cx.spans_of, serial=cx.serial, extent=cx.zone,
+                         reach=cx.extent)
+    return n, area
+
+
+def mint_reach_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
+                       rules: Rules, add, first: dict) -> tuple[int, float]:
+    """THE ROAD REACH (owner RULINGS 2026-10-22g): what remains of each
+    mapped road inside the aerodrome boundary ⊕ ``boundary_reach_m`` once
+    the envelope's ribbons (:func:`mint_osm_ribbons`) AND THE GAP PIECES
+    stand.  Minted after the gap pieces so it re-cuts none of them — a
+    gap-apron part is stage-1 airside (MEASURED LGAV: with the reach minted
+    first, ``gapapron:0/1/2/4`` were re-cut and 81 airside nodes moved, worst
+    0.26 m).  Marked ``ROAD_REACH_KEY``: a reach ribbon never leads a
+    structure (``planar/structure_approach``).  A PAD ROAD inside the reach
+    stays a pad road (:func:`mint_pad_roads`' own spans, read on the
+    envelope, 13a): at the pad's FOOTPRINT, welded by the touch witness,
+    standing for the structures but no field (MEASURED KPHX, way -21842 by
+    Terminal 3: as a plain reach ribbon it was held off the terminal's pad
+    and fell 2.9 m below it).  ``first`` is :func:`mint_osm_ribbons`'
+    ``first_out``, updated with the reach as :func:`mint_pad_roads`' extent.
+    Returns (faces minted, m2)."""
+    reach = first.get("reach") if first else None
+    if reach is None or reach is first.get("extent"):
+        return 0, 0.0
+    cx = _context(airport, ev, cells, law, rules)
+    if cx is None:
+        return 0, 0.0
+    cx.serial, cx.spans_of = first["serial"], first["spans"]
+    cx.at_pads = _Occupied(unary_union([Polygon(c.ring, c.holes) for c in cells]))
+    cx.at_pads.ribs, cx.at_pads.bounds = cx.occupied.ribs, cx.occupied.bounds
+    cx.lots = lot_cells(cells)
+    mine = {key: list(v) for key, v in cx.spans_of.items()}
+    held = _pad_road_spans(cx.ways, cells, cx.zone, rules.osm_roads.road_gap_bridge_m, mine)
+    n, area = _mint_pass(cx, cx.extent, mine, {ROAD_REACH_KEY: 1.0}, add, held)
+    first.update(spans=cx.spans_of, serial=cx.serial, extent=cx.extent)
+    return n, area
+
+
+def _context(airport: Airport, ev: Evidence, cells: list, law: Law, rules: Rules):
+    """The mint's reading of the airport and the cells standing now."""
+    import types
     ways = _ribbon_ways(airport, rules)
     if not ways:
-        return 0, 0.0
+        return None
     extent, zone = road_extent(cells, law, ev, rules, getattr(airport, "runways", ()))
     if extent.is_empty:
-        return 0, 0.0
-    cover = _cover(ev, rules)
-    hw = float(law.tables.emit.road_profile.lane_width_m)
+        return None
     # every cell standing, and every pad's set-back (``_cut_back_groundside``'s
     # own knife: ``groundside_cutback_m`` + the snap margin, mitred)
     knife_m = float(law.tables.structures.building_pad.groundside_cutback_m) \
@@ -474,63 +521,46 @@ def mint_osm_ribbons(airport: Airport, ev: Evidence, cells: list, law: Law,
                                for c in cells if c.role == "building"]
                               if knife_m > 0.0 else [])))
     cap = role_cap(law, "service_road")
-    cap_l = float(cap.longitudinal) if cap else 0.0
-    dem = getattr(airport, "dem", None)
-    airside = unary_union([Polygon(c.ring, c.holes) for c in cells
-                           if c.side == "airside"]) if cells else Polygon()
-    serial: dict[str, int] = {}
-    spans_of: dict[tuple, list[tuple[float, float]]] = {}
+    return types.SimpleNamespace(
+        ways=ways, extent=extent, zone=zone, cover=_cover(ev, rules),
+        hw=float(law.tables.emit.road_profile.lane_width_m), occupied=occupied,
+        at_pads=occupied, lots=None, cap_l=float(cap.longitudinal) if cap else 0.0,
+        dem=getattr(airport, "dem", None), law=law, rules=rules,
+        airside=unary_union([Polygon(c.ring, c.holes) for c in cells
+                             if c.side == "airside"]) if cells else Polygon(),
+        serial={}, spans_of={})
 
-    def _pass(inside, minus: dict | None, extra: dict, pads: dict | None = None
-              ) -> tuple[int, float]:
-        n, area = 0, 0.0
-        for w, line in ways:
-            key = (w.kind, w.id)
-            spans = sorted(exit_reach(line, a, b, dem, airside, cap_l, hw, 2.0 * hw, near=zone)
-                           for a, b in bridge_gaps(_way_intervals(line, inside),
-                                                   orr.road_gap_bridge_m))
-            if minus is not None:
-                spans = _interval_minus(spans, bridge_gaps(minus.get(key, []), 1e-6))
-            held = sorted((pads or {}).get(key, []))
-            if held:
-                spans = _interval_minus(spans, bridge_gaps(held, 1e-6))
-            for sp, ex, occ, kw in ((spans, extra, occupied, {}),
-                                    (held, {"pad_road": 1.0, ROAD_REACH_KEY: 1.0}, at_pads,
-                                     {"min_len": 0.0, "lots": lots})):
-                if not sp:
-                    continue
-                spans_of[key] = sorted(spans_of.get(key, []) + sp)
-                k, m2, rib = _mint_spans(w, line, sp, occ, serial, cover, law,
-                                         rules, add, ex, **kw)
-                n += k
-                area += m2
-                if rib is not None:
-                    occupied.add(rib)
-        return n, area
 
-    # THE BANDS' ENVELOPE FIRST (30e (2)), then THE REACH beyond it (RULINGS
-    # 2026-10-22g): the envelope's ribbons are the cells they were, and the
-    # reach's are what remains of each way, marked ``ROAD_REACH_KEY`` — they
-    # never lead a structure (``planar/structure_approach.standing_cover``).
-    # A PAD ROAD inside the reach stays a pad road (:func:`mint_pad_roads`'
-    # own spans, read on the envelope as before, 13a): minted here, at the
-    # pad's FOOTPRINT, welded by the touch witness like every pad road, and
-    # standing for the structures as a pad road always did — but no FIELD
-    # (``structure_approach.cover_polygons``; marked ``ROAD_REACH_KEY`` too)
-    # (MEASURED KPHX, way -21842 by Terminal 3: as a reach ribbon it was held
-    # off the terminal's pad and fell to 339.55 m against the pad's 342.48)
-    at_pads, lots = occupied, None
-    n, area = _pass(zone, None, {})
-    if extent is not zone:
-        at_pads = _Occupied(unary_union([Polygon(c.ring, c.holes) for c in cells]))
-        at_pads.ribs, at_pads.bounds = occupied.ribs, occupied.bounds   # one ribbon list
-        lots = lot_cells(cells)
-        first = {key: list(v) for key, v in spans_of.items()}
-        n2, area2 = _pass(extent, first, {ROAD_REACH_KEY: 1.0},
-                          _pad_road_spans(ways, cells, zone, orr.road_gap_bridge_m, first))
-        n, area = n + n2, area + area2
-    if first_out is not None:
-        first_out.update(spans=spans_of, serial=serial, extent=extent)
+def _mint_pass(cx, inside, minus: dict | None, extra: dict, add,
+               pads: dict | None = None) -> tuple[int, float]:
+    """One pass of the mint over ``inside``: each way's spans there (the gap
+    bridge, the exit reach) less ``minus``; ``pads``' spans minted as pad
+    roads instead."""
+    orr = cx.rules.osm_roads
+    n, area = 0, 0.0
+    for w, line in cx.ways:
+        key = (w.kind, w.id)
+        spans = sorted(exit_reach(line, a, b, cx.dem, cx.airside, cx.cap_l, cx.hw,
+                                  2.0 * cx.hw, near=cx.zone)
+                       for a, b in bridge_gaps(_way_intervals(line, inside),
+                                               orr.road_gap_bridge_m))
+        if minus is not None:
+            spans = _interval_minus(spans, bridge_gaps(minus.get(key, []), 1e-6))
+        held = sorted((pads or {}).get(key, []))
+        if held:
+            spans = _interval_minus(spans, bridge_gaps(held, 1e-6))
+        for sp, ex, occ, kw in ((spans, extra, cx.occupied, {}),
+                                (held, {"pad_road": 1.0, ROAD_REACH_KEY: 1.0}, cx.at_pads,
+                                 {"min_len": 0.0, "lots": cx.lots})):
+            if not sp:
+                continue
+            cx.spans_of[key] = sorted(cx.spans_of.get(key, []) + sp)
+            k, m2, rib = _mint_spans(w, line, sp, occ, cx.serial, cx.cover, cx.law,
+                                     cx.rules, add, ex, **kw)
+            n += k
+            area += m2
+            if rib is not None:
+                cx.occupied.add(rib)
     return n, area
 
 

@@ -318,7 +318,6 @@ def main():
             "directory, check your install. Exiting.",
         )
         sys.exit(1)
-    FNAMES.seed_shipped_patches()
     for directory in (
         FNAMES.Preview_dir,
         FNAMES.OSM_dir,

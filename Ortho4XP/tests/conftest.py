@@ -1250,6 +1250,16 @@ def pytest_configure(config):
     # test that wants a pool asks for one (``WorkPool(workers=N)``).
     from auto_patch_v2.airport import pool as _v2_pool
     _v2_pool.configure(1)
+    # THE MACHINE BUDGET IS NOT UNDER TEST HERE (#1225): a CI runner (2-4
+    # cores, 7-16 GB) measures one slot and sits below the live memory
+    # gate's headroom for good, which serialises every scheduling test.
+    # The suite runs a fixed, ungated session; the slot tests that exercise
+    # the gate or the measured capacity unset these themselves.  Same hook
+    # rule as above: never at import.
+    import O4_Machine_Slots as _slots
+    os.environ[_slots.ENV_UNGATED] = "1"
+    if not os.environ.get(_slots.ENV_DIR):
+        os.environ.setdefault(_slots.ENV_CAPACITY, "16")
     if os.environ.get("O4_SUITE_WRITE_AUDIT", "0") != "1":
         return
     out = os.environ.get("O4_SUITE_WRITE_AUDIT_OUT", "").strip()

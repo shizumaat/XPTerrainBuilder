@@ -74,6 +74,10 @@ def test_a_moroccan_airport_never_asks_a_spanish_provider(
         "GLOBEFAKE", "GLOBAL", 1)
     asked, record = _run(tmp_path, monkeypatch, [spain, globe], "GMZZ", "MAR")
     assert asked == ["GLOBEFAKE"] and record["ESFAKE"] == INSETS.NO_COVERAGE
+    # #1238: the foreign negative carries THIS engine, so the 15aq (4)
+    # once-per-version predicate never calls it stale (the loop never
+    # re-probes it, and the harness would refuse the airport for ever)
+    assert not INSETS.negative_is_version_stale(record, "ESFAKE", spain)
 
 
 def test_own_country_and_unknown_country_still_ask(tmp_path, monkeypatch):

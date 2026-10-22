@@ -4554,6 +4554,11 @@ def ensure_airport_insets(
                 _set_aside_foreign_inset(destination, icao, code, country)
                 airport_record[code] = NO_COVERAGE
                 airport_record["checked"] = checked_stamp
+                # stamp THIS engine on the negative: unstamped, 15aq (4)'s
+                # once-per-version predicate calls it stale for ever (the
+                # loop never re-probes a foreign provider), and the harness
+                # refuses every build of the airport (#1238, CYYJ USGS3DEP)
+                _record_run_capabilities(airport_record, code, definition)
                 continue
             # R13-1, BEFORE the cache is consulted: a record whose raster
             # is gone or holds no data is treated as UNFETCHED.  Without

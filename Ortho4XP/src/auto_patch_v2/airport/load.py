@@ -735,8 +735,10 @@ def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
     runways were built with no pins at all (#117).
 
     A DESIGNATOR JOIN MUST AGREE IN PLACE (issue #994): a record whose
-    landing threshold lies farther than ``tol_m`` from the end it named is
-    a different runway carrying that designator (KEDW: the apt.dat keeps
+    landing threshold lies OFF the end it named — off its centreline by
+    more than ``tol_m``, or outside its own half of the runway
+    (:func:`_off_own_end`) — is a different runway carrying that
+    designator (KEDW: the apt.dat keeps
     the lakebed runways as 05L/23R, 05R/23L, 07/25 and the paved ones as
     04L/22R, 04R/22L, 06/24, while the CIFP cycle renumbered the paved
     ones to 05L/23R, 05R/23L, 07/25 — the paved thresholds, 11 m above the
@@ -753,13 +755,10 @@ def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
     for (i, k), r in out.items():
         if r is None:
             continue
-        x, y = _landing_xy(runways[i], k, to_xy)
-        rx, ry = to_xy(r.lon, r.lat)
-        dist = math.hypot(rx - x, ry - y)
-        if dist > tol_m:
+        why = _off_own_end(runways[i], k, to_xy(r.lon, r.lat), to_xy, tol_m)
+        if why:
             joins.append(f"CIFP designator join refused (#994): {icao} "
-                         f"{runways[i].ends[k][0]} -> {r.designator} lies "
-                         f"{dist:.1f} m from the end (radius {tol_m:g} m)")
+                         f"{runways[i].ends[k][0]} -> {r.designator} {why}")
             out[(i, k)] = None
     claimed = {r.designator for r in out.values() if r is not None}
     free_xy = {d: to_xy(r.lon, r.lat) for d, r in cifp.items() if d not in claimed}
@@ -779,6 +778,40 @@ def join_cifp(icao: str, runways: _t.Sequence[_t.Any],
             if out[(i, k)] is None:
                 missing.append(desig)
     return out, missing, joins
+
+
+def _off_own_end(rw: _t.Any, k: int, p: XY,
+                 to_xy: _t.Callable[[float, float], XY], tol_m: float) -> str:
+    """Why CIFP point ``p`` is NOT on apt.dat end ``k``'s own runway
+    threshold, or ``""`` when it is.
+
+    THE THRESHOLD IS WHATEVER THE AIRPORT DATA SAYS (owner RULINGS
+    2026-10-22a, issue #1238): a CIFP landing threshold may lie any
+    distance down the runway from the apt.dat end — the CIFP record names
+    the displaced distance, and the apt.dat's may differ (CYYJ 32: CIFP
+    390 ft, apt.dat 35 m; the old 30 m radius about the apt.dat threshold
+    refused it and the end lost its pin).  So the point is judged against
+    the runway's own geometry, with NO displaced-length cap: within
+    ``tol_m`` of the centreline, and along it from ``tol_m`` before the
+    end to the runway's midpoint (past the midpoint it is nearer the
+    reciprocal end — the other end's threshold, not this one's)."""
+    _desig, lat, lon, _disp, _over = rw.ends[k]
+    other = rw.ends[1 - k]
+    (x0, y0), (x1, y1) = to_xy(lon, lat), to_xy(other[2], other[1])
+    L = math.hypot(x1 - x0, y1 - y0)
+    if L <= 0.0:
+        d = math.hypot(p[0] - x0, p[1] - y0)
+        return "" if d <= tol_m else f"lies {d:.1f} m from the end (radius {tol_m:g} m)"
+    ux, uy = (x1 - x0) / L, (y1 - y0) / L
+    s = (p[0] - x0) * ux + (p[1] - y0) * uy
+    lat_off = abs((p[0] - x0) * uy - (p[1] - y0) * ux)
+    if lat_off > tol_m:
+        return (f"lies {lat_off:.1f} m off the runway centreline "
+                f"(tolerance {tol_m:g} m)")
+    if not -tol_m <= s <= L / 2.0:
+        return (f"lies {s:.1f} m along a {L:.0f} m runway from the end — "
+                f"outside its own half (from -{tol_m:g} m to {L / 2.0:.0f} m)")
+    return ""
 
 
 def _landing_xy(rw: _t.Any, k: int, to_xy: _t.Callable[[float, float], XY]) -> XY:

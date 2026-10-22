@@ -535,6 +535,8 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                          work_dir=work_dir, engine_version=engine_version,
                          law_digest=law_digest, body_files=written,
                          omit=omit)
+    if getattr(dsf, "plan", None) is not None:
+        plan = dsf.plan          # #1246: a split the DSF refused is undone
     refreshed = None
     if refresh_dump is not None:
         # §3.6: the READ path keys its text dump on the DSF's mtime, which

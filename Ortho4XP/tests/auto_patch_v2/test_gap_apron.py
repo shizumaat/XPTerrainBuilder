@@ -222,16 +222,11 @@ def test_no_road_evidence_is_apron_even_where_section_27_would_not_flip():
 def _unwelded_m2(part, apron, weld_m, keep_out=None):
     """Ground BETWEEN a part and an apron whose rims face each other within
     the weld spacing without coinciding: the bodies of the closing of the
-    two (less both, less ``keep_out``) that reach both rims.  A pocket the
-    APRONS close on their own (two aprons a hair apart) is not between the
-    part and an apron (lane l1246r, #1246: a 0.09 m2 rim fill brought
-    ``gapapron:1`` to the corner of the 1 m pocket between ``pav39`` and
-    ``route11`` at HECA 30.12888, 31.39904, a pocket every arm has)."""
+    two (less both, less ``keep_out``) that reach both rims."""
     def off(g, d):
         return g.buffer(d, join_style="mitre", mitre_limit=2.0)
     both = part.union(apron)
-    gap = off(off(both, weld_m), -weld_m).difference(both).difference(
-        off(off(apron, weld_m), -weld_m))
+    gap = off(off(both, weld_m), -weld_m).difference(both)
     if keep_out is not None:
         gap = gap.difference(keep_out)
     return sum(g.area for g in getattr(gap, "geoms", [gap])
@@ -315,13 +310,7 @@ def test_the_class_table_read_on_a_real_map():
     # RE-RECORDED (lane drape229, owner RULINGS 2026-10-14d (4)): the
     # level plates touching no wall are slabs on the drape side, and the
     # kerb ring `T23/door` comp 9 is not a plate — 10 -> 18
-    # RE-RECORDED (lane l1246r, issue #1246, owner RULINGS 2026-10-22g): every
-    # mapped road inside the aerodrome boundary + 50 m is ribboned (1,399
-    # ribbon faces, 1.21 km2 at this capture), and the ribbons cut the
-    # groundside gap sheet into many more pieces: 42 -> 334, slabs 21 -> 25,
-    # gap-apron parts 13 -> 15; the owner's site at 30.1193169, 31.4085087
-    # stands in gap:47 (a road between it and gap:0's lot)
-    assert n_slab == 25  # #712: the thin paved plates are slabs too (21 before #1246)
+    assert n_slab == 21  # #712: the thin paved plates are slabs too (18 before)
     # RE-RECORDED (lane regL3, RULINGS 2026-10-15l (1), audit row 3): the
     # taxiway strip is measured from the CENTRELINE, so the band envelope a
     # gap piece may not claim (``ribbon_extent``) narrows (code E 19.0 ->
@@ -341,12 +330,12 @@ def test_the_class_table_read_on_a_real_map():
     # sliver they leave beside the apron at 30.1250, 31.4061 (361 m2, a
     # road piece) clears the area floor as gap:36: the pack's pieces go
     # 41 -> 42, every later gap ref moves up by one (slabs 41.. -> 42..)
-    assert len(pieces) + len(aprons) == 334 + n_slab == cl.stats["gap_pieces"]
+    assert len(pieces) + len(aprons) == 42 + n_slab == cl.stats["gap_pieces"]
     assert sorted(int(c.ref.split(":")[1]) for c in pieces
-                  if c.evidence.get("base_slab")) == list(range(334, 334 + n_slab))
+                  if c.evidence.get("base_slab")) == list(range(42, 42 + n_slab))
     road = sorted(int(c.ref.split(":")[1]) for c in pieces
                   if c.evidence.get("touches_apron") == 1.0)
-    assert road == [6, 7, 11, 20, 47, 54, 97, 213, 243, 275, 305, 315]   # (#1246)
+    assert road == [0, 2, 4, 7, 11, 12, 16, 29, 30, 36]      # (#798: + gap:36)
     assert all(c.evidence["road_evidence"] == 1.0 for c in pieces
                if c.evidence.get("touches_apron") == 1.0)
     by = {False: [], True: []}
@@ -356,7 +345,7 @@ def test_the_class_table_read_on_a_real_map():
     # (regL3 round 2: the taxi faces lettered by their pavement width move
     # the road evidence of gap:19 / gap:22 / gap:20 / gap:21 — refs only)
     # (#798: the gap refs after gap:36 move up by one — 38 -> 39, 39 -> 40)
-    assert sorted(by[False]) == [113, 133, 317]                    # no road evidence
+    assert sorted(by[False]) == [17, 21, 39]                       # no road evidence
     # (lane xplat399: the §43 opening read on ``cells.opening_grid_m`` cuts
     # different necks/arms at HECA, so the gap pieces between them move —
     # gap:35 -> gap:34 in the share, gap:33 grows; refs only here)
@@ -364,14 +353,13 @@ def test_the_class_table_read_on_a_real_map():
     # gap piece at -2751, -156 — that piece and gapapron:7's gap:24 swap
     # numbers, 24 -> 23; refs only)
     # (#808: gap:19 is gone; the refs after it move down by one)
-    assert sorted(by[True]) == [3, 13, 26, 37, 116, 126, 155, 250, 253, 257, 260,
-                                319]                               # §37 (2)'s share
-    assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(15)]
-    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (15, 12)
+    assert sorted(by[True]) == [13, 15, 18, 20, 22, 31, 32, 33, 35, 40]  # §37 (2)'s share
+    assert [c.ref for c in aprons] == [f"gapapron:{j}" for j in range(13)]
+    assert (cl.stats["gap_pieces_apron"], cl.stats["gap_pieces_road"]) == (13, 10)
     # the owner's sites stand in ROAD pieces (#430 / #292: gap:7; #358: gap:0)
     to_xy = airport.frame.transformers()[0]
     for (lat, lon), ref in {(30.1154841, 31.4105884): "gap:7", (30.1159784, 31.4106264): "gap:7",
-                            (30.1193169, 31.4085087): "gap:47"}.items():
+                            (30.1193169, 31.4085087): "gap:0"}.items():
         pt = Point(*to_xy(lon, lat))
         assert [c.ref for c in pieces if Polygon(c.ring, c.holes).contains(pt)] == [ref]
     # THE RIM CLOSURE (§59 (2) 4): no apron|apron rim pair of a gap-apron face
@@ -406,11 +394,11 @@ def test_the_class_table_read_on_a_real_map():
                            + [flush[int(j)] for j in ftree.query(reach, predicate="intersects")])
         assert _unwelded_m2(part, near, weld, keep) < 1.0, c.ref
         grew += part.area > c.evidence["area_m2"] - 1e-6 and part.is_valid
-    assert grew == 15                                              # (#1246: 13 -> 15)
+    assert grew == 13
     # the spec's sliver site (the census's apron|apron step, gap:30 | pav39
     # when recorded; gap:32 since the regL3 re-record) is inside the part now
     site = Point(*to_xy(31.4046286, 30.1278259))
-    assert Polygon(aprons[9].ring, aprons[9].holes).contains(site)     # (#808: 8 -> 7; #1246: 9)
+    assert Polygon(aprons[7].ring, aprons[7].holes).contains(site)     # (#808: 8 -> 7)
 
 
 # ── S5: the sidecar's ``gap_pieces`` carries both kinds (§59 (4) row 17) ──

@@ -260,7 +260,7 @@ def _reach_read(airport, reach_m: float, step: float, zon, Ti) -> None:
             if inside:
                 total += step
                 on += step if src != "dem" else 0.0
-        for (p0, z0, s0), (p1, z1, s1) in zip(prof, prof[1:]):
+        for (p0, z0, s0), (p1, z1, s1) in zip(prof, prof[1:], strict=False):
             if (s0 == "dem") != (s1 == "dem"):
                 q, d = (p1, p0) if s0 == "dem" else (p0, p1)
                 at_struct = struct is not None and struct.covers(q)

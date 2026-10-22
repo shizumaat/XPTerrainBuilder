@@ -18,6 +18,7 @@ import O4_Held_File as HELD
 import O4_Tile_Failures as FAILURES
 import O4_Tile_Staging as STAGING
 import O4_Imagery_Progress as IMGPROGRESS
+import O4_Machine_Slots as MACHINE_SLOTS
 # Unused since #838 (records commit per step); kept: O4_Step_Code keys on it.
 import O4_Step_Reuse as REUSE  # noqa: F401
 import O4_Stopped_Build as STOPPED
@@ -499,8 +500,15 @@ def build_tile(tile):
 
     convert_workers = []
 
+    convert_slots = []
+
     def _launch_convert_workers():
-        worker_count = effective_convert_slots(max_convert_slots)
+        # The step's own slot covers one converter; every extra one is a
+        # machine slot of its own, given back after the join (#1225).
+        extra = MACHINE_SLOTS.try_take(
+            effective_convert_slots(max_convert_slots) - 1)
+        convert_slots.append(extra)
+        worker_count = 1 + extra.count
         UI.vprint(
             1,
             "-> Opening convert queue and",
@@ -546,6 +554,8 @@ def build_tile(tile):
             for _ in range(len(convert_workers)):
                 convert_queue.put("quit")
             parallel_join(convert_workers)
+            for held in convert_slots:
+                held.release()
             if UI.red_flag:
                 UI.vprint(1, "DDS conversion process interrupted.")
             elif dico_conv_progress["done"] >= 1:

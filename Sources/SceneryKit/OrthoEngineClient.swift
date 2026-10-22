@@ -627,6 +627,10 @@ public final class OrthoEngineClient: @unchecked Sendable {
             for waiter in eventWaiters { waiter(nil) }
             self.onExit(proc.terminationStatus)
         }
+        // Utility QoS (#1225): the engine and every build process it starts
+        // run below the user's apps, so the window server and input stay
+        // responsive however busy a build is.
+        process.qualityOfService = .utility
         try process.run()
     }
 

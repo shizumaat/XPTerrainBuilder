@@ -26,6 +26,7 @@ from collections import deque
 from typing import Callable, Optional
 
 import O4_File_Names as FNAMES
+import O4_Machine_Slots as SLOTS
 import O4_Step_Reuse as REUSE
 import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
@@ -960,7 +961,11 @@ class EngineSession:
         runs one step at a time, so when this returns no step is
         working."""
         try:
-            return self._run_step_body(function, key, tile, plan)
+            # ONE machine slot for this process's step (#1225): a tile
+            # waits here, light, while the session's budget is in use;
+            # the vector step lends it back while its airports build.
+            with SLOTS.step(give_up=lambda: UI.red_flag):
+                return self._run_step_body(function, key, tile, plan)
         finally:
             UI.is_working = False
 

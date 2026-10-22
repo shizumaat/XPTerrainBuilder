@@ -17,15 +17,30 @@ the holder exits, however it exits, so a killed build never leaks a slot.
   waits for a free one: an airport beyond the budget queues);
 * a work pool takes a slot per worker it starts (:func:`try_take`, which
   never waits: a pool gets what is free, and with fewer than two runs its
-  stage serially in the process that already holds a slot).
+  stage serially in the process that already holds a slot);
+* a tile's heavy step (vector, mesh/Triangle4XP, masks, DSF + imagery,
+  overlays) holds ONE slot for its own process (:func:`step`), lent back
+  while the process only waits on airport workers it starts
+  (:func:`lend`); a DDS conversion pool takes a slot per extra worker.
 
-``capacity`` (:func:`capacity`) is ``min(cores, memory slots)``: the memory
-the machine could hand out when the session started, less the OS headroom
-of :data:`BUDGET`, at :data:`BUDGET`'s per-worker estimate.  Sampled ONCE
-per session (re-sampling it while the session's own workers run would let
-the run's consumption shrink its own budget).  A process that finds no
-session (a command-line tile, the harness) opens its own with the same
-rule, so a lone tile on a big machine runs as wide as before.
+A worker PROCESS is started only after its slot is granted: nothing waits
+resident for a slot (#1225, second report: every airport of a tile was
+spawned up front and queued for a slot at ~2 GB each).
+
+``capacity`` (:func:`capacity`) is ``min(cores - reserved, memory slots)``:
+the memory the machine could hand out when the session started, less the
+headroom of :data:`BUDGET`, at :data:`BUDGET`'s per-worker estimate,
+sampled ONCE per session.  What is LIVE is the memory-pressure gate
+(:func:`memory_admits`): before a new slot is granted free memory is read
+again, and below the headroom nothing new starts until it recovers —
+unless the session holds no slot at all (one process always runs).  A
+process that finds no session (a command-line tile, the harness) opens its
+own with the same rule.
+
+:func:`lower_priority` runs the engine below the user's applications (nice
+10 / Windows below-normal, inherited by every child) and :func:`qos_command`
+starts a worker under the macOS utility QoS clamp, so the window server and
+input stay responsive however busy the build is.
 
 Standard library only (with :mod:`O4_Parallel_Utils`' memory probes): the
 airport pool, the tile driver and the orchestrator all import it.
@@ -33,6 +48,7 @@ airport pool, the tile driver and the orchestrator all import it.
 from __future__ import annotations
 
 import atexit
+import contextlib
 import os
 import shutil
 import sys
@@ -47,7 +63,8 @@ else:
     import fcntl as _oslock
 
 __all__ = ["BUDGET", "ENV_DIR", "ENV_CAPACITY", "Held", "capacity",
-           "ensure_session", "session_capacity", "try_take", "take"]
+           "ensure_session", "lend", "lower_priority", "memory_admits",
+           "qos_command", "session_capacity", "step", "try_take", "take"]
 
 #: the session's slot directory and its capacity, inherited by every child
 ENV_DIR = "O4_MACHINE_SLOTS_DIR"
@@ -65,13 +82,21 @@ ENV_CAPACITY = "O4_MACHINE_SLOTS"
 #: Rounded UP to 3.0.  No per-airport peak is recorded anywhere yet; refine
 #: this when one is.
 #: ``headroom_fraction`` / ``headroom_min_gb`` — what is kept free for the
-#: operating system, the app and the tile steps outside the slots: the
-#: larger of 15 % of physical memory and 4 GB.
+#: operating system, the app and the user's other work: the larger of
+#: 15 % of physical memory and 8 GB (owner, #1225).
+#: ``reserved_cores`` — cores never given to the build (owner, #1225:
+#: "cores - 2"), so the window server and input always have one.
 BUDGET = {
     "worker_gb": 3.0,
     "headroom_fraction": 0.15,
-    "headroom_min_gb": 4.0,
+    "headroom_min_gb": 8.0,
+    "reserved_cores": 2,
 }
+
+#: the nice value :func:`lower_priority` sets (POSIX), and the variable
+#: that marks a process tree already lowered
+NICE = 10
+ENV_PRIORITY = "O4_ENGINE_PRIORITY_LOWERED"
 
 #: seconds between attempts of a :func:`take` that is waiting
 POLL_S = 0.5
@@ -82,9 +107,23 @@ def capacity(cores: int, total_gb: float, available_gb: float,
     """Slots a machine of ``cores`` logical cores, ``total_gb`` physical and
     ``available_gb`` free-or-reclaimable memory affords — never below 1
     (a machine without the room still builds, one process at a time)."""
-    headroom = max(budget["headroom_fraction"] * total_gb, budget["headroom_min_gb"])
-    by_memory = int((available_gb - headroom) // budget["worker_gb"])
-    return max(1, min(int(cores), by_memory))
+    by_memory = int((available_gb - _headroom(total_gb, budget))
+                    // budget["worker_gb"])
+    by_cores = int(cores) - int(budget.get("reserved_cores", 0))
+    return max(1, min(by_cores, by_memory))
+
+
+def _headroom(total_gb: float, budget: dict = BUDGET) -> float:
+    return max(budget["headroom_fraction"] * total_gb, budget["headroom_min_gb"])
+
+
+def memory_admits(budget: dict = BUDGET) -> bool:
+    """THE LIVE GATE: may one more heavy process start now?  Free memory
+    is read afresh (``O4_Parallel_Utils`` caches it two seconds) and must
+    keep the headroom after one more worker's estimate."""
+    total = _PU.machine_memory_gigabytes()
+    return (_PU.machine_available_memory_gigabytes() - budget["worker_gb"]
+            >= _headroom(total, budget))
 
 
 def _measured_capacity() -> int:
@@ -184,24 +223,39 @@ def _unlock(fd) -> None:
 
 
 def try_take(n: int) -> Held:
-    """Up to ``n`` free slots, at once and never waiting (possibly none)."""
+    """Up to ``n`` free slots, at once and never waiting (possibly none).
+
+    Under memory pressure (:func:`memory_admits` false) nothing is granted
+    — except one slot when the whole session holds none, so the build
+    always progresses."""
     path, cap = ensure_session()
+    if n <= 0:
+        return Held([])
+    pressed = not memory_admits()
+    want = cap if pressed else n           # pressed: count the free ones
     fds: list = []
     start = os.getpid() % cap              # spread the scans
     for k in range(cap):
-        if len(fds) >= n:
+        if len(fds) >= want:
             break
         fd = _lock(os.path.join(path, "slot-%d" % ((start + k) % cap)))
         if fd is not None:
             fds.append(fd)
+    if pressed:
+        keep = 1 if len(fds) == cap else 0  # the session is idle: one runs
+        for fd in fds[keep:]:
+            _unlock(fd)
+        fds = fds[:keep]
     return Held(fds)
 
 
-def take(n: int = 1, *, poll_s: float = POLL_S, on_wait=None) -> Held:
+def take(n: int = 1, *, poll_s: float = POLL_S, on_wait=None,
+         give_up=None) -> Held:
     """``min(n, capacity)`` slots, waiting until they are free — the queue
     of every heavy process beyond the budget.  A partial take is given back
     before the next attempt (two waiters never hold half each).
-    ``on_wait()`` is called once, when the first attempt finds no room."""
+    ``on_wait()`` is called once, when the first attempt finds no room;
+    ``give_up()`` true (a cancel) ends the wait with nothing held."""
     want = max(1, min(int(n), session_capacity()))
     said = False
     while True:
@@ -209,7 +263,77 @@ def take(n: int = 1, *, poll_s: float = POLL_S, on_wait=None) -> Held:
         if held.count >= want:
             return held
         held.release()
+        if give_up is not None and give_up():
+            return Held([])
         if not said and on_wait is not None:
             said = True
             on_wait()
         time.sleep(poll_s)
+
+
+#: the slot this process's current heavy step holds (:func:`step`)
+_STEP: list = []
+
+
+@contextlib.contextmanager
+def step(*, on_wait=None, give_up=None):
+    """Hold ONE slot for this process's heavy step (nested: the outer one
+    covers it).  The process waits here, light, until the slot is free."""
+    if _STEP:
+        yield _STEP[0]
+        return
+    held = take(1, on_wait=on_wait, give_up=give_up)
+    _STEP.append(held)
+    try:
+        yield held
+    finally:
+        _STEP.clear()
+        held.release()
+
+
+@contextlib.contextmanager
+def lend():
+    """Give this process's step slot back while it only WAITS on worker
+    processes it starts (each takes its own), and take it again after —
+    a tile holding its slot while its airports queue for one would
+    deadlock a full session."""
+    held = _STEP[0] if _STEP else None
+    if held is None or not held.count:
+        yield
+        return
+    held.release()
+    try:
+        yield
+    finally:
+        again = take(1)
+        held._fds, again._fds = again._fds, []     # the step owns it again
+
+
+def lower_priority() -> None:
+    """Run this process — and every child it starts afterwards, which
+    inherits it — below the user's applications: nice :data:`NICE` on
+    POSIX, ``BELOW_NORMAL_PRIORITY_CLASS`` on Windows.  Once per process
+    tree; never raises."""
+    if os.environ.get(ENV_PRIORITY):
+        return
+    os.environ[ENV_PRIORITY] = "1"
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x4000)
+        elif os.getpriority(os.PRIO_PROCESS, 0) < NICE:
+            os.setpriority(os.PRIO_PROCESS, 0, NICE)
+    except Exception:
+        pass
+
+
+_TASKPOLICY = "/usr/sbin/taskpolicy"
+
+
+def qos_command(command: list) -> list:
+    """``command`` started under the macOS utility QoS clamp (inherited by
+    its children) when ``taskpolicy`` exists; unchanged elsewhere."""
+    if sys.platform == "darwin" and os.path.exists(_TASKPOLICY):
+        return [_TASKPOLICY, "-c", "utility"] + list(command)
+    return list(command)

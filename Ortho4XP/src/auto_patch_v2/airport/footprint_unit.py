@@ -846,6 +846,8 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
     parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
     #: 19u: unit id -> (highest pavement its pieces imply, its walled files)
     pav: dict[str, tuple[float, frozenset]] = {}
+    #: 22b: unit root id -> its walls' median authored base, read once
+    frame_base: dict[str, float] = {}
     for un in units:
         zero: float | None = None
         where = src = ""
@@ -862,6 +864,10 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
             if not cc:
                 continue
             p = pad_plurality(cc, pads)
+            # owner RULINGS 2026-10-22b (#1214): the WALLS seat the unit —
+            # its zero stands where its perimeter walls' feet meet the pad
+            # (or the ground), not where its authored y = 0 would
+            base = _wall_base(un, units, parts, wall_min_m, frame_base)
             if p is not None and p.z:
                 # §16g (10) (9) (2) AMENDED — ONE PAD DATUM RULE, THE
                 # MEDIAN (owner RULINGS 2026-09-17t: "Pad datum: median,
@@ -878,11 +884,11 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
                 # datum below never took the low side (17s).  The MEDIAN,
                 # over EVERY face of the ref (fix C, :func:`pad_plurality`
                 # folds them), is now the one rule both seats take.
-                zero, where, src = _median(list(p.z)), p.ref, "pad"
+                zero, where, src = _median(list(p.z)) - base, p.ref, "pad"
                 if cluster_min_m2 > 0.0 and un.area_m2 >= cluster_min_m2:
                     src = "cluster_pad"
             else:
-                zero, where, src = _median([q[3] for q in cc]), "", "ground"
+                zero, where, src = _median([q[3] for q in cc]) - base, "", "ground"
             # owner RULINGS 2026-10-19u (#798 (a)): a unit standing on
             # rolled-on pavement is read for ``one_building``, here in the
             # plan, so the unit-carried pieces and the bind read one zero
@@ -894,6 +900,47 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
         out[un.id] = (zero, where, src)
     from .one_building import one_building_groups
     return one_building_groups(units, out, pav, piece_reach_m, span_max_m)
+
+
+def _unit_root(uid: str) -> str:
+    """The id of the unit a pad-level or block piece was cut from
+    (``fu:16:6938/p2/b1`` -> ``fu:16:6938``)."""
+    return str(uid).split("/", 1)[0]
+
+
+def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
+               parts: _t.Mapping[int, _t.Any], wall_min_m: float,
+               memo: dict) -> float:
+    """Owner RULINGS 2026-10-22b (#1214): "for any closed object group,
+    like a building with solid walls, we only need to check the
+    perimeter/wall objects to determine the seat".  The authored ``y`` the
+    unit's WALLS stand on — the median authored ``y`` of the ground-contact
+    FEET of its walled parts (solid height >= ``wall_min_m``) — which the
+    datum subtracts so the
+    walls' feet meet the pad or the ground.  Read over every piece of the
+    UNIT the pad-level and block passes cut (one root id), so the pieces
+    of one building still take one zero.
+
+    0.0 (the pre-22b reading: the zero on the pad) where the unit names no
+    walled part, or ``wall_min_m`` is 0.  KMCI: the terminal's walls stand
+    at y -1.1 on the apron pad, and the zero ON the pad put the shell
+    1.1 m under it, the carpet under the apron."""
+    if wall_min_m <= 0.0 or not getattr(un, "pids", None):
+        return 0.0
+    root = _unit_root(un.id)
+    if root not in memo:
+        pids = set()
+        for v in units:
+            if _unit_root(v.id) == root:
+                pids |= set(v.pids)
+        # the walls' FEET — the ground contacts of the walled parts, never a
+        # part's base (a tower's cab is walled too, 70 m up)
+        ys = sorted(float(f[2]) for q in pids
+                    if q in parts and not getattr(parts[q], "line", False)
+                    and float(getattr(parts[q], "height_m", 0.0) or 0.0) >= wall_min_m
+                    for f in (getattr(parts[q], "feet", ()) or ()))
+        memo[root] = ys[len(ys) // 2] if ys else 0.0
+    return memo[root]
 
 
 def _airside_floor(cc: _t.Sequence[tuple[float, float, float, float]],

@@ -169,3 +169,161 @@ def test_a_deck_is_never_the_contents_of_a_below_grade_singleton():
     out, _s = C.attach_contents(shims, [], [0], [1], 0.5, 0.5, {},
                                 deck_verdict=lambda i: i == 1, **kw)
     assert out == {1: -1}
+
+
+# ── round 2 (owner KMCI 1.0.415 read, 2026-10-22T22:22Z) ─────────────────
+
+def _model_split(index, zero, lift, box, row_g=100.0):
+    b = types.SimpleNamespace(surface_z=row_g, y_zero=row_g - zero, lift_m=lift,
+                              plan_box=box)
+    return types.SimpleNamespace(placement=types.SimpleNamespace(index=index),
+                                 bodies=(b,))
+
+
+def _dump(*rows):
+    return types.SimpleNamespace(placements=list(rows))
+
+
+def test_a_lifted_row_inside_a_re_seated_frame_moves_with_it():
+    """KMCI's 614 seats (+4.7 AGL) stood on the concourse roof once the
+    terminal (+8.5 AGL) dropped its lift: a lifted row in the frame's
+    plan box moves by the frame's displacement, never under the ground."""
+    from auto_patch_v2.airport import frame_riders as FR
+    shell = _row(elevation=8.5)
+    chair = types.SimpleNamespace(def_path="objects/seat.obj", lat=40.0001,
+                                  lon=-3.0001, heading_deg=0.0,
+                                  kind="OBJECT_AGL", elevation=4.7)
+    plain = types.SimpleNamespace(def_path="objects/kiosk.obj", lat=40.0001,
+                                  lon=-3.0001, heading_deg=0.0, kind="OBJECT",
+                                  elevation=None)
+    box = (39.9999, -3.0003, 40.0003, -2.9999)
+    # the shell re-seated at 101.0: 7.5 m under its authored 100 + 8.5
+    seats = FR.frame_rider_seats(_dump(shell, chair, plain),
+                                 [_model_split(0, 101.0, 0.0, box)], _flat,
+                                 frozenset({0}))
+    assert [(m.index, round(m.elevation, 3)) for m in seats] == [(1, 100.0)]
+    assert seats[0].why == FR.FRAME_RIDER
+    # a frame that kept its lift moves nothing
+    assert FR.frame_rider_seats(_dump(shell, chair),
+                                [_model_split(0, 108.5, 8.5, box)], _flat,
+                                frozenset({0})) == ()
+    # ...and the census reads the same relation
+    from auto_patch_v2.airport import placement_coherence as PCo
+    sp = [{"placement": {"index": 0}, "bodies": [
+        {"surface_z": 100.0, "y_zero": -1.0, "lift_m": 0.0, "plan_box": list(box)}]}]
+    bad = PCo.census_frame_riders(_dump(shell, chair), sp, [], _flat)
+    assert bad["riders"] == 1 and bad["off_frame"] == 1
+    ok = PCo.census_frame_riders(_dump(shell, chair), sp,
+                                 [{"index": 1, "elevation": 100.0}], _flat)
+    assert ok["off_frame"] == 0
+
+
+def test_the_unit_datum_puts_the_walls_feet_on_the_pad():
+    """10-22b: the walls seat the unit — a terminal whose walls stand at
+    y -1.1 takes its zero 1.1 m over the pad, not on it; a tower's cab
+    (walled, 70 m up, no feet) does not count."""
+    from auto_patch_v2.airport import footprint_unit as FU
+    wall = types.SimpleNamespace(base_y=-1.1, height_m=6.0, line=False,
+                                 feet=((40.0, -3.0, -1.1), (40.0, -3.0, -1.1)))
+    cab = types.SimpleNamespace(base_y=70.0, height_m=5.0, line=False, feet=())
+    un = types.SimpleNamespace(id="fu:1:2/p1", pids=frozenset({1, 2}))
+    other = types.SimpleNamespace(id="fu:1:2/p2", pids=frozenset({3}))
+    parts = {1: wall, 2: cab, 3: wall}
+    assert FU._wall_base(un, [un, other], parts, 2.5, {}) == -1.1
+    assert FU._wall_base(un, [un], parts, 0.0, {}) == 0.0
+    assert FU._wall_base(types.SimpleNamespace(id="j", pids=frozenset()), [],
+                         parts, 2.5, {}) == 0.0
+
+
+def test_a_bridge_deck_meets_both_approaches():
+    """10-22f: an end line on the embankment slope (289.9) is not the road
+    onto the bridge (294-296 further on): each end reads its approach and
+    the rigid deck splits what it cannot meet at both."""
+    M = 111_132.954
+    ends = (((0.0, 0.0), (0.0, 2e-5)), ((-5e-4, 0.0), (-5e-4, 2e-5)))
+
+    def surface(la, lo):
+        # the dip under the span, the embankments rising away from it
+        if la > 0.0:
+            return min(296.0, 289.9 + la * M * 0.4)
+        if la < -5e-4:
+            return min(294.0, 289.9 + (-5e-4 - la) * M * 0.4)
+        return 288.5
+    d = AR.Datum(12.2, tuple(p for e in ends for p in e), "deck top",
+                 ends=ends, step_m=5.0, walk_max_m=60.0, level_tol_m=0.3)
+    a = AR.anchor_for(AR.DECK, _geom_at_(-2.5e-4, 1e-5, -6.0), surface,
+                      tol_m=0.3, datum=d)
+    deck = a.surface_z - a.y_zero + 12.2
+    # 10-22m: flush with the HIGHER approach (296.0); the 2 m over the
+    # other one is the terrain's to grade (#1138)
+    assert abs(deck - 296.0) < 1e-6
+    assert "approach ground 296.00 / 294.00" in a.reason
+
+
+def _geom_at_(lat, lon, y=0.0):
+    return AR.BodyGeometry(((lat, lon, y, ((lat, lon, y),)),), lat, lon)
+
+
+def test_an_open_structures_bodies_take_one_zero():
+    """10-22c/f: KMCI road-bridge-7 was six bodies 22.6 m apart.  The
+    bodies of an OPEN frame take one zero: the deck datum's, else the
+    lowest (no support floats)."""
+    def body(i, zero, datum=False):
+        a = AR.Anchor(AR.OTHER, 40.0, -3.0, 100.0 - zero, "own", 100.0,
+                      offset=(1.0, 100.0 - zero, 2.0), datum=datum)
+        return Body(i, AR.OTHER, (i,), a, f"objects/b__b{i}.obj")
+    rec = _split(body(0, 300.97), body(1, 317.06), body(2, 323.57))
+    out = PP._rigid_open(rec, True)
+    zs = {round(b.anchor.surface_z - b.anchor.y_zero, 2) for b in out.bodies}
+    assert zs == {300.97}
+    assert all(b.anchor.offset[1] == b.anchor.y_zero for b in out.bodies)
+    assert all(o.anchor.offset[0] == 1.0 for o in out.bodies)
+    dat = PP._rigid_open(_split(body(0, 300.0), body(1, 305.0, datum=True)), True)
+    assert {round(b.anchor.surface_z - b.anchor.y_zero, 2) for b in dat.bodies} == {305.0}
+    assert PP._rigid_open(rec, False) is rec      # a building's frame: as before
+
+
+def test_the_group_offset_census_catches_a_bridge_apart():
+    from auto_patch_v2.airport import placement_coherence as PCo
+    sp = [{"placement": {"index": 8, "resource": "objects/bridge.obj"}, "bodies": [
+        {"surface_z": 100.0, "y_zero": 0.0}, {"surface_z": 100.0, "y_zero": -22.6}]}]
+    c = PCo.census_group_offsets(sp, {"objects/bridge.obj"})
+    assert c["apart"] == 1 and abs(c["worst"][0][0] - 22.6) < 1e-9
+    assert PCo.census_group_offsets(sp, set())["apart"] == 0
+    assert "VIOLATED" in "\n".join(PCo.coherence_lines(c, None, None))
+
+
+def test_an_airside_hard_deck_sits_flush_with_the_solved_airside():
+    """10-22n: a taxiway or runway carried over a road on a pack hard deck
+    (LFPG's ``Hard_deck`` objects): its top meets the SOLVED airside
+    surface (the plan's ``deck_datum_z``) where the design surface under
+    its ring is airside, and the whole frame moves with it when every
+    other member stands on the deck; over groundside it is class B."""
+    ring = ((40.0, -3.0), (40.0, -2.9998), (40.0002, -2.9998), (40.0002, -3.0))
+    m = types.SimpleNamespace(deck_kind="flag", deck_top_y=6.96,
+                              deck_datum_z=100.92, deck_ring=ring,
+                              resource="objects/deck.obj")
+    rail = types.SimpleNamespace(deck_kind="", resource="objects/rail.obj")
+
+    class Roles:
+        def __init__(self, role):
+            self.role = role
+
+        def roles_many(self, la, lo):
+            return [self.role] * len(la)
+
+    def surface(la, lo):
+        return 96.2                                # the road under the deck
+    surface.roles = Roles("primary_parallel")
+    st_deck = types.SimpleNamespace(m=m, bridge=["objects/deck.obj"])
+    st_rail = types.SimpleNamespace(m=rail, bridge=["objects/deck.obj#0"])
+    got = PP._airside_frame([st_deck, st_rail], (), surface, {})
+    assert got is not None and abs(got[0] - (100.92 - 6.96)) < 1e-9
+    rec = PP._airside_deck(_split(_body(0, 0.0)), got, {})
+    a = rec.bodies[0].anchor
+    assert a.datum and abs((a.surface_z - a.y_zero) + 6.96 - 100.92) < 1e-9
+    # a building beside the deck in its frame: not a bridge, nothing moves
+    st_hall = types.SimpleNamespace(m=rail, bridge=[""])
+    assert PP._airside_frame([st_deck, st_hall], (), surface, {}) is None
+    surface.roles = Roles("service_road")
+    assert PP._airside_frame([st_deck, st_rail], (), surface, {}) is None

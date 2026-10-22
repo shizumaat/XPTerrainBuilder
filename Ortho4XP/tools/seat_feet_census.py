@@ -458,7 +458,48 @@ def _census_placement_plan(ap, args) -> int:
         big = [r for r in meas if abs(r["dmax"]) > 3.0]
         print(f"   rows with a foot > 0.3 m: {len(over)}; > 3 m: {len(big)}")
     _print_elevated(plan, sampler)
+    if args.rebake_plan:
+        bad = _print_coherence(plan, args.rebake_plan, args.rows_dump, sampler)
+        return 1 if bad else 0
     return 0
+
+
+def _print_coherence(plan: dict, rebake_path: str, rows_dump: str,
+                     sampler) -> int:
+    """owner RULINGS 2026-10-22b..f (#1214): the three COHERENCE bars
+    (``placement_coherence``), printed after every other block; returns
+    how many bars are violated (the exit code is 1 then)."""
+    from auto_patch_v2.airport import placement_coherence as PCo
+    from auto_patch_v2.airport.placement_family import frame_is_bridge
+    from auto_patch_v2.airport.placement_plan import _OPEN_KINDS
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.rebake import RebakePlan
+    with open(rebake_path) as fh:
+        reb = RebakePlan.from_json(fh.read())
+    def surface(la, lo):
+        return sampler.elevation_at_or_none(la, lo)
+    if getattr(sampler, "water", None) is not None:
+        surface.water = sampler.water
+    open_res = {m.resource for u in reb.units
+                if u.members and all((m.deck_kind or "") in _OPEN_KINDS
+                                     for m in u.members)
+                for m in u.members}
+    decks = [m for u in reb.units if frame_is_bridge(u) for m in u.members]
+    br = Law.load().tables.structures.bridge
+    g = PCo.census_group_offsets(plan.get("splits", ()), open_res)
+    b = PCo.census_bridge_ends(plan.get("splits", ()), decks, surface,
+                               step_m=br.abutment_sample_step_m,
+                               walk_max_m=br.abutment_walk_max_m)
+    r = None
+    if rows_dump:
+        from auto_patch_v2.airport.dsf import read_dump
+        dump = read_dump(rows_dump, accept_polygon=lambda _p: False)
+        r = PCo.census_frame_riders(dump, plan.get("splits", ()),
+                                    plan.get("msl_seats", ()), surface)
+    for line in PCo.coherence_lines(g, b, r):
+        print(line)
+    return (int(bool(g["apart"])) + int(bool(b["ends_off"] or b["spans_under"]))
+            + int(bool(r and (r["off_frame"] or r["under_floor"]))))
 
 
 #: §13's threshold when the plan carries no law digest of its own: the
@@ -615,6 +656,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--thickness", type=float, default=0.5,
                     help="a ground component's minimum y-extent in metres")
     ap.add_argument("--json", default="", help="write the per-placement rows here")
+    ap.add_argument("--rebake-plan", default="",
+                    help="--placement-plan: the build's o4_v2_rebake_<ICAO>.json — "
+                         "arms the COHERENCE bars (group offsets, bridge ends and "
+                         "spans; #1214)")
+    ap.add_argument("--rows-dump", default="",
+                    help="--placement-plan with --rebake-plan: the PRISTINE DSF "
+                         "text dump, for the frame-rider bar")
     args = ap.parse_args(argv)
 
     if not args.mesh and not args.graded:

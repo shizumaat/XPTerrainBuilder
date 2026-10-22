@@ -877,7 +877,12 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
             uc = (_fu.unit_carry(_pids, _bx, _pw, _unit_ix(),
                                  frontage_m=touch_m,
                                  span_max_m=connector_span_m, counts=counts)
-                  if st.footless and _pw and not (_pids & _cut29q) else None)
+                  if st.footless and _pw and not (_pids & _cut29q)
+                  # 10-22b (#1214): a pack hard deck, or a deck over an
+                  # emitted deck face, keeps its own datum (§16e / §49) —
+                  # never a unit's (LFPG's taxiway bridge H1 rode the T2
+                  # road unit 11-18 m over its taxiway)
+                  and not _deck_owns_its_datum(st.m) else None)
             # issue #10: an ELEVATED piece of a footed member that no
             # carrier takes still rides its own unit when its parts are
             # that unit's (the part-id join only — the box join stays the
@@ -904,6 +909,13 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # owner RULINGS 2026-10-22b (#1214): a frame the law seats on our
         # ground by its FEET moves as one and keeps no authored lift
         footed_frame = any(not st.footless for st in staged)
+        # owner RULINGS 2026-10-22c/f (#1214): an OPEN STRUCTURE's frame
+        # (every member a deck or a deck candidate: a bridge, a canopy)
+        # moves as ONE rigid group
+        airside = _airside_frame(staged, decks, surface, counts)
+        open_frame = bool(u.members) and all(
+            str(getattr(x, "deck_kind", "") or "") in _OPEN_KINDS
+            for x in u.members)
         written_of: dict[int, bool] = {}
         # 14at: the FILE a carrier group was actually written as.  A
         # candidate's own ``resource`` is a body SLOT's id — it is
@@ -952,6 +964,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                m.authored_path, u.anchor[0], u.anchor[1],
                                m.heading_deg, (body,))
                 before = len(splits)
+                record = _airside_deck(record, airside, counts)
+                record = _rigid_open(record, open_frame)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
@@ -1038,6 +1052,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 if not all(b.merged_into_written for b in bodies):
                     counts["footless_carrier_kept_whole"] = \
                         counts.get("footless_carrier_kept_whole", 0) + 1
+                record = _airside_deck(record, airside, counts)
+                record = _rigid_open(record, open_frame)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
@@ -1068,6 +1084,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     off_row = True
                     counts["one_body_carrier_written"] = \
                         counts.get("one_body_carrier_written", 0) + 1
+                record = _airside_deck(record, airside, counts)
+                record = _rigid_open(record, open_frame)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
@@ -1099,6 +1117,163 @@ def _row_of(record: Split, rows: "_t.Sequence | None") -> _t.Any:
     if getattr(row, "def_path", record.resource) != record.resource:
         return None
     return row
+
+
+def _deck_owns_its_datum(m: _t.Any) -> bool:
+    """A FLAG deck (``ATTR_hard_deck``) or one over an emitted deck face
+    (``deck_datum_z``): its seat is §16e's / §49's, never a unit's."""
+    return (str(getattr(m, "deck_kind", "") or "") == "flag"
+            or getattr(m, "deck_datum_z", None) is not None)
+
+
+def _airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface
+                  ) -> "tuple[float, str] | None":
+    """``(zero, where)`` of an AIRSIDE hard-deck member, or ``None``.
+
+    THE WITNESS IS THE SOLVE, never a name: the deck's ring stands on an
+    emitted ``bridge_deck`` face (``planar/structure_deck``; its height
+    there, ``deck_z_at``), or the design surface under the ring is
+    AIRSIDE (``surface.roles``, ``law.tables.role_side``) and the plan
+    carries the solved value at the deck (``Member.deck_datum_z``,
+    ``emit/rebake.deck_datum_from_surface``, standing cells only)."""
+    top = getattr(m, "deck_top_y", None)
+    ring = tuple(getattr(m, "deck_ring", None) or ())
+    if (top is None or len(ring) < 3
+            or str(getattr(m, "deck_kind", "") or "") not in ("flag", "signature")):
+        return None
+    la = sum(float(q[0]) for q in ring) / len(ring)
+    lo = sum(float(q[1]) for q in ring) / len(ring)
+    face = _ar.deck_of(decks, la, lo) if decks else None
+    z = None if face is None else _ar.deck_z_at(face, la, lo)
+    if z is not None:
+        return float(z) - float(top), face.ref
+    dz = getattr(m, "deck_datum_z", None)
+    roles = getattr(surface, "roles", None)
+    if dz is None or roles is None:
+        return None
+    got = roles.roles_many([float(q[0]) for q in ring], [float(q[1]) for q in ring])
+    if not any(_airside_role(r) for r in got if r):
+        return None
+    return float(dz) - float(top), "the solved airside surface"
+
+
+def _airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
+                   surface: _ar.Surface, counts: dict) -> "tuple[float, str] | None":
+    """Owner RULINGS 2026-10-22n (#1214): CLASS A — this frame is an
+    AIRSIDE hard-deck BRIDGE (a taxiway or runway carried over a road):
+    ``(zero, where)`` for every body of it, or ``None``.
+
+    Its deck member reads :func:`_airside_zero`, and every other member's
+    every body stands inside that deck's model footprint (§16e (3)'s
+    ``Staged.bridge``: the rails, the piers, the abutments) — the frame IS
+    the bridge, and it moves as one (10-22c).  A frame holding a deck and
+    a building beside it (KBNA's terminal satellite floor plate) is not a
+    bridge: nothing moves, and the census names it."""
+    deck = None
+    for st in staged:
+        a = _airside_zero(st.m, decks, surface)
+        if a is not None:
+            deck = (st, a)
+            break
+    if deck is None:
+        return None
+    res = str(deck[0].m.resource)
+    for st in staged:
+        if st is deck[0]:
+            continue
+        keys = list(getattr(st, "bridge", ()) or ())
+        if not keys or not all(str(k).split("#", 1)[0] == res for k in keys):
+            counts["airside_deck_in_a_building_frame"] = \
+                counts.get("airside_deck_in_a_building_frame", 0) + 1
+            return None
+    counts["airside_deck_frames"] = counts.get("airside_deck_frames", 0) + 1
+    return deck[1]
+
+
+def _airside_deck(record: Split, airside: "tuple[float, str] | None",
+                  counts: dict) -> Split:
+    """Owner RULINGS 2026-10-22n (#1214): every body of a CLASS A frame
+    (:func:`_airside_frame`) takes the airside zero — the deck top FLUSH
+    with the solved airside surface, its supports attached; the road under
+    it is the underpass cut's (``planar/structure_underpass``), never this
+    seat's.  §49 seated the bodies standing ON a deck face and excluded
+    the deck itself, which fell to its own ground: LFPG's pack taxiway and
+    runway bridges stood 2.6-13 m over their airside."""
+    if airside is None:
+        return record
+    zero, where = airside
+    out = []
+    for b in record.bodies:
+        a = b.anchor
+        if a.surface_z is None:
+            out.append(b)
+            continue
+        y0 = float(a.surface_z) - zero
+        off = tuple(a.offset)
+        a2 = _dc.replace(a, y_zero=y0, offset=(off[0], y0, off[2]), datum=True,
+                         reason=f"airside deck on {where}: flush at zero {zero:.2f} "
+                                f"(RULINGS 2026-10-22n; was: {a.reason})")
+        out.append(_dc.replace(b, anchor=a2))
+    counts["airside_deck_placements"] = counts.get("airside_deck_placements", 0) + 1
+    return _dc.replace(record, bodies=tuple(out))
+
+
+_SIDE: dict[str, bool] = {}
+
+
+def _airside_role(role: str) -> bool:
+    """Is this face role AIRSIDE by the law's own register
+    (``law.tables.role_side``)?  Memoised per role."""
+    if role not in _SIDE:
+        from ..law import Law
+        from ..law import tables as _T
+        try:
+            _SIDE[role] = _T.role_side(Law.load(), role) == "airside"
+        except Exception:
+            _SIDE[role] = False
+    return _SIDE[role]
+
+
+#: the deck verdicts that make a member an OPEN structure — a deck
+#: (``flag`` / ``signature``) or a plate the signature pass could not prove
+#: spans anything (``candidate``: a bridge with no mapped way, a canopy)
+_OPEN_KINDS = frozenset({"flag", "signature", "candidate"})
+
+
+def _rigid_open(record: Split, open_frame: bool) -> Split:
+    """Owner RULINGS 2026-10-22c (#1214): "prioritize the canopy or bridge
+    deck, and that the pillars or supports stay attached, then seating the
+    whole unit so no pillars are floating" — and 10-22f: "they should
+    always move as a group".  Every body of a placement in an OPEN frame
+    takes ONE zero: the deck's datum where a body carries it, else the
+    LOWEST of the bodies' own zeros, so no support floats (the others sink
+    partly).  KMCI ``road-bridge-7`` was written as six bodies whose zeros
+    spread 7.7 m, its piers off its deck.  A body whose seat tilt is baked
+    into its vertices leaves the placement as it was."""
+    bodies = record.bodies
+    if not open_frame or len(bodies) < 2:
+        return record
+    if any(getattr(b.seat, "applied", False) for b in bodies if b.seat is not None):
+        return record
+    zs = [(float(b.anchor.surface_z) - float(b.anchor.y_zero), b) for b in bodies
+          if b.anchor.surface_z is not None]
+    if len(zs) < 2 or max(z for z, _b in zs) - min(z for z, _b in zs) <= 0.05:
+        return record
+    dat = [z for z, b in zs if b.anchor.datum]
+    target = dat[0] if dat else min(z for z, _b in zs)
+    out = []
+    for b in bodies:
+        a = b.anchor
+        if a.surface_z is None:
+            out.append(b)
+            continue
+        y0 = float(a.surface_z) - target
+        off = tuple(a.offset)
+        a2 = _dc.replace(a, y_zero=y0, offset=(off[0], y0, off[2]),
+                         reason=f"{a.reason}; one rigid open structure at "
+                                f"{target:.2f} (RULINGS 2026-10-22c)")
+        out.append(_dc.replace(b, anchor=a2))
+    return _dc.replace(record, bodies=tuple(out))
 
 
 def _lifted(record: Split, rows: "_t.Sequence | None",

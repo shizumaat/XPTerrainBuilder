@@ -19,6 +19,20 @@ module is presentation and interaction only.
 
 import re
 
+import O4_File_Names as FNAMES
+import O4_Glossary as GLOSSARY
+import O4_Qt_Settings_General as GENERAL
+import O4_Settings_Model as SM
+import O4_Settings_Presets as PRESETS
+from O4_Qt_Detail_Combo import DetailCombo
+from O4_Qt_Preset_Cards import PresetCards
+from O4_Qt_Widgets import (
+    ElidedRowLabel,
+    SqueezableLineEdit,
+    may_be_squeezed,
+    never_widen,
+    wrap_and_never_widen,
+)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -38,20 +52,6 @@ from PySide6.QtWidgets import (
     QToolButton,
     QVBoxLayout,
     QWidget,
-)
-
-import O4_File_Names as FNAMES
-import O4_Glossary as GLOSSARY
-import O4_Settings_Model as SM
-import O4_Settings_Presets as PRESETS
-from O4_Qt_Detail_Combo import DetailCombo
-from O4_Qt_Preset_Cards import PresetCards
-from O4_Qt_Widgets import (
-    ElidedRowLabel,
-    SqueezableLineEdit,
-    may_be_squeezed,
-    never_widen,
-    wrap_and_never_widen,
 )
 
 #: The Detail row's help (the Mac app's Settings picker says the same).
@@ -642,7 +642,7 @@ def provider_row_action(api_key_kind, is_stored):
 class _ProviderSignInSection(QWidget):
     """Account sign-ins for providers that require one (app-level).
 
-    Lives at the end of the Elevation category.  Status is derived from
+    Lives in General, after Build Engine (#1267).  Status is derived from
     LOCAL state only (saved session cookies / stored account) — building
     the settings window never touches the network; the build pipeline
     verifies and re-logs sessions on its own (O4_Authenticated_Sessions.
@@ -668,7 +668,7 @@ class _ProviderSignInSection(QWidget):
         self._search_haystack = "sign in account provider "
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        header = QLabel("<b>Provider accounts</b>")
+        header = QLabel("<b>Provider Accounts</b>")
         header.setTextFormat(Qt.RichText)
         header.setContentsMargins(0, 14, 0, 2)
         layout.addWidget(header)
@@ -1062,6 +1062,7 @@ class SettingsWindow(QDialog):
         self._advanced_notes = {}
         self._expert_headers = {}   # category key -> "Expert" sub-header
         self._provider_signin_section = None
+        self._app_sections = []
         for key, title in SM.CATEGORIES:
             header = QLabel("<b>%s</b>" % title)
             header.setTextFormat(Qt.RichText)
@@ -1073,6 +1074,8 @@ class SettingsWindow(QDialog):
             line.setStyleSheet("color: palette(mid);")
             self.content_layout.addWidget(line)
             self._lines[key] = line
+            if key == "general":
+                self._add_app_sections()
             hidden_count = 0
             for setting in SM.settings_for(key):
                 if setting.advanced and not hidden_count:
@@ -1101,15 +1104,6 @@ class SettingsWindow(QDialog):
                 note.setContentsMargins(8, 0, 0, 4)
                 self.content_layout.addWidget(note)
                 self._advanced_notes[key] = note
-            if key == "elevation":
-                # Account sign-ins for providers that need one; only
-                # present when at least one such provider is installed.
-                section = _ProviderSignInSection()
-                if section._rows:
-                    self._provider_signin_section = section
-                    self.content_layout.addWidget(section)
-                else:
-                    section.deleteLater()
         self.content_layout.addStretch(1)
         self.scroll.setWidget(content)
         middle.addWidget(self.scroll, 1)
@@ -1167,6 +1161,26 @@ class SettingsWindow(QDialog):
         self.category_list.setCurrentRow(0)
         self._update_footer_actions()
         self._apply_filter()
+
+    def _add_app_sections(self):
+        """General's app-level sections, in the Mac app's order (#1267):
+        Application, Build Engine, Provider Accounts (only when a provider
+        needing one is installed), then the engine defaults (the rows)."""
+        self.application_section = GENERAL.ApplicationSection(
+            self.prefs.get("xplane_dir", ""))
+        self.engine_section = GENERAL.BuildEngineSection()
+        self._app_sections = [self.application_section, self.engine_section]
+        section = _ProviderSignInSection()
+        if section._rows:
+            self._provider_signin_section = section
+            self._app_sections.append(section)
+        else:
+            section.deleteLater()
+        for section in self._app_sections:
+            self.content_layout.addWidget(section)
+        self.engine_defaults_header = QLabel("<b>Engine Defaults</b>")
+        self.engine_defaults_header.setContentsMargins(0, 14, 0, 2)
+        self.content_layout.addWidget(self.engine_defaults_header)
 
     # ------------------------------------------------------------------
     # Value display
@@ -1261,6 +1275,8 @@ class SettingsWindow(QDialog):
             self._write_tile_value(setting.name, normalized)
         else:
             self._write_global_value(setting, normalized)
+        if setting.name == "xplane_dir":
+            self.application_section.set_xplane(normalized)
 
     def _write_tile_value(self, name, normalized):
         """Apply one value to EVERY selected tile (sparse per tile)."""
@@ -1377,18 +1393,17 @@ class SettingsWindow(QDialog):
             expert = self._expert_headers.get(key)
             if expert:
                 expert.setVisible(not tile_view and expert_by_cat[key] > 0)
-        if self._provider_signin_section is not None:
-            # App-level, so it hides in the tile-focused views; a search
-            # query matches it by provider name / "sign in".
-            self._provider_signin_section.setVisible(
+        # General's app-level sections hide in the tile-focused views; a
+        # search query matches them by their words (or provider name).
+        for section in self._app_sections:
+            section.setVisible(
                 not tile_view
                 and not customized_only
-                and (
-                    self._provider_signin_section.matches(query)
-                    if query
-                    else selected in (None, "elevation")
-                )
+                and (section.matches(query) if query
+                     else selected in (None, "general"))
             )
+        self.engine_defaults_header.setVisible(
+            not tile_view and not query and selected in (None, "general"))
         if tile_view:
             count = len(override_union)
             subject = (

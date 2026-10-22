@@ -66,6 +66,12 @@ BUILD_BOX = (
     ("auto_install", "Install finished tiles automatically", "chk_auto_install"),
 )
 
+#: Settings ▸ General's app-level sections, top to bottom (#1267), and the
+#: Application section's rows (#1266: the Data Folder chooser).  The Mac's
+#: Appearance picker is a recorded exception: Qt follows the system theme.
+GENERAL_SECTIONS = ("Application", "Build Engine", "Provider Accounts")
+APPLICATION_ROWS = ("Version", "X-Plane Folder", "Data Folder")
+
 
 # ─── the Mac app, read statically ─────────────────────────────────────────
 
@@ -101,6 +107,27 @@ def test_mac_toolbar_is_the_manifest():
 
 def test_mac_build_box_is_the_manifest():
     assert _swift_build_box() == [label for _key, label, _attr in BUILD_BOX]
+
+
+def _swift_general() -> str:
+    return _block(SWIFT / "SettingsView.swift",
+                  "private struct GeneralPane", "private func pathText")
+
+
+def test_mac_general_sections_are_the_manifest():
+    general = _swift_general()
+    marks = [general.find(f'Section("{GENERAL_SECTIONS[0]}")')]
+    marks += [general.find(f'Text("{title}")') for title in GENERAL_SECTIONS[1:]]
+    assert -1 not in marks, dict(zip(GENERAL_SECTIONS, marks, strict=True))
+    assert marks == sorted(marks), "Mac General section order differs"
+
+
+def test_mac_application_rows_are_the_manifest():
+    general = _swift_general()
+    start = general.index('Section("Application")')
+    application = general[start:general.index("Section {", start)]
+    rows = re.findall(r'LabeledContent\("([^"]+)"\)', application)
+    assert [row for row in rows if row != "Status"] == list(APPLICATION_ROWS)
 
 
 def test_mac_settings_holds_the_detail_level():
@@ -185,3 +212,40 @@ def test_qt_settings_holds_the_detail_level(window):
         assert dialog.result_prefs()["zl"] == 18
     finally:
         dialog.deleteLater()
+
+
+def test_qt_general_sections_are_the_manifest(window):
+    import O4_Qt_Settings as QTSET
+
+    dialog = QTSET.SettingsWindow(window.prefs, [], window.output_dir(), window)
+    try:
+        layout = dialog.content_layout
+        widgets = [layout.itemAt(i).widget() for i in range(layout.count())]
+        titles = [w.title if hasattr(w, "title") else "Provider Accounts"
+                  for w in widgets if w in dialog._app_sections]
+        # Provider Accounts shows only with a provider needing one, as on
+        # the Mac (``if !providerAccounts.isEmpty``).
+        assert titles == list(GENERAL_SECTIONS[:len(titles)])
+        assert len(titles) >= 2
+        dialog.show()
+        dialog.category_list.setCurrentRow(0)  # General
+        assert dialog.application_section.isVisible()
+        dialog.category_list.setCurrentRow(1)
+        assert not dialog.application_section.isVisible()
+    finally:
+        dialog.deleteLater()
+
+
+def test_qt_application_rows_are_the_manifest(window):
+    import O4_Qt_Settings_General as GENERAL
+
+    section = GENERAL.ApplicationSection("")
+    try:
+        rows = []
+        for i in range(section.layout_.count()):
+            item = section.layout_.itemAt(i).layout()
+            if item is not None and item.itemAt(0).widget() is not None:
+                rows.append(item.itemAt(0).widget().text())
+        assert [row for row in rows if row != "Status"] == list(APPLICATION_ROWS)
+    finally:
+        section.deleteLater()

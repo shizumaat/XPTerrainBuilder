@@ -75,6 +75,40 @@ def write_data_root_pointer(path):
         f.write(os.path.abspath(path) + "\n")
 
 
+def data_root_problem(path):
+    """Why ``path`` cannot be the data root (created if missing), or None.
+
+    One probe for every chooser: the Qt first-launch dialog and Settings'
+    Data Folder (the Mac app's DataFolderSheet creates the folder too)."""
+    if not path:
+        return "No folder chosen."
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, ".ortho4xp_write_test")
+        with open(probe, "w", encoding="utf-8", newline="\n") as f:
+            f.write("ok")
+        os.remove(probe)
+    except OSError as error:
+        return str(error)
+    return None
+
+
+def remembered_data_root():
+    """The data root an app launch adopts without asking, or None.
+
+    ``ORTHO4XP_DATA_ROOT`` when set, else the remembered choice when that
+    folder exists (``None`` for an unplugged drive: ask again).  Both apps'
+    launches read it, from a source checkout too (#1266); the engine's own
+    resolution (:func:`resolve_data_root`) is unchanged."""
+    env_root = os.environ.get("ORTHO4XP_DATA_ROOT")
+    if env_root:
+        return os.path.abspath(env_root)
+    pointed = read_data_root_pointer()
+    if pointed and os.path.isdir(pointed):
+        return pointed
+    return None
+
+
 def resolve_data_root():
     """Precedence: ORTHO4XP_DATA_ROOT environment variable, then (packaged
     app only) the remembered first-launch choice, then the default."""

@@ -170,22 +170,21 @@ except ImportError:
 
 
 class DataFolderDialog(QDialog):
-    """First-launch chooser for the packaged app: where should Ortho4XP keep
-    its downloads, caches, settings and built tiles?"""
+    """First-launch chooser: where should XPTerrainBuilder keep its
+    downloads, caches, settings and built tiles?  (The Mac app's
+    DataFolderSheet.)"""
 
     def __init__(self, initial_path):
         super().__init__()
-        self.setWindowTitle("Welcome to Ortho4XP")
+        self.setWindowTitle("Choose a Data Folder")
         self.setMinimumWidth(560)
 
+        # The Mac app's DataFolderSheet copy, word for word.
         intro = QLabel(
-            "Ortho4XP keeps everything it downloads and builds in one "
-            "folder: orthophoto imagery, elevation data, caches, settings "
-            "and the finished scenery tiles. This folder can grow to many "
-            "gigabytes, so choose a location with plenty of space.\n\n"
-            "Already have an Ortho4XP folder? Select it — your existing "
-            "downloads, tiles and settings are used as-is; nothing is "
-            "overwritten."
+            "XPTerrainBuilder stores downloaded imagery, elevation data, "
+            "caches and built scenery tiles here. Builds can grow to tens "
+            "of gigabytes, so pick a disk with plenty of free space. You "
+            "can change this later in Settings."
         )
         intro.setWordWrap(True)
 
@@ -198,7 +197,7 @@ class DataFolderDialog(QDialog):
 
         buttons = QDialogButtonBox()
         use_button = buttons.addButton(
-            "Use This Folder", QDialogButtonBox.AcceptRole
+            "Continue", QDialogButtonBox.AcceptRole
         )
         buttons.addButton("Quit", QDialogButtonBox.RejectRole)
         use_button.setDefault(True)
@@ -221,21 +220,18 @@ class DataFolderDialog(QDialog):
             self.path_edit.setText(chosen)
 
     def _accept_if_usable(self):
+        import O4_File_Names as FNAMES
+
         path = os.path.abspath(os.path.expanduser(self.path_edit.text().strip()))
         if not path:
             return
-        try:
-            os.makedirs(path, exist_ok=True)
-            probe = os.path.join(path, ".ortho4xp_write_test")
-            with open(probe, "w") as f:
-                f.write("ok")
-            os.remove(probe)
-        except OSError as error:
+        problem = FNAMES.data_root_problem(path)
+        if problem:
             QMessageBox.warning(
                 self,
                 "Folder not usable",
-                "Ortho4XP cannot write to this folder:\n\n"
-                f"{path}\n\n{error}\n\nPlease choose another location.",
+                "XPTerrainBuilder cannot write to this folder:\n\n"
+                f"{path}\n\n{problem}\n\nPlease choose another location.",
             )
             return
         self.chosen_path = path
@@ -245,27 +241,26 @@ class DataFolderDialog(QDialog):
 def bootstrap_data_root():
     """Resolve the writable data root before any module captures paths.
 
-    Only the packaged app ever shows the chooser; source checkouts keep
-    using the checkout directory. Runs again if the remembered folder is
-    missing (e.g. an unplugged external drive) so the user can reconnect
-    it or pick a new one.
+    The same folder the Mac app uses, on every platform and from a source
+    checkout too (#1266): ``ORTHO4XP_DATA_ROOT``, else the remembered
+    choice (``~/.ortho4xp/data_root.txt``, which the Mac app also writes),
+    else the first-launch chooser offering ``~/XPTerrainBuilderData``.
+    Runs the chooser again if the remembered folder is missing (e.g. an
+    unplugged external drive).  The choice is exported as
+    ``ORTHO4XP_DATA_ROOT`` so build worker processes resolve it too.
     """
     import O4_File_Names as FNAMES
 
-    if not FNAMES.is_frozen_app():
-        return True
-    if os.environ.get("ORTHO4XP_DATA_ROOT"):
-        FNAMES.set_data_root(FNAMES.resolve_data_root())
-        return True
-    remembered = FNAMES.read_data_root_pointer()
-    if remembered and os.path.isdir(remembered):
-        FNAMES.set_data_root(remembered)
-        return True
-    dialog = DataFolderDialog(remembered or FNAMES.default_data_root())
-    if dialog.exec() != QDialog.Accepted:
-        return False
-    FNAMES.write_data_root_pointer(dialog.chosen_path)
-    FNAMES.set_data_root(dialog.chosen_path)
+    root = FNAMES.remembered_data_root()
+    if root is None:
+        dialog = DataFolderDialog(
+            FNAMES.read_data_root_pointer() or FNAMES.default_data_root())
+        if dialog.exec() != QDialog.Accepted:
+            return False
+        FNAMES.write_data_root_pointer(dialog.chosen_path)
+        root = dialog.chosen_path
+    FNAMES.set_data_root(root)
+    os.environ["ORTHO4XP_DATA_ROOT"] = FNAMES.current_data_root()
     return True
 
 

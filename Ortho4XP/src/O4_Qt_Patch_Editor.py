@@ -60,7 +60,7 @@ class PatchEditor:
 
     def menu_actions(self, window) -> dict[str, QAction]:
         """Edit ▸ Undo / Redo (Ctrl/⌘Z, Shift+Ctrl/⌘Z; a drag is one step),
-        File ▸ Save my edits (Ctrl/⌘S) and View ▸ 3D Preview (Ctrl/⌘3)."""
+        File ▸ Save (Ctrl/⌘S) and View ▸ 3D Preview (Ctrl/⌘3)."""
         stack = self.model.undo_stack
         undo = stack.createUndoAction(window, "Undo")
         undo.setShortcut(QKeySequence.Undo)

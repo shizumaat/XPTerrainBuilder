@@ -254,9 +254,19 @@ def test_the_survivor_keeps_its_coordinate(law):
 # "building9 vertex moved 0.5 m, unattributed".
 
 #: The HECA pair of issue #199's first table row (apron ``pav1`` /
-#: ``building9``): 0.5 m apart, and the survivor FLIPPED between arms.
+#: ``building9``): the survivor FLIPPED between arms.
+#:
+#: RE-GROUNDED BY ISSUE #1278 (owner RULINGS 2026-10-23a): the spacing is
+#: read in the planar map's own metres, where this pair is 0.4999994 m —
+#: ONE CELL of the 0.5 m identity lattice, the rounding of the 11-dp key
+#: and no closer.  It merged only because the old frame (lat/lon scaled by
+#: cos(lat)) read it 0.4996 m, and that frame-only merge was 1,067 of
+#: KMCI's 1,104.  So the #199 pair is now the twin of a merge that must NOT
+#: happen, and the survivor rule is held on ``H_SUB``: the same pair with
+#: ``B`` brought halfway to ``A`` (0.25 m), which merges in every frame.
 H_PAIR_A = (30.11003015117, 31.39688841457)
 H_PAIR_B = (30.11003015049, 31.39688322676)
+H_SUB = (30.11003015083, 31.39688582067)
 #: Somewhere else entirely in the layout — the "unrelated upstream set".
 H_ELSEWHERE = (30.10560435655, 31.39003118471)
 
@@ -271,7 +281,7 @@ def _pair_surface(*, ids, degrees, extra=()):
     so a survivor rule that reads only the pair must return the same answer
     for every combination."""
     far = [(30.1110, 31.3980), (30.1110, 31.3960), (30.1100, 31.3960)]
-    pts = {ids[0]: H_PAIR_A, ids[1]: H_PAIR_B}
+    pts = {ids[0]: H_PAIR_A, ids[1]: H_SUB}
     nxt = max(ids) + 1
     ring = [ids[0], ids[1]]
     for ll in list(extra) + far:
@@ -302,14 +312,45 @@ def _survivor_ll(law, surf):
     from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
     out = merge_sub_spacing(surf, law, WeldReport())
     kept = {v.ll for v in out.vertices}
-    assert (H_PAIR_A in kept) != (H_PAIR_B in kept), (
+    assert (H_PAIR_A in kept) != (H_SUB in kept), (
         "exactly one member of a sub-spacing pair survives")
-    return H_PAIR_A if H_PAIR_A in kept else H_PAIR_B
+    return H_PAIR_A if H_PAIR_A in kept else H_SUB
 
 
-def test_the_pair_of_199_is_under_the_spacing(law):
-    """The fixture IS the issue's pair: 0.5 m apart, so the merge acts."""
-    assert _m(H_PAIR_A, H_PAIR_B) < float(
+def _planar_m(p, q):
+    """Metres between two lat/lon in the planar map's frame (tmerc)."""
+    from auto_patch_v2.model.frame import Frame
+    to_xy = Frame("", p, 11).transformers()[0]
+    a, b = to_xy(p[1], p[0]), to_xy(q[1], q[0])
+    return math.hypot(a[0] - b[0], a[1] - b[1])
+
+
+def test_the_pair_of_199_is_one_lattice_cell_and_is_not_merged(law):
+    """ISSUE #1278: the #199 pair is exactly one 0.5 m cell apart in the
+    planar frame (to the 11-dp key's rounding), so its two vertices are
+    DISTINCT and both are written.  The old cos(lat) frame read it under
+    the spacing — that is the whole difference."""
+    from auto_patch_v2.emit.osm_adapter import merge_sub_spacing
+    spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
+    assert abs(_planar_m(H_PAIR_A, H_PAIR_B) - spacing) < 2e-6
+    assert _m(H_PAIR_A, H_PAIR_B) < spacing - 3e-4, "the old frame merged it"
+    far = [(30.1110, 31.3980), (30.1110, 31.3960), (30.1100, 31.3960)]
+    pts = [H_PAIR_A, H_PAIR_B] + far
+    surf = GradedSurface(
+        icao="TEST", ruleset="icao", origin=H_PAIR_A, crs="+proj=tmerc",
+        identity_dp=11,
+        vertices=tuple(SurfaceVertex(i, ll, 600.0) for i, ll in enumerate(pts)),
+        faces=(SurfaceFace(1, "apron", "pav1", tuple(range(len(pts))), (),
+                           "airside"),),
+        breaklines=(), provenance={})
+    rep = WeldReport()
+    out = merge_sub_spacing(surf, law, rep)
+    assert rep.merged == 0 and out is surf
+
+
+def test_the_survivor_pair_is_under_the_spacing(law):
+    """``H_SUB`` is the #199 pair brought to 0.25 m: the merge acts."""
+    assert _planar_m(H_PAIR_A, H_SUB) < float(
         law.tables.emit.identity.min_distinct_spacing_m)
 
 
@@ -320,11 +361,11 @@ def test_the_survivor_key_reads_only_the_vertexs_own_coordinate():
                                                 survivor_key)
     assert SURVIVOR_IS_MINIMUM is True
     assert survivor_key(H_PAIR_A, 11) == H_PAIR_A
-    assert survivor_key(H_PAIR_B, 11) < survivor_key(H_PAIR_A, 11)
+    assert survivor_key(H_SUB, 11) < survivor_key(H_PAIR_A, 11)
     # the key rounds AT the identity: a difference below the written
     # coordinate cannot decide a survivor
-    below = (H_PAIR_B[0] + 1e-13, H_PAIR_B[1])
-    assert survivor_key(below, 11) == survivor_key(H_PAIR_B, 11)
+    below = (H_SUB[0] + 1e-13, H_SUB[1])
+    assert survivor_key(below, 11) == survivor_key(H_SUB, 11)
 
 
 @pytest.mark.parametrize("ids", [(1, 2), (2, 1), (907, 11), (11, 907)])
@@ -336,7 +377,7 @@ def test_the_same_pair_keeps_the_same_survivor_whatever_its_ids_and_degrees(
     not move the survivor.  Under the old ``(degree, -id)`` rule EVERY one
     of these 16 combinations could answer differently."""
     got = _survivor_ll(law, _pair_surface(ids=ids, degrees=degrees))
-    assert got == H_PAIR_B
+    assert got == H_SUB
 
 
 def test_an_unrelated_vertex_elsewhere_changes_no_survivor(law):
@@ -349,7 +390,7 @@ def test_an_unrelated_vertex_elsewhere_changes_no_survivor(law):
     renumbered = _survivor_ll(
         law, _pair_surface(ids=(40, 41), degrees=(2, 1),
                            extra=(H_ELSEWHERE,)))
-    assert base == with_extra == renumbered == H_PAIR_B
+    assert base == with_extra == renumbered == H_SUB
 
 
 def test_a_lawful_ring_is_untouched(law):

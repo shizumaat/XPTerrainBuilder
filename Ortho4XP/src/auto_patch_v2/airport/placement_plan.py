@@ -121,7 +121,7 @@ from .airside_deck_seat import (  # noqa: E402
 from .open_frame_seat import (  # noqa: E402
     OPEN_KINDS as _OPEN_KINDS, body_root as _body_root,
     frame_root_boxes as _frame_root_boxes, group_zero as _group_zero,
-    merge_frame_roots as _merge_frame_roots,
+    merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros)
 from .placement_file import (  # noqa: E402,F401
     OWN_GROUND, authored_offset, _carried_file, _cut_and_file,
@@ -347,7 +347,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       piece_reach_m=piece_reach_m)  # 19u
     # #1214 round 3, R5 (owner RULINGS 2026-10-22o): one zero per CONNECTED
     # unit — the pieces the pad-level and block passes cut put back together
-    _gz = _root_zeros(_pw or {}, plan)
+    _gz_air: set[str] = set()                            # 23e: airside wins
+    _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air)   # 22q: airside first
     #: R5: a written body file -> its connected unit (a rider follows it)
     _file_root: dict[str, str] = {}
     # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
@@ -938,9 +939,18 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # and touching units move as one (22o).  Plan BOXES are the
         # witness, so an unlifted shared-datum frame — whose rotated
         # neighbours' boxes overlap 20 m apart — is not read this way
-        _rboxes = (_frame_root_boxes(u, _pw or {})
-                   if _pw and float(u.agl_m or 0.0) > 0.0 else {})
-        _rmerge = _merge_frame_roots(_rboxes) if len(_rboxes) > 1 else {}
+        # #1214 round 5 (owner, KMCI 1.0.420): an unchained body of ANY
+        # frame — a bridge or a wall piece against its garage — joins the
+        # unit whose parts it comes within a metre of; only the MERGING of
+        # two units stays a lifted frame's (plan boxes of an unlifted
+        # shared-datum frame overlap 20 m apart)
+        _rboxes = _frame_root_boxes(u, _pw or {}) if _pw else {}
+        _rmerge = (_merge_frame_roots(_rboxes)
+                   if len(_rboxes) > 1 and float(u.agl_m or 0.0) > 0.0 else {})
+        # #1214 round 6 (22o, 23e): units an UNCHAINED part chain joins move
+        # as one group, in any frame, at the airside share's zero
+        if len(_rboxes) > 1:
+            _rmerge = _unchained_links(u, _pw or {}, _rmerge, _gz_air, counts)
         written_of: dict[int, bool] = {}
         # 14at: the FILE a carrier group was actually written as.  A
         # candidate's own ``resource`` is a body SLOT's id — it is
@@ -993,7 +1003,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _rigid_open(record, m, open_frame)
                 if not (open_frame or airside):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
-                                         u.agl_m, file_root=_file_root,
+                                         str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
@@ -1085,7 +1095,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _rigid_open(record, m, open_frame)
                 if not (open_frame or airside):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
-                                         u.agl_m, file_root=_file_root,
+                                         str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
@@ -1122,7 +1132,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _rigid_open(record, m, open_frame)
                 if not (open_frame or airside):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
-                                         u.agl_m, file_root=_file_root,
+                                         str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
                 if record is not _pre:
                     # #1214 R3/R5: a body the group passes moved is never

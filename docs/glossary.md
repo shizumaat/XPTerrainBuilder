@@ -21,7 +21,7 @@ primary label in either app.
 | "Assemble vector data" (`:42`) | "Download map data (roads, water, airports)" |
 | "Auto-patch airports (runway slopes)" (`SettingsLayout.swift:96`) | "Grade airports to official standards (FAA / ICAO / EASA)" |
 | "Modify custom airports (reseat objects)" (`SettingsLayout.swift:100`) | "Fit custom airport buildings to the new ground" |
-| Patch, "Save Patch", "Revert to auto…" (`PatchSaveBar.swift`) | "Airport ground shape", "Save my edits", "Undo my edits" |
+| Patch, "Save Patch", "Revert to auto…" (`PatchSaveBar.swift`) | "Airport ground shape", "Save", "Undo" |
 | CIFP / AIRAC (`MapMainView.swift:379`, `SettingsLayout.swift:49`) | "X-Plane's runway data" |
 | Overlays / "Extract overlays" (`BuildPane.swift:354`) | "Roads, forests and buildings from X-Plane" |
 | Lidar insets / DEM | "High-resolution airport elevation" / "Elevation source" |

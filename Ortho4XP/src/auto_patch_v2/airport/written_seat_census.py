@@ -27,7 +27,7 @@ import typing as _t
 from .bridge_approach import _median
 
 __all__ = ["missing_defs", "resource_of", "body_offset_y", "row_zero",
-           "deck_rows", "frame_rows", "written_lines"]
+           "deck_rows", "frame_rows", "member_feet", "feet_lines", "written_lines"]
 
 Surface = _t.Callable[[float, float], "float | None"]
 
@@ -194,6 +194,88 @@ def frame_rows(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str
                     "off": sum(1 for z in zs if abs(z - med) > 0.3),
                     "author_ground": med - lift,
                     "mesh_at_anchor": None if g is None else float(g)})
+    return out
+
+
+def member_feet(written: _t.Any, rebake: _t.Any, surface: Surface, pack_root: str,
+                min_members: int = 10, tol_m: float = 0.3) -> list[dict]:
+    """RULINGS 2026-10-22q: per frame of at least ``min_members`` members,
+    every member's ground-contact feet against the mesh as WRITTEN — the
+    median of ``zero + foot y - ground`` (+ floats, - sinks) — and whether
+    the member touches AIRSIDE (a foot on or within 1 m of an airside face,
+    ``airside_group_seat``'s reading).  The airside members are the bar
+    (their feet on the solved airside); the rest are the #1138 fill / cut
+    sites, listed with how far they sink or float."""
+    from . import anchor_rule as _ar
+    from .airside_group_seat import _probes, airside_pavement
+    roles = getattr(surface, "roles", None)
+    airside_role = airside_pavement(surface)
+    zeros = _zeros_by_resource(written, surface, pack_root)
+    out = []
+    for u in rebake.units:
+        if len(u.members) < min_members:
+            continue
+        lift = float(u.agl_m or 0.0)
+        for m in u.members:
+            feet = [f for p in m.parts if not p.line for f in (p.feet or ())]
+            if not feet:
+                continue
+            at = (sum(f[0] for f in feet) / len(feet), sum(f[1] for f in feet) / len(feet))
+            z0 = _nearest_zero(zeros.get(m.resource, ()), at)
+            if z0 is None:
+                continue
+            res, air_res = [], []
+            for la, lo, y in feet:
+                g = surface(la, lo)
+                if g is not None:
+                    res.append(z0 + float(y) - float(g))
+            if roles is not None:
+                pts = []
+                for la, lo, _y in feet:
+                    ml, mo = _ar._m_per_deg(la)
+                    pts.extend(_probes(la, lo, ml, mo))
+                got = roles.roles_many([q[0] for q in pts], [q[1] for q in pts])
+                k = len(pts) // len(feet)
+                for i, (_la, _lo, y) in enumerate(feet):
+                    hit = next((j for j in range(k) if airside_role(got[i * k + j])), None)
+                    if hit is None:
+                        continue
+                    g = surface(*pts[i * k + hit])
+                    if g is not None:
+                        air_res.append(z0 + float(y) - float(g))
+            if res:
+                out.append({"unit": u.id, "resource": m.resource, "airside": bool(air_res),
+                            "offset": _median(air_res) if air_res else _median(res),
+                            "all_feet": _median(res),
+                            "feet": len(air_res) or len(res), "lift": lift})
+    return out
+
+
+def feet_lines(rows: _t.Sequence[dict], tol_m: float = 0.3) -> list[str]:
+    """The 22q block: per frame, the airside members' foot offset and the
+    members that sink or float (the #1138 fill / cut sites)."""
+    out = ["   --- AIRSIDE GROUPS (RULINGS 2026-10-22q): member feet vs the mesh ---"]
+    by: dict[str, list[dict]] = {}
+    for r in rows:
+        by.setdefault(r["unit"], []).append(r)
+    for uid in sorted(by):
+        rs = by[uid]
+        air = [r for r in rs if r["airside"]]
+        if not air:
+            continue
+        offs = sorted(r["offset"] for r in air)
+        bad = [r for r in air if abs(r["offset"]) > tol_m]
+        out.append(f"   {uid}: {len(air)} airside member(s), AIRSIDE-CONTACT foot offset median "
+                   f"{offs[len(offs) // 2]:+.2f} m (range {offs[0]:+.2f}..{offs[-1]:+.2f}); "
+                   f"> {tol_m:g} m off: {len(bad)}")
+        for r in sorted(rs, key=lambda q: -abs(q["offset"])):
+            if abs(r["offset"]) <= tol_m:
+                break
+            out.append(f"      {'airside ' if r['airside'] else 'other   '}"
+                       f"{r['resource'].rsplit('/', 1)[-1]:28s} "
+                       f"{'floats' if r['offset'] > 0 else 'sinks '} {abs(r['offset']):5.2f} m"
+                       f" ({r['feet']} {'airside ' if r['airside'] else ''}feet; all feet "
+                       f"{r['all_feet']:+.2f})")
     return out
 
 

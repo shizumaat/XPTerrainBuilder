@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["airside_zeros", "airside_pavement", "floor_plane", "stands_of", "STAND_M",
+__all__ = ["airside_zeros", "airside_pavement", "floor_plane", "ground_plane", "stands_of",
+           "stands_in",
+           "STAND_M",
            "TOUCH_M",
            "AIRSIDE_SOURCE", "PLANE_SHARE", "PLANE_BAND_M"]
 
@@ -93,6 +95,29 @@ def floor_plane(zs: _t.Sequence[float]) -> "float | None":
     return sorted(v)[len(v) // 2]
 
 
+def ground_plane(zs: _t.Sequence[float]) -> "float | None":
+    """THE GROUND A SHARE STANDS ON where it touches no airside (#1214
+    round 6): over its feet's zero candidates ``ground z - y``, the LOWEST
+    substantial plane -- the lowest :data:`PLANE_BAND_M` band holding
+    :func:`floor_plane`'s share of them; its median.  Nothing of the share
+    floats more than the band (owner, RULINGS 2026-10-22c: "no pillars are
+    floating, it's ok if some are partly submerged"); the median of every
+    foot (round 4) floated KMCI's tower 1.2 m on ground falling 1.5 m
+    across its frame (owner, 1.0.421)."""
+    if not zs:
+        return None
+    v = sorted(float(z) for z in zs)
+    need = max(1, int(PLANE_SHARE * len(v) + 0.999999),
+               min(PLANE_MIN_FEET, int(0.5 * len(v) + 0.999999)))
+    j = 0
+    for i in range(len(v)):
+        while v[i] - v[j] > PLANE_BAND_M:
+            j += 1
+        if i - j + 1 >= need:
+            return v[(i + j) // 2]
+    return v[len(v) // 2]
+
+
 #: 2026-10-23b: the airside edge "closest to jetways or aircraft stands":
 #: an airside-contact foot within this distance of a stand or a jetway
 STAND_M = 60.0
@@ -108,14 +133,24 @@ def stands_of(plan: _t.Any) -> list[tuple[float, float]]:
     rows of the pack's own ``Earth nav data/apt.dat`` (``plan.pack_root``,
     ``plan.icao``).  Empty where the pack carries none."""
     import os
-    from . import apt_dat as _ad
     root = str(getattr(plan, "pack_root", "") or "")
-    icao = str(getattr(plan, "icao", "") or "")
-    path = os.path.join(root, "Earth nav data", "apt.dat")
-    if not root or not icao or not os.path.isfile(path):
+    if not root:
+        return []
+    return stands_in(os.path.join(root, "Earth nav data", "apt.dat"),
+                     str(getattr(plan, "icao", "") or ""))
+
+
+def stands_in(apt_dat: str, icao: str) -> list[tuple[float, float]]:
+    """:func:`stands_of` read off one ``apt.dat`` -- the patch build's
+    reading of the same witness (``planar/low_level``: the airside floor a
+    two-level group's pads are cut at, #1214 round 6)."""
+    import os
+
+    from . import apt_dat as _ad
+    if not apt_dat or not icao or not os.path.isfile(apt_dat):
         return []
     try:
-        block = _ad.read_airport_block(path, icao)
+        block = _ad.read_airport_block(apt_dat, icao)
     except OSError:
         return []
     if not block:
@@ -166,8 +201,8 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
     :data:`TOUCH_M` of it — those within :data:`STAND_M` of an aircraft
     stand or a jetway (:func:`stands_of`) where any are, owner RULINGS
     2026-10-23b — in the frame's own authored frame.  ``own_ground``,
-    when given, is filled with every share's OWN-GROUND zero: the median
-    of ``ground - y`` over all its feet.  Line objects (their feet are
+    when given, is filled with every share's OWN-GROUND zero: the
+    :func:`ground_plane` of ``ground - y`` over all its feet.  Line objects (their feet are
     drape stations) are not read."""
     roles = getattr(surface, "roles", None)
     if roles is None or not plan_wide:
@@ -236,6 +271,7 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
             out[k] = (z, len(zs))
     if own_ground is not None:
         for k, zs in ground.items():
-            zs.sort()
-            own_ground[k] = zs[len(zs) // 2]
+            z = ground_plane(zs)
+            if z is not None:
+                own_ground[k] = z
     return out

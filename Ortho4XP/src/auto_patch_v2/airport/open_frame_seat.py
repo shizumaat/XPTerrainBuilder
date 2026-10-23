@@ -114,7 +114,8 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
       the airside floor — ``airside_group_seat.airside_zeros`` (needs
       ``plan`` and a ``surface`` carrying ``roles``);
     * else, for a frame chained into another frame's unit, its OWN GROUND
-      (the median of ``ground - y`` over its feet: the plan-wide datum is
+      (the low-side plane of ``ground - y`` over its feet,
+      ``airside_group_seat.ground_plane``: the plan-wide datum is
       spelled in the unit's dominant frame, and put a tower beside KMCI's
       terminal 3.5-4.4 m up);
     * else the median of the plan-wide unit zeros

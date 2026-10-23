@@ -112,6 +112,68 @@ def _ring_poly(rg, to_xy) -> "Polygon | None":
     return None if g.is_empty else g
 
 
+def _stands_xy(airport, to_xy) -> list:
+    """The aircraft stands and jetways (``airside_group_seat.stands_in``)
+    in the frame, read off the apt.dat the airport was loaded from."""
+    from ..airport.airside_group_seat import stands_in
+    pack = getattr(airport, "pack", None)
+    got = stands_in(str(getattr(pack, "apt_dat_path", "") or ""),
+                    str(getattr(airport, "icao", "") or ""))
+    return [to_xy(lo, la) for la, lo in got]
+
+
+def _densest(ys: _t.Sequence[float], band: float) -> "tuple[int, float]":
+    """``(count, median)`` of the ``band``-wide window holding most of
+    ``ys`` (sorted ascending)."""
+    best, med, j = 0, 0.0, 0
+    for i in range(len(ys)):
+        while ys[i] - ys[j] > band:
+            j += 1
+        if i - j + 1 > best:
+            best, med = i - j + 1, ys[(i + j) // 2]
+    return best, med
+
+
+def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] | None":
+    """THE TWO FOOT LEVELS (module docstring, RULINGS 2026-10-23b):
+    ``(t, y_low)`` of the unit ``parts`` (``[(part, xy)]``) -- ``t`` the
+    stand-side airside floor plane of its walled feet, ``y_low`` the lower
+    storey's plane or ``None`` (one level) -- or ``None`` where too few
+    walled feet touch the airside near a stand to read one (``stands``:
+    frame xy; ``to_xy(lon, lat)`` the frame's entry)."""
+    import numpy as np
+    import shapely
+
+    from ..airport import airside_group_seat as ag
+    if not stands or air is None or air.is_empty:
+        return None
+    wall_min = float(law.tables.structures.placement.chain_min_height_m)
+    xy, ys = [], []
+    for p, _xy in parts:
+        if getattr(p, "line", False) or float(getattr(p, "height_m", 0.0) or 0.0) < wall_min:
+            continue
+        for f in getattr(p, "feet", ()) or ():
+            xy.append(to_xy(float(f[1]), float(f[0])))
+            ys.append(float(f[2]))
+    if len(ys) < ag.PLANE_MIN_FEET:
+        return None
+    X = np.asarray(xy, dtype=float)
+    Y = np.asarray(ys, dtype=float)
+    touch = shapely.contains_xy(air.buffer(ag.TOUCH_M), X[:, 0], X[:, 1])
+    near = np.zeros(len(ys), dtype=bool)
+    hit = STRtree(shapely.points(np.asarray(stands, dtype=float))).query(
+        shapely.points(X), predicate="dwithin", distance=ag.STAND_M)
+    near[hit[0]] = True
+    at = touch & near
+    if int(at.sum()) < ag.PLANE_MIN_FEET:
+        return None
+    t = -float(ag.floor_plane([-float(y) for y in Y[at]]))
+    low = sorted(float(y) for y in Y if y <= t - 2.0 * ag.PLANE_BAND_M)
+    need = max(ag.PLANE_MIN_FEET, int(ag.PLANE_SHARE * len(ys) + 0.999999))
+    n, med = _densest(low, ag.PLANE_BAND_M) if low else (0, 0.0)
+    return t, (med if n >= need else None)
+
+
 def plan_low(P, air, airport, law, grid: float, others=None, refused=None
              ) -> "tuple[_t.Any, _t.Any, _t.Any, dict] | None":
     """``(high, low, strip, record)`` for one held pad ``P`` (module
@@ -137,16 +199,24 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
     parts = _unit_parts(P, airport, to_xy)
     if not parts:
         return None
-    front = air.buffer(near)
-    top_ys = [p.base_y for p, _xy in parts
-              if any((g := _ring_poly(rg, to_xy)) is not None and g.intersects(front)
-                     for rg in p.rings)]
-    if not top_ys:
-        return None
-    # THE FRONTAGE LEVEL: the base most of the frontage parts stand at (a
-    # canopy edge or a roof trim at the frontage stands ABOVE it, a buried
-    # sill below — neither is the floor the apron meets)
-    t = min(_st.multimode(round(y) for y in top_ys))
+    # THE SEAT'S TWO FOOT LEVELS where the airport names its stands (module
+    # docstring, RULINGS 2026-10-23b); else the round-3 frontage reading
+    lv = feet_levels(parts, air, _stands_xy(airport, to_xy), law, to_xy)
+    if lv is not None and lv[1] is not None:
+        t, y_feet = lv
+        step_min = 2.0 * _plane_band()
+    else:
+        y_feet = None
+        front = air.buffer(near)
+        top_ys = [p.base_y for p, _xy in parts
+                  if any((g := _ring_poly(rg, to_xy)) is not None and g.intersects(front)
+                         for rg in p.rings)]
+        if not top_ys:
+            return None
+        # THE FRONTAGE LEVEL: the base most of the frontage parts stand at (a
+        # canopy edge or a roof trim at the frontage stands ABOVE it, a buried
+        # sill below — neither is the floor the apron meets)
+        t = min(_st.multimode(round(y) for y in top_ys))
     low_parts = [p for p, _xy in parts if p.base_y <= t - step_min]
     if not low_parts:
         return None
@@ -172,13 +242,18 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
     if sum(q.area for q in keep) < float(law.tables.structures.placement.cluster_pad_min_m2):
         return None
     L = valid_area(unary_union(keep))
-    S = valid_area(valid_area(P.intersection(L.buffer(w, join_style=2))).difference(L))
-    H = valid_area(P.difference(L.buffer(w, join_style=2)))
+    # a MITRE buffer can come back self-crossing (MEASURED KMCI
+    # ``building26/b1``, #1214 round 6: the riser's cut raised ``Ring edge
+    # missing`` and cost the block its lower level) -- its valid area
+    Lw = valid_area(L.buffer(w, join_style=2))
+    S = valid_area(_overlay(valid_area(_overlay(P, Lw, "intersection", grid)), L,
+                            "difference", grid))
+    H = valid_area(_overlay(P, Lw, "difference", grid))
     if H.is_empty or H.area < pmin:
         return None                  # the frontage block must stay a block
     dem = getattr(airport, "dem", None)
     g_lo, g_hi = _ground(L, dem, near), _ground(H, dem, near)
-    if g_lo is None or g_hi is None or g_hi - g_lo < step_min:
+    if y_feet is None and (g_lo is None or g_hi is None or g_hi - g_lo < step_min):
         # THE GROUND IS THE OTHER HALF OF THE WITNESS (#1115): a storey of
         # the object stands a storey down only where its own ground does.
         # MEASURED EDDF Terminal 1: frontage parts at y 6-17 (piers, decks)
@@ -188,11 +263,31 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
         if refused is not None:
             refused.append(f"ground drop {_fmt(g_hi, g_lo)} < {step_min:g} m")
         return None
-    y_floor = min(p.base_y for p in low_parts) - t
-    rec = {"top_y": round(t, 3), "y_lo": round(y_floor, 3), "y_hi": round(-step_min, 3),
+    # the lower storey's FLOOR: its walls' plane where the feet read it,
+    # else the lowest low part (KATL: both -13)
+    y_floor = (y_feet if y_feet is not None else min(p.base_y for p in low_parts)) - t
+    rec = {"witness": "feet" if y_feet is not None else "frontage", "top_y": round(t, 3),
+           "y_lo": round(y_floor, 3), "y_hi": round(-step_min, 3),
            "low_parts": len(low_parts), "area_m2": round(L.area, 1),
            "ground_z": g_lo, "ground_high_z": g_hi}
     return H, L, S, rec
+
+
+def _plane_band() -> float:
+    from ..airport.airside_group_seat import PLANE_BAND_M
+    return float(PLANE_BAND_M)
+
+
+def _overlay(a, b, op: str, grid: float):
+    """``a.<op>(b)`` -- retried on the arrangement's precision grid where
+    GEOS still refuses two valid floating operands."""
+    import shapely
+    try:
+        return getattr(a, op)(b)
+    except GEOSException:
+        g = max(float(grid), 0.01)
+        return getattr(shapely, op)(shapely.set_precision(a, g),
+                                    shapely.set_precision(b, g), grid_size=g)
 
 
 def _fmt(g_hi, g_lo) -> str:
@@ -334,30 +429,35 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
 def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,
                  grid: float, reg: Registries) -> None:
     """THE UPPER LEVELS (module docstring): every held pad in ``groups``
-    no lower level split, touching a storey lot."""
+    touching a storey lot -- a block a lower level split keeps it, as
+    ``<block>/p2`` on its high remainder (RULINGS 2026-10-23b: a two-level
+    group's pads at both levels, the upper one where the lots meet it)."""
     if not storey_lots:
         return
     lots = [g for g, _y in storey_lots]
     ltree = STRtree(lots)
     for ref, regs in sorted(groups.items()):
-        if ref in done:
-            continue
-        P = unary_union([r.polygon for r in regs])
+        lower = done.get(ref) or []
+        high = [r for r in lower if str(r.ref) == ref] if lower else regs
+        rest = [r for r in lower if str(r.ref) != ref]
+        P = unary_union([r.polygon for r in high])
         hit = [int(j) for j in ltree.query(P, predicate="dwithin", distance=max(grid, 0.01))]
         if P.is_empty or not hit:
             continue
         air = unary_union([air_polys[int(j)] for j in
                            tree.query(P.buffer(50.0), predicate="intersects")])
         others = unary_union([r.polygon for r in out if str(r.ref) != ref
-                              and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
+                              and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))]
+                             + [r.polygon for r in rest if r.polygon is not None])
         got = plan_up(P, air, unary_union([lots[j] for j in hit]),
                       min(storey_lots[j][1] for j in hit), law, grid, others)
         if got is None:
             continue
         H, U, S, rec = got
         tmpl = regs[0]
-        up = plane_ref(ref, 1)
+        up = plane_ref(ref, 2 if rest else 1)
         done[ref] = ([_dc.replace(tmpl, polygon=q) for q in nonempty_polygon_parts(H)]
+                     + rest
                      + [_dc.replace(tmpl, ref=up, polygon=q) for q in nonempty_polygon_parts(U)]
                      + [_dc.replace(tmpl, ref=up + STRIP_SUFFIX, polygon=q)
                         for q in nonempty_polygon_parts(S)])

@@ -937,6 +937,11 @@ def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
     stand on two floors, y -8.5 and y -1.1, and the median (-1.10) put the
     concourse on the apron and the lower floor 7.4 m under it.
 
+    The lift may be NEGATIVE (the author's ground above the object's
+    origin), and a unit with no walled FEET reads its walled parts' BASES
+    for the cross-check (#1214 round 6: KMCI's building at y +5.09 under
+    ``OBJECT_AGL -5.502`` floated 5 m standing its y = 0 on the ground).
+
     Else the median authored ``y`` of the ground-contact FEET of its walled
     parts (solid height >= ``wall_min_m``); 0.0 (the zero on the pad) where
     the unit names no walled part, or ``wall_min_m`` is 0."""
@@ -963,12 +968,22 @@ def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
                         and float(getattr(parts[q], "height_m", 0.0) or 0.0) >= wall_min_m):
                     by.setdefault(frame_of[q], []).extend(
                         float(f[2]) for f in (getattr(parts[q], "feet", ()) or ()))
+            by = {k: v for k, v in by.items() if v}
+            if not by:
+                # #1214 round 6: a FOOTLESS unit's walls stand on their own
+                # bases (KMCI 39.294747, -94.724552: a building authored at
+                # y +5.09 under OBJECT_AGL -5.50 floated 5 m on y = 0)
+                for q in pids:
+                    if (q in parts and q in frame_of and not getattr(parts[q], "line", False)
+                            and float(getattr(parts[q], "height_m", 0.0) or 0.0) >= wall_min_m):
+                        by.setdefault(frame_of[q], []).append(float(parts[q].base_y))
             if by:
                 fr, yd = max(sorted(by.items()), key=lambda kv: len(kv[1]))
                 lift = fr[1]
                 near = sum(1 for y in yd if abs(y + lift) <= AUTHOR_GROUND_M)
                 below = sum(1 for y in yd if y < -lift - AUTHOR_GROUND_M)
-                if (lift > 0.0 and near >= PLANE_SHARE * len(yd)
+                # a NEGATIVE lift is the author's ground as well: y = -lift
+                if (lift != 0.0 and near >= PLANE_SHARE * len(yd)
                         and below < PLANE_SHARE * len(yd)):
                     memo[root] = -lift
     return memo[root]

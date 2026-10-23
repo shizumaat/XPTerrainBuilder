@@ -8325,6 +8325,11 @@ def _hairline_segments(nodes, ways, feature_ways) -> List[Tuple[
     return out
 
 
+#: THE IDENTITY'S DECIMALS the hairline spacing's slack is read at — the
+#: law's ``emit.identity.coordinate_dp`` (the frame's own identity).
+_HAIRLINE_IDENTITY_DP = 11
+
+
 def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
                          spacing_m: float) -> List[Violation]:
     """§39 (2) NO EDGE BESIDE ANOTHER — the ``hairline_pair`` family,
@@ -8368,12 +8373,28 @@ def _check_hairline_pair(shore_edges_ll, nodes, ways, feature_ways,
     segs = _hairline_segments(nodes, ways, feature_ways)
     if not segs:
         return []
-    lat0 = segs[0][0][0]
-    mlat = _M_PER_DEG_LAT
-    mlon = _M_PER_DEG_LAT * max(0.05, math.cos(math.radians(lat0)))
+    # THE ENGINE'S METRIC (issue #1278, owner RULINGS 2026-10-23a): the
+    # spacing is the planar map's 0.5 m lattice, read in the airport's
+    # transverse-Mercator frame, less the identity's own rounding — the
+    # emit merge's own reading.  The cos(lat) frame is ~0.3 % short and
+    # read every one-cell lattice segment as a 0.4985 m "short".
+    from auto_patch_v2.model.frame import identity_slack_m
+    from auto_patch_v2.verify.frame import metric_points
+    spacing -= identity_slack_m(_HAIRLINE_IDENTITY_DP)
+    pts = {p for a, b, _w in segs for p in (a, b)}
+    for e in (shore_edges_ll or []):
+        try:
+            pts.add((float(e[0]), float(e[1])))
+            pts.add((float(e[2]), float(e[3])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    pts_l = list(pts)
+    lat0, lon0 = segs[0][0]
+    mxy = dict(zip(pts_l, ((x, y) for x, y in
+                           metric_points(lat0, lon0, pts_l)), strict=True))
 
     def xy(p):
-        return (p[1] * mlon, p[0] * mlat)
+        return mxy[p]
 
     foreign: List[Tuple[Tuple[float, float], Tuple[float, float],
                         Optional[Way]]] = []

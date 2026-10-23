@@ -604,15 +604,6 @@ def _planar_xy(surface: GradedSurface) -> dict[int, tuple[float, float]]:
                                                         strict=True)}
 
 
-def _identity_slack_m(dp: int) -> float:
-    """The metres one unit of the identity's last decimal can carry: a
-    coordinate written at ``dp`` decimals moves by up to half a unit per
-    axis, so a distance between two of them is good to one unit of
-    latitude-degree metres (~1.1 micrometres at 11 dp).  Two lattice
-    neighbours that read 0.4999995 m are one cell apart, not closer."""
-    return _M_PER_DEG_LAT * 10.0 ** (-int(dp))
-
-
 def shore_edges_of(dem, surface: GradedSurface, pad_m: float = 5.0,
                    seawall: bool = True) -> list[tuple[LL_T, LL_T]]:
     """§39 (i) THE ONE WITNESS (owner RULINGS 2026-09-13cg): the FOREIGN
@@ -1055,8 +1046,9 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
     map is noded on, never the cos(lat)-scaled lat/lon frame of
     :func:`_local_metres`.  The two differ by ~0.3 %, and in the old frame
     two EXACT one-cell lattice neighbours read 0.4985 m and merged: 1,067
-    of KMCI's 1,104 merges.  A pair at the spacing to within the identity's
-    own rounding (:func:`_identity_slack_m`) IS at the spacing, and stays.
+    of KMCI's 1,104 merges.  A pair at the spacing to within the
+    identity's own rounding (:func:`model.frame.identity_slack_m`) IS at
+    the spacing, and stays.
     The fold check below keeps the mesh's linear frame: it asks whether a
     ring crosses itself in the ``.poly``, not how far apart two vertices
     are.
@@ -1065,7 +1057,8 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
     if spacing <= 0.0 or not surface.vertices:
         return surface
-    spacing -= _identity_slack_m(int(surface.identity_dp))
+    from ..model.frame import identity_slack_m
+    spacing -= identity_slack_m(int(surface.identity_dp))
     mlat, mlon = _local_metres(surface.origin)
     la0, lo0 = float(surface.origin[0]), float(surface.origin[1])
     vll = {v.id: v.ll for v in surface.vertices}

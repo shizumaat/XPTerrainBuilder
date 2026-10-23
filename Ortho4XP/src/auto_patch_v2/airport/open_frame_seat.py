@@ -34,7 +34,8 @@ import dataclasses as _dc
 import typing as _t
 
 __all__ = ["OPEN_KINDS", "rigid_open", "unit_root", "group_key", "root_zeros", "body_root",
-           "frame_root_boxes", "merge_frame_roots", "group_zero", "GROUP_REASON",
+           "frame_root_boxes", "merge_frame_roots", "unchained_links", "group_zero",
+           "GROUP_REASON",
            "TOUCH_M"]
 
 #: the deck verdicts that make a member an OPEN structure — a deck
@@ -104,7 +105,8 @@ def group_key(root: str, frame: str) -> str:
 
 
 def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
-               surface: _t.Any = None, counts: "dict | None" = None
+               surface: _t.Any = None, counts: "dict | None" = None,
+               airside_out: "set[str] | None" = None
                ) -> dict[str, tuple[float, float]]:
     """:func:`group_key` ``-> (zero, the frame's lift)`` for every frame's
     share of every connected unit (``frame`` is the plan unit id; "" with
@@ -161,6 +163,10 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
                 out[k] = (own[k], out[k][1])
         if counts is not None:
             counts["groups_on_airside"] = len(az)
+        if airside_out is not None:
+            # the keys seated on the airside floor (``unchained_links``'
+            # precedence, owner RULINGS 2026-10-23e: airside wins)
+            airside_out.update(az)
     return out
 
 
@@ -211,6 +217,97 @@ def merge_frame_roots(root_boxes: _t.Mapping[str, _t.Sequence[tuple]],
                 keep, drop = sorted((ra, rb), key=lambda r: (-size[r], r))
                 up[drop] = keep
     return {r: find(r) for r in roots}
+
+
+def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
+                    merged: "_t.Mapping[str, str] | None" = None,
+                    airside: _t.AbstractSet[str] = frozenset(),
+                    counts: "dict | None" = None) -> dict[str, str]:
+    """``root -> the root it moves with`` inside ONE frame (plan unit
+    ``u``), read THROUGH ITS UNCHAINED PARTS (#1214 round 6; 22o: pieces
+    that "touch or even come within a meter of a building must always move
+    together with that building"): the frame's parts are a graph, two parts
+    joined where their footprint RINGS come within :data:`TOUCH_M` and one
+    of them is UNCHAINED (a thin deck, a railing, a road surface: no §16g
+    unit holds it); the units a component holds are one group.  Rings,
+    never plan boxes: the boxes of an unlifted shared-datum frame overlap
+    neighbours 20 m away.
+
+    AIRSIDE WINS (owner RULINGS 2026-10-23e): the group moves with its
+    AIRSIDE-SEATED unit (``airside``: the :func:`group_key` s
+    ``airside_group_seat.airside_zeros`` seated) and the groundside units
+    take its zero; with none, with its largest unit; a component holding
+    TWO airside-seated units is not merged (each keeps its own floor) and
+    is counted (``unchained_airside_conflicts``).  ``merged``
+    (``merge_frame_roots``' answer) is composed in."""
+    import math
+
+    from shapely.geometry import Polygon
+    from shapely.strtree import STRtree
+    la0, lo0 = (float(q) for q in u.anchor)
+    ml, mo = 111132.0, 111320.0 * math.cos(math.radians(la0))
+    fid = str(getattr(u, "id", ""))
+    base = dict(merged or {})
+    geoms, owner = [], []
+    size: dict[str, int] = {}
+    for m in getattr(u, "members", ()) or ():
+        for p in getattr(m, "parts", ()) or ():
+            seat = plan_wide.get(p.pid)
+            r = unit_root(seat[0]) if seat and seat[0] else None
+            if r is not None:
+                r = base.get(r, r)
+                size[r] = size.get(r, 0) + 1
+            for rg in getattr(p, "rings", ()) or ():
+                if len(rg) < 3:
+                    continue
+                g = Polygon([((lo - lo0) * mo, (la - la0) * ml) for la, lo in rg])
+                if not g.is_valid:
+                    g = g.buffer(0.0)
+                if not g.is_empty:
+                    geoms.append(g)
+                    owner.append(r)
+    if len(size) < 2 or not geoms:
+        return base
+    up = list(range(len(geoms)))
+
+    def find(i: int) -> int:
+        while up[i] != i:
+            up[i] = up[up[i]]
+            i = up[i]
+        return i
+    a, b = STRtree(geoms).query(geoms, predicate="dwithin", distance=TOUCH_M)
+    for i, j in zip(a.tolist(), b.tolist(), strict=True):
+        if i < j and (owner[i] is None or owner[j] is None):
+            ri, rj = find(i), find(j)
+            if ri != rj:
+                up[ri] = rj
+    comp: dict[int, set[str]] = {}
+    for i, r in enumerate(owner):
+        if r is not None:
+            comp.setdefault(find(i), set()).add(r)
+    out = dict(base)
+    n_conflict = 0
+    for rs in comp.values():
+        if len(rs) < 2:
+            continue
+        air = sorted(r for r in rs if group_key(r, fid) in airside)
+        if len(air) > 1:
+            n_conflict += 1
+            continue
+        keep = air[0] if air else max(sorted(rs), key=lambda r: size.get(r, 0))
+        for r in rs:
+            if r != keep:
+                out[r] = keep
+    for r in list(out):
+        t, seen = out[r], {r}
+        while t in out and t not in seen:
+            seen.add(t)
+            t = out[t]
+        out[r] = t
+    if counts is not None and n_conflict:
+        k = "unchained_airside_conflicts"
+        counts[k] = counts.get(k, 0) + n_conflict
+    return out
 
 
 def _hull(boxes: _t.Sequence[tuple]) -> tuple:

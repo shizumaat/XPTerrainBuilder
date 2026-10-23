@@ -151,3 +151,28 @@ def test_no_row_but_the_landing_spans_a_lower_levels_riser():
     assert got == rows[1:]
     assert counts["riser_rows_withdrawn"] == 1 and counts["riser_road_sites"] == 1
     assert riser.STATS["riser_road_sites"] == ["r"]
+
+
+def _sq(x0, y0, s=10.0):
+    d = 1e-5                                        # ~1.1 m per unit in lat
+    return ((y0 * d, x0 * d), (y0 * d, (x0 + s) * d), ((y0 + s) * d, (x0 + s) * d),
+            ((y0 + s) * d, x0 * d))
+
+
+def test_23e_units_an_unchained_part_joins_move_with_the_airside_share():
+    """22o / 23e: an unchained part within 1 m of two units joins them; the
+    group moves with its AIRSIDE-seated unit; two airside units are kept."""
+    from auto_patch_v2.airport.open_frame_seat import group_key, unchained_links
+
+    def part(pid, x0, s=10.0):
+        return types.SimpleNamespace(pid=pid, rings=(_sq(x0, 0.0, s),))
+    u = types.SimpleNamespace(id="f", anchor=(0.0, 0.0), members=[types.SimpleNamespace(
+        parts=[part(1, 0.0), part(2, 10.5, 3.0), part(3, 14.0), part(4, 40.0)])])
+    pw = {1: ("fu:1:1", 0.0), 3: ("fu:1:3", 0.0), 4: ("fu:1:4", 0.0)}   # 2 is unchained
+    assert len(unchained_links(u, pw)) == 1
+    got = unchained_links(u, pw, airside={group_key("fu:1:3", "f")})
+    assert got == {"fu:1:1": "fu:1:3"}                      # airside wins
+    counts: dict = {}
+    both = {group_key("fu:1:1", "f"), group_key("fu:1:3", "f")}
+    assert unchained_links(u, pw, airside=both, counts=counts) == {}
+    assert counts["unchained_airside_conflicts"] == 1

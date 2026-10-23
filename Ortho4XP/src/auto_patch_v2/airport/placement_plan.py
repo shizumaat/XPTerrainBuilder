@@ -347,7 +347,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       piece_reach_m=piece_reach_m)  # 19u
     # #1214 round 3, R5 (owner RULINGS 2026-10-22o): one zero per CONNECTED
     # unit — the pieces the pad-level and block passes cut put back together
-    _gz = _root_zeros(_pw or {}, plan)
+    _gz = _root_zeros(_pw or {}, plan, surface, counts)   # 22q: airside first
     #: R5: a written body file -> its connected unit (a rider follows it)
     _file_root: dict[str, str] = {}
     # owner RULINGS 2026-10-03e (#290): the decks that are a UNIT'S —
@@ -993,7 +993,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _rigid_open(record, m, open_frame)
                 if not (open_frame or airside):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
-                                         u.agl_m, file_root=_file_root,
+                                         str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
@@ -1085,7 +1085,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _rigid_open(record, m, open_frame)
                 if not (open_frame or airside):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
-                                         u.agl_m, file_root=_file_root,
+                                         str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
@@ -1122,7 +1122,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 record = _rigid_open(record, m, open_frame)
                 if not (open_frame or airside):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
-                                         u.agl_m, file_root=_file_root,
+                                         str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
                 if record is not _pre:
                     # #1214 R3/R5: a body the group passes moved is never

@@ -373,6 +373,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2",
     "auto_patch_v2.airport",
     "auto_patch_v2.airport.airside_deck_seat",
+    "auto_patch_v2.airport.airside_group_seat",
     "auto_patch_v2.airport.anchor_rule",
     "auto_patch_v2.airport.approach",
     "auto_patch_v2.airport.apt_dat",

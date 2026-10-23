@@ -33,7 +33,7 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-__all__ = ["OPEN_KINDS", "rigid_open", "unit_root", "root_zeros", "body_root",
+__all__ = ["OPEN_KINDS", "rigid_open", "unit_root", "group_key", "root_zeros", "body_root",
            "frame_root_boxes", "merge_frame_roots", "group_zero", "GROUP_REASON",
            "TOUCH_M"]
 
@@ -93,31 +93,73 @@ def unit_root(uid: str) -> str:
     return str(uid).split("/", 1)[0].split("@", 1)[0]
 
 
-def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None
+def group_key(root: str, frame: str) -> str:
+    """The key of ONE frame's share of a connected unit (#1214 round 4):
+    a connected unit chains several frames — separate authored objects,
+    each placed by its author on HIS ground — and each frame takes its own
+    zero in it; the terminal's pieces move as one, the tower beside it
+    keeps its own ground (KMCI 1.0.418: the tower stood 3.5-4.4 m up on
+    the terminal's plane)."""
+    return f"{root}|{frame}"
+
+
+def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
+               surface: _t.Any = None, counts: "dict | None" = None
                ) -> dict[str, tuple[float, float]]:
-    """``root -> (zero, its frame's lift)``: the median of the plan-wide
-    unit zeros (``footprint_seats.plan_wide_seats``: part id -> (unit,
-    zero, ...)) over every part of each connected unit, and the authored
-    ``OBJECT_AGL`` lift of the frame holding most of those parts (0 with
-    no ``plan``) — the frame that zero is spelled in."""
-    lift_of: dict[int, float] = {}
+    """:func:`group_key` ``-> (zero, the frame's lift)`` for every frame's
+    share of every connected unit (``frame`` is the plan unit id; "" with
+    no ``plan``), the zero being:
+
+    * where the share TOUCHES AIRSIDE PAVEMENT (owner RULINGS 2026-10-22q),
+      the airside floor — ``airside_group_seat.airside_zeros`` (needs
+      ``plan`` and a ``surface`` carrying ``roles``);
+    * else, for a frame chained into another frame's unit, its OWN GROUND
+      (the median of ``ground - y`` over its feet: the plan-wide datum is
+      spelled in the unit's dominant frame, and put a tower beside KMCI's
+      terminal 3.5-4.4 m up);
+    * else the median of the plan-wide unit zeros
+      (``footprint_seats.plan_wide_seats``: part id -> (unit, zero, ...))
+      over its parts — round 3's reading, which for a unit touching
+      airside let a central block over a road trench outvote the halls on
+      the apron (LFPG T2, 1.0.418)."""
+    frame_of: dict[int, tuple[str, float]] = {}
     if plan is not None:
-        lift_of = {p.pid: float(getattr(u, "agl_m", 0.0) or 0.0)
-                   for u in plan.units for m in u.members for p in m.parts}
+        frame_of = {p.pid: (str(u.id), float(getattr(u, "agl_m", 0.0) or 0.0))
+                    for u in plan.units for m in u.members for p in m.parts}
     acc: dict[str, list[float]] = {}
-    lifts: dict[str, dict[float, int]] = {}
+    lift: dict[str, float] = {}
+    size: dict[str, dict[str, int]] = {}
     for pid, seat in plan_wide.items():
         if not seat or seat[1] is None or not seat[0]:
             continue
+        fid, lf = frame_of.get(pid, ("", 0.0))
         r = unit_root(seat[0])
-        acc.setdefault(r, []).append(float(seat[1]))
-        lf = lift_of.get(pid, 0.0)
-        lifts.setdefault(r, {})[lf] = lifts.setdefault(r, {}).get(lf, 0) + 1
+        k = group_key(r, fid)
+        acc.setdefault(k, []).append(float(seat[1]))
+        lift[k] = lf
+        size.setdefault(r, {})[fid] = size.setdefault(r, {}).get(fid, 0) + 1
+    # the unit's DOMINANT frame (most parts): the plan-wide datum is
+    # spelled in it; another frame chained in is another authored object
+    dominant = {r: max(sorted(n), key=lambda f: n[f]) for r, n in size.items()}
     out = {}
-    for r, zs in acc.items():
+    for k, zs in acc.items():
         zs.sort()
-        lf = max(sorted(lifts[r]), key=lambda k: lifts[r][k]) if lifts.get(r) else 0.0
-        out[r] = (zs[len(zs) // 2], lf)
+        out[k] = (zs[len(zs) // 2], lift[k])
+    if plan is not None and surface is not None:
+        from .airside_group_seat import airside_zeros
+        own: dict[str, float] = {}
+        az = airside_zeros(plan, plan_wide, surface,
+                           lambda unit, fid: group_key(unit_root(unit), fid), own)
+        for k in list(out):
+            r, fid = k.rsplit("|", 1)
+            if k in az:
+                out[k] = (az[k][0], out[k][1])
+            elif fid != dominant.get(r) and k in own:
+                # a chained frame touching no airside stands on its own
+                # ground (KMCI's tower beside the terminal)
+                out[k] = (own[k], out[k][1])
+        if counts is not None:
+            counts["groups_on_airside"] = len(az)
     return out
 
 
@@ -231,18 +273,16 @@ def _gap_m(box: tuple, boxes: _t.Any) -> "float | None":
 
 def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
                zeros: _t.Mapping[str, tuple[float, float]], counts: dict,
-               frame_lift: float = 0.0, tol_m: float = 0.05,
+               frame: str = "", tol_m: float = 0.05,
                file_root: "_t.Mapping[str, str] | None" = None,
                root_boxes: "_t.Mapping[str, _t.Sequence[tuple]] | None" = None,
                merged: "_t.Mapping[str, str] | None" = None) -> _t.Any:
-    """R5 / 22o: every body of ``record`` whose parts belong to a connected
-    unit takes that unit's ONE zero (:func:`root_zeros`), whatever pass
-    seated it.  A frame chained to the unit with another authored lift
-    (``frame_lift``; KMCI's terminal at +8.499 with stairs at +0.7) keeps
-    its authored relation to it: its author's ground on the same plane,
-    ``zero + frame_lift - the unit's lift``.  A body carried by one of the
-    unit's files takes it too (:func:`body_root`).  A body already within
-    ``tol_m`` of its target is left as it is."""
+    """R5 / 22o: every body of ``record`` (a placement of frame ``frame``,
+    the plan unit id) whose parts belong to a connected unit takes the ONE
+    zero of that frame's share of it (:func:`root_zeros`), whatever pass
+    seated it.  A body carried by one of the unit's files takes it too
+    (:func:`body_root`).  A body already within ``tol_m`` of its target is
+    left as it is."""
     if not plan_wide or not zeros:
         return record
     roots = {id(b): body_root(b, plan_wide, file_root, root_boxes)
@@ -250,16 +290,19 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
     if merged:
         roots = {k: (merged.get(r, r) if r else r) for k, r in roots.items()}
 
-    def target(r: str) -> float:
-        z, lf = zeros[r]
-        return z + float(frame_lift) - lf
+    def target(r: str) -> "float | None":
+        z = zeros.get(group_key(r, frame))
+        return None if z is None else z[0]
 
     def off(b: _t.Any) -> bool:
         r = roots.get(id(b))
-        if r is None or r not in zeros or b.anchor.surface_z is None:
+        if r is None or b.anchor.surface_z is None:
+            return False
+        t = target(r)
+        if t is None:
             return False
         z = float(b.anchor.surface_z) - float(b.anchor.y_zero)
-        return abs(z - target(r)) > tol_m
+        return abs(z - t) > tol_m
 
     moved = [b for b in record.bodies if off(b)]
     if not moved:
@@ -267,7 +310,8 @@ def group_zero(record: _t.Any, m: _t.Any, plan_wide: _t.Mapping[int, tuple],
     counts["group_zero_bodies"] = counts.get("group_zero_bodies", 0) + len(moved)
     out = record
     for r in sorted({roots[id(b)] for b in moved}):
-        out = _at_zero(out, m, target(r),
+        t = target(r)
+        out = _at_zero(out, m, t,
                        lambda b, _r=r: roots.get(id(b)) == _r and off(b),
-                       f"{GROUP_REASON} {r} at {target(r):.2f} (RULINGS 2026-10-22o)")
+                       f"{GROUP_REASON} {r} at {t:.2f} (RULINGS 2026-10-22o/q)")
     return out

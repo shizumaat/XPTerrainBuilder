@@ -488,21 +488,21 @@ def test_r5_the_bodies_of_one_connected_unit_take_one_zero():
         return Body(i, AR.OTHER, (i,), a, f"objects/t__b{i}.obj", pids=pids)
     pw = {1: ("fu:16:1/p1/b0", 305.97), 2: ("fu:16:1/p2/b1", 305.99),
           3: ("fu:16:1/p2/b1", 305.99)}
-    plan = types.SimpleNamespace(units=(types.SimpleNamespace(agl_m=8.5, members=(
+    plan = types.SimpleNamespace(units=(types.SimpleNamespace(id="unit:20", agl_m=8.5, members=(
         types.SimpleNamespace(parts=tuple(types.SimpleNamespace(pid=q) for q in (1, 2, 3))),)),))
     zeros = OFS.root_zeros(pw, plan)
-    assert zeros == {"fu:16:1": (305.99, 8.5)}
+    assert zeros == {"fu:16:1|unit:20": (305.99, 8.5)}
     rec = _split(body(0, 305.99, (2,)), body(1, 304.89, (1,)), body(2, 312.91, (3,)),
                  body(3, 290.0, (9,)))
     counts: dict = {}
-    out = OFS.group_zero(rec, _M, pw, zeros, counts, 8.5)
+    out = OFS.group_zero(rec, _M, pw, zeros, counts, "unit:20")
     z = [round(b.anchor.surface_z - b.anchor.y_zero, 2) for b in out.bodies]
     assert z == [305.99, 305.99, 305.99, 290.0] and counts["group_zero_bodies"] == 2
     assert out.bodies[1].anchor.reason.startswith(OFS.GROUP_REASON)
-    # a frame chained to it with its own lift (+0.7, the stairs) stands on
-    # the same author's ground: 305.99 - 8.5 + 0.7
-    out7 = OFS.group_zero(_split(body(0, 305.99, (2,))), _M, pw, zeros, {}, 0.7)
-    assert round(out7.bodies[0].anchor.surface_z - out7.bodies[0].anchor.y_zero, 2) == 298.19
+    # another FRAME chained into the unit (a tower beside the terminal) has
+    # no share keyed here and keeps its own seat (#1214 round 4)
+    other = OFS.group_zero(_split(body(0, 300.0, (2,))), _M, pw, zeros, {}, "unit:21")
+    assert round(other.bodies[0].anchor.surface_z - other.bodies[0].anchor.y_zero, 2) == 300.0
 
 
 def test_r5_an_unchained_body_within_a_metre_joins_the_unit():
@@ -515,12 +515,12 @@ def test_r5_an_unchained_body_within_a_metre_joins_the_unit():
         return Body(i, AR.OTHER, (i,), a, f"objects/t__b{i}.obj", pids=(99,),
                     plan_box=box)
     pw = {1: ("fu:16:1/p1", 313.39)}
-    zeros = {"fu:16:1": (313.39, 8.5)}
+    zeros = {"fu:16:1|unit:20": (313.39, 8.5)}
     m_lat = 111_132.954
     boxes = {"fu:16:1": [(40.0, -3.0, 40.0001, -2.9999)]}
     near = body(0, 310.3, (40.0001 + 0.5 / m_lat, -3.0, 40.0002, -2.9999))
     far = body(1, 310.3, (40.0001 + 3.0 / m_lat, -3.0, 40.0002, -2.9999))
-    out = OFS.group_zero(_split(near, far), _M, pw, zeros, {}, 8.5, root_boxes=boxes)
+    out = OFS.group_zero(_split(near, far), _M, pw, zeros, {}, "unit:20", root_boxes=boxes)
     z = [round(b.anchor.surface_z - b.anchor.y_zero, 2) for b in out.bodies]
     assert z == [313.39, 310.3]
 
@@ -536,3 +536,18 @@ def test_r5_touching_units_of_one_frame_move_as_one():
     c = [(40.002 + 5.5 / m_lat, -3.0, 40.003, -2.999)]
     got = OFS.merge_frame_roots({"fu:1": a, "fu:2": b, "fu:3": c})
     assert got == {"fu:1": "fu:1", "fu:2": "fu:1", "fu:3": "fu:3"}
+
+
+def test_r4_an_airside_group_sits_on_its_airside_floor():
+    """RULINGS 2026-10-22q: the zero of a group touching airside pavement
+    is its AIRSIDE FLOOR — the highest plane of its airside-contact feet
+    (the lowest plane of ``airside z - y``), never the median that a
+    sunken level's deeper feet pull up: LFPG T2 read 104-106 for its halls
+    and 110-113 for its road-trench walls."""
+    from auto_patch_v2.airport.airside_group_seat import floor_plane
+    halls = [105.0] * 71 + [104.0] * 12 + [106.0] * 30
+    trench = [112.0] * 64 + [113.0] * 32 + [111.0] * 24
+    assert floor_plane(halls + trench) in (104.0, 105.0)
+    # a stair or a sump (under the plane share) is no floor
+    assert floor_plane([90.0] * 3 + halls + trench) in (104.0, 105.0)
+    assert floor_plane([]) is None

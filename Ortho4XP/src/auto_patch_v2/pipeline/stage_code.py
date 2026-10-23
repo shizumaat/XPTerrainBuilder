@@ -899,6 +899,7 @@ GENERATOR_MODULES: dict[str, str] = {
     "runway_profile": "runway_profile",
     "runway_crown": "runway_profile",
     "runway_transverse": "runway_profile",
+    "runway_step": "runway_step",
     "runway_vertical_curve": "runway_profile",
     "runway_mean_slope": "runway_mean_slope",
     "runway_within_shape": "runway_profile",

@@ -938,9 +938,14 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # and touching units move as one (22o).  Plan BOXES are the
         # witness, so an unlifted shared-datum frame — whose rotated
         # neighbours' boxes overlap 20 m apart — is not read this way
-        _rboxes = (_frame_root_boxes(u, _pw or {})
-                   if _pw and float(u.agl_m or 0.0) > 0.0 else {})
-        _rmerge = _merge_frame_roots(_rboxes) if len(_rboxes) > 1 else {}
+        # #1214 round 5 (owner, KMCI 1.0.420): an unchained body of ANY
+        # frame — a bridge or a wall piece against its garage — joins the
+        # unit whose parts it comes within a metre of; only the MERGING of
+        # two units stays a lifted frame's (plan boxes of an unlifted
+        # shared-datum frame overlap 20 m apart)
+        _rboxes = _frame_root_boxes(u, _pw or {}) if _pw else {}
+        _rmerge = (_merge_frame_roots(_rboxes)
+                   if len(_rboxes) > 1 and float(u.agl_m or 0.0) > 0.0 else {})
         written_of: dict[int, bool] = {}
         # 14at: the FILE a carrier group was actually written as.  A
         # candidate's own ``resource`` is a body SLOT's id — it is

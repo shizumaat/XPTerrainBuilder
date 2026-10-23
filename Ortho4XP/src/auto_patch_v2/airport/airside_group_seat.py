@@ -9,17 +9,17 @@ airside should be seated so it's airside is on the ground, even if that
 means some other part is sunken (or floating)."
 
 Round 3's one zero per connected unit (``open_frame_seat.root_zeros``) was
-the MEDIAN of its pieces' zeros over their parts: T2's central block over
-its road trench outvoted the halls that stand on the apron.  A frame's
-share of a connected unit that touches airside PAVEMENT (an apron, a
-taxiway: :func:`airside_pavement`; on it or within :data:`TOUCH_M`)
-instead takes its zero from the AIRSIDE FLOOR (:func:`floor_plane`): over
-those airside-contact feet, each foot says where the zero must be for it
-to stand on the solved airside surface (``airside z - y``), and the floor
-the aircraft side meets is the highest plane of feet; the deeper feet of a
-sunken level — a basement, a road trench's walls — then sink, the parts
-standing over lower ground float, and both are the terrain's to cut or
-fill (#1138).  A share touching no airside keeps round 3's zero.
+the MEDIAN of its pieces' zeros.  A frame's share of a connected unit that
+touches airside PAVEMENT (an apron, a taxiway: :func:`airside_pavement`; on
+it or within :data:`TOUCH_M`) instead takes its zero from the AIRSIDE FLOOR
+(:func:`floor_plane`): over the feet of its WALLED parts touching the
+pavement, each foot says where the zero must be for it to stand on the
+solved airside surface (``airside z - y``), and the floor is the
+FOUNDATION — the lowest substantial plane of those feet.  Round 4 took the
+highest plane: KMCI's concourse walls (y -1.1) stood on the apron and the
+complex sank a storey (owner, 1.0.420); the curb plane (y -5.8) is its
+floor.  What then sinks or floats is the terrain's to cut or fill
+(#1138).  A share touching no airside keeps round 3's zero.
 """
 from __future__ import annotations
 
@@ -54,33 +54,41 @@ def airside_pavement(surface: _t.Any) -> "_t.Callable[[str | None], bool]":
 
 
 #: a PLANE of the airside-contact feet holds at least this share of them,
-#: within :data:`PLANE_BAND_M` (the few feet of a stair or a sump are none)
+#: within :data:`PLANE_BAND_M` ...
 PLANE_SHARE = 0.1
 PLANE_BAND_M = 1.0
+#: ...and at least this many feet (or half of them, for a small share):
+#: what rules out a STRAY PIECE — one wall strip of a building standing
+#: in an uncut trench (LFPG 2A_1: 12 edge feet) is no airside floor
+PLANE_MIN_FEET = 20
 
 
 def floor_plane(zs: _t.Sequence[float]) -> "float | None":
-    """THE AIRSIDE FLOOR among a group's airside-contact feet: each foot's
-    zero candidate is ``airside z - y`` (where the group's zero must be for
-    THAT foot to stand on the airside), and the floor the aircraft side
-    meets is the HIGHEST plane of feet — the LOWEST plane of candidates
-    holding :data:`PLANE_SHARE` of them within :data:`PLANE_BAND_M`; its
-    median.  The feet of a sunken level (a basement, the walls of a road
-    trench under the terminal) stand deeper and read higher candidates:
-    LFPG T2's halls read 104-106, its trench walls 110-113, and the median
-    of all of them floated the halls 5-7 m."""
+    """THE AIRSIDE FLOOR among a group's airside-contact feet (RULINGS
+    2026-10-22q as read by #1214 round 5): each foot's zero candidate is
+    ``airside z - y`` (where the group's zero must be for THAT foot to
+    stand on the airside), and the floor that meets the apron is the
+    FOUNDATION — the LOWEST substantial plane of feet, i.e. the HIGHEST
+    plane of candidates holding :data:`PLANE_SHARE` of them and
+    :data:`PLANE_MIN_FEET` (or half of them) within :data:`PLANE_BAND_M`;
+    its median.  The feet above it are the building's upper storeys.
+    Round 4 took the highest plane of feet: KMCI's concourse walls at
+    y -1.1 stood on the apron and the complex sank a storey (owner,
+    1.0.420); its curb plane at y -5.8 is the floor (zero 310.7)."""
     if not zs:
         return None
-    v = sorted(float(z) for z in zs)
-    need = max(1, int(PLANE_SHARE * len(v) + 0.999999))
+    v = sorted((float(z) for z in zs), reverse=True)
+    need = max(1, int(PLANE_SHARE * len(v) + 0.999999),
+               min(PLANE_MIN_FEET, int(0.5 * len(v) + 0.999999)))
     j = 0
     for i in range(len(v)):
-        while v[j] < v[i] - PLANE_BAND_M:
+        while v[j] > v[i] + PLANE_BAND_M:
             j += 1
         if i - j + 1 >= need:
-            band = [x for x in v if v[j] <= x <= v[j] + PLANE_BAND_M]
+            band = [x for x in v if v[j] - PLANE_BAND_M <= x <= v[j]]
+            band.sort()
             return band[len(band) // 2]
-    return v[len(v) // 2]
+    return sorted(v)[len(v) // 2]
 
 
 def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
@@ -91,7 +99,8 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
     unit (``key_of(unit id, frame id)``) at least one of whose
     ground-contact feet stands on airside pavement or within
     :data:`TOUCH_M` of it: the :func:`floor_plane` of ``airside z - y``
-    over those feet, in the frame's own authored frame.  ``own_ground``,
+    over the feet of its WALLED parts on the pavement or within
+    :data:`TOUCH_M` of it, in the frame's own authored frame.  ``own_ground``,
     when given, is filled with every share's OWN-GROUND zero: the median
     of ``ground - y`` over all its feet.  Line objects (their feet are
     drape stations) are not read."""
@@ -100,7 +109,11 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
         return {}
     from . import anchor_rule as _ar
     airside_role = airside_pavement(surface)
-    feet: list[tuple[str, float, float, float]] = []
+    feet: list[tuple[str, float, float, float, bool, str]] = []
+    from ..law import Law
+    # the WALLED parts (``[placement] chain_min_height_m``): a foundation or
+    # a curb wall meets the apron; a floor slab, a sign or a bollard does not
+    wall_min = float(Law.load().tables.structures.placement.chain_min_height_m)
     for u in plan.units:
         for m in u.members:
             for p in m.parts:
@@ -108,22 +121,26 @@ def airside_zeros(plan: _t.Any, plan_wide: _t.Mapping[int, tuple],
                 if not seat or not seat[0] or getattr(p, "line", False):
                     continue
                 k = key_of(seat[0], str(u.id))
+                walled = float(getattr(p, "height_m", 0.0) or 0.0) >= wall_min
                 for f in getattr(p, "feet", ()) or ():
-                    feet.append((k, float(f[0]), float(f[1]), float(f[2])))
+                    feet.append((k, float(f[0]), float(f[1]), float(f[2]), walled,
+                                 str(m.id)))
     if not feet:
         return {}
     pts: list[tuple[float, float]] = []
-    for _k, la, lo, _y in feet:
+    for _k, la, lo, _y, _w, _m in feet:
         ml, mo = _ar._m_per_deg(la)
         pts.extend(_probes(la, lo, ml, mo))
     got = roles.roles_many([q[0] for q in pts], [q[1] for q in pts])
     n = len(_probes(0.0, 0.0, 1.0, 1.0))
     acc: dict[str, list[float]] = {}
     ground: dict[str, list[float]] = {}
-    for i, (k, la, lo, y) in enumerate(feet):
+    for i, (k, la, lo, y, walled, _mid) in enumerate(feet):
         g = surface(la, lo)
         if g is not None:
             ground.setdefault(k, []).append(float(g) - y)
+        if not walled:
+            continue
         hit = next((j for j in range(n) if airside_role(got[i * n + j])), None)
         if hit is None:
             continue

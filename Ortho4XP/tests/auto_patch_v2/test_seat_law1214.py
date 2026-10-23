@@ -538,16 +538,17 @@ def test_r5_touching_units_of_one_frame_move_as_one():
     assert got == {"fu:1": "fu:1", "fu:2": "fu:1", "fu:3": "fu:3"}
 
 
-def test_r4_an_airside_group_sits_on_its_airside_floor():
-    """RULINGS 2026-10-22q: the zero of a group touching airside pavement
-    is its AIRSIDE FLOOR — the highest plane of its airside-contact feet
-    (the lowest plane of ``airside z - y``), never the median that a
-    sunken level's deeper feet pull up: LFPG T2 read 104-106 for its halls
-    and 110-113 for its road-trench walls."""
+def test_r5_an_airside_group_sits_on_its_foundation_plane():
+    """RULINGS 2026-10-22q as read by round 5: the airside floor is the
+    FOUNDATION — the lowest substantial plane of the edge-contact feet
+    (the highest plane of ``airside z - y``).  KMCI: the concourse walls
+    (y -1.1, candidates ~306) are upper storeys over the curb plane
+    (y -5.8, candidate 310.7); a stray wall strip is no plane."""
     from auto_patch_v2.airport.airside_group_seat import floor_plane
-    halls = [105.0] * 71 + [104.0] * 12 + [106.0] * 30
-    trench = [112.0] * 64 + [113.0] * 32 + [111.0] * 24
-    assert floor_plane(halls + trench) in (104.0, 105.0)
-    # a stair or a sump (under the plane share) is no floor
-    assert floor_plane([90.0] * 3 + halls + trench) in (104.0, 105.0)
+    concourse = [306.0] * 900 + [305.0] * 460 + [304.0] * 110
+    curb = [310.7] * 250
+    assert floor_plane(concourse + curb) == 310.7
+    # a stray piece: 12 deep feet over 66 halls' feet is not a floor
+    halls = [104.3] * 35 + [100.2] * 14 + [105.0] * 5 + [106.0] * 12
+    assert abs(floor_plane(halls + [111.3] * 12) - 104.3) < 0.8
     assert floor_plane([]) is None

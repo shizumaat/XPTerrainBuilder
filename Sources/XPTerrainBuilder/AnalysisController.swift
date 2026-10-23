@@ -62,6 +62,12 @@ final class AnalysisController: ObservableObject {
     /// command and hands the result here (setGlobalAirports). Kept in
     /// memory so a rescan re-derives the marks without re-reading anything.
     private var globalAirports: [GlobalAirport] = []
+    /// Bumped by every setGlobalAirports. A scan stamps the overlays it
+    /// builds with the generation it started from; a publish whose stamp
+    /// is stale re-derives the marks from the current list
+    /// (`currentDefaults`), so an index delivered WHILE a scan runs is not
+    /// overwritten by the scan's empty-handed result.
+    private var globalAirportsGeneration = 0
 
     var rootURL: URL? {
         guard !xplanePath.isEmpty else { return nil }
@@ -91,6 +97,7 @@ final class AnalysisController: ObservableObject {
         // reported them (setGlobalAirports). An index that arrives AFTER
         // this scan installs itself on the finished overlays there.
         let globals = globalAirports
+        let generation = globalAirportsGeneration
         Task { [weak self] in
             let (installation, overlays, reconciliation) = await Task.detached(priority: .userInitiated) {
                 // Persisted scenery index: after the first launch, unchanged
@@ -113,7 +120,7 @@ final class AnalysisController: ObservableObject {
                             guard let self, self.isScanningInstallation,
                                   self.installationPacks.isEmpty else { return }
                             self.installationPacks = cachedPacks
-                            self.mapOverlays = overlays
+                            self.mapOverlays = self.currentDefaults(overlays, builtAt: generation)
                             self.scheduleViewportUpdate()
                         }
                     }
@@ -136,7 +143,7 @@ final class AnalysisController: ObservableObject {
                         Task { @MainActor [weak self] in
                             guard let self, self.isScanningInstallation else { return }
                             self.installationPacks = partial
-                            self.mapOverlays = overlays
+                            self.mapOverlays = self.currentDefaults(overlays, builtAt: generation)
                             self.scheduleViewportUpdate()
                         }
                     }
@@ -176,7 +183,7 @@ final class AnalysisController: ObservableObject {
             }
             self.lastScan = installation
             self.installationPacks = installation.packs
-            self.mapOverlays = overlays
+            self.mapOverlays = self.currentDefaults(overlays, builtAt: generation)
             self.isScanningInstallation = false
             self.progress.scanProgress = nil
             self.scheduleViewportUpdate()
@@ -195,8 +202,17 @@ final class AnalysisController: ObservableObject {
     /// lands after a finished scan still shows up on the map.
     func setGlobalAirports(_ airports: [GlobalAirport]) {
         globalAirports = airports
+        globalAirportsGeneration += 1
         mapOverlays = mapOverlays.withDefaultAirports(airports)
         scheduleViewportUpdate()
+    }
+
+    /// `overlays` as a scan built them from generation `generation` of the
+    /// default airports, brought up to the CURRENT list when one arrived
+    /// since (the scan captured the old list before it started).
+    private func currentDefaults(_ overlays: MapOverlays, builtAt generation: Int) -> MapOverlays {
+        generation == globalAirportsGeneration
+            ? overlays : overlays.withDefaultAirports(globalAirports)
     }
 
     /// Watch Custom Scenery, the Disabled folder and scenery_packs.ini for

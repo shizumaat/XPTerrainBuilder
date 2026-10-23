@@ -459,7 +459,9 @@ def platform_plane_rows(planar: PlanarMap, law: Law,
     sets += [(ref, own, f"plate:{ref}", False) for ref, own, _w in plates]
     from .pads import FLAT_RULING
     n_flat = 0
-    held = datum_vertices(planar, law)
+    # a block carrying a pad fill is flat at its own (stage-2) column too
+    # (``model.platform.datum_vertices`` ``fills``; road-edge drop D5)
+    held = datum_vertices(planar, law, fills=True)
     for pref, vs, tag, unit in sets:
         if unit and pref not in held:
             # a planned unit with no datum column (no welded frontage in
@@ -553,7 +555,7 @@ def landing_rows(planar: PlanarMap, law: Law,
     STATS.pop("landing_rows", None)
     if not planar.registries.landings:
         return []
-    held = datum_vertices(planar, law)
+    held = datum_vertices(planar, law, fills=True)
     rows: list[Row] = []
     n = n_none = 0
     for ref, vs in sorted(landing_vertices(planar).items()):

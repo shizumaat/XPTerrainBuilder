@@ -520,6 +520,10 @@ class BuildingPad:
     jetway_half_width_m: float | None = None
     jetway_cab_m: float | None = None
     jetway_token: str | None = None
+    #: RULINGS 2026-10-20d (spec ``road-edge-drop-spec.md`` R2): a pad fill
+    #: that cannot bank down takes the ground to every road strip within
+    #: this; ``0`` disarms it (WORKING VALUE, awaiting the owner)
+    fill_road_reach_m: float = 0.0
 
 
 @_dc.dataclass(frozen=True)

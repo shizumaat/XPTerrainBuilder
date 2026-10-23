@@ -75,8 +75,10 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
     follow reach of, laid along the ring's edges at the chord density, each
     with the base's level interpolated on its edge and the PIECE's cap (a
     ring's own cap binds inside the follow reach only, through the follow
-    rows).  A mapped-road ribbon welded to a piece is a follower (an
-    unknown), never a station; a ribbon beside no piece is a standing ring."""
+    rows).  No station lies on a road's DROP edge
+    (``airport/road_edge_wall.drop_edges``).  A mapped-road ribbon welded
+    to a piece is a follower (an unknown), never a station; a ribbon
+    beside no piece is a standing ring."""
     from ..constraints.groundside import groundside_face_roles
     from ..constraints.roads import road_family_roles
     from ..solve.design_ground import ground_roles
@@ -90,6 +92,10 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
     reach, reach_pad = reach_m(law), reach_m(law, pad=True)
     spacing = float(law.tables.emit.chords.station_spacing_m)
     V = pm_base.vertices
+    # owner RULINGS 2026-10-20d (round 3 D4 (b)): no station on a road's
+    # DROP edge — the piece beyond it keeps its own ground
+    from ..airport.road_edge_wall import drop_edges
+    drop = drop_edges(pm_base)
     ptree = STRtree(list(pieces)) if pieces else None
     segs, meta = [], []
     for f in sorted(pm_base.faces.values(), key=lambda f: f.id):
@@ -105,6 +111,8 @@ def late_stations(pm_base, z_base, pieces: _t.Sequence[Polygon], law: Law,
         name = f"{f.role}:{str(f.ref).split('#')[0]}"
         for e in es:
             ed = pm_base.edges[e]
+            if drop and frozenset((ed.a, ed.b)) in drop:
+                continue
             segs.append([V[ed.a].xy, V[ed.b].xy])
             meta.append((float(z_base[ed.a]), float(z_base[ed.b]), cls, cap_p,
                          setback if cls == PAD else 0.0, name))
@@ -319,6 +327,12 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
     cs, pad_ramp["runout_rows"] = runout_rows(pm, law, cs, fixed,
                                               dem=getattr(airport, "dem", None))
     pad_joins = pad_ramp.pop("joins")
+    # owner RULINGS 2026-10-15a (2) / 10-20d (round 3 D4): THE WALL IS THE
+    # STEP in this stage too — a road-edge drop's lower side is a gap piece
+    # (``airport/road_edge_wall``), and the pair rows across a declared
+    # wall's line leave here as they leave between §20b's stages
+    from ..constraints.road_ramp import wall_release
+    cs, wall_rep = wall_release(pm, law, cs)
     # 13d "road ramps first": where no cap-grade ramp fits between the pad
     # and the road's other standing end — the remainder.  13f: ONLY A
     # FREE-STANDING PAD takes any of it (one rigid pad, inside the cap);
@@ -373,7 +387,7 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
                               for r in (_CEILING_RULING, _FALLBACK_RULING)),
         widen_floor_m=floor_m)
     out(f"LAST STAGE (§53 (9)): followers {frep}; join {jrep}; "
-        f"rows with no unknown dropped {dropped}")
+        f"rows with no unknown dropped {dropped}; wall release {wall_rep}")
     grows, grep = ([], {"rows": 0, "conflicts": [], "declared": []}) if roads_only \
         else gap_follow_rows(pm, law, fixed, part_stations, BEHIND_STEP)
     if not roads_only:
@@ -411,7 +425,7 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
             r["z_m"] = round(float(sol.z[r["v"]]), 4)
             r["excess_m"] = round(r["z_m"] - r["pinned_m"], 4)
     report = {"cut": cut.report, "cl": cl_cut, "followers": frep, "join": jrep,
-              "pad_ramp": pad_ramp, "pad_exits": exits,
+              "pad_ramp": pad_ramp, "pad_exits": exits, "wall_release": wall_rep,
               "stage": {"floor_m": floor_m,
                         "followers": list(frep["follower_ribbon_refs"])},
               "dropped": dropped, "follow": grep, "cs": cs, "cs_full": cs_full,

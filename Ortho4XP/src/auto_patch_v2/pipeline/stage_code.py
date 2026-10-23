@@ -1126,6 +1126,11 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         constraints.geometry constraints.precedence constraints.runway_profile
         constraints.shoulder_crossing constraints.trend model.airport
     """),
+    "runway_step": _mods(_GENERATOR_CORE + """
+        constraints.geometry constraints.precedence constraints.runway_profile
+        constraints.runway_step constraints.shoulder_crossing constraints.trend
+        model.airport
+    """),
     "seams": _mods(_GENERATOR_CORE + """
         constraints.seams model.airport
     """),

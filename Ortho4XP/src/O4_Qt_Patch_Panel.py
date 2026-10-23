@@ -8,7 +8,7 @@ first" when the zoomed airport has no patch.  Edit mode adds the node
 inspector (one node: lat/lon, elevation, "Used by", Delete; several: the
 range, "Set to", "Offset", Delete N; a selected shape, #759: role, ref,
 nodes, area, perimeter, elevation range, "Used by", "Delete shape").  The save bar shows in Edit mode and
-whenever there is something to save or rebuild; "Undo my edits…" confirms
+whenever there is something to save or rebuild; "Undo" confirms
 inside the box.  The widgets are built once and refreshed in place, so a
 field being typed in keeps its focus.
 """
@@ -263,7 +263,7 @@ class PatchPanel(QGroupBox):
         self.unsaved_label.setStyleSheet("color: %s;" % SELECTION_COLOR)
         row.addWidget(self.unsaved_label)
         row.addStretch(1)
-        self.revert_button = QPushButton(GLOSSARY.TERMS["undo_edits"] + "…")
+        self.revert_button = QPushButton(GLOSSARY.TERMS["undo_edits"])
         self.revert_button.clicked.connect(lambda: self._confirming(True))
         self.save_button = QPushButton(GLOSSARY.TERMS["save_edits"])
         self.save_button.setDefault(True)

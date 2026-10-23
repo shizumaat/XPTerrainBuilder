@@ -799,6 +799,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.precedence",
         "auto_patch_v2.constraints.proximity",
         "auto_patch_v2.constraints.ramp_runout",
+        "auto_patch_v2.constraints.riser",
         "auto_patch_v2.constraints.road_ramp",
         "auto_patch_v2.constraints.roads",
         "auto_patch_v2.constraints.routes",
@@ -1210,7 +1211,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
     constraints.pad_relief constraints.pad_warning constraints.pads
     constraints.pavement_cap constraints.platform constraints.precedence
-    constraints.proximity constraints.ramp_runout constraints.road_ramp
+    constraints.proximity constraints.ramp_runout
+    constraints.riser constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
     constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
@@ -1428,7 +1430,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.pad_ramp constraints.pad_relief constraints.pad_road_reach
     constraints.pad_warning constraints.pads constraints.pavement_cap
     constraints.platform constraints.precedence constraints.proximity
-    constraints.ramp_runout constraints.road_ramp constraints.roads constraints.routes
+    constraints.ramp_runout
+    constraints.riser constraints.road_ramp constraints.roads constraints.routes
     constraints.runway_chord constraints.runway_mean_slope constraints.runway_profile
     constraints.runway_yield constraints.seams constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips

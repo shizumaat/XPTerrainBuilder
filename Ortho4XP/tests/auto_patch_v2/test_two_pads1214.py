@@ -124,3 +124,30 @@ def test_a_footless_frame_with_a_negative_lift_stands_on_the_authors_ground():
     assert FU._wall_base(un, [un], parts, 2.5, {}, lifted) == pytest.approx(5.502)
     flat = {q: ((39.29, -94.72), 0.0) for q in parts}
     assert FU._wall_base(un, [un], parts, 2.5, {}, flat) == 0.0
+
+
+def test_no_row_but_the_landing_spans_a_lower_levels_riser():
+    """KMCI ``building26/b1``: the pad ceiling and plane read across the
+    riser strip, and road ribbons crossing it, held the lower level's edge
+    up to 2 m over it (832 pad rows relaxed)."""
+    from auto_patch_v2.constraints import riser
+    from auto_patch_v2.model.constraints import Diff, Linear, Source
+    def face(i, ref, role, ring):
+        return types.SimpleNamespace(id=i, ref=ref, role=role, ring=ring, holes=())
+    faces = {0: face(0, "b", "building", (1, 2)), 1: face(1, "b/p1#strip", "building", (2, 3)),
+             2: face(2, "b/p1", "building", (3, 4)), 3: face(3, "r", "service_road", (2, 3, 5))}
+    pm = types.SimpleNamespace(
+        faces=faces, registries=types.SimpleNamespace(
+            landings={"b/p1": {"block": "b", "kind": "low_level", "y_lo": -2.4}}),
+        ring_vertices=lambda ring: ring)
+    src = Source("g", "r")
+    land = Source("landing_rows", "r", ("low_level:b/p1", "b/p1", "platform:b"))
+    rows = [Diff(2, 3, 0.01, 1.0, src),            # across the riser: withdrawn
+            Diff(3, 4, 0.01, 1.0, src),            # inside the lower level: kept
+            Diff(1, 2, 0.01, 1.0, src),            # inside the block: kept
+            Linear(((3, 1.0), (1, -1.0)), None, -2.4, land)]   # the landing row
+    counts: dict = {}
+    got = riser.riser_exempt(rows, pm, counts)
+    assert got == rows[1:]
+    assert counts["riser_rows_withdrawn"] == 1 and counts["riser_road_sites"] == 1
+    assert riser.STATS["riser_road_sites"] == ["r"]

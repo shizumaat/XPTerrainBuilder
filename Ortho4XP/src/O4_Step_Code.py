@@ -401,6 +401,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.constraints.precedence",
     "auto_patch_v2.constraints.proximity",
     "auto_patch_v2.constraints.ramp_runout",
+    "auto_patch_v2.constraints.riser",
     "auto_patch_v2.constraints.road_ramp",
     "auto_patch_v2.constraints.roads",
     "auto_patch_v2.constraints.routes",

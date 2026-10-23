@@ -152,3 +152,22 @@ def test_polygon_parts_reads_through_a_collection():
     a, b = box(0, 0, 1, 1), box(2, 0, 3, 1)
     gc = GeometryCollection([MultiPolygon([a, b]), LineString([(5, 5), (6, 6)]), box(4, 0, 5, 1)])
     assert [p.bounds for p in polygon_parts(gc)] == [a.bounds, b.bounds, (4, 0, 5, 1)]
+
+
+def test_a_seam_pavement_closes_before_the_shoulder_line_is_not_shoulder(law, rules):
+    """20n/20o: a pavement abutting the runway with a small gap (here an
+    apron 1.5 m off the south edge, covering the band to beyond its
+    shoulder line along its whole length) leaves a SEAM between the two
+    pavements, not shoulder ground: it never reaches the shoulder line,
+    so no runway-shoulder cell is minted there (HECA: two such seams
+    minted 15 ``runway_step`` DEFECT rows).  The north side, unpaved out
+    to its line, keeps its shoulder."""
+    a = _airport(10.0, ribbon=False)
+    a = _dc.replace(a, pavements=a.pavements + (
+        Pavement("abutting", Surface.ASPHALT, _rect(-300.0, -60.0, 1300.0, -16.5), ()),))
+    cl = classify(a, law, rules)
+    apt = [c for c in cl.cells if c.evidence.get("shoulder_source") == APT_SOURCE]
+    seam = box(-300.0, -16.5, 1300.0, -15.0)
+    assert all(_poly(c).intersection(seam).area < 1.0 for c in apt), cl.stats
+    north = unary_union([_poly(c) for c in apt]).intersection(box(-300.0, 15.0, 1300.0, 25.0))
+    assert north.area == pytest.approx(10.0 * 1060.0 - MOUTH.area, rel=0.01)

@@ -673,6 +673,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="--placement-plan: the build's o4_v2_rebake_<ICAO>.json — "
                          "arms the COHERENCE bars (group offsets, bridge ends and "
                          "spans; #1214)")
+    ap.add_argument("--surface", default="mesh", choices=("mesh", "graded"),
+                    help="the written census (--rebake-plan --dsf-dump): read the "
+                         "ground off the built mesh or the patch's --graded surface")
     ap.add_argument("--rows-dump", default="",
                     help="--placement-plan with --rebake-plan: the PRISTINE DSF "
                          "text dump, for the frame-rider bar")
@@ -710,8 +713,13 @@ def _census_written(ap, args) -> int:
     pristine = read_dump(args.rows_dump, accept_polygon=lambda _p: False)
     lons = [float(u.anchor[1]) for u in reb.units]
     lats = [float(u.anchor[0]) for u in reb.units]
-    sampler = MeshElevationSampler(args.mesh, (min(lons) - 0.01, min(lats) - 0.01,
-                                               max(lons) + 0.01, max(lats) + 0.01))
+    if args.surface == "graded" and args.graded:
+        # #1214 round 4: the PATCH's own design surface (the mesh may not
+        # carry it) — the same seat read against what the patch states
+        sampler = _GradedSampler(args.graded)
+    else:
+        sampler = MeshElevationSampler(args.mesh, (min(lons) - 0.01, min(lats) - 0.01,
+                                                   max(lons) + 0.01, max(lats) + 0.01))
 
     def surface(la, lo):
         return sampler.elevation_at_or_none(la, lo)
@@ -727,6 +735,7 @@ def _census_written(ap, args) -> int:
     decks = WS.deck_rows(written, reb, surface, args.pack, step)
     frames = WS.frame_rows(written, reb, surface, args.pack)
     lines = WS.written_lines(missing, decks, frames)
+    lines += WS.feet_lines(WS.member_feet(written, reb, surface, args.pack))
     for ln in lines:
         print(ln)
     return 1 if any("VIOLATED" in ln for ln in lines) else 0

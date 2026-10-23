@@ -15,7 +15,7 @@ import typing as _t
 from ..law import Law
 from ..model.constraints import Diff, Linear, Offset, Pin, Row, pinned_vertices
 from ..model.planar import PlanarMap
-from . import ceiling, eat, pavement_cap, ramp_runout, seams, structures, water
+from . import ceiling, eat, pavement_cap, ramp_runout, riser, seams, structures, water
 
 __all__ = ["assemble", "seam_exempt", "water_exempt"]
 
@@ -39,6 +39,11 @@ def assemble(rows: list[Row], counts: dict[str, int], walls: dict[str, float],
     walls["seam_pin_pair_exempt"] = 0.0
     counts["seam_pin_withdrawn_senior"] = n_seam_junior
     walls["seam_pin_withdrawn_senior"] = 0.0
+    # A LOWER LEVEL'S RISER IS A DECLARED STEP (#1214 round 6): no row but
+    # its landing row spans it -- the pad ceiling and plane across the
+    # strip, a road ribbon crossing it (a #1138 site)
+    rows = riser.riser_exempt(rows, planar, counts)
+    walls["riser_rows_withdrawn"] = 0.0
     # THE SENIOR STRUCTURE'S DATUM (precedence.toml [structures]): a
     # vertex two structures pin keeps one pin (lane v2hecalemd, LEMD)
     rows, n_junior = structures.reconcile_datums(rows, law)

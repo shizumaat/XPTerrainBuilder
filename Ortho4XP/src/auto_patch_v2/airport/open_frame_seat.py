@@ -218,6 +218,7 @@ def _gap_m(box: tuple, boxes: _t.Any) -> "float | None":
     """The least plan gap in metres between ``box`` and any of ``boxes``
     (``placement_boxes.box_gap_m``'s reading, over an array at once)."""
     import numpy as np
+
     from . import anchor_rule as _ar
     q = np.asarray(boxes, dtype=float).reshape(-1, 4)
     if not len(q):

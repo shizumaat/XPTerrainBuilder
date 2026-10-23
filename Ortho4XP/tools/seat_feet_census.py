@@ -37,10 +37,13 @@ from __future__ import annotations
 # other import because a tool's own ``--help`` carries the house spelling
 # (``Δ``, ``ε``, ``≥``, ``→``) and a Windows console RAISES on those
 # rather than mangling them.  Twin: ``tests/test_console_encoding.py``.
-import os as _o4os, sys as _o4sys                                    # noqa: E402
+import os as _o4os  # noqa: E402
+import sys as _o4sys
+
 _o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
     _o4os.path.abspath(__file__))), "src"))
-import O4_Console_Encoding as _o4console                             # noqa: E402
+import O4_Console_Encoding as _o4console  # noqa: E402
+
 _o4console.configure_console_streams()
 
 import argparse
@@ -54,7 +57,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
 import numpy as np  # noqa: E402
-
 from auto_patch.mesh_sampler import MeshElevationSampler  # noqa: E402
 from auto_patch_v2.airport import obj8  # noqa: E402
 

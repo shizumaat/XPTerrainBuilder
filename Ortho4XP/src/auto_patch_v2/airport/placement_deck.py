@@ -91,7 +91,7 @@ def deck_seat(body: _t.Any, u: _t.Any, m: _t.Any,
     low = min(cands, key=lambda c: (round(c[3], 6), round(abs(c[2]), 6),
                                     c[0], c[1]))
     rise = max(c[3] for c in cands) - low[3]
-    from .placement_plan import authored_offset   # circular at import time
+    from .placement_plan import authored_offset  # circular at import time
     off = authored_offset(low[0], low[1], low[2], u.anchor[0], u.anchor[1],
                           m.heading_deg)
     reason = (f"{DECK_REASON}{deck.ref}: low end (§49 (6) fallback, shear "
@@ -102,5 +102,5 @@ def deck_seat(body: _t.Any, u: _t.Any, m: _t.Any,
                      surface_z=low[3], offset=off, datum=True, reason=reason)
     counts["deck_on_bodies"] = counts.get("deck_on_bodies", 0) + 1
     counts["deck_fallback"] = counts.get("deck_fallback", 0) + 1
-    from .placement_file import named_body      # R1: the one file-name rule
+    from .placement_file import named_body  # R1: the one file-name rule
     return named_body(m, body, anchor=na)

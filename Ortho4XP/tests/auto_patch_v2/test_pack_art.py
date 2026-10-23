@@ -15,7 +15,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from auto_patch_v2.airport import backup_state as B
 from auto_patch_v2.airport import dsf_write as W
 from auto_patch_v2.airport import pack_art as PA

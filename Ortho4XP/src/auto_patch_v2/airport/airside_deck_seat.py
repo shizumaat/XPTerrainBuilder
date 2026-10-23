@@ -32,6 +32,7 @@ import os
 import typing as _t
 
 from . import anchor_rule as _ar
+from .bridge_approach import _median
 
 __all__ = ["deck_owns_its_datum", "airside_zero", "airside_frame",
            "airside_deck", "airside_role", "airside_end_ground", "slab_points",
@@ -61,11 +62,6 @@ def airside_role(role: "str | None") -> bool:
         except Exception:
             _SIDE[role] = False
     return _SIDE[role]
-
-
-def _median(xs: _t.Sequence[float]) -> float:
-    s = sorted(xs)
-    return s[len(s) // 2]
 
 
 def _perimeter(ring: _t.Sequence[tuple[float, float]], step_m: float

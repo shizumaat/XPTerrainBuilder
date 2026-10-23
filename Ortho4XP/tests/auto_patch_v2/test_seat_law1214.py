@@ -179,8 +179,8 @@ def test_a_signature_deck_in_a_buildings_frame_is_the_buildings_own():
 def test_a_deck_is_never_the_contents_of_a_below_grade_singleton():
     """KDAL's drainage cap over its channel: the channel (authored -3.6 m)
     is a retaining structure, not a building; its cap stays out of it."""
-    from shapely.geometry import box as _b  # noqa: F401
     from auto_patch_v2.airport import contents as C
+    from shapely.geometry import box as _b  # noqa: F401
     ring = ((0.0, 0.0), (0.0, 1e-3), (1e-3, 1e-3), (1e-3, 0.0))
     shim = lambda by: types.SimpleNamespace(rings=(ring,), part_boxes=(), base_y=by)  # noqa: E731
     shims = [shim(-3.6), shim(0.0)]
@@ -382,6 +382,7 @@ def test_r2_a_deck_placed_at_n_anchors_is_n_placements_not_skipped(tmp_path):
     at their authored AGL, tuned to the stock mesh.  A plain resource at
     two anchors is still dropped (its seat is the DSF row's, §16g (5))."""
     from types import SimpleNamespace as NS
+
     from auto_patch_v2.airport import obj8 as O
     from auto_patch_v2.airport import pack_partition as PPa
     from auto_patch_v2.law import Law

@@ -24,6 +24,8 @@ import os
 import re
 import typing as _t
 
+from .bridge_approach import _median
+
 __all__ = ["missing_defs", "resource_of", "body_offset_y", "row_zero",
            "deck_rows", "frame_rows", "written_lines"]
 
@@ -83,11 +85,6 @@ def row_zero(row: _t.Any, surface: Surface, pack_root: str, memo: dict
             return None
         base = float(g) + (elev if kind == "OBJECT_AGL" else 0.0)
     return base - body_offset_y(pack_root, row.def_path, memo)
-
-
-def _median(xs: _t.Sequence[float]) -> float:
-    s = sorted(xs)
-    return s[len(s) // 2]
 
 
 def _zeros_by_resource(written: _t.Any, surface: Surface, pack_root: str

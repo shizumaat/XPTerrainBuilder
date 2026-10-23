@@ -320,7 +320,7 @@ def _foot_rows(feet: _t.Iterable, a: _t.Any, offset: _t.Sequence[float],
     """``(pts, rise, off_surface)``: the feet in the body's own authored
     frame (after the writer's translation by ``offset``) and how much
     higher each must render to meet the surface — :func:`fit`'s input."""
-    from .placement_plan import authored_offset   # circular at import time
+    from .placement_plan import authored_offset  # circular at import time
     za, y0 = float(a.surface_z), float(a.y_zero)
     dx, dy, dz = (float(q) for q in offset)
     pts: list[tuple[float, float, float]] = []
@@ -359,7 +359,7 @@ def frame_tilts(staged: _t.Sequence[_t.Any], u: _t.Any, surface: _t.Any, *,
     if surface is None or cap <= 0.0:
         return {}
     shared = shared if shared is not None else shared_frames(staged)
-    from .placement_plan import authored_offset   # circular at import time
+    from .placement_plan import authored_offset  # circular at import time
     groups: dict[tuple, list] = {}
     for st in staged:
         for k, grp in enumerate(st.groups):
@@ -406,7 +406,7 @@ def with_frame_seat(body: _t.Any, m: _t.Any, seat: "SeatTilt | None") -> _t.Any:
     renamed for the tilt it bakes (§4.5 / 14at); unchanged with none."""
     if seat is None or body.merged_into or not seat.applied:
         return body
-    from .placement_file import named_body      # R1: the one file-name rule
+    from .placement_file import named_body  # R1: the one file-name rule
     return named_body(m, body, seat=seat)
 
 
@@ -465,5 +465,5 @@ def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
             counts.get("seat_tilt_too_few_feet", 0) + 1
     # §4.5 / 14at: the FILE IS KEYED ON WHAT IT BAKES, so a tilted body's
     # resource name must carry the tilt as it carries the offset
-    from .placement_file import named_body      # R1: the one file-name rule
+    from .placement_file import named_body  # R1: the one file-name rule
     return named_body(m, body, seat=seat)

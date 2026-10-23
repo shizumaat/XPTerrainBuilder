@@ -427,6 +427,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.emit.graded",
     "auto_patch_v2.emit.osm_adapter",
     "auto_patch_v2.emit.rebake",
+    "auto_patch_v2.emit.ring_fold",
     "auto_patch_v2.emit.road_join",
     "auto_patch_v2.emit.surface",
     "auto_patch_v2.emit.terrain_edge",

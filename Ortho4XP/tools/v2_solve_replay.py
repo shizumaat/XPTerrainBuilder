@@ -1102,6 +1102,11 @@ def emit_patch(icao, pm, law, airport, cs, sol, emit_dir: Path, strips=None,
     surf_out = weld_to_shore(surf_out, law, shore, wrep)
     surf_out = merge_sub_spacing(surf_out, law, wrep)
     print("    " + wrep.line(icao))
+    # issue #1275: the emitted rings the mesh would drop, as the build reads them
+    from auto_patch_v2.emit.ring_fold import ring_folds
+    _folds = ring_folds(surf_out)
+    print(f"    [{icao}] emitted rings NOT simple: {len(_folds)}"
+          + "".join(f"; {r['way_a']}" for r in _folds[:10]))
     pub = publication(pm, law, airport, sol.z, cs, strips=strips,
                       strip_rep=strip_rep, hard_conflict=hard_conflict,
                       runway_flex=runway_flex)

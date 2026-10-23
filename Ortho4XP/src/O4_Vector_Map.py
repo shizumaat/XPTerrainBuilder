@@ -3814,6 +3814,17 @@ def audit_interp_alt_seed_sealing(vector_map):
 
 
 ################################################################################
+def _say_dropped_patch_ring(pfile_name, wayid, dt, why):
+    """A patch ring the mesh cannot take is NEVER dropped silently (issue
+    #1275): its interior gets no INTERP_ALT seed and keeps the raw DEM, so
+    the drop is an ERROR at verbosity 0, naming the patch and the way."""
+    tags = dt["w"].get(wayid, {})
+    UI.loud_warning(
+        f"     ERROR: patch {pfile_name} way {wayid} "
+        f"(role={tags.get('role', '?')} ref={tags.get('ref', '?')}) is "
+        f"{why}; the ring is DROPPED and its interior keeps the raw DEM.")
+
+
 def include_patches(vector_map, tile):
     def tanh_profile(alpha, x):
         return (numpy.tanh((x - 0.5) * alpha) / numpy.tanh(0.5 * alpha) + 1) / 2
@@ -4133,9 +4144,11 @@ def include_patches(vector_map, tile):
                                     vector_map.dico_attributes["DUMMY"],
                                 )
                     else:
-                        UI.vprint(2, "     Skipping invalid patch polygon.")
-                except:
-                    UI.vprint(2, "     Skipping invalid patch polygon.")
+                        _say_dropped_patch_ring(pfile_name, wayid, dt,
+                                                "not a valid polygon")
+                except Exception as exc:
+                    _say_dropped_patch_ring(pfile_name, wayid, dt,
+                                            f"{type(exc).__name__}: {exc}")
             else:
                 # RULINGS 2026-09-13cp: an OPEN load-bearing run is a
                 # BREAKLINE (see OPEN_BREAKLINE_FEATURES above) — the

@@ -96,6 +96,16 @@ def _shoulder_sides(rw):
                              (bx + k * h * nx, by + k * h * ny)] for k in (1.0, -1.0)])
 
 
+def _reaches(p, sides, tol: float) -> bool:
+    """True when the body of ``p`` — what is at least ``tol`` wide, its
+    morphological opening at that width — runs out to within ``tol`` of the
+    shoulder line ``sides``.  A spur narrower than the touch tolerance along
+    an abutting pavement's end is that pavement's edge noise, and never
+    carries a seam out to the line."""
+    body = p.buffer(-0.5 * tol, **_MITRE).buffer(0.5 * tol, **_MITRE)
+    return not body.is_empty and body.distance(sides) <= tol
+
+
 def taxiway_entrances(inside, rw, taxi_parts, taxi_tree, rules: Rules,
                       depth_m: float = 0.0) -> list[Polygon]:
     """The TAXIWAY ENTRANCES inside a §40 shoulder candidate's band part
@@ -189,7 +199,8 @@ def mint_apt_shoulders(airport, cells: list, law: Law, rules: Rules,
     pavement edge's own noise, not ground.
 
     AND IT REACHES THE SHOULDER LINE (20n, 20o): a piece of the band is
-    the band's ground only when it runs out to the band's own long side
+    the band's ground only when its body (what is at least the tolerance
+    wide, :func:`_reaches`) runs out to the band's own long side
     (:func:`_shoulder_sides`, within the same tolerance).  A piece that
     pavement closes off before the line is the SEAM between the runway and
     a pavement that abuts it (20o: they weld directly), not shoulder
@@ -224,7 +235,7 @@ def mint_apt_shoulders(airport, cells: list, law: Law, rules: Rules,
         minted = []
         for p in polygon_parts(fixed_difference(band, taken_u)):
             if p.area < rules.cells.min_area_m2 or is_hairline(p, tol) \
-                    or p.distance(host) > tol or p.distance(sides) > tol:
+                    or p.distance(host) > tol or not _reaches(p, sides, tol):
                 continue
             add("runway", rw.id, p, kind, rw.code_number, rw.code_letter,
                 {"area_m2": p.area, "kind": kind, "shoulder_of": rw.id,

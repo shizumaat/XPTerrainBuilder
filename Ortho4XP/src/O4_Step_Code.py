@@ -684,6 +684,7 @@ _BEYOND_SHARED: dict[str, tuple[str, ...]] = {
         "O4_Triangle_Binary",
         "O4_Triangle_IO",
         "auto_patch.object_stage",
+        "auto_patch_v2.airport.frame_riders",
         "auto_patch_v2.airport.object_stage_reuse",
         "auto_patch_v2.airport.pack_journal",
         "auto_patch_v2.airport.placement_write",

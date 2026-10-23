@@ -552,3 +552,22 @@ def test_r5_an_airside_group_sits_on_its_foundation_plane():
     halls = [104.3] * 35 + [100.2] * 14 + [105.0] * 5 + [106.0] * 12
     assert abs(floor_plane(halls + [111.3] * 12) - 104.3) < 0.8
     assert floor_plane([]) is None
+
+
+def test_23b_the_stands_are_read_from_the_packs_apt_dat(tmp_path):
+    """RULINGS 2026-10-23b: the airside floor is chosen at the AIRCRAFT
+    STANDS — apt.dat 1300 gate / tie_down startups and 1500 jetways."""
+    from auto_patch_v2.airport.airside_group_seat import stands_of
+    nav = tmp_path / "Earth nav data"
+    nav.mkdir()
+    (nav / "apt.dat").write_text(
+        "I\n1100 Version\n\n1 1000 0 0 ZZZZ Test\n"
+        "1300 40.0001 -3.0002 90.0 gate jets A1\n"
+        "1300 40.0003 -3.0004 90.0 hangar props H\n"
+        "1500 40.0005 -3.0006 90.0 0 0 0 0 0 0 0 0 0 0\n\n99\n",
+        encoding="utf-8", newline="")
+    plan = types.SimpleNamespace(pack_root=str(tmp_path), icao="ZZZZ")
+    got = stands_of(plan)
+    assert (40.0001, -3.0002) in got and (40.0005, -3.0006) in got
+    assert (40.0003, -3.0004) not in got          # a hangar is no stand
+    assert stands_of(types.SimpleNamespace(pack_root="", icao="ZZZZ")) == []

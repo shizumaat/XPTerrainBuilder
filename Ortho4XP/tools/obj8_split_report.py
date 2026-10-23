@@ -1222,6 +1222,22 @@ def print_footless(c: _t.Mapping[str, _t.Any]) -> None:
           f"frontage)")
 
 
+def _plan_dsf(dsfs: list, plan) -> str:
+    """The pack DSF of the tile the plan's units stand in (a pack serving
+    several tiles — LFPG's +48+002 / +49+002 — wrote the FIRST one, and
+    the airport's own DSF went unwritten; #1214 round 3)."""
+    import math
+    lats = sorted(float(u.anchor[0]) for u in plan.units)
+    lons = sorted(float(u.anchor[1]) for u in plan.units)
+    if lats:
+        la, lo = math.floor(lats[len(lats) // 2]), math.floor(lons[len(lons) // 2])
+        name = f"{la:+03d}{lo:+04d}.dsf"
+        for d in dsfs:
+            if os.path.basename(d) == name:
+                return d
+    return dsfs[0]
+
+
 def _write_pack(a, plan, ss, sampler) -> None:
     """THE WRITE HALF into a pack COPY (11e (3)) — the same order the
     engine runs (``airport/placement_write.apply_plan``), never a second
@@ -1241,7 +1257,7 @@ def _write_pack(a, plan, ss, sampler) -> None:
                   + glob.glob(os.path.join(root, "Earth nav data", "*.dsf")))
     if not dsfs:
         raise SystemExit(f"no DSF under {root}/Earth nav data")
-    dsf_path = dsfs[0]
+    dsf_path = _plan_dsf(dsfs, plan)
     tool = a.dsftool or _dsftool_path()
     work = tempfile.mkdtemp(prefix="o4_split_write_")
     src = _dw.pristine_dsf_path(dsf_path)          # the ONE resolver (11m)

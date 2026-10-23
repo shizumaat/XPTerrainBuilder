@@ -277,8 +277,10 @@ def conversions_for_dump(dump_obj: _t.Any, pack_root: str | None = None,
     ``OBJECT`` or ``OBJECT_AGL`` is not listed at all — except the AGL
     rows the caller names in ``convert_agl`` (a §18 RE-SEATED row, whose
     seat is the law's and not the author's: "§18 walls/pits stay as they
-    are", 14g) and a SINK (``authored_landing.is_sink``: a negative
-    column is not a lift, and converts as before pending the owner).
+    are", 14g).  A SINK (``authored_landing.is_sink``, a negative column)
+    is NOT converted either (#1214 round 3, R2): stripping it without a
+    seat lifted LFPG's hard deck H17 from AGL -2.30 to the ground, +2.3 m;
+    the split seats a sink, and an unsplit one keeps the author's row.
 
     An ``OBJECT_MSL`` that is a genuine flying object is not
     distinguishable from the DSF; the law is on-ground for every
@@ -287,8 +289,7 @@ def conversions_for_dump(dump_obj: _t.Any, pack_root: str | None = None,
     conversions: list = []
     kept: list = []
     for i, p in enumerate(dump_obj.placements):
-        if p.kind != KIND_MSL and not (p.kind == KIND_AGL and (
-                i in convert_agl or _al.is_sink(p))):
+        if p.kind != KIND_MSL and not (p.kind == KIND_AGL and i in convert_agl):
             continue
         conversions.append(Conversion(i, p.def_path, p.lon, p.lat,
                                       p.heading_deg, p.kind,
@@ -1262,6 +1263,22 @@ def _sibling_plans(entry: _t.Mapping, plan: PlacementPlan, dump_sha: str,
     return plans, keep
 
 
+def missing_body_files(pack_root: str, plan: _t.Any) -> list[str]:
+    """Every ``new_resource`` the plan writes an ``OBJECT_DEF`` for that is
+    not a file in the pack — the DSF would reference art nothing wrote
+    (#1214 round 3, R1: the owner's 1.0.417 LFPG and KMCI DSFs named 21)."""
+    return [r for r in plan.new_resources()
+            if not os.path.isfile(os.path.join(pack_root, *r.replace("\\", "/").split("/")))]
+
+
+def _refuse_missing_bodies(pack_root: str, plan: _t.Any) -> None:
+    missing = missing_body_files(pack_root, plan)
+    if missing:
+        raise ValueError(
+            f"REFUSING to write a DSF naming {len(missing)} body file(s) that do "
+            f"not exist in the pack (#1214 R1): {missing[:4]}")
+
+
 def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
                allow_live_install: bool = False,
                work_dir: str | None = None,
@@ -1381,6 +1398,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
         plan = _sg.without_splits(plan, undone, "split undone: " + "; ".join(
             sorted(set(undone.values()))))
         composed = plan.compose(siblings)
+        _refuse_missing_bodies(pack_root, composed)          # #1214 R1
         edited, omitted, unused = _edited_text(text, composed, omit, engine_version
                                                or plan.provenance.engine_version)
         with open(edited_text, "w", encoding="utf-8",

@@ -478,7 +478,18 @@ def cmd_plan(args: argparse.Namespace) -> int:
         jetway_strip_m=getattr(getattr(law.tables.emit, "design", None),
                                "jetway_strip_m", None),
         pads=pads, rims=rims, engine_version="", law_digest="",
-        write_cuts=False)
+        write_cuts=bool(args.write_pack))
+    if args.write_pack:
+        # #1214 round 3: the WRITTEN acceptance — the app's own plan, cut
+        # and written into a pack COPY by ``placement_write.apply_plan``
+        # (the members are still READ from the plan's pack; nothing is
+        # written there)
+        if args.runs != 1:
+            raise SystemExit("--write-pack replays once: pass --runs 1")
+        copy = os.path.abspath(args.write_pack)
+        keywords["pack_root"] = copy
+        keywords["dsf_path"] = os.path.join(
+            copy, os.path.relpath(dsf_path, plan_.pack_root))
     import inspect
     accepted = set(inspect.signature(_pw.build_plan).parameters)
     for key in [k for k in keywords
@@ -539,6 +550,14 @@ def cmd_plan(args: argparse.Namespace) -> int:
     print("  plan counts: %s   files %d"
           % (dict(last_plan.counts()), len(last_files)))
 
+    if args.write_pack:
+        from auto_patch.dsf_reader import _dsftool_path
+        res = _pw.apply_plan(last_plan, last_files, _dsftool_path(),
+                             patch_dir=os.path.dirname(os.path.abspath(
+                                 args.plan_out or os.path.join(args.write_pack, "x"))))
+        last_plan = res.plan
+        print("  written into the copy: %d body file(s), DSF %s"
+              % (len(res.files_written), last_plan.dsf_path))
     if args.plan_out:
         with open(args.plan_out, "w") as fh:
             fh.write(last_plan.to_json())
@@ -740,6 +759,10 @@ def _main(argv: list[str] | None = None) -> int:
     pl.add_argument("--dsf-dump", default="",
                     help="the DSF text dump (default: read from the mod "
                          "cache — never generated, the churn ruling)")
+    pl.add_argument("--write-pack", default="",
+                    help="cut and write the replayed plan into this pack COPY "
+                         "(placement_write.apply_plan; never the plan's own "
+                         "pack) — the DSF and files the census reads (#1214)")
     pl.add_argument("--plan-out", default="",
                     help="write the replayed o4_v2_placement_<ICAO>.json here "
                          "(lane-local) to diff against the shipped one")

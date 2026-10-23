@@ -278,6 +278,12 @@ def dump_rows(dump: _t.Any, rebake_plan: _t.Any, ss: _t.Any, splits: _t.Sequence
                                        ss.unit_seats, tol_m=feet_tol_m,
                                        drape_tol_m=tol_m, counts=msl_counts)
     msl = tuple(msl) + feet
+    # owner RULINGS 2026-10-22f (#1214): a lifted row inside a re-seated
+    # frame moves with the frame (KMCI's 614 terminal seats)
+    from .frame_riders import frame_rider_seats
+    _taken = (settled | frozenset(m.index for m in msl)
+              | frozenset(c.index for c in conversions))
+    msl = msl + frame_rider_seats(dump, splits, surface, _taken, msl_counts)
     from . import riders as _riders
     counts: dict[str, int] = {"conversions": len(conversions),
                               "authored_rows_kept": authored_rows,

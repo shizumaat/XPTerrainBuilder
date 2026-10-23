@@ -652,7 +652,8 @@ def keep_off_row(z_row: "float | None", anchor: "Anchor | None",
 
 
 def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
-                  datum: "Datum") -> "Anchor | None":
+                  datum: "Datum", authored_agl_m: "float | None" = None
+                  ) -> "Anchor | None":
     """§16e: the body anchored ON ITS DATUM — at the station whose ground
     is the MEDIAN of the datum's stations, with ``y_zero = datum.y``.
 
@@ -679,6 +680,16 @@ def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     ``None`` where no station reads a surface at all: nothing to anchor
     to, and the generic rule then reads as before."""
     water = getattr(surface, "water", None)
+    # #1214 round 3, R4 (owner RULINGS 2026-10-22m / 22p): a deck with two
+    # END LINES meets the ground AT them — flush at the end nearer its
+    # ground, or at its authored clearance where neither end line shows an
+    # embankment (``airport/bridge_approach``)
+    from .bridge_approach import approach_seat
+    seat = approach_seat(datum, surface, origin=(geom.origin_lat, geom.origin_lon),
+                         authored_agl_m=authored_agl_m)
+    if seat is not None:
+        return Anchor(body_class, seat.lat, seat.lon, seat.surface_z - seat.zero,
+                      seat.reason, seat.surface_z, datum=True)
     stations, walked = _walked_stations(datum, surface, water)
     zs: list[tuple[float, float, float]] = []
     wet = off = 0
@@ -977,7 +988,7 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     # ``tunnel_wall`` ring) and §14 (2)'s rim anchor, written for a floor
     # plate authored -depth, stood their crests +5 … +20 m over the rim.
     if datum is not None and datum.stations:
-        a = _datum_anchor(body_class, geom, surface, datum)
+        a = _datum_anchor(body_class, geom, surface, datum, authored_agl_m)
         if a is not None:
             return a
     if not geom.parts:

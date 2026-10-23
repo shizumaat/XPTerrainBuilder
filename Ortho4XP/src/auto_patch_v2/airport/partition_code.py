@@ -49,6 +49,7 @@ DIGEST_FILENAME = "partition_code.sha256"
 CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2",
     "auto_patch_v2.airport",
+    "auto_patch_v2.airport.airside_deck_seat",
     "auto_patch_v2.airport.anchor_rule",
     "auto_patch_v2.airport.apt_dat",
     "auto_patch_v2.airport.authored_landing",
@@ -57,6 +58,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.basin_ring",
     "auto_patch_v2.airport.basin_witness",
     "auto_patch_v2.airport.borrow",
+    "auto_patch_v2.airport.bridge_approach",
     "auto_patch_v2.airport.bridge_family",
     "auto_patch_v2.airport.bulk_geos",
     "auto_patch_v2.airport.cluster_profile",
@@ -79,6 +81,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.airport.obj8_roof",
     "auto_patch_v2.airport.obj8_split",
     "auto_patch_v2.airport.one_building",
+    "auto_patch_v2.airport.open_frame_seat",
     "auto_patch_v2.airport.pack",
     "auto_patch_v2.airport.pack_partition",
     "auto_patch_v2.airport.pack_work",

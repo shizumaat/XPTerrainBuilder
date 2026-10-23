@@ -48,7 +48,7 @@ DeckDatum = _t.Callable[[_t.Sequence[XY]], "float | None"]
 
 # ── §16e (2): THE DECK'S END LINES (owner RULINGS 2026-09-13k) ───────────
 
-def ring_ends(ring: _t.Sequence[tuple[float, float]]
+def ring_ends(ring: _t.Sequence[tuple[float, float]], *, cross: bool = False
               ) -> "tuple[tuple[tuple[float, float], tuple[float, float]], tuple[tuple[float, float], tuple[float, float]]] | None":
     """A deck ring's two END LINES — ``((a, b), (c, d))`` in ``(lat, lon)``,
     the shape ``Member.deck_ends`` already carries for a SIGNATURE deck.
@@ -68,6 +68,11 @@ def ring_ends(ring: _t.Sequence[tuple[float, float]]
     the DATUM's reading, not this one (:func:`anchor_rule._datum_anchor`
     discards a station on water).
 
+    ``cross`` (#1214 round 3, R3): the ends across the OTHER axis — an
+    airside hard deck wider than its span (a taxiway carried over a road)
+    has its principal axis along the road, and its end lines across the
+    taxiway are the cross ones (``airside_deck_seat`` reads both).
+
     ``None`` for a ring of fewer than three points or one with no
     extent."""
     if len(ring) < 3:
@@ -82,7 +87,7 @@ def ring_ends(ring: _t.Sequence[tuple[float, float]]
     a = sum((q[0] - mx) ** 2 for q in pts) / n
     b = sum((q[0] - mx) * (q[1] - my) for q in pts) / n
     c = sum((q[1] - my) ** 2 for q in pts) / n
-    th = 0.5 * _math.atan2(2.0 * b, a - c)
+    th = 0.5 * _math.atan2(2.0 * b, a - c) + (0.5 * _math.pi if cross else 0.0)
     ux, uy = _math.cos(th), _math.sin(th)
     proj = [((q[0] - mx) * ux + (q[1] - my) * uy,
              -(q[0] - mx) * uy + (q[1] - my) * ux) for q in pts]

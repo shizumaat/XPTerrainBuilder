@@ -613,7 +613,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.routes",
         "auto_patch_v2.constraints.runway_chord",
         "auto_patch_v2.constraints.runway_profile",
-        "auto_patch_v2.constraints.runway_step",
         "auto_patch_v2.constraints.runway_yield",
         "auto_patch_v2.constraints.shoulder_crossing",
         "auto_patch_v2.constraints.stretches",
@@ -1432,7 +1431,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.platform constraints.precedence constraints.proximity
     constraints.ramp_runout constraints.road_ramp constraints.roads constraints.routes
     constraints.runway_chord constraints.runway_mean_slope constraints.runway_profile
-     constraints.runway_step
+    constraints.runway_step
     constraints.runway_yield constraints.seams constraints.shoulder_crossing
     constraints.slab_weld constraints.stretches constraints.strips
     constraints.structures constraints.taxi constraints.taxi_trend
@@ -1521,7 +1520,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
     constraints.pads constraints.platform constraints.precedence constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
-    constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
+    constraints.runway_mean_slope constraints.runway_profile
     constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.surface_trend constraints.taxi constraints.taxi_trend
@@ -1590,7 +1589,7 @@ CODE_MODULES["verify"] = _mods("""
     constraints.no_step constraints.pad_frontage_gs constraints.pad_relief
     constraints.pad_warning constraints.pads constraints.platform constraints.precedence
     constraints.roads constraints.routes constraints.runway_chord
-    constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
+    constraints.runway_mean_slope constraints.runway_profile
     constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.taxi constraints.taxi_trend

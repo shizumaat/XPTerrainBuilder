@@ -15,14 +15,14 @@ plan's own rows (the ``to_dict`` shape every census here reads):
   family, or one placement of an OPEN frame — a bridge, a canopy) at
   different zeros;
 * :func:`census_bridge_ends` — a free-standing deck's NEARER end more
-  than ``end_tol_m`` off its approach ground, an end UNDER its approach,
+  than ``end_tol_m`` off the ground at its end line, an end UNDER it,
   and a deck SPAN under the ground (10-22m: the other end's gap is the
   terrain's to grade, #1138, and is listed, not barred);
 * :func:`census_frame_riders` — a lifted row standing in a re-seated
   frame that did not move with it, or stands under the ground.
 
 The relations are the law's own functions (``frame_riders``,
-``anchor_rule._approach_ends``), never copies.  Bars are 0.
+``bridge_approach``), never copies.  Bars are 0.
 """
 from __future__ import annotations
 
@@ -70,7 +70,12 @@ def census_group_offsets(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                 continue
             key = b.get("family_of") or ""
             if key:
-                groups[f"unit {key}"].append((z, res))
+                # one zero per unit PER FRAME: two frames chained into one
+                # unit keep their authored relation, each at its own lift
+                # (#1214 round 3, RULINGS 2026-10-22o)
+                pl = s.get("placement") or {}
+                fr = f"{float(pl.get('lat', 0.0)):.6f},{float(pl.get('lon', 0.0)):.6f}"
+                groups[f"unit {key} frame {fr}"].append((z, res))
             if res in open_resources:
                 groups[f"open {res}#{idx}"].append((z, res))
     bad = []
@@ -85,14 +90,18 @@ def census_group_offsets(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
 
 def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                        decks: _t.Sequence[_t.Any], surface: Surface, *,
-                       step_m: float, walk_max_m: float,
+                       step_m: float, walk_max_m: float = 0.0,
                        end_tol_m: float = END_TOL_M) -> dict:
-    """Per free-standing deck member (``decks``: rebake ``Member``-shaped
-    objects with ``resource``, ``deck_top_y``, ``deck_ends``): each END's
-    offset from its APPROACH ground (the highest land reading on the
-    landward walk, ``anchor_rule._approach_ends``) and the deck SPAN under
-    the ground at the deck's mid-line."""
-    from .anchor_rule import Datum, _approach_ends
+    """Per free-standing deck (``decks``: ``(unit, member)`` pairs of the
+    rebake plan, or bare members): each END's offset from the ground AT
+    its end line (``bridge_approach.end_ground``, #1214 round 3 R4) and the
+    deck SPAN under the ground at the deck's mid-line.  A deck the law
+    holds at its AUTHORED CLEARANCE (no embankment at either end, RULINGS
+    2026-10-22p) is listed with its end gaps and never barred.
+    ``walk_max_m`` is accepted and unused (the walk is retired)."""
+    from .anchor_rule import Datum
+    from .bridge_approach import approach_seat, end_ground
+    from .rebake_plan import end_line_stations
     zeros: dict[str, list[float]] = collections.defaultdict(list)
     for s in splits:
         res = str((s.get("placement") or {}).get("resource", ""))
@@ -102,7 +111,8 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
                 zeros[res].append(z)
     water = getattr(surface, "water", None)
     rows, ends_off, spans_under = [], 0, 0
-    for m in decks:
+    for item in decks:
+        u, m = item if isinstance(item, tuple) else (None, item)
         ends = tuple(tuple((float(q[0]), float(q[1])) for q in ln)
                      for ln in (getattr(m, "deck_ends", None) or ()))
         top = getattr(m, "deck_top_y", None)
@@ -110,12 +120,15 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
         if top is None or len(ends) < 2 or not zs:
             continue
         zero = zs[len(zs) // 2]
-        got = _approach_ends(Datum(float(top), (), "deck top", ends=ends,
-                                   step_m=step_m, walk_max_m=walk_max_m),
-                             surface, water)
-        if got is None:
+        got = [end_ground(end_line_stations([e], step_m), surface, water)
+               for e in ends]
+        if any(g is None for g in got):
             continue
-        offs = [zero + float(top) - g for g in got[1]]
+        offs = [zero + float(top) - g[0] for g in got]
+        seat = None if u is None else approach_seat(
+            Datum(float(top), (), "deck top", ends=ends, step_m=step_m),
+            surface, origin=tuple(u.anchor), authored_agl_m=u.agl_m)
+        clearance = seat is not None and "authored clearance" in seat.reason
         mid = (0.25 * sum(q[0] for ln in ends for q in ln),
                0.25 * sum(q[1] for ln in ends for q in ln))
         gm = surface(*mid)
@@ -123,11 +136,12 @@ def census_bridge_ends(splits: _t.Sequence[_t.Mapping[str, _t.Any]],
         # 10-22m: the NEARER end is flush; the other end floats over its
         # approach by the gap the terrain must grade up (#1138) — only an
         # end UNDER its approach, or a nearest end off it, is the seat's
-        n_off = (int(abs(min(offs)) > end_tol_m)
-                 + sum(1 for o in offs if o < -end_tol_m and o != min(offs)))
+        n_off = 0 if clearance else (
+            int(abs(min(offs)) > end_tol_m)
+            + sum(1 for o in offs if o < -end_tol_m and o != min(offs)))
         ends_off += n_off
         spans_under += int(under is not None and under < 0.0)
-        rows.append((str(m.resource), offs, under))
+        rows.append((str(m.resource), offs, under, clearance))
     return {"bridges": len(rows), "ends_off": ends_off,
             "spans_under": spans_under, "rows": rows, "end_tol_m": end_tol_m}
 
@@ -203,10 +217,12 @@ def coherence_lines(groups: "dict | None", bridges: "dict | None",
                    f"{bridges['spans_under']} ({bridges['bridges']} bridge(s); bar 0)"
                    + ("" if not (bridges["ends_off"] or bridges["spans_under"])
                       else "   *** VIOLATED ***"))
-        for res, offs, under in bridges["rows"]:
+        for res, offs, under, clear in bridges["rows"]:
             out.append(f"      {res.rsplit('/', 1)[-1]:28s} ends "
                        + " / ".join(f"{o:+.2f}" for o in offs)
-                       + f"  far-end gap to grade (#1138) {max(offs) - min(offs):.2f} m"
+                       + ("  AUTHORED CLEARANCE (22p): end gaps listed for #1138"
+                          if clear else
+                          f"  far-end gap to grade (#1138) {max(offs) - min(offs):.2f} m")
                        + ("" if under is None else f"  span {under:+.2f}"))
     if riders is not None:
         out.append(f"   frame riders off their frame > {riders['tol_m']:g} m: "

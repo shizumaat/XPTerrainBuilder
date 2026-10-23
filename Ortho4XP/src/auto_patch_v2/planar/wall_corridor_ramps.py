@@ -40,9 +40,10 @@ __all__ = ["wall_corridor_groups", "RAMP_ROLE", "GARAGE_ROLE", "KIND", "ROAD_ROL
            "road_true_edge", "full_wall_ramp", "OBJECT_FRAMED",
            "wall_corridor_profile", "wall_corridor_note"]
 
-#: The groundside ROAD family §34 (9) can pinch a ramp against.  A parking
-#: lot is not a road (it is a place, and §24's pad law governs it).
-ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
+#: The groundside ROAD family §34 (9) can pinch a ramp against
+#: (``model/planar.ROAD_ROLES``, the one home).  A parking lot is not a
+#: road (it is a place, and §24's pad law governs it).
+from ..model.planar import ROAD_ROLES  # noqa: E402
 
 _MITRE = dict(join_style="mitre", mitre_limit=2.0)
 

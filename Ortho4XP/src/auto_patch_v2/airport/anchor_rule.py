@@ -652,7 +652,8 @@ def keep_off_row(z_row: "float | None", anchor: "Anchor | None",
 
 
 def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
-                  datum: "Datum") -> "Anchor | None":
+                  datum: "Datum", authored_agl_m: "float | None" = None
+                  ) -> "Anchor | None":
     """§16e: the body anchored ON ITS DATUM — at the station whose ground
     is the MEDIAN of the datum's stations, with ``y_zero = datum.y``.
 
@@ -679,22 +680,16 @@ def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     ``None`` where no station reads a surface at all: nothing to anchor
     to, and the generic rule then reads as before."""
     water = getattr(surface, "water", None)
-    ends = _approach_ends(datum, surface, water)
-    if ends is not None:
-        # owner RULINGS 2026-10-22m (#1214): "Seat bridges so whichever end
-        # is closer to the ground, that sides deck is flush with the
-        # terrain, then the still floating side, the terrain must grade up
-        # to the deck height" — the deck meets its HIGHER approach flush;
-        # the gap over the lower one is the terrain's to close (#1138)
-        (la, lo, za), z_ends = ends
-        zero = max(z_ends) - datum.y
-        return Anchor(body_class, la, lo, za - zero,
-                      f"§16e {datum.label} datum: the authored y {datum.y:+.2f} "
-                      f"at the approach ground "
-                      + " / ".join(f"{z:.2f}" for z in z_ends)
-                      + " (flush at the nearer end; the other end's gap "
-                        "graded by the terrain; landward walk)",
-                      za, datum=True)
+    # #1214 round 3, R4 (owner RULINGS 2026-10-22m / 22p): a deck with two
+    # END LINES meets the ground AT them — flush at the end nearer its
+    # ground, or at its authored clearance where neither end line shows an
+    # embankment (``airport/bridge_approach``)
+    from .bridge_approach import approach_seat
+    seat = approach_seat(datum, surface, origin=(geom.origin_lat, geom.origin_lon),
+                         authored_agl_m=authored_agl_m)
+    if seat is not None:
+        return Anchor(body_class, seat.lat, seat.lon, seat.surface_z - seat.zero,
+                      seat.reason, seat.surface_z, datum=True)
     stations, walked = _walked_stations(datum, surface, water)
     zs: list[tuple[float, float, float]] = []
     wet = off = 0
@@ -715,63 +710,6 @@ def _datum_anchor(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
                   f"§16e {datum.label} datum: the authored y {datum.y:+.2f} at "
                   f"the ground {z:.2f} ({len(zs)} station(s) on land, {wet} on "
                   f"water, {off} off-sheet{walked})", z, datum=True)
-
-
-def _approach_ends(datum: "Datum", surface: Surface, water
-                   ) -> "tuple[tuple[float, float, float], list[float]] | None":
-    """Owner RULINGS 2026-10-22f (#1214, KMCI 1.0.415): "Bridges are under
-    ground: it's just their ends that should be set at ground level."  A
-    deck plate's END LINE often lies on the embankment's slope, over the
-    dip the bridge spans (KMCI ``road-bridge-6``: 289.9 at the end line,
-    294.3 m 15 m on, 288.7 under the span), and the deck seated on it sat
-    4-5 m under the road that drives onto it.  So each end reads the
-    APPROACH: the highest land reading (median over the line) on its
-    landward walk, out to ``walk_max_m`` — an embankment rises to its
-    bridge, and the walk stops before the next crossing.
-
-    Returns ``((lat, lon, z) of the first end's mid-line on land, [end
-    ground per end])``, or ``None`` where the walk is not armed or an end
-    reads no land (then §16e (2)/(6)'s median station stands)."""
-    if (len(datum.ends) < 2 or datum.step_m <= 0.0 or datum.walk_max_m <= 0.0):
-        return None
-    from .rebake_plan import _mpd, end_line_stations
-    mids = [(0.5 * (a[0] + b[0]), 0.5 * (a[1] + b[1])) for a, b in datum.ends]
-    z_ends: list[float] = []
-    first: "tuple[float, float, float] | None" = None
-    for i, (a, b) in enumerate(datum.ends):
-        base = end_line_stations([(a, b)], datum.step_m)
-        ml, mo = _mpd(mids[i][0])
-        other = mids[(i + 1) % len(mids)]
-        dla, dlo = (mids[i][0] - other[0]) * ml, (mids[i][1] - other[1]) * mo
-        norm = math.hypot(dla, dlo)
-        if norm <= 1e-6:
-            return None
-        ux, uy = dla / norm, dlo / norm
-        best: "float | None" = None
-        w = 0.0
-        while w <= datum.walk_max_m + 1e-9:
-            pts = tuple((la + ux * w / ml, lo + uy * w / mo) for la, lo in base)
-            kept, _wet, _off = _line_reading(pts, surface, water)
-            if kept:
-                zs = sorted(q[0] for q in kept)
-                z = zs[len(zs) // 2]
-                if best is None or z > best:
-                    best = z
-            w += datum.step_m
-        if best is None:
-            return None
-        z_ends.append(best)
-        if first is None:
-            za = surface(mids[i][0], mids[i][1])
-            if za is None or (water is not None and water(mids[i][0], mids[i][1])):
-                kept, _w, _o = _line_reading(base, surface, water)
-                if not kept:
-                    return None
-                za, la, lo = kept[len(kept) // 2]
-                first = (la, lo, float(za))
-            else:
-                first = (mids[i][0], mids[i][1], float(za))
-    return first, z_ends
 
 
 def _line_reading(pts: _t.Sequence[tuple[float, float]], surface: Surface,
@@ -1050,7 +988,7 @@ def anchor_for(body_class: BodyClass, geom: BodyGeometry, surface: Surface,
     # ``tunnel_wall`` ring) and §14 (2)'s rim anchor, written for a floor
     # plate authored -depth, stood their crests +5 … +20 m over the rim.
     if datum is not None and datum.stations:
-        a = _datum_anchor(body_class, geom, surface, datum)
+        a = _datum_anchor(body_class, geom, surface, datum, authored_agl_m)
         if a is not None:
             return a
     if not geom.parts:

@@ -1003,6 +1003,15 @@ def is_osm_ribbon_ref(ref) -> bool:
 ROAD_REACH_KEY = "road_reach"
 
 
+#: The classification roles whose faces ARE patch ROAD ribbons — the road
+#: cross-section family and the groundside pavement a kerb road runs over
+#: (``classify/roles.py``).  One home (#1214 round 3): the Law C mouth
+#: test (``airport/wall_corridor_probe``), §34 (9)'s ramp pinch
+#: (``planar/wall_corridor_ramps``) and a road overpass's end line
+#: (``airport/bridge_approach``) read this set.
+ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
+
+
 def is_road_reach(cell) -> bool:
     """A ribbon cell of the aerodrome's road reach (:data:`ROAD_REACH_KEY`)."""
     return bool((getattr(cell, "evidence", None) or {}).get(ROAD_REACH_KEY))

@@ -484,7 +484,7 @@ def _print_coherence(plan: dict, rebake_path: str, rows_dump: str,
                 if u.members and all((m.deck_kind or "") in _OPEN_KINDS
                                      for m in u.members)
                 for m in u.members}
-    decks = [m for u in reb.units if frame_is_bridge(u) for m in u.members]
+    decks = [(u, m) for u in reb.units if frame_is_bridge(u) for m in u.members]
     br = Law.load().tables.structures.bridge
     g = PCo.census_group_offsets(plan.get("splits", ()), open_res)
     b = PCo.census_bridge_ends(plan.get("splits", ()), decks, surface,
@@ -498,8 +498,19 @@ def _print_coherence(plan: dict, rebake_path: str, rows_dump: str,
                                     plan.get("msl_seats", ()), surface)
     for line in PCo.coherence_lines(g, b, r):
         print(line)
+    # #1214 round 3, R1: every body file the plan names is a file in the pack
+    pack = plan.get("pack_root") or ""
+    names = sorted({str(bd["new_resource"]) for sp in plan.get("splits", ())
+                    for bd in sp.get("bodies", ()) if bd.get("new_resource")})
+    missing = [n for n in names if pack and not os.path.isfile(
+        os.path.join(pack, *n.replace("\\", "/").split("/")))]
+    print(f"   body files the plan names that are not in the pack: {len(missing)} "
+          f"of {len(names)} (bar 0)" + ("   *** VIOLATED ***" if missing else ""))
+    for n in missing[:8]:
+        print(f"      {n}")
     return (int(bool(g["apart"])) + int(bool(b["ends_off"] or b["spans_under"]))
-            + int(bool(r and (r["off_frame"] or r["under_floor"]))))
+            + int(bool(r and (r["off_frame"] or r["under_floor"])))
+            + int(bool(missing)))
 
 
 #: §13's threshold when the plan carries no law digest of its own: the
@@ -667,12 +678,56 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.mesh and not args.graded:
         ap.error("pass --mesh (the built mesh) or --graded (the design surface)")
+    if args.dsf_dump and args.rebake_plan and not args.placement_plan:
+        return _census_written(ap, args)
     if args.dsf_dump:
         return _census_dump(ap, args)
     if not args.placement_plan:
         ap.error("pass --placement-plan (the plan's rows) or --dsf-dump (the "
                  "pristine rows)")
     return _census_placement_plan(ap, args)
+
+
+def _census_written(ap, args) -> int:
+    """#1214 round 3: THE SEAT AS WRITTEN — ``--rebake-plan R --dsf-dump
+    WRITTEN.text --rows-dump PRISTINE.text --mesh M --pack ROOT [--graded
+    G]`` reads the DSF the owner loads and the mesh, never the plan
+    (``airport/written_seat_census``): (i) missing OBJECT_DEF files, (ii)
+    airside hard decks at their end lines, (iii) road overpasses, (iv)
+    lifted footed frames.  Exit 1 on a bar violated."""
+    from auto_patch_v2.airport import written_seat_census as WS
+    from auto_patch_v2.airport.dsf import read_dump
+    from auto_patch_v2.law import Law
+    from auto_patch_v2.model.rebake import RebakePlan
+    if not args.rows_dump or not args.pack or not args.mesh:
+        ap.error("the written census needs --rows-dump PRISTINE.text, --pack ROOT "
+                 "and --mesh")
+    with open(args.rebake_plan) as fh:
+        reb = RebakePlan.from_json(fh.read())
+    written = read_dump(args.dsf_dump, accept_polygon=lambda _p: False)
+    pristine = read_dump(args.rows_dump, accept_polygon=lambda _p: False)
+    lons = [float(u.anchor[1]) for u in reb.units]
+    lats = [float(u.anchor[0]) for u in reb.units]
+    sampler = MeshElevationSampler(args.mesh, (min(lons) - 0.01, min(lats) - 0.01,
+                                               max(lons) + 0.01, max(lats) + 0.01))
+
+    def surface(la, lo):
+        return sampler.elevation_at_or_none(la, lo)
+    if args.graded:
+        from auto_patch_v2.airport import placement_boxes as _pb
+        from auto_patch_v2.law import tables as _T
+        law = Law.load()
+        with open(args.graded) as fh:
+            surface.roles = _pb.graded_roles_from_doc(
+                json.load(fh), rank=lambda r: _T.authority_rank(law, r))
+    step = Law.load().tables.structures.bridge.abutment_sample_step_m
+    missing = WS.missing_defs(written, pristine, args.pack)
+    decks = WS.deck_rows(written, reb, surface, args.pack, step)
+    frames = WS.frame_rows(written, reb, surface, args.pack)
+    lines = WS.written_lines(missing, decks, frames)
+    for ln in lines:
+        print(ln)
+    return 1 if any("VIOLATED" in ln for ln in lines) else 0
 
 
 def _census_dump(ap, args) -> int:

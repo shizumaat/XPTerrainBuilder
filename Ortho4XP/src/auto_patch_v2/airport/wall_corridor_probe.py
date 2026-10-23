@@ -28,9 +28,8 @@ from .wall_geometry import (_MIN_SEG_M, _MITRE, _plan_polys, _rect_axis, _seat_b
 # ── the groundside mouth (RULINGS 2026-09-10z (b'')) ──────────────
 
 #: The classification roles whose faces ARE patch road ribbons for the
-#: mouth test: the road cross-section family and the groundside pavement
-#: a kerb road runs over (``classify/roles.py``).
-ROAD_ROLES = ("service_road", "service_junction", "groundside_pavement")
+#: mouth test (``model/planar.ROAD_ROLES``, the one home).
+from ..model.planar import ROAD_ROLES  # noqa: E402
 #: The OSM feeds a ``highway=*`` way is read from (``airport/osm.FEEDS``).
 ROAD_FEEDS = ("airport_small_roads", "big_roads")
 

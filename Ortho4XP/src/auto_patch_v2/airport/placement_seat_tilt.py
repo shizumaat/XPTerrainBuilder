@@ -406,8 +406,8 @@ def with_frame_seat(body: _t.Any, m: _t.Any, seat: "SeatTilt | None") -> _t.Any:
     renamed for the tilt it bakes (§4.5 / 14at); unchanged with none."""
     if seat is None or body.merged_into or not seat.applied:
         return body
-    return _dc.replace(body, seat=seat, new_resource=_split.body_resource_name(
-        m.resource, body.body_id, body.anchor.offset, seat.grad))
+    from .placement_file import named_body      # R1: the one file-name rule
+    return named_body(m, body, seat=seat)
 
 
 def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
@@ -465,7 +465,5 @@ def seat_tilt(body: _t.Any, u: _t.Any, m: _t.Any, *,
             counts.get("seat_tilt_too_few_feet", 0) + 1
     # §4.5 / 14at: the FILE IS KEYED ON WHAT IT BAKES, so a tilted body's
     # resource name must carry the tilt as it carries the offset
-    res = (body.new_resource if not seat.applied
-           else _split.body_resource_name(m.resource, body.body_id, a.offset,
-                                          seat.grad))
-    return _dc.replace(body, seat=seat, new_resource=res)
+    from .placement_file import named_body      # R1: the one file-name rule
+    return named_body(m, body, seat=seat)

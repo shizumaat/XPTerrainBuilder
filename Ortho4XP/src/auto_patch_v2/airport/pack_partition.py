@@ -669,7 +669,15 @@ def partition_pack(airport: Airport, objects: _t.Sequence[_obj8.PlacedObject],
     # members instead of 1,187 at LEMD for it (+37 s; OTHH +263 s).  So
     # the drop is applied HERE, on the screened set, and the exempted
     # plates come back INCREMENTALLY in :func:`extend_partition`.
-    drop_now = multi - set(sc.plate_paths)
+    # #1214 round 3, R2: ...and a DECK FAMILY's resource is not dropped
+    # either.  "One file cannot carry per-placement offsets" stopped being
+    # true at RULINGS 2026-09-14at: a body file is keyed on the offset it
+    # bakes, so N placements write N files.  LFPG's hard decks H2 x3, H3 x2,
+    # H7 x4 and H17 x3 stood at their authored AGL, tuned to the stock
+    # mesh (H7 +12 m over the airside).
+    deck_paths = {o.path for o in objects if o.id in deck_family_ids}
+    counts["multi_anchor_decks_kept"] = len(multi & deck_paths)
+    drop_now = multi - set(sc.plate_paths) - deck_paths
     counts["multi_anchor"] = len(drop_now)
     for r in sorted(drop_now):
         skipped[r] = (f"placed at {len(anchors_by_resource[r])} anchors — one "

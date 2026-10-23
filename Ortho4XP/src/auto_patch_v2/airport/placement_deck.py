@@ -23,7 +23,6 @@ import dataclasses as _dc
 import typing as _t
 
 from . import anchor_rule as _ar
-from . import obj8_split as _split
 
 __all__ = ["deck_seat", "DECK_REASON", "SAMPLE_GRID"]
 
@@ -103,6 +102,5 @@ def deck_seat(body: _t.Any, u: _t.Any, m: _t.Any,
                      surface_z=low[3], offset=off, datum=True, reason=reason)
     counts["deck_on_bodies"] = counts.get("deck_on_bodies", 0) + 1
     counts["deck_fallback"] = counts.get("deck_fallback", 0) + 1
-    return _dc.replace(body, anchor=na,
-                       new_resource=_split.body_resource_name(
-                           m.resource, body.body_id, off))
+    from .placement_file import named_body      # R1: the one file-name rule
+    return named_body(m, body, anchor=na)

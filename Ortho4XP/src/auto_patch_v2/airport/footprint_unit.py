@@ -844,6 +844,10 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
             by_key[(ui, mi)] = m
     out: dict[str, tuple[float, str, str]] = {}
     parts = {p.pid: p for u in plan.units for m in u.members for p in m.parts}
+    #: R5 (#1214 round 3): part id -> its frame's (anchor, authored lift)
+    frame_of = {p.pid: (tuple(round(float(q), 9) for q in getattr(u, "anchor", ())),
+                        float(getattr(u, "agl_m", 0.0) or 0.0))
+                for u in plan.units for m in u.members for p in m.parts}
     #: 19u: unit id -> (highest pavement its pieces imply, its walled files)
     pav: dict[str, tuple[float, frozenset]] = {}
     #: 22b: unit root id -> its walls' median authored base, read once
@@ -867,7 +871,7 @@ def plan_unit_datums(units: _t.Sequence[PlanUnit], plan: _t.Any,
             # owner RULINGS 2026-10-22b (#1214): the WALLS seat the unit —
             # its zero stands where its perimeter walls' feet meet the pad
             # (or the ground), not where its authored y = 0 would
-            base = _wall_base(un, units, parts, wall_min_m, frame_base)
+            base = _wall_base(un, units, parts, wall_min_m, frame_base, frame_of)
             if p is not None and p.z:
                 # §16g (10) (9) (2) AMENDED — ONE PAD DATUM RULE, THE
                 # MEDIAN (owner RULINGS 2026-09-17t: "Pad datum: median,
@@ -910,21 +914,32 @@ def _unit_root(uid: str) -> str:
 
 def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
                parts: _t.Mapping[int, _t.Any], wall_min_m: float,
-               memo: dict) -> float:
+               memo: dict,
+               frame_of: "_t.Mapping[int, tuple] | None" = None) -> float:
     """Owner RULINGS 2026-10-22b (#1214): "for any closed object group,
     like a building with solid walls, we only need to check the
     perimeter/wall objects to determine the seat".  The authored ``y`` the
-    unit's WALLS stand on — the median authored ``y`` of the ground-contact
-    FEET of its walled parts (solid height >= ``wall_min_m``) — which the
-    datum subtracts so the
-    walls' feet meet the pad or the ground.  Read over every piece of the
-    UNIT the pad-level and block passes cut (one root id), so the pieces
-    of one building still take one zero.
+    unit's WALLS stand on, which the datum subtracts so the walls' feet
+    meet the pad or the ground.  Read over every piece of the UNIT the
+    pad-level and block passes cut (one root id), so the pieces of one
+    building still take one zero.
 
-    0.0 (the pre-22b reading: the zero on the pad) where the unit names no
-    walled part, or ``wall_min_m`` is 0.  KMCI: the terminal's walls stand
-    at y -1.1 on the apron pad, and the zero ON the pad put the shell
-    1.1 m under it, the carpet under the apron."""
+    #1214 round 3, R5: A LIFTED FRAME STANDS ON THE AUTHOR'S GROUND.  The
+    unit's DOMINANT frame (one anchor spelling: the frame most of its walls'
+    feet belong to) with an authored ``OBJECT_AGL`` lift > 0 has its author's
+    ground plane at ``y_g = -lift`` — his correction for the stock terrain
+    under that frame — and it is the base, when the LOWEST plane of that
+    frame's walls' feet (:data:`PLANE_SHARE` of them or more) lies within
+    :data:`AUTHOR_GROUND_M` of it (the cross-check).  The other frames chained
+    to it stand on the same ground by their own lift
+    (``open_frame_seat.group_zero``).  KMCI's
+    terminal (148 members at one anchor, ``OBJECT_AGL +8.499``): its walls
+    stand on two floors, y -8.5 and y -1.1, and the median (-1.10) put the
+    concourse on the apron and the lower floor 7.4 m under it.
+
+    Else the median authored ``y`` of the ground-contact FEET of its walled
+    parts (solid height >= ``wall_min_m``); 0.0 (the zero on the pad) where
+    the unit names no walled part, or ``wall_min_m`` is 0."""
     if wall_min_m <= 0.0 or not getattr(un, "pids", None):
         return 0.0
     root = _unit_root(un.id)
@@ -940,7 +955,31 @@ def _wall_base(un: _t.Any, units: _t.Sequence[_t.Any],
                     and float(getattr(parts[q], "height_m", 0.0) or 0.0) >= wall_min_m
                     for f in (getattr(parts[q], "feet", ()) or ()))
         memo[root] = ys[len(ys) // 2] if ys else 0.0
+        if frame_of:
+            # the DOMINANT frame: the one standing on most of the walls' feet
+            by: dict[tuple, list[float]] = {}
+            for q in pids:
+                if (q in parts and q in frame_of and not getattr(parts[q], "line", False)
+                        and float(getattr(parts[q], "height_m", 0.0) or 0.0) >= wall_min_m):
+                    by.setdefault(frame_of[q], []).extend(
+                        float(f[2]) for f in (getattr(parts[q], "feet", ()) or ()))
+            if by:
+                fr, yd = max(sorted(by.items()), key=lambda kv: len(kv[1]))
+                lift = fr[1]
+                near = sum(1 for y in yd if abs(y + lift) <= AUTHOR_GROUND_M)
+                below = sum(1 for y in yd if y < -lift - AUTHOR_GROUND_M)
+                if (lift > 0.0 and near >= PLANE_SHARE * len(yd)
+                        and below < PLANE_SHARE * len(yd)):
+                    memo[root] = -lift
     return memo[root]
+
+
+#: R5's cross-check: the lowest wall-foot plane lies this close to the
+#: author's ground ``-lift`` (22o: "come within a meter")
+AUTHOR_GROUND_M = 1.0
+#: ...and a PLANE of the walls' feet is at least this share of them (the
+#: few feet of a sump or a stair well under the floor are no plane)
+PLANE_SHARE = 0.1
 
 
 def _airside_floor(cc: _t.Sequence[tuple[float, float, float, float]],

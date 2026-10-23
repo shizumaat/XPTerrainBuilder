@@ -46,10 +46,13 @@ def test_an_agl_row_on_a_deck_is_not_converted():
         _row("OBJECT", None, path="objects/hangar.obj")])
     conv, kept = W.conversions_for_dump(dump)
     assert [c.index for c in conv] == [1] and kept == []
-    # a SINK (negative column) is not a lift: it converts as before
+    # a SINK (negative column) is not a lift — and is never stripped
+    # without a seat (#1214 round 3, R2: LFPG H17 rose 2.3 m)
     sunk = types.SimpleNamespace(placements=[_row("OBJECT_AGL", -0.45)])
     assert AL.is_sink(sunk.placements[0])
-    assert [c.index for c in W.conversions_for_dump(sunk)[0]] == [0]
+    assert W.conversions_for_dump(sunk)[0] == []
+    assert [c.index for c in W.conversions_for_dump(
+        sunk, convert_agl={0})[0]] == [0]
     plan = types.SimpleNamespace(units=(), contacts=(), flat=None, authored_seats=())
     ss = types.SimpleNamespace(unit_seats=())
     conv, msl, riders, counts = PW.dump_rows(dump, plan, ss, (), _flat(), "",

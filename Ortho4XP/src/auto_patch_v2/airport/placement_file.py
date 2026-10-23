@@ -32,7 +32,37 @@ from . import placement_carrier as _pc
 from .placement_cut import GEOM_PTS_MAX, _Raw, pristine_path, thin_points
 from .placement_record import Body, Kept, Split
 
-__all__ = ["OWN_GROUND", "authored_offset"]
+__all__ = ["OWN_GROUND", "authored_offset", "baked_name", "named_body"]
+
+
+# ── THE FILE NAME IS WHAT THE FILE BAKES (#1214 round 3, R1) ─────────────
+
+def baked_name(m: Member, body: Body, seat: _t.Any = None) -> str:
+    """The pack-relative file ``body`` is written as: ``obj8_split.
+    body_resource_name`` over the offset the CUT bakes (the pristine
+    frame, :func:`_pristine_offset` — #1102's ``zero_y`` restored) and the
+    seat tilt it bakes (``seat``, else the body's own; ``NO_TILT`` unless
+    applied).  ONE derivation, called by every pass that moves an anchor
+    after the body was named (§49's deck seat, the seat tilt, the airside
+    deck, the rigid open frame) and by the cut itself: the owner's 1.0.417
+    LFPG and KMCI DSFs referenced 21 files nothing wrote, because two
+    passes replaced ``anchor.offset`` and kept the old offset's name."""
+    s = body.seat if seat is None else seat
+    tilt = (tuple(s.grad) if s is not None and getattr(s, "applied", False)
+            else _split.NO_TILT)
+    return _split.body_resource_name(
+        m.resource, body.body_id,
+        _pristine_offset(body.anchor.offset, getattr(m, "zero_y", 0.0)), tilt)
+
+
+def named_body(m: Member, body: Body, **changes: _t.Any) -> Body:
+    """``body`` with ``changes`` applied (``anchor=``, ``seat=``) and its
+    ``new_resource`` re-derived by :func:`baked_name`."""
+    b = _dc.replace(body, **changes) if changes else body
+    if not _dc.is_dataclass(b) or getattr(b, "anchor", None) is None:
+        return b
+    name = baked_name(m, b)
+    return b if name == b.new_resource else _dc.replace(b, new_resource=name)
 
 
 # ── the authored frame ───────────────────────────────────────────────────
@@ -446,6 +476,10 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         _note_tilted_kept_whole(m, counts, tilted_whole, index)
         whole.append(record)
         return
+    # R1 (#1214 round 3): every body is named for what its file bakes,
+    # whatever pass moved its anchor last
+    record = _dc.replace(record, bodies=tuple(named_body(m, b) for b in bodies))
+    bodies = record.bodies
     files: tuple[_split.SplitFile, ...] = ()
     err = ""
     if write:
@@ -507,6 +541,20 @@ def _cut_and_file(record: Split, m: Member, write: bool, counts: dict[str, int],
         record = _dc.replace(record,
                              bodies=tuple(b for b in bodies
                                           if b.body_id in live))
+    if files:
+        # R1: the plan names the file the cut WROTE (a body owning an ANIM
+        # block is written untilted, ``tilt_refused_anim``) — counted, so
+        # a second derivation drifting from the writer is never silent
+        wrote = {f.body_id: f.resource for f in files}
+        fixed = tuple(b if (wrote.get(b.body_id, b.new_resource) == b.new_resource
+                            or not _dc.is_dataclass(b))
+                      else _dc.replace(b, new_resource=wrote[b.body_id])
+                      for b in record.bodies)
+        n = sum(1 for a, b in zip(record.bodies, fixed, strict=True) if a is not b)
+        if n:
+            counts["body_name_from_written_file"] = \
+                counts.get("body_name_from_written_file", 0) + n
+            record = _dc.replace(record, bodies=fixed)
     splits.append(_dc.replace(record, files=files))
 
 

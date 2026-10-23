@@ -37,10 +37,10 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("runway_profile", runway_profile.runway_profile),
     ("runway_crown", runway_profile.runway_crown),
     ("runway_transverse", runway_profile.runway_transverse),
+    ("runway_vertical_curve", runway_profile.runway_vertical_curve),
     # §40 (5) (4): no step between two faces of the runway family — the
     # hard rows behind the ``runway_step`` DEFECT family
     ("runway_step", runway_step.runway_step_rows),
-    ("runway_vertical_curve", runway_profile.runway_vertical_curve),
     # THE MEAN RUNWAY SLOPE (Annex 14 §3.1.13; audit §4 M1, RULINGS
     # 2026-10-15l (1)): all-pairs rows over each runway's ridge stations
     ("runway_mean_slope", runway_mean_slope.runway_mean_slope),

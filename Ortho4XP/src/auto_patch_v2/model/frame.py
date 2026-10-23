@@ -20,7 +20,8 @@ XY = tuple[float, float]
 LL = tuple[float, float]
 Key = tuple[float, float]
 
-__all__ = ["m_per_deg_exact", "XY", "LL", "Key", "Frame", "identity_key"]
+__all__ = ["m_per_deg_exact", "XY", "LL", "Key", "Frame", "identity_key",
+           "identity_slack_m"]
 
 #: THE FRAME HAS TWO PROJECTIONS, AND THE DIFFERENCE BETWEEN THEM IS THE
 #: LAW (spec §46, owner 2026-09-17 Q 17d-1; RULINGS 2026-09-17d / 17g).
@@ -75,6 +76,17 @@ def identity_key(lat: float, lon: float, dp: int) -> Key:
     round(lon, dp))``.  Two vertices with equal keys ARE one vertex;
     proximity never joins (RULINGS 2026-08-21 :1708)."""
     return (round(float(lat), dp), round(float(lon), dp))
+
+
+def identity_slack_m(dp: int) -> float:
+    """The metres one unit of the identity's last decimal can carry: a
+    coordinate written at ``dp`` decimals moves by up to half a unit per
+    axis, so a distance between two of them is good to one unit of
+    latitude-degree metres (~1.1 micrometres at 11 dp).  Two lattice
+    neighbours that read 0.4999995 m are one cell apart, not closer
+    (issue #1278, owner RULINGS 2026-10-23a).  ONE reading for the emit
+    merge and the census's hairline family."""
+    return 111_320.0 * 10.0 ** (-int(dp))
 
 
 @_dc.dataclass(frozen=True)

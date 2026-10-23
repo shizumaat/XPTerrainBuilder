@@ -9980,6 +9980,33 @@ def test_a_patch_with_no_shore_key_prices_no_water_row(cg, tmp_path):
     assert fo["hairline_pair"] == []
 
 
+def test_a_one_cell_lattice_segment_is_not_short(cg):
+    """ISSUE #1278 (owner RULINGS 2026-10-23a): the spacing is read in the
+    engine's transverse-Mercator metres, less the identity's rounding —
+    the emit merge's own reading.  Two vertices exactly one 0.5 m lattice
+    cell apart, written at the identity's 11 dp, are NOT a short segment
+    (the cos(lat) frame read 0.4985 m at HECA's 30 N and flagged every
+    one); a 0.45 m segment still is."""
+    from auto_patch_v2.verify.frame import metric_frame
+    lat0, lon0 = 30.11, 31.40
+    _to_m, to_ll = metric_frame(lat0, lon0)
+
+    def ll(x, y):
+        la, lo = to_ll(x, y)
+        return (round(la, 11), round(lo, 11))
+
+    def short(step):
+        nodes = {"1": ll(0.0, 0.0), "2": ll(step, 0.0), "3": ll(step, 7.0),
+                 "4": ll(0.0, 7.0)}
+        w = cg.Way("1", "apron", "r", "apron", ["1", "2", "3", "4", "1"],
+                   [None] * 5, {})
+        rows = cg._check_hairline_pair([], nodes, [w], [], 0.5)
+        return [r for r in rows if r.reading == "short"]
+
+    assert short(0.5) == [], "one lattice cell is the spacing, not under it"
+    assert len(short(0.45)) == 2         # the ring's two 0.45 m sides
+
+
 def test_hairline_pair_is_critical_unconditionally(cg):
     """§39 (2): a LOAD-TIME and TEXTURE defect, not a height — there is no
     threshold to price it against and no view test to pass."""

@@ -585,6 +585,25 @@ def _local_metres(origin: LL_T) -> tuple[float, float]:
             _M_PER_DEG_LAT * max(math.cos(math.radians(lat0)), 1.0e-6))
 
 
+def _planar_xy(surface: GradedSurface) -> dict[int, tuple[float, float]]:
+    """Every vertex of ``surface`` in THE PLANAR MAP'S METRES (issue
+    #1278): the transverse-Mercator :class:`model.frame.Frame` centred on
+    the surface's origin, the frame the 0.5 m identity lattice is noded
+    in.  One vectorised projection call."""
+    import numpy as _np
+    from pyproj import Transformer  # local: geodesy stays in the producers
+
+    from ..model.frame import Frame
+    crs = Frame("", (float(surface.origin[0]), float(surface.origin[1])),
+                int(surface.identity_dp)).crs
+    t = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    ids = [v.id for v in surface.vertices]
+    a = _np.asarray([v.ll for v in surface.vertices], dtype=float)
+    xs, ys = t.transform(a[:, 1], a[:, 0])
+    return {i: (float(x), float(y)) for i, x, y in zip(ids, xs, ys,
+                                                        strict=True)}
+
+
 def shore_edges_of(dem, surface: GradedSurface, pad_m: float = 5.0,
                    seawall: bool = True) -> list[tuple[LL_T, LL_T]]:
     """§39 (i) THE ONE WITNESS (owner RULINGS 2026-09-13cg): the FOREIGN
@@ -1020,11 +1039,26 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
 
     Runs AFTER :func:`weld_to_shore`, whose projection can itself bring two
     vertices together on the shore line.
+
+    THE SPACING IS PLANAR METRES (issue #1278, owner RULINGS 2026-10-23a):
+    a pair's distance is read in the airport's own transverse-Mercator
+    frame (:func:`_planar_xy`), the frame whose 0.5 m lattice the planar
+    map is noded on, never the cos(lat)-scaled lat/lon frame of
+    :func:`_local_metres`.  The two differ by ~0.3 %, and in the old frame
+    two EXACT one-cell lattice neighbours read 0.4985 m and merged: 1,067
+    of KMCI's 1,104 merges.  A pair at the spacing to within the
+    identity's own rounding (:func:`model.frame.identity_slack_m`) IS at
+    the spacing, and stays.
+    The fold check below keeps the mesh's linear frame: it asks whether a
+    ring crosses itself in the ``.poly``, not how far apart two vertices
+    are.
     """
     rep = report if report is not None else WeldReport()
     spacing = float(law.tables.emit.identity.min_distinct_spacing_m)
     if spacing <= 0.0 or not surface.vertices:
         return surface
+    from ..model.frame import identity_slack_m
+    spacing -= identity_slack_m(int(surface.identity_dp))
     mlat, mlon = _local_metres(surface.origin)
     la0, lo0 = float(surface.origin[0]), float(surface.origin[1])
     vll = {v.id: v.ll for v in surface.vertices}
@@ -1056,6 +1090,7 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
         return x
 
     pxy = {i: xy(ll) for i, ll in vll.items()}
+    mxy = _planar_xy(surface)
     members: dict[int, list[int]] = {}
     for _w, _o, ids, closed in seqs:
         n = len(ids)
@@ -1066,7 +1101,7 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             a, b = find(ids[k]), find(ids[(k + 1) % n])
             if a == b:
                 continue
-            pa, pb = pxy[a], pxy[b]
+            pa, pb = mxy[a], mxy[b]
             if math.hypot(pa[0] - pb[0], pa[1] - pb[1]) >= spacing:
                 continue
             keep, drop = (a, b) if key(a) <= key(b) else (b, a)
@@ -1079,8 +1114,8 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             # leave any member of either group one spacing or more from the
             # survivor is refused; the segment stays as written.
             group = members.get(a, [a]) + members.get(b, [b])
-            kx, ky = pxy[keep]
-            if any(math.hypot(pxy[m][0] - kx, pxy[m][1] - ky) >= spacing
+            kx, ky = mxy[keep]
+            if any(math.hypot(mxy[m][0] - kx, mxy[m][1] - ky) >= spacing
                    for m in group):
                 continue
             parent[drop] = keep

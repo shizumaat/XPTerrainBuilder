@@ -559,6 +559,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.constraints.runway_chord",
     "auto_patch_v2.constraints.runway_mean_slope",
     "auto_patch_v2.constraints.runway_profile",
+    "auto_patch_v2.constraints.runway_step",
     "auto_patch_v2.constraints.runway_yield",
     "auto_patch_v2.constraints.seams",
     "auto_patch_v2.constraints.shoulder_crossing",

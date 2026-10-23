@@ -613,6 +613,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.routes",
         "auto_patch_v2.constraints.runway_chord",
         "auto_patch_v2.constraints.runway_profile",
+        "auto_patch_v2.constraints.runway_step",
         "auto_patch_v2.constraints.runway_yield",
         "auto_patch_v2.constraints.shoulder_crossing",
         "auto_patch_v2.constraints.stretches",
@@ -802,6 +803,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.runway_chord",
         "auto_patch_v2.constraints.runway_mean_slope",
         "auto_patch_v2.constraints.runway_profile",
+        "auto_patch_v2.constraints.runway_step",
         "auto_patch_v2.constraints.runway_yield",
         "auto_patch_v2.constraints.seams",
         "auto_patch_v2.constraints.shoulder_crossing",
@@ -1214,7 +1216,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.pavement_cap constraints.platform constraints.precedence
     constraints.proximity constraints.ramp_runout constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
-    constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
+    constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
+    constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.structures constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
@@ -1268,7 +1271,8 @@ CODE_MODULES["jetway_strip"] = _mods("""
     constraints.jetway_strip constraints.no_step constraints.pad_frontage_gs
     constraints.pad_relief constraints.pad_warning constraints.pads constraints.platform
     constraints.precedence constraints.roads constraints.routes
-    constraints.runway_profile constraints.shoulder_crossing constraints.stretches
+    constraints.runway_profile constraints.runway_step constraints.shoulder_crossing
+    constraints.stretches
     constraints.strips constraints.transverse constraints.trend constraints.weld_floor
     geom geom.base_slab geom.cluster_outline geom.containment geom.pad_evidence
     geom.rotated_rect geom.triangulate geom.union_find law law.airports_schema
@@ -1517,7 +1521,8 @@ CODE_MODULES["emit"] = _mods("""
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
     constraints.pads constraints.platform constraints.precedence constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
-    constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
+    constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
+    constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.surface_trend constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
@@ -1585,7 +1590,8 @@ CODE_MODULES["verify"] = _mods("""
     constraints.no_step constraints.pad_frontage_gs constraints.pad_relief
     constraints.pad_warning constraints.pads constraints.platform constraints.precedence
     constraints.roads constraints.routes constraints.runway_chord
-    constraints.runway_mean_slope constraints.runway_profile constraints.runway_yield
+    constraints.runway_mean_slope constraints.runway_profile constraints.runway_step
+    constraints.runway_yield
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend

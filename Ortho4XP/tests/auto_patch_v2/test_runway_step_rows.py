@@ -11,25 +11,31 @@ DEFECT.  The twins hold:
 
 * every outer-edge vertex of the ribbon carries a contact row against the
   slab face's edge, its bound the verify allowance less the held bar;
-* a welded vertex (one the slab face shares) carries none;
-* on the solved surface the ``runway_step`` DEFECT family is empty.
+* a welded vertex (one the slab face shares) carries none.
+
+The closing measurement is HECA's (the rows took its ``runway_step``
+DEFECT rows to zero); a synthetic solve does not reproduce the apron pull
+that tilted the ribbon there, so no solve twin is claimed here.
 """
 from __future__ import annotations
 
 import pytest
-
-from auto_patch_v2.constraints import generate
 from auto_patch_v2.constraints.precedence import view
 from auto_patch_v2.constraints.runway_step import runway_step_rows
-from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.law import Law
-from auto_patch_v2.pipeline.publication import publication
-from auto_patch_v2.solve import Status, solve_design
-from auto_patch_v2.verify import census
-from auto_patch_v2.verify.census import defect_gate
-from tests.auto_patch_v2.test_crown import (HALF_WIDTH, Airport, Cell, Classification,
-                                            CutLine, Frame, Runway, RunwayEnd,
-                                            SceneryPack, _rect, _rot, build)
+from tests.auto_patch_v2.test_crown import (
+    HALF_WIDTH,
+    Airport,
+    Cell,
+    Classification,
+    Frame,
+    Runway,
+    RunwayEnd,
+    SceneryPack,
+    _rect,
+    _rot,
+    build,
+)
 
 SEAM_M = 0.8
 
@@ -66,8 +72,7 @@ def seam(law):
         Cell(2, "apron", "apronA", _rect(r, -300, top, 300, 120), (), None, "D",
              "airside", "apron", {}),
     )
-    cuts = ()
-    pm, _stats = build(airport, Classification(cells, cuts, {}, ()), law)
+    pm, _stats = build(airport, Classification(cells, (), {}, ()), law)
     return airport, pm
 
 
@@ -95,13 +100,3 @@ def test_the_ribbon_outer_edge_is_held_to_the_slab(seam, law):
             for v in vw.face_vertices(f.id)}
     assert not (probed & (set(vw.face_vertices(rib.id)) & slab) - outer)
 
-
-def test_the_solved_surface_reads_no_runway_step_defect(seam, law):
-    airport, pm = seam
-    cs, _c, _w = generate(pm, law, airport)
-    sol = solve_design(pm, cs, law)[0]
-    assert sol.status in (Status.OPTIMAL, Status.FEASIBLE), sol.message
-    surf = graded_surface(pm, law, sol, airport.frame.origin, airport.frame.crs)
-    rows = census(surf, law, publication(pm, law, airport, sol.z))
-    defects, _under = defect_gate(law, rows)
-    assert defects.get("runway_step", 0) == 0, rows.get("runway_step")

@@ -34,7 +34,6 @@ Nothing here names an airport."""
 from __future__ import annotations
 
 import math
-import typing as _t
 
 from ..law import Law
 from ..law.tables import runway_shoulder_cap
@@ -65,11 +64,14 @@ def _edges(vw, faces) -> list[tuple[int, int, int]]:
 
 
 def _grid(vw, edges, cell: float) -> dict[tuple[int, int], list[int]]:
+    """Edge index by ``cell``-sized grid square (every square it spans)."""
     g: dict[tuple[int, int], list[int]] = {}
     for k, (_f, a, b) in enumerate(edges):
         (x0, y0), (x1, y1) = vw.xy[a], vw.xy[b]
-        for gx in range(int(math.floor(min(x0, x1) / cell)), int(math.floor(max(x0, x1) / cell)) + 1):
-            for gy in range(int(math.floor(min(y0, y1) / cell)), int(math.floor(max(y0, y1) / cell)) + 1):
+        gx0, gx1 = math.floor(min(x0, x1) / cell), math.floor(max(x0, x1) / cell)
+        gy0, gy1 = math.floor(min(y0, y1) / cell), math.floor(max(y0, y1) / cell)
+        for gx in range(gx0, gx1 + 1):
+            for gy in range(gy0, gy1 + 1):
                 g.setdefault((gx, gy), []).append(k)
     return g
 
@@ -88,7 +90,8 @@ def _nearest(vw, edges, grid, cell, fid, p, own: frozenset[int]):
                 (ax, ay), (bx, by) = vw.xy[a], vw.xy[b]
                 dx, dy = bx - ax, by - ay
                 l2 = dx * dx + dy * dy
-                t = 0.0 if l2 < 1e-12 else max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / l2))
+                u = ((p[0] - ax) * dx + (p[1] - ay) * dy) / l2 if l2 >= 1e-12 else 0.0
+                t = max(0.0, min(1.0, u))
                 d = math.hypot(p[0] - ax - t * dx, p[1] - ay - t * dy)
                 if best is None or d < best[0]:
                     best = (d, a, b, t)

@@ -72,6 +72,7 @@ import shapely
 from ..law.model import Law
 from ..law.tables import role_cap
 from .graded import z_decimals
+from .ring_fold import folded
 from .surface import GradedSurface
 
 __all__ = ["SIDECAR_KEYS", "PatchPaths", "PatchFiles", "write_patch", "render_patch",
@@ -554,6 +555,8 @@ class WeldReport:
     projected: int = 0
     stranded: int = 0
     merged: int = 0
+    #: sub-spacing merges REFUSED because they would fold a ring (#1275)
+    fold_refused: int = 0
     worst_mm_before: float = 0.0
     worst_at: tuple[float, float] | None = None
 
@@ -566,7 +569,8 @@ class WeldReport:
                 f"{self.snapped} snapped onto a water vertex, {self.dropped} "
                 f"dropped off the shore line, {self.projected} projected onto "
                 f"it, {self.stranded} left beside it; {self.merged} "
-                f"sub-spacing segment(s) merged"
+                f"sub-spacing segment(s) merged, {self.fold_refused} refused "
+                f"(the merge would fold a ring, #1275)"
                 + at)
 
 
@@ -963,6 +967,22 @@ def survivor_key(ll: _t.Sequence[float], identity_dp: int) -> tuple[float, float
     return (round(float(ll[0]), identity_dp), round(float(ll[1]), identity_dp))
 
 
+def _fold_culprits(ids: _t.Sequence[int], remap: _t.Mapping[int, int],
+                   pxy: _t.Mapping[int, tuple[float, float]],
+                   key: _t.Callable[[int], tuple[float, float]]) -> set[int]:
+    """The merges (by survivor) to refuse for one ring the remap folds: the
+    FIRST merge, in :func:`survivor_key` order (pair-local, #199), whose
+    refusal alone leaves the ring simple — or, when no single one does,
+    every merge the ring carries (#1275)."""
+    sub = {i: remap[i] for i in ids}
+    cand = sorted({u for i, u in sub.items() if u != i}, key=key)
+    for t in cand:
+        trial = {i: (i if u == t else u) for i, u in sub.items()}
+        if not folded([ids], trial, pxy):
+            return {t}
+    return set(cand)
+
+
 def merge_sub_spacing(surface: GradedSurface, law: Law,
                       report: "WeldReport | None" = None) -> GradedSurface:
     """§39 (iii) THE IDENTITY JOIN MERGES, IT NEVER WRITES, A SUB-SPACING
@@ -1067,6 +1087,26 @@ def merge_sub_spacing(surface: GradedSurface, law: Law,
             members[keep] = group
             members.pop(drop, None)
     remap = {i: find(i) for i in vll}
+    # A MERGE NEVER FOLDS A RING (issue #1275): collapsing a pair moves the
+    # ring's edges onto the survivor, and where the dropped vertex stood on
+    # the far side of a short hook the new edge CROSSES the ring two
+    # segments on (KMCI building26/b1 and its plateau at 39.2996647,
+    # -94.7192985: a 0.07 m2 bow-tie the mesh dropped whole, leaving the
+    # 85,882 m2 pad on the raw DEM).  Every merge a folded ring carries is
+    # refused, as the chain merge above is; the segment stays as written.
+    # Each pass reverts at least one merge, so the loop ends.
+    closed_seqs = [ids for _w, _o, ids, closed in seqs if closed]
+    while True:
+        bad = folded(closed_seqs, remap, pxy)
+        if not bad:
+            break
+        roots: set[int] = set()
+        for k in bad:
+            roots |= _fold_culprits(closed_seqs[k], remap, pxy, key)
+        for i, t in remap.items():
+            if t in roots:
+                remap[i] = i
+        rep.fold_refused += len(roots)
     if all(t == i for i, t in remap.items()):
         return surface
 

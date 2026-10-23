@@ -435,6 +435,15 @@ def render(icao: str, *, pm, law: Law, airport, sol, cs, cl, strips, design_rep,
     # weld, whose projection can itself bring two vertices together.
     surf_out = merge_sub_spacing(surf_out, law, wrep)
     out(wrep.line(icao))
+    # THE EMITTED RING IS SIMPLE (issue #1275): the mesh drops a closed way
+    # that is not a valid polygon, so a folded ring is read HERE, on the
+    # rings as written; the verify stage fails the airport on one
+    from ..emit.ring_fold import ring_folds
+    report["ring_folds"] = ring_folds(surf_out)
+    if report["ring_folds"]:
+        out(f"[{icao}] emit: {len(report['ring_folds'])} emitted ring(s) NOT "
+            "simple — the mesh would drop them: " + "; ".join(
+                r["way_a"] for r in report["ring_folds"][:10]))
     report["shore_weld"] = _dc.asdict(wrep)
     pub["shore_edges"] = shore_edge_records(airport.dem, shore)
     # OWNER RULINGS 2026-10-02ag (2) (#100): the vertices the strip tie is

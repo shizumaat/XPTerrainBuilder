@@ -1515,7 +1515,7 @@ CODE_MODULES["emit"] = _mods("""
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.surface_trend constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
-    constraints.weld_floor emit.graded emit.osm_adapter emit.rebake emit.road_join
+    constraints.weld_floor emit.graded emit.osm_adapter emit.rebake emit.ring_fold emit.road_join
     emit.surface emit.terrain_edge geom geom.base_slab geom.cluster_outline
     geom.fixed_overlay
     geom.valid_area
@@ -1583,7 +1583,7 @@ CODE_MODULES["verify"] = _mods("""
     constraints.seams constraints.shoulder_crossing constraints.stretches
     constraints.strips constraints.taxi constraints.taxi_trend
     constraints.taxi_trend_cap constraints.transverse constraints.trend
-    constraints.weld_floor emit.surface geom geom.base_slab geom.cluster_outline
+    constraints.weld_floor emit.ring_fold emit.surface geom geom.base_slab geom.cluster_outline
     geom.fixed_overlay
     geom.valid_area
     geom.containment geom.core_clamp geom.pad_evidence geom.parts geom.proportions

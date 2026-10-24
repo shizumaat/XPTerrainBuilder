@@ -347,7 +347,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                                       piece_reach_m=piece_reach_m)  # 19u
     # #1214 round 3, R5 (owner RULINGS 2026-10-22o): one zero per CONNECTED
     # unit — the pieces the pad-level and block passes cut put back together
-    _gz_air: set[str] = set()                            # 23e: airside wins
+    _gz_air: dict[str, tuple[float, int]] = {}           # 23e: airside wins
     _gz = _root_zeros(_pw or {}, plan, surface, counts, _gz_air)   # 22q: airside first
     #: R5: a written body file -> its connected unit (a rider follows it)
     _file_root: dict[str, str] = {}

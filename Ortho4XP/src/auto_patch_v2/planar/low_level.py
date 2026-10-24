@@ -75,7 +75,8 @@ from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["LOW_KIND", "UP_KIND", "low_level_split", "plan_low", "plan_up"]
+__all__ = ["LOW_KIND", "UP_KIND", "level_cut", "low_level_split", "plan_low", "plan_up",
+           "stand_floor", "unit_share", "walled_feet"]
 
 #: the ``Registries.landings`` record kind of a lower level (a ramp
 #: landing's record carries no kind)
@@ -87,9 +88,16 @@ UP_KIND = "upper_level"
 def _unit_parts(P: Polygon, airport, to_xy) -> list:
     """``[(part, (x, y))]`` of the pack unit holding the plurality of part
     centres inside ``P`` (one unit, one authored frame)."""
+    return unit_share(P, airport, to_xy)[1]
+
+
+def unit_share(P: Polygon, airport, to_xy) -> "tuple[int | None, list]":
+    """``(unit index, [(part, (x, y))])``: :func:`_unit_parts` with the
+    partition unit it read (``None`` and ``[]`` where no part stands in
+    ``P``)."""
     part = getattr(airport, "partition", None)
     if part is None:
-        return []
+        return None, []
     by: dict[int, list] = {}
     for ui, u in enumerate(part.units):
         for m in u.members:
@@ -100,8 +108,8 @@ def _unit_parts(P: Polygon, airport, to_xy) -> list:
                 if P.contains(Point(xy)):
                     by.setdefault(ui, []).append((p, xy))
     if not by:
-        return []
-    return max(by.values(), key=len)
+        return None, []
+    return max(by.items(), key=lambda kv: (len(kv[1]), -kv[0]))
 
 
 def _ring_poly(rg, to_xy) -> "Polygon | None":
@@ -134,19 +142,9 @@ def _densest(ys: _t.Sequence[float], band: float) -> "tuple[int, float]":
     return best, med
 
 
-def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] | None":
-    """THE TWO FOOT LEVELS (module docstring, RULINGS 2026-10-23b):
-    ``(t, y_low)`` of the unit ``parts`` (``[(part, xy)]``) -- ``t`` the
-    stand-side airside floor plane of its walled feet, ``y_low`` the lower
-    storey's plane or ``None`` (one level) -- or ``None`` where too few
-    walled feet touch the airside near a stand to read one (``stands``:
-    frame xy; ``to_xy(lon, lat)`` the frame's entry)."""
-    import numpy as np
-    import shapely
-
-    from ..airport import airside_group_seat as ag
-    if not stands or air is None or air.is_empty:
-        return None
+def walled_feet(parts, law, to_xy) -> "tuple[list, list]":
+    """``(frame xy, y)`` of the ground-contact feet of the WALLED parts of
+    ``parts`` (``[(part, xy)]``; ``[placement] chain_min_height_m``)."""
     wall_min = float(law.tables.structures.placement.chain_min_height_m)
     xy, ys = [], []
     for p, _xy in parts:
@@ -155,6 +153,22 @@ def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] |
         for f in getattr(p, "feet", ()) or ():
             xy.append(to_xy(float(f[1]), float(f[0])))
             ys.append(float(f[2]))
+    return xy, ys
+
+
+def stand_floor(parts, air, stands, law, to_xy) -> "tuple[float, _t.Any, _t.Any, _t.Any] | None":
+    """``(t, X, Y, at)``: the stand-side airside floor plane ``t`` of the
+    walled feet of ``parts`` (``airside_group_seat.floor_plane`` over the
+    feet touching ``air`` within ``STAND_M`` of a stand, RULINGS
+    2026-10-23b), the feet's frame xy ``X``, their ``Y`` and the mask
+    ``at`` of the feet that read it -- or ``None`` where too few do."""
+    import numpy as np
+    import shapely
+
+    from ..airport import airside_group_seat as ag
+    if not stands or air is None or air.is_empty:
+        return None
+    xy, ys = walled_feet(parts, law, to_xy)
     if len(ys) < ag.PLANE_MIN_FEET:
         return None
     X = np.asarray(xy, dtype=float)
@@ -167,7 +181,23 @@ def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] |
     at = touch & near
     if int(at.sum()) < ag.PLANE_MIN_FEET:
         return None
-    t = -float(ag.floor_plane([-float(y) for y in Y[at]]))
+    return -float(ag.floor_plane([-float(y) for y in Y[at]])), X, Y, at
+
+
+def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] | None":
+    """THE TWO FOOT LEVELS (module docstring, RULINGS 2026-10-23b):
+    ``(t, y_low)`` of the unit ``parts`` (``[(part, xy)]``) -- ``t`` the
+    stand-side airside floor plane of its walled feet (:func:`stand_floor`),
+    ``y_low`` the lower storey's plane or ``None`` (one level) -- or
+    ``None`` where too few walled feet touch the airside near a stand to
+    read one (``stands``: frame xy; ``to_xy(lon, lat)`` the frame's
+    entry)."""
+    from ..airport import airside_group_seat as ag
+    got = stand_floor(parts, air, stands, law, to_xy)
+    if got is None:
+        return None
+    t, _X, Y, _at = got
+    ys = Y.tolist()
     low = sorted(float(y) for y in Y if y <= t - 2.0 * ag.PLANE_BAND_M)
     need = max(ag.PLANE_MIN_FEET, int(ag.PLANE_SHARE * len(ys) + 0.999999))
     n, med = _densest(low, ag.PLANE_BAND_M) if low else (0, 0.0)
@@ -224,7 +254,43 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
              if (g := _ring_poly(rg, to_xy)) is not None]
     if not polys:
         return None
-    L = unary_union(polys).buffer(near, join_style=2).buffer(-near, join_style=2)
+    cut = level_cut(P, unary_union(polys), air, others, law, grid, pmin)
+    if cut is None:
+        return None
+    H, L, S = cut
+    dem = getattr(airport, "dem", None)
+    g_lo, g_hi = _ground(L, dem, near), _ground(H, dem, near)
+    if y_feet is None and (g_lo is None or g_hi is None or g_hi - g_lo < step_min):
+        # THE GROUND IS THE OTHER HALF OF THE WITNESS (#1115): a storey of
+        # the object stands a storey down only where its own ground does.
+        # MEASURED EDDF Terminal 1: frontage parts at y 6-17 (piers, decks)
+        # made the unit's ground-floor parts "low", over ground 0.1 m and
+        # -5.9 m from the block's — a lower level 3 m into level ground
+        # that relaxed 1,092 pad rows.  KATL ``terminal_F``: 11.7 m down.
+        if refused is not None:
+            refused.append(f"ground drop {_fmt(g_hi, g_lo)} < {step_min:g} m")
+        return None
+    # the lower storey's FLOOR: its walls' plane where the feet read it,
+    # else the lowest low part (KATL: both -13)
+    y_floor = (y_feet if y_feet is not None else min(p.base_y for p in low_parts)) - t
+    rec = {"witness": "feet" if y_feet is not None else "frontage", "top_y": round(t, 3),
+           "y_lo": round(y_floor, 3), "y_hi": round(-step_min, 3),
+           "low_parts": len(low_parts), "area_m2": round(L.area, 1),
+           "ground_z": g_lo, "ground_high_z": g_hi}
+    return H, L, S, rec
+
+
+def level_cut(P, L0, air, others, law, grid: float, hmin: float
+              ) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
+    """``(high, low, strip)``: the low region ``L0`` cut out of the held pad
+    ``P`` as a level -- closed by ``pad_frontage_m``, kept that distance off
+    the airside ``air`` and a riser's width off the pads ``others``, at
+    least a unit pad's worth of ground -- with its riser strip and the high
+    block left (of at least ``hmin`` m2), or ``None``."""
+    from ..law.tables import design as design_law
+    near = float(design_law(law).pad_frontage_m)
+    pmin = float(law.tables.structures.building_pad.min_area_m2)
+    L = L0.buffer(near, join_style=2).buffer(-near, join_style=2)
     L = valid_area(valid_area(L.intersection(P)).difference(air.buffer(near, join_style=2)))
     w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
     if others is not None and not others.is_empty:
@@ -249,28 +315,9 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
     S = valid_area(_overlay(valid_area(_overlay(P, Lw, "intersection", grid)), L,
                             "difference", grid))
     H = valid_area(_overlay(P, Lw, "difference", grid))
-    if H.is_empty or H.area < pmin:
+    if H.is_empty or H.area < hmin:
         return None                  # the frontage block must stay a block
-    dem = getattr(airport, "dem", None)
-    g_lo, g_hi = _ground(L, dem, near), _ground(H, dem, near)
-    if y_feet is None and (g_lo is None or g_hi is None or g_hi - g_lo < step_min):
-        # THE GROUND IS THE OTHER HALF OF THE WITNESS (#1115): a storey of
-        # the object stands a storey down only where its own ground does.
-        # MEASURED EDDF Terminal 1: frontage parts at y 6-17 (piers, decks)
-        # made the unit's ground-floor parts "low", over ground 0.1 m and
-        # -5.9 m from the block's — a lower level 3 m into level ground
-        # that relaxed 1,092 pad rows.  KATL ``terminal_F``: 11.7 m down.
-        if refused is not None:
-            refused.append(f"ground drop {_fmt(g_hi, g_lo)} < {step_min:g} m")
-        return None
-    # the lower storey's FLOOR: its walls' plane where the feet read it,
-    # else the lowest low part (KATL: both -13)
-    y_floor = (y_feet if y_feet is not None else min(p.base_y for p in low_parts)) - t
-    rec = {"witness": "feet" if y_feet is not None else "frontage", "top_y": round(t, 3),
-           "y_lo": round(y_floor, 3), "y_hi": round(-step_min, 3),
-           "low_parts": len(low_parts), "area_m2": round(L.area, 1),
-           "ground_z": g_lo, "ground_high_z": g_hi}
-    return H, L, S, rec
+    return H, L, S
 
 
 def _plane_band() -> float:
@@ -355,6 +402,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     ``reg.landings``.  ``storey_lots`` — ``(polygon, rise)`` of the lots
     met across a storey — give the held pads they touch an UPPER level."""
     from ..airport.obj8_grade import STEPPED
+    from .group_low import plan_group_low
     from .pad_blocks import unit_base
     if (airport is None or getattr(airport, "frame", None) is None
             or not air_polys):
@@ -368,11 +416,12 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         if h is not None and r.polygon is not None:
             groups.setdefault(ref, []).append(r)
     done: dict[str, list | None] = {}
+    floor_of = _group_floors(airport, air_polys, tree, law)
     for ref, regs in sorted(groups.items()):
         if held[ref].get("conforming"):
             continue
         P = unary_union([r.polygon for r in regs])
-        if P.is_empty or unit_base(P, airport)[0] != STEPPED:
+        if P.is_empty:
             continue
         air = unary_union([air_polys[int(j)] for j in
                            tree.query(P.buffer(50.0), predicate="intersects")])
@@ -382,7 +431,21 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                               and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
         try:
             why: list = []
-            got = plan_low(P, air, airport, law, grid, others, why)
+            got = (plan_low(P, air, airport, law, grid, others, why)
+                   if unit_base(P, airport)[0] == STEPPED else None)
+            if got is None:
+                # a pad holding ONE level a storey under its group's floor
+                # is the group's lower level (``planar/group_low``, #1214
+                # round 7: LFPG T2's trench pads)
+                gwhy: list = []
+                got = plan_group_low(P, air, airport, law, grid, others, floor_of, gwhy)
+                if gwhy:
+                    k = "low_level_group_refused"
+                    counts[k] = counts.get(k, 0) + 1
+                    counts.setdefault(k + "_list", []).append(f"{ref}: {gwhy[0]}")
+                if got is not None:
+                    why = []
+                    counts["low_level_group"] = counts.get("low_level_group", 0) + 1
         except GEOSException as exc:
             # an overlay GEOS still refuses on valid areas: the block stays
             # ONE level (the pre-#809 pad) and the refusal is counted, never
@@ -424,6 +487,19 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == UP_KIND)
     return res
+
+
+def _group_floors(airport, air_polys, tree, law) -> _t.Callable[[int], _t.Any]:
+    """``ui -> group_low.group_floor`` of the partition unit, memoised per
+    split (one stand read, the airside about each unit)."""
+    from .group_low import group_floor
+    to_xy = airport.frame.entry()
+    stands = _stands_xy(airport, to_xy)
+    cache: dict = {}
+
+    def air_of(poly):
+        return unary_union([air_polys[int(j)] for j in tree.query(poly, predicate="intersects")])
+    return lambda ui: group_floor(ui, airport, air_of, stands, law, to_xy, cache)
 
 
 def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,

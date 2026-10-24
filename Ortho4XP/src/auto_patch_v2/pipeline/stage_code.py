@@ -250,6 +250,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.base_slab",
         "auto_patch_v2.geom.cluster_outline",
         "auto_patch_v2.geom.fixed_overlay",
+        "auto_patch_v2.geom.foot_planes",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.proportions",
@@ -417,6 +418,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.core_clamp",
         "auto_patch_v2.geom.coverage",
         "auto_patch_v2.geom.fixed_overlay",
+        "auto_patch_v2.geom.foot_planes",
         "auto_patch_v2.geom.grid_pickle",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
@@ -484,6 +486,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.covered_ground",
         "auto_patch_v2.planar.door_ramps",
         "auto_patch_v2.planar.edges",
+        "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
         "auto_patch_v2.planar.low_level",
@@ -606,7 +609,9 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.apron_trend",
         "auto_patch_v2.constraints.cluster_pad",
         "auto_patch_v2.constraints.eat",
+        "auto_patch_v2.constraints.face_index",
         "auto_patch_v2.constraints.geometry",
+        "auto_patch_v2.constraints.group_level",
         "auto_patch_v2.constraints.pad_relief",
         "auto_patch_v2.constraints.pad_warning",
         "auto_patch_v2.constraints.pads",
@@ -781,10 +786,12 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.door_pad",
         "auto_patch_v2.constraints.eat",
         "auto_patch_v2.constraints.end_lip",
+        "auto_patch_v2.constraints.face_index",
         "auto_patch_v2.constraints.flat_site",
         "auto_patch_v2.constraints.foot_rows",
         "auto_patch_v2.constraints.geometry",
         "auto_patch_v2.constraints.groundside",
+        "auto_patch_v2.constraints.group_level",
         "auto_patch_v2.constraints.hard_plane",
         "auto_patch_v2.constraints.junction_mesh",
         "auto_patch_v2.constraints.no_step",
@@ -830,6 +837,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.geom.feet_graph",
         "auto_patch_v2.geom.feet_mst",
         "auto_patch_v2.geom.fixed_overlay",
+        "auto_patch_v2.geom.foot_planes",
         "auto_patch_v2.geom.pad_evidence",
         "auto_patch_v2.geom.parts",
         "auto_patch_v2.geom.proportions",
@@ -993,6 +1001,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.pad_evidence geom.triangulate geom.union_find law.inset_class model.airport
         model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "flat_site": _mods(_GENERATOR_CORE + """
         constraints.flat_site constraints.geometry constraints.precedence model.airport
@@ -1005,6 +1014,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.feet_graph geom.feet_mst geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.ground_fit model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.face_index constraints.group_level
     """),
     "groundside": _mods(_GENERATOR_CORE + """
         constraints.geometry constraints.groundside constraints.precedence
@@ -1024,6 +1034,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.containment geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "no_step": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.ceiling constraints.cluster_pad
@@ -1037,6 +1048,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.pad_evidence geom.triangulate geom.union_find model.airport model.end_area
         model.islands model.map_memo model.platform model.threshold_datum
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "pad_frontage_gs": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1046,6 +1058,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.pad_evidence geom.triangulate geom.union_find model.airport model.islands
         model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "pad_fronting": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1054,6 +1067,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.cluster_outline geom.containment geom.pad_evidence geom.triangulate
         geom.union_find model.airport model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "pads": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1062,6 +1076,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.containment geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "platform": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1070,6 +1085,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.containment geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "proximity": _mods(_GENERATOR_CORE + """
         constraints.contiguity constraints.end_lip constraints.geometry
@@ -1087,6 +1103,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.ramp_grade geom.ramp_profile geom.triangulate geom.union_find model.airport
         model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "road_ramp": _mods(_GENERATOR_CORE + """
         constraints.wall_zone
@@ -1097,6 +1114,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.pad_evidence geom.ramp_grade geom.triangulate geom.union_find model.airport
         model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "roads": _mods(_GENERATOR_CORE + """
         constraints.contiguity constraints.end_lip constraints.geometry
@@ -1114,6 +1132,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "runway_mean_slope": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1126,6 +1145,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "runway_profile": _mods(_GENERATOR_CORE + """
         constraints.geometry constraints.precedence constraints.runway_profile
@@ -1151,6 +1171,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.triangulate geom.union_find model.airport model.islands model.map_memo
         model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "taxi": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1160,6 +1181,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
         geom.containment geom.pad_evidence geom.triangulate geom.union_find
         model.airport model.islands model.map_memo model.platform
         geom.slope_pad
+        constraints.group_level constraints.face_index
     """),
     "transverse": _mods(_GENERATOR_CORE + """
         constraints.contiguity constraints.end_lip constraints.geometry
@@ -1246,6 +1268,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.door_pad
     geom.slope_pad
     constraints.wall_zone
+    geom.foot_planes constraints.face_index constraints.group_level
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport constraints model airport.anchor_rule airport.apt_dat
@@ -1290,6 +1313,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
     model.map_memo model.placement model.planar model.platform model.pulse model.rebake
     model.registries model.structures model.threshold_datum
     geom.slope_pad
+    geom.foot_planes constraints.group_level constraints.face_index
 """)
 
 #: THE SOLVE AND THE LAST STAGE (spec §4b.4, §4b.5; #843 step 9b): the solve
@@ -1389,6 +1413,7 @@ CODE_MODULES["solve"] = _mods("""
     geom.slope_pad
     model.road_yield planar.road_shadow
     constraints.wall_zone
+    geom.foot_planes constraints.group_level constraints.face_index planar.group_low
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport classify emit model pipeline planar solve airport.anchor_rule
@@ -1489,6 +1514,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.slope_pad
     model.road_yield planar.road_shadow
     constraints.wall_zone
+    geom.foot_planes constraints.face_index constraints.group_level planar.group_low
 """)
 CODE_MODULES["emit"] = _mods("""
     airport constraints emit model pipeline planar verify airport.anchor_rule
@@ -1562,6 +1588,7 @@ CODE_MODULES["emit"] = _mods("""
     geom.slope_pad
     model.road_yield pipeline.band_road_wall
     constraints.wall_zone
+    geom.foot_planes constraints.group_level constraints.face_index
 """)
 CODE_MODULES["verify"] = _mods("""
     airport classify constraints emit model pipeline planar solve airport.anchor_rule
@@ -1629,6 +1656,7 @@ CODE_MODULES["verify"] = _mods("""
     classify.reachability
     geom.slope_pad
     model.road_yield pipeline.band_road_wall
+    geom.foot_planes constraints.group_level constraints.face_index
 """)
 
 

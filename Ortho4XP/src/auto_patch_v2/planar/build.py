@@ -56,7 +56,7 @@ from ..airport.wall_corridors import WallCorridorStats
 from .door_ramps import door_groups, sunken_groups
 from .wall_corridor_ramps import wall_corridor_groups
 
-__all__ = ["BuildStats", "build"]
+__all__ = ["BuildStats", "build", "level_counts"]
 
 _LINE_KIND = {"runway_profile": EdgeKind.BREAKLINE,
               "taxi_centerline": EdgeKind.CENTERLINE,
@@ -117,6 +117,19 @@ class BuildStats:
     terrain_edge: EdgeReport = _dc.field(default_factory=EdgeReport)
     #: spec §45 (owner RULINGS 2026-09-15i): the OPEN CHANNELS identified
     channels: ChannelStats = _dc.field(default_factory=ChannelStats)
+    #: #1214 round 7: the pads' lower and upper levels and every refusal
+    #: (``planar/low_level``: ``low_level*`` / ``upper_levels``), read off
+    #: the arrangement's own counts
+    levels: dict = _dc.field(default_factory=dict)
+
+
+def level_counts(pad_airside: _t.Mapping[str, _t.Any]) -> dict:
+    """The ``levels`` block of the report: every ``low_level*`` /
+    ``upper_levels`` count ``planar/low_level`` left in the arrangement's
+    counts (``Registries.pad_airside``) -- the levels minted and the pads
+    refused one, with their reasons."""
+    return {k: v for k, v in sorted(pad_airside.items())
+            if k.startswith("low_level") or k == "upper_levels"}
 
 
 def channels_after_basins(airport, classification, law, objects, corridors, extra,
@@ -298,7 +311,8 @@ def build(airport: Airport, classification: Classification, law: Law,
                        zone_sliver_rows=arr.zone_sliver_rows,
                        door_wells=dstats, sunken_roads=rstats, wall_corridors=wstats,
                        channels=chstats,
-                       terrain_edge=arr.edge_report)
+                       terrain_edge=arr.edge_report,
+                       levels=level_counts(arr.registries.pad_airside))
     frame = airport.frame
     to_ll = _vector_to_ll(frame)
 

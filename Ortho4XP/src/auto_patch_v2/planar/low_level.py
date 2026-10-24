@@ -66,10 +66,12 @@ import statistics as _st
 import typing as _t
 
 from shapely.errors import GEOSException
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..airport.deck_signature import is_tunnel_way
+from ..airport.road_ways import mapped_width_m
 from ..geom.parts import nonempty_polygon_parts
 from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX, plane_ref
@@ -254,7 +256,7 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
              if (g := _ring_poly(rg, to_xy)) is not None]
     if not polys:
         return None
-    cut = level_cut(P, unary_union(polys), air, others, law, grid, pmin)
+    cut = level_cut(P, unary_union(polys), air, others, law, grid, pmin, airport)
     if cut is None:
         return None
     H, L, S = cut
@@ -280,7 +282,7 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
     return H, L, S, rec
 
 
-def level_cut(P, L0, air, others, law, grid: float, hmin: float
+def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None
               ) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
     """``(high, low, strip)``: the low region ``L0`` cut out of the held pad
     ``P`` as a level -- closed by ``pad_frontage_m``, kept that distance off
@@ -291,6 +293,8 @@ def level_cut(P, L0, air, others, law, grid: float, hmin: float
     near = float(design_law(law).pad_frontage_m)
     pmin = float(law.tables.structures.building_pad.min_area_m2)
     L = L0.buffer(near, join_style=2).buffer(-near, join_style=2)
+    if airport is not None:
+        L = _with_roads(L, P, airport, law, near)
     L = valid_area(valid_area(L.intersection(P)).difference(air.buffer(near, join_style=2)))
     w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
     if others is not None and not others.is_empty:
@@ -311,6 +315,7 @@ def level_cut(P, L0, air, others, law, grid: float, hmin: float
     # a MITRE buffer can come back self-crossing (MEASURED KMCI
     # ``building26/b1``, #1214 round 6: the riser's cut raised ``Ring edge
     # missing`` and cost the block its lower level) -- its valid area
+    L = _with_orphans(L, P, air, others, w, near, grid)
     Lw = valid_area(L.buffer(w, join_style=2))
     S = valid_area(_overlay(valid_area(_overlay(P, Lw, "intersection", grid)), L,
                             "difference", grid))
@@ -318,6 +323,71 @@ def level_cut(P, L0, air, others, law, grid: float, hmin: float
     if H.is_empty or H.area < hmin:
         return None                  # the frontage block must stay a block
     return H, L, S
+
+
+def _with_roads(L, P, airport, law, near: float):
+    """A ROAD OVER THE LOWER LEVEL IS ON IT (#1291; owner RULINGS
+    2026-10-24a): the low region ``L`` plus every mapped road's carriageway
+    over the pad ``P`` that meets it, closed again by ``near``.
+
+    The low parts' footprints leave the roads between them out -- a road
+    is no part of the object -- so the block kept the corridor at its own
+    level and the roads rode it: MEASURED KMCI ``building26/b1``, the
+    covered road and the passages between the terminal and the garage's
+    lower floor stood on two 8 m block strips 2.4 m over the lower level
+    (the owner's "twin 2m tall road ridges ... that should be flat at the
+    lower level"), with the road ribbons spanning the riser.  The corridor
+    is the way's mapped carriageway (``airport/road_ways.mapped_width_m``
+    at the ``[tunnel]`` lane law); a bridge's corridor counts too (the
+    ground under a bridge is the ground the road beneath runs on), a bore
+    never (it runs under the pad).  Each corridor joins only within one
+    carriageway width of ``L``: a road that merely touches the lower level
+    and runs on over the block never carries the low level with it."""
+    if L.is_empty:
+        return L
+    tn = law.tables.structures.tunnel
+    admitted = tuple(tn.admitted_values)
+    add = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = getattr(w, "tags", None) or {}
+        if not tags.get("highway") or len(w.points) < 2 or is_tunnel_way(tags, admitted):
+            continue
+        width = mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
+        c = LineString(w.points).buffer(0.5 * width, cap_style="flat")
+        if not c.intersects(P) or c.distance(L) > near:
+            continue
+        add.append(valid_area(_overlay(valid_area(c), P, "intersection", 0.01))
+                   .intersection(L.buffer(width, join_style=2)))
+    if not add:
+        return L
+    return (valid_area(unary_union([L, *add]))
+            .buffer(near, join_style=2).buffer(-near, join_style=2))
+
+
+def _with_orphans(L, P, air, others, w: float, near: float, grid: float):
+    """THE BLOCK IS ITS AIRSIDE FRONTAGE (#1291; owner RULINGS 2026-10-24a):
+    a piece of the high block the lower level (with its roads) cuts off from
+    the frontage -- one that comes no nearer the airside than ``near`` plus
+    the riser ``w`` -- has no airside to stand level with, so it is the lower
+    level too.  MEASURED KMCI ``building26/b1``: a 5.7 m block island
+    between the covered road and the garage, and the bands along the
+    garage's far walls the roads cross into its ground-level floor, each
+    2.4 m over the lower level beside it.
+
+    The grown level is read by SUBTRACTION -- the pad less the kept block
+    and its riser, the airside frontage and the other pads -- so it keeps
+    the pad's own edge vertex for vertex (a re-buffered edge minted a
+    0.25 m2 tunnel-ramp sliver against the pad's rim and spiked the ramp)."""
+    H = valid_area(_overlay(P, valid_area(L.buffer(w, join_style=2)), "difference", grid))
+    parts = nonempty_polygon_parts(H)
+    keep = [q for q in parts if q.distance(air) <= near + w]
+    if not keep or len(keep) == len(parts):
+        return L
+    cut = [valid_area(unary_union(keep).buffer(w, join_style=2)),
+           valid_area(air.buffer(near, join_style=2))]
+    if others is not None and not others.is_empty:
+        cut.append(valid_area(valid_area(others).buffer(w, join_style=2)))
+    return valid_area(_overlay(P, valid_area(unary_union(cut)), "difference", grid))
 
 
 def _plane_band() -> float:

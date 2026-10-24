@@ -106,7 +106,7 @@ def group_key(root: str, frame: str) -> str:
 
 def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
                surface: _t.Any = None, counts: "dict | None" = None,
-               airside_out: "set[str] | None" = None
+               airside_out: "dict[str, tuple[float, int]] | None" = None
                ) -> dict[str, tuple[float, float]]:
     """:func:`group_key` ``-> (zero, the frame's lift)`` for every frame's
     share of every connected unit (``frame`` is the plan unit id; "" with
@@ -164,8 +164,9 @@ def root_zeros(plan_wide: _t.Mapping[int, tuple], plan: _t.Any = None,
         if counts is not None:
             counts["groups_on_airside"] = len(az)
         if airside_out is not None:
-            # the keys seated on the airside floor (``unchained_links``'
-            # precedence, owner RULINGS 2026-10-23e: airside wins)
+            # the keys seated on the airside floor with their stand-side
+            # feet (``unchained_links``' precedence, owner RULINGS
+            # 2026-10-23e: airside wins)
             airside_out.update(az)
     return out
 
@@ -221,7 +222,7 @@ def merge_frame_roots(root_boxes: _t.Mapping[str, _t.Sequence[tuple]],
 
 def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
                     merged: "_t.Mapping[str, str] | None" = None,
-                    airside: _t.AbstractSet[str] = frozenset(),
+                    airside: "_t.Mapping[str, tuple] | _t.AbstractSet[str]" = frozenset(),
                     counts: "dict | None" = None) -> dict[str, str]:
     """``root -> the root it moves with`` inside ONE frame (plan unit
     ``u``), read THROUGH ITS UNCHAINED PARTS (#1214 round 6; 22o: pieces
@@ -235,11 +236,15 @@ def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
 
     AIRSIDE WINS (owner RULINGS 2026-10-23e): the group moves with its
     AIRSIDE-SEATED unit (``airside``: the :func:`group_key` s
-    ``airside_group_seat.airside_zeros`` seated) and the groundside units
-    take its zero; with none, with its largest unit; a component holding
-    TWO airside-seated units is not merged (each keeps its own floor) and
-    is counted (``unchained_airside_conflicts``).  ``merged``
-    (``merge_frame_roots``' answer) is composed in."""
+    ``airside_group_seat.airside_zeros`` seated, with their ``(zero, feet
+    read)``) and the groundside units take its zero; with none, with its
+    largest unit.  A component holding SEVERAL airside-seated units moves
+    with the one whose floor the MOST stand-side feet read, and every other
+    share, airside and groundside alike, takes its zero (counted,
+    ``unchained_airside_joined``): LFPG T2 (1.0.424) kept its halls and its
+    trench block apart as six roots, the group floating where the trench
+    block's floor won.  ``merged`` (``merge_frame_roots``' answer) is
+    composed in."""
     import math
 
     from shapely.geometry import Polygon
@@ -286,15 +291,14 @@ def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
         if r is not None:
             comp.setdefault(find(i), set()).add(r)
     out = dict(base)
-    n_conflict = 0
+    n_joined = 0
     for rs in comp.values():
         if len(rs) < 2:
             continue
         air = sorted(r for r in rs if group_key(r, fid) in airside)
-        if len(air) > 1:
-            n_conflict += 1
-            continue
-        keep = air[0] if air else max(sorted(rs), key=lambda r: size.get(r, 0))
+        n_joined += len(air) > 1
+        keep = (max(air, key=lambda r: _feet_read(airside, group_key(r, fid))) if air
+                else max(sorted(rs), key=lambda r: size.get(r, 0)))
         for r in rs:
             if r != keep:
                 out[r] = keep
@@ -304,10 +308,17 @@ def unchained_links(u: _t.Any, plan_wide: _t.Mapping[int, tuple],
             seen.add(t)
             t = out[t]
         out[r] = t
-    if counts is not None and n_conflict:
-        k = "unchained_airside_conflicts"
-        counts[k] = counts.get(k, 0) + n_conflict
+    if counts is not None and n_joined:
+        k = "unchained_airside_joined"
+        counts[k] = counts.get(k, 0) + n_joined
     return out
+
+
+def _feet_read(airside: _t.Any, key: str) -> int:
+    """The stand-side feet ``airside_zeros`` read for ``key`` (0 for a
+    bare key set): the witness that picks a group's one airside zero."""
+    v = airside.get(key) if hasattr(airside, "get") else None
+    return int(v[1]) if isinstance(v, tuple) and len(v) > 1 else 0
 
 
 def _hull(boxes: _t.Sequence[tuple]) -> tuple:

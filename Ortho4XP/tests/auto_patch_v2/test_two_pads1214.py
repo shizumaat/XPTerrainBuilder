@@ -161,7 +161,8 @@ def _sq(x0, y0, s=10.0):
 
 def test_23e_units_an_unchained_part_joins_move_with_the_airside_share():
     """22o / 23e: an unchained part within 1 m of two units joins them; the
-    group moves with its AIRSIDE-seated unit; two airside units are kept."""
+    group moves with its AIRSIDE-seated unit; of two airside units, with the
+    one the most stand-side feet read (LFPG T2, 1.0.424: six roots)."""
     from auto_patch_v2.airport.open_frame_seat import group_key, unchained_links
 
     def part(pid, x0, s=10.0):
@@ -173,6 +174,8 @@ def test_23e_units_an_unchained_part_joins_move_with_the_airside_share():
     got = unchained_links(u, pw, airside={group_key("fu:1:3", "f")})
     assert got == {"fu:1:1": "fu:1:3"}                      # airside wins
     counts: dict = {}
-    both = {group_key("fu:1:1", "f"), group_key("fu:1:3", "f")}
-    assert unchained_links(u, pw, airside=both, counts=counts) == {}
-    assert counts["unchained_airside_conflicts"] == 1
+    both = {group_key("fu:1:1", "f"): (100.0, 80), group_key("fu:1:3", "f"): (94.0, 25)}
+    assert unchained_links(u, pw, airside=both, counts=counts) == {"fu:1:3": "fu:1:1"}
+    assert counts["unchained_airside_joined"] == 1
+    both[group_key("fu:1:3", "f")] = (94.0, 90)
+    assert unchained_links(u, pw, airside=both) == {"fu:1:1": "fu:1:3"}

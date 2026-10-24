@@ -524,10 +524,11 @@ def stage_one_problem(cl, derive: _t.Callable[[_t.Any], tuple],
     if cl0 is None:
         return None
     from ..constraints.door_pad import stage_one as _no_door_pads
+    from ..planar.group_low import stage_one as _no_group_levels
     from . import capture_state as _cs
     saved = _cs.collect(caller) if caller is not None else None
     try:
-        with _no_door_pads():
+        with _no_door_pads(), _no_group_levels():
             pm0, cs0, strips0, hold0 = derive(cl0)
         state0 = _cs.collect(pm0.registries)
     finally:

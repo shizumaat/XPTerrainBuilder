@@ -66,16 +66,19 @@ import statistics as _st
 import typing as _t
 
 from shapely.errors import GEOSException
-from shapely.geometry import Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
+from ..airport.deck_signature import is_tunnel_way
+from ..airport.road_ways import mapped_width_m
 from ..geom.parts import nonempty_polygon_parts
 from ..geom.valid_area import valid_area
 from ..model.planar import STRIP_SUFFIX, plane_ref
 from ..model.registries import Registries
 
-__all__ = ["LOW_KIND", "UP_KIND", "low_level_split", "plan_low", "plan_up"]
+__all__ = ["LOW_KIND", "UP_KIND", "level_cut", "low_level_split", "plan_low", "plan_up",
+           "stand_floor", "unit_share", "walled_feet"]
 
 #: the ``Registries.landings`` record kind of a lower level (a ramp
 #: landing's record carries no kind)
@@ -87,9 +90,16 @@ UP_KIND = "upper_level"
 def _unit_parts(P: Polygon, airport, to_xy) -> list:
     """``[(part, (x, y))]`` of the pack unit holding the plurality of part
     centres inside ``P`` (one unit, one authored frame)."""
+    return unit_share(P, airport, to_xy)[1]
+
+
+def unit_share(P: Polygon, airport, to_xy) -> "tuple[int | None, list]":
+    """``(unit index, [(part, (x, y))])``: :func:`_unit_parts` with the
+    partition unit it read (``None`` and ``[]`` where no part stands in
+    ``P``)."""
     part = getattr(airport, "partition", None)
     if part is None:
-        return []
+        return None, []
     by: dict[int, list] = {}
     for ui, u in enumerate(part.units):
         for m in u.members:
@@ -100,8 +110,8 @@ def _unit_parts(P: Polygon, airport, to_xy) -> list:
                 if P.contains(Point(xy)):
                     by.setdefault(ui, []).append((p, xy))
     if not by:
-        return []
-    return max(by.values(), key=len)
+        return None, []
+    return max(by.items(), key=lambda kv: (len(kv[1]), -kv[0]))
 
 
 def _ring_poly(rg, to_xy) -> "Polygon | None":
@@ -134,19 +144,9 @@ def _densest(ys: _t.Sequence[float], band: float) -> "tuple[int, float]":
     return best, med
 
 
-def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] | None":
-    """THE TWO FOOT LEVELS (module docstring, RULINGS 2026-10-23b):
-    ``(t, y_low)`` of the unit ``parts`` (``[(part, xy)]``) -- ``t`` the
-    stand-side airside floor plane of its walled feet, ``y_low`` the lower
-    storey's plane or ``None`` (one level) -- or ``None`` where too few
-    walled feet touch the airside near a stand to read one (``stands``:
-    frame xy; ``to_xy(lon, lat)`` the frame's entry)."""
-    import numpy as np
-    import shapely
-
-    from ..airport import airside_group_seat as ag
-    if not stands or air is None or air.is_empty:
-        return None
+def walled_feet(parts, law, to_xy) -> "tuple[list, list]":
+    """``(frame xy, y)`` of the ground-contact feet of the WALLED parts of
+    ``parts`` (``[(part, xy)]``; ``[placement] chain_min_height_m``)."""
     wall_min = float(law.tables.structures.placement.chain_min_height_m)
     xy, ys = [], []
     for p, _xy in parts:
@@ -155,6 +155,22 @@ def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] |
         for f in getattr(p, "feet", ()) or ():
             xy.append(to_xy(float(f[1]), float(f[0])))
             ys.append(float(f[2]))
+    return xy, ys
+
+
+def stand_floor(parts, air, stands, law, to_xy) -> "tuple[float, _t.Any, _t.Any, _t.Any] | None":
+    """``(t, X, Y, at)``: the stand-side airside floor plane ``t`` of the
+    walled feet of ``parts`` (``airside_group_seat.floor_plane`` over the
+    feet touching ``air`` within ``STAND_M`` of a stand, RULINGS
+    2026-10-23b), the feet's frame xy ``X``, their ``Y`` and the mask
+    ``at`` of the feet that read it -- or ``None`` where too few do."""
+    import numpy as np
+    import shapely
+
+    from ..airport import airside_group_seat as ag
+    if not stands or air is None or air.is_empty:
+        return None
+    xy, ys = walled_feet(parts, law, to_xy)
     if len(ys) < ag.PLANE_MIN_FEET:
         return None
     X = np.asarray(xy, dtype=float)
@@ -167,7 +183,23 @@ def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] |
     at = touch & near
     if int(at.sum()) < ag.PLANE_MIN_FEET:
         return None
-    t = -float(ag.floor_plane([-float(y) for y in Y[at]]))
+    return -float(ag.floor_plane([-float(y) for y in Y[at]])), X, Y, at
+
+
+def feet_levels(parts, air, stands, law, to_xy) -> "tuple[float, float | None] | None":
+    """THE TWO FOOT LEVELS (module docstring, RULINGS 2026-10-23b):
+    ``(t, y_low)`` of the unit ``parts`` (``[(part, xy)]``) -- ``t`` the
+    stand-side airside floor plane of its walled feet (:func:`stand_floor`),
+    ``y_low`` the lower storey's plane or ``None`` (one level) -- or
+    ``None`` where too few walled feet touch the airside near a stand to
+    read one (``stands``: frame xy; ``to_xy(lon, lat)`` the frame's
+    entry)."""
+    from ..airport import airside_group_seat as ag
+    got = stand_floor(parts, air, stands, law, to_xy)
+    if got is None:
+        return None
+    t, _X, Y, _at = got
+    ys = Y.tolist()
     low = sorted(float(y) for y in Y if y <= t - 2.0 * ag.PLANE_BAND_M)
     need = max(ag.PLANE_MIN_FEET, int(ag.PLANE_SHARE * len(ys) + 0.999999))
     n, med = _densest(low, ag.PLANE_BAND_M) if low else (0, 0.0)
@@ -224,33 +256,10 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
              if (g := _ring_poly(rg, to_xy)) is not None]
     if not polys:
         return None
-    L = unary_union(polys).buffer(near, join_style=2).buffer(-near, join_style=2)
-    L = valid_area(valid_area(L.intersection(P)).difference(air.buffer(near, join_style=2)))
-    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
-    if others is not None and not others.is_empty:
-        # ANOTHER PAD the low level touches keeps its own floor (two pads
-        # may sit at different floors, ``step_exemption_pad_to_pad``): the
-        # riser runs along it too, never one vertex at two levels
-        # (MEASURED KATL: ``building34`` / ``building36`` at the apron's level
-        # shared 10 vertices with the low level and held it up)
-        L = valid_area(L.difference(valid_area(others).buffer(w, join_style=2)))
-    keep = [q for q in nonempty_polygon_parts(L) if q.area >= pmin]
-    # A STOREY OF THE UNIT, not a sill: the low level is a unit pad's worth
-    # of ground (``[placement] cluster_pad_min_m2``, the §30 (4) bar) —
-    # MEASURED KATL ``building11``: two parts 7 m down over 571 m² asked a
-    # 3 m drop of ground the apron holds, and the band was relaxed
-    if sum(q.area for q in keep) < float(law.tables.structures.placement.cluster_pad_min_m2):
+    cut = level_cut(P, unary_union(polys), air, others, law, grid, pmin, airport)
+    if cut is None:
         return None
-    L = valid_area(unary_union(keep))
-    # a MITRE buffer can come back self-crossing (MEASURED KMCI
-    # ``building26/b1``, #1214 round 6: the riser's cut raised ``Ring edge
-    # missing`` and cost the block its lower level) -- its valid area
-    Lw = valid_area(L.buffer(w, join_style=2))
-    S = valid_area(_overlay(valid_area(_overlay(P, Lw, "intersection", grid)), L,
-                            "difference", grid))
-    H = valid_area(_overlay(P, Lw, "difference", grid))
-    if H.is_empty or H.area < pmin:
-        return None                  # the frontage block must stay a block
+    H, L, S = cut
     dem = getattr(airport, "dem", None)
     g_lo, g_hi = _ground(L, dem, near), _ground(H, dem, near)
     if y_feet is None and (g_lo is None or g_hi is None or g_hi - g_lo < step_min):
@@ -271,6 +280,114 @@ def plan_low(P, air, airport, law, grid: float, others=None, refused=None
            "low_parts": len(low_parts), "area_m2": round(L.area, 1),
            "ground_z": g_lo, "ground_high_z": g_hi}
     return H, L, S, rec
+
+
+def level_cut(P, L0, air, others, law, grid: float, hmin: float, airport=None
+              ) -> "tuple[_t.Any, _t.Any, _t.Any] | None":
+    """``(high, low, strip)``: the low region ``L0`` cut out of the held pad
+    ``P`` as a level -- closed by ``pad_frontage_m``, kept that distance off
+    the airside ``air`` and a riser's width off the pads ``others``, at
+    least a unit pad's worth of ground -- with its riser strip and the high
+    block left (of at least ``hmin`` m2), or ``None``."""
+    from ..law.tables import design as design_law
+    near = float(design_law(law).pad_frontage_m)
+    pmin = float(law.tables.structures.building_pad.min_area_m2)
+    L = L0.buffer(near, join_style=2).buffer(-near, join_style=2)
+    if airport is not None:
+        L = _with_roads(L, P, airport, law, near)
+    L = valid_area(valid_area(L.intersection(P)).difference(air.buffer(near, join_style=2)))
+    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
+    if others is not None and not others.is_empty:
+        # ANOTHER PAD the low level touches keeps its own floor (two pads
+        # may sit at different floors, ``step_exemption_pad_to_pad``): the
+        # riser runs along it too, never one vertex at two levels
+        # (MEASURED KATL: ``building34`` / ``building36`` at the apron's level
+        # shared 10 vertices with the low level and held it up)
+        L = valid_area(L.difference(valid_area(others).buffer(w, join_style=2)))
+    keep = [q for q in nonempty_polygon_parts(L) if q.area >= pmin]
+    # A STOREY OF THE UNIT, not a sill: the low level is a unit pad's worth
+    # of ground (``[placement] cluster_pad_min_m2``, the §30 (4) bar) —
+    # MEASURED KATL ``building11``: two parts 7 m down over 571 m² asked a
+    # 3 m drop of ground the apron holds, and the band was relaxed
+    if sum(q.area for q in keep) < float(law.tables.structures.placement.cluster_pad_min_m2):
+        return None
+    L = valid_area(unary_union(keep))
+    # a MITRE buffer can come back self-crossing (MEASURED KMCI
+    # ``building26/b1``, #1214 round 6: the riser's cut raised ``Ring edge
+    # missing`` and cost the block its lower level) -- its valid area
+    L = _with_orphans(L, P, air, others, w, near, grid)
+    Lw = valid_area(L.buffer(w, join_style=2))
+    S = valid_area(_overlay(valid_area(_overlay(P, Lw, "intersection", grid)), L,
+                            "difference", grid))
+    H = valid_area(_overlay(P, Lw, "difference", grid))
+    if H.is_empty or H.area < hmin:
+        return None                  # the frontage block must stay a block
+    return H, L, S
+
+
+def _with_roads(L, P, airport, law, near: float):
+    """A ROAD OVER THE LOWER LEVEL IS ON IT (#1291; owner RULINGS
+    2026-10-24a): the low region ``L`` plus every mapped road's carriageway
+    over the pad ``P`` that meets it, closed again by ``near``.
+
+    The low parts' footprints leave the roads between them out -- a road
+    is no part of the object -- so the block kept the corridor at its own
+    level and the roads rode it: MEASURED KMCI ``building26/b1``, the
+    covered road and the passages between the terminal and the garage's
+    lower floor stood on two 8 m block strips 2.4 m over the lower level
+    (the owner's "twin 2m tall road ridges ... that should be flat at the
+    lower level"), with the road ribbons spanning the riser.  The corridor
+    is the way's mapped carriageway (``airport/road_ways.mapped_width_m``
+    at the ``[tunnel]`` lane law); a bridge's corridor counts too (the
+    ground under a bridge is the ground the road beneath runs on), a bore
+    never (it runs under the pad).  Each corridor joins only within one
+    carriageway width of ``L``: a road that merely touches the lower level
+    and runs on over the block never carries the low level with it."""
+    if L.is_empty:
+        return L
+    tn = law.tables.structures.tunnel
+    admitted = tuple(tn.admitted_values)
+    add = []
+    for w in getattr(airport, "osm_ways", ()) or ():
+        tags = getattr(w, "tags", None) or {}
+        if not tags.get("highway") or len(w.points) < 2 or is_tunnel_way(tags, admitted):
+            continue
+        width = mapped_width_m(tags, tn.lane_width_m, tn.default_lanes)
+        c = LineString(w.points).buffer(0.5 * width, cap_style="flat")
+        if not c.intersects(P) or c.distance(L) > near:
+            continue
+        add.append(valid_area(_overlay(valid_area(c), P, "intersection", 0.01))
+                   .intersection(L.buffer(width, join_style=2)))
+    if not add:
+        return L
+    return (valid_area(unary_union([L, *add]))
+            .buffer(near, join_style=2).buffer(-near, join_style=2))
+
+
+def _with_orphans(L, P, air, others, w: float, near: float, grid: float):
+    """THE BLOCK IS ITS AIRSIDE FRONTAGE (#1291; owner RULINGS 2026-10-24a):
+    a piece of the high block the lower level (with its roads) cuts off from
+    the frontage -- one that comes no nearer the airside than ``near`` plus
+    the riser ``w`` -- has no airside to stand level with, so it is the lower
+    level too.  MEASURED KMCI ``building26/b1``: a 5.7 m block island
+    between the covered road and the garage, and the bands along the
+    garage's far walls the roads cross into its ground-level floor, each
+    2.4 m over the lower level beside it.
+
+    The grown level is read by SUBTRACTION -- the pad less the kept block
+    and its riser, the airside frontage and the other pads -- so it keeps
+    the pad's own edge vertex for vertex (a re-buffered edge minted a
+    0.25 m2 tunnel-ramp sliver against the pad's rim and spiked the ramp)."""
+    H = valid_area(_overlay(P, valid_area(L.buffer(w, join_style=2)), "difference", grid))
+    parts = nonempty_polygon_parts(H)
+    keep = [q for q in parts if q.distance(air) <= near + w]
+    if not keep or len(keep) == len(parts):
+        return L
+    cut = [valid_area(unary_union(keep).buffer(w, join_style=2)),
+           valid_area(air.buffer(near, join_style=2))]
+    if others is not None and not others.is_empty:
+        cut.append(valid_area(valid_area(others).buffer(w, join_style=2)))
+    return valid_area(_overlay(P, valid_area(unary_union(cut)), "difference", grid))
 
 
 def _plane_band() -> float:
@@ -355,6 +472,7 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
     ``reg.landings``.  ``storey_lots`` — ``(polygon, rise)`` of the lots
     met across a storey — give the held pads they touch an UPPER level."""
     from ..airport.obj8_grade import STEPPED
+    from .group_low import plan_group_low
     from .pad_blocks import unit_base
     if (airport is None or getattr(airport, "frame", None) is None
             or not air_polys):
@@ -368,11 +486,12 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         if h is not None and r.polygon is not None:
             groups.setdefault(ref, []).append(r)
     done: dict[str, list | None] = {}
+    floor_of = _group_floors(airport, air_polys, tree, law)
     for ref, regs in sorted(groups.items()):
         if held[ref].get("conforming"):
             continue
         P = unary_union([r.polygon for r in regs])
-        if P.is_empty or unit_base(P, airport)[0] != STEPPED:
+        if P.is_empty:
             continue
         air = unary_union([air_polys[int(j)] for j in
                            tree.query(P.buffer(50.0), predicate="intersects")])
@@ -382,7 +501,21 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
                               and r.polygon is not None and r.polygon.intersects(P.buffer(1.0))])
         try:
             why: list = []
-            got = plan_low(P, air, airport, law, grid, others, why)
+            got = (plan_low(P, air, airport, law, grid, others, why)
+                   if unit_base(P, airport)[0] == STEPPED else None)
+            if got is None:
+                # a pad holding ONE level a storey under its group's floor
+                # is the group's lower level (``planar/group_low``, #1214
+                # round 7: LFPG T2's trench pads)
+                gwhy: list = []
+                got = plan_group_low(P, air, airport, law, grid, others, floor_of, gwhy)
+                if gwhy:
+                    k = "low_level_group_refused"
+                    counts[k] = counts.get(k, 0) + 1
+                    counts.setdefault(k + "_list", []).append(f"{ref}: {gwhy[0]}")
+                if got is not None:
+                    why = []
+                    counts["low_level_group"] = counts.get("low_level_group", 0) + 1
         except GEOSException as exc:
             # an overlay GEOS still refuses on valid areas: the block stays
             # ONE level (the pre-#809 pad) and the refusal is counted, never
@@ -424,6 +557,19 @@ def low_level_split(out: list, air_polys: _t.Sequence[Polygon], airport,
         f"{k} on {v['block']} +{v['y']:.2f} {v['area_m2']:g} m2"
         for k, v in sorted(reg.landings.items()) if v.get("kind") == UP_KIND)
     return res
+
+
+def _group_floors(airport, air_polys, tree, law) -> _t.Callable[[int], _t.Any]:
+    """``ui -> group_low.group_floor`` of the partition unit, memoised per
+    split (one stand read, the airside about each unit)."""
+    from .group_low import group_floor
+    to_xy = airport.frame.entry()
+    stands = _stands_xy(airport, to_xy)
+    cache: dict = {}
+
+    def air_of(poly):
+        return unary_union([air_polys[int(j)] for j in tree.query(poly, predicate="intersects")])
+    return lambda ui: group_floor(ui, airport, air_of, stands, law, to_xy, cache)
 
 
 def _upper_split(groups, done, out, tree, air_polys, storey_lots, law,

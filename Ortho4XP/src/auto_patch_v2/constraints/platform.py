@@ -555,9 +555,25 @@ def landing_rows(planar: PlanarMap, law: Law,
         return []
     held = datum_vertices(planar, law)
     rows: list[Row] = []
-    n = n_none = 0
+    n = n_none = n_group = 0
+    table = None
     for ref, vs in sorted(landing_vertices(planar).items()):
         rec = planar.registries.landings[ref]
+        if rec.get("kind") == "low_level" and rec.get("air_xy"):
+            # THE GROUP'S LOWER LEVEL (``planar/group_low``, #1214 round 7):
+            # held at the group's zero read on the airside, never at its
+            # pad's datum (``constraints/group_level``)
+            from .group_level import group_level_rows, witness_index
+            if table is None:
+                table = witness_index(planar, law)
+            src = Source(GEN, PLANE_RULING + " (RULINGS 2026-10-23b/f the group's lower "
+                         "level held at the group's zero + its feet plane)",
+                         (f"low_level:{ref}", ref, f"platform:{rec['block']}"))
+            got = group_level_rows(ref, vs, rec, src, table)
+            n_group += bool(got)
+            n_none += not got
+            rows.extend(got)
+            continue
         dv = held.get(rec["block"])
         if dv is None:
             n_none += 1
@@ -586,7 +602,7 @@ def landing_rows(planar: PlanarMap, law: Law,
             rows.append(Linear(((v, 1.0), (dv, -1.0)), None, y, src))
             rows.append(Linear(((v, -1.0), (dv, 1.0)), None, -y, src))
     STATS["landing_rows"] = {"landings": n, "landings_no_datum": n_none,
-                             "rows": len(rows)}
+                             "group_levels": n_group, "rows": len(rows)}
     return rows
 
 

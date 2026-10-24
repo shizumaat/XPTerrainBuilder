@@ -442,6 +442,10 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # under its ground (``constraints/apron_shelf``)
     from .apron_shelf import shelf_release
     cs, rep["shelf_release"] = shelf_release(planar, law, cs, levels)
+    # #1214 round 7: a group's lower level is PINNED at its group's zero
+    # read on stage 1's airside (``constraints/group_level``)
+    from .group_level import group_level_rewrite
+    cs, rep["group_level"] = group_level_rewrite(planar, law, cs, levels)
     return cs, rep
 
 

@@ -17,11 +17,11 @@ re-read; one DEM per tile.
 from __future__ import annotations
 
 import math
-import os
 import threading
 from typing import Any, Callable, Dict, Optional
 
 import O4_File_Names as FNAMES
+from auto_patch_v2.airport.apt_dat import _file_identity as _stamp  # (mtime_ns, size) or None
 
 __all__ = ["cursor_elevation"]
 
@@ -29,14 +29,6 @@ _LOCK = threading.Lock()
 _MESH: Dict[str, tuple] = {}        # path -> (stamp, sampler | None)
 _DEM: Dict[tuple, Any] = {}         # (lat, lon) -> z_many(la, lo) | None
 _LOADING: set = set()
-
-
-def _stamp(path: str) -> Optional[tuple]:
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size)
 
 
 def _load_in_background(key: Any, load: Callable[[], Any],

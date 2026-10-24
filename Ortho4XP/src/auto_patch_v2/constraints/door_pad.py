@@ -53,7 +53,6 @@ THE RULE.
 """
 from __future__ import annotations
 
-import contextlib
 import dataclasses as _dc
 import typing as _t
 
@@ -66,6 +65,7 @@ from ..law.tables import design as design_law
 from ..model.airport import Airport
 from ..model.constraints import Band, ConstraintSet, Diff, Flat, Offset, Row, Source
 from ..model.planar import PlanarMap
+from ..model.stage_one import deriving, stage_one  # no door pad on stage 1's map
 
 __all__ = ["DoorPad", "door_pads", "stage_one", "blend_release", "door_pad_level",
            "relax_apron_caps", "door_line_failures", "GEN", "DOOR_HEAD", "GIVE_HEAD"]
@@ -101,22 +101,6 @@ class DoorPad:
 
 
 _MEMO: list[tuple[int, _t.Any, list]] = []
-#: set while stage 1's map is derived (:func:`stage_one`): no door pad there
-_SUSPENDED: list[bool] = []
-
-
-@contextlib.contextmanager
-def stage_one():
-    """No door-line pad on STAGE 1'S MAP (``pipeline/stage_one_map.
-    base_pad_map``): it carries main's pads, and the door line and blend
-    are stage 2's, against the solved airside (master 2026-10-20)."""
-    _SUSPENDED.append(True)
-    try:
-        yield
-    finally:
-        _SUSPENDED.pop()
-
-
 def _poly(planar: PlanarMap, ring) -> Polygon:
     g = Polygon([planar.vertices[v].xy for v in planar.ring_vertices(ring)])
     return g if g.is_valid else g.buffer(0.0)
@@ -127,7 +111,7 @@ def door_pads(planar: PlanarMap, law: Law, airport: Airport) -> list[DoorPad]:
     for k, pm, got in _MEMO:
         if k == id(planar) and pm is planar:
             return got
-    got = [] if _SUSPENDED else _derive(planar, law, airport)
+    got = [] if deriving() else _derive(planar, law, airport)
     _MEMO.append((id(planar), planar, got))
     del _MEMO[:-2]
     return got

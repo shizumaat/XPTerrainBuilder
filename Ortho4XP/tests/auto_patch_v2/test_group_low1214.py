@@ -82,7 +82,7 @@ def test_the_level_is_held_at_the_airside_witnesses_not_the_pad_datum():
     from auto_patch_v2.model.constraints import Source
     rec = {"air_xy": ((0.0, 0.0), (40.4, 0.0)), "air_y": (-0.04, -0.04), "y_feet": -7.47}
     rows = group_level_rows("b/p1", [1, 2], rec, Source("g", "r", ("low_level:b/p1",)),
-                            (_Index(), frozenset({"apron"})))
+                            (_Index(), frozenset({"apron"}), frozenset(range(100, 140))))
     w = dict(rows[0].terms[1:])
     assert rows[0].terms[0] == (1, 1.0) and w == {100: -0.5, 139: -0.5}
     assert rows[0].hi == pytest.approx(-7.43) and rows[1].hi == pytest.approx(7.43)
@@ -100,3 +100,26 @@ def test_the_witnesses_are_the_feet_in_their_floors_band(law, tmp_path):
     Y = np.zeros(len(X))
     keep = GL._floor_band(A, X, Y, list(range(len(X))))
     assert keep and all(X[i, 0] < 120.0 for i in keep)
+
+
+def test_between_the_stages_the_tie_becomes_a_pin_on_stage_1s_levels(monkeypatch):
+    """A tie naming a vertex the door pads' blend released from stage 1 pulled
+    a hall pad's apron 0.99 m; the pin at the mean read on stage 1's levels
+    names none.  A vertex stage 1 did not level is not read."""
+    import types
+
+    from auto_patch_v2.constraints import group_level as G
+    from auto_patch_v2.model.constraints import ConstraintSet, Source
+    rec = {"kind": "low_level", "air_xy": tuple((float(i), 0.0) for i in range(4)),
+           "air_y": (0.0,) * 4, "y_feet": -7.5}
+    pm = types.SimpleNamespace(registries=types.SimpleNamespace(landings={"b/p1": rec}))
+    index = (_Index(), frozenset({"apron"}), frozenset(range(100, 140)))
+    monkeypatch.setattr(G, "witness_index", lambda planar, law: index)
+    rows = G.group_level_rows("b/p1", [1, 2], rec, Source("g", "r", ("low_level:b/p1",)), index)
+    levels = {100: 105.0, 101: 105.4, 102: 105.2}          # 103: released (stage 2's)
+    cs, rep = G.group_level_rewrite(pm, None, ConstraintSet.from_rows(rows), levels)
+    z0, n = rep["levels"]["b/p1"]
+    assert n == 3 and z0 == pytest.approx(105.2)
+    pins = [r for r in cs.linears if len(r.terms) == 1]
+    assert len(pins) == 2 and pins[0].hi == pytest.approx(97.7)
+    assert all(len(r.terms) <= 2 for r in cs.linears) and len(cs.linears) == 4

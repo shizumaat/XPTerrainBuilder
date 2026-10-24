@@ -467,6 +467,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.rebake",
         "auto_patch_v2.model.registries",
         "auto_patch_v2.model.road_yield",
+        "auto_patch_v2.model.stage_one",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.planar",
         "auto_patch_v2.planar.apron_shelf",
@@ -884,6 +885,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.model.pulse",
         "auto_patch_v2.model.rebake",
         "auto_patch_v2.model.registries",
+        "auto_patch_v2.model.stage_one",
         "auto_patch_v2.model.structures",
         "auto_patch_v2.model.threshold_datum",
         "auto_patch_v2.pipeline",
@@ -1025,6 +1027,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     "door_pad": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.door_pad constraints.geometry constraints.precedence
         geom.slope_pad model.airport
+        model.stage_one
     """),
     "junction_mesh": _mods(_GENERATOR_CORE + """
         constraints.apron constraints.cluster_pad constraints.geometry
@@ -1269,6 +1272,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     geom.slope_pad
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level
+    model.stage_one
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
     airport constraints model airport.anchor_rule airport.apt_dat
@@ -1414,6 +1418,7 @@ CODE_MODULES["solve"] = _mods("""
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
+    model.stage_one
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport classify emit model pipeline planar solve airport.anchor_rule
@@ -1515,6 +1520,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
+    model.stage_one
 """)
 CODE_MODULES["emit"] = _mods("""
     airport constraints emit model pipeline planar verify airport.anchor_rule
@@ -1676,6 +1682,8 @@ ENTRY_MODULES["constraints.assembly"] = ("auto_patch_v2.constraints",
 ENTRY_MODULES["jetway_strip"] = ("auto_patch_v2.airport.riders",
                                  "auto_patch_v2.constraints.jetway_strip")
 ENTRY_MODULES["solve"] = ("auto_patch_v2.solve.design", "auto_patch_v2.solve.api",
+                          "auto_patch_v2.constraints.face_index",
+                          "auto_patch_v2.constraints.group_level",
                           "auto_patch_v2.constraints.no_step",
                           "auto_patch_v2.constraints.road_ramp",
                           "auto_patch_v2.constraints.taxi_trend",
@@ -1686,7 +1694,9 @@ ENTRY_MODULES["late_cut"] = ("auto_patch_v2.pipeline.late_stage",
                              "auto_patch_v2.pipeline.late_records",
                              "auto_patch_v2.classify.gap_mint")
 ENTRY_MODULES["late_solve"] = ("auto_patch_v2.pipeline.late_stage",
+                               "auto_patch_v2.constraints.face_index",
                                "auto_patch_v2.constraints.gap_follow",
+                               "auto_patch_v2.constraints.group_level",
                                "auto_patch_v2.constraints.no_step",
                                "auto_patch_v2.constraints.road_ramp",
                                "auto_patch_v2.pipeline.late_records",

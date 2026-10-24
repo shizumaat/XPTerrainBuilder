@@ -45,12 +45,12 @@ vertices up to 0.29 m, minting 7 airside_no_step rows.
 """
 from __future__ import annotations
 
-import contextlib
 import typing as _t
 
 from shapely.geometry import box
 
 from ..airport.airside_group_seat import PLANE_BAND_M, PLANE_SHARE
+from ..model.stage_one import deriving, stage_one
 from .low_level import _densest, level_cut, stand_floor, unit_share, walled_feet
 
 __all__ = ["GROUP_WITNESS", "WITNESS_MAX", "group_floor", "plan_group_low", "stage_one"]
@@ -61,22 +61,6 @@ GROUP_WITNESS = "group"
 WITNESS_MAX = 256
 #: a pad's share is read on at least this many walled feet
 SHARE_MIN_FEET = 4
-#: set while stage 1's map is derived (:func:`stage_one`): no group level
-_SUSPENDED: list[bool] = []
-
-
-@contextlib.contextmanager
-def stage_one():
-    """No group lower level on STAGE 1'S MAP (``pipeline/stage_one_map.
-    stage_one_problem``): the airside is solved with the pad whole, and the
-    level is stage 2's (module docstring)."""
-    _SUSPENDED.append(True)
-    try:
-        yield
-    finally:
-        _SUSPENDED.pop()
-
-
 def group_floor(ui: int, airport, air_of: _t.Callable[[_t.Any], _t.Any],
                 stands, law, to_xy, cache: dict) -> "tuple | None":
     """``(t, witness xy, witness y)`` of partition unit ``ui``: its
@@ -137,7 +121,7 @@ def plan_group_low(P, air, airport, law, grid: float, others, floor_of,
     group's lower level (module docstring), or ``None`` (the reason, where
     one is read, appended to ``refused``).  ``floor_of(ui)`` is
     :func:`group_floor` bound to the airport."""
-    if _SUSPENDED:
+    if deriving():
         return None
     to_xy = airport.frame.entry()
     ui, parts = unit_share(P, airport, to_xy)
@@ -157,13 +141,11 @@ def plan_group_low(P, air, airport, law, grid: float, others, floor_of,
     if 2 * n < len(ys) or y_p > t - 2.0 * PLANE_BAND_M:
         # the pad's share does not STAND a storey under the group's floor
         return None
-    # THE STEP LIVES AT THE PAD'S EDGE: the level is inset a riser's width
-    # from the WHOLE ring, so every neighbour -- the apron's rim, a road, the
-    # ground -- still meets the pad's own datum and only the riser strip
-    # spans the storey (MEASURED LFPG replay, the level to the ring: roads
-    # sharing its edge held it 0.3 m out of plane)
-    w = max(float(law.tables.emit.identity.min_distinct_spacing_m), 2.0 * float(grid))
-    cut = level_cut(P, P.buffer(-w, join_style=2), air, others, law, grid, 0.0)
+    # the WHOLE pad is the level but for its frontage rim on the airside:
+    # the pad IS the footprint, and its walls stand on its ring (MEASURED
+    # LFPG replay, the level inset a riser's width: 219 of the trench
+    # buildings' feet stood on the riser)
+    cut = level_cut(P, P, air, others, law, grid, 0.0)
     if cut is None:
         if refused is not None:
             refused.append(f"group level y {y_p - t:+.2f}: no level left off the airside")

@@ -23,9 +23,10 @@ vertices).
   The witnesses are the feet in their floor's band (``planar/group_low``):
   the object stage's floor is the highest dense plane of candidates, and
   the mean of every stand-side foot reads it a metre low (MEASURED LFPG
-  T2: 104.2 m against 105.2).  The tie is a stage-2 row over the design
-  surface's own triangles: a frontage vertex a hall's pad shares with the
-  apron is stage 2's, and stage 1's apron alone read the floor 0.5 m low.
+  T2: 104.2 m against 105.2).  The tie reads stage 1's vertices only (:func:`witness_terms`), and
+  between the stages :func:`group_level_rewrite` replaces it by a PIN at
+  the same mean read on stage 1's solved levels, so the airside never
+  moves for the level.
 
 The level is not on stage 1's map (``planar/group_low.stage_one``), so the
 airside never follows it.  The rows' input is ``low_level:<ref>``, the one
@@ -39,7 +40,8 @@ from ..law import Law
 from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 
-__all__ = ["TOUCH_M", "LANDING_INPUT", "witness_index", "witness_terms", "group_level_rows"]
+__all__ = ["TOUCH_M", "LANDING_INPUT", "witness_index", "witness_terms",
+           "group_level_rows", "group_level_rewrite"]
 
 #: the object stage's airside touch (``airside_group_seat.TOUCH_M``)
 TOUCH_M = 1.0
@@ -49,27 +51,42 @@ LANDING_INPUT = "low_level:"
 _PROBES = ((0.0, 0.0), (1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0))
 
 
-def witness_index(planar: PlanarMap, law: Law) -> "tuple[_t.Any, frozenset[str]]":
-    """``(face index, airside pavement roles)`` the witnesses are read on."""
+def witness_index(planar: PlanarMap, law: Law
+                  ) -> "tuple[_t.Any, frozenset[str], frozenset[int]]":
+    """``(face index, airside pavement roles, stage 1's vertices)`` the
+    witnesses are read on -- stage 1's population (``model/platform.
+    stage_air_vertices`` and each held block's datum column, the set
+    ``solve/design_roles.airside_stage_vertices`` solves first)."""
     from ..law import tables as _T
+    from ..model.platform import datum_vertices, stage_air_vertices
     from .face_index import FaceIndex
-    return FaceIndex(planar, law), frozenset(_T.rolled_on_roles(law))
+    s1 = set(stage_air_vertices(planar, law))
+    s1.update(datum_vertices(planar, law, s1).values())
+    return FaceIndex(planar, law), frozenset(_T.rolled_on_roles(law)), frozenset(s1)
 
 
-def witness_terms(rec: _t.Mapping[str, _t.Any], index: "tuple[_t.Any, frozenset[str]]"
+def witness_terms(rec: _t.Mapping[str, _t.Any], index: "tuple[_t.Any, frozenset[str], _t.Any]",
+                  keep: "_t.Container[int] | None" = None
                   ) -> list[tuple[tuple[tuple[int, float], ...], float]]:
-    """``[(barycentric row, foot y)]`` of every witness of ``rec`` that
-    stands on airside pavement or within :data:`TOUCH_M` of it."""
-    fi, rolled = index
+    """``[(row, foot y)]`` of every witness of ``rec`` that stands on
+    airside pavement or within :data:`TOUCH_M` of it: the barycentric row
+    of its triangle over stage 1's vertices only, renormalised -- a vertex
+    a pad shares with the apron is stage 2's, and a tie naming it would
+    pull the airside to the level (MEASURED LFPG replay: a hall pad's apron
+    rose 0.74 m); a witness reading none of stage 1's is dropped.  ``keep``
+    (default: stage 1's vertices) narrows the vertices read."""
+    fi, rolled, s1 = index
+    s1 = s1 if keep is None else keep
     out = []
     for (x, y), yf in zip(rec.get("air_xy") or (), rec.get("air_y") or (), strict=True):
         for dx, dy in _PROBES:
             p = (float(x) + dx * TOUCH_M, float(y) + dy * TOUCH_M)
             if fi.role_at(p) in rolled:
-                t = fi.terms_at(p)
-                if t:
-                    out.append((t, float(yf)))
-                    break
+                t = [(int(v), float(w)) for v, w in fi.terms_at(p) or () if int(v) in s1]
+                tot = sum(w for _v, w in t)
+                if t and tot > 0.0:
+                    out.append((tuple((v, w / tot) for v, w in t), float(yf)))
+                break
     return out
 
 
@@ -105,3 +122,46 @@ def group_level_rows(ref: str, vs: _t.Sequence[int], rec: _t.Mapping[str, _t.Any
         return []
     d = int(vs[0])
     return [*_tie(d, wt, float(rec["y_feet"]), src), *_rigid(vs, d, src)]
+
+
+def group_level_rewrite(planar: PlanarMap, law: Law, cs: _t.Any,
+                        levels: _t.Mapping[int, float]) -> "tuple[_t.Any, dict]":
+    """BETWEEN THE STAGES (bound in ``road_ramp.reach_seed_rewrite``, the
+    one stage-2 rewrite every caller binds): ``cs`` with every group lower
+    level's tie (its rows naming more than two vertices) replaced by ``d``
+    PINNED at the witnesses' mean ``airside z - y`` on stage 1's solved
+    airside ``levels`` plus ``y_feet``.  A vertex stage 1 levelled is a
+    constant of stage 2, but the door pads' blend releases some of stage
+    1's own (``door_pad.blend_release``): a tie naming one pulled a hall
+    pad's apron 0.99 m (MEASURED LFPG replay), a pin pulls none.  The
+    report is ``{"levels": {ref: (zero, witnesses read)}}``."""
+    import dataclasses as _dc
+    lands = getattr(getattr(planar, "registries", None), "landings", None) or {}
+    recs = {r: v for r, v in lands.items()
+            if v.get("kind") == "low_level" and v.get("air_xy")}
+    if not recs or not cs.linears:
+        return cs, {"levels": {}}
+    index = witness_index(planar, law)
+    tie = {f"{LANDING_INPUT}{r}": r for r in recs}
+    out, rep, done = [], {}, set()
+    for row in cs.linears:
+        ins = getattr(row.source, "inputs", ()) or ()
+        ref = tie.get(str(ins[0])) if ins else None
+        if ref is None or len(row.terms) <= 2:
+            out.append(row)
+            continue
+        if ref in done:
+            continue                                  # the tie's other side
+        cands = [sum(w * float(levels[v]) for v, w in terms) - y
+                 for terms, y in witness_terms(recs[ref], index, levels)]
+        if not cands:
+            out.append(row)                           # no witness stage 1 read: the tie
+            continue
+        done.add(ref)
+        z0 = sum(cands) / len(cands)
+        d = int(row.terms[0][0])
+        lv = z0 + float(recs[ref]["y_feet"])
+        rep[ref] = (round(z0, 3), len(cands))
+        out.append(Linear(((d, 1.0),), None, lv, row.source))
+        out.append(Linear(((d, -1.0),), None, -lv, row.source))
+    return _dc.replace(cs, linears=tuple(out)), {"levels": rep}

@@ -500,6 +500,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.model.rebake",
     "auto_patch_v2.model.registries",
     "auto_patch_v2.model.road_yield",
+    "auto_patch_v2.model.stage_one",
     "auto_patch_v2.model.structures",
     "auto_patch_v2.model.threshold_datum",
     "auto_patch_v2.pipeline",

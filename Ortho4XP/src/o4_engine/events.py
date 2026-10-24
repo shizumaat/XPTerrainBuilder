@@ -85,7 +85,10 @@ from typing import Any, Optional
 # Within 1.13 (2026-10-19, additive, #797): ``pack_objects`` takes
 # ``footprints_only``; its models then carry ``plan_hull_f32_b64`` (the
 # plan outline, ``(x, z)`` pairs) instead of vertices and triangles.
-PROTOCOL_VERSION = "1.13"
+# 1.14 (2026-10-24, additive, #1308): ``cursor_elevation`` answers the
+# built mesh's elevation at a point (``source`` "mesh"), else the DEM's
+# ("dem"); ``pending`` while a source loads off the read loop.
+PROTOCOL_VERSION = "1.14"
 
 
 @dataclass(frozen=True)

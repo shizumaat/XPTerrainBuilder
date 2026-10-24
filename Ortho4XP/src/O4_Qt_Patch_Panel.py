@@ -107,6 +107,16 @@ def _field(label: str, placeholder: str, apply: _t.Callable[[float], _t.Any],
     return w, edit
 
 
+
+def node_coord(value):
+    """One node coordinate as the node info shows it: 9 decimals."""
+    return "%.9f" % value
+
+
+def node_lat_lon(lat, lon):
+    """A position in the node format: ``lat, lon``, 9 decimals each."""
+    return "%s, %s" % (node_coord(lat), node_coord(lon))
+
 class PatchPanel(QGroupBox):
     """The Patch box; hidden while the layer is hidden."""
 
@@ -345,8 +355,8 @@ class PatchPanel(QGroupBox):
             node = doc.nodes[ids[0]]
             nid, lat, lon, alt = node
             self.node_title.setText("Node %d" % nid)
-            self.lat_value.setText("%.9f" % lat)
-            self.lon_value.setText("%.9f" % lon)
+            self.lat_value.setText(node_coord(lat))
+            self.lon_value.setText(node_coord(lon))
             if self._shown_node != node:
                 self._shown_node = node
                 self.alt_edit.setText("" if alt is None else "%.2f" % alt)

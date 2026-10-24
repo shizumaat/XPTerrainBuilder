@@ -20,6 +20,9 @@ struct MapCanvasView: View {
         MapSceneryFilter(rawValue: sceneryFilterRaw) ?? .all
     }
 
+    @State private var cursorText: String?
+    @State private var cursorElevation: String?
+    @State private var elevationQuery: Task<Void, Never>?
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     /// The airport layer's last plan (#817): rebuilt only when the camera,
     /// the viewport or the airport lists change.
@@ -80,6 +83,18 @@ struct MapCanvasView: View {
                     PatchModeToolbar(model: buildModel.patchEdit)
                 }
             }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    let point = camera.value.coordinate(of: location, in: proxy.size)
+                    cursorText = PatchNodeInspector.latLon(lat: point.lat, lon: point.lon)
+                    queryElevation(lat: point.lat, lon: point.lon)
+                case .ended:
+                    cursorText = nil
+                    elevationQuery?.cancel()
+                }
+            }
+            .overlay(alignment: .bottomLeading) { cursorReadout }
             .overlay(alignment: .bottomTrailing) {
                 VStack(alignment: .trailing, spacing: 6) {
                     ScanProgressChip()
@@ -570,6 +585,43 @@ struct MapCanvasView: View {
                 .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
                 .padding(8)
                 .help("Scanning Custom Scenery — the map fills in as packages are found")
+            }
+        }
+    }
+
+    /// Bottom-left readout: the cursor position in the node format (#1308).
+    @ViewBuilder
+    private var cursorReadout: some View {
+        if let cursorText {
+            Text(cursorElevation.map { "\(cursorText) · \($0)" } ?? cursorText)
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(8)
+        }
+    }
+
+    /// Asks the engine once the cursor rests (150 ms), again while it
+    /// reports a source still loading; never on every move.
+    private func queryElevation(lat: Double, lon: Double) {
+        elevationQuery?.cancel()
+        cursorElevation = nil
+        guard let client = buildModel.patchEditorClient() else { return }
+        let coord = BuildModel.TileCoord(lat: Int(floor(lat)), lon: Int(floor(lon)))
+        let buildDir = buildModel.tileFolder(coord)?.path
+        elevationQuery = Task { @MainActor in
+            var delay: UInt64 = 150_000_000
+            for _ in 0..<20 {
+                try? await Task.sleep(nanoseconds: delay)
+                if Task.isCancelled { return }
+                guard let reply = try? await client.cursorElevation(lat: lat, lon: lon, buildDir: buildDir),
+                      !Task.isCancelled else { return }
+                cursorElevation = reply.readout
+                if !reply.pending { return }
+                delay = 400_000_000
             }
         }
     }

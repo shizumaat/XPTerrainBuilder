@@ -166,6 +166,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
     from . import patch_commands
+    from .elevation_commands import cursor_elevation
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .mesh_commands import mesh_crop
@@ -234,6 +235,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "pack_outlines": pack_outlines,
         # ... and the last build's mesh there ("Last build"); synchronous.
         "mesh_crop": mesh_crop,
+        # Cursor elevation (protocol 1.14, #1308): the built mesh's
+        # elevation at a point, else the DEM's.  Never loads on THIS
+        # thread: an uncached source loads on a daemon thread and the
+        # reply says pending.
+        "cursor_elevation": cursor_elevation,
     }
 
 

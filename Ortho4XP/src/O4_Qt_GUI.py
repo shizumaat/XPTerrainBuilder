@@ -1344,6 +1344,7 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         self.setStatusBar(status)
         self.coords_label = QLabel("—")
+        self.coords_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         status.addWidget(self.coords_label)
         self.zoom_label = QLabel("")
         status.addWidget(self.zoom_label)
@@ -4285,7 +4286,12 @@ class MainWindow(QMainWindow):
         )
 
     def _hover(self, lat, lon):
-        self.coords_label.setText("%.3f°, %.3f°" % (lat, lon))
+        readout = getattr(self, "_cursor_readout", None)
+        if readout is None:                 # the label is made after the map
+            from O4_Qt_Cursor_Readout import CursorReadout
+            readout = self._cursor_readout = CursorReadout(
+                self.coords_label, self.patch_editor.engine, lambda: self._built, self)
+        readout.hover(lat, lon)
 
     def _update_zoom_label(self):
         self.zoom_label.setText(

@@ -139,6 +139,29 @@ public struct O4PatchListEntry: Codable, Equatable, Sendable {
 
 public struct O4PatchList: Codable, Equatable, Sendable {
     public let airports: [O4PatchListEntry]
+
+    public init(airports: [O4PatchListEntry]) { self.airports = airports }
+
+    private enum CodingKeys: String, CodingKey { case airports }
+
+    /// Decodes entry by entry: one malformed entry (e.g. a null bbox from an
+    /// empty patch) is dropped and logged, never the whole listing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var list = try c.nestedUnkeyedContainer(forKey: .airports)
+        var kept: [O4PatchListEntry] = []
+        while !list.isAtEnd {
+            do {
+                kept.append(try list.decode(O4PatchListEntry.self))
+            } catch {
+                _ = try? list.decode(SkippedEntry.self)
+                NSLog("patch_list: dropped an undecodable entry: \(error)")
+            }
+        }
+        airports = kept
+    }
+
+    private struct SkippedEntry: Decodable {}
 }
 
 /// One `[id, lat, lon, alt_or_null]` node row.

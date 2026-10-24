@@ -330,6 +330,26 @@ public struct O4MeshCrop: Decodable, Equatable, Sendable {
     }
 }
 
+/// `cursor_elevation` (protocol 1.14, #1308): the built mesh's elevation
+/// at a point, else the DEM's; `pending` while the engine loads a source.
+public struct O4CursorElevation: Decodable, Equatable, Sendable {
+    public let elevationM: Double?
+    /// "mesh" or "dem"; nil when there is no value.
+    public let source: String?
+    public let pending: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case elevationM = "elevation_m", source, pending
+    }
+
+    /// The readout's suffix: `123.4 m`, `(DEM)` appended on the fallback.
+    public var readout: String? {
+        guard let elevationM else { return nil }
+        let metres = String(format: "%.1f m", elevationM)
+        return source == "dem" ? metres + " (DEM)" : metres
+    }
+}
+
 public struct O4PackObjects: Decodable, Equatable, Sendable {
     public struct Model: Decodable, Equatable, Sendable {
         public let key: String

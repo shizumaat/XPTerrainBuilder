@@ -952,6 +952,13 @@ extension OrthoEngineClient {
         return try await request("terrain_sample", arguments)
     }
 
+    /// The elevation under the map cursor (protocol 1.14, #1308).
+    public func cursorElevation(lat: Double, lon: Double, buildDir: String? = nil) async throws -> O4CursorElevation {
+        var arguments: [String: Any] = ["lat": lat, "lon": lon]
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("cursor_elevation", arguments)
+    }
+
     /// The last build's mesh around `bbox` ("Last build"); `buildDir` as
     /// for `terrainSample`.
     public func meshCrop(tile: String, bbox: O4LatLonBox, buildDir: String? = nil) async throws -> O4MeshCrop {

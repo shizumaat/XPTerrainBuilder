@@ -22,6 +22,22 @@ struct PatchEditorTests {
         return try result.get()
     }
 
+    @Test func cursorElevationDecodes() throws {
+        func reply(_ json: String) throws -> O4CursorElevation {
+            let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
+            let r = O4Reply(ok: true, result: O4JSON.from(object), error: nil)
+            let result: Result<O4CursorElevation, Error> =
+                OrthoEngineClient.decodeReply(r, command: "cursor_elevation")
+            return try result.get()
+        }
+        let mesh = try reply(#"{"elevation_m": 123.44, "source": "mesh", "pending": false}"#)
+        #expect(mesh.readout == "123.4 m" && !mesh.pending)
+        let dem = try reply(#"{"elevation_m": 61.25, "source": "dem", "pending": true}"#)
+        #expect(dem.readout == "61.2 m (DEM)" && dem.pending)
+        let none = try reply(#"{"elevation_m": null, "source": null, "pending": true}"#)
+        #expect(none.readout == nil)
+    }
+
     private func document() throws -> PatchDocument {
         PatchDocument(tile: "+45-123", load: try decode("patch_load", as: O4PatchLoad.self))
     }

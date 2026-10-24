@@ -27,6 +27,12 @@ struct PatchNodeInspector: View {
         }
     }
 
+    /// One node coordinate as the node info shows it: 9 decimals.
+    static func coord(_ value: Double) -> String { String(format: "%.9f", value) }
+
+    /// A position in the node format: `lat, lon`, 9 decimals each.
+    static func latLon(lat: Double, lon: Double) -> String { "\(coord(lat)), \(coord(lon))" }
+
     // MARK: - One node
 
     @ViewBuilder
@@ -36,8 +42,8 @@ struct PatchNodeInspector: View {
             Spacer()
             Text("1 selected").scaledFont(.caption).foregroundStyle(.secondary)
         }
-        row("lat", String(format: "%.9f", node.lat))
-        row("lon", String(format: "%.9f", node.lon))
+        row("lat", Self.coord(node.lat))
+        row("lon", Self.coord(node.lon))
         HStack(spacing: 6) {
             Text("Elevation").foregroundStyle(.secondary)
             TextField(node.alt == nil ? "from the mesh" : "", text: $altText.value)

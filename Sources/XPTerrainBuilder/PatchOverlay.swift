@@ -99,23 +99,7 @@ struct PatchOverlay: View {
             .overlay(alignment: .topTrailing) {
                 PatchLegend(outlines: model.build?.packOutlines).padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
             }
-            .overlay(alignment: .bottomLeading) {
-                Text(Self.chipText(document))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 6))
-                    .padding(8)
-                    .allowsHitTesting(false)
-            }
         }
-    }
-
-    /// "KHIO · automatic shape · 4,576 nodes · 392 shapes".
-    static func chipText(_ doc: PatchDocument) -> String {
-        let source = doc.source == .auto ? "automatic shape"
-            : doc.isHandMade ? "hand-made shape" : "edited shape"
-        return "\(doc.icao) · \(source) · \(doc.nodes.count.formatted()) nodes · \(doc.ways.count.formatted()) shapes"
     }
 
     // MARK: - Drawing

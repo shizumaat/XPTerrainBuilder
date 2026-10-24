@@ -21,7 +21,7 @@ import O4_Geo_Utils as GEO
 import O4_Qt_Map as QTMAP
 from O4_Qt_Patch_Geometry import DRAW_ORDER, PatchScreenIndex, scene_xy, style_class
 
-__all__ = ["PatchOverlay", "STYLES", "chip_text", "paint_styled"]
+__all__ = ["PatchOverlay", "STYLES", "paint_styled"]
 
 
 def _hex(rgb: int, alpha: float = 1.0) -> QColor:
@@ -47,14 +47,6 @@ SELECTION = QColor("#FFD60A")
 _LEGEND = (("runway", "runway"), ("taxiway", "taxiway"), ("apron", "apron"),
            ("building", "building"), ("road", "road"), ("ground", "graded ground"))
 NODE_SIZE = 6.0
-
-
-def chip_text(model) -> str:
-    """"KHIO · automatic shape · 4,576 nodes · 392 shapes"."""
-    p, doc = model.patch, model.doc
-    source = ("automatic shape" if p.source == "auto"
-              else "hand-made shape" if p.is_hand_made else "edited shape")
-    return "%s · %s · {:,} nodes · {:,} shapes".format(len(doc.nodes), len(doc.ways)) % (p.icao, source)
 
 
 def paint_styled(painter, shapes: _t.Iterable[tuple[str, bool, QPainterPath]]) -> None:
@@ -180,7 +172,6 @@ class PatchOverlay:
         if self.gestures is not None and self.model.mode == "Edit":
             self.gestures.paint(painter)
         self._paint_legend(painter)
-        self._paint_chip(painter)
 
     def _paint_nodes(self, painter, width: float, height: float, skip) -> None:
         half = NODE_SIZE / 2
@@ -224,23 +215,6 @@ class PatchOverlay:
             painter.setPen(QColor(255, 255, 255, 217))
             painter.drawText(QRectF(box.left() + 29, y, width - 30, line),
                              Qt.AlignVCenter | Qt.AlignLeft, label)
-        painter.restore()
-
-    def _paint_chip(self, painter) -> None:
-        painter.save()
-        font = QFont("Menlo")
-        font.setStyleHint(QFont.Monospace)
-        font.setPointSizeF(10)
-        painter.setFont(font)
-        text = chip_text(self.model)
-        fm = painter.fontMetrics()
-        vp = self.map.viewport().rect()
-        box = QRectF(8, vp.bottom() - fm.height() - 14, fm.horizontalAdvance(text) + 16, fm.height() + 6)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 115))
-        painter.drawRoundedRect(box, 6, 6)
-        painter.setPen(QColor(255, 255, 255, 191))
-        painter.drawText(box, Qt.AlignCenter, text)
         painter.restore()
 
     def viewport_moved(self) -> None:

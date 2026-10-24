@@ -64,7 +64,9 @@ def _effective_patch(directory: str, icao: str) -> tuple[str, str] | None:
 
 def patch_list(tile: str) -> dict:
     """ENGINE COMMAND ``patch_list``: the airports with a patch in *tile*'s
-    Patches folder, each with the patch the build applies."""
+    Patches folder, each with the patch the build applies.  A patch with no
+    nodes (an airport whose emit came out empty) has no box and is skipped,
+    so one empty file never breaks the listing."""
     directory = _patch_dir(tile)
     icaos = sorted({FNAMES.patch_file_icao(f) for f in
                     (os.listdir(directory) if os.path.isdir(directory) else ())
@@ -76,8 +78,11 @@ def patch_list(tile: str) -> dict:
             continue
         source, path = found
         doc = PF.read_patch(path)
+        bbox = doc.bbox() if doc.nodes else None
+        if bbox is None:
+            continue
         airports.append({"icao": icao, "source": source, "path": path,
-                         "bbox": doc.bbox(), "nodes": len(doc.nodes),
+                         "bbox": bbox, "nodes": len(doc.nodes),
                          "ways": len(doc.ways)})
     return {"airports": airports}
 

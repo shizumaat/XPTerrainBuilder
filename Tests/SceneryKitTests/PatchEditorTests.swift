@@ -37,6 +37,12 @@ struct PatchEditorTests {
         #expect(entry.bbox.minLat == 45.539 && entry.bbox.maxLon == -122.938)
     }
 
+    @Test func patchListDropsAnEntryWithANullBoxAndKeepsTheOthers() throws {
+        let json = #"{"airports":[{"icao":"EGLW","source":"auto","path":"/p/EGLW_auto.patch.osm","bbox":null,"nodes":0,"ways":0},{"icao":"EGLL","source":"auto","path":"/p/EGLL_auto.patch.osm","bbox":[51.4,-0.5,51.5,-0.4],"nodes":3,"ways":1}]}"#
+        let list = try JSONDecoder().decode(O4PatchList.self, from: Data(json.utf8))
+        #expect(list.airports.map(\.icao) == ["EGLL"])
+    }
+
     @Test func patchLoadDecodesNodesWaysAndHeader() throws {
         let load = try decode("patch_load", as: O4PatchLoad.self)
         #expect(load.minDistinctSpacingM == 0.5)

@@ -159,8 +159,8 @@ class PatchController(QObject):
                 pending = True
                 continue
             for entry in listing["entries"]:
-                b = entry["bbox"]
-                if b[0] <= lat_hi and b[2] >= lat_lo and b[1] <= lon_hi and b[3] >= lon_lo:
+                b = entry.get("bbox")
+                if b and b[0] <= lat_hi and b[2] >= lat_lo and b[1] <= lon_hi and b[3] >= lon_lo:
                     candidates.append((tile_key(*tile), entry))
         chosen = self._nearest(candidates, c_lat, c_lon)
         if chosen is not None:

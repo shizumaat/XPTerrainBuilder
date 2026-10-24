@@ -57,6 +57,18 @@ def heca(patches):
     return path
 
 
+def test_an_empty_patch_in_the_folder_still_lists_the_others(patches):
+    with open(os.path.join(patches, "EGLW_auto.patch.osm"), "w", encoding="utf-8",
+              newline="\n") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n<osm version="0.6"></osm>\n')
+    with open(os.path.join(patches, "HECA_edited.patch.osm"), "w", encoding="utf-8",
+              newline="\n") as f:
+        f.write(_JOSM)
+    listed = PC.patch_list(TILE)["airports"]
+    assert [a["icao"] for a in listed] == ["HECA"]
+    assert listed[0]["bbox"] is not None
+
+
 def _body(path):
     with open(path, encoding="utf-8") as f:
         return f.read().split("\n", 2)[2]          # past the XML line and the root

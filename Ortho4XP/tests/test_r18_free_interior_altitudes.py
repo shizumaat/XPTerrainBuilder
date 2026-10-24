@@ -369,6 +369,37 @@ class TestPatchValuedVertexIdentification:
                           (1.0, 1.0, 3.0), (0.5, 0.5, DEM_SENTINEL)])
         assert MESH.patch_valued_vertex_indices(object(), vertices) is None
 
+    def test_a_patch_CROSSING_THE_TILE_EDGE_keeps_the_feature_on(
+            self, tmp_path, monkeypatch):
+        # #1296 (found at SPJC): patch vertices beyond the tile edge come
+        # out of Triangle4XP clamped onto the edge at their own index.
+        # That is not a reorder — R18-1b stays ON, and the clamped
+        # vertex is boundary (Dirichlet), even off every patch ring.
+        self._bind(
+            monkeypatch, tmp_path,
+            [(0.0, 0.0), (1.0, 0.0), (0.5, 1.02), (1.3, 0.5)],
+            [(1, 2, MESH.PATCH_RING_MARKER), (2, 3, MESH.PATCH_RING_MARKER)])
+        vertices = build([(0.0, 0.0, 1.0), (1.0, 0.0, 2.0),
+                          (0.5, 1.0, 3.0), (1.0, 0.5, 4.0),
+                          (0.5, 0.5, DEM_SENTINEL)])
+        assert MESH.patch_valued_vertex_indices(
+            object(), vertices) == {0, 1, 2, 3}
+        # ...and the free interior vertex is solved from them.
+        tris = [(0, 1, 4), (1, 3, 4), (3, 2, 4), (2, 0, 4)]
+        assert MESH.interpolate_free_interior_altitudes(
+            vertices, tris, {0, 1, 2, 3}) == 1
+        assert vertices[6 * 4 + 5] == pytest.approx(2.5)
+
+    def test_a_clamped_vertex_NOT_at_its_clamp_still_disables(
+            self, tmp_path, monkeypatch):
+        self._bind(
+            monkeypatch, tmp_path,
+            [(0.0, 0.0), (1.0, 0.0), (0.5, 1.02)],
+            [(1, 2, MESH.PATCH_RING_MARKER)])
+        vertices = build([(0.0, 0.0, 1.0), (1.0, 0.0, 2.0),
+                          (0.4, 1.0, 3.0)])
+        assert MESH.patch_valued_vertex_indices(object(), vertices) is None
+
     def test_a_missing_input_file_disables_the_feature(self, monkeypatch):
         monkeypatch.setattr(MESH.FNAMES, "input_node_file",
                             lambda tile: "/nonexistent/in.node")

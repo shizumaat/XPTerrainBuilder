@@ -3638,9 +3638,9 @@ class MainWindow(QMainWindow):
             rl = QVBoxLayout(row)
             rl.setContentsMargins(6, 4, 6, 4)
             rl.setSpacing(2)
-            # Two lines (#694): the title (coordinate + search tag, #667)
-            # owns the whole first line and elides at its tail only when
-            # wider than the row; the second line carries the status,
+            # Title, bar, then a line (#694): the title (coordinate +
+            # search tag, #667) owns the whole first line and elides at its
+            # tail only when wider than the row; the line under the bar carries the status,
             # left, and the clock, right, then the stop / resume button.
             # The status elides before it reaches the clock, which never
             # shrinks (a plain QLabel's minimum is its full text).
@@ -3653,6 +3653,14 @@ class MainWindow(QMainWindow):
             )
             title.setObjectName("tile_title")
             rl.addWidget(title)
+            # The bar sits right under the title (owner 2026-10-24) so
+            # each bar reads as its tile's when several rows run.
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setValue(0)
+            bar.setTextVisible(False)
+            bar.setFixedHeight(6)
+            rl.addWidget(bar)
             line = QHBoxLayout()
             line.setSpacing(6)
             status = ElidedRowLabel("queued")
@@ -3682,12 +3690,6 @@ class MainWindow(QMainWindow):
             )
             line.addWidget(cancel)
             rl.addLayout(line)
-            bar = QProgressBar()
-            bar.setRange(0, 100)
-            bar.setValue(0)
-            bar.setTextVisible(False)
-            bar.setFixedHeight(6)
-            rl.addWidget(bar)
             # What a STOPPED tile is left with (#598); hidden otherwise.
             detail = QLabel("")
             detail.setObjectName("tile_detail")

@@ -930,6 +930,10 @@ struct ActivityBox: View {
             clock: activity.tileClocks[coord])
         VStack(alignment: .leading, spacing: 2) {
             TileProgressRowLines(text: text, statusColor: statusColor(progress.state)) {
+                ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
+                    .controlSize(.small)
+                    .tint(progressTint(progress.state))
+            } trailing: {
                 // Stop sign / resume. Deliberately NOT gated on isBuilding:
                 // a stopped row keeps its resume button after the run ends,
                 // so the tile never has to be found on the map again.
@@ -973,9 +977,6 @@ struct ActivityBox: View {
                     }
                 }
             }
-            ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
-                .controlSize(.small)
-                .tint(progressTint(progress.state))
             // A stopped tile: what the engine left it with (#598).
             if !progress.detail.isEmpty,
                progress.state == .stopped || progress.label == "stopped" {

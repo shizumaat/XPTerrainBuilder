@@ -8,14 +8,18 @@ import SceneryKit
 /// truncates before it reaches the time, which never truncates.
 /// Kept out of `ActivityBox`'s body so the type-checker sees small,
 /// explicitly typed expressions.
-struct TileProgressRowLines<Trailing: View>: View {
+struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     let text: ProgressRowText
     let statusColor: Color
+    /// The progress bar sits right under the title (owner 2026-10-24), so
+    /// each bar reads as its tile's when several rows run at once.
+    @ViewBuilder let bar: () -> Bar
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             titleLine
+            bar()
             statusLine
         }
     }

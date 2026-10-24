@@ -916,8 +916,8 @@ def patch_valued_vertex_indices(tile, vertices):
         count = nodes.n_vertices
         if count <= 0 or 6 * count > len(vertices):
             return None
-        moved = ((nodes.xy[:, 0] != vertices[0:6 * count:6])
-                 | (nodes.xy[:, 1] != vertices[1:6 * count:6]))
+        (moved, clamped) = _input_order_check(
+            nodes.xy, vertices[0:6 * count:6], vertices[1:6 * count:6])
         if moved.any():
             UI.lvprint(
                 1,
@@ -926,7 +926,10 @@ def patch_valued_vertex_indices(tile, vertices):
                 "free-interior interpolation (R18-1b) is DISABLED "
                 "for this tile and interior vertices keep the DEM.")
             return None
-        indices = set()
+        # #1296: a vertex the mesher clamped onto the tile edge is
+        # BOUNDARY — it keeps its carried value (Dirichlet), never
+        # re-valued from the interior.
+        indices = set(numpy.flatnonzero(clamped).tolist())
         for a, b in _patch_ring_edges(tile):
             indices.add(a)
             indices.add(b)
@@ -938,6 +941,21 @@ def patch_valued_vertex_indices(tile, vertices):
             "patch-valued vertices — the free-interior interpolation "
             "(R18-1b) is disabled:", str(error))
         return None
+
+
+def _input_order_check(input_xy, out_x, out_y):
+    """``(moved, clamped)`` boolean arrays over the input vertices.
+
+    Triangle4XP writes every input vertex at its own index, CLAMPED to
+    the tile's unit square (patch ways may run beyond the tile edge —
+    #1296, SPJC: 475 of them).  A vertex is ``clamped`` when it lay
+    outside the square and came out exactly at its clamped position; it
+    is ``moved`` (the order check fails) when it came out anywhere else.
+    """
+    inside = ((input_xy >= 0.0) & (input_xy <= 1.0)).all(axis=1)
+    target = numpy.clip(input_xy, 0.0, 1.0)
+    moved = (target[:, 0] != out_x) | (target[:, 1] != out_y)
+    return (moved, ~inside & ~moved)
 
 
 # ── R18-1b amendment (lane v2lemd3, 2026-09-06): A VERTEX THE MESHER

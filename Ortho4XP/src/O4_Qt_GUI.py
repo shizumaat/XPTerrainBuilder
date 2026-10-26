@@ -2855,7 +2855,8 @@ class MainWindow(QMainWindow):
         the patch layer's copy items (#1281); in patch Edit mode it starts
         with "Slice" (#1318)."""
         menu = QTTILEMENU.tile_menu(
-            self, lat, lon, self._tile_folder((lat, lon)))
+            self, lat, lon, self._tile_folder((lat, lon)),
+            self.patch_editor.context_actions())
         pos = self.map.viewport().mapFromGlobal(global_pos)
         self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
         self.patch_editor.add_to_menu(menu)

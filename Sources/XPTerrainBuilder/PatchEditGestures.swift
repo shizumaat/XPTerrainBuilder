@@ -3,21 +3,43 @@ import AppKit
 import SceneryKit
 
 // Edit mode on the map (patch-editor spec §4, §3.3; mockup interaction
-// table): click selects (8 pt), ⇧-click toggles, ⇧-drag box-selects, a
-// drag on a node moves the selection (snapping the grabbed node while the
-// pointer is within 8 pt of another node), a drag on empty map pans, a
-// click on a "+" handle inserts a node. A click on a LINE selects its whole
-// shape (#759, `PatchShapeSelection.swift`; node > "+" > line > empty map),
-// and a drag on a selected shape's line or nodes moves the whole shape
-// without snapping. A drag never edits the document
-// per frame: the moved shapes are drawn here from the pointer delta, and
-// ONE edit commits on mouse-up.
+// table; #1325: the same table as Qt's `O4_Qt_Patch_Gestures`):
+//
+//   click                  select a node (8 pt) or a line's whole shape
+//   ⇧-click                toggle a node or a shape
+//   ⇧-drag                 box-select nodes
+//   drag on a node         move the selection (snaps within 8 pt, merges on
+//                          mouse-up while snapped)
+//   drag on open map       pan (every map view)
+//   click on a "+"         insert a node
+//   right / two-finger click   the context menu (never a pan)
+//   scroll / pinch         zoom
+//
+// A click on a LINE selects its whole shape (#759,
+// `PatchShapeSelection.swift`; node > "+" > line > empty map), and a drag
+// on a selected shape's line or nodes moves the whole shape without
+// snapping. A drag never edits the document per frame: the moved shapes
+// are drawn here from the pointer delta, and ONE edit commits on mouse-up.
+// The cursor (`PatchShapePick.pointer`) is a pointing hand over a node,
+// "+" handle or line, an open hand over open map and a closed hand while
+// panning.
 
 /// What the base patch layer leaves to the edit layer during a node drag.
 struct PatchDragSkip: Equatable {
     /// Indices into `document.ways` whose shapes move.
     let ways: Set<Int>
     let nodes: Set<Int64>
+}
+
+extension PatchShapePick.Pointer {
+    /// The AppKit cursor (Qt: `O4_Qt_Map.MAP_CURSORS`).
+    var cursor: NSCursor {
+        switch self {
+        case .openHand: return .openHand
+        case .closedHand: return .closedHand
+        case .pointingHand: return .pointingHand
+        }
+    }
 }
 
 /// One undirected edge, for the "+" handles.
@@ -193,6 +215,7 @@ struct PatchEditLayer: View {
             if moved {
                 model.lastShapeClick = nil
                 drag.kind = .pan(anchor: camera.value)
+                PatchShapePick.pointer(over: nil, panning: true).cursor.set()
                 pan(value, size: size)
             }
         case .pan:
@@ -216,18 +239,25 @@ struct PatchEditLayer: View {
         }
     }
 
-    private func begin(at p: CGPoint, screen: PatchEditScreen, grid: PatchSpatialGrid) {
-        drag.start = p
-        drag.current = p
-        drag.hoverEdge = nil
-        if NSEvent.modifierFlags.contains(.shift) { drag.kind = .box; return }
+    /// What a press at `p` lands on, with the edge and handle it found.
+    private func hit(at p: CGPoint, screen: PatchEditScreen, grid: PatchSpatialGrid)
+        -> (target: PatchShapePick.Target, edge: PatchEdgeKey?, handle: PatchEditScreen.Handle?) {
         let node = screen.nodeHit(at: p, grid: grid)
         let edge = node == nil ? screen.hoverEdge(at: p, grid: grid) : nil
         let handle = node != nil ? nil
             : screen.handleHit(at: p, in: screen.handles(selection: model.selection, shapes: model.shapeSelection,
                                                          hover: nil)
                                     + screen.handles(selection: [], hover: edge))
-        switch PatchShapePick.target(node: node, onHandle: handle != nil, onEdge: edge != nil) {
+        return (PatchShapePick.target(node: node, onHandle: handle != nil, onEdge: edge != nil), edge, handle)
+    }
+
+    private func begin(at p: CGPoint, screen: PatchEditScreen, grid: PatchSpatialGrid) {
+        drag.start = p
+        drag.current = p
+        drag.hoverEdge = nil
+        if NSEvent.modifierFlags.contains(.shift) { drag.kind = .box; return }
+        let (target, edge, handle) = hit(at: p, screen: screen, grid: grid)
+        switch target {
         case .node(let id):
             if !model.markedNodes.contains(id) { model.selectShapes([]); model.selection = [id] }
             drag.kind = .nodes(grabbed: id, ids: model.dragNodes)
@@ -246,6 +276,7 @@ struct PatchEditLayer: View {
     }
 
     private func ended(_ value: DragGesture.Value, size: CGSize) {
+        if case .pan = drag.kind { PatchShapePick.pointer(over: nil).cursor.set() }
         defer { reset() }
         guard let (screen, grid) = screen(size) else { return }
         let moved = hypot(value.translation.width, value.translation.height) >= Self.clickSlop
@@ -305,10 +336,20 @@ struct PatchEditLayer: View {
         camera.value = cam
     }
 
+    /// The hovered edge's "+" and the cursor (#1325). In Edit mode this
+    /// layer owns the cursor; `MapCanvasView` sets it everywhere else.
     private func hover(_ phase: HoverPhase, size: CGSize) {
         guard drag.kind == .idle else { return }
         var edge: PatchEdgeKey?
-        if case .active(let p) = phase, let (screen, grid) = screen(size) { edge = screen.hoverEdge(at: p, grid: grid) }
+        if case .active(let p) = phase {
+            var target: PatchShapePick.Target?
+            if let (screen, grid) = screen(size) {
+                let found = hit(at: p, screen: screen, grid: grid) // no edge over a node
+                target = found.target
+                edge = found.edge
+            }
+            PatchShapePick.pointer(over: target).cursor.set()
+        }
         if drag.hoverEdge != edge { drag.hoverEdge = edge }
     }
 

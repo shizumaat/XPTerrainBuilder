@@ -101,6 +101,23 @@ extension PatchEditModel {
         perform("Offset Elevation") { try $0.offsetAlt(ids, by: d) }
     }
 
+    /// "Set elevation…" on the selected shapes (#1357): every node of
+    /// theirs, holes too, and the nodes they share unless told not to.
+    func setShapesAlt(_ alt: Double, includeShared: Bool) {
+        guard let doc = document, !shapeSelection.isEmpty else { return }
+        let plan = PatchShapeElevation(shapes: shapeSelection, in: doc)
+        perform(shapeSelection.count == 1 ? "Set Shape Elevation" : "Set Shapes Elevation") {
+            try $0.setShapeElevation(plan, alt: alt, includeShared: includeShared)
+        }
+    }
+
+    /// The map's right-click items for the Edit-mode selection (#1357:
+    /// "Set elevation…" on selected shapes).
+    var contextActions: [(title: String, run: () -> Void)] {
+        guard mode == .edit, document != nil, !shapeSelection.isEmpty else { return [] }
+        return [(PatchSetElevationSheet.title, { [weak self] in self?.showsSetElevation = true })]
+    }
+
     // MARK: - Undo / redo
 
     /// Register the step's inverse; run as an undo it registers the redo.

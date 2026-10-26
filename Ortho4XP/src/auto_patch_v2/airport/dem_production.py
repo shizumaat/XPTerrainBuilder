@@ -56,7 +56,8 @@ from ..model.frame import Frame
 from .dem import hgt_name, resolve_dem_files
 
 __all__ = ["ColdDemFrame", "ProductionDem", "load_production_dem",
-           "frame_state", "TileWater"]
+           "frame_state", "TileWater", "cold_frame_code",
+           "COLD_CACHE_CODE", "FETCH_FAILED_CODE"]
 
 #: Posts per axis the inland-body level is sampled on (the median of a
 #: body's own DEM cells; a 32x32 grid inside the body is plenty for a
@@ -158,8 +159,33 @@ def frame_state(elevation_root: str, osm_root: str, lat: int, lon: int,
                 # is a shared-repo write as a build side effect.
                 state["airport_inset_pack_set_moved"] = text
             else:
+                # A "missing" inset WITH an index record is a fetch that
+                # was made and failed (the core's own reading, issue
+                # #121); without one, nothing ever asked.  The refusal's
+                # code says which (issue #1352).
+                state["airport_inset_fetch_failed"] = bool(
+                    state["airport_inset_problem_kind"] == "missing"
+                    and INSETS.airport_has_inset_index_record(lat, lon, icao))
                 problems.append(text)
     return state, problems
+
+
+#: The refusal codes of a cold frame (``O4_Tile_Failures.CATALOGUE``):
+#: the cache was never filled for this airport, or a download was tried
+#: and failed.  A provider with no coverage is not cold at all
+#: (``airport_inset_frame_problem`` yields ``None``), and neither is an
+#: airport outside the inset selection (§A.6).
+COLD_CACHE_CODE = "airport_elevation_missing"
+FETCH_FAILED_CODE = "airport_elevation_offline"
+
+
+def cold_frame_code(state: dict, tried: str | None = None) -> str:
+    """The catalogue code naming WHY a frame is cold: a download that was
+    tried and failed (a recorded warm attempt, or an inset index record
+    with an unanswered provider) or a cache this build never filled."""
+    if tried or state.get("airport_inset_fetch_failed"):
+        return FETCH_FAILED_CODE
+    return COLD_CACHE_CODE
 
 
 def _inset_mode_of(tile) -> str:
@@ -831,9 +857,24 @@ class ProductionDem:
             self._tiles[key] = self._compose(lat, lon)
         return self._tiles[key]
 
+    def _core_tile(self, lat: int, lon: int) -> _t.Any:
+        """The core's ``Tile`` for one cell, its cfg read — the inset mode
+        :meth:`_expects_inset` judges comes from it, so it is resolved
+        BEFORE the first frame check (§A.6: a patched-but-not-inset
+        airport is lawful on the base raster, never a cold frame)."""
+        if not self.core_hosted:
+            self._ensure_core_path()
+        import O4_Config_Utils as CFG
+        tile = CFG.Tile(lat, lon, "")
+        tile.read_from_config()
+        return tile
+
     def _compose(self, lat: int, lon: int) -> _BakedTile | None:
+        tile = self._core_tile(lat, lon)
+        expects_inset = self._expects_inset(tile)
         state, problems = frame_state(self.elevation_root, self.osm_root,
-                                      lat, lon, self.icao)
+                                      lat, lon, self.icao,
+                                      expects_inset=expects_inset)
         stem = state["tile_stem"]
         # ``_warm_tile`` / ``_may_warm`` are DELETED (spec §C.6, RULINGS
         # 2026-09-18b): the silent neighbour warm inside the auto-patch POOL
@@ -861,17 +902,12 @@ class ProductionDem:
                 self.provenance[f"tile:{stem}"] = "ABSENT"
                 return None
         elif problems:
-            self._degrade(stem, problems)
+            self._degrade(stem, problems, state)
             if not state["base_raster_present"]:
                 self.provenance[f"tile:{stem}"] = "ABSENT"
                 return None
-        if not self.core_hosted:
-            self._ensure_core_path()
-        import O4_Config_Utils as CFG
         import O4_OSM_Utils as OSM
         import O4_Vector_Map as VMAP
-        tile = CFG.Tile(lat, lon, "")
-        tile.read_from_config()
         # The install THIS build was handed: flat-site classification inside
         # the prep reads apt.dat/CIFP from it (a lane cfg ships both empty).
         tile.auto_patch_xplane_root = self.xplane_root
@@ -889,7 +925,6 @@ class ProductionDem:
         # selection (spec §A.4), the box is only REQUIRED when the inset
         # mode admits this airport; a patched-but-not-inset airport solves
         # on the base raster and that is lawful, not cold (§A.6).
-        expects_inset = self._expects_inset(tile)
         required_box = (self._required_inset_box(tile, dico)
                         if expects_inset else None)
         self.provenance["inset_selection"] = (
@@ -899,12 +934,13 @@ class ProductionDem:
         if required_box is not None:
             seen = set(problems)
             (state, problems) = frame_state(self.elevation_root, self.osm_root,
-                                            lat, lon, self.icao, required_box)
+                                            lat, lon, self.icao, required_box,
+                                            expects_inset=expects_inset)
             fresh = [p for p in problems if p not in seen]
             if fresh and not self._is_declared(lat, lon):
                 self.provenance[f"context_only:{stem}"] = ", ".join(fresh)
             elif fresh:
-                self._degrade(stem, fresh)
+                self._degrade(stem, fresh, state)
         dem = VMAP.compose_tile_dem_from_disk(tile, dico, write_alt_file=False)
         return self._bake(lat, lon, dem, stem, state, tile=tile,
                           airports_smoothed=len(dico), how="composed")
@@ -958,12 +994,16 @@ class ProductionDem:
         """A seeded (host-prepared) tile raster: the same checks and the
         same provenance record as a lazy composition, minus the
         composition — the host's cfg values ride on the DEM object where
-        it carries them."""
+        it carries them.  The inset mode is the host tile's cfg, read the
+        way :meth:`_compose` reads it (§A.6, issue #1352: without it a
+        patched-but-not-inset airport refused as a COLD frame)."""
+        expects_inset = self._expects_inset(self._core_tile(lat, lon))
         state, problems = frame_state(self.elevation_root, self.osm_root,
-                                      lat, lon, self.icao)
+                                      lat, lon, self.icao,
+                                      expects_inset=expects_inset)
         stem = state["tile_stem"]
         if problems:
-            self._degrade(stem, problems)
+            self._degrade(stem, problems, state)
         return self._bake(lat, lon, dem, stem, state, tile=None,
                           airports_smoothed=None, how="host-seeded")
 
@@ -1093,7 +1133,8 @@ class ProductionDem:
                 f"delivered={self._box_text(delivered)} "
                 f"footprint_packs={'|'.join(packs) if packs else '?'}")
 
-    def _degrade(self, stem: str, problems: list[str]) -> None:
+    def _degrade(self, stem: str, problems: list[str],
+                 state: dict | None = None) -> None:
         text = "\n  - ".join(problems)
         if not self.allow_degraded:
             # §C.6: nothing in the pool child warms any more, so the only
@@ -1107,8 +1148,10 @@ class ProductionDem:
                     "Warm the shared cache (build_airport.py --refresh-data ...), or pass "
                     "--allow-degraded-dem to measure in the degraded frame KNOWINGLY "
                     "(recorded in the provenance; authorises NO write).")
-            raise ColdDemFrame(
+            refusal = ColdDemFrame(
                 f"REFUSING: the production DEM frame for {stem} is COLD:\n  - {text}\n{hint}")
+            refusal.failure_code = cold_frame_code(state or {}, tried)
+            raise refusal
         prev = self.provenance.get("degraded", "")
         self.provenance["degraded"] = (prev + "; " if prev else "") + f"{stem}: " + \
             " | ".join(problems)

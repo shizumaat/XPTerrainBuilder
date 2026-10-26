@@ -485,15 +485,26 @@ struct ToolbarSearchField: NSViewRepresentable {
     let onSubmit: () -> Void
 
     func makeNSView(context: Context) -> NSSearchField {
-        let field = NSSearchField()
-        field.placeholderString = placeholder
-        field.controlSize = .regular
+        let field = Self.makeField(placeholder: placeholder)
         // Action fires on Return (and on clear), not per keystroke.
         field.sendsWholeSearchString = true
         field.target = context.coordinator
         field.action = #selector(Coordinator.submitted(_:))
         field.delegate = context.coordinator
         context.coordinator.observeFocusRequests(for: field)
+        return field
+    }
+
+    /// The bare control. Long text scrolls horizontally inside the field
+    /// instead of being clipped at its right edge (#1224).
+    static func makeField(placeholder: String) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = placeholder
+        field.controlSize = .regular
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byClipping
+        field.cell?.isScrollable = true
+        field.cell?.wraps = false
         return field
     }
 

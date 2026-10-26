@@ -10,7 +10,7 @@ by name, when both are as recorded.
 WHAT A STEP'S INPUTS ARE.  The settings it reads — the step's own list in
 ``O4_Cfg_Vars`` (``list_vector_vars`` / ``list_mesh_vars`` /
 ``list_mask_vars``) plus ``custom_dem`` / ``fill_nodata``, and the
-app-level settings that choose its data — the engine's version, the
+app-level settings that choose its data — the
 digest of the code the step runs through (``O4_Step_Code``), the auto-patch
 configuration digest, and what the step before it HANDS ON (#837): the
 CONTENT of the files it wrote and the inputs it read, its own code left
@@ -249,16 +249,23 @@ def _inset_files(tile) -> list:
     return INSETS.list_cached_inset_dems(tile.lat, tile.lon)
 
 
+# Keys a record written by an older engine may hold that are no longer
+# part of a step's key: ``engine`` (the engine version, #1248 — a release
+# that leaves a step's code alone must not rebuild it; the ``code``
+# digest already covers a change).  Compared without them, so such a
+# record is still reused.
+_RETIRED_KEYS = ("engine",)
+
+
 def _code_identity(step: str) -> dict:
-    """The engine half of ``step``'s key: its version, the digest of the
-    code ``step`` runs through (``O4_Step_Code``, #836 — the step's own
-    import closure and the law tables, not the whole tree; the whole-tree
-    digest only when the step's cannot be had), and the auto-patch
-    configuration."""
+    """The engine half of ``step``'s key: the digest of the code ``step``
+    runs through (``O4_Step_Code``, #836 — the step's own import closure
+    and the law tables, not the whole tree; the whole-tree digest only
+    when the step's cannot be had), and the auto-patch configuration.
+    Not the engine version (#1248): ``code`` already changes with it."""
     import O4_Step_Code as STEPCODE
     from auto_patch import provenance, provenance_code
-    return {"engine": provenance.engine_version(),
-            "code": STEPCODE.step_digest(step) or provenance_code.code_digest(),
+    return {"code": STEPCODE.step_digest(step) or provenance_code.code_digest(),
             "auto_patch_cfg": provenance.config_digest()}
 
 
@@ -445,7 +452,8 @@ def stale_reason(tile, step: str) -> str | None:
                 ", ".join(retry[:4])
         live = _inputs(tile, step, _previous_digest(doc, step),
                        entry.get("osm_files"))
-        recorded = entry.get("inputs") or {}
+        recorded = {k: v for k, v in (entry.get("inputs") or {}).items()
+                    if k not in _RETIRED_KEYS}
         for key in sorted(set(live) | set(recorded)):
             if live.get(key) != recorded.get(key):
                 return _changed_words(key, live.get(key), recorded.get(key))

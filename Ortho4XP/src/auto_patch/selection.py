@@ -288,8 +288,7 @@ def apt_dat_elsewhere(apt_dat: str, icao: str, tile_lat: int, tile_lon: int,
     new number), against the home 1° cell."""
     import math
 
-    from auto_patch_v2.airport.apt_dat import (parse_airport_block,
-                                               read_airport_block)
+    from auto_patch_v2.airport.apt_dat import parse_airport_block, read_airport_block
 
     claim = airside_claim(apt_dat, icao)
     if claim is not None:

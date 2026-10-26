@@ -23,9 +23,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "src"))
 
-from auto_patch import selection as SEL                  # noqa: E402
-from auto_patch_v2.airport.apt_dat import (parse_airport_block,  # noqa: E402
-                                           read_airport_block)
+from auto_patch import selection as SEL  # noqa: E402
+from auto_patch_v2.airport.apt_dat import parse_airport_block, read_airport_block  # noqa: E402
 
 HELIPAD = "102 H1 43.2153936 -123.3570164 0.0 12.20 12.20 2 0 0 0.25 0"
 

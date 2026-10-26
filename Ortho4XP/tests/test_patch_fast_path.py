@@ -129,7 +129,7 @@ def _vector_step(tile):
     vector_map.zprov.write(ZPROV.zprov_file(node_file))
     vector_map.write_poly_file(FNAMES.input_poly_file(tile))
     for path in (FNAMES.alt_file(tile), FNAMES.apt_file(tile)):
-        with open(path, "w", encoding="utf-8") as handle:
+        with open(path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write("raster")
     return vector_map
 
@@ -263,7 +263,7 @@ def test_any_other_change_takes_the_full_vector_step(tile, tmp_path,
     else:
         (tmp_path / "patches" / "TSTC.patch.osm").write_text(
             _patch_text([(OTHER_RING, True, [])], OTHER_ALTS),
-            encoding="utf-8")
+            encoding="utf-8", newline="\n")
     result = FASTPATH.try_height_edit(tile)
     assert not result.applied and not result.relevant
     assert words in result.why

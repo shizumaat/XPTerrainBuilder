@@ -4198,10 +4198,7 @@ def include_patches(vector_map, tile):
                         in OPEN_BREAKLINE_FEATURES):
                     vector_map.insert_way(
                         numpy.hstack([way, alti_way]),
-                        PATCH_RING_MARKER,
-                        check=True,
-                        zsrc=zsrc,
-                    )
+                        PATCH_RING_MARKER, check=True, zsrc=zsrc)
                     open_breaklines += 1
                 else:
                     vector_map.insert_way(

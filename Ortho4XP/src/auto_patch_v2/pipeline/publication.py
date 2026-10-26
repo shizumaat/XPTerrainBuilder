@@ -667,6 +667,16 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # level]`` per join the solve released.  LAW INPUT for the
             # CORE: ``O4_Vector_Map.road_join_yield_pins`` pins the
             # levelled road there, beyond its 1.0 m budget.
+            # OWNER RULINGS 2026-10-26b THE TILE SEAM OUTRANKS A CIFP
+            # THRESHOLD: ``[lat, lon, CIFP value, built value, metres to the
+            # nearest seam pin, "runway RWY end"]`` per threshold the solve
+            # released to the seam (``constraints/threshold_seam``).  A
+            # REPORT key: no census family prices it.
+            "threshold_seam_yield": [[ll[v][0], ll[v][1], round(float(c), 4),
+                                      round(float(zb), 4), round(float(d), 2), end]
+                                     for v, (c, zb, d, end) in sorted(
+                                         (getattr(planar, "threshold_seam_yield", None)
+                                          or {}).items())],
             "road_join_yield": [[ll[v][0], ll[v][1], round(float(zp), 4),
                                  round(float(zr), 4)]
                                 for v, (zr, zp) in sorted(

@@ -257,37 +257,8 @@ def test_duplicate_first_file_wins(apt1, apt2, tmp_path):
 # test_airport_search.py.
 
 
-# ---------------------------------------------------------------------------
-# parse_coordinate_query
-# ---------------------------------------------------------------------------
-@pytest.mark.parametrize("query,expected", [
-    ("48 -6", (48, -6)),
-    ("48,-6", (48, -6)),
-    ("+48-006", (48, -6)),
-    ("-34+151", (-34, 151)),
-    ("48.7 -5.2", (48, -6)),        # floats floored to the containing tile
-    ("0 0", (0, 0)),
-    ("-1 -1", (-1, -1)),
-    ("-85 -180", (-85, -180)),      # inclusive lower bounds
-    ("84 179", (84, 179)),          # inclusive upper bounds
-])
-def test_parse_coordinate_query_valid(query, expected):
-    assert AI.parse_coordinate_query(query) == expected
-
-
-@pytest.mark.parametrize("query", [
-    "abc",
-    "99 200",       # both out of range
-    "90 0",         # lat too high
-    "48 999",       # lon too high
-    "-86 0",        # lat too low
-    "48",           # single number, no lon
-    "",
-    "   ",
-    "48 -6 12",     # three tokens
-])
-def test_parse_coordinate_query_invalid(query):
-    assert AI.parse_coordinate_query(query) is None
+# Coordinate and tile-key queries live in O4_Coordinate_Query (#1317); its
+# twin is test_coordinate_query.py.
 
 
 # ---------------------------------------------------------------------------

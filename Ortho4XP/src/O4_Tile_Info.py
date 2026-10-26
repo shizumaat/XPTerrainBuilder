@@ -352,19 +352,27 @@ def tile_info(
     return scan_tiles(working_dir, grouped=False).get((lat, lon))
 
 
+def tree_size(path: str) -> int:
+    """Sum the byte size of every file under ``path`` (0 when absent).
+
+    Symlinks are not followed: a linked folder is somebody else's bytes.
+    """
+    total = 0
+    for root, _dirs, files in os.walk(path, followlinks=False):
+        for name in files:
+            try:
+                total += os.stat(os.path.join(root, name),
+                                 follow_symlinks=False).st_size
+            except OSError:
+                pass
+    return total
+
+
 def compute_size(info: TileInfo) -> int:
     """Sum the byte size of every file under ``info.build_dir``.
 
     Symlinks are not followed.  The result is stored on ``info.size_bytes``
     and also returned.
     """
-    total = 0
-    for root, _dirs, files in os.walk(info.build_dir, followlinks=False):
-        for name in files:
-            path = os.path.join(root, name)
-            try:
-                total += os.stat(path, follow_symlinks=False).st_size
-            except OSError:
-                pass
-    info.size_bytes = total
-    return total
+    info.size_bytes = tree_size(info.build_dir)
+    return info.size_bytes

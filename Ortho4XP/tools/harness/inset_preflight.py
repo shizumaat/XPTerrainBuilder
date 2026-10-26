@@ -23,6 +23,7 @@ __all__ = [
     "REFRESHABLE_KINDS",
     "airport_problem",
     "airports_layer_is_cached",
+    "inset_selection_admits",
     "ladder_owed_problem",
     "required_boxes",
     "stale_negative_airports",
@@ -69,6 +70,19 @@ def required_boxes(lat, lon, *, selected_only: bool) -> dict:
         return {}
     selected = INSETS.inset_keys(dico, INSETS.resolved_inset_mode(tile))
     return INSETS._airport_bounding_boxes(tile, dico, only=selected)
+
+
+def inset_selection_admits(lat, lon, icao) -> bool:
+    """Does the tile's inset mode admit ``icao``?  The engine's own
+    predicate, asked the way ``dem_production`` asks it (§A.6, issue
+    #1352): an airport outside the selection solves on the base raster,
+    so no inset of it is required and none is refused."""
+    import O4_Config_Utils as CFG
+    from O4_Airport_Modes import mode_admits, resolved_inset_mode
+
+    tile = CFG.Tile(lat, lon, "")
+    tile.read_from_config()
+    return mode_admits(str(icao).upper(), resolved_inset_mode(tile))
 
 
 def airport_problem(lat, lon, icao, required, ladder_problem):

@@ -35,11 +35,22 @@ struct TileRunSettings: Equatable {
 /// from BuildModel like ProgressModel is from AnalysisController. The map
 /// canvas and activity rows observe this; StepProgress ticks never touch
 /// the rest of the window.
+///
+/// The rows outlive their run (#1341): a finished row (done, built with
+/// warnings, failed, stopped) stays until the app quits. `runTiles` is
+/// the run in progress, or the one that just ended until its linger is
+/// over — what the map's badges and "Build failed tiles again" describe.
 @MainActor
 final class BuildActivityModel: ObservableObject {
-    @Published var tiles: [BuildModel.TileCoord: TileProgress] = [:]
-    /// Ordered rows for the Activity box (run order).
-    @Published var runOrder: [BuildModel.TileCoord] = []
+    @Published var tiles: [BuildModel.TileCoord: TileProgress] = [:] {
+        didSet { restamp() }
+    }
+    /// Every row, in the order the rows were made; `displayOrder` is the
+    /// order the Activity box shows them in.
+    @Published var runOrder: [BuildModel.TileCoord] = [] {
+        didSet { restamp() }
+    }
+    @Published var runTiles: Set<BuildModel.TileCoord> = []
     @Published var elapsedSeconds: Double = 0
     /// nil = no defensible estimate — render a dash, never a wild number.
     @Published var remainingSeconds: Double?
@@ -52,46 +63,93 @@ final class BuildActivityModel: ObservableObject {
     /// Kept apart from TileProgress so the wholesale row replacement in
     /// the TileState/StepProgress handlers can never stomp a clock.
     @Published var tileClocks: [BuildModel.TileCoord: O4TileClock] = [:]
-    /// What each tile in this run was started with — the resume path's
-    /// settings source (a resume must not adopt today's pickers).
+    /// What each tile was started with — the resume path's settings
+    /// source (a resume must not adopt today's pickers).
     @Published var runSettings: [BuildModel.TileCoord: TileRunSettings] = [:]
     /// The title codes after each row's coordinate: the tile's largest
     /// airports, a searched one first (#815, #667) — stamped when queued.
     @Published var runTags: [BuildModel.TileCoord: String] = [:]
+    /// A finished row's end-of-build messages (#1341): its gold or red
+    /// status reopens them for as long as the row exists.
+    @Published var issues: [BuildModel.TileCoord: O4TileIssues] = [:]
 
-    func reset() {
-        tiles = [:]
-        runOrder = []
+    /// Each row's place in the list (`ActivityOrder`).
+    private var stamps: [BuildModel.TileCoord: ActivityOrder.Stamp] = [:]
+    private var stampCounter = 0
+
+    /// Live rows newest batch first, then finished rows in finish order.
+    var displayOrder: [BuildModel.TileCoord] {
+        ActivityOrder.order(runOrder.filter { tiles[$0] != nil }, stamps: stamps)
+    }
+
+    /// The rows the map draws a badge for: this run's, and any row still
+    /// live or waiting for a resume.
+    var badges: [BuildModel.TileCoord: TileProgress] {
+        tiles.filter {
+            runTiles.contains($0.key) || $0.value.state == .stopped
+                || !Self.isFinished($0.value)
+        }
+    }
+
+    nonisolated static func isFinished(_ row: TileProgress) -> Bool {
+        ActivityOrder.isFinished(state: row.state.rawValue, label: row.label)
+    }
+
+    private func restamp() {
+        let rows: [(key: BuildModel.TileCoord, finished: Bool)] = runOrder.compactMap { coord in
+            guard let row = tiles[coord] else { return nil }
+            return (key: coord, finished: Self.isFinished(row))
+        }
+        let next = ActivityOrder.restamp(rows, stamps: stamps, counter: stampCounter)
+        stamps = next.stamps
+        stampCounter = next.counter
+    }
+
+    /// A new run: its counters start at zero; earlier rows stay.
+    func beginRun() {
         elapsedSeconds = 0
         remainingSeconds = nil
         doneTiles = 0
         totalTiles = 0
-        tileClocks = [:]
-        runSettings = [:]
-        runTags = [:]
+        runTiles = []
     }
 
-    /// The post-run linger clear. Rows the user STOPPED survive it: their
-    /// resume button is the way back to the tile without hunting for it on
-    /// the map again, so the row (and the settings a resume needs) has to
-    /// outlive the run it was stopped in.
-    func resetKeepingStopped() {
-        let stopped = tiles.filter { $0.value.state == .stopped }
-        guard !stopped.isEmpty else {
-            reset()
-            return
+    /// Put `coords` on the list as queued, as ONE batch at the top: a
+    /// new row, or a finished one being built again. A row still live
+    /// in this run is left as it is.
+    func queueRows(_ coords: [BuildModel.TileCoord]) {
+        var next = tiles
+        var order = runOrder
+        for coord in coords {
+            if let row = next[coord], !Self.isFinished(row) { continue }
+            next[coord] = TileProgress(state: .queued, label: "queued", percent: 0)
+            issues[coord] = nil
+            tileClocks[coord] = nil
+            if !order.contains(coord) { order.append(coord) }
         }
-        let keep = Set(stopped.keys)
-        let order = runOrder.filter { keep.contains($0) }
-        let clocks = tileClocks.filter { keep.contains($0.key) }
-        let settings = runSettings.filter { keep.contains($0.key) }
-        let tags = runTags.filter { keep.contains($0.key) }
-        reset()
-        tiles = stopped
+        runTiles.formUnion(coords)
         runOrder = order
-        tileClocks = clocks
-        runSettings = settings
-        runTags = tags
+        tiles = next
+    }
+
+    /// The run is over (its linger, or the engine gone): the run's
+    /// header, clock and map badges go, and so does any row the run left
+    /// live (a tile it never started); every finished row stays.
+    func endRun() {
+        dropLiveRows()
+        runTiles = []
+        totalTiles = 0
+        doneTiles = 0
+    }
+
+    private func dropLiveRows() {
+        let live = Set(tiles.filter { !Self.isFinished($0.value) }.keys)
+        guard !live.isEmpty else { return }
+        runOrder.removeAll { live.contains($0) }
+        tiles = tiles.filter { !live.contains($0.key) }
+        for coord in live {
+            tileClocks[coord] = nil
+        }
     }
 }
 
@@ -210,6 +268,10 @@ final class BuildModel: ObservableObject {
     /// Built tiles whose textures folder mixes imagery sources (only one
     /// can be used) — warning badges on the map + selection pane.
     @Published private(set) var conflictTiles: Set<TileCoord> = []
+    /// Built or selected tiles whose cfg customizes a setting (#1350) —
+    /// the map's settings badge. The engine owns the comparison
+    /// (`tile_customizations`, O4_Tile_Customizations.py).
+    @Published private(set) var customizedTiles: Set<TileCoord> = []
     @Published private(set) var isScanning = false
     @Published private(set) var scanPhase = ""
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
@@ -223,6 +285,7 @@ final class BuildModel: ObservableObject {
     @Published var selected: Set<TileCoord> = [] {
         didSet {
             persistSelection()
+            refreshCustomizedTiles(only: selected.subtracting(oldValue))
             searchTags.keep(only: Set(selected.map { AirportTile(lat: $0.lat, lon: $0.lon) }))
         }
     }
@@ -417,6 +480,52 @@ final class BuildModel: ObservableObject {
         }
     }
 
+    // MARK: - Customized tile settings (#1350)
+
+    /// One tile's customized settings, for the tile pane. Empty when it
+    /// customizes nothing, or the engine predates the command.
+    func tileCustomizations(for coord: TileCoord) async -> [O4TileCustomization] {
+        connectIfNeeded()
+        guard let client, let base = tileBaseFolder else { return [] }
+        let reply = try? await client.tileCustomizations(
+            lat: coord.lat, lon: coord.lon, workingDir: base.path)
+        return reply?.customizations ?? []
+    }
+
+    /// Ask the engine again for the badge set: every built and selected
+    /// tile, or only `coords` (newly selected tiles). One small cfg read
+    /// per tile on the engine side.
+    func refreshCustomizedTiles(only coords: Set<TileCoord>? = nil) {
+        let scope = coords ?? Set(built.keys).union(selected)
+        guard !scope.isEmpty, client != nil else { return }
+        Task { [weak self] in
+            var found: Set<TileCoord> = []
+            for coord in scope {
+                guard let self else { return }
+                let rows = await self.tileCustomizations(for: coord)
+                if !rows.isEmpty { found.insert(coord) }
+            }
+            guard let self else { return }
+            self.customizedTiles = self.customizedTiles.subtracting(scope).union(found)
+        }
+    }
+
+    /// "Edit settings…" in the tile pane: select the tile alone, so the
+    /// Settings window edits it, and open on its Selected Overrides pane.
+    func editSettings(for coord: TileCoord) {
+        selected = [coord]
+        activeTile = coord
+        settingsPaneRequest = SettingsPaneRequest.overrides
+    }
+
+    /// The Settings pane to show next time the window appears (#1350);
+    /// SettingsView takes it and clears it.
+    @Published var settingsPaneRequest: String?
+
+    enum SettingsPaneRequest {
+        static let overrides = "overrides"
+    }
+
     // MARK: - Engine loading
 
     /// The user's data folder as a URL; nil until first run has answered.
@@ -541,7 +650,9 @@ final class BuildModel: ObservableObject {
         isBuilding = false
         isStopping = false
         resumeQueue = []
-        activity.reset()
+        // Finished rows stay until the app quits (#1341); a live row has
+        // no engine left to finish it.
+        activity.endRun()
     }
 
     private func sessionExited(_ status: Int32) {
@@ -553,7 +664,7 @@ final class BuildModel: ObservableObject {
             isBuilding = false
             isStopping = false
             resumeQueue = []
-            activity.reset()
+            activity.endRun()
             // A fresh session reconnects lazily; refresh what's on disk.
             rescan()
             return
@@ -742,6 +853,7 @@ final class BuildModel: ObservableObject {
                     workingDir: base.path, customSceneryDir: customSceneryPath)
             }
             refreshConflictTiles()
+            refreshCustomizedTiles()
         case .tileState(let lat, let lon, let state, let label, let percent, let detail):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued
@@ -789,6 +901,8 @@ final class BuildModel: ObservableObject {
                 tileKey: coord.key, lat: lat, lon: lon, built: ok,
                 failures: failures, warnings: warnings, notes: notes)
             runIssueLog.add(issues)
+            // #1341: kept on the row, whose status reopens them.
+            if !issues.entries.isEmpty { activity.issues[coord] = issues }
             // #695: a cause the user can fix is asked NOW, while the rest
             // of the run goes on — not when the run ends.
             if !ok { linkFixes.offer(issues) }
@@ -829,7 +943,8 @@ final class BuildModel: ObservableObject {
                 activity.remainingUnreliable = false
             }
         case .tileClocks(let rows):
-            var clocks: [TileCoord: O4TileClock] = [:]
+            // Rows from earlier runs keep their frozen final clocks (#1341).
+            var clocks = activity.tileClocks.filter { !activity.runTiles.contains($0.key) }
             for row in rows {
                 let coord = TileCoord(lat: row.lat, lon: row.lon)
                 // A stopped row's clock is frozen where the stop left it —
@@ -856,13 +971,13 @@ final class BuildModel: ObservableObject {
             lastRunSummary = parts.joined(separator: ", ")
             console.append("=== Run complete: \(lastRunSummary!) ===")
             rescan()
-            // Qt lingers 5 s before hiding the activity rows (stopped rows
-            // stay — they are the user's handle on a tile to resume).
+            // Qt lingers 5 s before the run's header, clock and map badges
+            // go; the rows themselves stay until the app quits (#1341).
             clearProgressTask?.cancel()
             clearProgressTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled, let self, !self.isBuilding else { return }
-                self.activity.resetKeepingStopped()
+                self.activity.endRun()
             }
             // Tiles the user resumed mid-run get their own follow-up run,
             // client-side. A run the user STOPPED wholesale takes the queue
@@ -1005,6 +1120,25 @@ final class BuildModel: ObservableObject {
         connectIfNeeded()
         guard O4ProtocolVersion.supportsPatchEditor(protocolHello?.protocolVersion ?? "") else { return nil }
         return client
+    }
+
+    // MARK: - Library (#824)
+
+    /// The engine session and the folders the Library window reads, or
+    /// nil when the engine is not running or no tiles folder is known.
+    func libraryContext() -> (client: OrthoEngineClient, workingDir: String, sceneryDir: String)? {
+        connectIfNeeded()
+        guard let client, let base = tileBaseFolder else { return nil }
+        return (client, base.path, customSceneryPath)
+    }
+
+    /// Library ▸ Rebuild: select those tiles (adopting the active one's
+    /// recorded source) and press Build.
+    func rebuild(_ coords: [TileCoord]) {
+        guard !coords.isEmpty else { return }
+        selected = Set(coords)
+        activeTile = coords.sorted().first
+        startBuild()
     }
 
     // MARK: - Reanchor status (auto-patch object reseating)
@@ -1470,7 +1604,7 @@ final class BuildModel: ObservableObject {
         connectIfNeeded()
         guard let client else { return }
         if !isBuilding {
-            activity.reset()
+            activity.beginRun()
             isBuilding = true
             isStopping = false
             // A previous run that died without RunDone leaves nothing in
@@ -1487,10 +1621,7 @@ final class BuildModel: ObservableObject {
                 EngineStderrLog.queuedLine(tiles: todo.map(\.key)))
         }
         clearProgressTask?.cancel()
-        for coord in todo where activity.tiles[coord] == nil {
-            activity.tiles[coord] = TileProgress(state: .queued, label: "queued", percent: 0)
-            activity.runOrder.append(coord)
-        }
+        activity.queueRows(todo)
         stampRunTags(todo)
         // The settings this tile is being STARTED with — what a later
         // resume of it must use.
@@ -1516,7 +1647,7 @@ final class BuildModel: ObservableObject {
                 if !reply.ok {
                     self.console.append("*** Build refused: \(reply.error ?? "unknown error")")
                     self.isBuilding = false
-                    self.activity.reset()
+                    self.activity.endRun()
                 }
             }
         }
@@ -1528,6 +1659,17 @@ final class BuildModel: ObservableObject {
     /// report per run (#562, #564), shown by `RunIssuesSheet`.
     @Published var runIssues: O4RunIssues?
     private var runIssueLog = O4RunIssueLog()
+
+    private var reopenedIssues = 0
+
+    /// #1341: a finished row's gold (or red) status was clicked — show
+    /// that tile's end-of-build messages again, with the report buttons.
+    func reopenIssues(_ coord: TileCoord) {
+        guard let tile = activity.issues[coord] else { return }
+        reopenedIssues += 1
+        // Negative ids never meet the run reports' own (1, 2, …).
+        runIssues = O4RunIssues(id: -reopenedIssues, tiles: [tile])
+    }
 
     /// Whether the engine has the `failure_report` command (#565).
     var canReportFailures: Bool {
@@ -1992,7 +2134,8 @@ final class BuildModel: ObservableObject {
     private func keepRetryTiles() {
         let current = TileRunSettings(provider: buildProvider, zl: buildZL)
         retryTiles = activity.runOrder.compactMap { coord in
-            guard let state = activity.tiles[coord]?.state,
+            guard activity.runTiles.contains(coord),
+                  let state = activity.tiles[coord]?.state,
                   state == .error || state == .queued,
                   !resumeQueue.contains(coord) else { return nil }
             return (coord: coord, settings: activity.runSettings[coord] ?? current)
@@ -2182,7 +2325,9 @@ final class BuildModel: ObservableObject {
     // config.
 
     /// Bumped after any tile-config write so rows re-read their state.
-    @Published private(set) var tileConfigGeneration = 0
+    @Published private(set) var tileConfigGeneration = 0 {
+        didSet { refreshCustomizedTiles(only: selected) }
+    }
 
     private func tileConfigURL(_ coord: TileCoord) -> URL? {
         guard let base = tileBaseFolder else { return nil }
@@ -2342,6 +2487,9 @@ final class BuildModel: ObservableObject {
                 at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try file.write(to: configURL)
             globalConfigValues[name] = value
+            // A tile value equal to the new global is no longer a
+            // customization (and a different one now is): re-badge.
+            refreshCustomizedTiles()
         } catch {
             engineError = "Could not write Ortho4XP.cfg: \(error.localizedDescription)"
         }
@@ -2389,14 +2537,11 @@ final class BuildModel: ObservableObject {
         guard !isBuilding else { return }
         isBuilding = true
         isStopping = false
-        activity.reset()
+        activity.beginRun()
         legacyQueue = todo
         legacyDone = 0
         legacyFailed = 0
-        for coord in todo {
-            activity.tiles[coord] = TileProgress(state: .queued, label: "queued", percent: 0)
-            activity.runOrder.append(coord)
-        }
+        activity.queueRows(todo)
         stampRunTags(todo)
         activity.totalTiles = todo.count
         legacyRunNext()
@@ -2512,7 +2657,7 @@ final class BuildModel: ObservableObject {
         clearProgressTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled, let self, !self.isBuilding else { return }
-            self.activity.reset()
+            self.activity.endRun()
         }
     }
 

@@ -319,9 +319,14 @@ def threshold_pins(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, f
 
 def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     """Threshold pins + longitudinal caps along each profile chain."""
+    from .threshold_seam import RULING as SEAM_YIELD_RULING
+    from .threshold_seam import seam_thresholds
     vw = view(planar, law)
     rows: list[Row] = []
     chains = ridge_chains(vw)
+    # OWNER RULINGS 2026-10-26b: a threshold the tile seam outranks is
+    # minted under the yielding head (``threshold_seam``)
+    seam_yield = seam_thresholds(planar, law, airport)
     for rw in airport.runways:
         chs = chains.get(rw.id)
         if not chs:
@@ -400,7 +405,8 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                 continue
             best = _end_vertex(vw, all_ids, rw, end, ux, uy)
             rows.append(Pin(best, float(end.threshold_elev_m),
-                            Source(GEN, "RULINGS :511-516 CIFP threshold",
+                            Source(GEN, SEAM_YIELD_RULING if best in seam_yield
+                                   else "RULINGS :511-516 CIFP threshold",
                                    (f"rwy:{rw.id}", f"end:{end.name}",
                                     end.cifp_source))))
     # the apt.dat datum at every unpinned end of a runway with fewer than

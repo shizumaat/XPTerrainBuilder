@@ -973,6 +973,9 @@ def ensure_coastline_band(tile, dico_airports):
             # A cached cell is recycled, but only after the same
             # plausibility probe a fresh fetch gets: caches poisoned
             # before the guard existed heal here.
+            # The fetch's provider-fill mask re-judges it too (#1340).
+            INSETS.mask_fetched_provider_fill(
+                cell_path, cell["source_rung"].definition, label=stem)
             if INSETS.geotiff_is_constant_value(cell_path):
                 _discard_implausible_cell(cell_path, stem)
             else:
@@ -2319,6 +2322,11 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
         stem = cell["stem"]
         existing = approach_ring_cell_source(cell)
         if existing is not None and not refresh:
+            # The fetch's provider-fill mask re-judges it too (#1340).
+            INSETS.mask_fetched_provider_fill(
+                existing,
+                INSETS.elevation_providers_dict.get(cell["provider"]),
+                label=stem)
             if INSETS.geotiff_is_constant_value(existing):
                 _discard_implausible_ring_cell(existing, stem, outcomes)
             else:

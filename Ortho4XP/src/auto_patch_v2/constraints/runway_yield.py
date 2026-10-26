@@ -59,6 +59,7 @@ from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from .precedence import taxi_cap_for, view
 from .runway_profile import curve_stations, datum_pins, ridge_chains, threshold_pins
+from .threshold_seam import seam_thresholds
 
 __all__ = ["RunwayCap", "Pin", "derive", "report_line", "yielded_lines",
            "TaxiYield", "derive_taxi",
@@ -196,6 +197,17 @@ def _pin_sources(pm: PlanarMap, law: Law, airport: Airport, vw, chains
     return out
 
 
+def _seam_yields(a: Pin, b: Pin, seam_yield: _t.Container[int]) -> bool:
+    """Whether the span ``a``-``b`` joins a seam pin to a threshold the
+    seam outranks (owner RULINGS 2026-10-26b): the threshold yields there,
+    so the span demands no grade of the cap."""
+    kinds = {a.kind, b.kind}
+    if kinds != {KIND_SEAM, KIND_THRESHOLD}:
+        return False
+    thr = a if a.kind == KIND_THRESHOLD else b
+    return thr.vertex in seam_yield
+
+
 def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
     """Runway ref -> its EFFECTIVE longitudinal cap (module docstring).
 
@@ -210,6 +222,9 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
     margin = float(law.tables.emit.design.runway_yield_margin)
     min_d = float(law.tables.emit.identity.min_distinct_spacing_m)
     pins = _pin_sources(pm, law, airport, vw, chains)
+    # OWNER RULINGS 2026-10-26b: a threshold the tile seam outranks YIELDS
+    # to the seam, so the span between them never raises the cap
+    seam_yield = seam_thresholds(pm, law, airport)
     out: dict[str, RunwayCap] = {}
     for rw in airport.runways:
         chs = chains.get(rw.id)
@@ -251,6 +266,8 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
         g_pin = 0.0
         best: tuple[float, float, Pin, Pin] | None = None
         for i, j in zip(order, order[1:]):
+            if _seam_yields(at[i], at[j], seam_yield):
+                continue
             span = sum(vw.dist(st[k], st[k + 1]) for k in range(i, j))
             if span <= 0.0:
                 continue

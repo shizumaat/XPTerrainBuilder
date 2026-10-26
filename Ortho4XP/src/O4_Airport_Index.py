@@ -13,9 +13,9 @@ no network access, no printing):
 * :func:`load_index`    -- fast reload from that cache.
 * :func:`index_count`   -- the cache's recorded airport count (header only).
 * :func:`index_is_stale` -- decide whether the cache needs rebuilding.
-* :func:`parse_coordinate_query` -- interpret a query as tile coordinates.
 
-Searching the index by code or name is :mod:`O4_Airport_Search` (#543).
+Searching the index by code or name is :mod:`O4_Airport_Search` (#543); a
+typed coordinate or tile key is :mod:`O4_Coordinate_Query` (#1317).
 
 This module is the SINGLE airport-index implementation every front end
 uses: the Qt map consumes it in-process, and the macOS application asks
@@ -61,7 +61,6 @@ __all__ = [
     "load_index",
     "index_count",
     "index_is_stale",
-    "parse_coordinate_query",
 ]
 
 # Magic header written as the first line of the cache file.  The integer
@@ -753,72 +752,3 @@ def index_is_stale(apt_dat_paths: List[str], cache_file: str) -> bool:
 
     return False
 
-
-# ---------------------------------------------------------------------------
-# Coordinate query
-# ---------------------------------------------------------------------------
-import math  # noqa: E402  (kept local to the coordinate helper's concerns)
-
-# Valid X-Plane tile ranges (integer south-west corner of a 1x1 tile).
-_LAT_MIN, _LAT_MAX = -85, 84
-_LON_MIN, _LON_MAX = -180, 179
-
-
-def _validate_tile(lat: int, lon: int) -> Optional[Tuple[int, int]]:
-    """Return ``(lat, lon)`` if within valid tile ranges, else ``None``."""
-    if _LAT_MIN <= lat <= _LAT_MAX and _LON_MIN <= lon <= _LON_MAX:
-        return (lat, lon)
-    return None
-
-
-def parse_coordinate_query(query: str) -> Optional[Tuple[int, int]]:
-    """Interpret ``query`` as an explicit tile coordinate, if possible.
-
-    Accepted forms (floats are floored to the containing tile integer)::
-
-        "48 -6"      "48,-6"      "48.7 -5.2"
-        "+48-006"    "-34+151"
-
-    Latitude must fall in ``[-85, 84]`` and longitude in ``[-180, 179]``
-    (the valid X-Plane tile ranges).  Anything else returns ``None``.
-
-    Args:
-        query: The raw query string.
-
-    Returns:
-        ``(lat, lon)`` integer tile coordinates, or ``None`` when the query
-        is not a valid coordinate pair.
-    """
-    if query is None:
-        return None
-    text = query.strip()
-    if not text:
-        return None
-
-    # Form 1: two numbers separated by whitespace and/or a comma.
-    tokens = [t for t in text.replace(",", " ").split() if t]
-    if len(tokens) == 2:
-        lat_f = _parse_float(tokens[0])
-        lon_f = _parse_float(tokens[1])
-        if lat_f is not None and lon_f is not None:
-            return _validate_tile(
-                int(math.floor(lat_f)), int(math.floor(lon_f)))
-        return None
-
-    # Form 2: signed concatenation like "+48-006" or "-34+151".  The
-    # longitude sign is the first '+'/'-' after position 0.
-    if len(tokens) == 1:
-        token = tokens[0]
-        if len(token) >= 2 and token[0] in "+-":
-            split_at = -1
-            for i in range(1, len(token)):
-                if token[i] in "+-":
-                    split_at = i
-                    break
-            if split_at > 0:
-                lat_f = _parse_float(token[:split_at])
-                lon_f = _parse_float(token[split_at:])
-                if lat_f is not None and lon_f is not None:
-                    return _validate_tile(
-                        int(math.floor(lat_f)), int(math.floor(lon_f)))
-    return None

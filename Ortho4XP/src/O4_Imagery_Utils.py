@@ -40,8 +40,10 @@ Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 # The solved colour-correction field is persisted beside the textures so a
 # rerun that converts a SUBSET of them reproduces what was built before
 # (colour-harmonization spec §3); the imagery manifest records its name.
+# Version 3 stores the values losslessly (#1223); a version-2 sidecar was
+# rounded to 3 decimals, so it fails the settings hash and is re-solved.
 COLOR_FIELD_FILE = "color_field.json"
-COLOR_FIELD_VERSION = 2
+COLOR_FIELD_VERSION = 3
 
 has_URL = False
 try:

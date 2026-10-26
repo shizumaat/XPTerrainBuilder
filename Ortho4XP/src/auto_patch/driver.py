@@ -1712,6 +1712,10 @@ def generate_auto_patches(tile, cifp_path: str,
                 "no enabled scenery pack defines it) — skipped, not built.")
             skipped_no_apt_dat.append(icao)
             continue
+        if candidate.disposition == "apt_dat_elsewhere":
+            UI.lvprint(0, "   Auto-patch:", icao, candidate.reason)
+            skipped_no_apt_dat.append(icao)
+            continue
         if candidate.disposition == "boundary_skipped":
             # Spec §C.3 "skip": the same place the no-apt.dat skip lives,
             # so H1's fatal path is not armed for it either.
@@ -1947,8 +1951,8 @@ def generate_auto_patches(tile, cifp_path: str,
     if skipped_no_apt_dat:
         UI.vprint(
             0,
-            "   Auto-patch: Skipped {} CIFP airport(s) with no apt.dat in "
-            "this install: {}.".format(len(skipped_no_apt_dat),
+            "   Auto-patch: Skipped {} CIFP airport(s) with no apt.dat for "
+            "them in this install: {}.".format(len(skipped_no_apt_dat),
                                        ", ".join(skipped_no_apt_dat)))
     if skipped_boundary:
         UI.vprint(

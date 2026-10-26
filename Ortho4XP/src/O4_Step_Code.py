@@ -196,6 +196,7 @@ _SHARED: tuple[str, ...] = (
     "O4_Vector_Map",
     "O4_Vector_Utils",
     "O4_Version",
+    "O4_ZProv",
     "auto_patch",
     "auto_patch.agp_reader",
     "auto_patch.build_support",

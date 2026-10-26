@@ -11085,6 +11085,32 @@ def test_the_per_airport_check_is_the_engines_own_predicate(build_mod,
          "airports_layer": True}, 60, -136, None) is None
 
 
+def test_an_airport_outside_the_inset_selection_needs_no_inset(build_mod,
+                                                              monkeypatch):
+    """§A.6 (#1352): patched but not inset ⇒ the base raster.  Neither a
+    missing insets directory nor a stale orphan inset refuses it."""
+    ipf = build_mod.IPF
+    monkeypatch.setattr(ipf, "inset_selection_admits",
+                        lambda lat, lon, icao: icao == "KABC")
+    monkeypatch.setattr(ipf, "required_boxes",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("no box is required")))
+    state = {"tile_stem": "N43W122", "tile": [43, -122],
+             "airport_insets": True, "airports_layer": True}
+    assert build_mod.this_airports_inset_problem(state, 43, -122, "S21") is None
+    assert build_mod.insets_expected(state, 43, -122, "S21") is False
+    assert build_mod.insets_expected(state, 43, -122, "KABC") is True
+    monkeypatch.setattr(ipf, "required_boxes", lambda *a, **k: {})
+    monkeypatch.setattr(ipf, "airports_layer_is_cached", lambda lat, lon: False)
+    assert build_mod.insets_expected(state, 43, -122, None) is True
+    monkeypatch.setattr(ipf, "airports_layer_is_cached", lambda lat, lon: True)
+    assert build_mod.insets_expected(state, 43, -122, None) is False
+    cold = dict(state, airport_insets=False, base_raster=True)
+    build_mod.require_dem_frame(cold, inset_dir_expected=False)
+    with pytest.raises(SystemExit):
+        build_mod.require_dem_frame(cold)
+
+
 def test_the_per_airport_check_scans_packs_with_the_owners_xplane_root(
         build_mod, monkeypatch, tmp_path):
     """NLWF 2026-09-21 (#18-#20): the pre-flight's pack-set arm listed the

@@ -749,9 +749,9 @@ def _band_geometry(tile):
         cached_suffix="coastline",
     ):
         return None
-    coastline = OSM.OSM_to_MultiLineString(
+    coastline = _vetted(OSM.OSM_to_MultiLineString(
         coastline_layer, tile.lat, tile.lon
-    )
+    ), tile)
 
     # Landlocked tiles stop here (owner direction 2026-07-18): the
     # inland reach below exists to serve inland-CLASSED water adjoining
@@ -1059,7 +1059,22 @@ def _cached_coastline_is_empty(tile) -> bool:
     layer = OSM.OSM_layer()
     if not layer.update_dicosm(cached, tags, {k: list(v) for (k, v) in tags.items()}):
         return False
-    return OSM.OSM_to_MultiLineString(layer, tile.lat, tile.lon).is_empty
+    return _vetted(OSM.OSM_to_MultiLineString(layer, tile.lat, tile.lon),
+                   tile).is_empty
+
+
+def _vetted(coastline, tile):
+    """#1354: the coastline the mesh will read — a stray in-tile fragment
+    with no sea beside it is not a shore, so it neither selects band
+    cells nor makes a landlocked tile "coastal" (``O4_Coastline_Vetting``,
+    the one vetting rule ``include_sea`` applies)."""
+    import O4_Coastline_Vetting as COAST_VET
+
+    if coastline.is_empty:
+        return coastline
+    return COAST_VET.vet_coastline(
+        coastline, tile.lat, tile.lon,
+        lambda: COAST_VET.tile_sea_witness(tile))[0]
 
 
 def is_cached(tile, fine_nearshore_only=None, intertidal_ok=None) -> bool:

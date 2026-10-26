@@ -129,8 +129,25 @@ def test_the_parser_sees_ci_yml_as_it_is() -> None:
     make the two assertions below vacuously pass."""
     blocks = _top_level_blocks((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
     assert {"name", "on", "concurrency", "jobs"} <= set(blocks), sorted(blocks)
-    assert _triggers(blocks["on"]) == {"push", "pull_request"}, blocks["on"]
+    assert _triggers(blocks["on"]) == {"push", "pull_request",
+                                       "workflow_dispatch"}, blocks["on"]
     assert _push_branches(blocks["on"]) == ["main"], blocks["on"]
+
+
+BATCH_ONLY_IF = ("if: github.event_name != 'pull_request' || "
+                 "startsWith(github.head_ref, 'claude/batch-')")
+
+
+@app_side
+def test_pr_ci_runs_only_on_batch_branches() -> None:
+    """Owner 2026-10-26T19:07Z (#1397): lane PRs get no CI; a
+    ``claude/batch-*`` integration branch, a push to main and a manual
+    dispatch do.  Every job of ci.yml carries the same gate."""
+    text = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    jobs = re.findall(r"^  ([A-Za-z0-9_-]+):\n", text.split("\njobs:\n", 1)[1],
+                      flags=re.M)
+    assert jobs, "no jobs parsed"
+    assert text.count(BATCH_ONLY_IF) == len(jobs), (jobs, text.count(BATCH_ONLY_IF))
 
 
 @app_side

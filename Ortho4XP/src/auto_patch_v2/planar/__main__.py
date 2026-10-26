@@ -462,6 +462,7 @@ def structure_records(airport, cl, law) -> dict:
         # #1343: the mouths a pack portal pinned, and the ones left to the bore law
         "portal_mouths": list(sstats.portal_mouths),
         "portals_unpinned": list(sstats.portals_unpinned),
+        "portals_in_strip": list(sstats.portals_in_strip),
         "crest_from_approach": list(sstats.crest_from_approach),
         # spec §34 (5): the crossings an aeroway bridge stated
         "underpasses": list(sstats.underpasses),

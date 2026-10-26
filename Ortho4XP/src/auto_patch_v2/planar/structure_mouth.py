@@ -90,7 +90,8 @@ from ..law.tables import is_structure_role, is_value_role, role_family, role_sid
 from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
-           "road_end_after_slide", "portal_note", "PORTAL_YIELDS"]
+           "road_end_after_slide", "portal_note", "PORTAL_YIELDS", "strip_keepout",
+           "STRIP_REFUSED", "STRIP_PORTAL"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
 _SLIDE_PASSES = 4
@@ -472,3 +473,22 @@ def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
             f"{pin.resource.rsplit('/', 1)[-1]} (#971 'or object if one is provided', "
             f"#1343): floor {mouth_z:.2f} = ground {mouth_dem:.2f} − its roof top "
             f"{pin.depth_m:.2f} (never mouth_depth_m)")
+
+
+#: :func:`strip_keepout`'s verdicts
+STRIP_REFUSED, STRIP_PORTAL = "refused", "portal"
+
+
+def strip_keepout(wall, strip_u, pin) -> str:
+    """THE RUNWAY STRIP KEEP-OUT for one corridor's wall ring (RULINGS
+    2026-08-21d, ``retaining_wall.in_runway_strip = false``): ``""`` when
+    the wall stands clear of the strip, :data:`STRIP_REFUSED` when it
+    stands in it, :data:`STRIP_PORTAL` when it stands in it but a pack
+    PORTAL pins the mouth — owner RULINGS 2026-10-26k (Q155): "a tunnel
+    under the safety area does not compromise the safety area's
+    function", so a pack portal's cut may stand there and nothing else
+    may."""
+    if strip_u is None or not wall.intersects(strip_u) \
+            or wall.intersection(strip_u).area <= 1e-6:
+        return ""
+    return STRIP_REFUSED if pin is None else STRIP_PORTAL

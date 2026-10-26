@@ -141,3 +141,16 @@ def test_a_pinned_mouth_keeps_the_portals_opening_but_never_cuts_a_taxiway():
     assert isinstance(got, tuple) and got[1] == (0.0, 0.0)
     assert all(r != "pav1" for _p, r in got[2])
     assert _pin("cross_connector") == "pav1"
+
+
+def test_26k_a_portal_cut_may_stand_in_the_runway_strip_and_nothing_else():
+    """Owner RULINGS 2026-10-26k (Q155, KBUF site 1): the keep-out refuses a
+    wall in the runway strip unless a pack portal pins the mouth."""
+    from auto_patch_v2.planar import structure_mouth as SM
+    strip = _sbox(0.0, 0.0, 100.0, 50.0)
+    inside, clear = _sbox(10.0, 10.0, 30.0, 30.0), _sbox(200.0, 0.0, 220.0, 20.0)
+    pin = types.SimpleNamespace(object_id="dsf:obj1")
+    assert SM.strip_keepout(inside, strip, None) == SM.STRIP_REFUSED
+    assert SM.strip_keepout(inside, strip, pin) == SM.STRIP_PORTAL
+    assert SM.strip_keepout(clear, strip, pin) == SM.strip_keepout(clear, strip, None) == ""
+    assert SM.strip_keepout(inside, None, None) == ""

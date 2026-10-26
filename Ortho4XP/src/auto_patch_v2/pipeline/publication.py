@@ -709,6 +709,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                           + _eat_report_rects(planar, law, airport)),
             "tunnel_objects": tunnel_objects(planar, airport),
             "tunnel_mouth_depths": tunnel_mouth_depths(planar, airport),
+            # RULINGS 2026-10-26k (#1343): the cuts a pack PORTAL pins — the
+            # runway strip keep-out families exempt them, nothing else
+            "portal_cuts": portal_cuts(planar, airport),
             # THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i):
             # one record per channel the map carries — the FLOOR the
             # record declares per station and the CREST the design
@@ -1151,6 +1154,25 @@ def pad_terrace_joints(planar: PlanarMap, law: Law,
                         "kind": "pad_terrace", "faces": [], "shapes": [pad_ref, other],
                         "gap": True, "roles": [], "pairs": len(pairs),
                         "length_m": 0.0})
+    return out
+
+
+def portal_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
+    """THE CUTS A PACK PORTAL PINS (#1343, ``airport/portal_objects``): per
+    mapped bore whose mouth a pack portal pinned, its id, the portal and the
+    corridor's RIM ring (``Tunnel.wall_path``) in lat/lon.  Owner RULINGS
+    2026-10-26k: such a cut may stand inside the runway strip keep-out, so
+    the strip families (``verify`` ``wall_in_runway_strip`` /
+    ``ramp_in_strip``, ``tools/check_grade``) exempt a vertex on or inside
+    this ring from the RUNWAY strip alone.  Empty where no portal pinned."""
+    to_ll = airport.frame.transformers()[1]
+    out: list[dict[str, _t.Any]] = []
+    for tn in planar.structures:
+        if not getattr(tn, "portal", "") or len(tn.wall_path) < 3:
+            continue
+        out.append({"id": tn.id, "portal": tn.portal,
+                    "outline_ll": [[round(la, 8), round(lo, 8)]
+                                   for la, lo in (to_ll(x, y) for x, y in tn.wall_path)]})
     return out
 
 

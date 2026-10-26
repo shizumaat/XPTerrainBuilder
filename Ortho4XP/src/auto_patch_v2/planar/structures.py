@@ -110,7 +110,8 @@ from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
 from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement, road_end_after_slide
-from .structure_mouth import PORTAL_YIELDS, portal_note
+from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, portal_note,
+                              strip_keepout)
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -372,11 +373,6 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         pin = None if c is not None else next(
             (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                          for m in members) if q is not None), None)
-        if pin is not None and strip_u is not None \
-                and Point(mouth).buffer(half + rim_off).intersects(strip_u):
-            stats.portals_unpinned.append(f"{tid}: {pin.object_id} {pin.resource} stands "
-                                          f"in the runway strip keep-out — the bore law's mouth")
-            pin = None
         if pin is not None:
             stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}")
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
@@ -770,11 +766,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # of an underpass, §34 (5)"): the decks read above are subtracted
         # before the test, so every §34 (5) underpass — LEMD F-6, KCLT
         # taxiway U — passes exactly as it did.
-        if strip_u is not None and wall.intersects(strip_u) and \
-                wall.intersection(strip_u).area > 1e-6:
+        verdict = strip_keepout(wall, strip_u, pin)
+        if verdict == STRIP_REFUSED:
             stats.refused.append(f"{tid}: the wall would stand inside the runway strip "
                                  f"keep-out (retaining_wall.in_runway_strip = false)")
             continue
+        if verdict == STRIP_PORTAL:
+            stats.portals_in_strip.append(f"{tid}: {pin.object_id} cuts inside the runway "
+                                          f"strip keep-out (RULINGS 2026-10-26k)")
         # decks sever the ramp (by the gap) and the walls (exactly)
         # §33 (4) / §34.5 (6) AMENDED (RULINGS 2026-09-14bp item 10): one
         # entry per deck FACE — parallel bridge ways sharing this crossing
@@ -872,6 +871,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          f"{max(a + b for a, b in hws):.1f} m over {len(hws)} stations "
                          f"(lanes default {width:.1f} m)")
         extra: dict = {} if slid_depth is None else dict(depth_m=slid_depth)
+        if pin is not None:
+            extra["portal"] = pin.object_id
         profile_out: tuple = ()
         if c is not None:
             outside = trench_outside_m(ramp_parts, c, grid)

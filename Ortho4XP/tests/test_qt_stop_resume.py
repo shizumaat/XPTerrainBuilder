@@ -602,7 +602,7 @@ def test_build_failed_tiles_again_requeues_exactly_those_tiles(make_window):
 
 def test_row_order_is_title_bar_then_status(window):
     """Owner 2026-10-24: the bar sits right under its tile's title; the
-    status and clock line comes after it."""
+    status and clock line comes after it, below the step strip (#825)."""
     from PySide6.QtWidgets import QLabel, QProgressBar
     window._start_run([TILE], dict(SETTINGS))
     row = window._tile_rows[TILE][2]
@@ -612,6 +612,7 @@ def test_row_order_is_title_bar_then_status(window):
     items = [layout.itemAt(i) for i in range(layout.count())]
     assert items[0].widget() is title
     assert items[1].widget() is bar
-    line = items[2].layout()
+    assert items[2].widget() is row.findChild(QLabel, "tile_steps")
+    line = items[3].layout()
     names = [line.itemAt(i).widget().objectName() for i in range(line.count())]
     assert names[:2] == ["tile_status", "tile_clock"]

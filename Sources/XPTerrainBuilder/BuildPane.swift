@@ -993,7 +993,8 @@ struct ActivityBox: View {
             TileProgressRowLines(
                 text: text, statusColor: Self.color(tone),
                 titleDimmed: BuildActivityModel.isFinished(progress),
-                onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil
+                onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil,
+                strip: activity.stepStrips[coord]
             ) {
                 ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
                     .controlSize(.small)

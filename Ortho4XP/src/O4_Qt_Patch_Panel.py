@@ -423,7 +423,7 @@ class PatchPanel(QGroupBox):
         self.delete_shapes.setText("Delete shape" if one else "Delete %s shapes" % format(len(ways), ","))
 
     def _refresh_save_bar(self, n: int) -> None:
-        c, m, p = self.controller, self.model, self.model.patch
+        m, p = self.model, self.model.patch
         if self._confirm_open and self._confirm_path != p.path:
             self._confirm_open = False
         needs_rebuild = p.tile in m.tiles_needing_rebuild and n == 0
@@ -433,7 +433,7 @@ class PatchPanel(QGroupBox):
             else "The tile is out of date until you rebuild it.")
         self.rebuild_note.setVisible(needs_rebuild)
         self.rebuild_button.setVisible(needs_rebuild)
-        self.rebuild_button.setEnabled(not c.is_building())
+        # #1322: never disabled by a running build — the tile joins it.
         self.hand_made_note.setText("This airport ground shape was made outside the editor. "
                                     "Saving writes back to %s; there is no automatic shape to "
                                     "go back to." % p.file_name)

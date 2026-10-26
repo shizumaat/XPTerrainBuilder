@@ -511,3 +511,20 @@ def test_mixed_selection_deletes_shapes_then_nodes_in_one_step(editor):
     assert -5 not in ed.model.doc.nodes and -1 not in ed.model.doc.nodes and -3 in ed.model.doc.nodes
     assert ed.model.undo_stack.count() == 1
     assert ed.model.undo_stack.undoText() == "Delete Shape"
+
+
+def test_rebuild_tile_stays_usable_while_a_build_runs(editor):
+    """#1322: "Rebuild tile" is never disabled by a running build — the
+    window queues the tile into it (``MainWindow.rebuild_patch_tile``)."""
+    ed, _view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    asked = []
+    ed.controller.is_building = lambda: True
+    ed.controller.rebuild = lambda tile: asked.append(tile) or None
+    ed.model.tiles_needing_rebuild.add(TILE)
+    ed.panel._refresh_save_bar(0)
+    assert not ed.panel.rebuild_button.isHidden()
+    assert ed.panel.rebuild_button.isEnabled()
+    ed.panel.rebuild_button.click()
+    assert asked == [TILE]

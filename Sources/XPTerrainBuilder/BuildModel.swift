@@ -540,7 +540,7 @@ final class BuildModel: ObservableObject {
         legacyRunner = nil
         isBuilding = false
         isStopping = false
-        resumeQueue = []
+        forgetStopState()
         activity.reset()
     }
 
@@ -552,7 +552,7 @@ final class BuildModel: ObservableObject {
             console.append("=== Build stopped. ===")
             isBuilding = false
             isStopping = false
-            resumeQueue = []
+            forgetStopState()
             activity.reset()
             // A fresh session reconnects lazily; refresh what's on disk.
             rescan()
@@ -742,15 +742,22 @@ final class BuildModel: ObservableObject {
                     workingDir: base.path, customSceneryDir: customSceneryPath)
             }
             refreshConflictTiles()
-        case .tileState(let lat, let lon, let state, let label, let percent, let detail):
+        case .tileState(let lat, let lon, let state, let label, let percent, let detail,
+                        let attempt):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued
             applyTileEvent(TileProgress(
                 state: state,
                 label: label.isEmpty ? state.rawValue : label,
                 percent: percent,
-                detail: detail), to: coord)
-        case .stepProgress(let lat, let lon, let stepKey, let label, let percent, let indeterminate):
+                detail: detail), attempt: attempt, to: coord)
+            // The engine is done with the attempt the user stopped (#1326).
+            if stopPending.contains(coord),
+               label == "stopped" || state == .done || state == .error {
+                stopConfirmed(coord, attempt: attempt, done: state == .done)
+            }
+        case .stepProgress(let lat, let lon, let stepKey, let label, let percent, let indeterminate,
+                           let attempt):
             let coord = TileCoord(lat: lat, lon: lon)
             let previous = activity.tiles[coord]?.percent ?? 0
             applyTileEvent(TileProgress(
@@ -758,7 +765,7 @@ final class BuildModel: ObservableObject {
                 // Wire label -> plain step name (#831); the wire is unchanged.
                 label: O4Glossary.stepDisplay(key: stepKey, label: label),
                 // Indeterminate steps report no usable percent — hold it.
-                percent: indeterminate ? previous : percent), to: coord)
+                percent: indeterminate ? previous : percent), attempt: attempt, to: coord)
         case .autoPatchBegin, .autoPatchProgress:
             break // folded into StepProgress labels by the session
         case .autoPatchFailed(let airport, let stage, let error, let lat, let lon, let code):
@@ -833,11 +840,11 @@ final class BuildModel: ObservableObject {
             for row in rows {
                 let coord = TileCoord(lat: row.lat, lon: row.lon)
                 // A stopped row's clock is frozen where the stop left it —
-                // the engine keeps counting until its cancel lands, and a
-                // running clock under "stopped" is the same lie the row
-                // itself used to tell.
-                clocks[coord] = activity.tiles[coord]?.state == .stopped
-                    ? activity.tileClocks[coord] : row
+                // the engine keeps counting until its cancel lands — and a
+                // queued row runs none (#1326).
+                clocks[coord] = Self.displayedClock(
+                    row, state: activity.tiles[coord]?.state,
+                    previous: activity.tileClocks[coord])
             }
             activity.tileClocks = clocks
         case .runDone(let done, let errors, let cancelled):
@@ -864,13 +871,15 @@ final class BuildModel: ObservableObject {
                 guard !Task.isCancelled, let self, !self.isBuilding else { return }
                 self.activity.resetKeepingStopped()
             }
-            // Tiles the user resumed mid-run get their own follow-up run,
-            // client-side. A run the user STOPPED wholesale takes the queue
-            // down with it — stop is the inverse of resume, at any scale.
-            if cancelled {
-                resumeQueue = []
-            } else {
-                startResumeQueue()
+            // Re-queues still held for a stop the engine never confirmed get
+            // their own follow-up run. A run the user STOPPED wholesale takes
+            // them down with it — stop is the inverse of resume, at any scale.
+            let held = heldForStop
+            heldForStop = [:]
+            stopPending = []
+            if !cancelled, !held.isEmpty {
+                startResumeRun(Self.batchedBySettings(
+                    held.keys.sorted().map { (coord: $0, settings: held[$0]!.settings) }))
             }
         case .secretRequest(let requestID, let operation, let sessionName,
                             let account, let secret):
@@ -1145,13 +1154,20 @@ final class BuildModel: ObservableObject {
     var selectedInRun: Set<TileCoord> {
         guard isBuilding else { return [] }
         return Set(selected.filter { coord in
-            switch activity.tiles[coord]?.state {
-            case .queued, .active, .indeterminate: return true
-            // A stopped row has left the run: pressing Build (or resume)
-            // may hand that tile to the engine again.
-            case .done, .error, .stopped, nil: return false
-            }
+            Self.isInRun(activity.tiles[coord]?.state, held: heldForStop[coord] != nil)
         })
+    }
+
+    /// Is a row's tile part of the engine's run? A stopped row has left it
+    /// (pressing Build or resume may hand the tile over again), and so has
+    /// a queued row held here until its stop is confirmed (#1326): the
+    /// engine does not have it yet, so Queue must stay usable for it.
+    static func isInRun(_ state: TileProgress.State?, held: Bool) -> Bool {
+        switch state {
+        case .queued: return !held
+        case .active, .indeterminate: return true
+        case .done, .error, .stopped, nil: return false
+        }
     }
 
     /// Tiles the next Build press would actually build.
@@ -1411,11 +1427,22 @@ final class BuildModel: ObservableObject {
                           boundaryPolicy: boundaryPolicy)
     }
 
-    private func sendProtocolBuild(_ todo: [TileCoord], provider: String, zl: Int,
+    private func sendProtocolBuild(_ tiles: [TileCoord], provider: String, zl: Int,
                                    boundaryPolicy: String?) {
         connectIfNeeded()
         guard let client else { return }
-        if !isBuilding {
+        // #1326: a tile whose Stop the engine has not confirmed yet is HELD
+        // until it does (`stopConfirmed` sends it then) — the engine refuses
+        // a second copy of a tile it is still stopping.
+        let split = Self.splitHeld(tiles, stopPending: isBuilding ? stopPending : [])
+        let todo = split.send
+        let settings = TileRunSettings(provider: provider, zl: zl)
+        for coord in split.hold {
+            heldForStop[coord] = HeldRequeue(settings: settings, boundaryPolicy: boundaryPolicy)
+        }
+        if todo.isEmpty {
+            // Nothing goes to the engine yet.
+        } else if !isBuilding {
             activity.reset()
             isBuilding = true
             isStopping = false
@@ -1433,16 +1460,22 @@ final class BuildModel: ObservableObject {
                 EngineStderrLog.queuedLine(tiles: todo.map(\.key)))
         }
         clearProgressTask?.cancel()
-        for coord in todo where activity.tiles[coord] == nil {
+        // Every enqueue — Build, Queue, Resume, Rebuild — resets the tile's
+        // row: queued, no clock (#1326). A row left "stopped" here would
+        // drop the new attempt's events as the stopped one's.
+        let queued = todo + split.hold
+        for coord in queued {
             activity.tiles[coord] = TileProgress(state: .queued, label: "queued", percent: 0)
-            activity.runOrder.append(coord)
+            activity.tileClocks[coord] = nil
+            if !activity.runOrder.contains(coord) { activity.runOrder.append(coord) }
         }
-        stampRunTags(todo)
+        stampRunTags(queued)
         // The settings this tile is being STARTED with — what a later
         // resume of it must use.
-        for coord in todo {
-            activity.runSettings[coord] = TileRunSettings(provider: provider, zl: zl)
+        for coord in queued {
+            activity.runSettings[coord] = settings
         }
+        guard !todo.isEmpty else { return }
         console.append("=== Building \(todo.count) tile\(todo.count == 1 ? "" : "s"): \(todo.prefix(8).map { $0.key }.joined(separator: " "))\(todo.count > 8 ? " …" : "") ===")
         var arguments: [String: Any] = [
             "tiles": todo.map { [$0.lat, $0.lon] },
@@ -1463,6 +1496,9 @@ final class BuildModel: ObservableObject {
                     self.console.append("*** Build refused: \(reply.error ?? "unknown error")")
                     self.isBuilding = false
                     self.activity.reset()
+                } else if reply.result?.boolValue == false {
+                    // The live run already holds every one of these tiles.
+                    self.console.append("Already in this run: \(todo.map(\.key).joined(separator: " ")).")
                 }
             }
         }
@@ -1858,22 +1894,54 @@ final class BuildModel: ObservableObject {
 
     // MARK: - Per-tile stop / resume (the activity row's stop sign)
 
-    /// Tiles the user resumed while a run was still going, in press order:
-    /// they start as one follow-up run when the current one ends. Purely
-    /// client-side and session-local — the engine knows nothing about it.
-    @Published private(set) var resumeQueue: [TileCoord] = []
+    /// A re-queue held until the engine confirms the stop it follows
+    /// (#1326): what it will be sent with.
+    struct HeldRequeue: Equatable {
+        let settings: TileRunSettings
+        let boundaryPolicy: String?
+    }
+
+    /// Tiles whose Stop the engine has not confirmed yet: its "stopped"
+    /// TileState (or a terminal one) is still to come, and until then
+    /// everything it says about the tile is the stopped attempt's (#1326).
+    private(set) var stopPending: Set<TileCoord> = []
+    /// Re-queues (Build, Queue, Resume, Rebuild) of `stopPending` tiles,
+    /// sent when the stop is confirmed — never two copies of one tile.
+    @Published private(set) var heldForStop: [TileCoord: HeldRequeue] = [:]
+    /// Per tile, the last attempt the user stopped: the engine's events
+    /// numbered at or below it are late news (#1326).
+    private var staleThrough: [TileCoord: Int] = [:]
+
+    /// A new engine session numbers attempts from 1 again.
+    private func forgetStopState() {
+        stopPending = []
+        heldForStop = [:]
+        staleThrough = [:]
+    }
 
     /// Per-tile stop (the red stop sign on an activity row). The engine
     /// only honours its cancel flag at the next phase boundary — minutes
     /// away on a mesh phase — so the ROW stops here and now, at the click,
-    /// with its percent frozen where it stood. The engine's eventual
-    /// agreement changes nothing visible.
+    /// with its percent frozen where it stood. Until the engine confirms
+    /// the stop, the tile is `stopPending` (#1326).
     func cancelTile(_ coord: TileCoord) {
         guard usesProtocol else { return }
-        client?.send(command: "cancel_tile", arguments: ["lat": coord.lat, "lon": coord.lon])
-        // Stop is the inverse of resume: stopping a "resumes after current
-        // run" row takes it back out of the queue.
-        resumeQueue.removeAll { $0 == coord }
+        let state = activity.tiles[coord]?.state
+        // Stop is the inverse of resume: a row held for its earlier stop is
+        // only on this side — it goes back to stopped, nothing is sent.
+        if heldForStop.removeValue(forKey: coord) == nil {
+            if isBuilding, state == .queued || state == .active || state == .indeterminate {
+                stopPending.insert(coord)
+            }
+            client?.send(command: "cancel_tile",
+                         arguments: ["lat": coord.lat, "lon": coord.lon]) { [weak self] reply in
+                Task { @MainActor [weak self] in
+                    // The run did not have the tile: no stop notice will come.
+                    guard reply.result?.boolValue != true else { return }
+                    self?.stopConfirmed(coord, attempt: 0, done: false)
+                }
+            }
+        }
         let percent = activity.tiles[coord]?.percent ?? 0
         activity.tiles[coord] = TileProgress(state: .stopped, label: "stopped", percent: percent)
         if let clock = activity.tileClocks[coord] {
@@ -1884,33 +1952,30 @@ final class BuildModel: ObservableObject {
     }
 
     /// Resume a stopped tile with the settings ITS run was started with.
-    /// Engine idle: a single-tile run, now. Engine busy: queued behind the
-    /// current run (no protocol change — the queue is ours).
+    /// Engine idle: a single-tile run, now. Engine busy: queued into the
+    /// RUNNING build now (#1326) — held only until the engine confirms the
+    /// stop it is resuming from.
     func resumeTile(_ coord: TileCoord) {
         guard usesProtocol else { return }
         let settings = activity.runSettings[coord]
             ?? TileRunSettings(provider: buildProvider, zl: buildZL)
-        guard !isBuilding else {
-            resumeQueue = Self.enqueuingResume(coord, into: resumeQueue)
-            activity.tiles[coord] = TileProgress(
-                state: .queued, label: "resumes after current run", percent: 0)
-            activity.tileClocks[coord] = nil
-            return
-        }
-        resumeQueue.removeAll { $0 == coord }
         startResumeRun([(tiles: [coord], settings: settings)])
     }
 
-    /// The queued resumes, as one follow-up run when the current one ends.
-    private func startResumeQueue() {
-        let todo = resumeQueue
-        guard !todo.isEmpty, usesProtocol else { return }
-        resumeQueue = []
-        // Each tile carries its own run's settings.
-        startResumeRun(Self.batchedBySettings(todo.map {
-            (coord: $0, settings: activity.runSettings[$0]
-                ?? TileRunSettings(provider: buildProvider, zl: buildZL))
-        }))
+    /// The engine is done with the attempt the user stopped (#1326): its
+    /// later events are stale by number, and a re-queue held for it goes
+    /// to the engine now — unless the tile finished before its stop took
+    /// effect, which leaves nothing to resume.
+    private func stopConfirmed(_ coord: TileCoord, attempt: Int, done: Bool) {
+        stopPending.remove(coord)
+        if attempt > 0 { staleThrough[coord] = max(attempt, staleThrough[coord] ?? 0) }
+        guard let held = heldForStop.removeValue(forKey: coord), !done else { return }
+        if isBuilding {
+            sendProtocolBuild([coord], provider: held.settings.provider, zl: held.settings.zl,
+                              boundaryPolicy: held.boundaryPolicy)
+        } else {
+            startResumeRun([(tiles: [coord], settings: held.settings)])
+        }
     }
 
     /// Group tiles so one batch per (source, ZL) pair goes over as one
@@ -1940,7 +2005,7 @@ final class BuildModel: ObservableObject {
         retryTiles = activity.runOrder.compactMap { coord in
             guard let state = activity.tiles[coord]?.state,
                   state == .error || state == .queued,
-                  !resumeQueue.contains(coord) else { return nil }
+                  heldForStop[coord] == nil else { return nil }
             return (coord: coord, settings: activity.runSettings[coord] ?? current)
         }
     }
@@ -2009,13 +2074,74 @@ final class BuildModel: ObservableObject {
         return incoming
     }
 
-    /// Ordered, deduped resume queue append.
-    static func enqueuingResume(_ coord: TileCoord, into queue: [TileCoord]) -> [TileCoord] {
-        queue.contains(coord) ? queue : queue + [coord]
+    /// Is an engine event news from an attempt the user STOPPED (#1326)?
+    /// While the stop is unconfirmed everything about the tile is; after
+    /// that the event's `attempt` decides — at or below the stopped one is
+    /// late news, above it is the attempt that re-queued the tile. The
+    /// row's displayed state decides nothing: a re-queued row reads
+    /// "queued" while the old attempt may still be talking.
+    static func isStoppedAttempt(_ attempt: Int, staleThrough: Int?, stopPending: Bool) -> Bool {
+        if stopPending { return true }
+        guard attempt > 0, let staleThrough else { return false }
+        return attempt <= staleThrough
     }
 
-    private func applyTileEvent(_ incoming: TileProgress, to coord: TileCoord) {
-        guard let next = Self.resolving(incoming, over: activity.tiles[coord]) else { return }
+    /// `resolving(_:over:)` for an event that may be a stopped attempt's:
+    /// such an event lands only as a terminal outcome (a tile that finished
+    /// or failed before its stop took effect really did), or as the detail
+    /// line of a row still showing the stop.
+    static func resolving(_ incoming: TileProgress, over current: TileProgress?,
+                          stoppedAttempt: Bool) -> TileProgress? {
+        if stoppedAttempt, !mayOverwriteStopped(incoming.state), current?.state != .stopped {
+            return nil
+        }
+        return resolving(incoming, over: current)
+    }
+
+    /// The clock a row shows for the engine's TileClocks `row`, or nil for
+    /// none: a stopped row keeps the clock its stop froze; a queued row
+    /// runs no clock — its estimate alone, never the elapsed of an attempt
+    /// that was stopped (the 2 h timer under a queued row, #1326).
+    static func displayedClock(_ row: O4TileClock, state: TileProgress.State?,
+                               previous: O4TileClock?) -> O4TileClock? {
+        switch state {
+        case .stopped:
+            return previous
+        case .queued:
+            return O4TileClock(lat: row.lat, lon: row.lon, elapsedSeconds: 0,
+                               remainingSeconds: row.remainingSeconds, finished: false)
+        case .active, .indeterminate, .done, .error, nil:
+            return row
+        }
+    }
+
+    /// Which tiles of an enqueue go to the engine now and which wait for
+    /// their stop to be confirmed (#1326), each in the order given.
+    static func splitHeld(_ tiles: [TileCoord], stopPending: Set<TileCoord>)
+        -> (send: [TileCoord], hold: [TileCoord]) {
+        (tiles.filter { !stopPending.contains($0) }, tiles.filter { stopPending.contains($0) })
+    }
+
+    /// What the patch box's "Rebuild tile" does (#1322): a running build
+    /// takes the tile, unless it is already part of it.
+    enum RebuildDecision: Equatable { case startRun, queueIntoRun, alreadyInRun }
+
+    static func rebuildDecision(isBuilding: Bool, row: TileProgress.State?,
+                                held: Bool) -> RebuildDecision {
+        guard isBuilding else { return .startRun }
+        return isInRun(row, held: held) ? .alreadyInRun : .queueIntoRun
+    }
+
+    func rebuildDecision(for coord: TileCoord) -> RebuildDecision {
+        Self.rebuildDecision(isBuilding: isBuilding, row: activity.tiles[coord]?.state,
+                             held: heldForStop[coord] != nil)
+    }
+
+    private func applyTileEvent(_ incoming: TileProgress, attempt: Int, to coord: TileCoord) {
+        let stale = Self.isStoppedAttempt(attempt, staleThrough: staleThrough[coord],
+                                          stopPending: stopPending.contains(coord))
+        guard let next = Self.resolving(incoming, over: activity.tiles[coord],
+                                        stoppedAttempt: stale) else { return }
         activity.tiles[coord] = next
     }
 

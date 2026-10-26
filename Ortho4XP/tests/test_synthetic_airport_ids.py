@@ -14,9 +14,10 @@ import O4_Airport_Modes as MODES
 import O4_Airport_Utils as APT
 import O4_Geo_Utils as GEO
 
-#: Mid-cell position (0.001 degree cells), so a 10 m move cannot cross a
-#: cell edge: the property the test pins is "metres move nothing".
-LON, LAT = -121.5935, 43.6745
+#: A cell centre (cells are centred on 0.001 degree multiples), so a 10 m
+#: move cannot cross a cell edge: the property pinned is "metres move
+#: nothing".
+LON, LAT = -121.594, 43.674
 
 
 def _record(key_type, name, boundary=None, repr_node=(LON, LAT)):
@@ -91,7 +92,7 @@ def test_unnamed_aerodrome_is_named_and_listed(capsys, monkeypatch):
     ID.assign_synthetic_ids(dico)
     assert all(isinstance(key, str) for key in dico)
     names = {record["name"] for record in dico.values()}
-    assert names == {"Fall Field", "Unnamed airstrip (43.6745, -121.5935)"}
+    assert names == {"Fall Field", "Unnamed airstrip (43.6740, -121.5940)"}
     assert {r["key_type"] for r in dico.values()} == {ID.SYNTHETIC_KEY_TYPE}
     lines = []
     monkeypatch.setattr(APT.UI, "vprint",

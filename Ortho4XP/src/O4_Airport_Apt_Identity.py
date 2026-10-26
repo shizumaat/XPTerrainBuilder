@@ -370,8 +370,10 @@ SYNTHETIC_KEY_TYPE = "synthetic"
 _UNCODED_KEY_TYPES = ("name", "repr_node")
 
 #: The identifier's position cell, in degrees: 0.001 is 111 m north-south
-#: and 111 m x cos(latitude) east-west, so an OSM edit that moves the
-#: aerodrome's centroid by metres keeps its identifier.
+#: and 111 m x cos(latitude) east-west, centred on each 0.001 multiple, so
+#: an OSM edit that moves the aerodrome's centroid by metres keeps its
+#: identifier (a centroid within metres of a cell edge can still cross
+#: it: any rounding has an edge).
 SYNTHETIC_CELL_DEG = 0.001
 
 #: "X" + 7 base-36 digits: 8 characters, longer than any apt.dat code in

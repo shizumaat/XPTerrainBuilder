@@ -126,6 +126,11 @@ class PatchEditor:
         self.preview.raise_()
         self.preview.activateWindow()
 
+    def pack_label_at(self, lat: float, lon: float) -> str | None:
+        """The cursor readout's pack outline label (#1316), while the
+        patch and its outlines are showing."""
+        return self.outlines.label_at(lat, lon) if self.controller.is_showing else None
+
     def copy_items(self, x: float, y: float) -> list[tuple[str, str]]:
         """``(title, text)`` for a right-click at viewport ``(x, y)``:
         "Copy coordinates" on a node (8 px), "Copy shape reference" while

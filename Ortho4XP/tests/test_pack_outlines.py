@@ -53,6 +53,8 @@ def test_pavement_bezier_flattened_hole_kept_and_boundary(xp):
     r = POL.pack_outlines(TILE, "zzzz")
     assert r["missing"] == []
     assert [p["kind"] for p in r["pavement"]] == ["pavement", "boundary"]
+    # the rows' own descriptions name them on the map (#1316)
+    assert [p["label"] for p in r["pavement"]] == ["Apron with a hole", "Airport boundary"]
     pave = r["pavement"][0]["rings"]
     assert len(pave) == 2                                 # exterior + one hole
     exterior, hole = pave

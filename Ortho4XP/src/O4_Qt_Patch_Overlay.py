@@ -263,11 +263,12 @@ class PatchOverlay:
                 paint_hatch(painter, outline, color)
                 painter.setPen(QPen(color, 1))
                 painter.setBrush(Qt.NoBrush)
-            elif swatch_kind == "dashed":
-                pen = QPen(color, 1)
+            elif swatch_kind == "dashed":   # the pack outlines' swatch (#1316)
+                from O4_Qt_Pack_Outlines import LEGEND_FILL
+                pen = QPen(color, 1.5)
                 pen.setDashPattern([3, 2])
                 painter.setPen(pen)
-                painter.setBrush(Qt.NoBrush)
+                painter.setBrush(LEGEND_FILL)
             else:
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(color)

@@ -1,7 +1,8 @@
 """The map's bottom-left cursor readout (issue #1308): ``lat, lon`` in the
 node format (``O4_Qt_Patch_Panel.node_lat_lon``) and, once the cursor
 rests 150 ms, the elevation under it from ``cursor_elevation`` —
-``123.4 m``, ``(DEM)`` appended when the tile has no built mesh there.
+``123.4 m``, ``(DEM)`` appended when the tile has no built mesh there —
+and, over a pack outline, its label (``pack: terminal.obj``, #1316).
 The Mac app's twin is ``MapCanvasView.cursorReadout``."""
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ import math
 from O4_Qt_Patch_Panel import node_lat_lon
 from PySide6.QtCore import QObject, QTimer
 
-__all__ = ["CursorReadout", "elevation_text"]
+__all__ = ["CursorReadout", "elevation_text", "readout_text"]
 
 REST_MS = 150
 PENDING_MS = 400
@@ -24,13 +25,25 @@ def elevation_text(reply) -> str | None:
     return text + " (DEM)" if reply.get("source") == "dem" else text
 
 
+def readout_text(lat: float, lon: float, elevation: str | None = None,
+                 pack: str | None = None) -> str:
+    """``lat, lon[ · elevation][ · pack: label]``."""
+    parts = [node_lat_lon(lat, lon)] + ([elevation] if elevation else []) \
+        + (["pack: " + pack] if pack else [])
+    return " · ".join(parts)
+
+
 class CursorReadout(QObject):
     """Drives ``label`` from the map's hover; ``engine`` is the window's
-    ``PatchEngine``, ``built()`` the scan's ``{(lat, lon): info}``."""
+    ``PatchEngine``, ``built()`` the scan's ``{(lat, lon): info}``,
+    ``pack_label(lat, lon)`` the pack outline under the cursor (or None)."""
 
-    def __init__(self, label, engine, built, parent=None):
+    def __init__(self, label, engine, built, parent=None,
+                 pack_label=lambda _lat, _lon: None):
         super().__init__(parent)
         self._label, self._engine, self._built = label, engine, built
+        self._pack_label = pack_label
+        self._pack = None
         self._at = None
         self._gen = 0
         self._tries = 0
@@ -42,7 +55,8 @@ class CursorReadout(QObject):
         self._at = (lat, lon)
         self._gen += 1
         self._tries = 0
-        self._label.setText(node_lat_lon(lat, lon))
+        self._pack = self._pack_label(lat, lon)
+        self._label.setText(readout_text(lat, lon, pack=self._pack))
         if self._engine is not None and self._engine.has("cursor_elevation"):
             self._timer.start(REST_MS)
 
@@ -55,9 +69,7 @@ class CursorReadout(QObject):
         def answered(reply, error):
             if gen != self._gen or error is not None:
                 return
-            suffix = elevation_text(reply)
-            base = node_lat_lon(lat, lon)
-            self._label.setText(base if suffix is None else "%s · %s" % (base, suffix))
+            self._label.setText(readout_text(lat, lon, elevation_text(reply), self._pack))
             self._tries += 1
             if reply.get("pending") and self._tries < 20:
                 self._timer.start(PENDING_MS)

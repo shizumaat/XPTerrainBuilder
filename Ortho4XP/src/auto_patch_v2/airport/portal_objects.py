@@ -103,7 +103,7 @@ def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
         return "no roof: no near-horizontal solid face above its zero"
     binned = np.floor(ymax[up] / ob.plate_bin_m).astype(int)
     bins: dict[int, float] = {}
-    for k, a in zip(binned.tolist(), area[up].tolist()):
+    for k, a in zip(binned.tolist(), area[up].tolist(), strict=True):
         bins[k] = bins.get(k, 0.0) + a
     roofs = [k for k, a in bins.items() if a >= ob.plate_min_area_m2]
     if not roofs:

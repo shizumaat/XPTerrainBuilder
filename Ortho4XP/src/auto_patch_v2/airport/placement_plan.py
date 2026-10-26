@@ -937,8 +937,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
         # pack deck body over the pack's own cut sits flush with what it
         # carries (``cut_deck_seat``)
-        def _cut_decks(r, mm, _u=u):
-            if airside is not None or not _cuts:
+        def _cut_decks(r, mm, _u=u, _air=airside):
+            if _air is not None or not _cuts:
                 return r
             return _cds.seat_cut_decks(r, mm, getattr(mm, "origin", None) or tuple(_u.anchor),
                                        surface, _cuts, abutment_step_m,

@@ -29,7 +29,8 @@ struct TileImageryTests {
 
     @Test func resolverMatchesTheEngine() throws {
         for case let entry as [String: Any] in try fixture()["resolve"] as? [Any] ?? [] {
-            let info = try #require(O4TileInfo(json: O4JSON.from(try #require(entry["info"]))))
+            let raw = try #require(entry["info"])
+            let info = try #require(O4TileInfo(json: O4JSON.from(raw)))
             let found = TileImageryChoice.resolve(info)
             if let expect = entry["expect"] as? [Any], expect.count == 3 {
                 let source = try #require(TileImageryChoice.Source(rawValue: expect[2] as? String ?? ""))

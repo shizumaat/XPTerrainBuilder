@@ -40,6 +40,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPixmap,
+    QShortcut,
     QTextCursor,
 )
 from PySide6.QtWidgets import (
@@ -83,6 +84,7 @@ import O4_Airport_Index as APT
 import O4_Airport_Batch as APTBATCH
 import O4_Airport_Rank as RANK
 import O4_Airport_Search as SEARCH
+import O4_Coordinate_Query as COORDQ
 import O4_Map_Guidance as GUIDE
 import O4_Text_Scale as TEXTSCALE
 import O4_Flight_Plan as FLIGHTPLAN
@@ -976,15 +978,21 @@ class MainWindow(QMainWindow):
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText(
-            "Airport code or name, or tile like +48-006"
+            "Airport, tile like +48-006, or lat, lon"
         )
         self.search_edit.setToolTip(
             "Several airport codes (KCLT, KASE OTHH) select all their "
-            "tiles at once"
+            "tiles at once; a latitude and longitude (49.0127, 2.5582 or "
+            "49\u00b000'45.6\"N 2\u00b033'29.4\"E) centres the map there"
         )
         self.search_edit.setFixedWidth(320)
         self.search_edit.textEdited.connect(self._update_search_popup)
         self.search_edit.returnPressed.connect(self._search_accept_first)
+        # Esc empties the field and takes the coordinate reticle away
+        # (#1317), as the Mac search field's Esc does.
+        escape = QShortcut(QKeySequence(Qt.Key_Escape), self.search_edit)
+        escape.setContext(Qt.WidgetShortcut)
+        escape.activated.connect(self._search_escape)
         toolbar.addWidget(self.search_edit)
         self.search_popup = QListWidget(self)
         self.search_popup.setWindowFlags(Qt.ToolTip)
@@ -1858,14 +1866,21 @@ class MainWindow(QMainWindow):
 
     def _update_search_popup(self, text):
         self.search_popup.clear()
+        if not text.strip():
+            self._search_reticle().set_point(None)
         text = text.strip()
         if len(text) < 2:
             self.search_popup.hide()
             return
-        coord = APT.parse_coordinate_query(text)
+        # A tile key wins, then a typed point (O4_Coordinate_Query, the
+        # rule the Mac field shares, #1317).
+        coord = COORDQ.classify(text)
         if coord:
-            item = QListWidgetItem("Go to tile %+03d%+04d" % coord)
-            item.setData(Qt.UserRole, ("tile", coord))
+            (kind, target) = coord
+            item = QListWidgetItem(
+                "Go to tile %+03d%+04d" % target if kind == "tile"
+                else "Go to %.5f, %.5f" % target)
+            item.setData(Qt.UserRole, coord)
             self.search_popup.addItem(item)
         batch = None if coord else self._airport_batch(text)
         if batch is not None:
@@ -1908,11 +1923,12 @@ class MainWindow(QMainWindow):
 
     def _search_accept_first(self):
         text = self.search_edit.text()
-        if not APT.parse_coordinate_query(text):
+        if not COORDQ.classify(text):
             batch = self._airport_batch(text)
             if batch is not None:
                 # Return selects the batch whether or not the popup is up.
                 self.search_popup.hide()
+                self._search_reticle().set_point(None)
                 self._select_airport_batch(batch)
                 return
         if self.search_popup.count():
@@ -1923,6 +1939,13 @@ class MainWindow(QMainWindow):
         if kind == "none":
             return  # the no-match row: nothing to select
         self.search_popup.hide()
+        self._search_reticle().set_point(None)
+        if kind == "point":
+            # Centre at ZL 19 under the reticle; the text stays, so Esc
+            # clears both.
+            self.map.center_on_point(*target, zoom=COORDQ.ZOOM_LEVEL)
+            self._search_reticle().set_point(target)
+            return
         if kind == "batch":
             self._select_airport_batch(target)
             return
@@ -1941,6 +1964,22 @@ class MainWindow(QMainWindow):
         self.search_edit.clear()
         self.map.center_on_tile(lat, lon, zoom=8)
         self.map.set_active(lat, lon)
+
+    def _search_reticle(self):
+        """The coordinate-search reticle layer, installed on first use."""
+        import O4_Qt_Reticle as QTRETICLE
+
+        if getattr(self, "_reticle_layer", None) is None:
+            self._reticle_layer = QTRETICLE.ReticleLayer(self.map)
+            self.map.add_layer(self._reticle_layer)
+        return self._reticle_layer
+
+    def _search_escape(self):
+        """Esc in the search field: empty it, close the list, and take the
+        reticle away (#1317)."""
+        self.search_edit.clear()
+        self.search_popup.hide()
+        self._search_reticle().set_point(None)
 
     def _airport_search(self):
         """The name/code search over the loaded index, normalised once

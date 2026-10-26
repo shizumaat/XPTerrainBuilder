@@ -10,6 +10,8 @@ struct MapMainView: View {
     @AppStorage("MapSceneryFilter") private var sceneryFilterRaw = MapSceneryFilter.all.rawValue
     @EnvironmentObject var buildModel: BuildModel
     @StateObject private var searchText = ViewState("")
+    /// The point a coordinate search went to (#1317); nil = no reticle.
+    @StateObject private var searchReticle = ViewState<SearchReticle?>(nil)
     /// The codes an airport-code list did not find (#542), shown as an
     /// alert after the rest are selected; empty = no alert.
     @StateObject private var unknownCodesMessage = ViewState("")
@@ -186,10 +188,13 @@ struct MapMainView: View {
         }
         ToolbarItem(placement: .automatic) {
             ToolbarSearchField(text: searchText,
-                               placeholder: "Airport code or name, or tile like +48-006",
-                               onSubmit: performSearch)
+                               placeholder: "Airport, tile like +48-006, or lat, lon",
+                               onSubmit: performSearch,
+                               onClear: { searchReticle.value = nil })
                 .frame(width: 220)
-                .help("Several airport codes (KCLT, KASE OTHH) select all their tiles at once")
+                .help("Several airport codes (KCLT, KASE OTHH) select all their tiles at once; "
+                      + "a latitude and longitude (49.0127, 2.5582 or 49°00'45.6\"N 2°33'29.4\"E) "
+                      + "centres the map there")
         }
         // Keep the panel toggle its own control, not glued to the search
         // cluster (modern macOS groups adjacent trailing items).
@@ -209,22 +214,37 @@ struct MapMainView: View {
     // MARK: - Search
 
     /// Zoom the map to a matching airport (ICAO or name), a tile key like
-    /// "+48-006", a list of airport codes ("KCLT, KASE OTHH" — every tile
-    /// they touch), or a package.
+    /// "+48-006", a typed latitude and longitude (#1317), a list of airport
+    /// codes ("KCLT, KASE OTHH" — every tile they touch), or a package.
     private func performSearch() {
         let query = searchText.value.trimmingCharacters(in: .whitespaces).lowercased()
         guard !query.isEmpty else { return }
+        searchReticle.value = nil
 
-        // Tile-key search, like the Qt search field.
-        if let tile = TileMath.parse(searchText.value.trimmingCharacters(in: .whitespaces)) {
-            buildModel.click(lat: tile.lat, lon: tile.lon, command: false, shift: false)
+        // Tile key, then a point (CoordinateQuery, shared with the Qt field).
+        switch CoordinateQuery.parse(searchText.value) {
+        case let .tile(lat, lon)?:
+            buildModel.click(lat: lat, lon: lon, command: false, shift: false)
             var cam = controller.mapCamera.value
-            cam.centerLon = Double(tile.lon) + 0.5
-            cam.centerLat = Double(tile.lat) + 0.5
+            cam.centerLon = Double(lon) + 0.5
+            cam.centerLat = Double(lat) + 0.5
             cam.scale = max(cam.scale, 60)
             cam.clamp(in: controller.mapCanvasSize.value)
             controller.mapCamera.value = cam
             return
+        case let .point(lat, lon)?:
+            // Centre at ZL 19 under a reticle; the text stays, so Esc
+            // (or the clear button) clears both.
+            var cam = controller.mapCamera.value
+            cam.centerLon = lon
+            cam.centerLat = lat
+            cam.scale = MapCamera.pixelsPerDegree(zoomLevel: CoordinateQuery.zoomLevel)
+            cam.clamp(in: controller.mapCanvasSize.value)
+            controller.mapCamera.value = cam
+            searchReticle.value = SearchReticle(lat: lat, lon: lon)
+            return
+        case nil:
+            break
         }
 
         // A list of codes selects all their tiles; one code (or a name)
@@ -296,10 +316,10 @@ struct MapMainView: View {
         searchText.value = ""
     }
 
-    /// Text the field handles without the airport list: a tile key or a
-    /// list of codes.
+    /// Text the field handles without the airport list: a tile key, a
+    /// coordinate, or a list of codes.
     private func searchHandledElsewhere(_ text: String) -> Bool {
-        TileMath.parse(text.trimmingCharacters(in: .whitespaces)) != nil
+        CoordinateQuery.parse(text) != nil
             || AirportCodeList.resolve(text, lookup: airportCodeLookup()) != nil
     }
 
@@ -342,6 +362,9 @@ struct MapMainView: View {
                         firstMin: 300, secondMin: 180) {
             MapCanvasView(camera: controller.mapCamera,
                           canvasSize: controller.mapCanvasSize)
+                .overlay {
+                    SearchReticleOverlay(reticle: searchReticle, camera: controller.mapCamera)
+                }
                 .overlay(alignment: .top) {
                     MapHintOverlay().environmentObject(buildModel)
                 }
@@ -483,6 +506,8 @@ struct ToolbarSearchField: NSViewRepresentable {
     @ObservedObject var text: ViewState<String>
     let placeholder: String
     let onSubmit: () -> Void
+    /// The field was emptied (Esc, its clear button, or deleting the text).
+    var onClear: () -> Void = {}
 
     func makeNSView(context: Context) -> NSSearchField {
         let field = NSSearchField()
@@ -536,12 +561,15 @@ struct ToolbarSearchField: NSViewRepresentable {
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSSearchField else { return }
             parent.text.value = field.stringValue
+            if field.stringValue.isEmpty { parent.onClear() }
         }
 
         @objc func submitted(_ sender: NSSearchField) {
             parent.text.value = sender.stringValue
             if !sender.stringValue.isEmpty {
                 parent.onSubmit()
+            } else {
+                parent.onClear()
             }
         }
     }

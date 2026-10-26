@@ -679,7 +679,8 @@ def approach_ring_summary(lat, lon):
 
 def require_dem_frame(state: dict, *, allow_degraded: bool = False,
                      requested=(), inset_problem=None,
-                     ring_problem=None) -> None:
+                     ring_problem=None, inset_dir_expected: bool = True
+                     ) -> None:
     """The zero-DEM and cold-cache refusals.
 
     * NO base raster ⇒ the loader either downloads mid-measurement or hands
@@ -688,7 +689,9 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
       measured 85 m below the runway end before the mechanism was found).
     * NO cached airports layer ⇒ no smoothing masks, so the surface stays
       unsmoothed and diverges from production.
-    * NO cached insets ⇒ the base surface only, when production insets here.
+    * NO cached insets ⇒ the base surface only, when production insets here
+      (``inset_dir_expected``: not when the inset selection admits no
+      airport this build grades — §A.6, :func:`insets_expected`).
 
     AN AUTHORISED REFRESH OF THE NAMING SCOPE IS NOT A REFUSAL (measured
     2026-09-15: ``build_airport.py KDFW --tile 32 -97 --refresh-data
@@ -721,7 +724,7 @@ def require_dem_frame(state: dict, *, allow_degraded: bool = False,
             f"(production smooths at apt_smoothing_pix=8), and the build "
             f"would run an overpass QUERY to fill it.  Deliberate fetch: "
             f"--refresh-data osm_layers")
-    if not state["airport_insets"]:
+    if not state["airport_insets"] and inset_dir_expected:
         _name("dem",
             f"NO cached airport elevation insets for {state['tile_stem']} — "
             f"the build would grade against the BASE surface while "
@@ -850,7 +853,7 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
         out.append(("dem", f"Elevation_data/**/{state['tile_stem']}.hgt",
                     "the base DEM raster — the loader would DOWNLOAD it "
                     "mid-build, or hand back an all-zero surface"))
-    if not state["airport_insets"]:
+    if not state["airport_insets"] and insets_expected(state, lat, lon, icao):
         out.append(("dem",
                     f"Elevation_data/**/{state['tile_stem']}_airport_insets/",
                     "the airport elevation insets — the build would fetch "
@@ -880,6 +883,26 @@ def missing_shared_artifacts(root, lat, lon, icao=None, state=None,
     out.extend(schema_stale_osm_layers(root, lat, lon))
     out.extend(missing_pack_dsf_dumps(root, lat, lon, icao))
     return out
+
+
+def insets_expected(state, lat, lon, icao) -> bool:
+    """Does this build need an ``_airport_insets`` directory at all?
+
+    §A.6 (issue #1352): an airport outside the tile's inset selection is
+    patched on the base raster, and a tile whose selection admits none of
+    its aerodromes never gets the directory — the engine logs "nothing
+    to fetch".  Missing, it is then not a cold frame.  Asked of the
+    cached airports layer only (no layer is refused on its own); any
+    doubt answers yes, the refusal as before."""
+    try:
+        if icao:
+            return bool(IPF.inset_selection_admits(lat, lon, icao))
+        if not state["airports_layer"]:
+            return True
+        return bool(IPF.required_boxes(lat, lon, selected_only=True))
+    except Exception as exc:
+        print(f"  [harness] inset selection check skipped ({exc!r})")
+        return True
 
 
 def this_airports_inset_problem(state, lat, lon, icao):
@@ -929,6 +952,8 @@ def this_airports_inset_problem(state, lat, lon, icao):
         # in the owner's scenery_packs.ini).  The paths come from the
         # same owner config the frame check validates against; a
         # machine without one keeps today's empty-root answer.
+        if not IPF.inset_selection_admits(lat, lon, icao):
+            return None     # §A.6: patched, not inset — the base raster
         apply_xplane_install_paths_for_preflight()
         boxes = IPF.required_boxes(lat, lon, selected_only=False)
         required = next((box for key, box in boxes.items()
@@ -2839,9 +2864,11 @@ def require_refreshed_frame(root, lat, lon, requested, *, icao=None,
     """
     missing = missing_shared_artifacts(root, lat, lon, icao)
     if not refresh_only:
-        require_dem_frame(dem_cache_state(root, lat, lon),
-                          allow_degraded=allow_degraded,
-                          ring_problem=approach_ring_problem(lat, lon, icao))
+        state = dem_cache_state(root, lat, lon)
+        require_dem_frame(state, allow_degraded=allow_degraded,
+                          ring_problem=approach_ring_problem(lat, lon, icao),
+                          inset_dir_expected=insets_expected(
+                              state, lat, lon, icao))
         require_no_implicit_refresh(missing, requested)
         return
     requested = set(requested or ())
@@ -5055,7 +5082,10 @@ def main(argv=None) -> int:
             require_dem_frame(state, allow_degraded=args.allow_degraded_dem,
                               requested=requested,
                               inset_problem=inset_problem,
-                              ring_problem=ring_problem)
+                              ring_problem=ring_problem,
+                              inset_dir_expected=insets_expected(
+                                  state, lat, lon,
+                                  None if args.tile else args.icao))
         else:
             prog.note("constant-DEM oracle build: the real DEM frame is "
                       "SUBSTITUTED, so its cache warmth cannot confound "

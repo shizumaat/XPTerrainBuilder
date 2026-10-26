@@ -99,8 +99,9 @@ def test_the_key_never_reaches_a_log_line(registry, stored_key, capsys, monkeypa
 
 def test_linz_signs_in_through_the_provider_accounts(registry):
     import O4_Authenticated_Sessions as SESSIONS
+    import O4_Provider_Accounts as ACCOUNTS
 
-    definitions = SESSIONS.account_definitions()
+    definitions = ACCOUNTS.account_definitions()
     linz = [d for d in definitions if d.get("code") == "LINZ"]
     assert linz and SESSIONS.credential_kind(linz[0]) == SESSIONS.CREDENTIAL_KIND_API_KEY
     assert [s.split(" ")[0] for s in SESSIONS.setup_steps(linz[0])][:1] == ["Open"]

@@ -39,7 +39,7 @@ from .events import (
     BoundaryAirportsReady,
     AutoPatchBegin, AutoPatchFailed, AutoPatchProgress, BuildDone,
     EngineEvent, EngineHello,
-    ImageryDownloadsDone, ImagerySourceStatus,
+    ImageryDownloadsDone,
     Log,
     PackMissingArt,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
@@ -1834,10 +1834,10 @@ class EngineSession:
     @staticmethod
     def _account_definitions():
         """Every enabled provider definition that declares an account
-        (``O4_Authenticated_Sessions.account_definitions``: elevation and
+        (``O4_Provider_Accounts.account_definitions``: elevation and
         imagery providers — the same enumeration the Qt section makes)."""
-        import O4_Authenticated_Sessions as SESSIONS
-        return SESSIONS.account_definitions()
+        import O4_Provider_Accounts as ACCOUNTS
+        return ACCOUNTS.account_definitions()
 
     @classmethod
     def _definition_for_session(cls, session_name):
@@ -1853,16 +1853,6 @@ class EngineSession:
         reference_url = str(definition.get("login_url")
                             or definition.get("registration_url") or "")
         return reference_url.split("/")[2] if "://" in reference_url else ""
-
-    def imagery_source_status(self, codes=None):
-        """Start the launch-time imagery liveness check (protocol 1.15,
-        #1345): replies ``{"started": true}`` at once; one
-        ImagerySourceStatus event per source follows from a worker
-        thread (``O4_Imagery_Sources.check_status``)."""
-        import O4_Imagery_Sources as SOURCES
-        return SOURCES.check_status(
-            lambda code, status, reason: self._emit(ImagerySourceStatus(
-                code=code, status=status, reason=reason)), codes=codes)
 
     def auth_providers(self):
         """Descriptors for every provider account a front end can sign in.

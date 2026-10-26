@@ -169,6 +169,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
 
     from . import patch_commands
     from .elevation_commands import cursor_elevation
+    from .imagery_commands import start_imagery_source_status
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .mesh_commands import mesh_crop
@@ -248,7 +249,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # through one ImagerySourceStatus event per source.
         "imagery_sources": SOURCES.imagery_sources,
         "preview_tile_url": SOURCES.preview_tile_url,
-        "imagery_source_status": session.imagery_source_status,
+        "imagery_source_status": lambda codes=None: start_imagery_source_status(
+            session._emit, codes=codes),
     }
 
 

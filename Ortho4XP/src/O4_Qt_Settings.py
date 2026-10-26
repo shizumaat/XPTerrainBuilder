@@ -692,9 +692,9 @@ class _ProviderSignInSection(QWidget):
     def _all_account_definitions():
         """Every enabled definition that declares an account session
         (elevation and imagery providers, the engine's own list)."""
-        import O4_Authenticated_Sessions as SESSIONS
+        import O4_Provider_Accounts as ACCOUNTS
 
-        return SESSIONS.account_definitions()
+        return ACCOUNTS.account_definitions()
 
     @classmethod
     def _session_definitions(cls):

@@ -74,7 +74,6 @@ from PySide6.QtWidgets import (
 import O4_Glossary as GLOSSARY
 import O4_File_Names as FNAMES
 import O4_Imagery_Sources as SOURCES
-import O4_Imagery_Utils as IMG
 import O4_UI_Utils as UI
 import O4_Version
 import O4_Build_Info
@@ -2363,7 +2362,8 @@ class MainWindow(QMainWindow):
         out the sources that do not answer.  Started by the entry point
         after the window shows, never by the constructor (tests build
         windows and may not reach the network)."""
-        self._session.imagery_source_status()
+        from o4_engine.imagery_commands import start_imagery_source_status
+        start_imagery_source_status(self._session._emit)
 
     def _on_imagery_source_status(self, event):
         self._imagery_status[event.code] = (event.status, event.reason)

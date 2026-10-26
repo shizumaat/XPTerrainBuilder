@@ -580,6 +580,14 @@ class PlanarMap:
     #: sidecar publishes it as ``road_join_yield`` for the core clamp.
     road_join_yield: _t.Mapping[int, tuple[float, float]] = _dc.field(
         default_factory=dict)
+    #: OWNER RULINGS 2026-10-26b, THE TILE SEAM OUTRANKS A CIFP THRESHOLD:
+    #: vertex -> ``(CIFP value, built value, metres to the nearest seam pin,
+    #: "runway RWY end")`` for every threshold the solve released to the
+    #: seam (``constraints/threshold_seam``).  Set AFTER the solve by
+    #: ``pipeline/emit_stage.with_threshold_yield``; the sidecar publishes
+    #: it as ``threshold_seam_yield``.
+    threshold_seam_yield: _t.Mapping[int, tuple[float, float, float, str]] = _dc.field(
+        default_factory=dict)
     #: THE SHAPES (owner RULINGS 2026-09-08k, ``planar/shapes.py``): vertex
     #: id -> shape id (``NO_SHAPE`` = -1 for a vertex of no shape), face id
     #: -> shape id (a pad's majority shape), and the declared joints — the

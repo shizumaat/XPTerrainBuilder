@@ -5,9 +5,12 @@ sort an HTTP status into ok / absent / unavailable / transient so that
 only a real "nothing here" is recorded as no-coverage.
 """
 
+import re
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
 import O4_UI_Utils as UI
 
-from elevation_access.base import TransientFetchError
+from elevation_access.base import ProviderQueryError, TransientFetchError
 
 __all__ = [
     "HTTP_ABSENT_STATUSES",
@@ -22,8 +25,10 @@ __all__ = [
     "discovery_listing_items",
     "discovery_status_is_transient",
     "http_answer_outcome",
+    "raise_provider_query_error",
     "raise_transient_discovery_failure",
     "tnm_listing_items",
+    "url_without_credentials",
 ]
 
 
@@ -53,7 +58,9 @@ def discovery_status_is_transient(status_code):
     ``5xx`` (the server broke: 500, 502, 503, 504) and ``429`` (rate
     limiting says "come back later", never "no data here").  Every other
     non-2xx status -- 400, 401, 403, 404 -- is the server ANSWERING about
-    this request, so it stays a durable answer.
+    this request, so it is not transient.  Only 404 / 410 of those is a
+    durable no-coverage: :func:`discovery_json_payload` raises
+    :class:`ProviderQueryError` for the rest (#1328).
     """
     try:
         code = int(status_code)
@@ -75,6 +82,55 @@ def raise_transient_discovery_failure(description, reason):
         "- transient, NOT recorded as no-coverage.",
     )
     raise TransientFetchError("%s failed: %s" % (description, reason))
+
+
+#: Query keys whose VALUE is a secret: removed from any URL the engine
+#: prints or records.
+_SECRET_QUERY_KEY = re.compile(
+    r"(?i)(key|token|secret|password|passwd|signature|sig|auth|"
+    r"credential|session)")
+
+
+def url_without_credentials(url):
+    """``url`` fit to print: no ``user:password@``, no secret query value.
+
+    A key that names a secret (``apikey``, ``access_token``, ``X-Amz-
+    Signature`` ...) keeps its name with the value ``<redacted>``; every
+    other parameter is kept, because the query IS the diagnosis.
+    Anything unparseable comes back as ``<url>``.
+    """
+    try:
+        parts = urlsplit(str(url or ""))
+        netloc = parts.netloc.rsplit("@", 1)[-1]
+        query = urlencode(
+            [(key, "<redacted>" if _SECRET_QUERY_KEY.search(key) else value)
+             for (key, value) in parse_qsl(parts.query,
+                                           keep_blank_values=True)],
+            safe=":,<>")
+        return urlunsplit(parts._replace(netloc=netloc, query=query))
+    except Exception:
+        return "<url>"
+
+
+def raise_provider_query_error(description, status, url):
+    """WARN loudly and raise :class:`ProviderQueryError` (#1328).
+
+    Never returns.  The server refused THIS query (a 4xx that is not
+    404 / 410): the line names the status and the query, credentials
+    removed, so a broken provider definition is visible in the log
+    instead of hiding as "no coverage here".
+    """
+    shown = url_without_credentials(url) if url else "(no URL)"
+    UI.vprint(
+        1,
+        "   WARNING: " + str(description) + " was REFUSED by the provider:",
+        "HTTP %d for %s" % (status, shown),
+        "- a provider query error, NOT recorded as no-coverage (it will "
+        "be asked again).",
+    )
+    raise ProviderQueryError(
+        "%s refused: HTTP %d (provider query error)" % (description, status),
+        status=status, url=shown)
 
 
 # =====================================================================
@@ -174,8 +230,13 @@ def discovery_json_payload(response, description):
       items in it amount to coverage; an EMPTY catalog is a durable
       answer).
     * 5xx / 429            -> :class:`TransientFetchError`.
-    * any other non-2xx    -> ``None`` with a WARN (durable: the server
-      answered about this request).
+    * 404 / 410            -> ``None`` with a WARN (durable: the server
+      answered that the thing asked for is not there).
+    * any other 4xx        -> :class:`ProviderQueryError` (#1328): the
+      server refused the QUERY -- FRANCE50CM's WFS answered 400 at LFPG
+      and LFSB and was recorded as "no lidar here" for good.  A refused
+      query says nothing about coverage.
+    * any other non-2xx    -> ``None`` with a WARN, as before.
     * 2xx + non-JSON body  -> :class:`TransientFetchError`.  An error page
       served with a 200 is an outage artefact (proxies, captive portals,
       maintenance pages), never a catalog answer -- and treating it as
@@ -191,6 +252,9 @@ def discovery_json_payload(response, description):
             raise_transient_discovery_failure(
                 description, "status %d" % status
             )
+        if 400 <= status < 500 and status not in HTTP_ABSENT_STATUSES:
+            raise_provider_query_error(
+                description, status, getattr(response, "url", ""))
         UI.vprint(
             1,
             "   WARNING: " + str(description) + " returned status",
@@ -288,7 +352,8 @@ def tnm_listing_items(url, description, timeout=30):
     more exist; a page that adds nothing while more are claimed, or a
     listing beyond :data:`TNM_LISTING_MAX_PAGES`, is TRANSIENT (a
     truncated listing is never a coverage answer -- the SQ3 law).
-    Returns ``None`` for a durable 4xx answer (``discovery_json_payload``).
+    Returns ``None`` for a durable 404 / 410 answer
+    (``discovery_json_payload``).
     """
     import requests
 

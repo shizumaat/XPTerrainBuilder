@@ -60,6 +60,20 @@ grade 104.5 m beyond the plateau's edge given a 7.5 m trench and a 168 m
 ramp back up).  Where the profile REACHES GRADE before the mouth stands
 clear of the pavement, the road surfaces under that pavement: no open
 ramp stands beyond it and none is built — the DEM carries the road.
+
+A SLID MOUTH STAYS ON ITS ROAD (#1028 "the ramp follows the road", issue
+#1337).  Where the approach walk found no way on, ``structure_approach.
+approach`` continues it as a straight line, and the slide may carry the
+mouth along that line past the mapped road's end.  The road's end is read
+on the MAPPED approach, from the portal (:func:`road_end_after_slide`):
+a mouth that had to slide beyond it to stand clear of the pavement stands
+on no road at all, the road surfaces under the pavement, and nothing is
+built.  Before this the road's end was read from the slid mouth — already
+off the road, so it found none and the ramp ran its full length on the
+extension.  Measured NZWN: ``-2756`` (a 13 m covered forecourt lane) meets
+the at-grade ``-2745`` 6 m out; its mouths slid 42.5 / 48 m out of
+``dsf:pol2`` onto the extensions and cut 144 / 84 m ramps 7.2 m deep
+where the owner reads no tunnel.
 """
 from __future__ import annotations
 
@@ -76,7 +90,7 @@ from ..law.tables import is_structure_role, is_value_role, role_family, role_sid
 from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
-           "portal_note", "PORTAL_YIELDS"]
+           "road_end_after_slide", "portal_note", "PORTAL_YIELDS"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
 _SLIDE_PASSES = 4
@@ -400,6 +414,31 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         f"portal (#971; the stretch between is covered bore"
         + ("" if floor is None else f", climbing on the road's own profile to floor {floor:.2f} "
            f"at the mouth, #1028") + ")"), floor
+
+
+def road_end_after_slide(portal_axis: LineString, axis: LineString, index, reach: float,
+                         step: float) -> tuple[float | None, str]:
+    """``(road_end, refusal)`` for a mapped bore's corridor whose mouth may
+    have slid (module doc, "a slid mouth stays on its road"): the station
+    along ``axis`` (the slid axis, :func:`mouth_at_pavement`'s) where the
+    corridor leaves the mapped road, read by ``structure_approach.
+    road_end_m`` on ``portal_axis`` (the approach from the MAPPED portal)
+    and moved by the slide; ``None`` where the road never ends (or no road
+    is followed).  ``refusal`` is non-empty when the mouth slid past the
+    road's end — past ``end + step``, the station the run end allows
+    (``road_end_m`` reads the road every ``step``; the caller's run ends one
+    ``step`` past it).  An unslid mouth reads exactly ``road_end_m(axis, ...)``."""
+    from .structure_approach import road_end_m
+    end = road_end_m(portal_axis, index, reach, step)
+    slide = portal_axis.length - axis.length
+    if end is None or slide <= 0.0:
+        return end, ""
+    if end + step > slide:
+        return end - slide, ""
+    return None, (f"its mouth slid {slide:.1f} m out along the approach, past the mapped "
+                  f"road's end (the axis leaves it within {end + step:.0f} m of the portal): "
+                  f"no open ramp stands on a road that is not there (#1028 the ramp follows "
+                  f"the road; #1337)")
 
 
 #: the note's prefix when a portal's opening meets a taxiway (clause 1)

@@ -272,6 +272,11 @@ final class BuildModel: ObservableObject {
     /// the map's settings badge. The engine owns the comparison
     /// (`tile_customizations`, O4_Tile_Customizations.py).
     @Published private(set) var customizedTiles: Set<TileCoord> = []
+    /// Tiles with a custom patch, and its file names (#1229, RULINGS
+    /// 2026-10-26c) — the map's orange band and the tile pane's "Custom
+    /// patch" row. The engine owns the rule (`custom_patches`,
+    /// O4_Custom_Patches.py).
+    @Published private(set) var customPatchTiles: [TileCoord: [String]] = [:]
     @Published private(set) var isScanning = false
     @Published private(set) var scanPhase = ""
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
@@ -507,6 +512,41 @@ final class BuildModel: ObservableObject {
             }
             guard let self else { return }
             self.customizedTiles = self.customizedTiles.subtracting(scope).union(found)
+        }
+    }
+
+    /// Ask the engine again for every tile with a custom patch (#1229).
+    /// An engine without the command leaves the bands as they were.
+    func refreshCustomPatchTiles() {
+        connectIfNeeded()
+        guard let client else { return }
+        Task { [weak self] in
+            guard let reply = try? await client.customPatches() else { return }
+            var found: [TileCoord: [String]] = [:]
+            for row in reply.tiles where !row.files.isEmpty {
+                found[TileCoord(lat: row.lat, lon: row.lon)] = row.files
+            }
+            self?.customPatchTiles = found
+        }
+    }
+
+    /// "Use auto patch" in the tile pane (#1229): the engine renames the
+    /// tile's custom patches to `….disabled` — never deletes them — so the
+    /// next build auto-patches those airports.
+    func useAutoPatch(for coord: TileCoord) {
+        connectIfNeeded()
+        guard let client, !isBuilding else { return }
+        Task { [weak self] in
+            do {
+                let reply = try await client.useAutoPatch(tile: coord.key)
+                for path in reply.setAside {
+                    self?.console.append(
+                        "Tile \(coord.key): set the custom patch aside as \((path as NSString).lastPathComponent); the next build uses the auto patch.")
+                }
+            } catch {
+                self?.engineError = error.localizedDescription
+            }
+            self?.refreshCustomPatchTiles()
         }
     }
 
@@ -854,6 +894,7 @@ final class BuildModel: ObservableObject {
             }
             refreshConflictTiles()
             refreshCustomizedTiles()
+            refreshCustomPatchTiles()
         case .tileState(let lat, let lon, let state, let label, let percent, let detail):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued
@@ -1327,8 +1368,6 @@ final class BuildModel: ObservableObject {
     struct LegacyTileSettings {
         let coord: TileCoord
         let cfgURL: URL
-        /// Still the pre-per-tile generic name (Ortho4XP.cfg).
-        let usesLegacyFileName: Bool
         /// Enum values this engine doesn't define, with the replacement
         /// an update would write (current global value, else the
         /// registry default).
@@ -1339,7 +1378,7 @@ final class BuildModel: ObservableObject {
         let missingPins: [String]
 
         var isEmpty: Bool {
-            !usesLegacyFileName && foreignEnums.isEmpty
+            foreignEnums.isEmpty
                 && quotedKeys.isEmpty && missingPins.isEmpty
         }
     }
@@ -1352,23 +1391,15 @@ final class BuildModel: ObservableObject {
     }
 
     /// Inspect a built tile's cfg for legacy markers. nil = nothing to say.
+    /// Only this app's own tile config is read: an Ortho4XP config beside
+    /// it is ignored, never modernised or moved (RULINGS 2026-10-26c).
     func legacyTileSettings(for coord: TileCoord) -> LegacyTileSettings? {
         guard let info = built[coord], !info.buildDir.isEmpty else { return nil }
         let dir = URL(fileURLWithPath: info.buildDir, isDirectory: true)
-        let canonical = dir.appendingPathComponent("Ortho4XP_\(coord.key).cfg")
-        let generic = dir.appendingPathComponent("Ortho4XP.cfg")
+        let cfgURL = dir.appendingPathComponent(
+            OrthoConfigNames.tileFileName(lat: coord.lat, lon: coord.lon))
         let fm = FileManager.default
-        let usesLegacyName: Bool
-        let cfgURL: URL
-        if fm.fileExists(atPath: canonical.path) {
-            cfgURL = canonical
-            usesLegacyName = false
-        } else if fm.fileExists(atPath: generic.path) {
-            cfgURL = generic
-            usesLegacyName = true
-        } else {
-            return nil
-        }
+        guard fm.fileExists(atPath: cfgURL.path) else { return nil }
         guard let file = try? OrthoConfigFile(contentsOf: cfgURL) else { return nil }
         var quoted: [String] = []
         var foreign: [(key: String, value: String, replacement: String)] = []
@@ -1399,7 +1430,7 @@ final class BuildModel: ObservableObject {
             }
         }
         let result = LegacyTileSettings(
-            coord: coord, cfgURL: cfgURL, usesLegacyFileName: usesLegacyName,
+            coord: coord, cfgURL: cfgURL,
             foreignEnums: foreign.sorted { $0.key < $1.key },
             quotedKeys: quoted.sorted(), missingPins: missingPins.sorted())
         return result.isEmpty ? nil : result
@@ -1411,7 +1442,7 @@ final class BuildModel: ObservableObject {
     /// exactly as if the tile were newly created today. Effectively
     /// "delete the tile config", except the keys other features rely on
     /// (source adoption, the mismatch guard, the imagery audit) and the
-    /// user's zone work survive. Originals stay as .bak / .legacy.
+    /// user's zone work survive. The original stays as .bak.
     func updateLegacyTileSettings(_ legacy: LegacyTileSettings) {
         guard let source = try? OrthoConfigFile(contentsOf: legacy.cfgURL) else { return }
         let raw = source.rawValues
@@ -1421,18 +1452,10 @@ final class BuildModel: ObservableObject {
             let bare = Self.unquoteCfgValue(value.trimmingCharacters(in: .whitespaces))
             lines.append("\(key)=\(bare)")
         }
-        let file = OrthoConfigFile(lines: lines)
-        let destination = legacy.usesLegacyFileName
-            ? legacy.cfgURL.deletingLastPathComponent()
-                .appendingPathComponent("Ortho4XP_\(legacy.coord.key).cfg")
-            : legacy.cfgURL
+        var file = OrthoConfigFile(lines: lines)
+        file.stampTileConfig(appVersion: AppVersion.current)
         do {
-            try file.write(to: destination)
-            if legacy.usesLegacyFileName {
-                let backup = legacy.cfgURL.appendingPathExtension("legacy")
-                try? FileManager.default.removeItem(at: backup)
-                try? FileManager.default.moveItem(at: legacy.cfgURL, to: backup)
-            }
+            try file.write(to: legacy.cfgURL)
             console.append("Tile \(legacy.coord.key): settings reset to current defaults (imagery source, ZL and zones kept).")
             rescan()
         } catch {
@@ -1872,7 +1895,7 @@ final class BuildModel: ObservableObject {
         boundaryPrompt = nil
         if remember, let choice {
             // The app's one engine-settings write path: an app-level cfg
-            // var, so the global Ortho4XP.cfg, no tile write-through.
+            // var, so the global XPTerrainBuilder.cfg, no tile write-through.
             setConfigValue("auto_patch_boundary",
                            to: .string(Self.boundarySettingValue(choice)))
         }
@@ -2201,6 +2224,13 @@ final class BuildModel: ObservableObject {
     // MARK: - Global config
 
     func reloadGlobalConfig() {
+        // The one-time hand-over from Ortho4XP.cfg BEFORE the first read
+        // or write: the engine does the same at import, but the app reads
+        // (and seeds paths into) the global before the engine has started.
+        if let engine {
+            OrthoConfigNames.adoptGlobalConfig(
+                in: engine.globalConfigURL(dataRoot: dataRootURL).deletingLastPathComponent())
+        }
         guard let engine,
               let file = try? OrthoConfigFile(contentsOf: engine.globalConfigURL(dataRoot: dataRootURL)) else {
             globalConfigValues = [:]
@@ -2265,7 +2295,7 @@ final class BuildModel: ObservableObject {
     // MARK: - Tile-scope config (Qt blended-view semantics)
     //
     // With tiles selected on the map, tile-scope settings edit those tiles'
-    // Ortho4XP_±xx±yyy.cfg files as sparse overrides: a value equal to the
+    // XPTerrainBuilder_±xx±yyy.cfg files as sparse overrides: a value equal to the
     // global effective value REMOVES the override. With no selection they
     // edit the global defaults. App-scope settings always edit the global
     // config.
@@ -2277,9 +2307,8 @@ final class BuildModel: ObservableObject {
 
     private func tileConfigURL(_ coord: TileCoord) -> URL? {
         guard let base = tileBaseFolder else { return nil }
-        let key = TileMath.key(lat: coord.lat, lon: coord.lon)
         return base.appendingPathComponent(OrthoEngine.tileFolderName(lat: coord.lat, lon: coord.lon))
-            .appendingPathComponent("Ortho4XP_\(key).cfg")
+            .appendingPathComponent(OrthoConfigNames.tileFileName(lat: coord.lat, lon: coord.lon))
     }
 
     private func tileOverride(_ coord: TileCoord, _ name: String) -> O4Value? {
@@ -2369,7 +2398,7 @@ final class BuildModel: ObservableObject {
     }
 
     /// Engine gate for auto-patch object reseating inside installed custom
-    /// airport packs. A global Ortho4XP.cfg var (modify_custom_airports),
+    /// airport packs. A global XPTerrainBuilder.cfg var (modify_custom_airports),
     /// NOT a per-run argument: config reaches parallel worker children,
     /// and the Qt front end reads the same switch. Default matches the
     /// engine's (on).
@@ -2408,9 +2437,8 @@ final class BuildModel: ObservableObject {
             } else {
                 file.set(name, to: value)
             }
-            // STAMPED (RULINGS 2026-09-18c (2)): an unstamped tile cfg is
-            // moved aside by the engine on its next read, so an app write
-            // that did not stamp would lose the override it just made.
+            // STAMPED (RULINGS 2026-09-18c (2)): provenance, and the
+            // library's "built here" witness.
             file.stampTileConfig(appVersion: AppVersion.current)
             do {
                 try FileManager.default.createDirectory(
@@ -2426,6 +2454,7 @@ final class BuildModel: ObservableObject {
     func setConfigValue(_ name: String, to value: O4Value) {
         guard let engine else { return }
         let configURL = engine.globalConfigURL(dataRoot: dataRootURL)
+        OrthoConfigNames.adoptGlobalConfig(in: configURL.deletingLastPathComponent())
         var file = (try? OrthoConfigFile(contentsOf: configURL)) ?? OrthoConfigFile()
         file.set(name, to: value)
         do {
@@ -2437,7 +2466,7 @@ final class BuildModel: ObservableObject {
             // customization (and a different one now is): re-badge.
             refreshCustomizedTiles()
         } catch {
-            engineError = "Could not write Ortho4XP.cfg: \(error.localizedDescription)"
+            engineError = "Could not write \(configURL.lastPathComponent): \(error.localizedDescription)"
         }
     }
 

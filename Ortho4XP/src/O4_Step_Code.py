@@ -167,6 +167,7 @@ _SHARED: tuple[str, ...] = (
     "O4_Cfg_Vars",
     "O4_Coastline_Vetting",
     "O4_Code_Closure",
+    "O4_Config_Names",
     "O4_Config_Utils",
     "O4_Console_Encoding",
     "O4_Coral_Atlas",

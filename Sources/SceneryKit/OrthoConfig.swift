@@ -286,8 +286,9 @@ public struct OrthoConfigSchema: Sendable, Codable, Equatable {
 
 // MARK: - Config files
 
-/// Reads and writes the engine's key=value config files (Ortho4XP.cfg and
-/// the per-tile Ortho4XP_±xx±yyy.cfg). Writes preserve unknown keys and line
+/// Reads and writes the engine's key=value config files (XPTerrainBuilder.cfg
+/// and the per-tile XPTerrainBuilder_±xx±yyy.cfg — `OrthoConfigNames`).
+/// Writes preserve unknown keys and line
 /// order — a newer engine's options survive an older app editing the file —
 /// and keep the engine's own .bak convention.
 public struct OrthoConfigFile: Sendable {
@@ -350,13 +351,9 @@ public struct OrthoConfigFile: Sendable {
     public static let stampKey = "cfg_written_by"
 
     /// Stamp this tile config as written by *appVersion* (owner ruling
-    /// RULINGS 2026-09-18c (2)).
-    ///
-    /// The engine MOVES an UNSTAMPED tile config aside on first touch
-    /// (`O4_Settings_Model.retire_unstamped_tile_cfg`), so a tile config
-    /// the app writes without this line would be discarded on the next
-    /// read — taking the user's just-made override with it. Every app
-    /// write of a tile config therefore stamps.
+    /// RULINGS 2026-09-18c (2)). Provenance for a bug report and the
+    /// library's "built here" witness; every app write of a tile config
+    /// stamps (the engine's `O4_Settings_Model.write_tile_cfg` too).
     public mutating func stampTileConfig(appVersion: String) {
         set(Self.stampKey, to: .string(appVersion))
     }

@@ -3,7 +3,8 @@
 This module is the single source of truth about *which* Ortho4XP settings
 the new settings window exposes, how they are grouped, and how their values
 are read from / written to the flat ``key=value`` config files
-(``Ortho4XP.cfg`` and the per-tile ``Ortho4XP_+XX+YYY.cfg``).
+(``XPTerrainBuilder.cfg`` and the per-tile ``XPTerrainBuilder_+XX+YYY.cfg``;
+Ortho4XP's own files are never touched — :mod:`O4_Config_Names`).
 
 It deliberately contains **no GUI-toolkit imports**, no ``exec``/``eval``
 (``ast.literal_eval`` is used only to validate list-typed values in
@@ -25,6 +26,7 @@ import shutil
 from dataclasses import dataclass
 
 import O4_Cfg_Vars
+import O4_Config_Names as CN
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
 
@@ -390,8 +392,10 @@ def _parse_cfg(path: str, strip_quotes: bool = True) -> dict:
 
 
 def _default_global_cfg() -> str:
-    """Path to the default global config file."""
-    return FNAMES.data_path("Ortho4XP.cfg")
+    """Path to the default global config file (``XPTerrainBuilder.cfg``),
+    after the data root's one-time hand-over (:mod:`O4_Config_Names`)."""
+    CN.adopt_global_cfg()
+    return CN.global_cfg_path()
 
 
 def _write_atomic_with_backup(path: str, data: dict,
@@ -431,7 +435,7 @@ def _write_atomic_with_backup(path: str, data: dict,
 def read_global_raw(cfg_file: str | None = None) -> dict:
     """Return the raw ``{key: value}`` contents of the global config file.
 
-    :param cfg_file: path to read; defaults to the standard ``Ortho4XP.cfg``.
+    :param cfg_file: path to read; defaults to ``XPTerrainBuilder.cfg``.
     :returns: parsed dict (``{}`` when the file is missing).
     """
     if cfg_file is None:
@@ -473,28 +477,24 @@ def write_global(values: dict, cfg_file: str | None = None) -> None:
 # Tile config
 # ---------------------------------------------------------------------------
 def _tile_cfg_path(lat: int, lon: int, custom_build_dir: str) -> str:
-    """Return the path to the per-tile config file."""
-    return os.path.join(
-        FNAMES.build_dir(lat, lon, custom_build_dir),
-        "Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg",
-    )
+    """Return the path to the per-tile config file, after the tile's
+    one-time hand-over from the Ortho4XP name (:mod:`O4_Config_Names`)."""
+    build_dir = FNAMES.build_dir(lat, lon, custom_build_dir)
+    CN.adopt_tile_cfg(build_dir, lat, lon)
+    return CN.tile_cfg_path(build_dir, lat, lon)
 
 
 def read_tile_raw(lat: int, lon: int, custom_build_dir: str) -> dict | None:
     """Return the raw ``{key: value}`` contents of a tile config file.
 
-    FIRST TOUCH MOVES A PRE-1.0.352 FILE (owner RULINGS 2026-09-18c (2)):
-    an unstamped tile cfg is retired to ``*.pre352.bak`` here, exactly as
-    on the build's read path, so the settings window and the map overlay
-    see the same thing the build will — the tile inheriting everything.
-    The stamp line itself is NOT a setting and never appears in the
-    returned mapping.
+    Only this app's ``XPTerrainBuilder_+XX+YYY.cfg`` is read; an Ortho4XP
+    tile config beside it is ignored (owner RULINGS 2026-10-26c).  The
+    stamp line itself is NOT a setting and never appears in the returned
+    mapping.
 
-    :returns: parsed dict, or ``None`` when the tile config file is absent
-        (or was just retired).
+    :returns: parsed dict, or ``None`` when the tile config file is absent.
     """
     path = _tile_cfg_path(lat, lon, custom_build_dir)
-    retire_unstamped_tile_cfg(path)
     if not os.path.isfile(path):
         return None
     data = _parse_cfg(path)
@@ -592,10 +592,8 @@ def sparse_tile_values(values: dict, *, always_keep: tuple = (),
 #: writer and reader of a tile cfg goes through this module.
 CFG_STAMP_KEY = O4_Cfg_Vars.cfg_stamp_key
 
-#: Suffix of the backup an unstamped tile cfg is MOVED to.  Named for the
-#: version the rule starts at, so a user browsing the build dir can see
-#: what the file is without reading it.
-PRE_STAMP_BACKUP_SUFFIX = ".pre352.bak"
+#: Re-exported for the callers that knew it here (:mod:`O4_Config_Names`).
+PRE_STAMP_BACKUP_SUFFIX = CN.PRE_STAMP_BACKUP_SUFFIX
 
 
 def cfg_stamp_value() -> str:
@@ -605,8 +603,9 @@ def cfg_stamp_value() -> str:
     a frozen engine or an app bundle — :mod:`O4_Build_Info`), else
     ``engine-<engine version>`` for a development tree or a bare engine
     checkout, which has no app version at hand.  Only the stamp's
-    PRESENCE decides the move rule, so either form is a lawful stamp;
-    the value is provenance for a bug report.
+    PRESENCE is read (the library's "built here", the hand-over of an
+    ``Ortho4XP_`` named file this app wrote), so either form is a lawful
+    stamp; the value is provenance for a bug report.
     """
     try:
         import O4_Build_Info                      # noqa: PLC0415 — lazy
@@ -637,8 +636,8 @@ def write_tile_cfg(path: str, values: dict) -> None:
 
     Both tile-cfg writers go through here — :func:`write_tile` and
     ``O4_Config_Utils.Tile.write_to_config`` — so every tile cfg this
-    engine emits carries :data:`CFG_STAMP_KEY` and is therefore never
-    mistaken for a pre-1.0.352 file by :func:`retire_unstamped_tile_cfg`.
+    engine emits carries :data:`CFG_STAMP_KEY`: provenance for a bug
+    report and the library's "built here" witness.
     The stamp is written FIRST so the shape is obvious in a diff.
     """
     out = {CFG_STAMP_KEY: cfg_stamp_value()}
@@ -647,103 +646,6 @@ def write_tile_cfg(path: str, values: dict) -> None:
             continue
         out[key] = value
     _write_atomic_with_backup(path, out)
-
-
-def _claim_backup_path(path: str) -> str | None:
-    """Reserve an unused backup name for *path* and LINK the file to it.
-
-    Returns the claimed path, or ``None`` when *path* vanished (a
-    parallel tile worker got there first).  ``os.link`` fails rather than
-    overwrites when the name exists, so two workers racing the same cfg
-    cannot clobber each other's backup; the counter suffix walks past
-    whatever is already there.  A filesystem without hard links falls
-    back to an ``O_CREAT | O_EXCL`` copy, which is exclusive too.
-    """
-    candidate = path + PRE_STAMP_BACKUP_SUFFIX
-    index = 1
-    while True:
-        try:
-            os.link(path, candidate)
-            return candidate
-        except FileNotFoundError:
-            return None
-        except FileExistsError:
-            pass
-        except OSError:
-            try:
-                fd = os.open(candidate,
-                             os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            except FileExistsError:
-                pass
-            except FileNotFoundError:
-                return None
-            else:
-                try:
-                    with open(path, "rb") as src, os.fdopen(fd, "wb") as dst:
-                        shutil.copyfileobj(src, dst)
-                except FileNotFoundError:
-                    os.unlink(candidate)
-                    return None
-                return candidate
-        index += 1
-        candidate = path + PRE_STAMP_BACKUP_SUFFIX + "." + str(index)
-
-
-def retire_unstamped_tile_cfg(path: str) -> list[str]:
-    """MOVE a pre-1.0.352 tile cfg aside, once, on first touch.
-
-    Owner ruling RULINGS 2026-09-18c (2), verbatim: "let's just move any
-    config file created before 1.0.352, to a backup so everything going
-    forward starts with no config and global defaults, any changes then
-    write a new config file."  This supersedes the 2026-09-18a key-by-key
-    migration (the 80 %-full-dump heuristic, Q 18b-1), which is retired.
-
-    A tile cfg carrying no :data:`CFG_STAMP_KEY` line was written before
-    this rule existed.  It is MOVED to
-    ``Ortho4XP_+XX+YYY.cfg.pre352.bak`` (``.bak.2``, ``.bak.3`` … when
-    that name is taken — an existing backup is NEVER overwritten) and the
-    tile then resolves WHOLLY from the global config plus registry
-    defaults.  Nothing in the old file is carried forward.
-
-    THE ZONES GO TOO, and this is deliberate.  ``zone_list`` (and the
-    ``default_website`` / ``default_zl`` build provenance) live in the
-    same file, and the owner said ANY config file.  A user's hand-drawn
-    zones for an already-built tile are therefore not read again until
-    they redraw them — the file is beside the tile, losslessly, and can
-    be copied back by hand.  Flagged loudly rather than special-cased:
-    keeping three keys would be a key-by-key migration, which is the
-    thing the ruling retired.
-
-    SAFE UNDER THE PARALLEL TILE WORKERS: the backup name is claimed with
-    an exclusive link (never an overwrite) and the source is unlinked
-    after; a file that vanished mid-way (another worker moved it) is not
-    an error and reports nothing.  Never raises.
-
-    :returns: INFO lines for the caller to print (empty when nothing
-        happened — a stamped file, an absent file, an empty file).
-    """
-    try:
-        if not path or not os.path.isfile(path):
-            return []
-        data = _parse_cfg(path)
-        if not data:
-            return []                      # empty/comment-only: nothing to move
-        if is_stamped(data):
-            return []
-        backup = _claim_backup_path(path)
-        if backup is None:
-            return []
-        try:
-            os.unlink(path)
-        except FileNotFoundError:
-            pass
-        return ["tile config %s was written before 1.0.352 and has been "
-                "moved to %s; this tile now uses the global settings "
-                "(zones and imagery source included -- owner ruling "
-                "RULINGS 2026-09-18c (2))"
-                % (os.path.basename(path), os.path.basename(backup))]
-    except Exception:
-        return []
 
 
 def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:
@@ -774,10 +676,6 @@ def write_tile(lat: int, lon: int, custom_build_dir: str, values: dict) -> None:
         if key not in tile_vars:
             raise ValueError("%r is not a tile config var" % (key,))
     path = _tile_cfg_path(lat, lon, custom_build_dir)
-    # A pre-1.0.352 file is moved aside BEFORE its values could be read
-    # forward: the ruling's "any changes then write a new config file"
-    # means the new file starts from the global, not from the legacy one.
-    retire_unstamped_tile_cfg(path)
     file_exists = os.path.isfile(path)
     existing = _parse_cfg(path) if file_exists else {}
     global_cfg = read_global_raw()
@@ -809,13 +707,14 @@ LEGACY_KEPT_KEYS = ("default_website", "default_zl", "zone_list")
 
 def legacy_tile_settings(lat: int, lon: int,
                          custom_build_dir: str) -> dict | None:
-    """What an older or different Ortho4XP left in this tile's config.
+    """What an older version of this app left in this tile's config.
 
-    Reports only what this engine INTERPRETS rather than takes literally,
-    so a front end can offer to modernise the file:
+    Only this app's own ``XPTerrainBuilder_+XX+YYY.cfg`` is inspected: an
+    Ortho4XP config (``Ortho4XP_+XX+YYY.cfg`` or the generic
+    ``Ortho4XP.cfg``) is ignored, never modernised or moved (owner
+    RULINGS 2026-10-26c).  Reports only what this engine INTERPRETS rather
+    than takes literally, so a front end can offer to modernise the file:
 
-    ``uses_legacy_name``
-        the config is still the pre-per-tile generic ``Ortho4XP.cfg``.
     ``foreign_enums``
         ``(key, value, replacement)`` for enum values this version does
         not define; ``replacement`` is what an update would write (the
@@ -827,14 +726,8 @@ def legacy_tile_settings(lat: int, lon: int,
 
     ``None`` when there is nothing to say (or no config at all).
     """
-    build_dir = FNAMES.build_dir(lat, lon, custom_build_dir)
-    canonical = _tile_cfg_path(lat, lon, custom_build_dir)
-    generic = os.path.join(build_dir, "Ortho4XP.cfg")
-    if os.path.isfile(canonical):
-        (cfg_path, uses_legacy_name) = (canonical, False)
-    elif os.path.isfile(generic):
-        (cfg_path, uses_legacy_name) = (generic, True)
-    else:
+    cfg_path = _tile_cfg_path(lat, lon, custom_build_dir)
+    if not os.path.isfile(cfg_path):
         return None
     raw = _parse_cfg(cfg_path, strip_quotes=False)
     global_cfg = read_global_raw()
@@ -862,13 +755,12 @@ def legacy_tile_settings(lat: int, lon: int,
                 str(global_cfg.get(key, variable["default"])).strip()
             )
             foreign_enums.append((key, bare, replacement))
-    if not (uses_legacy_name or foreign_enums or quoted_keys or missing_pins):
+    if not (foreign_enums or quoted_keys or missing_pins):
         return None
     return {
         "lat": lat,
         "lon": lon,
         "cfg_path": cfg_path,
-        "uses_legacy_name": uses_legacy_name,
         "foreign_enums": sorted(foreign_enums),
         "quoted_keys": sorted(quoted_keys),
         "missing_pins": sorted(missing_pins),
@@ -881,9 +773,8 @@ def update_legacy_tile_settings(legacy: dict, custom_build_dir: str) -> str:
     Effectively "delete the tile config", except that the keys other
     features rely on (source adoption, the imagery audit, the mismatch
     guard) and the user's hand-drawn zones survive: everything else falls
-    back to the current global defaults.  The original file is kept —
-    ``*.cfg.bak`` when the canonical name is rewritten in place,
-    ``Ortho4XP.cfg.legacy`` when a generic-named config is superseded.
+    back to the current global defaults.  The original file is kept as
+    ``*.cfg.bak``.
 
     Returns the path written.  Takes the mapping
     :func:`legacy_tile_settings` returned, never a hand-built one.
@@ -894,17 +785,7 @@ def update_legacy_tile_settings(legacy: dict, custom_build_dir: str) -> str:
         key: source[key] for key in LEGACY_KEPT_KEYS if key in source
     }
     destination = _tile_cfg_path(lat, lon, custom_build_dir)
-    # STAMPED (RULINGS 2026-09-18c (2)): the modernised file is written by
-    # THIS build, so it must say so — an unstamped one would be retired to
-    # *.pre352.bak by the very next read, undoing the modernisation.
     write_tile_cfg(destination, kept)
-    if legacy.get("uses_legacy_name"):
-        backup = legacy["cfg_path"] + ".legacy"
-        try:
-            os.remove(backup)
-        except OSError:
-            pass
-        os.replace(legacy["cfg_path"], backup)
     return destination
 
 

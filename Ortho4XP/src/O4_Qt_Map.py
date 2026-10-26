@@ -73,6 +73,8 @@ BUILT_COLOR = "#4CAF6E"
 SELECTION_COLOR = "#FFD60A"
 #: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
 SETTINGS_BADGE_COLOR = "#0A84FF"
+#: The custom-patch band (#1229); MapCanvasView.customPatchBand.
+CUSTOM_PATCH_COLOR = "#FF9F0A"
 
 
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
@@ -360,6 +362,7 @@ class MapView(QGraphicsView):
         self._installed = set()      # (lat, lon)
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
         self._customized = set()     # (lat, lon) with tile settings (#1350)
+        self._custom_patched = set()  # (lat, lon) with a custom patch (#1229)
         self._selection = set()
         self._active = None
         self._progress = {}          # (lat, lon) -> (state, label, pct)
@@ -517,6 +520,17 @@ class MapView(QGraphicsView):
 
     def customized(self):
         return set(self._customized)
+
+    def set_custom_patched(self, tiles):
+        """Tiles with a custom patch (#1229): the orange band, read by the
+        window from ``O4_Custom_Patches.custom_patch_tiles``."""
+        tiles = set(tiles)
+        if tiles != self._custom_patched:
+            self._custom_patched = tiles
+            self.viewport().update()
+
+    def custom_patched(self):
+        return set(self._custom_patched)
 
     def set_default_airports(self, airports):
         """X-Plane's Global Airports marks: ``(code, lat, lon)`` rows.
@@ -1171,7 +1185,8 @@ class MapView(QGraphicsView):
         selected = tile in self._selection
         active = tile == self._active
         progress = self._progress.get(tile)
-        if not (built or selected or progress):
+        custom_patched = tile in self._custom_patched
+        if not (built or selected or progress or custom_patched):
             return
         r = self._tile_rect(*tile)
         px = r.width() * scale  # tile size on screen
@@ -1207,6 +1222,9 @@ class MapView(QGraphicsView):
             # is bigger than the tile and reads as noise on the grid.
             if tile in self._conflicts and px > 14:
                 self._draw_conflict_badge(painter, r, px, scale)
+
+        if custom_patched:
+            self._draw_custom_patch_band(painter, r, scale)
 
         if selected:
             # Selection: a focus ring.  Active: solid with a soft outer
@@ -1352,6 +1370,20 @@ class MapView(QGraphicsView):
             Qt.AlignCenter,
             "!",
         )
+
+    def _draw_custom_patch_band(self, painter, r, scale):
+        """The custom-patch band (#1229): a 4 pt orange band just inside
+        the tile's edge, so it is plain the auto patch will not run for an
+        airport of this tile (MapCanvasView.swift draws the same)."""
+        width = 4.0 / max(scale, 1e-12)
+        band = QColor(CUSTOM_PATCH_COLOR)
+        band.setAlphaF(0.85)
+        pen = QPen(band)
+        pen.setWidthF(width)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(r.adjusted(width / 2, width / 2,
+                                    -width / 2, -width / 2))
 
     def _draw_settings_badge(self, painter, r, px, scale):
         """The customized-settings dot, top-left of the tile square, sized

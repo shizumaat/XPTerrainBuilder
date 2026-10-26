@@ -1,7 +1,7 @@
 """``venv/bin/python -m auto_patch_v2 build ICAO --out DIR`` — the v2
 build: load → classify → planar → constraints → solve → emit → verify,
 counts and per-stage wall time on stdout, ``<ICAO>.report.json`` in DIR.
-Inputs default to the engine tree's mounts and its ``Ortho4XP.cfg``
+Inputs default to the engine tree's mounts and its ``XPTerrainBuilder.cfg``
 install paths exactly as ``auto_patch_v2.planar`` resolves them (M1); no
 environment reads.
 

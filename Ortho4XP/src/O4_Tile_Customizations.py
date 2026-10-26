@@ -1,6 +1,6 @@
 """Which settings a tile customizes, and what it would use otherwise (#1350).
 
-A tile is CUSTOMIZED when its tile cfg (``Ortho4XP_+XX+YYY.cfg``) carries a
+A tile is CUSTOMIZED when its tile cfg (``XPTerrainBuilder_+XX+YYY.cfg``) carries a
 setting whose value differs from what the tile would inherit: the global
 config file, else the registry default.  Both apps show this answer — the
 map badge, the tile pane's "Custom settings" section — and neither computes

@@ -18,7 +18,7 @@ import SceneryKit
 /// and grouping only: config KEYS and stored values never change with them.
 struct SettingItem: Identifiable, Equatable {
     enum Scope: Equatable {
-        /// App-wide engine setting — always edits the global Ortho4XP.cfg.
+        /// App-wide engine setting — always edits the global XPTerrainBuilder.cfg.
         case app
         /// Tile setting — edits the selected tiles' configs when tiles are
         /// selected on the map, else the global defaults (Qt semantics).

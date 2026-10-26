@@ -1109,7 +1109,7 @@ class MainWindow(QMainWindow):
         self.legacy_config_btn.setVisible(False)
         self.legacy_config_btn.setToolTip(
             "This tile's settings were written by an older version of "
-            "this app or by Ortho4XP — review and update them."
+            "this app — review and update them."
         )
         _never_widen(self.legacy_config_btn)
         ig.addRow(self.legacy_config_btn)
@@ -1136,6 +1136,29 @@ class MainWindow(QMainWindow):
         ig.addRow(CUSTOM_SETTINGS + ":", self.custom_settings_row)
         self._custom_settings_labels = []
         self._custom_settings_tile = None
+        # Custom patch (#1229, RULINGS 2026-10-26c; mac-app parity:
+        # BuildPane's "Custom patch" row): the custom patch files the
+        # build applies instead of the auto patch, and "Use auto patch",
+        # which sets them aside (never deletes them).
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        self.custom_patch_row = QWidget()
+        custom_patch_rows = QVBoxLayout(self.custom_patch_row)
+        custom_patch_rows.setContentsMargins(0, 0, 0, 0)
+        custom_patch_rows.setSpacing(2)
+        self.custom_patch_label = QLabel()
+        _wrap_and_never_widen(self.custom_patch_label)
+        custom_patch_rows.addWidget(self.custom_patch_label)
+        self.use_auto_patch_btn = QPushButton(
+            CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE)
+        self.use_auto_patch_btn.setToolTip(
+            CUSTOM_PATCHES.use_auto_patch_help())
+        self.use_auto_patch_btn.clicked.connect(self._use_auto_patch)
+        _never_widen(self.use_auto_patch_btn)
+        custom_patch_rows.addWidget(self.use_auto_patch_btn)
+        ig.addRow(CUSTOM_PATCHES.CUSTOM_PATCH_TITLE + ":",
+                  self.custom_patch_row)
+        self._custom_patch_tile = None
         # Other installed ortho/mesh packages covering this tile — one
         # row per pack, carrying that pack's DSF date for the tile.
         self.other_scenery_row = QWidget()
@@ -1157,6 +1180,7 @@ class MainWindow(QMainWindow):
         self._info_layout.setRowVisible(self.modified_airports_row, False)
         self._info_layout.setRowVisible(self.other_scenery_row, False)
         self._info_layout.setRowVisible(self.custom_settings_row, False)
+        self._info_layout.setRowVisible(self.custom_patch_row, False)
         self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
@@ -2512,6 +2536,7 @@ class MainWindow(QMainWindow):
         # a mid-scan sweep would audit tiles the swap is about to drop.
         self._refresh_conflict_tiles()
         self._refresh_customized_tiles()
+        self._refresh_custom_patch_tiles()
         # Same rule for the other-scenery survey: its exclusion list IS
         # the built set, so a partial one would draw our own tiles as
         # somebody else's coverage.
@@ -2756,6 +2781,7 @@ class MainWindow(QMainWindow):
         self._refresh_other_scenery(tile)
         self._refresh_legacy_config(tile)
         self._refresh_custom_settings(tile)
+        self._refresh_custom_patch(tile)
 
         # Reanchor probe (worker thread: one sidecar stat per pack in
         # Custom Scenery); the row stays hidden until a result for THIS
@@ -2886,7 +2912,7 @@ class MainWindow(QMainWindow):
         Gates auto_patch Phase 2 (object reseating inside installed
         packages): the in-session CFG value covers tiles built by this
         process; the cfg write covers parallel worker children, which
-        re-read Ortho4XP.cfg from disk.
+        re-read XPTerrainBuilder.cfg from disk.
         """
         import O4_Config_Utils as CFG
         import O4_Settings_Model as SM
@@ -3143,6 +3169,60 @@ class MainWindow(QMainWindow):
             self.map.set_customized(
                 badges | {tile} if rows else badges - {tile})
 
+    # ------------------------------------------------------------------
+    # Custom patches (#1229, RULINGS 2026-10-26c; mac-app parity:
+    # MapCanvasView's custom-patch band and BuildPane's "Custom patch"
+    # row).  The rule is O4_Custom_Patches'.
+    # ------------------------------------------------------------------
+    def _refresh_custom_patch_tiles(self):
+        """The map's custom-patch bands: every tile with a custom patch."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        try:
+            rows = CUSTOM_PATCHES.custom_patch_tiles()
+        except Exception:
+            rows = []
+        self.map.set_custom_patched({(r["lat"], r["lon"]) for r in rows})
+
+    def _refresh_custom_patch(self, tile):
+        """The tile pane's Custom patch row for the active tile."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        self._custom_patch_tile = tile
+        files = []
+        if tile is not None:
+            try:
+                files = CUSTOM_PATCHES.custom_patches(tile[0], tile[1])
+            except Exception:
+                files = []
+        self.custom_patch_label.setText(
+            CUSTOM_PATCHES.info_text(files) if files else "")
+        self.use_auto_patch_btn.setEnabled(not self._building)
+        self._info_layout.setRowVisible(self.custom_patch_row, bool(files))
+        if tile is not None:
+            bands = self.map.custom_patched()
+            self.map.set_custom_patched(
+                bands | {tile} if files else bands - {tile})
+
+    def _use_auto_patch(self):
+        """Use auto patch: set the active tile's custom patches aside."""
+        import O4_Custom_Patches as CUSTOM_PATCHES
+
+        tile = self._custom_patch_tile
+        if tile is None or self._building:
+            return
+        try:
+            moved = CUSTOM_PATCHES.use_auto_patch(tile[0], tile[1])
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, CUSTOM_PATCHES.USE_AUTO_PATCH_TITLE,
+                                str(exc))
+            moved = []
+        for path in moved:
+            print("Tile %s: set the custom patch aside as %s; the next "
+                  "build uses the auto patch."
+                  % (FNAMES.short_latlon(*tile), os.path.basename(path)))
+        self._refresh_custom_patch(tile)
+
     def _edit_tile_settings(self):
         """Edit settings…: Settings scoped to the active tile, showing
         only its customized settings."""
@@ -3187,7 +3267,7 @@ class MainWindow(QMainWindow):
         interpret rather than take literally."""
         lines = [
             "Tile %s's settings were written by an older version of "
-            "this app or by Ortho4XP:"
+            "this app:"
             % FNAMES.short_latlon(legacy["lat"], legacy["lon"])
         ]
         for (key, value, replacement) in legacy["foreign_enums"]:
@@ -3207,8 +3287,6 @@ class MainWindow(QMainWindow):
                 "• legacy quoted value format (%d setting%s)"
                 % (count, "" if count == 1 else "s")
             )
-        if legacy["uses_legacy_name"]:
-            lines.append("• legacy config file name (Ortho4XP.cfg)")
         lines.append(
             "Updating keeps the tile's imagery source, zoom level and "
             "zones, and resets everything else to your current global "

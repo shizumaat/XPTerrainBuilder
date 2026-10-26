@@ -8,6 +8,7 @@ import os
 
 import O4_Cfg_Module_Values as MODULE_VALUES
 import O4_Cfg_Vars as CFG
+import O4_Config_Names as CONFIG_NAMES
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
 import O4_UI_Utils as UI
@@ -44,8 +45,13 @@ _LOGGER.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 _LOGGER.addHandler(handler)
 
-global_cfg_file = FNAMES.data_path("Ortho4XP.cfg")
-global_cfg_bak_file = FNAMES.data_path("Ortho4XP.cfg.bak")
+# THIS APP'S OWN GLOBAL (owner RULINGS 2026-10-26c): XPTerrainBuilder.cfg,
+# after the data root's one-time hand-over; Ortho4XP.cfg is never read,
+# written or moved (O4_Config_Names).
+for _info in CONFIG_NAMES.adopt_global_cfg():
+    _LOGGER.info(_info)
+global_cfg_file = CONFIG_NAMES.global_cfg_path()
+global_cfg_bak_file = global_cfg_file + ".bak"
 
 
 def set_global_variables(var: str, value: str) -> None:
@@ -114,7 +120,7 @@ for var in cfg_vars:
 RETIRED_CFG_KEYS = tuple(retired_cfg_keys)
 
 ################################################################################
-# Update from Global Ortho4XP.cfg
+# Update from the global XPTerrainBuilder.cfg
 try:
     f = TEXT.open_supplied(global_cfg_file, legacy_ansi=True)
     for line in f.readlines():
@@ -233,11 +239,9 @@ class Tile:
             raise
 
     def _tile_cfg_path(self):
-        """This tile's own config file path (build dir + canonical name)."""
-        return os.path.join(
-            self.build_dir,
-            "Ortho4XP_" + FNAMES.short_latlon(self.lat, self.lon) + ".cfg",
-        )
+        """This tile's own config file path (build dir + this app's
+        ``XPTerrainBuilder_+XX+YYY.cfg``; never Ortho4XP's)."""
+        return CONFIG_NAMES.tile_cfg_path(self.build_dir, self.lat, self.lon)
 
     def read_from_config(self, config_file=None, use_global=False):
         """
@@ -245,10 +249,11 @@ class Tile:
 
         The value a tile var resolves to is, in order of precedence:
 
-        1. the tile's own config file (``Ortho4XP_+XX+YYY.cfg`` in the
-           build dir, or *config_file* when given) — only the keys it
+        1. the tile's own config file (``XPTerrainBuilder_+XX+YYY.cfg`` in
+           the build dir, or *config_file* when given) — only the keys it
            actually carries;
-        2. the global ``Ortho4XP.cfg`` — again only the keys it carries;
+        2. the global ``XPTerrainBuilder.cfg`` — again only the keys it
+           carries;
         3. whatever the instance already holds: ``__init__`` seeds every
            tile var from this module's globals, i.e. the global config
            as loaded at import PLUS any in-memory session settings a
@@ -277,17 +282,16 @@ class Tile:
         if use_global:
             layers = [global_cfg_file]
         else:
+            # THE TILE'S ONE-TIME HAND-OVER (owner RULINGS 2026-10-26c,
+            # amending 2026-09-18c), before the tile layer is read: a
+            # stamped Ortho4XP_ named cfg this app wrote takes this app's
+            # name, and an Ortho4XP cfg 09-18c moved to *.pre352.bak goes
+            # back.  An Ortho4XP tile cfg is never read for settings.
+            if not config_file:
+                for _info in CONFIG_NAMES.adopt_tile_cfg(
+                        self.build_dir, self.lat, self.lon):
+                    UI.lvprint(0, "   INFO:", _info)
             tile_cfg = config_file or self._tile_cfg_path()
-            # THE PRE-1.0.352 MOVE (owner ruling RULINGS 2026-09-18c (2)),
-            # run before the tile layer is applied so this build already
-            # resolves without it: a tile cfg written before the stamp
-            # existed carries a FROZEN copy of the whole settings frame,
-            # which then beats the global for ever.  It is MOVED to
-            # ``*.pre352.bak`` and the tile inherits everything.  (This
-            # supersedes the 2026-09-18a key-by-key migration.)
-            import O4_Settings_Model as SM
-            for _info in SM.retire_unstamped_tile_cfg(tile_cfg):
-                UI.lvprint(0, "   INFO:", _info)
             layers = [global_cfg_file, tile_cfg]
         layers = [path for path in layers if os.path.isfile(path)]
         if not layers:

@@ -107,6 +107,7 @@ else
     --exclude 'tests/' --exclude 'docs/' --exclude 'prototypes/' \
     --exclude 'tools/' --exclude 'Previews/' --exclude '.pytest_cache/' \
     --exclude 'Ortho4XP.cfg' --exclude 'Ortho4XP.cfg.bak' \
+    --exclude 'XPTerrainBuilder.cfg' --exclude 'XPTerrainBuilder.cfg.bak' \
     --exclude 'Tiles/' --exclude 'tmp/' --exclude 'OSM_data/' \
     --exclude 'Orthophotos/' --exclude 'Elevation_data/' --exclude 'Masks/' \
     --exclude 'Geotiffs/' --exclude '.DS_Store' \

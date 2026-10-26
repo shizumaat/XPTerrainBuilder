@@ -76,7 +76,7 @@ if sys.platform == "win32":                                # pragma: no cover
         allow_module_level=True)
 
 #: A BARE CHECKOUT IS NOT A BUILD TREE.  ``venv`` and ``OSM_data`` are
-#: symlinks the lane ritual mounts, and ``Ortho4XP.cfg`` is untracked and
+#: symlinks the lane ritual mounts, and ``XPTerrainBuilder.cfg`` is untracked and
 #: cloned by the ritual — a CI runner's checkout has none of the three,
 #: and the twins that exercise the real tree have nothing to exercise.
 #: They SKIP with that named cause rather than asserting against a tree
@@ -87,8 +87,9 @@ requires_lane_tree = pytest.mark.skipif(
     reason="needs a lane-provisioned tree (venv + OSM_data mounts from "
            "tools/harness/lane_worktree.sh); a bare CI checkout has none")
 requires_global_cfg = pytest.mark.skipif(
-    not (ROOT / "Ortho4XP.cfg").is_file(),
-    reason="needs this tree's own Ortho4XP.cfg — untracked in git and "
+    not ((ROOT / "XPTerrainBuilder.cfg").is_file()
+         or (ROOT / "Ortho4XP.cfg").is_file()),
+    reason="needs this tree's own XPTerrainBuilder.cfg — untracked in git and "
            "cloned by tools/harness/lane_worktree.sh; a bare CI checkout "
            "has none, so there is no engine-global frame to diverge from")
 
@@ -869,7 +870,7 @@ def test_the_canonical_tile_cfg_is_the_RITUALS_OWN_source(build_mod):
     owner app config has no per-tile keys to give)."""
     src = build_mod.canonical_tile_cfg(30, 31)
     assert src == build_mod.MAIN_ENGINE_TREE / "Tiles" / \
-        "zOrtho4XP_+30+031" / "Ortho4XP_+30+031.cfg"
+        "zOrtho4XP_+30+031" / "XPTerrainBuilder_+30+031.cfg"
     assert str(build_mod.MAIN_ENGINE_TREE).endswith("/Ortho4XP")
     assert build_mod.DATA_REPO not in src.parents, (
         "the per-tile cfg is a build INPUT from the main tree, not corpus "
@@ -886,14 +887,14 @@ def test_the_per_tile_cfg_is_PROVISIONED_when_absent(build_mod, tmp_path):
     """Byte-equal to the canonical source, with the provenance recorded."""
     source_root = tmp_path / "main"
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
-        "Ortho4XP_+30+031.cfg"
+        "XPTerrainBuilder_+30+031.cfg"
     canon.parent.mkdir(parents=True)
     canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
 
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
 
-    dest = lane / "Ortho4XP_+30+031.cfg"
+    dest = lane / "XPTerrainBuilder_+30+031.cfg"
     assert rec["action"] == "provisioned"
     assert dest.read_bytes() == canon.read_bytes(), "a BYTE copy, not a render"
     assert not dest.is_symlink(), (
@@ -919,7 +920,7 @@ def test_a_MISSING_canonical_tile_cfg_DERIVES_from_global_defaults(
     """
     source_root = tmp_path / "main"
     source_root.mkdir()
-    gcfg = source_root / "Ortho4XP.cfg"
+    gcfg = source_root / "XPTerrainBuilder.cfg"
     gcfg.write_text("mesh_zl=19\nroad_level=1\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
 
@@ -932,7 +933,7 @@ def test_a_MISSING_canonical_tile_cfg_DERIVES_from_global_defaults(
     rec = build_mod.provision_tile_cfg(30, 31, lane, _Prog(),
                                        source_root=source_root)
 
-    dest = lane / "Ortho4XP_+30+031.cfg"
+    dest = lane / "XPTerrainBuilder_+30+031.cfg"
     assert rec["action"] == "derived-from-global-defaults"
     assert dest.is_file(), "the ritual PROVISIONS one instead of refusing"
     assert rec["global_source"] == str(gcfg)
@@ -982,11 +983,11 @@ def test_a_MISSING_global_cfg_TOO_still_REFUSES(build_mod, tmp_path):
         build_mod.provision_tile_cfg(30, 31, lane,
                                      source_root=tmp_path / "empty_main")
     msg = str(exc.value)
-    assert "REFUSING" in msg and "Ortho4XP_+30+031.cfg" in msg
+    assert "REFUSING" in msg and "XPTerrainBuilder_+30+031.cfg" in msg
     assert "2026-08-12b" in msg and "2026-08-14" in msg, (
         "the refusal cites both the ruling it enforces and the one that "
         "amended it")
-    assert not (lane / "Ortho4XP_+30+031.cfg").exists(), (
+    assert not (lane / "XPTerrainBuilder_+30+031.cfg").exists(), (
         "the refusal wrote NOTHING — a defaults file left behind would be "
         "the next lane's canonical source")
 
@@ -1008,7 +1009,7 @@ def test_a_DERIVED_cfg_reads_IDENTICALLY_to_the_global_config(build_mod,
     source_root.mkdir()
     # The REAL global config this tree runs on — same file the engine
     # loaded at import, so "global defaults" means one thing here.
-    gcfg = source_root / "Ortho4XP.cfg"
+    gcfg = source_root / "XPTerrainBuilder.cfg"
     gcfg.write_bytes(Path(CFG.global_cfg_file).read_bytes())
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
@@ -1032,12 +1033,12 @@ def test_an_EXISTING_lane_tile_cfg_is_NEVER_overwritten(build_mod, tmp_path):
     replacing it would be a frame change with no log line."""
     source_root = tmp_path / "main"
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
-        "Ortho4XP_+30+031.cfg"
+        "XPTerrainBuilder_+30+031.cfg"
     canon.parent.mkdir(parents=True)
     canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane" / "zOrtho4XP_+30+031"
     lane.mkdir(parents=True)
-    mine = lane / "Ortho4XP_+30+031.cfg"
+    mine = lane / "XPTerrainBuilder_+30+031.cfg"
     mine.write_text("default_website=BI\ndefault_zl=17\n", encoding="utf-8", newline="")
 
     rec = build_mod.provision_tile_cfg(30, 31, lane, source_root=source_root)
@@ -1059,7 +1060,7 @@ def test_provisioning_INTO_the_canonical_location_copies_nothing(build_mod,
     copy a file onto itself, and it still records what it ran on."""
     source_root = tmp_path / "main"
     canon = source_root / "Tiles" / "zOrtho4XP_+30+031" / \
-        "Ortho4XP_+30+031.cfg"
+        "XPTerrainBuilder_+30+031.cfg"
     canon.parent.mkdir(parents=True)
     canon.write_text("default_website=Arc\ndefault_zl=16\n", encoding="utf-8", newline="")
     rec = build_mod.provision_tile_cfg(30, 31, canon.parent,
@@ -1217,8 +1218,8 @@ def test_the_ritual_keeps_patches_lane_local_with_its_reason():
     assert "WRITES" in src and "Patches" in src, (
         "the file must say WHY Patches is lane-local")
     files = re.search(r'^CLONE_FILES="([^"]*)"', src, re.M)
-    assert files and "Ortho4XP.cfg" in files.group(1), (
-        "Ortho4XP.cfg must be CLONED into a lane worktree: it is untracked, "
+    assert files and "XPTerrainBuilder.cfg" in files.group(1), (
+        "XPTerrainBuilder.cfg must be CLONED into a lane worktree: it is untracked, "
         "so a fresh worktree has none, and Tile.read_from_config() then "
         "falls back to constructor defaults — a surface production never "
         "builds, announced by one log line")
@@ -1284,7 +1285,8 @@ def _tiny_repo(tmp_path):
     # output; without that the ritual's own untracked audit would flag the
     # tree it just prepared, and this twin would be testing the fixture.
     (main / ".gitignore").write_text(
-        "Ortho4XP/Ortho4XP.cfg\nOrtho4XP/Patches/\nOrtho4XP/venv\n", encoding="utf-8", newline="")
+        "Ortho4XP/Ortho4XP.cfg\nOrtho4XP/XPTerrainBuilder.cfg\n"
+        "Ortho4XP/Patches/\nOrtho4XP/venv\n", encoding="utf-8", newline="")
     data = tmp_path / "data"
     for d in ("OSM_data", "Elevation_data", "Airport_mod_cache"):
         (data / d).mkdir(parents=True)

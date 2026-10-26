@@ -3920,8 +3920,9 @@ def include_patches(vector_map, tile):
         UI.vprint(
             0,
             "   %s: using the CUSTOM patch %s — the airport is not "
-            "auto-patched. Remove or rename the custom file to use the "
-            "auto patch." % (icao, ", ".join(manual) or "(custom)"),
+            "auto-patched. To use the auto patch, choose \"Use auto "
+            "patch\" in the tile info (it sets the custom file aside, "
+            "never deletes it)." % (icao, ", ".join(manual) or "(custom)"),
         )
     # Process manual patches first, then auto patches
     ordered_patch_files = manual_patches + auto_patches

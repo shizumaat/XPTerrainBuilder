@@ -504,7 +504,8 @@ def test_legacy_caches_without_recorded_box_are_reused(
                 "BOXLEGACY": INSETS.NO_COVERAGE,
                 "capabilities": {"BOXLEGACY": {
                     "engine": INSETS.engine_version(),
-                    "capabilities": []}}}}
+                    "capabilities": [],
+                    "negative_law": INSETS.NEGATIVE_LAW}}}}
         )
 
         index = INSETS.ensure_airport_insets(
@@ -5138,9 +5139,16 @@ def test_discovery_json_payload_classifies_every_shape():
     for status in (500, 503, 504, 429):
         with pytest.raises(ea_base.TransientFetchError):
             payload(_fake_response(status), "probe")
-    # 4xx other than 429 -> durable no-coverage.
-    for status in (400, 403, 404):
+    # 404 / 410 -> durable no-coverage.
+    for status in (404, 410):
         assert payload(_fake_response(status), "probe") is None
+    # Any other 4xx is a REFUSED query (#1328): a provider error, never
+    # no-coverage.
+    for status in (400, 401, 403, 405):
+        with pytest.raises(ea_base.ProviderQueryError) as raised:
+            payload(_fake_response(status), "probe")
+        assert raised.value.status == status
+        assert isinstance(raised.value, ea_base.ProviderUnavailable)
     # An error page served with a 200 is an outage artefact, not a catalog.
     with pytest.raises(ea_base.TransientFetchError):
         payload(_fake_response(200, body_is_json=False), "probe")
@@ -5641,7 +5649,8 @@ def test_a_legacy_lerc_negative_is_re_probed_exactly_once(
         record = index["NZQN"]
         assert record["LERCPROVIDER"] == INSETS.NO_COVERAGE
         assert record["capabilities"]["LERCPROVIDER"] == {
-            "engine": "1.50.1772", "capabilities": ["lerc"]}
+            "engine": "1.50.1772", "capabilities": ["lerc"],
+            "negative_law": INSETS.NEGATIVE_LAW}
         # EXACTLY ONCE: the stamp is what makes the negative verified.
         assert INSETS.unverified_capability_negatives(
             -45, 168, [_LERC_DEFINITION]) == []
@@ -5668,8 +5677,9 @@ def test_a_genuine_recorded_negative_is_never_re_probed(tmp_path, monkeypatch):
             "LERCPROVIDER": INSETS.NO_COVERAGE,
             "checked": "2026-09-13",
             "bounding_box": [168.70, -45.05, 168.79, -44.99],
-            "capabilities": {"LERCPROVIDER": {"engine": "1.50.1772",
-                                              "capabilities": ["lerc"]}},
+            "capabilities": {"LERCPROVIDER": {
+                "engine": "1.50.1772", "capabilities": ["lerc"],
+                "negative_law": INSETS.NEGATIVE_LAW}},
         }}, handle)
     calls = _capability_strategy(lambda: None)
     try:
@@ -5765,8 +5775,9 @@ def test_a_stamp_that_records_the_MISSING_capability_verifies_nothing():
     record = {
         "LERCPROVIDER": INSETS.NO_COVERAGE,
         "bounding_box": [168.70, -45.05, 168.79, -44.99],
-        "capabilities": {"LERCPROVIDER": {"engine": "1.50.1771",
-                                          "capabilities": []}},
+        "capabilities": {"LERCPROVIDER": {
+            "engine": "1.50.1771", "capabilities": [],
+            "negative_law": INSETS.NEGATIVE_LAW}},
     }
     assert INSETS.negative_is_unverified(record, "LERCPROVIDER",
                                          _LERC_DEFINITION)
@@ -5805,7 +5816,8 @@ def _write_phoenix_negative(engine=None):
               "bounding_box": [-112.05, 33.41, -111.98, 33.45]}
     if engine is not None:
         record["capabilities"] = {
-            "PLAINPROVIDER": {"engine": engine, "capabilities": []}}
+            "PLAINPROVIDER": {"engine": engine, "capabilities": [],
+                              "negative_law": INSETS.NEGATIVE_LAW}}
     index_path = FNAMES.airport_inset_index(33, -112)
     os.makedirs(os.path.dirname(index_path), exist_ok=True)
     with open(index_path, "w", encoding="utf-8", newline="") as handle:
@@ -5835,7 +5847,8 @@ def test_a_capability_free_negative_is_re_probed_once_per_version(
         # version that heard it.
         assert record["PLAINPROVIDER"] == INSETS.NO_COVERAGE
         assert record["capabilities"]["PLAINPROVIDER"] == {
-            "engine": "1.0.341", "capabilities": []}
+            "engine": "1.0.341", "capabilities": [],
+            "negative_law": INSETS.NEGATIVE_LAW}
         # EXACTLY ONCE.
         assert INSETS.version_stale_capability_free_negatives(
             33, -112, [_PLAIN_DEFINITION]) == []
@@ -5877,8 +5890,9 @@ def test_the_two_reprobe_doors_never_read_each_others_records():
                  coverage_bbox=(-180.0, -90.0, 180.0, 90.0))
     record = {"LERCPROVIDER": INSETS.NO_COVERAGE,
               "bounding_box": [168.70, -45.05, 168.79, -44.99],
-              "capabilities": {"LERCPROVIDER": {"engine": "1.50.1772",
-                                                "capabilities": ["lerc"]}}}
+              "capabilities": {"LERCPROVIDER": {
+                  "engine": "1.50.1772", "capabilities": ["lerc"],
+                  "negative_law": INSETS.NEGATIVE_LAW}}}
     assert not INSETS.negative_is_unverified(record, "LERCPROVIDER", gated)
     assert not INSETS.negative_is_version_stale(record, "LERCPROVIDER", gated)
     # And an UNSTAMPED capability-free negative is 15aq's door only.

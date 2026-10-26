@@ -1,23 +1,27 @@
 import AppKit
 import SceneryKit
 
-/// The map's tile right-click menu (#938; Qt O4_Qt_Tile_Menu). Show in
-/// Finder reveals the tile's folder (greyed out while the tile has none
-/// yet). In patch Edit mode the menu starts with Slice (#1318; Qt
-/// `PatchEditor.add_to_menu`), enabled only for two nodes of one shape that
-/// are not neighbours. The menu's items target this object, so the caller
-/// keeps it alive while the menu is open.
+/// The map's tile right-click menu (#938; Qt O4_Qt_Tile_Menu): Show in
+/// Finder, which reveals the tile's folder (greyed out while the tile has
+/// none yet), after the patch layer's copy items when there are any
+/// (#1281, `PatchCopy.swift`). In patch Edit mode the menu starts with
+/// Slice (#1318; Qt `PatchEditor.add_to_menu`), enabled only for two nodes
+/// of one shape that are not neighbours. The menu's items target this
+/// object, so the caller keeps it alive while the menu is open.
 @MainActor
 final class TileContextMenu: NSObject {
     static let revealTitle = "Show in Finder"
     static let sliceTitle = "Slice"
 
     let folder: URL?
+    let copies: [PatchCopyItem]
     let menu = NSMenu()
     private weak var patch: PatchEditModel?
 
-    init(coord: BuildModel.TileCoord, folder: URL?, patch: PatchEditModel? = nil) {
+    init(coord: BuildModel.TileCoord, folder: URL?, copies: [PatchCopyItem] = [],
+         patch: PatchEditModel? = nil) {
         self.folder = folder
+        self.copies = copies
         super.init()
         menu.autoenablesItems = false
         if let patch, patch.mode == .edit, patch.document != nil {
@@ -33,6 +37,13 @@ final class TileContextMenu: NSObject {
             menu.addItem(slice)
             menu.addItem(.separator())
         }
+        for (k, copy) in copies.enumerated() {
+            let item = NSMenuItem(title: copy.title, action: #selector(copyItem(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = k
+            menu.addItem(item)
+        }
+        if !copies.isEmpty { menu.addItem(.separator()) }
         let item = NSMenuItem(title: Self.revealTitle,
                               action: #selector(reveal), keyEquivalent: "")
         item.target = self
@@ -44,6 +55,11 @@ final class TileContextMenu: NSObject {
 
     @objc private func sliceShape() {
         patch?.sliceSelection()
+    }
+
+    @objc private func copyItem(_ sender: NSMenuItem) {
+        guard copies.indices.contains(sender.tag) else { return }
+        PatchClipboard.copy(copies[sender.tag].text)
     }
 
     @objc private func reveal() {

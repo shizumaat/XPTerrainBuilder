@@ -263,7 +263,8 @@ def _outward(poly, tol: float, cap: int):
         q = poly.buffer(t, join_style=2).simplify(t)
         if not q.is_valid:
             q = q.buffer(0)
-        if not q.is_empty and q.covers(poly) and len(q.exterior.coords) <= cap + 1:
+        if (not q.is_empty and q.geom_type == "Polygon" and q.covers(poly)
+                and len(q.exterior.coords) <= cap + 1):
             return q
         t *= 2.0
     return shapely.convex_hull(poly)

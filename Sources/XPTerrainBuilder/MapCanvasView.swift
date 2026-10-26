@@ -51,6 +51,8 @@ struct MapCanvasView: View {
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
+    /// The customized-settings dot (#1350); Qt SETTINGS_BADGE_COLOR.
+    static let settingsBadge = Color(red: 0.04, green: 0.52, blue: 1.0)  // #0A84FF
 
     var body: some View {
         GeometryReader { proxy in
@@ -74,6 +76,8 @@ struct MapCanvasView: View {
                     let coord = BuildModel.TileCoord(lat: Int(floor(point.lat)),
                                                      lon: Int(floor(point.lon)))
                     return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
+                                           copies: buildModel.patchEdit.copyItems(at: location, camera: camera.value,
+                                                                                  size: proxy.size),
                                            patch: buildModel.patchEdit)
                 }
             ))
@@ -324,13 +328,23 @@ struct MapCanvasView: View {
         }
 
         /// One tile. The canvas is mercator like the imagery, so a tile
-        /// maps to exactly one screen rect — no strip warping.
-        func drawTile(_ cg: CGImage, x: Int, y: Int, alpha: CGFloat) {
+        /// maps to exactly one screen rect — no strip warping. Past the
+        /// source's ceiling `cg` is the tile's ancestor (#1315): drawn over
+        /// its own rect and clipped to the tile, which shows exactly the
+        /// ancestor's sub-square, scaled up.
+        func drawTile(_ cg: CGImage, x: Int, wrapped: Int, y: Int, alpha: CGFloat,
+                      ancestor anc: MapOverzoom.Ancestor) {
             let dest = tileRect(z, x, y)
             guard dest.width > 0.1, dest.height > 0.1 else { return }
             var layer = context
             layer.opacity = alpha
-            layer.draw(Image(decorative: cg, scale: 1), in: dest)
+            guard anc.z < z else {
+                layer.draw(Image(decorative: cg, scale: 1), in: dest)
+                return
+            }
+            let shift = (x - wrapped) / (1 << (z - anc.z))
+            layer.clip(to: Path(dest))
+            layer.draw(Image(decorative: cg, scale: 1), in: tileRect(anc.z, anc.x + shift, anc.y))
         }
 
         // Outgoing source, drawn from cache beneath the incoming one while
@@ -339,8 +353,10 @@ struct MapCanvasView: View {
             for y in yMin...yMax {
                 for x in xMin...xMax {
                     let wrapped = ((x % n) + n) % n
-                    if let cg = imagery.cachedImage(previous: true, z: z, x: wrapped, y: y) {
-                        drawTile(cg, x: x, y: y, alpha: 1)
+                    if let hit = imagery.cachedDisplayImage(previous: true, z: z,
+                                                            x: wrapped, y: y) {
+                        drawTile(hit.image, x: x, wrapped: wrapped, y: y, alpha: 1,
+                                 ancestor: hit.ancestor)
                     }
                 }
             }
@@ -349,13 +365,13 @@ struct MapCanvasView: View {
         for y in yMin...yMax {
             for x in xMin...xMax {
                 let wrapped = ((x % n) + n) % n
-                if let (cg, alpha) = imagery.image(z: z, x: wrapped, y: y) {
+                if let (cg, alpha, anc) = imagery.displayImage(z: z, x: wrapped, y: y) {
                     // Blur-up stand-in beneath a tile still fading in.
                     if alpha < 1 {
                         drawAncestor(x: x, wrapped: wrapped, y: y, z: z,
                                      n: n, tileRect: tileRect)
                     }
-                    drawTile(cg, x: x, y: y, alpha: alpha)
+                    drawTile(cg, x: x, wrapped: wrapped, y: y, alpha: alpha, ancestor: anc)
                 } else {
                     // Not loaded yet: show the nearest cached lower zoom,
                     // upscaled — soft blur instead of a hard empty square.
@@ -437,8 +453,22 @@ struct MapCanvasView: View {
             }
         }
 
+        // Customized settings (#1350): a blue dot in the top-left corner
+        // of a built or selected tile, sized in screen points (8-14) like
+        // the warning triangle (Qt: O4_Qt_Map._draw_settings_badge).
+        for coord in buildModel.customizedTiles
+        where visible(coord) && (buildModel.built[coord] != nil || buildModel.selected.contains(coord)) {
+            let r = rect(coord)
+            guard r.width > 14 else { continue }
+            let d = min(max(r.width * 0.11, 8), 14)
+            let dot = Path(ellipseIn: CGRect(x: r.minX + d / 2, y: r.minY + d / 2,
+                                             width: d, height: d))
+            context.fill(dot, with: .color(Self.settingsBadge))
+            context.stroke(dot, with: .color(.white), lineWidth: 1.5)
+        }
+
         // Progress badges: rings at tile centers during a run.
-        for (coord, progress) in buildActivity.tiles where visible(coord) {
+        for (coord, progress) in buildActivity.badges where visible(coord) {
             drawBadge(context: context, rect: rect(coord), progress: progress)
         }
     }
@@ -629,19 +659,19 @@ struct MapCanvasView: View {
 
     /// Bottom-right badge: the tile zoom level the current view equates to,
     /// so what's on screen correlates with the Build ZL setting. Flags when
-    /// the view has out-zoomed the imagery source's ceiling (image upscales
-    /// and blurs past that point).
+    /// the view has out-zoomed the imagery source's ceiling, with the
+    /// overzoom factor (#1315; `MapOverzoom.badgeText`, the Qt badge's text).
     private var zoomChip: some View {
-        let viewZL = max(2, Int(ceil(log2(camera.value.scale * 360 / 256))))
+        let viewZL = max(2, Int(ceil(log2(camera.value.scale * 360 / 256) - 1e-6)))
         let sourceMax = imagery.hasActiveSource ? imagery.activeMaxZL : nil
         let atLimit = sourceMax.map { viewZL > $0 } ?? false
         return HStack(spacing: 5) {
-            Text("ZL \(viewZL)")
-                .fontWeight(.semibold)
-            if let sourceMax, atLimit {
+            if atLimit {
                 Image(systemName: "eye.trianglebadge.exclamationmark")
-                Text("\(imagery.activeLabel ?? "source") max ZL \(sourceMax)")
             }
+            Text(MapOverzoom.badgeText(viewZL: viewZL, source: imagery.activeLabel,
+                                       maxZL: sourceMax))
+                .fontWeight(.semibold)
         }
         .font(.caption.monospacedDigit())
         .foregroundStyle(atLimit ? Color.orange : Color.secondary)
@@ -650,7 +680,7 @@ struct MapCanvasView: View {
         .background(.ultraThinMaterial, in: Capsule())
         .padding(8)
         .help(atLimit
-              ? "The view is zoomed past the imagery source's finest zoom level — tiles are upscaled and blurry. Builds at higher ZLs would upscale the same data."
+              ? "The view is zoomed past the imagery source's finest zoom level — its finest tiles are scaled up (overzoom), so they look soft. Builds at higher ZLs would upscale the same data."
               : "The imagery zoom level matching the current view — compare with the Detail setting (ZL) in the Build pane.")
     }
 

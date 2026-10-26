@@ -559,3 +559,73 @@ def test_the_mac_app_names_slice_the_same():
     swift = (Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
              / "TileContextMenu.swift").read_text(encoding="utf-8")
     assert re.search(r'static let sliceTitle = "([^"]*)"', swift).group(1) == SLICE_TITLE
+
+
+# ─── copying for issue reports (#1281) ──────────────────────────────────────
+
+def _right_click(view, pos):
+    for kind, buttons in ((QEvent.MouseButtonPress, Qt.RightButton),
+                          (QEvent.MouseButtonRelease, Qt.NoButton)):
+        ev = QMouseEvent(kind, pos, view.viewport().mapToGlobal(pos.toPoint()),
+                         Qt.RightButton, buttons, Qt.NoModifier)
+        (view.mousePressEvent if kind == QEvent.MouseButtonPress else view.mouseReleaseEvent)(ev)
+
+
+def test_right_click_a_node_copies_its_coordinates_in_view_and_edit_mode(editor, qapp):
+    import O4_Qt_Tile_Menu as QTTILEMENU
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    menus = []
+
+    def tile_menu(lat, lon, global_pos):           # the window's _tile_menu, without exec
+        menu = QTTILEMENU.tile_menu(None, lat, lon, "")
+        pos = view.viewport().mapFromGlobal(global_pos)
+        ed.add_copy_actions(menu, pos.x(), pos.y())
+        menus.append(menu)
+    view.tile_menu_requested.connect(tile_menu)
+    for mode in ("View", "Edit"):
+        ed.model.set_mode(mode)
+        QApplication.clipboard().setText("")
+        _right_click(view, _screen(ed, -1))
+        titles = [a.text() for a in menus[-1].actions() if not a.isSeparator()]
+        assert titles[0] == "Copy coordinates" and len(titles) == 2   # then the tile's folder item
+        menus[-1].actions()[0].trigger()
+        assert QApplication.clipboard().text() == "30.100000000, 31.400000000"
+    # empty map: only the tile's item
+    _right_click(view, _screen(ed, -1) + QPointF(200, 200))
+    assert [a.text() for a in menus[-1].actions()] == [menus[0].actions()[-1].text()]
+
+
+def test_copy_shape_reference_from_the_menu_and_the_inspector(editor, qapp):
+    import O4_Qt_Patch_Reference as REFERENCE
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    ed.model.select_shapes({-10})
+    text = ed.panel.shape_reference(-10)
+    import O4_Version
+    assert text.splitlines()[1:6] == [
+        "Tile: +30+031", "Airport: ZZZZ", "Patch file: ZZZZ_auto.patch.osm",
+        "Engine: %s" % O4_Version.version, "Way: -10"]
+    assert "role: apron" in text and "Vertices: 4" in text
+    assert "Elevation: 100.12 – 103.00 m" in text
+    far = _screen(ed, -1) + QPointF(200, 200)
+    assert ed.copy_items(far.x(), far.y()) == [(REFERENCE.COPY_SHAPE_REFERENCE, text)]
+    assert not ed.panel.copy_shape.isHidden()
+    QApplication.clipboard().setText("")
+    ed.panel.copy_shape.click()
+    assert QApplication.clipboard().text() == text and not ed.panel.shape_copied.isHidden()
+
+
+def test_a_click_on_the_node_coordinates_copies_them(editor, qapp):
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    ed.model.set_selection({-2})
+    QApplication.clipboard().setText("")
+    ed.panel.lat_value.clicked.emit()
+    assert QApplication.clipboard().text() == "30.100000000, 31.401000000"
+    assert ed.panel.node_count_note.text() == "Copied"

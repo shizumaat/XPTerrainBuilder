@@ -1,0 +1,22 @@
+{
+ "max_view_zl": 24,
+ "ancestor": [
+  {"z": 19, "x": 1000, "y": 2000, "max_z": 21, "ancestor": [19, 1000, 2000], "sub": [0.0, 0.0, 1.0]},
+  {"z": 21, "x": 1000, "y": 2000, "max_z": 19, "ancestor": [19, 250, 500], "sub": [0.0, 0.0, 0.25]},
+  {"z": 22, "x": 300001, "y": 700003, "max_z": 19, "ancestor": [19, 37500, 87500], "sub": [0.125, 0.375, 0.125]},
+  {"z": 20, "x": 5, "y": 7, "max_z": 20, "ancestor": [20, 5, 7], "sub": [0.0, 0.0, 1.0]},
+  {"z": 3, "x": 0, "y": 7, "max_z": 3, "ancestor": [3, 0, 7], "sub": [0.0, 0.0, 1.0]},
+  {"z": 24, "x": 16777215, "y": 0, "max_z": 18, "ancestor": [18, 262143, 0], "sub": [0.984375, 0.0, 0.015625]},
+  {"z": 23, "x": 123457, "y": 654321, "max_z": 22, "ancestor": [22, 61728, 327160], "sub": [0.5, 0.5, 0.5]},
+  {"z": 19, "x": 99, "y": 98, "max_z": 0, "ancestor": [0, 0, 0], "sub": [0.0001888275146484375, 0.000186920166015625, 1.9073486328125e-06]}
+ ],
+ "badge": [
+  {"view_zl": 17, "source": "BI", "max_zl": 19, "factor": 1, "text": "ZL 17"},
+  {"view_zl": 19, "source": "BI", "max_zl": 19, "factor": 1, "text": "ZL 19"},
+  {"view_zl": 20, "source": "BI", "max_zl": 19, "factor": 2, "text": "ZL 20 · overzoom ×2 (BI max ZL 19)"},
+  {"view_zl": 22, "source": "BI", "max_zl": 19, "factor": 8, "text": "ZL 22 · overzoom ×8 (BI max ZL 19)"},
+  {"view_zl": 24, "source": "GO2", "max_zl": 21, "factor": 8, "text": "ZL 24 · overzoom ×8 (GO2 max ZL 21)"},
+  {"view_zl": 12, "source": null, "max_zl": null, "factor": 1, "text": "ZL 12"},
+  {"view_zl": 23, "source": null, "max_zl": 20, "factor": 8, "text": "ZL 23 · overzoom ×8 (source max ZL 20)"}
+ ]
+}

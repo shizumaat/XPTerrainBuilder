@@ -898,6 +898,13 @@ def list_airports_and_runways(dico_airports):
             [
                 x
                 for x in dico_airports
+                if dico_airports[x]["key_type"] == "synthetic"
+            ]
+        )
+        + sorted(
+            [
+                x
+                for x in dico_airports
                 if dico_airports[x]["key_type"] == "repr_node"
             ]
         )
@@ -911,7 +918,10 @@ def list_airports_and_runways(dico_airports):
             if l
             else "boundary ,"
         )
-        if dico_airports[airport]["key_type"] in ("icao", "iata", "local_ref"):
+        # Every key is a code since #1353 (apt.dat's, OSM's or the
+        # synthetic one); "name" / "repr_node" is a dictionary built
+        # without O4_Airport_Dico (an old pickle, a test double).
+        if dico_airports[airport]["key_type"] not in ("name", "repr_node"):
             UI.vprint(
                 1,
                 "  ",

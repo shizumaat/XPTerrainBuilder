@@ -362,7 +362,7 @@ def test_no_unmeasured_cause_and_the_ruled_remedies():
         "out_of_memory": "memory", "no_permission": "permissions",
         "output_folder_unwritable": "permissions", "disk_full": "disk",
         "pack_dump_stale": "retry", "pack_write_failed": "pack",
-        "airport_elevation_missing": "network", "mesh_failed": "retry"}
+        "airport_elevation_missing": "retry", "mesh_failed": "retry"}
     # the errno decides where the code can tell
     assert FAIL.code_for_exception(OSError(28, "full")) == "disk_full"
     assert FAIL.code_for_exception(OSError(13, "denied")) == "no_permission"

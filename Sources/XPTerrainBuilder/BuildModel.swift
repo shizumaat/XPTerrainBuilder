@@ -195,7 +195,12 @@ final class BuildModel: ObservableObject {
     /// The active engine is the copy shipped with the app (no custom path).
     @Published private(set) var usingBundledEngine = false
     @Published private(set) var schema: OrthoConfigSchema
-    @Published private(set) var providers: [OrthoEngine.Provider] = []
+    /// The engine's one imagery source list (`imagery_sources`, #1345):
+    /// the Build box and the map's preview picker both read it.
+    @Published private(set) var imagerySources: [O4ImagerySource] = []
+    /// Launch-time liveness per source code; absent = unknown (enabled).
+    @Published private(set) var imageryStatus: [String: O4ImageryStatus] = [:]
+    private var imageryStatusChecked = false
     @Published private(set) var missingPackages: [String]?
     @Published private(set) var globalConfigValues: [String: O4Value] = [:]
     @Published var engineError: String?
@@ -444,19 +449,16 @@ final class BuildModel: ObservableObject {
         }
         guard let located = resolved else {
             engine = nil
-            providers = []
+            imagerySources = []
             missingPackages = nil
             usesProtocol = false
-            imagery.configure(providersDir: nil, extentsDir: nil, dataRoot: dataRootURL)
+            imagery.configure(sources: [], dataRoot: dataRootURL)
             return
         }
-        imagery.configure(
-            providersDir: located.resourcesRoot.appendingPathComponent("Providers", isDirectory: true),
-            extentsDir: located.resourcesRoot.appendingPathComponent("Extents", isDirectory: true),
-            dataRoot: dataRootURL)
-        imagery.setProvider(mapPreviewProvider)
+        // Sources arrive from the engine session (loadImagerySources);
+        // until then the map keeps what it has, at the current data root.
+        imagery.configure(sources: imagerySources, dataRoot: dataRootURL)
         engine = located
-        providers = located.providers()
         usesProtocol = OrthoEngineClient.engineSupportsProtocol(located)
         reloadGlobalConfig()
         seedPathsFromXPlane()
@@ -527,9 +529,27 @@ final class BuildModel: ObservableObject {
             console.append("Engine session started (engine \(engine.version)).")
             rescan()
             refreshAirportIndex()
+            loadImagerySources()
         } catch {
             engineError = "Could not start the engine session: \(error.localizedDescription)"
             console.append("ERROR: \(engineError!)")
+        }
+    }
+
+    /// Fill both imagery menus and the map's sources from the engine's
+    /// list, then start the background liveness check (once per launch).
+    private func loadImagerySources() {
+        guard let client else { return }
+        Task { @MainActor [weak self] in
+            let sources = await client.imagerySources()
+            guard let self, self.client === client else { return }
+            self.imagerySources = sources
+            self.imagery.configure(sources: sources, dataRoot: self.dataRootURL)
+            self.imagery.setProvider(self.mapPreviewProvider)
+            if !self.imageryStatusChecked, !sources.isEmpty {
+                self.imageryStatusChecked = true
+                client.startImagerySourceStatus()
+            }
         }
     }
 
@@ -900,6 +920,8 @@ final class BuildModel: ObservableObject {
             if fatal { engineError = text }
         case .imageryDownloadsDone:
             break // the engine's scheduling signal; the tile's row moves on its own
+        case .imagerySourceStatus(let code, let status):
+            imageryStatus[code] = status
         case .unknown:
             break // additive protocol: ignore unknown event types
         }

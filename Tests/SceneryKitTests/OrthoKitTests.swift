@@ -21,15 +21,6 @@ import Foundation
         #expect(OrthoEngine.locate(at: engineRoot.appendingPathComponent("Providers")) == nil)
     }
 
-    @Test func providerEnumeration() {
-        let providers = OrthoEngine.providers(
-            inProvidersDirectory: engineRoot.appendingPathComponent("Providers"))
-        let codes = providers.map { $0.code }
-        #expect(codes == ["BI", "EUR"])  // HID hidden (in_GUI=False), OSM excluded
-        #expect(providers.first { $0.code == "EUR" }?.isCombined == true)
-        #expect(providers.first { $0.code == "BI" }?.region == "Global")
-    }
-
     @Test func tileStateScan() {
         let states = OrthoEngine.tileStates(
             inBaseFolder: engineRoot.appendingPathComponent("Tiles"))

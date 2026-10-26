@@ -88,7 +88,11 @@ from typing import Any, Optional
 # 1.14 (2026-10-24, additive, #1308): ``cursor_elevation`` answers the
 # built mesh's elevation at a point (``source`` "mesh"), else the DEM's
 # ("dem"); ``pending`` while a source loads off the read loop.
-PROTOCOL_VERSION = "1.14"
+# 1.15 (2026-10-26, additive, #1345): ``imagery_sources`` (one source
+# list for every imagery menu), ``preview_tile_url``, and
+# ``imagery_source_status``, which completes through one
+# ImagerySourceStatus event per source.
+PROTOCOL_VERSION = "1.15"
 
 
 @dataclass(frozen=True)
@@ -533,6 +537,25 @@ class PackObjectsReady(EngineEvent):
     request: Any = None
     result: Any = None
     error: str = ""
+
+
+@dataclass(frozen=True)
+class ImagerySourceStatus(EngineEvent):
+    """One imagery source's launch-time liveness (protocol 1.15, #1345):
+    the completion of ``imagery_source_status``, one event per source
+    (``O4_Imagery_Sources.check_status``).
+
+    ``status`` is ``online``, ``offline`` or ``unknown``; a front end
+    disables an ``offline`` source, shows it as "<name> (offline)" and
+    ``reason`` as its tooltip, and keeps an ``unknown`` one enabled.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    code: str = ""
+    status: str = "unknown"
+    reason: str = ""
 
 
 @dataclass(frozen=True)

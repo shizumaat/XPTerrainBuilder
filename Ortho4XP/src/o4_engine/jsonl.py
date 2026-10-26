@@ -165,6 +165,8 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # Imported here, after the hello is written: the patch commands pull in
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
+    import O4_Imagery_Sources as SOURCES
+
     from . import patch_commands
     from .elevation_commands import cursor_elevation
     from .pack_objects import start_pack_objects
@@ -240,6 +242,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # thread: an uncached source loads on a daemon thread and the
         # reply says pending.
         "cursor_elevation": cursor_elevation,
+        # Imagery sources (protocol 1.15, #1345): the one list every
+        # imagery menu reads, one preview tile's URL, and the launch-time
+        # liveness check, which replies {"started": true} and completes
+        # through one ImagerySourceStatus event per source.
+        "imagery_sources": SOURCES.imagery_sources,
+        "preview_tile_url": SOURCES.preview_tile_url,
+        "imagery_source_status": session.imagery_source_status,
     }
 
 

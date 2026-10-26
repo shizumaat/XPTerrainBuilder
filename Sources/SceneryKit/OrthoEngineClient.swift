@@ -316,6 +316,9 @@ public enum O4Event: Sendable, Equatable {
     /// the object stage, or the completion of an `omit_missing_art`
     /// command. See `O4PackMissingArt`.
     case packMissingArt(O4PackMissingArt)
+    /// One imagery source's launch-time liveness (protocol 1.15, #1345):
+    /// the completion of `imagery_source_status`, one event per source.
+    case imagerySourceStatus(code: String, status: O4ImageryStatus)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -470,6 +473,13 @@ public enum O4Event: Sendable, Equatable {
                 canOmit: bool("can_omit"),
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // Another STRING LITERAL match (see AutoPatchFailed above): it is
+        // `class ImagerySourceStatus` in Ortho4XP/src/o4_engine/events.py.
+        case "ImagerySourceStatus":
+            return .imagerySourceStatus(
+                code: string("code"),
+                status: O4ImageryStatus(status: object["status"] as? String ?? "unknown",
+                                        reason: string("reason")))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -739,6 +749,25 @@ public final class OrthoEngineClient: @unchecked Sendable {
                                     ? nil : (reply.error ?? "unknown engine error"))
             }
         }
+    }
+
+    // MARK: - Imagery sources (protocol 1.15, #1345)
+
+    /// The engine's one imagery source list, in menu order. Empty when the
+    /// engine predates the command (unknown commands reply ok=false).
+    public func imagerySources() async -> [O4ImagerySource] {
+        let result: Result<[O4ImagerySource], Error> = await withCheckedContinuation { continuation in
+            send(command: "imagery_sources") { reply in
+                continuation.resume(returning: Self.decodeReply(reply, command: "imagery_sources"))
+            }
+        }
+        return (try? result.get()) ?? []
+    }
+
+    /// Start the background liveness check: one `imagerySourceStatus`
+    /// event per source follows from engine worker threads.
+    public func startImagerySourceStatus() {
+        send(command: "imagery_source_status")
     }
 
     // MARK: - Default airport index (protocol 1.6)

@@ -73,6 +73,7 @@ from PySide6.QtWidgets import (
 
 import O4_Glossary as GLOSSARY
 import O4_File_Names as FNAMES
+import O4_Imagery_Sources as SOURCES
 import O4_Imagery_Utils as IMG
 import O4_UI_Utils as UI
 import O4_Version
@@ -87,6 +88,7 @@ import O4_Text_Scale as TEXTSCALE
 import O4_Flight_Plan as FLIGHTPLAN
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
+import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
 from o4_engine import EngineSession
 from o4_engine import events as EV
@@ -632,25 +634,15 @@ class _EngineBridge(QObject):
 
 
 def gui_provider_codes():
-    codes = sorted(
-        code
-        for code in set(IMG.providers_dict)
-        if IMG.providers_dict[code].get("in_GUI")
-    )
-    codes += sorted(set(IMG.combined_providers_dict))
-    return [c for c in codes if c not in ("SEA",)]
+    """The sources a build may download, in the engine's menu order
+    (``O4_Imagery_Sources.imagery_sources``, #1345)."""
+    return [row["code"] for row in SOURCES.imagery_sources() if row["buildable"]]
 
 
 def map_preview_codes():
-    """Provider codes the live map can actually draw.
-
-    The map-preview picker (mac-app parity: MapMainView.swift's
-    ``mapPreviewProvider``) offers only sources the map can render
-    directly — a combined or non-webmercator source silently falls back
-    to OSM, which makes for a picker whose entries lie.  Order follows
-    :func:`gui_provider_codes` so the two imagery combos read alike.
-    """
-    return [c for c in gui_provider_codes() if QTMAP.provider_is_mappable(c)]
+    """The sources the live map can draw, in the same order (the picker
+    lists the rest greyed, with the reason)."""
+    return [row["code"] for row in SOURCES.imagery_sources() if row["previewable"]]
 
 
 def _sync_combo_to_agreed_value(combo, configured_values):
@@ -772,6 +764,7 @@ class MainWindow(QMainWindow):
             EV.RunDone: self._on_run_done,
             EV.BoundaryAirportsReady: self._on_boundary_airports_ready,
             EV.PackMissingArt: self._on_pack_missing_art,
+            EV.ImagerySourceStatus: self._on_imagery_source_status,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
         }
@@ -935,7 +928,13 @@ class MainWindow(QMainWindow):
         # combo keeps the full list.
         toolbar.addWidget(QLabel(" Imagery Preview "))
         self.map_provider_combo = QComboBox()
-        self.map_provider_combo.addItems(map_preview_codes())
+        # Both imagery menus come from the engine's one list (#1345);
+        # the launch status check (start_imagery_status_check) greys out
+        # a source that does not answer.
+        self._imagery_rows = SOURCES.imagery_sources()
+        self._imagery_status = {}
+        QTIMENU.fill_combo(self.map_provider_combo, QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=True))
         self.map_provider_combo.setToolTip(
             "Choose which imagery source the map previews — independent "
             "of the provider used for building"
@@ -1155,7 +1154,8 @@ class MainWindow(QMainWindow):
         ibl.setContentsMargins(0, 0, 0, 0)
         ibl.addWidget(ElidedRowLabel("Imagery:"))
         self.imagery_combo = QComboBox()
-        self.imagery_combo.addItems(gui_provider_codes())
+        QTIMENU.fill_combo(self.imagery_combo, QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=False))
         # "--" shows when the selected tiles' configs disagree
         # (currentIndex -1); start_build refuses to run until resolved.
         self.imagery_combo.setPlaceholderText("--")
@@ -1461,10 +1461,7 @@ class MainWindow(QMainWindow):
         import O4_Config_Utils as CFG
 
         imagery = self.prefs.get("imagery", "BI")
-        if imagery in [
-            self.imagery_combo.itemText(i)
-            for i in range(self.imagery_combo.count())
-        ]:
+        if imagery in QTIMENU.offered_codes(self.imagery_combo):
             self.imagery_combo.setCurrentText(imagery)
         # The build detail level (ZL): set in Settings (#1242), adopted
         # from a selected built tile (_sync_build_controls_to_selection).
@@ -1479,10 +1476,7 @@ class MainWindow(QMainWindow):
                 CFG.custom_scenery_dir = candidate
         # The basemap follows its OWN picker, never the build source.
         map_code = str(self.prefs.get(MAP_PROVIDER_KEY, DEFAULT_MAP_PROVIDER))
-        offered = [
-            self.map_provider_combo.itemText(i)
-            for i in range(self.map_provider_combo.count())
-        ]
+        offered = QTIMENU.offered_codes(self.map_provider_combo)
         if map_code not in offered:
             map_code = (
                 DEFAULT_MAP_PROVIDER if DEFAULT_MAP_PROVIDER in offered
@@ -2362,6 +2356,21 @@ class MainWindow(QMainWindow):
         handler = self._event_handlers.get(type(event))
         if handler is not None:
             handler(event)
+
+    def start_imagery_status_check(self):
+        """The launch-time imagery liveness check (#1345): one sample per
+        source on engine worker threads; ImagerySourceStatus events grey
+        out the sources that do not answer.  Started by the entry point
+        after the window shows, never by the constructor (tests build
+        windows and may not reach the network)."""
+        self._session.imagery_source_status()
+
+    def _on_imagery_source_status(self, event):
+        self._imagery_status[event.code] = (event.status, event.reason)
+        for combo, for_map in ((self.imagery_combo, False),
+                               (self.map_provider_combo, True)):
+            QTIMENU.apply_status(combo, QTIMENU.menu_entries(
+                self._imagery_rows, self._imagery_status, for_map=for_map))
 
     def _on_scan_progress(self, event):
         self.map.set_scan_status(event.phase, event.done, event.total)

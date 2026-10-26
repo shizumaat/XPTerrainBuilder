@@ -154,8 +154,19 @@ struct MapMainView: View {
                     get: { buildModel.mapPreviewProvider },
                     set: { buildModel.mapPreviewProvider = $0 }
                 )) {
-                    ForEach(buildModel.imagery.availableProviders, id: \.self) { code in
-                        Text(code).tag(code)
+                    // The engine's one list (#1345): sources the map can't
+                    // draw, or that didn't answer at launch, show greyed
+                    // with the reason.
+                    ForEach(ImageryMenu.sections(ImageryMenu.entries(
+                        buildModel.imagerySources, statuses: buildModel.imageryStatus,
+                        forMap: true))) { section in
+                        Section(section.title) {
+                            ForEach(section.entries) { entry in
+                                Text(entry.label).tag(entry.code)
+                                    .disabled(!entry.enabled)
+                                    .help(entry.tooltip)
+                            }
+                        }
                     }
                 }
                 .pickerStyle(.inline)

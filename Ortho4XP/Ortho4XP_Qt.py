@@ -343,6 +343,8 @@ def main():
 
     window = O4_Qt_GUI.MainWindow()
     window.show()
+    # Background liveness check of every imagery source (#1345).
+    window.start_imagery_status_check()
     code = app.exec()
     print("Bon vol!")
     sys.exit(code)

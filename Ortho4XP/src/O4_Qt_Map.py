@@ -21,6 +21,7 @@ from collections import deque
 import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Imagery_Sources as SOURCES
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Qt_Map_Labels as QTLABELS
@@ -284,14 +285,9 @@ def audit_textures(textures_dir, provider):
 
 
 def provider_is_mappable(provider_code):
-    """True if the provider can back the live map directly."""
-    provider = IMG.providers_dict.get(provider_code)
-    if not provider:
-        return False
-    return (
-        provider.get("grid_type") == "webmercator"
-        and provider.get("request_type") in ("tms", "wmts")
-    )
+    """True if the live map can draw the source (the engine's one list,
+    ``O4_Imagery_Sources``; a combined source paints layer by layer)."""
+    return SOURCES.is_previewable(provider_code)
 
 
 class _FetchBridge(QObject):
@@ -452,10 +448,9 @@ class MapView(QGraphicsView):
     def set_provider(self, code):
         if provider_is_mappable(code):
             self._display_code = code
-            provider = IMG.providers_dict[code]
             # Absent max_zl means the source declares no ceiling (the
             # engine builds it at any ZL) - preview up to the fetch cap.
-            self._provider_max_zl = int(provider.get("max_zl", FETCH_MAX_ZL))
+            self._provider_max_zl = SOURCES.preview_max_zl(code) or FETCH_MAX_ZL
             note = ""
         elif provider_is_mappable("OSM"):
             self._display_code = "OSM"
@@ -985,10 +980,7 @@ class MapView(QGraphicsView):
                 image = self._orthophotos_crop(code, z, x, y)
                 from_build_cache = image is not None
                 if image is None:
-                    provider = IMG.providers_dict[code]
-                    success, image = IMG.get_wmts_image(
-                        z, x, y, provider, self._session
-                    )
+                    success, image = self._download_tile(code, z, x, y)
                     if not success or generation != self._generation:
                         return
                 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1007,6 +999,24 @@ class MapView(QGraphicsView):
                 self._bridge.tile_ready.emit(code, z, x, y, path)
         except Exception:
             pass
+
+    def _download_tile(self, code, z, x, y):
+        """``(success, image)`` of one view tile from the network: a
+        web-mercator layer through the build's own fetcher (its 404
+        fallback and shared cache), any other previewable layer by the
+        engine's preview URL (``O4_Imagery_Sources.tile_source``)."""
+        layer = SOURCES.tile_source(code, z, x, y)
+        if layer is None:
+            return (0, None)
+        provider = IMG.providers_dict[layer["code"]]
+        if provider.get("grid_type") == "webmercator":
+            return IMG.get_wmts_image(z, x, y, provider, self._session)
+        headers = dict(IMG.request_headers_generic)
+        if layer["referer"]:
+            headers["Referer"] = layer["referer"]
+        return IMG.http_request_to_image(
+            256, 256, layer["url"], headers, self._session,
+            timeout=provider.get("timeout"))
 
     def _on_tile_ready(self, code, z, x, y, path):
         key = (code, z, x, y)

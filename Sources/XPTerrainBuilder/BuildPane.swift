@@ -345,10 +345,19 @@ struct BuildPane: View {
                 .lineLimit(2)
             Picker("Imagery", selection: providerBinding) {
                 Text("Tile / global default").tag("")
-                Divider()
-                ForEach(buildModel.providers) { provider in
-                    Text(provider.isCombined ? "\(provider.code) (combined)" : provider.code)
-                        .tag(provider.code)
+                // The engine's one list (#1345), the map picker's order;
+                // an offline source shows "(offline)", greyed, its reason
+                // as the tooltip.
+                ForEach(ImageryMenu.sections(ImageryMenu.entries(
+                    buildModel.imagerySources, statuses: buildModel.imageryStatus,
+                    forMap: false))) { section in
+                    Section(section.title) {
+                        ForEach(section.entries) { entry in
+                            Text(entry.label).tag(entry.code)
+                                .disabled(!entry.enabled)
+                                .help(entry.tooltip)
+                        }
+                    }
                 }
             }
             Divider()

@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import math
 
-from ..constraints.geometry import principal_axis
+from ..constraints.geometry import principal_axis, project_to_chain
 from ..constraints.runway_profile import curve_stations
 from ..law.tables import (cliff_grade, runway_shoulder_cap,
                           runway_transverse_bound,
@@ -224,17 +224,28 @@ def _transverse_owners(p: Patch, own: dict, spines, half_of: dict
     """The generator's ownership (``constraints.runway_profile.
     _transverse_owners``, #1149): a vertex on the rings of TWO runways is
     read against the runway whose own edge it lies on — the one it lies
-    least far beyond the half-width of."""
+    least far beyond the half-width of.
+
+    The distance is the GENERATOR's — the nearest point of the ridge chain,
+    clamped at its ends (``geometry.project_to_chain``, the generator's
+    ``_foot``) — never the reading's interior-only foot.  A runway's END
+    corner has no interior foot on its own ridge; read that way the corner
+    lost its own runway and fell to the neighbour's shoulder face, whose
+    cross-fall the generator never states on it (#1363, PAAQ: 16S/34S's
+    end corners read against 16/34's crown 21.5 m away, 5.03 %).  Owned by
+    its own runway, the corner is then skipped by the reading — it is the
+    longitudinal / end-zone readers' business (RULINGS 2026-09-10au)."""
     best: dict[int, tuple[float, str]] = {}
     refs: dict[int, set[str]] = {}
     for sh in p.shapes:
         if sh.role != "runway":
             continue
-        ridge = own.get(sh.ref, spines)
+        chains = [[(x, y) for x, y, _z in pts] for pts in own.get(sh.ref, spines)]
         half = half_of.get(sh.ref, 0.0)
         for v in sh.vertex_ids:
-            dist, ridge_z, _foot = _nearest_ridge(*p.xy[v], ridge)
-            if ridge_z is None:
+            dist = min((project_to_chain(p.xy[v], ch)[0] for ch in chains
+                        if len(ch) >= 2), default=None)
+            if dist is None:
                 continue
             refs.setdefault(v, set()).add(sh.ref)
             if v not in best or dist - half < best[v][0]:

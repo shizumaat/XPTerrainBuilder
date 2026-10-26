@@ -312,6 +312,11 @@ class OSM_layer:
 
     def write_to_file(self, filename, header_attributes=None):
         try:
+            # The cache warmer writes a tile's layers before its build
+            # has created the tile's OSM folder (#1329).
+            folder = os.path.dirname(filename)
+            if folder:
+                os.makedirs(folder, exist_ok=True)
             if filename[-4:] == ".bz2":
                 fout = bz2.open(filename, "wt", encoding="utf-8", newline="\n")
             else:

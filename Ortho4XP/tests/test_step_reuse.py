@@ -201,6 +201,67 @@ def test_a_rerun_that_wrote_the_same_files_keeps_the_next_step(tile):
         "the step before it changed its files or inputs")
 
 
+def _rerun_vector_writing(tile, path, data: bytes):
+    REUSE.forget_from(tile, "vector")
+    _rewrite(path, data)
+    REUSE.record(tile, "vector")
+
+
+def _worklist(dsf_mtime=1.0, pack="Some Pack"):
+    import json
+    return json.dumps({"version": 2, "tile": "+25+051", "airports": [
+        {"icao": "XXXX", "dsf_path": "/x/" + pack + "/+25+051.dsf",
+         "dsf_mtime": dsf_mtime, "pack_root": "/x/" + pack,
+         "source": "pack_scan"}]}).encode("utf-8")
+
+
+def test_a_changed_levelled_roads_sidecar_rebuilds_the_mesh(tile):
+    """#1377: the mesh step reads ``o4_levelled_roads.json``; a vector
+    rerun that changed it under the same .node/.poly reruns the mesh."""
+    sidecar = os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)
+    _write_outputs(tile)
+    _rewrite(sidecar, b'{"ways": []}')
+    _complete_build(tile)
+    _rerun_vector_writing(tile, sidecar, b'{"ways": []}')
+    assert REUSE.stale_reason(tile, "mesh") is None
+    _rerun_vector_writing(tile, sidecar, b'{"ways": [{"lat": [25.1]}]}')
+    assert REUSE.stale_reason(tile, "mesh") == (
+        "the step before it changed its files or inputs")
+
+
+def test_a_changed_object_anchor_worklist_rebuilds_the_mesh(tile):
+    """#1377: the object stage seats from the worklist; a vector rerun
+    that changed which packs it names reruns the mesh."""
+    worklist = REUSE._worklist_path(tile)
+    _write_outputs(tile)
+    _rewrite(worklist, _worklist())
+    _complete_build(tile)
+    _rerun_vector_writing(tile, worklist, _worklist(pack="Other Pack"))
+    assert REUSE.stale_reason(tile, "mesh") == (
+        "the step before it changed its files or inputs")
+
+
+def test_a_worklist_whose_dsf_mtime_alone_changed_keeps_the_mesh(tile):
+    """The object stage rewrites the pack DSF, so the next vector rerun
+    writes a later ``dsf_mtime``: that alone is no change."""
+    worklist = REUSE._worklist_path(tile)
+    _write_outputs(tile)
+    _rewrite(worklist, _worklist(dsf_mtime=1.0))
+    _complete_build(tile)
+    _rerun_vector_writing(tile, worklist, _worklist(dsf_mtime=1761499999.25))
+    assert REUSE.stale_reason(tile, "mesh") is None
+
+
+def test_a_vector_sidecar_removed_since_the_record_reruns_vector(tile):
+    sidecar = os.path.join(tile.build_dir, FNAMES.LEVELLED_ROADS_SIDECAR)
+    _write_outputs(tile)
+    _rewrite(sidecar, b'{"ways": []}')
+    _complete_build(tile)
+    os.remove(sidecar)
+    assert REUSE.stale_reason(tile, "vector") == (
+        "its output files changed or are missing")
+
+
 def test_reuse_can_be_turned_off(tile, monkeypatch):
     _write_outputs(tile)
     _complete_build(tile)
@@ -525,7 +586,7 @@ def test_a_record_of_the_previous_schema_reruns_once(tile):
     path = REUSE._record_path(tile)
     with open(path, encoding="utf-8") as handle:
         doc = json.load(handle)
-    doc["schema"] = "2026-10-18"
+    doc["schema"] = "2026-10-18b"
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(doc, handle)
     assert all(why == "no record of a finished run of it"

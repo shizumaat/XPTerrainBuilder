@@ -721,3 +721,54 @@ def test_set_elevation_on_shapes_is_one_step_that_undoes_and_saves(editor, patch
     assert reply["path"] == os.path.join(patches, "ZZZZ_edited.patch.osm")
     doc = PE.PatchDoc.from_wire(reply["nodes"], reply["ways"])
     assert abs(doc.nodes[-5][3] - 100.0) < 0.001
+
+
+# ─── the terrain view (#1320) ─────────────────────────────────────────────
+
+def test_terrain_toggle_asks_for_the_view_and_draws_it(editor):
+    import base64
+
+    from o4_engine import relief as R
+    ed, view = editor
+    asked = []
+    picture = base64.b64encode(R.png_bytes(R.relief_rgba(
+        [[100.0, 101.5], [100.5, 102.0]], 1.0, 1.0, 1.0).rgba)).decode("ascii")
+
+    def terrain_relief(**kw):
+        asked.append(kw)
+        if len(asked) == 1:                         # still drawing: asked again
+            return {"pending": True}
+        return {"pending": False, "png_b64": picture, "width": 2, "height": 2,
+                "bbox": kw["bbox"], "source": "mesh",
+                "legend": {"min_m": 100.0, "max_m": 102.0, "contour_m": 1.0}}
+    table = ed.engine._table()
+    table["pack_objects"] = lambda **kw: {"status": "started"}
+    table["terrain_relief"] = terrain_relief
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    toolbar = ed.overlay.toolbar
+    assert not ed.terrain.enabled and not toolbar.terrain_box.isChecked()   # off by default
+    assert not toolbar.opacity_slider.isVisibleTo(toolbar)
+    toolbar.terrain_box.click()
+    assert ed.terrain.enabled and toolbar.opacity_slider.isVisibleTo(toolbar)
+    ed.terrain._timer.stop()
+    ed.terrain._ask()                               # the view rested
+    ed.terrain._ask(again=True)                     # ... and the pending reply's retry
+    assert len(asked) == 2 and asked[0] == asked[1]
+    kw = asked[0]
+    assert kw["tile"] == TILE and max(kw["px_w"], kw["px_h"]) <= 640
+    s, w, n, e = kw["bbox"]
+    assert s < 30.1006 < n and w < 31.4006 < e      # the visible box
+    assert ed.terrain._image is not None and ed.terrain.legend["contour_m"] == 1.0
+    toolbar.opacity_slider.setValue(35)
+    assert ed.terrain.opacity == pytest.approx(0.35)
+    view.viewport().grab()                          # paints the picture and the legend row
+    toolbar.terrain_box.click()
+    assert not ed.terrain.enabled and ed.terrain._image is None
+
+
+def test_terrain_legend_text():
+    from O4_Qt_Terrain_Relief import legend_text
+    assert legend_text({"min_m": 100.4, "max_m": 109.6, "contour_m": 1.0}) == "1 m contours · 100–110 m"
+    assert legend_text({"min_m": None, "max_m": None, "contour_m": 0.5}) == "0.5 m contours"
+    assert legend_text(None) is None

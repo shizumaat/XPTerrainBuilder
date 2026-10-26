@@ -128,11 +128,12 @@ class _Shape(_t.NamedTuple):
 class PatchOverlay:
     """The patch layer: base drawing here, interaction in ``gestures``."""
 
-    def __init__(self, map_view, controller, outlines=None):
+    def __init__(self, map_view, controller, outlines=None, terrain=None):
         self.map = map_view
         self.controller = controller
         self.model = controller.model
         self.outlines = outlines
+        self.terrain = terrain          # O4_Qt_Terrain_Relief, under everything
         self.gestures = None            # set by O4_Qt_Patch_Gestures
         self.toolbar = None             # O4_Qt_Patch_Toolbar, pinned top-left
         self.index: PatchScreenIndex | None = None
@@ -143,6 +144,8 @@ class PatchOverlay:
         controller.state_changed.connect(self.update)
         if outlines is not None:
             outlines.changed.connect(self.update)
+        if terrain is not None:
+            terrain.changed.connect(self.update)
 
     def update(self) -> None:
         self.map.viewport().update()
@@ -213,6 +216,8 @@ class PatchOverlay:
         skip = self.gestures.skip if self.gestures is not None else None
         view_t = self.map.viewportTransform()
         visible = view_t.inverted()[0].mapRect(QRectF(vp))
+        if self.terrain is not None:
+            self.terrain.paint(painter, view_t)
         if self.outlines is not None:
             self.outlines.paint(painter, view_t)
         painter.save()
@@ -244,6 +249,11 @@ class PatchOverlay:
         if self.outlines is not None and self.outlines.enabled:
             from O4_Qt_Pack_Outlines import OUTLINE_COLOR
             rows.append((OUTLINE_COLOR, "pack apt.dat", "dashed"))
+        if self.terrain is not None and self.terrain.enabled:
+            from O4_Qt_Terrain_Relief import CONTOUR_COLOR, legend_text
+            text = legend_text(self.terrain.legend)
+            if text:
+                rows.append((CONTOUR_COLOR, text, None))
         painter.save()
         self._panel_font(painter, 10)
         fm = painter.fontMetrics()

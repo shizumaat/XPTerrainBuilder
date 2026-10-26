@@ -95,7 +95,10 @@ from typing import Any, Optional
 # 1.15 (2026-10-26, additive, #820): the ``plan_estimate`` command and its
 # completion event PlanEstimateReady — download, disk and time ranges per
 # tile before a build, set against the tile folder's free space.
-PROTOCOL_VERSION = "1.15"
+# 1.16 (2026-10-26, additive, #1320): ``terrain_relief`` answers a
+# hillshade-and-contours PNG over a box from the same sources, with its
+# legend; ``pending`` while it is drawn off the read loop.
+PROTOCOL_VERSION = "1.16"
 
 
 @dataclass(frozen=True)

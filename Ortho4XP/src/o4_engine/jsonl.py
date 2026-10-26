@@ -176,6 +176,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .plan_estimate import start_plan_estimate
+    from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -250,6 +251,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # thread: an uncached source loads on a daemon thread and the
         # reply says pending.
         "cursor_elevation": cursor_elevation,
+        # Terrain view (protocol 1.15, #1320): a hillshade-and-contours
+        # PNG over a box, from the same sources; drawn off THIS thread,
+        # the reply says pending until it is ready.
+        "terrain_relief": terrain_relief,
         # Library view (#824): built tiles with sizes, the caches, freeing
         # a cache, deleting tiles.  Each replies {"status": "started"} and
         # completes with LibraryReady carrying this command's id; deleting

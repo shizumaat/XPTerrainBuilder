@@ -1,7 +1,10 @@
 # Incremental patch edit: apply a small patch edit to a built mesh — spec (2026-10-26)
 
-Status: PROPOSAL, owner questions answered 2026-10-26 (§12); next step is
-Phase 0 (§10) on the Mac. Spec only; no code changes. Issue #1323 (owner
+Status: PROPOSAL, REVISED 2026-10-26 after Phase 0 (owner Q151 = A: "revise
+and measure again before building"). The first plan, Tier 1 (rerun the
+vector step, skip Triangle4XP and masks), saved only 58.6 s of a 414.6 s
+edit rebuild (14 %, under the one-third bar). The new target is **fast path
+A** (§3A): skip the vector step too. Spec only; no code changes. Issue #1323 (owner
 2026-10-25: "if nothing else has changed, everything is cached, and the user
 moves a few nodes in the patch, can we somehow just apply that tiny change
 to the mesh very fast without having to rebuild the whole thing?"). Related:
@@ -11,36 +14,46 @@ re-seating stays off for an edited airport), `step-reuse-content-keys-spec.md`.
 Law: RULINGS 2026-08-30l (consumer census, §6 below), 05e (no
 airport-specific code: everything here is per tile, read from the tile's own
 files). Read on main `c95b84f`; every `file:line` below is on that commit.
+Main `fdc5df4` (Batch Y) shifts some lines in `O4_Vector_Map.py`,
+`O4_Step_Reuse.py` and `O4_Airport_Utils.py`. It also adds a vector
+staleness (`_airports_to_retry`, #1352) that fast path A must honour
+(§3A.4).
 
 ## 0. The answer in short
 
-1. **Feasible, in two tiers.**
-   - **Tier 1, height-only edit** (nodes keep their place, only `alt_abs`
-     changes). Triangle4XP is skipped. The result can be **byte-identical**
-     to a full rebuild, and the check for that is a fixture twin (§9 E2).
-   - **Tier 2, geometric edit** (moved nodes, added or removed ways). Only a
-     bounded cavity around the change is re-meshed. The result is
-     **lawful but not identical** to a full rebuild: the triangles inside
-     the cavity differ. Whether that is acceptable is owner question Q1.
-2. **What the fast path saves:** the whole-tile Triangle4XP run (and its
-   weight map) and, when no water triangle moved, the masks step.
-3. **What it does not save:**
-   - the vector step: it reruns, because it is the only complete authority
-     on what a patch change does (§3, §6);
-   - the altitude post-process;
-   - the object stage;
-   - the DSF encode.
-
-   So its value is set by Triangle4XP's and the masks step's share of the
-   rebuild. The repo holds no current per-step times for the owner's tile
-   (+51-001, 21 min 25 s on 2026-10-24), so **Phase 0 is a measurement**
-   (§10), and Tier 1 starts only if it shows a worthwhile saving.
-4. **Cost:**
-   - Tier 1 is one C change to Triangle4XP (record how each inserted vertex
-     got its altitude, and replay that record), about 400 lines of Python,
-     and four twins. About two lane rounds.
-   - Tier 2 adds cavity extraction, a seam check, stitching and a
-     lawfulness audit. About three to four rounds, architecture-class.
+1. **Phase 0 (2026-10-26, +51-001, one EGGW height edit, the Mac):** the
+   edit rebuild took 414.6 s.
+   - **The vector step took 134 s.** It rebuilds the whole tile's polygon
+     map (`build_poly_file`) because one input file changed. Of that:
+     - `include_airports` 49 s, mostly the planar-graph
+       `insert_way` / `insert_edge` plus rtree;
+     - `include_roads` 39.9 s;
+     - `load_airports_and_prepare_dem` 39.5 s;
+     - `include_water` 15.1 s.
+   - **Triangle4XP, the weight map and the masks** took 58.6 s together.
+   - **The rest**, about 222 s, is the post-process, object stage, DSF
+     encode, imagery check and activation.
+2. **Correcting the first premise.** An edited (custom) patch is already
+   NOT re-solved. The auto-patch driver skips a manual airport
+   (`src/auto_patch/driver.py:1566`, `:1661`). The cost is the vector step
+   re-encoding the whole tile around it.
+3. **Fast path A (§3A), for height-only edits** (the nodes keep their
+   place, and only `alt_abs` values change):
+   - do not rerun the vector step;
+   - keep the previous `.poly`;
+   - rewrite only the `.node` z values that the edited heights reach,
+     replayed exactly from a z-provenance log the vector step records;
+   - then run the Tier 1 mesh path (§4: Triangle4XP skipped, the unchanged
+     post-process and object stage, masks reused) and encode the DSF.
+   - The result is meant to be **byte-identical** to a full rebuild, proven
+     by twins (§9 E2', E5).
+4. **Expected saving** on the Phase 0 numbers: about 134 + 58.6 ≈ 190 s of
+   414.6 s, about 46 %, which clears the one-third bar. The new cost is the
+   `.node` parse and rewrite, which is not measured yet. **Phase 0'**
+   (§10) measures it and the split of the remaining 222 s before anything
+   is built.
+5. **Geometric edits** (moved nodes, added or removed ways) still take the
+   full rebuild. Tier 2 is decided later (Q1 = c).
 
 ## 1. What happens today (verified)
 
@@ -72,6 +85,9 @@ files). Read on main `c95b84f`; every `file:line` below is on that commit.
 
 ## 2. Mechanism facts the design stands on
 
+F10 and F11 are what make fast path A possible. F1 to F9 make the Tier 1
+mesh path possible.
+
 | # | Fact | Where |
 |---|---|---|
 | F1 | **Triangle4XP's refinement does not read node altitudes.** `testtriangle` decides from x, y, the triangle's region attribute (INTERP_ALT triangles are never refined), the area bound and the raster curvature. A node's z is a vertex ATTRIBUTE ("extra"), carried to output column 5. | `Utils/src/Triangle4XP.c:7221-7370` (`attribute >= 8` return at `:7279`), extras out at `:14995` |
@@ -82,6 +98,8 @@ files). Read on main `c95b84f`; every `file:line` below is on that commit.
 | F6 | **The masks step reads only the water-bit triangles (x, y, type)** of this tile's mesh and its eight neighbours' meshes. | `select_neighbor_meshes` `src/O4_Mask_Utils.py:516`; loop `:1154-1200` |
 | F7 | **The DSF step reads the `.mesh`.** Its pools come from a quadtree on vertex positions, and each pool's altitude range is set by its vertices. | `src/O4_DSF_Utils.py:874`, pools `:909-980` |
 | F8 | The object stage runs inside the mesh step. It is off for an airport whose patch is manual or edited. | `src/auto_patch/object_stage.py:865` → `selection.auto_patch_not_applied` `src/auto_patch/selection.py:386` |
+| F10 | **The vector map writes a node's z at exactly three sites.**<br>• `insert_node`: the first producer of an (x, y) wins; a later producer of the same point reuses the node and its z.<br>• The crossing that shares an existing node: the node takes the crossed chain's `(1 - beta) * z2 + beta * z3`.<br>• The split that mints or reuses a crossing node.<br>`snap_to_grid` copies z when it renumbers; `weld_hairlines` deletes nodes but writes no z; `node_vertices_on_edges` writes none. No pass in `O4_Vector_Map.py` reads a node's z back from the vector map. | `src/O4_Vector_Utils.py:177`, `:383`, `:395-409`; renumber `:1053-1120`; weld `:755-826`; `write_node_file` `:1124` (`{z:.9f}`) |
+| F11 | **Inside the vector step, an edited patch's `alt_abs` reaches the map only through `include_patches`.** There it overrides a way's altitude per node (`src/O4_Vector_Map.py:4105-4115`); a complex `altitude_high` way ignores it.<br>The other readers of patch files in the step read names, geometry or sidecars, never node heights:<br>• the driver's manual detection;<br>• OBJ8 objects;<br>• `_bank_rings_from_patches`, which skips manual patches (`src/O4_Bank_Annulus.py:46`);<br>• `road_bridge_deck_pins` and `road_join_yield_pins`, which read the auto patch's `.axes.json`, not the `.osm` (`src/O4_Vector_Map.py:2208`, `:2265`).<br>DEM prep (`O4_DEM_Utils`, `O4_Airport_Elevation_Insets`, `O4_Elevation_Level`) has no patch-file read (static grep). The lane confirms this list with one traced vector step (`build_airport.py --trace-reads`). | as cited |
 | F9 | **The levelled-roads sidecar is outside the reuse record (a pre-existing gap).** The mesh step reads `o4_levelled_roads.json` (`src/O4_Mesh_Utils.py:1276`), which the vector step writes (`src/O4_Vector_Map.py:2312`), but the vector step's recorded outputs do not list it (`src/O4_Step_Reuse.py:290-296`). Today a changed sidecar under an unchanged `.node`/`.poly` would not stale the mesh step. Tier 1 adds it (§8). **For the master: this is a bug to file.** | as cited |
 
 F1 to F3 together mean the following. If the rerun vector step writes the
@@ -92,7 +110,94 @@ positions**. Only column 5 would differ, and the raw column 5 of every
 vertex can be recomputed exactly from the input z values and a record of
 how each Steiner vertex was inserted.
 
-## 3. The diff: what changed, and what it touches
+## 3A. Fast path A: no vector step for a height-only edit
+
+### 3A.1 What the last full vector step leaves behind
+
+1. **The z-provenance log**, `Ortho4XP_<tile>_zprov.bin`, written beside
+   the `.node`. It is a vector output, stamped by content (§8).
+   - Every z the vector map holds is a number. For a node whose z depends
+     on a patch node's `alt_abs`, it is a chain of the F10 linear
+     interpolations.
+   - The vector map records only the TAINTED writes, those that read a
+     patch-`alt_abs` value directly or through a tainted node, as an
+     ordered log of events:
+     - `base(node, patch file, osm node id)`: written by `insert_node` when
+       the z came from that node's `alt_abs`;
+     - `lin(node, beta, a, b)`: the crossing sites, where each of `a` and
+       `b` is either a tainted node id or the untainted parent's VALUE at
+       that moment.
+   - `snap_to_grid` appends its old → new id map. A deleted node is
+     appended as `dead`.
+   - Untainted nodes cost nothing.
+   - The taint set starts at `include_patches` and ends at
+     `write_node_file`. One recorder lives in `Vector_Map`, with no second
+     writer.
+2. **A copy of every patch `.osm` as built**, in `fast_path/prev/`. These
+   are small: one airport's patch is kilobytes to a few MB. They follow the
+   §8.1 keep rule.
+
+### 3A.2 Steps (in the session, where the vector step would run)
+
+1. **Admit.**
+   - `O4_Step_Reuse.edit_only_changes(tile)` returns exactly the edited
+     patch file(s): every vector input key matches, and every other output
+     row matches.
+   - The patch diff against `prev/` is **height-only**:
+     - the same node ids with byte-identical lat/lon;
+     - the same ways, refs and way tags;
+     - only node `alt_abs` values differ;
+     - every changed node had `alt_abs` before and has it after (adding or
+       removing the tag changes which producer sets the z);
+     - the header stamps are ignored.
+   - The zprov log is present and its digest is the vector record's row.
+2. **Replay.**
+   - Set the new `float(alt_abs)` on each `base` event of an edited node.
+   - Replay the log in order with the same Python expression
+     `(1 - beta) * a + beta * b`. The same interpreter means bit-identical
+     doubles.
+   - Map through the recorded renumbering, and rewrite only those nodes'
+     lines of the `.node` in its own `{z:.9f}` format. Every other byte is
+     copied.
+   - A `base` event of a non-edited node keeps its value.
+   - An edited node with no `base` event (another producer's z won the
+     point, F10) changes nothing. The log says so.
+3. **Record the vector step** (`REUSE.record(tile, "vector")`). Its inputs
+   are unchanged. Its outputs are now the new `.node` and the edited
+   patch; the `.poly`, `.alt`, `.apt`, sidecar and zprov are untouched.
+   The step label reads "Vector data · updated for a height edit".
+4. **The mesh step takes Tier 1** (§4), admitted as class D1 with the
+   changed-z node set from step 2. Then the masks witness, the DSF and the
+   activation follow.
+
+### 3A.3 Why it equals a full rebuild
+
+A full vector step on the edited patch runs every producer in the same
+order on the same inputs. Only the `alt_abs` values differ, so every
+producer makes the same nodes, edges, seeds and regions:
+
+- no pass in the vector step reads a patch node's height (F11);
+- topology never reads z (F10: the dedupe and the crossings key on x, y).
+
+Its z writes are then the logged ones with the new base values (F10). So
+the `.node` it writes is the replayed one, byte for byte, and the `.poly`,
+`.alt` and `.apt` are the kept ones. From there Tier 1's argument (§4.2)
+holds. **E2' and the E5 verify mode (§9) prove it; it is not taken on
+argument.**
+
+### 3A.4 What sends a height edit to the full rebuild
+
+- any non-height change in the patch diff;
+- `alt_abs` added or removed;
+- a missing zprov log or `prev/` copy (for example cleared at the last app
+  quit, §8.1);
+- an airport the last build left without a patch for a cause a rebuild
+  answers (`O4_Step_Reuse._airports_to_retry`, main `fdc5df4`): the vector
+  step must run to retry it;
+- any other vector input or output change;
+- every §7 refusal.
+
+## 3B. Product diff after a vector rerun (Tier 2 and the verify mode only)
 
 **The authority is what Triangle4XP and the post-process read, not the
 patch file.** The census (§6) finds about twenty passes in the vector step
@@ -157,8 +262,9 @@ log line only ("3 nodes changed height, 1 way moved").
    engine and auto-patch configuration. The kept raw artefacts (§8) are
    present, and their `fast_path` record names the mesh record's current
    `outputs_digest` (they belong to this mesh). The Triangle4XP
-   binary digest equals the one recorded with them. The diff class is D0
-   or D1.
+   binary digest equals the one recorded with them. The diff class is D1
+   from fast path A (§3A), or D0 / D1 from a vector rerun (§3B: the verify
+   mode, or an edit that reran the vector step).
 2. **Re-attribute.** Run Triangle4XP in its new RE-ATTRIBUTE mode with:
    - the kept raw `.1.node`;
    - the provenance record `.1.prov`;
@@ -192,7 +298,8 @@ log line only ("3 nodes changed height, 1 way moved").
 
 ### 4.2 Why it equals a full rebuild
 
-- A full rebuild runs the same vector step (identical products, D1).
+- A full rebuild's vector step writes the same products (§3A.3, or D1 by
+  §3B).
 - Its Triangle4XP produces the same triangles and positions (F1, F3) and
   the same column 5 (F2; the replay is the same expression in the same
   binary).
@@ -352,6 +459,15 @@ effect reaches the mesh only through the products the diff compares (§3).
 | masks | `src/O4_Mask_Utils.py:1154-1200` | the mesh's water triangles only, never a patch | water-triangle witness §8 |
 | DSF, airport fade masks | `src/O4_DSF_Utils.py:874`; `src/O4_Airport_Fade_Masks.py:266` | the `.mesh`; the `.apt` pickle | runs (Tier 1b lever, §10) |
 
+**Under fast path A (§3A)**, the rows marked "rerun (vector)" do NOT run.
+What makes that lawful for a height-only edit is that none of them reads a
+patch node's height (F11); they read names, geometry, roles or sidecars,
+which a height-only diff leaves byte-identical. The one height reader,
+`include_patches`, reaches the `.node` only through the F10 write sites,
+and the zprov log records exactly those. A lane that adds a vector pass
+reading patch heights must extend the log or make fast path A refuse;
+E2' fails otherwise.
+
 `auto_patch_v2` reads no other patch file: the grep finds only
 `airport/object_plan.py`'s own plan files. An edit therefore never changes
 another airport's patch, and the driver's freshness gate keeps reusing them.
@@ -408,7 +524,9 @@ rebuild (the edit reaches the tile edge)".
 | Triangle4XP binary digest | — | — | **new**: the `fast_path` entry | Tier 1 admission |
 | water-triangle digest of the `.mesh` | mesh | — | **new** field in the mesh record: sha256 over the water-bit triangles' (x, y, type), in file order | the masks witness |
 | `.mesh` | mesh | yes | mesh outputs | the old/new change set; DSF input |
-| `fast_path/prev/` | fast path | **new**, deleted after the step | content equal to the vector record's rows | the diff only |
+| `Ortho4XP_<tile>_zprov.bin` z-provenance log | vector (§3A.1) | **new** | **new**: vector outputs, content. Kept like the `.node` (not cleared at quit: it is small, and a missing vector output would stale the step) | fast path A |
+| `fast_path/prev/<patch>.osm` copies of the patches as built | vector record time | **new** | the `fast_path` entry. Cleared with the raw files (§8.1) | fast path A's height-only diff |
+| `fast_path/prev/` products (§3B) | vector rerun, verify mode | **new**, deleted after the step | content equal to the vector record's rows | §3B diff only |
 
 Changes to `src/O4_Step_Reuse.py`:
 
@@ -428,9 +546,8 @@ Changes to `src/O4_Step_Reuse.py`:
    they never stale a step.
 3. **New `edit_only_changes(tile)`:** the patch files whose content changed
    when every vector input key and every non-patch output row is as
-   recorded; otherwise `None`. This is the cheap pre-check that says "the
-   fast path may apply" before the vector step runs, and it feeds the plan
-   prediction (`predicted_reuse`, `session.py:258`).
+   recorded; otherwise `None`. It is fast path A's admission (§3A.2), and
+   it feeds the plan prediction (`predicted_reuse`, `session.py:258`).
 4. After a fast path, `record()` writes mesh, and masks when the witness
    held, exactly as after a run (#838 commits per step).
 5. `forget_from` is unchanged: a Stop inside the fast path leaves no mesh
@@ -499,6 +616,16 @@ square at 112.5 m with a free DUMMY run inside, beside a WATER square.
   112.5 m and at 113.25 m. The `.1.ele` is byte-identical, and `.1.node`
   columns 0 to 4 are byte-identical. In CI per platform, beside the text ==
   binary twin.
+- **E2': fast path A equals a full vector step.**
+  - Write a synthetic manual patch (one ring and one inner way sharing a
+    node, plus a DUMMY run crossing the ring) into a temp `Patches` dir.
+  - Run `include_patches` and the rest of `build_poly_file` on a constant
+    DEM (`--dem` style).
+  - Change two `alt_abs` values, one of them on the crossed ring.
+  - **Arm A:** a second full `build_poly_file`.
+  - **Arm B:** the zprov replay.
+  - **Pass:** the `.node` bytes are identical, and the `.poly` is
+    untouched. Every refusal of §3A.4 has its own case.
 - **E2: Tier 1 equals a full rebuild.** Build the fixture, then
   re-altitude the ring.
   - **Arm A:** the full recipe.
@@ -531,74 +658,75 @@ square at 112.5 m with a free DUMMY run inside, beside a WATER square.
   3. the rebuild through the fast path;
   4. a full rebuild of the same edit into a second build dir.
 
-  Pass: equal `.mesh` and `.dsf` sha256 (Tier 1). Then the owner's sim
-  read.
+  Pass: equal `.node`, `.mesh` and `.dsf` sha256 (fast path A + Tier 1).
+  Then the owner's sim read. The same comparison is the **verify mode**:
+  `O4_FAST_PATH_VERIFY=1`, harness and dev only, runs the full chain into a
+  scratch build dir after the fast path and refuses on any hash
+  difference.
 
 ## 10. Expected time for a few-node edit
 
-**Phase 0 must measure the current numbers.** The repo holds no current
-per-step times for a tile: `build_time_baselines.json` `tiles` is empty,
-and the per-tile history lives on the Mac (`~/.ortho4xp/tile_build_times`).
-The recorded figures are below, with their dates. They are not a
-prediction for current main.
+### 10.1 Phase 0, measured (the Mac, 2026-10-26)
 
-| Phase | Recorded | Source |
++51-001, one EGGW height edit, warm:
+
+| Part | s | Fast path A |
 |---|---|---|
-| vector step without auto-patch generation | ~4 s (Cairo +30+031, 2026-07-25); KCLT +35-081 vector 68.7 s of a 107.4 s tile profile (2026-08-13) | `docs/whole_tile_5min_feasibility.md` §1.1; `docs/specs/perf-p3-wave2-sinks-spec.md` lane T |
-| mesh step (Triangle4XP + post-process) | +51-001: 82-208 s; Cairo: 906 s on the ×3 grid, est. ~35 s after the bake fix (2.6 s Triangle4XP + 25-35 s Python post-process) (2026-07-25) | `whole_tile_5min_feasibility.md` §1.3, §2 |
-| masks | 8.1 s (Cairo); 300-900 s (fjord coasts) (2026-07-25) | same §1.1, §1.3 |
-| `build_dsf` | 84.6 s (HK +22+113, 266 MB mesh, masks warm, shared machine, 2026-10-19) | `docs/specs/dsf-and-masks-measure-first-spec.md` table |
+| the whole edit rebuild | 414.6 | — |
+| vector step (`build_poly_file`) | 134 | **skipped** (zprov replay instead) |
+| — `include_airports` (planar `insert_way` / `insert_edge` + rtree) | 49 | |
+| — `include_roads` | 39.9 | |
+| — `load_airports_and_prepare_dem` (`compose_tile_dem_from_disk` 33, `smooth_raster_over_airports` 19.3, flat-site decisions 16.5 of which 13.4 is per-airport water reprojection; the parts overlap) | 39.5 | |
+| — `include_water` | 15.1 | |
+| — the encoders, nested in the calls above | 26.6 + 14.0 | |
+| Triangle4XP + weight map + masks | 58.6 | **skipped** (Tier 1) |
+| the rest: post-process, object stage, DSF encode, imagery check, activation | ≈ 222 | runs |
 
-Model:
+- **Tier 1 alone** saves 58.6 s, 14 %: under the bar (Q4 = a).
+- **Fast path A** saves ≈ 134 + 58.6 − (new cost) ≈ 190 s, about 46 %,
+  which clears the bar, provided the new cost is a few seconds.
 
-- **Tier 1** = T_vector + T_reattribute (expected under 1 s) + T_post +
-  T_objects + T_dsf.
-- **Full rebuild** = T_vector + T_weights + T_triangle + T_post +
-  T_objects + T_masks + T_dsf.
-- **The saving is T_weights + T_triangle + T_masks.**
+The water-reprojection cache is filed separately, by the Mac session; it is
+not part of this spec.
 
-On the recorded figures the remaining Tier 1 wall is about 1.5-4 minutes on
-a metro tile (vector 4-70 s, post-process 25-35 s, DSF ~85 s, object stage
-not recorded). Whether that is a large or a small cut of the owner's
-21 min 25 s depends on how that build split between steps, and the repo
-does not record that.
+### 10.2 Phase 0', before building (the master, low effort)
 
-**Phase 0 (the master, low effort, once):**
+1. **The new cost.** One parse and rewrite of the tile's `.node` (the
+   largest new I/O; `write_node_file` is a per-line `.9f` loop, F10), plus
+   the replay of a log of the edited airport's tainted events. A lane can
+   time the `.node` rewrite with `tools/profile_tile_build.py --count` on
+   `Vector_Map.write_node_file` from the Phase 0 profile, if it is already
+   there; otherwise time it once on the Phase 0 build dir.
+2. **The split of the ≈ 222 s** (T_post, T_objects, T_dsf, T_imagery), from
+   the Phase 0 profile. It shows how much Tier 1b would add.
+3. **Bar:** (134 + 58.6 − new cost) / 414.6 ≥ 1/3, which means the new cost
+   must stay ≤ 54 s. Build P1 when it holds.
 
-1. Run the owner's case:
-   - `Ortho4XP/venv/bin/python tools/harness/build_airport.py <ICAO> --tile 51 -1 --no-ledger`,
-     warm, for the airport the owner edited on +51-001;
-   - then one `alt_abs` change in its `<ICAO>_edited.patch.osm`;
-   - then the same command again.
-2. Read the per-step seconds of the second build.
-3. Run `tools/profile_tile_build.py 51 -1 --steps mesh,imagery` on that
-   build dir, to split the mesh step into Triangle4XP, post-process and
-   object stage, and the imagery step into `build_dsf` and the imagery
-   check.
-4. Report the table: T_vector, T_triangle, T_post, T_objects, T_masks,
-   T_dsf, T_imagery.
+The **recording overhead** on every full vector step (zprov events for
+patch nodes only) is measured in P1 against the 1 % law
+(`tools/check_build_time.py --runs 3`).
 
-Decision rule: start Tier 1 if T_weights + T_triangle + T_masks is at least
-a third of the rebuild. Otherwise the cost is elsewhere, and the levers
-below come first:
+### 10.3 Further levers, after P1
 
 - **Tier 1b: z-only DSF re-encode.** Under D1 the positions, so the pool
   quadtree and every terrain-patch command, are unchanged. Only the
   altitudes and each pool's altitude range change. Re-encode only the pools
-  that hold a changed vertex, and prove it on E2's `.dsf` sha256.
-- **The vector step's per-airport freshness checks** ("the reuse checks
-  for every airport" the issue names). They cannot simply be skipped: an
-  auto patch's OSM witness covers the neighbour tiles' feeds
-  (`auto_patch_stale_inputs`, `src/auto_patch/driver.py:370-457`), which
-  the vector step's `osm` key does not. A shortcut needs a census table
-  of freshness key → covering vector input first.
+  that hold a changed vertex, and prove it on E2's `.dsf` sha256. It is
+  sized by Phase 0' item 2.
+- **The vector step's per-airport freshness checks**, for edits that are
+  not height-only. They cannot simply be skipped: an auto patch's OSM
+  witness covers the neighbour tiles' feeds (`auto_patch_stale_inputs`,
+  `src/auto_patch/driver.py:370-457`), which the vector step's `osm` key
+  does not. A shortcut needs a census table of freshness key → covering
+  vector input first.
 
 ## 11. Cost to build, and phases
 
 | Phase | Work | Effort (2026-10-20a) | Size |
 |---|---|---|---|
-| P0 | measurement (§10) | low, master | one warm build + one edited rebuild + one profile |
-| P1 | Tier 1, **only if P0 clears the bar (owner Q4 = a)**: Triangle4XP `K` + re-attribute (C, ~150 lines); `O4_Patch_Fast_Path.py` (~300 lines: admit, snapshot, diff, call, witness); `O4_Step_Reuse` (§8, ~60 lines); session hook; the §8.1 keep setting and quit-time clear in both apps; E1-E3 twins; F9 fix | medium (spec'd), one lane | ~2 rounds |
+| P0 | measurement | done 2026-10-26 (§10.1): Tier 1 alone missed the bar | — |
+| P0' | the new cost and the 222 s split (§10.2) | low, master | no new build |
+| P1 | **fast path A + Tier 1, only if P0' clears the bar (Q4 = a, Q151 = A)**: the zprov recorder in `Vector_Map` (the three F10 sites + renumber, ~80 lines) and its replay; Triangle4XP `K` + re-attribute (C, ~150 lines); `O4_Patch_Fast_Path.py` (~350 lines: admit, height-only patch diff, replay, `.node` rewrite, mesh path, witness); `O4_Step_Reuse` (§8, ~60 lines); session hook; the §8.1 keep setting and quit-time clear in both apps; twins E1, E2', E2, E3; the verify mode; F9 fix | high (geometry provenance, two exactness proofs), one lane | ~2-3 rounds |
 | P1b | z-only DSF re-encode, if P0 says DSF dominates | high | ~1-2 rounds |
 | P2 | Tier 2 (§5): owner decides after P1 is measured (Q1 = c) | xhigh (architecture) | ~3-4 rounds |
 
@@ -617,6 +745,12 @@ which lands in both apps (two UIs, one layout, `tests/test_qt_layout_parity.py`)
 - **Q3. ANSWERED 2026-10-26 ("a")**: automatic. "Rebuild tile" takes the
   fast path by itself when it applies and says so in the log ("height-only
   edit: mesh updated without re-meshing"); there is no new button.
+- **Q151. ANSWERED 2026-10-26 ("A")**: Phase 0 missed the bar. Revise the
+  spec (this revision: fast path A, which skips the vector step for
+  height-only edits) and measure again (Phase 0') before building. The
+  owner also asked: "Don't we already skip a solve whenever there's a
+  custom patch?" Yes. An edited patch is not re-solved (§0 item 2); the
+  cost was the vector step re-encoding the whole tile.
 - **Q4. ANSWERED 2026-10-26 ("a")**: measure on the Mac first (P0), and
   build Tier 1 only if P0 shows the saving is at least a third of the
   rebuild.

@@ -88,7 +88,10 @@ from typing import Any, Optional
 # 1.14 (2026-10-24, additive, #1308): ``cursor_elevation`` answers the
 # built mesh's elevation at a point (``source`` "mesh"), else the DEM's
 # ("dem"); ``pending`` while a source loads off the read loop.
-PROTOCOL_VERSION = "1.14"
+# 1.15 (2026-10-26, additive, #820): the ``plan_estimate`` command and its
+# completion event PlanEstimateReady — download, disk and time ranges per
+# tile before a build, set against the tile folder's free space.
+PROTOCOL_VERSION = "1.15"
 
 
 @dataclass(frozen=True)
@@ -552,6 +555,26 @@ class LibraryReady(EngineEvent):
 
     request: Any = None
     command: str = ""
+    result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PlanEstimateReady(EngineEvent):
+    """The completion half of the ``plan_estimate`` command (protocol
+    1.15, #820): the command replies ``{"status": "started"}`` and the
+    estimate runs on a worker thread (``o4_engine.plan_estimate``).
+
+    ``request`` is the ``id`` of the command it answers; ``result`` is
+    the estimate (``tiles``, ``total``, ``free_gb``, ``cache_free_gb``,
+    ``verdict``, ``reason``; every figure a ``[lo, hi]`` range) or
+    ``None``, with ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
     result: Any = None
     error: str = ""
 

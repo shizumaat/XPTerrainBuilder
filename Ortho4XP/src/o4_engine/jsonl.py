@@ -155,7 +155,8 @@ def _ortho4xp_version() -> str:
 #: Commands completed by an event that names the command: their handler
 #: is given the command's ``id`` as ``request``.
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
-                               "free_cache", "library_delete"})
+                               "free_cache", "library_delete",
+                               "plan_estimate"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -174,6 +175,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .mesh_commands import mesh_crop
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
+    from .plan_estimate import start_plan_estimate
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -255,6 +257,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         **{name: _library_handler(session, name)
            for name in ("library_scan", "cache_sizes", "free_cache",
                         "library_delete")},
+        # Build cost (protocol 1.15, #820): download, disk and time ranges
+        # for the tiles about to be built.  Replies {"status": "started"};
+        # PlanEstimateReady carrying this command's id completes it.
+        "plan_estimate": lambda **kw: start_plan_estimate(session._emit, **kw),
     }
 
 

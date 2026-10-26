@@ -12,9 +12,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
-
 import O4_Coordinate_Query as CQ  # noqa: E402
+import pytest  # noqa: E402
 
 with open(os.path.join(os.path.dirname(__file__), "fixtures",
                        "latlon_search_cases.json"), encoding="utf-8") as _fh:

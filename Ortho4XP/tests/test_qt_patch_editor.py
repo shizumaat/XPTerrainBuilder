@@ -360,11 +360,12 @@ def test_pack_outlines_follow_the_patch_through_pack_objects_ready(editor):
     assert asked["footprints_only"] is True         # the outlines only (#797)
     s, w, n, e = asked["bbox"]                      # the patch bbox + 500 m (A9)
     assert (30.1 - s) * 111320 == pytest.approx(500)
-    assert not ed.outlines._pavement.isEmpty() and ed.outlines._footprints.isEmpty()
+    assert [o.label for o in ed.outlines.pavement] == ["pavement"]   # no label: its kind
+    assert ed.outlines.footprints == []
     ed.on_pack_objects_ready(EV.PackObjectsReady(request=asked["request"], result={
         "models": [], "placements": [], "missing": [],
         "facades": [{"ring": [[30.1, 31.4], [30.1, 31.4005], [30.1005, 31.4005]], "height_m": 4}]}))
-    assert not ed.outlines._footprints.isEmpty()
+    assert [o.label for o in ed.outlines.footprints] == ["facade"]
     assert "The pack draws no boundary." in ed.outlines.help_text
     assert ed.overlay.toolbar.outlines_box.isChecked()
     view.viewport().grab()                          # paints every layer once
@@ -581,6 +582,80 @@ def test_a_click_on_the_node_coordinates_copies_them(editor, qapp):
     ed.panel.lat_value.clicked.emit()
     assert QApplication.clipboard().text() == "30.100000000, 31.401000000"
     assert ed.panel.node_count_note.text() == "Copied"
+
+
+def _hover(view, pos):
+    view.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, pos,
+                                    view.viewport().mapToGlobal(pos.toPoint()),
+                                    Qt.NoButton, Qt.NoButton, Qt.NoModifier))
+    return view.viewport().cursor().shape()
+
+
+def test_cursor_is_a_pointer_over_nodes_and_lines_and_a_hand_elsewhere(editor):
+    """#1325: hover alone sets the cursor; a drag on open map pans with a
+    closed hand, and a right press / release opens the menu, never a pan."""
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    assert _hover(view, _screen(ed, -1)) == Qt.PointingHandCursor
+    assert _hover(view, _along(ed, -1, -4, 0.3)) == Qt.PointingHandCursor
+    empty = _screen(ed, -1) + QPointF(-120, 60)
+    assert _hover(view, empty) == Qt.OpenHandCursor
+    before = (view.horizontalScrollBar().value(), view.verticalScrollBar().value())
+    _mouse(view, QEvent.MouseButtonPress, empty)
+    _mouse(view, QEvent.MouseMove, empty + QPointF(30, 0))
+    assert view.viewport().cursor().shape() == Qt.ClosedHandCursor
+    _mouse(view, QEvent.MouseButtonRelease, empty + QPointF(30, 0), buttons=Qt.NoButton)
+    assert view.horizontalScrollBar().value() == before[0] - 30
+    assert ed.model.undo_stack.count() == 0
+    asked = []
+    view.tile_menu_requested.connect(lambda lat, lon, _pos: asked.append((lat, lon)))
+    scroll = view.horizontalScrollBar().value()
+    for kind, buttons in ((QEvent.MouseButtonPress, Qt.RightButton),
+                          (QEvent.MouseButtonRelease, Qt.NoButton)):
+        view_pos = empty + QPointF(1, 0)
+        ev = QMouseEvent(kind, view_pos, view.viewport().mapToGlobal(view_pos.toPoint()),
+                         Qt.RightButton, buttons, Qt.NoModifier)
+        (view.mousePressEvent if kind == QEvent.MouseButtonPress else view.mouseReleaseEvent)(ev)
+    assert asked == [(30, 31)] and view.horizontalScrollBar().value() == scroll
+
+
+def test_set_elevation_on_shapes_is_one_step_that_undoes_and_saves(editor, patches):
+    """#1357: the dialog states what it touches, prefills the mean, takes
+    feet, and Apply is ONE undoable edit saved through patch_save."""
+    ed, view = editor
+    auto = os.path.join(patches, "ZZZZ_auto.patch.osm")
+    with open(auto, "w", encoding="utf-8", newline="\n") as f:
+        f.write(_AUTO.replace("</osm>", _TRIANGLE.split("\n</osm>")[0] + "\n</osm>"))
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    ed.model.set_mode("Edit")
+    assert ed.context_actions() == []
+    ed.model.select_shapes({-12})
+    (title, _run), = ed.context_actions()
+    assert title == "Set elevation…"
+    assert not ed.panel.set_elevation.isHidden()
+    dialog = ed.panel.open_set_elevation()
+    assert dialog.summary.text() == "3 shared nodes, 2 neighbouring shapes affected."
+    assert dialog.value.text() == "%.2f" % ((101 + 102 + 104) / 3)
+    dialog.unit.setCurrentText("ft")
+    dialog.value.setText("328.084")
+    before = ed.model.doc
+    assert dialog.apply()
+    assert ed.model.undo_stack.count() == 1 and ed.model.unsaved_edits == 1
+    assert ed.model.undo_stack.undoText() == "Set Shape Elevation"
+    for nid in (-2, -3, -5):
+        assert abs(ed.model.doc.nodes[nid][3] - 100.0) < 0.001
+    assert ed.model.doc.nodes[-1] == before.nodes[-1]     # the apron's own node stays
+    ed.model.undo_stack.undo()
+    assert ed.model.doc == before and ed.model.unsaved_edits == 0
+    ed.model.undo_stack.redo()
+    ed.controller.save()
+    reply = PC.patch_load(TILE, "ZZZZ")
+    assert reply["path"] == os.path.join(patches, "ZZZZ_edited.patch.osm")
+    doc = PE.PatchDoc.from_wire(reply["nodes"], reply["ways"])
+    assert abs(doc.nodes[-5][3] - 100.0) < 0.001
 
 
 # ─── the terrain view (#1320) ─────────────────────────────────────────────

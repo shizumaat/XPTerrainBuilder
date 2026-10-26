@@ -4,8 +4,9 @@ import SceneryKit
 /// The map's tile right-click menu (#938; Qt O4_Qt_Tile_Menu): Show in
 /// Finder, which reveals the tile's folder (greyed out while the tile has
 /// none yet), after the patch layer's copy items when there are any
-/// (#1281, `PatchCopy.swift`). The menu's items target this object, so the
-/// caller keeps it alive while the menu is open.
+/// (#1281, `PatchCopy.swift`) and its actions on the selection (`extra`:
+/// "Set elevation…" on selected shapes, #1357). The menu's items target
+/// this object, so the caller keeps it alive while the menu is open.
 @MainActor
 final class TileContextMenu: NSObject {
     static let revealTitle = "Show in Finder"
@@ -13,10 +14,13 @@ final class TileContextMenu: NSObject {
     let folder: URL?
     let copies: [PatchCopyItem]
     let menu = NSMenu()
+    private let extra: [(title: String, run: () -> Void)]
 
-    init(coord: BuildModel.TileCoord, folder: URL?, copies: [PatchCopyItem] = []) {
+    init(coord: BuildModel.TileCoord, folder: URL?, copies: [PatchCopyItem] = [],
+         extra: [(title: String, run: () -> Void)] = []) {
         self.folder = folder
         self.copies = copies
+        self.extra = extra
         super.init()
         menu.autoenablesItems = false
         for (k, copy) in copies.enumerated() {
@@ -26,6 +30,13 @@ final class TileContextMenu: NSObject {
             menu.addItem(item)
         }
         if !copies.isEmpty { menu.addItem(.separator()) }
+        for (index, entry) in extra.enumerated() {
+            let item = NSMenuItem(title: entry.title, action: #selector(runExtra(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = index
+            menu.addItem(item)
+        }
+        if !extra.isEmpty { menu.addItem(.separator()) }
         let item = NSMenuItem(title: Self.revealTitle,
                               action: #selector(reveal), keyEquivalent: "")
         item.target = self
@@ -38,6 +49,11 @@ final class TileContextMenu: NSObject {
     @objc private func copyItem(_ sender: NSMenuItem) {
         guard copies.indices.contains(sender.tag) else { return }
         PatchClipboard.copy(copies[sender.tag].text)
+    }
+
+    @objc private func runExtra(_ sender: NSMenuItem) {
+        guard extra.indices.contains(sender.tag) else { return }
+        extra[sender.tag].run()
     }
 
     @objc private func reveal() {

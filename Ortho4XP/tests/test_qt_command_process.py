@@ -57,11 +57,64 @@ def custom_scenery() -> str:
 
 
 def _alive(pid: int) -> bool:
+    """Whether ``pid`` is still a running process — a PROBE on every system
+    (issue #1261: on Windows ``os.kill(pid, 0)`` calls ``TerminateProcess``)."""
+    if sys.platform == "win32":
+        return _alive_windows(pid)
+    try:                                   # reap it if it is our zombie child
+        if os.waitpid(pid, os.WNOHANG)[0] == pid:
+            return False
+    except ChildProcessError:
+        pass
     try:
         os.kill(pid, 0)
     except OSError:
         return False
     return True
+
+
+def _alive_windows(pid: int) -> bool:
+    try:
+        import psutil
+    except ImportError:
+        psutil = None
+    if psutil is not None:
+        try:
+            return (psutil.pid_exists(pid)
+                    and psutil.Process(pid).status() != psutil.STATUS_ZOMBIE)
+        except psutil.NoSuchProcess:
+            return False
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    process_query_limited_information, still_active = 0x1000, 259
+    handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    if not handle:
+        return False
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _gone_within(pids, timeout_s: float = 5.0) -> bool:
+    """Whether every pid has stopped within ``timeout_s`` — polled, because
+    a process the system was asked to end is gone a moment later, not at
+    the instant ``close()`` returns."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        if not any(_alive(p) for p in pids):
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
 
 
 @pytest.fixture
@@ -118,7 +171,7 @@ def test_the_worker_is_gone_after_close(worker_pack):
     worker_pack.run(spin, seconds=0.0)
     pids = worker_pack.pids()
     worker_pack.close()
-    assert pids and not any(_alive(p) for p in pids)
+    assert pids and _gone_within(pids)
     assert worker_pack.pids() == []
 
 
@@ -177,7 +230,7 @@ def test_the_qt_door_answers_pack_objects_through_the_process(qapp, worker_pack)
     assert got[0][0] == PO.pack_objects(TILE, "ZZZZ", BBOX)
     pids = worker_pack.pids()
     engine.close()
-    assert pids and not any(_alive(p) for p in pids)
+    assert pids and _gone_within(pids)
 
 
 def test_a_synchronous_engine_keeps_its_commands_in_process():

@@ -8,7 +8,9 @@ import SceneryKit
 /// (`pack_outlines`) and its building footprints (`PackFootprints`, from
 /// the `pack_objects` answer the 3D window shares through
 /// `PackBuildingsStore`). Follows the loaded patch; asks only while the
-/// "Pack outlines" toggle is on (persisted per user, default on).
+/// "Pack outlines" toggle is on (persisted per user, default on). Each
+/// outline carries its label (#1316): the pavement row's description or
+/// the object's file name.
 @MainActor
 final class PatchPackOutlines: ObservableObject {
     static let defaultsKey = "patchEditor.showPackOutlines"
@@ -27,8 +29,8 @@ final class PatchPackOutlines: ObservableObject {
     private weak var patch: PatchEditModel?
     private var loadedKey: String?
     private var generation = 0
-    private var pavement: [[O4LatLon]] = []
-    private var footprints: [[O4LatLon]] = []
+    private var pavement: [PackOutlineGeometry.Source] = []
+    private var footprints: [PackOutlineGeometry.Source] = []
     private var subscriptions: Set<AnyCancellable> = []
 
     init(patch: PatchEditModel) {
@@ -68,7 +70,7 @@ final class PatchPackOutlines: ObservableObject {
             do {
                 let reply = try await client.packOutlines(tile: doc.tile, icao: doc.icao)
                 guard let self, self.generation == gen else { return }
-                self.pavement = reply.pavement.flatMap(\.rings)
+                self.pavement = reply.pavement.map { PackOutlineGeometry.Source(label: $0.mapLabel, rings: $0.rings) }
                 self.missing += reply.missing
                 self.project()
             } catch {
@@ -84,7 +86,9 @@ final class PatchPackOutlines: ObservableObject {
                 let objects = try await PackBuildingsStore.shared.objects(
                     client: client, tile: doc.tile, icao: doc.icao, box: request,
                     footprintsOnly: true)
-                let rings = await Task.detached(priority: .utility) { PackFootprints.outlines(objects) }.value
+                let rings = await Task.detached(priority: .utility) {
+                    PackFootprints.labelled(objects).map { PackOutlineGeometry.Source(label: $0.label, rings: [$0.ring]) }
+                }.value
                 guard let self, self.generation == gen else { return }
                 self.footprints = rings
                 self.project()
@@ -96,39 +100,136 @@ final class PatchPackOutlines: ObservableObject {
     }
 
     private func project() {
-        geometry = PackOutlineGeometry(rings: pavement + footprints)
+        geometry = PackOutlineGeometry(pavement + footprints)
+    }
+
+    /// The cursor readout's label (#1316): the smallest outline under the
+    /// point, while the outlines are on.
+    func label(atLat lat: Double, lon: Double) -> String? {
+        enabled ? geometry?.label(atLon: lon, mercatorY: MapCamera.mercatorY(lat: lat)) : nil
     }
 }
 
-/// Outline rings in the map's world units (longitude, mercator Y), with
-/// their extents for culling.
+/// The pack outlines' look (#1316: "a bit darker and heavier stroke … a
+/// light translucent color"), in one place; the Qt app's
+/// `O4_Qt_Pack_Outlines` has the same values (`STROKE_RGB`, …), which
+/// `tests/test_qt_pack_outline_style.py` holds equal.
+enum PackOutlineStyle {
+    static let strokeRGB: UInt32 = 0x3D4757
+    static let strokeAlpha = 0.9
+    static let lineWidth: CGFloat = 1.8
+    /// Long dash, in points: 10 on, 4 off.
+    static let dash: [CGFloat] = [10, 4]
+    static let fillRGB: UInt32 = 0xC8D0DC
+    static let fillAlpha = 0.12
+    /// Labels show from this zoom level, at this size, on a dark pill.
+    static let labelMinZL = 18.0
+    static let labelPointSize: CGFloat = 10
+    static let labelBackAlpha = 0.55
+    /// Labels closer than this (points) to a drawn one are skipped.
+    static let labelGap: CGFloat = 4
+
+    static let stroke = PatchStyle.hex(strokeRGB, strokeAlpha)
+    static let fill = PatchStyle.hex(fillRGB, fillAlpha)
+    /// The legend swatch's fill: opaque enough to read on its dark panel.
+    static let legendFill = PatchStyle.hex(fillRGB, 0.6)
+
+    /// The labels that fit: `candidates` in priority order, each kept
+    /// unless it leaves `bounds` or comes nearer than `labelGap` to one
+    /// already kept (`O4_Qt_Pack_Outlines.place_labels`).
+    static func placeLabels(_ candidates: [(text: String, box: CGRect)],
+                            within bounds: CGRect) -> [(text: String, box: CGRect)] {
+        var kept: [(text: String, box: CGRect)] = []
+        for c in candidates where bounds.contains(c.box) {
+            let grown = c.box.insetBy(dx: -labelGap, dy: -labelGap)
+            if kept.contains(where: { grown.intersects($0.box) }) { continue }
+            kept.append(c)
+        }
+        return kept
+    }
+}
+
+/// Outlines in the map's world units (longitude, mercator Y), with their
+/// extents for culling, their labels and the labels' anchors.
 struct PackOutlineGeometry: Sendable {
-    struct Ring: Sendable {
-        let points: [CGPoint]
-        let minX, maxX, minY, maxY: Double
+    /// One outline as read: its label and `[lat, lon]` rings (exterior
+    /// first, then the holes).
+    struct Source: Sendable {
+        let label: String
+        let rings: [[O4LatLon]]
     }
 
-    let rings: [Ring]
+    struct Item: Sendable {
+        let label: String
+        /// Exterior first, then the holes.
+        let rings: [[CGPoint]]
+        let minX, maxX, minY, maxY: Double
+        /// The exterior's plan area in world units² (to rank, not measure).
+        let area: Double
+        /// The exterior's vertex mean, where the label sits.
+        let anchor: CGPoint
+    }
 
-    init(rings: [[O4LatLon]]) {
-        self.rings = rings.compactMap { ring in
-            guard ring.count >= 2 else { return nil }
-            let points = ring.map { CGPoint(x: $0.lon, y: MapCamera.mercatorY(lat: $0.lat)) }
-            let xs = points.map(\.x), ys = points.map(\.y)
-            return Ring(points: points, minX: xs.min()!, maxX: xs.max()!, minY: ys.min()!, maxY: ys.max()!)
+    let items: [Item]
+
+    init(_ sources: [Source]) {
+        items = sources.compactMap { source in
+            let rings = source.rings.filter { $0.count >= 3 }
+                .map { $0.map { CGPoint(x: $0.lon, y: MapCamera.mercatorY(lat: $0.lat)) } }
+            guard let ext = rings.first else { return nil }
+            let xs = ext.map(\.x), ys = ext.map(\.y)
+            let n = Double(ext.count)
+            return Item(label: source.label, rings: rings,
+                        minX: xs.min()!, maxX: xs.max()!, minY: ys.min()!, maxY: ys.max()!,
+                        area: Self.area(ext),
+                        anchor: CGPoint(x: xs.reduce(0, +) / n, y: ys.reduce(0, +) / n))
         }
     }
+
+    /// The label of the smallest outline whose exterior holds the point
+    /// and none of whose holes do (`PackOutlines.label_at` in Qt).
+    func label(atLon x: Double, mercatorY y: Double) -> String? {
+        var best: Item?
+        for item in items where x >= item.minX && x <= item.maxX && y >= item.minY && y <= item.maxY {
+            if let best, item.area >= best.area { continue }
+            let p = CGPoint(x: x, y: y)
+            if Self.contains(item.rings[0], p), !item.rings.dropFirst().contains(where: { Self.contains($0, p) }) {
+                best = item
+            }
+        }
+        return best?.label
+    }
+
+    /// Even-odd ray cast (`O4_Qt_Pack_Outlines.ring_contains`).
+    static func contains(_ ring: [CGPoint], _ p: CGPoint) -> Bool {
+        var inside = false
+        var j = ring.count - 1
+        for i in ring.indices {
+            let a = ring[i], b = ring[j]
+            if (a.y > p.y) != (b.y > p.y), p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+                inside.toggle()
+            }
+            j = i
+        }
+        return inside
+    }
+
+    static func area(_ ring: [CGPoint]) -> Double {
+        var a = 0.0
+        for i in ring.indices {
+            let p = ring[i], q = ring[(i + 1) % ring.count]
+            a += p.x * q.y - q.x * p.y
+        }
+        return abs(a) / 2
+    }
 }
 
-/// The dashed grey layer, drawn under the patch. It observes only the
-/// outlines and the camera — never the patch model or a drag — so editing
-/// does not redraw it.
+/// The filled, long-dashed layer under the patch, labelled from ZL 18
+/// (#1316). It observes only the outlines and the camera — never the patch
+/// model or a drag — so editing does not redraw it.
 struct PatchPackOutlineLayer: View {
     @ObservedObject var outlines: PatchPackOutlines
     @ObservedObject var camera: ViewState<MapCamera>
-
-    static let stroke = PatchStyle.hex(0x9AA4B5, 0.7)
-    static let dash: [CGFloat] = [5, 4]
 
     var body: some View {
         if outlines.enabled, let geometry = outlines.geometry {
@@ -141,20 +242,59 @@ struct PatchPackOutlineLayer: View {
 
     private static func draw(_ geometry: PackOutlineGeometry, camera: MapCamera,
                              in context: GraphicsContext, size: CGSize) {
+        typealias Style = PackOutlineStyle
         let scale = camera.scale
         let cx = camera.centerLon, cy = MapCamera.mercatorY(lat: camera.centerLat)
         let halfW = Double(size.width) / 2 / scale, halfH = Double(size.height) / 2 / scale
-        var path = Path()
-        for ring in geometry.rings {
-            guard ring.maxX >= cx - halfW, ring.minX <= cx + halfW,
-                  ring.maxY >= cy - halfH, ring.minY <= cy + halfH else { continue }
-            var outline = Path()
-            outline.addLines(ring.points.map {
-                CGPoint(x: size.width / 2 + ($0.x - cx) * scale, y: size.height / 2 - ($0.y - cy) * scale)
-            })
-            outline.closeSubpath()
-            path.addPath(outline)
+        func screen(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: size.width / 2 + (p.x - cx) * scale, y: size.height / 2 - (p.y - cy) * scale)
         }
-        context.stroke(path, with: .color(stroke), style: StrokeStyle(lineWidth: 1.2, dash: dash))
+        var stroke = Path()
+        var shown: [PackOutlineGeometry.Item] = []
+        for item in geometry.items {
+            guard item.maxX >= cx - halfW, item.minX <= cx + halfW,
+                  item.maxY >= cy - halfH, item.minY <= cy + halfH else { continue }
+            var outline = Path()
+            for ring in item.rings {
+                outline.addLines(ring.map(screen))
+                outline.closeSubpath()
+            }
+            // One fill per outline, even-odd: holes stay open, and a
+            // building over an apron does not cut the apron's fill.
+            context.fill(outline, with: .color(Style.fill), style: FillStyle(eoFill: true))
+            stroke.addPath(outline)
+            shown.append(item)
+        }
+        context.stroke(stroke, with: .color(Style.stroke),
+                       style: StrokeStyle(lineWidth: Style.lineWidth, dash: Style.dash))
+        guard log2(scale * 360 / 256) >= Style.labelMinZL - 1e-9 else { return }
+        drawLabels(shown.sorted { $0.area < $1.area }, screen: screen, in: context, size: size)
+    }
+
+    /// Smallest outline first, so a building names itself before the apron
+    /// under it; a label that would collide is skipped.
+    private static func drawLabels(_ items: [PackOutlineGeometry.Item], screen: (CGPoint) -> CGPoint,
+                                   in context: GraphicsContext, size: CGSize) {
+        typealias Style = PackOutlineStyle
+        var texts: [String: GraphicsContext.ResolvedText] = [:]
+        var candidates: [(text: String, box: CGRect)] = []
+        for item in items {
+            let text = texts[item.label] ?? context.resolve(
+                Text(item.label).font(.system(size: Style.labelPointSize)).foregroundStyle(.white.opacity(0.9)))
+            texts[item.label] = text
+            let measured = text.measure(in: CGSize(width: 1_000, height: 100))
+            let w = measured.width + 8, h = measured.height + 2
+            let c = screen(item.anchor)
+            candidates.append((item.label, CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h)))
+        }
+        let bounds = CGRect(origin: .zero, size: size)
+        for kept in Style.placeLabels(candidates, within: bounds) {
+            let h = kept.box.height
+            context.fill(Path(roundedRect: kept.box, cornerRadius: h / 2),
+                         with: .color(.black.opacity(Style.labelBackAlpha)))
+            if let text = texts[kept.text] {
+                context.draw(text, at: CGPoint(x: kept.box.midX, y: kept.box.midY), anchor: .center)
+            }
+        }
     }
 }

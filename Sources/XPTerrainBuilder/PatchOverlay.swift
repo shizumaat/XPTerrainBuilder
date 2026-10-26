@@ -9,6 +9,8 @@ struct PatchMapGeometry: Sendable {
         let way: Int
         let style: PatchStyleClass
         let closed: Bool
+        /// Hatched (#1319).
+        let belowGrade: Bool
         /// (lon, mercator Y) per ref.
         let points: [CGPoint]
         let minX, maxX, minY, maxY: Double
@@ -42,7 +44,8 @@ struct PatchMapGeometry: Sendable {
             let points = way.refs.compactMap { projected[$0] }
             guard points.count > 1 else { continue }
             let xs = points.map(\.x), ys = points.map(\.y)
-            shapes.append(Shape(way: w, style: way.style, closed: way.isClosed, points: points,
+            shapes.append(Shape(way: w, style: way.style, closed: way.isClosed, belowGrade: way.isBelowGrade,
+                                points: points,
                                 minX: xs.min()!, maxX: xs.max()!, minY: ys.min()!, maxY: ys.max()!))
         }
         let rank = Dictionary(uniqueKeysWithValues: Self.drawOrder.enumerated().map { ($1, $0) })
@@ -54,7 +57,7 @@ struct PatchMapGeometry: Sendable {
 /// The patch layer over the map (spec §4, mockup
 /// `Ortho4XP/docs/mockups/patch-editor-20261015.html`): fills and strokes
 /// by role, node squares where nodes are ≥ 6 pt apart, the legend and the
-/// bottom-left chip. Its own view, observing only the patch model and the
+/// bottom-left chip; below-grade shapes are hatched (#1319). Its own view, observing only the patch model and the
 /// camera, so the base map never redraws for it. Hit-testing is off in
 /// View mode; in Edit mode `PatchEditLayer` (PatchEditGestures.swift) sits
 /// on top and takes the clicks and drags. Shapes and nodes a drag is moving
@@ -69,6 +72,14 @@ struct PatchOverlay: View {
     /// The road halo's width (×1.5 with the strokes, #759).
     static let haloWidth: CGFloat = 7.5
     static let nodeSize: CGFloat = 6
+    /// The below-grade hatch (#1319): 45° bands this many points wide, with
+    /// gaps as wide, over the shape's own fill.
+    static let hatchBand: CGFloat = 4
+    /// The bands' opacity: the role's stroke colour at a second alpha.
+    static let hatchOpacity = 0.30
+
+    /// Fill, hatch and stroke paths per style class.
+    typealias StylePaths = [PatchStyleClass: (fill: Path, hatch: Path, stroke: Path)]
 
     var body: some View {
         ZStack {
@@ -119,39 +130,71 @@ struct PatchOverlay: View {
             CGPoint(x: size.width / 2 + (p.x - cx) * scale, y: size.height / 2 - (p.y - cy) * scale)
         }
 
-        var paths: [PatchStyleClass: (fill: Path, stroke: Path)] = [:]
+        var paths: StylePaths = [:]
         for shape in geometry.shapes {
             if let skip, skip.ways.contains(shape.way) { continue }
             guard shape.maxX >= view.minX, shape.minX <= view.maxX,
                   shape.maxY >= view.minY, shape.minY <= view.maxY else { continue }
-            var entry = paths[shape.style] ?? (Path(), Path())
+            var entry = paths[shape.style] ?? (Path(), Path(), Path())
             var outline = Path()
             outline.addLines(shape.points.map(screen))
             if shape.closed {
                 outline.closeSubpath()
                 entry.fill.addPath(outline)
+                if shape.belowGrade { entry.hatch.addPath(outline) }
             }
             entry.stroke.addPath(outline)
             paths[shape.style] = entry
         }
-        paint(paths, in: context)
+        paint(paths, phase: hatchPhase(camera, size: size), in: context)
         drawNodes(geometry, view: view, skip: skip?.nodes ?? [], screen: screen, in: context)
     }
 
-    /// Fill and stroke per style class, in draw order (also the edit
-    /// layer's moved shapes).
-    static func paint(_ paths: [PatchStyleClass: (fill: Path, stroke: Path)], in context: GraphicsContext) {
+    /// Fill, hatch and stroke per style class, in draw order (also the
+    /// edit layer's moved shapes).
+    static func paint(_ paths: StylePaths, phase: CGFloat, in context: GraphicsContext) {
         for style in PatchMapGeometry.drawOrder {
             guard let entry = paths[style] else { continue }
             let look = PatchStyle.of(style)
             if let fill = look.fill {
                 context.fill(entry.fill, with: .color(fill))
             }
+            if !entry.hatch.isEmpty {
+                hatch(entry.hatch, color: look.stroke.opacity(hatchOpacity), phase: phase, in: context)
+            }
             if let halo = look.halo {
                 context.stroke(entry.stroke, with: .color(halo), lineWidth: Self.haloWidth)
             }
             context.stroke(entry.stroke, with: .color(look.stroke), lineWidth: look.width)
         }
+    }
+
+    /// The hatch's pin: x + y on screen of the map's (0, 0), so the bands
+    /// move with the map, not the window.
+    static func hatchPhase(_ camera: MapCamera, size: CGSize) -> CGFloat {
+        let p = camera.point(lon: 0, lat: 0, in: size)
+        return p.x + p.y
+    }
+
+    /// 45° bands of `color` clipped to `region`, `hatchBand` points wide
+    /// and apart (the Qt app's `paint_hatch`).
+    static func hatch(_ region: Path, color: Color, phase: CGFloat, in context: GraphicsContext) {
+        let box = region.boundingRect
+        guard !box.isEmpty else { return }
+        var clipped = context
+        clipped.clip(to: region)
+        // Lines x + y = c: a band every period along x + y (2 × hatchBand
+        // measured square to the lines).
+        let period = 2 * hatchBand * CGFloat(2).squareRoot()
+        let pin = phase.truncatingRemainder(dividingBy: period)
+        var c = pin + (((box.minX + box.minY) - pin) / period).rounded(.down) * period - period / 4 * 3
+        var lines = Path()
+        while c <= box.maxX + box.maxY + period {
+            lines.move(to: CGPoint(x: box.minX - hatchBand, y: c - box.minX + hatchBand))
+            lines.addLine(to: CGPoint(x: box.maxX + hatchBand, y: c - box.maxX - hatchBand))
+            c += period
+        }
+        clipped.stroke(lines, with: .color(color), lineWidth: hatchBand)
     }
 
     /// Small squares, thinned so no two drawn squares are closer than
@@ -219,6 +262,9 @@ struct PatchStyle {
         }
     }
 
+    /// The hatch's legend row (#1319; the Qt app's `BELOW_GRADE_LABEL`).
+    static let belowGradeLabel = "below grade"
+
     /// Legend label per class (the mockup's words; "graded ground" is new).
     static func label(_ style: PatchStyleClass) -> String {
         switch style {
@@ -243,6 +289,15 @@ private struct PatchLegend: View {
                     Text(PatchStyle.label(style))
                 }
             }
+            HStack(spacing: 6) {
+                Canvas { context, size in
+                    let swatch = Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 2)
+                    PatchOverlay.hatch(swatch, color: PatchStyle.of(.ground).stroke, phase: 0, in: context)
+                    context.stroke(swatch, with: .color(PatchStyle.of(.ground).stroke), lineWidth: 1)
+                }
+                .frame(width: 14, height: 8)
+                Text(PatchStyle.belowGradeLabel)
+            }
             if let outlines { PackOutlineLegendRow(outlines: outlines) }
             if let terrain { TerrainReliefLegendRow(relief: terrain) }
         }
@@ -262,8 +317,9 @@ private struct PackOutlineLegendRow: View {
         if outlines.enabled {
             HStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 2)
-                    .strokeBorder(PatchPackOutlineLayer.stroke,
-                                  style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .fill(PackOutlineStyle.legendFill)
+                    .overlay(RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(PackOutlineStyle.stroke, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2])))
                     .frame(width: 14, height: 8)
                 Text("pack apt.dat")
             }

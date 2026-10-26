@@ -8,9 +8,10 @@ first" when the zoomed airport has no patch.  Edit mode adds the node
 inspector (one node: lat/lon, elevation, "Used by", Delete; several: the
 range, "Set to", "Offset", Delete N; a selected shape, #759: role, ref,
 nodes, area, perimeter, elevation range, "Used by", "Copy shape reference",
-"Delete shape").  A click on the node's lat/lon copies ``lat, lon`` (#1281).
-The save bar shows in Edit mode and whenever there is something to save
-or rebuild; "Undo" confirms inside the box.  The widgets are built once and refreshed in place, so a
+"Set elevation…" (#1357), "Delete shape").  A click on the node's lat/lon
+copies ``lat, lon`` (#1281).  The save bar shows in Edit mode and whenever
+there is something to save or rebuild; "Undo" confirms inside the box.  The
+widgets are built once and refreshed in place, so a
 field being typed in keeps its focus.
 """
 from __future__ import annotations
@@ -23,11 +24,13 @@ from PySide6.QtWidgets import (QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit
                                QPushButton, QVBoxLayout, QWidget)
 
 import O4_Glossary as GLOSSARY
+import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
 import O4_Qt_Patch_Reference as REFERENCE
 import O4_Qt_Patch_ShapePick as PICK
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Version
 from O4_Qt_Patch_Controller import PatchController, built_date_text
+from O4_Qt_Patch_Elevation import parse_number
 from O4_Qt_Patch_Geometry import role_name
 
 __all__ = ["PatchPanel", "parse_number", "source_line", "node_lat_lon", "FEET_PER_METRE"]
@@ -37,14 +40,6 @@ STALE_COLOR = "#F29419"
 SELECTION_COLOR = "#FFD60A"
 #: How long a "Copied" note stays (ms; the Mac's ``copiedNoteSeconds``).
 COPIED_NOTE_MS = 1500
-
-
-def parse_number(text: str) -> float | None:
-    """A typed number ("62.7", "62,7", "+0.50"), or None."""
-    try:
-        return float(text.strip().replace(",", "."))
-    except ValueError:
-        return None
 
 
 def source_line(patch, file_mtime: float | None) -> str:
@@ -268,10 +263,22 @@ class PatchPanel(QGroupBox):
         s.addLayout(copy_row)
         s.addWidget(_note("Drag a selected shape to move it; nodes it shares with other "
                           "shapes move too."))
+        self.set_elevation = QPushButton(ELEVDIALOG.TITLE)
+        self.set_elevation.setToolTip("Give every node of the selected shapes one elevation")
+        self.set_elevation.clicked.connect(self.open_set_elevation)
+        s.addWidget(self.set_elevation)
         self.delete_shapes = QPushButton()
         self.delete_shapes.clicked.connect(self.model.delete_selection)
         s.addWidget(self.delete_shapes)
         return self.shape_box
+
+    def open_set_elevation(self) -> ELEVDIALOG.SetElevationDialog | None:
+        """"Set elevation…" on the selected shapes (#1357), window-modal."""
+        if not self.model.shape_selection or self.model.doc is None:
+            return None
+        self.elevation_dialog = ELEVDIALOG.SetElevationDialog(self.model, self.window())
+        self.elevation_dialog.open()
+        return self.elevation_dialog
 
     def _make_save_bar(self) -> QWidget:
         bar = QWidget()

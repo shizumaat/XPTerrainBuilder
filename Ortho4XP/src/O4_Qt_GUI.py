@@ -2730,7 +2730,8 @@ class MainWindow(QMainWindow):
         """Right-click on a tile (#938): its menu at the pointer, after
         the patch layer's copy items (#1281)."""
         menu = QTTILEMENU.tile_menu(
-            self, lat, lon, self._tile_folder((lat, lon)))
+            self, lat, lon, self._tile_folder((lat, lon)),
+            self.patch_editor.context_actions())
         pos = self.map.viewport().mapFromGlobal(global_pos)
         self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
         menu.exec(global_pos)
@@ -4536,7 +4537,8 @@ class MainWindow(QMainWindow):
         if readout is None:                 # the label is made after the map
             from O4_Qt_Cursor_Readout import CursorReadout
             readout = self._cursor_readout = CursorReadout(
-                self.coords_label, self.patch_editor.engine, lambda: self._built, self)
+                self.coords_label, self.patch_editor.engine, lambda: self._built, self,
+                pack_label=self.patch_editor.pack_label_at)
         readout.hover(lat, lon)
 
     def _update_zoom_label(self):

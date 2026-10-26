@@ -268,8 +268,14 @@ public struct O4PackOutlines: Codable, Equatable, Sendable {
     public struct Pavement: Codable, Equatable, Sendable {
         /// "pavement" or "boundary".
         public let kind: String
+        /// The row's description, or the kind (#1316); nil from an older
+        /// engine.
+        public let label: String?
         /// Exterior first, then the holes.
         public let rings: [[O4LatLon]]
+
+        /// The map's label: the engine's, else the kind.
+        public var mapLabel: String { (label?.isEmpty == false ? label : nil) ?? kind }
     }
 
     public let pavement: [Pavement]
@@ -456,8 +462,10 @@ public struct O4PackObjects: Decodable, Equatable, Sendable {
     public struct Facade: Decodable, Equatable, Sendable {
         public let ring: [O4LatLon]
         public let heightM: Double
+        /// The facade's `.fac` path (#1316); nil from an older engine.
+        public let defPath: String?
 
-        private enum CodingKeys: String, CodingKey { case ring, heightM = "height_m" }
+        private enum CodingKeys: String, CodingKey { case ring, heightM = "height_m", defPath = "def" }
     }
 
     public let models: [Model]

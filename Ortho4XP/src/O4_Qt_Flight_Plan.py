@@ -79,6 +79,9 @@ class RouteLayer:
     def mouse_release(self, _event) -> bool:
         return False
 
+    def pointer_at(self, _pos) -> str | None:
+        return None
+
     def viewport_moved(self) -> None:
         pass
 

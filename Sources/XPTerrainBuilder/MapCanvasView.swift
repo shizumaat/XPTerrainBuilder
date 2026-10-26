@@ -22,6 +22,8 @@ struct MapCanvasView: View {
 
     @State private var cursorText: String?
     @State private var cursorElevation: String?
+    /// The pack outline under the cursor (#1316).
+    @State private var cursorPack: String?
     @State private var elevationQuery: Task<Void, Never>?
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     /// The airport layer's last plan (#817): rebuilt only when the camera,
@@ -77,7 +79,8 @@ struct MapCanvasView: View {
                                                      lon: Int(floor(point.lon)))
                     return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
                                            copies: buildModel.patchEdit.copyItems(at: location, camera: camera.value,
-                                                                                  size: proxy.size))
+                                                                                  size: proxy.size),
+                                           extra: buildModel.patchEdit.contextActions)
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }
@@ -90,11 +93,18 @@ struct MapCanvasView: View {
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
+                    // The hand over open map (#1325); in Edit mode the patch
+                    // layer sets it (a pointer over nodes and lines).
+                    if !editLayerOwnsCursor { PatchShapePick.pointer(over: nil).cursor.set() }
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     cursorText = PatchNodeInspector.latLon(lat: point.lat, lon: point.lon)
+                    cursorPack = buildModel.patchEdit.isShowing
+                        ? buildModel.packOutlines.label(atLat: point.lat, lon: point.lon) : nil
                     queryElevation(lat: point.lat, lon: point.lon)
                 case .ended:
+                    NSCursor.arrow.set()
                     cursorText = nil
+                    cursorPack = nil
                     elevationQuery?.cancel()
                 }
             }
@@ -561,10 +571,21 @@ struct MapCanvasView: View {
 
     // MARK: - Gestures
 
+    /// The patch editor's Edit layer is over the map and sets the cursor.
+    private var editLayerOwnsCursor: Bool {
+        let patch = buildModel.patchEdit
+        return patch.mode == .edit && patch.isShowing && patch.geometry != nil && patch.document != nil
+    }
+
+    /// A drag on open map pans (#1325: every map view, a closed hand while
+    /// it does); a click selects a tile; right click is the tile menu.
     private func pan(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                if dragAnchor.value == nil { dragAnchor.value = camera.value }
+                if dragAnchor.value == nil {
+                    dragAnchor.value = camera.value
+                    PatchShapePick.pointer(over: nil, panning: true).cursor.set()
+                }
                 guard let anchor = dragAnchor.value else { return }
                 var cam = anchor
                 cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
@@ -576,6 +597,7 @@ struct MapCanvasView: View {
             }
             .onEnded { _ in
                 dragAnchor.value = nil
+                PatchShapePick.pointer(over: nil).cursor.set()
             }
     }
 
@@ -619,11 +641,14 @@ struct MapCanvasView: View {
         }
     }
 
-    /// Bottom-left readout: the cursor position in the node format (#1308).
+    /// Bottom-left readout: the cursor position in the node format (#1308),
+    /// the elevation, and the pack outline under it (#1316; Qt's
+    /// `O4_Qt_Cursor_Readout.readout_text`).
     @ViewBuilder
     private var cursorReadout: some View {
         if let cursorText {
-            Text(cursorElevation.map { "\(cursorText) · \($0)" } ?? cursorText)
+            Text(([cursorText] + [cursorElevation, cursorPack.map { "pack: \($0)" }].compactMap { $0 })
+                .joined(separator: " · "))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)

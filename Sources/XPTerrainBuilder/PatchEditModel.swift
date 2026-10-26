@@ -61,6 +61,9 @@ final class PatchEditModel: ObservableObject {
     @Published var prompt: UnsavedPrompt?
     /// Tiles whose patch was saved or reverted since their last build.
     @Published var tilesNeedingRebuild: Set<String> = []
+    /// The "Set elevation…" sheet for the selected shapes (#1357; the shape
+    /// inspector's button and the map's right-click menu open it).
+    @Published var showsSetElevation = false
     /// The live drag (its own object: drag frames redraw the map layer,
     /// never the inspector).
     let drag = PatchDragState()

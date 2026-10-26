@@ -45,6 +45,16 @@ struct PackFootprintsTests {
         #expect(rings[1].count == 3 && rings[1][0] == O4LatLon(lat: 45.1, lon: -122.1))
     }
 
+    /// #1316: each footprint is named by its file; an older engine's
+    /// facade (no `def`) by its kind.
+    @Test func footprintsCarryTheirFileNames() throws {
+        let labels = PackFootprints.labelled(try objects(heading: 0)).map { $0.label }
+        #expect(labels == ["m.obj", "facade"])
+        #expect(PackFootprints.fileLabel("lib/terminals/T1.obj", fallback: "object") == "T1.obj")
+        #expect(PackFootprints.fileLabel("lib\\gate.fac", fallback: "facade") == "gate.fac")
+        #expect(PackFootprints.fileLabel(nil, fallback: "facade") == "facade")
+    }
+
     @Test func headingZeroKeepsTheAuthoredPlan() throws {
         let corners = PackFootprints.outlines(try objects(heading: 0))[0].map(metres)
         for expected in [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0)] {

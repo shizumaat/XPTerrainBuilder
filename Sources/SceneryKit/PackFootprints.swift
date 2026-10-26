@@ -11,19 +11,36 @@ public enum PackFootprints {
     /// One ring per drawn placement (a model with fewer than three distinct
     /// plan points has none), then one per facade.
     public static func outlines(_ objects: O4PackObjects) -> [[O4LatLon]] {
+        labelled(objects).map { $0.ring }
+    }
+
+    /// `outlines` with each ring's map label (#1316): the model's file
+    /// name, or the facade's (`O4_Qt_Pack_Outlines.labelled_footprints`).
+    public static func labelled(_ objects: O4PackObjects) -> [(label: String, ring: [O4LatLon])] {
         var hulls: [String: [SIMD2<Double>]] = [:]
         for model in objects.models {
             hulls[model.key] = model.planHull.isEmpty
                 ? planHull(authored: model.vertices) : pairs(model.planHull)
         }
-        var out: [[O4LatLon]] = []
+        var out: [(label: String, ring: [O4LatLon])] = []
         out.reserveCapacity(objects.placements.count + objects.facades.count)
         for p in objects.placements {
             guard let hull = hulls[p.model], hull.count >= 3 else { continue }
-            out.append(place(hull, lat: p.lat, lon: p.lon, headingDeg: p.headingDeg))
+            out.append((fileLabel(p.model, fallback: "object"),
+                        place(hull, lat: p.lat, lon: p.lon, headingDeg: p.headingDeg)))
         }
-        for f in objects.facades where f.ring.count >= 3 { out.append(f.ring) }
+        for f in objects.facades where f.ring.count >= 3 {
+            out.append((fileLabel(f.defPath, fallback: "facade"), f.ring))
+        }
         return out
+    }
+
+    /// An object's label: its file name (`lib/terminal.obj` →
+    /// `terminal.obj`), or `fallback` when the engine sent none.
+    public static func fileLabel(_ path: String?, fallback: String) -> String {
+        let name = (path ?? "").replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/").last.map(String.init) ?? ""
+        return name.isEmpty ? fallback : name
     }
 
     /// A footprints-only answer's plan hull: `(x, z)` pairs, already a hull.

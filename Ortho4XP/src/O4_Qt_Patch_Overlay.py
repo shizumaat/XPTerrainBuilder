@@ -2,8 +2,9 @@
 mockup ``docs/mockups/patch-editor-20261015.html``; the Mac app's
 ``PatchOverlay``).
 
-Fills and strokes by role, node squares where nodes are ≥ 6 px apart, the
-legend and the bottom-left chip, viewport-culled.  Shapes are kept per way
+Fills and strokes by role (below-grade shapes hatched, #1319), node squares
+where nodes are ≥ 6 px apart, the legend and the bottom-left chip,
+viewport-culled.  Shapes are kept per way
 as paths in map scene units (drawn through the view transform with cosmetic
 pens), rebuilt when the document changes; during a node drag the moved
 shapes are skipped here and drawn by the gesture layer
@@ -12,16 +13,17 @@ shapes are skipped here and drawn by the gesture layer
 """
 from __future__ import annotations
 
+import math
 import typing as _t
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QLineF, QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainterPath, QPen, QPolygonF
 
 import O4_Geo_Utils as GEO
 import O4_Qt_Map as QTMAP
-from O4_Qt_Patch_Geometry import DRAW_ORDER, PatchScreenIndex, scene_xy, style_class
+from O4_Qt_Patch_Geometry import DRAW_ORDER, PatchScreenIndex, below_grade, scene_xy, style_class
 
-__all__ = ["PatchOverlay", "STYLES", "paint_styled"]
+__all__ = ["PatchOverlay", "STYLES", "HATCH_BAND", "paint_styled", "paint_hatch"]
 
 
 def _hex(rgb: int, alpha: float = 1.0) -> QColor:
@@ -46,20 +48,64 @@ NODE_STROKE = _hex(0xE7EBF2)
 SELECTION = QColor("#FFD60A")
 _LEGEND = (("runway", "runway"), ("taxiway", "taxiway"), ("apron", "apron"),
            ("building", "building"), ("road", "road"), ("ground", "graded ground"))
+#: The legend row for the hatch (the Mac's ``PatchLegend``, same words).
+BELOW_GRADE_LABEL = "below grade"
 NODE_SIZE = 6.0
+#: The below-grade hatch (#1319; the Mac's ``PatchOverlay.hatch``): 45°
+#: bands this many device pixels wide, with gaps as wide, over the shape's
+#: own fill.
+HATCH_BAND = 4.0
+#: The bands' opacity: the role's stroke colour at a second alpha.
+HATCH_ALPHA = 0.30
 
 
-def paint_styled(painter, shapes: _t.Iterable[tuple[str, bool, QPainterPath]]) -> None:
-    """Fill and stroke ``(style, closed, path)`` in draw order (the base
-    layer and the gesture layer's moved shapes)."""
+def paint_hatch(painter, path: QPainterPath, color: QColor, phase: float = 0.0) -> None:
+    """45° bands of ``color`` clipped to ``path`` (in the painter's current
+    coordinates), ``HATCH_BAND`` device pixels wide and apart.  ``phase``
+    is ``x + y`` (device) of a point the bands are pinned to, so they move
+    with the map, not the window."""
+    t = painter.transform()
+    box = t.mapRect(path.boundingRect())
+    if box.isEmpty():
+        return
+    painter.save()
+    painter.setClipPath(path, Qt.IntersectClip if painter.hasClipping() else Qt.ReplaceClip)
+    painter.resetTransform()
+    pen = QPen(color, HATCH_BAND)
+    pen.setCapStyle(Qt.FlatCap)
+    painter.setPen(pen)
+    # Lines x + y = c: a band of width HATCH_BAND every 2 × HATCH_BAND
+    # measured square to the lines, i.e. every period along x + y.
+    period = 2 * HATCH_BAND * math.sqrt(2)
+    phase = math.fmod(phase, period)
+    lo, hi = box.left() + box.top(), box.right() + box.bottom()
+    k = math.floor((lo - phase) / period) - 1
+    pad = HATCH_BAND
+    while phase + k * period <= hi + period:
+        c = phase + k * period + period / 4
+        painter.drawLine(QLineF(box.left() - pad, c - box.left() + pad,
+                                box.right() + pad, c - box.right() - pad))
+        k += 1
+    painter.restore()
+
+
+def paint_styled(painter, shapes: _t.Iterable[tuple[str, bool, QPainterPath, bool]],
+                 phase: float = 0.0) -> None:
+    """Fill and stroke ``(style, closed, path, below_grade)`` in draw order
+    (the base layer and the gesture layer's moved shapes); a closed
+    below-grade shape's fill is hatched beneath its stroke."""
     by_style: dict[str, list] = {}
-    for style, closed, path in shapes:
-        by_style.setdefault(style, []).append((closed, path))
+    for style, closed, path, below in shapes:
+        by_style.setdefault(style, []).append((closed, path, below))
     for style in DRAW_ORDER:
         fill, stroke, width, halo = STYLES[style]
-        for closed, path in by_style.get(style, ()):
+        for closed, path, below in by_style.get(style, ()):
             if closed and fill is not None:
                 painter.fillPath(path, fill)
+            if closed and below:
+                band = QColor(stroke)
+                band.setAlphaF(HATCH_ALPHA)
+                paint_hatch(painter, path, band, phase)
             painter.setBrush(Qt.NoBrush)
             if halo is not None:
                 pen = QPen(halo, HALO_WIDTH)
@@ -76,6 +122,7 @@ class _Shape(_t.NamedTuple):
     closed: bool
     path: QPainterPath         # map scene units
     bounds: QRectF
+    below: bool                # hatched (#1319)
 
 
 class PatchOverlay:
@@ -120,7 +167,8 @@ class PatchOverlay:
             path = self.way_path(way.refs, lambda r: self._scene(r))
             if path is None:
                 continue
-            shapes.append(_Shape(w, style_class(way.tags), way.closed, path, path.boundingRect()))
+            shapes.append(_Shape(w, style_class(way.tags), way.closed, path, path.boundingRect(),
+                                 below_grade(way.tags)))
         rank = {s: k for k, s in enumerate(DRAW_ORDER)}
         self._shapes = sorted(shapes, key=lambda s: (rank[s.style], s.way))
         self.update()
@@ -143,6 +191,11 @@ class PatchOverlay:
     def transform(self) -> tuple[float, float, float, float]:
         t = self.map.viewportTransform()
         return (t.m11(), t.m22(), t.dx(), t.dy())
+
+    def hatch_phase(self) -> float:
+        """The hatch's pin: ``x + y`` on screen of the scene origin."""
+        t = self.map.viewportTransform()
+        return t.dx() + t.dy()
 
     def lat_lon(self, p: QPointF) -> tuple[float, float]:
         """The ground under a viewport point."""
@@ -169,9 +222,9 @@ class PatchOverlay:
             self.outlines.paint(painter, view_t)
         painter.save()
         painter.setTransform(view_t)
-        paint_styled(painter, ((s.style, s.closed, s.path) for s in self._shapes
+        paint_styled(painter, ((s.style, s.closed, s.path, s.below) for s in self._shapes
                                if (skip is None or s.way not in skip.ways)
-                               and s.bounds.intersects(visible)))
+                               and s.bounds.intersects(visible)), self.hatch_phase())
         painter.restore()
         self._paint_nodes(painter, vp.width(), vp.height(), skip.nodes if skip else ())
         if self.gestures is not None and self.model.mode == "Edit":
@@ -191,15 +244,16 @@ class PatchOverlay:
         painter.setFont(font)
 
     def _paint_legend(self, painter) -> None:
-        rows = [(STYLES[k][1], label, False) for k, label in _LEGEND]
+        rows = [(STYLES[k][1], label, None) for k, label in _LEGEND]
+        rows.append((STYLES["ground"][1], BELOW_GRADE_LABEL, "hatch"))
         if self.outlines is not None and self.outlines.enabled:
             from O4_Qt_Pack_Outlines import OUTLINE_COLOR
-            rows.append((OUTLINE_COLOR, "pack apt.dat", True))
+            rows.append((OUTLINE_COLOR, "pack apt.dat", "dashed"))
         if self.terrain is not None and self.terrain.enabled:
             from O4_Qt_Terrain_Relief import CONTOUR_COLOR, legend_text
             text = legend_text(self.terrain.legend)
             if text:
-                rows.append((CONTOUR_COLOR, text, False))
+                rows.append((CONTOUR_COLOR, text, None))
         painter.save()
         self._panel_font(painter, 10)
         fm = painter.fontMetrics()
@@ -210,14 +264,21 @@ class PatchOverlay:
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(0, 0, 0, 115))
         painter.drawRoundedRect(box, 8, 8)
-        for k, (color, label, dashed) in enumerate(rows):
+        for k, (color, label, swatch_kind) in enumerate(rows):
             y = box.top() + 5 + k * line
             swatch = QRectF(box.left() + 9, y + (line - 8) / 2 - 1, 14, 8)
-            if dashed:
-                pen = QPen(color, 1)
+            if swatch_kind == "hatch":
+                outline = QPainterPath()
+                outline.addRoundedRect(swatch, 2, 2)
+                paint_hatch(painter, outline, color)
+                painter.setPen(QPen(color, 1))
+                painter.setBrush(Qt.NoBrush)
+            elif swatch_kind == "dashed":   # the pack outlines' swatch (#1316)
+                from O4_Qt_Pack_Outlines import LEGEND_FILL
+                pen = QPen(color, 1.5)
                 pen.setDashPattern([3, 2])
                 painter.setPen(pen)
-                painter.setBrush(Qt.NoBrush)
+                painter.setBrush(LEGEND_FILL)
             else:
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(color)
@@ -244,3 +305,7 @@ class PatchOverlay:
 
     def mouse_release(self, event) -> bool:
         return self._editing() and self.gestures.release(event)
+
+    def pointer_at(self, pos) -> str | None:
+        """The cursor over ``pos`` in Edit mode (#1325), else None."""
+        return self.gestures.pointer_at(pos) if self._editing() else None

@@ -199,7 +199,8 @@ def pack_objects(tile: str, icao: str, bbox: _t.Sequence[float],
         if h is None:
             heightless.add(poly.def_path)
             continue
-        out["facades"].append({"ring": [[p[1], p[0]] for p in ring], "height_m": h})
+        out["facades"].append({"ring": [[p[1], p[0]] for p in ring], "height_m": h,
+                               "def": poly.def_path})
 
     capped = 0 if footprints_only else _mass.fit_to_cap(
         hulls, 120 * len(placements)

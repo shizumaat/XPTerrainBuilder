@@ -7,32 +7,38 @@ View mode: the source line, counts, the stale note, and "Build this tile
 first" when the zoomed airport has no patch.  Edit mode adds the node
 inspector (one node: lat/lon, elevation, "Used by", Delete; several: the
 range, "Set to", "Offset", Delete N; a selected shape, #759: role, ref,
-nodes, area, perimeter, elevation range, "Used by", "Set elevation…"
-(#1357), "Delete shape").  The save bar shows in Edit mode and
-whenever there is something to save or rebuild; "Undo" confirms
-inside the box.  The widgets are built once and refreshed in place, so a
+nodes, area, perimeter, elevation range, "Used by", "Copy shape reference",
+"Set elevation…" (#1357), "Delete shape").  A click on the node's lat/lon
+copies ``lat, lon`` (#1281).  The save bar shows in Edit mode and whenever
+there is something to save or rebuild; "Undo" confirms inside the box.  The
+widgets are built once and refreshed in place, so a
 field being typed in keeps its focus.
 """
 from __future__ import annotations
 
 import typing as _t
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QFrame, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QVBoxLayout, QWidget)
 
 import O4_Glossary as GLOSSARY
 import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
+import O4_Qt_Patch_Reference as REFERENCE
 import O4_Qt_Patch_ShapePick as PICK
 import O4_Qt_Text_Scale as QTTEXT
+import O4_Version
 from O4_Qt_Patch_Controller import PatchController, built_date_text
 from O4_Qt_Patch_Geometry import role_name
 
-__all__ = ["PatchPanel", "parse_number", "source_line", "FEET_PER_METRE"]
+__all__ = ["PatchPanel", "parse_number", "source_line", "node_lat_lon", "FEET_PER_METRE"]
 
 FEET_PER_METRE = 3.280839895
 STALE_COLOR = "#F29419"
 SELECTION_COLOR = "#FFD60A"
+#: How long a "Copied" note stays (ms; the Mac's ``copiedNoteSeconds``).
+COPIED_NOTE_MS = 1500
 
 
 def parse_number(text: str) -> float | None:
@@ -65,15 +71,30 @@ def _note(text: str = "", color: str | None = None) -> QLabel:
     return label
 
 
-def _row(key: str) -> tuple[QWidget, QLabel]:
+class _ClickLabel(QLabel):
+    """A value a click copies (the node's lat / lon, #1281)."""
+
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
+def _row(key: str, clickable: bool = False) -> tuple[QWidget, QLabel]:
     w = QWidget()
     h = QHBoxLayout(w)
     h.setContentsMargins(0, 0, 0, 0)
     k = QLabel(key)
     k.setStyleSheet("color: palette(mid);")
-    v = QLabel()
+    v = _ClickLabel() if clickable else QLabel()
     v.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    v.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    if clickable:
+        v.setCursor(Qt.PointingHandCursor)
+        v.setToolTip("Click to copy “lat, lon”")
+    else:
+        v.setTextInteractionFlags(Qt.TextSelectableByMouse)
     v.setWordWrap(True)
     h.addWidget(k)
     h.addWidget(v, 1)
@@ -170,10 +191,13 @@ class PatchPanel(QGroupBox):
         self.node_title.setStyleSheet("font-weight: 600;")
         head.addWidget(self.node_title)
         head.addStretch(1)
-        head.addWidget(_note("1 selected"))
+        self.node_count_note = _note("1 selected")
+        head.addWidget(self.node_count_note)
         s.addLayout(head)
-        self.lat_row, self.lat_value = _row("lat")
-        self.lon_row, self.lon_value = _row("lon")
+        self.lat_row, self.lat_value = _row("lat", clickable=True)
+        self.lon_row, self.lon_value = _row("lon", clickable=True)
+        self.lat_value.clicked.connect(self.copy_node_coordinates)
+        self.lon_value.clicked.connect(self.copy_node_coordinates)
         s.addWidget(self.lat_row)
         s.addWidget(self.lon_row)
         alt_row, self.alt_edit = _field("Elevation", "", m.set_selection_alt, button=False)
@@ -233,6 +257,17 @@ class PatchPanel(QGroupBox):
         self.shape_extra_note = _note()
         s.addWidget(self.shape_mesh_note)
         s.addWidget(self.shape_extra_note)
+        copy_row = QHBoxLayout()
+        self.copy_shape = QPushButton(REFERENCE.COPY_SHAPE_REFERENCE)
+        self.copy_shape.setToolTip("Copies a text block that identifies this shape, "
+                                   "for an issue report.")
+        self.copy_shape.clicked.connect(self.copy_shape_reference)
+        self.shape_copied = _note("Copied")
+        self.shape_copied.setVisible(False)
+        copy_row.addWidget(self.copy_shape)
+        copy_row.addWidget(self.shape_copied)
+        copy_row.addStretch(1)
+        s.addLayout(copy_row)
         s.addWidget(_note("Drag a selected shape to move it; nodes it shares with other "
                           "shapes move too."))
         self.set_elevation = QPushButton(ELEVDIALOG.TITLE)
@@ -351,6 +386,34 @@ class PatchPanel(QGroupBox):
         if show_bar:
             self._refresh_save_bar(n)
 
+    # ─── copying (#1281) ───────────────────────────────────────────────
+    def shape_reference(self, way_id: int) -> str:
+        """The "Copy shape reference" block for one way of the open patch."""
+        m = self.model
+        return REFERENCE.shape_reference(m.patch, m.doc, way_id, O4_Version.version)
+
+    def copy_node_coordinates(self) -> None:
+        """The selected node's ``lat, lon``, then "Copied" in its header."""
+        m = self.model
+        ids = [i for i in m.selection if m.doc is not None and i in m.doc.nodes]
+        if len(ids) != 1:
+            return
+        _nid, lat, lon, _alt = m.doc.nodes[ids[0]]
+        QGuiApplication.clipboard().setText(node_lat_lon(lat, lon))
+        self.node_count_note.setText("Copied")
+        QTimer.singleShot(COPIED_NOTE_MS, self.node_count_note,
+                          lambda: self.node_count_note.setText("1 selected"))
+
+    def copy_shape_reference(self) -> None:
+        m = self.model
+        if len(m.shape_selection) != 1 or m.doc is None:
+            return
+        (way_id,) = m.shape_selection
+        QGuiApplication.clipboard().setText(self.shape_reference(way_id))
+        self.shape_copied.setVisible(True)
+        QTimer.singleShot(COPIED_NOTE_MS, self.shape_copied,
+                          lambda: self.shape_copied.setVisible(False))
+
     def _refresh_inspector(self) -> None:
         m, doc = self.model, self.model.doc
         ids = sorted(i for i in m.selection if i in doc.nodes)
@@ -434,6 +497,7 @@ class PatchPanel(QGroupBox):
         self.shape_extra_note.setText("Also %s, deleted with the shapes."
                                       % _plural(extra_nodes, "selected node"))
         self.shape_extra_note.setVisible(extra_nodes > 0)
+        self.copy_shape.setVisible(one)
         self.delete_shapes.setText("Delete shape" if one else "Delete %s shapes" % format(len(ways), ","))
 
     def _refresh_save_bar(self, n: int) -> None:

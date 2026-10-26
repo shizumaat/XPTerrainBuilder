@@ -210,16 +210,34 @@ class AptAirport:
     def reference_point(self) -> tuple[float, float]:
         """``(lat, lon)`` of the airport reference point: the 1302
         ``datum_lat``/``datum_lon`` when authored, else the mean of the
-        runway ends, else the first pavement vertex."""
+        FIRST non-empty witness in this order — runway ends, pavement
+        exteriors, helipads, boundary exteriors, taxi nodes, startups.
+
+        A block carrying none of them (no geometry at all) raises
+        ``ValueError``.  A heliport block (row 17) authors only a row-102
+        helipad — no runway, no pavement — and used to raise here, failing
+        the whole tile's airport (#1355, #1356)."""
         md = self.metadata
         if "datum_lat" in md and "datum_lon" in md:
             try:
                 return (float(md["datum_lat"]), float(md["datum_lon"]))
             except ValueError:
                 pass
-        pts = [(e[1], e[2]) for r in self.runways for e in r.ends]
-        if not pts:
-            pts = [(p[1], p[0]) for pv in self.pavements for p in pv.rings[0]]
+        witnesses = (
+            lambda: [(e[1], e[2]) for r in self.runways for e in r.ends],
+            lambda: [(p[1], p[0]) for pv in self.pavements
+                     for ring in pv.rings[:1] for p in ring],
+            lambda: [(h.lat, h.lon) for h in self.helipads],
+            lambda: [(p[1], p[0]) for b in self.boundaries
+                     for ring in b.rings[:1] for p in ring],
+            lambda: [(n.lat, n.lon) for n in self.taxi_nodes.values()],
+            lambda: [(s.lat, s.lon) for s in self.startups],
+        )
+        pts: list[tuple[float, float]] = []
+        for witness in witnesses:
+            pts = witness()
+            if pts:
+                break
         if not pts:
             raise ValueError(f"{self.icao}: no reference point derivable")
         return (sum(p[0] for p in pts) / len(pts),

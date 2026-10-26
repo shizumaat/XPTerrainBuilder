@@ -346,3 +346,19 @@ def test_a_pack_part_AT_GRADE_over_the_line_is_cover_and_d_stands(law):
     beside = _part(0.0, 6.0, _ll_ring(310, -99.5, 325, -90))
     _cl, _t, st = _spjc(law, partition=_link(beside))
     assert st.tunnels == 0 and len(_refusals(st)) == 1
+
+
+def test_the_open_passage_reads_a_MULTIPOLYGON_corridor(law):
+    """#1361 (CYYC, ``'MultiPolygon' object has no attribute 'exterior'``):
+    a bore whose end segment is shorter than its half-width buffers, flat
+    capped, to a MultiPolygon (GEOS leaves detached slivers at the hairpin).
+    :meth:`passage` reads the corridor's BOUNDS, so it answers instead of
+    failing the airport."""
+    from auto_patch_v2.planar.structure_service import _PackBuildings
+    line = LineString([(338.54, -98.76), (340.24, -97.02), (339.66, -95.47)])
+    assert line.buffer(5.0, cap_style="flat").geom_type == "MultiPolygon"
+    ap = types.SimpleNamespace(
+        partition=_partition(("dsf:obj6", "Bridge.obj", "", (_part(8.0, 3.0, EAST_END),))),
+        frame=Frame("ZZZZ", origin=(-12.03, -77.11), identity_dp=11))
+    over = _PackBuildings(ap, law).passage(line, 10.0, 1.0)
+    assert over is not None and over[0] == "Bridge.obj" and over[2] == pytest.approx(8.0)

@@ -279,6 +279,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Cfg_Module_Values",
     "O4_Cfg_Vars",
     "O4_Coastal_Foam_Edge",
+    "O4_Coastline_Vetting",
     "O4_Code_Closure",
     "O4_Color_Harmonization",
     "O4_Config_Utils",

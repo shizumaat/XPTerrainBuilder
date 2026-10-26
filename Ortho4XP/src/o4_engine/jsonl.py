@@ -153,7 +153,8 @@ def _ortho4xp_version() -> str:
 
 #: Commands completed by an event that names the command: their handler
 #: is given the command's ``id`` as ``request``.
-_TAKES_REQUEST_ID = frozenset({"pack_objects"})
+_TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
+                               "free_cache", "library_delete"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -240,7 +241,20 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # thread: an uncached source loads on a daemon thread and the
         # reply says pending.
         "cursor_elevation": cursor_elevation,
+        # Library view (#824): built tiles with sizes, the caches, freeing
+        # a cache, deleting tiles.  Each replies {"status": "started"} and
+        # completes with LibraryReady carrying this command's id; deleting
+        # needs confirm=true and is refused while a build runs.
+        **{name: _library_handler(session, name)
+           for name in ("library_scan", "cache_sizes", "free_cache",
+                        "library_delete")},
     }
+
+
+def _library_handler(session: EngineSession, name: str) -> Callable:
+    from . import library
+    return lambda **kw: library.start(
+        session._emit, name, busy=lambda: bool(session._building), **kw)
 
 
 def command_table(session: EngineSession) -> Dict[str, Callable]:
@@ -484,7 +498,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
                           "secrets", "tile_settings_write",
-                          "missing_art"))))
+                          "missing_art", "library"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

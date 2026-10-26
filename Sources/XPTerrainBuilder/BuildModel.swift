@@ -1007,6 +1007,25 @@ final class BuildModel: ObservableObject {
         return client
     }
 
+    // MARK: - Library (#824)
+
+    /// The engine session and the folders the Library window reads, or
+    /// nil when the engine is not running or no tiles folder is known.
+    func libraryContext() -> (client: OrthoEngineClient, workingDir: String, sceneryDir: String)? {
+        connectIfNeeded()
+        guard let client, let base = tileBaseFolder else { return nil }
+        return (client, base.path, customSceneryPath)
+    }
+
+    /// Library ▸ Rebuild: select those tiles (adopting the active one's
+    /// recorded source) and press Build.
+    func rebuild(_ coords: [TileCoord]) {
+        guard !coords.isEmpty else { return }
+        selected = Set(coords)
+        activeTile = coords.sorted().first
+        startBuild()
+    }
+
     // MARK: - Reanchor status (auto-patch object reseating)
 
     /// One pack the reseater modified, as the engine reports it.

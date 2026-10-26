@@ -17,13 +17,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints import generate, roads
 from auto_patch_v2.constraints.runway_chord import with_runway_chord
-from auto_patch_v2.constraints.threshold_seam import (RULING_HEAD,
-                                                      seam_thresholds,
-                                                      yield_records)
+from auto_patch_v2.constraints.threshold_seam import RULING_HEAD, seam_thresholds, yield_records
 from auto_patch_v2.emit.graded import graded_surface
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.airport import Airport, Runway, RunwayEnd, SceneryPack

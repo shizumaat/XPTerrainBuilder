@@ -133,3 +133,46 @@ that step would PASS verify and ship. The owner has three options:
   (geoid or realisation) is corrected before the solve. That would shrink but
   not remove the 33 conflict: about 0.17 m over 8.8 m is 1.9 %, still over the
   transverse cap.
+
+## Ruling and fix (phase 2)
+
+**Owner, 2026-10-26T16:35Z (verbatim, relayed by the master):** "Like SPLP,
+or any airport on a tile boundary, the tile boundary has to trump everything
+to ensure a smooth edge, so it would allow cifp to move if required".
+Recorded as RULINGS 2026-10-26b. This is option (B), generalised to every
+tile boundary.
+
+**Mechanism.**
+- `constraints/threshold_seam.py` is the one derivation site. A CIFP
+  threshold is seam-yielding when a seam pin of its own runway family lies
+  nearer than `sqrt(2·R·|CIFP − DEM|)`, the vertical-curve turning distance.
+- `runway_profile` mints that threshold's `Pin` under the head "runway.threshold
+  yields to the tile seam", which is listed in `[design] yielding_pin_rulings`.
+- The stage-1 pin yield (`solve/pin_yield`) releases it only where its own
+  rows will not hold it. The pin becomes a design target at its CIFP value,
+  so the threshold moves just enough to be lawful.
+- `runway_yield` does not raise the cap for the span from a seam pin to that
+  threshold.
+- `no_step` reach bands do not anchor on that threshold.
+- The yield is said in one line, written to `report.threshold_seam_yield` and
+  published in sidecar `threshold_seam_yield`.
+
+**After.** Replay on the registered capture, and closing harness build
+`l1346_PANC2` (body `d116e640950f`; one solve, written as the +61-150 and
++61-151 pieces):
+
+| | before (+61-151 build) | after |
+|---|---|---|
+| RWY 33 threshold | 36.881 (CIFP pin) | **36.294** (yield −0.586 m, 8.85 m from the seam) |
+| stage 1 hard rows violated | 18 (worst 0.714 m) | 1 (0.022 m vertical curve at 61.17276, −149.99949) |
+| verify DEFECT families | `runway_vertical_curve` 2 (both tiles' builds) | **0** |
+| ridge step v2894 → v2895 | 1.006 m / 11.9 m (−8.47 %) | +0.01 m / 11.9 m (+0.08 %) |
+
+Built ridge of 15/33 across lon −150 (emitted at 0.01 m):
+36.18 (−150.00006529), 36.19 (west band edge, −150.00004671), 36.26 (east
+band edge, −149.99995378; +0.38 % across the band), 36.27, 36.28, **36.29
+(RWY 33)**, 36.30, 36.30, 36.30, 36.32 m. Both band-edge pins are at their
+DEM.
+
+Other runways in the replay move by at most 0.28 m against the infeasible
+base, at the 07L/25R and 15/33 junction and at the 25L end.

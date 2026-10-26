@@ -178,4 +178,14 @@ struct PatchEditorTests {
         #expect(PatchStyleClass(tags: ["aeroway": "aerodrome"]) == .ground)
         #expect(PatchStyleClass(tags: ["highway": "residential"]) == .road)
     }
+
+    /// #1319: below-grade shapes are hatched, read from `role` or from the
+    /// emitter's `class` (an aliased role is written under its oracle name).
+    @Test func belowGradeIsReadFromRoleOrClass() {
+        #expect(PatchWay(id: -1, refs: [], tags: ["role": "tunnel_ramp", "aeroway": "taxiway"]).isBelowGrade)
+        #expect(PatchWay(id: -2, refs: [], tags: ["role": "tunnel_ramp", "class": "wall_corridor_ramp"]).isBelowGrade)
+        #expect(PatchWay(id: -3, refs: [], tags: ["role": "tunnel_trench", "aeroway": "apron"]).isBelowGrade)
+        #expect(!PatchWay(id: -4, refs: [], tags: ["role": "apron", "aeroway": "apron"]).isBelowGrade)
+        #expect(!PatchWay(id: -5, refs: [], tags: ["role": "service_road", "class": "parking_lot"]).isBelowGrade)
+    }
 }

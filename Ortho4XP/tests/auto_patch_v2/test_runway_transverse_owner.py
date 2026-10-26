@@ -35,3 +35,21 @@ def test_verify_reads_the_same_owner():
     p = NS(shapes=shapes, xy=XY)
     owners = verify_owners(p, spines, [s for v in spines.values() for s in v], HALF)
     assert owners == {4: "B"}
+
+
+def test_a_runway_end_corner_stays_its_own_runways():
+    """#1363 (PAAQ: 16S/34S's end corners on 16/34's shoulder face): B's
+    ridge ENDS at the corner's station, so the corner has no interior foot
+    on it.  The generator's clamped foot still gives it to B; the verify
+    must read the same distance, or the corner falls to A's shoulder face
+    and is read against A's crown — a row the generator never states."""
+    xy = {**XY, 3: (49.5, 50.0)}               # B's ridge stops short of x = 50
+    vw = NS(xy=xy, faces_of_role=lambda roles: FACES,
+            face_vertices=lambda fid: next(f.vs for f in FACES if f.id == fid))
+    assert gen_owners(vw, {"A": [[0, 1]], "B": [[2, 3]]}, HALF) == {4: "B"}
+    shapes = [NS(role="runway", ref=f.ref, vertex_ids=f.vs) for f in FACES]
+    spines = {"A": [[(0.0, 0.0, 10.0), (100.0, 0.0, 10.0)]],
+              "B": [[(0.0, 50.0, 8.0), (49.5, 50.0, 8.0)]]}
+    p = NS(shapes=shapes, xy=xy)
+    owners = verify_owners(p, spines, [s for v in spines.values() for s in v], HALF)
+    assert owners == {4: "B"}

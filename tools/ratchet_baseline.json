@@ -93,11 +93,11 @@
  "justified": {},
  "near_duplicates": 71,
  "unused": {
-  "count": 1220,
+  "count": 1222,
   "none": 28,
-  "local": 444,
-  "tests_only": 748,
-  "lines": 37406
+  "local": 443,
+  "tests_only": 751,
+  "lines": 37425
  },
  "layers": [
   "planar/__main__.py -> pipeline/build.py (lazy)"

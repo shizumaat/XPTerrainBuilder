@@ -35,7 +35,7 @@ def test_band_row_and_use_auto_patch(window, tiles_dir, monkeypatch):  # noqa: F
     directory = FNAMES.patch_dir(*tile)
     os.makedirs(directory)
     custom = os.path.join(directory, "LFLS.patch.osm")
-    with open(custom, "w", encoding="utf-8") as handle:
+    with open(custom, "w", encoding="utf-8", newline="") as handle:
         handle.write("<osm/>")
 
     # The band: an UNBUILT tile carries it too — a patch dropped in before

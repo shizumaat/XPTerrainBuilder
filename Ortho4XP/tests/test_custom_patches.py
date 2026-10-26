@@ -26,7 +26,7 @@ def patches(tmp_path, monkeypatch):
 
 def _write(directory, name, text="<osm/>"):
     path = os.path.join(directory, name)
-    with open(path, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write(text)
     return path
 

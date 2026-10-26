@@ -45,7 +45,7 @@ def test_an_unstamped_ortho4xp_cfg_is_never_touched(tmp_path):
 def test_a_stamped_ortho4xp_cfg_takes_this_apps_name(tmp_path):
     build = _tile_dir(tmp_path)
     theirs = build / "Ortho4XP_+30+031.cfg"
-    theirs.write_text(STAMP + "mesh_zl=19\n", encoding="utf-8")
+    theirs.write_text(STAMP + "mesh_zl=19\n", encoding="utf-8", newline="")
 
     infos = CN.adopt_tile_cfg(str(build), 30, 31)
 
@@ -58,9 +58,9 @@ def test_a_stamped_ortho4xp_cfg_takes_this_apps_name(tmp_path):
 def test_a_stamped_cfg_never_replaces_an_existing_own_cfg(tmp_path):
     build = _tile_dir(tmp_path)
     (build / "Ortho4XP_+30+031.cfg").write_text(STAMP + "mesh_zl=19\n",
-                                                encoding="utf-8")
+                                                encoding="utf-8", newline="")
     ours = build / "XPTerrainBuilder_+30+031.cfg"
-    ours.write_text(STAMP + "mesh_zl=17\n", encoding="utf-8")
+    ours.write_text(STAMP + "mesh_zl=17\n", encoding="utf-8", newline="")
 
     assert CN.adopt_tile_cfg(str(build), 30, 31) == []
 
@@ -72,8 +72,8 @@ def test_the_oldest_backup_is_restored_once(tmp_path):
     build = _tile_dir(tmp_path)
     oldest = build / "Ortho4XP_+30+031.cfg.pre352.bak"
     later = build / "Ortho4XP_+30+031.cfg.pre352.bak.2"
-    oldest.write_text("default_website=BI\n", encoding="utf-8")
-    later.write_text("default_website=GO2\n", encoding="utf-8")
+    oldest.write_text("default_website=BI\n", encoding="utf-8", newline="")
+    later.write_text("default_website=GO2\n", encoding="utf-8", newline="")
     theirs = build / "Ortho4XP_+30+031.cfg"
 
     infos = CN.adopt_tile_cfg(str(build), 30, 31)
@@ -93,9 +93,9 @@ def test_the_oldest_backup_is_restored_once(tmp_path):
 def test_a_restore_never_overwrites(tmp_path):
     build = _tile_dir(tmp_path)
     backup = build / "Ortho4XP_+30+031.cfg.pre352.bak"
-    backup.write_text("default_website=BI\n", encoding="utf-8")
+    backup.write_text("default_website=BI\n", encoding="utf-8", newline="")
     theirs = build / "Ortho4XP_+30+031.cfg"
-    theirs.write_text("default_website=Arc\n", encoding="utf-8")
+    theirs.write_text("default_website=Arc\n", encoding="utf-8", newline="")
 
     assert CN.adopt_tile_cfg(str(build), 30, 31) == []
 
@@ -108,9 +108,9 @@ def test_ours_moves_first_then_the_backup_comes_back(tmp_path):
     the user's Ortho4XP cfg in the backup 09-18c made."""
     build = _tile_dir(tmp_path)
     (build / "Ortho4XP_+30+031.cfg").write_text(STAMP + "mesh_zl=19\n",
-                                                encoding="utf-8")
+                                                encoding="utf-8", newline="")
     (build / "Ortho4XP_+30+031.cfg.pre352.bak").write_text(
-        "default_website=BI\n", encoding="utf-8")
+        "default_website=BI\n", encoding="utf-8", newline="")
 
     assert len(CN.adopt_tile_cfg(str(build), 30, 31)) == 2
 
@@ -143,8 +143,8 @@ def test_the_global_of_this_apps_data_folder_is_copied(tmp_path):
 def test_an_ortho4xp_installations_global_is_ignored(tmp_path):
     """The data folder IS an Ortho4XP folder (its launcher beside it):
     owner Q97, "Ignore" -- the app starts from its defaults."""
-    (tmp_path / "Ortho4XP_v130.py").write_text("", encoding="utf-8")
-    (tmp_path / "Ortho4XP.cfg").write_text("mesh_zl=19\n", encoding="utf-8")
+    (tmp_path / "Ortho4XP_v130.py").write_text("", encoding="utf-8", newline="")
+    (tmp_path / "Ortho4XP.cfg").write_text("mesh_zl=19\n", encoding="utf-8", newline="")
 
     assert CN.is_ortho4xp_install(str(tmp_path))
     assert CN.adopt_global_cfg(str(tmp_path)) == []
@@ -162,7 +162,7 @@ def test_the_global_write_never_touches_ortho4xps(tmp_path, monkeypatch):
     byte-identical (and grows no .bak)."""
     import O4_File_Names as FNAMES
 
-    (tmp_path / "Ortho4XP_v130.py").write_text("", encoding="utf-8")
+    (tmp_path / "Ortho4XP_v130.py").write_text("", encoding="utf-8", newline="")
     theirs = tmp_path / "Ortho4XP.cfg"
     theirs.write_bytes(b"mesh_zl=19\n")
     monkeypatch.setattr(FNAMES, "data_path",

@@ -207,7 +207,8 @@ def test_mount_and_unmount(CS, tmp_path, monkeypatch):
     shared = tmp_path / "shared" / "OSM_data"
     shared.mkdir(parents=True)
     (root / "OSM_data").symlink_to(shared)
-    (root / "XPTerrainBuilder.cfg").write_text("custom_scenery_dir=/real/X/Custom Scenery\n", encoding="utf-8", newline="")
+    (root / "XPTerrainBuilder.cfg").write_text(
+        "custom_scenery_dir=/real/X/Custom Scenery\n", encoding="utf-8", newline="")
     rec = CS.mount(root, snap, icao="ZZZZ")
     assert rec["corpus"] == f"snapshot@{man['hash'][:12]}"
     for name in CS.DATA_DIRS:

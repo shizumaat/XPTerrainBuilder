@@ -769,6 +769,7 @@ def test_terrain_toggle_asks_for_the_view_and_draws_it(editor):
 
 def test_terrain_legend_text():
     from O4_Qt_Terrain_Relief import legend_text
-    assert legend_text({"min_m": 100.4, "max_m": 109.6, "contour_m": 1.0}) == "1 m contours · 100–110 m"
+    assert (legend_text({"min_m": 100.4, "max_m": 109.6, "contour_m": 1.0})
+            == "1 m contours · 100–110 m")
     assert legend_text({"min_m": None, "max_m": None, "contour_m": 0.5}) == "0.5 m contours"
     assert legend_text(None) is None

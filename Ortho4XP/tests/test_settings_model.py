@@ -467,7 +467,8 @@ def test_autodetect_cifp_empty_cases(tmp_path):
 # ---------------------------------------------------------------------------
 def test_legacy_tile_settings_none_for_a_current_config(tmp_path):
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w", encoding="utf-8", newline="") as f:
+    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w",
+              encoding="utf-8", newline="") as f:
         f.write("default_website=BI\ndefault_zl=17\nroad_level=2\n")
     assert SM.legacy_tile_settings(45, 5, build) is None
 
@@ -479,7 +480,8 @@ def test_legacy_tile_settings_none_without_any_config(tmp_path):
 def test_legacy_tile_settings_reports_every_marker(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # no global cfg: replacements are defaults
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w", encoding="utf-8", newline="") as f:
+    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w",
+              encoding="utf-8", newline="") as f:
         f.write(
             "default_website='Arc'\n"
             "default_zl=17\n"
@@ -502,7 +504,8 @@ def test_legacy_tile_settings_enum_replacement_comes_from_global(
     with open(SM._default_global_cfg(), "w", encoding="utf-8", newline="") as f:
         f.write("texture_mode=airport_ortho\n")
     build = _tile_dir(tmp_path)
-    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w", encoding="utf-8", newline="") as f:
+    with open(os.path.join(build, "XPTerrainBuilder_+45+005.cfg"), "w",
+              encoding="utf-8", newline="") as f:
         f.write("texture_mode=weird_mode\n")
     legacy = SM.legacy_tile_settings(45, 5, build)
     assert legacy["foreign_enums"] == [

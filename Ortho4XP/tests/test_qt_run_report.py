@@ -164,6 +164,8 @@ def test_run_done_puts_the_summary_in_the_status_bar(window):
         (48, -6): ("done", "", 100),
         (48, -5): ("error", "failed", 60),
     }
+    # The report describes this run's tiles (#1341: rows outlive it).
+    window._run_tiles = set(window._progress_states)
     window._tile_results = {
         (48, -6): (True, "", 125.0),
         (48, -5): (False, "the mesh step failed (see the console log)",

@@ -1,19 +1,26 @@
 """Politeness: how many requests may be in flight against one server.
 
 One bounded semaphore per provider code, sized by the definition's
-``fetch_slots`` key, and a wait that honours the Stop button.
+``fetch_slots`` key, and a wait that honours the Stop button.  The same
+count bounds the provider across EVERY process of the build session
+(#1236): a held fetch slot also holds one slot of the provider's
+``O4_Machine_Slots`` class, so ten tiles fetching insets from one server
+are one limit on it, not ten.
 """
 
 import contextlib as _contextlib
 import threading
 
+import O4_Machine_Slots as MACHINE_SLOTS
 import O4_UI_Utils as UI
 
 from elevation_access.base import TransientFetchError
 from elevation_access.definitions import _parse_float
 
 __all__ = [
+    "PROVIDER_CONCURRENT_FETCHES",
     "_held_provider_fetch_slot",
+    "machine_class",
     "provider_fetch_slots",
 ]
 
@@ -21,6 +28,15 @@ __all__ = [
 # Per-provider politeness cap for the concurrent airport fetches: at most
 # this many in-flight requests against any single elevation server.
 _PROVIDER_CONCURRENT_FETCHES = 2
+
+#: the same cap, public: a base elevation download (``O4_DEM_Utils.
+#: http_request``) holds one of this many slots of its server's class
+PROVIDER_CONCURRENT_FETCHES = _PROVIDER_CONCURRENT_FETCHES
+
+
+def machine_class(code):
+    """The session-wide slot class of one elevation provider (#1236)."""
+    return "net:elevation:%s" % code
 
 
 _provider_fetch_slots: dict = {}
@@ -72,6 +88,15 @@ def _held_provider_fetch_slot(code, slots=None):
                 "stopped with the build while waiting for a %s fetch slot"
                 % code)
     try:
-        yield
+        # ... and one of the provider's slots for the whole session: the
+        # other tiles' fetches count too (bounded wait, ends on Stop).
+        with MACHINE_SLOTS.hold_class(
+                machine_class(code), int(slots or _PROVIDER_CONCURRENT_FETCHES),
+                give_up=lambda: UI.red_flag):
+            if UI.red_flag:
+                raise TransientFetchError(
+                    "stopped with the build while waiting for a %s fetch "
+                    "slot" % code)
+            yield
     finally:
         slot.release()

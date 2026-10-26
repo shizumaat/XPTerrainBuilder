@@ -1,17 +1,22 @@
-import os
 import array
+import os
+
 import numpy
-from PIL import Image
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+from PIL import Image
 
-def set_depth_ratio(n, node_is_coast, node_bathy, tile):
+
+def set_depth_ratio(n, node_is_coast, node_bathy, tile, node_scale=None):
+    """The DSF depth ratio of water vertex ``n``: 0 on the shore, else the
+    distance ramp, times ``node_scale[n]`` when given (the inland bed
+    cap of :func:`inland_depth_scale`, #1395)."""
     if node_is_coast[n]:
         return 0
-    else:
-        return max(
-            min(10 * tile.ratio_bathy * node_bathy[n] / 255, 1),
-            0.1)
+    ratio = max(min(10 * tile.ratio_bathy * node_bathy[n] / 255, 1), 0.1)
+    if node_scale is not None:
+        ratio *= float(node_scale[n])
+    return ratio
 
 def recut_water_tris(node_coords, tri_idx, tri_types):
 
@@ -321,3 +326,124 @@ def inland_depth_from_shore(node_bathy, node_coords, tri_idx, tri_types,
     pixels[pairs[0]] = numpy.minimum(distances / pixel_m, 255.0)
     node_bathy[inland_only] = numpy.round(pixels).astype(numpy.uint8)
     return int(inland_only.size)
+
+
+# Inland water's own bed (#1395, RULINGS 2026-10-26f): inland water never
+# reads the sea's depth.  Its bed is the shore ramp above scaled to this
+# depth, tied to its own surface: 0 on the shore, a tenth of it at the
+# first vertex off the shore, all of it from ``25.5 / ratio_bathy`` ZL16
+# pixels (about 46 m) inland.  3 m is the depth of a stormwater pond, a
+# farm dam or a lake's shelf, 1 m deeper than the donor DSF's own
+# ``elevation - 2`` bed for inland water it has no data for, and a 1:15
+# slope over the ramp: a pond reads as shallow water over a bed, a lake as
+# open water, and neither as a pit.
+INLAND_BED_DEPTH_M = 3.0
+
+
+def _water_classes(tri_idx, tri_types, nbr_nodes):
+    """``(tris, types, touches)``: the triangles as ``(n, 3)``, their DSF
+    classes, and per class 0/1/2 which vertices a triangle of it holds."""
+    tris = numpy.asarray(tri_idx, dtype=numpy.int64).reshape(-1, 3)
+    types = numpy.asarray(tri_types)
+    touches = numpy.zeros((3, nbr_nodes), dtype=bool)
+    for cls in (0, 1, 2):
+        touches[cls, tris[types == cls].ravel()] = True
+    return (tris, types, touches)
+
+
+def _post_xyz(node_coords, lat, lon, posts):
+    """Vertices in raster post units (x east, y north from the tile's
+    south-west corner) with their mesh elevation."""
+    xyz = numpy.asarray(node_coords, dtype=float).reshape(-1, 5)[:, :3].copy()
+    xyz[:, 0] = (xyz[:, 0] - lon) * (posts - 1)
+    xyz[:, 1] = (xyz[:, 1] - lat) * (posts - 1)
+    return xyz
+
+
+def set_inland_bed(sea_level, node_coords, tri_idx, tri_types, lat, lon,
+                   depth_m=INLAND_BED_DEPTH_M):
+    """Set the DSF ``sea_level`` raster to ``surface - depth_m`` under
+    inland water (#1395), in place.  Returns the number of posts set.
+
+    ``sea_level`` is the square post-centric int16 raster, row 0 south.
+    A post is set when an inland triangle (class 1: lakes, ponds, rivers,
+    riverbanks) meets the four cells around it, the reach of X-Plane's
+    bilinear read; it takes the lowest surface among them, floored, so
+    the raster depth there is never under ``depth_m``.  A post any sea
+    triangle (class 2) also meets is left as it is: the sea and its
+    coastal bathymetry band keep their raster.  The ratio scale of
+    :func:`inland_depth_scale` caps what this raster cannot hold (two
+    water levels on one post, a post shared with the sea).
+    """
+    import shapely
+
+    posts = sea_level.shape[0]
+    xyz = _post_xyz(node_coords, lat, lon, posts)
+    (tris, types, _touches) = _water_classes(
+        tri_idx, tri_types, len(xyz))
+    inland = tris[types == 1]
+    if not len(inland):
+        return 0
+    corners = xyz[inland]
+    low = numpy.clip(numpy.ceil(corners[:, :, :2].min(axis=1)) - 1,
+                     0, posts - 1).astype(int)
+    high = numpy.clip(numpy.floor(corners[:, :, :2].max(axis=1)) + 1,
+                      0, posts - 1).astype(int)
+    near = numpy.zeros(sea_level.shape, dtype=bool)
+    for (x0, y0), (x1, y1) in zip(low, high, strict=True):
+        near[y0:y1 + 1, x0:x1 + 1] = True
+    (rows, cols) = numpy.nonzero(near)
+    boxes = shapely.box(cols - 1.0, rows - 1.0, cols + 1.0, rows + 1.0)
+    (hit, tri) = shapely.STRtree(shapely.polygons(corners[:, :, :2])).query(
+        boxes, predicate="intersects")
+    surface = numpy.full(len(rows), numpy.inf)
+    numpy.minimum.at(surface, hit, corners[tri, :, 2].min(axis=1))
+    keep = numpy.isfinite(surface)
+    sea = tris[types == 2]
+    if len(sea):
+        (sea_hit, _t) = shapely.STRtree(
+            shapely.polygons(xyz[sea][:, :, :2])).query(
+            boxes, predicate="intersects")
+        keep[sea_hit] = False
+    bed = numpy.floor(surface[keep] - depth_m)
+    sea_level[rows[keep], cols[keep]] = numpy.clip(
+        bed, -32768, 32767).astype(sea_level.dtype)
+    return int(keep.sum())
+
+
+def _bilinear(raster, x, y):
+    """``raster`` (row 0 south, post-centric) read at post coordinates."""
+    last = raster.shape[0] - 1
+    x = numpy.clip(x, 0, last)
+    y = numpy.clip(y, 0, last)
+    (x0, y0) = (numpy.minimum(x.astype(int), last - 1),
+                numpy.minimum(y.astype(int), last - 1))
+    (fx, fy) = (x - x0, y - y0)
+    r = raster.astype(float)
+    return ((r[y0, x0] * (1 - fx) + r[y0, x0 + 1] * fx) * (1 - fy)
+            + (r[y0 + 1, x0] * (1 - fx) + r[y0 + 1, x0 + 1] * fx) * fy)
+
+
+def inland_depth_scale(sea_level, node_coords, tri_idx, tri_types, lat,
+                       lon, depth_m=INLAND_BED_DEPTH_M):
+    """Per vertex, the factor :func:`set_depth_ratio` is multiplied by so
+    that no inland water vertex is drawn deeper than ``depth_m`` (#1395).
+
+    The drawn depth is the ratio times the surface's height over the
+    raster bed.  Where that height ``H`` exceeds ``depth_m`` on a vertex
+    of inland water alone, the factor is ``depth_m / H``, so the drawn
+    bed is the shore ramp times ``depth_m`` whatever the raster holds.
+    Everywhere else, the sea and every vertex touching it included, it is
+    1.
+    """
+    xyz = _post_xyz(node_coords, lat, lon, sea_level.shape[0])
+    scale = numpy.ones(len(xyz))
+    (_tris, _types, touches) = _water_classes(tri_idx, tri_types, len(xyz))
+    inland_only = numpy.flatnonzero(touches[1] & ~touches[2])
+    if not inland_only.size:
+        return scale
+    p = xyz[inland_only]
+    height = p[:, 2] - _bilinear(sea_level, p[:, 0], p[:, 1])
+    deep = height > depth_m
+    scale[inland_only[deep]] = depth_m / height[deep]
+    return scale

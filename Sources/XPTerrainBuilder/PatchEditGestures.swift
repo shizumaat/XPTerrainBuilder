@@ -329,19 +329,23 @@ struct PatchEditLayer: View {
         }
         // The shapes the drag moves (the base layer skips them).
         if let skip {
-            var paths: [PatchStyleClass: (fill: Path, stroke: Path)] = [:]
+            var paths: PatchOverlay.StylePaths = [:]
             for w in skip.ways where w < doc.ways.count {
                 let way = doc.ways[w]
                 let points = way.refs.compactMap(at)
                 guard points.count > 1 else { continue }
-                var entry = paths[way.style] ?? (Path(), Path())
+                var entry = paths[way.style] ?? (Path(), Path(), Path())
                 var outline = Path()
                 outline.addLines(points)
-                if way.isClosed { outline.closeSubpath(); entry.fill.addPath(outline) }
+                if way.isClosed {
+                    outline.closeSubpath()
+                    entry.fill.addPath(outline)
+                    if way.isBelowGrade { entry.hatch.addPath(outline) }
+                }
                 entry.stroke.addPath(outline)
                 paths[way.style] = entry
             }
-            PatchOverlay.paint(paths, in: context)
+            PatchOverlay.paint(paths, phase: PatchOverlay.hatchPhase(screen.camera, size: screen.size), in: context)
         }
         // Selected shapes: the full outline in the selection colour at twice
         // the stroke width, over a light selection tint (#759).

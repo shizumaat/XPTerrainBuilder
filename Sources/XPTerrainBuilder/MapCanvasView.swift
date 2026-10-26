@@ -77,7 +77,8 @@ struct MapCanvasView: View {
                                                      lon: Int(floor(point.lon)))
                     return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
                                            copies: buildModel.patchEdit.copyItems(at: location, camera: camera.value,
-                                                                                  size: proxy.size))
+                                                                                  size: proxy.size),
+                                           patch: buildModel.patchEdit)
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }

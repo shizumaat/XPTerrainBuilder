@@ -14,7 +14,8 @@
   "delete_nodes": "{ids}: remove the nodes from the document and from every way.",
   "insert_on_edge": "{a, b}: new node at the midpoint, alt = mean of the ends (null if either is null), id = min(0, min node id) - 1, appended after the existing nodes, inserted into every way where a and b are consecutive in either direction. Never merges.",
   "merge_nodes": "{source, target}: target keeps its position and alt; every ref to source becomes target; source leaves the document. No distance check (the UI decided).",
-  "delete_ways": "{way_ids}: remove the ways (whole shapes, issue #759) and every node of theirs that no remaining way uses; nodes shared with a remaining way stay; nodes the removed ways never used are untouched."
+  "delete_ways": "{way_ids}: remove the ways (whole shapes, issue #759) and every node of theirs that no remaining way uses; nodes shared with a remaining way stay; nodes the removed ways never used are untouched.",
+  "slice_shape": "{a, b, way?}: cut the shape (closed way, no o4_feature) holding a and b (way picks it when several do) along a->b, a 0.5 m gap (o4_engine/patch_slice.py, issue #1318). a and b each become two nodes 0.25 m either side of the cut line (perpendicular, in the plane of origin = midpoint of a and b), keeping their alt; each crossing of a gap_interior_ring hole of the shape becomes two new nodes (alt interpolated along the hole edge, null if either end is null) and the hole way is removed. The half with the larger plan area (ties: the half left of a->b) keeps the way id, its place and a's and b's ids; the other half is a new way (id = min(0, min way id) - 1) right after it, same tags. Rings keep the original direction and start at a's copy. New node ids count down from min(0, min node id) - 1 along the cut: a's copy, each crossing's left then right copy, b's copy; appended in that order. Refused (no case here; tests/test_patch_slice.py and PatchSliceTests.swift): neighbours, a cut leaving or touching the outline, a cut through a hole's corner, more than two pieces."
  },
  "topology": "after every op: consecutive duplicate refs collapse (cyclically on a closed way); a closed way with < 3 distinct nodes or an open way with < 2 is removed; nodes a removed way leaves behind are kept.",
  "ui_snap_reference": "NOT exercised here (UI-only, L3): the drag snap radius is 8 pt ON SCREEN from the pointer to the node, inclusive (owner ruling 2026-10-15, spec 3.3); nearest on screen wins; ties go to the lowest survivor_key = (round(lat, identity_dp), round(lon, identity_dp)), then the lowest id. The document origin (for metric work) is the centre of the loaded nodes' bbox ((min lat + max lat) / 2, (min lon + max lon) / 2), fixed for the document's life; metres per degree lat = 111320.0, per degree lon = 111320.0 * max(cos(origin lat), 1e-6) (osm_adapter._local_metres).",
@@ -3375,6 +3376,602 @@
       ],
       "tags": {
        "o4_feature": "crown_spine"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "slice_square_diagonal_keeps_neighbour_welded",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      29.999755859375,
+      30.999755859375,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -5,
+       -1
+      ],
+      "tags": {
+       "highway": "service",
+       "role": "service_road"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "slice_shape",
+     "args": {
+      "a": -1,
+      "b": -3
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.000001470202637,
+      30.999998039710526,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.000978032702637,
+      31.000974602210526,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      29.999755859375,
+      30.999755859375,
+      null
+     ],
+     [
+      -6,
+      29.999998529797363,
+      31.000001960289474,
+      100.0
+     ],
+     [
+      -7,
+      30.000975092297363,
+      31.000978522789474,
+      104.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -103,
+      "refs": [
+       -6,
+       -2,
+       -7,
+       -6
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -5,
+       -1
+      ],
+      "tags": {
+       "highway": "service",
+       "role": "service_road"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "slice_clockwise_concave_l_larger_half_keeps_id",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      50.0
+     ],
+     [
+      -2,
+      30.001953125,
+      31.0,
+      52.0
+     ],
+     [
+      -3,
+      30.001953125,
+      31.0009765625,
+      54.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0009765625,
+      56.0
+     ],
+     [
+      -5,
+      30.0009765625,
+      31.001953125,
+      58.0
+     ],
+     [
+      -6,
+      30.0,
+      31.001953125,
+      60.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -201,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -5,
+       -6,
+       -1
+      ],
+      "tags": {
+       "aeroway": "taxiway",
+       "role": "taxiway",
+       "shapeID": "7"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "slice_shape",
+     "args": {
+      "a": -4,
+      "b": -2
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      50.0
+     ],
+     [
+      -2,
+      30.00195165480563,
+      30.999998039682968,
+      52.0
+     ],
+     [
+      -3,
+      30.001953125,
+      31.0009765625,
+      54.0
+     ],
+     [
+      -4,
+      30.00097509230563,
+      31.000974602182968,
+      56.0
+     ],
+     [
+      -5,
+      30.0009765625,
+      31.001953125,
+      58.0
+     ],
+     [
+      -6,
+      30.0,
+      31.001953125,
+      60.0
+     ],
+     [
+      -7,
+      30.00097803269437,
+      31.000978522817032,
+      56.0
+     ],
+     [
+      -8,
+      30.00195459519437,
+      31.000001960317032,
+      52.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -201,
+      "refs": [
+       -4,
+       -5,
+       -6,
+       -1,
+       -2,
+       -4
+      ],
+      "tags": {
+       "aeroway": "taxiway",
+       "role": "taxiway",
+       "shapeID": "7"
+      }
+     },
+     {
+      "id": -202,
+      "refs": [
+       -7,
+       -8,
+       -3,
+       -7
+      ],
+      "tags": {
+       "aeroway": "taxiway",
+       "role": "taxiway",
+       "shapeID": "7"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "slice_through_a_hole_adds_nodes_and_drops_the_hole",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      10.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      10.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      20.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      20.0
+     ],
+     [
+      -11,
+      30.0003662109375,
+      31.000244140625,
+      12.0
+     ],
+     [
+      -12,
+      30.0003662109375,
+      31.00048828125,
+      14.0
+     ],
+     [
+      -13,
+      30.0006103515625,
+      31.00048828125,
+      null
+     ],
+     [
+      -14,
+      30.0006103515625,
+      31.000244140625,
+      18.0
+     ],
+     [
+      -21,
+      30.00006103515625,
+      31.000244140625,
+      11.0
+     ],
+     [
+      -22,
+      30.00006103515625,
+      31.0003662109375,
+      11.0
+     ],
+     [
+      -23,
+      30.00018310546875,
+      31.0003662109375,
+      11.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -301,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron",
+       "shapeID": "3"
+      }
+     },
+     {
+      "id": -302,
+      "refs": [
+       -11,
+       -12,
+       -13,
+       -14,
+       -11
+      ],
+      "tags": {
+       "o4_feature": "gap_interior_ring",
+       "shapeID": "3"
+      }
+     },
+     {
+      "id": -303,
+      "refs": [
+       -21,
+       -22,
+       -23,
+       -21
+      ],
+      "tags": {
+       "o4_feature": "gap_interior_ring",
+       "shapeID": "3"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "slice_shape",
+     "args": {
+      "a": -4,
+      "b": -2
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      10.0
+     ],
+     [
+      -2,
+      30.000001470202637,
+      31.000978522789474,
+      10.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      20.0
+     ],
+     [
+      -4,
+      30.000978032702637,
+      31.000001960289474,
+      20.0
+     ],
+     [
+      -11,
+      30.0003662109375,
+      31.000244140625,
+      12.0
+     ],
+     [
+      -12,
+      30.0003662109375,
+      31.00048828125,
+      14.0
+     ],
+     [
+      -13,
+      30.0006103515625,
+      31.00048828125,
+      null
+     ],
+     [
+      -14,
+      30.0006103515625,
+      31.000244140625,
+      18.0
+     ],
+     [
+      -21,
+      30.00006103515625,
+      31.000244140625,
+      11.0
+     ],
+     [
+      -22,
+      30.00006103515625,
+      31.0003662109375,
+      11.0
+     ],
+     [
+      -23,
+      30.00018310546875,
+      31.0003662109375,
+      11.0
+     ],
+     [
+      -24,
+      30.000975092297363,
+      30.999998039710526,
+      20.0
+     ],
+     [
+      -25,
+      30.000611821765137,
+      31.000368171226974,
+      null
+     ],
+     [
+      -26,
+      30.000608881359863,
+      31.000364250648026,
+      null
+     ],
+     [
+      -27,
+      30.000489751452637,
+      31.000490241539474,
+      null
+     ],
+     [
+      -28,
+      30.000486811047363,
+      31.000486320960526,
+      null
+     ],
+     [
+      -29,
+      29.999998529797363,
+      31.000974602210526,
+      10.0
+     ]
+    ],
+    "ways": [
+     {
+      "id": -301,
+      "refs": [
+       -4,
+       -25,
+       -13,
+       -27,
+       -2,
+       -3,
+       -4
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron",
+       "shapeID": "3"
+      }
+     },
+     {
+      "id": -304,
+      "refs": [
+       -24,
+       -1,
+       -29,
+       -28,
+       -12,
+       -11,
+       -14,
+       -26,
+       -24
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron",
+       "shapeID": "3"
+      }
+     },
+     {
+      "id": -303,
+      "refs": [
+       -21,
+       -22,
+       -23,
+       -21
+      ],
+      "tags": {
+       "o4_feature": "gap_interior_ring",
+       "shapeID": "3"
       }
      }
     ]

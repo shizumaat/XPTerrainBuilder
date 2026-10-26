@@ -439,6 +439,9 @@ EXCEPTION_CODES = {
     # O4_Flight_Plan (#829): a plan the "Select from flight plan" dialog
     # cannot read is shown in that dialog — never a build failure
     "FlightPlanError": UNMAPPED,
+    # o4_engine.patch_slice (#1318): a refused Slice shows in the patch
+    # editor, never a build failure
+    "SliceRefused": UNMAPPED,
     # the standard library and the HTTP stack
     "MemoryError": "out_of_memory",
     "FileNotFoundError": "file_missing",

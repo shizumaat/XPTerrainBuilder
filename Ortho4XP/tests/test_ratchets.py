@@ -528,7 +528,7 @@ def test_allow_list_takes_out_a_definition_with_a_reason(tmp_path):
          "reason": "reached by getattr from a command table"},
         {"path": "Ortho4XP/src/pa.py", "name": "used", "reason": "stale"},
         {"path": "Ortho4XP/src/pb.py", "name": "run", "reason": "  "}]),
-        encoding="utf-8")
+        encoding="utf-8", newline="\n")
     allow, problems = ratchets.load_allowlist(str(allow_path))
     assert len(problems) == 1 and "no reason" in problems[0]
     counted, allowed, stale = ratchets.unused_report(rows, allow)

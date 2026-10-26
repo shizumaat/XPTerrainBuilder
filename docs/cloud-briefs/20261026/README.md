@@ -37,3 +37,9 @@ From the master session (local; it has the corpus, the apps and the sim owner). 
 - Close every GDAL/rasterio dataset (`ds = None`) before `os.replace`/`os.remove` on its file. Windows refuses to replace a file that has an open handle.
 - A test's `subprocess.run(env=...)` must start from `{**os.environ, ...}`.
 - Derive paths with `os.path`, never by splitting on "/".
+
+## CI is batch-only (owner 2026-10-26T19:07Z)
+- **Lane PRs get no CI.** `ci.yml` runs on `pull_request` only for `claude/batch-*` branches, plus `push` to main and `workflow_dispatch`. Do not wait on CI.
+- **Before reporting, run the full suite in your own environment**: from `Ortho4XP/`, `python -m pytest -n auto tests` (non-Qt), plus the Qt tests serially if you touched Qt, `../tools/ratchets.py`, and `ruff check --select I001` on changed files. Put the pass/fail counts in the PR body.
+- The master merges about 10 ready PRs onto `claude/batch-*`. That branch alone runs the Windows/Linux/macOS matrix, and Windows- or Linux-only breaks are fixed there.
+- If you need a platform you don't have, run CI by hand: `gh workflow run CI --ref <your-branch>`. Use it sparingly.

@@ -29,10 +29,17 @@ name: CI
 # `branches: ["**"]` never matched tags either, and release.yml carries
 # its own `push: tags: ["v*"]` trigger with its own four `check_tag_version
 # .sh` gates, so nothing in the release path depended on this workflow.
+# BATCH-ONLY PR CI (owner 2026-10-26T19:07Z, "yes" to: lane PRs get no
+# CI; one run per batch integration branch; main still runs on each merge).
+# Lanes run the full suite on their own machine before reporting; the
+# master merges ~10 ready PRs onto `claude/batch-*` and that branch alone
+# runs the three-platform matrix.  `workflow_dispatch` lets anyone run it
+# by hand on any branch.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.head_ref || github.ref }}
@@ -43,6 +50,7 @@ env:
 
 jobs:
   build-and-test:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'claude/batch-')
     name: Build & test (macOS)
     runs-on: macos-15
     timeout-minutes: 30
@@ -102,6 +110,7 @@ jobs:
   # (tests/auto_patch_v2 and the rest) into two jobs — never by dropping
   # files, which is the defect this job just stopped committing.
   python-tests:
+    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'claude/batch-')
     name: Python tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60

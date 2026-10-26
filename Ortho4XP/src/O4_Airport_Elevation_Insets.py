@@ -174,6 +174,8 @@ from elevation_access.vertical_units import (
 )
 from elevation_access.warp import (
     INSET_MIN_RELIEF_M, inset_carries_no_relief, inset_valid_fraction)
+from elevation_access.provider_fill import (
+    declared_provider_fills, mask_provider_fill)
 
 import O4_UI_Utils as UI
 import O4_File_Names as FNAMES
@@ -189,6 +191,16 @@ import O4_Scenery_Packs as _scenery_packs
 # The .elv provider CODE is lower-cased in cache file names so the cache key
 # survives access-strategy refactors (spec section 3.2).
 NO_COVERAGE = "no-coverage"
+
+#: The law a stamped durable status was written under (#1328).  Absent
+#: (law 1): every 4xx answer to a discovery query was a durable
+#: no-coverage, so a provider that REFUSED the query (FRANCE50CM's WFS
+#: 400 at LFPG / LFSB) was recorded as "no data here" for good.  Law 2:
+#: only a 404 / 410 or a well-formed empty answer is no-coverage; any
+#: other 4xx raises ``ProviderQueryError`` and records ``unavailable:``.
+#: A ``no-coverage`` stamped under an older law is NOT durable on read:
+#: it is re-probed once (:func:`negative_predates_query_law`).
+NEGATIVE_LAW = 2
 
 # =====================================================================
 # THE STATUS CLASSES OF THE INSET INDEX (owner RULINGS 2026-09-13b)
@@ -699,7 +711,8 @@ def run_capability_record(definition):
     """
     required = provider_required_capabilities(definition)
     if not required:
-        return {"engine": _engine_version(), "capabilities": []}
+        return {"engine": _engine_version(), "capabilities": [],
+                "negative_law": NEGATIVE_LAW}
     have = []
     for capability in required:
         if capability == CAPABILITY_LERC and lerc_decode_available():
@@ -708,7 +721,8 @@ def run_capability_record(definition):
             have.append(capability)
         elif capability == CAPABILITY_LAZ and laz_reader_available():
             have.append(capability)
-    return {"engine": _engine_version(), "capabilities": have}
+    return {"engine": _engine_version(), "capabilities": have,
+            "negative_law": NEGATIVE_LAW}
 
 
 def _engine_version():
@@ -739,6 +753,27 @@ def _record_run_capabilities(airport_record, code, definition):
         capabilities = {}
         airport_record["capabilities"] = capabilities
     capabilities[code] = record
+
+
+def negative_predates_query_law(airport_record, code):
+    """Was this ``no-coverage`` written before :data:`NEGATIVE_LAW`?
+
+    True when the stamp beside ``code`` records no ``negative_law`` (or an
+    older one): that engine turned a REFUSED query (a 400, a 403) into a
+    durable negative (#1328), so the record is not trusted as one.  The
+    two re-probe doors below ask it; the re-probe stamps the current law
+    whatever it answers, so it happens once.
+    """
+    capabilities = (airport_record.get("capabilities")
+                    if isinstance(airport_record, dict) else None)
+    stamp = (capabilities.get(code)
+             if isinstance(capabilities, dict) else None)
+    if not isinstance(stamp, dict):
+        return True
+    try:
+        return int(stamp.get("negative_law") or 1) < NEGATIVE_LAW
+    except (TypeError, ValueError):
+        return True
 
 
 def negative_is_unverified(airport_record, code, definition,
@@ -777,6 +812,10 @@ def negative_is_unverified(airport_record, code, definition,
         return True
     stamp = capabilities.get(code)
     if not isinstance(stamp, dict):
+        return True
+    # A negative from before the query-error law may be a refused query
+    # (#1328), whatever capabilities that run had.
+    if negative_predates_query_law(airport_record, code):
         return True
     # A stamp that says the run LACKED what the provider needs verifies
     # nothing: it records the 1.0.324 condition instead of ruling it out.
@@ -840,7 +879,11 @@ def negative_is_version_stale(airport_record, code, definition,
         definition, bounding_box
     ):
         return False
-    return recorded_engine_version(airport_record, code) != _engine_version()
+    # A negative from before the query-error law may be a refused query
+    # (#1328): re-asked once even under the same engine version.
+    return (recorded_engine_version(airport_record, code)
+            != _engine_version()
+            or negative_predates_query_law(airport_record, code))
 
 
 def _bounding_box_hull(boxes):
@@ -1061,7 +1104,8 @@ def fetch_inset(
             footprint_polygon=footprint_polygon,
         )
     else:
-        provenance = strategy.fetch(
+        provenance = _fetch_masking_provider_fill(
+            strategy,
             definition,
             bounding_box_wgs84,
             target_resolution_m,
@@ -1107,6 +1151,64 @@ def fetch_inset(
             )
         )
     return provenance
+
+
+def _fetch_masking_provider_fill(strategy, definition, bounding_box_wgs84,
+                                 target_resolution_m, destination_path):
+    """``strategy.fetch`` and then THE PROVIDER-FILL MASK (#1340,
+    :mod:`elevation_access.provider_fill`): a fill the server served
+    beyond its data becomes nodata before any reader sees the raster, and
+    the provenance records it (``provider_fill``) with the TRUE coverage.
+    Every fetch passes here -- the airport inset, each ladder rung, the
+    approach-ring and coastline-band cells -- so the rule is one."""
+    provenance = strategy.fetch(definition, bounding_box_wgs84,
+                                target_resolution_m, destination_path)
+    if provenance is not None:
+        record = mask_fetched_provider_fill(destination_path, definition)
+        if record is not None:
+            provenance["provider_fill"] = record
+    return provenance
+
+
+def mask_fetched_provider_fill(raster_path, definition, label=None):
+    """Mask ``definition``'s fill in ``raster_path`` (fresh or CACHED)
+    and say so in one line; the masked record, or ``None`` when there was
+    no fill.  Bathymetry is not judged: its 0 m is the waterline."""
+    if (definition or {}).get("role") == ROLE_BATHYMETRY:
+        return None
+    if not os.path.isfile(raster_path):
+        return None
+    record = mask_provider_fill(
+        raster_path, declared_provider_fills(definition),
+        before_write=lambda path: EXTWRITE.declare_external_write(
+            path, writer="the provider-fill mask"))
+    if record is not None:
+        UI.vprint(
+            1,
+            "    [insets] %s from %s: %.1f %% of the raster was the "
+            "provider's fill (exactly %g, served beyond its data) - masked "
+            "as nodata; true coverage %.1f %%."
+            % (label or os.path.basename(raster_path),
+               (definition or {}).get("code"),
+               100.0 * record["masked_fraction"], record["fill_value"],
+               100.0 * record["valid_fraction"]),
+        )
+    return record
+
+
+def inset_airport_cover_reason(inset_path, boundary_box):
+    """Why an inset is NOT used for its airport (#1340), or ``None``: its
+    valid share over the aerodrome ``boundary_box`` is below
+    ``INSET_MIN_VALID_FRAC`` -- data beside the field, none on it.  The
+    ranking then falls to the next provider, else the base DEM.  ``None``
+    without a boundary box or a raster."""
+    if boundary_box is None or not os.path.isfile(inset_path):
+        return None
+    fraction = raster_valid_fraction_in_box(inset_path, boundary_box)
+    if fraction >= INSET_MIN_VALID_FRAC:
+        return None
+    return ("covers %.2f %% of the airport boundary (< %.2f %%)"
+            % (100.0 * fraction, 100.0 * INSET_MIN_VALID_FRAC))
 
 
 def _is_global_ladder_member(definition):
@@ -1443,9 +1545,9 @@ def _fetch_through_resolution_ladder(
                 rung_definition.get("access_strategy"),)
         else:
             try:
-                provenance = rung_strategy.fetch(
-                    rung_definition, bounding_box_wgs84, rung_target,
-                    rung_path)
+                provenance = _fetch_masking_provider_fill(
+                    rung_strategy, rung_definition, bounding_box_wgs84,
+                    rung_target, rung_path)
             except ProviderUnavailable as error:
                 # RUNG 0 CLIMBS TOO (spec us-holder-providers §1 outcome
                 # table: ``unavailable`` -> next rung, "only transient
@@ -4540,6 +4642,10 @@ def ensure_airport_insets(
 
     def _fetch_airport_insets(icao):
         bounding_box = airport_bounding_boxes[icao]
+        polygon = (airport_polygons or {}).get(icao)
+        boundary_box = (tuple(polygon.bounds)
+                        if getattr(polygon, "is_empty", True) is False
+                        else None)
         airport_record = index.get(icao, {})
         recorded_box = airport_record.get("bounding_box")
         negatives_are_stale = (
@@ -4565,6 +4671,10 @@ def ensure_airport_insets(
             # this the empty-cut inset is a permanent cache -- the reuse
             # branch below breaks on it every run -- and the only cure
             # was deleting the sidecar by hand.
+            # THE PROVIDER-FILL RE-CHECK (#1340): a cached raster is
+            # judged by the fetch's own mask, so a fill cached before the
+            # rule existed stops poisoning the build.
+            mask_fetched_provider_fill(destination, definition, label=icao)
             void_reason = _void_inset_record_reason(destination,
                                                     definition)
             if void_reason is not None:
@@ -4581,7 +4691,8 @@ def ensure_airport_insets(
             # the bake alike.  The status goes in BEFORE the fetch: a
             # transient failure below leaves the record honest instead
             # of leaving it ``ok``.
-            empty_reason = cached_inset_declined_reason(destination)
+            empty_reason = cached_inset_declined_reason(destination) or (
+                inset_airport_cover_reason(destination, boundary_box))
             if empty_reason is not None:
                 airport_record[code] = empty_status(empty_reason)
                 airport_record["checked"] = checked_stamp
@@ -4706,7 +4817,17 @@ def ensure_airport_insets(
                 airport_record[code] = NO_COVERAGE
                 airport_record["checked"] = checked_stamp
                 continue
-            if unverified:
+            if (unverified or version_stale) and negative_predates_query_law(
+                    airport_record, code):
+                # #1328: the negative may be a REFUSED query (a 400 / 403)
+                # that an older engine recorded as "no data here".
+                UI.vprint(
+                    1,
+                    "    [insets] %s: re-probing %s (no-coverage recorded "
+                    "before refused queries stopped counting as one) - once"
+                    % (icao, code),
+                )
+            elif unverified:
                 # A RECORDED REFRESH, not a content refresh: the negative
                 # on disk was written by an engine whose capabilities the
                 # index does not record, and 1.0.324 proved such an
@@ -4847,6 +4968,19 @@ def ensure_airport_insets(
                     "relief - not elevation data; recorded as no-coverage "
                     "and the next provider (else the base DEM) is used."
                     % (icao, code),
+                )
+                provenance = None
+            cover_reason = (None if provenance is None else
+                            inset_airport_cover_reason(fetch_destination,
+                                                       boundary_box))
+            if cover_reason is not None:
+                # THE AIRPORT-COVER RULE (#1340): data beside the field
+                # and none on it is no inset for this airport.
+                UI.vprint(
+                    1,
+                    "    [insets] %s: %s %s - not used; recorded as "
+                    "no-coverage and the next provider (else the base DEM) "
+                    "is used." % (icao, code, cover_reason),
                 )
                 provenance = None
             if provenance is None:

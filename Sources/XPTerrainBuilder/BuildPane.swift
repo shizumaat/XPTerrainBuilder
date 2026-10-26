@@ -42,6 +42,14 @@ struct BuildPane: View {
     @State private var legacyTile: BuildModel.LegacyTileSettings?
     @State private var showingLegacyAlert = false
     @State private var legacyPromptShown: Set<String> = []
+    /// The active tile's customized settings (#1350), from the engine.
+    @State private var customizations: [O4TileCustomization] = []
+    @Environment(\.openSettings) private var openSettings
+
+    /// The tile pane's customized-settings words; the Qt pane uses the
+    /// same (O4_Qt_GUI.CUSTOM_SETTINGS / EDIT_TILE_SETTINGS).
+    static let customSettingsTitle = "Custom settings"
+    static let editSettingsTitle = "Edit settings…"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,6 +100,13 @@ struct BuildPane: View {
         .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)") {
             await refreshModifiedAirports()
         }
+        .task(id: customizationsKey) {
+            guard let coord = buildModel.activeTile else {
+                customizations = []
+                return
+            }
+            customizations = await buildModel.tileCustomizations(for: coord)
+        }
         .task(id: "legacy|\(buildModel.activeTile?.key ?? "")|\(buildModel.built.count)") {
             guard let coord = buildModel.activeTile,
                   !legacyPromptShown.contains(coord.key),
@@ -121,6 +136,14 @@ struct BuildPane: View {
                 buildModel.rescan()
             }
         }
+    }
+
+    /// Re-reads the active tile's customizations when the tile, its cfg
+    /// (a Settings edit) or its badge changes.
+    private var customizationsKey: String {
+        let active = buildModel.activeTile
+        let badged = active.map { buildModel.customizedTiles.contains($0) } ?? false
+        return "custom|\(active?.key ?? "")|\(buildModel.tileConfigGeneration)|\(badged)|\(buildModel.built.count)"
     }
 
     /// Status only — the engine version lives in Settings.
@@ -202,6 +225,31 @@ struct BuildPane: View {
                 detailRow("Modified", item.dsfDate.map {
                     $0.formatted(date: .abbreviated, time: .shortened)
                 } ?? "—")
+            }
+            // Custom settings (#1350): each setting this tile's cfg
+            // customizes, "name: tile value (default value)", and the way
+            // into Settings for this tile alone (the Qt pane: the same).
+            if !customizations.isEmpty {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(Self.customSettingsTitle + ":")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(customizations) { row in
+                            Text(row.displayText)
+                                .scaledFont(.caption)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .help(row.helpText)
+                        }
+                        Button(Self.editSettingsTitle) {
+                            buildModel.editSettings(for: active)
+                            openSettings()
+                        }
+                        .controlSize(.small)
+                        .help("Open Settings for this tile, showing its customized settings.")
+                    }
+                }
             }
             // Custom airports whose objects the auto-patch pass reseated
             // for this tile's mesh: one label, one row per airport, an
@@ -880,8 +928,9 @@ struct BuildPane: View {
 
 /// Per-tile rows + the run clock, like the Qt Activity group: each row is
 /// tile key · status · progress bar · per-tile stop (resume, once stopped);
-/// below them Elapsed / Remaining. Observes only the high-frequency
-/// activity model.
+/// below them Elapsed / Remaining. Finished rows stay until the app quits,
+/// under the live ones in finish order, titles dimmed (#1341). Observes
+/// only the high-frequency activity model.
 struct ActivityBox: View {
     @EnvironmentObject var buildModel: BuildModel
     @EnvironmentObject var activity: BuildActivityModel
@@ -899,7 +948,7 @@ struct ActivityBox: View {
                 Text("Building \(activity.totalTiles) tile\(activity.totalTiles == 1 ? "" : "s") — \(activity.doneTiles) done")
                     .scaledFont(.callout, weight: .medium)
             }
-            ForEach(activity.runOrder, id: \.self) { coord in
+            ForEach(activity.displayOrder, id: \.self) { coord in
                 row(coord, activity.tiles[coord])
             }
             // The run clock belongs to a run: once one has ended and only
@@ -928,12 +977,19 @@ struct ActivityBox: View {
             status: progress.state == .active
                 ? "\(progress.label) · \(Int(progress.percent))%" : progress.label,
             clock: activity.tileClocks[coord])
+        let hasIssues = activity.issues[coord] != nil && BuildActivityModel.isFinished(progress)
+        let tone = ActivityOrder.tone(state: progress.state.rawValue, label: progress.label,
+                                      hasIssues: hasIssues)
         VStack(alignment: .leading, spacing: 2) {
-            TileProgressRowLines(text: text, statusColor: statusColor(progress.state),
-                                 strip: activity.stepStrips[coord]) {
+            TileProgressRowLines(
+                text: text, statusColor: Self.color(tone),
+                titleDimmed: BuildActivityModel.isFinished(progress),
+                onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil,
+                strip: activity.stepStrips[coord]
+            ) {
                 ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
                     .controlSize(.small)
-                    .tint(progressTint(progress.state))
+                    .tint(tone == .live ? Color.accentColor : Self.color(tone))
             } trailing: {
                 // Stop sign / resume. Deliberately NOT gated on isBuilding:
                 // a stopped row keeps its resume button after the run ends,
@@ -1000,21 +1056,17 @@ struct ActivityBox: View {
         controller.zoomToTile(lat: coord.lat, lon: coord.lon)
     }
 
-    private func statusColor(_ state: TileProgress.State) -> Color {
-        switch state {
-        case .done: return .green
-        case .error: return .red
-        case .stopped: return .orange
-        default: return .secondary
-        }
-    }
+    /// Gold for a tile built with warnings (#1341; Qt's `WARNING_COLOR`).
+    static let warningGold = Color(red: 212.0 / 255, green: 160.0 / 255, blue: 23.0 / 255)
 
-    private func progressTint(_ state: TileProgress.State) -> Color {
-        switch state {
+    /// A status tone's colour, the same in the Qt window.
+    static func color(_ tone: ActivityOrder.Tone) -> Color {
+        switch tone {
         case .done: return .green
-        case .error: return .red
+        case .warning: return warningGold
+        case .failed: return .red
         case .stopped: return .orange
-        default: return .accentColor
+        case .live: return .secondary
         }
     }
 }

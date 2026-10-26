@@ -7,11 +7,16 @@ import SceneryKit
 /// (the row's stop / resume button). The status gives way first: it
 /// truncates before it reaches the time, which never truncates. Between
 /// the bar and line two, the tile's step strip (#825) when it has one.
+/// A finished row's title is dimmed (#1341); its status keeps its colour
+/// and, when the tile left messages, is a button that reopens them.
 /// Kept out of `ActivityBox`'s body so the type-checker sees small,
 /// explicitly typed expressions.
 struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     let text: ProgressRowText
     let statusColor: Color
+    var titleDimmed = false
+    /// Non-nil: the status reopens the tile's end-of-build messages.
+    var onStatusTap: (() -> Void)?
     /// The row's steps (#825); nil shows none (a legacy-driver build).
     var strip: O4StepStrip?
     /// The progress bar sits right under the title (owner 2026-10-24), so
@@ -35,16 +40,13 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
             .scaledFont(.caption, design: .monospaced)
             .lineLimit(1)
             .truncationMode(.tail)
+            .foregroundStyle(titleDimmed ? Color.secondary : Color.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var statusLine: some View {
         HStack(spacing: 6) {
-            Text(text.status)
-                .scaledFont(.caption)
-                .foregroundStyle(statusColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            status
                 .layoutPriority(0)
             Spacer(minLength: 6)
             if let time = text.time {
@@ -56,6 +58,25 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
                     .layoutPriority(1)
             }
             trailing()
+        }
+    }
+
+    @ViewBuilder
+    private var status: some View {
+        let label = Text(text.status)
+            .underline(onStatusTap != nil)
+            .scaledFont(.caption)
+            .foregroundStyle(statusColor)
+            .lineLimit(1)
+            .truncationMode(.tail)
+        if let onStatusTap {
+            // A button, so the click is the status's own and never also
+            // the row's select-and-zoom (#816).
+            Button(action: onStatusTap) { label }
+                .buttonStyle(.plain)
+                .help(O4TileFailureCopy.reopenHelp)
+        } else {
+            label
         }
     }
 }

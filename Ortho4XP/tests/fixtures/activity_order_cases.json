@@ -1,0 +1,62 @@
+{
+  "_doc": "The Activity list's row order and status tone (#1341). Read by Ortho4XP/tests/test_activity_order.py (O4_Activity_Order) and Tests/SceneryKitTests/ActivityOrderTests.swift (SceneryKit ActivityOrder). Each sequence starts with no stamps and counter 0; each step lists every row [key, state, label] in the order the rows were made, and the order the list shows after it.",
+  "finished": [
+    {"state": "queued", "label": "queued", "finished": false},
+    {"state": "active", "label": "mesh", "finished": false},
+    {"state": "indeterminate", "label": "starting…", "finished": false},
+    {"state": "queued", "label": "resumes after current run", "finished": false},
+    {"state": "done", "label": "done", "finished": true},
+    {"state": "done", "label": "built with warnings", "finished": true},
+    {"state": "error", "label": "failed", "finished": true},
+    {"state": "stopped", "label": "stopped", "finished": true},
+    {"state": "queued", "label": "stopped", "finished": true}
+  ],
+  "tones": [
+    {"state": "queued", "label": "queued", "has_issues": false, "tone": "live"},
+    {"state": "active", "label": "mesh", "has_issues": false, "tone": "live"},
+    {"state": "done", "label": "done", "has_issues": false, "tone": "done"},
+    {"state": "done", "label": "built with warnings", "has_issues": true, "tone": "warning"},
+    {"state": "error", "label": "failed", "has_issues": true, "tone": "failed"},
+    {"state": "error", "label": "failed", "has_issues": false, "tone": "failed"},
+    {"state": "stopped", "label": "stopped", "has_issues": false, "tone": "stopped"},
+    {"state": "queued", "label": "stopped", "has_issues": false, "tone": "stopped"}
+  ],
+  "sequences": [
+    {
+      "name": "three-tile run, one built with warnings, then a new tile and a resume",
+      "steps": [
+        {"rows": [["A", "queued", "queued"], ["B", "queued", "queued"], ["C", "queued", "queued"]],
+         "order": ["A", "B", "C"]},
+        {"rows": [["A", "active", "mesh"], ["B", "queued", "queued"], ["C", "queued", "queued"]],
+         "order": ["A", "B", "C"]},
+        {"rows": [["A", "done", "built with warnings"], ["B", "active", "mesh"], ["C", "queued", "queued"]],
+         "order": ["B", "C", "A"]},
+        {"rows": [["A", "done", "built with warnings"], ["B", "error", "failed"], ["C", "active", "mesh"]],
+         "order": ["C", "A", "B"]},
+        {"rows": [["A", "done", "built with warnings"], ["B", "error", "failed"], ["C", "done", "done"]],
+         "order": ["A", "B", "C"]},
+        {"rows": [["A", "done", "built with warnings"], ["B", "error", "failed"], ["C", "done", "done"], ["D", "queued", "queued"]],
+         "order": ["D", "A", "B", "C"]},
+        {"rows": [["A", "done", "built with warnings"], ["B", "queued", "queued"], ["C", "done", "done"], ["D", "active", "mesh"]],
+         "order": ["B", "D", "A", "C"]},
+        {"rows": [["A", "done", "built with warnings"], ["B", "done", "done"], ["C", "done", "done"], ["D", "active", "mesh"]],
+         "order": ["D", "A", "C", "B"]}
+      ]
+    },
+    {
+      "name": "stop, queue into the run, and a removed row",
+      "steps": [
+        {"rows": [["A", "queued", "queued"], ["B", "queued", "queued"]],
+         "order": ["A", "B"]},
+        {"rows": [["A", "stopped", "stopped"], ["B", "active", "mesh"]],
+         "order": ["B", "A"]},
+        {"rows": [["A", "stopped", "stopped"], ["B", "active", "mesh"], ["C", "queued", "queued"], ["D", "queued", "queued"]],
+         "order": ["C", "D", "B", "A"]},
+        {"rows": [["A", "queued", "resumes after current run"], ["B", "active", "mesh"], ["C", "queued", "queued"], ["D", "queued", "queued"]],
+         "order": ["A", "C", "D", "B"]},
+        {"rows": [["B", "active", "mesh"], ["C", "queued", "stopped"], ["D", "queued", "stopped"]],
+         "order": ["B", "C", "D"]}
+      ]
+    }
+  ]
+}

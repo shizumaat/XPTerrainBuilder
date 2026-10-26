@@ -436,8 +436,10 @@ def test_a_wholesale_stop_drops_the_resume_queue(make_window):
 
 def test_stopped_rows_and_their_buttons_survive_the_run_end(window,
                                                             monkeypatch):
-    """The 5 s linger clears the Activity box — except the rows the user
-    stopped, which are the handle on a tile they still mean to build."""
+    """The 5 s linger ends the run's display, never its rows (#1341):
+    the finished row stays, dimmed, and the stopped one keeps its resume
+    button — the handle on a tile the user still means to build.  Only
+    the stopped tile keeps its map badge."""
     deferred = []
 
     # Only the linger's deferred call is of interest here; the window's own
@@ -457,8 +459,9 @@ def test_stopped_rows_and_their_buttons_survive_the_run_end(window,
     revert = [fn for ms, fn in deferred if ms == 5000][-1]
     revert()
 
-    assert set(window._tile_rows) == {TILE}
-    assert window._progress_states == {TILE: ("stopped", "stopped", 0)}
+    assert set(window._tile_rows) == {TILE, OTHER}
+    assert window._progress_states[TILE] == ("stopped", "stopped", 0)
+    assert window._map_progress() == {TILE: ("stopped", "stopped", 0)}
     assert window.activity_group.isHidden() is False
     assert _stop_button(window, TILE).toolTip() == "Resume this tile"
     # The settings a resume needs outlive the run too.

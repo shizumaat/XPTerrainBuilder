@@ -32,3 +32,8 @@ From the master session (local; it has the corpus, the apps and the sim owner). 
 - #1325 and #1357 both touch the patch-editor gestures: one lane takes both.
 - #1334, #1339 and #1345 all touch imagery provider listing: one lane takes all three, in the order #1345 → #1334 → #1339.
 - #1350, #1351 and #1341 all touch the activity and tile-info panes: separate lanes, but rebase on whichever lands first.
+
+## Windows CI traps (added after batch Y)
+- Close every GDAL/rasterio dataset (`ds = None`) before `os.replace`/`os.remove` on its file. Windows refuses to replace a file that has an open handle.
+- A test's `subprocess.run(env=...)` must start from `{**os.environ, ...}`.
+- Derive paths with `os.path`, never by splitting on "/".

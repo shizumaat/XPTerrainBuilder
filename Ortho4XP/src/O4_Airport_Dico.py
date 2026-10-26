@@ -1,8 +1,8 @@
 """The tile build's AIRPORT DICTIONARY: ``build_airports_dico`` — the
 ``O4_Airport_Utils`` chain (discovery, surfaces, runways, discards,
 hangar / apron / taxiway areas, boundaries) over an already-loaded OSM
-airport layer, each airport named by apt.dat where it knows it
-(``O4_Airport_Apt_Identity``).
+airport layer, each airport named by apt.dat where it knows it, else by
+a stable identifier from its position (``O4_Airport_Apt_Identity``).
 
 Moved out of ``O4_Vector_Map`` (#836): the vector step builds the tile's
 own dictionary with it, the mesh step's approach rings build a
@@ -33,10 +33,15 @@ def build_airports_dico(tile, airport_layer, persist=True):
     APT.discover_airport_names(airport_layer, dico_airports)
     # Identity and extent from apt.dat, OSM aerodromes the fallback
     # (owner 2026-10-19; O4_Airport_Apt_Identity).
+    known_codes = set()
     APT_IDENTITY.adopt_apt_dat_identities(
-        dico_airports, APT_IDENTITY.tile_apt_dat_airports(tile.lat, tile.lon))
+        dico_airports, APT_IDENTITY.tile_apt_dat_airports(
+            tile.lat, tile.lon, known_codes=known_codes))
     APT.attach_surfaces_to_airports(airport_layer, dico_airports)
     APT_IDENTITY.drop_unclaimed_seeds(dico_airports)
+    # Every airport left without a code gets a stable one from its
+    # position (owner 2026-10-26, #1353): no pass keyed by code skips it.
+    APT_IDENTITY.assign_synthetic_ids(dico_airports, known_codes)
     APT.sort_and_reconstruct_runways(tile, airport_layer, dico_airports)
     APT.discard_unwanted_airports(tile, dico_airports)
     APT.build_hangar_areas(tile, airport_layer, dico_airports)

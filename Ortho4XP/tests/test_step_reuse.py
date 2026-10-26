@@ -96,6 +96,28 @@ def test_texture_only_change_reuses_vector_mesh_and_masks(tile):
     assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
 
 
+@pytest.mark.parametrize("code, reruns", [
+    ("airport_elevation_missing", True),     # a cold cache: build again
+    ("airport_elevation_offline", True),     # a failed download
+    ("airport_geometry", False),             # a fault a rebuild repeats
+])
+def test_an_airport_left_unpatched_for_a_retry_cause_reruns_the_vector_step(
+        tile, code, reruns):
+    """Issue #1352: the warning says "build the tile again", so the next
+    build must try that airport again — a reused vector step never did."""
+    import O4_Unpatched_Airports as UNPATCHED
+    os.makedirs(tile.build_dir, exist_ok=True)
+    _write_outputs(tile)
+    _complete_build(tile)
+    UNPATCHED.record(tile, [{"icao": "S21", "stage": "build", "code": code}])
+    del tile.auto_patch_unpatched              # the next build's process
+    why = REUSE.stale_reason(tile, "vector")
+    if reruns:
+        assert why and "S21" in why
+    else:
+        assert why is None
+
+
 def test_no_record_before_a_step_ran_to_its_end(tile):
     _write_outputs(tile)
     assert all(why == "no record of a finished run of it"

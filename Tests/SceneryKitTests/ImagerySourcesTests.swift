@@ -12,6 +12,8 @@ struct ImagerySourcesTests {
         let rows: [O4ImagerySource]
         let statuses: [String: O4ImageryStatus]
         let build: [ImageryMenu.Entry]
+        let buildTiles: [(lat: Int, lon: Int)]
+        let buildNZ: [ImageryMenu.Entry]
         let map: [ImageryMenu.Entry]
         let urls: [(code: String, z: Int, x: Int, y: Int, url: String?)]
     }
@@ -39,7 +41,11 @@ struct ImagerySourcesTests {
             (code: $0["code"] as? String ?? "", z: $0["z"] as? Int ?? 0,
              x: $0["x"] as? Int ?? 0, y: $0["y"] as? Int ?? 0, url: $0["url"] as? String)
         }
+        let tiles = (object["build_tiles"] as? [[Int]] ?? []).compactMap {
+            pair -> (lat: Int, lon: Int)? in pair.count == 2 ? (lat: pair[0], lon: pair[1]) : nil
+        }
         return Fixture(rows: rows, statuses: statuses, build: entries("build"),
+                       buildTiles: tiles, buildNZ: entries("build_nz"),
                        map: entries("map"), urls: urls)
     }
 
@@ -47,6 +53,12 @@ struct ImagerySourcesTests {
         let f = try fixture()
         #expect(ImageryMenu.entries(f.rows, statuses: f.statuses, forMap: false) == f.build)
         #expect(ImageryMenu.entries(f.rows, statuses: f.statuses, forMap: true) == f.map)
+        // A New Zealand tile selected (#1339): sources covering none of it
+        // are disabled in the Build box; LINZ is offered.
+        #expect(ImageryMenu.entries(f.rows, statuses: f.statuses, forMap: false,
+                                    tiles: f.buildTiles) == f.buildNZ)
+        #expect(f.buildNZ.first { $0.code == "LINZ" }?.enabled == true)
+        #expect(f.buildNZ.first { $0.code == "PDOK" }?.tooltip == ImageryMenu.noCoverage)
         // OSM is map-only; Govmap can't be previewed; Arc did not answer.
         #expect(!f.build.contains { $0.code == "OSM" })
         #expect(f.map.first { $0.code == "Govmap" }?.enabled == false)

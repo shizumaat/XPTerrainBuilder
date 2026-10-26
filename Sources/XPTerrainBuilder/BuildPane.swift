@@ -350,7 +350,8 @@ struct BuildPane: View {
                 // as the tooltip.
                 ForEach(ImageryMenu.sections(ImageryMenu.entries(
                     buildModel.imagerySources, statuses: buildModel.imageryStatus,
-                    forMap: false))) { section in
+                    forMap: false,
+                    tiles: buildModel.selected.map { (lat: $0.lat, lon: $0.lon) }))) { section in
                     Section(section.title) {
                         ForEach(section.entries) { entry in
                             Text(entry.label).tag(entry.code)

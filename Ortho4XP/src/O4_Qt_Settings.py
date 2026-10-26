@@ -690,22 +690,11 @@ class _ProviderSignInSection(QWidget):
 
     @staticmethod
     def _all_account_definitions():
-        """Every enabled definition that declares an account session."""
-        import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+        """Every enabled definition that declares an account session
+        (elevation and imagery providers, the engine's own list)."""
+        import O4_Authenticated_Sessions as SESSIONS
 
-        if not ELEVATION_PROVIDERS.elevation_providers_dict:
-            ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
-        result = []
-        for definition in sorted(
-            ELEVATION_PROVIDERS.elevation_providers_dict.values(),
-            key=lambda d: str(d.get("code")),
-        ):
-            if not definition.get("session_name"):
-                continue
-            if not definition.get("enabled", True):
-                continue
-            result.append(definition)
-        return result
+        return SESSIONS.account_definitions()
 
     @classmethod
     def _session_definitions(cls):

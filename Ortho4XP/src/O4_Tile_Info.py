@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import glob
 import os
+import sys
 from dataclasses import dataclass
 from typing import Iterator, Optional, Tuple
 
@@ -172,7 +173,19 @@ def _detected_imagery(build_dir: str) -> Tuple[str, Optional[int]]:
     except OSError:
         return "", None
     found = PACKS.imagery_from_file_names(names)
-    return found if found is not None else ("", None)
+    if found is None:
+        return "", None
+    return _current_provider(found[0]), found[1]
+
+
+def _current_provider(code: str) -> str:
+    """A retired provider's replacement (its ``.lay``'s ``replaced_by``,
+    e.g. NZ -> LINZ, #1339), read from the imagery registry when this
+    process has loaded it; else ``code``."""
+    imagery = sys.modules.get("O4_Imagery_Utils")
+    provider = getattr(imagery, "providers_dict", {}).get(code) if imagery else None
+    replacement = str((provider or {}).get("replaced_by") or "").strip()
+    return replacement or code
 
 
 #: Where a tile's imagery came from: its cfg, or its texture names.

@@ -68,6 +68,7 @@
     }
    ],
    "max_zl": null,
+   "coverage": null,
    "buildable": true,
    "previewable": true,
    "reason": "",
@@ -81,6 +82,7 @@
    "combined": false,
    "members": [],
    "max_zl": null,
+   "coverage": null,
    "buildable": true,
    "previewable": true,
    "reason": "",
@@ -98,6 +100,7 @@
    "combined": false,
    "members": [],
    "max_zl": null,
+   "coverage": null,
    "buildable": true,
    "previewable": true,
    "reason": "",
@@ -115,6 +118,7 @@
    "combined": false,
    "members": [],
    "max_zl": 19,
+   "coverage": null,
    "buildable": false,
    "previewable": true,
    "reason": "",
@@ -132,6 +136,7 @@
    "combined": false,
    "members": [],
    "max_zl": 18,
+   "coverage": null,
    "buildable": true,
    "previewable": true,
    "reason": "",
@@ -172,11 +177,31 @@
    "combined": false,
    "members": [],
    "max_zl": null,
+   "coverage": null,
    "buildable": true,
    "previewable": false,
    "reason": "This source uses map projection EPSG:2039, which the map can't preview.",
    "preview": null,
    "attribution": ""
+  },
+  {
+   "code": "LINZ",
+   "region": "New Zealand",
+   "name": "LINZ",
+   "combined": false,
+   "members": [],
+   "max_zl": 20,
+   "coverage": [
+    166.0,
+    -47.5,
+    179.0,
+    -34.0
+   ],
+   "buildable": true,
+   "previewable": false,
+   "reason": "This source needs an API key, which the map preview doesn't send.",
+   "preview": null,
+   "attribution": "CC BY 4.0 Toitū Te Whenua LINZ"
   },
   {
    "code": "PDOK",
@@ -185,6 +210,12 @@
    "combined": false,
    "members": [],
    "max_zl": null,
+   "coverage": [
+    3.06,
+    50.72,
+    7.26,
+    53.76
+   ],
    "buildable": true,
    "previewable": true,
    "reason": "",
@@ -225,6 +256,12 @@
    "combined": false,
    "members": [],
    "max_zl": null,
+   "coverage": [
+    -31.580000000000002,
+    29.8,
+    -6.16,
+    42.18
+   ],
    "buildable": true,
    "previewable": true,
    "reason": "",
@@ -242,6 +279,7 @@
    "combined": false,
    "members": [],
    "max_zl": null,
+   "coverage": null,
    "buildable": true,
    "previewable": true,
    "reason": "",
@@ -304,6 +342,13 @@
    "section": "Israel"
   },
   {
+   "code": "LINZ",
+   "label": "LINZ",
+   "enabled": true,
+   "tooltip": "",
+   "section": "New Zealand"
+  },
+  {
    "code": "PDOK",
    "label": "PDOK",
    "enabled": true,
@@ -315,6 +360,77 @@
    "label": "PT",
    "enabled": true,
    "tooltip": "",
+   "section": "Portugal"
+  },
+  {
+   "code": "QC",
+   "label": "QC",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Canada"
+  }
+ ],
+ "build_tiles": [
+  [
+   -42,
+   173
+  ]
+ ],
+ "build_nz": [
+  {
+   "code": "EUR",
+   "label": "EUR",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Combined"
+  },
+  {
+   "code": "Arc",
+   "label": "Arc (offline)",
+   "enabled": false,
+   "tooltip": "No answer within 5 seconds.",
+   "section": "Global"
+  },
+  {
+   "code": "BI",
+   "label": "BI",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Global"
+  },
+  {
+   "code": "FIN",
+   "label": "FIN",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Finland"
+  },
+  {
+   "code": "Govmap",
+   "label": "Govmap",
+   "enabled": true,
+   "tooltip": "",
+   "section": "Israel"
+  },
+  {
+   "code": "LINZ",
+   "label": "LINZ",
+   "enabled": true,
+   "tooltip": "",
+   "section": "New Zealand"
+  },
+  {
+   "code": "PDOK",
+   "label": "PDOK",
+   "enabled": false,
+   "tooltip": "Covers none of the selected tiles.",
+   "section": "Netherland"
+  },
+  {
+   "code": "PT",
+   "label": "PT",
+   "enabled": false,
+   "tooltip": "Covers none of the selected tiles.",
    "section": "Portugal"
   },
   {
@@ -367,6 +483,13 @@
    "enabled": false,
    "tooltip": "This source uses map projection EPSG:2039, which the map can't preview.",
    "section": "Israel"
+  },
+  {
+   "code": "LINZ",
+   "label": "LINZ",
+   "enabled": false,
+   "tooltip": "This source needs an API key, which the map preview doesn't send.",
+   "section": "New Zealand"
   },
   {
    "code": "PDOK",

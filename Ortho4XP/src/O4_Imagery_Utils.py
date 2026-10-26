@@ -1494,6 +1494,12 @@ def wmts_request(tilematrix, til_x, til_y, provider):
             server_list = tmp.split(",")
             url_1 = random.choice(server_list).strip()
             url = url_0 + url_1 + url_2
+        if "{api_key}" in url:
+            # A keyed source (#1339): the stored key, at fetch time only —
+            # never in the .lay, a cfg or a log line (UI scrubs it).
+            import O4_Authenticated_Sessions as SESSIONS
+
+            url = url.replace("{api_key}", SESSIONS.ensure_api_key(provider))
     elif provider["request_type"] == "wmts":  # WMTS
         url = (
             provider["url_prefix"]

@@ -13,7 +13,9 @@ read the same fixture, so the two menus cannot drift:
 * an ``offline`` source (launch status check) is disabled and labelled
   "<name> (offline)", its reason the tooltip;
 * in the map picker a source the map cannot draw is disabled, its
-  reason the tooltip.
+  reason the tooltip;
+* in the Build box a source whose coverage reaches none of the
+  selected tiles is disabled (#1339).
 
 Item TEXT stays the source code for every selectable item, so the
 window's ``currentText()`` / ``findText(code)`` reads are unchanged; the
@@ -32,10 +34,24 @@ __all__ = ["apply_status", "fill_combo", "menu_entries", "offered_codes"]
 COMBINED_SECTION = "Combined"
 
 
+#: The tooltip of a Build-box source that covers none of the selected tiles.
+NO_COVERAGE = "Covers none of the selected tiles."
+
+
+def _covers_any(coverage, tiles) -> bool:
+    if coverage is None or not tiles:
+        return True
+    min_lon, min_lat, max_lon, max_lat = coverage
+    return any(lon < max_lon and lon + 1 > min_lon and lat < max_lat and lat + 1 > min_lat
+               for (lat, lon) in tiles)
+
+
 def menu_entries(rows: List[Dict[str, Any]], statuses: Mapping[str, Tuple[str, str]],
-                 for_map: bool) -> List[Dict[str, Any]]:
+                 for_map: bool, tiles=()) -> List[Dict[str, Any]]:
     """One entry per menu item: ``code``, ``label``, ``enabled``,
-    ``tooltip`` and ``section``, in menu order."""
+    ``tooltip`` and ``section``, in menu order.  ``tiles`` (Build box
+    only): the selected ``(lat, lon)`` tiles; a source whose coverage
+    reaches none of them is disabled (#1339)."""
     entries = []
     for row in rows:
         if not for_map and not row.get("buildable", True):
@@ -48,6 +64,8 @@ def menu_entries(rows: List[Dict[str, Any]], statuses: Mapping[str, Tuple[str, s
             enabled, tooltip = False, reason
         elif for_map and not row.get("previewable"):
             enabled, tooltip = False, row.get("reason", "")
+        elif not for_map and not _covers_any(row.get("coverage"), tiles):
+            enabled, tooltip = False, NO_COVERAGE
         entries.append({
             "code": row["code"],
             "label": label,

@@ -37,6 +37,9 @@ def test_qt_menus_match_the_shared_fixture(fixture):
         == fixture["build"]
     assert QTIMENU.menu_entries(fixture["rows"], _statuses(fixture), for_map=True) \
         == fixture["map"]
+    tiles = [tuple(tile) for tile in fixture["build_tiles"]]
+    assert QTIMENU.menu_entries(fixture["rows"], _statuses(fixture), for_map=False,
+                                tiles=tiles) == fixture["build_nz"]
 
 
 def test_engine_expander_matches_the_shared_fixture(fixture):

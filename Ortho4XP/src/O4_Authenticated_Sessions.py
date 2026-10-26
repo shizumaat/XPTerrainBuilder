@@ -544,6 +544,7 @@ def sign_in_api_key(definition, api_key, remember=True):
     api_key = (api_key or "").strip()
     if not api_key:
         raise LoginError("Enter an API key.")
+    UI.register_secret(api_key)
     probe_template = definition.get("api_key_probe_url")
     if probe_template:
         try:
@@ -555,7 +556,8 @@ def sign_in_api_key(definition, api_key, remember=True):
             )
         except Exception as error:
             raise LoginError(
-                "Could not validate the API key: %s" % str(error)
+                "Could not validate the API key: %s"
+                % str(error).replace(api_key, "<api_key>")
             )
         if response.status_code in _SIGNED_OUT_STATUSES:
             raise LoginError(
@@ -647,6 +649,26 @@ def ensure_session(definition, credentials=None):
     return session
 
 
+def account_definitions():
+    """Every enabled provider definition that declares an account
+    session, sorted by code: the elevation providers' parsed ``.elv``
+    definitions and the imagery providers' ``.lay`` ones (#1339) — the
+    one enumeration the engine's ``auth_providers`` and the Qt settings
+    section both read, never a private re-parse."""
+    import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+    import O4_Imagery_Utils as IMG
+
+    if not ELEVATION_PROVIDERS.elevation_providers_dict:
+        ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
+    definitions = list(ELEVATION_PROVIDERS.elevation_providers_dict.values())
+    definitions += list(IMG.providers_dict.values())
+    return [
+        definition
+        for definition in sorted(definitions, key=lambda d: str(d.get("code")))
+        if definition.get("session_name") and definition.get("enabled", True)
+    ]
+
+
 def ensure_api_key(definition):
     """Build-time entry point for api_key-kind providers.
 
@@ -658,6 +680,7 @@ def ensure_api_key(definition):
     if not session_name:
         raise LoginError("Provider definition lacks a session_name.")
     api_key = load_api_key(session_name)
+    UI.register_secret(api_key)
     if not api_key:
         raise LoginError(
             "Provider '%s' needs a '%s' API key and none is stored.  %s"

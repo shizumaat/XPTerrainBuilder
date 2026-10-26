@@ -35,7 +35,7 @@ import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
 
 __all__ = [
-    "STATUS_TIMEOUT_S", "STATUS_WORKERS", "check_status", "expand_preview",
+    "STATUS_TIMEOUT_S", "STATUS_WORKERS", "check_status", "covers_tile", "expand_preview",
     "imagery_sources", "is_previewable", "preview_max_zl", "preview_tile_url",
     "probe",
     "sample_request", "tile_source",
@@ -115,6 +115,8 @@ def preview_spec(provider) -> tuple[Optional[Dict[str, Any]], str]:
     None and the user's sentence saying why the map cannot show it."""
     if _custom_request(provider):
         return None, "This source builds its addresses in custom code the map can't follow."
+    if "{api_key}" in str(provider.get("url_template", "")):
+        return None, "This source needs an API key, which the map preview doesn't send."
     kind = provider.get("request_type")
     if kind == "local_tms":
         return None, "This source reads tiles from this computer, not from a map service."
@@ -173,6 +175,28 @@ def _extent_bbox(extent_code) -> Optional[List[float]]:
     return None
 
 
+def _coverage(provider, extent_code=None) -> Optional[List[float]]:
+    """``[min_lon, min_lat, max_lon, max_lat]`` a source covers: its
+    ``coverage_bounds``, else its extent's box; None = everywhere."""
+    raw = provider.get("coverage_bounds")
+    if raw:
+        try:
+            box = [float(v) for v in str(raw).split(",")]
+            if len(box) == 4:
+                return box
+        except ValueError:
+            pass
+    return _extent_bbox(extent_code or provider.get("extent"))
+
+
+def covers_tile(coverage: Optional[List[float]], lat: int, lon: int) -> bool:
+    """Does a coverage box reach into the 1 degree tile at (lat, lon)?"""
+    if coverage is None:
+        return True
+    min_lon, min_lat, max_lon, max_lat = coverage
+    return lon < max_lon and lon + 1 > min_lon and lat < max_lat and lat + 1 > min_lat
+
+
 def _member(layer_code, extent_code) -> Dict[str, Any]:
     provider = IMG.providers_dict[layer_code]
     preview, _reason = preview_spec(provider)
@@ -194,6 +218,7 @@ def _single_row(code) -> Dict[str, Any]:
         "combined": False,
         "members": [],
         "max_zl": _max_zl(provider),
+        "coverage": _coverage(provider),
         "buildable": code not in MAP_ONLY,
         "previewable": preview is not None,
         "reason": reason,
@@ -207,6 +232,7 @@ def _combined_row(code) -> Dict[str, Any]:
                for layer in IMG.combined_providers_dict[code]]
     previewable = any(m["preview"] is not None for m in members)
     zls = [_max_zl(IMG.providers_dict[m["code"]]) for m in members]
+    boxes = [_coverage(IMG.providers_dict[m["code"]], m["extent"]) for m in members]
     return {
         "code": code,
         "region": "",
@@ -214,6 +240,9 @@ def _combined_row(code) -> Dict[str, Any]:
         "combined": True,
         "members": members,
         "max_zl": None if any(z is None for z in zls) else max(zls),
+        "coverage": None if any(b is None for b in boxes) else [
+            min(b[0] for b in boxes), min(b[1] for b in boxes),
+            max(b[2] for b in boxes), max(b[3] for b in boxes)],
         "buildable": True,
         "previewable": previewable,
         "reason": "" if previewable else "None of this source's layers can be previewed.",
@@ -227,16 +256,21 @@ def _offered(code) -> bool:
     return bool(provider.get("in_GUI", True)) and code not in HIDDEN
 
 
-def imagery_sources() -> List[Dict[str, Any]]:
+def imagery_sources(tile=None) -> List[Dict[str, Any]]:
     """Every imagery source a front end offers, in menu order: combined
     sources first, then single providers by region (``Global`` first)
-    and code."""
+    and code.  With ``tile`` (``[lat, lon]``), only the sources whose
+    ``coverage`` reaches into that tile."""
     combined = [_combined_row(code)
                 for code in sorted(IMG.combined_providers_dict, key=str.lower)]
     singles = [_single_row(code) for code in IMG.providers_dict if _offered(code)]
     singles.sort(key=lambda row: (row["region"] != "Global", row["region"].lower(),
                                   row["code"].lower()))
-    return combined + singles
+    rows = combined + singles
+    if tile is not None:
+        lat, lon = (int(v) for v in tile)
+        rows = [row for row in rows if covers_tile(row["coverage"], lat, lon)]
+    return rows
 
 
 # ---------------------------------------------------------------------------

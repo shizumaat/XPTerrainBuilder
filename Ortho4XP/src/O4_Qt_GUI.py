@@ -2367,10 +2367,16 @@ class MainWindow(QMainWindow):
 
     def _on_imagery_source_status(self, event):
         self._imagery_status[event.code] = (event.status, event.reason)
-        for combo, for_map in ((self.imagery_combo, False),
-                               (self.map_provider_combo, True)):
-            QTIMENU.apply_status(combo, QTIMENU.menu_entries(
-                self._imagery_rows, self._imagery_status, for_map=for_map))
+        self._refresh_imagery_menus()
+
+    def _refresh_imagery_menus(self):
+        """Labels, tooltips and enabled flags of both imagery menus from
+        the launch status and (Build box) the selected tiles' coverage."""
+        tiles = sorted(self.map.selection())
+        QTIMENU.apply_status(self.imagery_combo, QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=False, tiles=tiles))
+        QTIMENU.apply_status(self.map_provider_combo, QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=True))
 
     def _on_scan_progress(self, event):
         self.map.set_scan_status(event.phase, event.done, event.total)
@@ -2483,6 +2489,7 @@ class MainWindow(QMainWindow):
         snap the combos back to the recorded provenance after the user
         deliberately picked a different value for the next build.
         """
+        self._refresh_imagery_menus()
         selection_key = (self.output_dir(), frozenset(selection))
         if selection_key == self._combos_synced_to:
             return

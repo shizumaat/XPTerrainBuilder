@@ -22,6 +22,8 @@ public struct O4ImagerySource: Decodable, Equatable, Sendable, Identifiable {
     public let members: [Member]
     /// nil: the source declares no ceiling.
     public let maxZL: Int?
+    /// `[minLon, minLat, maxLon, maxLat]` the source covers; nil = everywhere.
+    public let coverage: [Double]?
     /// False for a map-only source (OpenStreetMap's tile policy forbids
     /// bulk downloads): the Build box leaves it out.
     public let buildable: Bool
@@ -35,8 +37,16 @@ public struct O4ImagerySource: Decodable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case code, region, name, combined, members, buildable, previewable, reason
-        case preview, attribution
+        case preview, attribution, coverage
         case maxZL = "max_zl"
+    }
+
+    /// Does the source reach into the 1° tile at (lat, lon)?
+    /// (`O4_Imagery_Sources.covers_tile`.)
+    public func covers(lat: Int, lon: Int) -> Bool {
+        guard let c = coverage, c.count == 4 else { return true }
+        return Double(lon) < c[2] && Double(lon + 1) > c[0]
+            && Double(lat) < c[3] && Double(lat + 1) > c[1]
     }
 }
 
@@ -138,13 +148,19 @@ public enum ImageryMenu {
         public var id: String { code }
     }
 
+    /// The tooltip of a Build-box source that covers none of the selected tiles.
+    public static let noCoverage = "Covers none of the selected tiles."
+
     /// The Build box (`forMap` false) lists what a build may download; the
     /// map's picker lists every source. An offline source is disabled and
     /// labelled "<name> (offline)"; in the map picker a source the map
-    /// cannot draw is disabled too. The tooltip says why.
+    /// cannot draw is disabled too, and in the Build box a source whose
+    /// coverage reaches none of the selected `tiles` (#1339). The tooltip
+    /// says why.
     public static func entries(_ sources: [O4ImagerySource],
                                statuses: [String: O4ImageryStatus],
-                               forMap: Bool) -> [Entry] {
+                               forMap: Bool,
+                               tiles: [(lat: Int, lon: Int)] = []) -> [Entry] {
         sources.compactMap { source in
             if !forMap && !source.buildable { return nil }
             let status = statuses[source.code]
@@ -158,6 +174,10 @@ public enum ImageryMenu {
             } else if forMap && !source.previewable {
                 enabled = false
                 tooltip = source.reason
+            } else if !forMap, !tiles.isEmpty,
+                      !tiles.contains(where: { source.covers(lat: $0.lat, lon: $0.lon) }) {
+                enabled = false
+                tooltip = noCoverage
             }
             return Entry(code: source.code, label: label, enabled: enabled, tooltip: tooltip,
                          section: source.combined ? combinedSection : source.region)

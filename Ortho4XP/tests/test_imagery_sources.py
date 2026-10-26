@@ -194,6 +194,9 @@ def test_session_and_transport_carry_the_commands(sources, monkeypatch):
 
     monkeypatch.setattr(sources, "_http_get",
                         lambda url, headers, timeout: _Answer(200, "image/png"))
+    # Never ``session.shutdown()`` here: it raises the process-wide stop
+    # flag, and later tests on this worker (the inset ladder) then fetch
+    # nothing.
     session = EngineSession()
     try:
         got, done = [], threading.Event()
@@ -214,7 +217,6 @@ def test_session_and_transport_carry_the_commands(sources, monkeypatch):
         assert got[0].event == "ImagerySourceStatus"
         assert tuple(int(p) for p in EV.PROTOCOL_VERSION.split(".")) >= (1, 15)
     finally:
-        session.shutdown()
         UI.engine_session = None
 
 

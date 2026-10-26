@@ -888,6 +888,10 @@ def _build_dsf_body(tile, download_queue):
     UI.vprint(1, "-> Computing bathymetry depth ratio bounds based on distance masks")
     node_bathy = BATHY.compute_depth_ratio_bounds_from_masks(
                             nbr_nodes, node_coords, node_types, tile)
+    # Inland water has no distance mask: ramp its depth from its own
+    # shoreline the same way, or a pond is drawn as a pit (#1336).
+    BATHY.inland_depth_from_shore(
+        node_bathy, node_coords, tri_idx, tri_types, tile.lat)
     
     UI.vprint(1, "-> Computing point pools and texture requirements")
 

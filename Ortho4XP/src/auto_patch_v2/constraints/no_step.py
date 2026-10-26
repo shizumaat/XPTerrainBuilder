@@ -230,7 +230,13 @@ def reach_band_values(planar: PlanarMap, law: Law, airport: Airport
     The narrowing is at this ONE derivation site, so every reader (the
     ``reach_bands`` generator, the shape stage's withdraw set, the
     replay cross-check) inherits it without a veto of its own."""
-    pins = threshold_pins(planar, law, airport)
+    # a threshold the tile seam outranks (owner RULINGS 2026-10-26b) is a
+    # YIELDING pin, and a yielding pin anchors nothing (27a (10)): its CIFP
+    # value is not the envelope the runway's hard rows imply
+    from .threshold_seam import seam_thresholds
+    seam_yield = seam_thresholds(planar, law, airport)
+    pins = {v: z for v, z in threshold_pins(planar, law, airport).items()
+            if v not in seam_yield}
     if not pins:
         return {}
     g = routes(planar, law, airport)

@@ -2597,6 +2597,15 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
                       f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m)")
     except (ImportError, AttributeError):
         pass
+    # owner RULINGS 2026-10-26b: the thresholds the tile seam outranked —
+    # the build's own post-solve recorder, so a replay names the yield too
+    try:
+        from auto_patch_v2.pipeline.emit_stage import with_threshold_yield
+        pm = with_threshold_yield(icao, pm, law, airport, sol,
+                                  [*(prob["late"]["rep"]["pin_yield"] if late_from is not None
+                                     else ()), *rep.pin_yield], print)
+    except (ImportError, AttributeError):
+        pass
     print(f"[{icao}] {rep.jetway_strip.line()}")
     for _s in rep.jetway_strip.strips:
         print(f"    strip {_s['id']} pad {_s['pad_ref']} frontage resid "

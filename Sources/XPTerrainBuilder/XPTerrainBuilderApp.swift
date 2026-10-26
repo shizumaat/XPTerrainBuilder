@@ -42,6 +42,15 @@ struct XPTerrainBuilderApp: App {
         }
         .defaultSize(width: 1000, height: 640)
 
+        // The Library (#824): every built tile with its size, and the
+        // download caches. View ▸ Library, ⌘L (Qt: View ▸ Library…).
+        Window("Library", id: Library.windowID) {
+            LibraryView()
+                .environmentObject(buildModel)
+                .textScaleRoot()
+        }
+        .defaultSize(width: 980, height: 560)
+
         // Analysis Report and Modifications windows removed — the scenery
         // doctor is planned as a separate app.
         Settings {
@@ -98,6 +107,8 @@ struct AppCommands: Commands {
                 openWindow(id: TerrainPreview.windowID, value: TerrainPreview.windowValue)
             }
             .keyboardShortcut("3", modifiers: .command)
+            Button("Library") { openWindow(id: Library.windowID) }
+                .keyboardShortcut("l", modifiers: .command)
             // View ▸ Bigger / Smaller / Actual Size text (#827).
             Divider()
             TextScaleCommands()

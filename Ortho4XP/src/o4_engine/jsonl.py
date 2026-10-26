@@ -153,7 +153,8 @@ def _ortho4xp_version() -> str:
 
 #: Commands completed by an event that names the command: their handler
 #: is given the command's ``id`` as ``request``.
-_TAKES_REQUEST_ID = frozenset({"pack_objects"})
+_TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
+                               "free_cache", "library_delete"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -165,12 +166,14 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # Imported here, after the hello is written: the patch commands pull in
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
+    from O4_Tile_Customizations import tile_customizations
+
     from . import patch_commands
     from .elevation_commands import cursor_elevation
+    from .mesh_commands import mesh_crop
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .relief_commands import terrain_relief
-    from .mesh_commands import mesh_crop
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -186,6 +189,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # the global, REMOVE it when it equals it.  Plain synchronous
         # file writes — no build, no parse, safe on the read loop.
         "tile_settings_write": session.tile_settings_write,
+        # The tile's customized settings against the global layer (#1350):
+        # the Mac map badge and tile pane.  Synchronous file reads, no
+        # session state; the Qt app calls the same function in process.
+        "tile_customizations": tile_customizations,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,
@@ -245,7 +252,20 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # PNG over a box, from the same sources; drawn off THIS thread,
         # the reply says pending until it is ready.
         "terrain_relief": terrain_relief,
+        # Library view (#824): built tiles with sizes, the caches, freeing
+        # a cache, deleting tiles.  Each replies {"status": "started"} and
+        # completes with LibraryReady carrying this command's id; deleting
+        # needs confirm=true and is refused while a build runs.
+        **{name: _library_handler(session, name)
+           for name in ("library_scan", "cache_sizes", "free_cache",
+                        "library_delete")},
     }
+
+
+def _library_handler(session: EngineSession, name: str) -> Callable:
+    from . import library
+    return lambda **kw: library.start(
+        session._emit, name, busy=lambda: bool(session._building), **kw)
 
 
 def command_table(session: EngineSession) -> Dict[str, Callable]:
@@ -489,7 +509,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
                           "secrets", "tile_settings_write",
-                          "missing_art"))))
+                          "missing_art", "library"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

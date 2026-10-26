@@ -4,23 +4,25 @@ the viewport controller, the pack outlines, the map layer and its
 gestures, the map toolbar, the side-panel box and the 3D preview window
 (opened on demand) onto the main window's map and session.  The window keeps a handful of wiring lines: the box
 below Activity, the ``PackObjectsReady`` route, the Edit / File menu
-actions, the quit check and its build path for "Rebuild tile".
+actions, the quit check, its build path for "Rebuild tile" and the copy
+items of the map's right-click menu (#1281).
 """
 from __future__ import annotations
 
 import typing as _t
 
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 
 import O4_Glossary as GLOSSARY
 import O4_Qt_Map as QTMAP
+import O4_Qt_Patch_Reference as REFERENCE
 from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
 from O4_Qt_Patch_Engine import PatchEngine
 from O4_Qt_Patch_Gestures import PatchGestures
 from O4_Qt_Patch_Model import PatchEditModel
 from O4_Qt_Patch_Overlay import PatchOverlay
-from O4_Qt_Patch_Panel import PatchPanel
+from O4_Qt_Patch_Panel import PatchPanel, node_lat_lon
 from O4_Qt_Patch_Toolbar import PatchToolbar
 from O4_Qt_Terrain_Relief import TerrainRelief
 
@@ -105,6 +107,39 @@ class PatchEditor:
         self.preview.show()
         self.preview.raise_()
         self.preview.activateWindow()
+
+    def copy_items(self, x: float, y: float) -> list[tuple[str, str]]:
+        """``(title, text)`` for a right-click at viewport ``(x, y)``:
+        "Copy coordinates" on a node (8 px), "Copy shape reference" while
+        one shape is selected; none while the patch layer is hidden."""
+        m, index = self.model, self.overlay.index
+        if not self.overlay.showing or m.doc is None or index is None:
+            return []
+        items = []
+        index.project(self.overlay.transform())
+        node = index.node_at(x, y)
+        if node is not None:
+            _nid, lat, lon, _alt = m.doc.nodes[node]
+            items.append((REFERENCE.COPY_COORDINATES, node_lat_lon(lat, lon)))
+        if len(m.shape_selection) == 1:
+            (way_id,) = m.shape_selection
+            if any(w.id == way_id for w in m.doc.ways):
+                items.append((REFERENCE.COPY_SHAPE_REFERENCE, self.panel.shape_reference(way_id)))
+        return items
+
+    def add_copy_actions(self, menu, x: float, y: float) -> None:
+        """Put :meth:`copy_items` at the top of the map's right-click
+        ``menu``, then a separator."""
+        items = self.copy_items(x, y)
+        if not items:
+            return
+        first = menu.actions()[0] if menu.actions() else None
+        clipboard = QGuiApplication.clipboard()
+        for title, text in items:
+            action = QAction(title, menu)
+            action.triggered.connect(lambda _checked=False, t=text: clipboard.setText(t))
+            menu.insertAction(first, action)
+        menu.insertSeparator(first)
 
     def on_pack_objects_ready(self, event) -> None:
         self.engine.on_pack_objects_ready(event)

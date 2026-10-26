@@ -6,13 +6,12 @@ import subprocess
 import sys
 import types
 
-from shapely import affinity, geometry
-
 import O4_Airport_Apt_Identity as ID
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Airport_Modes as MODES
 import O4_Airport_Utils as APT
 import O4_Geo_Utils as GEO
+from shapely import affinity, geometry
 
 #: A cell centre (cells are centred on 0.001 degree multiples), so a 10 m
 #: move cannot cross a cell edge: the property pinned is "metres move

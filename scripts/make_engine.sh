@@ -138,7 +138,39 @@ if [[ -d "$BUNDLE_DIR/osgeo" ]]; then
     echo "       Match requirements.txt's Darwin gdal pin to Homebrew's GDAL (gdal-config --version)." >&2
     exit 1
   fi
-  echo "   frozen GDAL OK ($GDAL_LIB bundled)"
+  # ONE COPY OF EACH SHARED LIBRARY (2026-10-26, app 1.0.430): Pillow ships
+  # its own libharfbuzz.0.dylib under PIL/.dylibs (harfbuzz 13 at Pillow
+  # 12.2) while Homebrew's GDAL 3.13 pulls harfbuzz 15 (libharfbuzz-subset).
+  # dyld resolves both to ONE image by install name, the older one won, and
+  # libgdal failed to load ("Symbol not found:
+  # _hb_draw_funcs_set_get_budget_remaining_func") — so the frozen engine
+  # had no GDAL although every file was bundled.  The newer copy replaces
+  # the older (harfbuzz keeps ABI backward-compatible), and the check
+  # below proves libgdal actually LOADS, not just that it is present.
+  # PyInstaller dedupes by name: the bundle-root libharfbuzz.0.dylib is a
+  # SYMLINK to Pillow's copy, so Homebrew's newer one is never collected.
+  # Put Homebrew's harfbuzz in Pillow's slot, made relocatable: its own id
+  # and its Homebrew deps rewritten to @rpath, plus an rpath to the bundle
+  # root where PyInstaller collected those deps (freetype, glib, graphite2).
+  HB_PIL="$BUNDLE_DIR/PIL/.dylibs/libharfbuzz.0.dylib"
+  HB_BREW="$(brew --prefix harfbuzz 2>/dev/null)/lib/libharfbuzz.0.dylib"
+  if [[ -f "$BUNDLE_DIR/libharfbuzz-subset.0.dylib" && -f "$HB_PIL" && -f "$HB_BREW" ]]; then
+    rm -f "$HB_PIL"
+    cp "$HB_BREW" "$HB_PIL"
+    chmod u+w "$HB_PIL"
+    install_name_tool -id "@rpath/libharfbuzz.0.dylib" "$HB_PIL"
+    for DEP in $(otool -L "$HB_PIL" | awk 'NR>2 && /\/opt\/homebrew\// {print $1}'); do
+      install_name_tool -change "$DEP" "@rpath/$(basename "$DEP")" "$HB_PIL"
+    done
+    install_name_tool -add_rpath "@loader_path/../.." "$HB_PIL" 2>/dev/null || true
+    codesign --force --sign - "$HB_PIL" >/dev/null 2>&1 || true
+    echo "   unified libharfbuzz.0.dylib (Homebrew's, relocatable, in PIL/.dylibs)"
+  fi
+  "$PY" -I -c "import ctypes, sys; ctypes.CDLL(sys.argv[1])" "$BUNDLE_DIR/$GDAL_LIB" || {
+    echo "ERROR: the bundled $GDAL_LIB does not load (see the dyld error above)." >&2
+    exit 1
+  }
+  echo "   frozen GDAL OK ($GDAL_LIB bundled and loads)"
 fi
 
 echo "Frozen engine: $ENGINE/$OUT (version ${VERSION:-unknown})"

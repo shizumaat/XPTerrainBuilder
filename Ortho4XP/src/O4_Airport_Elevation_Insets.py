@@ -190,6 +190,16 @@ import O4_Scenery_Packs as _scenery_packs
 # survives access-strategy refactors (spec section 3.2).
 NO_COVERAGE = "no-coverage"
 
+#: The law a stamped durable status was written under (#1328).  Absent
+#: (law 1): every 4xx answer to a discovery query was a durable
+#: no-coverage, so a provider that REFUSED the query (FRANCE50CM's WFS
+#: 400 at LFPG / LFSB) was recorded as "no data here" for good.  Law 2:
+#: only a 404 / 410 or a well-formed empty answer is no-coverage; any
+#: other 4xx raises ``ProviderQueryError`` and records ``unavailable:``.
+#: A ``no-coverage`` stamped under an older law is NOT durable on read:
+#: it is re-probed once (:func:`negative_predates_query_law`).
+NEGATIVE_LAW = 2
+
 # =====================================================================
 # THE STATUS CLASSES OF THE INSET INDEX (owner RULINGS 2026-09-13b)
 # =====================================================================
@@ -699,7 +709,8 @@ def run_capability_record(definition):
     """
     required = provider_required_capabilities(definition)
     if not required:
-        return {"engine": _engine_version(), "capabilities": []}
+        return {"engine": _engine_version(), "capabilities": [],
+                "negative_law": NEGATIVE_LAW}
     have = []
     for capability in required:
         if capability == CAPABILITY_LERC and lerc_decode_available():
@@ -708,7 +719,8 @@ def run_capability_record(definition):
             have.append(capability)
         elif capability == CAPABILITY_LAZ and laz_reader_available():
             have.append(capability)
-    return {"engine": _engine_version(), "capabilities": have}
+    return {"engine": _engine_version(), "capabilities": have,
+            "negative_law": NEGATIVE_LAW}
 
 
 def _engine_version():
@@ -739,6 +751,27 @@ def _record_run_capabilities(airport_record, code, definition):
         capabilities = {}
         airport_record["capabilities"] = capabilities
     capabilities[code] = record
+
+
+def negative_predates_query_law(airport_record, code):
+    """Was this ``no-coverage`` written before :data:`NEGATIVE_LAW`?
+
+    True when the stamp beside ``code`` records no ``negative_law`` (or an
+    older one): that engine turned a REFUSED query (a 400, a 403) into a
+    durable negative (#1328), so the record is not trusted as one.  The
+    two re-probe doors below ask it; the re-probe stamps the current law
+    whatever it answers, so it happens once.
+    """
+    capabilities = (airport_record.get("capabilities")
+                    if isinstance(airport_record, dict) else None)
+    stamp = (capabilities.get(code)
+             if isinstance(capabilities, dict) else None)
+    if not isinstance(stamp, dict):
+        return True
+    try:
+        return int(stamp.get("negative_law") or 1) < NEGATIVE_LAW
+    except (TypeError, ValueError):
+        return True
 
 
 def negative_is_unverified(airport_record, code, definition,
@@ -777,6 +810,10 @@ def negative_is_unverified(airport_record, code, definition,
         return True
     stamp = capabilities.get(code)
     if not isinstance(stamp, dict):
+        return True
+    # A negative from before the query-error law may be a refused query
+    # (#1328), whatever capabilities that run had.
+    if negative_predates_query_law(airport_record, code):
         return True
     # A stamp that says the run LACKED what the provider needs verifies
     # nothing: it records the 1.0.324 condition instead of ruling it out.
@@ -840,7 +877,11 @@ def negative_is_version_stale(airport_record, code, definition,
         definition, bounding_box
     ):
         return False
-    return recorded_engine_version(airport_record, code) != _engine_version()
+    # A negative from before the query-error law may be a refused query
+    # (#1328): re-asked once even under the same engine version.
+    return (recorded_engine_version(airport_record, code)
+            != _engine_version()
+            or negative_predates_query_law(airport_record, code))
 
 
 def _bounding_box_hull(boxes):
@@ -4706,7 +4747,17 @@ def ensure_airport_insets(
                 airport_record[code] = NO_COVERAGE
                 airport_record["checked"] = checked_stamp
                 continue
-            if unverified:
+            if (unverified or version_stale) and negative_predates_query_law(
+                    airport_record, code):
+                # #1328: the negative may be a REFUSED query (a 400 / 403)
+                # that an older engine recorded as "no data here".
+                UI.vprint(
+                    1,
+                    "    [insets] %s: re-probing %s (no-coverage recorded "
+                    "before refused queries stopped counting as one) - once"
+                    % (icao, code),
+                )
+            elif unverified:
                 # A RECORDED REFRESH, not a content refresh: the negative
                 # on disk was written by an engine whose capabilities the
                 # index does not record, and 1.0.324 proved such an

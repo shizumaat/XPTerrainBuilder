@@ -22,11 +22,15 @@ from O4_Qt_Patch_Model import PatchEditModel
 from O4_Qt_Patch_Overlay import PatchOverlay
 from O4_Qt_Patch_Panel import PatchPanel
 from O4_Qt_Patch_Toolbar import PatchToolbar
+from O4_Qt_Terrain_Relief import TerrainRelief
 
-__all__ = ["PatchEditor", "PACK_OUTLINES_PREF"]
+__all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "TERRAIN_PREF", "TERRAIN_OPACITY_PREF"]
 
 #: The prefs key that remembers the "Pack outlines" toggle (on by default).
 PACK_OUTLINES_PREF = "patch_editor_pack_outlines"
+#: ... and the "Terrain" toggle (off by default) and its opacity (#1320).
+TERRAIN_PREF = "patch_editor_terrain"
+TERRAIN_OPACITY_PREF = "patch_editor_terrain_opacity"
 
 
 class PatchEditor:
@@ -47,10 +51,20 @@ class PatchEditor:
         self.outlines = PackOutlines(self.engine, self.model, QTMAP.SCENE_ZL,
                                      enabled=bool(prefs.get(PACK_OUTLINES_PREF, True)),
                                      remember=remember, parent=window)
-        self.overlay = PatchOverlay(map_view, self.controller, self.outlines)
+
+        def remember_terrain(on: bool, opacity: float) -> None:
+            prefs[TERRAIN_PREF], prefs[TERRAIN_OPACITY_PREF] = on, opacity
+            save_prefs(prefs)
+        self.terrain = TerrainRelief(self.engine, self.model, map_view, built,
+                                     enabled=bool(prefs.get(TERRAIN_PREF, False)),
+                                     opacity=float(prefs.get(TERRAIN_OPACITY_PREF, 0.6)),
+                                     remember=remember_terrain,
+                                     showing=lambda: self.controller.is_showing, parent=window)
+        self.controller.state_changed.connect(self.terrain.view_changed)
+        self.overlay = PatchOverlay(map_view, self.controller, self.outlines, self.terrain)
         self.gestures = PatchGestures(self.overlay)
         self.overlay.toolbar = PatchToolbar(map_view.viewport(), self.controller, self.outlines,
-                                            open_preview=self.open_preview)
+                                            open_preview=self.open_preview, terrain=self.terrain)
         map_view.add_layer(self.overlay)
         self.panel = PatchPanel(self.controller)
         self._window, self._map, self._built = window, map_view, built

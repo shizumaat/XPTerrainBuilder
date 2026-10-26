@@ -350,6 +350,61 @@ public struct O4CursorElevation: Decodable, Equatable, Sendable {
     }
 }
 
+/// `terrain_relief` (protocol 1.15, #1320, owner Q134): the patch view's
+/// terrain picture — hillshade plus contour lines — over `bbox` (the asked
+/// box clipped to the tile), rows even in web-mercator Y so it lies on the
+/// map's projection; `pending` (and no picture) while the engine draws it.
+public struct O4TerrainRelief: Decodable, Equatable, Sendable {
+    public struct Legend: Decodable, Equatable, Sendable {
+        public let minM: Double?
+        public let maxM: Double?
+        public let contourM: Double
+
+        private enum CodingKeys: String, CodingKey {
+            case minM = "min_m", maxM = "max_m", contourM = "contour_m"
+        }
+
+        /// The legend row: `1 m contours · 100–110 m`.
+        public var text: String {
+            let step = String(format: "%g m contours", contourM)
+            guard let minM, let maxM else { return step }
+            return step + String(format: " · %.0f–%.0f m", minM, maxM)
+        }
+    }
+
+    public let pending: Bool
+    /// The PNG file's bytes; nil while pending.
+    public let png: Data?
+    public let width: Int
+    public let height: Int
+    public let bbox: O4LatLonBox
+    /// "mesh", "dem" or "mixed"; nil while pending or with no elevation there.
+    public let source: String?
+    public let legend: Legend?
+
+    private enum CodingKeys: String, CodingKey {
+        case pending, png = "png_b64", width, height, bbox, source, legend
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pending = try c.decode(Bool.self, forKey: .pending)
+        if let text = try c.decodeIfPresent(String.self, forKey: .png) {
+            guard let data = Data(base64Encoded: text) else {
+                throw O4CommandError("The engine's terrain picture is not base64.")
+            }
+            png = data
+        } else {
+            png = nil
+        }
+        width = try c.decode(Int.self, forKey: .width)
+        height = try c.decode(Int.self, forKey: .height)
+        bbox = try c.decode(O4LatLonBox.self, forKey: .bbox)
+        source = try c.decodeIfPresent(String.self, forKey: .source)
+        legend = try c.decodeIfPresent(Legend.self, forKey: .legend)
+    }
+}
+
 public struct O4PackObjects: Decodable, Equatable, Sendable {
     public struct Model: Decodable, Equatable, Sendable {
         public let key: String

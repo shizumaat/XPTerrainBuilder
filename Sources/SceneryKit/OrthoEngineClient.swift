@@ -959,6 +959,20 @@ extension OrthoEngineClient {
         return try await request("cursor_elevation", arguments)
     }
 
+    /// The terrain view's picture over `bbox` (protocol 1.15, #1320):
+    /// hillshade plus contours, `pixelWidth` × `pixelHeight` (at most 1024
+    /// each); `contourM` nil = the engine's default for the pixel size.
+    /// Ask again while the reply is `pending`.
+    public func terrainRelief(tile: String, bbox: O4LatLonBox, pixelWidth: Int, pixelHeight: Int,
+                              contourM: Double? = nil, buildDir: String? = nil) async throws -> O4TerrainRelief {
+        var arguments: [String: Any] = [
+            "tile": tile, "bbox": bbox.wireArray, "px_w": pixelWidth, "px_h": pixelHeight,
+        ]
+        if let contourM { arguments["contour_m"] = contourM }
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("terrain_relief", arguments)
+    }
+
     /// The last build's mesh around `bbox` ("Last build"); `buildDir` as
     /// for `terrainSample`.
     public func meshCrop(tile: String, bbox: O4LatLonBox, buildDir: String? = nil) async throws -> O4MeshCrop {

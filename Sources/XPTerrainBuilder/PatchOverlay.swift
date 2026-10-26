@@ -89,15 +89,20 @@ struct PatchOverlay: View {
             }
             .allowsHitTesting(false)
             .background {
-                if let outlines = model.build?.packOutlines {
-                    PatchPackOutlineLayer(outlines: outlines, camera: camera)
+                ZStack {
+                    if let terrain = model.build?.terrainRelief {
+                        PatchTerrainReliefLayer(relief: terrain, camera: camera)
+                    }
+                    if let outlines = model.build?.packOutlines {
+                        PatchPackOutlineLayer(outlines: outlines, camera: camera)
+                    }
                 }
             }
             .overlay {
                 if model.mode == .edit { PatchEditLayer(model: model, drag: model.drag, camera: camera) }
             }
             .overlay(alignment: .topTrailing) {
-                PatchLegend(outlines: model.build?.packOutlines).padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
+                PatchLegend(outlines: model.build?.packOutlines, terrain: model.build?.terrainRelief).padding(.top, 44).padding(.trailing, 8).allowsHitTesting(false)
             }
         }
     }
@@ -226,6 +231,7 @@ struct PatchStyle {
 
 private struct PatchLegend: View {
     let outlines: PatchPackOutlines?
+    let terrain: PatchTerrainRelief?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -238,6 +244,7 @@ private struct PatchLegend: View {
                 }
             }
             if let outlines { PackOutlineLegendRow(outlines: outlines) }
+            if let terrain { TerrainReliefLegendRow(relief: terrain) }
         }
         .font(.caption)
         .foregroundStyle(.white.opacity(0.85))

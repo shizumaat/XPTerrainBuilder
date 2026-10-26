@@ -169,6 +169,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .elevation_commands import cursor_elevation
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
+    from .relief_commands import terrain_relief
     from .mesh_commands import mesh_crop
     from .terrain_commands import terrain_sample
     return {
@@ -240,6 +241,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # thread: an uncached source loads on a daemon thread and the
         # reply says pending.
         "cursor_elevation": cursor_elevation,
+        # Terrain view (protocol 1.15, #1320): a hillshade-and-contours
+        # PNG over a box, from the same sources; drawn off THIS thread,
+        # the reply says pending until it is ready.
+        "terrain_relief": terrain_relief,
     }
 
 

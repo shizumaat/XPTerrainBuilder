@@ -88,7 +88,10 @@ from typing import Any, Optional
 # 1.14 (2026-10-24, additive, #1308): ``cursor_elevation`` answers the
 # built mesh's elevation at a point (``source`` "mesh"), else the DEM's
 # ("dem"); ``pending`` while a source loads off the read loop.
-PROTOCOL_VERSION = "1.14"
+# 1.15 (2026-10-26, additive, #1320): ``terrain_relief`` answers a
+# hillshade-and-contours PNG over a box from the same sources, with its
+# legend; ``pending`` while it is drawn off the read loop.
+PROTOCOL_VERSION = "1.15"
 
 
 @dataclass(frozen=True)

@@ -177,9 +177,19 @@ CATALOGUE = {
         "X-Plane's airport data was not found.",
         "The app could not find the navigation data in the X-Plane "
         "folder it was given.", "settings"),
+    # A cold production frame names its cause in its own code
+    # (``dem_production.cold_frame_code``, issue #1352): a cache this
+    # build never filled is not an internet problem, and an airport
+    # outside the inset selection or with no provider coverage is not
+    # cold at all (it is patched on the base elevation).
     "airport_elevation_missing": Entry(
         "elevation data for {airports} was not available.",
-        "The detailed elevation for this airport could not be prepared.",
+        "The detailed elevation for this airport was not in the app's "
+        "cache, and this build did not download it.",
+        "retry"),
+    "airport_elevation_offline": Entry(
+        "elevation data for {airports} was not available.",
+        "The download of the detailed elevation for this airport failed.",
         "network"),
     "pack_dump_stale": Entry(
         "scenery for {airports} could not be read.",
@@ -258,6 +268,11 @@ CATALOGUE = {
         "the map data for this area could not be prepared.",
         "The downloaded OpenStreetMap extract could not be read or "
         "filtered.", "retry"),
+    # issue #1354: OSM coastline would turn high ground into sea
+    "map_coastline_implausible": Entry(
+        "the coastline map data for this area looks wrong.",
+        "OpenStreetMap marks most of this tile as sea, but its ground is "
+        "far above sea level everywhere.", "report"),
     "mesh_refused": Entry(
         "the terrain mesh could not be built.",
         "The tile's shapes failed one of the app's own safety checks.",
@@ -385,6 +400,7 @@ EXCEPTION_CODES = {
     # map data
     "ExtractFilterError": "map_data_failed",
     "AtlasApiError": "network_unavailable",
+    "ImplausibleSeaTile": "map_coastline_implausible",
     # mesh
     "BankAnnulusCollapse": "mesh_refused",
     "InterpAltLeak": "mesh_refused",

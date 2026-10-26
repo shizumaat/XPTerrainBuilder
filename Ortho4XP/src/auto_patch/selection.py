@@ -57,7 +57,11 @@ class PatchCandidate:
         the X-Plane root cannot be resolved from the CIFP path;
     ``"boundary_skipped"``
         its patch reaches into a 1° tile this build is not building and
-        the boundary policy is "skip" (spec §C.3).
+        the boundary policy is "skip" (spec §C.3);
+    ``"apt_dat_elsewhere"``
+        the apt.dat block of that code lies nowhere near this tile — the
+        CIFP and the apt.dat name two different facilities by one code
+        (:func:`apt_dat_elsewhere`, #1355 / #1356); skipped, never queued.
 
     Airports the MODE does not admit are not candidates at all.
     """
@@ -140,6 +144,12 @@ def select_patch_airports(tile, cifp_path: str, mode: str, *,
             out.append(PatchCandidate(
                 icao, filepath, runways, "no_apt_dat",
                 "no enabled scenery pack defines this airport"))
+            continue
+        elsewhere = apt_dat_elsewhere(apt_dat, icao, tile_lat, tile_lon)
+        if elsewhere:
+            out.append(PatchCandidate(icao, filepath, runways,
+                                      "apt_dat_elsewhere", elsewhere,
+                                      apt_dat))
             continue
         candidate = PatchCandidate(icao, filepath, runways, "patch", "",
                                    apt_dat)
@@ -257,6 +267,57 @@ def airside_claim(apt_dat: str, icao: str):
         return None
     claim = unary_union(parts)
     return claim if not claim.is_empty else None
+
+
+def apt_dat_elsewhere(apt_dat: str, icao: str, tile_lat: int, tile_lon: int,
+                      reach_m: float | None = None) -> str:
+    """Why the apt.dat block of ``icao`` is NOT the airport CIFP places in
+    tile ``(tile_lat, tile_lon)``, or ``""`` when it is.
+
+    The selector admits an airport by its CIFP thresholds and then reads
+    the apt.dat block of the same code; the two sources do not always mean
+    the same facility.  MEASURED #1355 / #1356: CIFP ``OR01`` and ``ID31``
+    are runway strips in tiles +45-117 / +44-117, while Global Airports'
+    ``OR01`` / ``ID31`` are hospital heliports 600 km and 70 km away.  The
+    patch is cut to the tile being built, so a block whose geometry lies
+    outside it builds nothing here and patches the wrong place.
+
+    The witness is the block's own geometry — its airside claim
+    (:func:`airside_claim`), or its reference point when it has none (a
+    heliport) — buffered by the seam ask reach (:func:`ask_reach_m`, no
+    new number), against the home 1° cell."""
+    import math
+
+    from auto_patch_v2.airport.apt_dat import (parse_airport_block,
+                                               read_airport_block)
+
+    claim = airside_claim(apt_dat, icao)
+    if claim is not None:
+        (west, south, east, north) = claim.bounds
+    else:
+        block = read_airport_block(apt_dat, icao)
+        if not block:
+            return ""
+        try:
+            (lat, lon) = parse_airport_block(block).reference_point()
+        except ValueError:
+            return ("its apt.dat block carries no geometry at all — "
+                    "skipped, not built")
+        (west, south, east, north) = (lon, lat, lon, lat)
+    reach = ask_reach_m() if reach_m is None else float(reach_m)
+    (dlat, dlon) = _degrees_per_metre(0.5 * (south + north))
+    gap_lat = max(tile_lat - (north + reach * dlat),
+                  (south - reach * dlat) - (tile_lat + 1), 0.0)
+    gap_lon = max(tile_lon - (east + reach * dlon),
+                  (west - reach * dlon) - (tile_lon + 1), 0.0)
+    if gap_lat <= 0.0 and gap_lon <= 0.0:
+        return ""
+    km = math.hypot(gap_lat / dlat, gap_lon / dlon) / 1000.0
+    return ("its apt.dat block (%s) lies %.0f km outside tile %+03d%+04d, "
+            "where CIFP places its runways — the two name different "
+            "facilities by one code; skipped, not built"
+            % (os.path.basename(os.path.dirname(os.path.dirname(apt_dat)))
+               or apt_dat, km, tile_lat, tile_lon))
 
 
 def _degrees_per_metre(latitude: float):

@@ -154,7 +154,8 @@ log line only ("3 nodes changed height, 1 way moved").
 1. **Admit.** `O4_Step_Reuse.stale_reason(tile, "mesh")` may differ from
    the recorded inputs ONLY in `previous`: same mesh settings, code digest,
    engine and auto-patch configuration. The kept raw artefacts (§8) are
-   present and their digests equal the mesh record's rows. The Triangle4XP
+   present, and their `fast_path` record names the mesh record's current
+   `outputs_digest` (they belong to this mesh). The Triangle4XP
    binary digest equals the one recorded with them. The diff class is D0
    or D1.
 2. **Re-attribute.** Run Triangle4XP in its new RE-ATTRIBUTE mode with:
@@ -177,8 +178,8 @@ log line only ("3 nodes changed height, 1 way moved").
    it, `write_mesh_file` and `_auto_patch_post_mesh_rebake(tile)` exactly
    as `build_mesh` does (`:2823-2858`). There is no second post-process
    and no second object stage.
-4. **Record the mesh** (`REUSE.record(tile, "mesh")`). Its outputs now
-   include the new raw artefacts (§8).
+4. **Record the mesh** (`REUSE.record(tile, "mesh")`), then the
+   `fast_path` entry for the new raw artefacts (§8).
 5. **Masks witness.** If the water-triangle digest (§8) of the new `.mesh`
    equals the old one, the masks step's outputs are what a rerun would
    write (F6: the neighbours' meshes did not change, and the mask settings
@@ -380,8 +381,9 @@ another airport's patch, and the driver's freshness gate keeps reusing them.
 6. **Size.** The cavity holds more than a fraction of the tile's triangles
    (proposal 10 %); there is no gain left.
 7. **Missing evidence:**
-   - the kept raw artefacts are missing, or their digests do not match the
-     mesh record;
+   - the kept raw artefacts are missing (for example cleared at the last
+     app quit, §8.1), or their `fast_path` entry does not match them or the
+     current mesh record;
    - the Triangle4XP binary is not the one that made them, or it lacks the
      switch;
    - `O4_STEP_REUSE=0`.
@@ -399,10 +401,10 @@ rebuild (the edit reaches the tile edge)".
 |---|---|---|---|---|
 | `.node`, `.poly`, `.alt`, `.apt`, patch `.osm` | vector | yes (`cleaning_level ≤ 2`) | vector outputs, content (`src/O4_Step_Reuse.py:290`) | the diff (§3) |
 | `o4_levelled_roads.json` | vector | yes | **not stamped (F9)**: add to the vector outputs | Tier 1, and the reuse law itself |
-| raw `.1.node` (before the post-process) | Triangle4XP | **no** (overwritten `:2359`, deleted `:2831`) | **new**: mesh outputs, content | Tier 1 and 2 |
-| `.1.ele` | Triangle4XP | **no** (deleted `:2831`) | **new**: mesh outputs | Tier 1 and 2 |
-| `.1.prov` provenance | Triangle4XP `K` | **new** | **new**: mesh outputs | Tier 1 (and Tier 2, for outside Steiner vertices) |
-| Triangle4XP binary digest | — | — | **new** field in the mesh record | Tier 1 admission |
+| raw `.1.node` (before the post-process) | Triangle4XP | **no** (overwritten `:2359`, deleted `:2831`) | **new**: the `fast_path` entry (below), content | Tier 1 and 2 |
+| `.1.ele` | Triangle4XP | **no** (deleted `:2831`) | **new**: the `fast_path` entry | Tier 1 and 2 |
+| `.1.prov` provenance | Triangle4XP `K` | **new** | **new**: the `fast_path` entry | Tier 1 (and Tier 2, for outside Steiner vertices) |
+| Triangle4XP binary digest | — | — | **new**: the `fast_path` entry | Tier 1 admission |
 | water-triangle digest of the `.mesh` | mesh | — | **new** field in the mesh record: sha256 over the water-bit triangles' (x, y, type), in file order | the masks witness |
 | `.mesh` | mesh | yes | mesh outputs | the old/new change set; DSF input |
 | `fast_path/prev/` | fast path | **new**, deleted after the step | content equal to the vector record's rows | the diff only |
@@ -411,8 +413,18 @@ Changes to `src/O4_Step_Reuse.py`:
 
 1. Bump `SCHEMA`: every record then reads as none once, as the module's
    own history notes.
-2. Vector outputs gain the sidecar. Mesh outputs gain the three raw files.
-   The mesh record gains the binary digest and the water-triangle digest.
+2. Vector outputs gain the sidecar. The mesh record gains the
+   water-triangle digest.
+   **The raw files are NOT mesh outputs.** They are cleared when the app
+   quits (§8.1), and a mesh output that goes missing would stale the mesh
+   step at every new launch. Instead the steps record gains a `fast_path`
+   entry holding:
+   - the raw files' content rows;
+   - the Triangle4XP binary digest;
+   - the mesh `outputs_digest` they were made with.
+
+   Missing or mismatched raw files only mean "no fast path" (§7 rule 7);
+   they never stale a step.
 3. **New `edit_only_changes(tile)`:** the patch files whose content changed
    when every vector input key and every non-patch output row is as
    recorded; otherwise `None`. This is the cheap pre-check that says "the
@@ -425,8 +437,45 @@ Changes to `src/O4_Step_Reuse.py`:
 
 Disk: the raw node file is 48 bytes per vertex (six doubles), the `.ele`
 about 16 bytes per triangle, and the provenance about 30 bytes per Steiner
-vertex. For a 2 M-vertex tile that is roughly 100 + 65 + 40 MB. This is
-owner question Q2.
+vertex. For a 2 M-vertex tile that is roughly 100 + 65 + 40 MB.
+
+### 8.1 How long the raw files are kept (owner answer to Q2, 2026-10-26)
+
+Owner, 2026-10-26T18:33:28Z: "Add a per tile config setting in expert that
+lets the user choose to save more data for faster rebuilds when editing. By
+default save every tile only while the app is running, then clear them when
+the app quits."
+
+1. **Every build keeps its raw files** in `<build_dir>/fast_path/raw/`,
+   for every tile.
+2. **New per-tile setting**, proposed name `keep_edit_cache` (bool,
+   default off, registry `O4_Cfg_Vars`).
+   - It joins `list_tile_vars` beside `default_website`, never a step's
+     own list (`list_mesh_vars` etc.). It changes no build output, so
+     toggling it must not stale a step (`_step_settings`,
+     `src/O4_Step_Reuse.py:155`).
+   - Its row goes in the Expert section of the Mac app (`SettingItem(...,
+     expert: true)`, `Sources/XPTerrainBuilder/SettingsLayout.swift`) and
+     the Qt app (`O4_Settings_Model` / `O4_Qt_Settings.py`), in the same PR
+     (`tests/test_qt_layout_parity.py`).
+   - Proposed label: "Keep mesh data for fast rebuilds after patch edits".
+     The hint gives the disk cost.
+3. **Off (the default):** the raw files of every tile built in this app
+   session are deleted when the app quits.
+   - The engine lists each `fast_path/raw/` it writes in a session list
+     under the app's state folder.
+   - On a clean quit, both apps delete the listed folders whose tile has
+     the setting off.
+   - On the next launch, a list left behind by a crash is swept the same
+     way.
+   - A build run outside the app (the harness, the CLI) clears at the end
+     of the engine process.
+4. **On:** the tile's raw files survive quits, so the next session's first
+   edit can take the fast path.
+5. E5 (§9) runs the harness with `keep_edit_cache=1` in the tile's config,
+   because its two builds are two processes.
+6. The master records the ruling in `docs/RULINGS.md` with the owner's
+   words above.
 
 Registration, because CI failed four PRs on it this month:
 
@@ -548,14 +597,14 @@ below come first:
 | Phase | Work | Effort (2026-10-20a) | Size |
 |---|---|---|---|
 | P0 | measurement (§10) | low, master | one warm build + one edited rebuild + one profile |
-| P1 | Tier 1: Triangle4XP `K` + re-attribute (C, ~150 lines); `O4_Patch_Fast_Path.py` (~300 lines: admit, snapshot, diff, call, witness); `O4_Step_Reuse` (§8, ~60 lines); session hook; E1-E3 twins; F9 fix | medium (spec'd), one lane | ~2 rounds |
+| P1 | Tier 1, **only if P0 clears the bar (owner Q4 = a)**: Triangle4XP `K` + re-attribute (C, ~150 lines); `O4_Patch_Fast_Path.py` (~300 lines: admit, snapshot, diff, call, witness); `O4_Step_Reuse` (§8, ~60 lines); session hook; the §8.1 keep setting and quit-time clear in both apps; E1-E3 twins; F9 fix | medium (spec'd), one lane | ~2 rounds |
 | P1b | z-only DSF re-encode, if P0 says DSF dominates | high | ~1-2 rounds |
 | P2 | Tier 2 (§5), only if Q1 is yes | xhigh (architecture) | ~3-4 rounds |
 
 No new UI control is needed if Q3 answers "automatic". A control would land
 in both apps (two UIs, one layout, `tests/test_qt_layout_parity.py`).
 
-## 12. Open owner questions
+## 12. Owner questions
 
 - **Q1.** For an edit that moves nodes or adds or removes ways: may the
   fast path give a mesh that is lawful but not byte-identical to a full
@@ -566,14 +615,13 @@ in both apps (two UIs, one layout, `tests/test_qt_layout_parity.py`).
   height-only edits taking the fast path? *Recommendation: height-only
   first (Tier 1); decide Tier 2 after Phase 0 and Tier 1 have measured
   what it would add.*
-- **Q2.** The fast path needs the mesher's raw output kept after every
-  build, roughly 100-200 MB on a big tile and much less on a rural one.
-  Keep it for every tile, or only once a tile has an edited patch? With
-  the second choice, the first edit after a build still takes one full
-  rebuild. *Recommendation: every tile.*
+- **Q2. ANSWERED 2026-10-26T18:33:28Z** (the owner's own design, §8.1):
+  keep the files for every tile while the app runs, and clear them when it
+  quits. A per-tile Expert setting keeps them permanently.
 - **Q3.** Should "Rebuild tile" pick the fast path by itself when it
   applies, with a log line ("height-only edit: mesh updated without
   re-meshing"), or should there be a separate "Apply edit" action?
   *Recommendation: automatic, with no new control.*
-- **Q4.** Approve P0 (one measurement) now, and P1 only if P0 shows the
-  saving is at least a third of the rebuild?
+- **Q4. ANSWERED 2026-10-26 ("a")**: measure on the Mac first (P0), and
+  build Tier 1 only if P0 shows the saving is at least a third of the
+  rebuild.

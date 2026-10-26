@@ -90,7 +90,8 @@ from ..law.tables import is_structure_role, is_value_role, role_family, role_sid
 from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
-           "road_end_after_slide"]
+           "road_end_after_slide", "portal_note", "PORTAL_YIELDS", "strip_keepout",
+           "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
 _SLIDE_PASSES = 4
@@ -302,7 +303,8 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
 def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       cut_roles: _t.Collection[str], half: float, rim_off: float, gap: float,
                       spacing: float, grid: float, decked: _t.Sequence[Polygon],
-                      airport=None, crossing: _t.Sequence[tuple[Polygon, str]] = ()):
+                      airport=None, crossing: _t.Sequence[tuple[Polygon, str]] = (),
+                      pinned: bool = False):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -324,7 +326,12 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
     governed too: its clip put the mouth INSIDE the taxi cell so the rim
     landed on it, and that is the cut into the taxiway the owner's rule
     forbids ("the full taxiway width must always stay graded") — the
-    newer word; the mouth slides to the taxiway's edge like any other."""
+    newer word; the mouth slides to the taxiway's edge like any other.
+
+    ``pinned`` — a pack PORTAL stands at the mapped mouth
+    (``airport/portal_objects``; #971's "or object if one is provided",
+    #1343): the mouth stays AT the portal, the pavement its own opening
+    stands in is the portal's, and the stops beyond still end the ramp."""
     from .structure_approach import pavement_half_widths
     from .structure_geometry import ring_for
     def ring_of(s0: float):
@@ -346,6 +353,17 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         geom = ring_for(None, fn, ss, half, rim_off, group.inward, grid, group, half_fn)
         return None if geom is None else geom.outer
 
+    if pinned:
+        got = _pinned(group, axis, cells, polys, pads, law, cut_roles, half, rim_off,
+                      decked, grid, crossing, ring_of(0.0))
+        if isinstance(got, tuple):
+            return got
+        # clause 1 stands over the portal: a taxiway face at its opening
+        # is never cut — the mouth slides as any mapped mouth does
+        slid = mouth_at_pavement(group, axis, cells, polys, pads, law, cut_roles, half,
+                                 rim_off, gap, spacing, grid, decked, airport, crossing)
+        return slid[:4] + (f"{PORTAL_YIELDS} {got}" + (f"; {slid[4]}" if slid[4] else ""),
+                           slid[5])
     # the stops are re-read from each new mouth (an apron the new mouth
     # stands in, a host that starts there) and the slide repeats until the
     # mouth stands clear of them too
@@ -422,3 +440,72 @@ def road_end_after_slide(portal_axis: LineString, axis: LineString, index, reach
                   f"road's end (the axis leaves it within {end + step:.0f} m of the portal): "
                   f"no open ramp stands on a road that is not there (#1028 the ramp follows "
                   f"the road; #1337)")
+
+
+#: the note's prefix when a portal's opening meets a taxiway (clause 1)
+PORTAL_YIELDS = "the pack portal yields to taxiway"
+
+
+def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, half: float,
+            rim_off: float, decked, grid: float, crossing, mouth_ring):
+    """:func:`mouth_at_pavement` for a mouth a pack PORTAL pins: never
+    slid.  The stops are read at the mapped mouth; those the mouth's own
+    end (its cap and first spacing of ramp, ``mouth_ring``) stands in are
+    the portal's opening and dropped — the rest end the ramp's top.  A
+    TAXIWAY face at the opening is never dropped (clause 1): its ref is
+    returned instead (a string), and the caller slides the mouth."""
+    mouth = tuple(axis.coords[0])            # the portal's own mouth (``portal_mouth``)
+    stops = mouth_stops(cells, polys, law, cut_roles, axis, mouth, half, rim_off,
+                        decked, grid) + list(crossing)
+    if mouth_ring is not None:
+        taxi = {c.ref for c in cells if role_family(law, c.role) == "taxi"}
+        hit = [r for p, r in stops if r in taxi and p.intersects(mouth_ring)]
+        if hit:
+            return hit[0]
+        stops = [(p, r) for p, r in stops if not p.intersects(mouth_ring)]
+    stops = list(pads) + stops
+    tree = STRtree([p for p, _r in stops]) if stops else None
+    return axis, mouth, stops, tree, "", None
+
+
+def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
+    """The tunnel record's line for a mouth a pack portal pinned."""
+    return (f"mouth pinned by the pack portal {pin.object_id} "
+            f"{pin.resource.rsplit('/', 1)[-1]} (#971 'or object if one is provided', "
+            f"#1343): floor {mouth_z:.2f} = ground {mouth_dem:.2f} − its roof top "
+            f"{pin.depth_m:.2f} (never mouth_depth_m)")
+
+
+#: :func:`strip_keepout`'s verdicts
+STRIP_REFUSED, STRIP_PORTAL = "refused", "portal"
+
+
+def strip_keepout(wall, strip_u, pin) -> str:
+    """THE RUNWAY STRIP KEEP-OUT for one corridor's wall ring (RULINGS
+    2026-08-21d, ``retaining_wall.in_runway_strip = false``): ``""`` when
+    the wall stands clear of the strip, :data:`STRIP_REFUSED` when it
+    stands in it, :data:`STRIP_PORTAL` when it stands in it but a pack
+    PORTAL pins the mouth — owner RULINGS 2026-10-26k (Q155): "a tunnel
+    under the safety area does not compromise the safety area's
+    function", so a pack portal's cut may stand there and nothing else
+    may."""
+    if strip_u is None or not wall.intersects(strip_u) \
+            or wall.intersection(strip_u).area <= 1e-6:
+        return ""
+    return STRIP_REFUSED if pin is None else STRIP_PORTAL
+
+
+def portal_mouth(axis: LineString, inward, anchor) -> "tuple[LineString, float]":
+    """``(axis, metres moved)``: a pinned mouth stands under its PORTAL.  An
+    unseated pack portal (placed at several anchors, I-4) is drawn on the
+    mesh at its ANCHOR, so the mouth's floor must be there: where the anchor
+    stands on the COVERED side of the mapped bore end (KBUF ``Road_Tunnel``
+    dsf:obj6856 10.4 m, dsf:obj6854 7.9 m), the mouth moves into the bore
+    to the anchor's station on the axis; an anchor on the ramp side keeps
+    the mapped end (the ramp floor there is the mouth's to ``ramp_grade``)."""
+    m = axis.coords[0]
+    d = (anchor[0] - m[0]) * inward[0] + (anchor[1] - m[1]) * inward[1]
+    if d <= 0.0:
+        return axis, 0.0
+    new = (m[0] + inward[0] * d, m[1] + inward[1] * d)
+    return LineString([new] + list(axis.coords)), float(d)

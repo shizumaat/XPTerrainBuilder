@@ -4057,7 +4057,31 @@ def _runway_strip_keepout_rings(ways: List[Way], nodes, ll_to_m):
     return rings
 
 
-def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
+#: the RUNWAY strips a pack portal's cut may stand in (RULINGS 2026-10-26k);
+#: a taxiway's strip still refuses it
+_PORTAL_STRIP_ROLES = frozenset({"runway", "runway_crossing"})
+
+
+def _portal_cut_regions(portal_cuts_ll, ll_to_m):
+    """The rim polygons, in metres, of the cuts a pack portal pins
+    (``pipeline/publication.portal_cuts``; owner RULINGS 2026-10-26k: they
+    may stand inside the RUNWAY strip keep-out) — the shape of
+    :func:`_object_cut_regions`, one witness for both strip families."""
+    from shapely.geometry import Polygon
+    out = []
+    for rec in (portal_cuts_ll or []):
+        ring = [ll_to_m(float(la), float(lo)) for la, lo in (rec.get("outline_ll") or [])]
+        if len(ring) < 3:
+            continue
+        g = Polygon(ring)
+        g = g if g.is_valid else g.buffer(0)
+        if not g.is_empty:
+            out.append(g)
+    return out
+
+
+def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m,
+                                   portal_cuts_ll: Optional[list] = None
                                    ) -> List[Violation]:
     """Every ``retaining_wall`` vertex standing inside a runway strip
     footprint (owner ruling 2026-08-01).  Cap ZERO — a wall there is
@@ -4067,6 +4091,8 @@ def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
     rings = _runway_strip_keepout_rings(ways, nodes, ll_to_m)
     if not rings:
         return []
+    from shapely.geometry import Point
+    portal = _portal_cut_regions(portal_cuts_ll, ll_to_m)
     out: List[Violation] = []
     for w in ways:
         if w.role != "retaining_wall":
@@ -4078,6 +4104,8 @@ def _check_no_wall_in_runway_strip(ways: List[Way], nodes, ll_to_m
             if not any(_point_in_rect_ring(x, y, r, _WALL_STRIP_MARGIN_M)
                        for r in rings):
                 continue
+            if any(g.distance(Point(x, y)) <= SHARED_VERTEX_TOL_M for g in portal):
+                continue     # RULINGS 2026-10-26k: a pack portal's own cut
             z = w.elevs[k] if k < len(w.elevs) else None
             z = 0.0 if z is None else float(z)
             out.append(Violation(
@@ -8164,7 +8192,8 @@ except Exception:                                       # pragma: no cover
 
 def _check_ramp_in_strip(ways, nodes, ll_to_m,
                          face_holes_m: Optional[dict] = None,
-                         object_cuts_ll: Optional[list] = None) -> List[Violation]:
+                         object_cuts_ll: Optional[list] = None,
+                         portal_cuts_ll: Optional[list] = None) -> List[Violation]:
     """§34 (5) (b) NO STRUCTURE RAMP INSIDE THE STRIP OF THE WAY IT PASSES
     UNDER (Fable 2026-09-15; RULINGS 2026-09-15h; owner 15e item 7).
 
@@ -8245,6 +8274,8 @@ def _check_ramp_in_strip(ways, nodes, ll_to_m,
     # the strip there is the object's deck, not ground: a ramp vertex
     # inside the object's own wall line is exempt
     decked = [g for _i, g, _f, _r in _object_cut_regions(object_cuts_ll, ll_to_m)]
+    # RULINGS 2026-10-26k: a pack portal's cut may stand in a RUNWAY strip
+    portal = _portal_cut_regions(portal_cuts_ll, ll_to_m)
     out: List[Violation] = []
     for w in ways:
         if law_role(w) not in _RAMP_ROLES:
@@ -8256,8 +8287,11 @@ def _check_ramp_in_strip(ways, nodes, ll_to_m,
             p = Point(ll_to_m(lat, lon))
             if any(d.distance(p) <= SHARED_VERTEX_TOL_M for d in decked):
                 continue
+            in_portal = any(d.distance(p) <= SHARED_VERTEX_TOL_M for d in portal)
             for g, pw in bands:
                 if not g.contains(p):
+                    continue
+                if in_portal and law_role(pw) in _PORTAL_STRIP_ROLES:
                     continue
                 depth = min((p.distance(part.exterior)
                              for part in getattr(g, "geoms", [g])
@@ -12218,6 +12252,8 @@ def run_checks(
     # §33 (6): per signature-B corridor, the object's wall line (lat/lon
     # ring) and its AUTHORED floor — the witness both new families price
     object_cuts_ll: Optional[list] = None,
+    # RULINGS 2026-10-26k: the cuts a pack portal pins (runway-strip exempt)
+    portal_cuts_ll: Optional[list] = None,
     mesh_edges_ll: Optional[list] = None,
     face_holes_ll: Optional[dict] = None,
     crown_drops_ll: Optional[list] = None,
@@ -12843,7 +12879,7 @@ def run_checks(
     # AND its graded strip, so no ramp vertex stands inside that strip
     ramp_strip = _fam("ramp_in_strip",
                       _check_ramp_in_strip(ways, nodes, ll_to_m, face_holes_m,
-                                           object_cuts_ll))
+                                           object_cuts_ll, portal_cuts_ll))
     _pv("RAMP vertex INSIDE a runway/taxiway GRADED STRIP (RULINGS "
         "2026-09-15h §34 (5) (b): the covered extent of an underpass "
         "beneath a taxiway or runway spans the pavement AND its strip — "
@@ -13147,7 +13183,7 @@ def run_checks(
 
     wall_in_strip = _fam(
         "wall_in_runway_strip",
-        _check_no_wall_in_runway_strip(ways, nodes, ll_to_m))
+        _check_no_wall_in_runway_strip(ways, nodes, ll_to_m, portal_cuts_ll))
     _pv("RETAINING WALL inside a RUNWAY STRIP footprint (owner ruling "
         "2026-08-01: walls are never lawful at a runway edge — cap 0)",
         wall_in_strip, top_n)

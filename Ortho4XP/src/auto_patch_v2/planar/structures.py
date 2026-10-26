@@ -108,7 +108,10 @@ from .structure_approach import (FieldRegion, apply_plates, cover_polygons, stan
 from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import resolve_overlaps
+from ..airport.portal_objects import portal_of
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement, road_end_after_slide
+from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, portal_mouth,
+                              portal_note, strip_keepout)
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -141,7 +144,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                      plates: _t.Sequence = (), channels: _t.Sequence[Channel] = (),
                      run_limits: _t.Mapping[str, tuple[float, str]] | None = None,
                      _pass: int = 0, at_cap: _t.Mapping[str, str] | None = None,
-                     overlap_refused: _t.Mapping[str, str] | None = None
+                     overlap_refused: _t.Mapping[str, str] | None = None,
+                     portals: _t.Sequence = ()
                      ) -> tuple[Classification, tuple[Tunnel, ...], StructureStats]:
     """The classification with the structures applied (cells cut, ramp /
     wall / deck cells added, the gaps as keep-outs), the tunnel records,
@@ -365,6 +369,17 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         spacing_g = g.spacing_m if g.spacing_m else spacing
         grade_g = g.max_grade if g.max_grade else tn.ramp_max_grade
         steepen_note = ""
+        # #971 "or object if one is provided" / #1343: a pack PORTAL pins the mouth
+        pin = None if c is not None else next(
+            (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
+                         for m in members) if q is not None), None)
+        if pin is not None:
+            # the portal is drawn at its anchor: the mouth stands under it
+            axis_ln, moved = portal_mouth(axis_ln, inward, pin.anchor_xy)
+            mouth = tuple(axis_ln.coords[0])
+            stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}"
+                                       + (f", mouth {moved:.1f} m into the bore to the "
+                                          f"portal's anchor" if moved else ""))
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
             g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
             grid, [d[3] for d in deck_intervals(
@@ -373,7 +388,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     w for m in members for w in m.bore.ways]), plates)]
             + [d[3] for d in object_deck_intervals(axis_ln, half + rim_off, odecks)],
             airport=airport, crossing=crossing_roads(       # #1028 Q32: never through a road
-                axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]))
+                axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]),
+            pinned=pin is not None)
+        if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
+            stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}")
+            pin = None
         if clear is not None and clear[0] is None:
             stats.refused.append(f"{tid}: {clear[4]}")
             continue
@@ -438,8 +457,9 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     f"(> mouth_depth_m {tn.mouth_depth_m} + split_tol_m {tol_m}): an "
                     f"overbridge embankment, not the portal's cover (§33 (3))")
                 mouth_dem = cap_z
-        mouth_z = c.floor_z if c is not None else mouth_dem - tn.mouth_depth_m
-        slid_depth = None                       # #1028: a slid mouth on the road's own profile
+        mouth_z = c.floor_z if c is not None else mouth_dem - (
+            tn.mouth_depth_m if pin is None else pin.depth_m)
+        slid_depth = None if pin is None else pin.depth_m   # #1028: a slid mouth's road profile
         if clear is not None and clear[5] is not None and clear[5] > mouth_z:
             mouth_z, slid_depth = clear[5], mouth_dem - clear[5]
         # decks across the corridor.  TWO orthogonal readings at one
@@ -751,11 +771,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         # of an underpass, §34 (5)"): the decks read above are subtracted
         # before the test, so every §34 (5) underpass — LEMD F-6, KCLT
         # taxiway U — passes exactly as it did.
-        if strip_u is not None and wall.intersects(strip_u) and \
-                wall.intersection(strip_u).area > 1e-6:
+        verdict = strip_keepout(wall, strip_u, pin)
+        if verdict == STRIP_REFUSED:
             stats.refused.append(f"{tid}: the wall would stand inside the runway strip "
                                  f"keep-out (retaining_wall.in_runway_strip = false)")
             continue
+        if verdict == STRIP_PORTAL:
+            stats.portals_in_strip.append(f"{tid}: {pin.object_id} cuts inside the runway "
+                                          f"strip keep-out (RULINGS 2026-10-26k)")
         # decks sever the ramp (by the gap) and the walls (exactly)
         # §33 (4) / §34.5 (6) AMENDED (RULINGS 2026-09-14bp item 10): one
         # entry per deck FACE — parallel bridge ways sharing this crossing
@@ -821,7 +844,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         wall_path = list(reversed(geom.left_rim)) + cap_mid + list(geom.right_rim) + far_mid
         if far_mid and cap_mid:
             wall_path.append(wall_path[0])          # the O: a closed rim
-        notes = list(deck_notes) + ([clear[4]] if clear is not None and clear[4] else [])
+        notes = list(deck_notes) + ([clear[4]] if clear is not None and clear[4] else []) + (
+            [] if pin is None else [portal_note(pin, mouth_dem, mouth_z)])
         if collapse_note:
             notes.append(collapse_note)
         if steepen_note:
@@ -852,6 +876,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          f"{max(a + b for a, b in hws):.1f} m over {len(hws)} stations "
                          f"(lanes default {width:.1f} m)")
         extra: dict = {} if slid_depth is None else dict(depth_m=slid_depth)
+        if pin is not None:
+            extra["portal"] = pin.object_id
         profile_out: tuple = ()
         if c is not None:
             outside = trench_outside_m(ramp_parts, c, grid)
@@ -969,7 +995,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         caps = {k: v for k, v in {**at_cap, **new_cap}.items() if k not in released}
         return build_structures(*args, run_limits={**run_limits, **new_limits},
                                 _pass=_pass + 1, at_cap=caps,
-                                overlap_refused=overlap_refused)
+                                overlap_refused=overlap_refused, portals=portals)
     if not all(keep):
         new_cells = [c for c in new_cells if _owner_kept(c, tunnels, keep)]
         tunnels = [t for t, k in zip(tunnels, keep) if k]

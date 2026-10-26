@@ -193,6 +193,8 @@ SIDECAR_LAW_KEYS: Dict[str, str] = {
     "end_profile_yields": "end_profile_yields_ll",
     # §33 (6): the object cuts the emitted patch must answer to
     "object_cuts": "object_cuts_ll",
+    # RULINGS 2026-10-26k: a pack portal's cut may stand in the runway strip
+    "portal_cuts": "portal_cuts_ll",
     "mesh_edges": "mesh_edges_ll",
     # RULINGS 2026-09-05ae(1): a soft face's holes by ``shapeID`` — an apron
     # chord crossing one is no pair (``grade_graph._visibility_predicate``)
@@ -689,6 +691,7 @@ def law_context_from_sidecar(osm_path, *, announce: bool = False) -> dict:
     ctx["end_profile_yields_ll"] = data.get("end_profile_yields") or None
     # §33 (6) (owner RULINGS 2026-09-15e/15g): the object cuts
     ctx["object_cuts_ll"] = data.get("object_cuts") or None
+    ctx["portal_cuts_ll"] = data.get("portal_cuts") or None
     ctx["mesh_edges_ll"] = data.get("mesh_edges") or None
     ctx["face_holes_ll"] = data.get("face_holes") or None
     ctx["crown_drops_ll"] = data.get("crown_drops") or None

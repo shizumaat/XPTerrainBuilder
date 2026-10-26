@@ -424,3 +424,33 @@ def test_a_strip_ramp_inside_an_object_cut_rides_its_deck_on_both_readers(cg, tm
     assert keepout.ramp_in_strip(p) == []
     fo = _oracle(cg, tmp_path, "decked", rings, side)
     assert fo["ramp_in_strip"] == []
+
+
+def test_26k_a_pack_portal_cut_may_stand_in_a_runway_strip_never_a_taxiways(cg, tmp_path):
+    """Owner RULINGS 2026-10-26k (#1343, KBUF): a pack PORTAL's cut
+    (``publication.portal_cuts``) may stand inside the RUNWAY strip — "a
+    tunnel under the safety area does not compromise the safety area's
+    function" — on ``verify`` and on the oracle alike; a taxiway's strip
+    still refuses it."""
+    rings, side = _layout()
+    strip_ramp = rings[5][2]
+    las = [q[0] for q in strip_ramp]
+    los = [q[1] for q in strip_ramp]
+    pad = 2.0 / _MLAT
+    outline = [[min(las) - pad, min(los) - pad], [min(las) - pad, max(los) + pad],
+               [max(las) + pad, max(los) + pad], [max(las) + pad, min(los) - pad]]
+    portal = dict(side, portal_cuts=[{"id": "tunnel:-1@0", "portal": "dsf:obj1",
+                                      "outline_ll": outline}])
+    # a TAXIWAY's strip: the portal changes nothing
+    assert len(keepout.ramp_in_strip(_patch(rings, portal))) == \
+        len(keepout.ramp_in_strip(_patch(rings, side))) == 2
+    # the same pavement as a RUNWAY: its strip lets the portal's cut stand
+    rwy = list(rings)
+    rwy[1] = ("runway", "09/27", rings[1][2], 4, "E")
+    bare = keepout.ramp_in_strip(_patch(rwy, side))
+    lawful = keepout.ramp_in_strip(_patch(rwy, portal))
+    assert len(bare) == 4 and lawful == []          # all four, the portal's own
+    fo_bare = _oracle(cg, tmp_path, "rwy_bare", rwy, side)
+    fo_port = _oracle(cg, tmp_path, "rwy_portal", rwy, portal)
+    assert len(fo_bare["ramp_in_strip"]) == len(bare)
+    assert len(fo_port["ramp_in_strip"]) == len(lawful)

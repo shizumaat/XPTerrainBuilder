@@ -2,12 +2,11 @@
 and a real coast is left exactly as it was."""
 
 import numpy
-import pytest
-from shapely import geometry
-
 import O4_Coastline_Vetting as VET
 import O4_Tile_Failures as FAIL
 import O4_Vector_Map as VMAP
+import pytest
+from shapely import geometry
 
 LAT, LON = 44, -112
 

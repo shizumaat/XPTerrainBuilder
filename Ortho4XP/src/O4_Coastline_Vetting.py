@@ -33,10 +33,9 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 import numpy
+import O4_UI_Utils as UI
 import shapely
 from shapely import geometry, ops
-
-import O4_UI_Utils as UI
 
 __all__ = [
     "FRAGMENT_MAX_LENGTH_M", "SEA_WITNESS_MAX_M", "WITNESS_REACH_M",

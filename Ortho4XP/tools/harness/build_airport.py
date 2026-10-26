@@ -902,8 +902,7 @@ def insets_expected(state, lat, lon, icao) -> bool:
         # A PRE-FLIGHT NEVER REACHES THE NETWORK (#583): the layer the
         # engine reads must be on disk under the exact name it reads, or
         # OSM_queries_to_OSM_layer downloads it.  Any doubt answers yes.
-        import O4_File_Names as FNAMES
-        if not os.path.isfile(FNAMES.osm_cached(lat, lon, "airports")):
+        if not IPF.airports_layer_is_cached(lat, lon):
             return True
         return bool(IPF.required_boxes(lat, lon, selected_only=True))
     except Exception as exc:

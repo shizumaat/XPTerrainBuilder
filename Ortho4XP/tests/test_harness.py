@@ -11101,6 +11101,9 @@ def test_an_airport_outside_the_inset_selection_needs_no_inset(build_mod,
     assert build_mod.insets_expected(state, 43, -122, "S21") is False
     assert build_mod.insets_expected(state, 43, -122, "KABC") is True
     monkeypatch.setattr(ipf, "required_boxes", lambda *a, **k: {})
+    monkeypatch.setattr(ipf, "airports_layer_is_cached", lambda lat, lon: False)
+    assert build_mod.insets_expected(state, 43, -122, None) is True
+    monkeypatch.setattr(ipf, "airports_layer_is_cached", lambda lat, lon: True)
     assert build_mod.insets_expected(state, 43, -122, None) is False
     cold = dict(state, airport_insets=False, base_raster=True)
     build_mod.require_dem_frame(cold, inset_dir_expected=False)

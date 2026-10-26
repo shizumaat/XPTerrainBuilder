@@ -822,7 +822,9 @@ class _WorkerChild:
                 print(prefix + text)
                 # The tile's own build log (#1226); the prefix is the
                 # console's, the file is the tile's alone.
-                self.run._session.tile_logs.line(tile, text)
+                log = getattr(self.run, "tile_log_line", None)
+                if log is not None:
+                    log(tile, text)
         except Exception:
             pass
 
@@ -834,6 +836,9 @@ class ParallelBuildRun:
                  custom_build_dir, step_flags, slots,
                  boundary_policy=None, missing_art=None):
         self._session = session
+        # The session's per-tile build logs (#1226); a stand-in session
+        # without them logs nothing.
+        self._tile_logs = getattr(session, "tile_logs", None)
         self._queue = deque()
         self._total = 0
         # THE MACHINE BUDGET (issue #1225): one slot pool for the engine
@@ -1497,9 +1502,10 @@ class ParallelBuildRun:
         self._queue.remove(tile)
         child.tile = tile
         # The tile's build starts here: its own build log opens (#1226).
-        self._session.tile_logs.begin(tile, FNAMES.build_dir(
-            tile[0], tile[1], (self._tile_arguments.get(tile)
-                               or {}).get("custom_build_dir", "")))
+        if self._tile_logs is not None:
+            self._tile_logs.begin(tile, FNAMES.build_dir(
+                tile[0], tile[1], (self._tile_arguments.get(tile)
+                                   or {}).get("custom_build_dir", "")))
         child.step_failed = False
         self._next_step_index[tile] = 0
         if not self._try_start_step_locked(child):
@@ -1509,6 +1515,11 @@ class ParallelBuildRun:
             self._queue.appendleft(tile)
             return False
         return True
+
+    def tile_log_line(self, tile, text):
+        """One line of ``tile``'s build into its own log (#1226)."""
+        if self._tile_logs is not None:
+            self._tile_logs.line(tile, text)
 
     # -- cancellation ----------------------------------------------------
     def _stopped_state(self, tile):
@@ -1835,7 +1846,7 @@ class ParallelBuildRun:
                     for line in closing:
                         print(line)
                         # Joins the tile's (just closed) build log.
-                        self._session.tile_logs.line(child.tile, line)
+                        self.tile_log_line(child.tile, line)
                     self._next_step_index.pop(child.tile, None)
                     self._percent_high_water.pop(child.tile, None)
                     child.tile = None

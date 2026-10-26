@@ -67,11 +67,15 @@ def test_stray_rings_on_high_ground_are_dropped_and_the_tile_stays_land():
 
 def test_the_drop_is_said_out_loud(monkeypatch):
     said = []
+    monkeypatch.setattr(VET, "_REPORTED", set())
     monkeypatch.setattr(VET.UI, "loud_warning",
                         lambda *a: said.append(" ".join(map(str, a))))
     VET.vet_coastline(_stray(), LAT, LON, _witness(_highland()))
     assert len(said) == 2 and "stray OSM natural=coastline" in said[0]
     assert "44.956" in said[0]
+    # the other cached readers of the same build are told quietly
+    VET.vet_coastline(_stray(), LAT, LON, _witness(_highland()))
+    assert len(said) == 2
 
 
 def test_no_witness_keeps_what_it_cannot_judge():

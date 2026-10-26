@@ -143,6 +143,20 @@ def _base_dem_sampler(tile) -> Optional[Sampler]:
         return None
 
 
+_REPORTED: set = set()
+
+
+def _say_once(key, message: str) -> None:
+    """Loud the first time per process (the user is told once, and the
+    app gets one warning event), quiet for the other readers of the same
+    coastline in the same build."""
+    if key in _REPORTED:
+        UI.vprint(2, "    ", message)
+        return
+    _REPORTED.add(key)
+    UI.loud_warning(message)
+
+
 def _length_m(line, lat: float) -> float:
     coords = numpy.asarray(line.coords, dtype=float)
     if len(coords) < 2:
@@ -213,7 +227,7 @@ def vet_coastline(coastline, lat: int, lon: int,
         dropped.append((p.y + lat, p.x + lon, _length_m(chain, lat),
                         len(idx)))
     for (plat, plon, length, ways) in dropped:
-        UI.loud_warning(
+        _say_once((round(plat, 5), round(plon, 5)),
             "Coastline vetting: ignored a stray OSM natural=coastline "
             "fragment at {:.5f}, {:.5f} ({} way(s), {:.0f} m long, not "
             "reaching the tile edge): the ground around it is above "
@@ -262,7 +276,7 @@ def withhold_highland_seeds(seed_area, sampler: Optional[Sampler],
          else kept).append(polygon)
     for polygon in withheld:
         p = polygon.representative_point()
-        UI.loud_warning(
+        _say_once(("seed", round(p.y + lat, 5), round(p.x + lon, 5)),
             "Coastline vetting: withheld a sea seed at {:.5f}, {:.5f} "
             "({:.0%} of the tile): the ground there is above {:.0f} m "
             "everywhere, so the OSM coastline that drew it is wrong."

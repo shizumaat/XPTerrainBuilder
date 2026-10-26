@@ -88,7 +88,11 @@ from typing import Any, Optional
 # 1.14 (2026-10-24, additive, #1308): ``cursor_elevation`` answers the
 # built mesh's elevation at a point (``source`` "mesh"), else the DEM's
 # ("dem"); ``pending`` while a source loads off the read loop.
-PROTOCOL_VERSION = "1.14"
+# 1.15 (2026-10-26, additive, #818): the ``build_airports`` command and
+# its completion BuildAirportsReady (the Build pane's Airports card), and
+# the ``overrides`` keyword on build/enqueue_build — the card's per-build
+# "Grade airports" / "Fit custom airport buildings" switches.
+PROTOCOL_VERSION = "1.15"
 
 
 @dataclass(frozen=True)
@@ -532,6 +536,35 @@ class PackObjectsReady(EngineEvent):
 
     request: Any = None
     result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class BuildAirportsReady(EngineEvent):
+    """The completion half of the ``build_airports`` command (protocol
+    1.15, #818): what airport grading and object fitting will do for the
+    tiles about to be built (``o4_engine.build_airports``).
+
+    ``airports``: one entry per airport the build grades::
+
+        {"icao": str, "name": str,          # name "" when not indexed
+         "ruleset": "FAA" | "ICAO", "tile": [lat, lon],
+         "estimate_s": [low, high]}         # a range, never one number
+
+    ``packs``: the enabled custom airport packs with an airport in the
+    tiles and 3-D objects of their own —
+    ``{"name", "path", "airports": [icao, ...], "objects": int}``.
+    ``total_s`` is ``[low, high]`` summed over ``airports``.  ``request``
+    is the ``id`` of the command it answers; ``error`` the failure text.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    airports: list = field(default_factory=list)
+    packs: list = field(default_factory=list)
+    total_s: list = field(default_factory=list)
     error: str = ""
 
 

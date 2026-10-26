@@ -153,7 +153,7 @@ def _ortho4xp_version() -> str:
 
 #: Commands completed by an event that names the command: their handler
 #: is given the command's ``id`` as ``request``.
-_TAKES_REQUEST_ID = frozenset({"pack_objects"})
+_TAKES_REQUEST_ID = frozenset({"pack_objects", "build_airports"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -167,6 +167,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # not wait for.
     from . import patch_commands
     from .elevation_commands import cursor_elevation
+    from .build_airports import start_build_airports
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
     from .mesh_commands import mesh_crop
@@ -230,6 +231,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # replies {"status": "started"}; a worker thread completes it with
         # PackObjectsReady carrying this command's id (_TAKES_REQUEST_ID).
         "pack_objects": lambda **kw: start_pack_objects(session._emit, **kw),
+        # The Build pane's Airports card (protocol 1.15, #818): replies
+        # {"status": "started"} and completes through BuildAirportsReady —
+        # CIFP, apt.dat and the Custom Scenery walk stay off THIS thread.
+        "build_airports": lambda **kw: start_build_airports(
+            session._emit, **kw),
         # ... and the pack's own apt.dat pavement and boundary, as the
         # map's dashed reference outlines.  Synchronous, cache-only.
         "pack_outlines": pack_outlines,

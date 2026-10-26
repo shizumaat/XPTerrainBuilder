@@ -724,6 +724,8 @@ class EngineSession:
         # never be appended into a run that just decided to finish.
         self._work_queue: deque = deque()
         self._work_queue_lock = threading.Lock()
+        # tile -> its batch's per-build switches (#818, build(overrides=)).
+        self._tile_overrides: dict = {}
         # Serializes enqueue_build decisions (one view command at a time).
         self._command_lock = threading.Lock()
         # Provider-account status the secret store owns and the command
@@ -842,7 +844,8 @@ class EngineSession:
     def build(self, tiles, provider, zoomlevel, custom_build_dir,
               do_vector=True, do_imagery=True, do_overlays=False,
               slots=None, steps=None, boundary_policy=None,
-              boundary_batch=None, missing_art=None, prefetch=None):
+              boundary_batch=None, missing_art=None, prefetch=None,
+              overrides=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -866,6 +869,11 @@ class EngineSession:
         (``O4_Imagery_Prefetch``).  ``None`` lets an in-process run
         prefetch; a step-wise worker child prefetches only when its
         parent lent it an imagery token (``True``).
+
+        ``overrides`` (protocol 1.15, #818): this batch's per-build
+        switches, ``{"auto_patch": bool, "modify_custom_airports": bool}``
+        (either key optional), landed on each tile after its cfg is read
+        and never written back to it (``Tile.apply_build_overrides``).
         """
         if self._building:
             return False
@@ -893,6 +901,8 @@ class EngineSession:
         except Exception:                                # pragma: no cover
             pass
         self._building = True
+        self._tile_overrides = {}
+        self._note_overrides(tiles, overrides)
         self._stepwise_run = steps is not None
         self._prefetch_imagery = (bool(prefetch) if prefetch is not None
                                   else not self._stepwise_run)
@@ -919,7 +929,7 @@ class EngineSession:
                 self, list(tiles), provider, zoomlevel, custom_build_dir,
                 (do_vector, do_imagery, do_overlays),
                 slots, boundary_policy=boundary_policy,
-                missing_art=missing_art)
+                missing_art=missing_art, overrides=overrides)
             # Registered BEFORE start so a cancel arriving during the
             # worker handshake window already routes to the run; start
             # runs off-thread because the handshake blocks for seconds.
@@ -997,16 +1007,24 @@ class EngineSession:
                     (tuple(tile), provider, zoomlevel, custom_build_dir,
                      plan))
 
+    def _note_overrides(self, tiles, overrides):
+        """Remember a batch's per-build switches for each of its tiles."""
+        if overrides:
+            for tile in tiles:
+                self._tile_overrides[tuple(tile)] = dict(overrides)
+
     def enqueue_build(self, tiles, provider, zoomlevel, custom_build_dir,
                       do_vector=True, do_imagery=True, do_overlays=False,
-                      slots=None, boundary_policy=None, missing_art=None):
+                      slots=None, boundary_policy=None, missing_art=None,
+                      overrides=None):
         """Build the given tiles, joining a run already in progress.
 
         The single build entry point for interactive views: with no run
         active this is exactly :meth:`build`; with one active the batch
         is appended to it (both run modes) and starts as soon as
         capacity frees.  Each batch keeps its own imagery source, zoom
-        level, output folder and step selection.  Returns True when the
+        level, output folder, step selection and per-build switches
+        (``overrides``, see :meth:`build`).  Returns True when the
         batch was started or queued, False when nothing was accepted
         (empty batch, no steps selected, or every tile already part of
         the active run).
@@ -1020,7 +1038,7 @@ class EngineSession:
                             tiles, provider, zoomlevel, custom_build_dir,
                             (do_vector, do_imagery, do_overlays),
                             boundary_policy=boundary_policy,
-                            missing_art=missing_art):
+                            missing_art=missing_art, overrides=overrides):
                         return True
                     if not (parallel_run._finished
                             or parallel_run._cancel_all):
@@ -1030,7 +1048,7 @@ class EngineSession:
                 else:
                     appended = self._enqueue_in_process(
                         tiles, provider, zoomlevel, custom_build_dir,
-                        do_vector, do_imagery, do_overlays)
+                        do_vector, do_imagery, do_overlays, overrides)
                     if appended:
                         return True
                     if appended == 0:
@@ -1049,11 +1067,12 @@ class EngineSession:
                 tiles, provider, zoomlevel, custom_build_dir,
                 do_vector=do_vector, do_imagery=do_imagery,
                 do_overlays=do_overlays, slots=slots,
-                boundary_policy=boundary_policy, missing_art=missing_art)
+                boundary_policy=boundary_policy, missing_art=missing_art,
+                overrides=overrides)
 
     def _enqueue_in_process(self, tiles, provider, zoomlevel,
                             custom_build_dir, do_vector, do_imagery,
-                            do_overlays):
+                            do_overlays, overrides=None):
         """Append a batch to the live in-process run.
 
         Returns the number of tiles appended; 0 when every tile is
@@ -1071,6 +1090,7 @@ class EngineSession:
             fresh = [tile for tile in tiles
                      if tile not in already_queued
                      and tile != self._active_tile]
+            self._note_overrides(fresh, overrides)
             for tile in fresh:
                 self._work_queue.append(
                     (tile, provider, zoomlevel, custom_build_dir, plan))
@@ -1249,6 +1269,9 @@ class EngineSession:
             try:
                 tile = CFG.Tile(lat, lon, custom_build_dir)
                 tile.read_from_config()
+                overrides = self._tile_overrides.get((lat, lon))
+                if overrides:
+                    tile.apply_build_overrides(overrides)
                 # The build command's imagery selection is explicit user
                 # intent and must win over whatever default_website the
                 # tile config recorded last time: stale configs (empty or

@@ -53,17 +53,25 @@ TOOLBAR = (
 #: A Swift label is a ``Toggle``/``Picker`` title literal or its glossary
 #: term.  The Detail level (#1242) and the per-tile texture and elevation
 #: levels (#1243) are NOT here: both apps set them in Settings only.
+#: #818: the Airports card leads (its two per-build switches), then the
+#: imagery source, "When it's done", and the build steps under Advanced
+#: (collapsed by default in both apps).
 BUILD_BOX = (
+    ("grade_airports", "grade_airports", "chk_grade_airports"),
+    ("fit_buildings", "fit_buildings", "chk_modify_airports"),
     ("imagery", "Imagery", "imagery_combo"),
+    ("auto_install", "Install in X-Plane automatically", "chk_auto_install"),
+    ("skip_built", "Skip tiles already built", "chk_skip_built"),
     ("terrain_steps", "terrain_steps", "chk_vector"),
     ("imagery_and_scenery_file", "imagery_and_scenery_file", "chk_imagery"),
     ("xplane_objects", "xplane_objects", "chk_overlays"),
-    ("fit_buildings", "fit_buildings", "chk_modify_airports"),
-    ("skip_built", "Skip already-built tiles", "chk_skip_built"),
-    # Label differs on purpose: Qt's fixed 280 px panel cannot fit the
-    # Mac's "Install finished tiles automatically" (a checkbox cannot
-    # elide), so Qt says "Auto-install finished tiles".
-    ("auto_install", "Install finished tiles automatically", "chk_auto_install"),
+)
+
+#: The Airports card's sentences: (Swift ``static let``, Qt constant).
+AIRPORTS_CARD_TEXT = (
+    ("gradeSentence", "GRADE_SENTENCE"),
+    ("fitSentence", "FIT_SENTENCE"),
+    ("backupNote", "BACKUP_NOTE"),
 )
 
 #: Settings ▸ General's app-level sections, top to bottom (#1267), and the
@@ -90,6 +98,10 @@ def _swift_build_box() -> list:
     block = _block(SWIFT / "BuildPane.swift",
                    "private var buildBox: some View",
                    "// MARK: - Imagery-source conflict")
+    # The Airports card is its own view: its controls stand where it does.
+    card = _block(SWIFT / "BuildAirportsCard.swift",
+                  "var body: some View", "private func caption")
+    block = block.replace("BuildAirportsCard(", card, 1)
     found = re.findall(
         r'\b(?:Toggle|Picker)\((?:O4Glossary\.term\("(\w+)"\)|"([^"]+)")', block)
     return [term or literal for term, literal in found]
@@ -107,6 +119,16 @@ def test_mac_toolbar_is_the_manifest():
 
 def test_mac_build_box_is_the_manifest():
     assert _swift_build_box() == [label for _key, label, _attr in BUILD_BOX]
+
+
+def test_the_airports_cards_say_the_same_words():
+    import O4_Qt_Build_Airports as QTAIRPORTS
+
+    swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    for name, constant in AIRPORTS_CARD_TEXT:
+        said = re.search(r'static let %s = "([^"]+)"' % name, swift)
+        assert said, name
+        assert said.group(1) == getattr(QTAIRPORTS, constant), name
 
 
 def _swift_general() -> str:
@@ -199,6 +221,61 @@ def _qt_build_box(window) -> list:
 def test_qt_build_box_is_the_manifest(window):
     expected = [getattr(window, attr) for _key, _label, attr in BUILD_BOX]
     assert _qt_build_box(window) == expected
+
+
+def test_qt_build_box_labels_are_the_macs(window):
+    import O4_Glossary as GLOSSARY
+
+    for key, label, attr in BUILD_BOX:
+        widget = getattr(window, attr)
+        if isinstance(widget, QCheckBox):
+            assert widget.text() == GLOSSARY.TERMS.get(label, label), key
+
+
+def test_qt_plumbing_is_collapsed_by_default(window):
+    window.show()
+    assert window.airports_card.isVisible()
+    assert not window.chk_vector.isVisible()
+    window.advanced_toggle.setChecked(True)
+    assert window.chk_vector.isVisible()
+
+
+def test_qt_grading_off_is_this_builds_only(window, tmp_path, monkeypatch):
+    """#818: unticking grading sends ``auto_patch`` False in the batch,
+    puts the switch back for the next press, and writes no cfg."""
+    import O4_Settings_Model as SM
+
+    sent = []
+    writes = []
+    monkeypatch.setattr(window, "xplane_block_reason", lambda: None)
+    monkeypatch.setattr(window.map, "selection", lambda: {(47, -123)})
+    monkeypatch.setattr(window._session, "boundary_airports",
+                        lambda **_kw: None)
+    monkeypatch.setattr(window._session, "enqueue_build",
+                        lambda tiles, **kw: sent.append(kw) or False)
+    monkeypatch.setattr(SM, "write_tile",
+                        lambda *a, **kw: writes.append(a))
+    monkeypatch.setattr(SM, "write_global",
+                        lambda *a, **kw: writes.append(a))
+    if window.imagery_combo.count() == 0:
+        window.imagery_combo.addItem("BI")    # no provider list offscreen
+    window.imagery_combo.setCurrentIndex(0)
+    import O4_Qt_Build_Airports as QTAIRPORTS
+
+    statuses = []
+    monkeypatch.setattr(window, "_status", statuses.append)
+    monkeypatch.setattr(QTAIRPORTS, "grade_by_default", lambda: True)
+    window.chk_skip_built.setChecked(False)
+    window.airports_card.refresh_switches()        # Settings: grading on
+    assert window.chk_grade_airports.isChecked()
+    window.chk_grade_airports.setChecked(False)
+    window.start_build()
+    assert sent, statuses
+    assert sent[-1]["overrides"] == {"auto_patch": False}
+    assert window.chk_grade_airports.isChecked()   # back to Settings
+    assert not writes
+    window.start_build()
+    assert "overrides" not in sent[-1]
 
 
 def test_qt_settings_holds_the_detail_level(window):

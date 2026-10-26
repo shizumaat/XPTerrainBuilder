@@ -198,7 +198,7 @@ extension PatchEditModel {
         build.click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
         guard build.canBuild else {
             editError = build.xplaneBlockReason
-                ?? "This tile can't be rebuilt now. Turn off “Skip already-built tiles” and try again."
+                ?? "This tile can't be rebuilt now. Turn off “Skip tiles already built” and try again."
             return
         }
         let info = build.built[coord]

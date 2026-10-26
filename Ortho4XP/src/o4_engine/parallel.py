@@ -827,7 +827,7 @@ class ParallelBuildRun:
 
     def __init__(self, session, tiles, provider, zoomlevel,
                  custom_build_dir, step_flags, slots,
-                 boundary_policy=None, missing_art=None):
+                 boundary_policy=None, missing_art=None, overrides=None):
         self._session = session
         self._queue = deque()
         self._total = 0
@@ -922,11 +922,13 @@ class ParallelBuildRun:
             self._admit_batch_locked(tiles, provider, zoomlevel,
                                      custom_build_dir, step_flags,
                                      boundary_policy=boundary_policy,
-                                     missing_art=missing_art)
+                                     missing_art=missing_art,
+                                     overrides=overrides)
 
     def _admit_batch_locked(self, tiles, provider, zoomlevel,
                             custom_build_dir, step_flags,
-                            boundary_policy=None, missing_art=None):
+                            boundary_policy=None, missing_art=None,
+                            overrides=None):
         """Register a batch of tiles with the run (caller holds the lock).
 
         Tiles already part of the run (queued or on a child) are skipped
@@ -942,13 +944,13 @@ class ParallelBuildRun:
         with tile_time_model.batch_reads():
             admitted = self._admit_tiles_locked(
                 tiles, full_plan, program, provider, zoomlevel,
-                custom_build_dir, boundary_policy, missing_art)
+                custom_build_dir, boundary_policy, missing_art, overrides)
         self._total += len(admitted)
         return admitted
 
     def _admit_tiles_locked(self, tiles, full_plan, program, provider,
                             zoomlevel, custom_build_dir, boundary_policy,
-                            missing_art):
+                            missing_art, overrides=None):
         admitted = []
         queued = set(self._queue)              # a planet queue: O(1) checks
         # ONE list for the whole batch, shared by its tiles: a copy per
@@ -976,6 +978,10 @@ class ParallelBuildRun:
                 # #433: the batch's missing-art answer, per batch likewise
                 "missing_art": missing_art,
             }
+            if overrides:
+                # #818: the batch's per-build switches, likewise — sent
+                # only when set, so the child command stays as before.
+                self._tile_arguments[tile]["overrides"] = dict(overrides)
             self._programs[tile] = list(program)
             self._static_windows[tile] = {
                 key: (base, width) for (key, base, width) in full_plan
@@ -1075,7 +1081,8 @@ class ParallelBuildRun:
             self._dispatch_locked()
 
     def enqueue(self, tiles, provider, zoomlevel, custom_build_dir,
-                step_flags, boundary_policy=None, missing_art=None):
+                step_flags, boundary_policy=None, missing_art=None,
+                overrides=None):
         """Append a batch of tiles to the LIVE run.
 
         The batch keeps its own build arguments and step selection —
@@ -1092,7 +1099,8 @@ class ParallelBuildRun:
                 return 0
             admitted = self._admit_batch_locked(
                 tiles, provider, zoomlevel, custom_build_dir, step_flags,
-                boundary_policy=boundary_policy, missing_art=missing_art)
+                boundary_policy=boundary_policy, missing_art=missing_art,
+                overrides=overrides)
             if not admitted:
                 return 0
             self._dispatch_locked()
@@ -1255,6 +1263,8 @@ class ParallelBuildRun:
             # §D.2 predicate warms outside neighbours only under it.
             if arguments.get("boundary_policy") in ("neighbour", "skip"):
                 configuration.boundary_policy = arguments["boundary_policy"]
+            if arguments.get("overrides"):
+                configuration.apply_build_overrides(arguments["overrides"])
         except Exception:
             configuration = None
         self._tile_configurations[tile] = configuration

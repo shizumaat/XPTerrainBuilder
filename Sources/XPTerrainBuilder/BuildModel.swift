@@ -29,6 +29,8 @@ struct TileProgress: Equatable {
 struct TileRunSettings: Equatable {
     var provider: String
     var zl: Int
+    /// The batch's per-build switches (#818), so a resume keeps them.
+    var overrides: [String: Bool] = [:]
 }
 
 /// High-frequency build activity (per-tile progress, run clock), isolated
@@ -277,6 +279,11 @@ final class BuildModel: ObservableObject {
 
     @Published private(set) var isBuilding = false
     @Published private(set) var isStopping = false
+    /// The Build pane's per-build switches (#818): nil follows Settings;
+    /// a value changes the NEXT press only, sent as its batch's
+    /// `overrides` and cleared once sent — never written to a cfg.
+    @Published var gradeAirportsThisBuild: Bool?
+    @Published var fitBuildingsThisBuild: Bool?
     @Published private(set) var lastRunSummary: String?
 
     let activity = BuildActivityModel()
@@ -485,7 +492,7 @@ final class BuildModel: ObservableObject {
     /// engine uses the path verbatim as one tile's build dir and dumps the
     /// tile's contents straight into it (legacy convention — the Qt GUI
     /// appends the separator the same way).
-    private var engineCustomBuildDir: String {
+    var engineCustomBuildDir: String {
         guard !customBuildDir.isEmpty else { return "" }
         return customBuildDir.hasSuffix("/") ? customBuildDir : customBuildDir + "/"
     }
@@ -1007,6 +1014,14 @@ final class BuildModel: ObservableObject {
         return client
     }
 
+    /// The engine session for the Build pane's Airports card, or nil when
+    /// the engine is not running or predates it (protocol < 1.15).
+    func buildAirportsClient() -> OrthoEngineClient? {
+        connectIfNeeded()
+        guard O4ProtocolVersion.supportsBuildAirports(protocolHello?.protocolVersion ?? "") else { return nil }
+        return client
+    }
+
     // MARK: - Reanchor status (auto-patch object reseating)
 
     /// One pack the reseater modified, as the engine reports it.
@@ -1343,8 +1358,10 @@ final class BuildModel: ObservableObject {
         if usesProtocol {
             // EVERY protocol enqueue goes through the boundary preflight
             // (protocol 1.8, spec §C.7): one ask for the whole press.
+            let overrides = takeBuildOverrides()
             startProtocolBuild(batches.map {
-                BuildBatch(tiles: $0.tiles, provider: $0.provider, zl: $0.zl)
+                BuildBatch(tiles: $0.tiles, provider: $0.provider, zl: $0.zl,
+                           overrides: overrides)
             })
         } else {
             startLegacyBuild(batches.flatMap(\.tiles))
@@ -1404,15 +1421,18 @@ final class BuildModel: ObservableObject {
         var tiles: [TileCoord]
         let provider: String
         let zl: Int
+        /// `enqueue_build`'s `overrides` (#818); empty sends none.
+        var overrides: [String: Bool] = [:]
     }
 
     private func sendProtocolBuild(_ batch: BuildBatch, boundaryPolicy: String?) {
         sendProtocolBuild(batch.tiles, provider: batch.provider, zl: batch.zl,
-                          boundaryPolicy: boundaryPolicy)
+                          boundaryPolicy: boundaryPolicy, overrides: batch.overrides)
     }
 
     private func sendProtocolBuild(_ todo: [TileCoord], provider: String, zl: Int,
-                                   boundaryPolicy: String?) {
+                                   boundaryPolicy: String?,
+                                   overrides: [String: Bool] = [:]) {
         connectIfNeeded()
         guard let client else { return }
         if !isBuilding {
@@ -1441,7 +1461,8 @@ final class BuildModel: ObservableObject {
         // The settings this tile is being STARTED with — what a later
         // resume of it must use.
         for coord in todo {
-            activity.runSettings[coord] = TileRunSettings(provider: provider, zl: zl)
+            activity.runSettings[coord] = TileRunSettings(provider: provider, zl: zl,
+                                                          overrides: overrides)
         }
         console.append("=== Building \(todo.count) tile\(todo.count == 1 ? "" : "s"): \(todo.prefix(8).map { $0.key }.joined(separator: " "))\(todo.count > 8 ? " …" : "") ===")
         var arguments: [String: Any] = [
@@ -1456,6 +1477,12 @@ final class BuildModel: ObservableObject {
         // Omitted entirely when nil: an engine older than 1.8 rejects
         // unknown keywords, and nil IS "resolve from cfg" there anyway.
         if let boundaryPolicy { arguments["boundary_policy"] = boundaryPolicy }
+        // Likewise (protocol 1.15): only when a switch was changed, and only
+        // to an engine that knows the keyword.
+        if !overrides.isEmpty,
+           O4ProtocolVersion.supportsBuildAirports(protocolHello?.protocolVersion ?? "") {
+            arguments["overrides"] = overrides
+        }
         client.send(command: "enqueue_build", arguments: arguments) { [weak self] reply in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -1975,7 +2002,7 @@ final class BuildModel: ObservableObject {
         // (spec §C.7: every entry point that enqueues).
         startProtocolBuild(batches.map {
             BuildBatch(tiles: $0.tiles, provider: $0.settings.provider,
-                       zl: $0.settings.zl)
+                       zl: $0.settings.zl, overrides: $0.settings.overrides)
         })
     }
 
@@ -2223,25 +2250,13 @@ final class BuildModel: ObservableObject {
         revertTileOverrides(for: [name])
     }
 
-    /// Engine gate for auto-patch object reseating inside installed custom
-    /// airport packs. A global Ortho4XP.cfg var (modify_custom_airports),
-    /// NOT a per-run argument: config reaches parallel worker children,
-    /// and the Qt front end reads the same switch. Default matches the
-    /// engine's (on).
+    /// Settings' default for auto-patch object reseating inside installed
+    /// custom airport packs (cfg var modify_custom_airports, tile scope,
+    /// edited in Settings). The Build pane's switch changes one build
+    /// only (`fitBuildingsThisBuild`, #818). Default matches the engine's
+    /// (on).
     var modifyCustomAirports: Bool {
         globalConfigValues["modify_custom_airports"]?.boolValue ?? true
-    }
-
-    func setModifyCustomAirports(_ enabled: Bool) {
-        setConfigValue("modify_custom_airports", to: .bool(enabled))
-        // WRITE-THROUGH (owner ruling RULINGS 2026-09-18a (2)): this is a
-        // TILE-scope var (SettingsLayout.swift), and a tile cfg carrying
-        // it BEATS the global the line above writes — which is BETA2
-        // GEN-1 itself: all 23 of the owner's tile cfgs said True while
-        // this box was unchecked, so the engine reseated packs anyway.
-        // Same rule as every other tile-scope edit: set the override when
-        // it now differs from the global, REMOVE it when it matches.
-        writeThroughToSelectedTiles("modify_custom_airports", .bool(enabled))
     }
 
     /// Set-or-remove one tile-scope override on every selected tile, against

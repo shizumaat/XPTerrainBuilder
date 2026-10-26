@@ -888,9 +888,10 @@ public final class OrthoEngineClient: @unchecked Sendable {
         }
         // A STRING LITERAL match (see O4Event.parse): it is `class
         // PackObjectsReady` in Ortho4XP/src/o4_engine/events.py, the
-        // completion of the `pack_objects` command whose id is `request`.
+        // completion of the `pack_objects` command whose id is `request`
+        // — and `class BuildAirportsReady`, of `build_airports` (#818).
         switch object["event"] as? String {
-        case "PackObjectsReady":
+        case "PackObjectsReady", "BuildAirportsReady":
             if let request = (object["request"] as? NSNumber)?.intValue,
                let waiter = lock.withLock({ eventWaiters.removeValue(forKey: request) }) {
                 waiter(O4JSON.from(object))

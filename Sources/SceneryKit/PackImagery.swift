@@ -74,3 +74,33 @@ public struct PackImagery: Codable, Sendable, Equatable {
         return provider.isEmpty ? nil : PackImagery(provider: provider, zl: zl)
     }
 }
+
+/// The imagery a built tile was made with (#1334): its cfg's provider and
+/// ZL when the cfg names a provider, else what its texture names carry.
+/// The engine's `O4_Tile_Info.effective_imagery` is the same rule; both
+/// are pinned to `Fixtures/Imagery/tile_imagery.json`. Adoption on
+/// selection, the provider-mismatch warning and "Rebuild tile" read it.
+public struct TileImageryChoice: Equatable, Sendable {
+    public enum Source: String, Sendable { case config, detected }
+
+    public let provider: String
+    public let zl: Int?
+    public let source: Source
+
+    public init(provider: String, zl: Int?, source: Source) {
+        self.provider = provider
+        self.zl = zl
+        self.source = source
+    }
+
+    public static func resolve(_ info: O4TileInfo) -> TileImageryChoice? {
+        if !info.provider.isEmpty {
+            let zl = info.zl ?? (info.detectedProvider == info.provider ? info.detectedZL : nil)
+            return TileImageryChoice(provider: info.provider, zl: zl, source: .config)
+        }
+        if let detected = info.detectedProvider, !detected.isEmpty {
+            return TileImageryChoice(provider: detected, zl: info.detectedZL, source: .detected)
+        }
+        return nil
+    }
+}

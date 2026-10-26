@@ -2469,7 +2469,8 @@ class MainWindow(QMainWindow):
         selection's config.
 
         Tiles whose per-tile config records build provenance
-        (``default_website`` / ``default_zl``) drive the build controls:
+        (``default_website`` / ``default_zl``), else whose textures name
+        their imagery (#1334), drive the build controls:
         one agreed value is selected outright.  Disagreeing sources
         unresolve the Imagery combo (it shows "--") and
         :meth:`start_build` refuses to run until the user picks one;
@@ -2491,13 +2492,22 @@ class MainWindow(QMainWindow):
         websites = set()
         zoomlevels = set()
         for lat, lon in selection:
-            raw = SM.read_tile_raw(lat, lon, self.output_dir())
-            if not raw:
-                continue
+            raw = SM.read_tile_raw(lat, lon, self.output_dir()) or {}
             website = raw.get("default_website", "").strip()
+            zoomlevel = str(raw.get("default_zl", "")).strip()
+            # No cfg source: the imagery its textures carry (#1334,
+            # TINFO.effective_imagery — the Mac's TileImageryChoice).  A
+            # detected source that did not answer at launch is not
+            # adopted (#1345).
+            info = self._built.get((lat, lon))
+            choice = TINFO.effective_imagery(info) if info is not None else None
+            if not website and choice and choice[2] == TINFO.SOURCE_DETECTED \
+                    and self._imagery_status.get(choice[0], ("", ""))[0] != "offline":
+                website = choice[0]
+                if not zoomlevel and choice[1] is not None:
+                    zoomlevel = str(choice[1])
             if website:
                 websites.add(website)
-            zoomlevel = str(raw.get("default_zl", "")).strip()
             if zoomlevel:
                 try:
                     zoomlevel = str(int(float(zoomlevel)))

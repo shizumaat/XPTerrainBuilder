@@ -241,14 +241,18 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    /// Selecting a built tile adopts its recorded imagery source and zoom
-    /// level, so a rebuild doesn't silently use a different source. The
-    /// user can still change either afterwards — startBuild then warns on
-    /// the mismatch.
+    /// Selecting a built tile adopts its imagery source and zoom level —
+    /// the cfg's, else what its textures carry (#1334) — so a rebuild
+    /// doesn't silently use a different source. A detected source that
+    /// did not answer the launch check is not adopted (#1345). The user
+    /// can still change either afterwards — startBuild then warns on the
+    /// mismatch.
     private func adoptActiveTileConfig() {
-        guard let coord = activeTile, let info = built[coord] else { return }
-        if !info.provider.isEmpty { buildProvider = info.provider }
-        if let zl = info.zl { buildZL = zl }
+        guard let coord = activeTile, let info = built[coord],
+              let choice = TileImageryChoice.resolve(info) else { return }
+        if choice.source == .detected, imageryStatus[choice.provider]?.status == "offline" { return }
+        buildProvider = choice.provider
+        if let zl = choice.zl { buildZL = zl }
     }
 
     /// Both selection keys, rewritten whole on every change. A selection is
@@ -1332,7 +1336,7 @@ final class BuildModel: ObservableObject {
 
     struct ProviderMismatch: Identifiable {
         let coord: TileCoord
-        /// The tile's recorded imagery source (from its cfg).
+        /// The tile's imagery source (its cfg's, else its textures').
         let provider: String
         let zl: Int?
         var id: String { coord.key }
@@ -1345,10 +1349,10 @@ final class BuildModel: ObservableObject {
     var providerMismatches: [ProviderMismatch] {
         guard !buildProvider.isEmpty else { return [] }
         return buildableSelection.compactMap { coord in
-            guard let info = built[coord], !info.provider.isEmpty,
-                  info.provider.lowercased() != buildProvider.lowercased()
+            guard let info = built[coord], let choice = TileImageryChoice.resolve(info),
+                  choice.provider.lowercased() != buildProvider.lowercased()
             else { return nil }
-            return ProviderMismatch(coord: coord, provider: info.provider, zl: info.zl)
+            return ProviderMismatch(coord: coord, provider: choice.provider, zl: choice.zl)
         }
     }
 

@@ -514,6 +514,12 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     public let meshDate: Double?
     public let imageryDate: Double?
     public let sizeBytes: Int?
+    /// The imagery the tile's textures carry (#1334): the dominant
+    /// provider among `textures/` names and its ZL; nil when none parses
+    /// (or the engine predates the field). `TileImageryChoice.resolve`
+    /// picks the cfg's or this.
+    public let detectedProvider: String?
+    public let detectedZL: Int?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -541,6 +547,8 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         meshDate = object["mesh_date"]?.doubleValue
         imageryDate = object["imagery_date"]?.doubleValue
         sizeBytes = object["size_bytes"]?.intValue
+        detectedProvider = object["detected_provider"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        detectedZL = object["detected_zl"]?.intValue
     }
 }
 

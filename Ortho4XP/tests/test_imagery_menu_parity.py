@@ -47,17 +47,6 @@ def test_engine_expander_matches_the_shared_fixture(fixture):
             == case["url"], case
 
 
-def test_fixture_rows_have_the_wire_shape(fixture):
-    """The fixture's rows carry exactly the keys the engine sends."""
-    import O4_Imagery_Utils as IMG
-
-    if not IMG.providers_dict:
-        pytest.skip("provider registry not loaded in this worker")
-    wire = SOURCES.imagery_sources()[0]
-    for row in fixture["rows"]:
-        assert set(row) == set(wire)
-
-
 def test_qt_combo_follows_the_entries(fixture):
     from PySide6.QtWidgets import QApplication, QComboBox
 

@@ -8,7 +8,8 @@ read the same fixture, so the two menus cannot drift:
 
 * the Build box lists the sources a build may download; the map's
   picker lists them all;
-* sections follow the list: "Combined", then each region;
+* sections follow the list: "Combined", then each region (the Mac
+  menus head them; the Qt combos keep them contiguous);
 * an ``offline`` source (launch status check) is disabled and labelled
   "<name> (offline)", its reason the tooltip;
 * in the map picker a source the map cannot draw is disabled, its
@@ -66,20 +67,18 @@ def _set_item(combo, index, entry):
 
 
 def fill_combo(combo, entries: List[Dict[str, Any]]) -> None:
-    """Refill ``combo`` with ``entries``, a separator between sections,
-    keeping the current code when it is still offered."""
+    """Refill ``combo`` with ``entries`` in order (sections stay
+    contiguous; no separator items, so every item is a source), keeping
+    the current code when it is still offered."""
     current = combo.currentData() or combo.currentText()
     combo.blockSignals(True)
     combo.clear()
-    section = None
     for entry in entries:
-        if section is not None and entry["section"] != section:
-            combo.insertSeparator(combo.count())
-        section = entry["section"]
         combo.addItem(entry["code"], entry["code"])
         _set_item(combo, combo.count() - 1, entry)
-    index = combo.findData(current) if current else -1
-    combo.setCurrentIndex(index if index >= 0 and _enabled(combo, index) else -1)
+    if current:     # a first fill keeps Qt's own choice, the first item
+        index = combo.findData(current)
+        combo.setCurrentIndex(index if index >= 0 and _enabled(combo, index) else -1)
     combo.blockSignals(False)
 
 
@@ -89,9 +88,10 @@ def _enabled(combo, index) -> bool:
 
 
 def offered_codes(combo) -> List[str]:
-    """The codes the user can pick (no separators, nothing disabled)."""
-    return [combo.itemData(i) for i in range(combo.count())
-            if combo.itemData(i) and _enabled(combo, i)]
+    """The codes the user can pick (nothing disabled)."""
+    codes = [combo.itemData(i) or combo.itemText(i) for i in range(combo.count())
+             if _enabled(combo, i)]
+    return [code for code in codes if code]
 
 
 def apply_status(combo, entries: List[Dict[str, Any]]) -> None:

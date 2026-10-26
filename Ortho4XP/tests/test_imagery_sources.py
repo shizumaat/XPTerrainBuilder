@@ -216,3 +216,19 @@ def test_session_and_transport_carry_the_commands(sources, monkeypatch):
     finally:
         session.shutdown()
         UI.engine_session = None
+
+
+def test_shared_fixture_rows_have_the_wire_shape(sources):
+    """The Mac/Qt parity fixture's rows carry exactly the keys the engine
+    sends (``Tests/SceneryKitTests/Fixtures/Imagery/imagery_menu.json``)."""
+    import json
+
+    path = os.path.join(REPO_ROOT, "..", "Tests", "SceneryKitTests", "Fixtures",
+                        "Imagery", "imagery_menu.json")
+    with open(path, encoding="utf-8") as handle:
+        rows = json.load(handle)["rows"]
+    wire = _rows(sources)
+    for row in rows:
+        assert set(row) == set(wire[row["code"]]), row["code"]
+        for member in row["members"]:
+            assert set(member) == {"code", "extent", "bbox", "preview"}

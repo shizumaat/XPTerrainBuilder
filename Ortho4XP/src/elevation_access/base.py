@@ -20,6 +20,7 @@ __all__ = [
     "BoundingBox",
     "Definition",
     "InsetAccessStrategy",
+    "ProviderQueryError",
     "ProviderUnavailable",
     "TransientFetchError",
 ]
@@ -120,3 +121,25 @@ class ProviderUnavailable(Exception):
     def __init__(self, reason):
         super().__init__(str(reason))
         self.reason = str(reason)
+
+
+class ProviderQueryError(ProviderUnavailable):
+    """The provider REFUSED the query the engine sent it (#1328).
+
+    A discovery / tile-index query answered with a 4xx other than 404 /
+    410 -- 400 Bad Request, 401, 403, 405 ...: the server said "I will
+    not answer THAT request", never "I have nothing here".  Before #1328
+    such an answer became a durable ``no-coverage``, and FRANCE50CM's WFS
+    400 at LFPG / LFSB was recorded as "France has no lidar here" for
+    good.  It is an ``unavailable:<reason>`` record instead (the parent
+    class's handling, unchanged), so the next run asks again and a human
+    reading the index sees the refused query.
+
+    ``status`` is the HTTP status, ``url`` the query with credentials
+    removed.
+    """
+
+    def __init__(self, reason, status=None, url=""):
+        super().__init__(reason)
+        self.status = status
+        self.url = str(url or "")

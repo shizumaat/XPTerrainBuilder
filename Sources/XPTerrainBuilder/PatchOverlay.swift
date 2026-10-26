@@ -255,8 +255,9 @@ private struct PackOutlineLegendRow: View {
         if outlines.enabled {
             HStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 2)
-                    .strokeBorder(PatchPackOutlineLayer.stroke,
-                                  style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    .fill(PackOutlineStyle.legendFill)
+                    .overlay(RoundedRectangle(cornerRadius: 2)
+                        .strokeBorder(PackOutlineStyle.stroke, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2])))
                     .frame(width: 14, height: 8)
                 Text("pack apt.dat")
             }

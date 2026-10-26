@@ -22,6 +22,8 @@ struct MapCanvasView: View {
 
     @State private var cursorText: String?
     @State private var cursorElevation: String?
+    /// The pack outline under the cursor (#1316).
+    @State private var cursorPack: String?
     @State private var elevationQuery: Task<Void, Never>?
     @StateObject private var dragAnchor = ViewState<MapCamera?>(nil)
     /// The airport layer's last plan (#817): rebuilt only when the camera,
@@ -88,9 +90,12 @@ struct MapCanvasView: View {
                 case .active(let location):
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     cursorText = PatchNodeInspector.latLon(lat: point.lat, lon: point.lon)
+                    cursorPack = buildModel.patchEdit.isShowing
+                        ? buildModel.packOutlines.label(atLat: point.lat, lon: point.lon) : nil
                     queryElevation(lat: point.lat, lon: point.lon)
                 case .ended:
                     cursorText = nil
+                    cursorPack = nil
                     elevationQuery?.cancel()
                 }
             }
@@ -589,11 +594,14 @@ struct MapCanvasView: View {
         }
     }
 
-    /// Bottom-left readout: the cursor position in the node format (#1308).
+    /// Bottom-left readout: the cursor position in the node format (#1308),
+    /// the elevation, and the pack outline under it (#1316; Qt's
+    /// `O4_Qt_Cursor_Readout.readout_text`).
     @ViewBuilder
     private var cursorReadout: some View {
         if let cursorText {
-            Text(cursorElevation.map { "\(cursorText) · \($0)" } ?? cursorText)
+            Text(([cursorText] + [cursorElevation, cursorPack.map { "pack: \($0)" }].compactMap { $0 })
+                .joined(separator: " · "))
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)

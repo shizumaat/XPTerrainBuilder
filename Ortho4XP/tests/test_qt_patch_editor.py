@@ -360,11 +360,12 @@ def test_pack_outlines_follow_the_patch_through_pack_objects_ready(editor):
     assert asked["footprints_only"] is True         # the outlines only (#797)
     s, w, n, e = asked["bbox"]                      # the patch bbox + 500 m (A9)
     assert (30.1 - s) * 111320 == pytest.approx(500)
-    assert not ed.outlines._pavement.isEmpty() and ed.outlines._footprints.isEmpty()
+    assert [o.label for o in ed.outlines.pavement] == ["pavement"]   # no label: its kind
+    assert ed.outlines.footprints == []
     ed.on_pack_objects_ready(EV.PackObjectsReady(request=asked["request"], result={
         "models": [], "placements": [], "missing": [],
         "facades": [{"ring": [[30.1, 31.4], [30.1, 31.4005], [30.1005, 31.4005]], "height_m": 4}]}))
-    assert not ed.outlines._footprints.isEmpty()
+    assert [o.label for o in ed.outlines.footprints] == ["facade"]
     assert "The pack draws no boundary." in ed.outlines.help_text
     assert ed.overlay.toolbar.outlines_box.isChecked()
     view.viewport().grab()                          # paints every layer once

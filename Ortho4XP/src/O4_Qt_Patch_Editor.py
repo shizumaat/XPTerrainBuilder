@@ -92,6 +92,11 @@ class PatchEditor:
         self.preview.raise_()
         self.preview.activateWindow()
 
+    def pack_label_at(self, lat: float, lon: float) -> str | None:
+        """The cursor readout's pack outline label (#1316), while the
+        patch and its outlines are showing."""
+        return self.outlines.label_at(lat, lon) if self.controller.is_showing else None
+
     def on_pack_objects_ready(self, event) -> None:
         self.engine.on_pack_objects_ready(event)
 

@@ -203,11 +203,12 @@ class PatchOverlay:
         for k, (color, label, dashed) in enumerate(rows):
             y = box.top() + 5 + k * line
             swatch = QRectF(box.left() + 9, y + (line - 8) / 2 - 1, 14, 8)
-            if dashed:
-                pen = QPen(color, 1)
+            if dashed:                  # the pack outlines' swatch (#1316)
+                from O4_Qt_Pack_Outlines import LEGEND_FILL
+                pen = QPen(color, 1.5)
                 pen.setDashPattern([3, 2])
                 painter.setPen(pen)
-                painter.setBrush(Qt.NoBrush)
+                painter.setBrush(LEGEND_FILL)
             else:
                 painter.setPen(Qt.NoPen)
                 painter.setBrush(color)

@@ -89,6 +89,7 @@ import math
 
 import typing as _t
 
+from ..constraints import runway_end_report as _end_report
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.eat import eat_report_rects as _eat_report_rects
@@ -677,6 +678,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                                      for v, (c, zb, d, end) in sorted(
                                          (getattr(planar, "threshold_seam_yield", None)
                                           or {}).items())],
+            # THE RUNWAY-END PINS (owner RULINGS 2026-10-25a / 26a / 26e;
+            # #1342 #1358 #1394; ``constraints/runway_end_report``): one
+            # record per runway end — where the pin sits (lat/lon of its
+            # ridge vertex), what pinned it, the CIFP value as read, the
+            # flags, the datum line and the DEM a DEM case read.  A REPORT
+            # key: no census family prices it.
+            "runway_end_pins": [{**r, "lat": ll[r["vertex"]][0], "lon": ll[r["vertex"]][1]}
+                                for r in _end_report.records(planar, law, airport)],
             "road_join_yield": [[ll[v][0], ll[v][1], round(float(zp), 4),
                                  round(float(zr), 4)]
                                 for v, (zr, zp) in sorted(
@@ -709,6 +718,9 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                           + _eat_report_rects(planar, law, airport)),
             "tunnel_objects": tunnel_objects(planar, airport),
             "tunnel_mouth_depths": tunnel_mouth_depths(planar, airport),
+            # RULINGS 2026-10-26k (#1343): the cuts a pack PORTAL pins — the
+            # runway strip keep-out families exempt them, nothing else
+            "portal_cuts": portal_cuts(planar, airport),
             # THE OPEN CHANNELS (spec §45; owner RULINGS 2026-09-15i):
             # one record per channel the map carries — the FLOOR the
             # record declares per station and the CREST the design
@@ -1151,6 +1163,25 @@ def pad_terrace_joints(planar: PlanarMap, law: Law,
                         "kind": "pad_terrace", "faces": [], "shapes": [pad_ref, other],
                         "gap": True, "roles": [], "pairs": len(pairs),
                         "length_m": 0.0})
+    return out
+
+
+def portal_cuts(planar: PlanarMap, airport: Airport) -> list[dict[str, _t.Any]]:
+    """THE CUTS A PACK PORTAL PINS (#1343, ``airport/portal_objects``): per
+    mapped bore whose mouth a pack portal pinned, its id, the portal and the
+    corridor's RIM ring (``Tunnel.wall_path``) in lat/lon.  Owner RULINGS
+    2026-10-26k: such a cut may stand inside the runway strip keep-out, so
+    the strip families (``verify`` ``wall_in_runway_strip`` /
+    ``ramp_in_strip``, ``tools/check_grade``) exempt a vertex on or inside
+    this ring from the RUNWAY strip alone.  Empty where no portal pinned."""
+    to_ll = airport.frame.transformers()[1]
+    out: list[dict[str, _t.Any]] = []
+    for tn in planar.structures:
+        if not getattr(tn, "portal", "") or len(tn.wall_path) < 3:
+            continue
+        out.append({"id": tn.id, "portal": tn.portal,
+                    "outline_ll": [[round(la, 8), round(lo, 8)]
+                                   for la, lo in (to_ll(x, y) for x, y in tn.wall_path)]})
     return out
 
 

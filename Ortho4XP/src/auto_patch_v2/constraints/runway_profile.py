@@ -60,14 +60,20 @@ Rows (all from ``rulesets.<authority>.runway`` and
 """
 from __future__ import annotations
 
+import dataclasses as _dc
 import math
 import typing as _t
 
-from ..law import Law
-from ..law.tables import (role_cap, runway_end_zone_cap, runway_end_zone_grade_change,
-                          runway_end_zone_length_m,
-                          runway_transverse_bound,
-                          runway_transverse_max, runway_vertical_curve_bound)
+from ..law import Law, inset_class
+from ..law.tables import (
+    role_cap,
+    runway_end_zone_cap,
+    runway_end_zone_grade_change,
+    runway_end_zone_length_m,
+    runway_transverse_bound,
+    runway_transverse_max,
+    runway_vertical_curve_bound,
+)
 from ..model.airport import Airport
 from ..model.constraints import Band, Diff, Linear, Pin, Row, Source
 from ..model.planar import PlanarMap
@@ -75,7 +81,7 @@ from .geometry import project_to_chain
 from .precedence import View, cap_of, view
 from .trend import trend_of as _trend_of
 
-__all__ = ["threshold_pins", "datum_pins", "dem_degraded", "runway_profile", "runway_crown", "runway_transverse",
+__all__ = ["threshold_pins", "datum_pins", "end_pin_cases", "EndPin", "dem_degraded", "runway_profile", "runway_crown", "runway_transverse",
            "runway_vertical_curve", "curve_stations", "runway_within_shape",
            "crown_drops", "ridge_chains"]
 
@@ -119,11 +125,14 @@ def _axis(rw) -> tuple[tuple[float, float], float, float]:
 
 
 def _end_vertex(vw: View, all_ids: list[int], rw, end, ux: float, uy: float) -> int:
-    """The profile station nearest ``end``'s threshold (displacement
-    applied) — where that end's pin sits, CIFP or datum."""
+    """The profile station nearest ``end``'s pin — where that end's pin
+    sits, CIFP or datum: the joined CIFP record's OWN landing threshold
+    projected onto the axis (issue #1358, ``RunwayEnd.pin_along``), else
+    the apt.dat end advanced by its displaced length."""
     sign = 1.0 if end is rw.ends[0] else -1.0
-    tx = end.xy[0] + sign * ux * end.displaced_m
-    ty = end.xy[1] + sign * uy * end.displaced_m
+    d = end.pin_along() if hasattr(end, "pin_along") else float(end.displaced_m)
+    tx = end.xy[0] + sign * ux * d
+    ty = end.xy[1] + sign * uy * d
     return min(all_ids, key=lambda v: (vw.xy[v][0] - tx) ** 2
                + (vw.xy[v][1] - ty) ** 2)
 
@@ -144,12 +153,41 @@ def _datum_slope_cap(law: Law, rw) -> float | None:
     return lim
 
 
+#: THE CASES of an end the DEM or the datum values (``end_pin_cases``;
+#: spec ``docs/findings/lrwypin-runway-end-pins.md`` §3)
+CASE_DATUM = "datum"            # F: the apt.dat datum line (30z (2))
+CASE_UNMATCHED = "unmatched"    # D / D': no CIFP here, the other end pinned (22a)
+CASE_FLAGGED = "flagged"        # C: a flagged CIFP end the DEM decides (25a)
+CASE_LIDAR = "lidar"            # E: an apt.dat-only end the lidar outvotes (26e)
+
+
+@_dc.dataclass(frozen=True)
+class EndPin:
+    """One end :func:`datum_pins` valued: the pin, its case, the apt.dat
+    datum line's value there and the DEM read the case took."""
+
+    z: float
+    runway: str
+    end: str
+    case: str
+    datum_z: float | None
+    dem_z: float | None
+
+
 def datum_pins(planar: PlanarMap, law: Law, airport: Airport
                ) -> dict[int, tuple[float, str, str]]:
-    """THE APT.DAT DATUM (owner RULINGS 2026-09-30z (2), issue #129):
-    vertex -> ``(z, runway id, end name)`` at every UNPINNED end of a
-    runway with fewer than two CIFP threshold pins.
+    """THE ENDS WITH NO SURVEYED VALUE: vertex -> ``(z, runway id, end
+    name)`` (:func:`end_pin_cases` is the same map with each end's case)."""
+    return {v: (p.z, p.runway, p.end)
+            for v, p in end_pin_cases(planar, law, airport).items()}
 
+
+def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, EndPin]:
+    """THE ONE SITE THAT VALUES AN END NO SURVEY PINS: vertex -> :class:`EndPin`
+    at every end of a runway whose ``threshold_elev_m`` is ``None`` (no CIFP
+    record, or a CIFP value ``airport/end_pins`` flagged).
+
+    THE APT.DAT DATUM (owner RULINGS 2026-09-30z (2), issue #129):
     "If there's no CIFP data, runway elevations must be in the apt.dat":
     the LEVEL is the apt.dat airport elevation record (the header row;
     runway rows carry none — ``Airport.elevation_m``), which is the
@@ -164,45 +202,61 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
     slope along the runway's own ridge, bounded by the runway's own
     longitudinal (and end-zone) cap; on a DEGRADED frame, or a ridge the
     trend cannot fit, the runway is LEVEL at the datum (never an invented
-    tilt, §21.2 (2)).  With ONE CIFP pin the CIFP end keeps its pin and the
-    missing end takes the datum line's value, pulled toward the pin until
-    the chord between them sits within that cap (the datum yields to the
-    specific witness, never the reverse).  AMENDED (issue #1238, owner
-    RULINGS 2026-10-22a): with ONE CIFP pin the missing end FOLLOWS THE
-    DEM (:func:`_dem_at_end`), never the apt.dat header — CYYJ's header
-    reads 19 ft against thresholds of 44 and 58 ft, and the header line
-    pinned 32 at or below 5.8 m, 8+ m under its ground.  These are HARD pins, exactly a
-    CIFP threshold's (``threshold_pins`` merges them): no stage-1
-    perturbation moves the runway (the #117 floating-runway lesson, 30q),
-    and every pin consumer — the pin rows, the chord/trend target, the
-    route reach, the §50 cap yield — reads them as terminals.
+    tilt, §21.2 (2)).
+
+    THE CASES (spec ``docs/findings/lrwypin-runway-end-pins.md`` §3):
+
+    * ``unmatched`` (owner RULINGS 2026-10-22a, issue #1238): with a
+      SURVEYED pin on the runway (CIFP, or a cross-check value), an end
+      with no CIFP record FOLLOWS THE DEM (:func:`_dem_at_end`), pulled
+      toward the surveyed pin until the chord between them sits within the
+      cap — never the apt.dat header (CYYJ's header reads 19 ft against
+      thresholds of 44 and 58 ft).  Beside a ``flagged`` end, there is no
+      survey to pull toward, so the DEM stands.
+    * ``flagged`` (owner RULINGS 2026-10-25a, issue #1342): a CIFP end
+      verification refused and no cross-check source resolved follows the
+      DEM with NO cap clamp — the caps yield to it as to any hard pin
+      (09-18d (3)).  VNLK, CBR2: placeholder thresholds at the field
+      elevation on runways the DEM shows climbing.  On a DEGRADED frame
+      the CIFP value as read stands (a degraded DEM is no witness).
+    * ``lidar`` (owner RULINGS 2026-10-26e, issue #1394): on a runway with
+      no CIFP record at all, over a CREDIBLE lidar inset
+      (``law/inset_class.lidar_credible``), an end whose datum line stands
+      off the DEM by more than the lidar tier's noise
+      (``runway_ends.dem_noise_m.lidar``) follows the DEM (PAAQ 16S/34S:
+      0.9 to 1.7 m under the lidar).
+    * ``datum``: otherwise the datum line (30z (2), unchanged).
+
+    These are HARD pins, exactly a CIFP threshold's (``threshold_pins``
+    merges them): no stage-1 perturbation moves the runway (the #117
+    floating-runway lesson, 30q), and every pin consumer — the pin rows,
+    the chord/trend target, the route reach, the §50 cap yield — reads
+    them as terminals.
 
     An airport whose apt.dat carries no finite elevation record REFUSES
-    (``ValueError`` naming the airport) — never a silently free runway."""
+    where an end needs the datum line (``ValueError`` naming the airport)
+    — never a silently free runway."""
     vw = view(planar, law)
     chains = ridge_chains(vw)
-    out: dict[int, tuple[float, str, str]] = {}
+    out: dict[int, EndPin] = {}
     degraded = dem_degraded(airport)
     window = float(law.tables.emit.design.runway_profile_window_m)
-    needs = any(sum(e.threshold_elev_m is not None for e in rw.ends) < 2
-                for rw in airport.runways if chains.get(rw.id))
+    needs = any(e.threshold_elev_m is None for rw in airport.runways
+                if chains.get(rw.id) for e in rw.ends)
     trends = ({} if degraded or not needs
               else _ridge_trends(planar, vw, airport, chains, window))
+    lidar = (not degraded and needs
+             and bool(inset_class.lidar_credible(airport, law)))
+    lidar_noise = float(law.tables.runway_ends.dem_noise_m.lidar)
     for rw in airport.runways:
         chs = chains.get(rw.id)
         L = rw.length_m
         if not chs or L <= 0.0:
             continue
-        cifp = [e for e in rw.ends if e.threshold_elev_m is not None]
-        if len(cifp) >= 2:
+        surveyed = [e for e in rw.ends if e.threshold_elev_m is not None]
+        if len(surveyed) >= 2:
             continue
-        elev = getattr(airport, "elevation_m", None)
-        if elev is None or not math.isfinite(float(elev)):
-            raise ValueError(
-                f"{airport.icao}: runway {rw.id} has fewer than two CIFP "
-                f"threshold pins and the apt.dat airport header carries no "
-                f"elevation record ({elev!r}) — RULINGS 2026-09-30z (2) "
-                f"refuses a free runway (issue #129)")
+        flagged = [e for e in rw.ends if getattr(e, "pin_source", "") == "dem"]
         a_xy, ux, uy = _axis(rw)
 
         def along(v: int) -> float:
@@ -210,42 +264,73 @@ def datum_pins(planar: PlanarMap, law: Law, airport: Airport
             return (x - a_xy[0]) * ux + (y - a_xy[1]) * uy
 
         all_ids = [v for ch in chs for v in ch]
-        lim = _datum_slope_cap(law, rw)
-        slope = 0.0
-        t = trends.get(rw.id)
-        if lim is not None and t is not None:
-            s0, s1 = t.s[0], t.s[-1]
-            z0, z1 = t.at(s0), t.at(s1)
-            if z0 is not None and z1 is not None and s1 > s0:
-                slope = max(-lim, min(lim, (float(z1) - float(z0)) / (s1 - s0)))
-        # THE HIGHEST POINT (arm 2): the apt.dat airport elevation is the
-        # elevation of the highest point of the landing area (ICAO Annex 14
-        # "aerodrome elevation"; FAA "airport elevation", highest point of
-        # the usable runways) — so the line's HIGHER threshold sits at it
-        # and the runway falls away from there by its tilt.  Arm 1 anchored
-        # the MIDPOINT: KCLT-without-CIFP 18C/36C (0.5 % over 3 km) stood
-        # 9.5 m above its real CIFP thresholds.
         end_v = {e.name: _end_vertex(vw, all_ids, rw, e, ux, uy) for e in rw.ends}
-        s_top = max((along(v) for v in end_v.values()), key=lambda q: slope * q)
-        level = float(elev) - _relief_below_top(trends, rw.id, s_top)
-        pinned = [(end_v[e.name], float(e.threshold_elev_m)) for e in cifp]
+        t = trends.get(rw.id)
+        line = (None if surveyed or flagged
+                else _datum_line(airport, law, rw, t, trends, end_v, along))
+        pinned = [(end_v[e.name], float(e.threshold_elev_m)) for e in surveyed]
+        lim = _datum_slope_cap(law, rw)
         for end in rw.ends:
             if end.threshold_elev_m is not None:
                 continue
             v = end_v[end.name]
-            z = level + slope * (along(v) - s_top)
-            if pinned and not degraded:
-                z = _dem_at_end(planar, t, along(v), v, z)
-            for vp, zp in pinned:
-                if lim is None or vp == v:
-                    continue
-                reach = lim * abs(along(v) - along(vp))
-                z = max(zp - reach, min(zp + reach, z))
-            out[v] = (z, rw.id, end.name)
+            dem = None if degraded else _dem_at_end(planar, t, along(v), v, None)
+            if end in flagged:
+                z = (float(getattr(end, "cifp_elev_m", None)) if degraded or dem is None
+                     else dem)
+                out[v] = EndPin(z, rw.id, end.name, CASE_FLAGGED, None, dem)
+                continue
+            if surveyed or flagged:
+                # 22a: the DEM, else (degraded / no sample) the datum line
+                z = dem if dem is not None else _datum_line(
+                    airport, law, rw, t, trends, end_v, along)(v)
+                for vp, zp in pinned:
+                    if lim is None or vp == v:
+                        continue
+                    reach = lim * abs(along(v) - along(vp))
+                    z = max(zp - reach, min(zp + reach, z))
+                out[v] = EndPin(z, rw.id, end.name, CASE_UNMATCHED, None, dem)
+                continue
+            zd = line(v)
+            if lidar and dem is not None and abs(zd - dem) > lidar_noise:
+                out[v] = EndPin(dem, rw.id, end.name, CASE_LIDAR, zd, dem)
+            else:
+                out[v] = EndPin(zd, rw.id, end.name, CASE_DATUM, zd, dem)
     return out
 
 
-def _dem_at_end(planar: PlanarMap, trend, s: float, v: int, fallback: float) -> float:
+def _datum_line(airport: Airport, law: Law, rw, t, trends: dict, end_v: dict,
+                along: _t.Callable[[int], float]) -> _t.Callable[[int], float]:
+    """THE APT.DAT DATUM LINE of runway ``rw`` (30z (2), :func:`end_pin_cases`):
+    vertex -> its value.  Refuses an airport with no elevation record."""
+    elev = getattr(airport, "elevation_m", None)
+    if elev is None or not math.isfinite(float(elev)):
+        raise ValueError(
+            f"{airport.icao}: runway {rw.id} has fewer than two CIFP "
+            f"threshold pins and the apt.dat airport header carries no "
+            f"elevation record ({elev!r}) — RULINGS 2026-09-30z (2) "
+            f"refuses a free runway (issue #129)")
+    lim = _datum_slope_cap(law, rw)
+    slope = 0.0
+    if lim is not None and t is not None:
+        s0, s1 = t.s[0], t.s[-1]
+        z0, z1 = t.at(s0), t.at(s1)
+        if z0 is not None and z1 is not None and s1 > s0:
+            slope = max(-lim, min(lim, (float(z1) - float(z0)) / (s1 - s0)))
+    # THE HIGHEST POINT (arm 2): the apt.dat airport elevation is the
+    # elevation of the highest point of the landing area (ICAO Annex 14
+    # "aerodrome elevation"; FAA "airport elevation", highest point of
+    # the usable runways) — so the line's HIGHER threshold sits at it
+    # and the runway falls away from there by its tilt.  Arm 1 anchored
+    # the MIDPOINT: KCLT-without-CIFP 18C/36C (0.5 % over 3 km) stood
+    # 9.5 m above its real CIFP thresholds.
+    s_top = max((along(v) for v in end_v.values()), key=lambda q: slope * q)
+    level = float(elev) - _relief_below_top(trends, rw.id, s_top)
+    return lambda v: level + slope * (along(v) - s_top)
+
+
+def _dem_at_end(planar: PlanarMap, trend, s: float, v: int,
+                fallback: float | None) -> float | None:
     """THE GROUND AT AN UNMATCHED END of a runway with one CIFP pin (owner
     RULINGS 2026-10-22a, "I would have expected it to move toward DEM, not
     0"): the §21 trend at the end's station, else the end vertex's own DEM,
@@ -404,21 +489,37 @@ def runway_profile(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             if end.threshold_elev_m is None:
                 continue
             best = _end_vertex(vw, all_ids, rw, end, ux, uy)
+            src_name = getattr(end, "pin_source", "") or "cifp"
             rows.append(Pin(best, float(end.threshold_elev_m),
                             Source(GEN, SEAM_YIELD_RULING if best in seam_yield
-                                   else "RULINGS :511-516 CIFP threshold",
+                                   else _CASE_RULING.get(src_name, _CASE_RULING["crosscheck"]),
                                    (f"rwy:{rw.id}", f"end:{end.name}",
-                                    end.cifp_source))))
-    # the apt.dat datum at every unpinned end of a runway with fewer than
-    # two CIFP pins (RULINGS 2026-09-30z (2), issue #129) — HARD, as a
-    # CIFP threshold is
+                                    end.cifp_source if src_name in _CIFP_SOURCES else src_name))))
+    # every end no survey pins (``end_pin_cases``: the apt.dat datum, 22a's
+    # DEM end, a flagged CIFP end, 26e's lidar yield) — HARD, as a CIFP
+    # threshold is
     cifp_v = {r.v for r in rows if isinstance(r, Pin)}
-    for v, (z, rid, ename) in sorted(datum_pins(planar, law, airport).items()):
+    for v, p in sorted(end_pin_cases(planar, law, airport).items()):
         if v in cifp_v:
             continue
-        rows.append(Pin(v, z, Source(GEN, "RULINGS 2026-09-30z (2) apt.dat datum",
-                                     (f"rwy:{rid}", f"end:{ename}", "apt.dat"))))
+        rows.append(Pin(v, p.z, Source(GEN, _CASE_RULING[p.case],
+                                       (f"rwy:{p.runway}", f"end:{p.end}", p.case))))
     return rows
+
+
+#: The ``pin_source`` values whose value IS a CIFP record's
+_CIFP_SOURCES = ("cifp", "cifp_line")
+
+#: The ``Source.ruling`` of each end case's pin row.
+_CASE_RULING = {
+    "cifp": "RULINGS :511-516 CIFP threshold",
+    "cifp_line": "RULINGS :511-516 CIFP threshold line (shifted runway, #1358)",
+    CASE_DATUM: "RULINGS 2026-09-30z (2) apt.dat datum",
+    CASE_UNMATCHED: "RULINGS 2026-10-22a unmatched end follows the DEM",
+    CASE_FLAGGED: "RULINGS 2026-10-25a flagged CIFP end follows the DEM",
+    CASE_LIDAR: "RULINGS 2026-10-26e apt.dat end gives way to the lidar",
+    "crosscheck": "RULINGS 2026-10-25a / 26a cross-check source",
+}
 
 
 def yield_envelope(planar: PlanarMap, law: Law, vw: View, ref: str,

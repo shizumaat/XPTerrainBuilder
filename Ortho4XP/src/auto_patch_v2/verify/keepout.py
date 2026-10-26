@@ -55,6 +55,7 @@ __all__ = ["FAMILY_RAMP_IN_ROAD", "FAMILY_RAMP_IN_STRIP",
            "ZONE_ON_PAVEMENT_MIN_AREA_M2", "OBJECT_CUT_OFFSET_M",
            "OBJECT_CUT_DEPTH_M", "OBJECT_CUT_RIM_FEATURES",
            "ramp_roles", "strip_roles", "pavement_roles", "weld_tol_m",
+           "portal_cut_regions", "PORTAL_STRIP_ROLES",
            "strip_half_width_m", "ramp_in_road", "ramp_in_strip",
            "zone_on_pavement", "object_cut_offset", "object_cut_depth"]
 
@@ -272,12 +273,18 @@ def ramp_in_strip(p: Patch) -> list[Row]:
     # trench rides the object's deck (§33 (6) B AMENDED (3) (c)), so a ramp
     # vertex inside a published object cut's wall line is not in a strip
     decked = [g for _i, g, _f in _object_cut_regions(p)]
+    # owner RULINGS 2026-10-26k: a pack portal's cut may stand inside a
+    # RUNWAY strip (``publication.portal_cuts``); a taxiway's still refuses it
+    portal = portal_cut_regions(p)
     out: list[Row] = []
     for sh, vid, pt in _ramp_vertices(p, ramp_roles(p)):
         if any(d.distance(pt) <= tol for d in decked):
             continue
+        in_portal = any(d.distance(pt) <= tol for d in portal)
         for g, pw in bands:
             if not g.contains(pt):
+                continue
+            if in_portal and pw.role in PORTAL_STRIP_ROLES:
                 continue
             depth = min((pt.distance(part.exterior)
                          for part in getattr(g, "geoms", [g])
@@ -330,6 +337,28 @@ def zone_on_pavement(p: Patch) -> list[Row]:
                        area, None, None, None, site, site, sh.ref, sh.ref,
                        lat=la, lon=lo))
     out.sort(key=lambda r: -float(r["magnitude_m"]))
+    return out
+
+
+#: the RUNWAY strips a pack portal's cut may stand in (RULINGS 2026-10-26k)
+PORTAL_STRIP_ROLES = frozenset({"runway", "runway_crossing"})
+
+
+def portal_cut_regions(p: Patch):
+    """The rim polygons (census frame) of the cuts a pack portal pins —
+    ``pipeline/publication.portal_cuts``, never re-derived (owner RULINGS
+    2026-10-26k: such a cut may stand inside the RUNWAY strip)."""
+    from shapely.geometry import Polygon
+
+    out = []
+    for rec in (p.publication.get("portal_cuts") or ()):
+        ring = [p.to_m(float(la), float(lo)) for la, lo in (rec.get("outline_ll") or ())]
+        if len(ring) < 3:
+            continue
+        g = Polygon(ring)
+        g = g if g.is_valid else g.buffer(0)
+        if not g.is_empty:
+            out.append(g)
     return out
 
 

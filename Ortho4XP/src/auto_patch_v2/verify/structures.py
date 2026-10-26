@@ -99,8 +99,15 @@ def wall_in_runway_strip(p: Patch) -> list[Row]:
     # the half-width by the runway's published instrument status (#811)
     rows = p.publication.get("runway_axes")
     status = {r.ref: published_status(rows, r.ref) for r in runways}
+    # owner RULINGS 2026-10-26k: a pack portal's own cut may stand there
+    from shapely.geometry import Point
+
+    from .keepout import portal_cut_regions, weld_tol_m
+    portal, tol = portal_cut_regions(p), weld_tol_m(p)
     for w in walls:
         for k, (x, y) in enumerate(w.xy):
+            if portal and any(g.distance(Point(x, y)) <= tol for g in portal):
+                continue
             for r in runways:
                 hw = zone2_half_width_m(law, "runway", r.code_number, r.code_letter,
                                         status[r.ref])

@@ -58,8 +58,21 @@ from ..law.tables import pavement_fallback_cap, role_cap, role_family
 from ..model.airport import Airport
 from ..model.planar import PlanarMap
 from .precedence import taxi_cap_for, view
-from .runway_profile import curve_stations, datum_pins, ridge_chains, threshold_pins
+from .runway_profile import (
+    CASE_DATUM,
+    CASE_FLAGGED,
+    CASE_LIDAR,
+    CASE_UNMATCHED,
+    curve_stations,
+    end_pin_cases,
+    ridge_chains,
+    threshold_pins,
+)
 from .threshold_seam import seam_thresholds
+
+#: How the §50.4 line names an end :func:`end_pin_cases` valued
+_CASE_NAME = {CASE_DATUM: "apt.dat datum", CASE_UNMATCHED: "DEM, no CIFP",
+              CASE_FLAGGED: "DEM, CIFP flagged", CASE_LIDAR: "lidar"}
 
 __all__ = ["RunwayCap", "Pin", "derive", "report_line", "yielded_lines",
            "TaxiYield", "derive_taxi",
@@ -149,8 +162,13 @@ def _pin_sources(pm: PlanarMap, law: Law, airport: Airport, vw, chains
     (threshold > crossing anchor > seam DEM).  ``runway_chord`` is read
     HERE, inside the call, because it calls this module (module
     docstring)."""
-    from .runway_chord import (_chords, _crossing_pin_map, _with_knots,
-                               _with_seam_knots, runway_crossings)
+    from .runway_chord import (
+        _chords,
+        _crossing_pin_map,
+        _with_knots,
+        _with_seam_knots,
+        runway_crossings,
+    )
     out: dict[int, Pin] = {}
 
     def put(v: int, p: Pin) -> None:
@@ -171,9 +189,10 @@ def _pin_sources(pm: PlanarMap, law: Law, airport: Airport, vw, chains
             v = min(own, key=lambda q: (vw.xy[q][0] - end.xy[0]) ** 2
                     + (vw.xy[q][1] - end.xy[1]) ** 2)
             name_of.setdefault(v, f"RWY {end.name}")
-    # an apt.dat datum end (RULINGS 2026-09-30z (2), issue #129)
-    for v, (_z, _rid, ename) in datum_pins(pm, law, airport).items():
-        name_of.setdefault(v, f"RWY {ename} (apt.dat datum)")
+    # an end no survey pins, named by its case (``end_pin_cases``: the
+    # apt.dat datum 30z (2), 22a's DEM end, a flagged CIFP end, 26e's lidar)
+    for v, p in end_pin_cases(pm, law, airport).items():
+        name_of.setdefault(v, f"RWY {p.end} ({_CASE_NAME.get(p.case, p.case)})")
     for v, z in thresholds.items():
         put(v, Pin(KIND_THRESHOLD, name_of.get(v, "threshold"), float(z), v))
 
@@ -392,6 +411,7 @@ def derive_taxi(pm: PlanarMap, law: Law, airport: Airport | None,
     import numpy as np
     from scipy.sparse import csr_matrix
     from scipy.sparse.csgraph import connected_components
+
     from .routes import CENTRELINE, CROSSING, RIDGE_KIND, routes
     from .stretches import APRON_ROLE, stretches
 

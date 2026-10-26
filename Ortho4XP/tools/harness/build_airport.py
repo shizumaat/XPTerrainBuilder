@@ -2451,6 +2451,29 @@ def refresh_shore_feed(root, lat, lon, prog) -> dict:
     return summary
 
 
+def refresh_runway_refs(root, prog) -> dict:
+    """Fill the runway-end cross-check cache (owner RULINGS 2026-10-25a /
+    26a, #1342): every provider with a module
+    (``airport/runway_refs.PROVIDERS``) downloads into
+    ``Airport_mod_cache/_runway_refs/<source>/`` through its own
+    ``refresh`` — the ONLY caller of it; a build only reads the cache.  The
+    caller owns the law: the scope lock, the snapshot and the armed guard."""
+    for p in (Path(root) / "src", Path(root)):
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    from auto_patch_v2.airport import runway_refs as REFS  # noqa: E402
+    mod_root = str(DATA_REPO / MOD_CACHE_DIR_NAME)
+    out = {}
+    # every provider with a module, whatever ``crosscheck_order`` reads: the
+    # law decides whether a build USES a source, not whether it is cached
+    for mod in REFS.PROVIDERS.values():
+        stamp = mod.refresh(mod_root)
+        out[mod.NAME] = stamp
+        prog.note(f"runway refs [{mod.NAME}]: {stamp['bytes']:,} bytes, "
+                  f"sha256 {stamp['sha256'][:12]} -> {mod.cache_path(mod_root)}")
+    return out
+
+
 # ══════════════════════════════════════════════════════════════════════
 # THE AUTHORISED DEM REFRESH (--refresh-data dem)
 # ══════════════════════════════════════════════════════════════════════
@@ -5246,6 +5269,7 @@ def main(argv=None) -> int:
     seed_summary = None
     osm_refresh_summary = dem_refresh_summary = reconcile_summary = None
     shore_refresh_summary = rings_refresh_summary = None
+    runway_refs_summary = None
     mod_cache_refresh_summary = None
     t0 = time.time()
     # EVERYTHING FROM HERE IS INSIDE THE AUDIT'S ``finally`` (2026-09-15,
@@ -5308,6 +5332,11 @@ def main(argv=None) -> int:
             with guard:
                 shore_refresh_summary = refresh_shore_feed(
                     root, lat, lon, prog)
+        # THE RUNWAY-END CROSS-CHECK CACHE (#1342): global, not per tile —
+        # independent of every pass around it
+        if "runway_refs" in requested:
+            with guard:
+                runway_refs_summary = refresh_runway_refs(root, prog)
         # THE DEM REFRESH runs SECOND, deliberately: the inset bounding
         # boxes come from the tile's airports layer, which the pass above
         # derives when it is absent (the cold-neighbour case, +32-097).
@@ -5374,6 +5403,7 @@ def main(argv=None) -> int:
                       "refresh_osm_layers": osm_refresh_summary,
                       "refresh_dem": dem_refresh_summary,
                       "refresh_shore": shore_refresh_summary,
+                      "refresh_runway_refs": runway_refs_summary,
                       "refresh_rings": rings_refresh_summary,
                       "refresh_airport_mod_cache": mod_cache_refresh_summary,
                       "wall_seconds": round(time.time() - t0, 1)}

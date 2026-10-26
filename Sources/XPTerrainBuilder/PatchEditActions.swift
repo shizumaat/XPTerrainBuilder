@@ -58,6 +58,39 @@ extension PatchEditModel {
         }
     }
 
+    /// `sliceShape`'s arguments for the selection (#1318): exactly two
+    /// nodes, not neighbours, on one shape — the selected shape when it
+    /// holds both. Throws saying why Slice is not offered.
+    func sliceArgs() throws -> (a: Int64, b: Int64, way: Int64?) {
+        guard let doc = document, selection.count == 2 else {
+            throw PatchEditError.sliceRefused("Select two nodes of one shape that are not neighbours.")
+        }
+        let ids = selection.sorted()
+        let a = ids[0], b = ids[1]
+        let chosen = doc.ways.filter { shapeSelection.contains($0.id) && $0.refs.contains(a) && $0.refs.contains(b) }
+        let way = chosen.count == 1 ? chosen[0].id : nil
+        _ = try doc.sliceWay(a, b, way: way)
+        return (a, b, way)
+    }
+
+    /// "Slice": cut the shape between the two selected nodes (one step);
+    /// the two halves end selected.
+    func sliceSelection() {
+        let args: (a: Int64, b: Int64, way: Int64?)
+        let target: Int64
+        do {
+            args = try sliceArgs()
+            target = try document!.sliceWay(args.a, args.b, way: args.way).id
+        } catch {
+            editError = "\(error)"
+            return
+        }
+        let before = Set(document?.ways.map(\.id) ?? [])
+        if perform("Slice", { try $0.sliceShape(args.a, args.b, way: args.way) }), let doc = document {
+            selectShapes(Set(doc.ways.map(\.id)).subtracting(before).union([target]))
+        }
+    }
+
     func setSelectionAlt(_ alt: Double) {
         let ids = selection.sorted()
         perform("Set Elevation") { try $0.setAlt(ids, alt: alt) }

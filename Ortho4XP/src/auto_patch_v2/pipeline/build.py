@@ -442,6 +442,10 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
     # only when the pack's own pavement did not stand.
     for _line in lrep.cifp_coordinate_joins:     # #119: named, every one
         _say(f"  [load] {_line}", out)
+    # THE RUNWAY-END PIN RULE (#1342 / #1358, RULINGS 2026-10-25a): every
+    # flagged runway and every moved pin, named
+    for _line in lrep.end_pin_lines:
+        _say(f"  [load] {_line}", out)
     if lrep.pavement_borrow_line:
         _say(f"[load] {lrep.pavement_borrow_line}", out)
     # §42 (3) THE CENSUS (RULINGS 2026-09-13cv): the pack's draped OBJ8
@@ -683,9 +687,17 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                        seam_yielded, out)
     moved, _envelope, off_ground = _post["moved"], _post["envelope"], _post["off_ground"]
     report_seam, road_agree = _post["seam"], _post["road_agree"]
+    # THE RUNWAY-END PINS (#1342 / #1394): every end the DEM decided, named
+    from ..constraints import runway_end_report as _end_report
+    _end_recs = _end_report.records(pm, law, airport)
+    for _line in _end_report.lines(icao, _end_recs):
+        _say(f"  [runway] {_line}", out)
     report: dict[str, _t.Any] = {
         "icao": icao, "ruleset": law.ruleset_key,
         "load": _dc.asdict(lrep), "planar": _dc.asdict(pstats),
+        # owner RULINGS 2026-10-25a / 26e: one record per runway end (the
+        # sidecar's ``runway_end_pins``)
+        "runway_end_pins": _end_recs,
         # §50.4: the OVER-GRADE runways, one record each (§50.1 (4)'s
         # shape) — yielded runways only; EVERY runway's cap is in the
         # sidecar's ``runway_caps``

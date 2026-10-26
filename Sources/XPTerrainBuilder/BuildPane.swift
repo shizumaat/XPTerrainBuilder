@@ -94,6 +94,9 @@ struct BuildPane: View {
         .task(id: imageryAuditKey) {
             await refreshTextureAudit()
         }
+        .task(id: buildModel.planEstimateKey) {
+            await buildModel.updatePlanEstimate()
+        }
         .task(id: "\(buildModel.activeTile?.key ?? "")|\(controller.mapOverlays.regions.count)") {
             await refreshOtherScenery()
         }
@@ -449,6 +452,11 @@ struct BuildPane: View {
                 }
             }
             .scaledFont(.callout)
+            // What the build will cost, above Build (#820).
+            if buildModel.planEstimate != nil || buildModel.planEstimateError != nil {
+                Divider()
+                PlanEstimatePanel(buildModel: buildModel)
+            }
         }
         .toggleStyle(.checkbox)
     }
@@ -866,7 +874,7 @@ struct BuildPane: View {
             .disabled(!buildModel.canBuild || buildModel.buildableSelection.isEmpty)
             // The one disabled-reason the user cannot guess from the map
             // (beta plan §1 B2): no X-Plane folder, so no CIFP, so no build.
-            .help(buildModel.xplaneBlockReason ?? "")
+            .help(buildModel.xplaneBlockReason ?? buildModel.planBlockReason ?? "")
             .confirmationDialog(
                 "Build with a different imagery source?",
                 isPresented: $showingProviderMismatch,
@@ -907,6 +915,7 @@ struct BuildPane: View {
 
     private var buildButtonHelp: String {
         if buildModel.selected.isEmpty { return "Select tiles on the map first" }
+        if let reason = buildModel.planBlockReason { return reason }
         if buildModel.buildableSelection.isEmpty, !buildModel.selectedInRun.isEmpty {
             return "The selected tiles are already queued or building in the current run"
         }
@@ -984,7 +993,8 @@ struct ActivityBox: View {
             TileProgressRowLines(
                 text: text, statusColor: Self.color(tone),
                 titleDimmed: BuildActivityModel.isFinished(progress),
-                onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil
+                onStatusTap: hasIssues ? { buildModel.reopenIssues(coord) } : nil,
+                strip: activity.stepStrips[coord]
             ) {
                 ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
                     .controlSize(.small)

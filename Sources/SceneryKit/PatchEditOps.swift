@@ -18,6 +18,8 @@ public enum PatchEditError: Error, Equatable, CustomStringConvertible {
     case notAnEdge(Int64, Int64)
     case nodeExists(Int64)
     case mergeIntoItself(Int64)
+    /// Slice (#1318) refused, in the engine's words (`patch_slice.py`).
+    case sliceRefused(String)
 
     public var description: String {
         switch self {
@@ -26,6 +28,7 @@ public enum PatchEditError: Error, Equatable, CustomStringConvertible {
         case .notAnEdge(let a, let b): return "nodes \(a) and \(b) are not an edge of any way"
         case .nodeExists(let id): return "node \(id) already exists"
         case .mergeIntoItself(let id): return "cannot merge node \(id) into itself"
+        case .sliceRefused(let why): return why
         }
     }
 }

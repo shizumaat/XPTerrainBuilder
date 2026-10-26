@@ -859,13 +859,67 @@ def test_ini_parse_reports_order_and_disabled(tmp_path):
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Input 7 — engine version
+# Input 7 — toolchain (owner Q158: the engine VERSION is not compared)
 # ──────────────────────────────────────────────────────────────────────
-def test_engine_version_change_rebuilds(install, patch_file, monkeypatch):
+def test_engine_version_change_alone_keeps_the_patch(install, patch_file,
+                                                     monkeypatch):
+    """Owner Q158 (2026-10-26): a new engine version over the same patch
+    code and toolchain is not a changed input."""
     import O4_Version
 
     monkeypatch.setattr(O4_Version, "version", "1.50.999", raising=False)
+    assert install.is_current(patch_file)
+
+
+def test_toolchain_stamped_and_stable(install, patch_file, monkeypatch):
+    from auto_patch import provenance_tools
+
+    stamped = read_patch_source(str(patch_file))["freshness"]["o4_tools"]
+    assert stamped == provenance_tools.toolchain_fingerprint()
+    monkeypatch.setattr(provenance_tools, "_FINGERPRINT", None)  # new process
+    assert install.is_current(patch_file)
+
+
+def test_changed_toolchain_rebuilds_and_says_so(install, patch_file,
+                                                monkeypatch):
+    """Owner Q158: a new native tool or library version rebuilds every
+    airport's patch, named in the one reason line."""
+    from auto_patch import provenance_tools
+
+    seen = _reason_lines(monkeypatch)
+    monkeypatch.setattr(provenance_tools, "_FINGERPRINT", "0123456789abcdef")
     assert not install.is_current(patch_file)
+    assert len(seen) == 1 and "o4_tools" in seen[0], seen
+
+
+def test_toolchain_digest_reads_tools_by_content(tmp_path, monkeypatch):
+    """A rebuilt DSFTool changes the parts; an identical reinstall (new
+    mtime, same bytes) does not; a missing tool reads as absent."""
+    import os
+
+    from auto_patch import provenance_tools
+
+    folder, suffix = provenance_tools._platform_dir()
+    (tmp_path / folder).mkdir()
+    tool = tmp_path / folder / ("DSFTool" + suffix)
+    tool.write_bytes(b"one")
+    first = provenance_tools.toolchain_parts(str(tmp_path))
+    assert any(p.startswith("tool Triangle4XP absent") for p in first)
+    os.utime(tool, (1, 1))
+    assert provenance_tools.toolchain_parts(str(tmp_path)) == first
+    tool.write_bytes(b"two")
+    assert provenance_tools.toolchain_parts(str(tmp_path)) != first
+
+
+def test_library_versions_are_in_the_toolchain(monkeypatch):
+    from auto_patch import provenance_tools
+
+    parts = provenance_tools.toolchain_parts("")
+    assert {p.split()[1] for p in parts if p.startswith("lib ")} == \
+        set(provenance_tools.PATCH_LIBRARIES)
+    numpy_line = [p for p in parts if p.startswith("lib numpy ")]
+    import numpy
+    assert numpy_line == ["lib numpy " + numpy.__version__]
 
 
 def test_the_same_engine_code_reuses_the_patch(install, patch_file,
@@ -972,10 +1026,13 @@ def test_a_patch_without_the_osm_stamp_rebuilds(install, patch_file):
 
 
 def test_engine_version_stamped_from_o4_version(install, patch_file):
+    """Still WRITTEN (it names the engine that built the patch), never
+    compared (owner Q158)."""
     import O4_Version
 
     stamped = read_patch_source(str(patch_file))["freshness"]["o4_engine"]
     assert stamped == O4_Version.version
+    assert "o4_engine" not in provenance.FRESHNESS_COMPARED_KEYS
 
 
 # ──────────────────────────────────────────────────────────────────────

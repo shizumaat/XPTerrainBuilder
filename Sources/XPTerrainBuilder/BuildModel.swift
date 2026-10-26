@@ -72,6 +72,9 @@ final class BuildActivityModel: ObservableObject {
     /// A finished row's end-of-build messages (#1341): its gold or red
     /// status reopens them for as long as the row exists.
     @Published var issues: [BuildModel.TileCoord: O4TileIssues] = [:]
+    /// Each row's step strip (#825): Map data → Airports → … → Install.
+    /// Protocol builds only; a row without one shows no strip.
+    @Published var stepStrips: [BuildModel.TileCoord: O4StepStrip] = [:]
 
     /// Each row's place in the list (`ActivityOrder`).
     private var stamps: [BuildModel.TileCoord: ActivityOrder.Stamp] = [:]
@@ -149,6 +152,7 @@ final class BuildActivityModel: ObservableObject {
         tiles = tiles.filter { !live.contains($0.key) }
         for coord in live {
             tileClocks[coord] = nil
+            stepStrips[coord] = nil
         }
     }
 }
@@ -821,6 +825,7 @@ final class BuildModel: ObservableObject {
     // MARK: - Event handling (protocol path)
 
     private func handle(_ event: O4Event) {
+        feedStepStrip(event)
         switch event {
         case .hello(let version, let protocolVersion, _):
             protocolHello = (version, protocolVersion)
@@ -1317,6 +1322,60 @@ final class BuildModel: ObservableObject {
             && !(isBuilding && !usesProtocol) // legacy path can't queue into a run
             && !isBoundaryPreflighting // a second press would ask twice
             && xplaneBlockReason == nil
+            && planBlockReason == nil
+    }
+
+    // MARK: - Build cost (#820)
+
+    /// The engine's estimate for what the next Build press would build,
+    /// or nil (nothing to build, an engine older than 1.15, or none yet).
+    @Published private(set) var planEstimate: O4PlanEstimate?
+    /// Why the last estimate could not be made, for the panel's line.
+    @Published private(set) var planEstimateError: String?
+
+    /// The disk refusal: Build is off while even the low end of the need
+    /// exceeds the free space. A queued batch joins a run already going,
+    /// so it is never refused here.
+    var planBlockReason: String? {
+        isBuilding ? nil : planEstimate?.blockingReason
+    }
+
+    /// The `.task(id:)` key that re-asks for the estimate: every input of
+    /// `plan_estimate` that the Build box can change.
+    var planEstimateKey: String {
+        [buildableSelection.map(\.key).joined(separator: ","), buildProvider, String(buildZL),
+         customBuildDir, "\(doVector)\(doImagery)\(doOverlays)", "\(isBuilding)",
+         protocolHello?.protocolVersion ?? ""].joined(separator: "|")
+    }
+
+    /// Ask the engine what the next Build press costs. Called from a
+    /// `.task(id: planEstimateKey)`, so a newer selection cancels the wait;
+    /// the short sleep folds a burst of clicks into one request.
+    func updatePlanEstimate() async {
+        let tiles = buildableSelection
+        guard usesProtocol, let client, !tiles.isEmpty, doVector || doImagery || doOverlays,
+              O4ProtocolVersion.supportsPlanEstimate(protocolHello?.protocolVersion ?? "")
+        else {
+            planEstimate = nil
+            planEstimateError = nil
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(250))
+        guard !Task.isCancelled else { return }
+        do {
+            let estimate = try await client.planEstimate(
+                tiles: tiles.map { O4TileRef(lat: $0.lat, lon: $0.lon) },
+                provider: buildProvider, zoomlevel: buildZL,
+                customBuildDir: engineCustomBuildDir,
+                doVector: doVector, doImagery: doImagery, doOverlays: doOverlays)
+            guard !Task.isCancelled else { return }
+            planEstimate = estimate
+            planEstimateError = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            planEstimate = nil
+            planEstimateError = (error as? O4CommandError)?.message ?? error.localizedDescription
+        }
     }
 
     // MARK: - Legacy tile settings (built by an older/other Ortho4XP)
@@ -1567,6 +1626,12 @@ final class BuildModel: ObservableObject {
                 EngineStderrLog.queuedLine(tiles: todo.map(\.key)))
         }
         clearProgressTask?.cancel()
+        // Every attempt starts its step strip afresh (#825); a row still
+        // live in this run keeps its own, as `queueRows` keeps the row.
+        for coord in todo
+        where activity.tiles[coord].map(BuildActivityModel.isFinished) ?? true {
+            activity.stepStrips[coord] = O4StepStrip()
+        }
         activity.queueRows(todo)
         stampRunTags(todo)
         // The settings this tile is being STARTED with — what a later
@@ -2018,6 +2083,7 @@ final class BuildModel: ObservableObject {
         resumeQueue.removeAll { $0 == coord }
         let percent = activity.tiles[coord]?.percent ?? 0
         activity.tiles[coord] = TileProgress(state: .stopped, label: "stopped", percent: percent)
+        activity.stepStrips[coord]?.stop(at: ProcessInfo.processInfo.systemUptime)
         if let clock = activity.tileClocks[coord] {
             activity.tileClocks[coord] = O4TileClock(
                 lat: clock.lat, lon: clock.lon, elapsedSeconds: clock.elapsedSeconds,
@@ -2155,6 +2221,22 @@ final class BuildModel: ObservableObject {
     /// Ordered, deduped resume queue append.
     static func enqueuingResume(_ coord: TileCoord, into queue: [TileCoord]) -> [TileCoord] {
         queue.contains(coord) ? queue : queue + [coord]
+    }
+
+    /// Fold a tile's progress event into its row's step strip (#825).
+    private func feedStepStrip(_ event: O4Event) {
+        let coord: TileCoord
+        switch event {
+        case .stepProgress(let la, let lo, _, _, _, _), .autoPatchBegin(_, let la, let lo),
+             .autoPatchProgress(_, _, _, _, _, _, let la, let lo),
+             .tileState(let la, let lo, _, _, _, _), .buildDone(let la, let lo, _, _, _, _, _, _):
+            coord = TileCoord(lat: la, lon: lo)
+        default:
+            return
+        }
+        guard var strip = activity.stepStrips[coord] else { return }
+        strip.apply(event, at: ProcessInfo.processInfo.systemUptime)
+        if strip != activity.stepStrips[coord] { activity.stepStrips[coord] = strip }
     }
 
     private func applyTileEvent(_ incoming: TileProgress, to coord: TileCoord) {

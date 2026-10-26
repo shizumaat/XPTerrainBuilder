@@ -91,7 +91,7 @@ from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "portal_note", "PORTAL_YIELDS", "strip_keepout",
-           "STRIP_REFUSED", "STRIP_PORTAL"]
+           "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
 _SLIDE_PASSES = 4
@@ -454,7 +454,8 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     the portal's opening and dropped — the rest end the ramp's top.  A
     TAXIWAY face at the opening is never dropped (clause 1): its ref is
     returned instead (a string), and the caller slides the mouth."""
-    stops = mouth_stops(cells, polys, law, cut_roles, axis, group.mouth, half, rim_off,
+    mouth = tuple(axis.coords[0])            # the portal's own mouth (``portal_mouth``)
+    stops = mouth_stops(cells, polys, law, cut_roles, axis, mouth, half, rim_off,
                         decked, grid) + list(crossing)
     if mouth_ring is not None:
         taxi = {c.ref for c in cells if role_family(law, c.role) == "taxi"}
@@ -464,7 +465,7 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
         stops = [(p, r) for p, r in stops if not p.intersects(mouth_ring)]
     stops = list(pads) + stops
     tree = STRtree([p for p, _r in stops]) if stops else None
-    return axis, group.mouth, stops, tree, "", None
+    return axis, mouth, stops, tree, "", None
 
 
 def portal_note(pin, mouth_dem: float, mouth_z: float) -> str:
@@ -492,3 +493,19 @@ def strip_keepout(wall, strip_u, pin) -> str:
             or wall.intersection(strip_u).area <= 1e-6:
         return ""
     return STRIP_REFUSED if pin is None else STRIP_PORTAL
+
+
+def portal_mouth(axis: LineString, inward, anchor) -> "tuple[LineString, float]":
+    """``(axis, metres moved)``: a pinned mouth stands under its PORTAL.  An
+    unseated pack portal (placed at several anchors, I-4) is drawn on the
+    mesh at its ANCHOR, so the mouth's floor must be there: where the anchor
+    stands on the COVERED side of the mapped bore end (KBUF ``Road_Tunnel``
+    dsf:obj6856 10.4 m, dsf:obj6854 7.9 m), the mouth moves into the bore
+    to the anchor's station on the axis; an anchor on the ramp side keeps
+    the mapped end (the ramp floor there is the mouth's to ``ramp_grade``)."""
+    m = axis.coords[0]
+    d = (anchor[0] - m[0]) * inward[0] + (anchor[1] - m[1]) * inward[1]
+    if d <= 0.0:
+        return axis, 0.0
+    new = (m[0] + inward[0] * d, m[1] + inward[1] * d)
+    return LineString([new] + list(axis.coords)), float(d)

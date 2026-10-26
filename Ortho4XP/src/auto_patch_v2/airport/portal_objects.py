@@ -61,6 +61,8 @@ class Portal:
     #: the ground at the mouth
     depth_m: float
     roof_area_m2: float
+    #: the placement's anchor (frame xy): where X-Plane draws its zero
+    anchor_xy: XY = (0.0, 0.0)
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -167,7 +169,8 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
             continue
         for j in near:
             xy, wid = ends[j]
-            out.append(Portal(o.id, o.path, xy, wid, depth, roof_area))
+            out.append(Portal(o.id, o.path, xy, wid, depth, roof_area,
+                              (float(o.xy[0]), float(o.xy[1]))))
     out.sort(key=lambda p: (p.end_xy, p.object_id))
     return out, refused
 

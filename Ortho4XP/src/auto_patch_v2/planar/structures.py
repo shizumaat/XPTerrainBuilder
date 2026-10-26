@@ -110,8 +110,8 @@ from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
 from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement, road_end_after_slide
-from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, portal_note,
-                              strip_keepout)
+from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, portal_mouth,
+                              portal_note, strip_keepout)
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -374,7 +374,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                          for m in members) if q is not None), None)
         if pin is not None:
-            stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}")
+            # the portal is drawn at its anchor: the mouth stands under it
+            axis_ln, moved = portal_mouth(axis_ln, inward, pin.anchor_xy)
+            mouth = tuple(axis_ln.coords[0])
+            stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}"
+                                       + (f", mouth {moved:.1f} m into the bore to the "
+                                          f"portal's anchor" if moved else ""))
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
             g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
             grid, [d[3] for d in deck_intervals(

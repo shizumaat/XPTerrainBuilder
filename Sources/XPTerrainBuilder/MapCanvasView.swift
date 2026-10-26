@@ -51,6 +51,8 @@ struct MapCanvasView: View {
     static let badgeDone = Color(red: 0.18, green: 0.62, blue: 0.36)     // #2E9E5B
     static let badgeError = Color(red: 0.90, green: 0.22, blue: 0.17)    // #E5372B
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
+    /// The customized-settings dot (#1350); Qt SETTINGS_BADGE_COLOR.
+    static let settingsBadge = Color(red: 0.04, green: 0.52, blue: 1.0)  // #0A84FF
 
     var body: some View {
         GeometryReader { proxy in
@@ -434,6 +436,20 @@ struct MapCanvasView: View {
                                with: .color(Self.buildSelection),
                                style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
             }
+        }
+
+        // Customized settings (#1350): a blue dot in the top-left corner
+        // of a built or selected tile, sized in screen points (8-14) like
+        // the warning triangle (Qt: O4_Qt_Map._draw_settings_badge).
+        for coord in buildModel.customizedTiles
+        where visible(coord) && (buildModel.built[coord] != nil || buildModel.selected.contains(coord)) {
+            let r = rect(coord)
+            guard r.width > 14 else { continue }
+            let d = min(max(r.width * 0.11, 8), 14)
+            let dot = Path(ellipseIn: CGRect(x: r.minX + d / 2, y: r.minY + d / 2,
+                                             width: d, height: d))
+            context.fill(dot, with: .color(Self.settingsBadge))
+            context.stroke(dot, with: .color(.white), lineWidth: 1.5)
         }
 
         // Progress badges: rings at tile centers during a run.

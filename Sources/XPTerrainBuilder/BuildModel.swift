@@ -210,6 +210,10 @@ final class BuildModel: ObservableObject {
     /// Built tiles whose textures folder mixes imagery sources (only one
     /// can be used) — warning badges on the map + selection pane.
     @Published private(set) var conflictTiles: Set<TileCoord> = []
+    /// Built or selected tiles whose cfg customizes a setting (#1350) —
+    /// the map's settings badge. The engine owns the comparison
+    /// (`tile_customizations`, O4_Tile_Customizations.py).
+    @Published private(set) var customizedTiles: Set<TileCoord> = []
     @Published private(set) var isScanning = false
     @Published private(set) var scanPhase = ""
     private var scanAccumBuilt: [TileCoord: O4TileInfo] = [:]
@@ -223,6 +227,7 @@ final class BuildModel: ObservableObject {
     @Published var selected: Set<TileCoord> = [] {
         didSet {
             persistSelection()
+            refreshCustomizedTiles(only: selected.subtracting(oldValue))
             searchTags.keep(only: Set(selected.map { AirportTile(lat: $0.lat, lon: $0.lon) }))
         }
     }
@@ -415,6 +420,52 @@ final class BuildModel: ObservableObject {
             guard !Task.isCancelled, let self else { return }
             self.conflictTiles = conflicts
         }
+    }
+
+    // MARK: - Customized tile settings (#1350)
+
+    /// One tile's customized settings, for the tile pane. Empty when it
+    /// customizes nothing, or the engine predates the command.
+    func tileCustomizations(for coord: TileCoord) async -> [O4TileCustomization] {
+        connectIfNeeded()
+        guard let client, let base = tileBaseFolder else { return [] }
+        let reply = try? await client.tileCustomizations(
+            lat: coord.lat, lon: coord.lon, workingDir: base.path)
+        return reply?.customizations ?? []
+    }
+
+    /// Ask the engine again for the badge set: every built and selected
+    /// tile, or only `coords` (newly selected tiles). One small cfg read
+    /// per tile on the engine side.
+    func refreshCustomizedTiles(only coords: Set<TileCoord>? = nil) {
+        let scope = coords ?? Set(built.keys).union(selected)
+        guard !scope.isEmpty, client != nil else { return }
+        Task { [weak self] in
+            var found: Set<TileCoord> = []
+            for coord in scope {
+                guard let self else { return }
+                let rows = await self.tileCustomizations(for: coord)
+                if !rows.isEmpty { found.insert(coord) }
+            }
+            guard let self else { return }
+            self.customizedTiles = self.customizedTiles.subtracting(scope).union(found)
+        }
+    }
+
+    /// "Edit settings…" in the tile pane: select the tile alone, so the
+    /// Settings window edits it, and open on its Selected Overrides pane.
+    func editSettings(for coord: TileCoord) {
+        selected = [coord]
+        activeTile = coord
+        settingsPaneRequest = SettingsPaneRequest.overrides
+    }
+
+    /// The Settings pane to show next time the window appears (#1350);
+    /// SettingsView takes it and clears it.
+    @Published var settingsPaneRequest: String?
+
+    enum SettingsPaneRequest {
+        static let overrides = "overrides"
     }
 
     // MARK: - Engine loading
@@ -742,6 +793,7 @@ final class BuildModel: ObservableObject {
                     workingDir: base.path, customSceneryDir: customSceneryPath)
             }
             refreshConflictTiles()
+            refreshCustomizedTiles()
         case .tileState(let lat, let lon, let state, let label, let percent, let detail):
             let coord = TileCoord(lat: lat, lon: lon)
             let state = TileProgress.State(rawValue: state) ?? .queued
@@ -2128,7 +2180,9 @@ final class BuildModel: ObservableObject {
     // config.
 
     /// Bumped after any tile-config write so rows re-read their state.
-    @Published private(set) var tileConfigGeneration = 0
+    @Published private(set) var tileConfigGeneration = 0 {
+        didSet { refreshCustomizedTiles(only: selected) }
+    }
 
     private func tileConfigURL(_ coord: TileCoord) -> URL? {
         guard let base = tileBaseFolder else { return nil }
@@ -2288,6 +2342,9 @@ final class BuildModel: ObservableObject {
                 at: configURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try file.write(to: configURL)
             globalConfigValues[name] = value
+            // A tile value equal to the new global is no longer a
+            // customization (and a different one now is): re-badge.
+            refreshCustomizedTiles()
         } catch {
             engineError = "Could not write Ortho4XP.cfg: \(error.localizedDescription)"
         }

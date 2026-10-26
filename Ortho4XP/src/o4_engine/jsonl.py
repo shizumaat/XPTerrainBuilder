@@ -165,11 +165,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # Imported here, after the hello is written: the patch commands pull in
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
+    from O4_Tile_Customizations import tile_customizations
+
     from . import patch_commands
     from .elevation_commands import cursor_elevation
+    from .mesh_commands import mesh_crop
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
-    from .mesh_commands import mesh_crop
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -185,6 +187,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # the global, REMOVE it when it equals it.  Plain synchronous
         # file writes — no build, no parse, safe on the read loop.
         "tile_settings_write": session.tile_settings_write,
+        # The tile's customized settings against the global layer (#1350):
+        # the Mac map badge and tile pane.  Synchronous file reads, no
+        # session state; the Qt app calls the same function in process.
+        "tile_customizations": tile_customizations,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,

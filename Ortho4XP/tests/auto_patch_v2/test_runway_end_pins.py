@@ -231,7 +231,7 @@ _ROWS = ('1,2,"ZZZZ",1772,66,"ASP",1,0,"06",27.68,86.72,9134,60,,"24",27.69,86.7
 def test_the_ourairports_reader_takes_ends_with_an_elevation(tmp_path):
     path = Path(OA.cache_path(str(tmp_path)))
     path.parent.mkdir(parents=True)
-    path.write_text(_HEADER + _ROWS, encoding="utf-8")
+    path.write_text(_HEADER + _ROWS, encoding="utf-8", newline="")
     got = OA.lookup("ZZZZ", str(tmp_path))
     assert set(got) == {"06", "24"}                         # the closed runway is not a record
     assert got["06"].elevation_m == pytest.approx(9134 * FT)

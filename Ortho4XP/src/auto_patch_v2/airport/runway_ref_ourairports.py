@@ -113,7 +113,7 @@ def refresh(mod_cache_root: str, fetch: _t.Callable[[str], bytes] | None = None,
              "bytes": len(body), "fetched": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
              "licence": LICENCE, "attribution": ATTRIBUTION}
     stamp_path = os.path.splitext(path)[0] + ".json"
-    with open(stamp_path + ".part", "w", encoding="utf-8") as fh:
+    with open(stamp_path + ".part", "w", encoding="utf-8", newline="\n") as fh:
         json.dump(stamp, fh, indent=1)
     os.replace(stamp_path + ".part", stamp_path)
     return stamp

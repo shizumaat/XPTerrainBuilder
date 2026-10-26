@@ -68,11 +68,11 @@ from .runway_profile import (
     ridge_chains,
     threshold_pins,
 )
+from .threshold_seam import seam_thresholds
 
 #: How the §50.4 line names an end :func:`end_pin_cases` valued
 _CASE_NAME = {CASE_DATUM: "apt.dat datum", CASE_UNMATCHED: "DEM, no CIFP",
               CASE_FLAGGED: "DEM, CIFP flagged", CASE_LIDAR: "lidar"}
-from .threshold_seam import seam_thresholds
 
 __all__ = ["RunwayCap", "Pin", "derive", "report_line", "yielded_lines",
            "TaxiYield", "derive_taxi",

@@ -55,7 +55,8 @@ there.
 | A | CIFP joined, verification passes | the CIFP point projected onto the axis (`pin_along_m`) | CIFP | :511-516 / 09-18d (3); **#1358** |
 | B | CIFP joined, flagged; a cross-check source agrees with the DEM | the CIFP point | the source's end value (NASR → openAIP → OurAirports, first that agrees) | **25a, 26a** |
 | C | CIFP joined, flagged; no source agrees | the CIFP point | the DEM: §21 trend at the station, else the vertex DEM; **no cap clamp** (the caps yield) | **25a** with the 22a DEM rule |
-| D | no CIFP at this end; the other end is pinned A or B | the apt.dat landing threshold | the DEM, pulled toward the surveyed pin within the cap | 22a, unchanged |
+| A′ | no CIFP joined here because the record lies BEYOND this end on the axis, while the other end's CIFP sits the same distance INSIDE its end (a shifted runway, #1358 (2)) | the apt.dat landing threshold | the straight line through the two CIFP thresholds; then verified as a CIFP pair | #1358 (2) |
+| D | no CIFP at this end; the other end is pinned A, A′ or B | the apt.dat landing threshold | the DEM, pulled toward the surveyed pin within the cap | 22a, unchanged |
 | D′ | no CIFP at this end; the other end is C | the apt.dat landing threshold | the DEM, no pull (a DEM pin is not a survey) | 25a + 22a |
 | E | no CIFP on the runway; credible lidar; `|datum − DEM| > noise(lidar)` | the apt.dat landing threshold | the DEM | **26e** |
 | F | no CIFP on the runway, otherwise | the apt.dat landing threshold | the apt.dat datum line | 30z (2), unchanged |
@@ -114,8 +115,12 @@ from (a) or (b) straight to C. No build ever fetches.
   both ends follow the DEM, and the code-1 caps yield to the DEM pins.
 - **CBR2**: (a) and (b) fire on lidar. Case C: the 07 end at about 731.9 m, the 25 end at
   about 714.6 m.
-- **KDIJ**: RW04 passes. Case A pins at its own point, 593.5 m in. The 04 end of the
-  pavement follows the trend through that pin. RW22, refused, is case D.
+- **KDIJ**: a shifted runway. Both CIFP thresholds lie 593.5 m and 594.5 m north-east of
+  the apt.dat ones. RW04 is case A, pinned at its own point 593.5 m in. RW22 is case A′,
+  pinned on the CIFP line at 1899.56 m. As first implemented, RW22 fell to case D: the 22a
+  pull toward the RW04 pin within the 0.8 % end-zone cap left the 22 end 7.27 m under the
+  lidar, because moving the RW04 pin 594 m in shortened the reach. That measurement is why
+  case A′ exists. The pair passes (b) on lidar.
 - **PAAQ 16S/34S**: case E: both ends on the lidar.
 - **PANC**: the pins move to the CIFP points (RW15 from 61 m to 0 m, RW33 from 270 m to
   145.8 m). The #1346 seam rule judges the new location.
@@ -137,16 +142,99 @@ from (a) or (b) straight to C. No build ever fetches.
   or bulk export) are still to be confirmed and recorded in that provider's entry, as 26a
   asks.
 
-## 6. Census over the CIFP airports
+## 6. Census over the CIFP airports (for the owner, before the rule ships)
 
-`tools/runway_end_census.py`. Every CIFP airport's runways are joined to the Global
-Airports apt.dat, and each rule is judged on the AUTHORED DEM (the `.hgt` plus the
-airport's insets, `airport/dem.load_dem`) where the corpus holds the tile. Results are in
-§6.1. (c) is n/a until the cache is filled.
+`venv/bin/python tools/runway_end_census.py --json …` at cf6afddf3 + the void guard: 175 s,
+read-only. 17,104 CIFP airports. 12,411 join a Global Airports apt.dat block with runways.
+6,727 have a DEM tile in the shared corpus, and those give 8,229 runways with CIFP, 7,867 of
+them with CIFP at both ends. With no cross-check cache, rule (c) is n/a.
 
-## 7. Closing builds
+| DEM class | airports | runways judged | flagged | (a) | (b) |
+|---|---|---|---|---|---|
+| lidar | 403 | 625 | **64** (10.2 %) | 43 | 44 |
+| fine | 42 | 66 | **5** | 2 | 5 |
+| coarse | 6,282 | 7,538 | **227** (3.0 %) | 130 | 163 |
+| **all** | 6,727 | 8,229 | **296** (3.6 %) | 175 | 212 |
 
-The table is filled in by the closing builds below.
+What a flag does: **lidar** flags put the runway on the lidar, which is the real ground, so a
+borderline lidar flag costs little. **Coarse** flags put it on a 1-arcsec DSM trend, which is
+where a false flag could hurt. That is why the coarse tolerance is the widest.
+
+**How sensitive (b) and (a) are to their tolerances.** These are runways with two CIFP ends
+and DEM reads at both. "(b) at t" counts `|Δcifp − Δdem| > t`. "(a) at n" counts the
+placeholder-pattern runways with `|Δdem| > n`.
+
+| class | n | (b) at 1 / 1.5 / 2 / 3 / 4 / 6 / 8 / 12 / 15 / 20 m | placeholder pattern | (a) at 0.25 / 0.5 / 1 / 2 / 4 / 8 / 12 m |
+|---|---|---|---|---|
+| lidar | 611 | 62 / **44** / 36 / 19 / 14 / 10 / 7 / 5 / 5 / 1 | 66 | 46 / **41** / 30 / 18 / 6 / 3 / 2 |
+| fine | 51 | 18 / 11 / 8 / 7 / **5** / 2 / 2 / 1 / 0 / 0 | 11 | 7 / 6 / 5 / **1** / 1 / 1 / 0 |
+| coarse | 7,146 | 3,574 / 2,703 / 2,050 / 1,317 / 897 / 517 / 333 / **163** / 89 / 49 | 1,031 | 844 / 774 / 608 / 456 / 282 / **128** / 65 |
+
+The shipped tolerances are in bold. The owner may move any of them (`law/runway_ends.toml`,
+no code change).
+
+**Without a DEM**, the placeholder pattern (both CIFP ends the same number and at the field
+elevation) shows on **1,134** of the 7,867 two-CIFP runways. They are mostly small US fields.
+(a) flags only the ones whose DEM shows relief beyond the tier's noise.
+
+Examples the rule catches. CBR2 07/25 and VNLK 06/24 are the closing sites. Also: 25U 17/35
+(lidar: CIFP flat at 2044.6 m, lidar +15.4 m), 1S9, 1U4. 92 runways carry CIFP **0 ft at
+both ends**, like 08VA 09/27 (DEM 311.7 / 296.7 m) and 0GA9, 0PA3. (b) catches these only
+where the DEM also shows relief; see F6.
+
+**#1358, the location rule.** 1,054 CIFP ends at 783 airports sit more than the 30 m join
+radius from the apt.dat landing threshold, so their pin moves to the CIFP point (median
+82 m, p90 234 m, max 959 m). For 256 of them the CIFP threshold is nearer the end than
+apt.dat says (LFOM 06: apt.dat displaces it 960 m, CIFP puts it at the end); for the rest it
+is further in (KPAE 16R: 921 m in, apt.dat 0). **81 shifted runways** (the KDIJ class) get
+their refused end pinned on the CIFP line.
+
+## 7. Closing builds (harness, branch `claude/lrwypin-runway-ends`)
+
+The "after" builds are harness builds tagged `<ICAO>_20261026T133309` (`/tmp/harness/`).
+The "before" figures are a capture-and-replay (`--from constraints --emit --verify`) at the
+base 9a021461b (origin/main 77e3a13e4 plus #1385), in the `lrwypin-base` worktree. "Built"
+is the nearest runway node's `alt_abs`, and "DEM" is the inset sampled bilinearly at the
+point. Probe: `scratchpad/lrwypin/ends_vs_dem.py`.
+
+| site | point | DEM (inset) | before built − DEM | after built − DEM |
+|---|---|---|---|---|
+| CBR2 (HRDEM lidar) | 07 end | 731.83 | **−14.33** | **+0.07** |
+| | 25 end | 714.72 | +2.78 | −0.02 |
+| KDIJ (3DEP lidar) | 04 end | 1873.50 | **+5.29** | **−0.14** |
+| | 04 CIFP threshold | 1878.66 | +3.30 | +0.13 |
+| | 22 end | 1899.06 | −2.48 | +0.50 |
+| PAAQ (3DEP lidar) | 16S end | 72.64 | **−1.69** | **+0.01** |
+| | 34S end | 70.38 | −1.72 | −0.02 |
+| | 16 / 34 / 10 / 28 (CIFP, verified) | — | −0.04 / +0.10 / −0.06 / +0.20 | unchanged |
+| VNLK (Copernicus GLO-30, coarse) | 06 end | 2782.91 | **+63.01** | **+0.61** |
+| | 24 end | 2862.39 | −16.47 | −5.87 (the §21 trend at the end; OurAirports, once cached, says 2845.0) |
+
+VNLK's runway is now built at 13.5 % (the cap yields, 09-18d). The trend puts the 24 end
+5.9 m under the Copernicus DSM at that point, and OurAirports says it is 17 m under the
+DSM. With the cache filled, the resolution would take OurAirports' 2784.0 / 2845.0 m: its
+end-to-end difference of 61 m agrees with the DEM's 71 m within the 12 m coarse tolerance.
+
+Census (`tools/harness/census.py`), ADJUDICATED (airside), before → after:
+
+| site | before | after | what moved |
+|---|---|---|---|
+| PAAQ | 399 (363) | **110 (74)** | `within_shape` 276 → 67 (face-10's 16S/34S step); `airside_no_step` 129 → 5 |
+| KDIJ | 442 (352) | **246 (202)** | `airside_no_step` 120 → 5 … 29; `taxi_box` 89 → 16; `strip_transverse` 26 → 9; `hard_conflict` 14 → 35 (24 airside, worst 0.75 m, down from 5.67 m) |
+| CBR2 | 21 (11) | 31 (26) | `strip_transverse` 0 → 10, `strip_longitudinal` 1 → 9: the strip now grades beside a 1.45 % runway (worst 1.58 m) |
+| VNLK | 152 (152) | **985 (985)** | `taxi_box` 439, `airside_no_step` 219, `hard_conflict` 107 (102 relaxed hard rows: pavement and road ceilings), 3 CRITICAL motion `strip_transverse` junction / runway cliffs (worst 1.50 m over 3.98 m). This is the junction and apron pavement meeting a runway that now climbs 13.5 %. It needs an owner read (§9 F7) |
+
+`verify` DEFECT families (`runway_transverse`, `runway_vertical_curve`, `runway_step`,
+`sentinel_elevation`) are ALL ZERO on every build.
+
+**PANC (#1346 regression), verify-clean.** Harness `PANC_20261026T133438` (both tiles, 180 s,
+body `2530719a3bc4`). The pins move to the CIFP points: RW15 from 61.0 m to 0.0 m, RW33 from
+270.0 m to 145.8 m. RW33 still yields to the lon −150 seam (26b) at its new place, CIFP
+36.881 → built 36.798 m (−0.082 m), 53.6 m from the seam. Before, it was 36.294 m at the
+270 m station. The census shows CRITICAL motion 0, `seam_residual` 3 (worst 0.177 m, the
+same as #1346's closing patch) and no runway-step, transverse or vertical-curve rows.
+ADJUDICATED is 460 (395 airside), against 772 (707) on #1346's registered closing patch
+`l1346_PANC2.osm`. That is a different base tree, so the figure is indicative, not an A/B.
 
 ## 8. Notes
 
@@ -164,6 +252,18 @@ The table is filled in by the closing builds below.
 - F3: an app-side action that fills the `runway_refs` cache (the engine's `refresh()` is
   ready; the harness scope is the only caller today).
 - F4: DEM prep's flat-site S1 reads the resolved values.
+- F6 (owner question): a CIFP end of **0 ft** at a field whose DEM is hundreds of metres up
+  (92 runways, all with both ends at 0) is not caught when the runway is flat. (a) needs the
+  field elevation, and (b) compares only differences. An absolute rule, (d) `|cifp − DEM|`
+  beyond a generous per-class bound, would catch it. That is a new verification rule, so it is
+  not shipped here.
+- F7 (owner read): VNLK. The runway now climbs 13.5 % as the ground does, but the junction
+  stubs and apron that join it are held by their own caps, so the census counts rise
+  152 → 985 (taxi_box, airside_no_step, 102 relaxed pavement and road ceilings). A
+  steep-runway airport probably needs the #135 taxi yield to follow a yielded runway. That is
+  not changed here.
+- F8: KDIJ's N–S road (#1358 comment) was not re-read separately. The 04 end moved
+  5.29 → −0.14 m, and graded-strip off-DEM went from 6.53 to 4.53 m max. A sim read is owed.
 - F5: the cache was not filled in this lane (it is a download the master or owner
   authorises: `build_airport.py ICAO --refresh-data runway_refs --refresh-only`). Rule (c)
   and the source-backed resolution are tested on fixtures only.

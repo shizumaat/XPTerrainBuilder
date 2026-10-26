@@ -24,16 +24,23 @@ writes nothing but ``--json``.
 """
 from __future__ import annotations
 
-import argparse
-import collections
-import json
-import math
-import os
-import sys
-import time
+# The console is UTF-8 before anything prints (#171, #125): ONE derivation
+# site, ``src/O4_Console_Encoding.py`` (twin: ``tests/test_console_encoding.py``).
+import os as _o4os, sys as _o4sys                                    # noqa: E402
+_o4sys.path.insert(0, _o4os.path.join(_o4os.path.dirname(_o4os.path.dirname(
+    _o4os.path.abspath(__file__))), "src"))
+import O4_Console_Encoding as _o4console                             # noqa: E402
+_o4console.configure_console_streams()
+
+import argparse  # noqa: E402
+import collections  # noqa: E402
+import json  # noqa: E402
+import math  # noqa: E402
+import os  # noqa: E402
+import sys  # noqa: E402
+import time  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "src"))
 
 from auto_patch_v2.airport import apt_dat as A  # noqa: E402
 from auto_patch_v2.airport import cifp as C  # noqa: E402

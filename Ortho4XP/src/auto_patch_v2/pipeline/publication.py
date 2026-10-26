@@ -89,6 +89,7 @@ import math
 
 import typing as _t
 
+from ..constraints import runway_end_report as _end_report
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.eat import eat_report_rects as _eat_report_rects
@@ -127,7 +128,6 @@ from ..constraints.roads import road_law_caps
 from ..constraints.runway_mean_slope import mean_slope_caps
 from ..constraints.shoulder_crossing import crossed_shoulder_caps
 from ..constraints.runway_profile import crown_drops, runway_half_widths
-from ..constraints import runway_end_report as _end_report
 from ..constraints.runway_yield import RunwayCap as _RunwayCap
 from ..constraints.runway_yield import TaxiYield as _TaxiYield
 from ..constraints.seams import GEN as SEAM_GEN, seam_pins

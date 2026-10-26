@@ -103,12 +103,12 @@ from .structure_approach import (FieldRegion, apply_plates, cover_polygons, stan
                                  carriageway_width_m, cut_gap_cells,
                                  chains, field_region_for, mouth_reports, under_cover,
                                  is_bridge, is_tunnel, merge_duals, mouths,
-                                 pavement_half_widths, ramp_top as _ramp_top, road_end_m,
+                                 pavement_half_widths, ramp_top as _ramp_top,
                                  road_index, crossing_roads, unit)
 from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import resolve_overlaps
-from .structure_mouth import mouth_at_pavement as _mouth_at_pavement
+from .structure_mouth import mouth_at_pavement as _mouth_at_pavement, road_end_after_slide
 from .zones import shore_region
 from .structure_service import (airside_cut_roles, deck_witness_for,
                                 decked_exclusion as _decked_exclusion, knee_nodes,
@@ -377,13 +377,19 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if clear is not None and clear[0] is None:
             stats.refused.append(f"{tid}: {clear[4]}")
             continue
+        portal_axis = axis_ln
         axis_ln, mouth = (clear[0], clear[1]) if clear is not None else (axis_ln, mouth)
         # where a ramp NOTHING frames must have topped out: its road's own end
         # (#1028: where the axis leaves the mapped road, not its straight extension)
-        # (a bore whose approach walked no mapped way at all follows its own line)
-        road_end = road_end_m(axis_ln, roads_ix, half, spacing_g) if c is None and any(
+        # (a bore whose approach walked no mapped way at all follows its own line),
+        # read from the MAPPED portal (#1337: a slid mouth stays on its road)
+        road_end, past_end = road_end_after_slide(
+            portal_axis, axis_ln, roads_ix, half, spacing_g) if c is None and any(
             walked_m(m.approach, m.inward, reach) > 0.0 for m in members
-            if hasattr(m, "approach")) else None
+            if hasattr(m, "approach")) else (None, "")
+        if past_end:
+            stats.refused.append(f"{tid}: {past_end}")
+            continue
         # (the top's one station of slack, ``ramp_top``, may stand past it)
         run_ends: list[tuple[float, str]] = [(axis_ln.length if road_end is None
                                               else road_end + spacing_g,

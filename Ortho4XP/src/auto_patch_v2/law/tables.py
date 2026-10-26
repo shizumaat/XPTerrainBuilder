@@ -14,7 +14,7 @@ import typing as _t
 
 from pathlib import Path
 
-from .model import (Cockpit, Declared, Family, FlatPack, FlatSite, Law,
+from .model import (Cockpit, Declared, Family, FlatPack, FlatSite, Law, RunwayEnds,
                     RoleCap, ZoneClass, load_tables, resolve_ruleset)
 from .reference_code import INSTRUMENT, PRECISION
 
@@ -35,7 +35,7 @@ __all__ = [
     "runway_vertical_curve_bound", "strip_transverse_bound",
     "taxi_half_width_m", "airside_rate_per_m",
     "runway_end_zone_cap", "runway_end_zone_grade_change", "runway_mean_slope_max",
-    "flat_site", "flat_datum_group", "flat_declared", "flat_pack",
+    "flat_site", "flat_datum_group", "flat_declared", "flat_pack", "runway_ends",
     "flat_source_class", "flat_relief_floor_m", "design",
     "design_weight", "sliver_area_factor", "group_span_max_m",
     "bend_class", "apron_roles", "PadAdmission", "pad_admission",
@@ -993,6 +993,12 @@ def flat_pack(law: Law) -> FlatPack:
     """flat_pack.toml: the flat-pack witness's constants and the terrace
     phase gate (owner direction 2026-10-20, answers 59-66)."""
     return law.tables.flat_pack
+
+
+def runway_ends(law: Law) -> RunwayEnds:
+    """runway_ends.toml: THE RUNWAY-END PIN RULE's tolerances and the
+    cross-check order (owner RULINGS 2026-10-25a / 26a / 26e)."""
+    return law.tables.runway_ends
 
 
 def flat_datum_group(law: Law) -> str:

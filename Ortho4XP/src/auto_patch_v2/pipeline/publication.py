@@ -89,6 +89,7 @@ import math
 
 import typing as _t
 
+from ..constraints import runway_end_report as _end_report
 from ..constraints.contiguity import road_station_caps
 from ..constraints.eat import eat_rects as _eat_rects
 from ..constraints.eat import eat_report_rects as _eat_report_rects
@@ -677,6 +678,14 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
                                      for v, (c, zb, d, end) in sorted(
                                          (getattr(planar, "threshold_seam_yield", None)
                                           or {}).items())],
+            # THE RUNWAY-END PINS (owner RULINGS 2026-10-25a / 26a / 26e;
+            # #1342 #1358 #1394; ``constraints/runway_end_report``): one
+            # record per runway end — where the pin sits (lat/lon of its
+            # ridge vertex), what pinned it, the CIFP value as read, the
+            # flags, the datum line and the DEM a DEM case read.  A REPORT
+            # key: no census family prices it.
+            "runway_end_pins": [{**r, "lat": ll[r["vertex"]][0], "lon": ll[r["vertex"]][1]}
+                                for r in _end_report.records(planar, law, airport)],
             "road_join_yield": [[ll[v][0], ll[v][1], round(float(zp), 4),
                                  round(float(zr), 4)]
                                 for v, (zr, zp) in sorted(

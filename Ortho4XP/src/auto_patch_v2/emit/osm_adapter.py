@@ -127,6 +127,8 @@ SIDECAR_KEYS: tuple[str, ...] = (
     # RULINGS 2026-10-26b: the CIFP thresholds the solve released to the
     # tile seam — [lat, lon, CIFP, built, seam distance m, end]
     "threshold_seam_yield",
+    # owner RULINGS 2026-10-25a / 26e: one record per runway end (a REPORT key)
+    "runway_end_pins",
     "road_join_yield",  # RULINGS 2026-09-27a (10): the joins the solve released — the level the core ribbon must take there (``O4_Vector_Map.road_join_yield_pins``)
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",

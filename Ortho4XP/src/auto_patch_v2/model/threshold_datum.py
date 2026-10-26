@@ -16,12 +16,17 @@ __all__ = ["threshold_datums"]
 
 
 def threshold_datums(rw) -> tuple[float, float]:
-    """``(z_thr - z_end at end a, ... at end b)`` for runway ``rw``."""
+    """``(z_thr - z_end at end a, ... at end b)`` for runway ``rw``.  The
+    grade runs between the two PINS where they sit (``RunwayEnd.pin_along``,
+    issue #1358: a CIFP pin at its own landing threshold); the datum is
+    stated at the apt.dat displaced threshold, where the surface starts."""
     a, b = rw.ends
     da, db = float(a.displaced_m or 0.0), float(b.displaced_m or 0.0)
     if a.threshold_elev_m is None or b.threshold_elev_m is None or (da <= 0.0 and db <= 0.0):
         return (0.0, 0.0)
-    span = float(rw.length_m) - da - db
+    pa, pb = (float(e.pin_along()) if hasattr(e, "pin_along") else float(e.displaced_m or 0.0)
+              for e in (a, b))
+    span = float(rw.length_m) - pa - pb
     if span <= 0.0:
         return (0.0, 0.0)
     g = (float(b.threshold_elev_m) - float(a.threshold_elev_m)) / span

@@ -160,9 +160,8 @@ def test_a_pinned_mouth_stands_under_its_portals_anchor():
     """KBUF site 1 (``Road_Tunnel.obj`` dsf:obj6856): the portal is drawn on
     the mesh at its ANCHOR, 10.4 m inside the mapped bore end — the mouth
     moves into the bore to it; an anchor on the ramp side keeps the end."""
-    from shapely.geometry import LineString
-
     from auto_patch_v2.planar import structure_mouth as SM
+    from shapely.geometry import LineString
     axis = LineString([(0.0, 0.0), (0.0, -100.0)])        # the ramp runs south
     inward = (0.0, 1.0)                                    # the bore runs north
     moved, d = SM.portal_mouth(axis, inward, (0.2, 10.4))

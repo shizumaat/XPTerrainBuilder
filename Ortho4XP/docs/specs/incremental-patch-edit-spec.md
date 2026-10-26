@@ -599,22 +599,17 @@ below come first:
 | P0 | measurement (§10) | low, master | one warm build + one edited rebuild + one profile |
 | P1 | Tier 1, **only if P0 clears the bar (owner Q4 = a)**: Triangle4XP `K` + re-attribute (C, ~150 lines); `O4_Patch_Fast_Path.py` (~300 lines: admit, snapshot, diff, call, witness); `O4_Step_Reuse` (§8, ~60 lines); session hook; the §8.1 keep setting and quit-time clear in both apps; E1-E3 twins; F9 fix | medium (spec'd), one lane | ~2 rounds |
 | P1b | z-only DSF re-encode, if P0 says DSF dominates | high | ~1-2 rounds |
-| P2 | Tier 2 (§5), only if Q1 is yes | xhigh (architecture) | ~3-4 rounds |
+| P2 | Tier 2 (§5): owner decides after P1 is measured (Q1 = c) | xhigh (architecture) | ~3-4 rounds |
 
 No new UI control is needed if Q3 answers "automatic". A control would land
 in both apps (two UIs, one layout, `tests/test_qt_layout_parity.py`).
 
 ## 12. Owner questions
 
-- **Q1.** For an edit that moves nodes or adds or removes ways: may the
-  fast path give a mesh that is lawful but not byte-identical to a full
-  rebuild? Lawful means the same constraints, the exact authored heights,
-  the same water and land regions, and terrain within the mesher's own
-  tolerance. Inside a small area around the edit the triangles differ.
-  **Or must every geometric edit keep the full rebuild,** with only
-  height-only edits taking the fast path? *Recommendation: height-only
-  first (Tier 1); decide Tier 2 after Phase 0 and Tier 1 have measured
-  what it would add.*
+- **Q1. ANSWERED 2026-10-26 ("c")**: decide later. Tier 2 (geometric
+  edits, lawful but not identical) waits until the height-only path has
+  been built and measured; until then every geometric edit takes the full
+  rebuild (§7 rule 9).
 - **Q2. ANSWERED 2026-10-26T18:33:28Z** (the owner's own design, §8.1):
   keep the files for every tile while the app runs, and clear them when it
   quits. A per-tile Expert setting keeps them permanently.

@@ -345,6 +345,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch.agp_reader",
     "auto_patch.build_support",
     "auto_patch.config",
+    "auto_patch.config_gates",
     "auto_patch.driver",
     "auto_patch.dsf_reader",
     "auto_patch.engine_v2",

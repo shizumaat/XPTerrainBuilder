@@ -6,9 +6,10 @@
 # over an OGC Web Coverage Service on services.ga.gov.au.  Uses the
 # generic wcs access strategy; GDAL's WCS driver handles this ArcGIS
 # endpoint at protocol version 1.0.0 (verified live 2026-07-15).
-# Airports outside the survey patchwork come back as all-nodata
-# windows, which the strategy records as no-coverage -- they keep the
-# base tier.
+# Airports outside the survey patchwork come back as windows of 0.0
+# fill (see provider_fill_value below): a whole-window fill is recorded
+# as no-coverage, a partial one is masked -- either way the base tier
+# keeps the uncovered ground.
 
 role=airport_inset
 
@@ -21,6 +22,15 @@ access_strategy=wcs
 wcs_service_url=https://services.ga.gov.au/gis/services/DEM_LiDAR_5m_2025/MapServer/WCSServer
 wcs_version=1.0.0
 wcs_coverage=1
+
+# THE PROVIDER FILL (#1340): beyond each survey's extent the mosaic serves
+# exactly 0.0, not nodata (YMML, YMEN: whole windows of 0; the GDAL band
+# declares -32768, which never occurs).  WCS 1.0.0 offers no request
+# parameter for a nodata answer and DescribeCoverage declares no null
+# value (checked live 2026-10-26), so the fill is declared here: a large
+# edge- or centre-connected region of exact 0.0 is masked as nodata
+# (elevation_access/provider_fill.py).
+provider_fill_value=0
 
 # Native ground resolution of the source raster, in metres.
 native_resolution_m=5

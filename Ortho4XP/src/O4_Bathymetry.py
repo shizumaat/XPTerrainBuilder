@@ -230,3 +230,94 @@ def compute_depth_ratio_bounds_from_masks(
 
 
 
+
+
+# The ZL16 pixel at the equator, in metres: the unit of ``node_bathy``.
+# ``distance_masks_too`` writes the distance to the coastline in mask
+# pixels times 2**(16 - mask_zl), i.e. in ZL16 pixels, capped at 255.
+ZL16_PIXEL_EQUATOR_M = 2 * numpy.pi * 6378137.0 / (256 * 2 ** 16)
+
+
+def shore_segments(node_coords, tri_idx, tri_types):
+    """The inland shoreline: every edge one LAND triangle and one INLAND
+    water triangle share, as ``(k, 2, 2)`` lon/lat endpoint pairs.
+
+    ``tri_types`` must already be remapped to the DSF classes 0 = land,
+    1 = inland, 2 = sea (:func:`O4_DSF_Utils.remap_water_tri_type`).
+    """
+    tris = numpy.asarray(tri_idx, dtype=numpy.int64).reshape(-1, 3)
+    types = numpy.asarray(tri_types)
+    # Only triangles with a vertex on inland water can hold a shore edge.
+    wet = numpy.zeros(int(tris.max()) + 1 if tris.size else 0, dtype=bool)
+    wet[tris[types == 1].ravel()] = True
+    near = wet[tris].any(axis=1)
+    (tris, types) = (tris[near], types[near])
+
+    def edge_keys(cls):
+        t = tris[types == cls]
+        pairs = numpy.concatenate((t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]))
+        pairs.sort(axis=1)
+        return pairs[:, 0] * (1 << 32) + pairs[:, 1]
+
+    keys = numpy.intersect1d(edge_keys(0), edge_keys(1))
+    a, b = keys >> 32, keys & ((1 << 32) - 1)
+    xy = numpy.asarray(node_coords, dtype=float).reshape(-1, 5)[:, :2]
+    return numpy.stack((xy[a], xy[b]), axis=1)
+
+
+def inland_depth_from_shore(node_bathy, node_coords, tri_idx, tri_types,
+                            tile_lat):
+    """Give every inland water vertex its distance to the shoreline as its
+    ``node_bathy`` (#1336), so that :func:`set_depth_ratio` ramps the
+    drawn depth of a lake or pond up from its shore instead of stepping it.
+
+    X-Plane 12 draws the bed of ``terrain_Water`` at the per-vertex depth
+    ratio times the depth below the mesh's water surface down to the
+    DSF ``sea_level`` raster.  The ratio is 0 on the shore and, with no
+    distance mask, 1 at the first vertex off it — which
+    :func:`recut_water_tris` places half an edge from the shore — so a
+    60 m pond whose raster bed sits 7 m below its surface was drawn as a
+    7 m pit with walls one triangle wide.  The sea gets its ramp from the
+    ``distance_masks_too`` masks ("avoid steep walls close to piers or
+    rocks"); inland water never reads them.  This is the same ramp for
+    inland water, measured from the mesh's own shoreline in the same unit
+    (ZL16 pixels, capped at 255), so ``set_depth_ratio`` is unchanged and
+    full depth is reached ``25.5 / ratio_bathy`` ZL16 pixels from the
+    shore, as at sea.  Only vertices of inland water alone are touched:
+    shore vertices stay at ratio 0 and anything touching the sea keeps
+    the sea's rule.  The classes are read from the triangles, never from
+    ``recut_water_tris``' ``node_types``, which files a barycentre it adds
+    under its triangle's class instead of that class's bit.  Returns the
+    number of vertices given a distance.
+    """
+    import shapely
+
+    tris = numpy.asarray(tri_idx, dtype=numpy.int64).reshape(-1, 3)
+    types = numpy.asarray(tri_types)
+    touches = numpy.zeros((3, len(node_bathy)), dtype=bool)
+    for cls in (0, 1, 2):
+        touches[cls, tris[types == cls].ravel()] = True
+    inland_only = numpy.flatnonzero(touches[1] & ~touches[0] & ~touches[2])
+    if not inland_only.size:
+        return 0
+    segments = shore_segments(node_coords, tri_idx, tri_types)
+    if not len(segments):
+        return 0
+    pixel_m = ZL16_PIXEL_EQUATOR_M * numpy.cos(numpy.radians(tile_lat))
+    # Local metres, east scaled by the cosine at the tile's latitude: a
+    # 1 degree tile moves the scale by under 2 %, far below the ramp's
+    # 1.8 m step.
+    scale = numpy.array((111319.49 * numpy.cos(numpy.radians(tile_lat)),
+                         111319.49))
+    lines = shapely.linestrings(segments * scale)
+    xy = numpy.asarray(node_coords, dtype=float).reshape(-1, 5)[
+        inland_only, :2] * scale
+    points = shapely.points(xy)
+    cap_m = 255 * pixel_m
+    tree = shapely.STRtree(lines)
+    (pairs, distances) = tree.query_nearest(
+        points, max_distance=cap_m, return_distance=True, all_matches=False)
+    pixels = numpy.full(inland_only.size, 255.0)
+    pixels[pairs[0]] = numpy.minimum(distances / pixel_m, 255.0)
+    node_bathy[inland_only] = numpy.round(pixels).astype(numpy.uint8)
+    return int(inland_only.size)

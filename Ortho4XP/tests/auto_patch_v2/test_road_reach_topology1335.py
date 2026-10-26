@@ -18,11 +18,10 @@ from pathlib import Path
 
 import pytest
 import shapely
-
 from auto_patch_v2.classify.ribbon_mint import _Occupied, _ribbon_over
 
 _CASES = json.loads((Path(__file__).parent / "fixtures"
-                     / "road_reach_ring_edge_1335.json").read_text())["cases"]
+                     / "road_reach_ring_edge_1335.json").read_text(encoding="utf-8"))["cases"]
 
 
 @pytest.mark.parametrize("issue", sorted(_CASES))

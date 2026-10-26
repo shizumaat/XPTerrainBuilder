@@ -629,3 +629,20 @@ def test_a_click_on_the_node_coordinates_copies_them(editor, qapp):
     ed.panel.lat_value.clicked.emit()
     assert QApplication.clipboard().text() == "30.100000000, 31.401000000"
     assert ed.panel.node_count_note.text() == "Copied"
+
+
+def test_rebuild_tile_stays_usable_while_a_build_runs(editor):
+    """#1322: "Rebuild tile" is never disabled by a running build — the
+    window queues the tile into it (``MainWindow.rebuild_patch_tile``)."""
+    ed, _view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    asked = []
+    ed.controller.is_building = lambda: True
+    ed.controller.rebuild = lambda tile: asked.append(tile) or None
+    ed.model.tiles_needing_rebuild.add(TILE)
+    ed.panel._refresh_save_bar(0)
+    assert not ed.panel.rebuild_button.isHidden()
+    assert ed.panel.rebuild_button.isEnabled()
+    ed.panel.rebuild_button.click()
+    assert asked == [TILE]

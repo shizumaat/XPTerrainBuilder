@@ -225,9 +225,14 @@ extension PatchEditModel {
     // MARK: - Rebuild
 
     /// "Rebuild tile": the Build box's own path — select the tile, build
-    /// it with the source and zoom it was built with.
+    /// it with the source and zoom it was built with. During a build the
+    /// tile joins it (#1322), unless it is already part of it.
     func rebuildTile() {
         guard let build, let doc = document, let coord = Self.coord(doc.tile) else { return }
+        if build.rebuildDecision(for: coord) == .alreadyInRun {
+            editError = "This tile is already in this run."
+            return
+        }
         build.click(lat: coord.lat, lon: coord.lon, command: false, shift: false)
         guard build.canBuild else {
             editError = build.xplaneBlockReason

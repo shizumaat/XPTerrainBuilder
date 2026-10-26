@@ -30,6 +30,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 import O4_Qt_GUI as GUI  # noqa: E402
 import O4_Qt_Map as QTMAP  # noqa: E402
+import O4_Tile_Info as TINFO  # noqa: E402
 from o4_engine import events as EV  # noqa: E402
 
 
@@ -242,12 +243,36 @@ def test_resolve_passes_everything_through_for_a_live_row():
         incoming, ("queued", "queued", 0)) == incoming
 
 
-def test_enqueue_resume_is_ordered_and_deduped():
-    queue = GUI.enqueue_resume(TILE, [])
-    queue = GUI.enqueue_resume(OTHER, queue)
-    assert queue == [TILE, OTHER]
-    assert GUI.enqueue_resume(TILE, queue) == [TILE, OTHER]
-    assert GUI.enqueue_resume(TILE, []) == [TILE], "the input is not mutated"
+def test_a_stopped_attempt_is_told_apart_by_number_not_by_the_row():
+    """#1326: while the stop is unconfirmed every event is the stopped
+    attempt's; after it, the number decides."""
+    assert GUI.is_stopped_attempt(0, None, True)
+    assert GUI.is_stopped_attempt(5, 2, True)
+    assert GUI.is_stopped_attempt(2, 2, False)
+    assert GUI.is_stopped_attempt(1, 2, False)
+    assert not GUI.is_stopped_attempt(3, 2, False), "the re-queued attempt"
+    assert not GUI.is_stopped_attempt(0, 2, False), "an unnumbered event"
+    assert not GUI.is_stopped_attempt(4, None, False)
+
+
+def test_a_stopped_attempts_event_lands_only_as_a_terminal():
+    queued = ("queued", "queued", 0)
+    assert GUI.resolve_tile_event(("active", "mesh", 61.0), queued,
+                                  True) is None
+    assert GUI.resolve_tile_event(("active", "mesh", 61.0), queued,
+                                  False) == ("active", "mesh", 61.0)
+    assert GUI.resolve_tile_event(("done", "", 100.0), queued, True) == (
+        "done", "", 100.0)
+
+
+def test_a_queued_row_runs_no_clock_and_a_stopped_one_stays_frozen():
+    engine_row = (7200.0, 300.0, False)
+    assert GUI.displayed_clock("queued", engine_row, None) == (
+        0.0, 300.0, False)
+    assert GUI.displayed_clock("stopped", engine_row, (30.0, None, True)) == (
+        30.0, None, True)
+    assert GUI.displayed_clock("stopped", engine_row, None) is None
+    assert GUI.displayed_clock("active", engine_row, None) == engine_row
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +362,8 @@ def test_the_map_badge_learns_the_stopped_state(window):
 
 def test_a_stopped_tiles_clock_freezes(window):
     window._start_run([TILE], dict(SETTINGS))
+    window._on_step_progress(EV.StepProgress(
+        lat=TILE[0], lon=TILE[1], label="imagery", percent=42.0))
     window._on_tile_clocks(EV.TileClocks(
         rows=[[TILE[0], TILE[1], 30.0, 90.0, False]]))
     window._cancel_tile_clicked(TILE)
@@ -370,40 +397,143 @@ def test_resume_while_idle_rebuilds_with_the_runs_own_settings(make_window):
     assert kwargs["provider"] == "BI" and kwargs["zoomlevel"] == 15
 
 
-def test_resume_while_busy_queues_the_tile(window):
+def _stopped_notice(tile, attempt):
+    """The engine's confirmation that ``attempt`` of ``tile`` stopped."""
+    return EV.TileState(lat=tile[0], lon=tile[1], state="queued",
+                        label="stopped", attempt=attempt)
+
+
+def test_resume_while_busy_joins_the_running_build_once_stopped(make_window):
+    """#1326: a resumed tile joins the RUNNING build — no wait for the
+    run to end — but only once the engine has confirmed the stop it is
+    resuming from, so the engine never holds two copies of the tile."""
+    window = make_window()
     window._start_run([TILE, OTHER], dict(SETTINGS))
+    window.imagery_combo.setCurrentText("OSM")
+    make_window.enqueued.clear()
     window._cancel_tile_clicked(TILE)
     _stop_button(window, TILE).click()
 
-    assert window._resume_queue == [TILE]
-    assert window._progress_states[TILE][1] == "resumes after current run"
-    assert _status_label(window, TILE).text() == "resumes after current run"
-    # A queued-for-resume row offers stop again — that is how it comes back.
+    assert make_window.enqueued == [], "held until the stop is confirmed"
+    assert window._progress_states[TILE] == ("queued", "queued", 0)
+    assert _status_label(window, TILE).text() == "queued"
+    # A held row offers stop again — that is how it comes back.
+    assert _stop_button(window, TILE).toolTip() == "Stop this tile"
+    assert not window._tile_in_active_run(TILE), (
+        "a tile held here is not in the engine's run: Queue stays usable")
+
+    # Late progress of the stopped attempt does not move the queued row.
+    window._on_step_progress(EV.StepProgress(
+        lat=TILE[0], lon=TILE[1], label="mesh", percent=61.0, attempt=1))
+    assert window._progress_states[TILE] == ("queued", "queued", 0)
+
+    window._on_tile_state(_stopped_notice(TILE, 1))
+    assert len(make_window.enqueued) == 1, "sent once, into the live run"
+    tiles, kwargs = make_window.enqueued[0]
+    assert tiles == [TILE]
+    assert kwargs["provider"] == "BI" and kwargs["zoomlevel"] == 15
+    assert window._building is True
+    assert window._progress_states[TILE][0] == "queued"
+
+    # The stopped attempt's stragglers stay dropped; the new one shows.
+    window._on_step_progress(EV.StepProgress(
+        lat=TILE[0], lon=TILE[1], label="mesh", percent=70.0, attempt=1))
+    assert window._progress_states[TILE][0] == "queued"
+    window._on_step_progress(EV.StepProgress(
+        lat=TILE[0], lon=TILE[1], step_key="vector", label="vector",
+        percent=3.0, attempt=2))
+    assert window._progress_states[TILE][0] == "active"
     assert _stop_button(window, TILE).toolTip() == "Stop this tile"
 
 
-def test_the_resume_queue_keeps_press_order_without_duplicates(window):
+def test_resume_after_a_confirmed_stop_is_sent_at_once(make_window):
+    window = make_window()
     window._start_run([TILE, OTHER], dict(SETTINGS))
-    for tile in (TILE, OTHER):
-        window._cancel_tile_clicked(tile)
-        window._resume_tile_clicked(tile)
-    # Resuming a tile that is already waiting adds nothing.
+    window._cancel_tile_clicked(TILE)
+    window._on_tile_state(_stopped_notice(TILE, 1))
+    make_window.enqueued.clear()
+
     window._resume_tile_clicked(TILE)
-    assert window._resume_queue == [TILE, OTHER]
+
+    assert [tiles for (tiles, _kwargs) in make_window.enqueued] == [[TILE]]
+    assert window._held_for_stop == {}
 
 
-def test_stopping_a_queued_resume_returns_it_to_stopped(window):
-    window._start_run([TILE], dict(SETTINGS))
+def test_resuming_twice_while_held_sends_one_copy(make_window):
+    window = make_window()
+    window._start_run([TILE, OTHER], dict(SETTINGS))
+    make_window.enqueued.clear()
     window._cancel_tile_clicked(TILE)
     window._resume_tile_clicked(TILE)
-    assert window._resume_queue == [TILE]
+    # A second press on the queued (held) row is a Stop; Queue from the
+    # Build box is the other way in, and it holds the same one copy.
+    window._queue_into_running_build_now(
+        [TILE], "BI", 15, True, True, False)
+    assert list(window._held_for_stop) == [TILE]
+    window._on_tile_state(_stopped_notice(TILE, 1))
+    assert len(make_window.enqueued) == 1
+
+
+def test_stopping_a_held_resume_returns_it_to_stopped(make_window):
+    window = make_window()
+    window._start_run([TILE], dict(SETTINGS))
+    make_window.enqueued.clear()
+    window._cancel_tile_clicked(TILE)
+    window._resume_tile_clicked(TILE)
+    assert list(window._held_for_stop) == [TILE]
 
     _stop_button(window, TILE).click()
-    assert window._resume_queue == []
+    assert window._held_for_stop == {}
     assert window._progress_states[TILE][0] == "stopped"
+    window._on_tile_state(_stopped_notice(TILE, 1))
+    assert make_window.enqueued == [], "nothing left to send"
 
 
-def test_run_end_starts_one_follow_up_run(make_window):
+def test_a_tile_built_before_its_stop_landed_is_not_resumed(make_window):
+    window = make_window()
+    window._start_run([TILE, OTHER], dict(SETTINGS))
+    make_window.enqueued.clear()
+    window._cancel_tile_clicked(TILE)
+    window._resume_tile_clicked(TILE)
+    window._on_tile_state(EV.TileState(
+        lat=TILE[0], lon=TILE[1], state="done", percent=100.0, attempt=1))
+    assert window._progress_states[TILE][0] == "done"
+    assert make_window.enqueued == []
+
+
+def test_requeue_from_the_build_box_resets_the_stopped_row(make_window):
+    """#1326 fault 3: stop, then Queue from the Build box — the row reads
+    queued with no clock, then shows the new attempt's progress."""
+    window = make_window()
+    window._start_run([TILE, OTHER], dict(SETTINGS))
+    window._on_tile_clocks(EV.TileClocks(
+        rows=[[TILE[0], TILE[1], 30.0, 90.0, False]]))
+    window._cancel_tile_clicked(TILE)
+    window._on_tile_state(_stopped_notice(TILE, 1))
+    make_window.enqueued.clear()
+
+    window._queue_into_running_build_now(
+        [TILE], "BI", 15, True, True, False)
+
+    assert [tiles for (tiles, _kwargs) in make_window.enqueued] == [[TILE]]
+    assert window._progress_states[TILE] == ("queued", "queued", 0)
+    assert TILE not in window._tile_clocks
+    window._on_step_progress(EV.StepProgress(
+        lat=TILE[0], lon=TILE[1], step_key="vector", label="vector",
+        percent=2.0, attempt=2))
+    assert window._progress_states[TILE][0] == "active"
+    assert _stop_button(window, TILE).toolTip() == "Stop this tile"
+
+
+def test_a_queued_row_shows_no_elapsed_from_the_engine(window):
+    """#1326: the 2 h timer under a queued row."""
+    window._start_run([TILE], dict(SETTINGS))
+    window._on_tile_clocks(EV.TileClocks(
+        rows=[[TILE[0], TILE[1], 7200.0, 300.0, False]]))
+    assert window._tile_clocks[TILE] == (0.0, 300.0, False)
+
+
+def test_run_end_starts_still_held_tiles(make_window):
     window = make_window()
     window._start_run([TILE, OTHER], dict(SETTINGS))
     window._cancel_tile_clicked(TILE)
@@ -416,11 +546,11 @@ def test_run_end_starts_one_follow_up_run(make_window):
     tiles, kwargs = make_window.enqueued[0]
     assert tiles == [TILE]
     assert kwargs["provider"] == "BI" and kwargs["zoomlevel"] == 15
-    assert window._resume_queue == []
+    assert window._held_for_stop == {}
     assert window._building is True
 
 
-def test_a_wholesale_stop_drops_the_resume_queue(make_window):
+def test_a_wholesale_stop_drops_the_held_tiles(make_window):
     window = make_window()
     window._start_run([TILE, OTHER], dict(SETTINGS))
     window._cancel_tile_clicked(TILE)
@@ -430,8 +560,33 @@ def test_a_wholesale_stop_drops_the_resume_queue(make_window):
     window.request_stop()
     window._on_run_done(EV.RunDone(done_count=0, cancelled=True))
 
-    assert window._resume_queue == []
+    assert window._held_for_stop == {}
     assert make_window.enqueued == [], "a stopped run starts nothing"
+
+
+def test_rebuild_tile_queues_into_the_running_build_once(make_window,
+                                                         monkeypatch):
+    """#1322: the patch box's "Rebuild tile" during a build queues the
+    tile into it with its recorded source and zoom; a second press on a
+    tile already in the run queues nothing and says so."""
+    window = make_window()
+    monkeypatch.setattr(window, "xplane_block_reason", lambda: None)
+    window.chk_skip_built.setChecked(False)
+    window._start_run([OTHER], dict(SETTINGS))
+    window._built[TILE] = TINFO.TileInfo(
+        lat=TILE[0], lon=TILE[1], build_dir="", dir_name="",
+        dsf_present=True, provider="GO2", zl=17)
+    make_window.enqueued.clear()
+
+    assert window.rebuild_patch_tile("+48-006") is None
+    assert len(make_window.enqueued) == 1
+    tiles, kwargs = make_window.enqueued[0]
+    assert tiles == [TILE]
+    assert kwargs["provider"] == "GO2" and kwargs["zoomlevel"] == 17
+
+    assert window.rebuild_patch_tile("+48-006") == (
+        "This tile is already in this run.")
+    assert len(make_window.enqueued) == 1
 
 
 def test_stopped_rows_and_their_buttons_survive_the_run_end(window,

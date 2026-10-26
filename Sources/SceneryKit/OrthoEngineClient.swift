@@ -248,10 +248,13 @@ public enum O4Event: Sendable, Equatable {
     /// `detail` (additive within protocol 1.10, #598): whole sentences for
     /// a second line under the tile's row — for a stopped tile, what it is
     /// left with. Empty from an older engine; shown verbatim.
+    /// `attempt` (additive within protocol 1.14, #1326): which admission of
+    /// the tile the event belongs to, so a stopped attempt's late news is
+    /// told apart from the attempt that re-queued the tile. 0 = unknown.
     case tileState(lat: Int, lon: Int, state: String, label: String, percent: Double,
-                   detail: String = "")
+                   detail: String = "", attempt: Int = 0)
     case stepProgress(lat: Int, lon: Int, stepKey: String, label: String,
-                      percent: Double, indeterminate: Bool)
+                      percent: Double, indeterminate: Bool, attempt: Int = 0)
     case autoPatchBegin(airports: [String], lat: Int, lon: Int)
     case autoPatchProgress(airport: String, done: Double, total: Double, label: String,
                            status: String, etaTotalSeconds: Double?, lat: Int, lon: Int)
@@ -366,11 +369,11 @@ public enum O4Event: Sendable, Equatable {
         case "TileState":
             return .tileState(lat: int("lat"), lon: int("lon"), state: string("state"),
                               label: string("label"), percent: double("percent"),
-                              detail: string("detail"))
+                              detail: string("detail"), attempt: int("attempt"))
         case "StepProgress":
             return .stepProgress(lat: int("lat"), lon: int("lon"), stepKey: string("step_key"),
                                  label: string("label"), percent: double("percent"),
-                                 indeterminate: bool("indeterminate"))
+                                 indeterminate: bool("indeterminate"), attempt: int("attempt"))
         case "AutoPatchBegin":
             return .autoPatchBegin(
                 airports: (object["airports"] as? [Any])?.compactMap { $0 as? String } ?? [],

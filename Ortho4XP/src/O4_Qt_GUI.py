@@ -468,9 +468,44 @@ def row_detail(state, label, detail):
     return detail if (state == "stopped" or label == "stopped") else ""
 
 
-def enqueue_resume(tile, queue):
-    """Ordered, deduped append to the pending-resume queue."""
-    return list(queue) if tile in queue else list(queue) + [tile]
+def is_stopped_attempt(attempt, stale_through, stop_pending):
+    """Is an engine event news from an attempt the user STOPPED (#1326)?
+
+    While the engine has not yet confirmed a tile's stop, everything it
+    says about the tile is the stopped attempt's.  After that, its events
+    carry ``attempt``: one at or below the stopped attempt is late news;
+    a higher one belongs to the attempt that re-queued the tile.  The
+    row's displayed state decides nothing here — a re-queued row reads
+    "queued" while the old attempt may still be talking.
+    """
+    if stop_pending:
+        return True
+    return bool(attempt) and stale_through is not None and (
+        attempt <= stale_through)
+
+
+def resolve_tile_event(incoming, current, stale):
+    """``resolve_tile_state`` for an event that may be a stopped attempt's
+    (``is_stopped_attempt``): such an event only ever lands as a terminal
+    outcome — a tile that finished or failed before its stop took effect
+    really did."""
+    if stale and not may_overwrite_stopped(incoming[0]):
+        return None
+    return resolve_tile_state(incoming, current)
+
+
+def displayed_clock(state, row, previous):
+    """The clock a row shows for an engine TileClocks ``row``
+    (``(elapsed, remaining, finished)``), or None for none (#1326).
+
+    A stopped row keeps the clock its stop froze; a queued row runs no
+    clock — its estimate alone, never the elapsed of an attempt that was
+    stopped (the 2 h timer under a queued row, #1326)."""
+    if state == "stopped":
+        return previous
+    if state == "queued":
+        return (0.0, row[1], False)
+    return row
 
 
 def _batched_by_settings(pairs):
@@ -733,11 +768,15 @@ class MainWindow(QMainWindow):
         self._progress_states = {}
         self._building = False
         self._stop_requested = False
-        # Tiles the user resumed while a run was still going, in press
-        # order: they start as ONE follow-up run when the current one
-        # ends.  Purely client-side and session-local — the engine knows
-        # nothing about this queue.
-        self._resume_queue = []
+        # Per-tile stop/re-queue bookkeeping (#1326): the tiles whose Stop
+        # the engine has not confirmed yet (its "stopped" TileState is
+        # still to come), the re-queues held until it does — tile ->
+        # (settings, boundary policy); never two copies of one tile in
+        # the engine — and, per tile, the last attempt the user stopped,
+        # whose late events are stale.
+        self._stop_pending = set()
+        self._held_for_stop = {}
+        self._stale_through = {}
         # What each tile of the current run was STARTED with — the resume
         # path's settings source, so resuming a tile rebuilds it as it was
         # queued and not with whatever the Build box says now.
@@ -3422,8 +3461,10 @@ class MainWindow(QMainWindow):
             self._panel_spacer_index, 0 if visible else 1)
 
     def _tile_in_active_run(self, tile):
-        """True while the tile is queued or building in the current run."""
-        if not self._building:
+        """True while the tile is queued or building in the current run.
+        A tile held here until its stop is confirmed is not in the
+        engine's run yet (#1326)."""
+        if not self._building or tile in self._held_for_stop:
             return False
         state, label, _percent = self._progress_states.get(
             tile, (None, None, 0))
@@ -3809,48 +3850,68 @@ class MainWindow(QMainWindow):
             self._status(
                 "The selected tiles are already building or queued.")
             return
-        self._stderr_log.note(
-            STDLOG.queued_line([QTBOUND.tile_label(t) for t in fresh]))
-        accepted = self._session.enqueue_build(
-            fresh,
-            provider=provider,
-            zoomlevel=zoomlevel,
-            custom_build_dir=self.output_dir(),
-            do_vector=do_vector,
-            do_imagery=do_imagery,
-            do_overlays=do_overlays,
-            **QTBOUND.build_kwargs({}, boundary_policy)
-        )
-        if not accepted:
-            self._status(
-                "Could not queue the tiles — the previous run is still "
-                "winding down; try again in a moment."
-            )
-            return
-        self._run_tiles.update(fresh)
-        for tile in fresh:
-            self._progress_states[tile] = ("queued", "queued", 0)
-            # A finished tile being built again starts a fresh stopwatch.
-            self._tile_started_at.pop(tile, None)
-            self._tile_results.pop(tile, None)
-        self._snapshot_run_settings(fresh, {
+        self._requeue_into_run(fresh, {
             "provider": provider,
             "zoomlevel": zoomlevel,
             "do_vector": do_vector,
             "do_imagery": do_imagery,
             "do_overlays": do_overlays,
-        })
+        }, boundary_policy)
+
+    def _requeue_into_run(self, tiles, settings, boundary_policy=None):
+        """Queue ``tiles`` into the running build: Build, Queue, Resume and
+        "Rebuild tile" all end here (#1326, #1322).
+
+        A tile whose Stop the engine has not confirmed is HELD until it
+        does (``_on_tile_state`` sends it then): the engine refuses a
+        second copy of a tile it is still stopping.  Every tile's row
+        reads queued from now, with no clock.
+        """
+        held = [t for t in tiles if t in self._stop_pending]
+        send = [t for t in tiles if t not in self._stop_pending]
+        for tile in held:
+            self._held_for_stop[tile] = (dict(settings), boundary_policy)
+        if send:
+            self._stderr_log.note(
+                STDLOG.queued_line([QTBOUND.tile_label(t) for t in send]))
+            accepted = self._session.enqueue_build(
+                send,
+                custom_build_dir=self.output_dir(),
+                **QTBOUND.build_kwargs(settings, boundary_policy)
+            )
+            if not accepted:
+                self._status(
+                    "Could not queue the tiles — the previous run is still "
+                    "winding down; try again in a moment."
+                )
+                send = []
+        queued = send + held
+        if not queued:
+            return
+        # A stopped tile resumed into the run was already counted in it.
+        joining = [t for t in queued if t not in self._run_tiles]
+        self._run_tiles.update(queued)
+        for tile in queued:
+            self._progress_states[tile] = ("queued", "queued", 0)
+            self._tile_clocks.pop(tile, None)
+            # A finished tile being built again starts a fresh stopwatch.
+            self._tile_started_at.pop(tile, None)
+            self._tile_results.pop(tile, None)
+        self._snapshot_run_settings(queued, settings)
         self.map.set_progress(self._map_progress())
-        self._add_progress_rows(fresh)
-        self._ntiles += len(fresh)
+        self._add_progress_rows(queued)
+        for tile in queued:
+            self._render_row_state(tile)
+        self._ntiles += len(joining)
         self.progress_title.setText(
             "<b>Building %d tile%s</b>"
             % (self._ntiles, "s" if self._ntiles > 1 else "")
         )
         self._status(
             "Queued %d tile%s into the running build."
-            % (len(fresh), "s" if len(fresh) > 1 else "")
+            % (len(queued), "s" if len(queued) > 1 else "")
         )
+        self._update_build_summary()
         self._active_changed(self.map.active_tile())
 
     def _setup_progress_page(self, todo):
@@ -4058,9 +4119,10 @@ class MainWindow(QMainWindow):
         state = "indeterminate" if event.indeterminate else "active"
         # Wire label -> plain step name (#831); the wire is unchanged.
         label = GLOSSARY.step_display(event.step_key, event.label)
-        resolved = resolve_tile_state(
+        resolved = resolve_tile_event(
             (state, label, event.percent),
             self._progress_states.get(tile),
+            self._is_stopped_attempt(tile, event),
         )
         if resolved is None:
             return  # stale news from a run this row has already left
@@ -4073,17 +4135,26 @@ class MainWindow(QMainWindow):
             % (FNAMES.short_latlon(*tile), label, event.percent)
         )
 
+    def _is_stopped_attempt(self, tile, event):
+        return is_stopped_attempt(
+            getattr(event, "attempt", 0), self._stale_through.get(tile),
+            tile in self._stop_pending)
+
     def _on_tile_state(self, event):
         tile = (event.lat, event.lon)
         self._feed_step_strip(event)
-        resolved = resolve_tile_state(
+        resolved = resolve_tile_event(
             (event.state, event.label, event.percent),
             self._progress_states.get(tile),
+            self._is_stopped_attempt(tile, event),
         )
         if event.label == "stopped":
             # What the engine's stop left the tile with (#598) — the one
             # thing its late notice adds to a row already stopped here.
             self._tile_details[tile] = getattr(event, "detail", "") or ""
+        if tile in self._stop_pending and (
+                event.label == "stopped" or event.state in ("done", "error")):
+            self._stop_confirmed(tile, event)
         if resolved is None:
             # The row is locally stopped and this is not a terminal
             # outcome — including the engine's own late "stopped" notice,
@@ -4103,6 +4174,25 @@ class MainWindow(QMainWindow):
         if state == "done":
             self.refresh_tiles()
 
+    def _stop_confirmed(self, tile, event):
+        """The engine has finished with the attempt the user stopped
+        (#1326): its later events are stale by number, and a re-queue held
+        for it goes to the engine now — unless the tile finished before
+        its stop took effect, which leaves nothing to resume."""
+        self._stop_pending.discard(tile)
+        attempt = getattr(event, "attempt", 0)
+        if attempt:
+            self._stale_through[tile] = max(
+                attempt, self._stale_through.get(tile, 0))
+        held = self._held_for_stop.pop(tile, None)
+        if held is None or event.state == "done":
+            return
+        (settings, boundary_policy) = held
+        if self._building:
+            self._requeue_into_run([tile], settings, boundary_policy)
+        else:
+            self._start_run([tile], settings)
+
     def _on_run_eta(self, event):
         self._last_run_eta = event
         (self._eta_samples, self._eta_unreliable) = eta_credibility(
@@ -4115,17 +4205,17 @@ class MainWindow(QMainWindow):
             (int(row[0]), int(row[1])): (row[2], row[3], bool(row[4]))
             for row in event.rows
         }
-        # A stopped row's clock stays frozen where the stop left it: the
-        # engine goes on counting until its cancel lands, and that number
-        # describes a tile the user has already stopped.
+        # A stopped row's clock stays frozen where the stop left it (the
+        # engine goes on counting until its cancel lands), and a queued
+        # row runs none (#1326).
         for tile in list(rows):
-            if self._progress_states.get(tile, (None,))[0] != "stopped":
-                continue
-            previous = self._tile_clocks.get(tile)
-            if previous is None:
+            shown = displayed_clock(
+                self._progress_states.get(tile, (None,))[0], rows[tile],
+                self._tile_clocks.get(tile))
+            if shown is None:
                 rows.pop(tile)
             else:
-                rows[tile] = previous
+                rows[tile] = shown
         self._tile_clocks = rows
 
     def _update_tile_row(self, tile, pct, label):
@@ -4231,14 +4321,25 @@ class MainWindow(QMainWindow):
         for the engine to agree is what made the button feel broken.  The
         cancel still goes over exactly as before; the ROW goes "stopped"
         now, percent frozen, and the engine's eventual events for the
-        tile are stale (``resolve_tile_state`` drops them).
+        tile are stale (``resolve_tile_event`` drops them).
+
+        Until the engine confirms the stop, the tile is ``_stop_pending``
+        (#1326): a re-queue meanwhile is held, never sent as a second
+        copy.  Pending is marked BEFORE the call — an in-process session
+        can confirm a queued tile's stop inside it.
         """
-        self._session.cancel_tile(tile[0], tile[1])
-        # Stop is the inverse of resume, at any scale: stopping a row that
-        # was waiting for the follow-up run takes it out of the queue.
-        self._resume_queue = [t for t in self._resume_queue if t != tile]
-        _state, _label, pct = self._progress_states.get(
+        state, _label, pct = self._progress_states.get(
             tile, ("queued", "queued", 0))
+        # Stop is the inverse of resume, at any scale: a row held for its
+        # earlier stop is only on this side — it goes back to stopped.
+        held = self._held_for_stop.pop(tile, None)
+        if held is None:
+            pending = self._building and state in (
+                "queued", "active", "indeterminate")
+            if pending:
+                self._stop_pending.add(tile)
+            if not self._session.cancel_tile(tile[0], tile[1]):
+                self._stop_pending.discard(tile)
         self._progress_states[tile] = ("stopped", "stopped", pct)
         self.map.set_progress(self._map_progress())
         strip = self._step_strips.get(tile)
@@ -4259,9 +4360,9 @@ class MainWindow(QMainWindow):
         """The row's green resume: rebuild this tile with the settings ITS
         run was started with, not whatever the Build box says now.
 
-        A run in progress is left alone — the tile joins a client-side
-        queue and starts as one follow-up run when the current one ends
-        (no protocol change: the engine knows nothing about the queue).
+        A run in progress takes it now (#1326): the tile is queued into
+        the running build, like any other Queue press — held only until
+        the engine confirms the stop it is resuming from.
         """
         settings = self._run_settings.get(tile) or self._toolbar_settings()
         if settings is None:
@@ -4269,18 +4370,11 @@ class MainWindow(QMainWindow):
                 "Pick an imagery source and zoom level to resume this tile.")
             return
         if self._building:
-            self._resume_queue = enqueue_resume(tile, self._resume_queue)
-            self._progress_states[tile] = (
-                "queued", "resumes after current run", 0)
-            self.map.set_progress(self._map_progress())
-            self._tile_clocks.pop(tile, None)
-            row = self._tile_rows.get(tile)
-            if row is not None:
-                row[4].setText("")
-            self._render_row_state(tile)
-            self._update_build_summary()
+            self._queue_into_running_build(
+                [tile], settings["provider"], settings["zoomlevel"],
+                settings["do_vector"], settings["do_imagery"],
+                settings["do_overlays"])
             return
-        self._resume_queue = [t for t in self._resume_queue if t != tile]
         self._start_run([tile], settings)
 
     def _toolbar_settings(self):
@@ -4302,17 +4396,14 @@ class MainWindow(QMainWindow):
         for tile in tiles:
             self._run_settings[tile] = dict(settings)
 
-    def _start_resume_queue(self):
-        """The tiles resumed mid-run, as ONE follow-up run.
-
-        Each carries its own run's settings, so they are grouped: one
-        batch per distinct settings set, the first batch starting the run
-        and the rest queued into it.
-        """
-        todo, self._resume_queue = self._resume_queue, []
+    def _start_held_tiles(self):
+        """Re-queues still held for a stop the engine never confirmed when
+        the run ended (#1326): the engine is done with them now, so they
+        start as one follow-up run, a batch per settings set."""
+        held, self._held_for_stop = self._held_for_stop, {}
+        self._stop_pending = set()
         self._start_resume_batches(_batched_by_settings(
-            (tile, self._run_settings.get(tile) or self._toolbar_settings())
-            for tile in todo))
+            (tile, settings) for tile, (settings, _policy) in held.items()))
 
     def _failed_and_unstarted(self):
         """#821: the run's failed and never-started tiles with the settings
@@ -4323,7 +4414,7 @@ class MainWindow(QMainWindow):
             for (tile, state) in self._progress_states.items()
             if state[0] in ("error", "queued")
             and tile in self._run_tiles
-            and tile not in self._resume_queue
+            and tile not in self._held_for_stop
         ]
 
     def _build_failed_again(self):
@@ -4540,13 +4631,14 @@ class MainWindow(QMainWindow):
             self._selection_changed()
 
         self._after(5000, revert)
-        # Tiles the user resumed mid-run get their own follow-up run,
-        # client-side.  A run the user STOPPED wholesale takes the queue
-        # down with it — stop is the inverse of resume, at any scale.
+        # Re-queues still held for a stop get their own follow-up run.  A
+        # run the user STOPPED wholesale takes them down with it — stop is
+        # the inverse of resume, at any scale.
         if self._stop_requested:
-            self._resume_queue = []
+            self._held_for_stop = {}
+            self._stop_pending = set()
         else:
-            self._start_resume_queue()
+            self._start_held_tiles()
         self.refresh_tiles()
         QApplication.beep()
 
@@ -4576,10 +4668,10 @@ class MainWindow(QMainWindow):
 
     def request_stop(self):
         self._stop_requested = True
-        # Stopping the whole run takes the pending resumes with it: a
+        # Stopping the whole run takes the held re-queues with it: a
         # follow-up run starting behind a wholesale stop is the opposite
         # of what the button was pressed for.
-        self._resume_queue = []
+        self._held_for_stop = {}
         self._session.cancel()
         self.stop_btn.setText("Stopping after current step…")
         self.stop_btn.setEnabled(False)
@@ -4679,7 +4771,30 @@ class MainWindow(QMainWindow):
         if self.chk_skip_built.isChecked() and tuple(tile) in self._built:
             return ("This tile can't be rebuilt now. Turn off “Skip already-built "
                     "tiles” and try again.")
-        self.start_build()
+        if not self._building:
+            self.start_build()
+            return None
+        # #1322: a build is running — the tile joins it, with the source
+        # and zoom it was built with, unless it is already part of it.
+        tile = tuple(tile)
+        if self._tile_in_active_run(tile):
+            return "This tile is already in this run."
+        settings = dict(self._toolbar_settings() or {
+            "do_vector": self.chk_vector.isChecked(),
+            "do_imagery": self.chk_imagery.isChecked(),
+            "do_overlays": self.chk_overlays.isChecked(),
+        })
+        info = self._built.get(tile)
+        if info is not None and info.provider:
+            settings["provider"] = info.provider
+        if info is not None and info.zl:
+            settings["zoomlevel"] = info.zl
+        if not settings.get("provider") or not settings.get("zoomlevel"):
+            return "Pick an imagery source and zoom level to build this tile."
+        self._queue_into_running_build(
+            [tile], settings["provider"], settings["zoomlevel"],
+            settings["do_vector"], settings["do_imagery"],
+            settings["do_overlays"])
         return None
 
     def closeEvent(self, event):

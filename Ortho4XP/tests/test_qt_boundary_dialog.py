@@ -520,9 +520,9 @@ def test_two_asks_in_flight_do_not_strand_each_other(make_window,
         TILE, (39, -10)]
 
 
-def test_the_resume_queue_starts_its_batches_in_order(make_window,
-                                                      monkeypatch):
-    """Batch 2 is queued into the run batch 1 started, never before it."""
+def test_resume_batches_start_in_order(make_window, monkeypatch):
+    """Batch 2 is queued into the run batch 1 started, never before it
+    (the held re-queues at a run's end, #1326, and #821's retry)."""
     make, state = make_window
     win = make()
     _no_dialog(monkeypatch)
@@ -530,8 +530,9 @@ def test_the_resume_queue_starts_its_batches_in_order(make_window,
     win._progress_states = {TILE: ("stopped", "stopped", 10),
                             (39, -10): ("stopped", "stopped", 10)}
     win._run_settings = {TILE: dict(SETTINGS), (39, -10): other}
-    win._resume_queue = [TILE, (39, -10)]
-    win._start_resume_queue()
+    win._held_for_stop = {TILE: (dict(SETTINGS), None),
+                          (39, -10): (other, None)}
+    win._start_held_tiles()
     # Only the FIRST batch has been asked about so far.
     assert state["asked"] == [[[38, -10]]]
     win._on_engine_event(_ready(request_id=1, airports=[]))

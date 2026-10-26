@@ -453,7 +453,7 @@ struct MapCanvasView: View {
         }
 
         // Progress badges: rings at tile centers during a run.
-        for (coord, progress) in buildActivity.tiles where visible(coord) {
+        for (coord, progress) in buildActivity.badges where visible(coord) {
             drawBadge(context: context, rect: rect(coord), progress: progress)
         }
     }

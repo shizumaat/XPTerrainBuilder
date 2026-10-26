@@ -71,6 +71,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import O4_Activity_Order as ACTORDER
 import O4_Glossary as GLOSSARY
 import O4_File_Names as FNAMES
 import O4_Imagery_Utils as IMG
@@ -105,7 +106,7 @@ import O4_Qt_Scenery_Watcher as QTSCW
 # the settings sheet and the wizard all import it.  Top-level, so
 # PyInstaller sees it without a hidden-import entry.  The underscored
 # aliases keep this file's ~20 existing call sites unchanged.
-from O4_Qt_Click_Row import ClickableRow  # noqa: E402
+from O4_Qt_Click_Row import ClickableRow, ClickableStatus  # noqa: E402
 from O4_Qt_Map_Hint import MapHint  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
@@ -175,6 +176,12 @@ CUSTOM_SETTINGS = "Custom settings"
 EDIT_TILE_SETTINGS = "Edit settings…"
 RESUME_COLOR = "#2E9E5B"
 STOPPED_COLOR = QTMAP.STOPPED_COLOR
+# Gold for a tile built with warnings (#1341; the Mac app's
+# ActivityBox.warningGold).
+WARNING_COLOR = "#D4A017"
+# A status tone (O4_Activity_Order.status_tone) as the row paints it.
+TONE_COLORS = {"live": "gray", "done": "green", "warning": WARNING_COLOR,
+               "failed": "red", "stopped": STOPPED_COLOR}
 
 def _xplane_above_custom_scenery():
     """The X-Plane folder holding the configured Custom Scenery folder
@@ -1319,6 +1326,17 @@ class MainWindow(QMainWindow):
         self._tile_rows = {}
         # TileState.detail of a stopped tile (#598), by tile.
         self._tile_details = {}
+        # #1341: the rows outlive their run.  Each row's place in the list
+        # (O4_Activity_Order stamps), the order last laid out, and a
+        # finished row's BuildDone with messages, which its status reopens.
+        self._row_stamps = {}
+        self._row_counter = 0
+        self._row_order = []
+        self._row_issues = {}
+        # The run in progress, or the one that just ended until its
+        # linger is over: what the map's badges, the run report and
+        # "Build failed tiles again" describe.
+        self._run_tiles = set()
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_build_clock)
@@ -3497,10 +3515,11 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("■ Stop")
         self.map.zoom_to_tiles(todo)
-        self._progress_states = {
-            t: ("queued", "queued", 0) for t in todo
-        }
-        self.map.set_progress(self._progress_states)
+        # Earlier rows stay (#1341); this run's tiles start queued.
+        for t in todo:
+            self._progress_states[t] = ("queued", "queued", 0)
+        self._run_tiles = set(todo)
+        self.map.set_progress(self._map_progress())
         self._setup_progress_page(todo)
         self._snapshot_run_settings(todo, settings)
         self._update_build_summary()
@@ -3646,6 +3665,7 @@ class MainWindow(QMainWindow):
                 "winding down; try again in a moment."
             )
             return
+        self._run_tiles.update(fresh)
         for tile in fresh:
             self._progress_states[tile] = ("queued", "queued", 0)
             # A finished tile being built again starts a fresh stopwatch.
@@ -3658,7 +3678,7 @@ class MainWindow(QMainWindow):
             "do_imagery": do_imagery,
             "do_overlays": do_overlays,
         })
-        self.map.set_progress(self._progress_states)
+        self.map.set_progress(self._map_progress())
         self._add_progress_rows(fresh)
         self._ntiles += len(fresh)
         self.progress_title.setText(
@@ -3672,19 +3692,12 @@ class MainWindow(QMainWindow):
         self._active_changed(self.map.active_tile())
 
     def _setup_progress_page(self, todo):
-        """Reset the Activity box to a fresh run's per-tile rows."""
-        for bar, status, row, cancel, clock in self._tile_rows.values():
-            row.deleteLater()
-        self._tile_rows = {}
-        # TileState.detail of a stopped tile (#598), by tile.
-        self._tile_details = {}
+        """Start a fresh run in the Activity box: its tiles' rows on top,
+        queued; the rows of earlier runs stay under them until the app
+        quits (#1341), and so do the settings a stopped one resumes with."""
         self._tile_clocks = {}
         self._eta_samples = []
         self._eta_unreliable = False
-        # A fresh run owns the box: rows the previous one left behind
-        # (stopped tiles waiting for a resume) go with it, and so do the
-        # settings snapshots that belonged to them.
-        self._run_settings = {}
         self._add_progress_rows(todo)
         self._done_count = 0
         self._ntiles = len(todo)
@@ -3709,12 +3722,15 @@ class MainWindow(QMainWindow):
             if tile in self._tile_rows:
                 bar, status, _row, cancel, clock = self._tile_rows[tile]
                 self._tile_details.pop(tile, None)
+                self._row_issues.pop(tile, None)
                 stale = _row.findChild(QLabel, "tile_detail")
                 if stale is not None:
                     stale.setVisible(False)
                 bar.setValue(0)
                 status.setText("queued")
                 status.setStyleSheet("color: gray;")
+                status.set_clickable(False)
+                _row.findChild(QLabel, "tile_title").setStyleSheet("")
                 clock.setText("")
                 cancel.setEnabled(True)
                 cancel.setVisible(True)
@@ -3754,8 +3770,12 @@ class MainWindow(QMainWindow):
             rl.addWidget(bar)
             line = QHBoxLayout()
             line.setSpacing(6)
-            status = ElidedRowLabel("queued")
+            # A finished row's gold or red status reopens the tile's
+            # messages (#1341); until then a click is the row's.
+            status = ClickableStatus("queued")
             status.setObjectName("tile_status")
+            status.clicked.connect(
+                lambda t=tile: self._reopen_tile_issues(t))
             status.setStyleSheet("color: gray;")
             QTTEXT.size_text(status, pixels=ROW_SMALL_PX)
             line.addWidget(status, 1)
@@ -3793,6 +3813,56 @@ class MainWindow(QMainWindow):
                 self._rows_layout.count() - 1, row
             )
             self._tile_rows[tile] = (bar, status, row, cancel, clock)
+        self._sync_row_order()
+
+    def _sync_row_order(self):
+        """Lay the Activity rows out in the list's order (#1341): live
+        rows on top, newest queued first, then finished rows in the order
+        they finished."""
+        rows = []
+        for tile in self._tile_rows:
+            (state, label, _pct) = self._progress_states.get(
+                tile, ("queued", "queued", 0))
+            rows.append((tile, ACTORDER.is_finished(state, label)))
+        (self._row_stamps, self._row_counter) = ACTORDER.restamp(
+            rows, self._row_stamps, self._row_counter)
+        order = ACTORDER.display_order(list(self._tile_rows),
+                                       self._row_stamps)
+        if order == self._row_order:
+            return
+        self._row_order = order
+        for index, tile in enumerate(order):
+            widget = self._tile_rows[tile][2]
+            if self._rows_layout.indexOf(widget) != index:
+                self._rows_layout.removeWidget(widget)
+                self._rows_layout.insertWidget(index, widget)
+
+    def _map_progress(self):
+        """The rows the map draws a badge for: this run's, and any row
+        still live or waiting for a resume (#1341: the rest stay in the
+        Activity list only)."""
+        return {
+            tile: state for tile, state in self._progress_states.items()
+            if tile in self._run_tiles or state[0] == "stopped"
+            or not ACTORDER.is_finished(state[0], state[1])
+        }
+
+    def _reopen_tile_issues(self, tile):
+        """#1341: a finished row's status was clicked — show that tile's
+        end-of-build messages again, with the report buttons."""
+        event = self._row_issues.get(tile)
+        if event is None:
+            return
+        box = QTFAIL.issues_box(
+            [event], parent=self, app_version=O4_Version.version,
+            on_remove_link=self._remove_link_and_build)
+        if box is None:
+            return
+        self._pack_art_boxes.append(box)
+        box.finished.connect(
+            lambda _result, box=box: box in self._pack_art_boxes
+            and self._pack_art_boxes.remove(box))
+        box.show()
 
     def _show_tile_on_map(self, tile):
         """An Activity row was clicked (#816): select its tile, as a
@@ -3814,7 +3884,7 @@ class MainWindow(QMainWindow):
             return  # stale news from a run this row has already left
         self._tile_started_at.setdefault(tile, time.time())
         self._progress_states[tile] = resolved
-        self.map.set_progress(self._progress_states)
+        self.map.set_progress(self._map_progress())
         self._render_row_state(tile)
         self.setWindowTitle(
             "XPTerrainBuilder — building %s · %s · %d%%"
@@ -3841,7 +3911,7 @@ class MainWindow(QMainWindow):
         if state == "done":
             self._done_count += 1
         self._progress_states[tile] = resolved
-        self.map.set_progress(self._progress_states)
+        self.map.set_progress(self._map_progress())
         self._render_row_state(tile)
         if state in ("done", "error") or label == "stopped":
             # The tile left the active run: selected finished/failed
@@ -3893,9 +3963,16 @@ class MainWindow(QMainWindow):
             button.setToolTip("Stop this tile")
 
     def _render_row_state(self, tile):
-        """Repaint one Activity row from ``_progress_states``: status text
-        and colour, the progress bar, and which of the two things the
-        row's button is offering.
+        """Repaint one Activity row from ``_progress_states``, then put
+        the rows back in the list's order (a row that just finished moves
+        under the live ones, #1341)."""
+        self._paint_row_state(tile)
+        self._sync_row_order()
+
+    def _paint_row_state(self, tile):
+        """Repaint one Activity row: status text and colour, the title
+        (dimmed once finished, #1341), the progress bar, and which of the
+        two things the row's button is offering.
 
         The button is deliberately NOT gated on a run being in progress —
         a stopped row keeps its resume button after the run ends, so the
@@ -3912,29 +3989,31 @@ class MainWindow(QMainWindow):
             text = row_detail(state, label, self._tile_details.get(tile, ""))
             detail.setText(text)
             detail.setVisible(bool(text))
-        color = "gray"
+        finished = ACTORDER.is_finished(state, label)
+        has_issues = finished and tile in self._row_issues
         if state == "done":
             bar.setValue(100)
-            status.setText("done ✓")
-            color = "green"
+            status.setText(QTFAIL.BUILT_WITH_WARNINGS if has_issues
+                           else "done ✓")
         elif state == "error":
             status.setText("failed")
-            color = "red"
         elif state == "stopped":
             # Frozen where the stop caught it — the percent is the last
             # thing the tile actually reached, not a number still moving.
             bar.setValue(int(pct))
             status.setText(label or "stopped")
-            color = STOPPED_COLOR
         elif state in ("active", "indeterminate"):
             bar.setValue(int(pct))
             status.setText("%s · %d%%" % (label, pct))
         else:
             bar.setValue(int(pct))
             status.setText(label or "queued")
-            if label == "stopped":
-                color = STOPPED_COLOR
-        status.setStyleSheet("color: %s;" % color)
+        status.setStyleSheet("color: %s;" % TONE_COLORS[
+            ACTORDER.status_tone(state, label, has_issues)])
+        status.set_clickable(has_issues, QTFAIL.REOPEN_TOOLTIP)
+        title = row_widget.findChild(QLabel, "tile_title")
+        if title is not None:
+            title.setStyleSheet("color: gray;" if finished else "")
         if state in ("done", "error"):
             # Nothing left to stop and nothing to resume: a finished tile
             # goes back through the Build button.
@@ -3978,7 +4057,7 @@ class MainWindow(QMainWindow):
         _state, _label, pct = self._progress_states.get(
             tile, ("queued", "queued", 0))
         self._progress_states[tile] = ("stopped", "stopped", pct)
-        self.map.set_progress(self._progress_states)
+        self.map.set_progress(self._map_progress())
         # The clock freezes too: the engine keeps counting until its
         # cancel lands, and a running clock under "stopped" is the same
         # lie the row itself used to tell.
@@ -4005,7 +4084,7 @@ class MainWindow(QMainWindow):
             self._resume_queue = enqueue_resume(tile, self._resume_queue)
             self._progress_states[tile] = (
                 "queued", "resumes after current run", 0)
-            self.map.set_progress(self._progress_states)
+            self.map.set_progress(self._map_progress())
             self._tile_clocks.pop(tile, None)
             row = self._tile_rows.get(tile)
             if row is not None:
@@ -4055,6 +4134,7 @@ class MainWindow(QMainWindow):
             (tile, self._run_settings.get(tile) or self._toolbar_settings())
             for (tile, state) in self._progress_states.items()
             if state[0] in ("error", "queued")
+            and tile in self._run_tiles
             and tile not in self._resume_queue
         ]
 
@@ -4177,6 +4257,9 @@ class MainWindow(QMainWindow):
         if lines:
             print("\n".join(lines))
             self._run_issue_events.append(event)
+            # #1341: kept on the row, whose status reopens them.
+            self._row_issues[tile] = event
+            self._render_row_state(tile)
         # #695: a cause the user can fix is asked NOW, not at the run's end.
         if not event.ok and self._link_fixes.offer(event):
             self._show_link_fix()
@@ -4236,10 +4319,14 @@ class MainWindow(QMainWindow):
             time.time() - self._build_t0
             if self._build_t0 is not None else None
         )
+        # This run's rows only: earlier runs' rows stay listed (#1341).
+        run_states = {tile: state
+                      for tile, state in self._progress_states.items()
+                      if tile in self._run_tiles}
         (summary, detail_lines) = _compose_run_report(
-            sorted(self._progress_states),
+            sorted(run_states),
             self._tile_results,
-            self._progress_states,
+            run_states,
             total_seconds,
             self._stop_requested,
         )
@@ -4260,34 +4347,7 @@ class MainWindow(QMainWindow):
             # Activity display must not be torn down under it.
             if self._building:
                 return
-            # Rows the user STOPPED survive the linger: their resume
-            # button is the way back to the tile without hunting for it
-            # on the map again, so the row — and the settings a resume
-            # needs — has to outlive the run it was stopped in.
-            stopped = {
-                tile: state
-                for tile, state in self._progress_states.items()
-                if state[0] == "stopped"
-            }
-            for tile in list(self._tile_rows):
-                if tile in stopped:
-                    continue
-                self._tile_rows.pop(tile)[2].deleteLater()
-                self._tile_clocks.pop(tile, None)
-            self._run_settings = {
-                tile: settings
-                for tile, settings in self._run_settings.items()
-                if tile in stopped
-            }
-            self._progress_states = stopped
-            self.map.set_progress(stopped)
-            self._set_activity_box_visible(bool(stopped))
-            if stopped:
-                # The run is over: there is no elapsed left to report,
-                # only the stopped rows waiting for a resume.
-                self.progress_title.setText("")
-                self.elapsed_label.setText("")
-                self.eta_label.setText("")
+            self._end_run_display()
             self._selection_changed()
 
         self._after(5000, revert)
@@ -4300,6 +4360,29 @@ class MainWindow(QMainWindow):
             self._start_resume_queue()
         self.refresh_tiles()
         QApplication.beep()
+
+    def _end_run_display(self):
+        """The run is over (its linger ended): its title, clock and map
+        badges go, and so does any row it left live (a tile it never
+        started).  Every finished row stays until the app quits (#1341)
+        — a stopped one with its resume button and the settings a resume
+        needs."""
+        for tile in [tile for tile, state in self._progress_states.items()
+                     if not ACTORDER.is_finished(state[0], state[1])]:
+            self._progress_states.pop(tile)
+            self._tile_clocks.pop(tile, None)
+            row = self._tile_rows.pop(tile, None)
+            if row is not None:
+                self._rows_layout.removeWidget(row[2])
+                row[2].deleteLater()
+        self._run_tiles = set()
+        self._sync_row_order()
+        self.map.set_progress(self._map_progress())
+        self._set_activity_box_visible(bool(self._tile_rows))
+        # There is no elapsed left to report, only finished rows.
+        self.progress_title.setText("")
+        self.elapsed_label.setText("")
+        self.eta_label.setText("")
 
     def request_stop(self):
         self._stop_requested = True

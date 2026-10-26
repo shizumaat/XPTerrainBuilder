@@ -124,6 +124,9 @@ SIDECAR_KEYS: tuple[str, ...] = (
     "channel_facilities",
     "ground_envelope",  # issue #623: [lowest, highest] lawful elevation of the map (``solve/ground_band``) — LAW INPUT for ``sentinel_elevation``
     "road_coverage_join",  # §37 (9) (RULINGS 2026-09-13be): the core ribbon's altitude at each coverage exit
+    # RULINGS 2026-10-26b: the CIFP thresholds the solve released to the
+    # tile seam — [lat, lon, CIFP, built, seam distance m, end]
+    "threshold_seam_yield",
     "road_join_yield",  # RULINGS 2026-09-27a (10): the joins the solve released — the level the core ribbon must take there (``O4_Vector_Map.road_join_yield_pins``)
     "road_route_frame",  # §37 (7) (RULINGS 2026-09-13av): the road pair law's route frame (``pipeline/publication``)
     "airside_no_step_edges", "pad_pavement_no_step_edges", "mesh_edges",

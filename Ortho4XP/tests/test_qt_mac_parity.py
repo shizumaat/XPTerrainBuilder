@@ -757,6 +757,55 @@ def test_no_match_says_so_and_selects_nothing(make_window, monkeypatch):
 
 
 # ===========================================================================
+# #1317: a typed coordinate (Mac: MapMainView.performSearch,
+# SearchReticleOverlay; the shared parser's twin is test_coordinate_query.py)
+# ===========================================================================
+def test_a_coordinate_centres_at_zl19_under_a_reticle(make_window,
+                                                      monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    before = window.map.selection()
+    text = "49\u00b000'45.6\"N 2\u00b033'29.4\"E"
+    window.search_edit.setText(text)
+    window._update_search_popup(text)
+    assert window.search_popup.count() == 1
+    assert window.search_popup.item(0).text() == "Go to 49.01267, 2.55817"
+    window._search_accept_first()
+    (lat, lon) = window._search_reticle().point()
+    assert (round(lat, 5), round(lon, 5)) == (49.01267, 2.55817)
+    assert window.map.zoom_level() == GUI.COORDQ.ZOOM_LEVEL
+    assert window.map.selection() == before   # a point selects nothing
+    assert window.search_edit.text() == text  # Esc clears both
+    window._search_escape()
+    assert window._search_reticle().point() is None
+    assert window.search_edit.text() == ""
+
+
+def test_the_next_search_or_an_empty_field_drops_the_reticle(
+        make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    window.search_edit.setText("45.52 -122.68")
+    window._update_search_popup("45.52 -122.68")
+    window._search_accept_first()
+    assert window._search_reticle().point() == (45.52, -122.68)
+    window._update_search_popup("KCLT")
+    window._search_accept_first()
+    assert window._search_reticle().point() is None
+    window._update_search_popup("45.52 -122.68")
+    window._search_accept_first()
+    window._update_search_popup("")
+    assert window._search_reticle().point() is None
+
+
+def test_a_tile_key_still_wins(make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    window._update_search_popup("+48-006")
+    assert window.search_popup.item(0).text() == "Go to tile +48-006"
+    window._search_accept_first()
+    assert window.map.active_tile() == (48, -6)
+    assert window._search_reticle().point() is None
+
+
+# ===========================================================================
 # #829: select from flight plan (Mac: FlightPlanPanel, FlightRouteOverlay)
 # ===========================================================================
 _PLANS = os.path.join(os.path.dirname(__file__), "fixtures", "flight_plan")

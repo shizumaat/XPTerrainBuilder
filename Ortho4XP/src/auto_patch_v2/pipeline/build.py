@@ -38,6 +38,7 @@ from .emit_stage import (  # noqa: F401
     displacement_by_role,
     post_solve,
     with_join_yield,
+    with_threshold_yield,
 )
 from .planar_report import shore_decision_lines  # noqa: F401  (read here)
 from .prefix import Deriver, PackRead, run_prefix
@@ -661,6 +662,8 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
                         "wall_s": _late["wall_s"]}
     # OWNER RULINGS 2026-09-27a (10): THE RIBBON YIELDS (``emit_stage``)
     pm = with_join_yield(icao, pm, law, airport, sol, _pin_yield, out)
+    # OWNER RULINGS 2026-10-26b: THE TILE SEAM OUTRANKS A CIFP THRESHOLD
+    pm = with_threshold_yield(icao, pm, law, airport, sol, _pin_yield, out)
     # ONE solve pass (owner RULINGS 2026-09-08k (4)): joints are geometric,
     # nothing is re-solved on a built step
     # THE SEAM PASSES ARE DELETED (§38 (1); owner RULINGS 2026-09-13ah,
@@ -687,6 +690,12 @@ def build(icao: str, inputs: Inputs, out_dir: str | Path,
         # shape) — yielded runways only; EVERY runway's cap is in the
         # sidecar's ``runway_caps``
         "runway_cap_yield": _yield_records,
+        # owner RULINGS 2026-10-26b: the CIFP thresholds the tile seam
+        # outranked, one record each (the sidecar's ``threshold_seam_yield``)
+        "threshold_seam_yield": [
+            {"vertex": v, "end": end, "cifp_m": round(c, 4), "built_m": round(zb, 4),
+             "yield_m": round(zb - c, 4), "seam_distance_m": round(d, 2)}
+            for v, (c, zb, d, end) in sorted(pm.threshold_seam_yield.items())],
         "basins": [_dc.asdict(b) for b in pm.basins],
         "constraints": {"by_generator": counts, "by_kind": cs.counts(),
                         "wall_s": {k: round(v, 4) for k, v in gwalls.items()}},

@@ -52,6 +52,7 @@ from PySide6.QtWidgets import (
 
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
 WORLD = 2 ** SCENE_ZL * 256
+MERCATOR_LAT = 85.05  # the web-mercator square's edge (MapCamera.latLimit)
 MIN_ZOOM = 2.0
 # Deep-inspection ceiling: far past any imagery source, so users can
 # always zoom in to judge what a source offers (tiles upscale/blur
@@ -629,7 +630,13 @@ class MapView(QGraphicsView):
         self.viewport().update()
 
     def center_on_tile(self, lat, lon, zoom=None):
-        cx, cy = GEO.wgs84_to_pix(lat + 0.5, lon + 0.5, SCENE_ZL)
+        self.center_on_point(lat + 0.5, lon + 0.5, zoom)
+
+    def center_on_point(self, lat, lon, zoom=None):
+        """Centre the view on ``(lat, lon)``, at slippy ``zoom`` if given
+        (latitude held inside the web-mercator square)."""
+        lat = max(-MERCATOR_LAT, min(float(lat), MERCATOR_LAT))
+        cx, cy = GEO.wgs84_to_pix(lat, lon, SCENE_ZL)
         if zoom is not None:
             self._zoom = max(MIN_ZOOM, min(float(zoom), MAX_ZOOM))
             self._apply_zoom()

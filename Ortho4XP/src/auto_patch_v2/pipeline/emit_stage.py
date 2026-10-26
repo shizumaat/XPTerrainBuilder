@@ -53,6 +53,7 @@ from .rebake_inputs import _rebake_inputs
 from .seam_report import seam_yield_block
 
 __all__ = ["MOVED_M", "borrowed_apt_dat_stamp", "displacement_by_role", "with_join_yield",
+           "with_threshold_yield",
            "post_solve", "patch_header", "Rebaked", "Emitted", "emit", "say_joint_steps",
            "render", "install"]
 
@@ -135,6 +136,25 @@ def with_join_yield(icao: str, pm, law: Law, airport, sol, pin_yield,
              f"ribbon {_rib:.3f} -> patch {_zp:.3f} (excess {_zp - _rib:+.3f} m; "
              f"the core ribbon takes the patch level beyond its budget)")
     return pm
+
+
+def with_threshold_yield(icao: str, pm, law: Law, airport, sol, pin_yield,
+                         out: _t.Callable[[str], None]):
+    """``pm`` with the CIFP thresholds the solve released to the tile seam
+    recorded (owner RULINGS 2026-10-26b; ``constraints/threshold_seam``),
+    each one said in one loud line — a threshold never moves silently."""
+    from ..constraints.threshold_seam import yield_records
+    recs = yield_records(pm, law, airport, pin_yield, sol.z or None,
+                         float(law.tables.emit.materiality.elevation_m))
+    if not recs:
+        return pm
+    _to_ll = airport.frame.transformers()[1]
+    for v, (cifp, zb, d, end) in sorted(recs.items()):
+        lat, lon = _to_ll(*pm.vertices[v].xy)
+        out(f"[{icao}] THRESHOLD YIELDS TO THE TILE SEAM (RULINGS 2026-10-26b): "
+            f"{end} v{v} at {lat:.8f},{lon:.8f} CIFP {cifp:.3f} -> built "
+            f"{zb:.3f} m ({zb - cifp:+.3f} m), {d:.1f} m from the seam")
+    return _dc.replace(pm, threshold_seam_yield=recs)
 
 
 def post_solve(icao: str, pm, law: Law, airport, sol, cs, design_rep, tt_rep, fv, lrep,

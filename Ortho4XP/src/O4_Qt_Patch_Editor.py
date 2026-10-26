@@ -15,12 +15,13 @@ from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 
 import O4_Glossary as GLOSSARY
 import O4_Qt_Map as QTMAP
+import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
 import O4_Qt_Patch_Reference as REFERENCE
 from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
 from O4_Qt_Patch_Engine import PatchEngine
 from O4_Qt_Patch_Gestures import PatchGestures
-from O4_Qt_Patch_Model import PatchEditModel
+from O4_Qt_Patch_Model import MODE_EDIT, PatchEditModel
 from O4_Qt_Patch_Overlay import PatchOverlay
 from O4_Qt_Patch_Panel import PatchPanel, node_lat_lon
 from O4_Qt_Patch_Toolbar import PatchToolbar
@@ -80,6 +81,13 @@ class PatchEditor:
         preview.setShortcut(QKeySequence("Ctrl+3"))
         preview.triggered.connect(self.open_preview)
         return {"undo": undo, "redo": redo, "save": save, "preview": preview}
+
+    def context_actions(self) -> list[tuple[str, _t.Callable[[], _t.Any]]]:
+        """The map's right-click items for the Edit-mode selection
+        (#1357: "Set elevation…" on selected shapes)."""
+        if self.model.mode != MODE_EDIT or not self.model.shape_selection or self.model.doc is None:
+            return []
+        return [(ELEVDIALOG.TITLE, self.panel.open_set_elevation)]
 
     def open_preview(self) -> None:
         """Ctrl/⌘3 or the map's "3D" button: show (or raise) the window."""

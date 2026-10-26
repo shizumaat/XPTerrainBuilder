@@ -44,6 +44,18 @@ cores (owner RULINGS 2026-10-22k): nice only yields time to the user's apps,
 it still runs on the performance cores; the slot budget and the memory gate
 are what keep the machine from freezing.
 
+NAMED CLASSES (#1236) are a second kind of pool in the same session
+directory: ``class-<name>/slot-k`` for ``k < limit``, the same OS locks,
+no memory gate.  A class is a budget the session's processes share — a
+server's: :func:`net_class` names one per host, and the imagery threads,
+the async imagery fetcher and the elevation downloads of EVERY tile of
+the session hold one slot of it per request in flight
+(:func:`try_take_class`, :func:`take_class`, :func:`hold_class`).  Ten
+tiles on one imagery server are then one limit on that server, not ten.
+A class wait is bounded (:data:`CLASS_WAIT_S`): past it the caller goes
+on without a slot, so a wedged holder costs a request over the budget,
+never a hung build.
+
 Standard library only (with :mod:`O4_Parallel_Utils`' memory probes): the
 airport pool, the tile driver and the orchestrator all import it.
 """
@@ -51,11 +63,14 @@ from __future__ import annotations
 
 import atexit
 import contextlib
+import hashlib
 import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
+from urllib.parse import urlsplit
 
 import O4_Parallel_Utils as _PU
 
@@ -64,9 +79,10 @@ if sys.platform == "win32":                # module level: a freezer sees it
 else:
     import fcntl as _oslock
 
-__all__ = ["BUDGET", "ENV_DIR", "ENV_CAPACITY", "ENV_UNGATED", "Held", "capacity",
-           "ensure_session", "lend", "lower_priority", "memory_admits",
-           "session_capacity", "step", "try_take", "take"]
+__all__ = ["BUDGET", "CLASS_WAIT_S", "ENV_DIR", "ENV_CAPACITY", "ENV_UNGATED",
+           "Held", "capacity", "ensure_session", "hold_class", "lend",
+           "lower_priority", "memory_admits", "net_class", "session_capacity",
+           "step", "take_class", "try_take", "try_take_class", "take"]
 
 #: the session's slot directory and its capacity, inherited by every child
 ENV_DIR = "O4_MACHINE_SLOTS_DIR"
@@ -316,6 +332,86 @@ def lend():
     finally:
         again = take(1)
         held._fds, again._fds = again._fds, []     # the step owns it again
+
+
+#: the longest a :func:`take_class` waits before it goes on without a slot
+CLASS_WAIT_S = 600.0
+
+#: seconds between attempts of a :func:`take_class` that is waiting
+CLASS_POLL_S = 0.05
+
+
+def net_class(url_or_host: str) -> str:
+    """The class of one server: ``net:<host>`` of a URL (or of a bare
+    host), lower-cased, the port kept — two providers on one host share
+    it."""
+    text = str(url_or_host or "")
+    if "//" in text:
+        text = urlsplit(text).netloc.rpartition("@")[2]
+    return "net:" + (text.strip().lower() or "unknown")
+
+
+def _class_dir(name: str) -> str:
+    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in name)
+    digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+    path = os.path.join(ensure_session()[0],
+                        "class-%s-%s" % (safe[:64], digest))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def try_take_class(name: str, n: int = 1, limit: int = 1) -> Held:
+    """Up to ``n`` free slots of the class ``name`` of ``limit`` slots, at
+    once and never waiting (possibly none).  Every process of the session
+    that names the class shares its ``limit`` slots."""
+    limit = max(1, int(limit))
+    if n <= 0:
+        return Held([])
+    path = _class_dir(name)
+    fds: list = []
+    start = (os.getpid() + threading.get_ident()) % limit
+    for k in range(limit):
+        if len(fds) >= n:
+            break
+        fd = _lock(os.path.join(path, "slot-%d" % ((start + k) % limit)))
+        if fd is not None:
+            fds.append(fd)
+    return Held(fds)
+
+
+def take_class(name: str, n: int = 1, limit: int = 1, *,
+               timeout_s: float = CLASS_WAIT_S, poll_s: float = CLASS_POLL_S,
+               give_up=None) -> Held:
+    """``min(n, limit)`` slots of the class ``name``, waiting until they
+    are free — at most ``timeout_s``, after which NOTHING is held and the
+    caller goes on without (the bounded wait: a holder that never lets go
+    costs one request over the budget, never a hung build).  A partial
+    take is given back before the next attempt.  ``give_up()`` true (a
+    Stop) ends the wait with nothing held."""
+    want = max(1, min(int(n), max(1, int(limit))))
+    deadline = time.monotonic() + max(0.0, float(timeout_s))
+    while True:
+        held = try_take_class(name, want, limit)
+        if held.count >= want:
+            return held
+        held.release()
+        if give_up is not None and give_up():
+            return Held([])
+        if time.monotonic() >= deadline:
+            return Held([])
+        time.sleep(poll_s)
+
+
+@contextlib.contextmanager
+def hold_class(name: str, limit: int, n: int = 1, **wait):
+    """Hold ``n`` slots of the class ``name`` (:func:`take_class`, its
+    keywords) for the block; yields the :class:`Held` (``count`` 0 when
+    the bounded wait ran out or was given up)."""
+    held = take_class(name, n, limit, **wait)
+    try:
+        yield held
+    finally:
+        held.release()
 
 
 def lower_priority() -> None:

@@ -126,6 +126,7 @@ enum SettingsLayout {
             SettingItem("sea_smoothing_mode", "Sea surface smoothing", .tile, expert: true),
             SettingItem("water_smoothing", "Inland water smoothing passes", .tile, expert: true),
             SettingItem("mesh_zl", "Max imagery zoom the mesh allows", .tile, expert: true),
+            SettingItem("keep_edit_cache", "Keep edit data for fast rebuilds after patch edits", .tile, expert: true),
         ]),
         SettingCategory(key: "elevation", title: "Elevation & Airports", icon: "mountain.2", items: [
             SettingItem("elevation_level", "How detailed should the elevation be?", .tile, summary: "Auto uses 90 m data with high-resolution data at airports."),

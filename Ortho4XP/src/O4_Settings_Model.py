@@ -188,6 +188,7 @@ _LAYOUT: list = [
         ("sea_smoothing_mode", "Sea surface smoothing", "tile", True, ""),
         ("water_smoothing", "Inland water smoothing passes", "tile", True, ""),
         ("mesh_zl", "Max imagery zoom the mesh allows", "tile", True, ""),
+        ("keep_edit_cache", "Keep edit data for fast rebuilds after patch edits", "tile", True, ""),
     ]),
     ("elevation", "Elevation & Airports", [
         ("elevation_level", "How detailed should the elevation be?", "tile", False,

@@ -290,6 +290,37 @@ def test_each_step_keys_on_its_own_code_digest(tile, monkeypatch):
                               "masks": "the engine code changed"}
 
 
+def test_a_new_engine_version_alone_reuses_every_step(tile, monkeypatch):
+    """#1248: the engine version is not part of a step's key — a release
+    that leaves the code, inputs and settings alone reuses all three."""
+    from auto_patch import provenance
+    monkeypatch.setattr(provenance, "engine_version", lambda: "1.0.428")
+    _write_outputs(tile)
+    _complete_build(tile)
+    monkeypatch.setattr(provenance, "engine_version", lambda: "1.0.429")
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+
+
+def test_a_record_that_still_holds_the_engine_version_is_reused(tile,
+                                                               monkeypatch):
+    """#1248 migration: a record written while ``engine`` was in the key
+    reads without it — no forced rebuild — and a code change still
+    stales it with the old words."""
+    import O4_Step_Code as STEPCODE
+    current = REUSE._code_identity
+    _write_outputs(tile)
+    with monkeypatch.context() as old_engine:
+        old_engine.setattr(REUSE, "_code_identity",
+                           lambda step: dict(current(step), engine="1.0.400"))
+        _complete_build(tile)
+    assert all("engine" in entry["inputs"]
+               for entry in REUSE._read(tile)["committed"].values())
+    assert _reasons(tile) == {"vector": None, "mesh": None, "masks": None}
+    live = {s: STEPCODE.step_digest(s) for s in REUSE.REUSABLE_STEPS}
+    monkeypatch.setattr(STEPCODE, "_DIGESTS", dict(live, vector="f" * 64))
+    assert REUSE.stale_reason(tile, "vector") == "the engine code changed"
+
+
 def test_a_step_without_its_digest_keys_on_the_whole_tree(tile, monkeypatch):
     import O4_Step_Code as STEPCODE
     from auto_patch import provenance_code

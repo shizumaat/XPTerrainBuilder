@@ -35,7 +35,7 @@ from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QKeySequence, QPen, QShortcut
 
 import O4_Qt_Patch_ShapePick as PICK
-from O4_Qt_Patch_Geometry import SNAP_RADIUS_PX, style_class
+from O4_Qt_Patch_Geometry import SNAP_RADIUS_PX, below_grade, style_class
 from O4_Qt_Patch_Overlay import NODE_FILL, SELECTION, STYLES, paint_styled
 
 __all__ = ["PatchGestures", "DragSkip", "CLICK_SLOP_PX"]
@@ -280,8 +280,9 @@ class PatchGestures:
                     way = doc.ways[w]
                     path = self.overlay.way_path(way.refs, self._at)
                     if path is not None:
-                        shapes.append((style_class(way.tags), way.closed, path))
-            paint_styled(painter, shapes)
+                        shapes.append((style_class(way.tags), way.closed, path,
+                                       below_grade(way.tags)))
+            paint_styled(painter, shapes, self.overlay.hatch_phase())
         self._paint_shapes(painter, doc)
         width, height = self._size()
         painter.setPen(QPen(NODE_FILL, 1))

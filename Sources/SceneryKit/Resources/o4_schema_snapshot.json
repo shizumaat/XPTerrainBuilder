@@ -1,5 +1,5 @@
 {
- "engineVersion": "1.50.1829",
+ "engineVersion": "1.50.1874",
  "groups": {
   "app": [
    "verbosity",
@@ -25,6 +25,9 @@
    "custom_overlay_src",
    "custom_overlay_src_alternate",
    "cifp_data_path"
+  ],
+  "cache": [
+   "keep_edit_cache"
   ],
   "dsf": [
    "texture_mode",
@@ -791,6 +794,12 @@
    "name": "global_iterate",
    "type": "int"
   },
+  "global_keep_edit_cache": {
+   "default": false,
+   "hint": "Keeps the data a fast rebuild after a patch edit needs (the tile's airport patches as last built, in the tile's fast_path folder; a few MB) when the app quits, so the first Rebuild after a height-only patch edit in a later session can skip rebuilding the vector data. Off: the data is kept only while the app runs and is deleted when it quits. Changes no build output.",
+   "name": "global_keep_edit_cache",
+   "type": "bool"
+  },
   "global_lane_width": {
    "default": 4.0,
    "hint": "Width (in meters) to be used for buffering that part of the road network that requires leveling.",
@@ -1100,6 +1109,12 @@
    "hint": "Allows to refine a mesh using higher resolution elevation data of local scope only (requires Gdal), typically LIDAR data. Having an iterate number is handy to go backward one step when some choice of parameters needs to be revised. REQUIRES cleaning_level=0.",
    "name": "iterate",
    "type": "int"
+  },
+  "keep_edit_cache": {
+   "default": false,
+   "hint": "Keeps the data a fast rebuild after a patch edit needs (the tile's airport patches as last built, in the tile's fast_path folder; a few MB) when the app quits, so the first Rebuild after a height-only patch edit in a later session can skip rebuilding the vector data. Off: the data is kept only while the app runs and is deleted when it quits. Changes no build output.",
+   "name": "keep_edit_cache",
+   "type": "bool"
   },
   "lane_width": {
    "default": 4.0,

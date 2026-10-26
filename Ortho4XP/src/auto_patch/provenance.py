@@ -52,7 +52,9 @@ import subprocess
 import sys
 import urllib.parse
 
-from .selection import DEFAULT_MODE as _MODE_VALUED_KEYS, normalize_mode
+from . import config_gates as _config_gates
+from .selection import DEFAULT_MODE as _MODE_VALUED_KEYS
+from .selection import normalize_mode
 
 
 # Master gate for the whole feature.  ON by default (provenance should be on
@@ -129,15 +131,8 @@ def git_provenance(cwd: str | None = None) -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 # Facet 2 — gate configuration (config.py introspection)
 # ──────────────────────────────────────────────────────────────────────────────
-# Matches ``environ.get("O4_NAME", "default")`` regardless of the os alias
-# (``_os`` / ``_os_early``) or an enclosing ``int(...)`` / ``float(...)`` cast.
-# Only two-argument calls with a STRING default are captured; a bare
-# ``environ.get("O4_X")`` (default None) is intentionally skipped.
-_ENV_GATE_RE = re.compile(
-    r"""environ\.get\(\s*["'](O4_[A-Za-z0-9_]+)["']\s*,\s*["']([^"']*)["']"""
-)
-
-
+# The gate parse itself lives in ``config_gates`` so the ``.spec`` files can
+# run it at freeze time and ship the result as data (#1321).
 def _config_source_path() -> str | None:
     """Absolute path to the ``auto_patch.config`` source file, or None."""
     try:
@@ -166,16 +161,7 @@ def _gate_defaults(source_path: str) -> dict:
     cached = _GATE_DEFAULTS_CACHE.get(key)
     if cached is not None:
         return cached
-    try:
-        with open(source_path, "r", encoding="utf-8") as handle:
-            text = handle.read()
-    except OSError:
-        return {}
-    defaults: dict = {}
-    for match in _ENV_GATE_RE.finditer(text):
-        # A gate can be referenced more than once; keep the first default seen
-        # (they agree in practice) but never overwrite with a later duplicate.
-        defaults.setdefault(match.group(1), match.group(2))
+    defaults = _config_gates.source_gate_defaults(source_path)
     _GATE_DEFAULTS_CACHE.clear()          # one source per process in practice
     _GATE_DEFAULTS_CACHE[key] = defaults
     return defaults
@@ -185,18 +171,26 @@ def introspect_config_gates(source_path: str | None = None) -> dict:
     """Enumerate every ``O4_`` env gate declared in ``config.py``.
 
     Reads the config module's SOURCE (not a hand-maintained list) so the gate
-    inventory tracks the code automatically.  Returns
+    inventory tracks the code automatically.  A frozen engine has no source:
+    with no ``source_path`` given it reads the same parse that the freeze
+    wrote as data (``config_gates.json``, #1321), so the frozen and source
+    engines enumerate the same gates.  Returns
     ``{name: {"default": str, "value": str, "is_boolean": bool}}`` where
     ``value`` is the live ``os.environ`` value falling back to the in-source
     default, and ``is_boolean`` marks gates whose default is ``"0"`` / ``"1"``.
-    Returns an empty dict when the source cannot be read.
+    Returns an empty dict when neither the source nor the table can be read.
     """
-    if source_path is None:
+    explicit = source_path is not None
+    if not explicit:
         source_path = _config_source_path()
-    if not source_path or not os.path.isfile(source_path):
+    if source_path and os.path.isfile(source_path):
+        defaults = _gate_defaults(source_path)
+    elif explicit:
         return {}
+    else:
+        defaults = _config_gates.frozen_gate_defaults() or {}
     gates: dict = {}
-    for name, default in _gate_defaults(source_path).items():
+    for name, default in defaults.items():
         gates[name] = {
             "default": default,
             "value": os.environ.get(name, default),

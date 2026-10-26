@@ -63,6 +63,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, TextIO
 
 import O4_Console_Encoding
+import O4_Edit_Cache as EDITCACHE
 import O4_Machine_Slots
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
@@ -360,12 +361,35 @@ def _stop_session_and_exit_process(session: EngineSession,
     # end paths once the cancel is acknowledged.
     while time.time() < deadline and session._building:
         time.sleep(0.1)
+    if reason in _FRONT_END_GONE:
+        # The app quit (or died): its edit caches go with it unless a
+        # tile keeps its own (owner RULINGS 2026-10-26h Q148).  A
+        # ``shutdown`` command or a terminate signal is an engine restart
+        # inside a running app, which keeps them.  A child process never
+        # owns the list, so this is a no-op there.
+        try:
+            EDITCACHE.end_session()
+        except Exception:
+            pass
     try:
         print("Engine process exiting (%s)." % reason, file=sys.stderr)
         sys.stderr.flush()
     except Exception:
         pass
     os._exit(0)
+
+
+#: the exit reasons that mean the front end itself is gone
+_FRONT_END_GONE = ("standard input closed", "parent process died")
+
+
+def _front_end_pid() -> int:
+    """The front end this engine serves: the declared parent, else ours."""
+    declared = os.environ.get("O4_PARENT_PROCESS_ID")
+    try:
+        return int(declared) if declared else os.getppid()
+    except ValueError:
+        return os.getppid()
 
 
 def _install_terminate_signal_handler(session: EngineSession) -> None:
@@ -493,6 +517,9 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         if owns_process:
             _install_terminate_signal_handler(session)
             _start_parent_death_watchdog(session)
+            # The app's edit-cache session (O4_Edit_Cache): keyed by the
+            # front end, so an engine restart inside one app keeps it.
+            EDITCACHE.begin_session(_front_end_pid())
             # Below the user's applications, inherited by every tile,
             # airport and pool process this engine starts (#1225).
             O4_Machine_Slots.lower_priority()

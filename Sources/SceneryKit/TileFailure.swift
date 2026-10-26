@@ -229,6 +229,8 @@ public enum O4TileFailureCopy {
     }
 
     public static let builtWithWarnings = "built with warnings"
+    /// #1341: the help on a finished Activity row's clickable status.
+    public static let reopenHelp = "Show this tile's messages again"
 
     /// A wire `severity` (protocol 1.13, #853) as both apps label it
     /// (identical to the engine's `O4_Tile_Failures.SEVERITY_LABELS`).

@@ -536,6 +536,27 @@ class PackObjectsReady(EngineEvent):
 
 
 @dataclass(frozen=True)
+class LibraryReady(EngineEvent):
+    """The completion half of the Library commands (#824:
+    ``library_scan``, ``cache_sizes``, ``free_cache``, ``library_delete``,
+    ``o4_engine.library``): each replies ``{"status": "started"}`` and
+    walks its folders on a worker thread.
+
+    ``request`` is the ``id`` of the command it answers, ``command`` its
+    name; ``result`` is the command's return value or ``None``, with
+    ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    command: str = ""
+    result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class Error(EngineEvent):
     """A non-tile-scoped engine error.  ``fatal`` ends the session."""
 

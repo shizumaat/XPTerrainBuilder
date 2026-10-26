@@ -64,6 +64,20 @@ __all__ = ["ColdDemFrame", "ProductionDem", "load_production_dem",
 #: level and bounds the cost of a pathological polygon).
 _LEVEL_GRID = 32
 
+#: Issue #1408: the lat/lon window :meth:`ProductionDem.water_geometry`
+#: reads candidates from is the clip box's own inverse projection, grown
+#: by this margin.  A polygon whose lat/lon box misses the window cannot
+#: reach the clip in the frame: its entered vertices lie within the
+#: sagitta of the curved image of its box, and for a box no wider than
+#: :data:`_WATER_WINDOW_SPAN_DEG` that sagitta is tens of metres, while
+#: 0.05° is kilometres below 80° of latitude.  A SAFETY MARGIN, not a
+#: tuned threshold: it only decides what is projected, never the result.
+_WATER_WINDOW_PAD_DEG = 0.05
+#: A polygon whose lat/lon box is wider than this (a lake the cached
+#: layer runs on past the tile edge) is always a candidate: the sagitta
+#: bound above is only claimed for boxes this size.
+_WATER_WINDOW_SPAN_DEG = 0.5
+
 #: The engine tree this package lives in (``src/auto_patch_v2/airport``).
 ENGINE_DIR = Path(__file__).resolve().parents[3]
 
@@ -292,6 +306,18 @@ class TileWater:
         self._level: list[float | None] = [
             0.0 if k == "sea" else None for k in kinds]
         self._tree = STRtree(polys) if polys else None
+        self._bounds: np.ndarray | None = None
+
+    def bounds_ll(self) -> np.ndarray:
+        """``(N, 4)`` ``(minx, miny, maxx, maxy)`` of each polygon in
+        tile-relative degrees — frame-free, so computed ONCE per tile and
+        shared by every airport's :meth:`ProductionDem.water_geometry`
+        (issue #1408)."""
+        if self._bounds is None:
+            import shapely
+            self._bounds = (shapely.bounds(np.asarray(self.polys, dtype=object))
+                            if self.polys else np.zeros((0, 4)))
+        return self._bounds
 
     # ── the query ───────────────────────────────────────────────────
     def index_of(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
@@ -447,6 +473,8 @@ class ProductionDem:
         """
         st = dict(self.__dict__)
         st.pop("_enter", None)
+        # the #1408 memo is derived from the frame and the witness too
+        st.pop("_entered_water", None)
         return st
 
     def __setstate__(self, st: dict) -> None:
@@ -718,23 +746,35 @@ class ProductionDem:
         lat0, lon0 = self.frame.origin
         keys = sorted(self._tiles) or [(int(math.floor(lat0)), int(math.floor(lon0)))]
         clip = None if bounds is None else box(*bounds)
+        window = None if bounds is None else self._water_window(bounds)
+        # issue #1408: each polygon ENTERS this frame once per witness,
+        # however many times the passes ask (the flat-site cut asks twice)
+        memo = self.__dict__.setdefault("_entered_water", {})
         out = []
         for key in keys:
             w = self.water(*key)
             if w is None or not w.polys:
                 continue
-            for p, kind in zip(w.polys, w.kinds):
+            seen, entered = memo.get(key, (None, None))
+            if seen is not w:
+                entered = {}
+                memo[key] = (w, entered)
+            for i in self._water_candidates(w, window):
+                p, kind = w.polys[i], w.kinds[i]
                 if sea_only and kind != "sea":
                     continue
-                # §46 (4) (a) / (9) row 16: the ENTRY projection, at the
-                # frame's ONE derivation site.  Scalar, because the
-                # quantum lives there and a vectorised copy of
-                # ``round(x / q) * q`` beside it would be the second
-                # spelling §46 exists to remove — the same reason
-                # ``airport/load._vector_to_xy`` stopped building its own
-                # transformer (RULINGS 2026-09-17d).
-                q = shapely.transform(p, lambda c: _entered(c, self._enter,
-                                                            w.lon, w.lat))
+                q = entered.get(i)
+                if q is None:
+                    # §46 (4) (a) / (9) row 16: the ENTRY projection, at
+                    # the frame's ONE derivation site.  Scalar, because
+                    # the quantum lives there and a vectorised copy of
+                    # ``round(x / q) * q`` beside it would be the second
+                    # spelling §46 exists to remove — the same reason
+                    # ``airport/load._vector_to_xy`` stopped building its
+                    # own transformer (RULINGS 2026-09-17d).
+                    q = shapely.transform(p, lambda c: _entered(c, self._enter,
+                                                                w.lon, w.lat))
+                    entered[i] = q
                 if clip is not None:
                     if not q.intersects(clip):
                         continue
@@ -745,6 +785,47 @@ class ProductionDem:
             return None
         u = unary_union(out)
         return None if u.is_empty else u
+
+    def _water_window(self, bounds) -> tuple[float, float, float, float] | None:
+        """The lat/lon box ``(minlon, minlat, maxlon, maxlat)`` the frame
+        box ``bounds`` can be reached from (issue #1408): its densified
+        outline taken back through the inverse projection, grown by
+        :data:`_WATER_WINDOW_PAD_DEG`.  ``None`` (read every polygon)
+        when there is no inverse or it is not finite."""
+        x0, y0, x1, y1 = (float(v) for v in bounds)
+        t = np.linspace(0.0, 1.0, 33)
+        xs = np.concatenate([x0 + (x1 - x0) * t, np.full(33, x1),
+                             x1 - (x1 - x0) * t, np.full(33, x0)])
+        ys = np.concatenate([np.full(33, y0), y0 + (y1 - y0) * t,
+                             np.full(33, y1), y1 - (y1 - y0) * t])
+        inv = getattr(self, "_inv", None)
+        if inv is None:                         # a bare test double
+            return None
+        lon, lat = inv.transform(xs, ys)
+        lon, lat = np.asarray(lon, float), np.asarray(lat, float)
+        if not (np.isfinite(lon).all() and np.isfinite(lat).all()):
+            return None
+        pad = _WATER_WINDOW_PAD_DEG
+        return (float(lon.min()) - pad, float(lat.min()) - pad,
+                float(lon.max()) + pad, float(lat.max()) + pad)
+
+    @staticmethod
+    def _water_candidates(w: "TileWater", window) -> list[int]:
+        """Indices of ``w``'s polygons, IN ORDER, that may reach
+        ``window`` (every one when ``window`` is ``None``).  Dropping the
+        rest changes nothing: :meth:`water_geometry` would project them
+        only to find they miss the clip (issue #1408)."""
+        n = len(w.polys)
+        if window is None:
+            return list(range(n))
+        b = w.bounds_ll()
+        minx, miny = b[:, 0] + w.lon, b[:, 1] + w.lat
+        maxx, maxy = b[:, 2] + w.lon, b[:, 3] + w.lat
+        wide = ((maxx - minx) > _WATER_WINDOW_SPAN_DEG) \
+            | ((maxy - miny) > _WATER_WINDOW_SPAN_DEG)
+        meets = (maxx >= window[0]) & (minx <= window[2]) \
+            & (maxy >= window[1]) & (miny <= window[3])
+        return np.flatnonzero(wide | meets).tolist()
 
     def is_water_many(self, xs: np.ndarray, ys: np.ndarray) -> np.ndarray:
         return self.water_many(xs, ys)[0]

@@ -28,6 +28,8 @@ from . import approach as _approach
 from . import apt_dat as _apt
 from . import borrow as _borrow
 from . import cifp as _cifp
+from . import end_pins as _end_pins
+from . import runway_refs as _refs
 from . import dem as _dem
 from . import dsf as _dsf
 from . import dsf_write as _dw
@@ -133,6 +135,12 @@ class LoadReport:
     #: #119: one line per end joined (or REFUSED as ambiguous) by its
     #: threshold coordinate after its designator matched nothing
     cifp_coordinate_joins: tuple[str, ...] = ()
+    #: THE RUNWAY-END PIN RULE (``end_pins.verify``; RULINGS 2026-10-25a):
+    #: one record per runway end, the loud lines, and the cross-check
+    #: sources whose cache held this airport
+    end_pins: list = _dc.field(default_factory=list)
+    end_pin_lines: tuple[str, ...] = ()
+    end_pin_crosscheck: tuple[str, ...] = ()
     buildings_by_source: dict[str, int] = _dc.field(default_factory=dict)
     dsf_dump_path: str | None = None
     #: the pack's tile DSF is newer than every cached text dump (refused)
@@ -253,6 +261,10 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     tol = float(law.tables.emit.identity.cifp_threshold_join_m)
     recs, missing, joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
     approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else {})
+    # #1358 (2): an end whose CIFP record lies beyond it on a SHIFTED runway
+    # is pinned on the two thresholds' CIFP line (``end_pins.shifted_ends``)
+    shifted, shift_lines = _end_pins.shifted_ends(icao, apt.runways, cifp, recs, to_xy, tol)
+    joins = [*joins, *shift_lines]
     for _log_line in joins:
         _log.info(_log_line)
     for i, rw in enumerate(apt.runways):
@@ -267,9 +279,23 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
                 approaches.get(rec.designator) if rec is not None else None,
                 *(getattr(rw, f, (0, 0))[k]
                   for f in ("markings", "approach_lights", "tdz_lights")))
+            # #1358: a joined CIFP record pins at ITS OWN landing threshold,
+            # projected onto the axis (``end_pins.cifp_station``)
+            other = rw.ends[1 - k]
+            along = (_end_pins.cifp_station(to_xy(lon, lat), to_xy(other[2], other[1]),
+                                            to_xy(rec.lon, rec.lat))
+                     if rec is not None else None)
+            if (i, k) in shifted:
+                z_line, far = shifted[(i, k)]
+                ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp, over,
+                                      z_line, far.source, cls, cat, pin_along_m=None,
+                                      pin_source=_end_pins.SHIFTED))
+                continue
             ends.append(RunwayEnd(desig, to_xy(lon, lat), (lat, lon), disp,
                                   over, rec.elevation_m if rec else None,
-                                  rec.source if rec else "", cls, cat))
+                                  rec.source if rec else "", cls, cat,
+                                  pin_along_m=along,
+                                  pin_source="cifp" if rec is not None else ""))
         # INSTRUMENT: either end has an approach (``Runway.instrument``, the
         # status the RESA and the strip's end length are read by)
         instrument = any(is_instrument(e.approach) for e in ends)
@@ -672,6 +698,16 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         boundaries, startups, tuple(osm_ways), tuple(buildings),
         tuple(dsf_objects), pack, dem, law.ruleset_key,
         gap_sheets=tuple(gap_sheets))
+    # THE RUNWAY-END PIN RULE (owner RULINGS 2026-10-25a / 26a; #1342):
+    # every CIFP end is verified on the DEM and the cached cross-check
+    # sources before it becomes a pin — ONE site (``end_pins``)
+    refs = _refs.lookup(icao, inputs.mod_cache_root,
+                        law.tables.runway_ends.crosscheck_order)
+    airport, rep.end_pins, end_lines = _end_pins.verify(airport, law, refs)
+    rep.end_pin_lines = tuple(end_lines)
+    rep.end_pin_crosscheck = tuple(src for src, _e in refs)
+    for _line in end_lines:
+        _log.warning(_line)
     return airport, rep
 
 

@@ -1,0 +1,24 @@
+# auto_patch_v2 LAW — THE RUNWAY-END PIN RULE (owner RULINGS 2026-10-25a
+# "add more intelligent verification of CIFP data, and look for an
+# alternate data source we might use to cross check questionable values";
+# 2026-10-26a openAIP acceptable, source order; 2026-10-26e an apt.dat-only
+# end gives way to the lidar; issues #1342, #1358, #1394).  Spec and census:
+# docs/findings/lrwypin-runway-end-pins.md.  A CIFP threshold that passes
+# verification stays truth (09-18d (3)).  Metres unless named in feet.
+# None names an airport (RULINGS 2026-10-05e).
+
+field_equal_ft        = 3.0    # (a) a CIFP end "equals the field elevation" within this (CIFP is whole feet; an apt.dat field from another cycle moves by a foot or two)
+placeholder_spread_ft = 1.0    # (a) the runway's CIFP ends are the SAME number within this
+crosscheck_tol_ft     = 3.0    # (c) a cached cross-check source disagrees with a CIFP end beyond this (26a: "more than a few feet")
+dem_window_m          = 60.0   # the DEM at a pin: the median of centreline samples within half this of the pin's station
+crosscheck_order      = ["nasr", "openaip", "ourairports"]   # 26a's order; a source with no provider module or no cache is skipped
+
+[dem_noise_m]                  # (a) and case E: the DEM tier's noise (fine / coarse = flat_site.detector.relief_floor_m)
+lidar  = 0.5
+fine   = 2.0
+coarse = 8.0
+
+[grade_disagree_m]             # (b) |Δcifp − Δdem| beyond this flags the runway; a source whose Δ agrees within it resolves a flagged one
+lidar  = 1.5
+fine   = 4.0
+coarse = 12.0

@@ -611,7 +611,14 @@ def parse_patch_provenance(path: str) -> dict | None:
 # gate reads ``o4_osm`` (the OSM feeds' witness, written by v2's emitter
 # beside ``o4_apt_dat_borrowed``).  Every "4" patch rebuilds exactly once —
 # through the v2 stage cache (#843).
-FRESHNESS_SCHEMA_VERSION = "5"
+# "6" (2026-10-26, owner Q158): ``o4_engine`` is no longer compared — a new
+# engine version whose patch-build code is unchanged (``o4_code``) keeps the
+# patch.  ``o4_tools`` (``provenance_tools``: the native tools, the
+# third-party library versions, Python) joined, so a new toolchain still
+# rebuilds every airport.  ``o4_engine`` is still WRITTEN (it names the
+# engine that built the patch), never compared.  Every "5" patch rebuilds
+# exactly once.
+FRESHNESS_SCHEMA_VERSION = "6"
 
 # Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately
 # NOT here: it is an INPUT to the recomputation of ``o4_dsf`` (which 1°×1°
@@ -627,14 +634,16 @@ FRESHNESS_COMPARED_KEYS = (
     "o4_solve_cfg",
     "o4_cifp",
     "o4_pack",
-    "o4_engine",
+    "o4_tools",
     "o4_code",
     "o4_ap_engine",
     "o4_dsf",
 )
 
 # Every stamp key written, in the order they appear on the root element.
-FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles",)
+#: ``o4_engine`` is written for the reader (which engine built it), never
+#: compared (owner Q158, 2026-10-26).
+FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles", "o4_engine")
 
 # ──────────────────────────────────────────────────────────────────────
 # THE TILE CFG VARS THE AIRPORT BUILD READS — and which stamp carries each
@@ -708,13 +717,14 @@ def identity_list(paths) -> str:
 #   o4_code         driver._freshness_stamps_now (the engine's source digest)
 #   o4_engine       driver._freshness_stamps_now (the engine version; the v2
 #                   emitter's own default, emit/osm_adapter.render_patch)
+#   o4_tools        driver._freshness_stamps_now (the toolchain's digest)
 #   o4_fresh_v      engine_v2._stamp_header (this module's schema version)
 #   o4_apt_dat_mtime           engine_v2._stamp_header (the input's mtime)
 #   o4_apt_dat_borrowed_mtime  pipeline/build.borrowed_apt_dat_stamp
 #
 # Every other stamp (the inputs' fingerprints, the pack, the ICAO, the
 # ruleset) and every byte below the root line IS hashed.
-PER_RUN_STAMP_KEYS = ("o4_code", "o4_engine", "o4_fresh_v",
+PER_RUN_STAMP_KEYS = ("o4_code", "o4_engine", "o4_tools", "o4_fresh_v",
                       "o4_apt_dat_mtime", "o4_apt_dat_borrowed_mtime")
 
 _PER_RUN_STAMP_RE = re.compile(
@@ -1105,9 +1115,11 @@ def engine_version() -> str:
     """The running engine's version string, or ``absent``.
 
     Imported the way the rest of the engine does it (``import O4_Version``).
-    The version carries a build number that increments on every engine build,
-    so this stamp invalidates every patch whenever a new engine is built —
-    intended (owner 2026-07-24): a rebuilt engine may emit different geometry.
+    Stamped on every patch as ``o4_engine`` to name the engine that built
+    it; NOT compared by the freshness gate since owner Q158 (2026-10-26),
+    which superseded the 2026-07-24 ruling that every engine build
+    invalidates every patch: ``o4_code`` and ``o4_tools`` carry what a
+    rebuilt engine can change.
     """
     try:
         import O4_Version

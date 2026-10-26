@@ -20,6 +20,7 @@ import O4_Airport_Utils as APT
 import O4_Airport_Elevation_Insets as INSETS
 import O4_Elevation_Level as ELEVATION_LEVEL
 import O4_Unpatched_Airports as UNPATCHED
+import O4_Coastline_Vetting as COAST_VET
 from auto_patch import driver as AUTOPATCH
 from auto_patch import selection as _SELECTION
 from auto_patch import osm_aeroway as OSMAERO
@@ -2827,6 +2828,13 @@ def cached_coastline_multilinestring(tile):
         coastline = OSM.OSM_to_MultiLineString(sea_layer, tile.lat, tile.lon)
     except Exception:                                      # pragma: no cover
         return (None, False)
+    if coastline is not None and not coastline.is_empty and not custom_source:
+        # #1354: the same vetting ``include_sea`` applies, so DEM prep and
+        # the mesh read one sea.  The base DEM is read (from disk only)
+        # just when a tiny in-tile fragment needs its witness.
+        coastline, _dropped = COAST_VET.vet_coastline(
+            coastline, tile.lat, tile.lon,
+            lambda: COAST_VET.tile_sea_witness(tile))
     if coastline is None or coastline.is_empty:
         return (None, custom_source)
     return (coastline, custom_source)
@@ -3062,6 +3070,13 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
         ):
             return 0
     coastline = OSM.OSM_to_MultiLineString(sea_layer, tile.lat, tile.lon)
+    witness = COAST_VET.dem_sampler(getattr(tile, "dem", None))
+    if not custom_source and not coastline.is_empty:
+        # #1354: a tiny in-tile fragment no DEM witness agrees with is a
+        # tagging error, not a shore (the user's custom coastline is
+        # theirs and is never second-guessed).
+        coastline, _dropped = COAST_VET.vet_coastline(
+            coastline, tile.lat, tile.lon, lambda: witness)
     if not coastline.is_empty:
         # 1) encoding the coastline
         UI.vprint(1, "    * Encoding coastline.")
@@ -3100,6 +3115,12 @@ def include_sea(vector_map, tile, patches_area=None, graded_area=None):
         seed_area = sea_seed_areas(
             sea_area, tidal_water, patch_pavement_area=patches_area
         )
+        # #1354 rules 2 and 3: no seed in ground far above sea level, and
+        # a tile still mostly sea on high ground fails instead of writing.
+        seed_area, _withheld = COAST_VET.withhold_highland_seeds(
+            seed_area, witness, tile.lat, tile.lon)
+        COAST_VET.refuse_mostly_sea_highland(
+            seed_area, getattr(tile, "dem", None), tile.lat, tile.lon)
         for polygon in seed_area.geoms:
             seed = numpy.array(polygon.representative_point().coords[0])
             if "SEA" in vector_map.seeds:

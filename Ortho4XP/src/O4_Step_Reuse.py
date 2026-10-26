@@ -342,6 +342,28 @@ def _previous_digest(doc: dict, step: str) -> str:
     return _handed_on(entry)
 
 
+#: The remedies of an unpatched airport that a plain rebuild answers
+#: (``O4_Tile_Failures.REMEDIES``): the warning tells the user to build
+#: the tile again, so the next build must try that airport again.
+_RETRY_REMEDIES = ("retry", "network", "later", "rebuild_later")
+
+
+def _airports_to_retry(tile) -> list:
+    """The airports the tile on disk was built WITHOUT for a cause a
+    rebuild answers (issue #1352: a reused vector step never tried an
+    airport whose elevation was missing again, while its warning said
+    "build the tile again")."""
+    import O4_Tile_Failures as FAIL
+    import O4_Unpatched_Airports as UNPATCHED
+    names = []
+    for rec in UNPATCHED.read(tile):
+        code = FAIL.code_for_stage(rec.get("stage"), rec.get("code"))
+        entry = FAIL.CATALOGUE.get(code)
+        if entry is not None and entry.remedy in _RETRY_REMEDIES:
+            names.append(str(rec.get("icao") or "?"))
+    return names
+
+
 def stale_reason(tile, step: str) -> str | None:
     """None when ``step`` can be reused for ``tile``; else why not, in a
     few words for the log ("the mesh settings changed")."""
@@ -354,6 +376,10 @@ def stale_reason(tile, step: str) -> str | None:
         entry = (doc.get("committed") or {}).get(step)
         if not entry:
             return "no record of a finished run of it"
+        retry = _airports_to_retry(tile) if step == "vector" else []
+        if retry:
+            return "airport(s) left without a patch last time: " + \
+                ", ".join(retry[:4])
         live = _inputs(tile, step, _previous_digest(doc, step),
                        entry.get("osm_files"))
         recorded = entry.get("inputs") or {}

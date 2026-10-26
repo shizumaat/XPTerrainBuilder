@@ -152,12 +152,15 @@ final class ImageryModel: ObservableObject {
                 }
             }
             if source.combined, !source.members.isEmpty {
-                combined[source.code] = CombinedSpec(code: source.code, members: source.members.map {
-                    let box = $0.bbox.flatMap { $0.count == 4 ? $0 : nil }
-                    return CombinedSpec.Member(code: $0.code, bbox: box.map {
-                        (minLon: $0[0], minLat: $0[1], maxLon: $0[2], maxLat: $0[3])
-                    })
-                })
+                var members: [CombinedSpec.Member] = []
+                for member in source.members {
+                    var bbox: (minLon: Double, minLat: Double, maxLon: Double, maxLat: Double)?
+                    if let b = member.bbox, b.count == 4 {
+                        bbox = (minLon: b[0], minLat: b[1], maxLon: b[2], maxLat: b[3])
+                    }
+                    members.append(CombinedSpec.Member(code: member.code, bbox: bbox))
+                }
+                combined[source.code] = CombinedSpec(code: source.code, members: members)
             }
         }
         cacheDir = dataRoot?.appendingPathComponent("Previews/livemap", isDirectory: true)

@@ -1,6 +1,7 @@
 # Incremental patch edit: apply a small patch edit to a built mesh — spec (2026-10-26)
 
-Status: PROPOSAL, spec only; no code changes. Issue #1323 (owner
+Status: PROPOSAL, owner questions answered 2026-10-26 (§12); next step is
+Phase 0 (§10) on the Mac. Spec only; no code changes. Issue #1323 (owner
 2026-10-25: "if nothing else has changed, everything is cached, and the user
 moves a few nodes in the patch, can we somehow just apply that tiny change
 to the mesh very fast without having to rebuild the whole thing?"). Related:
@@ -601,8 +602,8 @@ below come first:
 | P1b | z-only DSF re-encode, if P0 says DSF dominates | high | ~1-2 rounds |
 | P2 | Tier 2 (§5): owner decides after P1 is measured (Q1 = c) | xhigh (architecture) | ~3-4 rounds |
 
-No new UI control is needed if Q3 answers "automatic". A control would land
-in both apps (two UIs, one layout, `tests/test_qt_layout_parity.py`).
+No new button (Q3 = a). The one new control is the §8.1 Expert setting,
+which lands in both apps (two UIs, one layout, `tests/test_qt_layout_parity.py`).
 
 ## 12. Owner questions
 
@@ -613,10 +614,9 @@ in both apps (two UIs, one layout, `tests/test_qt_layout_parity.py`).
 - **Q2. ANSWERED 2026-10-26T18:33:28Z** (the owner's own design, §8.1):
   keep the files for every tile while the app runs, and clear them when it
   quits. A per-tile Expert setting keeps them permanently.
-- **Q3.** Should "Rebuild tile" pick the fast path by itself when it
-  applies, with a log line ("height-only edit: mesh updated without
-  re-meshing"), or should there be a separate "Apply edit" action?
-  *Recommendation: automatic, with no new control.*
+- **Q3. ANSWERED 2026-10-26 ("a")**: automatic. "Rebuild tile" takes the
+  fast path by itself when it applies and says so in the log ("height-only
+  edit: mesh updated without re-meshing"); there is no new button.
 - **Q4. ANSWERED 2026-10-26 ("a")**: measure on the Mac first (P0), and
   build Tier 1 only if P0 shows the saving is at least a third of the
   rebuild.

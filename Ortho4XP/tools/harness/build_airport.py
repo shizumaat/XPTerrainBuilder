@@ -2453,8 +2453,8 @@ def refresh_shore_feed(root, lat, lon, prog) -> dict:
 
 def refresh_runway_refs(root, prog) -> dict:
     """Fill the runway-end cross-check cache (owner RULINGS 2026-10-25a /
-    26a, #1342): every provider of ``law/runway_ends.toml``'s order that
-    has a module (``airport/runway_refs.PROVIDERS``) downloads into
+    26a, #1342): every provider with a module
+    (``airport/runway_refs.PROVIDERS``) downloads into
     ``Airport_mod_cache/_runway_refs/<source>/`` through its own
     ``refresh`` — the ONLY caller of it; a build only reads the cache.  The
     caller owns the law: the scope lock, the snapshot and the armed guard."""
@@ -2462,10 +2462,11 @@ def refresh_runway_refs(root, prog) -> dict:
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
     from auto_patch_v2.airport import runway_refs as REFS  # noqa: E402
-    from auto_patch_v2.law import load_default  # noqa: E402
     mod_root = str(DATA_REPO / MOD_CACHE_DIR_NAME)
     out = {}
-    for mod in REFS.providers(load_default().tables.runway_ends.crosscheck_order):
+    # every provider with a module, whatever ``crosscheck_order`` reads: the
+    # law decides whether a build USES a source, not whether it is cached
+    for mod in REFS.PROVIDERS.values():
         stamp = mod.refresh(mod_root)
         out[mod.NAME] = stamp
         prog.note(f"runway refs [{mod.NAME}]: {stamp['bytes']:,} bytes, "

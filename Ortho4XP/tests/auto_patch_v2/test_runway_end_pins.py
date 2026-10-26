@@ -156,20 +156,34 @@ def test_a_dem_of_unknown_quality_judges_nothing(law):
     assert lines == []
 
 
-def test_a_cross_check_flags_and_resolves_when_its_grade_agrees_with_the_dem(law):
-    """Rule (c): the cached source differs from CIFP by 5 ft at an end; its
-    own end-to-end difference matches the lidar's, so its values pin the
-    runway, at ITS points (the runway ends)."""
+def test_a_cross_check_that_fits_the_dem_no_better_leaves_cifp_standing(law):
+    """Rule (c) with RULINGS 2026-10-26m (PAAQ 34's class): the source sits
+    5 ft under CIFP at both ends — the same grade, so it fits the lidar no
+    better than CIFP does.  (c) is recorded; the CIFP pins stand."""
     airport, pm = _site(law, _Lidar(0.004), (697.6, 702.4), elev=702.4)
     refs = [("ourairports", {"09": RefEnd("09", 697.6 - 5 * FT, None, None, 0.0, "ourairports"),
                              "27": RefEnd("27", 702.4 - 5 * FT, None, None, 0.0, "ourairports")})]
     airport, recs, lines = EP.verify(_cifp_airport(airport), law, refs)
     rw = airport.runways[0]
+    assert [e.pin_source for e in rw.ends] == ["cifp", "cifp"]
+    assert [e.threshold_elev_m for e in rw.ends] == [697.6, 702.4]
+    assert rw.ends[0].pin_flags == "c" and "CIFP stands" in lines[0]
+
+
+def test_a_cross_check_that_fits_the_dem_better_overrides_cifp(law):
+    """Rule (c) with RULINGS 2026-10-26m: CIFP's grade is 1.0 m off the
+    lidar's (inside (b)'s 1.5 m), the source's is on it — the source's
+    values pin the runway, at ITS points (the runway ends)."""
+    airport, pm = _site(law, _Lidar(0.004), (697.6, 703.4), elev=703.4)
+    refs = [("ourairports", {"09": RefEnd("09", 697.6, None, None, 0.0, "ourairports"),
+                             "27": RefEnd("27", 702.4, None, None, 0.0, "ourairports")})]
+    airport, recs, lines = EP.verify(_cifp_airport(airport), law, refs)
+    rw = airport.runways[0]
     assert [e.pin_source for e in rw.ends] == ["ourairports", "ourairports"]
-    assert rw.ends[0].threshold_elev_m == pytest.approx(697.6 - 5 * FT)
+    assert rw.ends[1].threshold_elev_m == pytest.approx(702.4)
     assert rw.ends[0].pin_along() == 0.0 and rw.ends[0].pin_flags == "c"
     assert "cross-check ourairports" in lines[0] and "take ourairports" in lines[0]
-    assert recs[0]["crosscheck"] == {"ourairports": pytest.approx(697.6 - 5 * FT, abs=1e-3)}
+    assert recs[1]["crosscheck"] == {"ourairports": pytest.approx(702.4, abs=1e-3)}
 
 
 def test_a_cross_check_that_disagrees_with_the_dem_is_not_taken(law):

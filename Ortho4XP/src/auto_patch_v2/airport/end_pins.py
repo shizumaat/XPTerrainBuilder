@@ -23,7 +23,9 @@ ONE derivation, at load, on the Airport every reader takes:
   (d) ZERO PLACEHOLDER (owner RULINGS 2026-10-26j) — both CIFP ends read
       0 ft (92 runways in the census, 08VA: DEM 311.7 / 296.7 m).
   A flagged runway's CIFP is not truth: each source of 26a's order whose
-  end-to-end difference agrees with the DEM's supplies the ends (pinned
+  end-to-end difference agrees with the DEM's supplies the ends — and a
+  runway flagged by (c) ALONE keeps its CIFP unless the source fits the
+  DEM BETTER than the CIFP does (owner RULINGS 2026-10-26m) (pinned
   at the source's END, which is what it states); none agreeing, the ends
   follow the DEM — ``pin_source = "dem"`` and ``threshold_elev_m = None``,
   valued by ``constraints/runway_profile.datum_pins`` (the 22a DEM rule's
@@ -59,6 +61,8 @@ FT = 0.3048
 _STEP_M = 5.0
 #: ``RunwayEnd.pin_source`` of an end pinned on a shifted runway's CIFP line
 SHIFTED = "cifp_line"
+#: ``verify``'s resolution when a (c)-only runway's CIFP stands (RULINGS 2026-10-26m)
+CIFP = "cifp"
 
 
 def cifp_station(end_xy: tuple[float, float], other_xy: tuple[float, float],
@@ -175,6 +179,19 @@ def _agrees(got: dict[int, RefEnd], dem_end: list[float | None], tol: float) -> 
     return dem_end[k] is not None and abs(r.elevation_m - dem_end[k]) <= tol
 
 
+def _misfit(vals: dict[int, float], dem: list[float | None]) -> float:
+    """How far values ``vals`` (end index -> z) sit off the DEM read at the
+    same stations: the end-to-end difference against the DEM's (two ends),
+    else the one value against the DEM there; ``inf`` where the DEM is
+    unread (owner RULINGS 2026-10-26m's "fits the DEM better")."""
+    if len(vals) == 2:
+        if dem[0] is None or dem[1] is None:
+            return math.inf
+        return abs((vals[1] - vals[0]) - (dem[1] - dem[0]))
+    (k, z), = vals.items()
+    return math.inf if dem[k] is None else abs(z - dem[k])
+
+
 def _flags(rw: Runway, field_m: float, cifp: dict[int, float], dem_pin, refs,
            t, klass) -> tuple[list[str], dict[str, dict[str, float]]]:
     """The verification flags that fire on runway ``rw`` and the cross-check
@@ -242,19 +259,31 @@ def verify(airport: Airport, law: Law, refs: _t.Sequence = (),
         ends = list(rw.ends)
         decided = ""
         if flags:
-            decided = "dem"
+            # RULINGS 2026-10-26m: flagged by (c) ALONE, the CIFP is not yet
+            # refuted — a source takes it off truth only where the source
+            # fits the DEM BETTER than the CIFP does; otherwise CIFP stands
+            c_only = set(flags) == {"c"}
+            decided = CIFP if c_only else "dem"
+            cifp_miss = _misfit(cifp, dem_pin)
             for src, got in _ref_pair(rw, refs):
-                if set(cifp) <= set(got) and _agrees(got, dem_end, tol_dem):
-                    decided = src
-                    for k in cifp:
-                        ends[k] = _dc.replace(ends[k], threshold_elev_m=got[k].elevation_m,
-                                              pin_along_m=0.0, pin_source=src)
-                    break
+                if not (set(cifp) <= set(got) and _agrees(got, dem_end, tol_dem)):
+                    continue
+                if c_only and not _misfit({k: got[k].elevation_m for k in cifp},
+                                          dem_end) < cifp_miss:
+                    continue
+                decided = src
+                for k in cifp:
+                    ends[k] = _dc.replace(ends[k], threshold_elev_m=got[k].elevation_m,
+                                          pin_along_m=0.0, pin_source=src)
+                break
             if decided == "dem":
                 for k in cifp:
                     ends[k] = _dc.replace(ends[k], threshold_elev_m=None, pin_source="dem")
             for k in cifp:
                 ends[k] = _dc.replace(ends[k], cifp_elev_m=cifp[k], pin_flags=",".join(flags))
+            if decided == CIFP:              # the CIFP stood: its pins are untouched
+                ends = [e if k not in cifp else _dc.replace(e, cifp_elev_m=None)
+                        for k, e in enumerate(ends)]
             lines.append(_line(airport.icao, rw, flags, cifp, field_m, dem_pin, klass,
                                seen, decided))
         new = _dc.replace(rw, ends=(ends[0], ends[1]))
@@ -290,7 +319,8 @@ def _line(icao: str, rw: Runway, flags, cifp, field_m, dem_pin, klass, seen, dec
     dem = "/".join(m(v) for v in dem_pin)
     xs = "; ".join(f"{s} " + "/".join(m(v.get(n)) for n in names) for s, v in seen.items())
     then = ("the ends follow the DEM" if decided == "dem"
-            else f"the ends take {decided}'s values")
+            else "CIFP stands: no source fits the DEM better (RULINGS 2026-10-26m)"
+            if decided == CIFP else f"the ends take {decided}'s values")
     return (f"CIFP THRESHOLDS FLAGGED (#1342, RULINGS 2026-10-25a) {icao} {rw.id} rule "
             f"({','.join(flags)}): CIFP {names[0]}/{names[1]} {cif} m, field {field_m:.2f} m, "
             f"DEM ({klass or 'unknown'}) {dem} m"

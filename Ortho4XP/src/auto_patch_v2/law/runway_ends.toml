@@ -12,7 +12,7 @@ placeholder_spread_ft = 1.0    # (a) the runway's CIFP ends are the SAME number 
 crosscheck_tol_ft     = 3.0    # (c) a cached cross-check source disagrees with a CIFP end beyond this (26a: "more than a few feet")
 zero_placeholder_ft   = 0.5    # (d) RULINGS 2026-10-26j: every CIFP end within this of 0 ft is a placeholder ("CIFP runway-end heights of 0 ft at both ends are untrusted"); flagged with no DEM needed
 dem_window_m          = 60.0   # the DEM at a pin: the median of centreline samples within half this of the pin's station
-crosscheck_order      = ["nasr", "openaip", "ourairports"]   # 26a's order; a source with no provider module or no cache is skipped
+crosscheck_order      = ["nasr", "openaip", "ourairports"]   # 26a's order; a source with no provider module or no cache is skipped. RULINGS 2026-10-26m: a source flagged by (c) ALONE overrides CIFP only where its grade fits the DEM better than CIFP's
 
 [dem_noise_m]                  # (a) and case E: the DEM tier's noise (fine / coarse = flat_site.detector.relief_floor_m)
 lidar  = 0.5

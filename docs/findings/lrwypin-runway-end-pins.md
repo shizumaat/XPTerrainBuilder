@@ -260,30 +260,41 @@ edge, the steepest pair within 15 m is **36.9 %** (4.06 m over 11.0 m, junction 
 Along the shared runway edge the grade is 10.7 % (face 2). Probe:
 `scratchpad/lrwypin/vnlk_twist.py`, run on the capture and `--z-out`.
 
-### STOP: (c) is too eager now that the cache is filled (owner question)
+### Rule (c) refined: RULINGS 2026-10-26m (owner answer to Q159 / Q-A, "a")
 
-The 296-runway census the owner approved (26i Q152) was taken with **no cache**, so rule (c)
-could not fire. With the cache:
+**The finding that led to the question.** The 296-runway census the owner approved (26i
+Q152) was taken with no cache, so (c) could not fire. With the cache filled, (c) flagged
+642 runways (615 by (c) alone). In 416 of the 601 (c)-only runways that have both ends,
+CIFP already fitted the DEM as well as or better than OurAirports. PAAQ 34 would have gone
+1.7 m under the lidar.
 
-- **993** runways are flagged: (a) 175, (b) 212, **(c) 642**, (d) 94. 607 resolve to
-  OurAirports and 386 to the DEM.
-- **615** are flagged by (c) alone. The worst |CIFP − OurAirports| per runway has median
-  6 ft and p90 25 ft: 353 runways over 5 ft, 185 over 10 ft, 88 over 20 ft.
-- In **416 of 601** of the (c)-only runways that have both ends, the CIFP grade agrees with
-  the DEM as well as or better than OurAirports' does. The rule still takes OurAirports,
-  because 25a takes a flagged CIFP off truth.
-- **Closing sites:**
-  - **PAAQ 16/34.** CIFP matches the lidar to 0.17 / 0.06 m. (c) fires on 34 (OurAirports
-    65.53 m against CIFP 67.36 m), and the runway takes OurAirports, putting the 34 end
-    **1.7 m under the lidar**.
-  - **KDIJ 4/22.** The CIFP line matches the lidar to 0.1 to 0.6 m. (c) fires on 22, and the
-    ends fall back to the lidar trend. That is harmless here, but it is not CIFP.
+**What shipped.** A runway flagged by (c) ALONE keeps its CIFP unless a source fits the DEM
+**better**. "Fits" means `_misfit`: |Δsource − Δdem| at the runway ends, against
+|Δcifp − Δdem| at the CIFP pin stations; with one CIFP end, the value against the DEM there.
+The source must also still agree within `grade_disagree_m`. A runway flagged by (a), (b) or
+(d) has already lost its CIFP, so the 26a order applies unchanged. `crosscheck_order` is
+restored to `["nasr", "openaip", "ourairports"]`.
 
-Proposed refinement, for the owner, NOT shipped. A source can take a CIFP off truth only
-where its grade agrees with the DEM **better** than the CIFP's does. Or (c) flags only a CIFP
-the DEM does not confirm (lidar within `grade_disagree_m`). Until the owner rules, the master
-can switch the sources off with `crosscheck_order = []` in `law/runway_ends.toml`. That is
-law only, with no code change; (a), (b) and (d) are untouched.
+**Census with the cache, at the 26m rule.** 993 runways are flagged: (a) 175, (b) 212,
+(c) 642, (d) 94. A (c) flag is now often only a record, because the CIFP stands. Resolution
+of all flagged runways:
+
+| resolution | runways |
+|---|---|
+| CIFP stands | 418 + 3 (CIFP line) + 1 (one-end) = **422** |
+| OurAirports | 225 + 8 (one-end) = **233** |
+| DEM | **338** |
+
+Of the **615 (c)-only runways**, **422 stay on CIFP** and **193 resolve to OurAirports**.
+Rule (d) is unchanged: 89 go to the DEM and 5 to OurAirports.
+
+**Closing sites** (harness builds `*_20261026T152458`):
+
+| site | outcome | pin against the lidar | body |
+|---|---|---|---|
+| PAAQ 16/34 | (c) fires, **CIFP stands** | 34 end 67.36 against 67.26 m (**+0.10 m**); 16 threshold +0.17 m | `811c14d1f23f`, byte-identical to the cross-check-off build |
+| KDIJ 4/22 | (c) fires, **CIFP stands** (the shifted-runway CIFP line) | 22 end +0.50 m, 04 threshold +0.13 m, 04 end −0.14 m | `3eb426cdcaf7`, the round-1 body |
+| VNLK 06/24 | (b,c) fires; the CIFP is refuted by (b), and OurAirports fits better anyway (misfit 10.3 m against CIFP's 71.3 m) | ends **2784.04 / 2845.00 m** | `2aa2056a7aa7` |
 
 ### STOP: Q153, pavement off a slope-exempt runway (26i). Needs an owner decision before implementing
 

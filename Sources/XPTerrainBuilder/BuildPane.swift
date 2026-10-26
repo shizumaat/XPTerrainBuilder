@@ -929,7 +929,8 @@ struct ActivityBox: View {
                 ? "\(progress.label) · \(Int(progress.percent))%" : progress.label,
             clock: activity.tileClocks[coord])
         VStack(alignment: .leading, spacing: 2) {
-            TileProgressRowLines(text: text, statusColor: statusColor(progress.state)) {
+            TileProgressRowLines(text: text, statusColor: statusColor(progress.state),
+                                 strip: activity.stepStrips[coord]) {
                 ProgressView(value: progress.state == .done ? 100 : progress.percent, total: 100)
                     .controlSize(.small)
                     .tint(progressTint(progress.state))

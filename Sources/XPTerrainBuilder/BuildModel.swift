@@ -58,6 +58,9 @@ final class BuildActivityModel: ObservableObject {
     /// The title codes after each row's coordinate: the tile's largest
     /// airports, a searched one first (#815, #667) — stamped when queued.
     @Published var runTags: [BuildModel.TileCoord: String] = [:]
+    /// Each row's step strip (#825): Map data → Airports → … → Install.
+    /// Protocol builds only; a row without one shows no strip.
+    @Published var stepStrips: [BuildModel.TileCoord: O4StepStrip] = [:]
 
     func reset() {
         tiles = [:]
@@ -69,6 +72,7 @@ final class BuildActivityModel: ObservableObject {
         tileClocks = [:]
         runSettings = [:]
         runTags = [:]
+        stepStrips = [:]
     }
 
     /// The post-run linger clear. Rows the user STOPPED survive it: their
@@ -86,12 +90,14 @@ final class BuildActivityModel: ObservableObject {
         let clocks = tileClocks.filter { keep.contains($0.key) }
         let settings = runSettings.filter { keep.contains($0.key) }
         let tags = runTags.filter { keep.contains($0.key) }
+        let strips = stepStrips.filter { keep.contains($0.key) }
         reset()
         tiles = stopped
         runOrder = order
         tileClocks = clocks
         runSettings = settings
         runTags = tags
+        stepStrips = strips
     }
 }
 
@@ -710,6 +716,7 @@ final class BuildModel: ObservableObject {
     // MARK: - Event handling (protocol path)
 
     private func handle(_ event: O4Event) {
+        feedStepStrip(event)
         switch event {
         case .hello(let version, let protocolVersion, _):
             protocolHello = (version, protocolVersion)
@@ -1433,6 +1440,10 @@ final class BuildModel: ObservableObject {
                 EngineStderrLog.queuedLine(tiles: todo.map(\.key)))
         }
         clearProgressTask?.cancel()
+        // Every attempt starts its step strip afresh (#825).
+        for coord in todo {
+            activity.stepStrips[coord] = O4StepStrip()
+        }
         for coord in todo where activity.tiles[coord] == nil {
             activity.tiles[coord] = TileProgress(state: .queued, label: "queued", percent: 0)
             activity.runOrder.append(coord)
@@ -1876,6 +1887,7 @@ final class BuildModel: ObservableObject {
         resumeQueue.removeAll { $0 == coord }
         let percent = activity.tiles[coord]?.percent ?? 0
         activity.tiles[coord] = TileProgress(state: .stopped, label: "stopped", percent: percent)
+        activity.stepStrips[coord]?.stop(at: ProcessInfo.processInfo.systemUptime)
         if let clock = activity.tileClocks[coord] {
             activity.tileClocks[coord] = O4TileClock(
                 lat: clock.lat, lon: clock.lon, elapsedSeconds: clock.elapsedSeconds,
@@ -2012,6 +2024,22 @@ final class BuildModel: ObservableObject {
     /// Ordered, deduped resume queue append.
     static func enqueuingResume(_ coord: TileCoord, into queue: [TileCoord]) -> [TileCoord] {
         queue.contains(coord) ? queue : queue + [coord]
+    }
+
+    /// Fold a tile's progress event into its row's step strip (#825).
+    private func feedStepStrip(_ event: O4Event) {
+        let coord: TileCoord
+        switch event {
+        case .stepProgress(let la, let lo, _, _, _, _), .autoPatchBegin(_, let la, let lo),
+             .autoPatchProgress(_, _, _, _, _, _, let la, let lo),
+             .tileState(let la, let lo, _, _, _, _), .buildDone(let la, let lo, _, _, _, _, _, _):
+            coord = TileCoord(lat: la, lon: lo)
+        default:
+            return
+        }
+        guard var strip = activity.stepStrips[coord] else { return }
+        strip.apply(event, at: ProcessInfo.processInfo.systemUptime)
+        if strip != activity.stepStrips[coord] { activity.stepStrips[coord] = strip }
     }
 
     private func applyTileEvent(_ incoming: TileProgress, to coord: TileCoord) {

@@ -100,6 +100,8 @@ import O4_Qt_Patch_Editor as QTPATCH
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Scenery_Watcher as QTSCW
+import O4_Qt_Step_Strip as QTSTRIP
+import O4_Step_Strip as STRIP
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -764,6 +766,8 @@ class MainWindow(QMainWindow):
             EV.ScanBatch: self._on_scan_batch,
             EV.ScanDone: self._on_scan_done,
             EV.StepProgress: self._on_step_progress,
+            EV.AutoPatchBegin: self._feed_step_strip,
+            EV.AutoPatchProgress: self._feed_step_strip,
             EV.TileState: self._on_tile_state,
             EV.RunEta: self._on_run_eta,
             EV.TileClocks: self._on_tile_clocks,
@@ -1296,6 +1300,8 @@ class MainWindow(QMainWindow):
         self._tile_rows = {}
         # TileState.detail of a stopped tile (#598), by tile.
         self._tile_details = {}
+        # Each row's step strip (#825, O4_Step_Strip), by tile.
+        self._step_strips = {}
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_build_clock)
@@ -3588,6 +3594,8 @@ class MainWindow(QMainWindow):
         self._tile_rows = {}
         # TileState.detail of a stopped tile (#598), by tile.
         self._tile_details = {}
+        # Each row's step strip (#825, O4_Step_Strip), by tile.
+        self._step_strips = {}
         self._tile_clocks = {}
         self._eta_samples = []
         self._eta_unreliable = False
@@ -3616,8 +3624,12 @@ class MainWindow(QMainWindow):
         "queued") the row of a finished or stopped tile being built
         again."""
         for tile in tiles:
+            # Every attempt starts its step strip afresh (#825).
+            self._step_strips[tile] = STRIP.new_strip()
             if tile in self._tile_rows:
                 bar, status, _row, cancel, clock = self._tile_rows[tile]
+                QTSTRIP.show(_row.findChild(QLabel, "tile_steps"),
+                             self._step_strips[tile])
                 self._tile_details.pop(tile, None)
                 stale = _row.findChild(QLabel, "tile_detail")
                 if stale is not None:
@@ -3662,6 +3674,10 @@ class MainWindow(QMainWindow):
             bar.setTextVisible(False)
             bar.setFixedHeight(6)
             rl.addWidget(bar)
+            # The steps (#825): Map data → Airports → … → Install.
+            steps = QTSTRIP.make_label(ROW_SMALL_PX)
+            QTSTRIP.show(steps, self._step_strips[tile])
+            rl.addWidget(steps)
             line = QHBoxLayout()
             line.setSpacing(6)
             status = ElidedRowLabel("queued")
@@ -3711,8 +3727,20 @@ class MainWindow(QMainWindow):
         self.map.set_active(*tile)
         self.map.zoom_to_tiles([tile], margin=TILE_FRAME_MARGIN)
 
+    def _feed_step_strip(self, event):
+        """Fold one engine event into its tile's step strip (#825) and
+        repaint the strip line; tiles without a row are not this run's."""
+        tile = (event.lat, event.lon)
+        strip = self._step_strips.get(tile)
+        row = self._tile_rows.get(tile)
+        if strip is None or row is None:
+            return
+        STRIP.apply_event(strip, event, time.monotonic())
+        QTSTRIP.show(row[2].findChild(QLabel, "tile_steps"), strip)
+
     def _on_step_progress(self, event):
         tile = (event.lat, event.lon)
+        self._feed_step_strip(event)
         state = "indeterminate" if event.indeterminate else "active"
         # Wire label -> plain step name (#831); the wire is unchanged.
         label = GLOSSARY.step_display(event.step_key, event.label)
@@ -3733,6 +3761,7 @@ class MainWindow(QMainWindow):
 
     def _on_tile_state(self, event):
         tile = (event.lat, event.lon)
+        self._feed_step_strip(event)
         resolved = resolve_tile_state(
             (event.state, event.label, event.percent),
             self._progress_states.get(tile),
@@ -3889,6 +3918,11 @@ class MainWindow(QMainWindow):
             tile, ("queued", "queued", 0))
         self._progress_states[tile] = ("stopped", "stopped", pct)
         self.map.set_progress(self._progress_states)
+        strip = self._step_strips.get(tile)
+        if strip is not None and tile in self._tile_rows:
+            STRIP.stop(strip, time.monotonic())
+            QTSTRIP.show(self._tile_rows[tile][2].findChild(
+                QLabel, "tile_steps"), strip)
         # The clock freezes too: the engine keeps counting until its
         # cancel lands, and a running clock under "stopped" is the same
         # lie the row itself used to tell.
@@ -4077,6 +4111,7 @@ class MainWindow(QMainWindow):
         """One tile's terminal outcome: remember it (with the tile's own
         wall time) for the end-of-run console report."""
         tile = (event.lat, event.lon)
+        self._feed_step_strip(event)
         started_at = self._tile_started_at.get(tile)
         seconds = (time.time() - started_at) if started_at else None
         # #562 / #564: the engine's own words — what, why, what to do —
@@ -4184,6 +4219,7 @@ class MainWindow(QMainWindow):
                     continue
                 self._tile_rows.pop(tile)[2].deleteLater()
                 self._tile_clocks.pop(tile, None)
+                self._step_strips.pop(tile, None)
             self._run_settings = {
                 tile: settings
                 for tile, settings in self._run_settings.items()

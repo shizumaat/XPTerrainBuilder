@@ -115,6 +115,7 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 # caller's and every twin's import path is unchanged ──
 # #1214: the airside hard deck (class A) and the one-zero groups live next
 # door; the round-2 private names stay importable from here
+from . import cut_deck_seat as _cds  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
     deck_owns_its_datum as _deck_owns_its_datum)
@@ -280,6 +281,8 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
     # 14g (1): a §18 RE-SEATED row is the law's seat, never the author's lift
     from . import authored_seat as _aseat
     reseated = _aseat.reseated_rows(getattr(plan, "authored_seats", ()) or ())
+    # 26d (#1331): the pack object cuts' rings, published on the seat records
+    _cuts = _cds.cut_rings(getattr(plan, "authored_seats", ()) or ())
     counts: dict[str, int] = {"placements": 0, "split": 0, "kept": 0, "bodies": 0,
                               "files": 0, "one_body": 0, "anim": 0, "unparsable": 0,
                               "no_bodies": 0, "write_error": 0,
@@ -930,6 +933,16 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # moves as ONE rigid group
         airside = _airside_frame(staged, decks, surface, counts,
                                  abutment_step_m, tuple(u.anchor))
+
+        # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
+        # pack deck body over the pack's own cut sits flush with what it
+        # carries (``cut_deck_seat``)
+        def _cut_decks(r, mm, _u=u):
+            if airside is not None or not _cuts:
+                return r
+            return _cds.seat_cut_decks(r, mm, getattr(mm, "origin", None) or tuple(_u.anchor),
+                                       surface, _cuts, abutment_step_m,
+                                       deck_on_fraction, counts)
         open_frame = bool(u.members) and all(
             str(getattr(x, "deck_kind", "") or "") in _OPEN_KINDS
             for x in u.members)
@@ -1005,6 +1018,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
+                record = _cut_decks(record, m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
@@ -1097,6 +1111,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
+                record = _cut_decks(record, m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
@@ -1134,6 +1149,7 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
+                record = _cut_decks(record, m)
                 if record is not _pre:
                     # #1214 R3/R5: a body the group passes moved is never
                     # kept on its authored row (LFPG's one-body H4, H16,

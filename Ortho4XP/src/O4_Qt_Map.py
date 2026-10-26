@@ -23,6 +23,7 @@ import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
+import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Text_Scale as QTTEXT
 import requests
@@ -53,10 +54,10 @@ from PySide6.QtWidgets import (
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
 WORLD = 2 ** SCENE_ZL * 256
 MIN_ZOOM = 2.0
-# Deep-inspection ceiling: far past any imagery source, so users can
-# always zoom in to judge what a source offers (tiles upscale/blur
-# beyond the provider max; the corner badge flags it).
-MAX_ZOOM = 22.0
+# Deep-inspection ceiling, independent of the imagery source (#1315):
+# past the source's max_zl the view keeps scaling up its finest tiles
+# (O4_Map_Overzoom; the corner badge says "overzoom xN").
+MAX_ZOOM = float(OVERZOOM.MAX_VIEW_ZL)
 FETCH_MAX_ZL = 21  # never request tiles beyond this from any source
 MAX_ITEMS = 900        # loaded tile pixmaps kept in the scene
 BASE_ZL = 3            # world base layer, always resident (max 64 tiles)
@@ -814,8 +815,11 @@ class MapView(QGraphicsView):
         self.viewport().update()
 
     def _fetch_zoom(self):
-        z = int(round(self._zoom))
-        return max(2, min(z, self._provider_max_zl, FETCH_MAX_ZL))
+        # Past the source's ceiling the view tile's ancestor is fetched
+        # and the scene scales it up: never a URL above max_zl (#1315).
+        z = max(2, int(round(self._zoom)))
+        ceiling = min(self._provider_max_zl, FETCH_MAX_ZL)
+        return max(2, OVERZOOM.ancestor(z, 0, 0, ceiling).z)
 
     def _visible_range(self, z):
         """Visible tile index range at zoom z, with a one-tile margin."""
@@ -1071,14 +1075,13 @@ class MapView(QGraphicsView):
         painter.end()
 
     def _draw_zoom_badge(self, painter):
-        """Bottom-right badge: the tile zoom the view equates to, flagging
-        when it exceeds the imagery source's ceiling (mac-app parity)."""
+        """Bottom-right badge: the tile zoom the view equates to, and the
+        overzoom factor past the imagery source's ceiling (mac-app
+        parity, #1315)."""
         view_zl = max(2, math.ceil(self._zoom - 1e-6))
         at_limit = view_zl > self._provider_max_zl
-        text = "ZL %d" % view_zl
-        if at_limit:
-            text += "  \u00b7  %s max ZL %d" % (
-                self._display_code, self._provider_max_zl)
+        text = OVERZOOM.badge_text(view_zl, self._display_code,
+                                   self._provider_max_zl)
         metrics = painter.fontMetrics()
         width = metrics.horizontalAdvance(text) + 18
         height = metrics.height() + 8

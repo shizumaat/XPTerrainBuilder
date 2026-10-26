@@ -2,6 +2,7 @@
 2026-10-26): every airport of the tile list has an identifier -- its code,
 else ``O4_Airport_Apt_Identity.synthetic_airport_id`` of its position --
 so no pass keyed by code skips it.  Synthetic dictionaries only."""
+import os
 import subprocess
 import sys
 import types
@@ -40,11 +41,11 @@ def test_id_is_deterministic_across_runs():
     here = ID.synthetic_airport_id(LON, LAT)
     code = ("import sys; sys.path.insert(0, %r); import O4_Airport_Apt_Identity"
             " as ID; print(ID.synthetic_airport_id(%r, %r))"
-            % (ID.__file__.rsplit("/", 1)[0], LON, LAT))
+            % (os.path.dirname(os.path.abspath(ID.__file__)), LON, LAT))
     for seed in ("0", "1234"):
         out = subprocess.run(
             [sys.executable, "-c", code], capture_output=True, text=True,
-            env={"PYTHONHASHSEED": seed}, check=True).stdout.strip()
+            env={**os.environ, "PYTHONHASHSEED": seed}, check=True).stdout.strip()
         assert out.splitlines()[-1] == here
     assert here.startswith("X") and len(here) == 8 and here.isalnum()
 

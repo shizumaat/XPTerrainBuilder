@@ -205,8 +205,10 @@ def mask_provider_fill(raster_path, declared_fills=(), before_write=None):
     nodata = PROVIDER_FILL_NODATA if nodata is None else nodata
     values = values.astype(numpy.float32)
     values[mask] = nodata
-    _rewrite(dataset, raster_path, values, nodata)
-    dataset = None
+    scratch = _write_masked_copy(dataset, raster_path, values, nodata)
+    band = None
+    dataset = None           # release the source before the swap (Windows)
+    os.replace(scratch, raster_path)
     remaining = valid & ~mask
     return {
         "fill_value": float(fill_value),
@@ -215,18 +217,20 @@ def mask_provider_fill(raster_path, declared_fills=(), before_write=None):
     }
 
 
-def _rewrite(dataset, raster_path, values, nodata):
-    """Replace ``raster_path`` by a copy of ``dataset`` carrying
-    ``values`` and ``nodata`` -- metadata, georeferencing and the
-    vertical-unit stamp kept; written beside and swapped in, so a reader
-    never sees half a file."""
+def _write_masked_copy(dataset, raster_path, values, nodata):
+    """Write a copy of ``dataset`` carrying ``values`` and ``nodata`` beside
+    ``raster_path`` and return its path -- metadata, georeferencing and the
+    vertical-unit stamp kept.  The caller closes ``dataset`` and swaps the
+    copy in, so a reader never sees half a file (and Windows, which refuses
+    to replace a file with an open handle, can make the swap)."""
     memory = gdal.GetDriverByName("MEM").CreateCopy("", dataset)
     band = memory.GetRasterBand(1)
     band.SetNoDataValue(float(nodata))
     band.WriteArray(values)
     scratch = raster_path + ".fillmask.tif"
-    gdal.GetDriverByName("GTiff").CreateCopy(
+    written = gdal.GetDriverByName("GTiff").CreateCopy(
         scratch, memory,
         options=["COMPRESS=DEFLATE", "PREDICTOR=3", "TILED=YES"])
+    del written                      # close the GTiff handle before the swap
     memory = None
-    os.replace(scratch, raster_path)
+    return scratch

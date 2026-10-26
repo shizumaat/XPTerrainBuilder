@@ -27,6 +27,7 @@ from typing import Callable, Optional
 
 import O4_File_Names as FNAMES
 import O4_Machine_Slots as SLOTS
+import O4_Patch_Fast_Path as FASTPATH
 import O4_Step_Reuse as REUSE
 import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
@@ -1353,6 +1354,7 @@ class EngineSession:
                         # after it (#838).  One that saw the Stop may
                         # have cut its work short: no record.
                         REUSE.record(tile, key)
+                        FASTPATH.after_step_recorded(tile, key)
                     if self._autopatch_state is not None:
                         autopatch_airports = self._autopatch_state["total"]
                     self._finish_step((lat, lon), key)
@@ -1535,27 +1537,31 @@ class EngineSession:
         self._emit_eta(force=True)
 
     def _reuse_step(self, tile, tile_key, key, base, width):
-        """Skip ``key`` when its output is current (#615): True when it
-        was reused — said in the log and on the tile's row, and left out
-        of the step-time history (a reused step's seconds are not what
-        the step costs).  Otherwise the step's old record is dropped
-        before it runs, and False."""
+        """Skip ``key`` when its output is current (#615), or when the
+        height-edit fast path brought the vector step up to date (#1323,
+        ``O4_Patch_Fast_Path``, which says so in the log): True then —
+        said on the tile's row, and left out of the step-time history (a
+        reused step's seconds are not what the step costs).  Otherwise the
+        step's old record is dropped before it runs, and False."""
         if key not in REUSE.REUSABLE_STEPS:
             return False
-        why = REUSE.stale_reason(tile, key)
-        if why is not None:
+        (decision, detail) = FASTPATH.step_decision(tile, key)
+        if decision == "run":
             UI.vprint(1, "   %s step: building (%s)."
-                      % (STEP_FAILURE_NOUNS.get(key, key).capitalize(), why))
-            REUSE.forget_from(tile, key)
+                      % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
+                         detail))
             return False
-        UI.vprint(0, "\n%s for tile %s: REUSED — its inputs are unchanged "
-                     "since it last ran to its end."
-                  % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
-                     FNAMES.short_latlon(*tile_key)))
+        if decision == "updated":
+            label = FASTPATH.UPDATED_LABEL % (STEP_LABELS.get(key, key),)
+        else:
+            UI.vprint(0, "\n%s for tile %s: REUSED — its inputs are "
+                         "unchanged since it last ran to its end."
+                      % (STEP_FAILURE_NOUNS.get(key, key).capitalize(),
+                         FNAMES.short_latlon(*tile_key)))
+            label = REUSE.reused_label(STEP_LABELS.get(key, key))
         self._step_percent = (base + width) * 100.0
         self._emit(StepProgress(
-            lat=tile_key[0], lon=tile_key[1], step_key=key,
-            label=REUSE.reused_label(STEP_LABELS.get(key, key)),
+            lat=tile_key[0], lon=tile_key[1], step_key=key, label=label,
             percent=self._step_percent))
         self._finish_step(tile_key, key)
         return True

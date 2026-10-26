@@ -27,11 +27,26 @@ public struct PatchWay: Equatable, Sendable {
     /// Written back unchanged by `patch_save`.
     public let tags: [String: String]
     public let style: PatchStyleClass
+    /// Cut below the surrounding grade: its fill is hatched (#1319).
+    public let isBelowGrade: Bool
 
     public init(id: Int64, refs: [Int64], tags: [String: String]) {
         self.id = id; self.refs = refs; self.tags = tags
         self.style = PatchStyleClass(tags: tags)
+        self.isBelowGrade = [tags["role"], tags["class"]].contains { Self.belowGradeRoles.contains($0 ?? "") }
     }
+
+    /// The roles cut below the surrounding grade (#1319): the structure
+    /// floors of `auto_patch_v2/emit/graded.FLOOR_ROLES` (tunnel, door,
+    /// wall-corridor and garage ramps; the tunnel trench, which the basin
+    /// and the channel floors use too) and the bridge trench. The emitter
+    /// writes an aliased role under its `oracle_role` and the role itself as
+    /// `class`, so both tags are read. The Qt app's `BELOW_GRADE_ROLES`
+    /// (`O4_Qt_Patch_Geometry.py`) is the same list, twin-tested.
+    public static let belowGradeRoles: [String] = [
+        "tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp",
+        "tunnel_trench", "bridge_trench",
+    ]
 
     /// First ref == last ref: a shape (filled), else a line.
     public var isClosed: Bool { refs.count > 2 && refs.first == refs.last }

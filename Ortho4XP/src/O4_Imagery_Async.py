@@ -114,6 +114,11 @@ class PartSession:
         self._first = first
         self._fallback = fallback
 
+    @property
+    def next_is_prefetched(self) -> bool:
+        """The next ``get`` is served from the prefetch (it sends nothing)."""
+        return self._first is not None
+
     def get(self, url: str, timeout: float | None = None, headers: dict | None = None) -> Any:
         first, self._first = self._first, None
         if isinstance(first, BaseException):
@@ -169,6 +174,17 @@ def _checkin(group: str, cap: int, fetcher: Any, timeout_s: float | None = None)
         _idle.setdefault((group, cap, timeout_s), []).append(fetcher)
 
 
+def _server_budget(limit: int) -> Callable[[Any], Any]:
+    """The fetcher's ``budget``: one free slot of the request's server class, or None."""
+    import O4_Machine_Slots as MACHINE_SLOTS
+
+    def take(request: Any) -> Any:
+        held = MACHINE_SLOTS.try_take_class(MACHINE_SLOTS.net_class(request.url), 1, limit)
+        return held if held.count else None
+
+    return take
+
+
 async def _watch(should_stop: Callable[[], bool], cancel: asyncio.Event) -> None:
     while not should_stop():
         await asyncio.sleep(CANCEL_POLL_S)
@@ -182,6 +198,7 @@ def fetch_parts(
     should_stop: Callable[[], bool] = lambda: False,
     on_result: Callable[[Any], None] | None = None,
     timeout_s: float | None = None,
+    host_limit: int | None = None,
 ) -> dict[Any, Any]:
     """Fetch ``(key, url, headers)`` parts; returns ``{key: FetchResult}`` in part order.
 
@@ -190,7 +207,9 @@ def fetch_parts(
     :data:`CANCEL_POLL_S`; when it turns true the run is cancelled and the parts not yet
     answered come back with ``error="SYS_CANCELLED"``. ``on_result`` runs on the loop thread
     as each part completes (the download meter's feed). ``timeout_s`` is the provider's
-    ``timeout=`` (seconds); None keeps the fetcher's default.
+    ``timeout=`` (seconds); None keeps the fetcher's default. ``host_limit`` is the server's
+    budget for the whole build session (#1236, ``O4_Imagery_Utils.host_request_limit``): every
+    transfer holds one slot of ``O4_Machine_Slots``' ``net:<host>`` class; None holds none.
     """
     from O4_Imagery_Fetch import FetchRequest
 
@@ -199,6 +218,7 @@ def fetch_parts(
     cap = max(1, int(cap))
     requests_ = [FetchRequest(key, url, dict(headers or {}), group) for key, url, headers in parts]
     fetcher = _checkout(group, cap, timeout_s)
+    fetcher.budget = _server_budget(host_limit) if host_limit else None
 
     async def run() -> list[Any]:
         cancel = asyncio.Event()

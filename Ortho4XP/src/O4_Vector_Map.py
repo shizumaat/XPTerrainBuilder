@@ -13,6 +13,7 @@ import O4_DEM_Utils as DEM
 import O4_UI_Utils as UI
 import O4_OSM_Utils as OSM
 import O4_Vector_Utils as VECT
+import O4_ZProv as ZPROV
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Proj_Runtime as PROJRT
@@ -1513,6 +1514,9 @@ def build_poly_file(tile):
     # sealed; the snap welds those two nodes into one.
     audit_interp_alt_seed_sealing(vector_map)
     vector_map.write_node_file(node_file)
+    # #1323: every z a patch ``alt_abs`` reached, so a height-only patch
+    # edit can rewrite them without this step (``O4_Patch_Fast_Path``).
+    vector_map.zprov.write(ZPROV.zprov_file(node_file))
     vector_map.write_poly_file(poly_file)
 
     UI.vprint(
@@ -3846,6 +3850,17 @@ def _say_dropped_patch_ring(pfile_name, wayid, dt, why):
         f"{why}; the ring is DROPPED and its interior keeps the raw DEM.")
 
 
+def _alt_abs_sources(pfile_name, node_ids, node_tags, dtype):
+    """#1323 (``O4_ZProv``): per node of a patch way, the patch node whose
+    ``alt_abs`` became its z — ``(patch file, node id, the dtype of the
+    way's altitude array that held it)`` — or ``None``; ``None`` for a way
+    with no ``alt_abs`` at all."""
+    sources = [(pfile_name, nid, dtype.str)
+               if "alt_abs" in node_tags.get(nid, ()) else None
+               for nid in node_ids]
+    return sources if any(src is not None for src in sources) else None
+
+
 def include_patches(vector_map, tile):
     def tanh_profile(alpha, x):
         return (numpy.tanh((x - 0.5) * alpha) / numpy.tanh(0.5 * alpha) + 1) / 2
@@ -4123,6 +4138,7 @@ def include_patches(vector_map, tile):
                     alti_way = alti_way_orig
             else:
                 alti_way = alti_way_orig
+            zsrc = None
             if not cplx_way:
                 for i in range(len(way)):
                     nodeid = dw[wayid][i]
@@ -4134,6 +4150,8 @@ def include_patches(vector_map, tile):
                             alti_way[i] = alti_way_orig[i] + float(
                                 ntags["alt_rel"]
                             )
+                zsrc = _alt_abs_sources(pfile_name, dw[wayid], dt["n"],
+                                        alti_way.dtype)
             alti_way = alti_way.reshape((len(alti_way), 1))
             if (way[0] == way[-1]).all():
                 try:
@@ -4153,6 +4171,7 @@ def include_patches(vector_map, tile):
                             numpy.hstack([way, alti_way]),
                             PATCH_RING_MARKER,
                             check=True,
+                            zsrc=zsrc,
                         )
                         interp_alt_patch_polygons.append(pol)
                         if cplx_way and cuts_long:
@@ -4179,13 +4198,12 @@ def include_patches(vector_map, tile):
                         in OPEN_BREAKLINE_FEATURES):
                     vector_map.insert_way(
                         numpy.hstack([way, alti_way]),
-                        PATCH_RING_MARKER,
-                        check=True,
-                    )
+                        PATCH_RING_MARKER, check=True, zsrc=zsrc)
                     open_breaklines += 1
                 else:
                     vector_map.insert_way(
-                        numpy.hstack([way, alti_way]), "DUMMY", check=True
+                        numpy.hstack([way, alti_way]), "DUMMY", check=True,
+                        zsrc=zsrc,
                     )
     if open_breaklines:
         UI.vprint(

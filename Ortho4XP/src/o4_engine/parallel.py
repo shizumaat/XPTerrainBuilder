@@ -64,6 +64,7 @@ from collections import deque
 from typing import Optional
 
 import O4_Console_Encoding
+import O4_Edit_Cache as EDITCACHE
 import O4_Machine_Slots
 import O4_Tile_Failures as FAIL
 import O4_UI_Utils as UI
@@ -713,6 +714,9 @@ class _WorkerChild:
             # (jsonl owns_process mode), so a front end that dies without
             # collapsing the stdin pipe still takes its workers with it.
             child_environment["O4_PARENT_PROCESS_ID"] = str(os.getpid())
+            # The child lists its tiles' edit caches in THIS front end's
+            # session and never clears it (O4_Edit_Cache, #1323).
+            child_environment[EDITCACHE.LIST_ENV] = EDITCACHE.begin_session()
             # No ``cwd=`` and ``close_fds=False``: both force CPython off
             # posix_spawn onto fork+exec, and a fork in a pyproj-loaded
             # parent segfaults in the proj.db sqlite atfork handler

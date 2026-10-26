@@ -69,6 +69,12 @@ RUN_ENVIRONMENT: dict[str, str] = {
     "O4_STEP_REUSE":
         "whether a tile build may skip a step whose output is current "
         "(O4_Step_Reuse, #615); a step that runs builds the same patch",
+    "O4_EDIT_CACHE_LIST":
+        "the app session's list of edit caches to clear when it quits "
+        "(O4_Edit_Cache, #1323) — new on every launch, read by no step",
+    "O4_EDIT_CACHE_STATE_DIR":
+        "where those session lists live (O4_Edit_Cache; the suite points it "
+        "at a temporary folder) — read by no step",
     "O4_V2_STAGE_CACHE":
         "whether the v2 airport build may serve a stage from its content-"
         "keyed record (#843); a hit is byte-identical to the build that "

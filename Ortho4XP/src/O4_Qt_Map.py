@@ -23,6 +23,7 @@ import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
+import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Labels as QTLABELS
 import O4_Qt_Text_Scale as QTTEXT
 import requests
@@ -52,11 +53,12 @@ from PySide6.QtWidgets import (
 
 SCENE_ZL = 19  # scene units = webmercator pixels at this zoom level
 WORLD = 2 ** SCENE_ZL * 256
+MERCATOR_LAT = 85.05  # the web-mercator square's edge (MapCamera.latLimit)
 MIN_ZOOM = 2.0
-# Deep-inspection ceiling: far past any imagery source, so users can
-# always zoom in to judge what a source offers (tiles upscale/blur
-# beyond the provider max; the corner badge flags it).
-MAX_ZOOM = 22.0
+# Deep-inspection ceiling, independent of the imagery source (#1315):
+# past the source's max_zl the view keeps scaling up its finest tiles
+# (O4_Map_Overzoom; the corner badge says "overzoom xN").
+MAX_ZOOM = float(OVERZOOM.MAX_VIEW_ZL)
 FETCH_MAX_ZL = 21  # never request tiles beyond this from any source
 MAX_ITEMS = 900        # loaded tile pixmaps kept in the scene
 BASE_ZL = 3            # world base layer, always resident (max 64 tiles)
@@ -69,6 +71,8 @@ LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 BUILT_COLOR = "#4CAF6E"
 #: The selection ring (the Mac app's buildSelection).
 SELECTION_COLOR = "#FFD60A"
+#: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
+SETTINGS_BADGE_COLOR = "#0A84FF"
 
 
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
@@ -355,6 +359,7 @@ class MapView(QGraphicsView):
         self._built = {}             # (lat, lon) -> TileInfo
         self._installed = set()      # (lat, lon)
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
+        self._customized = set()     # (lat, lon) with tile settings (#1350)
         self._selection = set()
         self._active = None
         self._progress = {}          # (lat, lon) -> (state, label, pct)
@@ -502,6 +507,17 @@ class MapView(QGraphicsView):
         self._conflicts = set(conflicts)
         self.viewport().update()
 
+    def set_customized(self, tiles):
+        """Tiles whose cfg customizes a setting (#1350): the settings
+        badge, computed by the window from ``O4_Tile_Customizations``."""
+        tiles = set(tiles)
+        if tiles != self._customized:
+            self._customized = tiles
+            self.viewport().update()
+
+    def customized(self):
+        return set(self._customized)
+
     def set_default_airports(self, airports):
         """X-Plane's Global Airports marks: ``(code, lat, lon)`` rows.
 
@@ -629,7 +645,13 @@ class MapView(QGraphicsView):
         self.viewport().update()
 
     def center_on_tile(self, lat, lon, zoom=None):
-        cx, cy = GEO.wgs84_to_pix(lat + 0.5, lon + 0.5, SCENE_ZL)
+        self.center_on_point(lat + 0.5, lon + 0.5, zoom)
+
+    def center_on_point(self, lat, lon, zoom=None):
+        """Centre the view on ``(lat, lon)``, at slippy ``zoom`` if given
+        (latitude held inside the web-mercator square)."""
+        lat = max(-MERCATOR_LAT, min(float(lat), MERCATOR_LAT))
+        cx, cy = GEO.wgs84_to_pix(lat, lon, SCENE_ZL)
         if zoom is not None:
             self._zoom = max(MIN_ZOOM, min(float(zoom), MAX_ZOOM))
             self._apply_zoom()
@@ -814,8 +836,11 @@ class MapView(QGraphicsView):
         self.viewport().update()
 
     def _fetch_zoom(self):
-        z = int(round(self._zoom))
-        return max(2, min(z, self._provider_max_zl, FETCH_MAX_ZL))
+        # Past the source's ceiling the view tile's ancestor is fetched
+        # and the scene scales it up: never a URL above max_zl (#1315).
+        z = max(2, int(round(self._zoom)))
+        ceiling = min(self._provider_max_zl, FETCH_MAX_ZL)
+        return max(2, OVERZOOM.ancestor(z, 0, 0, ceiling).z)
 
     def _visible_range(self, z):
         """Visible tile index range at zoom z, with a one-tile margin."""
@@ -1071,14 +1096,13 @@ class MapView(QGraphicsView):
         painter.end()
 
     def _draw_zoom_badge(self, painter):
-        """Bottom-right badge: the tile zoom the view equates to, flagging
-        when it exceeds the imagery source's ceiling (mac-app parity)."""
+        """Bottom-right badge: the tile zoom the view equates to, and the
+        overzoom factor past the imagery source's ceiling (mac-app
+        parity, #1315)."""
         view_zl = max(2, math.ceil(self._zoom - 1e-6))
         at_limit = view_zl > self._provider_max_zl
-        text = "ZL %d" % view_zl
-        if at_limit:
-            text += "  \u00b7  %s max ZL %d" % (
-                self._display_code, self._provider_max_zl)
+        text = OVERZOOM.badge_text(view_zl, self._display_code,
+                                   self._provider_max_zl)
         metrics = painter.fontMetrics()
         width = metrics.horizontalAdvance(text) + 18
         height = metrics.height() + 8
@@ -1209,6 +1233,11 @@ class MapView(QGraphicsView):
             painter.setPen(pen)
             painter.drawRect(r.adjusted(px1, px1, -px1, -px1))
 
+        # Customized settings (#1350): a blue dot in the top-left corner,
+        # on a built or selected tile (MapCanvasView.swift draws the same).
+        if tile in self._customized and px > 14:
+            self._draw_settings_badge(painter, r, px, scale)
+
         if progress:
             self._draw_progress_badge(painter, r, px, progress)
 
@@ -1323,6 +1352,19 @@ class MapView(QGraphicsView):
             Qt.AlignCenter,
             "!",
         )
+
+    def _draw_settings_badge(self, painter, r, px, scale):
+        """The customized-settings dot, top-left of the tile square, sized
+        in screen points like the conflict badge (8-14 pt)."""
+        size = min(max(px * 0.11, 8.0), 14.0) / max(scale, 1e-12)
+        center = QPointF(r.left() + size, r.top() + size)
+        outline = QPen(QColor("#FFFFFF"))
+        outline.setCosmetic(True)
+        outline.setWidthF(1.5)
+        painter.setPen(outline)
+        painter.setBrush(QColor(SETTINGS_BADGE_COLOR))
+        painter.drawEllipse(center, size / 2, size / 2)
+        painter.setBrush(Qt.NoBrush)
 
     def _draw_progress_badge(self, painter, r, px, progress):
         state, label, pct = progress

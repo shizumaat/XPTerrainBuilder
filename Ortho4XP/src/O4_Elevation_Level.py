@@ -2315,7 +2315,9 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
         for stem, outcome in (stamp.get("cells") or {}).items()
         if outcome == NO_RING_COVERAGE
     }
-    fetched = 0
+    # Pass 1 (serial, disk only): recycle cached cells, honour recorded
+    # negatives, and collect the cells that need a network fetch.
+    jobs = []
     for cell in plan["cells"]:
         if not cell.get("provider"):
             continue
@@ -2354,15 +2356,18 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
                 "- skipping it.",
             )
             continue
-        os.makedirs(FNAMES.approach_ring_directory(lat, lon), exist_ok=True)
-        try:
-            provenance = INSETS.fetch_inset(
-                source_rung.definition,
-                approach_ring_cell_box(lat, lon, cell["column"], cell["row"]),
-                cell["class_m"],
-                cell["path"],
-            )
-        except Exception as error:
+        jobs.append((cell, source_rung))
+    # Pass 2 (bounded pool, #1327): the fetches are network-bound and
+    # independent.  Pass 3 below records every result in STEM order, so
+    # outcomes, sidecars and the stamp never depend on completion order.
+    results = _fetch_approach_ring_cells(lat, lon, jobs, INSETS)
+    fetched = 0
+    for (cell, source_rung), (provenance, error) in sorted(
+        zip(jobs, results, strict=True),
+        key=lambda pair: pair[0][0]["stem"],
+    ):
+        stem = cell["stem"]
+        if error is not None:
             UI.vprint(
                 2,
                 "   Approach ring cell fetch error at",
@@ -2370,6 +2375,8 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
                 ":",
                 str(error),
             )
+            continue
+        if provenance is _RING_FETCH_SKIPPED:
             continue
         if provenance is None:
             outcomes[stem] = NO_RING_COVERAGE
@@ -2422,6 +2429,74 @@ def ensure_approach_rings(tile, dico_airports, refresh=False):
             "%+03d%+04d" % (lat, lon),
         )
     return fetched
+
+
+#: Ring-cell fetches in flight at once (#1327): the cap the airport-inset
+#: fetch uses; ``fetch_inset``'s per-provider slots still bound any one
+#: server.
+APPROACH_RING_FETCH_WORKERS = 4
+
+#: A progress line every this many finished cells (and at the last one).
+APPROACH_RING_PROGRESS_EVERY = 10
+
+#: A cell a Stop drained before its fetch began: no outcome is recorded,
+#: so the next run fetches it.
+_RING_FETCH_SKIPPED = object()
+
+
+def _fetch_approach_ring_cells(lat, lon, jobs, insets):
+    """Fetch ``jobs`` (``(cell, source_rung)`` pairs) in a bounded pool.
+
+    Returns one ``(provenance, error)`` per job, in ``jobs`` order.  A
+    raised failure comes back as ``error`` (never a negative: it may be a
+    transient outage).  Prints ``approach rings: N/M cells`` every
+    :data:`APPROACH_RING_PROGRESS_EVERY` finished cells and folds the same
+    text into the running step's ``StepProgress`` label.
+    """
+    if not jobs:
+        return []
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    os.makedirs(FNAMES.approach_ring_directory(lat, lon), exist_ok=True)
+    total = len(jobs)
+    lock = threading.Lock()
+    done = [0]
+
+    def _one(job):
+        (cell, source_rung) = job
+        try:
+            if UI.red_flag:
+                return (_RING_FETCH_SKIPPED, None)
+            try:
+                provenance = insets.fetch_inset(
+                    source_rung.definition,
+                    approach_ring_cell_box(
+                        lat, lon, cell["column"], cell["row"]
+                    ),
+                    cell["class_m"],
+                    cell["path"],
+                )
+            except Exception as error:
+                return (None, error)
+            return (provenance, None)
+        finally:
+            with lock:
+                done[0] += 1
+                finished = done[0]
+            if finished % APPROACH_RING_PROGRESS_EVERY == 0 or finished == total:
+                text = "approach rings: %d/%d cells" % (finished, total)
+                UI.vprint(1, "   " + text)
+                UI.step_detail(text if finished < total else "")
+
+    try:
+        with ThreadPoolExecutor(
+            max_workers=min(APPROACH_RING_FETCH_WORKERS, total),
+            thread_name_prefix="ring-fetch",
+        ) as pool:
+            return list(pool.map(_one, jobs))
+    finally:
+        UI.step_detail("")
 
 
 def _discard_implausible_ring_cell(cell_path, stem, outcomes):

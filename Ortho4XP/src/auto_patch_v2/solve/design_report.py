@@ -8,6 +8,7 @@ every caller uses.
 """
 from __future__ import annotations
 
+import collections
 import dataclasses as _dc
 import typing as _t
 
@@ -817,11 +818,15 @@ class DesignReport:
                     f"dropped on the low side; ")
         if self.pin_yield:
             worst = max(self.pin_yield, key=lambda r: abs(r["excess_m"]))
-            out += (f"PIN YIELD (27a (10)): {len(self.pin_yield)} coverage-edge "
-                    f"join pin(s) released to settle the hard set, ribbon excess "
+            heads = collections.Counter(str(r.get("ruling") or "roads.coverage_edge join")
+                                        for r in self.pin_yield)
+            out += (f"PIN YIELD (27a (10); 26b): {len(self.pin_yield)} pin(s) "
+                    f"released to settle the hard set ("
+                    + ", ".join(f"{h} {n}" for h, n in sorted(heads.items()))
+                    + "), excess "
                     + " / ".join(f"{abs(r['excess_m']):.2f}" for r in sorted(
                         self.pin_yield, key=lambda r: -abs(r["excess_m"])))
-                    + f" m (worst v{worst['v']}: ribbon {worst['pinned_m']:.3f} -> "
+                    + f" m (worst v{worst['v']}: pinned {worst['pinned_m']:.3f} -> "
                     f"patch {worst['z_m']:.3f}); ")
         return out
 

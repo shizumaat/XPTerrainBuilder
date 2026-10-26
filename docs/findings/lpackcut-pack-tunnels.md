@@ -41,12 +41,26 @@ floor there and its roof top is floor + roof y.
 
 | site | production patch | this branch (`lpackcut_kbuf`) |
 |---|---|---|
-| 1: 42.943562651, -78.726619628 (`Road_Tunnel.obj` dsf:obj6856, bore -766 end 0) | uncut, 219.13 | **unchanged — needs an owner ruling** (below): the portal stands inside the runway strip keep-out |
+| 1: 42.943562651, -78.726619628 (`Road_Tunnel.obj` dsf:obj6856, bore -766 end 0) | uncut, 219.13: the portal stood on the graded strip, roof 6.6 m proud | round 2 (`lpackcut_kbuf3`, RULINGS 2026-10-26k): cut inside the runway strip; the mouth moved 10.4 m into the bore to the portal's anchor; ramp floor 212.43 at the mouth, 212.66 read at the anchor; roof 219.07-219.30 = the rim 219.07 |
 | 2: 42.935047080, -78.724917302 (`KBUF_Terminal_Parking_Underpass.obj` dsf:obj590, bore -756 end 1) | uncut: service road 211.55 (the mouth was refused: "cannot stand clear of pavement dsf:pol161") | cut: ramp floor 206.28 at the portal; roof 6.09 -> 212.37 = the rim 212.37-212.69 |
 | 3: 42.935452165, -78.725199037 (same object, dsf:obj589, bore -756 end 0) | floor 204.13 (bore law 7.5 m): roof 210.22, 1.4 m under the rim 211.63 | floor 205.54: roof 211.63 = the rim 211.63 |
 | `Road_Tunnel.obj` dsf:obj6855 (bore -709 end 1) | floor 209.53: roof 216.17, 0.9 m under the rim 217.03 | floor 210.38: roof 217.02 = the rim 217.03 |
 | `Road_Tunnel.obj` dsf:obj6857 (bore -766 end 1) | slid 3.5 m out, floor 210.77 | pinned at the portal, floor 212.94: roof 219.58 = the apron edge 219.59 |
-| `Road_Tunnel.obj` dsf:obj6854 (bores -5328 / -5327) | built, slid 31.5 / 66.5 m out | unchanged (portal in the runway strip keep-out — the same owner question) |
+| `Road_Tunnel.obj` dsf:obj6854, 42.945182, -78.724549 (bores -5328 / -5327) | both built, slid 31.5 / 66.5 m out; the portal stood over covered bore | round 2: `-5327@0` pinned and moved 7.8 m to the anchor, floor 212.36 (212.44 at the anchor), roof 219.08 vs rim 219.00; its ramp is clipped 12 m out at `small_roads:-5326`, and `-5328@0` is refused because its corridor overlaps `-5327@0` (the two carriageways meet one portal) |
+
+Round 2 (RULINGS 2026-10-26k, Q155 "b"): a pack portal's cut may stand inside
+the runway strip keep-out (`structure_mouth.strip_keepout`), and the strip
+families exempt it from the RUNWAY strip only (`publication.portal_cuts`;
+`verify` `wall_in_runway_strip` / `ramp_in_strip` and `tools/check_grade`'s
+twins).  Verify rows in the strip at KBUF: `wall_in_runway_strip` 4 -> 0;
+`ramp_in_strip` 4 -> 4, all four now in the TAXIWAY strip (`primary_parallel`)
+at the -709@0 and -766@1 portals (two were runway rows in round 1); within
+150 m of the two strip portals, 2 new `within_shape` rows on the clipped
+`-5327@0` ramp (10.76 % / 10.46 % against the 10 % cap).  Verify defects:
+none (`lpackcut_kbuf3`, ledger `a09bbd8cc744`).  A pinned mouth whose portal
+anchor stands on the covered side of the mapped bore end moves into the bore
+to the anchor (`structure_mouth.portal_mouth`): an unseated portal is drawn
+on the mesh at its anchor.
 
 Residual: the anchors sit 0.6-2 m from the mouth line.  The graded surface
 read AT each anchor is 0.0-0.9 m above the mouth floor (obj590 +0.02,
@@ -128,7 +142,7 @@ over the bore end.
 
 ## Questions for the owner (the fix waits on each)
 
-- **Q-a (#1343 site 1, and KBUF bores -5328 / -5327):** the pack's
+- **Q-a — RULED 2026-10-26k "b", implemented in round 2 (above).** (#1343 site 1, and KBUF bores -5328 / -5327): the pack's
   `Road_Tunnel.obj` portals at 42.943586, -78.726633 and 42.945182,
   -78.724549 stand inside the runway strip keep-out, where the law refuses
   a retaining wall (RULINGS 2026-08-21d, `retaining_wall.in_runway_strip =
@@ -137,7 +151,7 @@ over the bore end.
   (A) the strip law stands — the portals stay where they are; (B) a pack
   portal states its cut, inside the strip too (the 19p reading for
   portals); (C) the portal object is dropped from the scenery there.
-- **Q-b (#1298 EGLL):** the hard-deck covers (`2.obj` etc.: deck at y 0,
+- **Q-b — RULED 2026-10-26l "yes" (spec only): `Ortho4XP/docs/specs/roofed-pack-tunnels-spec.md`.** (#1298 EGLL): the hard-deck covers (`2.obj` etc.: deck at y 0,
   walls to -5 m, no floor) need the shell reader to take the depth from the
   wall bottoms and assemble split pieces, and a census of lowering airside
   under the decks — the trench under a pack deck, which 22n (1) holds with

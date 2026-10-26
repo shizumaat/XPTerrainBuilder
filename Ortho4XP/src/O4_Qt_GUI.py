@@ -169,6 +169,10 @@ ROW_SMALL_PX = 11
 # Search-popup item role carrying an airport row's code (#667 tag).
 _SEARCH_CODE_ROLE = Qt.UserRole + 1
 STOP_SIGN_COLOR = "#E5372B"
+# The tile pane's customized-settings section (#1350); BuildPane.swift
+# uses the same words.
+CUSTOM_SETTINGS = "Custom settings"
+EDIT_TILE_SETTINGS = "Edit settings…"
 RESUME_COLOR = "#2E9E5B"
 STOPPED_COLOR = QTMAP.STOPPED_COLOR
 
@@ -1098,6 +1102,24 @@ class MainWindow(QMainWindow):
         # session: the prompt volunteers itself ONCE per tile, then lives
         # on in the button above.
         self._legacy_prompted = set()
+        # Custom settings (#1350; mac-app parity: BuildPane's "Custom
+        # settings" section): each setting this tile's cfg customizes,
+        # "name: tile value (default value)", and the button that opens
+        # Settings on this tile with only its customized rows showing.
+        self.custom_settings_row = QWidget()
+        self._custom_settings_rows = QVBoxLayout(self.custom_settings_row)
+        self._custom_settings_rows.setContentsMargins(0, 0, 0, 0)
+        self._custom_settings_rows.setSpacing(2)
+        self.edit_tile_settings_btn = QPushButton(EDIT_TILE_SETTINGS)
+        self.edit_tile_settings_btn.setToolTip(
+            "Open Settings for this tile, showing its customized settings."
+        )
+        self.edit_tile_settings_btn.clicked.connect(self._edit_tile_settings)
+        _never_widen(self.edit_tile_settings_btn)
+        self._custom_settings_rows.addWidget(self.edit_tile_settings_btn)
+        ig.addRow(CUSTOM_SETTINGS + ":", self.custom_settings_row)
+        self._custom_settings_labels = []
+        self._custom_settings_tile = None
         # Other installed ortho/mesh packages covering this tile — one
         # row per pack, carrying that pack's DSF date for the tile.
         self.other_scenery_row = QWidget()
@@ -1118,6 +1140,7 @@ class MainWindow(QMainWindow):
         self._info_layout = ig
         self._info_layout.setRowVisible(self.modified_airports_row, False)
         self._info_layout.setRowVisible(self.other_scenery_row, False)
+        self._info_layout.setRowVisible(self.custom_settings_row, False)
         self._modified_airport_packs = []
         self.install_check = QCheckBox("Installed in X-Plane")
         self.install_check.clicked.connect(self._toggle_install)
@@ -1642,10 +1665,14 @@ class MainWindow(QMainWindow):
         )
         dialog.show()
 
-    def open_settings(self):
+    def open_settings(self, tiles=None, customized_only=False):
         # The whole map selection edits together (mixed states across
         # tiles); the active tile alone when nothing is multi-selected.
-        selected = sorted(self.map.selection())
+        # *tiles* scopes the window to those tiles instead ("Edit
+        # settings…" in the tile pane, #1350); *customized_only* opens it
+        # with the Customized filter on.
+        selected = sorted(
+            self.map.selection() if tiles is None else tiles)
         if not selected and self.map.active_tile():
             selected = [self.map.active_tile()]
         # The dialog's Detail and preset cards (#822, #1242) read and set
@@ -1657,6 +1684,8 @@ class MainWindow(QMainWindow):
             self.output_dir(),
             self,
         )
+        if customized_only:
+            dialog.show_customized_only()
         settings_geometry = str(self.prefs.get("settings_geometry", ""))
         if settings_geometry:
             dialog.restoreGeometry(
@@ -1676,6 +1705,7 @@ class MainWindow(QMainWindow):
             self._seed_paths_from_xplane()
             self._load_airports_async()
         self.refresh_tiles()
+        self._refresh_customized_tiles()
         if dialog.tile_written:
             self._active_changed(self.map.active_tile())
 
@@ -2393,6 +2423,7 @@ class MainWindow(QMainWindow):
         # Badges follow the authoritative built set, never a partial one:
         # a mid-scan sweep would audit tiles the swap is about to drop.
         self._refresh_conflict_tiles()
+        self._refresh_customized_tiles()
         # Same rule for the other-scenery survey: its exclusion list IS
         # the built set, so a partial one would draw our own tiles as
         # somebody else's coverage.
@@ -2406,6 +2437,7 @@ class MainWindow(QMainWindow):
 
     def _selection_changed(self):
         sel = self.map.selection()
+        self._refresh_customized_tiles(sel)
         self._search_tags = {
             t: c for t, c in self._search_tags.items() if t in sel
         }
@@ -2632,6 +2664,7 @@ class MainWindow(QMainWindow):
         # render inline rather than through a probe.
         self._refresh_other_scenery(tile)
         self._refresh_legacy_config(tile)
+        self._refresh_custom_settings(tile)
 
         # Reanchor probe (worker thread: one sidecar stat per pack in
         # Custom Scenery); the row stays hidden until a result for THIS
@@ -2968,6 +3001,63 @@ class MainWindow(QMainWindow):
         layout.addWidget(close_button, alignment=Qt.AlignRight)
         dialog.resize(560, min(220 + 200 * len(entries), 640))
         dialog.exec()
+
+    # ------------------------------------------------------------------
+    # Customized tile settings (#1350; mac-app parity: BuildPane's
+    # "Custom settings" section and MapCanvasView's settings badge).  The
+    # engine owns the comparison: O4_Tile_Customizations.
+    # ------------------------------------------------------------------
+    def _refresh_customized_tiles(self, tiles=None):
+        """The map's settings badges: every built and selected tile when
+        *tiles* is None, else only *tiles* (a selection change)."""
+        import O4_Tile_Customizations as TC
+
+        if tiles is None:
+            scope = set(self._built) | set(self.map.selection())
+            kept = set()
+        else:
+            scope = set(tiles)
+            kept = self.map.customized() - scope
+        try:
+            found = TC.customized_tiles(sorted(scope), self.output_dir())
+        except Exception:
+            found = set()
+        self.map.set_customized(kept | found)
+
+    def _refresh_custom_settings(self, tile):
+        """The tile pane's Custom settings section for the active tile."""
+        import O4_Tile_Customizations as TC
+
+        for label in self._custom_settings_labels:
+            self._custom_settings_rows.removeWidget(label)
+            label.deleteLater()
+        self._custom_settings_labels = []
+        self._custom_settings_tile = tile
+        rows = []
+        if tile is not None:
+            try:
+                rows = TC.tile_customizations(
+                    tile[0], tile[1], self.output_dir())["customizations"]
+            except Exception:
+                rows = []
+        for (index, row) in enumerate(rows):
+            label = QLabel(TC.row_text(row))
+            _wrap_and_never_widen(label)
+            label.setToolTip(TC.row_tooltip(row))
+            self._custom_settings_rows.insertWidget(index, label)
+            self._custom_settings_labels.append(label)
+        self._info_layout.setRowVisible(self.custom_settings_row, bool(rows))
+        if tile is not None:
+            badges = self.map.customized()
+            self.map.set_customized(
+                badges | {tile} if rows else badges - {tile})
+
+    def _edit_tile_settings(self):
+        """Edit settings…: Settings scoped to the active tile, showing
+        only its customized settings."""
+        tile = self._custom_settings_tile
+        if tile is not None:
+            self.open_settings(tiles=[tile], customized_only=True)
 
     # ------------------------------------------------------------------
     # Legacy per-tile configs (mac-app parity: BuildPane's "Update to

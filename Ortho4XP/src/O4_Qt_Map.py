@@ -69,6 +69,8 @@ LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 BUILT_COLOR = "#4CAF6E"
 #: The selection ring (the Mac app's buildSelection).
 SELECTION_COLOR = "#FFD60A"
+#: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
+SETTINGS_BADGE_COLOR = "#0A84FF"
 
 
 BUILD_GRADE_ZL = 17  # tiles at or above this ZL are saved at high quality
@@ -355,6 +357,7 @@ class MapView(QGraphicsView):
         self._built = {}             # (lat, lon) -> TileInfo
         self._installed = set()      # (lat, lon)
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
+        self._customized = set()     # (lat, lon) with tile settings (#1350)
         self._selection = set()
         self._active = None
         self._progress = {}          # (lat, lon) -> (state, label, pct)
@@ -501,6 +504,17 @@ class MapView(QGraphicsView):
         warning-badge set, computed off the UI thread by the window."""
         self._conflicts = set(conflicts)
         self.viewport().update()
+
+    def set_customized(self, tiles):
+        """Tiles whose cfg customizes a setting (#1350): the settings
+        badge, computed by the window from ``O4_Tile_Customizations``."""
+        tiles = set(tiles)
+        if tiles != self._customized:
+            self._customized = tiles
+            self.viewport().update()
+
+    def customized(self):
+        return set(self._customized)
 
     def set_default_airports(self, airports):
         """X-Plane's Global Airports marks: ``(code, lat, lon)`` rows.
@@ -1209,6 +1223,11 @@ class MapView(QGraphicsView):
             painter.setPen(pen)
             painter.drawRect(r.adjusted(px1, px1, -px1, -px1))
 
+        # Customized settings (#1350): a blue dot in the top-left corner,
+        # on a built or selected tile (MapCanvasView.swift draws the same).
+        if tile in self._customized and px > 14:
+            self._draw_settings_badge(painter, r, px, scale)
+
         if progress:
             self._draw_progress_badge(painter, r, px, progress)
 
@@ -1323,6 +1342,19 @@ class MapView(QGraphicsView):
             Qt.AlignCenter,
             "!",
         )
+
+    def _draw_settings_badge(self, painter, r, px, scale):
+        """The customized-settings dot, top-left of the tile square, sized
+        in screen points like the conflict badge (8-14 pt)."""
+        size = min(max(px * 0.11, 8.0), 14.0) / max(scale, 1e-12)
+        center = QPointF(r.left() + size, r.top() + size)
+        outline = QPen(QColor("#FFFFFF"))
+        outline.setCosmetic(True)
+        outline.setWidthF(1.5)
+        painter.setPen(outline)
+        painter.setBrush(QColor(SETTINGS_BADGE_COLOR))
+        painter.drawEllipse(center, size / 2, size / 2)
+        painter.setBrush(Qt.NoBrush)
 
     def _draw_progress_badge(self, painter, r, px, progress):
         state, label, pct = progress

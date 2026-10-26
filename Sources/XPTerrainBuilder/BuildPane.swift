@@ -42,6 +42,14 @@ struct BuildPane: View {
     @State private var legacyTile: BuildModel.LegacyTileSettings?
     @State private var showingLegacyAlert = false
     @State private var legacyPromptShown: Set<String> = []
+    /// The active tile's customized settings (#1350), from the engine.
+    @State private var customizations: [O4TileCustomization] = []
+    @Environment(\.openSettings) private var openSettings
+
+    /// The tile pane's customized-settings words; the Qt pane uses the
+    /// same (O4_Qt_GUI.CUSTOM_SETTINGS / EDIT_TILE_SETTINGS).
+    static let customSettingsTitle = "Custom settings"
+    static let editSettingsTitle = "Edit settings…"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -92,6 +100,13 @@ struct BuildPane: View {
         .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)") {
             await refreshModifiedAirports()
         }
+        .task(id: customizationsKey) {
+            guard let coord = buildModel.activeTile else {
+                customizations = []
+                return
+            }
+            customizations = await buildModel.tileCustomizations(for: coord)
+        }
         .task(id: "legacy|\(buildModel.activeTile?.key ?? "")|\(buildModel.built.count)") {
             guard let coord = buildModel.activeTile,
                   !legacyPromptShown.contains(coord.key),
@@ -121,6 +136,14 @@ struct BuildPane: View {
                 buildModel.rescan()
             }
         }
+    }
+
+    /// Re-reads the active tile's customizations when the tile, its cfg
+    /// (a Settings edit) or its badge changes.
+    private var customizationsKey: String {
+        let active = buildModel.activeTile
+        let badged = active.map { buildModel.customizedTiles.contains($0) } ?? false
+        return "custom|\(active?.key ?? "")|\(buildModel.tileConfigGeneration)|\(badged)|\(buildModel.built.count)"
     }
 
     /// Status only — the engine version lives in Settings.
@@ -202,6 +225,31 @@ struct BuildPane: View {
                 detailRow("Modified", item.dsfDate.map {
                     $0.formatted(date: .abbreviated, time: .shortened)
                 } ?? "—")
+            }
+            // Custom settings (#1350): each setting this tile's cfg
+            // customizes, "name: tile value (default value)", and the way
+            // into Settings for this tile alone (the Qt pane: the same).
+            if !customizations.isEmpty {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(Self.customSettingsTitle + ":")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 104, alignment: .trailing)
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(customizations) { row in
+                            Text(row.displayText)
+                                .scaledFont(.caption)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .help(row.helpText)
+                        }
+                        Button(Self.editSettingsTitle) {
+                            buildModel.editSettings(for: active)
+                            openSettings()
+                        }
+                        .controlSize(.small)
+                        .help("Open Settings for this tile, showing its customized settings.")
+                    }
+                }
             }
             // Custom airports whose objects the auto-patch pass reseated
             // for this tile's mesh: one label, one row per airport, an

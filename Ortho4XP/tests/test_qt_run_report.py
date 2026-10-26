@@ -40,6 +40,10 @@ def window(qapp, tmp_path, monkeypatch):
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
     win.prefs["output_dir"] = str(tmp_path)
+    # Never link a finished tile into the real X-Plane install (the
+    # owner's prefs may have auto-install on; conftest refuses the write).
+    win.prefs[GUI.AUTO_INSTALL_KEY] = False
+    monkeypatch.setattr(win, "_auto_install_tile", lambda tile: None)
     monkeypatch.setattr(win, "refresh_tiles", lambda: None)
     try:
         yield win

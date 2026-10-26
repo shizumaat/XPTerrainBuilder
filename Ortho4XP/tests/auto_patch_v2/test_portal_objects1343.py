@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import types
 
-from shapely.geometry import box as _sbox
-
 from auto_patch_v2.airport import obj8 as O
 from auto_patch_v2.airport import portal_objects as P
 from auto_patch_v2.law import Law
+from shapely.geometry import box as _sbox
 
 LAW = Law.for_airport("")
 THICK = LAW.tables.structures.basin.min_solid_thickness_m
@@ -124,9 +123,8 @@ def test_a_hard_deck_bridge_over_a_bore_end_is_no_portal(tmp_path):
 def _pin(role):
     """``structure_mouth._pinned`` at a mouth whose opening stands in one
     face of ``role``; the bore runs north of the mouth, the ramp south."""
-    from shapely.geometry import LineString
-
     from auto_patch_v2.planar import structure_mouth as SM
+    from shapely.geometry import LineString
     axis = LineString([(0.0, 0.0), (0.0, -120.0)])
     group = types.SimpleNamespace(mouth=(0.0, 0.0), inward=(0.0, 1.0))
     face = _sbox(-30.0, -4.0, 30.0, 30.0)

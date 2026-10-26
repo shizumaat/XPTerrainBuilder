@@ -70,6 +70,18 @@ BUILD_BOX = (
 #: Application section's rows (#1266: the Data Folder chooser).  The Mac's
 #: Appearance picker is a recorded exception: Qt follows the system theme.
 GENERAL_SECTIONS = ("Application", "Build Engine", "Provider Accounts")
+
+#: The console header after its title, left to right (#1226, owner Q139):
+#: (key, Swift marker in BuildConsoleView.swift, Qt ConsoleDrawer
+#: attribute).  The Build History list beside the console carries the one
+#: date filter: (Swift marker in BuildHistoryView.swift, Qt attribute).
+CONSOLE_HEADER = (
+    ("filter_chip", "filterChip", "chip"),
+    ("saved_logs", "savedLogsMenu", "saved_logs_btn"),
+    ("history", 'Image(systemName: "clock.arrow.circlepath")', "history_btn"),
+    ("clear", 'Image(systemName: "xmark.circle")', "console_clear_btn"),
+)
+HISTORY_DATE_FILTER = ('Picker("Built"', "range_combo")
 APPLICATION_ROWS = ("Version", "X-Plane Folder", "Data Folder")
 
 
@@ -128,6 +140,17 @@ def test_mac_application_rows_are_the_manifest():
     application = general[start:general.index("Section {", start)]
     rows = re.findall(r'LabeledContent\("([^"]+)"\)', application)
     assert [row for row in rows if row != "Status"] == list(APPLICATION_ROWS)
+
+
+def test_mac_console_header_is_the_manifest():
+    header = _block(SWIFT / "BuildConsoleView.swift",
+                    "private var header: some View", "@ViewBuilder")
+    positions = [header.find(marker) for _key, marker, _attr in CONSOLE_HEADER]
+    assert -1 not in positions, dict(zip((k for k, _m, _a in CONSOLE_HEADER),
+                                         positions, strict=True))
+    assert positions == sorted(positions), "Mac console header order differs"
+    history = (SWIFT / "BuildHistoryView.swift").read_text(encoding="utf-8")
+    assert HISTORY_DATE_FILTER[0] in history
 
 
 def test_mac_settings_holds_the_detail_level():
@@ -249,3 +272,12 @@ def test_qt_application_rows_are_the_manifest(window):
         assert [row for row in rows if row != "Status"] == list(APPLICATION_ROWS)
     finally:
         section.deleteLater()
+
+
+def test_qt_console_header_is_the_manifest(window):
+    drawer = window.console_drawer
+    header = drawer.layout().itemAt(0).layout()
+    expected = [getattr(drawer, attr) for _key, _marker, attr in CONSOLE_HEADER]
+    widgets = [header.itemAt(i).widget() for i in range(header.count())]
+    assert [w for w in widgets if w in expected] == expected
+    assert getattr(drawer.history, HISTORY_DATE_FILTER[1]).currentData() == "all"

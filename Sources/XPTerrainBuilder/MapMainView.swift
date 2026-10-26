@@ -363,7 +363,7 @@ struct MapMainView: View {
                 .environmentObject(buildModel.activity)
                 .environmentObject(buildModel.imagery)
         } second: {
-            BuildConsoleView()
+            BuildConsoleView(console: buildModel.console)
                 .environmentObject(controller)
                 .environmentObject(controller.progress)
                 .environmentObject(buildModel)

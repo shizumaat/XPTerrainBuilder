@@ -28,6 +28,7 @@ from typing import Callable, Optional
 import O4_File_Names as FNAMES
 import O4_Machine_Slots as SLOTS
 import O4_Step_Reuse as REUSE
+import O4_Tile_Build_Log as TILELOG
 import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
 import O4_Unmounted_Links as UNMOUNTED
@@ -716,6 +717,11 @@ class EngineSession:
         # per-tile total line is the parent orchestrator's to print.
         self._stepwise_run = False
         self._prefetch_imagery = False     # see build(prefetch=...)
+        # Each tile build's own log and record row in its build folder
+        # (#1226).  Opened by whichever process orchestrates the tile —
+        # this worker in-process, the parallel run in the parent — and
+        # never by a per-step worker child, whose lines the parent logs.
+        self.tile_logs = TILELOG.TileBuildLogs()
         # The live parallel run (subprocess scheduler), when one exists.
         self._parallel = None
         # In-process work queue: per-tile items the worker consumes and
@@ -760,11 +766,35 @@ class EngineSession:
             self._seq += 1
             object.__setattr__(event, "seq", self._seq)
             object.__setattr__(event, "ts", time.time())
+        self._note_tile_terminal(event)
         for callback in list(self._subscribers):
             try:
                 callback(event)
             except Exception:
                 pass
+
+    def _note_tile_terminal(self, event):
+        """Close a tile's build log at its terminal event (#1226): its
+        ``BuildDone``, or the stopped ``TileState``."""
+        try:
+            if isinstance(event, BuildDone):
+                if event.ok:
+                    outcome = ("warnings" if event.warnings or event.notes
+                               else "ok")
+                    closing = ()
+                else:
+                    outcome = "failed"
+                    closing = ["*** Tile %s failed: %s" % (
+                        FNAMES.short_latlon(event.lat, event.lon),
+                        event.error or "see above")]
+                self.tile_logs.finish((event.lat, event.lon), outcome,
+                                      len(event.warnings), closing)
+            elif (isinstance(event, TileState) and event.state == "queued"
+                    and event.label == "stopped"):
+                self.tile_logs.finish((event.lat, event.lon), "stopped",
+                                      closing=["=== Build stopped. ==="])
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Command: scan (streamed; moved from the Qt view 2026-07-15)
@@ -1203,7 +1233,27 @@ class EngineSession:
         self._eta = None
         self._parallel = None
 
+    def _logged_tile(self):
+        """The in-process tile whose build log is open, else ``None``."""
+        tile = self._active_tile
+        return tile if self.tile_logs.is_open(tile) else None
+
     def _build_worker(self):
+        """The in-process run loop, its tile's lines tagged (#1226): the
+        console prefix and the tile's own build log
+        (``O4_Tile_Build_Log.TileStreamTag``).  A per-step worker child
+        tags nothing — the parent orchestrator tags its lines."""
+        undo = None
+        if not self._stepwise_run:
+            undo = TILELOG.TileStreamTag.install(self.tile_logs,
+                                                 self._logged_tile)
+        try:
+            self._build_worker_loop()
+        finally:
+            if undo is not None:
+                undo()
+
+    def _build_worker_loop(self):
         """The in-process run loop: consume the work queue tile by tile.
 
         Each work item carries its own build arguments and step plan
@@ -1243,6 +1293,9 @@ class EngineSession:
                 self._emit(stopped_tile_state(lat, lon, custom_build_dir))
                 continue
             self._active_tile = (lat, lon)
+            if not self._stepwise_run:
+                self.tile_logs.begin((lat, lon), FNAMES.build_dir(
+                    lat, lon, custom_build_dir))
             step_seconds = {}
             autopatch_airports = 0
             self._tile_failures = []           # per-tile (H1, #562)
@@ -1713,7 +1766,9 @@ class EngineSession:
 
     def log_warning(self, text: str):
         """Emit a warning-level build Log line (UI.loud_warning hook)."""
-        self._emit(Log(level="warning", text=text))
+        tile = self._active_tile
+        self._emit(Log(level="warning", text=text,
+                       tile=tuple(tile) if tile else ()))
 
     def _take_tile_failures(self):
         """The tile's raw failure records, cleared as read."""
@@ -1742,7 +1797,7 @@ class EngineSession:
     # ------------------------------------------------------------------
     def tile_info(self, lat, lon, working_dir):
         import O4_Tile_Info as TINFO
-        return TINFO.tile_info(lat, lon, working_dir)
+        return TINFO.with_built_by(TINFO.tile_info(lat, lon, working_dir))
 
     def config_describe(self):
         import O4_Cfg_Vars as CFG_VARS

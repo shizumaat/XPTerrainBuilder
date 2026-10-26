@@ -88,6 +88,9 @@ from typing import Any, Optional
 # 1.14 (2026-10-24, additive, #1308): ``cursor_elevation`` answers the
 # built mesh's elevation at a point (``source`` "mesh"), else the DEM's
 # ("dem"); ``pending`` while a source loads off the read loop.
+# Within 1.14 (2026-10-26, additive, #1226): ``Log.tile`` — the
+# ``[lat, lon]`` of the tile whose build wrote the line; empty for a
+# run-level line.
 PROTOCOL_VERSION = "1.14"
 
 
@@ -115,10 +118,15 @@ class EngineHello(EngineEvent):
 
 @dataclass(frozen=True)
 class Log(EngineEvent):
-    """A build log line.  ``level``: "info" | "warning" | "error"."""
+    """A build log line.  ``level``: "info" | "warning" | "error".
+
+    ``tile`` (#1226): ``(lat, lon)`` of the tile whose build wrote it —
+    a front end filters its console by it — or ``()`` for a run-level
+    line."""
 
     level: str = "info"
     text: str = ""
+    tile: tuple = ()
 
 
 @dataclass(frozen=True)

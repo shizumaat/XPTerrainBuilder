@@ -45,22 +45,9 @@ ENGINE_FOOTER = (
     "Ortho4XP) and uses it by default.")
 RESTART_NOTE = "XPTerrainBuilder uses this folder the next time it starts."
 
-#: The Mac app's VERSION resource, read when no artifact stamped one.
-_SOURCE_VERSION = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "Sources", "XPTerrainBuilder", "Resources", "VERSION")
-
-
 def app_version():
     """The app version the Mac app's Settings shows (``AppVersion.current``)."""
-    stamped = BUILD.build_info().app
-    if stamped != BUILD.DEV:
-        return stamped
-    try:
-        with open(_SOURCE_VERSION, encoding="utf-8") as handle:
-            return handle.read().strip() or BUILD.DEV
-    except OSError:
-        return BUILD.DEV
+    return BUILD.app_version()
 
 
 def _header(layout, title):

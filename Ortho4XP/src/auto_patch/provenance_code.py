@@ -328,6 +328,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "O4_Step_Reuse",
     "O4_Stopped_Build",
     "O4_Text_Files",
+    "O4_Tile_Build_Log",
     "O4_Tile_Failures",
     "O4_Tile_Info",
     "O4_Tile_Staging",

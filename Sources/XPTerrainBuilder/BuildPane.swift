@@ -192,6 +192,11 @@ struct BuildPane: View {
             detailRow(O4Glossary.term("detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))
             detailRow("Imagery updated", dateText(info?.imageryDate))
+            if let info {
+                // Who built it (#1226, owner Q95): from the build record,
+                // else the tile's DSF.
+                detailRow("Built by", info.builtBy ?? "—")
+            }
             if let dem = info?.customDEM, !dem.isEmpty {
                 detailRow("Elevation", (dem as NSString).lastPathComponent)
             }

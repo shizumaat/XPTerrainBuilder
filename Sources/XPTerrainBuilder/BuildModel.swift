@@ -95,46 +95,6 @@ final class BuildActivityModel: ObservableObject {
     }
 }
 
-/// The build console: engine output (stderr under the protocol transport),
-/// append-heavy; a ~10 Hz generation bump tells the NSTextView to pull.
-@MainActor
-final class BuildConsoleModel: ObservableObject {
-    @Published private(set) var generation = 0
-    private(set) var totalAppended = 0
-    private(set) var clearCount = 0
-    private(set) var lines: [String] = []
-    private var flushScheduled = false
-
-    static let maxLines = 5000
-    static let trimTo = 4000
-
-    func append(_ line: String) {
-        lines.append(line)
-        totalAppended += 1
-        if lines.count > Self.maxLines {
-            lines.removeFirst(lines.count - Self.trimTo)
-        }
-        scheduleFlush()
-    }
-
-    func clear() {
-        lines = []
-        clearCount += 1
-        generation += 1
-    }
-
-    private func scheduleFlush() {
-        guard !flushScheduled else { return }
-        flushScheduled = true
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(100))
-            guard let self else { return }
-            self.flushScheduled = false
-            self.generation += 1
-        }
-    }
-}
-
 /// Build-mode state, mirroring the engine's Qt front end: an engine session
 /// over the JSON-lines protocol (scan / enqueue_build / cancel / links),
 /// map selection with an active tile, per-tile progress, and the engine's
@@ -224,6 +184,7 @@ final class BuildModel: ObservableObject {
         didSet {
             persistSelection()
             searchTags.keep(only: Set(selected.map { AirportTile(lat: $0.lat, lon: $0.lon) }))
+            if selected != oldValue { selectionChangedForConsole() }
         }
     }
     /// The search codes that picked each selected tile (#667); a search
@@ -233,6 +194,7 @@ final class BuildModel: ObservableObject {
         didSet {
             adoptActiveTileConfig()
             persistSelection()
+            refreshBuiltByIfMissing()
         }
     }
 
@@ -281,6 +243,8 @@ final class BuildModel: ObservableObject {
 
     let activity = BuildActivityModel()
     let console = BuildConsoleModel()
+    /// The one date filter of the Build History list and the map (#1226).
+    @Published var historyRange: BuildDateRange = .all
     /// Live map imagery for the selected provider (Qt-map parity).
     let imagery = ImageryModel()
 
@@ -714,8 +678,10 @@ final class BuildModel: ObservableObject {
         case .hello(let version, let protocolVersion, _):
             protocolHello = (version, protocolVersion)
             buildLog.notice("engine hello: \(version) protocol \(protocolVersion)")
-        case .stderr(let line), .log(_, let line):
+        case .stderr(let line):
             console.append(line)
+        case .log(_, let line, let tile):
+            console.append(line, tile: tile)
         case .scanProgress(let phase, _, _):
             scanPhase = phase
         case .scanBatch(let builtTriples, let installedPairs):
@@ -735,6 +701,7 @@ final class BuildModel: ObservableObject {
             installed = scanAccumInstalled
             isScanning = false
             scanPhase = ""
+            syncConsoleView()
             if let base = tileBaseFolder {
                 TileScanCache.save(
                     built: Array(built.values),
@@ -770,20 +737,23 @@ final class BuildModel: ObservableObject {
             console.append(code.isEmpty
                 ? "*** Tile \(coord.key): airport \(airport) failed at the "
                     + "\(stage) stage — \(error)"
-                : O4TileFailureCopy.airportFailedLine(tile: coord.key, airport: airport))
+                : O4TileFailureCopy.airportFailedLine(tile: coord.key, airport: airport),
+                tile: coord.key)
         case .buildDone(let lat, let lon, let ok, let error, let failures, let warnings,
                         let unpatched, let notes):
             let coord = TileCoord(lat: lat, lon: lon)
             // #562 / #564: the engine's own words — what, why, what to do —
             // on the console now and in the run's one report at the end.
             for failure in failures {
-                failure.consoleLines(isWarning: false).forEach { console.append($0) }
+                failure.consoleLines(isWarning: false).forEach { console.append($0, tile: coord.key) }
             }
             for warning in warnings {
-                warning.consoleLines(isWarning: true).forEach { console.append($0) }
+                warning.consoleLines(isWarning: true).forEach { console.append($0, tile: coord.key) }
             }
             for note in notes {
-                note.consoleLines(isWarning: false, isNote: true).forEach { console.append($0) }
+                note.consoleLines(isWarning: false, isNote: true).forEach {
+                    console.append($0, tile: coord.key)
+                }
             }
             let issues = O4TileIssues(
                 tileKey: coord.key, lat: lat, lon: lon, built: ok,
@@ -798,7 +768,8 @@ final class BuildModel: ObservableObject {
                     ? "Tile \(coord.key) finished."
                     : "Tile \(coord.key) finished with warnings"
                         + (airports.isEmpty ? "."
-                           : " — no airport patch for \(airports.joined(separator: ", "))."))
+                           : " — no airport patch for \(airports.joined(separator: ", "))."),
+                    tile: coord.key)
                 if !(warnings.isEmpty && notes.isEmpty), var row = activity.tiles[coord] {
                     row.label = O4TileFailureCopy.builtWithWarnings
                     activity.tiles[coord] = row
@@ -806,8 +777,13 @@ final class BuildModel: ObservableObject {
                 selected.remove(coord)
                 refreshTileInfo(coord)
                 if linkTiles { installLink(coord, quiet: true) }
-            } else if failures.isEmpty, !error.isEmpty {
-                console.append("*** Tile \(coord.key) failed: \(error)")
+            } else {
+                if failures.isEmpty, !error.isEmpty {
+                    console.append("*** Tile \(coord.key) failed: \(error)", tile: coord.key)
+                }
+                // Its build record changed too (#1226: the history lists
+                // failed builds).
+                refreshTileInfo(coord)
             }
         case .runEta(let elapsed, let remaining, let done, let total):
             activity.elapsedSeconds = elapsed
@@ -1066,7 +1042,7 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    private func refreshTileInfo(_ coord: TileCoord) {
+    func refreshTileInfo(_ coord: TileCoord) {
         guard let client, let base = tileBaseFolder else { return }
         client.send(command: "tile_info", arguments: [
             "lat": coord.lat, "lon": coord.lon, "working_dir": base.path,

@@ -399,7 +399,10 @@ struct MapCanvasView: View {
         // label is drawn with the tile labels (MapCanvasLabels, #817).
         for coord in buildModel.built.keys where visible(coord) {
             let r = rect(coord)
-            let color = Self.builtTile
+            // The Build History date filter dims built tiles outside its
+            // period (#1226).
+            let color = buildModel.builtInHistoryRange(coord)
+                ? Self.builtTile : Self.builtTile.opacity(0.3)
             context.stroke(Path(r), with: .color(color.opacity(0.85)), lineWidth: 2)
             if buildModel.installed.contains(coord) {
                 context.stroke(Path(r.insetBy(dx: r.width * 0.03, dy: r.height * 0.03)),

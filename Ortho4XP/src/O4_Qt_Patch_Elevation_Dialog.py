@@ -26,13 +26,6 @@ __all__ = ["SetElevationDialog", "TITLE"]
 TITLE = "Set elevation…"
 
 
-def _number(text: str) -> float | None:
-    try:
-        return float(text.strip().replace(",", "."))
-    except ValueError:
-        return None
-
-
 class SetElevationDialog(QDialog):
     """See the module docstring; ``model`` is the ``PatchEditModel``."""
 
@@ -78,17 +71,17 @@ class SetElevationDialog(QDialog):
 
     def _unit_changed(self, unit: str) -> None:
         """Keep the typed value: convert it into the new unit."""
-        v = _number(self.value.text())
+        v = ELEV.parse_number(self.value.text())
         metres = None if v is None else ELEV.to_metres(v, self._unit)
         self._unit = unit
         self._fill(metres)
 
     def _refresh(self, *_args) -> None:
         self.summary.setText(ELEV.summary(self.plan, self.shared.isChecked()))
-        self.apply_button.setEnabled(_number(self.value.text()) is not None)
+        self.apply_button.setEnabled(ELEV.parse_number(self.value.text()) is not None)
 
     def metres(self) -> float | None:
-        v = _number(self.value.text())
+        v = ELEV.parse_number(self.value.text())
         return None if v is None else ELEV.to_metres(v, self._unit)
 
     def apply(self) -> bool:

@@ -30,6 +30,7 @@ import O4_Qt_Patch_ShapePick as PICK
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Version
 from O4_Qt_Patch_Controller import PatchController, built_date_text
+from O4_Qt_Patch_Elevation import parse_number
 from O4_Qt_Patch_Geometry import role_name
 
 __all__ = ["PatchPanel", "parse_number", "source_line", "node_lat_lon", "FEET_PER_METRE"]
@@ -39,14 +40,6 @@ STALE_COLOR = "#F29419"
 SELECTION_COLOR = "#FFD60A"
 #: How long a "Copied" note stays (ms; the Mac's ``copiedNoteSeconds``).
 COPIED_NOTE_MS = 1500
-
-
-def parse_number(text: str) -> float | None:
-    """A typed number ("62.7", "62,7", "+0.50"), or None."""
-    try:
-        return float(text.strip().replace(",", "."))
-    except ValueError:
-        return None
 
 
 def source_line(patch, file_mtime: float | None) -> str:

@@ -9,6 +9,7 @@ Pure functions of the document, tested headless:
   nodes only they use and the nodes they share with other shapes, the
   neighbouring shapes those shared nodes belong to, and the mean
   ``alt_abs`` that prefills the field;
+* :func:`parse_number` — a typed field value ("62.7", "62,7", "+0.50");
 * :func:`to_metres` / :func:`from_metres` — the field's display units;
 * :func:`summary` — the dialog's first line;
 * :func:`apply` — ``patch_edit.set_alt`` on the plan's nodes.
@@ -21,7 +22,7 @@ from o4_engine import patch_edit as PE
 from O4_Qt_Preview3D_Shapes import assemble, is_gap_ring
 
 __all__ = ["FEET_PER_METRE", "UNITS", "ElevationPlan", "plan", "to_metres",
-           "from_metres", "summary", "apply"]
+           "from_metres", "parse_number", "summary", "apply"]
 
 #: International foot (the Mac's ``PatchNodeInspector.feetPerMetre``).
 FEET_PER_METRE = 1 / 0.3048
@@ -66,6 +67,14 @@ def plan(doc: PE.PatchDoc, way_ids: _t.Iterable[int]) -> ElevationPlan:
     alts = [doc.nodes[n][3] for n in sorted(mine) if doc.nodes[n][3] is not None]
     return ElevationPlan(frozenset(ways), frozenset(mine - shared), frozenset(shared),
                          frozenset(neighbours), sum(alts) / len(alts) if alts else None)
+
+
+def parse_number(text: str) -> float | None:
+    """A typed number ("62.7", "62,7", "+0.50"), or None."""
+    try:
+        return float(text.strip().replace(",", "."))
+    except ValueError:
+        return None
 
 
 def to_metres(value: float, unit: str) -> float:

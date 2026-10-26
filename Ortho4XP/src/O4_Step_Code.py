@@ -224,6 +224,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch.provenance",
     "auto_patch.provenance_code",
     "auto_patch.provenance_env",
+    "auto_patch.provenance_tools",
     "auto_patch.selection",
     "auto_patch.slot_gated_pool",
     "auto_patch_v2",

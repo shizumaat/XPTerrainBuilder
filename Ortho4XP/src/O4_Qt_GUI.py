@@ -2607,9 +2607,11 @@ class MainWindow(QMainWindow):
         return FNAMES.build_dir(tile[0], tile[1], self.output_dir())
 
     def _tile_menu(self, lat, lon, global_pos):
-        """Right-click on a tile (#938): its menu at the pointer."""
+        """Right-click on a tile (#938): its menu at the pointer; in patch
+        Edit mode it starts with "Slice" (#1318)."""
         menu = QTTILEMENU.tile_menu(
             self, lat, lon, self._tile_folder((lat, lon)))
+        self.patch_editor.add_to_menu(menu)
         menu.exec(global_pos)
 
     def _active_changed(self, tile):

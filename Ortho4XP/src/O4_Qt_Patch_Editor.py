@@ -18,15 +18,19 @@ from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
 from O4_Qt_Patch_Engine import PatchEngine
 from O4_Qt_Patch_Gestures import PatchGestures
-from O4_Qt_Patch_Model import PatchEditModel
+from O4_Qt_Patch_Model import MODE_EDIT, PatchEditModel
 from O4_Qt_Patch_Overlay import PatchOverlay
 from O4_Qt_Patch_Panel import PatchPanel
 from O4_Qt_Patch_Toolbar import PatchToolbar
 
-__all__ = ["PatchEditor", "PACK_OUTLINES_PREF"]
+__all__ = ["PatchEditor", "PACK_OUTLINES_PREF", "SLICE_TITLE"]
 
 #: The prefs key that remembers the "Pack outlines" toggle (on by default).
 PACK_OUTLINES_PREF = "patch_editor_pack_outlines"
+
+#: The right-click item that cuts a shape between two selected nodes
+#: (#1318; the Mac app's ``TileContextMenu.sliceTitle``).
+SLICE_TITLE = "Slice"
 
 
 class PatchEditor:
@@ -78,6 +82,26 @@ class PatchEditor:
         preview.setShortcut(QKeySequence("Ctrl+3"))
         preview.triggered.connect(self.open_preview)
         return {"undo": undo, "redo": redo, "save": save, "preview": preview}
+
+    def add_to_menu(self, menu) -> None:
+        """The map's right-click menu in Edit mode (#1318; the Mac app's
+        ``TileContextMenu``): "Slice" first, enabled only when two nodes of
+        one shape that are not neighbours are selected."""
+        model = self.model
+        if model.doc is None or model.mode != MODE_EDIT:
+            return
+        first = menu.actions()[0] if menu.actions() else None
+        action = QAction(SLICE_TITLE, menu)
+        try:
+            model.slice_args()
+        except (KeyError, ValueError) as why:
+            action.setEnabled(False)
+            action.setToolTip(str(why).strip("'\""))
+        action.triggered.connect(model.slice_selection)
+        menu.insertAction(first, action)
+        if first is not None:
+            menu.insertSeparator(first)
+        menu.setToolTipsVisible(True)
 
     def open_preview(self) -> None:
         """Ctrl/⌘3 or the map's "3D" button: show (or raise) the window."""

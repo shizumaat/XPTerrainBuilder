@@ -511,3 +511,51 @@ def test_mixed_selection_deletes_shapes_then_nodes_in_one_step(editor):
     assert -5 not in ed.model.doc.nodes and -1 not in ed.model.doc.nodes and -3 in ed.model.doc.nodes
     assert ed.model.undo_stack.count() == 1
     assert ed.model.undo_stack.undoText() == "Delete Shape"
+
+
+def test_slice_is_offered_for_two_non_neighbours_and_is_one_undo_step(editor):
+    """#1318: the right-click menu starts with "Slice" in Edit mode, enabled
+    only for two nodes of one shape that are not neighbours; one step,
+    undone whole; the two halves end selected."""
+    from O4_Qt_Patch_Editor import SLICE_TITLE
+    from PySide6.QtWidgets import QMenu
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+
+    def menu_item():
+        menu = QMenu()
+        menu.addAction("Show in Finder")
+        ed.add_to_menu(menu)
+        found = [a for a in menu.actions() if a.text() == SLICE_TITLE]
+        return found[0] if found else None, menu
+
+    assert menu_item()[0] is None                  # View mode: no item
+    ed.model.set_mode("Edit")
+    ed.model.set_selection({-1, -2})               # neighbours
+    item, menu = menu_item()
+    assert item is not None and not item.isEnabled() and "neighbours" in item.toolTip()
+    assert menu.actions()[0] is item and menu.actions()[1].isSeparator()
+    before = ed.model.doc
+    ed.model.set_selection({-1, -3})
+    item, _menu = menu_item()
+    assert item.isEnabled()
+    item.trigger()
+    assert [w.id for w in ed.model.doc.ways] == [-10, -12, -11]
+    assert ed.model.shape_selection == {-10, -12} and not ed.model.selection
+    assert ed.model.undo_stack.count() == 1 and ed.model.undo_stack.undoText() == "Slice"
+    assert ed.model.unsaved_edits == 1
+    ed.model.undo_stack.undo()
+    assert ed.model.doc == before
+    ed.model.undo_stack.redo()
+    assert len(ed.model.doc.ways) == 3
+
+
+def test_the_mac_app_names_slice_the_same():
+    import re
+    from pathlib import Path
+
+    from O4_Qt_Patch_Editor import SLICE_TITLE
+    swift = (Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
+             / "TileContextMenu.swift").read_text(encoding="utf-8")
+    assert re.search(r'static let sliceTitle = "([^"]*)"', swift).group(1) == SLICE_TITLE

@@ -73,7 +73,8 @@ struct MapCanvasView: View {
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     let coord = BuildModel.TileCoord(lat: Int(floor(point.lat)),
                                                      lon: Int(floor(point.lon)))
-                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord))
+                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
+                                           patch: buildModel.patchEdit)
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }

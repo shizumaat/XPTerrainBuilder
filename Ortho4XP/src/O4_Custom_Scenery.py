@@ -157,7 +157,8 @@ def imagery_from_file_names(names) -> Optional[Tuple[str, int]]:
 def pack_imagery(content_root: str) -> Optional[Tuple[str, Optional[int]]]:
     """``(provider, zl)`` an installed ortho pack carries (#1227, #1257):
     from its ``terrain``/``textures`` file names, else the
-    ``Ortho4XP*.cfg`` Ortho4XP copies into the pack root.  Capped
+    ``XPTerrainBuilder*.cfg`` (else Ortho4XP's ``Ortho4XP*.cfg``, read for the
+    pack's imagery only) in the pack root.  Capped
     listings, as :func:`_terrain_probe`; ``PackImagery`` in the Mac app."""
     names = []
     for folder in ("terrain", "textures"):
@@ -169,8 +170,10 @@ def pack_imagery(content_root: str) -> Optional[Tuple[str, Optional[int]]]:
     if found is not None:
         return found
     try:
-        cfgs = sorted(n for n in os.listdir(content_root)
-                      if n.startswith("Ortho4XP") and n.lower().endswith(".cfg"))
+        cfgs = sorted((n for n in os.listdir(content_root)
+                       if n.startswith(("XPTerrainBuilder", "Ortho4XP"))
+                       and n.lower().endswith(".cfg")),
+                      key=lambda n: (not n.startswith("XPTerrainBuilder"), n))
     except OSError:
         return None
     import O4_Tile_Info as TINFO

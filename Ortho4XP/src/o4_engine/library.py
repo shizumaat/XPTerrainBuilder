@@ -27,6 +27,7 @@ import shutil
 import threading
 import typing as _t
 
+import O4_Config_Names as CN
 import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Scenery_Links as LINKS
@@ -70,7 +71,7 @@ def _built_by(build_dir: str, lat: int, lon: int) -> str:
     short = FNAMES.short_latlon(lat, lon)
     if os.path.isfile(os.path.join(build_dir, "Ortho4XP_" + short + "_steps.json")):
         return BUILT_HERE
-    cfg = os.path.join(build_dir, "Ortho4XP_" + short + ".cfg")
+    cfg = CN.tile_cfg_path(build_dir, lat, lon)
     try:
         with TEXT.open_supplied(cfg) as handle:
             for line in handle:

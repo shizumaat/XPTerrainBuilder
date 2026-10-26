@@ -55,6 +55,8 @@ struct MapCanvasView: View {
     static let badgeStopped = Color(red: 0.95, green: 0.58, blue: 0.10)  // #F29419
     /// The customized-settings dot (#1350); Qt SETTINGS_BADGE_COLOR.
     static let settingsBadge = Color(red: 0.04, green: 0.52, blue: 1.0)  // #0A84FF
+    /// The custom-patch band (#1229); Qt CUSTOM_PATCH_COLOR.
+    static let customPatchBand = Color(red: 1.0, green: 0.62, blue: 0.04)  // #FF9F0A
 
     var body: some View {
         GeometryReader { proxy in
@@ -443,6 +445,16 @@ struct MapCanvasView: View {
                         .foregroundStyle(.yellow),
                     at: CGPoint(x: r.maxX - s * 0.7, y: r.minY + s * 0.7))
             }
+        }
+
+        // Custom patch (#1229): a 4 pt orange band just inside the tile's
+        // edge — the auto patch does not run for an airport of this tile
+        // (Qt: O4_Qt_Map._draw_custom_patch_band).
+        for coord in buildModel.customPatchTiles.keys where visible(coord) {
+            let r = rect(coord)
+            guard r.width > 8 else { continue }
+            context.stroke(Path(r.insetBy(dx: 2, dy: 2)),
+                           with: .color(Self.customPatchBand.opacity(0.85)), lineWidth: 4)
         }
 
         // Selection: focus ring, not a fill — a fill tints the very

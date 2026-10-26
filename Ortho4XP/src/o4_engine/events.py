@@ -88,6 +88,9 @@ from typing import Any, Optional
 # 1.14 (2026-10-24, additive, #1308): ``cursor_elevation`` answers the
 # built mesh's elevation at a point (``source`` "mesh"), else the DEM's
 # ("dem"); ``pending`` while a source loads off the read loop.
+# Within 1.14 (2026-10-26, additive, #1229): ``custom_patches`` and
+# ``use_auto_patch`` — commands and replies only; an older engine refuses
+# them and the app draws no band.
 # Within 1.14 (2026-10-26, additive, #1326): ``TileState`` and
 # ``StepProgress`` carry ``attempt``, the tile's admission number in this
 # session, so a front end tells a stopped attempt's late news from the

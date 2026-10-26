@@ -476,7 +476,10 @@ def test_legacy_offer_shows_for_a_built_tile_only(make_window, tmp_path):
     window = make_window()
     build = tmp_path / "zOrtho4XP_+48-006"
     build.mkdir()
-    (build / "Ortho4XP.cfg").write_text("default_zl=17\n", encoding="utf-8", newline="")
+    # This app's own cfg with a value this version does not define (an
+    # Ortho4XP cfg is ignored, never offered: RULINGS 2026-10-26c).
+    (build / "XPTerrainBuilder_+48-006.cfg").write_text(
+        "default_zl=17\ntexture_mode=weird\n", encoding="utf-8", newline="")
     # Unbuilt: nothing to say, even with a legacy file on disk.
     window._built = {}
     window._refresh_legacy_config(TILE)
@@ -485,14 +488,13 @@ def test_legacy_offer_shows_for_a_built_tile_only(make_window, tmp_path):
     window._built = {TILE: _tile_info(*TILE, build_dir=str(build))}
     window._legacy_prompted.add(TILE)   # suppress the modal auto-prompt
     window._refresh_legacy_config(TILE)
-    assert window._legacy_tile_settings["uses_legacy_name"] is True
+    assert window._legacy_tile_settings["foreign_enums"][0][0] == "texture_mode"
 
 
 def test_legacy_message_names_every_marker(make_window):
     window = make_window()
     text = window._legacy_config_message({
         "lat": 48, "lon": -6,
-        "uses_legacy_name": True,
         "foreign_enums": [("texture_mode", "weird", "full_ortho")],
         "quoted_keys": ["default_website"],
         "missing_pins": ["/gone/dem.tif"],
@@ -501,7 +503,7 @@ def test_legacy_message_names_every_marker(make_window):
     assert "texture_mode = weird" in text and "full_ortho" in text
     assert "dem.tif" in text
     assert "1 setting" in text
-    assert "Ortho4XP.cfg" in text
+    assert "Ortho4XP" not in text
 
 
 # ===========================================================================

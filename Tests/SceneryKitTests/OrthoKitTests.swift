@@ -72,7 +72,7 @@ import Foundation
     }
 
     @Test func configFileRoundTrip() throws {
-        var file = try OrthoConfigFile(contentsOf: engineRoot.appendingPathComponent("Ortho4XP.cfg"))
+        var file = try OrthoConfigFile(contentsOf: engineRoot.appendingPathComponent(OrthoConfigNames.globalFileName))
         #expect(file.rawValues["verbosity"] == "2")
         #expect(file.rawValues["custom_unknown_key"] == "keepme")
 
@@ -90,7 +90,7 @@ import Foundation
             Issue.record("bundled schema snapshot missing")
             return
         }
-        let file = try OrthoConfigFile(contentsOf: engineRoot.appendingPathComponent("Ortho4XP.cfg"))
+        let file = try OrthoConfigFile(contentsOf: engineRoot.appendingPathComponent(OrthoConfigNames.globalFileName))
         let values = file.values(schema: schema)
         #expect(values["verbosity"] == .int(2))
         #expect(values["curvature_tol"] == .double(2.5))

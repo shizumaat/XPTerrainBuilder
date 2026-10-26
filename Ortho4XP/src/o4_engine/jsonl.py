@@ -234,6 +234,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "patch_load": patch_commands.patch_load,
         "patch_save": patch_commands.patch_save,
         "patch_revert": patch_commands.patch_revert,
+        # Custom patches (#1229, RULINGS 2026-10-26c): which tiles carry
+        # one (the map band, the tile info) and setting a tile's aside so
+        # the auto patch runs again.  Synchronous file work.
+        "custom_patches": patch_commands.custom_patches,
+        "use_auto_patch": patch_commands.use_auto_patch,
         # Patch editor 3D preview (protocol 1.12, #46): the DEM grid under
         # the patch, from the data repo's caches only.  Synchronous.
         "terrain_sample": terrain_sample,

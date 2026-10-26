@@ -99,6 +99,7 @@ import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Qt_Tile_Menu as QTTILEMENU
+import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
@@ -120,6 +121,9 @@ PREFS_FILE = FNAMES.data_path(".qt_prefs.json")
 TILE_FRAME_MARGIN = 0.15
 AIRPORT_CACHE = FNAMES.airport_index_cache()
 MAX_CONSOLE_LINES = 5000
+#: Quiet time after a Build-box change before the cost estimate is asked
+#: for (#820): one request per burst of clicks, an answer within ~1 s.
+PLAN_ESTIMATE_DEBOUNCE_MS = 250
 
 # Prefs keys for the restored tile selection (docs/specs/qt-parity-
 # selection-stop-resume-spec.md §Q1).  The selected set is a list of
@@ -774,6 +778,7 @@ class MainWindow(QMainWindow):
             EV.PackMissingArt: self._on_pack_missing_art,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
+            EV.PlanEstimateReady: self._on_plan_estimate_ready,
         }
         # #433: the missing-art warnings already shown (one per pack, tile
         # and missing set) and the open boxes (kept alive: non-modal).
@@ -1140,7 +1145,7 @@ class MainWindow(QMainWindow):
         build_group = QGroupBox("Build")
         bg = QVBoxLayout(build_group)
         # Two-line elided: the dynamic summary ("N tiles selected ·
-        # rough est. …") must never widen the fixed-width panel into
+        # airport lidar …") must never widen the fixed-width panel into
         # clipping, and plain word wrap here would tie its height to
         # its width — the scroll-area oscillation the class avoids.
         self.build_summary = TwoLineElidedLabel("No tiles selected")
@@ -1240,6 +1245,19 @@ class MainWindow(QMainWindow):
             # width the panel has, clipping its own tail at worst.
             _never_widen(c)
             bg.addWidget(c)
+            c.toggled.connect(self._schedule_plan_estimate)
+        self.imagery_combo.currentTextChanged.connect(
+            self._schedule_plan_estimate)
+
+        # What the build will cost, above Build (#820): the engine's
+        # plan_estimate ranges, refreshed shortly after any change.
+        self.plan_panel = QTPLAN.PlanEstimatePanel()
+        bg.addWidget(self.plan_panel)
+        self._plan_request = 0
+        self._plan_timer = QTimer(self)
+        self._plan_timer.setSingleShot(True)
+        self._plan_timer.setInterval(PLAN_ESTIMATE_DEBOUNCE_MS)
+        self._plan_timer.timeout.connect(self._request_plan_estimate)
 
         self.build_btn = QPushButton("▶ Build")
         self.build_btn.clicked.connect(self.start_build)
@@ -2506,15 +2524,11 @@ class MainWindow(QMainWindow):
         if sel is None:
             sel = self.map.selection()
         n = len(sel)
+        self._schedule_plan_estimate()
         if not n:
             self.build_summary.setText("No tiles selected")
         else:
-            est = n * 3.0 * 4 ** (self.build_zl - 16)
-            summary_text = "%d tile%s selected · rough est. %.1f GB" % (
-                n,
-                "s" if n > 1 else "",
-                est,
-            )
+            summary_text = "%d tile%s selected" % (n, "s" if n > 1 else "")
             try:
                 import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
 
@@ -2552,10 +2566,75 @@ class MainWindow(QMainWindow):
             self.build_btn.setText(
                 "▶ Build %d tile%s" % (n, "s" if n > 1 else "")
                 if n else "▶ Build")
-            blocked = self.xplane_block_reason()
+            blocked = (self.xplane_block_reason()
+                       or self.plan_panel.blocking_reason())
             self.build_btn.setEnabled(blocked is None)
             self.build_btn.setToolTip(blocked or "")
             self._show_build_block(blocked)
+
+    # ------------------------------------------------------------------
+    # Build cost (#820): the engine's plan_estimate for the next press
+    # ------------------------------------------------------------------
+    def _plan_tiles(self):
+        """The tiles the next Build press would hand the engine."""
+        selection = sorted(self.map.selection())
+        if self.chk_skip_built.isChecked():
+            selection = [t for t in selection if t not in self._built]
+        return [t for t in selection if not self._tile_in_active_run(t)]
+
+    def _schedule_plan_estimate(self, *_args):
+        if hasattr(self, "_plan_timer"):
+            self._plan_timer.start()
+
+    def _request_plan_estimate(self):
+        tiles = self._plan_tiles()
+        steps = (self.chk_vector.isChecked(), self.chk_imagery.isChecked(),
+                 self.chk_overlays.isChecked())
+        self._plan_request += 1
+        if not tiles or not any(steps):
+            self.plan_panel.clear()
+            self._update_build_button_only()
+            return
+        self.plan_panel.show_pending()
+        try:
+            self._plan_command()(
+                tiles=[list(t) for t in tiles],
+                provider=self.imagery_combo.currentText(),
+                zoomlevel=self.build_zl,
+                custom_build_dir=self.output_dir(),
+                do_vector=steps[0], do_imagery=steps[1], do_overlays=steps[2],
+                request=self._plan_request)
+        except Exception as error:
+            self.plan_panel.show_error(str(error))
+
+    def _plan_command(self):
+        """The engine's ``plan_estimate`` handler, from the ONE command
+        table (``o4_engine.jsonl.command_table``), never re-spelled."""
+        if getattr(self, "_plan_handler", None) is None:
+            from o4_engine import jsonl
+
+            self._plan_handler = jsonl.command_table(self._session)["plan_estimate"]
+        return self._plan_handler
+
+    def _on_plan_estimate_ready(self, event):
+        if event.request != self._plan_request:
+            return  # an answer to a selection that has since changed
+        if event.error or event.result is None:
+            self.plan_panel.show_error(event.error or "the engine sent none")
+        else:
+            self.plan_panel.show_result(event.result)
+        self._update_build_button_only()
+
+    def _update_build_button_only(self):
+        """Re-apply the refusal after a new estimate (idle runs only:
+        a queued batch joins a run whose space is already spoken for)."""
+        if self._building:
+            return
+        blocked = (self.xplane_block_reason()
+                   or self.plan_panel.blocking_reason())
+        self.build_btn.setEnabled(blocked is None)
+        self.build_btn.setToolTip(blocked or "")
+        self._show_build_block(blocked)
 
     def _show_build_block(self, reason):
         """The Build box's visible why-not line; hidden when Build is on."""
@@ -3188,6 +3267,8 @@ class MainWindow(QMainWindow):
         """Build the selected tiles — or queue them into the run in
         progress (the map and the Build box stay live during builds)."""
         blocked = self.xplane_block_reason()
+        if not self._building:
+            blocked = blocked or self.plan_panel.blocking_reason()
         if blocked:
             self._status(blocked)
             return

@@ -153,7 +153,7 @@ def _ortho4xp_version() -> str:
 
 #: Commands completed by an event that names the command: their handler
 #: is given the command's ``id`` as ``request``.
-_TAKES_REQUEST_ID = frozenset({"pack_objects"})
+_TAKES_REQUEST_ID = frozenset({"pack_objects", "plan_estimate"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -169,6 +169,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     from .elevation_commands import cursor_elevation
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
+    from .plan_estimate import start_plan_estimate
     from .mesh_commands import mesh_crop
     from .terrain_commands import terrain_sample
     return {
@@ -240,6 +241,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # thread: an uncached source loads on a daemon thread and the
         # reply says pending.
         "cursor_elevation": cursor_elevation,
+        # Build cost (protocol 1.15, #820): download, disk and time ranges
+        # for the tiles about to be built.  Replies {"status": "started"};
+        # PlanEstimateReady carrying this command's id completes it.
+        "plan_estimate": lambda **kw: start_plan_estimate(session._emit, **kw),
     }
 
 

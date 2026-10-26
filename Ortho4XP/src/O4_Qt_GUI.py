@@ -101,6 +101,7 @@ import O4_Qt_Patch_Editor as QTPATCH
 import O4_Qt_Text_Scale as QTTEXT
 import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Scenery_Watcher as QTSCW
+import O4_Qt_Library as QTLIBRARY
 
 # The squeeze idiom lives in ONE module now (2026-09-17): this window,
 # the settings sheet and the wizard all import it.  Top-level, so
@@ -1428,6 +1429,12 @@ class MainWindow(QMainWindow):
         console_action = QAction("Toggle console", self)
         console_action.triggered.connect(self.toggle_console)
         view_menu.addAction(console_action)
+        # Library (#824; Mac: View ▸ Library, ⌘L): every built tile with
+        # its size, and the download caches.
+        library_action = QAction("Library…", self)
+        library_action.setShortcut(QKeySequence("Ctrl+L"))
+        library_action.triggered.connect(self.open_library_dialog)
+        view_menu.addAction(library_action)
         # Text size (#827): Bigger / Smaller / Actual Size, remembered.
         view_menu.addSeparator()
         self._text_scale_actions = QTTEXT.make_actions(self, self.set_text_scale)
@@ -1660,6 +1667,30 @@ class MainWindow(QMainWindow):
             self, self.map, self._route_layer, self.prefs, save_prefs, **seams)
         self.flight_plan_dialog.show()
         return self.flight_plan_dialog
+
+    def open_library_dialog(self):
+        """View menu: the Library window (#824).  One at a time; it reads
+        the tiles folder and the caches as it opens."""
+        import O4_Config_Utils as CFG
+
+        dialog = getattr(self, "library_dialog", None)
+        if dialog is not None and dialog.isVisible():
+            dialog.raise_()
+            return dialog
+        self.library_dialog = QTLIBRARY.LibraryDialog(
+            self, self.working_dir(), CFG.custom_scenery_dir,
+            building=lambda: self._building,
+            on_rebuild=self._rebuild_from_library,
+            on_changed=self.refresh_tiles,
+            restore_pack=self._session.reanchor_restore)
+        self.library_dialog.show()
+        self.library_dialog.refresh()
+        return self.library_dialog
+
+    def _rebuild_from_library(self, tiles):
+        """Library ▸ Rebuild: select those tiles and press Build."""
+        self.map.set_selection(tiles)
+        self.start_build()
 
     def open_coral_atlas_dialog(self):
         """Tools menu: the Allen Coral Atlas reef bathymetry setup."""
@@ -4752,9 +4783,5 @@ def _provider_label(providers):
     return "Multiple" if providers else "—"
 
 
-def _fmt_size(nbytes):
-    value = float(nbytes)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
-            return "%.1f %s" % (value, unit)
-        value /= 1024
+#: One size format for the info pane and the Library window.
+_fmt_size = QTLIBRARY.fmt_size

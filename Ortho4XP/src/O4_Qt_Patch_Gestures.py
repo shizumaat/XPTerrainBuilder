@@ -1,11 +1,24 @@
 """Edit mode on the Qt map (spec patch-editor-20261015 §4, §3.3; the Mac
 app's ``PatchEditGestures`` and ``PatchEditKeys``).
 
-Click selects (8 px), Shift-click toggles, Shift-drag box-selects, a drag
-on a node moves the selection — snapping the grabbed node while the
-POINTER is within 8 px of another node, merging only on release while
-snapped — a left drag on empty map pans, a click on a "+" handle inserts a
-node, Delete / Backspace delete, Esc clears.  A click on a LINE selects
+Gestures (#1325: the same table as the Mac's ``PatchEditGestures``):
+
+=====================  ===================================================
+left click             select a node (8 px) or a line's whole shape
+Shift-click            toggle a node or a shape
+Shift-drag             box-select nodes
+drag on a node         move the selection (snaps within 8 px, merges on
+                       release while snapped)
+left drag, open map    pan (the map's own rule, every map view)
+click on a "+"         insert a node
+right click            the context menu (never a pan)
+scroll / pinch         zoom
+Delete / Backspace     delete; Esc clears
+=====================  ===================================================
+
+The cursor (:func:`O4_Qt_Patch_ShapePick.pointer`) is a pointing hand
+over a node, "+" handle or line, an open hand over open map and a closed
+hand while panning.  A click on a LINE selects
 its whole shape (#759, ``O4_Qt_Patch_ShapePick``; node > "+" > line > empty
 map; a repeat click on the same spot cycles the shapes sharing that edge;
 Shift-click toggles one), and a drag on a selected shape's line or nodes
@@ -93,15 +106,7 @@ class PatchGestures:
         if event.modifiers() & Qt.ShiftModifier:
             self.kind = self.BOX
             return True
-        node = index.node_at(p.x(), p.y())
-        edge = index.edge_at(p.x(), p.y()) if node is None else None
-        best = None
-        if node is None:
-            handles = self._handles(index, None) + index.handles((), edge, *self._size())
-            best = min(((math.hypot(x - p.x(), y - p.y()), e) for e, x, y in handles), default=None)
-            if best is not None and best[0] > SNAP_RADIUS_PX:
-                best = None
-        target = PICK.click_target(node, best is not None, edge is not None)
+        target, node, edge, best = self._target(index, p)
         m = self.model
         self.kind = self.PENDING
         if target[0] == "node":
@@ -118,6 +123,32 @@ class PatchGestures:
                 self.grabbed, self.ids = edge[0], sorted(m.marked_nodes)
                 self.kind = self.NODES
         return True
+
+    def _target(self, index, p: QPointF):
+        """What a press at ``p`` lands on: ``(click_target, node, edge,
+        (distance, handle edge) or None)``."""
+        node = index.node_at(p.x(), p.y())
+        edge = index.edge_at(p.x(), p.y()) if node is None else None
+        best = None
+        if node is None:
+            handles = self._handles(index, None) + index.handles((), edge, *self._size())
+            best = min(((math.hypot(x - p.x(), y - p.y()), e) for e, x, y in handles), default=None)
+            if best is not None and best[0] > SNAP_RADIUS_PX:
+                best = None
+        return PICK.click_target(node, best is not None, edge is not None), node, edge, best
+
+    def pointer_at(self, p: QPointF) -> str | None:
+        """The cursor over ``p`` (#1325), or None to leave it to the map."""
+        if not self.overlay._editing():
+            return None
+        if self.kind == self.BOX:
+            return None
+        if self.kind == self.PAN:
+            return PICK.pointer(None, panning=True)
+        if self.kind == self.NODES:
+            return PICK.pointer(("node",))
+        index = self._index()
+        return PICK.pointer(self._target(index, p)[0] if index is not None else None)
 
     def move(self, event) -> bool:
         p = QPointF(event.position())

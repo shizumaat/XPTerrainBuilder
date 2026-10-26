@@ -234,3 +234,7 @@ class PatchOverlay:
 
     def mouse_release(self, event) -> bool:
         return self._editing() and self.gestures.release(event)
+
+    def pointer_at(self, pos) -> str | None:
+        """The cursor over ``pos`` in Edit mode (#1325), else None."""
+        return self.gestures.pointer_at(pos) if self._editing() else None

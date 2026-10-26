@@ -33,6 +33,15 @@ struct PatchShapePickTests {
         #expect(PatchShapePick.target(node: nil, onHandle: false, onEdge: false) == .empty)
     }
 
+    @Test func thePointerFollowsWhatAClickActsOn() {
+        #expect(PatchShapePick.pointer(over: nil) == .openHand)
+        #expect(PatchShapePick.pointer(over: .empty) == .openHand)
+        #expect(PatchShapePick.pointer(over: .node(-1)) == .pointingHand)
+        #expect(PatchShapePick.pointer(over: .handle) == .pointingHand)
+        #expect(PatchShapePick.pointer(over: .edge) == .pointingHand)
+        #expect(PatchShapePick.pointer(over: .edge, panning: true) == .closedHand)
+    }
+
     @Test func sharedEdgeListsSmallestShapeFirst() throws {
         let d = try doc()
         #expect(PatchShapePick.shapes(onEdge: -2, -3, in: d) == [-101, -102])

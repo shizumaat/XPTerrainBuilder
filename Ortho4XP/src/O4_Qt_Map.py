@@ -60,6 +60,12 @@ MAX_ZOOM = 22.0
 FETCH_MAX_ZL = 21  # never request tiles beyond this from any source
 MAX_ITEMS = 900        # loaded tile pixmaps kept in the scene
 BASE_ZL = 3            # world base layer, always resident (max 64 tiles)
+#: A left or right press that moves less than this (Manhattan px) is a
+#: click; more, and a left drag pans (#1325).
+MAP_CLICK_SLOP_PX = 6
+#: The map cursors by ``O4_Qt_Patch_ShapePick.POINTERS`` name (#1325).
+MAP_CURSORS = {"openHand": Qt.OpenHandCursor, "closedHand": Qt.ClosedHandCursor,
+               "pointingHand": Qt.PointingHandCursor}
 FETCH_DEBOUNCE_MS = 250  # settle time before network fetches start
 FETCH_WORKERS = 6      # concurrent tile downloads
 LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
@@ -326,6 +332,7 @@ class MapView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setMouseTracking(True)
+        self.viewport().setCursor(Qt.OpenHandCursor)
         self.grabGesture(Qt.PinchGesture)
 
         # Imagery state
@@ -375,7 +382,7 @@ class MapView(QGraphicsView):
 
         # Layers drawn over the map that take the mouse first (the patch
         # editor): paint(painter), mouse_press/move/release(event) -> bool,
-        # viewport_moved().
+        # pointer_at(pos) -> cursor name or None, viewport_moved().
         self._layers = []
 
         # Interaction state
@@ -697,16 +704,44 @@ class MapView(QGraphicsView):
                 return True
         return super().event(ev)
 
+    # Gestures, the same in both apps (#1325): a left drag on open map
+    # pans (a middle drag too); a left click selects; a right click with
+    # no drag opens the tile's menu and a right drag does nothing; scroll
+    # and pinch zoom.  Layers (the patch editor) take the mouse first.
+    def _set_pointer(self, name):
+        shape = MAP_CURSORS[name]
+        if self.viewport().cursor().shape() != shape:
+            self.viewport().setCursor(shape)
+
+    def _update_pointer(self, pos):
+        """The cursor over ``pos``: a layer's (a pointing hand over a patch
+        node or line), else an open hand, a closed one while panning."""
+        if self._panning:
+            self._set_pointer("closedHand")
+            return
+        for layer in self._layers:
+            name = layer.pointer_at(pos)
+            if name is not None:
+                self._set_pointer(name)
+                return
+        self._set_pointer("openHand")
+
+    def _start_pan(self, pos):
+        self._panning = True
+        self._pan_start = pos
+        self._set_pointer("closedHand")
+
     def mousePressEvent(self, event):
-        if event.button() in (Qt.RightButton, Qt.MiddleButton):
-            self._panning = True
-            self._pan_start = event.position()
-            self._right_press = (event.position()
-                                 if event.button() == Qt.RightButton else None)
-            self.setCursor(Qt.ClosedHandCursor)
+        if event.button() == Qt.RightButton:
+            self._right_press = event.position()
+            event.accept()
+            return
+        if event.button() == Qt.MiddleButton:
+            self._start_pan(event.position())
             event.accept()
             return
         if any(layer.mouse_press(event) for layer in self._layers):
+            self._update_pointer(event.position())
             event.accept()
             return
         if event.button() == Qt.LeftButton:
@@ -717,6 +752,10 @@ class MapView(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         lat, lon = GEO.pix_to_wgs84(scene_pos.x(), scene_pos.y(), SCENE_ZL)
         self.hover_ll.emit(lat, lon)
+        if (not self._panning and self._press_pos is not None
+                and event.buttons() & Qt.LeftButton
+                and (event.position() - self._press_pos).manhattanLength() >= MAP_CLICK_SLOP_PX):
+            self._start_pan(self._press_pos)
         if self._panning:
             d = event.position() - self._pan_start
             self._pan_start = event.position()
@@ -724,21 +763,18 @@ class MapView(QGraphicsView):
             event.accept()
             return
         if any(layer.mouse_move(event) for layer in self._layers):
+            self._update_pointer(event.position())
             event.accept()
             return
+        self._update_pointer(event.position())
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._panning and event.button() in (
-            Qt.RightButton,
-            Qt.MiddleButton,
-        ):
-            self._panning = False
-            self.unsetCursor()
+        if event.button() == Qt.RightButton:
             press, self._right_press = self._right_press, None
-            if (event.button() == Qt.RightButton and press is not None
-                    and (event.position() - press).manhattanLength() < 6):
-                # A right-click, not a pan: the tile's menu.
+            if (press is not None
+                    and (event.position() - press).manhattanLength() < MAP_CLICK_SLOP_PX):
+                # A right-click (no drag): the tile's menu.
                 scene_pos = self.mapToScene(event.position().toPoint())
                 lat, lon = GEO.pix_to_wgs84(
                     scene_pos.x(), scene_pos.y(), SCENE_ZL)
@@ -747,14 +783,21 @@ class MapView(QGraphicsView):
                     event.globalPosition().toPoint())
             event.accept()
             return
+        if self._panning and event.button() in (Qt.LeftButton, Qt.MiddleButton):
+            self._panning = False
+            self._press_pos = None
+            self._update_pointer(event.position())
+            event.accept()
+            return
         if any(layer.mouse_release(event) for layer in self._layers):
             self._press_pos = None
+            self._update_pointer(event.position())
             event.accept()
             return
         if (
             event.button() == Qt.LeftButton
             and self._press_pos is not None
-            and (event.position() - self._press_pos).manhattanLength() < 6
+            and (event.position() - self._press_pos).manhattanLength() < MAP_CLICK_SLOP_PX
             and not self._locked
         ):
             self._handle_click(event)

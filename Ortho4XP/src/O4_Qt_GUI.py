@@ -2609,7 +2609,8 @@ class MainWindow(QMainWindow):
     def _tile_menu(self, lat, lon, global_pos):
         """Right-click on a tile (#938): its menu at the pointer."""
         menu = QTTILEMENU.tile_menu(
-            self, lat, lon, self._tile_folder((lat, lon)))
+            self, lat, lon, self._tile_folder((lat, lon)),
+            self.patch_editor.context_actions())
         menu.exec(global_pos)
 
     def _active_changed(self, tile):

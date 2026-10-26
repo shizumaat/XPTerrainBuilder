@@ -73,7 +73,8 @@ struct MapCanvasView: View {
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     let coord = BuildModel.TileCoord(lat: Int(floor(point.lat)),
                                                      lon: Int(floor(point.lon)))
-                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord))
+                    return TileContextMenu(coord: coord, folder: buildModel.tileFolder(coord),
+                                           extra: buildModel.patchEdit.contextActions)
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }
@@ -86,10 +87,14 @@ struct MapCanvasView: View {
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
+                    // The hand over open map (#1325); in Edit mode the patch
+                    // layer sets it (a pointer over nodes and lines).
+                    if !editLayerOwnsCursor { PatchShapePick.pointer(over: nil).cursor.set() }
                     let point = camera.value.coordinate(of: location, in: proxy.size)
                     cursorText = PatchNodeInspector.latLon(lat: point.lat, lon: point.lon)
                     queryElevation(lat: point.lat, lon: point.lon)
                 case .ended:
+                    NSCursor.arrow.set()
                     cursorText = nil
                     elevationQuery?.cancel()
                 }
@@ -531,10 +536,21 @@ struct MapCanvasView: View {
 
     // MARK: - Gestures
 
+    /// The patch editor's Edit layer is over the map and sets the cursor.
+    private var editLayerOwnsCursor: Bool {
+        let patch = buildModel.patchEdit
+        return patch.mode == .edit && patch.isShowing && patch.geometry != nil && patch.document != nil
+    }
+
+    /// A drag on open map pans (#1325: every map view, a closed hand while
+    /// it does); a click selects a tile; right click is the tile menu.
     private func pan(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 3)
             .onChanged { value in
-                if dragAnchor.value == nil { dragAnchor.value = camera.value }
+                if dragAnchor.value == nil {
+                    dragAnchor.value = camera.value
+                    PatchShapePick.pointer(over: nil, panning: true).cursor.set()
+                }
                 guard let anchor = dragAnchor.value else { return }
                 var cam = anchor
                 cam.centerLon = anchor.centerLon - Double(value.translation.width) / anchor.scale
@@ -546,6 +562,7 @@ struct MapCanvasView: View {
             }
             .onEnded { _ in
                 dragAnchor.value = nil
+                PatchShapePick.pointer(over: nil).cursor.set()
             }
     }
 

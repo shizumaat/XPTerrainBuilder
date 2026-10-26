@@ -46,9 +46,12 @@ import math
 
 from ..constraints.geometry import principal_axis, project_to_chain
 from ..constraints.runway_profile import curve_stations
-from ..law.tables import (cliff_grade, runway_shoulder_cap,
-                          runway_transverse_bound,
-                          runway_vertical_curve_bound)
+from ..law.tables import (
+    cliff_grade,
+    runway_shoulder_cap,
+    runway_transverse_bound,
+    runway_vertical_curve_bound,
+)
 from .frame import Patch, Row, noise_m, row
 from .steps import _edges, _step_rows
 from .within import crown_by_vertex

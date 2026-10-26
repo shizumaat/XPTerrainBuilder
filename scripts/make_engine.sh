@@ -166,6 +166,10 @@ if [[ -d "$BUNDLE_DIR/osgeo" ]]; then
     codesign --force --sign - "$HB_PIL" >/dev/null 2>&1 || true
     echo "   unified libharfbuzz.0.dylib (Homebrew's, relocatable, in PIL/.dylibs)"
   fi
+  # The signed app's hardened runtime refuses a library whose install-name
+  # leaf differs from the requested one (liblz4.1.dylib -> 1.10.0); this
+  # unsigned check cannot see that, make_app's signed-engine gate does.
+  "$ROOT/scripts/fix_bundle_install_names.sh" "$BUNDLE_DIR"
   "$PY" -I -c "import ctypes, sys; ctypes.CDLL(sys.argv[1])" "$BUNDLE_DIR/$GDAL_LIB" || {
     echo "ERROR: the bundled $GDAL_LIB does not load (see the dyld error above)." >&2
     exit 1

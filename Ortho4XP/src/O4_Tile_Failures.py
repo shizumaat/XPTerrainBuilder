@@ -258,6 +258,11 @@ CATALOGUE = {
         "the map data for this area could not be prepared.",
         "The downloaded OpenStreetMap extract could not be read or "
         "filtered.", "retry"),
+    # issue #1354: OSM coastline would turn high ground into sea
+    "map_coastline_implausible": Entry(
+        "the coastline map data for this area looks wrong.",
+        "OpenStreetMap marks most of this tile as sea, but its ground is "
+        "far above sea level everywhere.", "report"),
     "mesh_refused": Entry(
         "the terrain mesh could not be built.",
         "The tile's shapes failed one of the app's own safety checks.",
@@ -385,6 +390,7 @@ EXCEPTION_CODES = {
     # map data
     "ExtractFilterError": "map_data_failed",
     "AtlasApiError": "network_unavailable",
+    "ImplausibleSeaTile": "map_coastline_implausible",
     # mesh
     "BankAnnulusCollapse": "mesh_refused",
     "InterpAltLeak": "mesh_refused",

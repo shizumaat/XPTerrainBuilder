@@ -123,4 +123,22 @@ else
 fi
 "$ROOT/scripts/check_frozen_lerc.sh" "$ENGINE/$LERC_BIN" "$PY"
 
+# THE GDAL BUNDLE CHECK (2026-10-26, app 1.0.429): a Homebrew GDAL upgrade
+# left the freeze venv's bindings linked to a libgdal that no longer
+# existed; PyInstaller only WARNED "Library not found" and the frozen engine
+# shipped with no GDAL at all, so every lidar airport refused to patch
+# ("the GDAL python bindings (osgeo) are unavailable").  The bindings are
+# bundled, so the libgdal they link must be bundled too, or the freeze fails.
+BUNDLE_DIR="$(dirname "$ENGINE/$LERC_BIN")/_internal"
+if [[ -d "$BUNDLE_DIR/osgeo" ]]; then
+  GDAL_LINK="$(otool -L "$BUNDLE_DIR"/osgeo/_gdal*.so 2>/dev/null | awk '/libgdal/ {print $1; exit}')"
+  GDAL_LIB="$(basename "${GDAL_LINK:-missing}")"
+  if [[ ! -f "$BUNDLE_DIR/$GDAL_LIB" ]]; then
+    echo "ERROR: the frozen engine's GDAL bindings link $GDAL_LINK, which is not in the bundle." >&2
+    echo "       Match requirements.txt's Darwin gdal pin to Homebrew's GDAL (gdal-config --version)." >&2
+    exit 1
+  fi
+  echo "   frozen GDAL OK ($GDAL_LIB bundled)"
+fi
+
 echo "Frozen engine: $ENGINE/$OUT (version ${VERSION:-unknown})"

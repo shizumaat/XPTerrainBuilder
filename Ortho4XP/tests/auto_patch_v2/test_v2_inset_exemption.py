@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import types
 
-import pytest
-
 import O4_Tile_Failures as FAIL
+import pytest
 from auto_patch_v2.airport import dem_production as DP
 
 LAT, LON = 43, -122

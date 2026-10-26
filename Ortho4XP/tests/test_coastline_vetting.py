@@ -155,3 +155,17 @@ def test_mostly_sea_on_high_ground_fails_loudly():
 def test_a_small_sea_on_high_ground_is_not_the_guard_rails_case():
     small = geometry.MultiPolygon([geometry.box(0, 0, 0.3, 0.3)])
     VET.refuse_mostly_sea_highland(small, _highland(), LAT, LON)
+
+
+def test_the_bathymetry_band_reads_the_vetted_coastline():
+    """A stray fragment must not make a landlocked tile "coastal" to the
+    band (it would fetch lake cells no provider measures)."""
+    import O4_Bathymetry_Band as BAND
+
+    class _Tile:
+        lat, lon, dem = LAT, LON, _highland()
+
+    assert BAND._vetted(_stray(), _Tile()).is_empty
+    coast = _real_coast()
+    _Tile.dem = _coastal()
+    assert BAND._vetted(coast, _Tile()) is coast

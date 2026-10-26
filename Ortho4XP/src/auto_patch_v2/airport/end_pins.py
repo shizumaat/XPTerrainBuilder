@@ -19,7 +19,9 @@ ONE derivation, at load, on the Airport every reader takes:
   (b) GRADE — the CIFP end-to-end difference disagrees with the DEM's by
       more than the tier's tolerance (VNLK: 0 against about 31 m);
   (c) CROSS-CHECK — a cached open-data source disagrees with a CIFP end
-      by more than a few feet (``airport/runway_refs``).
+      by more than a few feet (``airport/runway_refs``);
+  (d) ZERO PLACEHOLDER (owner RULINGS 2026-10-26j) — both CIFP ends read
+      0 ft (92 runways in the census, 08VA: DEM 311.7 / 296.7 m).
   A flagged runway's CIFP is not truth: each source of 26a's order whose
   end-to-end difference agrees with the DEM's supplies the ends (pinned
   at the source's END, which is what it states); none agreeing, the ends
@@ -180,6 +182,11 @@ def _flags(rw: Runway, field_m: float, cifp: dict[int, float], dem_pin, refs,
     flags: list[str] = []
     seen: dict[str, dict[str, float]] = {}
     noise, tol = t.dem_noise_m.of(klass), t.grade_disagree_m.of(klass)
+    # (d) ZERO PLACEHOLDER (owner RULINGS 2026-10-26j): every end 0 ft is
+    # untrusted whatever the DEM says — no DEM is needed to refuse it
+    if len(cifp) == 2 and all(abs(z) <= t.zero_placeholder_ft * FT + 1e-6
+                              for z in cifp.values()):
+        flags.append("d")
     if (klass is not None and len(cifp) == 2 and dem_pin[0] is not None
             and dem_pin[1] is not None):
         d_dem = dem_pin[1] - dem_pin[0]

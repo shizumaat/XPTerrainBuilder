@@ -182,6 +182,18 @@ def test_a_cross_check_that_disagrees_with_the_dem_is_not_taken(law):
     assert [e.pin_source for e in airport.runways[0].ends] == ["dem", "dem"]
 
 
+def test_zero_ft_cifp_is_a_placeholder_whatever_the_dem(law):
+    """Rule (d) (owner RULINGS 2026-10-26j): both CIFP ends 0 ft are
+    untrusted even over a DEM of unknown quality and a flat runway — the
+    ends follow the DEM (no cross-check cached)."""
+    airport, pm = _site(law, _PlaneDem(), (0.0, 0.0), elev=702.0)
+    airport, recs, lines = EP.verify(_cifp_airport(airport), law)
+    rw = airport.runways[0]
+    assert [e.pin_source for e in rw.ends] == ["dem", "dem"]
+    assert rw.ends[0].pin_flags == "d" and "rule (d)" in lines[0]
+    assert {p.case for p in end_pin_cases(pm, law, airport).values()} == {CASE_FLAGGED}
+
+
 # ── apt.dat-only ends (#1394, 26e) and the unmatched end (22a) ───────────
 
 def test_an_apt_dat_only_end_gives_way_to_the_lidar(law):

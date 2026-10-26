@@ -10,6 +10,7 @@
 field_equal_ft        = 3.0    # (a) a CIFP end "equals the field elevation" within this (CIFP is whole feet; an apt.dat field from another cycle moves by a foot or two)
 placeholder_spread_ft = 1.0    # (a) the runway's CIFP ends are the SAME number within this
 crosscheck_tol_ft     = 3.0    # (c) a cached cross-check source disagrees with a CIFP end beyond this (26a: "more than a few feet")
+zero_placeholder_ft   = 0.5    # (d) RULINGS 2026-10-26j: every CIFP end within this of 0 ft is a placeholder ("CIFP runway-end heights of 0 ft at both ends are untrusted"); flagged with no DEM needed
 dem_window_m          = 60.0   # the DEM at a pin: the median of centreline samples within half this of the pin's station
 crosscheck_order      = ["nasr", "openaip", "ourairports"]   # 26a's order; a source with no provider module or no cache is skipped
 

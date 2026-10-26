@@ -236,6 +236,88 @@ same as #1346's closing patch) and no runway-step, transverse or vertical-curve 
 ADJUDICATED is 460 (395 airside), against 772 (707) on #1346's registered closing patch
 `l1346_PANC2.osm`. That is a different base tree, so the figure is indicative, not an A/B.
 
+## 7b. Round 2 (owner answers 2026-10-26i / 26j; the OurAirports cache filled)
+
+### Rule (d), 0 ft placeholders (26j): shipped
+
+`zero_placeholder_ft = 0.5` in `law/runway_ends.toml`. A runway whose CIFP ends all read
+within that of 0 ft is flagged with no DEM needed and resolved by the 26a order. The census
+(`--mod-cache` on the filled cache) flags **94** runways by (d). There are 2 more than the
+92 found earlier: those two had a DEM end unread before, which (d) does not need. **89**
+resolve to the DEM and **5** to OurAirports. All 94 are on coarse DEM. Example: 08VA 09/27,
+CIFP 0 / 0 → DEM 311.7 / 296.7 m.
+
+### VNLK with the OurAirports cache
+
+Build `VNLK_20261026T151211`, body `2aa2056a7aa7`. Rule (b,c) fires, and the ends take
+OurAirports' values: **2784.04 / 2845.00 m**. Against the Copernicus inset that is +1.13 m at
+the 06 end and −17.39 m at the 24 end; Copernicus is a surface model, and the top of the
+field is built up. The runway is built at 11.30 % (pins 11.28 %). Census: ADJUDICATED 822,
+CRITICAL motion 1, worst 3.435 m over 9.28 m (`strip_transverse` junction|runway, the
+Main Apron's junction face 6 against the runway's south edge near the 24 end). Taxi
+centreline max grade 5.29 % (taxi2, over a 0.7 m segment). Where pavement leaves the runway
+edge, the steepest pair within 15 m is **36.9 %** (4.06 m over 11.0 m, junction face 6).
+Along the shared runway edge the grade is 10.7 % (face 2). Probe:
+`scratchpad/lrwypin/vnlk_twist.py`, run on the capture and `--z-out`.
+
+### STOP: (c) is too eager now that the cache is filled (owner question)
+
+The 296-runway census the owner approved (26i Q152) was taken with **no cache**, so rule (c)
+could not fire. With the cache:
+
+- **993** runways are flagged: (a) 175, (b) 212, **(c) 642**, (d) 94. 607 resolve to
+  OurAirports and 386 to the DEM.
+- **615** are flagged by (c) alone. The worst |CIFP − OurAirports| per runway has median
+  6 ft and p90 25 ft: 353 runways over 5 ft, 185 over 10 ft, 88 over 20 ft.
+- In **416 of 601** of the (c)-only runways that have both ends, the CIFP grade agrees with
+  the DEM as well as or better than OurAirports' does. The rule still takes OurAirports,
+  because 25a takes a flagged CIFP off truth.
+- **Closing sites:**
+  - **PAAQ 16/34.** CIFP matches the lidar to 0.17 / 0.06 m. (c) fires on 34 (OurAirports
+    65.53 m against CIFP 67.36 m), and the runway takes OurAirports, putting the 34 end
+    **1.7 m under the lidar**.
+  - **KDIJ 4/22.** The CIFP line matches the lidar to 0.1 to 0.6 m. (c) fires on 22, and the
+    ends fall back to the lidar trend. That is harmless here, but it is not CIFP.
+
+Proposed refinement, for the owner, NOT shipped. A source can take a CIFP off truth only
+where its grade agrees with the DEM **better** than the CIFP's does. Or (c) flags only a CIFP
+the DEM does not confirm (lidar within `grade_disagree_m`). Until the owner rules, the master
+can switch the sources off with `crosscheck_order = []` in `law/runway_ends.toml`. That is
+law only, with no code change; (a), (b) and (d) are untouched.
+
+### STOP: Q153, pavement off a slope-exempt runway (26i). Needs an owner decision before implementing
+
+The existing mechanism is `constraints/runway_yield.derive_taxi` (30ah (1), 10-10j #135),
+read through `precedence.taxi_cap_for`. It gives a taxi-family face TIED to a yielded runway
+(by the route network, or for aprons by contact) the runway's cap, clipped at the 29ac
+universal pavement ceiling (`road_max_grade`, 10 %). At VNLK it gives **nothing**:
+`taxi_yield_caps` is empty. The Main Apron's junction faces touch the runway, but their
+painted centrelines (taxi0..4) never reach the runway ridge, so no face is tied.
+
+26i asks for three things: the centreline stays within the TAXI law, the cross-slope twists
+at the runway edge to weld to the runway's grade, and the aprons reached are terraced.
+Measured against VNLK, three points need the owner:
+
+1. **The 29ac ceiling.** Welding to a runway edge that climbs 11.3 % gives the pavement's
+   edge an 11.3 % grade *along the runway*. The universal pavement ceiling (10 %) refuses
+   that; today 77 such hard rows are relaxed: 30 `pavement_max_grade ceiling` and 47
+   `road_max_grade pavement fallback`. Is the twist zone exempt from the 29ac ceiling, as the
+   yielded runway itself is?
+2. **10-10j against 26i for aprons.** 10-10j lets an apron tied to a yielded runway follow
+   it. 26i says the aprons reached are terraced (flat pads stepping with the terrain). Does
+   26i supersede 10-10j for every yielded runway? And is VNLK's "Main Apron" (`pav4`,
+   classified as junction faces because of its painted lines) an apron for that purpose?
+3. **Where the twist ends.** How far from the runway edge may the cross-slope exceed the
+   taxi transverse cap? A fixed length, one lane width, or the run the centreline cap needs
+   to reach the runway's level? It has to be a number in `law/`.
+
+Implementation scope once ruled: the per-pair law changes inside a band of the shared runway
+edge. The solve generators (`within_shape`, `transverse`, `taxi_box`, `airside_no_step`),
+the v2 verify and the census (`check_grade`) must all price the SAME band, published in the
+sidecar like `taxi_yield_caps`; two copies is the 30l (1) defect. That is a spec round (high
+effort) at `derive_taxi`, its single derivation site, and then one implementer. It was not
+started, per the brief's "stop and report".
+
 ## 8. Notes
 
 - DEM prep's flat-site decision (`flat_site_prep.site_inputs`) reads raw CIFP. A runway

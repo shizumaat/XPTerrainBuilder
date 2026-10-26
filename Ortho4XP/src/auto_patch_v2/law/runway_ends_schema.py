@@ -43,6 +43,9 @@ class RunwayEnds:
     grade_disagree_m: ByDemClass
     #: (c) a cross-check source disagrees beyond this many feet
     crosscheck_tol_ft: float
+    #: (d) a runway whose CIFP ends all read within this many feet of 0 ft
+    #: carries placeholders (owner RULINGS 2026-10-26j)
+    zero_placeholder_ft: float
     #: the DEM read at a pin: the median over this much centreline
     dem_window_m: float
     #: the cross-check sources, in the order a flagged runway tries them
@@ -54,7 +57,8 @@ def check_runway_ends(t: RunwayEnds, error: type[Exception]) -> None:
     """runway_ends.toml's own rules (raised as ``error``, the loader's
     ``LawError``): every tolerance is non-negative, the window positive,
     and the lidar noise no larger than the coarse one."""
-    for name in ("field_equal_ft", "placeholder_spread_ft", "crosscheck_tol_ft"):
+    for name in ("field_equal_ft", "placeholder_spread_ft", "crosscheck_tol_ft",
+                 "zero_placeholder_ft"):
         if getattr(t, name) < 0.0:
             raise error(f"runway_ends.{name} {getattr(t, name)!r} < 0")
     if not t.dem_window_m > 0.0:

@@ -202,13 +202,40 @@ def _climb(airport, law: Law, out: LineString | None, floor: float
     return None, math.nan
 
 
-def _side(route: LineString, mid: float, end: float, floor: float, airport, law: Law
-          ) -> tuple[LineString, float, float] | None:
+#: the most a trench's axis may turn within one trench width: a tighter
+#: curl folds its ring onto itself (the corridor geometry refuses it)
+_MAX_TURN_DEG = 45.0
+
+
+def _straight_m(line: LineString, width: float) -> float:
+    """How far along ``line`` its heading turns less than
+    :data:`_MAX_TURN_DEG` within every ``width`` of run."""
+    pts = list(line.coords)
+    heads, ss, s = [], [], 0.0
+    for p, q in zip(pts[:-1], pts[1:]):
+        d = math.dist(p, q)
+        if d > 1e-9:
+            heads.append(math.atan2(q[1] - p[1], q[0] - p[0]))
+            ss.append(s)
+        s += d
+    for i in range(len(heads)):
+        for j in range(i + 1, len(heads)):
+            if ss[j] - ss[i] > width:
+                break
+            t = abs((math.degrees(heads[j] - heads[i]) + 180.0) % 360.0 - 180.0)
+            if t > _MAX_TURN_DEG:
+                return ss[j]
+    return line.length
+
+
+def _side(route: LineString, mid: float, end: float, floor: float, half_w: float,
+          airport, law: Law) -> tuple[LineString, float, float] | None:
     """One half's ``(axis from the midpoint, where the level ends, the top
     z)``: the climb beyond the run's ``end`` along the mapped route (R4's
-    design grade); where no mapped road carries it, the climb INSIDE the
-    run, ending at the run's end on the ground there (the level shortens);
-    ``None`` where neither fits within ``ramp_max_grade``."""
+    design grade); where no mapped road carries it (or the road curls
+    tighter than the trench is wide), the climb INSIDE the run, ending on the
+    ground there (the level shortens); ``None`` where neither fits within
+    ``ramp_max_grade``."""
     tn = law.tables.structures.tunnel
     grade = min(tn.ramp_grade, tn.ramp_max_grade)
     fwd = end > mid
@@ -217,11 +244,14 @@ def _side(route: LineString, mid: float, end: float, floor: float, airport, law:
     out = _outward(route, end, fwd)
     top, top_z = _climb(airport, law, out, floor)
     if top is not None:
-        climb = substring(out, 0.0, top)
-        axis = list(run.coords) + list(climb.coords)[1:]
-        return LineString(axis), run.length, top_z
+        axis = LineString(list(run.coords) + list(substring(out, 0.0, top).coords)[1:])
+        if _straight_m(axis, 2.0 * half_w) >= axis.length - 1e-6:
+            return axis, run.length, top_z
     # inside the run: the design grade, steeper only where that cannot top
     # out in the half-run (2026-10-08c (1)), never above the cap
+    ok = min(run.length, _straight_m(run, 2.0 * half_w))
+    if ok < run.length - 1e-6:
+        run = substring(run, 0.0, ok)
     p = run.coords[-1]
     ground = dem_z_at(airport, (p[0], p[1]))
     avail = run.length - _STEP_M
@@ -304,8 +334,8 @@ def viaduct_road_groups(airport, law: Law, cells, polys
                            f"{floor:.2f} (apron {apron:.2f} − {tn.mouth_depth_m})")
             continue
         mid = 0.5 * (s0 + s1)
-        up = _side(route, mid, s1, floor, airport, law)
-        dn = _side(route, mid, s0, floor, airport, law)
+        up = _side(route, mid, s1, floor, half_w, airport, law)
+        dn = _side(route, mid, s0, floor, half_w, airport, law)
         if up is None or dn is None:
             refused.append(f"{rid} ({ids}): the {100.0 * tn.ramp_grade:.0f} % climb from "
                            f"{floor:.2f} fits neither on the mapped road beyond the run's "

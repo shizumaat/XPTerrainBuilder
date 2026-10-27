@@ -13,7 +13,7 @@ Branch `claude/ltaxi-805` (PR #1499, still titled for round 1; its body does not
 - **#517 round 2**: measured and not shipped. Every variant that removes the climb adds 111–140 `within_shape` rows. The diff is in the scratchpad (path in `taxiways-ltaxi.md`). Two-round cap reached.
 - Tests run on commit ca9f11843: `test_v2eat`, `test_mouth_census`, the strip-seam tests, `test_harness`, the census tests, the registry twins and the closure twins all pass (1143 passed). `ratchets.py` passes.
 
-## Exact next step
+## Exact next step (DONE 2026-10-27: census run, PR updated)
 1. Run the census on the closing build, then diff it against the replay control:
    - closing build: `/Users/noah/XPTerrainBuilderData/.harness/frames/ltaxi/ltaxi805b_KCLT.osm` (body be9828f5b1dc, solve optimal, built from ca9f11843);
    - command: `venv/bin/python tools/harness/census.py <that>.osm --rows-json …`;

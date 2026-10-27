@@ -157,3 +157,16 @@ lowered EAT keeps its level, and the edge takes the existing bank and wall law.
   with the within-shape reading wherever one source polygon spans the runway end and
   the EAT. The question goes to the master: exempt the ramp's direct pairs, or read
   them on the route the way the route-grade chord caps do.
+
+**Closing build (round 2).** Build `ltaxi805b_KCLT`, made by the harness from ca9f11843, patch-only, 919 s. body_sha be9828f5b1dc, solve optimal. Frame registered as `ltaxi/ltaxi805b_KCLT.osm`.
+
+Census against the round-1 build `ltaxi805_KCLT`: adjudicated 4,929 → 5,045.
+
+| family (airside) | change |
+|---|---|
+| `within_shape` | +123 |
+| `eat_ceiling` | −4 |
+| `strip_longitudinal` | −2 |
+| `airside_no_step` | −1 |
+
+This is the replay's diff exactly. All 123 new rows sit at the EAT's approach connector, 35.2294, −80.953. No row changed anywhere else.

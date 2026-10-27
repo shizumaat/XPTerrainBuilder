@@ -57,7 +57,7 @@ The same read at the other three sites (flanks at s = d_lo − 75 m and d_hi + 7
      `tables.runway_safety_area_length_m` (owner 15c (2); FAA 304.8 m at C–F). Inside the
      RSA the end-profile law governs the ground, and recognition must under-claim. A
      taxiway crossing at the end itself, like KCLT 18L D9 at 0.1 m, is not a wrap. This
-     bound is not in the ruling's text; see Q805-2;
+     bound is law since owner RULINGS 2026-10-27x (Q805-2 ruled (a));
    - the existing far bound, `min(D_clear, max_crossing_m)`, still applies.
 
    A crossing at 1,500 ft or beyond stays an EAT as before (15e (1)). The value is the
@@ -116,3 +116,44 @@ Every verdict stays named in `RECTS`:
     above its tail-clearance ceiling 217.31.
   - No pin is minted, so the surface is the one main builds. Body identity follows by
     construction (the constraint set is unchanged); no control build was paid.
+
+## Round 2 — RULINGS 2026-10-27w (Q805-1 ruled (a)) and 2026-10-27x (Q805-2 ruled (a))
+
+**The rule (27w).** On credible lidar, a recognised rect is pinned, not report-only,
+where the survey breaks the taxiway grade law along the EAT's own route. The reading is
+`eat._route_grade`: the steepest DEM grade between the ends of the crossing 1202 edges.
+It is compared with `ruleset.taxi.longitudinal` for the edge's width class and adds no
+new number. A grade over the cap means the survey predates the taxiway.
+
+The cut witness (16d (2a)) stays; `eat._lidar_overruled` reads both. The road beside a
+lowered EAT keeps its level, and the edge takes the existing bank and wall law.
+
+**Dry reads (route grade):**
+- KCLT 18C T: **2.42 %**, which is over 1.50 %, so T is **pinned at 217.31**;
+- KDEN 34R: 1.45 % and 17R: 0.28 %, both report-only;
+- KATL 09L: 0.92 % and 08R Victor: 0.55 %, both report-only.
+
+**Replay, KCLT capture, same tree.** Control is round 1 (report-only); the arm is 27w.
+- **T:** the 4 pinned vertices sit at **217.31**, the ceiling. The cross_connector
+  between the runway end and T falls from 222.6–228.6 to 217.3–220.7.
+  `eat_ceiling` goes 4 → 0.
+- **The road:** the 49 service_road vertices within 250 m of T are unchanged
+  (max |dz| 0.00), so the embankment road keeps its level.
+- **The edge:** the graded strip between road and taxiway falls to 216.85–223.70.
+  No new census row lies at T's edge.
+- **Movement:** 103 vertices within 250 m and 220 within 250–600 m move more than
+  0.05 m. Beyond 600 m, 22 vertices move, at most 0.08 m. Beyond 1.5 km nothing moves.
+- **Census:** adjudicated 4,910 → 5,026:
+  - `within_shape` airside +123;
+  - `eat_ceiling` −4, `strip_longitudinal` −2, `airside_no_step` −1.
+
+  All 123 new rows are at 35.2294, −80.953. They pair the EAT's own approach connector
+  (`pav11` cross_connector / stub, about 220 m past the 18C end) with the runway end
+  region 430–450 m away, at 1.92–2.02 % against the 1.5 % cap: 8.66 m over about 450 m.
+
+  This is a law collision, not a solve residual. The EAT depth at D ≈ 450 m is 8.9 m,
+  and a straight direct-distance pair inside one source polygon can lose only
+  0.015 × 450 = 6.75 m. Every EAT nearer than depth / 0.015 (about 590 m here) collides
+  with the within-shape reading wherever one source polygon spans the runway end and
+  the EAT. The question goes to the master: exempt the ramp's direct pairs, or read
+  them on the route the way the route-grade chord caps do.

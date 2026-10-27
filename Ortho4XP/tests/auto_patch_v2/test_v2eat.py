@@ -308,6 +308,35 @@ def test_lidar_reading_the_pavement_in_a_cut_is_no_witness(law, lidar):
     assert eat.STATS["eat_pins"]["report_only"] == 1
 
 
+class _SlopedDem(_FlatDem):
+    """Ground rising across the extended centreline (along ``x``) at
+    ``grade`` — the survey along the fixture's crossing route."""
+
+    def __init__(self, grade: float) -> None:
+        self.grade = grade
+
+    def z(self, x: float, y: float) -> float:
+        return DEM_Z + self.grade * x
+
+
+def test_lidar_breaking_the_taxiway_law_along_the_route_is_no_witness(
+        law, lidar):
+    """27w: where the survey along the EAT's own crossing route is steeper
+    than the taxiway's longitudinal cap (1.5 %), it predates the taxiway
+    and the rect is pinned; at the cap it stays report-only."""
+    import dataclasses
+    pm = _map([_crossing(440.0, 470.0)])
+    ap = _airport(law, cross_s=450.0, flanks=2)
+    rows = eat.eat_pins(pm, law, dataclasses.replace(ap, dem=_SlopedDem(0.024)))
+    assert len(rows) == 4
+    st = eat.STATS["eat_pins"]
+    assert st["lidar_route_witness"] == 1 and st["report_only"] == 0
+    (rec,) = [r for r in eat.RECTS if r["accepted"]]
+    assert rec["route_grade"] == pytest.approx(0.024)
+    assert eat.eat_pins(pm, law, dataclasses.replace(ap, dem=_SlopedDem(0.015))) == []
+    assert eat.STATS["eat_pins"]["report_only"] == 1
+
+
 def test_off_lidar_there_are_no_report_rects(law):
     ap = _airport(law, cross_s=460.0)
     assert eat.eat_report_rects(_map([_crossing(440.0, 470.0)]), law, ap) == []

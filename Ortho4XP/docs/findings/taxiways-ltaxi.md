@@ -119,3 +119,63 @@ wrap only beyond the runway's own safety area (`runway_safety_area_length_m`; FA
 304.8 m, ICAO strip end + RESA). The reason is LEMD 36L. Its taxi route wraps the end at
 70.8 m, inside the strip/RESA, and without the bound it would be pinned 23.4 m under the
 runway end (581.63 vs 605.03, coarse DEM). Is the safety-area bound accepted?
+
+## Round 2 results (lane ltaxi, 2026-10-27)
+
+**#517, option (c) built and measured; not shipped.**
+
+Attribution correction: the retarget (15i (3), the trend's second pass) reads **pass 1a**
+levels, and pass 1a has no hold rows. At the SPJC L junctions pass 1a reads
+25.51 / 23.69. The hold, in pass 1b, takes them to 23.40 / 21.28. Shifting the trend
+through pass-1a junction levels therefore changes nothing at L.
+
+The build that works:
+- the retarget is read once more off pass 1b's first solve (`flex.stage_one` calls the
+  caller's `solve1.renew()`);
+- the trend is shifted through the junctions of every chain at least two of whose
+  junctions the hold moved by more than `[cockpit] visual_m`.
+
+Results:
+- **Climb:** gone. L descends monotonically and the worst rise is under +0.1 %.
+- **Movement:** 1,653 airside vertices move more than 0.05 m, up to 2.11 m. The movers
+  are taxiway M by the building5 plateau and the spans between held junctions in the
+  terminal area, all within about 2 km.
+- **Census:** within_shape airside **+140**. These are runway|stub and
+  primary_parallel|runway pairs of 490–510 m inside `pav49` at 1.53 % against 1.5 %,
+  near 34R and taxiway M, with about 0.17 m excess. The L/M4 junction sinks
+  0.1–0.2 m once the trend stops lifting it.
+
+Variants measured:
+
+| variant | climb | airside movers > 0.05 m | within_shape airside |
+|---|---|---|---|
+| shift through every junction | gone | 3,880 | (not censused) |
+| chains with ≥ 1 held junction | gone | 1,109 | +111 |
+| chains with ≥ 2 held junctions | gone | 1,653 | +140 |
+| renew only, no junction shift | +0.7 % | 772 | (not censused) |
+
+Every variant that removes the climb adds direct-distance within-shape rows. The climb
+is partly what keeps L's long pairs to the runway under the 1.5 % cap. So the bars
+(climb < 0.3 %, minimal movement, zero new rows) are not met together. Per the
+two-round cap the lane stops here. The diff is kept at
+`/private/tmp/claude-501/-Users-noah-XPTerrainBuilder--claude-worktrees-elegant-wilson-8530db/06e49073-fa34-4d4e-b09b-e8641564046f/scratchpad/ltaxi/517_attempt.diff`
+(not committed: a refuted mechanism is not shipped).
+
+**#883, RULINGS 2026-10-27y implemented in the census (`check_grade.DeclaredWallSteps`
+reads `gap: true` joints as it reads walls); KBOI unchanged at 105.**
+
+The kept hangar step's 4 ground rows stay, for two reasons:
+- **They do not cross the declared joint.** The joint is 4.22 m long between pad
+  `building55` and `pol92`, at E −4.8 to −6.4 m from the site. The strip pairs run from
+  the pad corner node −2725 (865.92) to strip nodes −6164 / −6165 (865.14 / 864.72),
+  about 4 m east of the joint's end.
+- **The 1.20 m tear exceeds the declared 1.036 m step.** The strip node −6165 sits
+  0.16 m under pol92 itself (864.88).
+
+So the census forgiveness, as ruled, cannot reach them. They need the joint declaration
+(`planar.shapes._gap_joints`, #1084) to run along the pad corner, where the strip
+carries the step. That is a geometry and sidecar change, not a census one, and the
+master should decide it.
+
+The v2 verify twins (`verify/strips.adjacent_ground_step`, `strip_seam_tear`) carry no
+declared-wall forgiveness at all, so they have nothing to extend.

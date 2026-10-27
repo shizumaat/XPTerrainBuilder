@@ -6929,11 +6929,16 @@ class DeclaredWallSteps:
     declared step it crosses (never the sum: a mouth publishes several
     overlapping outlines, and summing them would blind the reader); the
     excess still reports, and a pair beside the line that does not cross
-    it is ground, not the riser, and reports in full."""
+    it is ground, not the riser, and reports in full.
+
+    A DECLARED GAP STEP is read the same way (owner RULINGS 2026-10-27y,
+    #883: "a step the owner has approved is lawful in the strip checks
+    too"): the 08k separation joint between two shapes (``gap: true``,
+    ``planar.shapes._gap_joints``, #1084) forgives its declared step."""
 
     def __init__(self, terrace_joints_ll, ll_to_m) -> None:
         rows = [r for r in (terrace_joints_ll or [])
-                if r.get("kind") == WALL_TERRACE_JOINT_KIND]
+                if r.get("kind") == WALL_TERRACE_JOINT_KIND or r.get("gap")]
         self.joints = _terrace_joints_to_m(rows, ll_to_m)
         self._index = _JointSegments(self.joints) if self.joints else None
 

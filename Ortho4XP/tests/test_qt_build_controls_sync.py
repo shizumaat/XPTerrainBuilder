@@ -272,3 +272,40 @@ def test_offline_detected_imagery_is_not_adopted(window):
     before = window.imagery_combo.currentText()
     window.map.set_selection({(47, 12)})
     assert window.imagery_combo.currentText() == before
+
+
+def test_detected_imagery_adopts_when_the_scan_reports_the_tile_late(window):
+    """App 1.0.433: a Bing tile selected before the scan reported it left
+    the Imagery menu on the old source.  Its scan result re-arms the sync
+    once; the user's pick made in between survives it."""
+    window.imagery_combo.addItems(["BI"])
+    info = _fake_built_tile(window, 47, 13, ["5424_8720_BI16.dds"])
+    del window._built[(47, 13)]
+    window.map.set_selection({(47, 13)})
+    assert window.imagery_combo.currentText() != "BI"
+
+    window._built[(47, 13)] = info
+    window._active_changed(window.map.active_tile())
+    assert window.imagery_combo.currentText() == "BI"
+    assert window.build_zl == 16
+
+    # Once adopted, a refresh leaves a later pick alone.
+    first, _ = _two_provider_codes(window)
+    window.imagery_combo.setCurrentText(first)
+    window._active_changed(window.map.active_tile())
+    assert window.imagery_combo.currentText() == first
+
+
+def test_user_pick_outranks_a_late_scan_result(window):
+    window.imagery_combo.addItems(["BI"])
+    info = _fake_built_tile(window, 47, 14, ["5424_8720_BI16.dds"])
+    del window._built[(47, 14)]
+    window.map.set_selection({(47, 14)})
+    first, _ = _two_provider_codes(window)
+    window.imagery_combo.setCurrentText(first)
+    window.imagery_combo.activated.emit(window.imagery_combo.currentIndex())
+
+    window._built[(47, 14)] = info
+    window._active_changed(window.map.active_tile())
+    assert window.imagery_combo.currentText() == first
+

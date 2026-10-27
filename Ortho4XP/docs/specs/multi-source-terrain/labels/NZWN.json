@@ -1,0 +1,336 @@
+{
+ "airport": "NZWN",
+ "spec": "docs/specs/multi-source-terrain-spec.md \u00a78",
+ "labelled_by": "lane ltriang2, 2026-10-26, from the owner's built tile textures and the airport inset",
+ "q1": [
+  {
+   "runway": "16/34",
+   "end": "16",
+   "truth": "neither",
+   "whence": "threshold bar about 130 m in: apt.dat says 150 m, CIFP 66.5 m (on the displaced area with arrows)"
+  },
+  {
+   "runway": "16/34",
+   "end": "34",
+   "truth": "neither",
+   "whence": "threshold bar about 108 m in: apt.dat says 156 m (at the 34 numbers), CIFP 36 m"
+  }
+ ],
+ "q5_sites": [
+  {
+   "name": "phantomA",
+   "lat": -41.328982258,
+   "lon": 174.813874159,
+   "whence": "#1337 owner: no tunnel (golf course)"
+  },
+  {
+   "name": "phantomB",
+   "lat": -41.329986226,
+   "lon": 174.813713002,
+   "whence": "#1337 owner: no tunnel (golf course)"
+  }
+ ],
+ "q5": [
+  {
+   "lat": -41.330161496,
+   "lon": 174.811179799,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.330137296,
+   "lon": 174.811084496,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.330070801,
+   "lon": 174.811088601,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.330059803,
+   "lon": 174.811186601,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.329998998,
+   "lon": 174.811190694,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.329999101,
+   "lon": 174.811093005,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.329694704,
+   "lon": 174.812269698,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "unclassified"
+  },
+  {
+   "lat": -41.329309898,
+   "lon": 174.8127575,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.329386596,
+   "lon": 174.812917001,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.3293633,
+   "lon": 174.812971302,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.329478796,
+   "lon": 174.812963297,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.330272602,
+   "lon": 174.812904002,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.3304149,
+   "lon": 174.812438905,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.327664099,
+   "lon": 174.812371996,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.3278208,
+   "lon": 174.812316597,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.327751902,
+   "lon": 174.812104997,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.328417504,
+   "lon": 174.813026305,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.3298338,
+   "lon": 174.810658505,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.330000604,
+   "lon": 174.810844003,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.328479498,
+   "lon": 174.812104302,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.327994798,
+   "lon": 174.8120895,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.329742896,
+   "lon": 174.8120245,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.328513596,
+   "lon": 174.812101498,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.327641203,
+   "lon": 174.812711698,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.327826998,
+   "lon": 174.8124594,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": -41.327820504,
+   "lon": 174.812103103,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "unclassified"
+  },
+  {
+   "lat": -41.299245296,
+   "lon": 174.7886171,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": -41.301850396,
+   "lon": 174.791684305,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": -41.288871096,
+   "lon": 174.778447305,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "primary"
+  },
+  {
+   "lat": -41.288696397,
+   "lon": 174.778410899,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "primary"
+  },
+  {
+   "lat": -41.288575296,
+   "lon": 174.778542196,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "primary"
+  },
+  {
+   "lat": -41.288855602,
+   "lon": 174.778601501,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "primary"
+  },
+  {
+   "lat": -41.298680704,
+   "lon": 174.778414394,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "trunk"
+  },
+  {
+   "lat": -41.298222096,
+   "lon": 174.7769646,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "trunk"
+  },
+  {
+   "lat": -41.324287201,
+   "lon": 174.827354098,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "secondary"
+  },
+  {
+   "lat": -41.3233222,
+   "lon": 174.828501502,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "secondary"
+  },
+  {
+   "lat": -41.291279302,
+   "lon": 174.771775803,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "motorway"
+  },
+  {
+   "lat": -41.336120802,
+   "lon": 174.807251104,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "secondary"
+  },
+  {
+   "lat": -41.3358842,
+   "lon": 174.805319798,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "secondary"
+  },
+  {
+   "lat": -41.301843804,
+   "lon": 174.784567104,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "trunk"
+  },
+  {
+   "lat": -41.304175001,
+   "lon": 174.791355705,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "trunk"
+  },
+  {
+   "lat": -41.328982258,
+   "lon": 174.813874159,
+   "truth": false,
+   "whence": "owner site",
+   "name": "phantomA"
+  },
+  {
+   "lat": -41.329986226,
+   "lon": 174.813713002,
+   "truth": false,
+   "whence": "owner site",
+   "name": "phantomB"
+  }
+ ]
+}

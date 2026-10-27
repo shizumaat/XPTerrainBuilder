@@ -14,8 +14,6 @@ import types
 
 import numpy as np
 import pytest
-from shapely.geometry import Point, Polygon
-
 from auto_patch_v2.airport import ramp_feet as rf
 from auto_patch_v2.airport.rebake_plan import _mpd
 from auto_patch_v2.classify.ramp_runout import mint_ramp_runouts, runout_of
@@ -23,6 +21,7 @@ from auto_patch_v2.classify.rules import load_rules
 from auto_patch_v2.constraints.ramp_runout import RUNOUT_RULING, runout_rows
 from auto_patch_v2.law import load_default
 from auto_patch_v2.model.constraints import ConstraintSet
+from shapely.geometry import Point, Polygon
 
 LAT0, LON0 = 10.0, 20.0
 ML, MO = _mpd(LAT0)
@@ -146,8 +145,8 @@ def _mint(tmp_path, law, ground_end_n=-3.0, level=14.0):
 def test_a_graded_foot_runs_out_to_raw_dem(tmp_path, law):
     cl, rep = _mint(tmp_path, law)
     assert rep["runouts"] == 1, rep
-    c = cl.cells[-1]
-    assert c.role == "service_road" and c.ref == "runout:0"
+    c = next(c for c in cl.cells if c.ref == "runout:0")
+    assert c.role == "service_road"
     assert c.evidence["pad_road"]
     q = Polygon(c.ring)
     x0, y0, dx, dy, z0, dem0 = runout_of(c)
@@ -189,7 +188,7 @@ class _Planar:
 def test_the_runout_rows_lay_the_design_grade_to_the_dem(law):
     pm = _Planar([(0, -3), (8, -3), (8, -83), (0, -83)], 10.0)
     cs, rep = runout_rows(pm, law, ConstraintSet(), levels={0: 14.0, 1: 14.0})
-    assert rep == {"faces": 1, "rows": 2}
+    assert rep == {"faces": 1, "rows": 2, "bank_faces": 0, "bank_rows": 0}
     rows = [r for r in cs.linears if r.source.ruling == RUNOUT_RULING]
     assert {r.terms[0][0] for r in rows} == {2, 3}
     # 80 m on at 5 % the ramp has come down the whole 4 m: the DEM
@@ -201,7 +200,7 @@ def test_the_strip_sides_carry_matching_stations(tmp_path, law):
     # hold — both sides take a vertex at the same stations, STATION_M apart
     from auto_patch_v2.classify.ramp_runout import STATION_M
     cl, rep = _mint(tmp_path, law)
-    ring = cl.cells[-1].ring
+    ring = next(c for c in cl.cells if c.ref == "runout:0").ring
     sides = [sorted(round(y, 1) for x, y in ring if (x < 4.0) == west) for west in (True, False)]
     assert sides[0] == sides[1] and len(sides[0]) > 2
     assert max(b - a for a, b in zip(sides[0][:-1], sides[0][1:], strict=True)) <= STATION_M + 0.5
@@ -253,3 +252,191 @@ def test_a_landing_foot_keeps_its_collar(tmp_path, law):
         ring_vertices=lambda cyc: tuple(cyc))
     _cl, rep = mint_ramp_runouts(cl, ap, law, load_rules(), pm, {k: 14.0 for k in range(4)})
     assert rep["runouts"] == 0 and rep["landing"] == 1
+
+
+# --- lane lramp2 (#669 / #1093): the foot leads its run-out, and the run-out
+# ends on the ground (``docs/findings/kclt-ramp-lramp2.md``)
+
+def test_the_strip_is_banked_to_its_daylight_line(tmp_path, law):
+    # R3 (20aw trial, 20ay "no visible edge"): the strip stands 4 m over a
+    # flat DEM where it leaves the patch and meets it 80 m on; its sides are
+    # banked at 1:3 to where that slope meets the ground — 12 m out at the
+    # start, nothing where the strip is down on its DEM
+    from auto_patch_v2.classify.ramp_runout import BANK_EVIDENCE
+    cl, rep = _mint(tmp_path, law)
+    banks = [c for c in cl.cells if c.ref == "runout:0#collar"]
+    assert banks and rep["banks"] == len(banks)
+    assert all(c.role == "building" and c.evidence[BANK_EVIDENCE] for c in banks)
+    strip = Polygon(next(c for c in cl.cells if c.ref == "runout:0").ring)
+    bank = Polygon(banks[0].ring)
+    for c in banks[1:]:
+        bank = bank.union(Polygon(c.ring))
+    k = float(law.tables.emit.design.bank_slope)
+    x0 = strip.bounds[0]
+    # beside the strip's start, the bank runs out to 4 / k metres
+    near = bank.intersection(Polygon([(x0 - 30, -6), (x0, -6), (x0, -4), (x0 - 30, -4)]))
+    assert near.bounds[0] == pytest.approx(x0 - 4.0 / k, abs=1.5)
+    # near its end the strip is on its DEM: the bank has all but closed
+    far = bank.intersection(Polygon([(x0 - 30, -80), (x0, -80), (x0, -78), (x0 - 30, -78)]))
+    assert far.is_empty or far.bounds[0] >= x0 - 1.5
+    assert not bank.intersects(Point(4, 0))      # nothing standing taken
+
+
+class _BankPlanar(_Planar):
+    """The strip and its bank: a toe vertex 9 m west of the strip's start."""
+
+    def __init__(self):
+        super().__init__([(0, -3), (8, -3), (8, -83), (0, -83)], 10.0)
+        self.vertices[4] = types.SimpleNamespace(xy=(-9.0, -3.0), dem_z=10.0,
+                                                 incident_faces=(1,))
+        self.vertices[5] = types.SimpleNamespace(xy=(-30.0, -40.0), dem_z=10.0,
+                                                 incident_faces=(1,))
+        self.vertices[0].incident_faces = (0, 1)
+        self.vertices[3].incident_faces = (0, 1)
+        self.faces[1] = types.SimpleNamespace(id=1, ref="runout:0#collar", role="building",
+                                              ring=(0, 4, 5, 3), holes=())
+        self.edges = {}
+
+
+def test_the_bank_lies_on_its_slope_to_the_ground(law):
+    # R3's rows: a bank vertex takes its own ground, clamped into the 1:3
+    # cone off the nearest point of its strip (here the start, at 14 m)
+    from auto_patch_v2.constraints.ramp_runout import BANK_RULING
+    pm = _BankPlanar()
+    cs, rep = runout_rows(pm, law, ConstraintSet(), levels={0: 14.0, 1: 14.0}, dem=_Dem())
+    assert rep["bank_faces"] == 1 and rep["bank_rows"] == 2
+    lo = {r.terms[0][0]: r.lo for r in cs.linears if r.source.ruling == BANK_RULING}
+    k = float(law.tables.emit.design.bank_slope)
+    assert lo[4] == pytest.approx(max(10.0, 14.0 - 9.0 * k))    # 9 m out: 11 m
+    assert lo[5] == pytest.approx(10.0)                          # past daylight: its DEM
+    # the strip's own vertices shared with its bank keep their profile rows
+    on = {r.terms[0][0] for r in cs.linears if r.source.ruling == RUNOUT_RULING}
+    assert 3 in on
+
+
+class _RoadPlanar:
+    """A mapped road leaving a ramp foot (lip (4, 0), travel south): its
+    vertices 6 m behind the lip, at the lip's patch edge 3 m on, and 40 m
+    and 100 m on."""
+
+    def __init__(self):
+        ys = (6.0, -3.0, -40.0, -100.0)
+        self.vertices = {k: types.SimpleNamespace(xy=(4.0, y), dem_z=10.0, incident_faces=(0,))
+                         for k, y in enumerate(ys)}
+        self.faces = {0: types.SimpleNamespace(id=0, ref="big_roads:-1", role="service_road",
+                                               ring=(0, 1, 2, 3), holes=())}
+        self.ramp_runouts = {}
+        self.pad_roads = frozenset()
+
+    def ring_vertices(self, cycle):
+        return tuple(cycle)
+
+
+def _foot_ap(tmp_path):
+    rf._MEMO.clear()
+    part = _partition(tmp_path, [(0, 8, 0, -100, 0.0, 6.0)])
+    return types.SimpleNamespace(partition=part, dem=_Dem(), frame=_frame())
+
+
+def test_a_mapped_road_ahead_of_the_foot_carries_its_runout(tmp_path, law, monkeypatch):
+    # R1 + R2 (RULINGS 2026-10-14i): KCLT's departures roadway — mapped
+    # ahead of the ramp's foot — held the ground at the lip 2.5 m under the
+    # deck.  The road starts AT the foot's level and comes down at the design
+    # grade until it meets the DEM; its §37 rows there are withdrawn
+    from auto_patch_v2.constraints import foot_road as rr
+    from auto_patch_v2.constraints import road_ramp
+    from auto_patch_v2.model.constraints import Linear, Source
+    monkeypatch.setattr(rr, "foot_levels", lambda pm, law, ap, feet, lv: [14.0] * len(feet))
+    monkeypatch.setattr(rr, "_on_landing", lambda pm, lip, reach: False)
+    ap, pm = _foot_ap(tmp_path), _RoadPlanar()
+    r37 = Linear(((2, 1.0),), 9.0, 9.0, Source(road_ramp.GEN, road_ramp.RULING, ("vertex:2",)))
+    cs, rep = rr.foot_road_rows(pm, law, ConstraintSet.from_rows([r37]), {}, ap,
+                                rf.ramp_feet(ap, law, to_xy), back_m=rf.FOOT_SPAN_M,
+                                max_run_m=400.0)
+    assert rep["roads"] == 1 and rep["withdrawn"] == 1
+    lo = {r.terms[0][0]: r.lo for r in cs.linears if r.source.ruling == rr.FOOT_ROAD_RULING}
+    g = float(law.tables.emit.road_contact.ramp_grade)
+    lip_n = rf.ramp_feet(ap, law, to_xy)[0].lip[1]
+    assert lo[0] == pytest.approx(14.0)                       # under the ramp: the foot
+    assert lo[1] == pytest.approx(14.0 - g * (lip_n + 3.0), abs=0.06)
+    assert lo[2] == pytest.approx(14.0 - g * (lip_n + 40.0), abs=0.06)
+    assert 3 not in lo                                        # past the meeting: its own law
+    assert r37 not in list(cs.rows())
+
+
+def test_a_foot_with_no_seat_constant_leaves_the_road(tmp_path, law, monkeypatch):
+    from auto_patch_v2.constraints import foot_road as rr
+    monkeypatch.setattr(rr, "foot_levels", lambda pm, law, ap, feet, lv: [None] * len(feet))
+    ap = _foot_ap(tmp_path)
+    cs, rep = rr.foot_road_rows(_RoadPlanar(), law, ConstraintSet(), {}, ap,
+                                rf.ramp_feet(ap, law, to_xy), back_m=rf.FOOT_SPAN_M,
+                                max_run_m=400.0)
+    assert rep["no_level"] == 1 and rep["rows"] == 0
+
+
+def test_the_foot_level_is_its_units_seat_on_a_flat_held_pad(tmp_path, law, monkeypatch):
+    # R1: the unit's origin sits on the pad under its anchor; the foot is
+    # the deck's authored y above it
+    from auto_patch_v2.constraints import foot_road as rr
+    from auto_patch_v2.constraints import platform
+    from auto_patch_v2.model import platform as mplat
+    ap = _foot_ap(tmp_path)
+    feet = rf.ramp_feet(ap, law, to_xy)
+    xy = [(-20, -20), (20, -20), (20, 20), (-20, 20)]
+    pm = types.SimpleNamespace(
+        vertices={k: types.SimpleNamespace(xy=p) for k, p in enumerate(xy)},
+        faces={0: types.SimpleNamespace(ref="building1", ring=(0, 1, 2, 3), role="building")},
+        ring_vertices=lambda cyc: tuple(cyc))
+    monkeypatch.setattr(platform, "flat_held_refs", lambda pm, law: frozenset({"building1"}))
+    monkeypatch.setattr(mplat, "datum_vertices", lambda pm, law: {"building1": 2})
+    got = rr.foot_levels(pm, law, ap, feet, {2: 30.0})
+    assert got == [pytest.approx(30.0 + feet[0].y_foot)]
+    assert rr.foot_levels(pm, law, ap, feet, {}) == [None]      # not a constant here
+
+
+def test_a_strip_beside_its_carrying_road_is_that_roads_shoulder(law):
+    # R2/R3: the strips beside the road that carries the run-out ride the
+    # road's level (its lead), not their own DEM-closing profile: KCLT's
+    # held 1.5-2.3 m over it where the road ran on to a raised junction
+    from auto_patch_v2.geom.ramp_profile import lead_section, strip_level
+    g = float(law.tables.emit.road_contact.ramp_grade)
+
+    def ground(s):
+        return 10.0
+    lead = lead_section([(0.0, 14.0), (0.4, 14.0), (60.0, 13.0)])
+    assert len(lead) == 2
+    assert strip_level(30.0, 14.0, 10.0, ground, g, lead) == pytest.approx(13.5, abs=0.01)
+    # past the lead's end, the ramp law off its last station
+    assert strip_level(70.0, 14.0, 10.0, ground, g, lead) == pytest.approx(13.0 - g * 10.0)
+    # no lead: the strip's own profile off its start
+    assert strip_level(30.0, 14.0, 10.0, ground, g) == pytest.approx(14.0 - g * 30.0)
+
+
+def test_the_runout_rows_ride_a_standing_road_beside_the_strip(law):
+    pm = _Planar([(0, -3), (8, -3), (8, -83), (0, -83)], 10.0)
+    # a mapped road shares the strip's east side, standing at 13.5 -> 12.0
+    pm.faces[1] = types.SimpleNamespace(id=1, ref="big_roads:-1", role="service_road",
+                                        ring=(1, 2), holes=())
+    pm.vertices[1].incident_faces = (0, 1)
+    pm.vertices[2].incident_faces = (0, 1)
+    cs, _rep = runout_rows(pm, law, ConstraintSet(), levels={0: 14.0, 1: 13.5, 2: 12.0},
+                           dem=_Dem())
+    lo = {r.terms[0][0]: r.lo for r in cs.linears if r.source.ruling == RUNOUT_RULING}
+    assert lo == {3: pytest.approx(12.0)}      # the road's level at the far station
+
+
+def test_a_bank_node_on_a_standing_edge_stands_on_it(law):
+    # a bank node the arrangement notched beside the apron's edge takes the
+    # apron edge's level there, not its DEM (KCLT: four mid-edge steps of
+    # 0.95-2.38 m against the apron ``pav14``)
+    from auto_patch_v2.constraints.ramp_runout import BANK_RULING
+    pm = _BankPlanar()
+    pm.vertices[6] = types.SimpleNamespace(xy=(-30.0, -10.0), dem_z=10.0, incident_faces=(2,))
+    pm.vertices[7] = types.SimpleNamespace(xy=(-30.0, -70.0), dem_z=10.0, incident_faces=(2,))
+    pm.faces[2] = types.SimpleNamespace(id=2, ref="pav1", role="apron", ring=(6, 7), holes=())
+    pm.vertices[5].xy = (-30.05, -40.0)                  # 5 cm off the apron's edge
+    pm.edges = {0: types.SimpleNamespace(a=6, b=7, left_face=2, right_face=None)}
+    cs, _rep = runout_rows(pm, law, ConstraintSet(),
+                           levels={0: 14.0, 1: 14.0, 6: 13.0, 7: 12.0}, dem=_Dem())
+    lo = {r.terms[0][0]: r.lo for r in cs.linears if r.source.ruling == BANK_RULING}
+    assert lo[5] == pytest.approx(12.5, abs=0.01)

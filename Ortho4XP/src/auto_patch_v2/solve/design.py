@@ -70,6 +70,7 @@ from .linear import (DEFAULT_LOW_RANK, DEFAULT_METHOD, LOW_RANK_MODES,
 from .design_report import (DesignReport, foot_row_diagnostic, hard_exceeds, hard_metres,
                             residual, settled_flip)
 from .design_qp import DEFAULT_SOLVER, SOLVERS, solve_one_sided
+from .warm_seed import WarmSeed
 from .feasibility import (_carries_a_column, apron_hard_rows, demote_conflicts,  # noqa: F401
                           promote_missed, published, publish_stages, runway_after,
                           shipped_conflicts)
@@ -199,6 +200,8 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
     retarget: dict = {}
     # one QP-budget memo for every stage-1 pass (``project_runway``, #994)
     budget_memo: dict = {}
+    # one first-QP seed per stage (``solve/warm_seed``, RULINGS 2026-10-19am (a))
+    seed1, seed2 = WarmSeed(), WarmSeed()
 
     def _s1(pm_x: PlanarMap, cs_x: ConstraintSet):
         if trend_rewrite is None:
@@ -223,7 +226,7 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
                               method=method, low_rank=low_rank, drop=d_x,
                               fixed=f_x, levelled_out=lv,
                               stage_roles=airside_stage_roles(law),
-                              projection_memo=budget_memo)
+                              projection_memo=budget_memo, seed=seed1)
         return so, rp, d_x, f_x, lv, sz
     t1 = time.perf_counter()
     from .pin_yield import stage1_read_pins
@@ -276,12 +279,14 @@ def solve_design(planar: PlanarMap, cs: ConstraintSet, law: Law,
         cs = hold.apply(cs)        # stage 2 states pass 1b's hold law (§4)
     t2 = time.perf_counter()
     sol2, rep2 = _solve_stage(planar2, cs, law, options, size_out=size_out,
-                              method=method, low_rank=low_rank, fixed=levels)
+                              method=method, low_rank=low_rank, fixed=levels,
+                              seed=seed2)
     yielded: list[dict] = []
     if sol2.z and yield_heads:     # issue #778: each pin by its own conflict
         def _stage2(cs_x: ConstraintSet):
             return _solve_stage(planar2, cs_x, law, options, size_out=size_out,
-                                method=method, low_rank=low_rank, fixed=levels)
+                                method=method, low_rank=low_rank, fixed=levels,
+                                seed=seed2)
         among2 = {p.v for p in cs.pins} - set(s1_read)
         sol2, rep2, yielded, _cs2 = _yield_pins(planar2, cs, law, sol2, rep2,
                                                 _stage2, among=among2)
@@ -446,7 +451,8 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
                  fixed: _t.Mapping[int, float] | None = None,
                  levelled_out: dict[int, float] | None = None,
                  stage_roles: _t.AbstractSet[str] | None = None,
-                 projection_memo: dict | None = None
+                 projection_memo: dict | None = None,
+                 seed: WarmSeed | None = None
                  ) -> tuple[Solution, DesignReport]:
     """ONE solve of the design surface (module docstring) — the whole thing
     when ``staged_solve`` is off, one stage of §20b when it is not.
@@ -456,6 +462,9 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     whose column carried an ALWAYS-ON row (bending, chord, trend, datum,
     level belt) — a column with none has no level here and is left free.
     ``projection_memo`` is :func:`project_after_solve`'s ``memo``.
+    ``seed`` is the stage's :class:`~.warm_seed.WarmSeed`: the first QP
+    starts from the previous pass's first QP and leaves its own answer for
+    the next (RULINGS 2026-10-19am (a)); ``None`` starts it cold.
     """
     opt = options or Options()
     d = design_law(law)
@@ -724,7 +733,12 @@ def _solve_stage(planar: PlanarMap, cs: ConstraintSet, law: Law,
     if ow_i.size:
         shift[ow_i] = -_LAG_OFF
         rep.one_way_settled = False
-    x = _inner(None)
+    # THE SEEDED FIRST QP (RULINGS 2026-10-19am (a), ``solve/warm_seed``):
+    # a pass after the stage's first starts where the previous first QP
+    # ended — the same convex minimum, a fraction of the rounds
+    x = _inner(seed.x0(red) if seed is not None and _inner is _inner_qp else None)
+    if seed is not None and _inner is _inner_qp:
+        seed.record(red, x)
 
     # PHASE B — THE LAG IS A CONVERGENCE CONDITION (09-09b (2)/(3); §20a,
     # RULINGS 2026-09-13ac).  The one-way leaders are re-read from the

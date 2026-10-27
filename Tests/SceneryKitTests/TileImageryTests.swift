@@ -54,4 +54,35 @@ struct TileImageryTests {
         ])))
         #expect(TileImageryChoice.resolve(bare) == TileImageryChoice(provider: "BI", zl: 16, source: .detected))
     }
+
+    /// A tile selected before the scan reports it adopts its imagery the
+    /// moment its info arrives (the 1.0.433 report: a Bing tile left the
+    /// Build menu on USA2); a user pick in between wins; it adopts once.
+    @Test func adoptionWaitsForTheTilesInfo() throws {
+        let bing = try #require(O4TileInfo(json: .object([
+            "lat": .int(48), "lon": .int(-124), "detected_provider": .string("BI"),
+            "detected_zl": .int(18),
+        ])))
+        let expected = TileImageryChoice(provider: "BI", zl: 18, source: .detected)
+
+        var known = TileImageryAdoption<String>()
+        #expect(known.select("+48-124", info: bing) == expected)
+        #expect(known.arrived(active: "+48-124", info: bing) == nil)
+
+        var late = TileImageryAdoption<String>()
+        #expect(late.select("+48-124", info: nil) == nil)
+        #expect(late.arrived(active: "+48-124", info: nil) == nil)
+        #expect(late.arrived(active: "+48-124", info: bing) == expected)
+        #expect(late.arrived(active: "+48-124", info: bing) == nil)
+
+        var picked = TileImageryAdoption<String>()
+        _ = picked.select("+48-124", info: nil)
+        picked.userPicked()
+        #expect(picked.arrived(active: "+48-124", info: bing) == nil)
+
+        var moved = TileImageryAdoption<String>()
+        _ = moved.select("+48-124", info: nil)
+        _ = moved.select("+47-124", info: nil)
+        #expect(moved.arrived(active: "+47-124", info: bing) == expected)
+    }
 }

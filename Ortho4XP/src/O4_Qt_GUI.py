@@ -1086,6 +1086,7 @@ class MainWindow(QMainWindow):
             prefs=self.prefs, save_prefs=save_prefs)
         self.patch_editor.controller.rebuild = self.rebuild_patch_tile
         self.patch_editor.controller.is_building = lambda: self._building
+        self.patch_editor.controller.is_scanning = lambda: self._scanning
 
         panel = QWidget()
         pv = QVBoxLayout(panel)
@@ -1362,6 +1363,7 @@ class MainWindow(QMainWindow):
             c.toggled.connect(self._schedule_plan_estimate)
         self.imagery_combo.currentTextChanged.connect(
             self._schedule_plan_estimate)
+        self.imagery_combo.activated.connect(self._imagery_picked)
 
         # What the build will cost, above Build (#820): the engine's
         # plan_estimate ranges, refreshed shortly after any change.
@@ -2718,10 +2720,14 @@ class MainWindow(QMainWindow):
         The sync runs once per selection: panel refreshes on an UNCHANGED
         selection (scan results streaming in, build bookkeeping) must not
         snap the combos back to the recorded provenance after the user
-        deliberately picked a different value for the next build.
+        deliberately picked a different value for the next build.  A
+        selected tile whose scan result arrives AFTER the selection (at
+        launch, while a build slows the scan) re-arms it once — the Mac's
+        ``TileImageryAdoption``.
         """
         self._refresh_imagery_menus()
-        selection_key = (self.output_dir(), frozenset(selection))
+        selection_key = (self.output_dir(), frozenset(selection),
+                         frozenset(t for t in selection if t in self._built))
         if selection_key == self._combos_synced_to:
             return
         self._combos_synced_to = selection_key
@@ -2758,6 +2764,14 @@ class MainWindow(QMainWindow):
         if len(zoomlevels) == 1:
             self.build_zl = _zoom_level(next(iter(zoomlevels)), self.build_zl)
             self.prefs["zl"] = self.build_zl
+
+    def _imagery_picked(self, _index):
+        """The user chose a source: a scan result arriving later for the
+        selection no longer re-arms the sync (the Mac's
+        ``TileImageryAdoption.userPicked``)."""
+        if self._combos_synced_to is not None:
+            out, selection, _known = self._combos_synced_to
+            self._combos_synced_to = (out, selection, selection)
 
     def _update_build_summary(self, sel=None):
         if sel is None:

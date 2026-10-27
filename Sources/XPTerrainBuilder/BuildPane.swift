@@ -1031,7 +1031,7 @@ struct BuildPane: View {
 
     private var providerBinding: Binding<String> {
         Binding(get: { buildModel.buildProvider },
-                set: { buildModel.objectWillChange.send(); buildModel.buildProvider = $0 })
+                set: { buildModel.chooseBuildProvider($0) })
     }
 
     private func boolBinding(_ keyPath: ReferenceWritableKeyPath<BuildModel, Bool>) -> Binding<Bool> {

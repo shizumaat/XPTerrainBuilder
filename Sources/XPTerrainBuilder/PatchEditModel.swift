@@ -23,6 +23,9 @@ final class PatchEditModel: ObservableObject {
         case failed(icao: String, message: String)
         /// The airport nearest the view centre has no patch on disk.
         case noPatch(icao: String, tileBuilt: Bool)
+        /// Not in the built set YET: the tile scan is still running, so
+        /// "Build this tile first" would be a guess (1.0.433, SPJC).
+        case checking(icao: String)
     }
 
     /// The view must be narrower than this (degrees of longitude) before
@@ -123,6 +126,8 @@ final class PatchEditModel: ObservableObject {
             .store(in: &subscriptions)
         build.$protocolHello.dropFirst().sink { [weak self] _ in self?.scheduleEvaluate() }
             .store(in: &subscriptions)
+        build.$isScanning.dropFirst().sink { [weak self] _ in self?.scheduleEvaluate() }
+            .store(in: &subscriptions)
     }
 
     // MARK: - Viewport
@@ -203,10 +208,18 @@ final class PatchEditModel: ObservableObject {
         } else if let airport = Self.nearestAirport(in: viewport.box, overlays: viewport.overlays,
                                                     lat: viewport.centerLat, lon: viewport.centerLon) {
             let coord = BuildModel.TileCoord(lat: Int(floor(airport.lat)), lon: Int(floor(airport.lon)))
-            setState(.noPatch(icao: airport.icao, tileBuilt: build.built[coord] != nil))
+            setState(Self.absence(icao: airport.icao, built: build.built[coord] != nil,
+                                  scanning: build.isScanning))
         } else {
             setState(.hidden)
         }
+    }
+
+    /// The airport has no patch listed: say why — and never "not built"
+    /// while the scan that would list the tile is still running.
+    nonisolated static func absence(icao: String, built: Bool, scanning: Bool) -> LoadState {
+        if !built && scanning { return .checking(icao: icao) }
+        return .noPatch(icao: icao, tileBuilt: built)
     }
 
     private func tilesCovering(_ box: O4LatLonBox) -> [BuildModel.TileCoord] {

@@ -234,7 +234,9 @@ final class BuildModel: ObservableObject {
 
     // MARK: Scan state (what exists on disk / in X-Plane)
 
-    @Published private(set) var built: [TileCoord: O4TileInfo] = [:]
+    @Published private(set) var built: [TileCoord: O4TileInfo] = [:] {
+        didSet { adoptArrivedTileConfig() }
+    }
     @Published private(set) var installed: Set<TileCoord> = []
     /// Built tiles whose textures folder mixes imagery sources (only one
     /// can be used) — warning badges on the map + selection pane.
@@ -271,7 +273,7 @@ final class BuildModel: ObservableObject {
     var searchTags = TileSearchTags()
     @Published var activeTile: TileCoord? {
         didSet {
-            adoptActiveTileConfig()
+            adopt(imageryAdoption.select(activeTile, info: activeTile.flatMap { built[$0] }))
             persistSelection()
             refreshBuiltByIfMissing()
         }
@@ -283,12 +285,31 @@ final class BuildModel: ObservableObject {
     /// did not answer the launch check is not adopted (#1345). The user
     /// can still change either afterwards — startBuild then warns on the
     /// mismatch.
-    private func adoptActiveTileConfig() {
-        guard let coord = activeTile, let info = built[coord],
-              let choice = TileImageryChoice.resolve(info) else { return }
+    ///
+    /// A tile selected before the scan has reported it (launch, a rejected
+    /// scan cache, a scan slowed by a running build) adopts once its info
+    /// arrives — unless the user picked a source in between.
+    private func adopt(_ choice: TileImageryChoice?) {
+        guard let choice else { return }
         if choice.source == .detected, imageryStatus[choice.provider]?.status == "offline" { return }
+        // AppStorage on the model doesn't self-publish.
+        objectWillChange.send()
         buildProvider = choice.provider
         if let zl = choice.zl { buildZL = zl }
+    }
+
+    private var imageryAdoption = TileImageryAdoption<TileCoord>()
+
+    private func adoptArrivedTileConfig() {
+        adopt(imageryAdoption.arrived(active: activeTile, info: activeTile.flatMap { built[$0] }))
+    }
+
+    /// The Build box's Imagery menu: the user's pick outranks a tile
+    /// imagery adoption still waiting for the scan.
+    func chooseBuildProvider(_ code: String) {
+        imageryAdoption.userPicked()
+        objectWillChange.send()
+        buildProvider = code
     }
 
     /// Both selection keys, rewritten whole on every change. A selection is
@@ -1402,7 +1423,10 @@ final class BuildModel: ObservableObject {
         engine != nil && !buildableSelection.isEmpty
             && (doVector || doImagery || doOverlays)
             && !(isBuilding && !usesProtocol) // legacy path can't queue into a run
-            && !isBoundaryPreflighting // a second press would ask twice
+            // Idle, a second press would start a second run; during a run
+            // a press joins the line behind the preflight in flight.
+            && O4BoundaryPressQueue<[BuildBatch]>.acceptsPress(
+                isPreflighting: isBoundaryPreflighting, isBuilding: isBuilding)
             && xplaneBlockReason == nil
             && planBlockReason == nil
     }
@@ -1974,6 +1998,8 @@ final class BuildModel: ObservableObject {
     @Published private(set) var isBoundaryPreflighting = false
 
     private var pendingBoundary: PendingBoundary?
+    /// Presses waiting behind the preflight in flight, in press order.
+    private var boundaryPresses = O4BoundaryPressQueue<[BuildBatch]>()
     private var boundaryTimeoutTask: Task<Void, Never>?
 
     /// The preflight can never be the thing that stops a build (spec §C.7):
@@ -1992,11 +2018,21 @@ final class BuildModel: ObservableObject {
         let batches = batches.filter { !$0.tiles.isEmpty }
         guard !batches.isEmpty else { return }
         connectIfNeeded()
-        guard let client else { return }
-        // One preflight at a time; a press while one is in flight is
-        // already blocked by canBuild, and a resume is not.
-        guard pendingBoundary == nil else {
-            for batch in batches { sendProtocolBuild(batch, boundaryPolicy: nil) }
+        guard client != nil else { return }
+        // One preflight at a time: a press (or a resume) made while one is
+        // in flight waits its turn and then asks its own question.
+        guard let press = boundaryPresses.submit(batches) else {
+            let count = Set(batches.flatMap(\.tiles)).count
+            console.append("Queued \(count) tile\(count == 1 ? "" : "s") — checking for airports on the tile edges first.")
+            return
+        }
+        beginBoundaryPreflight(press)
+    }
+
+    /// Start one press's preflight (the press queue's head).
+    private func beginBoundaryPreflight(_ batches: [BuildBatch]) {
+        guard let client else {
+            nextBoundaryPress()
             return
         }
         var seen: Set<TileCoord> = []
@@ -2086,7 +2122,7 @@ final class BuildModel: ObservableObject {
             boundaryTimeoutTask?.cancel()
             boundaryTimeoutTask = nil
             pendingBoundary = nil
-            isBoundaryPreflighting = false
+            nextBoundaryPress()
             return
         }
         finishBoundary(policy: choice.rawValue,
@@ -2099,9 +2135,18 @@ final class BuildModel: ObservableObject {
         boundaryTimeoutTask = nil
         guard let pending = pendingBoundary else { return }
         pendingBoundary = nil
-        isBoundaryPreflighting = false
         let batches = Self.adding(addTiles, to: pending.batches)
         for batch in batches { sendProtocolBuild(batch, boundaryPolicy: policy) }
+        nextBoundaryPress()
+    }
+
+    /// The press in flight settled: start the next waiting one, if any.
+    private func nextBoundaryPress() {
+        if let next = boundaryPresses.settle() {
+            beginBoundaryPreflight(next)
+        } else {
+            isBoundaryPreflighting = false
+        }
     }
 
     // MARK: Boundary rules (pure — no engine, no view)

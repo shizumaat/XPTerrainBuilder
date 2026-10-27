@@ -1915,6 +1915,21 @@ def road_class_cap(way_class, class_caps, default_cap):
     return float(default_cap)
 
 
+def road_inside_cap(way_class, cap, cap_ceiling, public_classes):
+    """The IN-BAND cap of one OSM way (owner RULINGS 2026-10-22h, #1254):
+    a PUBLIC road (``way_class`` in ``public_classes``, the law table's
+    ``[road_profile] public_classes``) follows the real terrain where it is
+    steeper than the road cap, so its in-band segments take ``cap_ceiling``
+    — the clamp is then the terrain itself wherever the terrain is a road.
+    Every other class (``service``, ``track``, untagged, a railway) keeps
+    ``cap``, the patch's ``road_grade_limit``.  ONE reading, called by the
+    core (:func:`clamp_road_network`) and by v2
+    (``auto_patch_v2/airport/road_profile.core_profiles``)."""
+    if way_class and str(way_class) in (public_classes or ()):
+        return max(float(cap), float(cap_ceiling))
+    return float(cap)
+
+
 #: Bisection halvings used to find the yielded cap (spec §2-SUPPLEMENT
 #: S.3).  24 over a ≤ 0.24 span resolves the cap to ~1e-8.
 _YIELD_HALVINGS = 24
@@ -2422,7 +2437,7 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
                        coverage=None, way_classes=None, way_ids=None,
                        runout_m=None,
                        budget_m=None, cap_ceiling=None, class_caps=None,
-                       join_pins=None):
+                       join_pins=None, public_classes=None):
     """Clamp every way of a banked-road MultiLineString, INDEPENDENTLY.
 
     THE ONE SITE THAT DECIDES WHO IS CLAMPED (owner RULINGS 2026-09-18n;
@@ -2456,6 +2471,10 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     terrain and stepping at the abutment.  The polygons are tile-relative
     ``(lon-offset, lat-offset)``, the frame the stations are already in.
 
+    ``public_classes`` — OWNER RULINGS 2026-10-22h: the classes whose
+    in-band segments follow the terrain (:func:`road_inside_cap`); ``None``
+    reads the law table.
+
     ``join_pins`` — ``[(x, y, level_m)]`` in the same frame: OWNER RULINGS
     2026-09-27a (10), THE RIBBON YIELDS.  Where auto_patch released a §37
     (9) coverage-edge join pin (the 5 % pavement ceiling from its apron
@@ -2467,13 +2486,15 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
     (``Levelled_Roads.join_pins``).
     """
     if runout_m is None or budget_m is None or cap_ceiling is None \
-            or class_caps is None:
+            or class_caps is None or public_classes is None:
         law = road_neighbourhood_law()
         runout_m = law["runout_m"] if runout_m is None else runout_m
         budget_m = law["budget_m"] if budget_m is None else budget_m
         cap_ceiling = law["cap_ceiling"] if cap_ceiling is None \
             else cap_ceiling
         class_caps = law["class_caps"] if class_caps is None else class_caps
+        public_classes = law["public_classes"] if public_classes is None \
+            else public_classes
     out = Levelled_Roads(cap, lane_width, station_m, runout_m=runout_m,
                          budget_m=budget_m, cap_ceiling=cap_ceiling,
                          class_caps=class_caps)
@@ -2579,8 +2600,10 @@ def clamp_road_network(road_network, alt_vec, cap, lane_width,
         for k, jlevel, _d in joins_here:
             pin_idx.append(k)
             pin_val.append(jlevel)
+        # 22h: a PUBLIC road follows its terrain inside the band
         clamped, report = neighbourhood_road_profile(
-            s, dem, in_band, cap_class, cap_inside=cap,
+            s, dem, in_band, cap_class,
+            cap_inside=road_inside_cap(cls, cap, cap_ceiling, public_classes),
             runout_m=runout_m, budget_m=budget_m, cap_ceiling=cap_ceiling,
             pin_idx=pin_idx or None, pin_val=pin_val or None)
         if n_deck:

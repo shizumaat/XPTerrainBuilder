@@ -22,7 +22,7 @@ from ..model.constraints import Diff, Flat, Linear, Offset, Pin, Row
 from ..model.planar import Face, PlanarMap, face_vertex_ids, vertex_tier
 from .geometry import ring_vertex_ids
 
-__all__ = ["cap_of", "taxi_cap_for", "face_cap", "View", "view", "row_tier"]
+__all__ = ["cap_of", "curve_k_of", "taxi_cap_for", "face_cap", "View", "view", "row_tier"]
 
 
 def cap_of(pm: PlanarMap | None, law: Law, ref: str,
@@ -49,6 +49,19 @@ def cap_of(pm: PlanarMap | None, law: Law, ref: str,
         return table
     got = max(vals)
     return got if table is None else max(table, got)
+
+
+def curve_k_of(pm: PlanarMap | None, ref: str) -> float | None:
+    """RULINGS 2026-10-26n THE SOLVE-SIDE ACCESSOR of a steep runway's
+    YIELDED vertical-curve K (``pm.runway_caps[ref].curve_k_m``, metres per
+    ``vertical_curve_k_grade_unit``), or ``None`` where the law's own K
+    stands.  A crossing (``"A+B"``) reads the loosest (the smallest K)."""
+    caps = getattr(pm, "runway_caps", None) if pm is not None else None
+    if not caps:
+        return None
+    ks = [float(k) for r in ref.split("+") if r in caps
+          and (k := getattr(caps[r], "curve_k_m", None)) is not None]
+    return min(ks) if ks else None
 
 
 def taxi_cap_for(table_cap: float, yielded: float | None) -> float:

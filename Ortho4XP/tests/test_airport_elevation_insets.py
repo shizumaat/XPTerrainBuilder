@@ -6676,8 +6676,9 @@ def test_warn_rule_fires_on_a_clipped_delivery_and_never_recuts(
     inset_path = FNAMES.airport_inset_dem(0, 0, "OTHH", "COPERNICUSGLO30")
     shortfalls = INSETS.inset_delivery_shortfall(inset_path, boundary, 0.5)
     assert set(shortfalls) == {"east"}
+    # less the one DELIVERED 30 m pixel the rule tolerates
     assert shortfalls["east"] == pytest.approx(
-        2.0 * INSETS.INSET_FUNCTIONAL_MARGIN_M / 3.0, rel=0.05)
+        2.0 * INSETS.INSET_FUNCTIONAL_MARGIN_M / 3.0 - 30.0, rel=0.05)
 
     warnings = []
     monkeypatch.setattr(

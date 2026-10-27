@@ -78,7 +78,9 @@ class WallLines:
     def end_line(self, k: int) -> tuple[XY, XY]:
         """The segment across the corridor at end ``k`` (the inner faces'
         end vertices)."""
-        return (self.inner_a[0], self.inner_b[0]) if k == 0 else (self.inner_a[-1], self.inner_b[-1])
+        if k == 0:
+            return (self.inner_a[0], self.inner_b[0])
+        return (self.inner_a[-1], self.inner_b[-1])
 
     def end_point(self, k: int) -> XY:
         a, b = self.end_line(k)

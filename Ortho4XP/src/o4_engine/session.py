@@ -1041,19 +1041,34 @@ class EngineSession:
         """The vector step downloads the tile's likely orthophotos
         alongside it when this run prefetches (#1002) — in a run that
         builds imagery, or in a worker child its parent lent an imagery
-        token (whose plan is the one step)."""
-        if key != "vector" or not self._prefetch_imagery:
+        token (whose plan is the one step).
+
+        THE AIRPORT'S OWN PHOTOS (#1359, owner RULINGS 2026-10-26y): the
+        vector step is handed ``tile.airport_imagery_fetch``.  Where the
+        prefetch runs, it is the prefetch's own :meth:`~O4_Imagery_Prefetch.
+        Prefetch.fetch_airports`: the downloads ride the SAME imagery token
+        (the remote-server cap the imagery step obeys), which comes back
+        only once the queue has drained AND the airport fetch has run.
+        Where it does not (a worker child its parent lent no token, or a run
+        that builds no imagery), the fetch downloads nothing and reads the
+        airport photos already cached."""
+        if key != "vector":
             return function(tile)
-        if not self._stepwise_run and not any(
-                step == "imagery" for step, _, _ in plan):
-            return function(tile)
+        import functools
+
         import O4_Imagery_Prefetch as PREFETCH
+        if not self._prefetch_imagery or (not self._stepwise_run and not any(
+                step == "imagery" for step, _, _ in plan)):
+            tile.airport_imagery_fetch = functools.partial(
+                PREFETCH.fetch_airport_imagery, tile, download=False)
+            return function(tile)
 
         def downloads_done(downloaded, failed):
             self.imagery_downloads_done(tile.lat, tile.lon, downloaded,
                                         failed)
 
-        with PREFETCH.alongside(tile, on_done=downloads_done):
+        with PREFETCH.alongside(tile, on_done=downloads_done) as prefetch:
+            tile.airport_imagery_fetch = prefetch.fetch_airports
             return function(tile)
 
     def _seed_work_queue(self, tiles, provider, zoomlevel,
@@ -2277,8 +2292,12 @@ class EngineSession:
             request_id = self._boundary_request_id
 
         def work():
+            import O4_UI_Utils as UI
             try:
-                event = self._boundary_preflight(request_id, cells)
+                # An ask, not a build: the selector's narration stays in
+                # the build's own log (the selector "never doubles the log").
+                with UI.quiet_thread():
+                    event = self._boundary_preflight(request_id, cells)
             except Exception as error:                   # never fatal
                 event = BoundaryAirportsReady(request_id=request_id,
                                               error=str(error))

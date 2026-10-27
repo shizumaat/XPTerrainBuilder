@@ -59,7 +59,7 @@ from ..law import Law
 from ..law.reference_code import (NON_INSTRUMENT, VISUAL, raoa_applies, runway_code_number,
                                   status_by_ref)
 from ..law.tables import (EndProfile, airside_stage_roles, end_profile_noise_m,
-                          runway_end_profile, runway_safety_area_length_m,
+                          runway_end_profile, runway_safety_area_length_m, strip_arc_rate_per_m,
                           zone2_half_width_m)
 from ..model.airport import Airport
 from ..model.end_area import end_area_lengths
@@ -70,7 +70,7 @@ from .geometry import (XY, longitudinal_runs, point_in_rect_ring,
                        principal_axis, rect_ring)
 from .end_lip import (end_lip_vertices, natural_bank_vertices, nonrunway_pavement_roles,
                       pavement_edge_junction)
-from .precedence import View, view
+from .precedence import View, curve_k_of, view
 
 __all__ = ["RunwayGroup", "runway_groups",
            "pavement_ring_vertices", "strip_longitudinal_pairs",
@@ -311,8 +311,6 @@ def strip_longitudinal(planar: PlanarMap, law: Law, airport: Airport
 
 def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     vw = view(planar, law)
-    r = law.ruleset.strip.arc_rate
-    rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     owned = _nonrunway_pavement_vertices(vw)
     bank = natural_bank_vertices(vw)          # Q52: the bank yields
@@ -321,6 +319,9 @@ def strip_arc(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     for g in runway_groups(vw, airport):
         src = Source(GEN, "rulesets.strip.arc_rate (reg-set 2026-08-08)",
                      (f"rwy:{g.ref}",))
+        # RULINGS 2026-10-26n: the strip along a steep runway follows its
+        # yielded curves
+        rate = strip_arc_rate_per_m(law, curve_k_of(planar, g.ref))
         for fid, ids, xy in _strip_rings(vw):
             inside = [point_in_rect_ring(x, y, g.rings[0]) for x, y in xy]
             if not any(inside):

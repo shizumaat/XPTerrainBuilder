@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Build pane's Airports card (protocol 1.15, #818): what airport
+/// The Build pane's Airports card (protocol 1.17, #818): what airport
 /// grading and object fitting will do for the tiles about to be built.
 /// The engine's `o4_engine/build_airports.py` is the one reader; the Qt
 /// window calls it in process, this app through `build_airports`.
@@ -80,7 +80,7 @@ public struct O4BuildAirports: Sendable, Equatable {
 extension O4ProtocolVersion {
     /// `build_airports` and the `overrides` build keyword (#818).
     public static func supportsBuildAirports(_ version: String) -> Bool {
-        isAtLeast(version, 1, 15)
+        isAtLeast(version, 1, 17)
     }
 }
 

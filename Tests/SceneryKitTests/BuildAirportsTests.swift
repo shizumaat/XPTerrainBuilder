@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import SceneryKit
 
-/// The Build pane's Airports card (protocol 1.15, #818).
+/// The Build pane's Airports card (protocol 1.17, #818).
 ///
 /// The wire names here are STRING LITERALS matched against
 /// `Ortho4XP/src/o4_engine/events.py` (`class BuildAirportsReady`) and its
@@ -46,7 +46,7 @@ struct BuildAirportsTests {
     }
 
     @Test func protocolGate() {
-        #expect(O4ProtocolVersion.supportsBuildAirports("1.15"))
-        #expect(!O4ProtocolVersion.supportsBuildAirports("1.14"))
+        #expect(O4ProtocolVersion.supportsBuildAirports("1.17"))
+        #expect(!O4ProtocolVersion.supportsBuildAirports("1.16"))
     }
 }

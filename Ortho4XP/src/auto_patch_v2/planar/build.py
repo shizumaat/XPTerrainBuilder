@@ -276,7 +276,8 @@ def build(airport: Airport, classification: Classification, law: Law,
         airport, classification, law, objects, corridors, extra, plates, cache, orep,
         hard_claims, frozenset(tstats.shell_claimed), synth_claims, reads=rings)
     classification, tunnels, sstats = build_structures(airport, classification, law, objects,
-                                                       corridors, extra, plates, channels)
+                                                       corridors, extra, plates, channels,
+                                                       portals=tstats.portals)
     # §34 (13) (4) / §34 (11) (a) THE ROAD BETWEEN TWO MOUTHS (Fable
     # 2026-09-15; RULINGS 2026-09-15y): the ONE road-family face the
     # structures stage mints — a mapped way whose two ENDS are mouths.

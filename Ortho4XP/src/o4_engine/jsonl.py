@@ -63,6 +63,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, TextIO
 
 import O4_Console_Encoding
+import O4_Edit_Cache as EDITCACHE
 import O4_Machine_Slots
 import O4_Process_Liveness as PROC
 import O4_UI_Utils as UI
@@ -153,7 +154,9 @@ def _ortho4xp_version() -> str:
 
 #: Commands completed by an event that names the command: their handler
 #: is given the command's ``id`` as ``request``.
-_TAKES_REQUEST_ID = frozenset({"pack_objects", "build_airports"})
+_TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
+                               "free_cache", "library_delete",
+                               "plan_estimate", "build_airports"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -165,12 +168,16 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # Imported here, after the hello is written: the patch commands pull in
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
+    from O4_Tile_Customizations import tile_customizations
+
     from . import patch_commands
-    from .elevation_commands import cursor_elevation
     from .build_airports import start_build_airports
+    from .elevation_commands import cursor_elevation
+    from .mesh_commands import mesh_crop
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
-    from .mesh_commands import mesh_crop
+    from .plan_estimate import start_plan_estimate
+    from .relief_commands import terrain_relief
     from .terrain_commands import terrain_sample
     return {
         "scan": session.scan,
@@ -186,6 +193,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # the global, REMOVE it when it equals it.  Plain synchronous
         # file writes — no build, no parse, safe on the read loop.
         "tile_settings_write": session.tile_settings_write,
+        # The tile's customized settings against the global layer (#1350):
+        # the Mac map badge and tile pane.  Synchronous file reads, no
+        # session state; the Qt app calls the same function in process.
+        "tile_customizations": tile_customizations,
         "links_status": session.links_status,
         "links_install": session.links_install,
         "links_uninstall": session.links_uninstall,
@@ -224,6 +235,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "patch_load": patch_commands.patch_load,
         "patch_save": patch_commands.patch_save,
         "patch_revert": patch_commands.patch_revert,
+        # Custom patches (#1229, RULINGS 2026-10-26c): which tiles carry
+        # one (the map band, the tile info) and setting a tile's aside so
+        # the auto patch runs again.  Synchronous file work.
+        "custom_patches": patch_commands.custom_patches,
+        "use_auto_patch": patch_commands.use_auto_patch,
         # Patch editor 3D preview (protocol 1.12, #46): the DEM grid under
         # the patch, from the data repo's caches only.  Synchronous.
         "terrain_sample": terrain_sample,
@@ -246,7 +262,28 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # thread: an uncached source loads on a daemon thread and the
         # reply says pending.
         "cursor_elevation": cursor_elevation,
+        # Terrain view (protocol 1.15, #1320): a hillshade-and-contours
+        # PNG over a box, from the same sources; drawn off THIS thread,
+        # the reply says pending until it is ready.
+        "terrain_relief": terrain_relief,
+        # Library view (#824): built tiles with sizes, the caches, freeing
+        # a cache, deleting tiles.  Each replies {"status": "started"} and
+        # completes with LibraryReady carrying this command's id; deleting
+        # needs confirm=true and is refused while a build runs.
+        **{name: _library_handler(session, name)
+           for name in ("library_scan", "cache_sizes", "free_cache",
+                        "library_delete")},
+        # Build cost (protocol 1.15, #820): download, disk and time ranges
+        # for the tiles about to be built.  Replies {"status": "started"};
+        # PlanEstimateReady carrying this command's id completes it.
+        "plan_estimate": lambda **kw: start_plan_estimate(session._emit, **kw),
     }
+
+
+def _library_handler(session: EngineSession, name: str) -> Callable:
+    from . import library
+    return lambda **kw: library.start(
+        session._emit, name, busy=lambda: bool(session._building), **kw)
 
 
 def command_table(session: EngineSession) -> Dict[str, Callable]:
@@ -346,12 +383,35 @@ def _stop_session_and_exit_process(session: EngineSession,
     # end paths once the cancel is acknowledged.
     while time.time() < deadline and session._building:
         time.sleep(0.1)
+    if reason in _FRONT_END_GONE:
+        # The app quit (or died): its edit caches go with it unless a
+        # tile keeps its own (owner RULINGS 2026-10-26h Q148).  A
+        # ``shutdown`` command or a terminate signal is an engine restart
+        # inside a running app, which keeps them.  A child process never
+        # owns the list, so this is a no-op there.
+        try:
+            EDITCACHE.end_session()
+        except Exception:
+            pass
     try:
         print("Engine process exiting (%s)." % reason, file=sys.stderr)
         sys.stderr.flush()
     except Exception:
         pass
     os._exit(0)
+
+
+#: the exit reasons that mean the front end itself is gone
+_FRONT_END_GONE = ("standard input closed", "parent process died")
+
+
+def _front_end_pid() -> int:
+    """The front end this engine serves: the declared parent, else ours."""
+    declared = os.environ.get("O4_PARENT_PROCESS_ID")
+    try:
+        return int(declared) if declared else os.getppid()
+    except ValueError:
+        return os.getppid()
 
 
 def _install_terminate_signal_handler(session: EngineSession) -> None:
@@ -479,6 +539,9 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
         if owns_process:
             _install_terminate_signal_handler(session)
             _start_parent_death_watchdog(session)
+            # The app's edit-cache session (O4_Edit_Cache): keyed by the
+            # front end, so an engine restart inside one app keeps it.
+            EDITCACHE.begin_session(_front_end_pid())
             # Below the user's applications, inherited by every tile,
             # airport and pool process this engine starts (#1225).
             O4_Machine_Slots.lower_priority()
@@ -490,7 +553,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
                           "secrets", "tile_settings_write",
-                          "missing_art"))))
+                          "missing_art", "library"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

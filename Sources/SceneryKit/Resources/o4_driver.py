@@ -129,8 +129,9 @@ def main():
         emit("fatal", "job file needs integer lat and lon")
         return 2
     tile = CFG.Tile(lat, lon, job.get("build_dir", ""))
-    tile_cfg = os.path.join(
-        tile.build_dir, "Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg")
+    import O4_Config_Names as CONFIG_NAMES
+    CONFIG_NAMES.adopt_tile_cfg(tile.build_dir, lat, lon)
+    tile_cfg = tile._tile_cfg_path()
     if os.path.isfile(tile_cfg):
         tile.read_from_config()
 

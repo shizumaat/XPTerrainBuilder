@@ -20,8 +20,8 @@ struct PatchSaveBar: View {
                 note(doc.source == .manual
                      ? "The tile is out of date until you rebuild it. Fitting custom airport buildings is off for this airport while the edited ground shape is in use."
                      : "The tile is out of date until you rebuild it.")
+                // Never disabled by a running build: the tile joins it (#1322).
                 Button("Rebuild tile") { model.rebuildTile() }
-                    .disabled(model.build?.isBuilding ?? false)
             }
             if doc.isHandMade {
                 note("This airport ground shape was made outside the editor. Saving writes back to \(file); there is no automatic shape to go back to.")

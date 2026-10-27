@@ -88,11 +88,24 @@ from typing import Any, Optional
 # 1.14 (2026-10-24, additive, #1308): ``cursor_elevation`` answers the
 # built mesh's elevation at a point (``source`` "mesh"), else the DEM's
 # ("dem"); ``pending`` while a source loads off the read loop.
-# 1.15 (2026-10-26, additive, #818): the ``build_airports`` command and
+# Within 1.14 (2026-10-26, additive, #1229): ``custom_patches`` and
+# ``use_auto_patch`` — commands and replies only; an older engine refuses
+# them and the app draws no band.
+# Within 1.14 (2026-10-26, additive, #1326): ``TileState`` and
+# ``StepProgress`` carry ``attempt``, the tile's admission number in this
+# session, so a front end tells a stopped attempt's late news from the
+# attempt that re-queued the tile.  0 from an older engine.
+# 1.15 (2026-10-26, additive, #820): the ``plan_estimate`` command and its
+# completion event PlanEstimateReady — download, disk and time ranges per
+# tile before a build, set against the tile folder's free space.
+# 1.16 (2026-10-26, additive, #1320): ``terrain_relief`` answers a
+# hillshade-and-contours PNG over a box from the same sources, with its
+# legend; ``pending`` while it is drawn off the read loop.
+# 1.17 (2026-10-27, additive, #818): the ``build_airports`` command and
 # its completion BuildAirportsReady (the Build pane's Airports card), and
 # the ``overrides`` keyword on build/enqueue_build — the card's per-build
 # "Grade airports" / "Fit custom airport buildings" switches.
-PROTOCOL_VERSION = "1.15"
+PROTOCOL_VERSION = "1.17"
 
 
 @dataclass(frozen=True)
@@ -165,6 +178,10 @@ class TileState(EngineEvent):
     for a second line under the tile's row — for a stopped tile, what it
     is left with (``O4_Stopped_Build``); empty otherwise.  A front end
     shows it verbatim; an older one ignores it.
+    ``attempt`` (additive within 1.14, #1326): which admission of the tile
+    this event belongs to — 1 the first time a tile joins a run in this
+    session, one more on every re-queue (``EngineSession.tile_attempt``).
+    A front end drops a stopped attempt's late events by it; 0 = unknown.
     """
 
     lat: int = 0
@@ -173,6 +190,7 @@ class TileState(EngineEvent):
     label: str = ""
     percent: float = 0.0
     detail: str = ""
+    attempt: int = 0
 
 
 @dataclass(frozen=True)
@@ -183,6 +201,7 @@ class StepProgress(EngineEvent):
     mapping, auto-patch folding) — views only render.  ``indeterminate``
     marks steps that report no usable percentage (mesh triangulation,
     overlay extraction): show a busy indicator while HOLDING ``percent``.
+    ``attempt``: as on ``TileState`` (#1326).
     """
 
     lat: int = 0
@@ -191,6 +210,7 @@ class StepProgress(EngineEvent):
     label: str = ""
     percent: float = 0.0
     indeterminate: bool = False
+    attempt: int = 0
 
 
 @dataclass(frozen=True)
@@ -540,9 +560,50 @@ class PackObjectsReady(EngineEvent):
 
 
 @dataclass(frozen=True)
+class LibraryReady(EngineEvent):
+    """The completion half of the Library commands (#824:
+    ``library_scan``, ``cache_sizes``, ``free_cache``, ``library_delete``,
+    ``o4_engine.library``): each replies ``{"status": "started"}`` and
+    walks its folders on a worker thread.
+
+    ``request`` is the ``id`` of the command it answers, ``command`` its
+    name; ``result`` is the command's return value or ``None``, with
+    ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    command: str = ""
+    result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class PlanEstimateReady(EngineEvent):
+    """The completion half of the ``plan_estimate`` command (protocol
+    1.15, #820): the command replies ``{"status": "started"}`` and the
+    estimate runs on a worker thread (``o4_engine.plan_estimate``).
+
+    ``request`` is the ``id`` of the command it answers; ``result`` is
+    the estimate (``tiles``, ``total``, ``free_gb``, ``cache_free_gb``,
+    ``verdict``, ``reason``; every figure a ``[lo, hi]`` range) or
+    ``None``, with ``error`` the failure sentence.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    request: Any = None
+    result: Any = None
+    error: str = ""
+
+
+@dataclass(frozen=True)
 class BuildAirportsReady(EngineEvent):
     """The completion half of the ``build_airports`` command (protocol
-    1.15, #818): what airport grading and object fitting will do for the
+    1.17, #818): what airport grading and object fitting will do for the
     tiles about to be built (``o4_engine.build_airports``).
 
     ``airports``: one entry per airport the build grades::

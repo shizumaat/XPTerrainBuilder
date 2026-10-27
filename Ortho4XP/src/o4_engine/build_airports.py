@@ -1,4 +1,4 @@
-"""The Build pane's Airports card (#818, protocol 1.15).
+"""The Build pane's Airports card (#818, protocol 1.17).
 
 Before a build, both front ends show what airport grading and object
 fitting will do for the selected tiles: the airports the build grades,

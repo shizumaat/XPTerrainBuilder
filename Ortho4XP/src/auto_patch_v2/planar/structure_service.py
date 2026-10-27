@@ -368,7 +368,13 @@ class _PackBuildings:
         if self._tree is None:
             return None
         corridor = line.buffer(width_m / 2.0, cap_style="flat")
-        ll = [self._to_ll(x, y) for x, y in corridor.exterior.coords]
+        if corridor.is_empty:
+            return None
+        # The query box is read from the corridor's BOUNDS, never its
+        # ``exterior``: a bore line that folds back on itself buffers to a
+        # MultiPolygon, which has none (#1361, measured at CYYC).
+        x0, y0, x1, y1 = corridor.bounds
+        ll = [self._to_ll(x, y) for x, y in ((x0, y0), (x0, y1), (x1, y0), (x1, y1))]
         la, lo = [c[0] for c in ll], [c[1] for c in ll]
         best = None
         for j in self._tree.query(box(min(la), min(lo), max(la), max(lo))):

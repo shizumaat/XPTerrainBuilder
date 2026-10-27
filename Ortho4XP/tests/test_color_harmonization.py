@@ -18,6 +18,8 @@ The three properties the whole rework exists for (§2, §4):
 """
 from __future__ import annotations
 
+import json
+
 import numpy
 import pytest
 from PIL import Image
@@ -309,17 +311,51 @@ def test_border_clamps_neumann_so_the_edge_adds_no_step():
     assert field.sample(99.0, 99.0) == pytest.approx(field.sample(2.0, 2.0))
 
 
-def test_field_json_round_trip_is_exact_to_three_decimals():
+def test_field_json_round_trip_is_bit_exact():
     stats = _grid_3x3([[100, 140, 140]] * 3, water=((STEP, STEP),))
     field = H.solve_offset_field(
         list(stats), _casts(stats), H.strength_for_zoomlevel(16),
         witnesses=[k for k, v in stats.items() if v["witness"]],
     )
-    back = H.OffsetField.from_json(field.to_json())
+    back = H.OffsetField.from_json(json.loads(json.dumps(field.to_json())))
     assert back.origin == field.origin and back.step == field.step
     assert (back.present == field.present).all()
-    assert numpy.abs(back.values - field.values).max() < 1e-3
+    assert back.values.dtype == field.values.dtype
+    assert numpy.array_equal(back.values, field.values)
     assert back.has((0, 0)) and not back.has((99 * STEP, 0))
+
+
+def _synthetic_field():
+    values = numpy.zeros((2, 2, 3), numpy.float32)
+    values[..., 0] = 0.12345678
+    # 1.4995 applies as 1 count; rounded to 3 decimals it is 1.5 and
+    # applies as 2 — the byte difference #1223 measured as a cache miss.
+    values[..., 1] = 1.4995001
+    values[0, 1, ::2] = (2.5004999, 7.123456)
+    values[1, 0, ::2] = (-0.5004999, -19.999999)
+    values[1, 1, ::2] = (0.49950001, 12.3456789)
+    present = numpy.ones((2, 2), bool)
+    return H.OffsetField((0, 0), STEP, values, present)
+
+
+def test_synthetic_field_survives_json_bit_for_bit():
+    """#1223: the persisted field is the solved one, not a rounding of it."""
+    field = _synthetic_field()
+    back = H.OffsetField.from_json(json.loads(json.dumps(field.to_json())))
+    assert numpy.array_equal(back.values, field.values)
+
+
+def test_reused_field_applies_the_same_bytes_as_the_solved_one():
+    """#1223: T1 (solved) and T2 (reused from color_field.json) must give
+    byte-identical textures, or the DDS cache misses on the first rebuild."""
+    field = _synthetic_field()
+    back = H.OffsetField.from_json(json.loads(json.dumps(field.to_json())))
+    rng = numpy.random.default_rng(1223)
+    image = Image.fromarray(rng.integers(0, 256, (64, 64, 3), dtype=numpy.uint8))
+    key = (0, 0)
+    solved = H.apply_color_field(image, H.bilinear_field(field, key))
+    reused = H.apply_color_field(image, H.bilinear_field(back, key))
+    assert solved.tobytes() == reused.tobytes()
 
 
 # --- apply ----------------------------------------------------------------------

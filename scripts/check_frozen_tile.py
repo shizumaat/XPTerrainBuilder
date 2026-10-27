@@ -265,7 +265,7 @@ def _write_fixture(root: str, repo_root: str, lat: int, lon: int) -> str:
     _write_hgt(dem)
     _write_osm_seeds(os.path.join(data_root, "OSM_data"), lat, lon,
                      _cache_schemas(repo_root))
-    with open(os.path.join(data_root, "Ortho4XP.cfg"), "w",
+    with open(os.path.join(data_root, "XPTerrainBuilder.cfg"), "w",
               encoding="utf-8") as handle:
         handle.write(CONFIG % {"dem": dem})
     return data_root
@@ -459,7 +459,7 @@ def _write_airport_fixture(root, repo_root):
     shutil.copytree(os.path.join(fixture, "Custom Scenery"),
                     os.path.join(xplane_root, "Custom Scenery"))
 
-    with open(os.path.join(data_root, "Ortho4XP.cfg"), "w",
+    with open(os.path.join(data_root, "XPTerrainBuilder.cfg"), "w",
               encoding="utf-8") as handle:
         handle.write(AIRPORT_CONFIG % {
             "dem": dem,
@@ -1157,7 +1157,7 @@ def _write_lemd_fixture(root, repo_root):
         osm_dir, _round_latlon(LEMD_LAT, LEMD_LON),
         _short_latlon(LEMD_LAT, LEMD_LON),
         "%s_airports.osm.bz2" % _short_latlon(LEMD_LAT, LEMD_LON)))
-    with open(os.path.join(data_root, "Ortho4XP.cfg"), "w",
+    with open(os.path.join(data_root, "XPTerrainBuilder.cfg"), "w",
               encoding="utf-8") as handle:
         handle.write(LEMD_CONFIG)
     return data_root
@@ -1430,7 +1430,7 @@ def run_lemd_elevation(binary, repo_root, log_dir, deadline, keep,
 # Ortho4XP data at all build a whole tile, fetching every artefact the
 # build needs as it goes?
 #
-# So this pass starts from a data root holding ONE file — ``Ortho4XP.cfg``
+# So this pass starts from a data root holding ONE file — ``XPTerrainBuilder.cfg``
 # — and runs the front ends' own step list (vector, mesh, masks,
 # imagery) over a real tile.  Everything else on disk afterwards was
 # downloaded on Windows during the run, which is also what makes the
@@ -1828,7 +1828,7 @@ def _write_full_tile_fixture(root, repo_root, lat, lon, icao, apt_dat,
                              "live airport data"),
         })
 
-    with open(os.path.join(data_root, "Ortho4XP.cfg"), "w",
+    with open(os.path.join(data_root, "XPTerrainBuilder.cfg"), "w",
               encoding="utf-8", newline="\n") as handle:
         handle.write(FULL_TILE_CONFIG % {
             "icao": icao,
@@ -1840,6 +1840,7 @@ def _write_full_tile_fixture(root, repo_root, lat, lon, icao, apt_dat,
 
 def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
                   zoomlevel, deadline, keep, apt_dat=None, cifp_dat=None,
+                  boundary_policy="skip",
                   engine_python=None, steps=FULL_TILE_STEPS):
     """PASS 4 — a WHOLE tile built on Windows from an empty data root (#250).
 
@@ -1877,10 +1878,12 @@ def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
             "custom_build_dir": "",
             "steps": list(steps),
             "slots": 1,
-            # An UNATTENDED run never grows its own tile list: the
-            # boundary policy is "skip", loudly, which is what
+            # An UNATTENDED run never grows its own tile list unless asked:
+            # the boundary policy is "skip", loudly, which is what
             # ``auto_patch_boundary`` says a headless build must do.
-            "boundary_policy": "skip",
+            # ``--boundary-policy neighbour`` builds the airport's other
+            # tiles too (an airport that crosses a tile edge, e.g. PANC).
+            "boundary_policy": boundary_policy,
             "do_overlays": False,
         }
         stream, elapsed, failures = _drive(
@@ -2077,7 +2080,7 @@ def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
                        os.path.isfile(p)]:
             shutil.copy2(source, os.path.join(log_dir,
                                               os.path.basename(source)))
-        for source in (os.path.join(data_root, "Ortho4XP.cfg"),
+        for source in (os.path.join(data_root, "XPTerrainBuilder.cfg"),
                        os.path.join(data_root, "Ortho4XP.log")):
             if os.path.isfile(source):
                 shutil.copy2(source, os.path.join(
@@ -2437,6 +2440,12 @@ def main(argv):
                         help="with --pass full-tile: a CIFP .dat for the "
                              "airport.  Absent, the repository fixture is "
                              "used and RECORDED as a substitution.")
+    parser.add_argument("--boundary-policy", dest="boundary_policy",
+                        default="skip", choices=("skip", "neighbour"),
+                        help="with --pass full-tile: what the build does "
+                             "with an airport that crosses into a tile it "
+                             "is not building (default skip; neighbour "
+                             "builds that tile too)")
     parser.add_argument("--engine-python", dest="engine_python",
                         default=None,
                         help="the interpreter to run a SOURCE protocol "
@@ -2528,6 +2537,7 @@ def main(argv):
             binary, repo_root, log_dir, lat, lon, arguments.icao,
             arguments.provider, arguments.zoomlevel, arguments.deadline,
             arguments.keep, apt_dat=arguments.apt_dat,
+            boundary_policy=arguments.boundary_policy,
             cifp_dat=arguments.cifp_dat,
             engine_python=arguments.engine_python, steps=steps)
     if arguments.which == "lemd-elevation":

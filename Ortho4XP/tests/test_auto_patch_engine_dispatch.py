@@ -242,7 +242,7 @@ def test_a_tile_cfg_still_carrying_the_key_loads_clean_and_builds_v2(
                         lambda level, *a: said.append(" ".join(map(str, a))))
     build_dir = tmp_path / "zOrtho4XP_+30+031"
     build_dir.mkdir()
-    cfg = build_dir / "Ortho4XP_+30+031.cfg"
+    cfg = build_dir / "XPTerrainBuilder_+30+031.cfg"
     # STAMPED through the one helper (owner RULINGS 2026-09-18c (2)): an
     # unstamped cfg is a pre-1.0.352 file, MOVED aside rather than read.
     import O4_Settings_Model as SM

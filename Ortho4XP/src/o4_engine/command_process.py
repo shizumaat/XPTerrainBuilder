@@ -22,6 +22,9 @@ Which commands go here was measured (lane qtstall753, HECA, GUI timer
 lateness while the command ran on a thread): ``pack_objects`` 0.46-0.9 s;
 ``pack_outlines`` 6 ms and ``terrain_sample`` 73 ms stay on threads
 (``mesh_crop`` was not measured: no built tile in the lane).
+``terrain_relief`` (#1320) is here by construction: it samples the whole
+mesh for every picture pixel on a thread of its own, between replies,
+and that thread lives in this worker so the picture cache does too.
 """
 from __future__ import annotations
 
@@ -31,7 +34,7 @@ import typing as _t
 __all__ = ["COMMANDS", "CommandProcess", "Superseded", "config_snapshot"]
 
 #: The commands a :class:`CommandProcess` answers.
-COMMANDS = frozenset({"pack_objects"})
+COMMANDS = frozenset({"pack_objects", "terrain_relief"})
 
 #: Seconds without an answer before the worker is declared stuck.
 STALL_S = 300.0
@@ -75,6 +78,9 @@ def _handler(name: str) -> _t.Callable[..., _t.Any]:
     if name == "pack_objects":
         from .pack_objects import pack_objects
         return pack_objects
+    if name == "terrain_relief":
+        from .relief_commands import terrain_relief
+        return terrain_relief
     raise ValueError(f"The worker process has no {name} command.")
 
 

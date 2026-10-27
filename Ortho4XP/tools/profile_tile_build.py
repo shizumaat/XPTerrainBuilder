@@ -68,7 +68,13 @@ Usage:
     venv/bin/python tools/profile_tile_build.py <lat> <lon>
         [--build-dir DIR] [--provider CODE] [--zl N]
         [--steps vector,mesh,masks,imagery] [--interval 0.05]
-        [--count MODULE:ATTR ...] [--no-sample] [--out PATH]
+        [--count MODULE:ATTR ...] [--no-sample] [--reuse] [--out PATH]
+
+``--reuse`` is the frame of the app's "Rebuild tile" (#1323): a current
+step is reused and a height-only patch edit takes the vector fast path
+(``O4_Patch_Fast_Path.step_decision``, the session's own call), and every
+step that ran is recorded.  Without it every step runs and nothing is
+recorded, as before.
 """
 
 # The console is UTF-8 before anything prints (#171, #125): ONE derivation
@@ -241,6 +247,13 @@ def main():
                              "(pure-Python hot loop, measured lane T "
                              "2026-08-13), so a --count measurement run "
                              "must not carry it.")
+    parser.add_argument("--reuse", action="store_true",
+                        help="reuse a current step and take the height-edit "
+                             "fast path exactly as the app's session does "
+                             "(O4_Patch_Fast_Path.step_decision), and record "
+                             "each step that ran (O4_Step_Reuse) — the frame "
+                             "of an app 'Rebuild tile'.  Default: every "
+                             "step runs and nothing is recorded")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
@@ -260,6 +273,8 @@ def main():
     import O4_Tile_Utils as TILE
     import O4_Config_Utils as CFG
     import O4_Bathymetry_Band as BATHYBAND
+    import O4_Patch_Fast_Path as FASTPATH
+    import O4_Step_Reuse as REUSE
 
     # Installed before ``step_fn`` binds anything: a counter on a step
     # function itself must be the object the loop calls.
@@ -342,8 +357,20 @@ def main():
                 print(f"=== step {step} ===", flush=True)
                 current_step[0] = step
                 t0 = time.time()
+                if args.reuse and step in REUSE.REUSABLE_STEPS:
+                    (decision, detail) = FASTPATH.step_decision(tile, step)
+                    if decision != "run":
+                        step_wall[step] = time.time() - t0
+                        current_step[0] = None
+                        print(f"=== step {step} {decision.upper()} in "
+                              f"{step_wall[step]:.1f} s ===", flush=True)
+                        continue
+                    print(f"   {step} step: building ({detail})", flush=True)
                 result = step_fn[step](tile)
                 step_wall[step] = time.time() - t0
+                if args.reuse and result == 1 and step in REUSE.REUSABLE_STEPS:
+                    REUSE.record(tile, step)
+                    FASTPATH.after_step_recorded(tile, step)
                 current_step[0] = None
                 print(f"=== step {step} done in {step_wall[step]:.1f} s "
                       f"(result {result}) ===", flush=True)

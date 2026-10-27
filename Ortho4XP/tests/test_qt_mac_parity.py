@@ -476,7 +476,10 @@ def test_legacy_offer_shows_for_a_built_tile_only(make_window, tmp_path):
     window = make_window()
     build = tmp_path / "zOrtho4XP_+48-006"
     build.mkdir()
-    (build / "Ortho4XP.cfg").write_text("default_zl=17\n", encoding="utf-8", newline="")
+    # This app's own cfg with a value this version does not define (an
+    # Ortho4XP cfg is ignored, never offered: RULINGS 2026-10-26c).
+    (build / "XPTerrainBuilder_+48-006.cfg").write_text(
+        "default_zl=17\ntexture_mode=weird\n", encoding="utf-8", newline="")
     # Unbuilt: nothing to say, even with a legacy file on disk.
     window._built = {}
     window._refresh_legacy_config(TILE)
@@ -485,14 +488,13 @@ def test_legacy_offer_shows_for_a_built_tile_only(make_window, tmp_path):
     window._built = {TILE: _tile_info(*TILE, build_dir=str(build))}
     window._legacy_prompted.add(TILE)   # suppress the modal auto-prompt
     window._refresh_legacy_config(TILE)
-    assert window._legacy_tile_settings["uses_legacy_name"] is True
+    assert window._legacy_tile_settings["foreign_enums"][0][0] == "texture_mode"
 
 
 def test_legacy_message_names_every_marker(make_window):
     window = make_window()
     text = window._legacy_config_message({
         "lat": 48, "lon": -6,
-        "uses_legacy_name": True,
         "foreign_enums": [("texture_mode", "weird", "full_ortho")],
         "quoted_keys": ["default_website"],
         "missing_pins": ["/gone/dem.tif"],
@@ -501,7 +503,7 @@ def test_legacy_message_names_every_marker(make_window):
     assert "texture_mode = weird" in text and "full_ortho" in text
     assert "dem.tif" in text
     assert "1 setting" in text
-    assert "Ortho4XP.cfg" in text
+    assert "Ortho4XP" not in text
 
 
 # ===========================================================================
@@ -754,6 +756,55 @@ def test_no_match_says_so_and_selects_nothing(make_window, monkeypatch):
         "No airport matches \u201cqqqq zzzz\u201d")
     window._search_accept_first()
     assert window.map.selection() == before
+
+
+# ===========================================================================
+# #1317: a typed coordinate (Mac: MapMainView.performSearch,
+# SearchReticleOverlay; the shared parser's twin is test_coordinate_query.py)
+# ===========================================================================
+def test_a_coordinate_centres_at_zl19_under_a_reticle(make_window,
+                                                      monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    before = window.map.selection()
+    text = "49\u00b000'45.6\"N 2\u00b033'29.4\"E"
+    window.search_edit.setText(text)
+    window._update_search_popup(text)
+    assert window.search_popup.count() == 1
+    assert window.search_popup.item(0).text() == "Go to 49.01267, 2.55817"
+    window._search_accept_first()
+    (lat, lon) = window._search_reticle().point()
+    assert (round(lat, 5), round(lon, 5)) == (49.01267, 2.55817)
+    assert window.map.zoom_level() == GUI.COORDQ.ZOOM_LEVEL
+    assert window.map.selection() == before   # a point selects nothing
+    assert window.search_edit.text() == text  # Esc clears both
+    window._search_escape()
+    assert window._search_reticle().point() is None
+    assert window.search_edit.text() == ""
+
+
+def test_the_next_search_or_an_empty_field_drops_the_reticle(
+        make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    window.search_edit.setText("45.52 -122.68")
+    window._update_search_popup("45.52 -122.68")
+    window._search_accept_first()
+    assert window._search_reticle().point() == (45.52, -122.68)
+    window._update_search_popup("KCLT")
+    window._search_accept_first()
+    assert window._search_reticle().point() is None
+    window._update_search_popup("45.52 -122.68")
+    window._search_accept_first()
+    window._update_search_popup("")
+    assert window._search_reticle().point() is None
+
+
+def test_a_tile_key_still_wins(make_window, monkeypatch):
+    window, _ = _batch_window(make_window, monkeypatch)
+    window._update_search_popup("+48-006")
+    assert window.search_popup.item(0).text() == "Go to tile +48-006"
+    window._search_accept_first()
+    assert window.map.active_tile() == (48, -6)
+    assert window._search_reticle().point() is None
 
 
 # ===========================================================================

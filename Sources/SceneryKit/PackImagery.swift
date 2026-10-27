@@ -37,15 +37,22 @@ public struct PackImagery: Codable, Sendable, Equatable {
         return PackImagery(provider: provider, zl: zl)
     }
 
-    /// Fallback for packs whose files don't carry Ortho4XP names: the
+    /// Fallback for packs whose files don't carry Ortho4XP names: this
+    /// app's `XPTerrainBuilder_+XX+YYY.cfg` first, else the
     /// `Ortho4XP_+XX+YYY.cfg` (or legacy `Ortho4XP.cfg`) Ortho4XP copies
-    /// into the pack root — `default_website` / `default_zl`, read the way
-    /// the engine's `O4_Tile_Info._parse_cfg` reads them.
+    /// into the pack root, read for the pack's imagery only —
+    /// `default_website` / `default_zl`, read the way the engine's
+    /// `O4_Custom_Scenery.pack_imagery` reads them.
     public static func fromConfig(inPack packURL: URL) -> PackImagery? {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: packURL.path)
         else { return nil }
-        for name in names.sorted()
-        where name.hasPrefix("Ortho4XP") && name.lowercased().hasSuffix(".cfg") {
+        let cfgs = names.filter {
+            ($0.hasPrefix("XPTerrainBuilder") || $0.hasPrefix("Ortho4XP"))
+                && $0.lowercased().hasSuffix(".cfg")
+        }
+        for name in cfgs.sorted(by: {
+            ($0.hasPrefix("Ortho4XP") ? 1 : 0, $0) < ($1.hasPrefix("Ortho4XP") ? 1 : 0, $1)
+        }) {
             guard let data = try? Data(contentsOf: packURL.appendingPathComponent(name)),
                   let text = String(data: data, encoding: .utf8)
                       ?? String(data: data, encoding: .isoLatin1)

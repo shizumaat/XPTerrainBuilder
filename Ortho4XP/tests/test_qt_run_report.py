@@ -40,6 +40,10 @@ def window(qapp, tmp_path, monkeypatch):
     saved_stdout = sys.stdout
     win = GUI.MainWindow()
     win.prefs["output_dir"] = str(tmp_path)
+    # Never link a finished tile into the real X-Plane install (the
+    # owner's prefs may have auto-install on; conftest refuses the write).
+    win.prefs[GUI.AUTO_INSTALL_KEY] = False
+    monkeypatch.setattr(win, "_auto_install_tile", lambda tile: None)
     monkeypatch.setattr(win, "refresh_tiles", lambda: None)
     try:
         yield win
@@ -164,6 +168,8 @@ def test_run_done_puts_the_summary_in_the_status_bar(window):
         (48, -6): ("done", "", 100),
         (48, -5): ("error", "failed", 60),
     }
+    # The report describes this run's tiles (#1341: rows outlive it).
+    window._run_tiles = set(window._progress_states)
     window._tile_results = {
         (48, -6): (True, "", 125.0),
         (48, -5): (False, "the mesh step failed (see the console log)",

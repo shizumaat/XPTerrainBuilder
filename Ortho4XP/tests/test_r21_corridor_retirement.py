@@ -113,7 +113,7 @@ class TestAStaleCfgIsCLEANEDUP:
         """
         build = tmp_path / "zOrtho4XP_+22+113"
         build.mkdir()
-        path = build / ("Ortho4XP_" + FNAMES.short_latlon(22, 113) + ".cfg")
+        path = build / ("XPTerrainBuilder_" + FNAMES.short_latlon(22, 113) + ".cfg")
         path.write_text(SM.tile_cfg_stamp_line() + text, encoding="utf-8", newline="")
         return path
 
@@ -192,7 +192,7 @@ class TestAStaleCfgIsCLEANEDUP:
         for lat, lon in ((22, 113), (23, 113)):
             build = tmp_path / ("zOrtho4XP_" + FNAMES.short_latlon(lat, lon))
             build.mkdir()
-            path = build / ("Ortho4XP_" + FNAMES.short_latlon(lat, lon)
+            path = build / ("XPTerrainBuilder_" + FNAMES.short_latlon(lat, lon)
                             + ".cfg")
             path.write_text(SM.tile_cfg_stamp_line()
                             + KEY + "=" + OWNER_DECL + "\n", encoding="utf-8", newline="")

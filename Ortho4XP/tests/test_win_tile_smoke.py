@@ -185,7 +185,7 @@ def test_the_fixture_lays_out_an_xplane_root_cifp_resolution_accepts(
     # THE DATA ROOT STARTS EMPTY — that is what makes the download table
     # honest.  One file, the config.
     assert sorted(p.name for p in Path(data_root).iterdir()) == \
-        ["Ortho4XP.cfg"]
+        ["XPTerrainBuilder.cfg"]
     # And every substitution is recorded with what a real install has.
     assert len(subs) == 2
     for item in subs:

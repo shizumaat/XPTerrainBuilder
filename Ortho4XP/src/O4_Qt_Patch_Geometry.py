@@ -6,6 +6,8 @@ tested headless:
 
 * :func:`style_class` — how a way is drawn (the legend's classes; the Mac
   app's ``PatchStyleClass``, same mapping).
+* :func:`below_grade` — whether a way's fill is hatched (#1319; the Mac
+  app's ``PatchWay.belowGradeRoles``, same list).
 * :func:`snap_target` — the drag snap's choice of target: the POINTER within
   8 px on screen of a non-dragged node; nearest wins, ties by the engine's
   ``survivor_key``, then the lowest id (the fixture's ``ui_snap_reference``).
@@ -24,8 +26,8 @@ import numpy as np
 from o4_engine import patch_edit as PE
 
 __all__ = ["SNAP_RADIUS_PX", "NODE_SPACING_PX", "MIN_HANDLE_EDGE_PX",
-           "DRAW_ORDER", "style_class", "role_name", "snap_target", "scene_xy",
-           "PatchScreenIndex"]
+           "DRAW_ORDER", "BELOW_GRADE_ROLES", "style_class", "below_grade",
+           "role_name", "snap_target", "scene_xy", "PatchScreenIndex"]
 
 #: The click and snap radius (owner A10, 2026-10-15): 8 points on screen,
 #: at any zoom.
@@ -70,6 +72,22 @@ def style_class(tags: _t.Mapping[str, str]) -> str:
     if "building" in tags:
         return "building"
     return "ground"
+
+
+#: The roles cut below the surrounding grade (#1319): the structure floors
+#: of ``auto_patch_v2/emit/graded.FLOOR_ROLES`` (tunnel, door, wall-corridor
+#: and garage ramps; the tunnel trench, which the basin and the channel
+#: floors use too) and the bridge trench.  The emitter writes an aliased
+#: role under its ``oracle_role`` and the role itself as ``class``, so both
+#: tags are read.
+BELOW_GRADE_ROLES = ("tunnel_ramp", "door_ramp", "wall_corridor_ramp", "garage_ramp",
+                     "tunnel_trench", "bridge_trench")
+
+
+def below_grade(tags: _t.Mapping[str, str]) -> bool:
+    """Whether a way's fill is hatched: its ``role`` or ``class`` is a
+    below-grade role."""
+    return tags.get("role") in BELOW_GRADE_ROLES or tags.get("class") in BELOW_GRADE_ROLES
 
 
 def role_name(tags: _t.Mapping[str, str]) -> str | None:

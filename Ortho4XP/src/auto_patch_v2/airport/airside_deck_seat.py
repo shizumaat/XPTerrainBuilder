@@ -127,7 +127,9 @@ def _two_ends(pts: _t.Sequence[tuple[float, float, float]], lat0: float
 
 
 def airside_end_ground(ring: _t.Sequence[tuple[float, float]],
-                       surface: _ar.Surface, step_m: float
+                       surface: _ar.Surface, step_m: float,
+                       carried: _t.Callable[["str | None"], bool] | None = None,
+                       outside: bool = False
                        ) -> "tuple[tuple[float, float], tuple[list, list]] | None":
     """``((ground at end 1, at end 2), (end 1's stations, end 2's))``: THE
     END LINES ARE WHERE THE AIRSIDE DRIVES ONTO THE DECK — the stations of
@@ -138,7 +140,13 @@ def airside_end_ground(ring: _t.Sequence[tuple[float, float]],
     deck wider than its span has its principal axis along the road it
     crosses, so the ends are read off the solve, not the ring's axis.
     ``None`` where two such ends are not found (no ``surface.roles``, an
-    off-sheet deck)."""
+    off-sheet deck).  ``carried`` is the role test of the surface the
+    deck carries — :func:`airside_role` by default; a pack deck over the
+    pack's own cut also carries a road (``cut_deck_seat``).  ``outside``
+    reads the ground at the station one step OUTSIDE the edge, on the
+    surface carried, instead of on the edge — a deck over a cut has the
+    trench under its edge (``cut_deck_seat``)."""
+    carried = carried or airside_role
     roles = getattr(surface, "roles", None)
     if roles is None or step_m <= 0.0 or len(ring) < 3:
         return None
@@ -147,10 +155,10 @@ def airside_end_ground(ring: _t.Sequence[tuple[float, float]],
         return None
     got = roles.roles_many([q[2] for q in per], [q[3] for q in per])
     kept = []
-    for (la, lo, _ola, _olo), r in zip(per, got, strict=True):
-        if not airside_role(r):
+    for (la, lo, ola, olo), r in zip(per, got, strict=True):
+        if not carried(r):
             continue
-        z = surface(la, lo)
+        z = surface(ola, olo) if outside else surface(la, lo)
         if z is not None:
             kept.append((la, lo, float(z)))
     ends = _two_ends(kept, sum(q[0] for q in ring) / len(ring))

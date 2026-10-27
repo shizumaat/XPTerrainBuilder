@@ -216,20 +216,27 @@ class _PackArt(_t.NamedTuple):
     current: bool = False  # the live DSF already carries THIS omission
 
 
-def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
-              policy: str | None) -> "_PackArt | None":
-    """THE CHECK for one pack's tile DSF, or ``None`` when there is nothing
-    to judge (no DSF, no dump, no library index, a pack X-Plane does not
-    load or this engine does not write).  ``read_only`` never runs
-    DSFTool: the cached dump or nothing."""
+class _PackDump(_t.NamedTuple):
+    """One writable pack's tile DSF and the dump of its PRISTINE file —
+    what the pack checks (missing art, old forests) read."""
+
+    pack_name: str
+    dsf_path: str
+    pristine: str
+    dump_path: str
+    xroot: str
+
+
+def pack_dump(pack_root: str, lat: int, lon: int, *,
+              read_only: bool) -> _PackDump | None:
+    """The pack's tile DSF and its pristine dump, or ``None`` when there
+    is nothing to judge (no DSF, no dump, a pack X-Plane does not load or
+    this engine does not write).  ``read_only`` never runs DSFTool: the
+    cached dump or nothing."""
     import O4_File_Names as FNAMES
     import O4_Scenery_Packs as _SP
-    from auto_patch_v2.airport import backup_state as _bs
     from auto_patch_v2.airport import dsf as _dsf2
-    from auto_patch_v2.airport import pack_art as _pa
     from auto_patch_v2.airport.dsf_write import pristine_dsf_path
-    from auto_patch_v2.airport.file_hash import sha256_file
-    from . import agp_reader as _agp
     from . import dsf_reader as _DSFR
     from .post_mesh import _is_protected_scenery_root
 
@@ -249,6 +256,22 @@ def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
     if not dump_path:
         return None
     xroot = os.path.dirname(os.path.dirname(os.path.abspath(pack_root)))
+    return _PackDump(pack_name, dsf_path, pristine, dump_path, xroot)
+
+
+def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,
+              policy: str | None) -> "_PackArt | None":
+    """THE CHECK for one pack's tile DSF, or ``None`` when there is nothing
+    to judge (:func:`pack_dump`, or no library index)."""
+    from auto_patch_v2.airport import backup_state as _bs
+    from auto_patch_v2.airport import pack_art as _pa
+    from auto_patch_v2.airport.file_hash import sha256_file
+    from . import agp_reader as _agp
+
+    pd = pack_dump(pack_root, lat, lon, read_only=read_only)
+    if pd is None:
+        return None
+    pack_name, dsf_path, pristine, dump_path, xroot = pd
     # the merged index, rebuilt when stale (a cache-version bump, #950),
     # not the read-only sidecar: the art check must not judge by an old one
     index = _agp.get_library_index(xroot)
@@ -884,6 +907,10 @@ def rebake_after_mesh(tile) -> dict:
                 writes = bool(write_enabled and not measure_only)
                 art = _art_stage(plan_, tile, writes=writes,
                                  place=bool(plan_.units))
+                # #1360: ... and its old flat forests (the placement write
+                # below re-applies an upgrade this records)
+                from . import forest_stage as _forests
+                _forests.forest_stage(plan_, tile, writes=writes)
                 if not plan_.units:
                     UI.vprint(1, f"  [v2 rebake] {icao}: no unit to place "
                                  f"({len(plan_.skipped)} resource(s) skipped at plan time)")

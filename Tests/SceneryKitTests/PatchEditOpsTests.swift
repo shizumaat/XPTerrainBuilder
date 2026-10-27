@@ -56,6 +56,11 @@ struct PatchEditOpsTests {
         case "insert_on_edge": try doc.insertOnEdge(int("a"), int("b"))
         case "merge_nodes": try doc.mergeNodes(source: int("source"), target: int("target"))
         case "slice_shape": try doc.sliceShape(int("a"), int("b"), way: (args["way"] as? NSNumber)?.int64Value)
+        case "add_shape":
+            let corners = ((args["corners"] as? [[Any]]) ?? []).map {
+                (lat: number($0[0])!, lon: number($0[1])!, alt: number($0[2]))
+            }
+            try doc.addShape(corners, tags: args["tags"] as? [String: String] ?? [:])
         default: Issue.record("unknown op \(op["op"] ?? "nil")")
         }
     }
@@ -144,6 +149,20 @@ struct PatchEditOpsTests {
         let id = try doc.insertOnEdge(ring.refs[0], ring.refs[1])
         #expect(id == low - 1)
         #expect(doc.nodeOrder.last == id)
+    }
+
+    /// #1314: "Insert shape" is one step that undoes and redoes, its way
+    /// and nodes below every id there.
+    @Test func addShapeUndoesAndRedoes() throws {
+        let low = try smallDoc().nodeOrder.min()!
+        var wayID: Int64 = 0
+        let step = try roundTrip {
+            wayID = try $0.addShape([(30.0, 31.0, 1), (30.0, 31.0001, 2), (30.0001, 31.0001, nil)])
+        }
+        #expect(step.topology && step.changedWays == [wayID])
+        #expect(step.nodes.keys.sorted() == [low - 3, low - 2, low - 1])
+        var doc = try smallDoc()
+        #expect(throws: PatchEditError.tooFewCorners(2)) { try doc.addShape([(30, 31, nil), (30, 31.1, nil)]) }
     }
 
     @Test func refusalsNameTheCause() throws {

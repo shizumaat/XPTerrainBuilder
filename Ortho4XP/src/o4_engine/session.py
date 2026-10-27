@@ -29,6 +29,7 @@ import O4_File_Names as FNAMES
 import O4_Machine_Slots as SLOTS
 import O4_Patch_Fast_Path as FASTPATH
 import O4_Step_Reuse as REUSE
+import O4_Tile_Build_Log as TILELOG
 import O4_Stopped_Build as STOPPED
 import O4_Tile_Failures as FAIL
 import O4_Unmounted_Links as UNMOUNTED
@@ -43,6 +44,7 @@ from .events import (
     ImageryDownloadsDone,
     Log,
     PackMissingArt,
+    PackOldForests,
     RunDone, RunEta, ScanBatch, ScanDone, ScanProgress, SignInResult,
     StepProgress,
     TileClocks,
@@ -725,6 +727,11 @@ class EngineSession:
         # per-tile total line is the parent orchestrator's to print.
         self._stepwise_run = False
         self._prefetch_imagery = False     # see build(prefetch=...)
+        # Each tile build's own log and record row in its build folder
+        # (#1226).  Opened by whichever process orchestrates the tile —
+        # this worker in-process, the parallel run in the parent — and
+        # never by a per-step worker child, whose lines the parent logs.
+        self.tile_logs = TILELOG.TileBuildLogs()
         # The live parallel run (subprocess scheduler), when one exists.
         self._parallel = None
         # In-process work queue: per-tile items the worker consumes and
@@ -733,6 +740,8 @@ class EngineSession:
         # never be appended into a run that just decided to finish.
         self._work_queue: deque = deque()
         self._work_queue_lock = threading.Lock()
+        # tile -> its batch's per-build switches (#818, build(overrides=)).
+        self._tile_overrides: dict = {}
         # Serializes enqueue_build decisions (one view command at a time).
         self._command_lock = threading.Lock()
         # Provider-account status the secret store owns and the command
@@ -773,11 +782,35 @@ class EngineSession:
                     and not event.attempt):
                 object.__setattr__(event, "attempt", self._tile_attempts.get(
                     (int(event.lat), int(event.lon)), 0))
+        self._note_tile_terminal(event)
         for callback in list(self._subscribers):
             try:
                 callback(event)
             except Exception:
                 pass
+
+    def _note_tile_terminal(self, event):
+        """Close a tile's build log at its terminal event (#1226): its
+        ``BuildDone``, or the stopped ``TileState``."""
+        try:
+            if isinstance(event, BuildDone):
+                if event.ok:
+                    outcome = ("warnings" if event.warnings or event.notes
+                               else "ok")
+                    closing = ()
+                else:
+                    outcome = "failed"
+                    closing = ["*** Tile %s failed: %s" % (
+                        FNAMES.short_latlon(event.lat, event.lon),
+                        event.error or "see above")]
+                self.tile_logs.finish((event.lat, event.lon), outcome,
+                                      len(event.warnings), closing)
+            elif (isinstance(event, TileState) and event.state == "queued"
+                    and event.label == "stopped"):
+                self.tile_logs.finish((event.lat, event.lon), "stopped",
+                                      closing=["=== Build stopped. ==="])
+        except Exception:
+            pass
 
     def new_tile_attempt(self, tile):
         """Start the next attempt of ``tile`` (#1326): called wherever a
@@ -869,7 +902,8 @@ class EngineSession:
     def build(self, tiles, provider, zoomlevel, custom_build_dir,
               do_vector=True, do_imagery=True, do_overlays=False,
               slots=None, steps=None, boundary_policy=None,
-              boundary_batch=None, missing_art=None, prefetch=None):
+              boundary_batch=None, missing_art=None, prefetch=None,
+              overrides=None):
         """Build the given (lat, lon) tiles.  Returns immediately; progress
         arrives as events.  Only one run at a time.
 
@@ -893,6 +927,11 @@ class EngineSession:
         (``O4_Imagery_Prefetch``).  ``None`` lets an in-process run
         prefetch; a step-wise worker child prefetches only when its
         parent lent it an imagery token (``True``).
+
+        ``overrides`` (protocol 1.17, #818): this batch's per-build
+        switches, ``{"auto_patch": bool, "modify_custom_airports": bool}``
+        (either key optional), landed on each tile after its cfg is read
+        and never written back to it (``Tile.apply_build_overrides``).
         """
         if self._building:
             return False
@@ -920,6 +959,8 @@ class EngineSession:
         except Exception:                                # pragma: no cover
             pass
         self._building = True
+        self._tile_overrides = {}
+        self._note_overrides(tiles, overrides)
         self._stepwise_run = steps is not None
         self._prefetch_imagery = (bool(prefetch) if prefetch is not None
                                   else not self._stepwise_run)
@@ -946,7 +987,7 @@ class EngineSession:
                 self, list(tiles), provider, zoomlevel, custom_build_dir,
                 (do_vector, do_imagery, do_overlays),
                 slots, boundary_policy=boundary_policy,
-                missing_art=missing_art)
+                missing_art=missing_art, overrides=overrides)
             # Registered BEFORE start so a cancel arriving during the
             # worker handshake window already routes to the run; start
             # runs off-thread because the handshake blocks for seconds.
@@ -1025,16 +1066,24 @@ class EngineSession:
                     (tuple(tile), provider, zoomlevel, custom_build_dir,
                      plan))
 
+    def _note_overrides(self, tiles, overrides):
+        """Remember a batch's per-build switches for each of its tiles."""
+        if overrides:
+            for tile in tiles:
+                self._tile_overrides[tuple(tile)] = dict(overrides)
+
     def enqueue_build(self, tiles, provider, zoomlevel, custom_build_dir,
                       do_vector=True, do_imagery=True, do_overlays=False,
-                      slots=None, boundary_policy=None, missing_art=None):
+                      slots=None, boundary_policy=None, missing_art=None,
+                      overrides=None):
         """Build the given tiles, joining a run already in progress.
 
         The single build entry point for interactive views: with no run
         active this is exactly :meth:`build`; with one active the batch
         is appended to it (both run modes) and starts as soon as
         capacity frees.  Each batch keeps its own imagery source, zoom
-        level, output folder and step selection.  Returns True when the
+        level, output folder, step selection and per-build switches
+        (``overrides``, see :meth:`build`).  Returns True when the
         batch was started or queued, False when nothing was accepted
         (empty batch, no steps selected, or every tile already part of
         the active run).
@@ -1048,7 +1097,7 @@ class EngineSession:
                             tiles, provider, zoomlevel, custom_build_dir,
                             (do_vector, do_imagery, do_overlays),
                             boundary_policy=boundary_policy,
-                            missing_art=missing_art):
+                            missing_art=missing_art, overrides=overrides):
                         return True
                     if not (parallel_run._finished
                             or parallel_run._cancel_all):
@@ -1058,7 +1107,7 @@ class EngineSession:
                 else:
                     appended = self._enqueue_in_process(
                         tiles, provider, zoomlevel, custom_build_dir,
-                        do_vector, do_imagery, do_overlays)
+                        do_vector, do_imagery, do_overlays, overrides)
                     if appended:
                         return True
                     if appended == 0:
@@ -1077,11 +1126,12 @@ class EngineSession:
                 tiles, provider, zoomlevel, custom_build_dir,
                 do_vector=do_vector, do_imagery=do_imagery,
                 do_overlays=do_overlays, slots=slots,
-                boundary_policy=boundary_policy, missing_art=missing_art)
+                boundary_policy=boundary_policy, missing_art=missing_art,
+                overrides=overrides)
 
     def _enqueue_in_process(self, tiles, provider, zoomlevel,
                             custom_build_dir, do_vector, do_imagery,
-                            do_overlays):
+                            do_overlays, overrides=None):
         """Append a batch to the live in-process run.
 
         Returns the number of tiles appended; 0 when every tile is
@@ -1099,6 +1149,7 @@ class EngineSession:
             fresh = [tile for tile in tiles
                      if tile not in already_queued
                      and tile != self._active_tile]
+            self._note_overrides(fresh, overrides)
             for tile in fresh:
                 # A tile stopped earlier in this run is wanted again: its
                 # old cancel must not stop the new attempt (#1326).
@@ -1247,7 +1298,27 @@ class EngineSession:
         self._eta = None
         self._parallel = None
 
+    def _logged_tile(self):
+        """The in-process tile whose build log is open, else ``None``."""
+        tile = self._active_tile
+        return tile if self.tile_logs.is_open(tile) else None
+
     def _build_worker(self):
+        """The in-process run loop, its tile's lines tagged (#1226): the
+        console prefix and the tile's own build log
+        (``O4_Tile_Build_Log.TileStreamTag``).  A per-step worker child
+        tags nothing — the parent orchestrator tags its lines."""
+        undo = None
+        if not self._stepwise_run:
+            undo = TILELOG.TileStreamTag.install(self.tile_logs,
+                                                 self._logged_tile)
+        try:
+            self._build_worker_loop()
+        finally:
+            if undo is not None:
+                undo()
+
+    def _build_worker_loop(self):
         """The in-process run loop: consume the work queue tile by tile.
 
         Each work item carries its own build arguments and step plan
@@ -1287,12 +1358,18 @@ class EngineSession:
                 self._emit(stopped_tile_state(lat, lon, custom_build_dir))
                 continue
             self._active_tile = (lat, lon)
+            if not self._stepwise_run:
+                self.tile_logs.begin((lat, lon), FNAMES.build_dir(
+                    lat, lon, custom_build_dir))
             step_seconds = {}
             autopatch_airports = 0
             self._tile_failures = []           # per-tile (H1, #562)
             try:
                 tile = CFG.Tile(lat, lon, custom_build_dir)
                 tile.read_from_config()
+                overrides = self._tile_overrides.get((lat, lon))
+                if overrides:
+                    tile.apply_build_overrides(overrides)
                 # The build command's imagery selection is explicit user
                 # intent and must win over whatever default_website the
                 # tile config recorded last time: stale configs (empty or
@@ -1760,9 +1837,41 @@ class EngineSession:
                          name="o4-omit-missing-art").start()
         return {"status": "started"}
 
+    def pack_old_forests(self, **fields):
+        """A pack with old flat forests (#1360): the ``PackOldForests``
+        event (``UI.pack_old_forests`` hook).  Unknown fields are dropped
+        so an engine-side addition never breaks the emit."""
+        names = {f for f in PackOldForests.__dataclass_fields__
+                 if f not in ("seq", "ts")}
+        self._emit(PackOldForests(**{k: v for k, v in fields.items()
+                                     if k in names}))
+
+    def pack_forests(self, pack_root="", action="", lat=None, lon=None):
+        """THE USER'S ANSWER (protocol 1.17, #1360): ``action`` is
+        ``"update"`` (remember it, point the tile DSF's old flat forests
+        at the X-Plane 12 3D trees), ``"never"`` (remember it, write
+        nothing) or ``"undo"`` (forget it, put the originals back in every
+        DSF of the pack, or the tile's with ``lat``/``lon``).  Replies
+        ``{"status": "started"}`` at once — DSFTool runs on a worker
+        thread, never on the transport's read loop — and completes with a
+        ``PackOldForests`` event."""
+        root, act = str(pack_root or ""), str(action or "")
+        la = None if lat is None else int(lat)
+        lo = None if lon is None else int(lon)
+
+        def work():
+            from auto_patch import forest_stage as _FS
+            _FS.forest_choice(root, act, la, lo)
+
+        threading.Thread(target=work, daemon=True,
+                         name="o4-pack-forests").start()
+        return {"status": "started"}
+
     def log_warning(self, text: str):
         """Emit a warning-level build Log line (UI.loud_warning hook)."""
-        self._emit(Log(level="warning", text=text))
+        tile = self._active_tile
+        self._emit(Log(level="warning", text=text,
+                       tile=tuple(tile) if tile else ()))
 
     def _take_tile_failures(self):
         """The tile's raw failure records, cleared as read."""
@@ -1791,7 +1900,7 @@ class EngineSession:
     # ------------------------------------------------------------------
     def tile_info(self, lat, lon, working_dir):
         import O4_Tile_Info as TINFO
-        return TINFO.tile_info(lat, lon, working_dir)
+        return TINFO.with_built_by(TINFO.tile_info(lat, lon, working_dir))
 
     def config_describe(self):
         import O4_Cfg_Vars as CFG_VARS
@@ -1882,25 +1991,11 @@ class EngineSession:
     # ------------------------------------------------------------------
     @staticmethod
     def _account_definitions():
-        """Every enabled provider definition that declares an account.
-
-        The elevation provider registry's own parsed definitions — the
-        same enumeration O4_Qt_Settings._ProviderSignInSection makes,
-        never a private re-parse of the .elv files.
-        """
-        import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
-        if not ELEVATION_PROVIDERS.elevation_providers_dict:
-            ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
-        definitions = []
-        for definition in sorted(
-                ELEVATION_PROVIDERS.elevation_providers_dict.values(),
-                key=lambda d: str(d.get("code"))):
-            if not definition.get("session_name"):
-                continue
-            if not definition.get("enabled", True):
-                continue
-            definitions.append(definition)
-        return definitions
+        """Every enabled provider definition that declares an account
+        (``O4_Provider_Accounts.account_definitions``: elevation and
+        imagery providers — the same enumeration the Qt section makes)."""
+        import O4_Provider_Accounts as ACCOUNTS
+        return ACCOUNTS.account_definitions()
 
     @classmethod
     def _definition_for_session(cls, session_name):

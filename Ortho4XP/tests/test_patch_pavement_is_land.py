@@ -31,6 +31,7 @@ import sys
 from pathlib import Path
 
 import numpy
+import pytest
 from shapely import geometry
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -39,6 +40,8 @@ if str(SRC) not in sys.path:
 
 import O4_DSF_Utils as DSF  # noqa: E402
 import O4_Mask_Utils as MASK  # noqa: E402
+import O4_Tile_Failures as FAIL  # noqa: E402
+import O4_UI_Utils as UI  # noqa: E402
 import O4_Vector_Map as VMAP  # noqa: E402
 import O4_Vector_Utils as VECT  # noqa: E402
 
@@ -385,14 +388,31 @@ class TestPavementUnionReachesTheSeeding:
             " graded_area=graded_area)" in source
         )
 
-    def test_include_airports_without_airports_returns_an_empty_union(
+    def test_a_stopped_airports_load_returns_an_empty_union(
         self, monkeypatch
     ):
+        monkeypatch.setattr(UI, "red_flag", True)
         monkeypatch.setattr(
             VMAP, "load_airports_and_prepare_dem", lambda tile: (None, None)
         )
         result = VMAP.include_airports(VECT.Vector_Map(), _Tile())
         # R17-3: (apt_array, treated_area, patches_area, graded_area).
         assert len(result) == 4
+        # the shape APT.build_airport_array returns, so include_roads
+        # can index it (#1445)
+        assert result[0].shape == (1001, 1001) and not result[0].any()
         assert result[2].is_empty
         assert result[3].is_empty
+
+    def test_a_failed_airports_download_stops_the_tile_by_name(
+        self, monkeypatch
+    ):
+        # #1445: every Overpass attempt busy -> the loader returns 0.
+        monkeypatch.setattr(UI, "red_flag", False)
+        monkeypatch.setattr(
+            VMAP.OSM, "OSM_queries_to_OSM_layer", lambda *a, **k: 0)
+        with pytest.raises(VMAP.OsmLayerUnavailable) as raised:
+            VMAP.include_airports(VECT.Vector_Map(), _Tile())
+        assert raised.value.layer == "airports"
+        assert (FAIL.code_for_exception(raised.value)
+                == "network_unavailable")

@@ -1338,7 +1338,8 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_pack_schema
     law.flat_site_schema law.inset_class law.model
-    law.model_types law.rebake_schema law.reference_code law.runway_strip law.role_cap_schema law.tables
+    law.model_types law.rebake_schema law.reference_code law.runway_strip
+    law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.ground_fit model.hard_plane
     model.islands model.map_memo model.placement model.planar model.platform model.pulse
@@ -1646,7 +1647,8 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.rebake_plan airport.rebake_screen airport.riders
     airport.public_road
-    airport.road_descent airport.road_joint airport.road_profile airport.road_ramp airport.road_stations
+    airport.road_descent airport.road_joint airport.road_profile airport.road_ramp
+    airport.road_stations
     airport.road_ways airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
     airport.ring_contact_batch
     airport.slab_plates airport.topology_cache airport.wall_class classify
@@ -1749,7 +1751,8 @@ CODE_MODULES["verify"] = _mods("""
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_pack_schema
     law.flat_site_schema law.inset_class law.model
-    law.model_types law.rebake_schema law.reference_code law.runway_strip law.role_cap_schema law.tables
+    law.model_types law.rebake_schema law.reference_code law.runway_strip
+    law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.islands model.map_memo
     model.placement model.planar model.platform model.pulse model.rebake

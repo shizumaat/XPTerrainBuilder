@@ -28,7 +28,8 @@ def law():
 def _runway():
     def end(n, xy):
         return types.SimpleNamespace(name=n, xy=xy, approach="visual")
-    return types.SimpleNamespace(id="16/34", ends=(end("16", (0.0, 0.0)), end("34", (0.0, -3000.0))),
+    return types.SimpleNamespace(id="16/34",
+                                 ends=(end("16", (0.0, 0.0)), end("34", (0.0, -3000.0))),
                                  code_number=4, code_letter="E", instrument=False, width_m=45.0)
 
 

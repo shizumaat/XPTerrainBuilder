@@ -165,6 +165,7 @@ from elevation_access.definitions import (
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
 from elevation_access.fetch_slots import held_inset_fetch_slot
+from elevation_access import footprints as ea_footprints
 from elevation_access.las_tiles import LAS_FOOTPRINT_KEY, _buffer_geometry_m
 from elevation_access.registry import ACCESS_STRATEGIES
 from elevation_access.vertical_units import (
@@ -803,7 +804,7 @@ def negative_is_unverified(airport_record, code, definition,
         return False
     if bounding_box is None:
         bounding_box = airport_record.get("bounding_box")
-    if bounding_box is not None and not _coverage_bbox_intersects(
+    if bounding_box is not None and not ea_footprints.covers_box(
         definition, bounding_box
     ):
         return False
@@ -875,7 +876,7 @@ def negative_is_version_stale(airport_record, code, definition,
         return False
     if bounding_box is None:
         bounding_box = airport_record.get("bounding_box")
-    if bounding_box is not None and not _coverage_bbox_intersects(
+    if bounding_box is not None and not ea_footprints.covers_box(
         definition, bounding_box
     ):
         return False
@@ -4813,9 +4814,10 @@ def ensure_airport_insets(
                 and not version_stale
             ):
                 continue
-            if not _coverage_bbox_intersects(definition, bounding_box):
+            if not ea_footprints.covers_box(definition, bounding_box):
                 # The honest, capability-free negative: this provider's
-                # own declared box does not reach this airport.  No
+                # own declared box -- or its known footprint (#1466) --
+                # does not reach this airport.  No
                 # capability stamp -- ``negative_is_unverified`` reads the
                 # same boxes and never calls this one into question, so
                 # stamping it would be pure churn in the shared repo.

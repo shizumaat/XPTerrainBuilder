@@ -38,6 +38,7 @@ WHAT A STRATEGY MAY USE (the shared modules beside this file)
 ``discovery``       JSON listings and HTTP answer classes
 ``failures``        telling transient / mis-configured / capped apart
 ``fetch_slots``     per-server politeness cap
+``footprints``      where a provider really has data (not its box)
 ``downloads``       whole-file downloads into the cache
 ``warp``            sources -> one GeoTIFF; "does it hold data"
 ``layered_warp``    the same mosaic, never reading a source it hides

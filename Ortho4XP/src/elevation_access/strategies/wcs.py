@@ -7,6 +7,7 @@ shares with other strategies is imported from ``elevation_access``.
 """
 
 import datetime
+import math
 import os
 
 import O4_Geo_Utils as GEO
@@ -31,6 +32,7 @@ from elevation_access.warp import (
 )
 
 __all__ = [
+    "FOOTPRINT_PROBE_RESOLUTION_M",
     "WCS_REQUEST_TIMEOUT_SECONDS",
     "WcsStrategy",
 ]
@@ -49,6 +51,39 @@ __all__ = [
 # ONLY override -- the driver always passes its own TIMEOUT to curl, so
 # the GDAL_HTTP_TIMEOUT configuration option never applies to WCS reads.
 WCS_REQUEST_TIMEOUT_SECONDS = 600
+
+
+#: The posting of a footprint probe's one coarse read (#1466): a 0.1
+#: degree cell is ~20 x 22 samples, and one tile ~200 x 220.
+FOOTPRINT_PROBE_RESOLUTION_M = 500.0
+
+
+def _cells_holding_data(raster_path, cell_boxes):
+    """Per cell of an EPSG:4326 raster: valid samples, not one constant."""
+    import numpy
+
+    dataset = gdal.Open(raster_path)
+    try:
+        band = dataset.GetRasterBand(1)
+        values = band.ReadAsArray().astype("float64")
+        nodata = band.GetNoDataValue()
+        (x0, dx, _rx, y0, _ry, dy) = dataset.GetGeoTransform()
+    finally:
+        dataset = None
+    valid = numpy.isfinite(values)
+    if nodata is not None:
+        valid &= values != nodata
+    (rows, columns) = values.shape
+    answers = []
+    for (west, south, east, north) in cell_boxes:
+        c0 = max(0, int(math.floor((west - x0) / dx)))
+        c1 = min(columns, int(math.ceil((east - x0) / dx)))
+        r0 = max(0, int(math.floor((north - y0) / dy)))
+        r1 = min(rows, int(math.ceil((south - y0) / dy)))
+        cell = values[r0:r1, c0:c1][valid[r0:r1, c0:c1]]
+        answers.append(bool(cell.size) and (
+            cell.size == 1 or float(cell.max()) != float(cell.min())))
+    return answers
 
 
 @register_access_strategy("wcs")
@@ -197,32 +232,19 @@ class WcsStrategy:
             return os.path.isfile(scratch_path)
         return False
 
-    def fetch(
-        self,
-        definition,
-        bounding_box_wgs84,
-        target_resolution_m,
-        destination_path,
-    ):
-        import O4_Authenticated_Sessions as SESSIONS
+    @staticmethod
+    def _open_coverage(dataset_name):
+        """The open WCS dataset, or ``None`` when the driver refused it.
 
-        if not has_gdal:
-            return None
-        api_key = None
-        if "{api_key}" in str(definition.get("wcs_service_url", "")):
-            try:
-                api_key = SESSIONS.ensure_api_key(definition)
-            except SESSIONS.LoginError as error:
-                _warn_sign_in_needed_once(definition, error)
-                return None
-        dataset_name = self.dataset_name(definition, api_key)
-        # Open with an explicit request timeout: the driver's own 30 s
-        # default (see WCS_REQUEST_TIMEOUT_SECONDS above) kills large
-        # windowed GetCoverage responses mid-stream.  The option also
-        # covers the GetCapabilities/DescribeCoverage handshake and is
-        # folded into the driver's cached service description.
+        Opened with an explicit request timeout: the driver's own 30 s
+        default (see WCS_REQUEST_TIMEOUT_SECONDS above) kills large
+        windowed GetCoverage responses mid-stream.  The option also
+        covers the GetCapabilities/DescribeCoverage handshake and is
+        folded into the driver's cached service description.  A
+        network-shaped failure raises :class:`TransientFetchError`.
+        """
         try:
-            wcs_dataset = gdal.OpenEx(
+            return gdal.OpenEx(
                 dataset_name,
                 gdal.OF_RASTER,
                 open_options=[
@@ -241,6 +263,64 @@ class WcsStrategy:
                 str(error),
             )
             return None
+
+    def probe_cell_coverage(self, definition, cell_boxes):
+        """Which cells hold data: ONE coarse read of their hull at
+        :data:`FOOTPRINT_PROBE_RESOLUTION_M` (#1466).  A cell is covered
+        when it holds valid pixels that are not one constant -- the fill
+        some servers paint beyond their data.  ``None`` (unknown) when the
+        coverage needs a key or the server refused the read; a network
+        failure raises :class:`TransientFetchError`."""
+        import tempfile
+
+        if not has_gdal or not cell_boxes:
+            return None
+        if "{api_key}" in str(definition.get("wcs_service_url", "")):
+            return None
+        hull = (min(box[0] for box in cell_boxes),
+                min(box[1] for box in cell_boxes),
+                max(box[2] for box in cell_boxes),
+                max(box[3] for box in cell_boxes))
+        wcs_dataset = self._open_coverage(self.dataset_name(definition))
+        if wcs_dataset is None:
+            return None
+        with tempfile.TemporaryDirectory(prefix="o4_wcs_probe_") as scratch:
+            window = os.path.join(scratch, "window.tif")
+            probe = os.path.join(scratch, "probe.tif")
+            if not self._materialize_window(
+                    definition, wcs_dataset, hull,
+                    FOOTPRINT_PROBE_RESOLUTION_M, window):
+                return None
+            wcs_dataset = None
+            if not warp_vsicurl_sources_to_geotiff(
+                    [window], hull, FOOTPRINT_PROBE_RESOLUTION_M, probe,
+                    value_floor_m=float(
+                        definition.get("value_floor_m", -600.0)),
+                    vertical_unit=_raster_vertical_unit(definition),
+                    provider_code=definition.get("code")):
+                return None
+            return _cells_holding_data(probe, cell_boxes)
+
+    def fetch(
+        self,
+        definition,
+        bounding_box_wgs84,
+        target_resolution_m,
+        destination_path,
+    ):
+        import O4_Authenticated_Sessions as SESSIONS
+
+        if not has_gdal:
+            return None
+        api_key = None
+        if "{api_key}" in str(definition.get("wcs_service_url", "")):
+            try:
+                api_key = SESSIONS.ensure_api_key(definition)
+            except SESSIONS.LoginError as error:
+                _warn_sign_in_needed_once(definition, error)
+                return None
+        wcs_dataset = self._open_coverage(
+            self.dataset_name(definition, api_key))
         if wcs_dataset is None:
             return None
         value_floor_m = float(definition.get("value_floor_m", -600.0))

@@ -8,10 +8,15 @@ move the map.  Labels do not accept clicks, so clicking the title, the
 status or the bar counts as clicking the row -- except a status that
 has been made clickable (:class:`ClickableStatus`, #1341): a finished
 row's gold or red status reopens its tile's messages instead.
+
+A row whose tile is selected wears the map's focus ring
+(:meth:`ClickableRow.set_ring`, #1537; ``O4_Qt_Selection_Ring``).
 """
 
+import O4_Qt_Selection_Ring as RING
 from O4_Qt_Widgets import ElidedRowLabel
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QWidget
 
 __all__ = ["ClickableRow", "ClickableStatus"]
@@ -26,6 +31,28 @@ class ClickableRow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCursor(Qt.PointingHandCursor)
+        self._ring = None
+
+    def ring(self):
+        """The ring this row draws: ``RING.ACTIVE``, ``RING.OTHER`` or None."""
+        return self._ring
+
+    def set_ring(self, mode):
+        if mode != self._ring:
+            self._ring = mode
+            self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self._ring is None:
+            return
+        reach = RING.GLOW_REACH
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        RING.draw(painter,
+                  QRectF(self.rect()).adjusted(reach, reach, -reach, -reach),
+                  self._ring == RING.ACTIVE, RING.ring_color(self.palette()))
+        painter.end()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

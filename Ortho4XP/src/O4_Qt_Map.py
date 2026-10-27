@@ -26,6 +26,7 @@ import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
 import O4_Qt_Map_Labels as QTLABELS
+import O4_Qt_Selection_Ring as RING
 import O4_Qt_Text_Scale as QTTEXT
 import requests
 from PIL import Image as PILImage
@@ -76,8 +77,6 @@ LEVEL_TILE_CAP = 420   # skip a pyramid level if it needs more tiles than this
 # Built tiles are plain green — the ZL stays readable in the center
 # label ("PROV 16*"); no per-ZL color coding, no legend.
 BUILT_COLOR = "#4CAF6E"
-#: The selection ring (the Mac app's buildSelection).
-SELECTION_COLOR = "#FFD60A"
 #: The customized-settings dot (#1350); MapCanvasView.settingsBadge.
 SETTINGS_BADGE_COLOR = "#0A84FF"
 #: The custom-patch band (#1229); MapCanvasView.customPatchBand.
@@ -1291,29 +1290,10 @@ class MapView(QGraphicsView):
             self._draw_custom_patch_band(painter, r, scale)
 
         if selected:
-            # Selection: a focus ring.  Active: solid with a soft outer
-            # glow; other selected tiles: dashed.
-            ring = QColor(SELECTION_COLOR)
-            px1 = 1.0 / scale if scale else 0.0     # one screen pixel
-            if active:
-                glow = QColor(ring)
-                glow.setAlphaF(0.35)
-                pen = QPen(glow)
-                pen.setCosmetic(True)
-                pen.setWidth(5)
-                painter.setPen(pen)
-                painter.drawRect(r.adjusted(-1.5 * px1, -1.5 * px1,
-                                            1.5 * px1, 1.5 * px1))
-                pen = QPen(ring)
-                pen.setCosmetic(True)
-                pen.setWidthF(2.5)
-            else:
-                pen = QPen(ring)
-                pen.setCosmetic(True)
-                pen.setWidth(2)
-                pen.setDashPattern([5 / 2, 4 / 2])  # 5 px on, 4 off at width 2
-            painter.setPen(pen)
-            painter.drawRect(r.adjusted(px1, px1, -px1, -px1))
+            # Selection: the shared focus ring (#1537) -- solid with a
+            # glow on the active tile, dashed on the others.
+            RING.draw(painter, r, active, RING.ring_color(self.palette()),
+                      1.0 / scale if scale else 0.0)
 
         # Customized settings (#1350): a blue dot in the top-left corner,
         # on a built or selected tile (MapCanvasView.swift draws the same).

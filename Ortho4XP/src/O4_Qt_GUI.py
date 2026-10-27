@@ -108,6 +108,7 @@ import O4_Qt_Tile_Menu as QTTILEMENU
 import O4_Qt_Plan_Estimate as QTPLAN
 import O4_Qt_Scenery_Watcher as QTSCW
 import O4_Qt_Library as QTLIBRARY
+import O4_Qt_Selection_Ring as RING
 import O4_Qt_Step_Strip as QTSTRIP
 import O4_Step_Strip as STRIP
 
@@ -2651,6 +2652,8 @@ class MainWindow(QMainWindow):
         self._update_build_summary(sel)
         self._persist_selection(sel)
         self.console_drawer.set_selection(sel, self.map.active_tile())
+        # Rows of selected tiles wear the map's focus ring (#1537).
+        RING.apply_rings(self._row_widgets(), sel, self.map.active_tile())
 
     def _persist_selection(self, selection=None):
         """Write the selected set and the active tile to the prefs file.
@@ -4117,7 +4120,8 @@ class MainWindow(QMainWindow):
             row.clicked.connect(
                 lambda t=tile: self._show_tile_on_map(t))
             rl = QVBoxLayout(row)
-            rl.setContentsMargins(6, 4, 6, 4)
+            # Room inside the row for the focus ring (#1537).
+            rl.setContentsMargins(9, 7, 9, 7)
             rl.setSpacing(2)
             # Title, bar, then a line (#694): the title (coordinate +
             # search tag, #667) owns the whole first line and elides at its
@@ -4193,6 +4197,11 @@ class MainWindow(QMainWindow):
             self._tile_rows[tile] = (bar, status, row, cancel, clock)
         self._sync_row_order()
 
+    def _row_widgets(self):
+        """Tile -> its Activity row widget."""
+        return {tile: row[2]
+                for tile, row in getattr(self, "_tile_rows", {}).items()}
+
     def _sync_row_order(self):
         """Lay the Activity rows out in the list's order (#1341): live
         rows on top, newest queued first, then finished rows in the order
@@ -4209,6 +4218,9 @@ class MainWindow(QMainWindow):
         if order == self._row_order:
             return
         self._row_order = order
+        # A row come or gone can change "every row selected" (#1537).
+        RING.apply_rings(self._row_widgets(), self.map.selection(),
+                         self.map.active_tile())
         for index, tile in enumerate(order):
             widget = self._tile_rows[tile][2]
             if self._rows_layout.indexOf(widget) != index:

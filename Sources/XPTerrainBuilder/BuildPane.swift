@@ -1062,8 +1062,17 @@ struct ActivityBox: View {
                 Text("Building \(activity.totalTiles) tile\(activity.totalTiles == 1 ? "" : "s") — \(activity.doneTiles) done")
                     .scaledFont(.callout, weight: .medium)
             }
+            // Rows of selected tiles wear the map's focus ring (#1537).
+            let rings = SelectionRing.rings(rows: activity.displayOrder,
+                                            selected: buildModel.selected,
+                                            active: buildModel.activeTile)
             ForEach(activity.displayOrder, id: \.self) { coord in
                 row(coord, activity.tiles[coord])
+                    .overlay {
+                        if let mode = rings[coord] {
+                            TileSelectionRingOverlay(active: mode == .active)
+                        }
+                    }
             }
             // The run clock belongs to a run: once one has ended and only
             // stopped rows are left waiting for a resume, there is no

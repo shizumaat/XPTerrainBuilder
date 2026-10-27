@@ -29,6 +29,7 @@ from auto_patch_v2.airport.dem_production import ColdDemFrame, TileWater
 from auto_patch_v2.law import Law
 from auto_patch_v2.model.frame import Frame
 from shapely.geometry import Polygon, box
+from shapely.ops import unary_union
 
 FIX = Path(__file__).resolve().parent / "fixtures" / "CYXY"
 ANCHOR = (0.5, 0.5)
@@ -183,3 +184,78 @@ def test_the_region_covers_the_runways_and_excludes_water():
     assert lon_max <= ANCHOR[1] + 1200.0 / 111319.49 + 1e-4
     assert wet["signals"]["region_area_m2"] < dry["signals"]["region_area_m2"]
     assert math.isclose(dry["z0_m"], wet["z0_m"])
+
+
+# ── 5. the plateau fills, it does not cut (RULINGS 2026-10-26r, #1208) ────
+
+def test_the_record_publishes_its_pavement_not_its_boundary():
+    """``pavement`` is the apt.dat pavements ∪ runways at margin 0 — the
+    one ground the bake keeps at Z0 — never the boundary's grass."""
+    rec = _decide(_site(runway_len_m=2400.0))
+    pav = F.from_record({"verdict": "x", "region": rec["held"]}).region
+    pavement = Polygon(pav[0][0], list(pav[0][1]))
+    assert pavement.covers(box(-1150.0, -20.0, 1150.0, 20.0))
+    assert not pavement.contains(Polygon([(-300, 200), (300, 200), (300, 300),
+                                          (-300, 300)]))   # boundary grass
+    assert rec["held_ll"] and len(rec["held_ll"]) == len(rec["held"])
+
+
+class _PavedOnlyDem(_ComposedDem):
+    """Z0 on the held ground (the runway and its graded strip), real
+    ground 3 m above off it."""
+
+    def z(self, x, y):
+        from auto_patch_v2.airport.runway_strip import strip_band
+        from shapely.geometry import Point
+
+        band = strip_band(_site().runways[0], Law.for_airport("ZZZZ"))
+        # the held ground is grown by one post diagonal (posting 30 m)
+        return Z0 if band.buffer(30.0 * 2 ** 0.5 + 1.0).contains(Point(x, y)) else Z0 + 3.0
+
+
+def test_the_plateau_check_reads_the_held_ground_not_the_boundary():
+    """Off the held ground the composed DEM keeps ground above Z0 (the
+    fill-only rule); the mismatch rule reads the held ground, so it is not
+    cold."""
+    rec = _decide()
+    rec["plateau"] = True
+    dem = _PavedOnlyDem(rec, Z0)
+    ap = types.SimpleNamespace(icao="ZZZZ", frame=Frame("ZZZZ", ANCHOR, 6), dem=dem)
+    fv, _how = READ.verdict_for_build(ap, Law.for_airport("ZZZZ"))
+    assert fv.signals["plateau_offset_m"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_the_packs_draped_pavement_joins_the_pavement(monkeypatch):
+    """RULINGS 2026-10-27d: pavement stays flat — the pack's draped
+    ``.pol`` pages (``pack_pavement``) are pavement too."""
+    apron = box(-300.0, 150.0, 300.0, 280.0)        # boundary grass, no apt.dat row
+    seen = {}
+
+    def _pages(root, name, lat, lon, to_xy, own, mod_cache_root, xplane_root):
+        seen["mod_cache_root"] = mod_cache_root
+        return [apron]
+    monkeypatch.setattr(PREP._pack_pavement, "pavement_pages", _pages)
+    law = Law.for_airport("ZZZZ")
+    rec = PREP.decide(_site(), _TileDem(1.0), 0, 0, TileWater(0, 0, None, None),
+                      law, out=lambda line: None, mod_cache_root="/cache")
+    assert seen["mod_cache_root"] == "/cache"
+    pav = F.from_record({"verdict": "x", "region": rec["held"]}).region
+    got = unary_union([Polygon(o, list(h)) for o, h in pav])
+    assert got.covers(apron.buffer(-1.0))
+
+
+def test_the_runway_strip_is_held_with_the_pavement():
+    """RULINGS 2026-10-27v (2): the runway strips stay graded as the strip
+    law requires — the record holds each runway's graded strip
+    (``airport.runway_strip.strip_band``, with its end extension) at Z0, not
+    the real ground."""
+    from auto_patch_v2.airport.runway_strip import strip_band
+
+    law = Law.for_airport("ZZZZ")
+    site = _site(runway_len_m=2400.0)
+    rec = _decide(site)
+    held = F.from_record({"verdict": "x", "region": rec["held"]}).region
+    got = unary_union([Polygon(o, list(h)) for o, h in held])
+    band = strip_band(site.runways[0], law)
+    assert band is not None and band.area > 2400.0 * 45.0 * 2
+    assert got.covers(band.buffer(-0.5))

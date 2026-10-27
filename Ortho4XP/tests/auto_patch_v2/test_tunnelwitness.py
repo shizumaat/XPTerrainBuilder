@@ -96,19 +96,16 @@ def _run(law, extra_cells=()):
     return build_structures(airport, Classification(tuple(cells), (), {}, ()), law)
 
 
-def test_SPJC_bore_inside_the_fence_under_nothing_is_BUILT_by_the_fence(law):
-    """#5 as RULED (owner RULINGS 2026-09-27a (4), answering Q-5): an OSM
-    ``tunnel=yes`` bore INSIDE the airport boundary is a terrain tunnel
-    on its own.  Both mouths are built (lane ``tunnelwitness2``); the
-    fence case and the refusal outside it are pinned in
-    ``test_tunnelwitness2.py``."""
+def test_SPJC_bore_inside_the_fence_under_nothing_is_REFUSED(law):
+    """#5 as RULED (owner RULINGS 2026-09-27a (4)), NARROWED by 2026-10-27z
+    (#535): an OSM ``tunnel=yes`` bore inside the airport boundary is a
+    terrain tunnel only with one of the five witnesses; SPJC's carries
+    none, so neither mouth is built.  The witnesses are pinned in
+    ``test_fence_witness535.py``."""
     _cl, tunnels, st = _run(law)
-    assert st.bores == 1
-    # both mouths admitted; this fixture's apron stands ON the bore's line
-    # east of it, so the east ramp is stopped there (the two-ramp read is
-    # ``test_tunnelwitness2``'s fixture, apron off the line as at SPJC)
-    assert st.mouths == 2 and st.tunnels >= 1, st.mouths_off_field_nearest
-    assert not [ln for ln in st.mouths_off_field_nearest if "NOT A TERRAIN TUNNEL" in ln]
+    assert st.bores == 1 and st.tunnels == 0, st.mouths_off_field_nearest
+    named = [ln for ln in st.mouths_off_field_nearest if "NOT A TERRAIN TUNNEL" in ln]
+    assert len(named) == 1 and "WITH NO WITNESS" in named[0]
 
 
 def test_the_same_bore_under_a_pack_PAD_is_built(law):

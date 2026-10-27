@@ -29,11 +29,10 @@ import shapely
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
-from ..geom.vector import unit_vector
 from ..model.frame import XY
+from ..geom.vector import unit_vector
 
-__all__ = ["WallLines", "Station", "read_wall_lines", "stations_along", "midline",
-           "station_frame", "station_crossing"]
+__all__ = ["WallLines", "Station", "read_wall_lines", "stations_along", "midline"]
 
 #: A ring vertex turning more than this is a CORNER (a side wall meeting
 #: an end wall); curved side walls turn a few degrees per vertex.
@@ -79,7 +78,9 @@ class WallLines:
     def end_line(self, k: int) -> tuple[XY, XY]:
         """The segment across the corridor at end ``k`` (the inner faces'
         end vertices)."""
-        return (self.inner_a[0], self.inner_b[0]) if k == 0 else (self.inner_a[-1], self.inner_b[-1])
+        if k == 0:
+            return (self.inner_a[0], self.inner_b[0])
+        return (self.inner_a[-1], self.inner_b[-1])
 
     def end_point(self, k: int) -> XY:
         a, b = self.end_line(k)
@@ -336,27 +337,6 @@ def midline(walls: WallLines, sample_m: float) -> list[XY]:
     return [((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0) for p, q in zip(a, b)]
 
 
-def station_frame(ln: LineString, s: float) -> tuple[Point, XY]:
-    """The axis point ``s`` metres along ``ln`` and its LEFT unit normal —
-    the axis direction read over ±1 m about ``s`` (clamped to the axis):
-    the frame every :class:`Station` is measured in."""
-    L = ln.length
-    p = ln.interpolate(s)
-    a0, a1 = ln.interpolate(max(0.0, s - 1.0)), ln.interpolate(min(L, s + 1.0))
-    u = unit_vector((a0.x, a0.y), (a1.x, a1.y))
-    return p, (-u[1], u[0])
-
-
-def station_crossing(ln: LineString, st: Station) -> tuple[XY, XY]:
-    """The segment across the corridor AT station ``st``: from the left
-    inner face (``half_l``) to the right one (``half_r``), on the station's
-    own normal (:func:`station_frame`).  At a terminal station this is the
-    corridor's END — where the shorter wall stops (RULINGS 2026-10-26s)."""
-    p, n = station_frame(ln, st.s)
-    return ((p.x + n[0] * st.half_l, p.y + n[1] * st.half_l),
-            (p.x - n[0] * st.half_r, p.y - n[1] * st.half_r))
-
-
 def stations_along(axis: _t.Sequence[XY], walls: WallLines, sample_m: float, grid_m: float
                    ) -> list[Station]:
     """Per station along ``axis`` (every ``sample_m``, the last ON the
@@ -383,7 +363,10 @@ def stations_along(axis: _t.Sequence[XY], walls: WallLines, sample_m: float, gri
     def at(s: float) -> Station | None:
         """The station at ``s``, or ``None`` where its normal misses an
         inner chain (past a wall's end: the free ends are oblique)."""
-        p, n = station_frame(ln, s)
+        p = ln.interpolate(s)
+        a0, a1 = ln.interpolate(max(0.0, s - 1.0)), ln.interpolate(min(L, s + 1.0))
+        u = unit_vector((a0.x, a0.y), (a1.x, a1.y))
+        n = (-u[1], u[0])
         halves = []
         thicks = []
         for chain, sign in ((left, 1.0), (right, -1.0)):

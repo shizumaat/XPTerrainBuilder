@@ -239,6 +239,17 @@ class Patch:
             return None
         return by.get(sh.key)
 
+    def runway_curve_k(self, ref: str) -> float | None:
+        """RULINGS 2026-10-26n THE PUBLISHED-SIDE ACCESSOR of a steep
+        runway's yielded vertical-curve K (``runway_caps[].curve_k_m``), or
+        ``None``; a crossing (``"A+B"``) reads the loosest."""
+        recs = self.publication.get("runway_caps") or ()
+        want = set(str(ref).split("+"))
+        ks = [float(r["curve_k_m"]) for r in recs
+              if isinstance(r, dict) and r.get("ref") in want
+              and r.get("curve_k_m") is not None]
+        return min(ks) if ks else None
+
     def _runway_cap(self, sh: Shape) -> float | None:
         """§50.1 (4): the published EFFECTIVE cap of a runway-family
         shape (``runway_caps``, the MAX over a crossing's refs), or

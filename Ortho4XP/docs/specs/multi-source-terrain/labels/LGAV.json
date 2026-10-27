@@ -1,0 +1,146 @@
+{
+ "airport": "LGAV",
+ "spec": "docs/specs/multi-source-terrain-spec.md \u00a78",
+ "labelled_by": "lane ltriang2, 2026-10-26, from the owner's built tile textures and the airport inset",
+ "q1": [
+  {
+   "runway": "03R/21L",
+   "end": "03R",
+   "truth": "cifp",
+   "whence": "threshold bar and piano keys at the displaced threshold, which apt.dat and CIFP both state"
+  },
+  {
+   "runway": "03R/21L",
+   "end": "21L",
+   "truth": "cifp",
+   "whence": "threshold bar and piano keys at the displaced threshold, which apt.dat and CIFP both state"
+  },
+  {
+   "runway": "03L/21R",
+   "end": "03L",
+   "truth": "cifp",
+   "whence": "threshold bar and piano keys at the displaced threshold, which apt.dat and CIFP both state"
+  },
+  {
+   "runway": "03L/21R",
+   "end": "21R",
+   "truth": "cifp",
+   "whence": "threshold bar and piano keys at the displaced threshold, which apt.dat and CIFP both state"
+  }
+ ],
+ "q5_sites": [
+  {
+   "name": "trench",
+   "lat": 37.943947839,
+   "lon": 23.951564905,
+   "whence": "#1331 owner: the taxiway continues as a deck over a divided road (RULINGS 26d)"
+  }
+ ],
+ "q5": [
+  {
+   "lat": 37.906295304,
+   "lon": 23.899144601,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "track"
+  },
+  {
+   "lat": 37.9063753,
+   "lon": 23.899288098,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "track"
+  },
+  {
+   "lat": 37.933354397,
+   "lon": 23.944424902,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 37.939093104,
+   "lon": 23.949885504,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 37.943498503,
+   "lon": 23.951300299,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": 37.943949298,
+   "lon": 23.9517313,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": 37.9442031,
+   "lon": 23.951300103,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": 37.943750898,
+   "lon": 23.950871401,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": 37.9116082,
+   "lon": 23.909873097,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "unclassified"
+  },
+  {
+   "lat": 37.911971304,
+   "lon": 23.909465,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "unclassified"
+  },
+  {
+   "lat": 37.908748401,
+   "lon": 23.902971995,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "rail"
+  },
+  {
+   "lat": 37.908517404,
+   "lon": 23.902002298,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "rail"
+  },
+  {
+   "lat": 37.908476596,
+   "lon": 23.902015899,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "rail"
+  },
+  {
+   "lat": 37.9087111,
+   "lon": 23.902991904,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "rail"
+  },
+  {
+   "lat": 37.943947839,
+   "lon": 23.951564905,
+   "truth": true,
+   "whence": "owner site",
+   "name": "trench"
+  }
+ ]
+}

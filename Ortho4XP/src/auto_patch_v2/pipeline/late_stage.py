@@ -321,7 +321,11 @@ def late_solve(cut: LateCut, derived: tuple, t_derive: float, airport, law: Law,
                                               dem=getattr(airport, "dem", None))
     # a mapped road continuing from a ramp foot carries its run-out (14i;
     # #669 / #1093) — from the foot's level, a constant of this stage
-    cs, foot_roads = foot_road_rows(pm, law, cs, fixed, airport)
+    from ..airport.ramp_feet import FOOT_SPAN_M, ramp_feet
+    from ..classify.ramp_runout import MAX_RUN_M
+    cs, foot_roads = foot_road_rows(pm, law, cs, fixed, airport,
+                                    ramp_feet(airport, law, airport.frame.entry()),
+                                    back_m=FOOT_SPAN_M, max_run_m=MAX_RUN_M)
     out(f"LAST STAGE foot roads (14i): { {k: v for k, v in foot_roads.items() if k != 'list'} }")
     for line in foot_roads.pop("list"):
         out(f"    foot road: {line}")

@@ -21,10 +21,10 @@ from __future__ import annotations
 import dataclasses as _dc
 import typing as _t
 
-from ..geom.ramp_profile import axis_ground, is_lead_face, lead_section, strip_level
+from ..geom.ramp_profile import axis_ground, lead_section, strip_level
 from ..law import Law
 from ..model.constraints import Band, ConstraintSet, Diff, Linear, Source
-from ..model.planar import PlanarMap, face_vertex_set
+from ..model.planar import PlanarMap, face_vertex_set, is_lead_face
 from .pad_ramp import ramp_delta
 
 __all__ = ["RUNOUT_RULING", "BANK_RULING", "runout_rows", "landing_runout_rows",
@@ -110,6 +110,44 @@ def _lead(planar: PlanarMap, f, r: tuple, levels: _t.Mapping[int, float]
     return lead_section(pts)
 
 
+def _on_standing_edges(planar: PlanarMap, f, own: _t.AbstractSet[str],
+                       levels: _t.Mapping[int, float], reach: float) -> dict[int, float]:
+    """``{v: level}`` for each vertex of ``f`` standing within ``reach`` of
+    an edge of ANOTHER face whose two ends are constants: the level of that
+    edge at its foot — the bank's node on a standing edge stands on it (the
+    rim rule of ``pipeline/stage_one_map.late_rim_levels``, here for a
+    follower's own node the arrangement notched off the edge).  MEASURED
+    (KCLT, lane lramp2): bank nodes beside the apron ``pav14``'s edge took
+    their DEM, 0.95-2.38 m off the apron's edge (four mid-edge steps)."""
+    import shapely
+    xy = planar.vertices
+    vs = [v for v in face_vertex_set(planar, f) if v not in levels]
+    if not vs:
+        return {}
+    box = shapely.box(*shapely.MultiPoint([xy[v].xy for v in vs]).bounds).buffer(reach)
+    F = planar.faces
+    segs = []
+    for e in planar.edges.values():
+        if e.a not in levels or e.b not in levels:
+            continue
+        sides = [F[q] for q in (e.left_face, e.right_face) if q is not None and q in F]
+        if not sides or all(str(q.ref) in own for q in sides):
+            continue
+        line = shapely.LineString([xy[e.a].xy, xy[e.b].xy])
+        if line.intersects(box):
+            segs.append((line, e.a, e.b))
+    out: dict[int, float] = {}
+    for v in vs:
+        p = shapely.Point(xy[v].xy)
+        best = min(segs, key=lambda sab: sab[0].distance(p), default=None)
+        if best is None or best[0].distance(p) > reach:
+            continue
+        line, a, b = best
+        u = line.project(p, normalized=True) if line.length > 0.0 else 0.0
+        out[v] = float(levels[a]) + u * (float(levels[b]) - float(levels[a]))
+    return out
+
+
 def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
                levels: _t.Mapping[int, float], seen: set[int], dem, rep: dict) -> list:
     """THE STRIP'S BANK LIES ON ITS 1:3 LINE TO THE GROUND (#1093; RULINGS
@@ -129,8 +167,10 @@ def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
     from ..model.planar import is_collar_ref, platform_ref_of
     if dem is None:
         return []
+    from .pad_ramp import stand_off_m
     k = float(law.tables.emit.design.bank_slope)
     g = float(law.tables.emit.road_contact.ramp_grade)
+    notch = stand_off_m(law)
     F = planar.faces
     strips: dict[str, list] = {}
     for f in F.values():
@@ -151,6 +191,7 @@ def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
         lead = lead_section([p for sf, _q in strips[sref] for p in _lead(planar, sf, r, levels)])
         src = Source(GEN, BANK_RULING, (f"face:{f.id}", str(f.ref)))
         own = {str(f.ref), sref}
+        edge = _on_standing_edges(planar, f, own, levels, notch)
         for v in sorted(face_vertex_set(planar, f)):
             # a vertex another face shares is that face's (a pad road, a
             # lot): the bank lies between them, it never lifts them
@@ -159,11 +200,13 @@ def _bank_rows(planar: PlanarMap, law: Law, runs: _t.Mapping[str, tuple],
                 continue
             seen.add(v)
             x, y = planar.vertices[v].xy
-            q = nearest_points(body, Point(x, y))[0]
-            d = float(q.distance(Point(x, y)))
-            sq = max(0.0, (q.x - x0) * dx + (q.y - y0) * dy)
-            zq = strip_level(sq, z0, d0, axis_ground(dem, x0, y0, dx, dy), g, lead)
-            t = min(zq + k * d, max(zq - k * d, float(dem.z(x, y))))
+            t = edge.get(v)
+            if t is None:
+                q = nearest_points(body, Point(x, y))[0]
+                d = float(q.distance(Point(x, y)))
+                sq = max(0.0, (q.x - x0) * dx + (q.y - y0) * dy)
+                zq = strip_level(sq, z0, d0, axis_ground(dem, x0, y0, dx, dy), g, lead)
+                t = min(zq + k * d, max(zq - k * d, float(dem.z(x, y))))
             out.append(Linear(((v, 1.0),), t, t, src))
     rep["bank_rows"] = len(out)
     return out

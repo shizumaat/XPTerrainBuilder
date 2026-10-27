@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import typing as _t
 
-__all__ = ["ramp_delta", "runout_profile", "lead_section", "strip_level", "is_lead_face",
-           "axis_ground"]
+__all__ = ["ramp_delta", "runout_profile", "lead_section", "strip_level", "axis_ground"]
 
 
 def ramp_delta(dv: float, zr: float, dr: float, g: float, d: float) -> float:
@@ -53,17 +52,6 @@ def runout_profile(z0: float, dem_at: _t.Callable[[float], float], g: float,
         if abs(z - dv) <= meet_m:
             break
     return out
-
-
-def is_lead_face(face, pad_roads: _t.AbstractSet[str], runouts: _t.AbstractSet[str]) -> bool:
-    """Is ``face`` a mapped road a run-out strip rides as its LEAD
-    (:func:`strip_level`): a mapped-road ribbon, neither a pad road nor a
-    run-out itself."""
-    from ..model.planar import is_osm_ribbon_ref
-    ref = str(face.ref)
-    return (getattr(face, "role", None) in ("service_road", "service_junction")
-            and is_osm_ribbon_ref(ref)
-            and ref not in pad_roads and ref not in runouts)
 
 
 def axis_ground(dem, x0: float, y0: float, dx: float, dy: float

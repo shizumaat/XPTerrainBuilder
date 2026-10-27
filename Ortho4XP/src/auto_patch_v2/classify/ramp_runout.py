@@ -173,9 +173,9 @@ def mint_ramp_runouts(cl, airport, law: Law, rules: Rules, pm_base, z_base
     """``cl`` with a run-out strip minted off every object ramp's graded
     foot (module docstring); ``(cl, report)``."""
     from ..airport.ramp_feet import ramp_feet
-    from ..geom.ramp_profile import axis_ground, is_lead_face, lead_section, strip_level
+    from ..geom.ramp_profile import axis_ground, lead_section, strip_level
     from ..law.tables import role_side
-    from ..model.planar import COLLAR_SUFFIX
+    from ..model.planar import COLLAR_SUFFIX, is_lead_face
     from .evidence import polygon_parts
     from .roles import Cell
     rep: dict[str, _t.Any] = {"feet": 0, "ungraded": 0, "landing": 0, "at_grade": 0, "blocked": 0,

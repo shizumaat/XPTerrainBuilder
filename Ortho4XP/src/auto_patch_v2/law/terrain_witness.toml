@@ -1,0 +1,52 @@
+# auto_patch_v2 LAW — THE TERRAIN WITNESS (#1359; owner RULINGS 2026-10-26q
+# "triangulate ... by cross referencing lidar, CIFP, currently installed
+# airport layout, and the imagery that's being built"; 26v a CIFP threshold
+# the layout and the imagery outvote is dropped; 26w / 26z / 27a the imagery
+# edge sets the graded zone on coarse DEM, a check on fresh lidar, never
+# narrower than the standard width; 26x witnesses never create an unnamed
+# cut; 26y the patch waits for the airport's own photos).  Spec:
+# docs/specs/multi-source-terrain-spec.md.  Metres unless named.  None
+# names an airport (RULINGS 2026-10-05e).
+
+[vote]
+k = 2.0                          # two votes agree when |a - b| <= k * sqrt(sa^2 + sb^2)
+
+[sigma]                          # one-sigma position error per source class, metres
+aptdat_xy = 3.0                  # an apt.dat runway end
+cifp_xy = 1.0                    # a CIFP RWY record (surveyed LTP)
+image_registration_m = 3.0       # orthophoto registration
+image_px = 2.0                   # plus this many pixels of the texture
+lidar_xy = 1.0
+coarse_xy = 30.0
+
+[q1]                             # where is the landing threshold (each runway end)
+search_before_m = 200.0          # the axis probe starts this far outside the end
+search_after_frac = 0.5          # ... and runs this fraction of the runway in
+search_after_max_m = 300.0       # ... at least this far in
+search_past_threshold_m = 150.0  # ... and this far past the layout's landing threshold (a displaced threshold's markings lie just past it)
+strip_half_frac = 0.4            # across-width support: this fraction of the runway width either side of the axis
+m_per_px = 0.5                   # resampling of the axis patch
+marking_inset_m = 6.0           # FAA AC 150/5340-1 / ICAO Annex 14 5.2.4: threshold markings begin 6 m inside the threshold
+marking_sigma_m = 4.0           # how well the marking's first row places the threshold
+min_disagree_m = 30.0            # a CIFP record within this of the layout's threshold is never outvoted (= emit.identity.cifp_threshold_join_m: the join already accepts it as this end's)
+
+[q4]                             # where does graded ground meet natural ground (zone-2 / RSA outer edge)
+station_m = 20.0                 # stations along each ring edge
+band_half_m = 40.0               # probes run this far either side of the law edge (RULINGS 26z: the edge may move in or out)
+along_half_m = 10.0              # along-edge support of each profile (median)
+slope_change_min_pct = 3.0       # a lidar break is a slope change of at least this (per cent)
+smooth_m = 3.0                   # the lidar normal profile is smoothed over this
+agree_m = 10.0                   # image edge and lidar break agree within this (the §8 bar)
+edge_agree_frac = 0.7            # an edge moves only where this fraction of its non-abstaining stations agree
+max_move_m = 60.0                # never move a ring edge further than this from the law edge
+m_per_px = 0.5
+
+[q5]                             # is there an open cut or portal at a mapped mouth
+portal_depth_min_m = 2.0         # ring median minus core minimum
+ring_m = [40.0, 60.0]
+core_m = 15.0
+window_half_m = 8.0              # the imagery window at the mouth (a square of twice this)
+m_per_px = 0.5
+
+[image]
+provider = "classic_edges"       # the image method (airport/image_provider registry)

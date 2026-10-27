@@ -28,6 +28,19 @@ file, so the imagery step downloads that texture itself.
 
 A first build (no live terrain folder), a changed base zoom, the
 ``default_xplane`` texture mode and a combined source prefetch nothing.
+
+THE AIRPORT'S OWN PHOTOS COME FIRST (#1359; owner RULINGS 2026-10-26y:
+"the patch waits for the airport's own photos, so the same inputs always
+give the same patch").  :func:`airport_textures` names, before the mesh,
+the textures this build will texture each airport with —
+``O4_DSF_Utils.zone_list_to_ortho_dico``'s own assignment (base zoom,
+custom zones, the airport cover zoom) over the airport's boundary plus
+:data:`AIRPORT_MARGIN_M` — and :func:`fetch_airport_imagery` downloads the
+missing ones SYNCHRONOUSLY before the patches build, so the terrain
+witness reads the same pixels on every build of the same inputs.  These
+are textures the imagery step downloads anyway: the work is moved earlier,
+never added.  The background prefetch puts the highest zoom (the airport
+cover) first and shares one download lock with it.
 """
 
 from __future__ import annotations
@@ -42,7 +55,8 @@ import O4_Geo_Utils as GEO
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
-__all__ = ["candidates", "Prefetch", "alongside", "TEXTURES_IN_FLIGHT"]
+__all__ = ["candidates", "Prefetch", "alongside", "TEXTURES_IN_FLIGHT",
+           "fetch_airport_imagery", "cached_airport_imagery", "AIRPORT_MARGIN_M"]
 
 #: Orthophotos downloaded at once by a prefetch (each is one texture's
 #: part requests, at the provider's own ``max_threads``).
@@ -57,6 +71,15 @@ STOP_WAIT_SECONDS = 120.0
 # tile for a parsed (provider, zoom) split to be believed.
 _TILE_MARGIN_DEGREES = 0.25
 _ZOOM_RANGE = range(10, 22)
+
+#: The witness reads the imagery this far beyond an airport's boundary (a
+#: runway's safety area and its graded band run past the boundary).
+AIRPORT_MARGIN_M = 500.0
+
+#: One download at a time per orthophoto, shared by the background prefetch
+#: and the airport fetch the patch waits for (two writers of one file).
+_DOWNLOAD_LOCKS: dict = {}
+_DOWNLOAD_LOCKS_GUARD = threading.Lock()
 
 
 def _texture_of_terrain_name(file_name, lat, lon):
@@ -173,7 +196,8 @@ def candidates(tile, imagery=None):
         if os.path.exists(_orthophoto_path(tile, texture, imagery)):
             continue
         wanted.add(texture)
-    return sorted(wanted, key=lambda t: (t[2], t[1], t[0], t[3]))
+    # the highest zoom first: the airport cover textures (#1359, 26y)
+    return sorted(wanted, key=lambda t: (-t[2], t[1], t[0], t[3]))
 
 
 def download_orthophoto(tile, texture):
@@ -181,11 +205,96 @@ def download_orthophoto(tile, texture):
     import O4_Imagery_Utils as IMG
 
     path = _orthophoto_path(tile, texture, IMG)
-    if os.path.exists(path):
-        return 1
-    return IMG.download_orthophoto_once(
-        os.path.dirname(path), os.path.basename(path), *texture,
-        require_complete=True)
+    with _DOWNLOAD_LOCKS_GUARD:
+        lock = _DOWNLOAD_LOCKS.setdefault(path, threading.Lock())
+    with lock:
+        if os.path.exists(path):
+            return 1
+        return IMG.download_orthophoto_once(
+            os.path.dirname(path), os.path.basename(path), *texture,
+            require_complete=True)
+
+
+def airport_textures(tile, dico_airports, imagery=None, ortho_dico=None):
+    """``{airport: [texture]}``: the plain-source textures this build will
+    texture each airport (and :data:`AIRPORT_MARGIN_M` around its
+    boundary) with, sorted; ``{}`` in the ``default_xplane`` texture mode.
+    The assignment is ``O4_DSF_Utils.zone_list_to_ortho_dico``'s (a twin
+    passes ``ortho_dico``, its ``{(til_x, til_y): texture}`` at
+    ``tile.mesh_zl``); a combined source's texture is left out (its mask
+    layer is not one photo: the witness abstains there)."""
+    if getattr(tile, "texture_mode", "full_ortho") == "default_xplane":
+        return {}
+    if imagery is None:
+        import O4_Imagery_Utils as imagery
+    if ortho_dico is None:
+        import O4_DSF_Utils as DSF
+        ortho_dico = DSF.zone_list_to_ortho_dico(tile)
+    zl = int(tile.mesh_zl)
+    out = {}
+    for name, entry in (dico_airports or {}).items():
+        boundary = entry.get("boundary") if isinstance(entry, dict) else None
+        if boundary is None or boundary.is_empty:
+            continue
+        xmin, ymin, xmax, ymax = boundary.bounds
+        dlat = AIRPORT_MARGIN_M * GEO.m_to_lat
+        dlon = AIRPORT_MARGIN_M * GEO.m_to_lon(tile.lat)
+        (x0, y0) = GEO.wgs84_to_orthogrid(tile.lat + ymax + dlat, tile.lon + xmin - dlon, zl)
+        (x1, y1) = GEO.wgs84_to_orthogrid(tile.lat + ymin - dlat, tile.lon + xmax + dlon, zl)
+        found = set()
+        for til_x in range(x0, x1 + 1, 16):
+            for til_y in range(y0, y1 + 1, 16):
+                texture = ortho_dico.get((til_x, til_y))
+                if texture is not None and _is_plain_source(texture[3], imagery):
+                    found.add(tuple(texture))
+        if found:
+            out[name] = sorted(found, key=lambda t: (-t[2], t[1], t[0], t[3]))
+    return out
+
+
+def fetch_airport_imagery(tile, dico_airports, fetch=None, find=airport_textures,
+                          download=True):
+    """THE PATCH WAITS FOR THE AIRPORT'S OWN PHOTOS (26y): download every
+    missing texture of :func:`airport_textures` now, one at a time, and
+    return ``{airport: (orthophoto path, ...)}`` of those in the cache
+    afterwards.  A texture whose download fails is left out (the witness
+    abstains there, and the patch's ``o4_imagery`` stamp says so).  Stop
+    (``UI.red_flag``) ends it; never raises.
+
+    DOWNLOADS ONLY UNDER AN IMAGERY TOKEN: the session calls it with
+    ``download=True`` only through :meth:`Prefetch.fetch_airports` (the
+    token its parent lent the vector step's prefetch); otherwise
+    ``download=False`` reads the cache and fetches nothing."""
+    try:
+        wanted = find(tile, dico_airports)
+    except Exception as error:
+        UI.vprint(1, "    Airport imagery skipped:", error)
+        return {}
+    if not wanted:
+        return {}
+    import O4_Imagery_Utils as IMG
+    fetch = fetch or download_orthophoto
+    textures = sorted({t for ts in wanted.values() for t in ts},
+                      key=lambda t: (-t[2], t[1], t[0], t[3]))
+    missing = [t for t in textures
+               if not os.path.exists(_orthophoto_path(tile, t, IMG))] if download else []
+    if missing:
+        UI.vprint(1, "    * Downloading", len(missing), "orthophotos of the "
+                  "airports first: the patches are fitted to them.")
+    for texture in missing:
+        if UI.red_flag:
+            break
+        try:
+            fetch(tile, texture)
+        except Exception as error:
+            UI.vprint(1, "    Airport orthophoto", texture, "failed:", error)
+    out = {}
+    for name, ts in wanted.items():
+        paths = tuple(p for p in (_orthophoto_path(tile, t, IMG) for t in ts)
+                      if os.path.exists(p))
+        if paths:
+            out[name] = paths
+    return out
 
 
 class Prefetch:
@@ -203,11 +312,21 @@ class Prefetch:
         self._lock = threading.Lock()
         self._pending = list(reversed(self.textures))
         self._running = 0
+        # #1359 (26y): the vector step's airport fetch rides this token, so
+        # the report (which hands the token back) waits for the queue to
+        # drain AND for the airport fetch, or for the step's end (stop)
+        self._drained = False
+        self._airports_pending = True
+        # one orthophoto in flight under the token, the airport fetch's
+        # included (:data:`TEXTURES_IN_FLIGHT`)
+        self._in_flight = threading.Lock()
 
     def start(self):
-        """Begin the downloads; with nothing to fetch, report at once."""
+        """Begin the downloads; with nothing to fetch, the queue is drained
+        at once (the report still waits for the airport fetch)."""
         if not self.textures:
-            self._finish()
+            self._drained = True
+            self._maybe_finish()
             return self
         UI.vprint(1, "    * Downloading", len(self.textures),
                   "orthophotos the last build of this tile used, while "
@@ -233,7 +352,8 @@ class Prefetch:
                 if texture is None:
                     break
                 try:
-                    ok = self._fetch(self.tile, texture)
+                    with self._in_flight:
+                        ok = self._fetch(self.tile, texture)
                 except Exception as error:
                     UI.vprint(1, "    Prefetch of", texture, "failed:", error)
                     ok = 0
@@ -249,8 +369,37 @@ class Prefetch:
         with self._lock:
             self._running -= 1
             last = self._running == 0
+            if last:
+                self._drained = True
         if last:
+            self._maybe_finish()
+
+    def _maybe_finish(self):
+        """Report once the queue has drained and the airport fetch ran."""
+        with self._lock:
+            ready = self._drained and not self._airports_pending
+        if ready:
             self._finish()
+
+    def fetch_airports(self, dico_airports, find=airport_textures):
+        """The vector step's airport fetch (26y) UNDER THIS PREFETCH'S
+        TOKEN: :func:`fetch_airport_imagery` with this prefetch's fetcher,
+        its downloads counted in the report; then the report may go."""
+        def counted(tile, texture):
+            with self._in_flight:
+                ok = self._fetch(tile, texture)
+            with self._lock:
+                if ok:
+                    self.downloaded += 1
+                else:
+                    self.failed += 1
+            return ok
+        try:
+            return fetch_airport_imagery(self.tile, dico_airports, fetch=counted, find=find)
+        finally:
+            with self._lock:
+                self._airports_pending = False
+            self._maybe_finish()
 
     def _finish(self):
         """Report once: the queue drained, was stopped or never started."""
@@ -265,6 +414,8 @@ class Prefetch:
     def stop(self, wait_seconds=STOP_WAIT_SECONDS):
         """Start nothing new; wait for the orthophoto in flight."""
         self._stop.set()
+        with self._lock:
+            self._airports_pending = False       # the step ended: no fetch comes
         for thread in self._threads:
             thread.join(wait_seconds)
         if any(thread.is_alive() for thread in self._threads):
@@ -277,7 +428,7 @@ class Prefetch:
             UI.vprint(1, "    * Prefetched", self.downloaded, "of",
                       len(self.textures), "orthophotos",
                       "(%d failed)." % self.failed if self.failed else ".")
-        if not self._threads:
+        if not self._threads or self._drained:
             self._finish()
 
 
@@ -300,3 +451,23 @@ def alongside(tile, on_done=None, fetch=None, find=candidates):
         yield prefetch
     finally:
         prefetch.stop()
+
+
+def cached_airport_imagery(tile, icao):
+    """The airport's photo paths ALREADY in the cache (no download): the
+    tile's saved airports dictionary (``FNAMES.apt_file``) read through
+    :func:`airport_textures` — the patch editor's staleness check reads
+    the same ``o4_imagery`` input the build stamped.  ``()`` when the tile
+    has no saved dictionary or the airport no texture."""
+    import pickle
+
+    import O4_Imagery_Utils as IMG
+    try:
+        with open(FNAMES.apt_file(tile), "rb") as handle:
+            dico = pickle.load(handle)
+        wanted = airport_textures(tile, {k: v for k, v in dico.items()
+                                         if str(k).upper() == str(icao).upper()})
+    except Exception:
+        return ()
+    paths = [_orthophoto_path(tile, t, IMG) for ts in wanted.values() for t in ts]
+    return tuple(sorted(p for p in paths if os.path.exists(p)))

@@ -45,6 +45,13 @@ class Surface(enum.IntEnum):
     TRANSPARENT = 15
 
 
+#: ``RunwayEnd.pin_flags`` of an end whose CIFP record the installed layout
+#: and the imagery outvoted (#1359, owner RULINGS 2026-10-26v,
+#: ``airport/runway_end_witness``): the record is dropped, and the end
+#: follows the lidar (``constraints/runway_profile.end_pin_cases``).
+PIN_OUTVOTED = "q1"
+
+
 @_dc.dataclass(frozen=True)
 class RunwayEnd:
     """One end of a runway (apt.dat row 100, one half).
@@ -83,7 +90,8 @@ class RunwayEnd:
     #: the CIFP elevation AS READ, kept when verification replaced it
     cifp_elev_m: float | None = None
     #: the verification flags that fired on this end's runway (``a``,
-    #: ``b``, ``c``), comma-joined; ``""`` = none
+    #: ``b``, ``c``), comma-joined; ``""`` = none; :data:`PIN_OUTVOTED` when
+    #: the terrain witness dropped the end's CIFP record (#1359, 26v)
     pin_flags: str = ""
 
     def pin_along(self) -> float:

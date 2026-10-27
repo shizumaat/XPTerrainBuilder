@@ -447,7 +447,10 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             road_grade_limit=task.get("road_grade_limit"),
             lane_width_m=task.get("lane_width"),
             # spec §B.4 (#27): the pack walk the parent took once per tile
-            pack_pristine=task.get("pack_pristine"))
+            pack_pristine=task.get("pack_pristine"),
+            # #1359 (owner RULINGS 2026-10-26y): the airport's own photos the
+            # vector step fetched before the patches, for the terrain witness
+            imagery_paths=tuple(task.get("imagery_paths") or ()))
         law = Law.for_airport(icao)
         scratch = _scratch_dir(task)
         os.makedirs(scratch, exist_ok=True)

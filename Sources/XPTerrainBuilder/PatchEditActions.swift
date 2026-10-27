@@ -256,9 +256,9 @@ extension PatchEditModel {
                 ?? "This tile can't be rebuilt now. Turn off “Skip tiles already built” and try again."
             return
         }
-        let info = build.built[coord]
-        let provider = info.map(\.provider).flatMap { $0.isEmpty ? nil : $0 } ?? build.buildProvider
-        build.startBuild(batches: [([coord], provider, info?.zl ?? build.buildZL)])
+        let choice = build.built[coord].flatMap(TileImageryChoice.resolve)
+        build.startBuild(batches: [([coord], choice?.provider ?? build.buildProvider,
+                                    choice?.zl ?? build.buildZL)])
     }
 
     // MARK: - Unsaved-edits prompt

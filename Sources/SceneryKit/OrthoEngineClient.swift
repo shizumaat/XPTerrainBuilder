@@ -321,6 +321,9 @@ public enum O4Event: Sendable, Equatable {
     /// the object stage, or the completion of an `omit_missing_art`
     /// command. See `O4PackMissingArt`.
     case packMissingArt(O4PackMissingArt)
+    /// One imagery source's launch-time liveness (protocol 1.17, #1345):
+    /// the completion of `imagery_source_status`, one event per source.
+    case imagerySourceStatus(code: String, status: O4ImageryStatus)
     case engineError(fatal: Bool, text: String)
     /// The engine's stderr: pipeline prints, initialization chatter — the
     /// raw console text that used to be stdout.
@@ -477,6 +480,13 @@ public enum O4Event: Sendable, Equatable {
                 canOmit: bool("can_omit"),
                 state: object["state"] as? String ?? "found",
                 error: string("error")))
+        // Another STRING LITERAL match (see AutoPatchFailed above): it is
+        // `class ImagerySourceStatus` in Ortho4XP/src/o4_engine/events.py.
+        case "ImagerySourceStatus":
+            return .imagerySourceStatus(
+                code: string("code"),
+                status: O4ImageryStatus(status: object["status"] as? String ?? "unknown",
+                                        reason: string("reason")))
         case "Error":
             return .engineError(fatal: bool("fatal"), text: string("text"))
         default:
@@ -517,6 +527,12 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
     /// "Built by": from the record, else (single-tile `tile_info` only)
     /// from the DSF's creation agent; nil when unknown.
     public let builtBy: String?
+    /// The imagery the tile's textures carry (#1334): the dominant
+    /// provider among `textures/` names and its ZL; nil when none parses
+    /// (or the engine predates the field). `TileImageryChoice.resolve`
+    /// picks the cfg's or this.
+    public let detectedProvider: String?
+    public let detectedZL: Int?
 
     public init?(json: O4JSON) {
         guard let object = json.objectValue,
@@ -546,6 +562,8 @@ public struct O4TileInfo: Sendable, Equatable, Codable {
         sizeBytes = object["size_bytes"]?.intValue
         lastBuild = TileBuildRecord(json: object["last_build"])
         builtBy = object["built_by"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        detectedProvider = object["detected_provider"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        detectedZL = object["detected_zl"]?.intValue
     }
 }
 
@@ -754,6 +772,25 @@ public final class OrthoEngineClient: @unchecked Sendable {
                                     ? nil : (reply.error ?? "unknown engine error"))
             }
         }
+    }
+
+    // MARK: - Imagery sources (protocol 1.17, #1345)
+
+    /// The engine's one imagery source list, in menu order. Empty when the
+    /// engine predates the command (unknown commands reply ok=false).
+    public func imagerySources() async -> [O4ImagerySource] {
+        let result: Result<[O4ImagerySource], Error> = await withCheckedContinuation { continuation in
+            send(command: "imagery_sources") { reply in
+                continuation.resume(returning: Self.decodeReply(reply, command: "imagery_sources"))
+            }
+        }
+        return (try? result.get()) ?? []
+    }
+
+    /// Start the background liveness check: one `imagerySourceStatus`
+    /// event per source follows from engine worker threads.
+    public func startImagerySourceStatus() {
+        send(command: "imagery_source_status")
     }
 
     // MARK: - Default airport index (protocol 1.6)

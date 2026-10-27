@@ -168,11 +168,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # Imported here, after the hello is written: the patch commands pull in
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
+    import O4_Imagery_Sources as SOURCES
     from O4_Tile_Customizations import tile_customizations
 
     from . import patch_commands
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
+    from .imagery_commands import start_imagery_source_status
     from .mesh_commands import mesh_crop
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
@@ -277,6 +279,14 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # for the tiles about to be built.  Replies {"status": "started"};
         # PlanEstimateReady carrying this command's id completes it.
         "plan_estimate": lambda **kw: start_plan_estimate(session._emit, **kw),
+        # Imagery sources (protocol 1.17, #1345): the one list every
+        # imagery menu reads, one preview tile's URL, and the launch-time
+        # liveness check, which replies {"started": true} and completes
+        # through one ImagerySourceStatus event per source.
+        "imagery_sources": SOURCES.imagery_sources,
+        "preview_tile_url": SOURCES.preview_tile_url,
+        "imagery_source_status": lambda codes=None: start_imagery_source_status(
+            session._emit, codes=codes),
     }
 
 

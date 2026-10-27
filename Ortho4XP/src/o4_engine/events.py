@@ -107,7 +107,11 @@ from typing import Any, Optional
 # its completion BuildAirportsReady (the Build pane's Airports card), and
 # the ``overrides`` keyword on build/enqueue_build — the card's per-build
 # "Grade airports" / "Fit custom airport buildings" switches.
-PROTOCOL_VERSION = "1.18"
+# 1.19 (2026-10-27, additive, #1345): ``imagery_sources`` (one source
+# list for every imagery menu), ``preview_tile_url``, and
+# ``imagery_source_status``, which completes through one
+# ImagerySourceStatus event per source.
+PROTOCOL_VERSION = "1.19"
 
 
 @dataclass(frozen=True)
@@ -610,7 +614,7 @@ class PlanEstimateReady(EngineEvent):
 @dataclass(frozen=True)
 class BuildAirportsReady(EngineEvent):
     """The completion half of the ``build_airports`` command (protocol
-    1.17, #818): what airport grading and object fitting will do for the
+    1.18, #818): what airport grading and object fitting will do for the
     tiles about to be built (``o4_engine.build_airports``).
 
     ``airports``: one entry per airport the build grades::
@@ -634,6 +638,25 @@ class BuildAirportsReady(EngineEvent):
     packs: list = field(default_factory=list)
     total_s: list = field(default_factory=list)
     error: str = ""
+
+
+@dataclass(frozen=True)
+class ImagerySourceStatus(EngineEvent):
+    """One imagery source's launch-time liveness (protocol 1.19, #1345):
+    the completion of ``imagery_source_status``, one event per source
+    (``O4_Imagery_Sources.check_status``).
+
+    ``status`` is ``online``, ``offline`` or ``unknown``; a front end
+    disables an ``offline`` source, shows it as "<name> (offline)" and
+    ``reason`` as its tooltip, and keeps an ``unknown`` one enabled.
+
+    ``Sources/SceneryKit/OrthoEngineClient.swift`` matches this class name
+    as a STRING LITERAL (renaming it breaks the app silently).
+    """
+
+    code: str = ""
+    status: str = "unknown"
+    reason: str = ""
 
 
 @dataclass(frozen=True)

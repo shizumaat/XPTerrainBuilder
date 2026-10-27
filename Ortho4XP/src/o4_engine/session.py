@@ -1960,25 +1960,11 @@ class EngineSession:
     # ------------------------------------------------------------------
     @staticmethod
     def _account_definitions():
-        """Every enabled provider definition that declares an account.
-
-        The elevation provider registry's own parsed definitions — the
-        same enumeration O4_Qt_Settings._ProviderSignInSection makes,
-        never a private re-parse of the .elv files.
-        """
-        import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
-        if not ELEVATION_PROVIDERS.elevation_providers_dict:
-            ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
-        definitions = []
-        for definition in sorted(
-                ELEVATION_PROVIDERS.elevation_providers_dict.values(),
-                key=lambda d: str(d.get("code"))):
-            if not definition.get("session_name"):
-                continue
-            if not definition.get("enabled", True):
-                continue
-            definitions.append(definition)
-        return definitions
+        """Every enabled provider definition that declares an account
+        (``O4_Provider_Accounts.account_definitions``: elevation and
+        imagery providers — the same enumeration the Qt section makes)."""
+        import O4_Provider_Accounts as ACCOUNTS
+        return ACCOUNTS.account_definitions()
 
     @classmethod
     def _definition_for_session(cls, session_name):

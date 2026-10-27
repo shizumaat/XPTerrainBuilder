@@ -219,7 +219,12 @@ final class BuildModel: ObservableObject {
     /// The active engine is the copy shipped with the app (no custom path).
     @Published private(set) var usingBundledEngine = false
     @Published private(set) var schema: OrthoConfigSchema
-    @Published private(set) var providers: [OrthoEngine.Provider] = []
+    /// The engine's one imagery source list (`imagery_sources`, #1345):
+    /// the Build box and the map's preview picker both read it.
+    @Published private(set) var imagerySources: [O4ImagerySource] = []
+    /// Launch-time liveness per source code; absent = unknown (enabled).
+    @Published private(set) var imageryStatus: [String: O4ImageryStatus] = [:]
+    private var imageryStatusChecked = false
     @Published private(set) var missingPackages: [String]?
     @Published private(set) var globalConfigValues: [String: O4Value] = [:]
     @Published var engineError: String?
@@ -272,14 +277,18 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    /// Selecting a built tile adopts its recorded imagery source and zoom
-    /// level, so a rebuild doesn't silently use a different source. The
-    /// user can still change either afterwards — startBuild then warns on
-    /// the mismatch.
+    /// Selecting a built tile adopts its imagery source and zoom level —
+    /// the cfg's, else what its textures carry (#1334) — so a rebuild
+    /// doesn't silently use a different source. A detected source that
+    /// did not answer the launch check is not adopted (#1345). The user
+    /// can still change either afterwards — startBuild then warns on the
+    /// mismatch.
     private func adoptActiveTileConfig() {
-        guard let coord = activeTile, let info = built[coord] else { return }
-        if !info.provider.isEmpty { buildProvider = info.provider }
-        if let zl = info.zl { buildZL = zl }
+        guard let coord = activeTile, let info = built[coord],
+              let choice = TileImageryChoice.resolve(info) else { return }
+        if choice.source == .detected, imageryStatus[choice.provider]?.status == "offline" { return }
+        buildProvider = choice.provider
+        if let zl = choice.zl { buildZL = zl }
     }
 
     /// Both selection keys, rewritten whole on every change. A selection is
@@ -568,19 +577,16 @@ final class BuildModel: ObservableObject {
         }
         guard let located = resolved else {
             engine = nil
-            providers = []
+            imagerySources = []
             missingPackages = nil
             usesProtocol = false
-            imagery.configure(providersDir: nil, extentsDir: nil, dataRoot: dataRootURL)
+            imagery.configure(sources: [], dataRoot: dataRootURL)
             return
         }
-        imagery.configure(
-            providersDir: located.resourcesRoot.appendingPathComponent("Providers", isDirectory: true),
-            extentsDir: located.resourcesRoot.appendingPathComponent("Extents", isDirectory: true),
-            dataRoot: dataRootURL)
-        imagery.setProvider(mapPreviewProvider)
+        // Sources arrive from the engine session (loadImagerySources);
+        // until then the map keeps what it has, at the current data root.
+        imagery.configure(sources: imagerySources, dataRoot: dataRootURL)
         engine = located
-        providers = located.providers()
         usesProtocol = OrthoEngineClient.engineSupportsProtocol(located)
         reloadGlobalConfig()
         seedPathsFromXPlane()
@@ -651,9 +657,27 @@ final class BuildModel: ObservableObject {
             console.append("Engine session started (engine \(engine.version)).")
             rescan()
             refreshAirportIndex()
+            loadImagerySources()
         } catch {
             engineError = "Could not start the engine session: \(error.localizedDescription)"
             console.append("ERROR: \(engineError!)")
+        }
+    }
+
+    /// Fill both imagery menus and the map's sources from the engine's
+    /// list, then start the background liveness check (once per launch).
+    private func loadImagerySources() {
+        guard let client else { return }
+        Task { @MainActor [weak self] in
+            let sources = await client.imagerySources()
+            guard let self, self.client === client else { return }
+            self.imagerySources = sources
+            self.imagery.configure(sources: sources, dataRoot: self.dataRootURL)
+            self.imagery.setProvider(self.mapPreviewProvider)
+            if !self.imageryStatusChecked, !sources.isEmpty {
+                self.imageryStatusChecked = true
+                client.startImagerySourceStatus()
+            }
         }
     }
 
@@ -1053,6 +1077,8 @@ final class BuildModel: ObservableObject {
             if fatal { engineError = text }
         case .imageryDownloadsDone:
             break // the engine's scheduling signal; the tile's row moves on its own
+        case .imagerySourceStatus(let code, let status):
+            imageryStatus[code] = status
         case .unknown:
             break // additive protocol: ignore unknown event types
         }
@@ -1535,7 +1561,7 @@ final class BuildModel: ObservableObject {
 
     struct ProviderMismatch: Identifiable {
         let coord: TileCoord
-        /// The tile's recorded imagery source (from its cfg).
+        /// The tile's imagery source (its cfg's, else its textures').
         let provider: String
         let zl: Int?
         var id: String { coord.key }
@@ -1548,10 +1574,10 @@ final class BuildModel: ObservableObject {
     var providerMismatches: [ProviderMismatch] {
         guard !buildProvider.isEmpty else { return [] }
         return buildableSelection.compactMap { coord in
-            guard let info = built[coord], !info.provider.isEmpty,
-                  info.provider.lowercased() != buildProvider.lowercased()
+            guard let info = built[coord], let choice = TileImageryChoice.resolve(info),
+                  choice.provider.lowercased() != buildProvider.lowercased()
             else { return nil }
-            return ProviderMismatch(coord: coord, provider: info.provider, zl: info.zl)
+            return ProviderMismatch(coord: coord, provider: choice.provider, zl: choice.zl)
         }
     }
 

@@ -354,10 +354,9 @@ class CwcbLidarApiStrategy:
 
             def _download(job):
                 (number, source, scratch_path, member) = job
-                # Its OWN semaphore: the per-airport loop already holds
-                # one of ``code``'s slots around this whole fetch, and two
-                # airports of one tile on the same key would deadlock.
-                with _held_provider_fetch_slot(code + ":tiles", slots):
+                # The download pool: the per-airport loop holds the
+                # inset-fetch key around this whole fetch (#1467).
+                with _held_provider_fetch_slot(code, slots):
                     return self._download_zip(
                         definition, source, scratch_path, member,
                         "%s %s tile %d/%d %s" % (

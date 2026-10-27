@@ -557,7 +557,7 @@ def _def_of(def_path: str, pack_root: str | None,
     return _DEF_OF[key]
 
 
-def def_class(def_path: str, pack_root: str | None,
+def _def_class(def_path: str, pack_root: str | None,
               index: _t.Mapping[str, str] | None) -> str | None:
     """:func:`facade_class` of a ``POLYGON_DEF``'s own FILE, or ``None``
     when it is no ``.fac`` or does not resolve (cached per def and pack)."""
@@ -575,7 +575,7 @@ def def_closed(def_path: str, pack_root: str | None,
 def is_lot_def(def_path: str, pack_root: str | None,
                index: _t.Mapping[str, str] | None) -> bool:
     """Whether a ``POLYGON_DEF`` is a facade whose FILE is an open lot."""
-    return def_class(def_path, pack_root, index) == LOT
+    return _def_class(def_path, pack_root, index) == LOT
 
 
 def is_line_def(def_path: str, pack_root: str | None,
@@ -583,7 +583,7 @@ def is_line_def(def_path: str, pack_root: str | None,
     """Whether a ``POLYGON_DEF`` is a facade whose FILE draws only walls —
     a fence or a wall on the ground (owner RULINGS 2026-10-28p (3), #1338:
     the pack's own fence; ``model.airport.FenceLine``)."""
-    return def_class(def_path, pack_root, index) == LINE
+    return _def_class(def_path, pack_root, index) == LINE
 
 
 def read_placed(poly: _t.Any, pack_root: str | None,

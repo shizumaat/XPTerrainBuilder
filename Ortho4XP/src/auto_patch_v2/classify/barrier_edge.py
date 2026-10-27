@@ -40,7 +40,7 @@ from shapely.strtree import STRtree
 from ..airport.facade import LOT_SOURCE
 from .rules import Rules
 
-__all__ = ["BARRIER_M_KEY", "Barrier", "barrier_band"]
+__all__ = ["BARRIER_M_KEY", "barrier_band"]
 
 #: evidence: metres of a lot's airside contact §27 read as across a barrier
 BARRIER_M_KEY = "airside_edge_barrier_m"
@@ -72,12 +72,12 @@ def _unit(a, b) -> "tuple[float, float] | None":
 def _segments(geom):
     for g in getattr(geom, "geoms", [geom]):
         pts = list(getattr(g, "coords", []))
-        for a, b in zip(pts, pts[1:]):
+        for a, b in zip(pts, pts[1:], strict=False):
             if a != b:
                 yield a, b
 
 
-class Barrier:
+class _Barrier:
     """The buildings and the pack's fences a §27 contact may run across
     (module docstring)."""
 
@@ -118,7 +118,7 @@ class Barrier:
         return contact, (unary_union(dropped) if dropped else None)
 
 
-def barrier_band(airport, rules: Rules) -> "Barrier | None":
+def barrier_band(airport, rules: Rules) -> "_Barrier | None":
     """THE BARRIER (module docstring), or ``None`` where the airport carries
     neither a building nor a pack fence."""
     if airport is None:
@@ -128,5 +128,5 @@ def barrier_band(airport, rules: Rules) -> "Barrier | None":
     fences = [f for f in getattr(airport, "fences", ()) or () if len(f.points) >= 2]
     if not parts and not fences:
         return None
-    return Barrier(unary_union(parts) if parts else None, fences,
+    return _Barrier(unary_union(parts) if parts else None, fences,
                    rules.lot.fence_contact_m)

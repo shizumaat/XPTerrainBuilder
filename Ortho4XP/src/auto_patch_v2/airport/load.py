@@ -20,7 +20,8 @@ from ..law import Law
 from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
 from ..law.tables import identity_dp, input_quantum_m
 from ..model.airport import (GAP_SHEET_PREFIX, Airport, Boundary, Building,
-                             DsfObject, FacadeRead, FenceLine, GroundRoute, LinearFeature, OsmWay, Pavement,
+                             FenceLine,
+                             DsfObject, FacadeRead, GroundRoute, LinearFeature, OsmWay, Pavement,
                              Runway, RunwayEnd, Startup, Surface, TaxiEdge,
                              TaxiNode)
 from ..model.frame import XY, Frame

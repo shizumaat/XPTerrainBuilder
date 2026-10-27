@@ -281,7 +281,8 @@ def _lateral_airside_m(face: Polygon, face_is_road: bool, tree: STRtree,
 
     A contact ACROSS A BARRIER is none either (owner RULINGS 2026-10-28p
     (3), #1338): the run of it ``barrier`` (``classify.barrier_edge``)
-    reads under a building footprint or along a pack fence is dropped, and appended to ``fenced`` when one is handed in.
+    reads under a building footprint or along a pack fence is dropped, and
+    appended to ``fenced`` when one is handed in.
     """
     lateral = []
     for j in tree.query(face.buffer(weld_m), predicate="intersects"):

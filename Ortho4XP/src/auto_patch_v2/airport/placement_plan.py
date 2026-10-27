@@ -118,10 +118,11 @@ from .placement_cut import (GEOM_CELL_M, GEOM_PTS_MAX,  # noqa: E402
 from . import cut_deck_seat as _cds  # noqa: E402
 from .airside_deck_seat import (  # noqa: E402
     airside_deck as _airside_deck, airside_frame as _airside_frame,
-    deck_owns_its_datum as _deck_owns_its_datum)
+    deck_owns_its_datum as _deck_owns_its_datum, refused_bridge as _refused_bridge)
 from .open_frame_seat import (  # noqa: E402
     OPEN_KINDS as _OPEN_KINDS, body_root as _body_root,
-    frame_root_boxes as _frame_root_boxes, group_zero as _group_zero,
+    frame_root_boxes as _frame_root_boxes, frame_zero as _frame_zero,
+    group_zero as _group_zero, open_zero as _open_zero,
     merge_frame_roots as _merge_frame_roots, unchained_links as _unchained_links,
     rigid_open as _rigid_open, root_zeros as _root_zeros)
 from .placement_file import (  # noqa: E402,F401
@@ -933,6 +934,24 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # moves as ONE rigid group
         airside = _airside_frame(staged, decks, surface, counts,
                                  abutment_step_m, tuple(u.anchor))
+        # owner RULINGS 2026-10-27c with 10-22c/d (#1471): a BRIDGE frame
+        # class A refuses (no taxiway or apron pavement across its deck)
+        # still moves as one, at its deck's own zero, the deck cut first
+        bridge = None if airside is not None else _refused_bridge(staged, decks, surface)
+        _bz: list[float] = []
+
+        def _one_bridge(r, mm, _b=bridge, _z=_bz):
+            if _b is None:
+                return r
+            if not _z:
+                z = _open_zero(r.bodies) if mm is _b.m else None
+                if z is None:
+                    return r
+                _z.append(z)
+                counts["refused_bridge_frames"] = counts.get("refused_bridge_frames", 0) + 1
+            return _frame_zero(r, mm, _z[0],
+                               f"one bridge frame at its deck's zero {_z[0]:.2f} "
+                               "(RULINGS 2026-10-22c/d; 2026-10-27c: no taxiway across it)")
 
         # owner RULINGS 2026-10-26d (#1331): outside a class-A frame, a
         # pack deck body over the pack's own cut sits flush with what it
@@ -988,7 +1007,10 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
         # it parted them (the garage's roof 0.23 m)
         carriers = {c.member for st in staged for _g, c, _w in st.carried
                     if c.member != st.mi}
-        for mi in _pc.cut_order(deps):
+        order = _pc.cut_order(deps)
+        if bridge is not None and not deps.get(bridge.mi):
+            order = [bridge.mi] + [q for q in order if q != bridge.mi]
+        for mi in order:
             st = by_mi[mi]
             m = st.m
             if (st.footless and not st.carried and not st.own_ground
@@ -1014,11 +1036,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 before = len(splits)
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside):
+                if not (open_frame or airside or bridge):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
-                record = _cut_decks(record, m)
+                record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
@@ -1107,11 +1129,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                         counts.get("footless_carrier_kept_whole", 0) + 1
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside):
+                if not (open_frame or airside or bridge):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
-                record = _cut_decks(record, m)
+                record = _one_bridge(_cut_decks(record, m), m)
                 record, landed = _lifted(record, rows, reseated, surface,
                                           authored_keep_tol_m, footed_frame)
                 _cut_and_file(record, m, write, counts, splits, kept, whole,
@@ -1145,11 +1167,11 @@ def build_splits(plan: RebakePlan, surface: _ar.Surface,
                 _pre = record
                 record = _airside_deck(record, m, airside, counts)
                 record = _rigid_open(record, m, open_frame)
-                if not (open_frame or airside):
+                if not (open_frame or airside or bridge):
                     record = _group_zero(record, m, _pw or {}, _gz, counts,
                                          str(u.id), file_root=_file_root,
                                          root_boxes=_rboxes, merged=_rmerge)
-                record = _cut_decks(record, m)
+                record = _one_bridge(_cut_decks(record, m), m)
                 if record is not _pre:
                     # #1214 R3/R5: a body the group passes moved is never
                     # kept on its authored row (LFPG's one-body H4, H16,

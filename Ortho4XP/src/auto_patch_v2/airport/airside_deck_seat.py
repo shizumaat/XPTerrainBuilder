@@ -38,7 +38,7 @@ from .bridge_approach import _median
 
 __all__ = ["deck_owns_its_datum", "airside_zero", "airside_frame",
            "airside_deck", "airside_role", "airside_end_ground", "slab_points",
-           "end_tops", "pavement_runs_across"]
+           "end_tops", "pavement_runs_across", "refused_bridge"]
 
 
 def deck_owns_its_datum(m: _t.Any) -> bool:
@@ -306,15 +306,12 @@ def end_tops(m: _t.Any, ends: tuple[list, list], origin, step_m: float
     return out[0], out[1]
 
 
-def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
-                 step_m: float = 0.0, origin: "tuple[float, float] | None" = None,
-                 counts: "dict | None" = None) -> "tuple[float, str] | None":
-    """``(zero, where)`` of an AIRSIDE hard-deck member — the world height
-    of its authored ``y = 0`` that puts its deck top on the solved airside
-    surface at its end lines — or ``None`` (not class A).  A deck over
-    airside that the airport's pavement does not run across (RULINGS
-    2026-10-27c, :func:`pavement_runs_across`) is not class A: counted
-    ``airside_deck_touch_only``."""
+def _airside_witness(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface
+                     ) -> "tuple[tuple, float, _t.Any, float | None] | None":
+    """22n's witness that a pack deck stands over AIRSIDE: ``(ring, top,
+    face, z_face)`` — a flag / signature deck whose ring stands on an
+    emitted deck face, or over an airside role with the plan's solved
+    ``deck_datum_z`` — else ``None``."""
     top = getattr(m, "deck_top_y", None)
     ring = tuple(getattr(m, "deck_ring", None) or ())
     if (top is None or len(ring) < 3
@@ -324,14 +321,29 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
     lo = sum(float(q[1]) for q in ring) / len(ring)
     face = _ar.deck_of(decks, la, lo) if decks else None
     z_face = None if face is None else _ar.deck_z_at(face, la, lo)
-    dz = getattr(m, "deck_datum_z", None)
     if z_face is None:
         roles = getattr(surface, "roles", None)
-        if dz is None or roles is None:
+        if getattr(m, "deck_datum_z", None) is None or roles is None:
             return None
         got = roles.roles_many([float(q[0]) for q in ring], [float(q[1]) for q in ring])
         if not any(airside_role(r) for r in got if r):
             return None
+    return ring, float(top), face, z_face
+
+
+def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
+                 step_m: float = 0.0, origin: "tuple[float, float] | None" = None,
+                 counts: "dict | None" = None) -> "tuple[float, str] | None":
+    """``(zero, where)`` of an AIRSIDE hard-deck member — the world height
+    of its authored ``y = 0`` that puts its deck top on the solved airside
+    surface at its end lines — or ``None`` (not class A).  A deck over
+    airside that the airport's pavement does not run across (RULINGS
+    2026-10-27c, :func:`pavement_runs_across`) is not class A: counted
+    ``airside_deck_touch_only``."""
+    w = _airside_witness(m, decks, surface)
+    if w is None:
+        return None
+    ring, top, face, z_face = w
     if not pavement_runs_across(ring, surface, step_m):
         if counts is not None:
             counts["airside_deck_touch_only"] = counts.get("airside_deck_touch_only", 0) + 1
@@ -344,8 +356,38 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
                 f"the solved airside surface at its end lines {z1:.2f} / {z2:.2f} "
                 f"(deck top y {t1:+.2f} / {t2:+.2f})")
     if z_face is not None:
-        return float(z_face) - float(top), face.ref
-    return float(dz) - float(top), "the solved airside surface (ring median)"
+        return float(z_face) - top, face.ref
+    return float(m.deck_datum_z) - top, "the solved airside surface (ring median)"
+
+
+def _is_the_bridge(staged: _t.Sequence[_t.Any], deck: _t.Any) -> bool:
+    """§16e (3)'s ``Staged.bridge``: every OTHER member's every body stands
+    inside ``deck``'s model footprint (the rails, the piers, the abutments)
+    — the frame IS the bridge."""
+    res = str(deck.m.resource)
+    for st in staged:
+        if st is deck:
+            continue
+        keys = list(getattr(st, "bridge", ()) or ())
+        if not keys or not all(str(k).split("#", 1)[0] == res for k in keys):
+            return False
+    return True
+
+
+def refused_bridge(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
+                   surface: _ar.Surface) -> _t.Any:
+    """A frame :func:`airside_frame` refused because the airport's pavement
+    does not run across its deck (RULINGS 2026-10-27c) is still a BRIDGE
+    frame when it IS the bridge (:func:`_is_the_bridge`), and a bridge
+    moves as one (10-22c/f), its deck first (10-22d: "the priority is the
+    road/taxiway deck").  The deck's staged member — the placement stage
+    seats every body of the frame at that deck's own zero — or ``None``.
+    Asked only of a frame class A refused (ELLX's ``Bridge_2``: four
+    placements, one flag deck, its supports inside the deck's footprint)."""
+    for st in staged:
+        if _airside_witness(st.m, decks, surface) is not None:
+            return st if _is_the_bridge(staged, st) else None
+    return None
 
 
 def airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
@@ -368,15 +410,10 @@ def airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
             break
     if deck is None:
         return None
-    res = str(deck[0].m.resource)
-    for st in staged:
-        if st is deck[0]:
-            continue
-        keys = list(getattr(st, "bridge", ()) or ())
-        if not keys or not all(str(k).split("#", 1)[0] == res for k in keys):
-            counts["airside_deck_in_a_building_frame"] = \
-                counts.get("airside_deck_in_a_building_frame", 0) + 1
-            return None
+    if not _is_the_bridge(staged, deck[0]):
+        counts["airside_deck_in_a_building_frame"] = \
+            counts.get("airside_deck_in_a_building_frame", 0) + 1
+        return None
     counts["airside_deck_frames"] = counts.get("airside_deck_frames", 0) + 1
     return deck[1]
 

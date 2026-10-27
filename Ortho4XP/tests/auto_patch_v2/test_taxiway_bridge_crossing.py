@@ -107,3 +107,51 @@ def test_class_a_refuses_a_touch_and_counts_it():
     got = ADS.airside_zero(m, (), across, STEP, None, counts)
     assert got is not None and abs(got[0] - (100.0 - 19.35)) < 1e-9
     assert counts == {"airside_deck_touch_only": 1}
+
+
+# ── a refused bridge frame still moves as one (10-22c/d with 27c) ────────
+
+def _deck_member():
+    return types.SimpleNamespace(deck_kind="flag", deck_top_y=0.08, deck_datum_z=365.7,
+                                 deck_ring=RING, resource="objects/bridge.obj",
+                                 zero_y=0.0)
+
+
+def test_a_refused_frame_that_is_the_bridge_names_its_deck():
+    """ELLX's Bridge_2: one flag deck over airside the pavement only
+    touches, its piers inside the deck's footprint — still a bridge."""
+    touch = _surface(lambda a, b: "apron" if a <= S + 1e-9 else None)
+    deck = types.SimpleNamespace(m=_deck_member(), bridge=["objects/bridge.obj"])
+    pier = types.SimpleNamespace(m=types.SimpleNamespace(deck_kind="", resource="p.obj"),
+                                 bridge=["objects/bridge.obj#0"])
+    assert ADS.airside_frame([pier, deck], (), touch, {}, STEP) is None
+    assert ADS.refused_bridge([pier, deck], (), touch) is deck
+    # a building beside the deck: not a bridge frame
+    hall = types.SimpleNamespace(m=types.SimpleNamespace(deck_kind="", resource="h.obj"),
+                                 bridge=[""])
+    assert ADS.refused_bridge([hall, deck], (), touch) is None
+    # no airside witness at all: not asked
+    land = _surface(lambda a, b: None)
+    assert ADS.refused_bridge([pier, deck], (), land) is None
+
+
+def test_the_frame_takes_its_decks_own_zero():
+    """10-22c's one zero (the datum body's, else the lowest) read on the
+    DECK's bodies, every body of the frame re-anchored to it."""
+    from auto_patch_v2.airport import anchor_rule as AR
+    from auto_patch_v2.airport import open_frame_seat as OFS
+    from auto_patch_v2.airport.placement_record import Body, Split
+
+    def body(i, zero, datum=False):
+        a = AR.Anchor(AR.OTHER, 40.0, -3.0, 100.0 - zero, "own", 100.0,
+                      offset=(0.0, 100.0 - zero, 0.0), datum=datum)
+        return Body(i, AR.OTHER, (i,), a, f"objects/bridge__b{i}.obj")
+    deck = [body(0, 368.24), body(1, 365.45)]
+    assert OFS.open_zero(deck) == 365.45
+    assert OFS.open_zero([body(0, 368.24, datum=True), body(1, 365.45)]) == 368.24
+    pier = Split(0, "dsf:obj1", "objects/bridge.obj", "/x/bridge.obj", 40.0, -3.0, 0.0,
+                 (body(0, 355.58), body(1, 365.45)))
+    m = types.SimpleNamespace(resource="objects/bridge.obj", zero_y=0.0)
+    out = OFS.frame_zero(pier, m, 365.45, "one bridge frame")
+    assert {round(b.anchor.surface_z - b.anchor.y_zero, 6) for b in out.bodies} == {365.45}
+    assert out.bodies[1] is pier.bodies[1]          # already there: untouched

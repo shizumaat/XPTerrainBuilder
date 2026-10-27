@@ -120,7 +120,8 @@ def preview_spec(provider) -> tuple[Optional[Dict[str, Any]], str]:
     kind = provider.get("request_type")
     if kind == "local_tms":
         return None, "This source reads tiles from this computer, not from a map service."
-    if str(provider.get("epsg_code", "3857")) != "3857" and provider.get("grid_type") != "webmercator":
+    if (str(provider.get("epsg_code", "3857")) != "3857"
+            and provider.get("grid_type") != "webmercator"):
         return None, ("This source uses map projection EPSG:%s, which the map "
                       "can't preview." % provider.get("epsg_code"))
     max_zl = _max_zl(provider)
@@ -312,15 +313,16 @@ def expand_preview(preview: Dict[str, Any], z: int, x: int, y: int) -> Optional[
 _ROW_CACHE: Dict[str, Any] = {"key": None, "rows": {}}
 
 
-def _row(code) -> Optional[Dict[str, Any]]:
+def _row(code, fresh=False) -> Optional[Dict[str, Any]]:
     """One source's row (combined or single, offered or not), cached
-    until the registries change: the map asks once per tile."""
+    until the registries change: the map asks once per tile.  ``fresh``
+    rebuilds it (a provider's fields edited in place)."""
     key = (id(IMG.providers_dict), len(IMG.providers_dict),
            id(IMG.combined_providers_dict), len(IMG.combined_providers_dict))
     if _ROW_CACHE["key"] != key:
         _ROW_CACHE.update(key=key, rows={})
     rows = _ROW_CACHE["rows"]
-    if code not in rows:
+    if fresh or code not in rows:
         if code in IMG.combined_providers_dict:
             rows[code] = _combined_row(code)
         elif code in IMG.providers_dict:
@@ -337,8 +339,9 @@ def is_previewable(code: str) -> bool:
 
 def preview_max_zl(code: str) -> Optional[int]:
     """The deepest zoom the map may ask of a source (None: no ceiling);
-    a combined source's is its deepest previewable layer's."""
-    row = _row(code)
+    a combined source's is its deepest previewable layer's.  Read once
+    per provider switch, so from the registry as it stands now."""
+    row = _row(code, fresh=True)
     if row is None:
         return None
     previews = ([row["preview"]] if not row["combined"]
@@ -422,7 +425,8 @@ def sample_request(provider, lat: float, lon: float):
     if kind not in ("tms", "wmts"):
         return None
     resolutions = provider["resolutions"]
-    target = 2e-5 if epsg == "4326" else _wm_resolution(min(SAMPLE_ZL, _max_zl(provider) or SAMPLE_ZL))
+    zl = min(SAMPLE_ZL, _max_zl(provider) or SAMPLE_ZL)
+    target = 2e-5 if epsg == "4326" else _wm_resolution(zl)
     tm = min(range(len(resolutions)),
              key=lambda i: abs(math.log(float(resolutions[i]) / target)))
     x0, y0 = (float(v) for v in provider["top_left_corner"][tm][:2])

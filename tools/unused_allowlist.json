@@ -1,0 +1,122 @@
+[
+ {
+  "path": "Ortho4XP/src/auto_patch_v2/planar/__main__.py",
+  "name": "main",
+  "reason": "entry point: `python -m auto_patch_v2.planar ICAO --stage ...` (the dry structures replay, tools/INDEX.md)"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/aoi_zip_download.py",
+  "name": "AoiZipDownloadStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/arcgis_export_image.py",
+  "name": "ArcgisExportImageStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/arcgis_feature_tiles.py",
+  "name": "ArcgisFeatureTileStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/arcgis_lerc_tiles.py",
+  "name": "ArcgisLercTileStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/authenticated_token_search.py",
+  "name": "AuthenticatedTokenSearchStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/coordinate_named_url_list.py",
+  "name": "CoordinateNamedUrlListStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/coral_atlas_library.py",
+  "name": "CoralAtlasLibraryStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/degree_cog_base_tile.py",
+  "name": "DegreeCogBaseTileStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/direct_cog.py",
+  "name": "DirectCogStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/hgt_archive_drop.py",
+  "name": "HgtArchiveDropStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/las_tile_index.py",
+  "name": "LasTileIndexStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/manual_download.py",
+  "name": "ManualDownloadStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/os_grid_bucket.py",
+  "name": "OsGridBucketStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/static_stac.py",
+  "name": "StaticStacCatalogStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/tile_grid_http.py",
+  "name": "TileGridHttpStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/tnm_cog.py",
+  "name": "TnmCloudOptimizedGeoTiffStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/usgs_seamless.py",
+  "name": "UsgsSeamlessStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/viewfinder_zip.py",
+  "name": "ViewfinderZipStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/wcs.py",
+  "name": "WcsStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/wcs_kvp.py",
+  "name": "WcsKvpStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/wfs_tile_index.py",
+  "name": "WfsTileIndexStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/xyz_archive_drop.py",
+  "name": "XyzArchiveDropStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/elevation_access/strategies/xyz_text_tiles.py",
+  "name": "XyzTextTileStrategy",
+  "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ }
+]

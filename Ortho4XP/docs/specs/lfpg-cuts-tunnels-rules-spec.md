@@ -410,3 +410,54 @@ the TGV station between 2C/2D and 2E/2F):**
   `H19` 12.9 m, `H7` 6.7 m) were not reconciled with the owner's 7 m: whether
   an object's origin is its road level is not established.
 - No LiDAR-HD retry (the 50 cm tier answered HTTP 400 on the owner's build).
+
+## 10. As built (lane `llfpgcut`, 2026-10-27)
+
+Implemented on `claude/llfpgcut-cuts-tunnels` (one derivation,
+`planar/lidar_road.survey_mouth`, called once per unauthored OSM bore group
+in `planar/structures.build_structures`):
+
+- **R1.** `cover` = the higher of the SURROUNDING GROUND (the survey's upper
+  quartile on the 25–60 m annulus round the portal — §2's own crest, 226 a)
+  and the cover OVER THE BORE (median over its first 40 m of the higher of
+  the axis survey and §45's lower-side top); `road` = the least of §45's
+  `_lidar_floor` over the portal and the approach's first 12 m. The annulus
+  was added after the first arm: a dual carriageway's trench (the A1, 55 m)
+  is wider than either side's 30 m reach, and the over-bore reading alone
+  called the A1 portals "no sign". DEVIATION FOR THE MASTER: 231 b is read as
+  "every road under AIRSIDE PAVEMENT" — a runway, taxi or apron cell, or a
+  pack hard-deck object, over the bore anywhere along it (LFPG's A1 bores
+  under 09R/27L run under the H17/H18 decks and under no cell) — owed 7.5 m;
+  232 a's 5 m keep applies elsewhere (ground, buildings, groundside roads).
+  A role split runway/taxi vs apron (the questions' literal wording) fitted
+  the owner's patch worse: his T1 and 2E/2F roads stand 7–9 m under the
+  aprons where the survey reads 5.7–7.1.
+- The depth goes to the solve: `Tunnel.depth_m = DEM(cap) − floor`. Before,
+  a 27g blended floor (`mouth_z`) was overridden in the constraint
+  generator, which tied the floor to `cap − mouth_depth_m` whenever
+  `depth_m` was 0 — measured on the 1.0.436 LFPG patch, `tunnel:-10256` was
+  floored at 88.87 (= 96.36 − 7.5) against its planar 95.54, `-413` at 91.43
+  against 98.50. This was the double cut's second half.
+- **R4.** A survey mouth's design grade is `ramp_grade + the surveyed road's
+  own rise over the closing length`, capped at `ramp_max_grade`.
+- **R5.** `[tunnel] rail_ramp_grade = 0.0125`, `rail_ramp_max_grade = 0.035`
+  (EU TSI INF §4.2.3.6), checked at load; a rail bore on a credible survey
+  is never deepened.
+- **R2, attributed.** `v2_solve_replay --why-at` on the base replay: the A1
+  north portal (49.0263, 2.5367) is a pavement face held at H19's deck datum
+  118.65 by the objective (22n — R3's class); the Roissypole primary road
+  (49.0109, 2.5509; its tunnel's east end is a #1028 "no portal") and the 2A
+  south service portal (49.0029, 2.5543) are a taxiway's adjacent-ground
+  `graded_strip` (zone 1 / 2) held by the objective and `zones.
+  adjacent_ground` — NOT the road grade cap. Built: a mouth the survey
+  decides keeps the zones off its open approach trench (`survey_trench`, a
+  keepout like the corridor it replaces, bounded by `clearance / ramp_grade`;
+  measured necessary at CYXY `tunnel:-725`, whose kept mouth otherwise gave
+  its approach to the strip zone). NOT built: a taxiway's zone 1/2 yielding to
+  a surveyed trench inside it — an airside-law question for the owner.
+- **NOT built:** R3 (227 a, #1138's trench under a hard deck — the runway
+  faces under the deck must be cut out and re-roled; its own spec/census),
+  R6 (228 a; dry witness: 12 mapped ways ≥ 100 m under layer ≥ 2 viaducts,
+  1,646 m, mostly T2 central service roads at 49.0035–49.0038,
+  2.561–2.566 — a run must be read per connected chain, not per way), R7
+  (229 b; no level source is specified beyond the objects).

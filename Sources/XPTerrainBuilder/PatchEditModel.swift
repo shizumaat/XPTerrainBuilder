@@ -251,6 +251,17 @@ final class PatchEditModel: ObservableObject {
         }
     }
 
+    /// A patch of `tile` changed on disk outside the open document
+    /// ("Insert shape" into another airport's patch, #1314): list the tile
+    /// again (the open document is not reloaded) and mark it for a rebuild.
+    func relist(tile: String) {
+        tilesNeedingRebuild.insert(tile)
+        guard let coord = Self.coord(tile), listings[coord] != nil,
+              let client = build?.patchEditorClient() else { return }
+        listings[coord]?.entries = nil
+        list(coord, client: client)
+    }
+
     private func show(_ entry: O4PatchListEntry, tile: String, client: OrthoEngineClient) {
         let key = "\(tile)|\(entry.icao)|\(entry.path)"
         if !reloadDocument, let document, document.tile == tile, document.icao == entry.icao,

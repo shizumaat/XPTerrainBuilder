@@ -341,6 +341,11 @@ def test_full_ortho_byte_identical_to_base(tmp_path, monkeypatch):
     def _build(module, sub):
         build_dir = _prepare_build_dir(tmp_path / sub)
         _write_mesh(build_dir, _LAND_AND_SEA_VERTS, _LAND_AND_SEA_TRIS)
+        # The base commit's DSF names a bare "Ortho4XP"; the builder stamp
+        # (#1226) is not what this compares.
+        if hasattr(module, "TILELOG"):
+            monkeypatch.setattr(module.TILELOG, "creation_agent",
+                                lambda: "Ortho4XP")
         monkeypatch.setattr(
             module, "extract_elevation_and_bathymetry_data",
             lambda lat, lon: (b"", b""))

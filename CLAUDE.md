@@ -145,8 +145,10 @@ never an append. 1,000 lines is a GUIDE and a warning, never a gate:
 `tools/ratchets.py` reports long and growing files (and long functions) for
 the master to read at merge. Split because a file holds two
 responsibilities — never fold comments or cut a file at 999 to make a number.
-What IS gated: the identical-duplicate count may fall, never rise;
-near-duplicates are reported by `tools/ratchets.py dupes --near`.
+What IS gated: the identical-duplicate count, the near-duplicate count
+(`tools/ratchets.py dupes --near`) and the unused-definition count
+(`tools/ratchets.py unused`, #740; dynamic use goes in
+`tools/unused_allowlist.json` with a reason) may fall, never rise.
 Every lane report carries net lines added/removed and new public symbols.
 
 ## No airport-specific code (owner standing 2026-10-05, RULINGS 05e)

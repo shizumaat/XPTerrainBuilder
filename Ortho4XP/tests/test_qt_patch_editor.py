@@ -593,9 +593,15 @@ def test_right_click_a_node_copies_its_coordinates_in_view_and_edit_mode(editor,
         assert titles[0] == "Copy coordinates" and len(titles) == 2   # then the tile's folder item
         menus[-1].actions()[0].trigger()
         assert QApplication.clipboard().text() == "30.100000000, 31.400000000"
-    # empty map: only the tile's item
-    _right_click(view, _screen(ed, -1) + QPointF(200, 200))
-    assert [a.text() for a in menus[-1].actions()] == [menus[0].actions()[-1].text()]
+    # empty map: the click's own coordinates (#1314), then the tile's item
+    far = _screen(ed, -1) + QPointF(200, 200)
+    _right_click(view, far)
+    assert [a.text() for a in menus[-1].actions() if not a.isSeparator()] == [
+        "Copy coordinates", menus[0].actions()[-1].text()]
+    menus[-1].actions()[0].trigger()
+    lat, lon = ed.lat_lon_at(far.x(), far.y())
+    assert QApplication.clipboard().text() == "%.9f, %.9f" % (lat, lon)
+    assert lat < 30.1 and lon > 31.4                # below and right of node -1
 
 
 def test_copy_shape_reference_from_the_menu_and_the_inspector(editor, qapp):
@@ -613,7 +619,7 @@ def test_copy_shape_reference_from_the_menu_and_the_inspector(editor, qapp):
     assert "role: apron" in text and "Vertices: 4" in text
     assert "Elevation: 100.12 – 103.00 m" in text
     far = _screen(ed, -1) + QPointF(200, 200)
-    assert ed.copy_items(far.x(), far.y()) == [(REFERENCE.COPY_SHAPE_REFERENCE, text)]
+    assert ed.copy_items(far.x(), far.y())[1:] == [(REFERENCE.COPY_SHAPE_REFERENCE, text)]
     assert not ed.panel.copy_shape.isHidden()
     QApplication.clipboard().setText("")
     ed.panel.copy_shape.click()
@@ -773,3 +779,109 @@ def test_terrain_legend_text():
             == "1 m contours · 100–110 m")
     assert legend_text({"min_m": None, "max_m": None, "contour_m": 0.5}) == "0.5 m contours"
     assert legend_text(None) is None
+
+
+# ─── "Insert shape" (#1314) ─────────────────────────────────────────────────
+
+@pytest.fixture
+def insert_engine(monkeypatch):
+    """The engine's plan with the airport index and the elevations stubbed:
+    ZZZZ's own patch box, ZZZY a larger airport around it with no patch;
+    corner k stands at 70 m + k, the first ask of each plan pending."""
+    from o4_engine import patch_insert as PI
+    monkeypatch.setattr(PI, "_index_airports", lambda: [
+        ("ZZZY", (30.0, 31.3, 30.3, 31.6)), ("ZZZZ", (30.1, 31.4, 30.101, 31.401))])
+    asked = []
+
+    def elevation(lat, lon, build_dir=None):
+        asked.append((lat, lon))
+        if len(asked) == 1:
+            return {"elevation_m": None, "source": None, "pending": True}
+        return {"elevation_m": 70.0 + (len(asked) - 2) % 4, "source": "mesh", "pending": False}
+    monkeypatch.setattr(PI, "cursor_elevation", elevation)
+    return asked
+
+
+def _insert_menu(ed, view, pos):
+    """The window's right-click menu at viewport ``pos`` (``_tile_menu``,
+    without exec)."""
+    import O4_Qt_Tile_Menu as QTTILEMENU
+    at = ed.lat_lon_at(pos.x(), pos.y())
+    menu = QTTILEMENU.tile_menu(None, 30, 31, "", ed.context_actions(at))
+    ed.add_copy_actions(menu, pos.x(), pos.y())
+    ed.add_to_menu(menu)
+    return menu, at
+
+
+def _wait_for(done):
+    from PySide6.QtTest import QTest
+    for _ in range(100):
+        if done():
+            return
+        QTest.qWait(10)
+    raise AssertionError("timed out")
+
+
+def test_insert_shape_adds_one_undoable_square_to_the_open_patch(editor, insert_engine, monkeypatch):
+    import O4_Qt_Patch_Insert as INSERT
+    from o4_engine import patch_insert as PI
+    monkeypatch.setattr(INSERT, "PENDING_MS", 1)
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    inside = (_screen(ed, -1) + _screen(ed, -3)) / 2          # the ring's middle, no node
+    menu, at = _insert_menu(ed, view, inside)
+    titles = [a.text() for a in menu.actions() if not a.isSeparator()]
+    assert titles == ["Copy coordinates", "Insert shape", menu.actions()[-1].text()]
+    notes = []
+    ed.inserter.notify = notes.append
+    before = len(ed.model.doc.ways)
+    next(a for a in menu.actions() if a.text() == "Insert shape").trigger()
+    _wait_for(lambda: len(ed.model.doc.ways) > before or notes)
+    assert notes == [] and len(insert_engine) == 5             # pending once, then 4 corners
+    way = ed.model.doc.ways[-1]
+    assert len(way.refs) == 5 and way.refs[0] == way.refs[-1] and way.tags == {}
+    corners = [ed.model.doc.nodes[r] for r in way.refs[:4]]
+    assert [c[3] for c in corners] == [70.0, 71.0, 72.0, 73.0]
+    assert [c[1:3] for c in corners] == PI.square_ring(*at)
+    assert ed.model.unsaved_edits == 1 and ed.model.undo_stack.undoText() == "Insert Shape"
+    assert ed.model.mode == "Edit" and ed.model.shape_selection == {way.id}
+    ed.model.undo_stack.undo()
+    assert len(ed.model.doc.ways) == before
+
+
+def test_insert_shape_outside_the_open_patch_starts_that_airports_patch(editor, insert_engine,
+                                                                       patches, monkeypatch):
+    import O4_Qt_Patch_Insert as INSERT
+    monkeypatch.setattr(INSERT, "PENDING_MS", 1)
+    ed, view = editor
+    ed.controller.evaluate()
+    ed.controller.evaluate()
+    pos = _screen(ed, -1) + QPointF(-150, 150)                 # inside ZZZY only
+    menu, _at = _insert_menu(ed, view, pos)
+    notes = []
+    ed.inserter.notify = notes.append
+    next(a for a in menu.actions() if a.text() == "Insert shape").trigger()
+    _wait_for(lambda: notes)
+    assert notes[0].startswith("Started ZZZY's custom patch ZZZY_edited.patch.osm")
+    assert os.path.isfile(os.path.join(patches, "ZZZY_edited.patch.osm"))
+    assert ed.model.unsaved_edits == 0 and len(ed.model.doc.ways) == 2   # the open patch untouched
+    assert TILE in ed.model.tiles_needing_rebuild
+
+
+def test_insert_shape_where_no_airport_is_says_so(editor, insert_engine):
+    ed, view = editor
+    notes = []
+    ed.inserter.notify = notes.append
+    ed.inserter.insert(30.9, 31.9)
+    assert notes and notes[0].startswith("No airport's boundary holds 30.900000000, 31.900000000")
+
+
+def test_the_mac_app_names_insert_shape_the_same():
+    import re
+    from pathlib import Path
+
+    from O4_Qt_Patch_Insert import INSERT_SHAPE_TITLE
+    swift = (Path(__file__).resolve().parents[2] / "Sources" / "XPTerrainBuilder"
+             / "TileContextMenu.swift").read_text(encoding="utf-8")
+    assert re.search(r'static let insertShapeTitle = "([^"]*)"', swift).group(1) == INSERT_SHAPE_TITLE

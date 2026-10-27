@@ -1,0 +1,28 @@
+# Toitū Te Whenua LINZ Basemaps aerial imagery: the national best-available
+# orthophoto mosaic of New Zealand (urban 7.5-12.5 cm, rural 30 cm), served
+# as web mercator tiles.  CC BY 4.0, attribution "Toitū Te Whenua LINZ"
+# (https://basemaps.linz.govt.nz).  Replaces the retired NZ.lay (#1339).
+#
+# API KEY REQUIRED: every tile request carries ?api=<key>.  Open
+# basemaps.linz.govt.nz, copy the developer API key from its menu, and
+# paste it in Settings -> Provider accounts.  The {api_key} placeholder is
+# substituted at fetch time by O4_Authenticated_Sessions and never written
+# to this file, a tile cfg or the logs.
+grid_type=webmercator
+url_template=https://basemaps.linz.govt.nz/v1/tiles/aerial/WebMercatorQuad/{zoom}/{x}/{y}.webp?api={api_key}
+max_zl=20
+max_threads=8
+imagery_dir=code
+in_GUI=True
+attribution=CC BY 4.0 Toitū Te Whenua LINZ
+# New Zealand's main islands (lon/lat box): the source is offered only for
+# tiles inside it, and its liveness check samples Wellington.
+coverage_bounds=166.0,-47.5,179.0,-34.0
+sample_point=-41.2865,174.7762
+credential_kind=api_key
+session_name=linz_basemaps
+api_key_probe_url=https://basemaps.linz.govt.nz/v1/tiles/aerial/WebMercatorQuad/0/0/0.webp?api={api_key}
+registration_url=https://basemaps.linz.govt.nz/
+setup_step_1=Open https://basemaps.linz.govt.nz/ and open its menu (top left).
+setup_step_2=Copy the developer API key shown there (it starts with c01).
+setup_step_3=Paste the key in the field below and click Sign in.

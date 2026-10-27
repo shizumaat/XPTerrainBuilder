@@ -189,6 +189,28 @@ def tile_failure(code, *detail, exc=None, **params):
 
 
 ################################################################################
+def pack_old_forests(**fields):
+    """An airport pack whose DSF draws old flat (X-Plane 11) forests with
+    X-Plane 12 3D equivalents (issue #1360).
+
+    ``fields`` are the ``PackOldForests`` event's.  The engine's log line
+    is printed by the caller; this is the front-end notification.  No-op
+    without an engine session or GUI and never raises.
+    """
+    if engine_session is not None:
+        try:
+            engine_session.pack_old_forests(**fields)
+        except Exception:
+            pass
+        return
+    if gui:
+        try:
+            gui.pack_old_forests(**fields)
+        except Exception:
+            pass
+
+
+################################################################################
 def pack_missing_art(**fields):
     """A scenery pack X-Plane will NOT load: its DSF declares definitions
     that are not installed (owner RULINGS 2026-10-06c, issue #433).
@@ -232,9 +254,38 @@ def imagery_downloads_done(lat, lon, downloaded=0, failed=0):
 
 
 ################################################################################
+# Secrets this process holds (provider API keys, #1339): every console and
+# log line passes through _scrub(), so a URL that carries one prints with
+# <api_key> in its place.
+_secrets = set()
+
+
+def register_secret(value):
+    """Never print ``value``: vprint / lvprint / logprint scrub it."""
+    if value and len(str(value)) >= 6:
+        _secrets.add(str(value))
+
+
+def _scrub(args):
+    """``args`` with every registered secret replaced (unchanged, as the
+    same objects, when there is none to hide)."""
+    if not _secrets:
+        return args
+    out = []
+    for arg in args:
+        text = str(arg)
+        if any(secret in text for secret in _secrets):
+            for secret in _secrets:
+                text = text.replace(secret, "<api_key>")
+            arg = text
+        out.append(arg)
+    return tuple(out)
+
+
+################################################################################
 def vprint(min_verbosity, *args):
     if verbosity >= min_verbosity:
-        print(*args)
+        print(*_scrub(args))
 
 
 ################################################################################
@@ -245,7 +296,7 @@ def logprint(*args):
         f.write(
             time.strftime("%c")
             + " | "
-            + " ".join([str(x) for x in args])
+            + " ".join([str(x) for x in _scrub(args)])
             + "\n"
         )
         f.close()
@@ -256,7 +307,7 @@ def logprint(*args):
 ################################################################################
 def lvprint(min_verbosity, *args):
     if verbosity >= min_verbosity:
-        print(*args)
+        print(*_scrub(args))
     if log:
         logprint(*args)
 

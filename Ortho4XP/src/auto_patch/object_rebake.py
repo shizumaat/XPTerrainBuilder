@@ -1914,6 +1914,34 @@ def _v2_status(pack_root: str) -> dict[str, int]:
     return by_tile
 
 
+def forest_upgraded_dsfs(pack_root: str) -> list[tuple[str, dict]]:
+    """``[(dsf path, record entry), ...]`` of the pack's DSFs whose record
+    carries an X-Plane 12 3D forest upgrade (#1360), in record order —
+    the same no-deep-walk read as :func:`_v2_status`."""
+    from auto_patch_v2.airport.pack_forests import RECORD_KEY
+    found = []
+    for record_path in _v2_record_paths(pack_root):
+        for basename, entry in _v2_record_entries(record_path).items():
+            if isinstance(entry.get(RECORD_KEY), dict):
+                found.append((os.path.join(os.path.dirname(record_path),
+                                           basename), entry))
+    return found
+
+
+def _forests_by_tile(pack_root: str) -> dict[str, int]:
+    """``{tile_name: forest definitions upgraded}`` (#1360)."""
+    from auto_patch_v2.airport.pack_forests import RECORD_KEY
+    by_tile: dict[str, int] = {}
+    for dsf, entry in forest_upgraded_dsfs(pack_root):
+        tile = os.path.splitext(os.path.basename(dsf))[0]
+        try:
+            n = len(entry[RECORD_KEY].get("renames") or ())
+        except (AttributeError, TypeError):
+            n = 0
+        by_tile[tile] = by_tile.get(tile, 0) + n
+    return by_tile
+
+
 def _restore_v2_writes(pack_root: str, record_paths: list[str]) -> int:
     """Remove the body files the v2 engine minted and forget the writes
     that minted them; returns how many files went (#26).
@@ -2065,11 +2093,16 @@ def modified_packs(scenery_dir: str, tile: str | None = None) -> list[dict]:
         else:
             objects = (sum(len(r) for r in by_tile.values())
                        + sum(v2_by_tile.values()))
+        forests = _forests_by_tile(pack_root)
         results.append({
             "pack_name": name,
             "pack_path": pack_root,
             "tiles": sorted({key for key in by_tile if key}
                             | {key for key in v2_by_tile if key}),
             "objects": objects,
+            # #1360: forest definitions upgraded to X-Plane 12 3D trees
+            # (the pack row's "Undo 3D trees"), this tile's or the pack's
+            "forests": (forests.get(tile, 0) if tile is not None
+                        else sum(forests.values())),
         })
     return results

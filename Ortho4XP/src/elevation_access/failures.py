@@ -14,6 +14,7 @@ from elevation_access.base import ProviderUnavailable
 __all__ = [
     "_warn_sign_in_needed_once",
     "cap_exceeded_unavailable",
+    "product_refused_unavailable",
     "error_message_indicates_grid_configuration_failure",
     "error_message_indicates_transient_network_failure",
 ]
@@ -36,6 +37,17 @@ def cap_exceeded_unavailable(definition, needs_text, cap_text, cap_key,
     error.declined_by_cap = True
     return error
 
+
+
+def product_refused_unavailable(reason):
+    """THE PRODUCT CLASS (#1210): ``ProviderUnavailable(reason)`` marked
+    ``declined_by_product`` -- a listed tile whose own bytes the engine
+    cannot use (a LAS tile with no CRS).  The ladder records the listing
+    beside it, so the build-time re-check asks the rung again only when
+    the listing, the provider's definition or the engine moves."""
+    error = ProviderUnavailable(reason)
+    error.declined_by_product = True
+    return error
 
 # Substrings (lower-cased) of libcurl / GDAL HTTP error messages that mean
 # "the network or the server had a bad moment", not "there is no data

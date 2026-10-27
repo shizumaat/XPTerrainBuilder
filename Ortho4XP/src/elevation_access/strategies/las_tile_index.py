@@ -37,6 +37,7 @@ from elevation_access.downloads import (
     archive_raster_members,
     download_zip_whole,
 )
+from elevation_access.failures import product_refused_unavailable
 from elevation_access.fetch_slots import (
     _held_provider_fetch_slot,
     provider_fetch_slots,
@@ -302,7 +303,7 @@ def validate_las_tile(path, definition):
         epsg = _las_crs_epsg(reader.header)
     wanted = int(float(definition.get("source_crs", 0) or 0))
     if epsg != wanted:
-        raise ProviderUnavailable(
+        raise product_refused_unavailable(
             "%s: %s declares CRS EPSG:%s, the provider declares EPSG:%d"
             % (code, os.path.basename(path), epsg, wanted))
     return {"points": count, "epsg": epsg, "bytes": size}
@@ -342,10 +343,10 @@ def las_header_units(header, definition=None):
     try:
         crs = header.parse_crs()
     except Exception as error:
-        raise ProviderUnavailable("%s: tile CRS unreadable: %s"
-                                  % (code, error))
+        raise product_refused_unavailable(
+            "%s: tile CRS unreadable: %s" % (code, error))
     if crs is None:
-        raise ProviderUnavailable("%s: tile declares no CRS" % code)
+        raise product_refused_unavailable("%s: tile declares no CRS" % code)
     horizontal = crs
     vertical = None
     if crs.is_compound and crs.sub_crs_list:
@@ -353,7 +354,7 @@ def las_header_units(header, definition=None):
         if len(crs.sub_crs_list) > 1:
             vertical = crs.sub_crs_list[1]
     if not horizontal.is_projected:
-        raise ProviderUnavailable(
+        raise product_refused_unavailable(
             "%s: tile CRS %s is not projected" % (code, horizontal.name))
     xy_to_m = float(horizontal.axis_info[0].unit_conversion_factor)
     if vertical is not None and vertical.axis_info:

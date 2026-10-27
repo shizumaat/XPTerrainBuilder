@@ -1,6 +1,7 @@
 import Foundation
 
-/// The Activity list's row order and status tone (issue #1341).
+/// The Activity list's row order and status tone (issue #1341), which
+/// section a row sits in (#1556) and which rows show selected (#1537).
 ///
 /// Finished rows (done, built with warnings, failed, stopped) stay in the
 /// list until the app quits. Live rows (queued, running) sit on top, the
@@ -37,11 +38,27 @@ public enum ActivityOrder {
         ["done", "error", "stopped"].contains(state) || label == "stopped"
     }
 
-    /// A row drawn compact (#1542): a tile built (`done`, with or without
-    /// warnings) shows only its title, brightened, and under it its status
-    /// and elapsed time — no progress bar, no steps.
-    public static func isCompact(state: String) -> Bool {
-        state == "done"
+    /// The pane section a row sits in (#1556): a built tile (`done`, with
+    /// or without warnings) leaves Activity for Completed, where its row
+    /// is compact (#1542) — title, then status and elapsed time, no bar,
+    /// no steps. Failed, stopped and live rows stay in Activity; a
+    /// completed tile queued again is live, so it moves back.
+    public enum Section: String, Sendable {
+        case activity, completed
+    }
+
+    public static func section(state: String) -> Section {
+        state == "done" ? .completed : .activity
+    }
+
+    /// The rows filled as selected (#1537): a row whose tile is in the map
+    /// selection — unless the selection holds every row's tile, or none
+    /// of them: a list lit up wholesale tells the user nothing. `rows` is
+    /// every row of both sections.
+    public static func filledRows<Key: Hashable>(rows: [Key], selected: Set<Key>) -> Set<Key> {
+        let all = Set(rows)
+        let hit = all.intersection(selected)
+        return hit.isEmpty || hit == all ? [] : hit
     }
 
     public static func tone(state: String, label: String, hasIssues: Bool) -> Tone {

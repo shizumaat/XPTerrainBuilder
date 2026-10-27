@@ -1,6 +1,7 @@
 """Twin of ``Tests/SceneryKitTests/ActivityOrderTests.swift`` (#1341): both
 read ``fixtures/activity_order_cases.json`` -- which rows count as
-finished, each status's colour role, and the Activity list's order -- so
+finished, each status's colour role, the Activity list's order, the
+section a row sits in and the rows filled as selected -- so
 the Mac and Qt apps keep and order their rows alike."""
 
 import json
@@ -22,9 +23,15 @@ def test_finished(case):
     assert ORDER.is_finished(case["state"], case["label"]) is case["finished"]
 
 
-@pytest.mark.parametrize("case", CASES["compact"])
-def test_compact(case):
-    assert ORDER.is_compact(case["state"]) is case["compact"]
+@pytest.mark.parametrize("case", CASES["section"])
+def test_section(case):
+    assert ORDER.section(case["state"]) == case["section"]
+
+
+@pytest.mark.parametrize("case", CASES["filled"], ids=lambda c: c["name"])
+def test_filled(case):
+    assert ORDER.filled_rows(case["rows"], case["selected"]) == set(
+        case["filled"])
 
 
 @pytest.mark.parametrize("case", CASES["tones"])

@@ -402,9 +402,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                            pin.plan_xy if pin.hanging else ()))
             mouth = tuple(axis_ln.coords[0])
             stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}"
-                                       + (f", mouth {moved:.1f} m along the bore to the "
-                                          + ("bridge's back" if edge is not None
-                                             else "portal's anchor") if moved else ""))
+                                       + ((f", mouth {moved:.1f} m along the bore to the "
+                                           "bridge's back" if edge is not None else
+                                           f", mouth {moved:.1f} m into the bore to the "
+                                           "portal's anchor") if moved else ""))
         # #1280 / RULINGS 2026-10-27g: the road a credible lidar reads under the
         # cover is kept where it clears; else only the depth owed is cut
         road_rd = None if c is not None or pin is not None else lidar_road(

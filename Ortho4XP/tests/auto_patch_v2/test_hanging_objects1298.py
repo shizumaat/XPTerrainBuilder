@@ -179,17 +179,18 @@ def test_bridge_edge_walls_with_a_deck_plate_are_an_edge_wall_bridge(tmp_path):
 
 
 def test_an_edge_wall_bridges_trench_stops_at_its_walls_back(tmp_path):
-    """27l / 20ao: the mouth moves into the bore to the headwall's back
-    across the corridor's width — not to the far corner of a skewed plan,
-    and a wall beside the corridor does not reach it."""
+    """27l / 20ao / 27r: the mouth moves into the bore to the NEAREST of the
+    walls' backs across the corridor's width — no corner of the square mouth
+    line behind a skewed headwall in the span; a pier in front and a wall
+    beside the corridor do not move it."""
     axis = LineString([(0.0, 0.0), (0.0, 100.0)])          # the ramp runs +y
     inward = (0.0, -1.0)                                     # the bore runs −y
     skewed = ((-60.0, -10.0), (60.0, -30.0))                 # a 120 m skewed headwall
     pier = ((3.0, -4.0), (5.0, -4.0))
     beside = ((40.0, -80.0), (45.0, -80.0))                  # outside |x| <= 8
     moved, d = SM.edge_wall_mouth(axis, inward, (skewed, pier, beside), 8.0)
-    # across x −8..8 the headwall stands at y −18.67..−21.33: its back is 21.33 in
-    assert abs(d - (20.0 + 8.0 / 6.0)) < 1e-6 and abs(moved.coords[0][1] + d) < 1e-9
+    # across x −8..8 the headwall stands at y −18.67..−21.33: the nearest back 18.67
+    assert abs(d - (20.0 - 8.0 / 6.0)) < 1e-6 and abs(moved.coords[0][1] + d) < 1e-9
     kept, d0 = SM.edge_wall_mouth(axis, inward, (((-5.0, 4.0), (5.0, 4.0)),), 8.0)
     assert d0 == 0.0 and kept is axis                        # a wall on the ramp side
 

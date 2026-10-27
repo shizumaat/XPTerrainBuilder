@@ -523,33 +523,44 @@ def edge_wall_mouth(axis: LineString, inward, walls, half: float
                     ) -> "tuple[LineString, float]":
     """``(axis, metres moved)``: THE TRENCH STOPS AT AN EDGE-WALL BRIDGE'S
     WALLS' BACKS (owner RULINGS 2026-10-27l; 20ao "the road ends at the
-    back of the object").  The mouth moves into the bore to the furthest
-    station any of the object's deep walls (``hanging_objects.
-    edge_wall_reading``) reaches within the corridor's width (``half``
-    either side of the axis) — the headwall the span stands behind, never
-    the far corner of a skewed object's plan (measured KATL ``tunel_C``:
-    its hull's back stood 68-104 m into the span).  Walls only on the ramp
-    side keep the mapped end."""
+    back of the object"; 27r "drop straight down ... at the back of those
+    edge objects").  Across the corridor's width (``half`` either side of
+    the axis) the walls' back at each lateral line is the furthest station
+    any deep wall (``hanging_objects.edge_wall_reading``) reaches there;
+    the mouth stands at the NEAREST of those backs, so no part of the
+    square mouth line stands behind a wall in the span the bridge holds at
+    deck level.  Measured KATL with the furthest instead: a skewed headwall
+    put the corridor's corner 26 m into 10/28's span and minted 23-27 m
+    strip_transverse cliffs against the runway.  Walls only on the ramp side
+    keep the mapped end."""
     m = axis.coords[0]
     nx, ny = -inward[1], inward[0]
-    best = 0.0
+    segs = []
     for seg in walls:
-        for (x0, y0), (x1, y1) in zip(seg[:-1], seg[1:]):
-            a0 = (x0 - m[0]) * inward[0] + (y0 - m[1]) * inward[1]
-            a1 = (x1 - m[0]) * inward[0] + (y1 - m[1]) * inward[1]
-            l0 = (x0 - m[0]) * nx + (y0 - m[1]) * ny
-            l1 = (x1 - m[0]) * nx + (y1 - m[1]) * ny
-            # the piece of the segment within |lateral| <= half
-            t_lo, t_hi = 0.0, 1.0
-            if abs(l1 - l0) > 1e-12:
-                ta, tb = sorted(((-half - l0) / (l1 - l0), (half - l0) / (l1 - l0)))
-                t_lo, t_hi = max(t_lo, ta), min(t_hi, tb)
-            elif abs(l0) > half:
+        for p0, p1 in zip(seg[:-1], seg[1:], strict=False):
+            a0 = (p0[0] - m[0]) * inward[0] + (p0[1] - m[1]) * inward[1]
+            a1 = (p1[0] - m[0]) * inward[0] + (p1[1] - m[1]) * inward[1]
+            l0 = (p0[0] - m[0]) * nx + (p0[1] - m[1]) * ny
+            l1 = (p1[0] - m[0]) * nx + (p1[1] - m[1]) * ny
+            segs.append((a0, a1, l0, l1))
+    backs = []
+    n = max(2, int(math.ceil(2.0 * half / _EDGE_LATERAL_STEP_M)) + 1)
+    for k in range(n):
+        lat = -half + 2.0 * half * k / (n - 1)
+        reach = None
+        for a0, a1, l0, l1 in segs:
+            if min(l0, l1) - 1e-9 > lat or max(l0, l1) + 1e-9 < lat:
                 continue
-            if t_hi < t_lo:
-                continue
-            best = max(best, a0 + (a1 - a0) * t_lo, a0 + (a1 - a0) * t_hi)
-    return _moved_in(axis, inward, best)
+            t = 0.5 if abs(l1 - l0) <= 1e-12 else (lat - l0) / (l1 - l0)
+            a = a0 + (a1 - a0) * t if abs(l1 - l0) > 1e-12 else max(a0, a1)
+            reach = a if reach is None else max(reach, a)
+        if reach is not None:
+            backs.append(reach)
+    return _moved_in(axis, inward, min(backs) if backs else 0.0)
+
+
+#: the lateral sampling step of :func:`edge_wall_mouth`'s backs (metres)
+_EDGE_LATERAL_STEP_M = 1.0
 
 
 def _moved_in(axis: LineString, inward, d: float) -> "tuple[LineString, float]":

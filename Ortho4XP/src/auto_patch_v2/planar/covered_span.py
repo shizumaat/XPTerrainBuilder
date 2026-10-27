@@ -20,8 +20,6 @@ trench (``Tunnel.span_deck_z``).  Nothing here names a pack or an airport.
 """
 from __future__ import annotations
 
-import typing as _t
-
 from shapely.geometry import LineString, Point
 from shapely.ops import substring, unary_union
 
@@ -63,7 +61,7 @@ def edge_spans(cuts, objects, cache, law) -> list:
         line = b.line
         at = sorted(st for st in (_wall_stations(line, w, rib) for w in edges) if st is not None)
         reach = max([max(c.dl, c.dr) for c in secs] or [0.0]) + 1.0
-        for (_lo0, hi0), (lo1, _hi1) in zip(at[:-1], at[1:]):
+        for (_lo0, hi0), (lo1, _hi1) in zip(at[:-1], at[1:], strict=False):
             if lo1 <= hi0:
                 continue
             piece = substring(line, hi0, lo1).buffer(reach, cap_style="flat")

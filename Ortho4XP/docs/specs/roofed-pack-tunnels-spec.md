@@ -232,10 +232,13 @@ an EDGE-WALL BRIDGE (`airport/hanging_objects.edge_wall_reading`).  Over a
 mapped bore end it is read like a hanging portal, with three differences:
 
 1. **The trench stops at the walls' backs** (20ao "the road ends at the back
-   of the object"): the mouth moves into the bore to the furthest station any
-   of its deep walls reaches across the corridor's width
-   (`planar/structure_mouth.edge_wall_mouth`) — the headwall — never to the
-   far corner of its plan.  The #971 pavement yield then applies as for every
+   of the object"; 27r "drop straight down ... at the back of those edge
+   objects"): the mouth moves into the bore to the NEAREST walls' back across
+   the corridor's width (`planar/structure_mouth.edge_wall_mouth`) — at each
+   lateral line the furthest station a deep wall reaches there (the
+   headwall, not the piers in front of it) — so no corner of the square mouth
+   line stands behind a skewed wall in the span (measured KATL with the
+   furthest: 26 m into 10/28's span, 23–27 m `strip_transverse` cliffs).  The #971 pavement yield then applies as for every
    pinned mouth: the trench never cuts a taxiway (KATL: the taxiway `pav15`
    runs over the slabs, so the mouths stop at its edge).
 2. **The depth is the walls' bottom under the deck level** (20am / 20ar /

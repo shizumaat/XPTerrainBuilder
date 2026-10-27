@@ -358,9 +358,13 @@ def run_witness(arguments) -> int:
         return 2
     (polygon, runway_ends) = airport
     (west, south, east, north) = polygon.bounds
+    # Production's own margin (RULINGS 2026-10-26t: the graded reach,
+    # capped by the setting) unless --margin-m pins one.
     margin = (arguments.margin_m if arguments.margin_m is not None
-              else O4_Cfg_Vars.cfg_tile_vars[
-                  "airport_elevation_inset_margin_m"]["default"])
+              else INSETS.inset_fetch_margin_m(argparse.Namespace(**{
+                  key: O4_Cfg_Vars.cfg_tile_vars[key]["default"]
+                  for key in ("airport_elevation_inset_margin_m",
+                              "airport_elevation_inset_feather_m")})))
     latitude = (south + north) / 2.0
     margin_lon = margin / INSETS.GEO.lon_to_m(latitude)
     margin_lat = margin / INSETS.GEO.lat_to_m
@@ -449,7 +453,7 @@ def main() -> int:
                              "the one selector's answer)")
     parser.add_argument("--margin-m", type=float, default=None,
                         help="--witness: inset margin beyond the footprint "
-                             "(default: airport_elevation_inset_margin_m)")
+                             "(default: production's inset_fetch_margin_m)")
     parser.add_argument(
         "--disable-provider", default=None, metavar="CODES",
         help="--witness: disable these provider codes in this process only "

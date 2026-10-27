@@ -32,7 +32,8 @@ from shapely.ops import unary_union
 
 from ..model.airport import Airport
 
-__all__ = ["WallComponent", "NOT_WALL_RESOURCE_WORDS", "wall_class_components"]
+__all__ = ["WallComponent", "NOT_WALL_RESOURCE_WORDS", "wall_class_components",
+           "retaining_sides"]
 
 
 @_dc.dataclass(frozen=True)
@@ -49,6 +50,10 @@ class WallComponent:
     resource: str
     comp: int
     retains: bool = False
+    #: the height it RETAINS (#1158): its solid height, or its depth under
+    #: its own zero where it stands proud (:func:`_depth_under_zero`); 0.0
+    #: where it retains none
+    retained_m: float = 0.0
 
 
 #: RULINGS 2026-09-29h (Q-72b): a FENCE is not a wall.  A footprint cannot
@@ -117,12 +122,15 @@ def wall_class_components(airport: Airport, cfg) -> list[WallComponent]:
                 # #1139: an object that IS one wall (its only part) may
                 # retain only what stands under its zero
                 depth = _depth_under_zero(p) if len(m.parts) == 1 else None
-                retains = _stands_on_ground(p) and _retains_its_height(
-                    airport, whole, wide, float(p.height_m), cfg, depth)
+                retained = _retains_its_height(
+                    airport, whole, wide, float(p.height_m), cfg, depth
+                ) if _stands_on_ground(p) else 0.0
+                retains = retained > 0.0
                 if wide > float(cfg.retaining_wall_max_width_m) and not retains:
                     continue
                 out.append(WallComponent(tuple(polys), float(p.height_m),
-                                         m.resource, int(p.comp), retains))
+                                         m.resource, int(p.comp), retains,
+                                         float(retained)))
     return out
 
 
@@ -158,7 +166,7 @@ def _depth_under_zero(part) -> float | None:
 
 
 def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg,
-                        depth: float | None = None) -> bool:
+                        depth: float | None = None) -> float:
     """A WALL THAT RETAINS ITS OWN HEIGHT (owner RULINGS 2026-10-15a (2),
     issue #715): slender for its height (``wide <= height x
     retaining_wall_thick_width_per_height``: KATL's 10.65 m concrete
@@ -185,30 +193,35 @@ def _retains_its_height(airport: Airport, whole, wide: float, height: float, cfg
     admitted 73 HECA, 32 EDDF and 22 KLAX building parts (facades on a
     slope stand under their zero too); read for single-part objects it
     admits KATL ``muro_ladrillo`` alone over the 33 registered captures.
-    Slenderness is judged on the solid height, as before."""
+    Slenderness is judged on the solid height, as before.
+
+    Returns the height it retains (the solid height, else the depth — the
+    first the step matches), 0.0 where it retains none."""
     per = getattr(cfg, "retaining_wall_thick_width_per_height", None)
     lo = getattr(cfg, "retaining_wall_step_min_fraction", None)
     hi = getattr(cfg, "retaining_wall_step_max_fraction", None)
     ring_m = getattr(cfg, "retaining_wall_step_ring_m", None)
     dem = getattr(airport, "dem", None)
     if per is None or lo is None or hi is None or ring_m is None or dem is None:
-        return False
+        return 0.0
     if wide > height * float(per):
-        return False
+        return 0.0
     step = _step_across(dem, whole, wide, max(float(ring_m), height))
     if step is None:
-        return False
-    return any(float(lo) * h <= step <= float(hi) * h
-               for h in (height, depth) if h is not None and h > 0.0)
+        return 0.0
+    return next((h for h in (height, depth) if h is not None and h > 0.0
+                 and float(lo) * h <= step <= float(hi) * h), 0.0)
 
 
-def _step_across(dem, whole, wide: float, ring_m: float) -> float | None:
-    """The median DEM step across ``whole`` (see :func:`_retains_its_height`)."""
+def _across_pairs(whole, wide: float, ring_m: float):
+    """THE ACROSS SAMPLES (:func:`_retains_its_height`): every 2 m round a
+    ring ``ring_m`` outside ``whole``, the ring point, its nearest wall
+    point and the point as far out on the FAR side (through that wall
+    point, ``wide`` across) — three ``(n, 2)`` arrays."""
     import numpy as np
     from shapely.ops import nearest_points
-    from .dem import dem_z_many
     grown = whole.buffer(ring_m)
-    near, far = [], []
+    near, wall, far = [], [], []
     for g in getattr(grown, "geoms", [grown]):
         for t in np.arange(0.0, g.exterior.length, 2.0):
             p = g.exterior.interpolate(float(t))
@@ -219,11 +232,58 @@ def _step_across(dem, whole, wide: float, ring_m: float) -> float | None:
                 continue
             k = (wide + ring_m) / n
             near.append((p.x, p.y))
+            wall.append((q.x, q.y))
             far.append((q.x + dx * k, q.y + dy * k))
+    return (np.asarray(near, dtype=float).reshape(-1, 2),
+            np.asarray(wall, dtype=float).reshape(-1, 2),
+            np.asarray(far, dtype=float).reshape(-1, 2))
+
+
+def _step_across(dem, whole, wide: float, ring_m: float) -> float | None:
+    """The median DEM step across ``whole`` (see :func:`_retains_its_height`)."""
+    import numpy as np
+
+    from .dem import dem_z_many
+    near, _wall, far = _across_pairs(whole, wide, ring_m)
     if len(near) < 4:
         return None
-    a = dem_z_many(dem, np.array([x for x, _ in near]), np.array([y for _, y in near]))
-    b = dem_z_many(dem, np.array([x for x, _ in far]), np.array([y for _, y in far]))
+    a = dem_z_many(dem, near[:, 0], near[:, 1])
+    b = dem_z_many(dem, far[:, 0], far[:, 1])
     d = np.abs(a - b)
     d = d[np.isfinite(d)]
     return float(np.percentile(d, ACROSS_PERCENTILE)) if d.size >= 4 else None
+
+
+def retaining_sides(airport: Airport, wall: WallComponent, cfg, step_m: float):
+    """THE TWO SIDES OF A RETAINING WALL (#1158): ``(upper, lower, ring)``
+    — the bands ``ring`` wide beside ``wall``'s footprint (the witness's
+    own ring, :func:`_retains_its_height`) where the ground across it
+    steps by more than ``step_m``, on the high side and on the low side.
+    Read at the witness's own across samples: a sample whose ground stands
+    ``step_m`` under the far one is LOWER, over it UPPER, else neither (a
+    wall's ends and returns).  Each sample owns the 2 m of band from the
+    wall out to its ring point.  Empty bands without a DEM."""
+    import numpy as np
+    from shapely.geometry import LineString
+
+    from .dem import dem_z_many
+    whole = unary_union(wall.pieces)
+    ring = max(float(cfg.retaining_wall_step_ring_m), float(wall.height_m))
+    dem = getattr(airport, "dem", None)
+    if dem is None or whole.is_empty or whole.length <= 0.0:
+        return Polygon(), Polygon(), ring
+    wide = 2.0 * whole.area / whole.length
+    near, foot, far = _across_pairs(whole, wide, ring)
+    if len(near) == 0:
+        return Polygon(), Polygon(), ring
+    d = (dem_z_many(dem, near[:, 0], near[:, 1])
+         - dem_z_many(dem, far[:, 0], far[:, 1]))
+    band = whole.buffer(ring).difference(whole)
+
+    def _side(mask):
+        rays = [LineString([tuple(foot[i]), tuple(near[i])]).buffer(1.0, cap_style="flat")
+                for i in np.flatnonzero(mask)]
+        return unary_union(rays).intersection(band) if rays else Polygon()
+
+    with np.errstate(invalid="ignore"):
+        return _side(d > step_m), _side(d < -step_m), ring

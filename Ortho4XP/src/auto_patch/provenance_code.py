@@ -535,6 +535,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.classify.sources",
     "auto_patch_v2.classify.storey_edge",
     "auto_patch_v2.classify.taxi_letter",
+    "auto_patch_v2.classify.wall_clip",
     "auto_patch_v2.constraints",
     "auto_patch_v2.constraints.apron",
     "auto_patch_v2.constraints.apron_shelf",

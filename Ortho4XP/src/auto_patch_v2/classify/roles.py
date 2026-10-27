@@ -296,6 +296,7 @@ def classify(airport: Airport, law: Law, rules: Rules | None = None,
     stats["object_body_cuts"] = len(obj_cuts)
     faces = _slice(region, taxi_parts, truck_parts, spurs + src_cuts, rules)
     stats["slice_faces"] = len(faces)
+    stats.update(ev.wall_clip)              # #1158: pavement cut at the walls
     stats["keyhole_spurs"] = len(spurs)
     stats["source_strips"] = sum(1 for r in sources if r.cls == "strip")
     stats["source_lots"] = sum(1 for r in sources if r.cls == "lot")

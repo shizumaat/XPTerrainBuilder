@@ -83,7 +83,8 @@ from .geometry import project_to_chain
 from .precedence import View, cap_of, view
 from .trend import trend_of as _trend_of
 
-__all__ = ["threshold_pins", "datum_pins", "end_pin_cases", "EndPin", "dem_degraded", "runway_profile", "runway_crown", "runway_transverse",
+__all__ = ["threshold_pins", "datum_pins", "end_pin_cases", "EndPin", "dem_degraded",
+           "runway_profile", "runway_crown", "runway_transverse",
            "runway_vertical_curve", "curve_stations", "runway_within_shape",
            "crown_drops", "ridge_chains"]
 

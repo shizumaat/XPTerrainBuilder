@@ -20,13 +20,15 @@ shifted runways.
 THE apt.dat-ONLY RUNWAYS (owner RULINGS 2026-10-26e lidar, 2026-10-28m any
 DEM class, 2026-10-28o lidar and fine only; #1394, #1348): a runway with
 no CIFP end follows a lidar or fine DEM where its datum line stands off it
-by more than the class's ``runway_ends.dem_noise_m``; coarse keeps it.  The census ESTIMATES the datum line off the
-DEM end reads (``constraints/runway_profile._datum_line`` needs the planar
-ridge trends): the higher end at the field elevation less the fall from
-the airport's highest DEM end, tilted with the DEM — so a runway yields
-where ``|field - highest DEM end| > noise``.  Counted per class, ``lidar``
-being 26e's and the rest 28m's.  ``--all-apt`` judges every airport of
-the apt.dat (with or without CIFP) the corpus holds a DEM tile for.  ``--json OUT`` writes every flagged runway.  Read-only:
+by more than the class's ``runway_ends.dem_noise_m``; coarse keeps it.
+The census ESTIMATES the datum line off the DEM end reads
+(``constraints/runway_profile._datum_line`` needs the planar ridge
+trends): the higher end at the field elevation less the fall from the
+airport's highest DEM end, tilted with the DEM — so a runway yields where
+``|field - highest DEM end| > noise``.  Counted per class; only ``lidar``
+and ``fine`` rows yield (28o).  ``--all-apt`` judges every airport of the
+apt.dat (with or without CIFP) the corpus holds a DEM tile for.
+``--json OUT`` writes every flagged runway.  Read-only:
 writes nothing but ``--json``.
 
     venv/bin/python tools/runway_end_census.py [--cifp DIR] [--apt PATH]

@@ -430,15 +430,6 @@ runway_profile_window_m = 500.0
 # reader prices.  A VALUE, never a switch: a runway whose pins fit under
 # the table never sees it.
 runway_yield_margin = 0.0002
-# RULINGS 2026-10-26n (Q160-Q162) A STEEP RUNWAY FLATTENS WHERE TAXIWAYS
-# JOIN IT, "eased by vertical curves" (Q160).  Leaving a junction flat the
-# grade eases up at the law's vertical_curve_k_m where that fits; where it
-# does not, the curve yields uniformly per runway only as far as keeps the
-# steepest designed grade within THIS share of the abrupt fit (the
-# remaining grade with no curve at all).  VNLK 06/24: abrupt 13.0 %,
-# designed 14.9 %.  A VALUE, never a switch; read only in
-# constraints/runway_junctions.design.
-steep_junction_curve_share = 0.15
 law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
 # THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): the
 # `dem_zone` weight, its rows and the beyond-the-outer-ring DEM fixing are

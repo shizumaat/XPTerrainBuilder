@@ -16,6 +16,7 @@ import pytest
 from auto_patch_v2.classify.roles import Cell, Classification
 from auto_patch_v2.constraints.precedence import curve_k_of, view
 from auto_patch_v2.constraints.runway_chord import with_runway_chord
+from auto_patch_v2.constraints.runway_junctions import smoothest_grades
 from auto_patch_v2.constraints.runway_profile import (
     curve_stations,
     ridge_chains,
@@ -93,7 +94,7 @@ def test_a_steep_runway_is_flat_across_each_junction_and_meets_its_pins(steep, l
     z = rc.profile_z
     assert z[st[0]] == pytest.approx(700.0) and z[st[-1]] == pytest.approx(850.0)
     cum = [0.0]
-    for p, q in zip(st, st[1:]):
+    for p, q in zip(st, st[1:], strict=False):
         cum.append(cum[-1] + vw.dist(p, q))
     for jn in rc.junctions:
         for k in range(len(st) - 1):
@@ -173,3 +174,23 @@ def test_the_census_reads_the_published_curve_rate():
         assert cg._curve_rate_of("B") == 0.0 and cg._curve_rate_of(None) == 0.0
     finally:
         cg._ACTIVE_RUNWAY_CURVE_RATE = old
+
+
+def test_the_smoothest_grades_meet_the_pins_and_the_caps_with_least_change():
+    """RULINGS 2026-10-27b (Q182): "the runway must still minimize curvature
+    changes" — with no cap the smoothest profile is the straight line; with a
+    capped middle the grade eases into and out of it, never stepping, and
+    the rise is met exactly."""
+    d = [10.0] * 20
+    g = smoothest_grades(d, 20.0, [None] * 20)
+    assert g == pytest.approx([0.1] * 20)
+    caps = [None] * 8 + [0.015] * 4 + [None] * 8
+    g = smoothest_grades(d, 20.0, caps)
+    assert sum(x * 10.0 for x in g) == pytest.approx(20.0)
+    assert all(abs(g[k]) <= 0.015 + 1e-9 for k in range(8, 12))
+    steps = [abs(b - a) for a, b in zip(g, g[1:], strict=False)]
+    # no step at the junction: the change is spread, the largest change no
+    # more than a few times the mean
+    assert max(steps) < 4.0 * (sum(steps) / len(steps))
+    assert g[0] == pytest.approx(g[-1], abs=1e-6)          # symmetric about the cap
+    assert smoothest_grades(d[:2], 1.0, [0.01, 0.01]) is None

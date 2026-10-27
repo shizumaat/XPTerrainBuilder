@@ -41,30 +41,25 @@ no longer follow (Q160 was asked against that ceiling) — over its GOVERNING sp
 consecutive hard pins §50 already names). A runway yielded under the ceiling keeps the
 uniform §50 yield and the 30ah (1) / 10-10j following taxiways and aprons, byte for byte.
 
-1. **Junctions.** A junction is a non-runway airside pavement face (taxi family or apron)
-   sharing at least two ring vertices with the runway's own faces. Its span is the
-   along-ridge extent of the JOINING PAVEMENT's frontage: the shared vertices plus every
-   vertex of that pavement (the face's ref) the runway-edge tie reaches (within the runway's
-   zone-2 half width of the centreline, `tables.runway_zone_edge_offset_m` + half width),
-   widened to the ridge chords that cover it. Its cap `t` is the joining face's own
-   TRANSVERSE maximum (`role_cap(...).transverse`, by its letter). Overlapping spans merge
-   at the tighter `t`. A junction applies only where the pin grade exceeds its `t`.
-   *Why the frontage and not the mouth alone (measured, arm a1 vs a3):* with the mouth
-   only (J2 19 m, J1 56 m), the Main Apron's west faces and `pav2`'s run beside the runway
-   stand inside the runway-edge tie while the runway curves at 10 %, and the census kept
-   10 `transverse` + 3 `taxi_box` rows on `pav4` (0.34–0.55 m) and a `taxi_box` on `pav2`.
-2. **The designed profile.** Grade as a function of ridge distance `u` from the lower pin:
-   `g(u) = min(G, min_j (t_j − margin + r · δ_j(u)))`, `δ_j` the distance to junction `j`'s
-   span (0 inside it). Inside a junction the grade is `t_j` (less the §50 margin); leaving
-   it the grade eases up at a constant rate `r` (a vertical curve, `K = 1 % / r`) to the
-   remaining grade `G`, solved (bisection) so the profile meets both pins exactly.
-3. **The curve.** `K` is the law's own `vertical_curve_k_m` where it fits; otherwise it
-   yields, uniformly per runway, only as far as keeps `G` within
-   `[design] steep_junction_curve_share` (0.15) of the abrupt fit `G0` (no curve at all):
-   `K = min(K_law, the largest K with G(K) ≤ (1 + share) · G0)`. The design is drawn 5 %
-   gentler than the published K so the curve rows hold it with room. This is the one number
-   the ruling does not give (Q160 says "eased by vertical curves", no radius); it is a value
-   in `law/emit.toml`, never a switch.
+1. **Junctions (round 2, RULINGS 2026-10-27b Q182 (a)).** A junction is a non-runway
+   airside pavement face (taxi family or apron) sharing at least two ring vertices with the
+   runway's own faces. Its span is the MOUTH: the along-ridge extent of those shared
+   vertices' feet, widened to the ridge chords that cover it (J2 388.0–411.1 m, J1
+   481.7–540.6 m at VNLK). Its cap `t` is the joining face's own TRANSVERSE maximum.
+   Overlapping spans merge at the tighter `t`. A junction applies only where the pin grade
+   exceeds its `t`. (Round 1's frontage-within-the-tie span is withdrawn by Q182.)
+2. **The designed profile is the smoothest the pins and the caps allow (Q182: "the runway
+   must still minimize curvature changes, it can't create a dramatic bump or dip").** Over
+   the station chords' grades `g_k`: minimise `Σ (g_{k+1} − g_k)² / s_k` (`s_k` the mean
+   spacing — the discrete ∫g′²) subject to `Σ g_k d_k = Δz` (both pins exact) and
+   `|g_k| ≤ t − margin` on every junction chord (`runway_junctions.smoothest_grades`, a
+   bounded least squares, `scipy.optimize.lsq_linear` BVLS). Its continuous optimum is a
+   parabolic grade between the caps — a cubic profile, no kink and no crest or sag beyond
+   what the caps force. Parameter-free: round 1's `[design] steep_junction_curve_share` is
+   DELETED (refuted mechanism).
+3. **The curve the rows hold** is the one the design needs: the law's K where the design's
+   largest change of grade fits it, else the K it reads, published 5 % sharper than drawn
+   so the vertical-curve rows hold it with room.
 4. **The record.** `RunwayCap` carries `junctions`, `curve_k_m`, `curve_rate_per_m` and the
    designed station heights (`profile_z`); `cap` names the steepest designed grade plus the
    margin. The sidecar `runway_caps` record publishes `junctions`, `curve_k_m` and
@@ -90,7 +85,7 @@ uniform §50 yield and the 30ah (1) / 10-10j following taxiways and aprons, byte
    (10-08d (2)) without carrying the terrace. `derive_taxi` no longer yields an apron tied to
    a steep runway.
 
-## 4. Acceptance and results (replay of the registered capture, then the closing build)
+## 4. Round 1 acceptance and results (frontage spans; superseded by §7)
 
 Capture `lrwypin/VNLK.fbf12ccaa.pkl`, replayed `--from constraints --emit --verify` on this
 branch; census `tools/harness/census.py` on the emitted patch. Base = the same replay on
@@ -139,7 +134,7 @@ place it bends (about 0.5 m) to meet the building pads.
 | `tools/check_grade` rate readers | published `curve_rate_per_m` | the yielded rate |
 | `pipeline/runway_report`, the §50.4 line | the record | the line names the junctions and the K |
 
-## 6. Open points for the owner (not decided here)
+## 6. Round 1 open points (2 and 3 answered by RULINGS 2026-10-27b; see §7)
 
 1. **"Steep".** Implemented as "pins demand more than the 10 % pavement ceiling". If the
    owner means every yielded runway, the gate is one comparison in `runway_yield.derive`;
@@ -158,3 +153,52 @@ place it bends (about 0.5 m) to meet the building pads.
 5. **The 29ac pavement ceiling on the runway's own ring** (`pavement_over_road_cap` /
    `hard_conflict`, pre-existing): fewer rows (70 → 40) but the worst grows 6.5 → 9.5 m,
    because the lower runway is steeper. The ceiling does not yield with the runway.
+
+## 7. Round 2 (RULINGS 2026-10-27b, Q182 (a); #1461)
+
+Mouth-only spans and the least-change-of-grade profile. Replay of the same capture, then
+the closing harness build `lvnlk2` (body `b8eeef807e69`; census identical to the replay).
+
+| | round 1 (frontage spans, share 0.15) | round 2 (mouth, smoothest) |
+|---|---|---|
+| junction spans | 375.8–446.4 m, 458.1–540.5 m | 387.9–411.0 m, 481.6–540.5 m |
+| ridge across each junction | ≤ 1.504 % | ≤ 1.503 % |
+| peak grade | 17.44 % (lower 290 m) | **21.6 %**, at the RWY 06 threshold, easing steadily to 1.5 % at J2 |
+| largest change of grade | 19.0 pp per 100 m (K 5.26 m per 1 %) | **10.1 pp per 100 m** (K 9.94 drawn, 9.44 published) |
+| between J2 and J1 | 2.0 % (one chord) | 1.6–1.7 % |
+| max height above the Copernicus DSM | 17 m | **19.5 m** (near s = 280 m) |
+| ends | exact | exact |
+| census ADJUDICATED / CRITICAL motion | 143 / 0 | **139 / 0** |
+| `transverse` / `taxi_box` | 0 / 2 | **0 / 2** |
+
+No family rises against base (`strip_arc` 7 → 7). By site, 9 rows are where base had none:
+the 4 at the Main Apron's west corner (pad weld, as round 1), 2 `strip_transverse` lip
+rows beside the lower runway (0.35, 0.34 m), and 3 `strip_arc` rows on the outer graded
+strip of the lower runway (zone 2, 15.8–17.2 m: the strip's 58 m ring chords against the
+runway's long curve).
+
+**The pad cross-slope rows the mouth-only span leaves.** Round 1 estimated 10 `transverse`
++ 4 `taxi_box` on the pads beside the runway with a mouth-only span; with the smoothest
+profile the runway between the two spots stays at 1.6–1.7 %, so they do not occur. What
+the census reports on junction / apron pavement (all `pav4`, the Main Apron; none on
+`pav2` or `pav0`): `transverse` 0; `taxi_box` 2 (0.21 m at the 24 end, 0.18 m at s = 488,
+both base sites); `within_shape` 3 (0.67 m at the runway weld s = 525, a base site; 0.54
+and 0.32 m at the west corner); `airside_no_step` 10 (7 at the runway-edge weld s ≈ 520–524,
+0.67–0.78 m, base sites; 1 internal 0.59 m; 2 at the west corner).
+
+**The trade the smoothest profile makes (for the owner).** Flat junctions near the top end
+and the pins fixed, a gentler curve can only come from a steeper bottom. The smoothest
+profile with the steepest grade bounded (same capture, mouth spans):
+
+| peak bound | largest change | K (m per 1 %) | between the spots | above the DSM |
+|---|---|---|---|---|
+| 13.1 % (the least possible) | 46 pp / 100 m | 2.2 | 13.1 % | 5.1 m |
+| 14 % | 36 | 2.7 | 10.3 % | 7.6 m |
+| 15 % | 30 | 3.4 | 6.6 % | 10.5 m |
+| 17 % | 17 | 5.9 | 2.9 % | 15.6 m |
+| 20 % | 11 | 9.0 | 2.0 % | 18.9 m |
+| none (shipped) | 10 | 9.9 | 1.7 % | 19.5 m |
+
+A peak bound would be one law number over the same solver (`smoothest_grades` with a cap on
+every chord); it is not built, because Q182 asks for the smoothest profile and names no
+peak.

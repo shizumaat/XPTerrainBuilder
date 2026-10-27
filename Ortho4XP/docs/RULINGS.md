@@ -10398,3 +10398,6 @@ Noah (owner), 2026-10-20T18:14:50Z, source: project chat, answering questions 59
 (2) Q212 a: the span between a runway edge and an edge bridge's slab stays graded strip, lifted to deck level (12y ground bar, 0.5 m). No new cell class.
 (3) Q213 b: along the bridge's whole back, the cut stands at the walls' bottom, including where no highway runs beneath; the ground beyond the back is not left at the DEM.
 (4) Q214 a: twin carriageways stopped by one back are one cut at the objects' bottom, across both carriageways and the median.
+
+**2026-10-28e — HECA #712/#1003 round 5 ships for a sim read (owner Q215, 2026-10-27T13:23Z: "Include the current state and let me check it in-sim and provide feedback.").**
+After its third failed round (PR #1134 at 348e8079c misses the §4 bars: riser outer line +0.95–1.63 m over its ground, 94 gap vertices more than 0.5 m over their ground beside the T3 lot), the branch goes into the next test build as it stands. The owner's sim read decides the next step; no fourth round starts before it.

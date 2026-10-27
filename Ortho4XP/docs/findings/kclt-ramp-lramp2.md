@@ -116,29 +116,38 @@ trial, for the owner's sim read.
   strip, released to 52.8 % (13e) — a pad-road question.
 * #684 (roads inside a lot are the lot) — separate PR if time allows.
 
-## 6. Measured (replays off one capture; base `--gap-free` solve shared)
+## 6. Measured (replays off one capture; base `--gap-free` solve shared; one closing build)
 
 Capture `lramp2/KCLT.pkl` at 2cc289364; control `late_ctl.pkl` (main);
-arm `late_r5.pkl` (this branch). Coordinate-joined movers, arm vs control:
-building (bank vertices only) 9, groundside_pavement 34, service_road 142;
-**airside 0, pads 0**. Gap stage: relaxed hard rows 9 + 8 + 3 (follow,
-ramp ceiling, pavement ceiling) -> **none**; pad-roads stage unchanged in
-kind (cross-section 38 -> 35).
+arm `late_r6.pkl` (this branch, final). Closing build `lramp2_KCLT` (branch
+e4fef5f41 + the layer refactor, behaviour-identical; body_sha 0046e380e39b):
+its census equals the replay arm of the same code row for row (12665), so the
+replay numbers below are the build's; the final arm adds only the
+standing-edge rule for bank nodes (mid-edge steps -4, vertex-to-edge -1).
+
+Coordinate-joined movers, arm vs control: building (bank vertices only) 10,
+groundside_pavement 34, service_road 147; **airside 0, pads 0**. Gap stage:
+relaxed hard rows 9 + 8 + 3 (follow, ramp ceiling, pavement ceiling) ->
+**none**; pad-roads stage unchanged in kind (cross-section 38 -> 35).
+Whole-patch law-true census: 12677 -> **12660**, adjudicated 4925 -> **4903**
+(site boxes: east foot 50 -> 42 rows, west foot 38 -> 25, elsewhere
+6598 -> 6599).
 
 | east foot (#669 / #1093) | main | this branch |
 |---|---|---|
 | ground at the lip on the axis (deck foot 222.82) | 220.32 | **222.75** |
 | `-6300` at s = 6 / 17.5 m | 219.86 / 218.71 | 222.15 / 221.07 (the foot's 5 % profile) |
 | run-out start `z0` / run | 219.63 / 11 m | 222.15 / 62 m |
-| strip design rows: misses > 0.05 m, worst | 4 of 4, 0.53 m | 10 of 15, **0.29 m** |
-| open patch edge > 0.5 m off the DEM within the run-out box (s -15..75 m, ±22 m), all faces | 412 m | 203 m |
-| of it the run-out's own (strips, banks) + the road `-6300` | 18 + 95 m | **11 + 0 m** |
+| strip design rows: misses > 0.05 m, worst | 4 of 4, 0.53 m | 8 of 15, **0.29 m** |
+| bank design rows: worst miss | — | 0.29 m |
+| open patch edge > 0.5 m off the DEM within the run-out box (s -15..75 m, ±22 m), all faces | 412 m | 204 m |
+| of it the run-out's own (strips, banks) + the road `-6300` | 18 + 95 m | **13 + 0 m** |
 
-The 11 m left on the run-out's own faces are two wedges where its bank meets
+The 13 m left on the run-out's own faces are two wedges where its bank meets
 a neighbour that itself stands off the ground: the bank's start flank beside
 `gap:0` / the apron `pav14` (35.22243, -80.94219, +1.6 to +2.7 m over 4.5 m)
-and its north end against the raised junction with `big_roads:-1570`
-(35.22300, -80.94225, +1.9 to +2.9 m over 3 m).
+and its north end welded to the apron's corner beside the raised junction
+with `big_roads:-1570` (35.22300, -80.94225, +2.7 m over 3 m).
 
 West foot (no carrying road; `runout:0`): the run-out's own open edge 23 m ->
 5 m; its far end stays 4.6 m over its design (the pad road
@@ -151,3 +160,18 @@ the terminal pad `building75` (+7.3 m) and the pad roads west of it
 (`small_roads:-11471`, `-8197`, `-8201`, +5 m). The ramp's SIDES at a
 non-landing foot have no bank (10-14c (5) keeps 10-03e's bank for the sides;
 none is minted where there is no landing) — a follow-up.
+
+## 7. Sim read (owner, by landmark)
+
+At KCLT, the north end of the terminal's elevated departures roadway (the
+roadway object `techos_1`), where it comes down to the ground heading north
+with the terminal apron on its right (east): the deck should now land on the
+ground with no drop, the roadway carrying on north at an easy grade (about
+5 %) for some 60 m to where it rises onto the next raised section, and the
+ground either side of it filling across to the apron and to the service
+roads on its left with no cliff. The same roadway's other foot, at the
+terminal's west end (by the service road that runs along it at the
+terminal's level), should show no drop where the deck lands either.
+Look also at the WEST side of the
+deck's last metres (the pavement under the ramp, towards the terminal's
+service roads): a 4-5 m drop remains there (the ramp's side, not fixed here).

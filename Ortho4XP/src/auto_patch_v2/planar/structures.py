@@ -110,6 +110,8 @@ from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
 from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
 from .structure_mouth import mouth_at_pavement as _mouth_at_pavement, road_end_after_slide
+from .lidar_road import lidar_road_floor, lidar_road_refusal
+from .dual_width import compose_half_fn, dual_half_fn
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, portal_mouth,
                               portal_note, strip_keepout)
 from .zones import shore_region
@@ -344,6 +346,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     bridge_tree = STRtree(bridge_lines) if bridge_lines else None
 
     spacing = law.tables.emit.chords.station_spacing_m
+    from ..law import inset_class
+    credible = inset_class.lidar_credible(airport, law)    # #1280: lidar_road
     gap = tn.wall_gap_m
     rim_off = tn.wall_gap_m + tn.wall_band_width_m      # an OSM bore's rim stand-off
     grid = law.tables.emit.identity.min_distinct_spacing_m
@@ -380,6 +384,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}"
                                        + (f", mouth {moved:.1f} m into the bore to the "
                                           f"portal's anchor" if moved else ""))
+        # #1280: a road the credible lidar reads under the cover is built by the survey
+        road_f = None if c is not None or pin is not None else lidar_road_floor(
+            airport, law, members, credible, rim_off)
+        if road_f is not None:
+            stats.refused.append(f"{tid}: {lidar_road_refusal(road_f)}")
+            continue
         clear = None if c is not None else _mouth_at_pavement(   # #971: stop AT the pavement
             g, axis_ln, cells, polys, pads, law, _cut_roles, half, rim_off, gap, spacing_g,
             grid, [d[3] for d in deck_intervals(
@@ -672,9 +682,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             # THE RAMP WIDTH FROM THE PAVEMENT (2026-09-06b (2)): a pavement
             # tracing the road sets the ramp's edges per station
             pav_hw, traced = pavement_half_widths(axis_fn, ss, cells, polys, law, half)
-            if pav_hw:
-                def half_fn(s: float, _hw=pav_hw, _h=half) -> tuple[float, float]:
-                    return _hw.get(s, (_h, _h))
+            # #807: a dual's edges are its carriageways' — one span where they fold
+            dual_fn = compose_half_fn(pav_hw, dual_half_fn(axis_fn, members, half), half, half_fn)
+            half_fn = compose_half_fn(pav_hw, None, half, half_fn)
+            if dual_fn is not half_fn and ring_for(c, axis_fn, ss, half, rim_off, inward, grid,
+                                                   g, dual_fn) is not None:
+                half_fn = dual_fn
         # §33 (6) B: an OBJECT CUT's ring is its OWN trench polygon
         def _ring(ss_try):
             return ring_for(c, axis_fn, ss_try, half, rim_off, inward, grid, g, half_fn)

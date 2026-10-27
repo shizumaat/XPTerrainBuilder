@@ -491,10 +491,12 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.chords",
         "auto_patch_v2.planar.covered_ground",
         "auto_patch_v2.planar.door_ramps",
+        "auto_patch_v2.planar.dual_width",
         "auto_patch_v2.planar.edges",
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
+        "auto_patch_v2.planar.lidar_road",
         "auto_patch_v2.planar.low_level",
         "auto_patch_v2.planar.object_corridor",
         "auto_patch_v2.planar.overlay",
@@ -1423,7 +1425,9 @@ CODE_MODULES["solve"] = _mods("""
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
-    planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
+    planar.dual_width
+    planar.edges planar.landing planar.landing_runout planar.lidar_road
+    planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths
@@ -1527,7 +1531,9 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     planar.build planar.channel
     planar.channel_claims planar.channel_floor planar.channel_geometry
     planar.channel_witness planar.chords planar.covered_ground planar.door_ramps
-    planar.edges planar.landing planar.landing_runout planar.low_level planar.object_corridor
+    planar.dual_width
+    planar.edges planar.landing planar.landing_runout planar.lidar_road
+    planar.low_level planar.object_corridor
     planar.overlay planar.pack_reads planar.pad_blocks planar.pad_cut planar.pad_sliver
     planar.pad_terrace planar.platform planar.ribbon_weld planar.ribbons
     planar.ridge_reach planar.road_yield planar.shape_airside planar.shape_mouths

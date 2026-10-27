@@ -223,7 +223,7 @@ class _Feet:
                 for g in c.pieces:
                     polys.append(g)
                     reach.append(max(4.0 * float(c.height_m), 20.0))
-            self._walls = (list(zip(polys, reach)), STRtree(polys) if polys else None)
+            self._walls = (list(zip(polys, reach, strict=True)), STRtree(polys) if polys else None)
         return self._walls
 
     def reach(self, g) -> float:
@@ -246,7 +246,8 @@ class _Feet:
         for u in self.group(ui):
             for m in self.airport.partition.units[u].members:
                 for p in m.parts:
-                    if getattr(p, "line", False) or float(getattr(p, "height_m", 0.0) or 0.0) < self.wall_min:
+                    if (getattr(p, "line", False)
+                            or float(getattr(p, "height_m", 0.0) or 0.0) < self.wall_min):
                         continue
                     ys = tuple(sorted(float(f[2]) for f in (getattr(p, "feet", ()) or ())))
                     if not ys:

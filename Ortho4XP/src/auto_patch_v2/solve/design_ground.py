@@ -115,7 +115,8 @@ def riser_outer_vertices(planar: PlanarMap) -> set[int]:
     buildings on that side can be seated on the ground").  The ``lower``
     vertices of a fill's declared riser wall (``road_terrace['wall']`` with
     ``road_edge``, ``airport/riser_wall``) whose every face is the riser
-    (``<landing>#strip``): the coverage edge of the collar's own kind (:func:`coverage_edge_collar_vertices`).  The wall's step floor is
+    (``<landing>#strip``): the coverage edge of the collar's own kind
+    (:func:`coverage_edge_collar_vertices`).  The wall's step floor is
     their only law row and it is one-way; with no level of their own the
     objective held them up to 1.85 m over the DEM (MEASURED HECA replay,
     ``building6/landing0#strip``).  They take the same WEAK datum."""

@@ -12,7 +12,8 @@ between the fill and its road, which keeps lot law) descends from there at
 at the fill's own derivation site, from the DEM alone:
 
 * the RISER: a strip along the far kerb — ACROSS the road from the lens's
-  contact with it, within the lens's span along the road — of the low-level riser's width ``max(identity spacing, 2 x grid)``
+  contact with it, within the lens's span along the road — of the low-level riser's
+  width ``max(identity spacing, 2 x grid)``
   (``planar/low_level``) — minted ``<landing>#strip``, a bank face every
   pad reader skips;
 * the PREDICTED KERB LEVEL at a point of the riser's outer line is
@@ -34,7 +35,7 @@ from shapely.ops import unary_union
 
 from ..geom.parts import nonempty_polygon_parts as _parts
 
-__all__ = ["riser_width", "fill_risers"]
+__all__ = ["fill_risers"]
 
 
 def riser_width(law, grid: float) -> float:

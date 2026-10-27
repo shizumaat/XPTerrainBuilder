@@ -67,7 +67,7 @@ def unreachable_after_pads(base_regions: list, pad_regions: _t.Sequence, law, ai
         return base_regions, {"reach_after_pads": 0}
     kept: dict[int, list] = {}
     lost: dict[int, list] = {}
-    for (role, _ref, q, _l, _e, _k), i in zip(entries, owner):
+    for (role, _ref, q, _l, _e, _k), i in zip(entries, owner, strict=True):
         if base_regions[i].role != "apron":
             continue
         (kept if role == "apron" else lost).setdefault(i, []).append((role, q))

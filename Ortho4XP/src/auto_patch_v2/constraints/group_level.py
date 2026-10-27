@@ -41,7 +41,7 @@ from ..model.constraints import Linear, Row, Source
 from ..model.planar import PlanarMap
 
 __all__ = ["TOUCH_M", "LANDING_INPUT", "witness_index", "witness_terms",
-           "group_level_rows", "group_level_rewrite", "stage_two_vertices"]
+           "group_level_rows", "group_level_rewrite"]
 
 #: the object stage's airside touch (``airside_group_seat.TOUCH_M``)
 TOUCH_M = 1.0

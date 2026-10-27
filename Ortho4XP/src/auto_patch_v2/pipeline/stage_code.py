@@ -1403,7 +1403,8 @@ CODE_MODULES["solve"] = _mods("""
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.ramp_runout
     classify.retaining_wall classify.ribbon_mint classify.roles classify.rules
-    classify.sources classify.taxi_letter classify.wall_clip constraints.apron constraints.apron_shelf
+    classify.sources classify.taxi_letter classify.wall_clip constraints.apron
+    constraints.apron_shelf
     constraints.ceiling constraints.cluster_pad constraints.contiguity
     constraints.end_lip constraints.geometry constraints.groundside constraints.no_step
     constraints.pad_frontage_gs constraints.pad_relief constraints.pad_warning
@@ -1497,7 +1498,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     classify.lot_roads classify.neck classify.open_default classify.pad_road_exit
     classify.pad_cut_corridor classify.pad_touch
     classify.ramp_runout classify.retaining_wall classify.ribbon_mint
-    classify.roles classify.rules classify.sources classify.taxi_letter classify.wall_clip constraints
+    classify.roles classify.rules classify.sources classify.taxi_letter classify.wall_clip
+    constraints
     constraints.apron constraints.apron_shelf constraints.assembly constraints.ceiling
     constraints.channel constraints.cluster_pad constraints.contiguity constraints.eat
     constraints.end_lip constraints.flat_site constraints.foot_rows
@@ -1672,7 +1674,8 @@ CODE_MODULES["verify"] = _mods("""
     classify.neck classify.open_default
     classify.pad_cut_corridor classify.pad_touch classify.retaining_wall
     classify.ribbon_mint classify.roles classify.rules classify.sources
-    classify.taxi_letter classify.wall_clip constraints.apron constraints.ceiling constraints.channel
+    classify.taxi_letter classify.wall_clip constraints.apron constraints.ceiling
+    constraints.channel
     constraints.cluster_pad constraints.contiguity constraints.eat constraints.end_lip
     constraints.geometry constraints.groundside constraints.junction_mesh
     constraints.no_step constraints.pad_frontage_gs constraints.pad_relief

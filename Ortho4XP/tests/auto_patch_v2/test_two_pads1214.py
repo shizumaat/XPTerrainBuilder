@@ -31,7 +31,8 @@ def _airport(parts, tmp_path, ground=lambda x, y: 300.0):
     nav.write_text("I\n1100 Version\n\n1 1000 0 0 ZZZZ Test\n"
                    "1300 101.0 100.0 90.0 gate jets A1\n\n99\n", encoding="utf-8",
                    newline="")
-    unit = types.SimpleNamespace(members=[types.SimpleNamespace(parts=parts, resource="stub.obj", id="m0")])
+    unit = types.SimpleNamespace(
+        members=[types.SimpleNamespace(parts=parts, resource="stub.obj", id="m0")])
     return types.SimpleNamespace(
         icao="ZZZZ", pack=types.SimpleNamespace(apt_dat_path=str(nav)),
         partition=types.SimpleNamespace(units=[unit]),

@@ -10444,3 +10444,6 @@ Read with the questions as asked:
 **2026-10-28l — wall-corridor bays: lids and shared-wall steps (#414, PR #1567; owner Q234–Q235, 2026-10-27T16:51:31Z: "234. A 235. A").**
 (1) Q234 A: a lid over a wall-corridor trench counts as a roof (the headroom gate) only when it covers at least half the trench (`cutout.wall_corridor.headroom_cover_min = 0.5`). A sidewalk strip drawn at grade over a small part of the trench does not refuse the bay.
 (2) Q235 A: where neighbouring bays with different floors meet under a wall they share, and that wall reaches below both floors, the step is lawful: the wall hides it, and the census forgives it as a declared wall step.
+
+**2026-10-28m — an apt.dat-only runway elevation yields to the survey ground (#1348, PAAQ; owner Q217, 2026-10-27T16:52:28Z: "A").**
+Asked: at PAAQ the gravel strip 16S/34S (no CIFP) is pinned to its apt.dat elevation, 0.9–1.7 m below the lidar ground (34S 68.66 vs DEM 70.38; 16S 70.95 vs 72.65), which leaves a ~1.1 m step across runway 16/34's shoulder. Ruled (a): where a runway has no CIFP threshold elevation, the lidar or DEM ground wins over the apt.dat elevation, so the runway sits on the terrain and no step is minted against its neighbours. Runways with CIFP keep the CIFP pin (25a/26a/26e).

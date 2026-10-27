@@ -56,9 +56,10 @@
 #                      Previews/ and tmp/ lane-local; they are products,
 #                      and the ruling's enumeration lists neither.
 #   XPTerrainBuilder.cfg  CLONED (this app's global; RULINGS 2026-10-26c
-#                      renamed it from Ortho4XP.cfg, which a main tree that
-#                      has not run the engine since is copied from first —
-#                      the engine's own one-time hand-over, O4_Config_Names).
+#                      renamed it from Ortho4XP.cfg; a main tree that has
+#                      only the old name is seeded from it first — a
+#                      HARNESS-only seed: the app itself never copies
+#                      Ortho4XP.cfg, owner Q176 "B").
 #                      It is NOT tracked, so a fresh worktree has
 #                      none at all — and then `Tile.read_from_config()`
 #                      finds no config, the DEM prep runs on constructor
@@ -477,8 +478,9 @@ up)
         done
         echo "  [ritual] cloned $d ($(ls -1 "$ENGINE/$d" 2>/dev/null | wc -l | tr -d ' ') entries; $_how) — lane-private OUTPUT, writes stay here"
     done
-    # The global's one-time hand-over in the MAIN tree, as the engine does
-    # on its first import there: copy, never overwrite, original kept.
+    # Seed the MAIN tree's global from its old name (harness-only; the app
+    # never copies Ortho4XP.cfg, owner Q176 "B"): copy, never overwrite,
+    # original kept.
     if [ ! -e "$MAIN_ENGINE/XPTerrainBuilder.cfg" ] && [ -f "$MAIN_ENGINE/Ortho4XP.cfg" ]; then
         cp -n "$MAIN_ENGINE/Ortho4XP.cfg" "$MAIN_ENGINE/XPTerrainBuilder.cfg" \
             && echo "  [ritual] main tree: copied Ortho4XP.cfg to XPTerrainBuilder.cfg (RULINGS 2026-10-26c)"

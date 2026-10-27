@@ -21,23 +21,18 @@ THE HAND-OVER, once per file, never overwriting anything:
   user's Ortho4XP file — is renamed back to ``Ortho4XP_+XX+YYY.cfg`` when
   no file holds that name.  Only the exact oldest name is ever restored,
   so a later ``.bak.2`` is never promoted: the restore happens once.
-* :func:`adopt_global_cfg` — when the data root has no
-  ``XPTerrainBuilder.cfg`` and its ``Ortho4XP.cfg`` was this app's (the
-  data root is not an Ortho4XP installation, :func:`is_ortho4xp_install`),
-  the file is COPIED to the new name, so a user's own global settings carry
-  over.  The original stays where it is.  In an Ortho4XP folder the
-  Ortho4XP file is ignored and the app starts from its defaults (owner
-  Q97, "Ignore").
+
+The global config has NO hand-over (owner Q176 "B", 2026-10-27): a data
+root without ``XPTerrainBuilder.cfg`` starts from this app's defaults,
+and an ``Ortho4XP.cfg`` there is ignored (owner Q97, "Ignore").
 
 Every function here never raises; a step that cannot be taken (a file in
-use, a read-only folder) is simply not taken.  The Mac app mirrors
-:func:`adopt_global_cfg` in ``SceneryKit/OrthoConfigNames.swift`` because
-it reads the global before the engine starts.
+use, a read-only folder) is simply not taken.  The Mac app's
+names are ``SceneryKit/OrthoConfigNames.swift``.
 """
 
 from __future__ import annotations
 
-import glob
 import os
 import shutil
 
@@ -48,8 +43,7 @@ import O4_Text_Files as TEXT
 __all__ = ["GLOBAL_CFG_NAME", "ORTHO4XP_GLOBAL_CFG_NAME", "TILE_CFG_PREFIX",
            "ORTHO4XP_TILE_CFG_PREFIX", "PRE_STAMP_BACKUP_SUFFIX",
            "tile_cfg_name", "ortho4xp_tile_cfg_name", "tile_cfg_path",
-           "global_cfg_path", "is_ortho4xp_install", "adopt_global_cfg",
-           "adopt_tile_cfg"]
+           "global_cfg_path", "adopt_tile_cfg"]
 
 #: This app's global config, in the data root.
 GLOBAL_CFG_NAME = "XPTerrainBuilder.cfg"
@@ -174,45 +168,3 @@ def adopt_tile_cfg(build_dir: str, lat: int, lon: int) -> list[str]:
     except Exception:
         pass
     return infos
-
-
-def is_ortho4xp_install(root: str) -> bool:
-    """Whether *root* is an Ortho4XP installation (its launcher beside its
-    data) rather than this app's data folder or engine checkout.
-
-    The witness is Ortho4XP's launcher, ``Ortho4XP*.py``, in *root*
-    without this engine's ``src/O4_Config_Names.py`` beside it (this
-    engine's source checkout carries ``Ortho4XP.py`` too).
-    """
-    try:
-        if not glob.glob(os.path.join(glob.escape(root), "Ortho4XP*.py")):
-            return False
-        return not os.path.isfile(os.path.join(root, "src",
-                                               "O4_Config_Names.py"))
-    except Exception:
-        return False
-
-
-def adopt_global_cfg(root: str | None = None) -> list[str]:
-    """The global one-time hand-over (module docstring).
-
-    :param root: the data root; defaults to the current one.
-    :returns: INFO lines (empty when nothing happened).
-    """
-    try:
-        if root is None:
-            root = os.path.dirname(global_cfg_path())
-        ours = os.path.join(root, GLOBAL_CFG_NAME)
-        theirs = os.path.join(root, ORTHO4XP_GLOBAL_CFG_NAME)
-        if os.path.lexists(ours) or not os.path.isfile(theirs):
-            return []
-        if is_ortho4xp_install(root):
-            return []
-        if _exclusive_copy(theirs, ours):
-            return ["global settings copied from %s to %s; %s is no longer "
-                    "read or written (owner ruling RULINGS 2026-10-26c)"
-                    % (ORTHO4XP_GLOBAL_CFG_NAME, GLOBAL_CFG_NAME,
-                       ORTHO4XP_GLOBAL_CFG_NAME)]
-    except Exception:
-        pass
-    return []

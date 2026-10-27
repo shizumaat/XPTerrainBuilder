@@ -324,6 +324,13 @@ def two_providers(monkeypatch, tmp_path):
                 raise ea_failures.cap_exceeded_unavailable(
                     definition, "%d tiles" % len(self.last_listing),
                     entry["cap"], "max_tiles_per_airport", destination_path)
+            if entry.get("product"):
+                # THE PRODUCT CLASS (#1210): a listed tile's own bytes
+                # are refused (a LAS tile with no CRS).
+                self.last_listing = [{"source_id": i} for i in
+                                     entry.get("listing") or []]
+                raise ea_failures.product_refused_unavailable(
+                    entry["product"])
             if entry.get("unavailable"):
                 raise ea_base.ProviderUnavailable(entry["unavailable"])
             if entry.get("transient"):
@@ -486,11 +493,51 @@ def test_cap_declined_rung_is_not_refetched_for_the_same_listing(
 
 
 @requires_gdal
+def test_product_refused_rung_settles_after_a_transient_record(
+        two_providers):
+    """#1210 (KFHR, +48-124): the LPC rung was recorded ``transient``
+    (HTTP 429), the re-check re-ran the ladder, and the re-run refused
+    the tile -- ``tile declares no CRS`` -- as an ``unavailable`` with no
+    listing, so the re-check was owed again on every build and
+    ``--refresh-data dem`` never settled.  A refusal of the tile's own
+    bytes records its listing under the signature it was refused under:
+    after the one re-run nothing is owed, the next builds fetch nothing,
+    and a new tile in the index asks again."""
+    plan, calls, chain, _other, _raise = two_providers
+    plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
+                 "FAKEPIT": {"transient": "FAKEPIT: tile T2 answered "
+                                          "HTTP 429", "listing": ["T1", "T2"]},
+                 "FAKE3DEP:10": {"valid": 1.0, "listing": ["n1"]}})
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    assert _sidecar()["ladder"]["rungs_tried"][1]["outcome"] == "transient"
+    assert INSETS.ladder_recheck_owed(
+        39, -107, "KASE", "FAKE3DEP", BOX) == ["county lidar"]
+    plan["FAKEPIT"] = {"product": "FAKEPIT: tile declares no CRS",
+                       "listing": ["T1", "T2"]}
+    INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+    refused = _sidecar()["ladder"]["rungs_tried"][1]
+    assert refused["outcome"] == "unavailable"
+    assert refused["unavailable_reason"] == "FAKEPIT: tile declares no CRS"
+    assert refused["listing_ids"] == ["T1", "T2"]
+    assert refused["declined_under"]["definition"]
+    assert INSETS.ladder_recheck_owed(39, -107, "KASE", "FAKE3DEP", BOX) == []
+    for _build in range(2):
+        calls["fetch"].clear()
+        INSETS.ensure_airport_insets(39, -107, {"KASE": BOX}, [chain], None)
+        assert calls["fetch"] == []
+    plan["FAKEPIT"]["listing"] = ["T1", "T2", "T3"]
+    recheck = INSETS.ladder_recheck(39, -107, "KASE", "FAKE3DEP", BOX)
+    assert (recheck["result"], recheck["new_source_ids"]) == (
+        "new-listing", ["T3"])
+
+
+@requires_gdal
 def test_unavailable_rung_that_is_no_cap_is_asked_again_every_build(
         two_providers):
     """13b stands for every other ``unavailable`` (a refused download, a
-    product the engine could not use; #595 left undecided): no listing is
-    recorded and the re-check asks."""
+    missing library): no listing is recorded and the re-check asks.  The
+    cap class (#583), the decoder class (#595) and the product class
+    (#1210) are the exceptions, each twinned above."""
     plan, calls, chain, _other, _raise = two_providers
     plan.update({"FAKE3DEP:1": {"valid": None, "listing": []},
                  "FAKEPIT": {"unavailable": "laspy missing",

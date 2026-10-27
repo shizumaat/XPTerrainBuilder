@@ -68,7 +68,7 @@ print(json.dumps({{"values": out, "unloaded": unloaded, "holders": holders}}))
 def _run(tmp_path, order: str, lines: dict[str, str]) -> dict:
     root = tmp_path / order
     root.mkdir()
-    (root / "Ortho4XP.cfg").write_text(
+    (root / "XPTerrainBuilder.cfg").write_text(
         "".join(f"{k}={v}\n" for k, v in lines.items()),
         encoding="utf-8", newline="")
     env = dict(os.environ, ORTHO4XP_DATA_ROOT=str(root))

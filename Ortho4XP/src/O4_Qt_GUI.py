@@ -41,7 +41,6 @@ from PySide6.QtGui import (
     QPainterPath,
     QPixmap,
     QShortcut,
-    QTextCursor,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -75,7 +74,7 @@ from PySide6.QtWidgets import (
 import O4_Activity_Order as ACTORDER
 import O4_Glossary as GLOSSARY
 import O4_File_Names as FNAMES
-import O4_Imagery_Utils as IMG
+import O4_Imagery_Sources as SOURCES
 import O4_UI_Utils as UI
 import O4_Version
 import O4_Build_Info
@@ -90,13 +89,17 @@ import O4_Text_Scale as TEXTSCALE
 import O4_Flight_Plan as FLIGHTPLAN
 import O4_Scenery_Links as LINKS
 import O4_Tile_Info as TINFO
+import O4_Qt_Imagery_Menu as QTIMENU
 import O4_Qt_Map as QTMAP
 from o4_engine import EngineSession
 from o4_engine import events as EV
 import O4_Qt_Settings as QTSET
 import O4_Qt_Wizard as QTWIZ
 import O4_Qt_Boundary_Dialog as QTBOUND
+import O4_Qt_Build_History as QTHIST
+import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
+import O4_Qt_Pack_Forests as QTFOREST
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
 import O4_Qt_Patch_Editor as QTPATCH
@@ -687,25 +690,15 @@ class _EngineBridge(QObject):
 
 
 def gui_provider_codes():
-    codes = sorted(
-        code
-        for code in set(IMG.providers_dict)
-        if IMG.providers_dict[code].get("in_GUI")
-    )
-    codes += sorted(set(IMG.combined_providers_dict))
-    return [c for c in codes if c not in ("SEA",)]
+    """The sources a build may download, in the engine's menu order
+    (``O4_Imagery_Sources.imagery_sources``, #1345)."""
+    return [row["code"] for row in SOURCES.imagery_sources() if row["buildable"]]
 
 
 def map_preview_codes():
-    """Provider codes the live map can actually draw.
-
-    The map-preview picker (mac-app parity: MapMainView.swift's
-    ``mapPreviewProvider``) offers only sources the map can render
-    directly — a combined or non-webmercator source silently falls back
-    to OSM, which makes for a picker whose entries lie.  Order follows
-    :func:`gui_provider_codes` so the two imagery combos read alike.
-    """
-    return [c for c in gui_provider_codes() if QTMAP.provider_is_mappable(c)]
+    """The sources the live map can draw, in the same order (the picker
+    lists the rest greyed, with the reason)."""
+    return [row["code"] for row in SOURCES.imagery_sources() if row["previewable"]]
 
 
 def _sync_combo_to_agreed_value(combo, configured_values):
@@ -833,6 +826,8 @@ class MainWindow(QMainWindow):
             EV.RunDone: self._on_run_done,
             EV.BoundaryAirportsReady: self._on_boundary_airports_ready,
             EV.PackMissingArt: self._on_pack_missing_art,
+            EV.ImagerySourceStatus: self._on_imagery_source_status,
+            EV.PackOldForests: self._on_pack_old_forests,
             # Patch editor (#46): pack_objects completes through this.
             EV.PackObjectsReady: lambda e: self.patch_editor.on_pack_objects_ready(e),
             EV.PlanEstimateReady: self._on_plan_estimate_ready,
@@ -841,6 +836,9 @@ class MainWindow(QMainWindow):
         # and missing set) and the open boxes (kept alive: non-modal).
         self._pack_art_seen = set()
         self._pack_art_boxes = []
+        # #1360: the 3D trees questions already asked (one per pack, tile
+        # and set); their open boxes live in _pack_art_boxes too.
+        self._pack_forests_seen = set()
         # #562: the run's BuildDone events that carry a failure or warning.
         self._run_issue_events = []
         # #695: fixable failures, asked one at a time as each tile fails;
@@ -914,7 +912,7 @@ class MainWindow(QMainWindow):
             self.restoreGeometry(
                 QByteArray.fromBase64(geometry_b64.encode("ascii"))
             )
-        self.console.setVisible(
+        self.console_drawer.setVisible(
             bool(self.prefs.get("console_visible", True))
         )
         splitter_b64 = str(self.prefs.get("splitter_state", ""))
@@ -997,7 +995,13 @@ class MainWindow(QMainWindow):
         # combo keeps the full list.
         toolbar.addWidget(QLabel(" Imagery Preview "))
         self.map_provider_combo = QComboBox()
-        self.map_provider_combo.addItems(map_preview_codes())
+        # Both imagery menus come from the engine's one list (#1345);
+        # the launch status check (start_imagery_status_check) greys out
+        # a source that does not answer.
+        self._imagery_rows = SOURCES.imagery_sources()
+        self._imagery_status = {}
+        QTIMENU.fill_combo(self.map_provider_combo, QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=True))
         self.map_provider_combo.setToolTip(
             "Choose which imagery source the map previews — independent "
             "of the provider used for building"
@@ -1122,6 +1126,9 @@ class MainWindow(QMainWindow):
         ig.addRow("Ground shaped:", self.info_mesh)
         self.info_imagery = ElidedRowLabel("—")
         ig.addRow("Imagery updated:", self.info_imagery)
+        # Who built it (#1226, owner Q95): the build record, else the DSF.
+        self.info_built_by = ElidedRowLabel("—")
+        ig.addRow("Built by:", self.info_built_by)
         self.info_elevation = TwoLineElidedLabel("—")
         ig.addRow("Elevation:", self.info_elevation)
         self.info_airport_lidar = TwoLineElidedLabel("—")
@@ -1256,6 +1263,12 @@ class MainWindow(QMainWindow):
         # its width — the scroll-area oscillation the class avoids.
         self.build_summary = TwoLineElidedLabel("No tiles selected")
         bg.addWidget(self.build_summary)
+        # The headline (#818): grading and object fitting, per build.
+        self.airports_card = QTAIRPORTS.AirportsCard()
+        self.airports_card.on_card_changed = self._update_build_summary
+        self.chk_grade_airports = self.airports_card.chk_grade
+        self.chk_modify_airports = self.airports_card.chk_fit
+        bg.addWidget(self.airports_card)
         # The BUILD imagery source, first in the box as in the Mac app's
         # BuildPane (#1243); the detail level lives in Settings (#1242).
         # Label + combo row: the label PREFERS its full text but yields
@@ -1266,7 +1279,8 @@ class MainWindow(QMainWindow):
         ibl.setContentsMargins(0, 0, 0, 0)
         ibl.addWidget(ElidedRowLabel("Imagery:"))
         self.imagery_combo = QComboBox()
-        self.imagery_combo.addItems(gui_provider_codes())
+        QTIMENU.fill_combo(self.imagery_combo, QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=False))
         # "--" shows when the selected tiles' configs disagree
         # (currentIndex -1); start_build refuses to run until resolved.
         self.imagery_combo.setPlaceholderText("--")
@@ -1289,23 +1303,16 @@ class MainWindow(QMainWindow):
         self.selection_conflict_btn.setVisible(False)
         _never_widen(self.selection_conflict_btn)
         bg.addWidget(self.selection_conflict_btn)
-        self.chk_vector = QCheckBox(GLOSSARY.TERMS["terrain_steps"])
-        self.chk_vector.setChecked(True)
-        self.chk_imagery = QCheckBox(GLOSSARY.TERMS["imagery_and_scenery_file"])
-        self.chk_imagery.setChecked(True)
-        self.chk_overlays = QCheckBox(GLOSSARY.TERMS["xplane_objects"])
-        self.chk_skip_built = QCheckBox("Skip already-built tiles")
-        self.chk_skip_built.setChecked(True)
-        # Auto-install (mac-app parity: BuildPane's "Install finished
-        # tiles automatically", BuildModel.linkTiles): every tile that
-        # finishes OK is linked into Custom Scenery as it lands, so a
+        # "When it's done", then the plumbing collapsed under Advanced
+        # (#818) — the Mac app's BuildPane order
+        # (tests/test_qt_layout_parity.py).
+        done_label = QLabel("When it's done")
+        done_label.setStyleSheet("color: gray; font-weight: bold;")
+        bg.addWidget(done_label)
+        # Auto-install (mac-app parity: BuildModel.linkTiles): every tile
+        # that finishes OK is linked into Custom Scenery as it lands, so a
         # batch is flyable the moment it ends.  Default ON, as there.
-        # Short label by necessity: the panel is a fixed 280 px with its
-        # horizontal scrollbar off, and a checkbox cannot elide — the mac
-        # app's "Install finished tiles automatically" would clip.  Every
-        # checkbox here is _never_widen'd below, so a wide platform font
-        # clips ONE label instead of clipping the whole panel.
-        self.chk_auto_install = QCheckBox("Auto-install finished tiles")
+        self.chk_auto_install = QCheckBox("Install in X-Plane automatically")
         self.chk_auto_install.setChecked(
             bool(self.prefs.get(AUTO_INSTALL_KEY, True))
         )
@@ -1315,42 +1322,38 @@ class MainWindow(QMainWindow):
             "with the 'Installed in X-Plane' switch above."
         )
         self.chk_auto_install.toggled.connect(self._auto_install_changed)
-        # Global engine gate (cfg var modify_custom_airports): whether the
-        # auto-patch pass may reseat 3-D objects of installed custom
-        # airport packs onto the rebuilt ground.
-        import O4_Config_Utils as CFG
-
-        self.chk_modify_airports = QCheckBox(GLOSSARY.TERMS["fit_buildings"])
-        self.chk_modify_airports.setChecked(
-            bool(getattr(CFG, "modify_custom_airports", True))
-        )
-        self.chk_modify_airports.setToolTip(
-            "Reseats the 3-D objects of custom airport packages in Custom "
-            "Scenery at the new ground elevation this build produces "
-            "(edited in place, originals kept as .anchor_bak backups).\n"
-            "Unchecked, installed packages are left byte-identical — "
-            "objects at reprofiled airports may float or sink."
-        )
-        self.chk_modify_airports.toggled.connect(
-            self._modify_custom_airports_changed
-        )
-        # The Mac app's BuildPane order (tests/test_qt_layout_parity.py).
-        for c in (
-            self.chk_vector,
-            self.chk_imagery,
-            self.chk_overlays,
-            self.chk_modify_airports,
-            self.chk_skip_built,
-            self.chk_auto_install,
-        ):
+        self.chk_skip_built = QCheckBox("Skip tiles already built")
+        self.chk_skip_built.setChecked(True)
+        self.advanced_toggle = QToolButton()
+        self.advanced_toggle.setText("▸ Advanced")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setAutoRaise(True)
+        self.advanced_box = QWidget()
+        advanced = QVBoxLayout(self.advanced_box)
+        advanced.setContentsMargins(12, 0, 0, 0)
+        self.chk_vector = QCheckBox(GLOSSARY.TERMS["terrain_steps"])
+        self.chk_vector.setChecked(True)
+        self.chk_imagery = QCheckBox(GLOSSARY.TERMS["imagery_and_scenery_file"])
+        self.chk_imagery.setChecked(True)
+        self.chk_overlays = QCheckBox(GLOSSARY.TERMS["xplane_objects"])
+        for c in (self.chk_vector, self.chk_imagery, self.chk_overlays):
+            _never_widen(c)
+            advanced.addWidget(c)
+        self.advanced_box.setVisible(False)
+        self.advanced_toggle.toggled.connect(self._advanced_toggled)
+        for c in (self.chk_auto_install, self.chk_skip_built):
             # A QCheckBox neither wraps nor elides, so its label width is
             # a hard floor under the panel — and the floor grows with the
-            # platform font (the Windows runner measures 1.5x the mac's,
-            # where "Auto-install finished tiles" alone wants 348 px of a
-            # 266 px viewport).  Ignored policy keeps the box at whatever
-            # width the panel has, clipping its own tail at worst.
+            # platform font (the Windows runner measures 1.5x the mac's).
+            # Ignored policy keeps the box at whatever width the panel
+            # has, clipping its own tail at worst.
             _never_widen(c)
             bg.addWidget(c)
+        bg.addWidget(self.advanced_toggle)
+        bg.addWidget(self.advanced_box)
+        for c in (self.chk_grade_airports, self.chk_modify_airports,
+                  self.chk_auto_install, self.chk_skip_built,
+                  self.chk_vector, self.chk_imagery, self.chk_overlays):
             c.toggled.connect(self._schedule_plan_estimate)
         self.imagery_combo.currentTextChanged.connect(
             self._schedule_plan_estimate)
@@ -1466,9 +1469,17 @@ class MainWindow(QMainWindow):
         self.console.setFont(font)
         QTTEXT.size_text(self.console, points=11)  # follows View > text size
 
+        # The drawer around it (#1226): the header's selection filter,
+        # Saved logs, History and Clear, and the Build History list
+        # beside the console (BuildConsoleView.swift is the layout).
+        self.console_drawer = QTHIST.ConsoleDrawer(
+            self.console, lambda: self._built,
+            lambda lat, lon: self.map.set_active(lat, lon),
+            self.map.set_dimmed)
+
         self.splitter = QSplitter(Qt.Vertical)
         self.splitter.addWidget(center)
-        self.splitter.addWidget(self.console)
+        self.splitter.addWidget(self.console_drawer)
         # The console drawer keeps ITS height when the window resizes
         # (stretch 0: all growth goes to the map) and cannot be dragged
         # to zero — it only changes size at the user's splitter handle,
@@ -1604,10 +1615,7 @@ class MainWindow(QMainWindow):
         import O4_Config_Utils as CFG
 
         imagery = self.prefs.get("imagery", "BI")
-        if imagery in [
-            self.imagery_combo.itemText(i)
-            for i in range(self.imagery_combo.count())
-        ]:
+        if imagery in QTIMENU.offered_codes(self.imagery_combo):
             self.imagery_combo.setCurrentText(imagery)
         # The build detail level (ZL): set in Settings (#1242), adopted
         # from a selected built tile (_sync_build_controls_to_selection).
@@ -1622,10 +1630,7 @@ class MainWindow(QMainWindow):
                 CFG.custom_scenery_dir = candidate
         # The basemap follows its OWN picker, never the build source.
         map_code = str(self.prefs.get(MAP_PROVIDER_KEY, DEFAULT_MAP_PROVIDER))
-        offered = [
-            self.map_provider_combo.itemText(i)
-            for i in range(self.map_provider_combo.count())
-        ]
+        offered = QTIMENU.offered_codes(self.map_provider_combo)
         if map_code not in offered:
             map_code = (
                 DEFAULT_MAP_PROVIDER if DEFAULT_MAP_PROVIDER in offered
@@ -1849,6 +1854,8 @@ class MainWindow(QMainWindow):
             self._seed_paths_from_xplane()
             self._load_airports_async()
         self.refresh_tiles()
+        # Settings hold the Airports card's defaults (#818).
+        self.airports_card.refresh_switches()
         self._refresh_customized_tiles()
         if dialog.tile_written:
             self._active_changed(self.map.active_tile())
@@ -2568,6 +2575,28 @@ class MainWindow(QMainWindow):
         if handler is not None:
             handler(event)
 
+    def start_imagery_status_check(self):
+        """The launch-time imagery liveness check (#1345): one sample per
+        source on engine worker threads; ImagerySourceStatus events grey
+        out the sources that do not answer.  Started by the entry point
+        after the window shows, never by the constructor (tests build
+        windows and may not reach the network)."""
+        from o4_engine.imagery_commands import start_imagery_source_status
+        start_imagery_source_status(self._session._emit)
+
+    def _on_imagery_source_status(self, event):
+        self._imagery_status[event.code] = (event.status, event.reason)
+        self._refresh_imagery_menus()
+
+    def _refresh_imagery_menus(self):
+        """Labels, tooltips and enabled flags of both imagery menus from
+        the launch status and (Build box) the selected tiles' coverage."""
+        tiles = sorted(self.map.selection())
+        QTIMENU.apply_status(self.imagery_combo, QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=False, tiles=tiles))
+        QTIMENU.apply_status(self.map_provider_combo, QTIMENU.menu_entries(
+            self._imagery_rows, self._imagery_status, for_map=True))
+
     def _on_scan_progress(self, event):
         self.map.set_scan_status(event.phase, event.done, event.total)
 
@@ -2607,6 +2636,7 @@ class MainWindow(QMainWindow):
 
     def _push_overlays(self):
         self.map.set_built(self._built)
+        self.console_drawer.refresh_history()
         self._refresh_empty_state()
         self.map.set_installed(self._installed)
         self._active_changed(self.map.active_tile())
@@ -2620,6 +2650,7 @@ class MainWindow(QMainWindow):
         self._sync_build_controls_to_selection(sel)
         self._update_build_summary(sel)
         self._persist_selection(sel)
+        self.console_drawer.set_selection(sel, self.map.active_tile())
 
     def _persist_selection(self, selection=None):
         """Write the selected set and the active tile to the prefs file.
@@ -2668,7 +2699,8 @@ class MainWindow(QMainWindow):
         selection's config.
 
         Tiles whose per-tile config records build provenance
-        (``default_website`` / ``default_zl``) drive the build controls:
+        (``default_website`` / ``default_zl``), else whose textures name
+        their imagery (#1334), drive the build controls:
         one agreed value is selected outright.  Disagreeing sources
         unresolve the Imagery combo (it shows "--") and
         :meth:`start_build` refuses to run until the user picks one;
@@ -2681,6 +2713,7 @@ class MainWindow(QMainWindow):
         snap the combos back to the recorded provenance after the user
         deliberately picked a different value for the next build.
         """
+        self._refresh_imagery_menus()
         selection_key = (self.output_dir(), frozenset(selection))
         if selection_key == self._combos_synced_to:
             return
@@ -2690,13 +2723,22 @@ class MainWindow(QMainWindow):
         websites = set()
         zoomlevels = set()
         for lat, lon in selection:
-            raw = SM.read_tile_raw(lat, lon, self.output_dir())
-            if not raw:
-                continue
+            raw = SM.read_tile_raw(lat, lon, self.output_dir()) or {}
             website = raw.get("default_website", "").strip()
+            zoomlevel = str(raw.get("default_zl", "")).strip()
+            # No cfg source: the imagery its textures carry (#1334,
+            # TINFO.effective_imagery — the Mac's TileImageryChoice).  A
+            # detected source that did not answer at launch is not
+            # adopted (#1345).
+            info = self._built.get((lat, lon))
+            choice = TINFO.effective_imagery(info) if info is not None else None
+            if not website and choice and choice[2] == TINFO.SOURCE_DETECTED \
+                    and self._imagery_status.get(choice[0], ("", ""))[0] != "offline":
+                website = choice[0]
+                if not zoomlevel and choice[1] is not None:
+                    zoomlevel = str(choice[1])
             if website:
                 websites.add(website)
-            zoomlevel = str(raw.get("default_zl", "")).strip()
             if zoomlevel:
                 try:
                     zoomlevel = str(int(float(zoomlevel)))
@@ -2718,7 +2760,9 @@ class MainWindow(QMainWindow):
         if not n:
             self.build_summary.setText("No tiles selected")
         else:
-            summary_text = "%d tile%s selected" % (n, "s" if n > 1 else "")
+            summary_text = "%d tile%s%s" % (
+                n, "s" if n > 1 else "",
+                QTAIRPORTS.summary_suffix(self.airports_card.card))
             try:
                 import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
 
@@ -2736,6 +2780,11 @@ class MainWindow(QMainWindow):
                 summary_text += " · %d in current run" % in_run
             self.build_summary.setText(summary_text)
         self._refresh_selection_conflict_offer(sel)
+        cells = sorted(tuple(t) for t in sel)
+        if cells != getattr(self, "_airports_card_cells", None):
+            # The Airports card follows the selection (#818).
+            self._airports_card_cells = cells
+            self.airports_card.request(cells, self.output_dir())
         self.selection_label.setText("%d selected" % n if n else "")
         if self._building and n:
             # A run is in progress: the button appends to it — counting
@@ -2877,12 +2926,13 @@ class MainWindow(QMainWindow):
 
     def _tile_menu(self, lat, lon, global_pos):
         """Right-click on a tile (#938): its menu at the pointer, after
-        the patch layer's copy items (#1281); in patch Edit mode it starts
-        with "Slice" (#1318)."""
+        the copy items (#1281, #1314) and "Insert shape" (#1314); in patch
+        Edit mode it starts with "Slice" (#1318)."""
+        pos = self.map.viewport().mapFromGlobal(global_pos)
+        at = self.patch_editor.lat_lon_at(pos.x(), pos.y())
         menu = QTTILEMENU.tile_menu(
             self, lat, lon, self._tile_folder((lat, lon)),
-            self.patch_editor.context_actions())
-        pos = self.map.viewport().mapFromGlobal(global_pos)
+            self.patch_editor.context_actions(at))
         self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
         self.patch_editor.add_to_menu(menu)
         menu.exec(global_pos)
@@ -2968,6 +3018,7 @@ class MainWindow(QMainWindow):
                 self.info_zl,
                 self.info_mesh,
                 self.info_imagery,
+                self.info_built_by,
                 self.info_size,
             ):
                 w.setText("…" if pending else "—")
@@ -2994,6 +3045,7 @@ class MainWindow(QMainWindow):
         self.info_zl.setText(zl_text)
         self.info_mesh.setText(_fmt_date(info.mesh_date))
         self.info_imagery.setText(_fmt_date(info.imagery_date))
+        self.info_built_by.setText(TINFO.with_built_by(info).built_by or "—")
         if info.size_bytes is None:
             self.info_size.setText("computing…")
             threading.Thread(
@@ -3033,37 +3085,10 @@ class MainWindow(QMainWindow):
         else:
             self.install_check.setToolTip("")
 
-    def _modify_custom_airports_changed(self, checked):
-        """Persist the global modify-custom-airports switch.
-
-        Gates auto_patch Phase 2 (object reseating inside installed
-        packages): the in-session CFG value covers tiles built by this
-        process; the cfg write covers parallel worker children, which
-        re-read XPTerrainBuilder.cfg from disk.
-        """
-        import O4_Config_Utils as CFG
-        import O4_Settings_Model as SM
-
-        CFG.modify_custom_airports = bool(checked)
-        try:
-            SM.write_global({"modify_custom_airports": str(bool(checked))})
-        except OSError as exc:
-            print("Could not save modify_custom_airports:", exc)
-        # WRITE-THROUGH (owner ruling RULINGS 2026-09-18a (2)): a tile cfg
-        # that still carries this key BEATS the global, so the box would
-        # go on lying about what the engine does (BETA2 GEN-1).  The
-        # active tile's override is set when it now differs and REMOVED
-        # when it equals the global — one rule, ``write_tile``'s.
-        tile = self.map.active_tile()
-        if tile is None:
-            return
-        try:
-            SM.write_tile(
-                tile[0], tile[1], self.output_dir(),
-                {"modify_custom_airports": str(bool(checked))},
-            )
-        except OSError as exc:
-            print("Could not update the tile's modify_custom_airports:", exc)
+    def _advanced_toggled(self, shown):
+        """The Build box's plumbing, collapsed by default (#818)."""
+        self.advanced_box.setVisible(bool(shown))
+        self.advanced_toggle.setText(("▾ " if shown else "▸ ") + "Advanced")
 
     def _compute_size_async(self, info):
         try:
@@ -3071,6 +3096,17 @@ class MainWindow(QMainWindow):
         except Exception:
             return
         self._bridge.size_computed.emit()
+
+    def _refresh_modified_airports(self):
+        """Re-read the active tile's Modified airports rows (a worker
+        probe, as the tile selection runs it)."""
+        import O4_Config_Utils as CFG
+
+        tile = self.map.active_tile()
+        if tile is not None and CFG.custom_scenery_dir:
+            threading.Thread(
+                target=self._probe_modified_airports,
+                args=(tile, CFG.custom_scenery_dir), daemon=True).start()
 
     def _probe_modified_airports(self, tile, scenery_dir):
         """Worker thread: which packs did the reseater modify for this
@@ -3083,6 +3119,11 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             packs = []
+        # The scan reads every pack's records and can outlive the window
+        # (#1360 made it longer): a result for a closed window is dropped,
+        # never queued to a deleted receiver.
+        if not shiboken6.isValid(self) or getattr(self, "_closed", False):
+            return
         self._bridge.reanchor_ready.emit((tile, packs))
 
     def _on_reanchor_ready(self, payload):
@@ -3115,6 +3156,21 @@ class MainWindow(QMainWindow):
                 % (objects, "s" if objects != 1 else "")
             )
             rl.addWidget(label, 1)
+            if pack.get("forests", 0):
+                # #1360: the pack's 3D trees, undone on their own (the mac
+                # row's twin button)
+                trees = QToolButton()
+                trees.setAutoRaise(True)
+                trees.setText("🌲")
+                trees.setFixedSize(18, 18)
+                trees.setEnabled(not self._building)
+                trees.setToolTip(
+                    "Wait for the current run — the engine may be "
+                    "rewriting these files." if self._building
+                    else QTFOREST.UNDO_HELP)
+                trees.clicked.connect(
+                    lambda _checked=False, p=pack: self._undo_pack_forests(p))
+                rl.addWidget(trees, 0, Qt.AlignRight)
             undo = QToolButton()
             undo.setAutoRaise(True)
             undo.setIcon(self.style().standardIcon(
@@ -3627,20 +3683,26 @@ class MainWindow(QMainWindow):
         if not (do_vector or do_imagery or do_overlays):
             self._status("Choose at least one build step.")
             return
+        # This press's per-build switches (#818); the card goes back to
+        # the Settings values for the next one.
+        overrides = self.airports_card.take_overrides()
 
         if self._building:
             self._queue_into_running_build(
                 todo, provider, zoomlevel,
-                do_vector, do_imagery, do_overlays)
+                do_vector, do_imagery, do_overlays, overrides)
             return
 
-        self._start_run(todo, {
+        settings = {
             "provider": provider,
             "zoomlevel": zoomlevel,
             "do_vector": do_vector,
             "do_imagery": do_imagery,
             "do_overlays": do_overlays,
-        })
+        }
+        if overrides:
+            settings["overrides"] = overrides
+        self._start_run(todo, settings)
 
     # ------------------------------------------------------------------
     # Boundary airports (spec insets-follow-patch-set-spec.md §C.7)
@@ -3808,7 +3870,7 @@ class MainWindow(QMainWindow):
         # Re-gate the info panel (install toggle) for the active tile
         # now that it may be part of the run.
         self._active_changed(self.map.active_tile())
-        if not self.console.isVisible():
+        if not self.console_drawer.isVisible():
             self.toggle_console()
 
         # THE RUN BOUNDARY: the build request that opens a run starts a
@@ -3855,7 +3917,9 @@ class MainWindow(QMainWindow):
             self._queue_into_running_build(
                 [tile], settings["provider"], settings["zoomlevel"],
                 settings["do_vector"], settings["do_imagery"],
-                settings["do_overlays"])
+                settings["do_overlays"],
+                **({"overrides": settings["overrides"]}
+                   if settings.get("overrides") else {}))
         else:
             self._start_run([tile], settings)
 
@@ -3908,7 +3972,8 @@ class MainWindow(QMainWindow):
             issues.show()
 
     def _queue_into_running_build(self, todo, provider, zoomlevel,
-                                  do_vector, do_imagery, do_overlays):
+                                  do_vector, do_imagery, do_overlays,
+                                  overrides=None):
         """Append a batch to the run in progress; it starts as soon as
         the orchestrator has capacity for it.
 
@@ -3919,23 +3984,26 @@ class MainWindow(QMainWindow):
             todo,
             lambda tiles, policy: self._queue_into_running_build_now(
                 tiles, provider, zoomlevel, do_vector, do_imagery,
-                do_overlays, policy))
+                do_overlays, policy, overrides))
 
     def _queue_into_running_build_now(self, todo, provider, zoomlevel,
                                       do_vector, do_imagery, do_overlays,
-                                      boundary_policy=None):
+                                      boundary_policy=None, overrides=None):
         fresh = [t for t in todo if not self._tile_in_active_run(t)]
         if not fresh:
             self._status(
                 "The selected tiles are already building or queued.")
             return
-        self._requeue_into_run(fresh, {
+        settings = {
             "provider": provider,
             "zoomlevel": zoomlevel,
             "do_vector": do_vector,
             "do_imagery": do_imagery,
             "do_overlays": do_overlays,
-        }, boundary_policy)
+        }
+        if overrides:
+            settings["overrides"] = dict(overrides)     # #818
+        self._requeue_into_run(fresh, settings, boundary_policy)
 
     def _requeue_into_run(self, tiles, settings, boundary_policy=None):
         """Queue ``tiles`` into the running build: Build, Queue, Resume and
@@ -4452,7 +4520,9 @@ class MainWindow(QMainWindow):
             self._queue_into_running_build(
                 [tile], settings["provider"], settings["zoomlevel"],
                 settings["do_vector"], settings["do_imagery"],
-                settings["do_overlays"])
+                settings["do_overlays"],
+                **({"overrides": settings["overrides"]}
+                   if settings.get("overrides") else {}))
             return
         self._start_run([tile], settings)
 
@@ -4519,7 +4589,8 @@ class MainWindow(QMainWindow):
                 self._queue_into_running_build_now(
                     todo, settings["provider"], settings["zoomlevel"],
                     settings["do_vector"], settings["do_imagery"],
-                    settings["do_overlays"], policy)
+                    settings["do_overlays"], policy,
+                    settings.get("overrides"))
                 self._start_resume_batches(rest)
         else:
             def proceed(todo, policy, settings=settings, rest=rest):
@@ -4600,6 +4671,50 @@ class MainWindow(QMainWindow):
         box.finished.connect(finished)
         self._pack_art_boxes.append(box)
         box.show()
+
+    def _on_pack_old_forests(self, event):
+        """#1360: an airport pack with old flat (X-Plane 11) forests.
+
+        Parity with the mac app (``BuildModel.swift``, ``case
+        .packOldForests``): ``state == "found"`` (with ``can_update``)
+        asks once per pack, tile and set; Update / Never for this pack send
+        ``pack_forests``, Not now sends nothing.  An upgrade or an undo
+        re-reads the tile's Modified airports rows; the other states are
+        on the console through the engine's own log line.
+        """
+        state = getattr(event, "state", "found")
+        if state in ("upgraded", "undone"):
+            self._refresh_modified_airports()
+            return
+        if state != "found" or not getattr(event, "can_update", False):
+            return
+        key = QTFOREST.question_key(event)
+        if key in self._pack_forests_seen:
+            return
+        self._pack_forests_seen.add(key)
+        box, buttons = QTFOREST.pack_forests_box(event, parent=self)
+        root, lat, lon = event.pack_root, int(event.lat), int(event.lon)
+
+        def finished(_result, box=box, buttons=buttons):
+            for action, button in buttons.items():
+                if box.clickedButton() is button:
+                    self._session.pack_forests(pack_root=root, action=action,
+                                               lat=lat, lon=lon)
+            if box in self._pack_art_boxes:
+                self._pack_art_boxes.remove(box)
+
+        box.finished.connect(finished)
+        self._pack_art_boxes.append(box)
+        box.show()
+
+    def _undo_pack_forests(self, pack):
+        """#1360: the pack row's tree button — every upgraded DSF of the
+        pack gets its original forest definitions back (the engine
+        command; it completes with a PackOldForests event that refreshes
+        the rows)."""
+        if self._building:
+            return
+        self._session.pack_forests(pack_root=pack["pack_path"], action="undo")
 
     def _on_build_done(self, event):
         """One tile's terminal outcome: remember it (with the tile's own
@@ -4766,10 +4881,9 @@ class MainWindow(QMainWindow):
         except queue.Empty:
             pass
         if chunks:
-            text = "".join(chunks)
-            self.console.moveCursor(QTextCursor.End)
-            self.console.insertPlainText(text)
-            self.console.moveCursor(QTextCursor.End)
+            # Filtered to the map selection when tiles are selected
+            # (#1226); otherwise shown as it comes.
+            self.console_drawer.append_text("".join(chunks))
 
     CONSOLE_DEFAULT_LINES = 6
 
@@ -4794,29 +4908,29 @@ class MainWindow(QMainWindow):
         if not self._console_defaulted:
             self._console_defaulted = True
             self._sync_console_button()
-            if not self._layout_restored and self.console.isVisible():
+            if not self._layout_restored and self.console_drawer.isVisible():
                 self._apply_console_height(self._console_default_height())
 
     def toggle_console(self):
-        self.set_console_visible(not self.console.isVisible())
+        self.set_console_visible(not self.console_drawer.isVisible())
 
     def set_console_visible(self, visible):
         """Show or hide the console drawer at a STEADY size: re-opening
         restores the height it had when hidden (default: 6 lines)."""
-        if visible != self.console.isVisible():
+        if visible != self.console_drawer.isVisible():
             if visible:
-                self.console.setVisible(True)
+                self.console_drawer.setVisible(True)
                 self._apply_console_height(
                     self._console_height or self._console_default_height()
                 )
             else:
                 self._console_height = self.splitter.sizes()[1]
-                self.console.setVisible(False)
+                self.console_drawer.setVisible(False)
         self._sync_console_button()
 
     def _sync_console_button(self):
         self.console_btn.setText(
-            "Console ▴" if self.console.isVisible() else "Console ▾"
+            "Console ▴" if self.console_drawer.isVisible() else "Console ▾"
         )
 
     def _hover(self, lat, lon):
@@ -4911,7 +5025,7 @@ class MainWindow(QMainWindow):
         self.prefs["splitter_state"] = bytes(
             self.splitter.saveState().toBase64()
         ).decode("ascii")
-        self.prefs["console_visible"] = self.console.isVisible()
+        self.prefs["console_visible"] = self.console_drawer.isVisible()
         save_prefs(self.prefs)
         self._closed = True
         self._cancel_deferred()

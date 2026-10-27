@@ -517,8 +517,10 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
                work_dir: str | None = None,
                refresh_dump: _t.Callable[[str], str | None] | None = None,
                engine_version: str = "", law_digest: str = "",
-               omit: _t.Sequence = ()) -> PlacementWriteResult:
+               omit: _t.Sequence = (), plan_key: str = "") -> PlacementWriteResult:
     """The writes in the one lawful order (module doc, steps 0-5).
+    ``plan_key`` names the plan JSON (``o4_v2_placement_<key>.json``;
+    default the ICAO — a companion pack's plan is ``ICAO~k``).
 
     §12a (3) row 5: THE DSF IS CLASSIFIED FIRST.  When its write half
     stands down (rows D2 / D8) nothing at all happens — no restore, no
@@ -556,7 +558,7 @@ def apply_plan(plan: PlacementPlan, files: _t.Sequence, tool: str, *,
     plan_path = ""
     if patch_dir:
         os.makedirs(patch_dir, exist_ok=True)
-        plan_path = os.path.join(patch_dir, PLAN_FILENAME.format(icao=plan.icao))
+        plan_path = os.path.join(patch_dir, PLAN_FILENAME.format(icao=plan_key or plan.icao))
         with open(plan_path + ".tmp", "w", encoding="utf-8",
                   newline="\n") as fh:
             json.dump(plan.to_dict(), fh, indent=1)

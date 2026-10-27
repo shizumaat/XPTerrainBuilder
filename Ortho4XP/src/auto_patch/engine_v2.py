@@ -233,6 +233,7 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
                                           raise_on_failure=True)
         if dump:
             fresh_object_footprints(dsf_path, cache_dir, xplane_root)
+        _fresh_companion_dumps(sel.root, lat, lon)
         return dump
     except DsfToolError as exc:
         raise DsfToolError(
@@ -244,6 +245,32 @@ def fresh_pack_dump(xplane_root: str, icao: str, lat: int, lon: int) -> str | No
         logging.getLogger(__name__).warning(
             "pack dump refresh skipped for %s: %s", icao, exc)
         return None
+
+
+def _fresh_companion_dumps(main_root: str, lat: int, lon: int) -> None:
+    """The text dumps of the airport's candidate COMPANION packs (owner
+    RULINGS 2026-10-28p (5); ``airport/companion``), made where the serving
+    pack's is.  A failure is logged and only leaves that pack unread."""
+    import logging
+    try:
+        import O4_File_Names as FNAMES
+        from auto_patch_v2.airport import companion as _companion
+        from auto_patch_v2.airport import dsf as _dsf2
+        from auto_patch_v2.airport.dsf_write import pristine_dsf_path
+        from . import dsf_reader as _DSFR
+        roots = _companion.dump_candidates(main_root, lat, lon)
+    except Exception as exc:                # noqa: BLE001 — never fails a build
+        logging.getLogger(__name__).warning("companion dumps skipped: %s", exc)
+        return
+    for root in roots:
+        try:
+            _DSFR.ensure_dsf_text_path(
+                pristine_dsf_path(_dsf2.dsf_path_in_pack(root, lat, lon)),
+                _dsf2.mod_cache_dir(FNAMES.airport_mod_cache_root(),
+                                    os.path.basename(root)))
+        except Exception as exc:            # noqa: BLE001
+            logging.getLogger(__name__).warning(
+                "companion dump skipped for %s: %s", root, exc)
 
 
 def fresh_object_footprints(dsf_path: str, cache_dir: str,
@@ -576,6 +603,11 @@ def build_write_verify_one_v2(task: dict, tile_dem) -> dict:
             from auto_patch_v2.airport import object_plan as _oplan
             rebake_plan_path = _oplan.place(os.path.dirname(dest), res.rebake_plan,
                                             icao, _screen)
+        # and the plans of its objects-only COMPANION packs (owner RULINGS
+        # 2026-10-28p (5)); an earlier build's are removed even when none
+        from auto_patch_v2.airport import companion as _companion
+        _companion.place(os.path.dirname(dest), icao,
+                         [str(p) for p in getattr(res, "companion_plans", ()) or ()])
         # and the WHOLE-AIRPORT design surface beside it: §6's class rule
         # reads the emitted object pads and structure rims, and the object
         # stage runs post-mesh, long after ``res`` is gone (lane

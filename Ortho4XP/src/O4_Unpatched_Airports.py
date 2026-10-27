@@ -85,10 +85,18 @@ PATCH_FAMILY = (
 )
 
 
+#: The plans of the airport's objects-only COMPANION packs, numbered
+#: (``auto_patch_v2.airport.companion.COMPANION_PLAN``; RULINGS 2026-10-28p (5)).
+COMPANION_PLANS = "o4_v2_rebake_{icao}~*.json"
+
+
 def airport_patch_family(patch_dir: str, icao: str) -> list:
-    """The :data:`PATCH_FAMILY` paths of one airport in *patch_dir*."""
+    """The :data:`PATCH_FAMILY` paths of one airport in *patch_dir*, then
+    its :data:`COMPANION_PLANS` on disk."""
+    import glob
     return [os.path.join(patch_dir, name.format(icao=icao))
-            for name in PATCH_FAMILY]
+            for name in PATCH_FAMILY] + sorted(glob.glob(os.path.join(
+                glob.escape(patch_dir), COMPANION_PLANS.format(icao=glob.escape(icao)))))
 
 
 def set_aside_unbuilt(patch_dir: str, icao: str) -> tuple:

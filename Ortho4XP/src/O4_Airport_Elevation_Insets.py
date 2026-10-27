@@ -136,6 +136,9 @@ from elevation_access.gdal_support import (
 )
 from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access import base_fallback as ea_base_fallback
+# Imported lazily by ``O4_DEM_Utils.DEM.fill_base_voids``; named here so
+# the frozen engine and the step-code closure carry it (#1465).
+from elevation_access import base_voids as ea_base_voids  # noqa: F401
 from elevation_access.base_tiles import (
     base_definition_covers_tile,
     cached_elevation_file_is_valid,

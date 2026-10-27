@@ -385,6 +385,11 @@ class DEM:
         # configured one could not be reached (#561): one record per cell,
         # ``{"cell", "code", "path"}``.  Empty in every ordinary build.
         self.base_substitutions = []
+        # The legacy keyword of the configured base source this load read
+        # (``None`` for a file source), and the fallback reads that filled
+        # its void posts (``elevation_access.base_voids``, #1465).
+        self.base_keyword = None
+        self.base_void_fills = []
         if ";" in source:
             self.alt = self.alt_composite
             self.alt_vec = self.alt_vec_composite
@@ -396,6 +401,8 @@ class DEM:
             return
         if fill_nodata == "to zero":
             self.nodata_to_zero()
+        elif fill_nodata and self.base_keyword:
+            self.fill_base_voids()
         elif fill_nodata:
             if not fill_nodata_values_with_nearest_neighbor(
                 self.alt_dem, self.nodata
@@ -447,6 +454,7 @@ class DEM:
             short_source = available_sources[
                 available_sources.index(source) - 1
             ]
+            self.base_keyword = short_source
             if short_source in global_sources:
                 (
                     self.epsg,
@@ -544,6 +552,22 @@ class DEM:
             )
             self.subdems[-1].alt = self.subdems[-1].alt_strict
             self.subdems[-1].alt_vec = self.subdems[-1].alt_vec_strict
+
+    def fill_base_voids(self):
+        """Fill the base cell's void posts, never with 0 m (#1465)."""
+        # Lazy, like every provider-pipeline reference in this module.
+        import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
+        from elevation_access import base_voids
+
+        if not (self.alt_dem == self.nodata).any():
+            return
+        if not ELEVATION_PROVIDERS.elevation_providers_dict:
+            ELEVATION_PROVIDERS.initialize_elevation_providers_dict()
+        (filled, self.base_void_fills) = base_voids.fill_base_voids(
+            self.alt_dem, self.nodata, self.lat, self.lon,
+            ELEVATION_PROVIDERS.elevation_providers_dict)
+        if not filled:
+            self.nodata_to_zero()
 
     def nodata_to_zero(self):
         if (self.alt_dem == self.nodata).any():
@@ -1121,8 +1145,7 @@ def read_elevation_from_file(
             if nxdem == 1201:
                 nxdem = nydem = 3601
                 if not info_only:
-                    fill_nodata_values_with_nearest_neighbor(alt_dem, nodata)
-                    alt_dem = upsample(alt_dem)
+                    alt_dem = upsample_keeping_voids(alt_dem, nodata)
         except Exception as e:
             print(e)
             UI.lvprint(
@@ -1548,7 +1571,12 @@ def http_request(url, source, verbose=False):
         time.sleep(2 ** tentative)
 
 ################################################################################
-def fill_nodata_values_with_nearest_neighbor(alt_dem, nodata):
+def fill_nodata_values_with_nearest_neighbor(alt_dem, nodata,
+                                             zero_remainder=True):
+    """Fill void posts from their neighbours, in place; 0 when there are
+    too many to try.  Voids still open after 20 steps are set to 0, or,
+    with ``zero_remainder=False``, left open and 0 is returned (the base
+    void fill, ``elevation_access.base_voids``, then takes over)."""
     step = 0
     while (alt_dem == nodata).any():
         if not step:
@@ -1580,6 +1608,8 @@ def fill_nodata_values_with_nearest_neighbor(alt_dem, nodata):
         alt_dem[alt_dem == nodata] = atemp[alt_dem == nodata]
         step += 1
         if step > 20:
+            if not zero_remainder:
+                return 0
             UI.vprint(
                 1,
                 "    WARNING: The raster contain holes that seem to big to ",
@@ -1592,6 +1622,21 @@ def fill_nodata_values_with_nearest_neighbor(alt_dem, nodata):
     return 1
 
 ################################################################################
+def upsample_keeping_voids(alt_dem, nodata):
+    """A 1201-post cell on the 3601-post grid.  Voids the neighbour fill
+    closes are closed first, as always; the voids it cannot close stay
+    void on the fine grid (every fine post one of them touches), never 0
+    and never blended into a height -- the DEM load fills them (#1465)."""
+    trial = alt_dem.copy()
+    if fill_nodata_values_with_nearest_neighbor(
+            trial, nodata, zero_remainder=False):
+        return upsample(trial)
+    void = alt_dem == nodata
+    fine = upsample(numpy.where(void, 0, alt_dem))
+    fine[upsample(void.astype(numpy.float32)) > 0] = nodata
+    return fine
+
+
 def upsample(alt_dem):
     # only implemented from 1201 to 3601, might be worth upgrading it some day
     alt_dem_tmp = numpy.zeros((3601, 3601), dtype=numpy.float32)

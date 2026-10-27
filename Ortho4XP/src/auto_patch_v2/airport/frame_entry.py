@@ -180,19 +180,43 @@ def enter(geoms: _t.Sequence, mat: _t.Sequence[float], q: float) -> np.ndarray:
     # geometry needs; the cap makes the loop total.  Without this G3
     # (idempotence) is false, and a second pass changing anything is
     # exactly the reason a consumer would grow a belt.
+    #
+    # The repair's OPERAND is the areal part (#1472, CYVR): the snap can
+    # collapse one tiny part of a footprint to zero area, and GEOS's
+    # ``make_valid`` of a MultiPolygon unions its repaired parts — a point
+    # or line beside polygons — and refuses the mix (``Overlay input is
+    # mixed-dimension``).  A part whose CONVEX HULL holds no more than one
+    # grid cell cannot repair to more area than that, and (e) drops such
+    # parts after the repair anyway — so they, and any line or point a
+    # previous round left, are dropped BEFORE each repair.  The hull, not
+    # the area: an invalid bowtie's signed ring area can read 0.
+    floor = q * q if q > 0.0 else _SLIVER_FLOOR_M2
     for _ in range(_MAX_REPAIR_ROUNDS):
-        bad = ~shapely.is_valid(g)
+        bad = ~shapely.is_valid(g) & ~shapely.is_missing(g)
         if not bad.any():
             break
-        fixed = np.asarray(shapely.make_valid(g[bad]), dtype=object)
+        fixed = np.asarray(shapely.make_valid(_polygonal(g[bad], floor, _hull_area)), dtype=object)
         if q > 0.0:
             fixed = np.asarray(shapely.transform(fixed, _snap(q)), dtype=object)
         g[bad] = fixed
     else:
-        bad = ~shapely.is_valid(g)
+        bad = ~shapely.is_valid(g) & ~shapely.is_missing(g)
         if bad.any():                     # off-grid, but VALID is the law here
-            g[bad] = shapely.make_valid(g[bad])
+            g[bad] = shapely.make_valid(_polygonal(g[bad], floor, _hull_area))
 
+    out[live] = _polygonal(g, floor)
+    return out
+
+
+def _hull_area(parts: np.ndarray) -> np.ndarray:
+    return shapely.area(shapely.convex_hull(parts))
+
+
+def _polygonal(g: np.ndarray, floor: float, measure=shapely.area) -> np.ndarray:
+    """Steps (d) and (e) of :func:`enter` over an object array: each entry
+    its Polygon parts whose ``measure`` is above ``floor`` — ONE Polygon as
+    itself, several as a MultiPolygon — or ``None`` when none is left.  Run
+    on the repair's operand (#1472, measured by hull) and on its result."""
     # (d) UNROLLED UNTIL FLAT.  One ``make_valid`` returns at most a
     # GeometryCollection of Multi* parts, but (c) hands ``make_valid`` its
     # OWN collection each round and every round WRAPS it once more — a
@@ -206,14 +230,13 @@ def enter(geoms: _t.Sequence, mat: _t.Sequence[float], q: float) -> np.ndarray:
     while (shapely.get_type_id(parts) >= 4).any():
         parts, sub = shapely.get_parts(parts, return_index=True)
         src = src[sub]
-    floor = q * q if q > 0.0 else _SLIVER_FLOOR_M2
-    keep = (shapely.get_type_id(parts) == 3) & (shapely.area(parts) > floor)
+    keep = (shapely.get_type_id(parts) == 3) & (measure(parts) > floor)
     parts = parts[keep]
     src = src[keep]
-    if not parts.size:
-        return out
-
     res = np.full(g.shape[0], None, dtype=object)
+    if not parts.size:
+        return res
+
     shapely.multipolygons(parts, indices=src, out=res)
     filled = np.nonzero(~shapely.is_missing(res))[0]
     if filled.size:
@@ -222,8 +245,7 @@ def enter(geoms: _t.Sequence, mat: _t.Sequence[float], q: float) -> np.ndarray:
         one = filled[shapely.get_num_geometries(res[filled]) == 1]
         if one.size:
             res[one] = shapely.get_geometry(res[one], 0)
-    out[live] = res
-    return out
+    return res
 
 
 def union(parts, site: str | None = None):

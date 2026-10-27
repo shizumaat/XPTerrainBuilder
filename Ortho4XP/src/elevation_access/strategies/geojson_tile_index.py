@@ -18,13 +18,15 @@ from elevation_access.definitions import (
     _coverage_bbox_intersects,
     _geojson_geometry_bounding_box,
 )
+from elevation_access.footprints import read_cached_json
 from elevation_access.gdal_support import has_gdal
+from elevation_access.layered_warp import (
+    hidden_sources_record,
+    warp_sources_skipping_hidden,
+)
 from elevation_access.registry import register_access_strategy
 from elevation_access.vertical_units import _raster_vertical_unit
-from elevation_access.warp import (
-    _geotiff_has_valid_data,
-    warp_vsicurl_sources_to_geotiff,
-)
+from elevation_access.warp import _geotiff_has_valid_data
 
 __all__ = [
     "GeojsonTileIndexStrategy",
@@ -96,6 +98,15 @@ class GeojsonTileIndexStrategy:
             json.dump(entries, handle)
         return entries
 
+    def cached_source_boxes(self, definition):
+        """The catalogue's tile boxes when the index is already on disk
+        (offline, the provider's real footprint -- #1466), else ``None``."""
+        entries = read_cached_json(self.index_path(definition))
+        if not isinstance(entries, list):
+            return None
+        return [entry["bbox"] for entry in entries
+                if isinstance(entry, dict) and entry.get("bbox")]
+
     def discover(self, definition, bounding_box_wgs84):
         if not _coverage_bbox_intersects(definition, bounding_box_wgs84):
             return None
@@ -121,15 +132,18 @@ class GeojsonTileIndexStrategy:
         sources = self.discover(definition, bounding_box_wgs84)
         if not sources:
             return None
-        if not warp_vsicurl_sources_to_geotiff(
+        # A tile every later (finer) tile hides is never read (#1327).
+        (warped, read) = warp_sources_skipping_hidden(
             ["/vsicurl/" + entry["url"] for entry in sources],
+            [entry.get("bbox") for entry in sources],
             bounding_box_wgs84,
             target_resolution_m,
             destination_path,
             value_floor_m=float(definition.get("value_floor_m", -600.0)),
             vertical_unit=_raster_vertical_unit(definition),
             provider_code=definition.get("code"),
-        ):
+        )
+        if not warped:
             return None
         if not _geotiff_has_valid_data(destination_path):
             try:
@@ -152,4 +166,5 @@ class GeojsonTileIndexStrategy:
             "fetch_date": datetime.date.today().isoformat(),
             "bounding_box_wgs84": list(bounding_box_wgs84),
             "resolution_m": target_resolution_m,
+            **hidden_sources_record(len(sources), read),
         }

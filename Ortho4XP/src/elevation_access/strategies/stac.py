@@ -12,14 +12,19 @@ import O4_UI_Utils as UI
 
 from elevation_access.base import TransientFetchError
 from elevation_access.failures import _warn_sign_in_needed_once
+from elevation_access.fetch_slots import _held_provider_fetch_slot
 from elevation_access.gdal_support import has_gdal
+from elevation_access.layered_warp import (
+    hidden_sources_record,
+    warp_sources_skipping_hidden,
+)
 from elevation_access.registry import register_access_strategy
 from elevation_access.stac_assets import (
+    _item_footprints_by_href,
     _select_stac_dtm_assets,
     _stac_asset_href_to_vsicurl,
 )
 from elevation_access.vertical_units import _raster_vertical_unit
-from elevation_access.warp import warp_vsicurl_sources_to_geotiff
 
 __all__ = [
     "StacCloudOptimizedGeoTiffStrategy",
@@ -80,6 +85,48 @@ class StacCloudOptimizedGeoTiffStrategy:
     # spans ~40-50 of SWISSALTI3D's 1 km-square items) while still
     # bounding a server whose next links never terminate.
     _SEARCH_MAX_PAGES = 20
+
+    #: Concurrent one-item searches of a footprint probe (#1466).
+    _PROBE_WORKERS = 4
+
+    def probe_cell_coverage(self, definition, cell_boxes):
+        """Does any item intersect each cell?  One limit-1 search per cell
+        (the provider's footprint, #1466); ``None`` without a search URL.
+        A failed search raises :class:`TransientFetchError`."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        if not definition.get("discovery_url_template"):
+            return None
+        code = definition.get("code")
+
+        def _has_item(cell):
+            with _held_provider_fetch_slot(code):
+                return self._first_item(definition, cell) is not None
+
+        with ThreadPoolExecutor(max_workers=self._PROBE_WORKERS) as pool:
+            return list(pool.map(_has_item, cell_boxes))
+
+    def _first_item(self, definition, bounding_box_wgs84):
+        """The first item of a one-item search of the box, or ``None``."""
+        import requests
+
+        (url, body, _collections, _bbox) = self._search_url_and_body(
+            definition, bounding_box_wgs84)
+        body = dict(body, limit=1)
+        try:
+            response = requests.post(url, json=body, timeout=30)
+        except Exception as error:
+            raise TransientFetchError(
+                "STAC probe search failed: %s" % error) from error
+        if response.status_code != 200:
+            raise TransientFetchError(
+                "STAC probe search returned status %d" % response.status_code)
+        try:
+            items = self._parse_search_payload(response.json())
+        except ValueError as error:
+            raise TransientFetchError(
+                "STAC probe answer unreadable: %s" % error) from error
+        return items[0] if items else None
 
     def discover(self, definition, bounding_box_wgs84):
         import requests
@@ -301,8 +348,12 @@ class StacCloudOptimizedGeoTiffStrategy:
         vsicurl_inputs = [
             _stac_asset_href_to_vsicurl(href) for (href, _resolution) in selected
         ]
-        if not warp_vsicurl_sources_to_geotiff(
+        # An item a later item hides (an older vintage of the same tile)
+        # is never read (#1327).
+        footprints = _item_footprints_by_href(items)
+        (warped, read) = warp_sources_skipping_hidden(
             vsicurl_inputs,
+            [footprints.get(href) for (href, _resolution) in selected],
             bounding_box_wgs84,
             target_resolution_m,
             destination_path,
@@ -310,7 +361,8 @@ class StacCloudOptimizedGeoTiffStrategy:
             vertical_unit=_raster_vertical_unit(definition),
             provider_code=definition.get("code"),
             gdal_configuration_options=gdal_configuration_options,
-        ):
+        )
+        if not warped:
             return None
         native_resolutions = [
             resolution for (_href, resolution) in selected if resolution
@@ -342,4 +394,5 @@ class StacCloudOptimizedGeoTiffStrategy:
             "fetch_date": datetime.date.today().isoformat(),
             "bounding_box_wgs84": list(bounding_box_wgs84),
             "resolution_m": target_resolution_m,
+            **hidden_sources_record(len(selected), read),
         }

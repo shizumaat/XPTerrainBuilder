@@ -97,7 +97,10 @@ def default_inputs(xplane_root: str | None = None, cifp_dir: str | None = None,
                   allow_degraded_dem=allow_degraded_dem,
                   # the core's road clamp knobs, as the tile build reads them
                   road_grade_limit=_num("road_grade_limit"),
-                  lane_width_m=_num("lane_width"))
+                  lane_width_m=_num("lane_width"),
+                  # #1359: a standalone build reads the airport imagery off the
+                  # installed ortho tiles (it has no imagery step of its own)
+                  imagery_scenery_dir=_cfg_value("custom_scenery_dir") or "")
 
 
 def add_dem_frame_args(ap: argparse.ArgumentParser) -> None:

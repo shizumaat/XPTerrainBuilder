@@ -45,6 +45,13 @@ class Surface(enum.IntEnum):
     TRANSPARENT = 15
 
 
+#: ``RunwayEnd.pin_flags`` of an end whose CIFP record the installed layout
+#: and the imagery outvoted (#1359, owner RULINGS 2026-10-26v,
+#: ``airport/runway_end_witness``): the record is dropped, and the end
+#: follows the lidar (``constraints/runway_profile.end_pin_cases``).
+PIN_OUTVOTED = "q1"
+
+
 @_dc.dataclass(frozen=True)
 class RunwayEnd:
     """One end of a runway (apt.dat row 100, one half).
@@ -83,7 +90,8 @@ class RunwayEnd:
     #: the CIFP elevation AS READ, kept when verification replaced it
     cifp_elev_m: float | None = None
     #: the verification flags that fired on this end's runway (``a``,
-    #: ``b``, ``c``), comma-joined; ``""`` = none
+    #: ``b``, ``c``), comma-joined; ``""`` = none; :data:`PIN_OUTVOTED` when
+    #: the terrain witness dropped the end's CIFP record (#1359, 26v)
     pin_flags: str = ""
 
     def pin_along(self) -> float:
@@ -447,6 +455,13 @@ class Airport:
     #: its CENSUS (``constraints``, which may not import ``airport``) both
     #: read THIS.  ``None`` = not derived (a capture written before it).
     sunken_ramps: _t.Any = None
+    #: owner RULINGS 2026-10-27t/u (#1201): THE RUNWAY-END WALLED PLATES
+    #: (``model.walled_plate.WalledPlate``, recognised on the pack reading by
+    #: ``airport/walled_plate``): the end area stops at each one's inner edge
+    #: (``model/end_area``), the ground under it stays below it
+    #: (``constraints/walled_plate``).  Empty = none (or a capture written
+    #: before them).
+    walled_plates: tuple = ()
     #: THE FEET OF THE PACK'S OBJECT RAMPS (issue #669; owner RULINGS
     #: 2026-10-14c (5); ``airport/ramp_feet``): derived at load beside the
     #: sunken ramps on the build's ``ResourceCache``; the run-out mint
@@ -458,3 +473,8 @@ class Airport:
     #: NEVER a pavement source — they are not in ``pavements`` — only their
     #: remainder after every pavement the engine already knows is ground.
     gap_sheets: tuple[Pavement, ...] = ()
+    #: RULINGS 2026-10-27n THE JUNCTION WITNESS (``airport/junction_witness``):
+    #: pavement id -> whether the build's imagery shows it PAVED where it
+    #: meets a runway; ``None`` = no imagery (every junction stands, the vote
+    #: abstains), an absent id = no contact read (its junction stands)
+    paved_joins: _t.Mapping[str, bool] | None = None

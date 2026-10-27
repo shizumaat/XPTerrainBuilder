@@ -39,6 +39,8 @@ EXPECT = {
     "--cifp-dir": {"capture"},
     "--data-overlay": {"capture"},
     "--mod-cache-root": {"capture"},
+    # #1359: the terrain witness's photos off (the load stage)
+    "--no-imagery": {"capture"},
     "--design-weight": REPLAY | DUMP | {"stage1-dump/why-from"},
     "--drop-generator": REPLAY | DUMP | {"stage1-dump/why-from"},
     "--chord-fill": REPLAY,
@@ -64,6 +66,8 @@ NOT_ARMS = {
     # issue #844: where the front half comes from (the stage cache, served
     # or written) — the same records, so the same product
     "--stage-cache", "--replay-cache", "--why-miss",
+    # #1359: the terrain witness's dry read of a capture and its inputs
+    "--witness", "--witness-labels", "--imagery-dir",
 }
 
 CELLS = [(f, c) for f in A.ARM_FLAGS for c in A.CONTEXTS]

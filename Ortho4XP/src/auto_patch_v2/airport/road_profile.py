@@ -580,10 +580,16 @@ def core_profiles(airport: Airport, pm: PlanarMap, law: Law,
     # differenced by, so both engines draw one boundary.
     band_fn = _band_fn(pm, lw)
     ways: list[Way] = []
+    VECT = _core_vector_utils()
     for w in airport.osm_ways:
         if _osm_levelled(w):
+            # OWNER RULINGS 2026-10-22h: a PUBLIC road's in-band cap is the
+            # core's own reading (``road_inside_cap``), so the patch and the
+            # core ribbon outside it stay one profile
+            cap_in = VECT.road_inside_cap(w.tags.get("highway"), cap_,
+                                          rp.cap_ceiling, rp.public_classes)
             ways.extend(clamp_way(
-                OSM, f"osm:{w.id}", w.points, sample, cap_, rp.station_m,
+                OSM, f"osm:{w.id}", w.points, sample, cap_in, rp.station_m,
                 inside, in_band=band_fn,
                 cap_class=_class_cap(w.tags, rp.class_caps, cap_),
                 runout_m=rp.runout_m, budget_m=rp.budget_m,

@@ -117,9 +117,12 @@ def _staleness(tile: str, icao: str, doc: PF.PatchFile, source: str
     if xp_root is None:
         return True, ["unverifiable: no X-Plane CIFP folder is set, so the "
                       "build inputs cannot be compared"]
+    import O4_Imagery_Prefetch as PREFETCH
     stale = driver.auto_patch_stale_inputs(
         meta, doc.path, xp_root, icao, tile=t,
-        cifp_file=discover_cifp_airports(cifp_dir).get(icao))
+        cifp_file=discover_cifp_airports(cifp_dir).get(icao),
+        # #1359: the airport's photos the build stamped, as cached today
+        imagery_paths=PREFETCH.cached_airport_imagery(t, icao))
     return bool(stale), [key for key, _was, _now in stale]
 
 

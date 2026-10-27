@@ -681,8 +681,14 @@ def _decide_airport(icao, xplane_root, dem, tile_lat, tile_lon, water):
         site = _prep.site_inputs(icao, xplane_root, cifp_path, law)
     except (FileNotFoundError, ValueError):
         return None, None
+    import O4_File_Names as FNAMES
+
+    # #1208: the pack's draped pavement pages are pavement too (read from
+    # the pack's cached DSF text dump, only at a substituting site).
     record = _prep.decide(site, dem, tile_lat, tile_lon, water, law,
-                          out=lambda line: UI.vprint(1, line))
+                          out=lambda line: UI.vprint(1, line),
+                          mod_cache_root=FNAMES.airport_mod_cache_root(),
+                          xplane_root=xplane_root)
     UI.vprint(1, _v2flat.log_line(icao, _v2flat.from_record(record)))
     return record, site
 

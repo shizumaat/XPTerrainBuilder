@@ -1,0 +1,165 @@
+{
+ "airport": "KBUF",
+ "spec": "docs/specs/multi-source-terrain-spec.md \u00a78",
+ "labelled_by": "lane ltriang2, 2026-10-26, from the owner's built tile textures and the airport inset",
+ "q1": [
+  {
+   "runway": "05/23",
+   "end": "05",
+   "truth": "cifp",
+   "whence": "threshold bar and piano keys at the displaced threshold, which apt.dat and CIFP both state"
+  },
+  {
+   "runway": "05/23",
+   "end": "23",
+   "truth": "cifp",
+   "whence": "threshold bar and piano keys at the displaced threshold, which apt.dat and CIFP both state"
+  },
+  {
+   "runway": "14/32",
+   "end": "14",
+   "truth": "cifp",
+   "whence": "threshold bar and piano keys at the displaced threshold, which apt.dat and CIFP both state"
+  },
+  {
+   "runway": "14/32",
+   "end": "32",
+   "truth": "cifp",
+   "whence": "threshold bar and piano keys at the displaced threshold, which apt.dat and CIFP both state"
+  }
+ ],
+ "q5_sites": [
+  {
+   "name": "site1",
+   "lat": 42.943562651,
+   "lon": -78.726619628,
+   "whence": "#1343 owner site 1: pack portal; lidar depth 6.47 m, floor 212.32"
+  },
+  {
+   "name": "site2",
+   "lat": 42.93504708,
+   "lon": -78.724917302,
+   "whence": "#1343 owner site 2: walled ramp head; lidar depth 4.87 m"
+  },
+  {
+   "name": "site3",
+   "lat": 42.935452165,
+   "lon": -78.725199037,
+   "whence": "#1343 owner site 3: walled ramp into a portal; lidar floor 207.44"
+  }
+ ],
+ "q5": [
+  {
+   "lat": 42.945194201,
+   "lon": -78.724654895,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": 42.945231204,
+   "lon": -78.724616895,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": 42.936529199,
+   "lon": -78.695807795,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.936352298,
+   "lon": -78.695800899,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.916627104,
+   "lon": -78.752940697,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.916375703,
+   "lon": -78.753278506,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.934013297,
+   "lon": -78.730758995,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.9334301,
+   "lon": -78.732732705,
+   "truth": false,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.943645397,
+   "lon": -78.726731195,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.942345203,
+   "lon": -78.724512294,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.9354324,
+   "lon": -78.725234995,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.935061303,
+   "lon": -78.724929196,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 42.943971799,
+   "lon": -78.722384597,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "tertiary"
+  },
+  {
+   "lat": 42.943562651,
+   "lon": -78.726619628,
+   "truth": true,
+   "whence": "owner site",
+   "name": "site1"
+  },
+  {
+   "lat": 42.93504708,
+   "lon": -78.724917302,
+   "truth": true,
+   "whence": "owner site",
+   "name": "site2"
+  },
+  {
+   "lat": 42.935452165,
+   "lon": -78.725199037,
+   "truth": true,
+   "whence": "owner site",
+   "name": "site3"
+  }
+ ]
+}

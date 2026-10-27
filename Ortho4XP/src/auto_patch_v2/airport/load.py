@@ -29,6 +29,9 @@ from . import apt_dat as _apt
 from . import borrow as _borrow
 from . import cifp as _cifp
 from . import end_pins as _end_pins
+from . import imagery_read as _imagery
+from . import junction_witness as _junction_witness
+from . import runway_end_witness as _end_witness
 from . import runway_refs as _refs
 from . import dem as _dem
 from . import dsf as _dsf
@@ -101,6 +104,15 @@ class Inputs:
     #: partition_cache.pristine_stamps(root)}``, so a child never walks a
     #: pack its parent walked; ``None`` = walk here (standalone builds).
     pack_pristine: _t.Any = None
+    #: THE BUILD'S AIRPORT IMAGERY (#1359; owner RULINGS 2026-10-26q / 26y):
+    #: the orthophotos this build textures the airport with, as files — the
+    #: tile build hands the airport's own textures it fetched FIRST (the
+    #: patch waits for them, 26y); ``()`` with ``imagery_scenery_dir`` set
+    #: reads the LIVE textures of the built ortho tiles under that folder
+    #: (a standalone build, which has no imagery step of its own); neither
+    #: set = no imagery: every imagery vote abstains.
+    imagery_paths: tuple[str, ...] = ()
+    imagery_scenery_dir: str = ""
 
 
 class PackDumpStale(RuntimeError):
@@ -141,6 +153,16 @@ class LoadReport:
     end_pins: list = _dc.field(default_factory=list)
     end_pin_lines: tuple[str, ...] = ()
     end_pin_crosscheck: tuple[str, ...] = ()
+    #: THE TERRAIN WITNESS (#1359): the textures it read (``source``,
+    #: ``textures``) and one Q1 vote record per CIFP runway end, with the
+    #: loud lines of every CIFP record the layout and the imagery outvoted
+    #: (RULINGS 2026-10-26v)
+    imagery: dict = _dc.field(default_factory=dict)
+    witness_votes: list = _dc.field(default_factory=list)
+    witness_lines: tuple[str, ...] = ()
+    #: RULINGS 2026-10-27n: one record per pavement joining a runway — the
+    #: share of its contact the imagery reads as pavement (``junction_witness``)
+    paved_joins: list = _dc.field(default_factory=list)
     buildings_by_source: dict[str, int] = _dc.field(default_factory=dict)
     dsf_dump_path: str | None = None
     #: the pack's tile DSF is newer than every cached text dump (refused)
@@ -719,6 +741,16 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         boundaries, startups, tuple(osm_ways), tuple(buildings),
         tuple(dsf_objects), pack, dem, law.ruleset_key,
         gap_sheets=tuple(gap_sheets))
+    # THE THRESHOLD WITNESS (#1359; owner RULINGS 2026-10-26q / 26v): a CIFP
+    # record the installed layout and the imagery both outvote is DROPPED
+    # for its end before the pin rule judges it — ONE site
+    # (``runway_end_witness``); the end then takes 26e's lidar rule
+    textures, rep.imagery = _airport_imagery(inputs, lat0, lon0)
+    airport, rep.witness_votes, w_lines = _end_witness.witness_runway_ends(
+        airport, cifp, to_xy, textures, law)
+    rep.witness_lines = tuple(w_lines)
+    for _line in w_lines:
+        _log.warning(_line)
     # THE RUNWAY-END PIN RULE (owner RULINGS 2026-10-25a / 26a; #1342):
     # every CIFP end is verified on the DEM and the cached cross-check
     # sources before it becomes a pin — ONE site (``end_pins``)
@@ -729,10 +761,36 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.end_pin_crosscheck = tuple(src for src, _e in refs)
     for _line in end_lines:
         _log.warning(_line)
+    # THE JUNCTION WITNESS (owner RULINGS 2026-10-27n / 28b): which pavements
+    # the imagery shows PAVED where they meet a STEEP runway — it flattens
+    # only there, and a refuted one is not joined to it.  After the end pins,
+    # which say how steep each runway is (``junction_witness``; no imagery =
+    # it abstains)
+    airport, rep.paved_joins, j_lines = _junction_witness.witness_paved_joins(
+        airport, textures, law)
+    rep.witness_lines = rep.witness_lines + tuple(j_lines)
+    for _line in j_lines:
+        _log.warning(_line)
     return airport, rep
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
+
+def _airport_imagery(inputs: Inputs, lat: float, lon: float
+                     ) -> "tuple[_imagery.TextureSet | None, dict]":
+    """The textures the witness reads (``Inputs.imagery_paths``, else the
+    built tiles under ``imagery_scenery_dir``) and their published record."""
+    paths = tuple(inputs.imagery_paths or ())
+    source = "build"
+    if not paths and inputs.imagery_scenery_dir:
+        paths = _imagery.built_tile_paths(inputs.imagery_scenery_dir, lat, lon)
+        source = "built tiles"
+    if not paths:
+        return None, {"source": "none", "textures": 0}
+    ts = _imagery.TextureSet.from_files(paths, lat, lon)
+    return ts, {"source": source, "textures": len(ts),
+                "sources": sorted({r.source for r in ts.refs})}
+
 
 
 def read_apt(icao: str, xplane_root: str, law: Law,

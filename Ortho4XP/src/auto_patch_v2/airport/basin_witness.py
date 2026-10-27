@@ -105,6 +105,11 @@ def read_objects(airport, law: "Law", cache: obj8.ResourceCache | None = None,
     rep.deck_signature_families = drep.accepted
     rep.deck_candidate_families = drep.candidates
     rep.deck_records = tuple(drep.records)
+    # A WALLED PLATE CAPS A RUNWAY'S SAFETY AREA (owner RULINGS 2026-10-27t/u,
+    # #1201): recognised on the same reading, after the deck verdict it
+    # replaces for its own placements
+    from . import walled_plate as _walled_plate
+    objs = _walled_plate.mark(airport, objs, cache, law)
     cache.placed["objects"] = (objs, rep)
     return objs, rep
 

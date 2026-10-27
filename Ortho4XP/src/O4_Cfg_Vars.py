@@ -36,7 +36,7 @@ _ROAD_GRADE_CAP = _road_grade_cap_from_law()
 # ``auto_patch_v2/law/emit.toml`` ``[road_profile]`` and the core reads
 # them HERE — never as literals beside the clamp.
 def road_neighbourhood_law() -> dict:
-    """``{runout_m, budget_m, cap_ceiling, class_caps}`` from the law
+    """``{runout_m, budget_m, cap_ceiling, class_caps, public_classes}`` from the law
     table (``O4_Vector_Utils.clamp_road_network`` / v2's
     ``airport/road_profile``)."""
     from auto_patch_v2.law import tables as _v2_tables
@@ -46,6 +46,7 @@ def road_neighbourhood_law() -> dict:
         "budget_m": float(rp.budget_m),
         "cap_ceiling": float(rp.cap_ceiling),
         "class_caps": {str(k): float(v) for k, v in rp.class_caps.items()},
+        "public_classes": tuple(str(c) for c in rp.public_classes),
     }
 
 
@@ -398,7 +399,7 @@ cfg_tile_vars = {
     "airport_elevation_inset_margin_m": {
         "type": float,
         "default": 2000.0,
-        "hint": "How far beyond each airport's smoothing mask, in metres, the elevation inset bounding box is expanded. The clearance band and custom object neighbourhoods extend well past the boundary polygon, so a generous margin is deliberate.",
+        "hint": "The most, in metres, that each airport's elevation inset box may reach beyond the airport boundary. The fetch never reaches further than the graded ground beside the pavement and its feather need (about 465 m); beyond that the approach-ring elevation carries the terrain, so a larger value fetches nothing more.",
     },
     "airport_elevation_inset_feather_m": {
         "type": float,

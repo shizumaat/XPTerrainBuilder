@@ -122,6 +122,13 @@ def late_followers(pm_full, soft_roles: _t.AbstractSet[str] = frozenset(),
     ribbons = [*ribbons, *(f for f in pad_roads
                            if f.id not in {r.id for r in ribbons})]
     follow = {f.id for f in gap} | {f.id for f in ribbons}
+    # a ramp-foot run-out's 1:3 bank (``classify/ramp_runout``, #1093)
+    # follows with its strip
+    runs = getattr(pm_full, "ramp_runouts", None) or {}
+    if runs:
+        from ..model.planar import is_collar_ref, platform_ref_of
+        follow |= {f.id for f in pm_full.faces.values()
+                   if is_collar_ref(f.ref) and platform_ref_of(f.ref) in runs}
     free: set[int] = set()
     held: set[int] = set()
     for f in pm_full.faces.values():

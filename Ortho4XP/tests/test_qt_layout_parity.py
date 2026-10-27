@@ -379,3 +379,38 @@ def test_qt_console_header_is_the_manifest(window):
     widgets = [header.itemAt(i).widget() for i in range(header.count())]
     assert [w for w in widgets if w in expected] == expected
     assert getattr(drawer.history, HISTORY_DATE_FILTER[1]).currentData() == "all"
+
+
+# ── the Airports explanations sit behind an "i" (owner 2026-10-27) ────
+def test_both_airports_cards_hide_the_explanations_behind_an_i(window):
+    swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    assert swift.count("infoButton($showing") == 2
+    assert "if showingGradeInfo { caption(Self.gradeSentence) }" in swift
+    card = window.airports_card
+    card.fit_disabled_reason = lambda: None
+    card._render()
+    assert not card.grade_text.isVisibleTo(card)
+    assert not card.fit_text.isVisibleTo(card)
+    card.grade_info.setChecked(True)
+    card.fit_info.setChecked(True)
+    assert card.grade_text.isVisibleTo(card)
+    assert card.fit_text.isVisibleTo(card)
+    card.fit_info.setChecked(False)
+    card.fit_disabled_reason = lambda: "Needs airport grading on."
+    card._render()
+    assert card.fit_text.isVisibleTo(card)          # a reason always shows
+
+
+def test_both_patch_panels_say_checking_while_the_scan_runs(window):
+    import O4_Qt_Patch_Controller as QTPC
+
+    assert QTPC.absence(False, True) == QTPC.PatchController.CHECKING
+    assert QTPC.absence(False, False) == QTPC.PatchController.NO_PATCH
+    assert QTPC.absence(True, True) == QTPC.PatchController.NO_PATCH
+    window._scanning = True
+    assert window.patch_editor.controller.is_scanning()
+    swift = (SWIFT / "PatchInspector.swift").read_text(encoding="utf-8")
+    panel = (Path(GUI.__file__).with_name("O4_Qt_Patch_Panel.py")
+             .read_text(encoding="utf-8"))
+    sentence = "Checking which tiles are built…"
+    assert sentence in swift and sentence in panel

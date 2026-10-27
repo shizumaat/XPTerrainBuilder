@@ -33,6 +33,7 @@ __all__ = [
     "role_preferred_cap",
     "runway_transverse_max", "runway_transverse_bound", "runway_shoulder_cap",
     "runway_vertical_curve_bound", "strip_transverse_bound",
+    "yielded_curve_rate", "strip_arc_rate_per_m",
     "taxi_half_width_m", "airside_rate_per_m",
     "runway_end_zone_cap", "runway_end_zone_grade_change", "runway_mean_slope_max",
     "flat_site", "flat_datum_group", "flat_declared", "flat_pack", "runway_ends",
@@ -247,8 +248,29 @@ def taxi_half_width_m(law: Law, code_letter: str | None) -> float | None:
     return None if w is None else float(w) / 2
 
 
+def yielded_curve_rate(law: Law, yield_k_m: float | None) -> float | None:
+    """The grade change per metre a steep runway's junction curves YIELDED
+    to (owner RULINGS 2026-10-26n; ``runway_caps[].curve_k_m``, metres per
+    ``common.vertical_curve_k_grade_unit``), or ``None``: no yield."""
+    if yield_k_m is None or yield_k_m <= 0.0:
+        return None
+    return float(law.tables.common.vertical_curve_k_grade_unit) / float(yield_k_m)
+
+
+def strip_arc_rate_per_m(law: Law, yield_k_m: float | None = None) -> float:
+    """THE STRIP'S GRADE-CHANGE RATE per metre (``<ruleset>.strip.arc_rate``),
+    raised to a steep runway's yielded curve where the strip lies along one
+    (owner RULINGS 2026-10-26n: the graded strip follows the runway's
+    curves; ``yield_k_m`` is that runway's ``curve_k_m``).  ONE accessor:
+    the generator (``constraints.strips``) and v2 verify read it."""
+    own = float(law.ruleset.strip.arc_rate.per_metre)
+    y = yielded_curve_rate(law, yield_k_m)
+    return own if y is None else max(own, y)
+
+
 def airside_rate_per_m(law: Law, role: str, code_letter: str | None = None,
-                       turn_cos: float | None = None) -> float:
+                       turn_cos: float | None = None,
+                       yield_k_m: float | None = None) -> float:
     """THE AIRSIDE GRADE-CHANGE RATE along a ring of ``role`` (grade change
     per metre; owner RULINGS 2026-10-15l (1), audit row 2): a TAXI-family
     face reads its own letter's vertical curve (``<ruleset>.taxi.curve_k_m``
@@ -259,7 +281,13 @@ def airside_rate_per_m(law: Law, role: str, code_letter: str | None = None,
     triple turning by more than ``emit.no_step.rate_profile_turn_max_deg``
     is a ring corner, not the taxiway's profile, and keeps the strip rate.
     ONE accessor: the generator (``constraints.no_step.no_step_rate``), v2
-    verify (``verify.no_step``) and the census read it."""
+    verify (``verify.no_step``) and the census read it.  ``yield_k_m``: a
+    steep runway's ring reads its yielded curve (owner RULINGS 2026-10-26n,
+    ``runway_caps[].curve_k_m``) where that is the looser."""
+    if yield_k_m is not None:
+        own = airside_rate_per_m(law, role, code_letter, turn_cos)
+        y = yielded_curve_rate(law, yield_k_m)
+        return own if y is None else max(own, y)
     k = law.ruleset.taxi.curve_k_m
     turn = law.tables.emit.no_step.rate_profile_turn_max_deg
     corner = (turn_cos is not None and turn is not None
@@ -638,7 +666,8 @@ def zone_bounds(law: Law, role: str, d_m: float,
 
 def runway_vertical_curve_bound(law: Law, spacing_m: float,
                                 code_number: int | None = None,
-                                code_letter: str | None = None) -> float | None:
+                                code_letter: str | None = None,
+                                yield_k_m: float | None = None) -> float | None:
     """THE VERTICAL-CURVE BOUND (RULINGS 2026-09-06b law 1; spec
     ``heca-read-20260906-spec.md`` §2): the largest lawful change of
     grade (a fraction) between two consecutive runway profile chords
@@ -647,8 +676,17 @@ def runway_vertical_curve_bound(law: Law, spacing_m: float,
     by code (Annex 14 §3.1.15/16: K is metres per 1 % of change), raised
     to ``vertical_curve_min_change`` where the authority states that no
     curve is needed under it (FAA AAC A/B).  ``None`` where the authority
-    states neither number."""
+    states neither number.
+
+    ``yield_k_m``: the K a steep runway's junction curves YIELDED to (owner
+    RULINGS 2026-10-26n; the published ``runway_caps[].curve_k_m``): the
+    bound is then ``spacing / yield_k_m`` of change, the law's
+    ``max_grade_change`` yielding with it — never tighter than the law's."""
     rs = law.ruleset.runway
+    if yield_k_m is not None and yield_k_m > 0.0:
+        own = runway_vertical_curve_bound(law, spacing_m, code_number, code_letter)
+        y = spacing_m / yield_k_m * law.tables.common.vertical_curve_k_grade_unit
+        return y if own is None else max(own, y)
     mgc = rs.max_grade_change.value(code_number, code_letter)
     k = rs.vertical_curve_k_m.value(code_number, code_letter)
     bound: float | None = mgc

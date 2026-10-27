@@ -58,7 +58,7 @@ from ..constraints.strips import (end_pair_bounds, end_transect_foot, end_transe
 from shapely.geometry import Point as _ShPoint
 
 from ..law.reference_code import PA, raoa_applies
-from ..law.tables import (end_profile_noise_m, runway_end_profile,
+from ..law.tables import (end_profile_noise_m, runway_end_profile, strip_arc_rate_per_m,
                           runway_safety_area_length_m, runway_zone_edge_offset_m,
                           snap_margin_m, strip_transverse_bound, zone2_half_width_m,
                           zone_bounds)
@@ -235,8 +235,9 @@ TEAR_MAX_EDGE_M = 1.0
 TEAR_MIN_JUMP_M = 1.0
 
 
-def groups(p: Patch):
-    """``[(rings, unit, code, length, letter, axis_a, axis_b)]`` per runway."""
+def groups(p: Patch, with_ref: bool = False):
+    """``[(rings, unit, code, length, letter, axis_a, axis_b)]`` per runway
+    (the runway's ref first when ``with_ref``)."""
     law = p.law
     pts_by_ref: dict[str, list] = {}
     letter: dict[str, str | None] = {}
@@ -267,7 +268,7 @@ def groups(p: Patch):
         len_a, len_b = rsa_end_lengths(p, ref, a, b, code, lt)
         rings = (rect_ring(a, b, 0.0, L, half), rect_ring(a, b, -len_a, 0.0, end_half),
                  rect_ring(a, b, L, L + len_b, end_half))
-        out.append((rings, unit, code, L, lt, a, b))
+        out.append(((ref,) if with_ref else ()) + (rings, unit, code, L, lt, a, b))
     return out
 
 
@@ -419,14 +420,15 @@ def strip_longitudinal(p: Patch) -> list[Row]:
 
 def strip_arc(p: Patch) -> list[Row]:
     law = p.law
-    r = law.ruleset.strip.arc_rate
-    rate = r.grade / r.per_m
     q = law.tables.emit.instrument.coarse_noise_m
     owned = _nonrunway_pavement_ids(p)
     bank = natural_shore_geometry(p.publication.get("natural_shore"), p.to_m, law)
     out: list[Row] = []
     seen: set = set()
-    for rings, unit, code, L, letter, _a, _b in groups(p):
+    for ref, rings, unit, code, L, letter, _a, _b in groups(p, with_ref=True):
+        # RULINGS 2026-10-26n: the strip along a steep runway follows its
+        # yielded curves
+        rate = strip_arc_rate_per_m(law, p.runway_curve_k(ref))
         for sh in _strips(p):
             inside = [point_in_rect_ring(x, y, rings[0]) for x, y in sh.xy]
             if not any(inside):

@@ -10404,3 +10404,39 @@ After its third failed round (PR #1134 at 348e8079c misses the §4 bars: riser o
 
 **2026-10-28f — taxiway slopes are measured along the taxiway's route (#805; owner Q210, 2026-10-27T13:23:40Z: "210. a").**
 KCLT taxiway T has to drop about 9 m over 450 m for tails to clear runway 18C. Measured straight across the paved shape that is 2 %, over the 1.5 % taxiway limit; along the taxiway's own route it is within the limit. Ruled (a): a taxiway's longitudinal slope is judged along its route, as route slopes already are. The straight-line-across-the-shape reading is not a taxiway-slope witness.
+
+**2026-10-28g — SPJC walkway tunnels accepted on the data available (#535; owner sim read on 1.0.436, 2026-10-27T13:54Z: "SPJC, still has a tunnel on either side of the walkway, but the walkway is not present in the package or the terrain, so it makes sense that we're trying to add a tunnel based on the data available."; Q216 "a", 13:58:59Z).**
+Where neither the airport package nor the terrain shows the structure over a mapped road (27z's witness), the tunnels the mapped data asks for are accepted as built until a package or survey shows the walkway. Q204's ruling on SPJC's real geometry stands as the description of the site; #535 is closed as accepted. The same reading covers VNLK (#1461): pavement the package carries is honoured until the package changes.
+
+**2026-10-28h — pack dock lanes: the walls frame the ramp (#414; owner Q218–Q220, 2026-10-27T14:30:52Z: "218. a 219. a 220. a").**
+(1) Q218 a: where a pack's own floor plate in a walled lane runs opposite to what its walls frame (at grade against the closing face, deepest at the open end), the WALLS win. The lane is read as a bay: deep at the closed end, rising over the walls' length to grade at the open end, as the owner-approved OTHH dock ramp is. This amends Law B (RULINGS 2026-09-08b/c, floor = the plate's own y) for that case only.
+(2) Q219 a: where a bay's two walls reach different depths, the floor is the SHALLOWER wall's bottom. A deeper block standing as one wall is not the floor.
+(3) Q220 a: side-by-side bays that share a wall are all built. One wall corridor touching another is not an overlap to resolve by dropping the smaller.
+
+**2026-10-28i — the Settings window reflects the selected tiles (#1549; owner Q222, 2026-10-27T14:40:19Z, verbatim):** "The settings window should reflect the selected tile(s). If no tiles are selected then it shows the global defaults, if a single tile is selected it shows the settings for that tile, if multiple tiles are selected, if they all have the same settings then the settings window looks the same and any changes apply to all the selected tiles. If the selected tiles have different settings then we need to show a clear indication that conflicting options are selected and any change prompts the user to confirm they want to apply the new settings to all the selected tiles.
+The three default settings groups are available whenever the selected tile(s) settings don't match, clicking use applies that default set to the selected tiles. If the selected tiles settings match one of the default settings groups than that one should be selected/highlighted and the Use button disabled to show that is the currently applied settings group."
+Both apps (the Mac app is the layout authority; the Qt window mirrors it, #1244).
+
+**2026-10-28j — the per-tile Settings window, three clarifications (#1549, amends 28i; owner Q223–Q225, 2026-10-27T14:42:10Z: "223. a 224. a 225. a").**
+(1) Q223 a: only the per-tile build settings follow the selection (zoom, cover, imagery, airport options). App-wide settings (data folders, API keys, appearance) always stay global.
+(2) Q224 a: a never-built tile in the selection counts as having the current global defaults, so it can match or conflict with the others.
+(3) Q225 a: with no tiles selected, an edit changes the global defaults for NEW tiles only; built tiles keep their own settings.
+
+**2026-10-28k — airport cuts and tunnels, from the LFPG hand patch (spec `docs/specs/lfpg-cuts-tunnels-rules-spec.md`, PR #1559; owner Q226–Q233, 2026-10-27T15:56:40Z, verbatim):**
+"226. a
+227. a
+228. a
+229. b - should be guided by objects for tunnel mouths, buildings, and road grading requirements
+230. a
+231. b - except where an object would indicate a different value
+232. a
+233. a - rails can't be as steep, so where there's a tunnel mouth they need a longer ramp than a road."
+Read with the questions as asked:
+- (226 a) The auto patch is judged by depth below the surrounding ground, not by the hand patch's absolute elevations.
+- (227 a) Where a hard-deck bridge object stands over a road the survey shows, the trench is cut to the surveyed road under the deck. This lifts the 22n hold for that case.
+- (228 a) A road running at least 100 m under viaducts mapped at layer 2 or higher, inside the airport boundary, sits 7.5 m below the apron.
+- (229 b) Landside zones such as Roissypole sit at the level the tunnel-mouth objects, the buildings and the road grading requirements set, not at the survey's level.
+- (230 a) Survey cuts are kept.
+- (231 b) Every road under pavement is deepened to the 7.5 m mouth depth, except where an object indicates a different value.
+- (232 a) A tagged tunnel gets no cut where its road already clears 5 m under the apron, or where neither the survey nor the ground shows one.
+- (233 a) Rail follows the survey and never gets a road ramp. At a tunnel mouth, rail needs a longer (shallower) ramp than a road; on coarse elevation that ramp is at most 3.5 %.

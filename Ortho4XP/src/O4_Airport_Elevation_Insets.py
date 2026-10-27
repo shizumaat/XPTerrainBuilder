@@ -136,6 +136,9 @@ from elevation_access.gdal_support import (
 )
 from elevation_access.base import ProviderUnavailable, TransientFetchError
 from elevation_access import base_fallback as ea_base_fallback
+# Imported lazily by ``O4_DEM_Utils.DEM.fill_base_voids``; named here so
+# the frozen engine and the step-code closure carry it (#1465).
+from elevation_access import base_voids as ea_base_voids  # noqa: F401
 from elevation_access.base_tiles import (
     base_definition_covers_tile,
     cached_elevation_file_is_valid,
@@ -164,7 +167,8 @@ from elevation_access.definitions import (
 )
 from elevation_access.downloads import _write_refused_by_armed_guard
 from elevation_access import fetch_scratch as FETCH_SCRATCH
-from elevation_access.fetch_slots import _held_provider_fetch_slot
+from elevation_access.fetch_slots import held_inset_fetch_slot
+from elevation_access import footprints as ea_footprints
 from elevation_access.las_tiles import LAS_FOOTPRINT_KEY, _buffer_geometry_m
 from elevation_access.registry import ACCESS_STRATEGIES
 from elevation_access.vertical_units import (
@@ -803,7 +807,7 @@ def negative_is_unverified(airport_record, code, definition,
         return False
     if bounding_box is None:
         bounding_box = airport_record.get("bounding_box")
-    if bounding_box is not None and not _coverage_bbox_intersects(
+    if bounding_box is not None and not ea_footprints.covers_box(
         definition, bounding_box
     ):
         return False
@@ -875,7 +879,7 @@ def negative_is_version_stale(airport_record, code, definition,
         return False
     if bounding_box is None:
         bounding_box = airport_record.get("bounding_box")
-    if bounding_box is not None and not _coverage_bbox_intersects(
+    if bounding_box is not None and not ea_footprints.covers_box(
         definition, bounding_box
     ):
         return False
@@ -4241,6 +4245,37 @@ def ladder_recheck(lat, lon, icao, provider_code, bounding_box,
 #: which is why it warns and never re-cuts.
 INSET_FUNCTIONAL_MARGIN_M = 1000.0
 
+#: THE GRADED REACH, in metres (owner RULINGS 2026-10-26t: "fetch only the
+#: part of each inset box the build reads"): the furthest the graded zones
+#: of any runway reach beyond its pavement -- the FAA RSA length beyond the
+#: end (304.8 m), the ICAO strip end plus RESA (60 + 240 m), the RAOA
+#: (300 m); zone 2 beside a runway is at most 76.2 m from the centreline.
+#: The aerodrome boundary already holds the pavement
+#: (``O4_Airport_Utils.update_airport_boundaries``), so the reach is
+#: measured from it.  ``tests/test_inset_fetch_reach.py`` holds it at or
+#: above the law tables' own maximum.
+INSET_GRADED_REACH_M = 305.0
+
+#: Room past the graded reach and the inset feather: the working grid's
+#: stencil (a 1 arc-second posting is 31 m) and the warp's pixel snap.
+INSET_FETCH_PAD_M = 100.0
+
+# The WARN rule judges the reach the box is now cut to: an inset that
+# covers the graded zones and their feather harms nothing.
+INSET_FUNCTIONAL_MARGIN_M = min(INSET_FUNCTIONAL_MARGIN_M,
+                                INSET_GRADED_REACH_M + 60.0)
+
+
+def inset_fetch_margin_m(tile):
+    """THE inset box margin beyond the aerodrome boundary's box, in metres
+    (owner RULINGS 2026-10-26t): the graded reach, the tile's inset
+    feather and :data:`INSET_FETCH_PAD_M` -- never more than the user's
+    ``airport_elevation_inset_margin_m``.  Beyond it the 10 m approach
+    ring stands, which is baked under every inset already."""
+    setting = float(getattr(tile, "airport_elevation_inset_margin_m", 2000.0))
+    feather = float(getattr(tile, "airport_elevation_inset_feather_m", 60.0))
+    return min(setting, INSET_GRADED_REACH_M + feather + INSET_FETCH_PAD_M)
+
 
 def inset_delivery_shortfall(inset_path, boundary_box, mid_latitude,
                              functional_margin_m=INSET_FUNCTIONAL_MARGIN_M):
@@ -4813,9 +4848,10 @@ def ensure_airport_insets(
                 and not version_stale
             ):
                 continue
-            if not _coverage_bbox_intersects(definition, bounding_box):
+            if not ea_footprints.covers_box(definition, bounding_box):
                 # The honest, capability-free negative: this provider's
-                # own declared box does not reach this airport.  No
+                # own declared box -- or its known footprint (#1466) --
+                # does not reach this airport.  No
                 # capability stamp -- ``negative_is_unverified`` reads the
                 # same boxes and never calls this one into question, so
                 # stamping it would be pure churn in the shared repo.
@@ -4919,7 +4955,7 @@ def ensure_airport_insets(
                 # and the refusal is on the guard's record.
                 EXTWRITE.declare_external_write(
                     destination, writer="the airport inset fetch")
-                with _held_provider_fetch_slot(code):
+                with held_inset_fetch_slot(code):
                     slow_note.start()
                     provenance = fetch_inset(
                         definition,
@@ -5829,16 +5865,17 @@ def _airport_bounding_boxes(tile, dico_airports, only=None, margin_m=None,
                             boundary_polygons=None):
     """Build ``{airport: (west, south, east, north)}`` in EPSG:4326.
 
-    ``margin_m`` overrides ``airport_elevation_inset_margin_m`` (``0`` =
-    the aerodrome boundary's own box).  ``boundary_polygons``, when a
+    ``margin_m`` overrides :func:`inset_fetch_margin_m` -- the margin
+    every inset reader (the fetch, the recut test, the harness frame and
+    pre-flight) shares (``0`` = the aerodrome boundary's own box).  ``boundary_polygons``, when a
     dict, is FILLED with ``{airport: shapely geometry}`` -- the aerodrome
     boundary in EPSG:4326 degrees, the extent a surgical LAS fetch is cut
     to (spec las-tile-lidar-provider §2, #130).  The return value is
     unchanged for every existing caller.
 
     Ortho4XP geometry is in tile-relative degrees; this adds the tile origin
-    back and expands by ``airport_elevation_inset_margin_m`` converted to
-    degrees at the tile latitude.
+    back and expands by the margin converted to degrees at the tile
+    latitude.
 
     *only*, when given, is the collection of ``dico_airports`` keys the
     INSET SELECTION admits (spec §A.4).  ``only=None`` is every airport,
@@ -5849,7 +5886,7 @@ def _airport_bounding_boxes(tile, dico_airports, only=None, margin_m=None,
     """
     admitted = None if only is None else set(only)
     if margin_m is None:
-        margin_m = getattr(tile, "airport_elevation_inset_margin_m", 2000.0)
+        margin_m = inset_fetch_margin_m(tile)
     metres_per_degree_latitude = GEO.lat_to_m
     metres_per_degree_longitude = GEO.lon_to_m(tile.lat + 0.5)
     margin_lon = margin_m / metres_per_degree_longitude
@@ -7420,6 +7457,7 @@ def _bake_island_continuity(tile, stamped, feather_m):
         return
     try:
         from auto_patch import flat_site_mode as FLAT_SITE_MODE
+        from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
 
         regions = FLAT_SITE_MODE.island_continuity_regions(tile, stamped)
     except Exception as error:
@@ -7432,6 +7470,10 @@ def _bake_island_continuity(tile, stamped, feather_m):
         return
     if not regions:
         return
+    # #1208: each airport's decision record (its pavement), for the
+    # fill-only pass after its isthmus bake.
+    records = {entry.get("icao"): entry["record"] for entry in stamped
+               if isinstance(entry.get("record"), dict)}
     x_step = ((base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
               if base_dem.nxdem > 1 else 0.0)
     y_step = ((base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
@@ -7457,7 +7499,13 @@ def _bake_island_continuity(tile, stamped, feather_m):
                        int(INSET_DATUM_WARNING_THRESHOLD_M), region["z0_m"]),
                 )
                 continue
+            before = FLAT_SITE_RELIEF.snapshot_window(
+                base_dem, [polygon.bounds])
             _bake_one_inset(tile, None, 0.0, inset=inset)
+            # #1208: the isthmus is a Z0 stamp too — it fills, never cuts.
+            fill_only = _keep_ground_above_flat_level(
+                tile, before, records.get(icao) or {}, region["z0_m"],
+                icao, what="isthmus")
         except Exception as error:
             UI.vprint(
                 0,
@@ -7483,6 +7531,7 @@ def _bake_island_continuity(tile, stamped, feather_m):
             "band_kept_posts": int(inset.mask_valid_posts),
             "band_dropped_posts": int(inset.mask_band_dropped),
             "feather_m": 0.0,
+            "fill_only": fill_only,
         })
         UI.vprint(
             0,
@@ -7531,31 +7580,33 @@ def _isthmus_base_offset_m(tile, polygon, z0_m):
         return None
 
 
-def _restore_off_site_relief(tile, relief_before, record, z0_m, icao):
-    """#1137 — hand one airport's baked window to
-    ``auto_patch.flat_site_relief`` and say what came back."""
+def _keep_ground_above_flat_level(tile, before, record, z0_m, icao,
+                                  what="plateau"):
+    """RULINGS 2026-10-26r (#1208) — the plateau is a fill, not a cut: hand
+    one airport's baked window to ``auto_patch.flat_site_relief`` (ground
+    the stamp cut that stands more than 0.5 m above Z0 keeps its real
+    surface; its pavement and runway strips keep Z0) and say what came back.
+    ``what`` names the stamp in the log line."""
     from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
 
-    site = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
+    held = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
         record, int(math.floor(tile.lat)), int(math.floor(tile.lon)))
-    if site is None:
-        UI.vprint(1, "   [flat-site] %s: the decision carries no gate — the "
-                     "off-site relief rule has no site to keep." % icao)
-        return None
+    if held is None:
+        UI.vprint(1, "   [flat-site] %s: the decision carries no held ground — "
+                     "no post of the %s keeps a cut." % (icao, what))
     centre_latitude = tile.lat + 0.5
-    report = FLAT_SITE_RELIEF.restore_off_site_relief(
-        tile.dem, relief_before, site, z0_m, INSET_DATUM_WARNING_THRESHOLD_M,
+    report = FLAT_SITE_RELIEF.restore_ground_above_flat_level(
+        tile.dem, before, held, z0_m,
         (GEO.lon_to_m(centre_latitude), GEO.lat_to_m))
     if report["restored_posts"]:
         UI.vprint(
             0,
-            "   [flat-site] %s: %.4f km2 of ground OUTSIDE the airport's own "
-            "surfaces stood more than %g m above Z0 %.2f m (up to %.1f m) — a "
-            "hill is not the site; it keeps the real surface."
-            % (icao, report["restored_km2"],
-               INSET_DATUM_WARNING_THRESHOLD_M
-               * FLAT_SITE_RELIEF.BAND_FULL_FRACTION,
-               float(z0_m), report["max_offset_m"]))
+            "   [flat-site] %s: %.4f km2 of the %s's ground off the pavement and strips "
+            "stood more than %g m above Z0 %.2f m (up to %.1f m) — the "
+            "plateau fills, it does not cut; it keeps the real surface."
+            % (icao, report["restored_km2"], what,
+               FLAT_SITE_RELIEF.KEEP_ABOVE_M, float(z0_m),
+               report["max_offset_m"]))
     return report
 
 
@@ -7640,8 +7691,8 @@ def overlay_flat_site_insets(tile, dico_airports=None):
         # OUTSIDE the declared extent -- Z0 holds to the wall line.  The
         # provenance below keeps the DECLARED box.
         record = substitution["record"]
-        # #1137: the honest surface under every rectangle this airport is
-        # about to bake, for the off-site relief rule after its clusters.
+        # #1208: the honest surface under every rectangle this airport is
+        # about to bake, for the fill-only rule after its clusters.
         relief_before = FLAT_SITE_RELIEF.snapshot_window(base_dem, [
             _feather_outward_extent(tile, *_footprint_of(entry).bounds,
                                     feather_m)
@@ -7812,9 +7863,10 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                    cluster.get("placements") or 0,
                    cluster.get("extent_area_km2") or 0.0, feather_m),
             )
-        # #1137 A HILL IS NOT THE SITE: off the airport's own surfaces the
-        # plateau stands only where the honest surface was near Z0.
-        airport_entry["off_site_relief"] = _restore_off_site_relief(
+        # #1208 (RULINGS 2026-10-26r) THE PLATEAU IS A FILL, NOT A CUT:
+        # off the airport's pavement and runway strips, ground more than 0.5 m above Z0
+        # keeps the real surface.
+        airport_entry["fill_only"] = _keep_ground_above_flat_level(
             tile, relief_before, record, substitution["z0_m"], icao)
         # R11-1/R11-2: the refusals this airport collected, counted once
         # and carried on its provenance entry.  Refusals raised BEFORE

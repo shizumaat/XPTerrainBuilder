@@ -1928,3 +1928,126 @@ def test_a_date_only_stamp_change_is_not_rewritten(tmp_path, monkeypatch):
     changed = dict(later, plan_stamp="def")
     assert EL.write_approach_ring_stamp(39, -107, changed) is True
 
+
+
+def test_ring_cells_of_every_tile_share_one_machine_wide_pool(
+    tmp_path, monkeypatch, capsys
+):
+    """RULINGS 2026-10-26t (#1327): ring-cell fetches against one provider
+    hold its session-wide CELL class, so two tiles fetching at once are
+    one cap on the server, not one cap each -- and every finished cell
+    prints a progress line."""
+    import threading
+    import time
+
+    monkeypatch.setattr(FNAMES, "Elevation_dir", str(tmp_path))
+    monkeypatch.setattr(RINGS, "APPROACH_RING_FETCH_WORKERS", 2)
+    lock = threading.Lock()
+    in_flight = [0, 0]
+
+    def _fetch(_definition, _box, _class_m, _path):
+        with lock:
+            in_flight[0] += 1
+            in_flight[1] = max(in_flight[1], in_flight[0])
+        try:
+            time.sleep(0.05)
+            return None
+        finally:
+            with lock:
+                in_flight[0] -= 1
+
+    fake = SimpleNamespace(fetch_inset=_fetch)
+    rung = SimpleNamespace(definition={"code": "POOLTEST"})
+
+    def _tile_pass(lat):
+        jobs = [
+            ({"column": column, "row": 0, "provider": "POOLTEST",
+              "class_m": 10.0,
+              "path": str(tmp_path / ("c%d_%d.tif" % (lat, column)))}, rung)
+            for column in range(4)
+        ]
+        RINGS._fetch_approach_ring_cells(lat, 7, jobs, fake)
+
+    tiles = [threading.Thread(target=_tile_pass, args=(lat,))
+             for lat in (46, 47)]
+    for thread in tiles:
+        thread.start()
+    for thread in tiles:
+        thread.join()
+    assert in_flight[1] == 2
+    out = capsys.readouterr().out
+    for done in (1, 2, 3, 4):
+        assert "approach rings: %d/4 cells" % done in out
+
+
+# =====================================================================
+# #1466 -- a provider's real FOOTPRINT, not its coverage box, decides
+# which cells it can serve
+# =====================================================================
+def _write_footprint(code, covered):
+    from elevation_access import footprints as ea_footprints
+
+    path = ea_footprints.footprint_path(code, TILE_LAT, TILE_LON)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        json.dump({"provider": code, "covered": covered}, handle)
+
+
+def test_a_cell_outside_the_footprint_walks_on_to_the_next_provider(
+    tmp_path, monkeypatch
+):
+    """The fine provider's box covers the whole tile, its data only the
+    western half: the eastern cells go to the coarse provider."""
+    fine = _definition("FINE", 1.0)
+    coarse = _definition("COARSE", 30.0)
+    _install_registry(monkeypatch, fine, coarse)
+    tile = _tile(tmp_path, monkeypatch)
+    _write_footprint("FINE", [[column, row] for column in range(5)
+                              for row in range(10)])
+    plan = RINGS.resolve_approach_ring_plan(
+        tile, _dico(KASE=_boundary(0.5, 0.5))
+    )
+    assert _cell(plan, 4, 5)["provider"] == "FINE"
+    assert _cell(plan, 4, 5)["class_m"] == RING1_CLASS_M
+    assert _cell(plan, 5, 5)["provider"] == "COARSE"
+    assert _cell(plan, 5, 5)["class_m"] == RING2_CLASS_M
+
+
+def test_an_unknown_footprint_keeps_the_box_choice(tmp_path, monkeypatch):
+    fine = _definition("FINE", 1.0)
+    coarse = _definition("COARSE", 30.0)
+    _install_registry(monkeypatch, fine, coarse)
+    tile = _tile(tmp_path, monkeypatch)
+    plan = RINGS.resolve_approach_ring_plan(
+        tile, _dico(KASE=_boundary(0.5, 0.5))
+    )
+    assert _cell(plan, 5, 5)["provider"] == "FINE"
+
+
+def test_ensure_probes_the_footprint_before_the_plan(tmp_path, monkeypatch):
+    """The fetch step probes the candidates first, so the plan it fetches
+    already walks past the cells the fine provider has no data in."""
+    from elevation_access import footprints as ea_footprints
+
+    fine = _definition("FINE", 1.0)
+    coarse = _definition("COARSE", 30.0)
+    _install_registry(monkeypatch, fine, coarse)
+    tile = _tile(tmp_path, monkeypatch)
+    probed = []
+
+    def _ensure(definitions, lat, lon, refresh=False):
+        probed.append([d["code"] for d in definitions])
+        _write_footprint("FINE", [[0, 0]])
+        return ["FINE"]
+
+    monkeypatch.setattr(ea_footprints, "ensure_tile_footprints", _ensure)
+    fetched = []
+
+    def _fetch(lat, lon, jobs, insets):
+        fetched.extend(cell["provider"] for (cell, _rung) in jobs)
+        return [(None, RuntimeError("not fetched")) for _job in jobs]
+
+    monkeypatch.setattr(RINGS, "_fetch_approach_ring_cells", _fetch)
+    RINGS.ensure_approach_rings(tile, _dico(KASE=_boundary(0.5, 0.5)))
+    assert probed and set(probed[0]) == {"FINE", "COARSE"}
+    assert fetched and "FINE" not in fetched

@@ -292,7 +292,10 @@ def runway_vertical_curve(p: Patch) -> list[Row]:
             d2 = math.dist(sh.xy[b], sh.xy[c])
             if d1 <= 0.0 or d2 <= 0.0:
                 continue
-            bound = runway_vertical_curve_bound(law, 0.5 * (d1 + d2), cn, cl)
+            bound = runway_vertical_curve_bound(law, 0.5 * (d1 + d2), cn, cl,
+                                                # RULINGS 2026-10-26n: the K a
+                                                # steep runway's curves yielded to
+                                                yield_k_m=p.runway_curve_k(sh.ref))
             if bound is None:
                 continue
             change = (sh.z[c] - sh.z[b]) / d2 - (sh.z[b] - sh.z[a]) / d1

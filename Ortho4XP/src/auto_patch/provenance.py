@@ -612,7 +612,11 @@ def parse_patch_provenance(path: str) -> dict | None:
 # rebuilds every airport.  ``o4_engine`` is still WRITTEN (it names the
 # engine that built the patch), never compared.  Every "5" patch rebuilds
 # exactly once.
-FRESHNESS_SCHEMA_VERSION = "6"
+# "7" (2026-10-26, #1359): ``o4_imagery`` joined — the airport's own photos
+# the terrain witness read (owner RULINGS 2026-10-26q / 26y: the patch is
+# fitted to the imagery being built, and waits for it).  Every "6" patch
+# rebuilds exactly once.
+FRESHNESS_SCHEMA_VERSION = "7"
 
 # Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately
 # NOT here: it is an INPUT to the recomputation of ``o4_dsf`` (which 1°×1°
@@ -632,12 +636,32 @@ FRESHNESS_COMPARED_KEYS = (
     "o4_code",
     "o4_ap_engine",
     "o4_dsf",
+    "o4_imagery",
 )
 
 # Every stamp key written, in the order they appear on the root element.
 #: ``o4_engine`` is written for the reader (which engine built it), never
 #: compared (owner Q158, 2026-10-26).
 FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles", "o4_engine")
+
+def imagery_identity(paths) -> str:
+    """``o4_imagery``: one digest of the airport photos a patch was fitted
+    to (#1359) — each file's NAME (provider, zoom and grid position) and
+    byte size, sorted; ``"none"`` for none.  Stat only, like every gate
+    input: the names are the textures the build assigned, the sizes witness
+    their content without reading it."""
+    paths = sorted(paths or ())
+    if not paths:
+        return "none"
+    h = hashlib.sha256()
+    for p in paths:
+        try:
+            size = os.path.getsize(p)
+        except OSError:
+            size = -1
+        h.update(f"{os.path.basename(p)}|{size}\n".encode("utf-8"))
+    return h.hexdigest()[:16]
+
 
 # ──────────────────────────────────────────────────────────────────────
 # THE TILE CFG VARS THE AIRPORT BUILD READS — and which stamp carries each
@@ -1045,6 +1069,16 @@ def dem_fingerprint(tile, icao: str | None = None) -> str:
              if isinstance(r, dict)),
             key=lambda r: str(r.get("cell"))):
         spec_parts.append("base_fallback:%s=%s|%s" % (
+            record.get("cell"), record.get("code"),
+            _identity(record.get("path"))))
+    # Base void posts filled from a fallback source (#1465,
+    # ``elevation_access.base_voids``): none on a void-free base cell, so
+    # every such stamp is unchanged.
+    for record in sorted(
+            (r for r in (getattr(dem, "base_void_fills", None) or ())
+             if isinstance(r, dict)),
+            key=lambda r: (str(r.get("cell")), str(r.get("code")))):
+        spec_parts.append("base_voids:%s=%s|%s" % (
             record.get("cell"), record.get("code"),
             _identity(record.get("path"))))
     try:

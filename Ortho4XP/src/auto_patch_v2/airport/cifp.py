@@ -100,6 +100,15 @@ def read_cifp_runways(path: str) -> dict[str, CifpRunway]:
     return out
 
 
+#: ``{path: ((mtime_ns, size), thresholds)}`` -- tile selection reads
+#: EVERY CIFP file of the install (~11,000) to find a tile's airports, and
+#: the build, the Airports card and the boundary preflight each run it, the
+#: last two while a build holds the CPU (#1414 card, the Queue press).  A
+#: file is re-read when its stat identity moves, so the answer is the
+#: file's, never a stale copy.
+_THRESHOLDS: dict[str, tuple[tuple[int, int], dict[str, dict]]] = {}
+
+
 def read_threshold_dicts(path: str) -> dict[str, dict]:
     """:func:`read_cifp_runways` in the shape tile selection and the
     object-anchor worklist consume: ``{"RW16L": {lat, lon, elevation_m,
@@ -107,16 +116,30 @@ def read_threshold_dicts(path: str) -> dict[str, dict]:
 
     An UNREADABLE file is no runways (``{}``, one log line), never an
     exception: a CIFP file that vanished or cannot be decoded skips that
-    airport and must not fail the tile's whole selection."""
+    airport and must not fail the tile's whole selection.
+
+    Parsed once per file identity (``_THRESHOLDS``); every call returns
+    fresh dicts, so a caller's edit never reaches the next caller."""
     try:
-        runways = read_cifp_runways(path)
-    except (OSError, ValueError) as exc:
-        _log.warning("could not read CIFP file %s: %s", path, exc)
-        return {}
-    return {"RW" + key: {"lat": r.lat, "lon": r.lon,
-                         "elevation_m": r.elevation_m,
-                         "displaced_m": r.displaced_m}
-            for key, r in runways.items()}
+        st = os.stat(path)
+        identity = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        identity = None
+    cached = _THRESHOLDS.get(path) if identity is not None else None
+    if cached is None or cached[0] != identity:
+        try:
+            runways = read_cifp_runways(path)
+        except (OSError, ValueError) as exc:
+            _log.warning("could not read CIFP file %s: %s", path, exc)
+            return {}
+        thresholds = {"RW" + key: {"lat": r.lat, "lon": r.lon,
+                                   "elevation_m": r.elevation_m,
+                                   "displaced_m": r.displaced_m}
+                      for key, r in runways.items()}
+        cached = (identity, thresholds)
+        if identity is not None:
+            _THRESHOLDS[path] = cached
+    return {key: dict(value) for key, value in cached[1].items()}
 
 
 def xplane_root_from_cifp_path(cifp_path: str) -> str | None:
@@ -141,12 +164,26 @@ def discover_cifp_airports(cifp_path: str) -> dict[str, str]:
     airports: dict[str, str] = {}
     if not cifp_path or not os.path.isdir(cifp_path):
         return airports
+    try:
+        identity = os.stat(cifp_path).st_mtime_ns
+    except OSError:
+        identity = None
+    cached = _DIRECTORY.get(cifp_path)
+    if identity is not None and cached is not None and cached[0] == identity:
+        return dict(cached[1])
     for fname in os.listdir(cifp_path):
         if fname.lower().endswith(".dat"):
             icao = fname[:-4].upper()
             if 2 <= len(icao) <= 4 and icao.replace("-", "").isalnum():
                 airports[icao] = os.path.join(cifp_path, fname)
+    if identity is not None:
+        _DIRECTORY[cifp_path] = (identity, dict(airports))
     return airports
+
+
+#: ``{cifp dir: (dir mtime_ns, {ICAO: path})}`` -- the directory listing,
+#: re-read when a file is added, removed or renamed there.
+_DIRECTORY: dict[str, tuple[int, dict[str, str]]] = {}
 
 
 def airport_in_tile(runways: dict, tile_lat: int, tile_lon: int) -> bool:

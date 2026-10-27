@@ -65,6 +65,14 @@ def ask_unsaved_dialog(parent, title: str, message: str, quitting: bool) -> str:
     return ANSWER_SAVE if clicked is save else ANSWER_DISCARD if clicked is discard else ANSWER_KEEP
 
 
+def absence(tile_built: bool, scanning: bool) -> str:
+    """The state for an airport with no patch listed: never "not built"
+    while the scan that would list its tile is still running."""
+    if not tile_built and scanning:
+        return PatchController.CHECKING
+    return PatchController.NO_PATCH
+
+
 def tile_key(lat: int, lon: int) -> str:
     return "%+03d%+04d" % (lat, lon)
 
@@ -76,6 +84,9 @@ class PatchController(QObject):
 
     # LoadState names (the Mac enum's cases)
     HIDDEN, LOADING, LOADED, FAILED, NO_PATCH = "hidden", "loading", "loaded", "failed", "no_patch"
+    #: Not in the built set YET: the tile scan is still running, so "Build
+    #: this tile first" would be a guess (the Mac's ``.checking``).
+    CHECKING = "checking"
 
     def __init__(self, engine, model: PatchEditModel, map_view,
                  built: _t.Callable[[], dict], parent=None):
@@ -98,6 +109,8 @@ class PatchController(QObject):
         #: ``rebuild(tile_key) -> error sentence | None`` (the window's build path).
         self.rebuild: _t.Callable[[str], str | None] = lambda _tile: "The build path is not connected."
         self.is_building: _t.Callable[[], bool] = lambda: False
+        #: Whether the window's tile scan is still running.
+        self.is_scanning: _t.Callable[[], bool] = lambda: False
         #: ``ask(title, message, quitting) -> "save" | "discard" | "keep"``.
         self.ask: _t.Callable[[str, str, bool], str] = (
             lambda title, message, quitting: ask_unsaved_dialog(map_view, title, message, quitting))
@@ -174,7 +187,7 @@ class PatchController(QObject):
             else:
                 code, a_lat, a_lon = airport
                 self.tile_built = (math.floor(a_lat), math.floor(a_lon)) in built
-                self._set_state(self.NO_PATCH, code)
+                self._set_state(absence(self.tile_built, self.is_scanning()), code)
 
     @staticmethod
     def _nearest(candidates, c_lat: float, c_lon: float):

@@ -859,3 +859,38 @@ def test_t10_the_class_caps_come_from_one_law_table():
     assert VECT.road_class_cap(None, law["class_caps"], CAP) == CAP
     assert VECT.road_class_cap("pier", law["class_caps"], CAP) == CAP
     assert law["cap_ceiling"] > max(law["class_caps"].values())
+
+
+# T11 ── OWNER RULINGS 2026-10-22h (#1254): a PUBLIC road follows its
+#        terrain inside the band; a service road keeps the cap.
+
+def test_t11_a_public_road_inside_the_band_is_its_terrain():
+    from shapely import geometry
+
+    law = CFGVARS.road_neighbourhood_law()
+    assert "service" not in law["public_classes"]
+    assert "residential" in law["public_classes"]
+    # every public class is a class the per-class table states
+    assert set(law["public_classes"]) <= set(law["class_caps"])
+    ceil = law["cap_ceiling"]
+    assert VECT.road_inside_cap("residential", CAP, ceil, law["public_classes"]) == ceil
+    assert VECT.road_inside_cap("service", CAP, ceil, law["public_classes"]) == CAP
+    assert VECT.road_inside_cap(None, CAP, ceil, law["public_classes"]) == CAP
+    assert VECT.road_inside_cap("railway:rail", CAP, ceil, law["public_classes"]) == CAP
+
+    dlat = 1.0 / GEO.lat_to_m
+    lines = [geometry.LineString([(0.0, i * 20.0 * dlat) for i in range(10)]),
+             geometry.LineString([(0.002, i * 20.0 * dlat) for i in range(10)])]
+    band = geometry.box(-0.001, -0.001, 0.01, 0.01)       # wholly in band
+
+    def alt_vec(pts):                                     # a 16 % hillside
+        return 0.16 * numpy.asarray(pts, dtype=float)[:, 1] / dlat
+
+    lev = VECT.clamp_road_network(
+        geometry.MultiLineString(lines), alt_vec, CAP, 4.0, coverage=band,
+        way_classes=["residential", "service"])
+    public, service = lev.ways
+    assert numpy.allclose(public["alt"], public["dem"], atol=1e-9)
+    g = numpy.abs(numpy.diff(service["alt"])) / numpy.diff(service["s_m"])
+    assert g.max() <= CAP + 1e-9
+    assert not numpy.allclose(service["alt"], service["dem"], atol=0.1)

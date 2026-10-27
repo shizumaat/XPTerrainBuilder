@@ -70,7 +70,7 @@ from .structure_approach import (Bore, carriageway_width_m, chains, is_tunnel,
                                  standing_cover)
 from .structure_service import airside_cut_roles
 
-__all__ = ["CoveredGround", "covered_ground"]
+__all__ = ["CoveredGround", "covered_ground", "beside_ground"]
 
 #: the across-axis sampling step of a cut's section (metres)
 _STEP_M = 1.0
@@ -338,3 +338,19 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
             if lift > rep.max_lift_m:
                 rep.max_lift_m, rep.max_lift_xy = lift, (p.x, p.y)
     return out, rep
+
+
+def beside_ground(dem, bore: Bore, law: Law, at: tuple[float, float]) -> "float | None":
+    """THE GROUND BESIDE THE COVER at ``at`` over ``bore`` — this module's
+    one reading (its sections, :func:`_ground_at`) — or ``None`` where the
+    DEM never climbs the mouth depth beside it (the DEM sees the lid).
+    Owner RULINGS 2026-10-26p Q168 / 2026-10-20am: a HANGING pack portal's
+    top is flush with this ground, never with the bare-earth road under it
+    (``planar/structures``)."""
+    secs = _sections(dem, bore, law) if dem is not None else []
+    if not secs:
+        return None
+    if len(secs) == 1:
+        c = secs[0]
+        return max(c.zl, c.zr)
+    return _ground_at(Point(at), bore.line, secs)

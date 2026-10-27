@@ -326,6 +326,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.footprint_unit",
         "auto_patch_v2.airport.frame_entry",
         "auto_patch_v2.airport.grade_ledger",
+        "auto_patch_v2.airport.hanging_objects",
         "auto_patch_v2.airport.jetways",
         "auto_patch_v2.airport.line_object",
         "auto_patch_v2.airport.msl_feet",
@@ -1369,7 +1370,7 @@ CODE_MODULES["solve"] = _mods("""
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
     airport.terrain_feature airport.obj8_clip airport.obj8_drape
-    airport.obj8_grade airport.obj8_roof airport.obj8_split airport.object_cut
+    airport.obj8_grade airport.obj8_roof airport.obj8_split airport.object_cut airport.hanging_objects
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.placement_body airport.placement_boxes airport.placement_carrier
@@ -1462,7 +1463,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.one_building airport.frame_entry airport.grade_ledger airport.jetways
     airport.line_object airport.msl_feet airport.obj8
     airport.terrain_feature airport.obj8_clip airport.obj8_drape
-    airport.obj8_grade airport.obj8_roof airport.obj8_split airport.object_cut
+    airport.obj8_grade airport.obj8_roof airport.obj8_split airport.object_cut airport.hanging_objects
     airport.pack airport.pack_partition airport.pack_work airport.pad_block_seat
     airport.partition_cache airport.partition_code airport.placement_atom
     airport.placement_body airport.placement_boxes airport.placement_carrier

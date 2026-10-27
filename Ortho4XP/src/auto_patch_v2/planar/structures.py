@@ -374,8 +374,10 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
             (q for q in (portal_of(m.xy, portals, tn.object.bore_end_tolerance_m)
                          for m in members) if q is not None), None)
         if pin is not None:
-            # the portal is drawn at its anchor: the mouth stands under it
-            axis_ln, moved = portal_mouth(axis_ln, inward, pin.anchor_xy)
+            # the portal is drawn at its anchor: the mouth stands under it; a
+            # HANGING portal's cut takes in its whole plan (20an / 20as)
+            axis_ln, moved = portal_mouth(axis_ln, inward, pin.anchor_xy,
+                                          pin.plan_xy if pin.hanging else ())
             mouth = tuple(axis_ln.coords[0])
             stats.portal_mouths.append(f"{tid}: {pin.object_id} depth {pin.depth_m:.2f}"
                                        + (f", mouth {moved:.1f} m into the bore to the "
@@ -391,8 +393,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                 axis_ln, roads_ix, law, [m.approach for m in members if hasattr(m, "approach")]),
             pinned=pin is not None)
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
-            stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}")
-            pin = None
+            stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}"
+                                          + (" (a hanging portal keeps its depth: 20am / 20ar)"
+                                             if pin.hanging else ""))
+            if not pin.hanging:
+                pin = None
         if clear is not None and clear[0] is None:
             stats.refused.append(f"{tid}: {clear[4]}")
             continue
@@ -436,7 +441,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if math.isnan(mouth_dem):
             stats.refused.append(f"{tid}: no DEM at the mouth")
             continue
-        if c is None:
+        if c is None and not (pin is not None and pin.hanging):
             # THE MOUTH CREST IS THE ROAD'S GROUND, NOT THE OVERBRIDGE'S
             # (spec §33 (3); owner RULINGS 2026-09-13d item 6).  `crest =
             # "dem"` samples the DEM at the mouth node; a portal's cover may
@@ -457,10 +462,15 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                     f"(> mouth_depth_m {tn.mouth_depth_m} + split_tol_m {tol_m}): an "
                     f"overbridge embankment, not the portal's cover (§33 (3))")
                 mouth_dem = cap_z
-        mouth_z = c.floor_z if c is not None else mouth_dem - (
-            tn.mouth_depth_m if pin is None else pin.depth_m)
+        mouth_z = c.floor_z if c is not None else (
+            mouth_dem - tn.mouth_depth_m if pin is None
+            # a portal's own depth; a HANGING one's under the ground its top
+            # is flush with (RULINGS 2026-10-26p Q168, 2026-10-20am/ar)
+            else (_hanging_ground(airport, law, members, mouth, mouth_dem)
+                  if pin.hanging else mouth_dem) - pin.depth_m)
         slid_depth = None if pin is None else pin.depth_m   # #1028: a slid mouth's road profile
-        if clear is not None and clear[5] is not None and clear[5] > mouth_z:
+        if clear is not None and clear[5] is not None and clear[5] > mouth_z \
+                and not (pin is not None and pin.hanging):     # 20ar: the object wins
             mouth_z, slid_depth = clear[5], mouth_dem - clear[5]
         # decks across the corridor.  TWO orthogonal readings at one
         # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the
@@ -1065,3 +1075,13 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
 
+
+
+def _hanging_ground(airport, law, members, mouth, mouth_dem: float) -> float:
+    """The ground a HANGING portal's top is flush with: the ground beside
+    the cover at its mouth (``covered_ground.beside_ground``, #714 — a
+    bare-earth DEM carries the road under the lid), else the DEM there."""
+    from .covered_ground import beside_ground
+    zs = [z for z in (beside_ground(airport.dem, m.bore, law, mouth) for m in members
+                      if getattr(m, "bore", None) is not None) if z is not None]
+    return max([mouth_dem, *zs])

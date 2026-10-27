@@ -63,6 +63,16 @@ class Portal:
     roof_area_m2: float
     #: the placement's anchor (frame xy): where X-Plane draws its zero
     anchor_xy: XY = (0.0, 0.0)
+    #: owner RULINGS 2026-10-26p Q168 / 2026-10-20am-at: a HANGING portal
+    #: (``airport/hanging_objects``) — a face or bridge-edge walls hanging
+    #: from a top flush with the ground, no floor: ``depth_m`` is its walls'
+    #: bottom under that top, the top flush with the ground beside the cover
+    #: (``planar/covered_ground.beside_ground``, read by ``planar/
+    #: structures``: a bare-earth DEM carries the ROAD under a lid — KATL
+    #: 282 m under a 304 m field), and the cut takes in its whole plan
+    #: (``plan_xy``): the mouth stands at its back
+    hanging: bool = False
+    plan_xy: tuple = ()
 
 
 def _ends(tunnel_ways) -> list[tuple[XY, int]]:
@@ -117,6 +127,32 @@ def roof_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
     return float(ymax[up][sel].max()), float(bins[top]), plan
 
 
+def hanging_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
+                    ) -> "tuple[float, tuple] | None":
+    """``(depth, placed plan hull)`` of a HANGING portal — no hard
+    deck, its top flush with its zero (``cover_flush_m``), its solids
+    hanging to a bottom with no floor there (``hanging_objects.
+    hanging_bottom``) — else ``None``."""
+    from shapely.geometry import MultiPoint
+
+    from .hanging_objects import hanging_bottom
+    ob = law.tables.structures.tunnel.object
+    if len(g.hard_deck) or not len(g.solid):
+        return None
+    v = g.vertices
+    top = float(v[np.unique(g.solid), 1].max())
+    if abs(top) > ob.cover_flush_m:
+        return None
+    bottom = hanging_bottom(v, g.solid, law)
+    if bottom is None:
+        return None
+    a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
+    pts = [(a * x + b * z + xo, d * x + e * z + yo) for x, _y, z in v[np.unique(g.solid)]]
+    hull = MultiPoint(pts).convex_hull
+    ring = list(hull.exterior.coords) if hull.geom_type == "Polygon" else list(hull.coords)
+    return top - bottom, tuple((float(x), float(y)) for x, y in ring)
+
+
 def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCache,
                  law, tunnel_ways, taken: _t.AbstractSet[str] = frozenset()
                  ) -> tuple[list[Portal], list[str]]:
@@ -135,11 +171,30 @@ def read_portals(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.Resource
         if (o.resolved is None or o.id in taken or not hasattr(o.plan_bbox, "buffer")
                 or _obj8.is_stock_library_resource(o.path)):
             continue
-        near = [int(j) for j in tree.query(o.plan_bbox.buffer(tol), predicate="intersects")]
+        # (twice the tolerance: a bare face's line may stand it off either side)
+        near = [int(j) for j in tree.query(o.plan_bbox.buffer(2.0 * tol),
+                                           predicate="intersects")]
         if not near:
             continue
+        g = cache.geometry(o.resolved)
+        hung = hanging_reading(o, g, law) if g is not None else None
+        if hung is not None:
+            depth, plan_xy = hung
+            from shapely.geometry import LineString as _LS
+            from shapely.geometry import Polygon as _Poly
+            shape = (_Poly(plan_xy) if len(plan_xy) >= 4 else
+                     _LS(plan_xy) if len(plan_xy) >= 2 else None)
+            # a bare FACE is a line in plan: the mapped end may stand the
+            # tolerance off it on either side (EGGW ``eggw_tex14``: 4.4-9.3 m)
+            reach = tol if shape is not None and shape.geom_type == "Polygon" else 2.0 * tol
+            for j in [int(i) for i in tree.query(o.plan_bbox.buffer(reach),
+                                                 predicate="intersects")]:
+                if shape is not None and shape.distance(Point(ends[j][0])) <= reach:
+                    xy, wid = ends[j]
+                    out.append(Portal(o.id, o.path, xy, wid, depth, 0.0,
+                                      (float(o.xy[0]), float(o.xy[1])), True, plan_xy))
+            continue
         if o.path not in readings:
-            g = cache.geometry(o.resolved)
             readings[o.path] = (roof_reading(g, cache.genuine(o.resolved), law)
                                 if g is not None else "unreadable OBJ8")
         r = readings[o.path]

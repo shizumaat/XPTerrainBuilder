@@ -495,16 +495,20 @@ def strip_keepout(wall, strip_u, pin) -> str:
     return STRIP_REFUSED if pin is None else STRIP_PORTAL
 
 
-def portal_mouth(axis: LineString, inward, anchor) -> "tuple[LineString, float]":
+def portal_mouth(axis: LineString, inward, anchor, plan=()) -> "tuple[LineString, float]":
     """``(axis, metres moved)``: a pinned mouth stands under its PORTAL.  An
     unseated pack portal (placed at several anchors, I-4) is drawn on the
     mesh at its ANCHOR, so the mouth's floor must be there: where the anchor
     stands on the COVERED side of the mapped bore end (KBUF ``Road_Tunnel``
     dsf:obj6856 10.4 m, dsf:obj6854 7.9 m), the mouth moves into the bore
     to the anchor's station on the axis; an anchor on the ramp side keeps
-    the mapped end (the ramp floor there is the mouth's to ``ramp_grade``)."""
+    the mapped end (the ramp floor there is the mouth's to ``ramp_grade``).
+    ``plan`` given (a HANGING portal, owner RULINGS 2026-10-20an / 20as: the
+    cut takes in the object): the mouth moves to the plan's furthest point
+    into the bore instead."""
     m = axis.coords[0]
-    d = (anchor[0] - m[0]) * inward[0] + (anchor[1] - m[1]) * inward[1]
+    d = max((q[0] - m[0]) * inward[0] + (q[1] - m[1]) * inward[1]
+            for q in (plan or (anchor,)))
     if d <= 0.0:
         return axis, 0.0
     new = (m[0] + inward[0] * d, m[1] + inward[1] * d)

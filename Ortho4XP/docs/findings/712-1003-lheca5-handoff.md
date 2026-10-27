@@ -85,3 +85,36 @@ Branch `claude/l1088c-road-drop` (PR #1134), merged with main 1445b7ae7. PR body
   vertices in the last stage.
 - The riser height is the max predicted level over the DEM; the step floor uses it per lower
   vertex against its nearest upper vertex.
+
+## Resumed 2026-10-27 — closing build done (bars NOT met)
+
+Merged main c415ea8a6. Control `lheca5ctl2` at main c415ea8a6 (body `fcb672ebbd29`, byte-identical
+to `lheca5ctl` at 1445b7ae7; built 340 s on a `--from-ledger` miss). Round `lheca5` at
+0a7d3ab38 (body `95e8a132f260`, 573 s). Both in `frames/lheca5/`; one `census.py` call.
+
+| bar | control | round | met |
+|---|---|---|---|
+| #712 (30.1096365, 31.3889978) | `gap:3` 91.91 | `building6/landing1` 96.71 | yes (96.62 +/- 0.5) |
+| #1003 (30.112939, 31.397394) | `gap:5/s0` 92.89-101.96 | `building5/landing10` 101.67-101.71 | yes (101.66 +/- 0.5) |
+| solve-owned airside > 0.05 m | | 0 of 16,994 | yes |
+| building5 / building6 tilt, mean in control min-max | 0.0 % 101.969 / 0.218 % 96.461 [95.62, 96.64] | 0.0 % 101.969 / 0.001 % 96.56 | yes |
+| building22/68/63/14 | 86.51 / 80.04 / 81.72 / 89.78 | identical | yes |
+| riser = joint | | 1 riser, 1 joint (7.00 declared, 6.35 emitted) | yes |
+| riser outer line / gap within 4 m on DEM | | outer +0.95..+1.63; 0 gap vertices within 4 m | NO (outer line) |
+| gap vertices within 4 m of `dsf:pol10` > 0.5 m over DEM | 32 | 94 (worst 6.32 `gap:5/s13`; `gap:2/s0` 22, `gap:27` 19, `gap:3/s0` 12) | NO |
+| adjudicated | 12,918 | 15,104 (+2,186; 1 joint) | NO |
+| hard_conflict / hairline_pair | 1,093 / 1,365 | 1,590 / 1,413 | NO |
+| road_cross_section / pavement_over_road_cap / plane_gradient | 576 / 85 / 6 | 644 / 106 / 10 | NO |
+| CRITICAL motion | 6 | 6 | yes |
+| CYXY twin | | green | yes |
+| #359 `dsf:objpav394` vs `building10` | -5.85..+2.51 | -5.85..+2.51 | (no bar) |
+
+The deltas are the whole PR (#1088 + rounds 1-5) against main, not round 5 alone.
+
+Attribution still open: (1) only `building6/landing0` mints a riser; the lot `dsf:pol10` that the
+T3 fill (`building5/landing10`) runs to mints none, and the gap pieces along the lot stand up to
+6 m over the DEM (the lot climbs to the fill under lot law; no step was declared where they meet
+it). (2) The riser's outer vertices hold +1 to +1.6 m with only the ground datum and the one-way
+wall floor on them; `--why-vertex` says the objective holds them. Next: `--why-at` on
+`gap:2/s0` / `gap:27` beside `dsf:pol10`, and why `_risers` finds no "across" contact for
+`building5/landing10`.

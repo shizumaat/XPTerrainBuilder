@@ -47,7 +47,7 @@ from .image_provider import Probes, provider
 from .imagery_read import TextureSet
 from .lidar_breaks import slope_breaks
 
-__all__ = ["EdgeRead", "EdgeMoves", "read_edges", "edge_moves", "decide_edges", "SIDES"]
+__all__ = ["read_edges", "decide_edges", "SIDES"]
 
 SIDES = ("left", "right", "end_a", "end_b")
 #: stations per imagery patch (a long diagonal edge pays for its strip);
@@ -198,13 +198,6 @@ def _landmark(rw, side: str, s0: float, s1: float) -> str:
     hand = "left" if side == "left" else "right"
     return (f"the {hand} side of RWY {e0}/{e1} looking from the {e0} end, "
             f"{s0:.0f}–{s1:.0f} m from the {e0} end")
-
-
-def edge_moves(airport, law: Law, records: _t.Sequence[tuple],
-               textures: TextureSet | None) -> EdgeMoves:
-    """THE RULE (module docstring) over every runway band."""
-    reads = read_edges(airport, law, records, textures) if textures is not None else []
-    return decide_edges(airport, law, reads)
 
 
 def decide_edges(airport, law: Law, reads: _t.Sequence[EdgeRead]) -> EdgeMoves:

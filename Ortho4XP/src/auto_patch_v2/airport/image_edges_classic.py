@@ -29,7 +29,7 @@ from scipy import ndimage
 
 from .image_provider import NONE, ImageEvidence, ImagePatch, Probes, register
 
-__all__ = ["ClassicEdges", "CLASSIC", "strip_profiles"]
+__all__ = ["CLASSIC"]
 
 #: a luminance step (0-255 levels) under this is no edge
 _STEP_MIN = 12.0

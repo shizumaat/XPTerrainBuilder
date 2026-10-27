@@ -193,6 +193,7 @@ _SHARED: tuple[str, ...] = (
     "O4_Scenery_Packs",
     "O4_Settings_Model",
     "O4_Text_Files",
+    "O4_Tile_Build_Log",
     "O4_Tile_Failures",
     "O4_Tile_Info",
     "O4_UI_Utils",

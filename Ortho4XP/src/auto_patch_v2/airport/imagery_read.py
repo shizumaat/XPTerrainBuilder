@@ -29,8 +29,7 @@ from scipy import ndimage
 
 from .image_provider import ImagePatch
 
-__all__ = ["TextureRef", "TextureSet", "texture_of_file", "global_pixel",
-           "built_tile_paths"]
+__all__ = ["TextureSet", "built_tile_paths"]
 
 _EXTS = (".dds", ".jpg", ".jpeg", ".png")
 #: a texture whose block centre lies further than this from the airport is

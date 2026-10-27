@@ -22,8 +22,7 @@ import typing as _t
 
 import numpy as np
 
-__all__ = ["ImagePatch", "Probes", "ImageEvidence", "ImageProvider", "register",
-           "provider", "NONE"]
+__all__ = ["ImagePatch", "Probes", "ImageEvidence", "register", "provider", "NONE"]
 
 #: the label of an evidence that found nothing
 NONE = "none"

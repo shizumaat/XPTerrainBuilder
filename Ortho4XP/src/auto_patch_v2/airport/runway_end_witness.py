@@ -44,7 +44,7 @@ from .cifp import CifpRunway, match_designator
 from .image_provider import Probes, provider
 from .witness_vote import Abstain, Vote, decide
 
-__all__ = ["end_station", "threshold_votes", "witness_runway_ends", "SENIORITY"]
+__all__ = ["witness_runway_ends", "SENIORITY"]
 
 #: Q1 seniority (spec §4.1): the pavement the sim draws, the photo the
 #: pilot sees, the DEM, then CIFP — a tie-break only

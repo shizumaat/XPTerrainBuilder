@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import dataclasses as _dc
 
-__all__ = ["TerrainWitness", "WitnessVoteLaw", "WitnessSigma", "WitnessQ1",
-           "WitnessQ4", "WitnessQ5", "WitnessImage", "check_terrain_witness"]
+__all__ = ["TerrainWitness", "check_terrain_witness"]
 
 
 @_dc.dataclass(frozen=True)

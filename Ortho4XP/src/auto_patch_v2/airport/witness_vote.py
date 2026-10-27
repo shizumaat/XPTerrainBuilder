@@ -27,7 +27,7 @@ import dataclasses as _dc
 import math
 import typing as _t
 
-__all__ = ["Vote", "Abstain", "Decision", "agree", "decide"]
+__all__ = ["Vote", "Abstain", "decide"]
 
 
 @_dc.dataclass(frozen=True)

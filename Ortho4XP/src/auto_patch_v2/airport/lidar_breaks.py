@@ -19,7 +19,7 @@ from scipy import ndimage
 
 from .dem import dem_z_many
 
-__all__ = ["slope_breaks", "cut_depth", "profiles"]
+__all__ = ["slope_breaks", "cut_depth"]
 
 _K_ALONG = 5
 #: slope is compared between the means of this many metres either side

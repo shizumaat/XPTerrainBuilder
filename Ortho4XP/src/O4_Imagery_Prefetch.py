@@ -56,8 +56,7 @@ import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
 
 __all__ = ["candidates", "Prefetch", "alongside", "TEXTURES_IN_FLIGHT",
-           "airport_textures", "fetch_airport_imagery", "cached_airport_imagery",
-           "AIRPORT_MARGIN_M"]
+           "fetch_airport_imagery", "cached_airport_imagery", "AIRPORT_MARGIN_M"]
 
 #: Orthophotos downloaded at once by a prefetch (each is one texture's
 #: part requests, at the provider's own ``max_threads``).

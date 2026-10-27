@@ -54,7 +54,17 @@ measured detail: `docs/findings/1298-1138-lpackcut.md` "Round 4".
   now keeps −2189@0 (deck −3152) as the overlap winner.  Other captures
   (EGGW, EGLL, KBUF, LGAVft, NZWN, LFPG): structure records unchanged.
 
-## Exact next step
+## Resumed 2026-10-27 — done
+- Merged origin/main; full non-Qt suite at -n 4: 11,772 passed, 7 failed —
+  all code-key closures for the new `planar.covered_span` (fixed in afc34af90:
+  `O4_Step_Code.CODE_MODULES`, `provenance_code.PATCH_CODE_MODULES`; the
+  closure tests then pass, 121/121).
+- ONE closing build `lpackcut_katl27r2` (ledger efe9e82ada73): results in
+  `1298-1138-lpackcut.md` "Round 4 closing build".  Bars NOT met: the service
+  road is 0.4–0.7 m over the taxiway; the 10/28 span ground is 295–297, under
+  deck level; 26 census `strip_transverse` rows read the ruled 27r drop.
+
+## Exact next step (superseded steps below kept for the record)
 1. Run the full non-Qt suite (`venv/bin/python -m pytest -q -n 4 tests
    --ignore-glob='tests/test_qt_*.py'` from `Ortho4XP/`).
 2. ONE KATL build of the nearest-back variant on branch + `claude/lpackpave`

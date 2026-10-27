@@ -139,6 +139,7 @@ from ..model.placement import (BACKUP_SUFFIX, CONVERTIBLE_KINDS, CUT_MARK,
 from . import authored_landing as _al
 from . import backup_state as _bs
 from . import dsf_commands as _cmds
+from . import dsf_heights as _dh
 from . import pack_art as _pa
 from . import pack_forests as _pf
 from . import split_guard as _sg
@@ -197,9 +198,6 @@ TOL_ELEV_M = 0.0625
 #: (Global Airports ``+39-095``) — both inside 4.
 POOL_QUANTA_ALLOWED = 4.0
 
-_POOL_LINE = re.compile(r"^#\s*pool\s+\d+:\s+p=(\d+)\s+s=\s*\d+\s+(.*)$")
-
-
 def pool_tolerances(*texts: str) -> tuple[float, float]:
     """``(tol_deg, tol_heading_deg)`` for comparing dumps whose ``# pool``
     headers are in ``texts`` (#60): :data:`POOL_QUANTA_ALLOWED` quanta of
@@ -214,21 +212,7 @@ def pool_tolerances(*texts: str) -> tuple[float, float]:
     span_deg = 0.0
     span_heading = 0.0
     for text in texts:
-        seen = False
-        for line in text.splitlines():
-            if not line.startswith("#"):
-                if seen:
-                    break           # the pool block is the header; stop at the body
-                continue
-            m = _POOL_LINE.match(line)
-            if m is None:
-                continue
-            seen = True
-            try:
-                planes = int(m.group(1))
-                vals = [float(v) for v in m.group(2).split()]
-            except ValueError:
-                continue
+        for planes, vals in _dh.pool_header(text):
             spans = vals[0:2 * planes:2]
             if len(spans) >= 2:
                 span_deg = max(span_deg, abs(spans[0]), abs(spans[1]))
@@ -1396,6 +1380,12 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
     # ordinal it claims; a sibling body no longer named by the composed
     # edit is an orphan and goes after the move.
     dump_sha = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+    # The printed HEIGHTS row follows DSFTool's memory, not the file
+    # (``dsf_heights``); the encode builds the elevation pools from it, so
+    # the edit starts from the row the FILE gives — a rerun of one plan
+    # writes the same bytes.  ``dump_sha`` stays the printed text's: the
+    # sibling records (#25) were keyed on it.
+    pinned = _dh.pin_heights(text)
     prior_entry = _bs.dsf_entry(_bs.read_record(dsf_path), base)
     backup_sha = sha256_file(backup)
     if forests is None:
@@ -1411,7 +1401,7 @@ def write_pack(pack_root: str, plan: PlacementPlan, tool: str, *,
             sorted(set(undone.values()))))
         composed = plan.compose(siblings)
         _refuse_missing_bodies(pack_root, composed)          # #1214 R1
-        edited, omitted, unused = _edited_text(text, composed, omit, engine_version
+        edited, omitted, unused = _edited_text(pinned, composed, omit, engine_version
                                                or plan.provenance.engine_version)
         edited, renamed = _pf.rename_definitions(edited, forests)
         with open(edited_text, "w", encoding="utf-8",

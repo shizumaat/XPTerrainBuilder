@@ -1435,7 +1435,8 @@ CODE_MODULES["solve"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
     airport.bridge_approach airport.open_frame_seat
     airport.placement_read airport.placement_record airport.placement_seams
-    airport.placement_seat_tilt airport.placement_targets airport.plate_frame airport.pool airport.ramp_feet
+    airport.placement_seat_tilt airport.placement_targets airport.plate_frame airport.pool
+    airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.ring_contact_batch
@@ -1533,7 +1534,8 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     airport.airside_deck_seat airport.airside_group_seat airport.cut_deck_seat
     airport.bridge_approach airport.open_frame_seat
     airport.placement_read airport.placement_record airport.placement_seams
-    airport.placement_seat_tilt airport.placement_targets airport.plate_frame airport.pool airport.ramp_feet
+    airport.placement_seat_tilt airport.placement_targets airport.plate_frame airport.pool
+    airport.ramp_feet
     airport.reader_work airport.rebake_plan airport.riders airport.road_profile
     airport.road_stations airport.road_ways airport.scatter airport.sheet_chain airport.skirt
     airport.ring_contact_batch

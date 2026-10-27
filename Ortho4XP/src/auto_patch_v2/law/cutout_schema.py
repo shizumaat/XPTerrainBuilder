@@ -77,7 +77,7 @@ class WallCorridor:
     corridor_floor_slab_cover_min: float        # (ii): ...over this share of the corridor's length
     max_wall_height_m: float     # #12: a band whose OWN component rises past this above the zero is a building/bridge wall (foundations), not a kerb
     min_headroom_m: float        # the lowest near-horizontal face over the corridor above its floor
-    headroom_cover_min: float    # #414: ...refuses as a covered slot only when its plate covers this share of the trench
+    headroom_cover_min: float    # #414: ...a covered slot only under a plate over this share of it
     max_authored_grade: float    # a descending wall bottom steeper than this is refused (= the garage_ramp cap)
     station_m: float             # ramp station spacing
     seat: str                    # "none": the family never re-seats

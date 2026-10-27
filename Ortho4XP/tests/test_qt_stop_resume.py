@@ -209,6 +209,76 @@ def test_restored_selection_syncs_the_toolbar_like_a_click(make_window,
     assert window._combos_synced_to[1] == frozenset({TILE})
 
 
+def _shown_after_launch(qapp, make_window, prefs_file, keys):
+    """A window launched on ``keys`` as the stored selection, shown and
+    given its first event-loop turns (the framing waits for the show)."""
+    with open(prefs_file, "w", encoding="utf-8", newline="") as handle:
+        json.dump({GUI.SELECTED_TILES_KEY: keys,
+                   GUI.ACTIVE_TILE_KEY: keys[0] if keys else ""}, handle)
+    window = make_window()
+    before = window.map.transform().m11()
+    window.resize(1200, 800)
+    window.show()
+    for _ in range(5):
+        qapp.processEvents()
+    return window, before
+
+
+def _visible_and_tiles(window, tiles):
+    import O4_Geo_Utils as GEO
+    view = window.map
+    visible = view.mapToScene(view.viewport().rect()).boundingRect()
+    lats = [t[0] for t in tiles]
+    lons = [t[1] for t in tiles]
+    x0, y0 = GEO.wgs84_to_pix(max(lats) + 1, min(lons), QTMAP.SCENE_ZL)
+    x1, y1 = GEO.wgs84_to_pix(min(lats), max(lons) + 1, QTMAP.SCENE_ZL)
+    return visible, (x0, y0, x1, y1)
+
+
+def _assert_framed(window, tiles):
+    visible, (x0, y0, x1, y1) = _visible_and_tiles(window, tiles)
+    assert visible.left() <= x0 and x1 <= visible.right()
+    assert visible.top() <= y0 and y1 <= visible.bottom()
+    # Framed, not merely on screen: the tiles span most of the limiting
+    # side of the view.
+    assert max((x1 - x0) / visible.width(),
+               (y1 - y0) / visible.height()) > 0.6
+
+
+def test_launch_frames_one_restored_tile(qapp, make_window, prefs_file):
+    """#1554: the restored tile fills the view with the Activity-row
+    margin, winning over the launch centring at zoom 7."""
+    window, _ = _shown_after_launch(qapp, make_window, prefs_file,
+                                    ["+48-006"])
+    _assert_framed(window, [TILE])
+
+
+def test_launch_frames_three_restored_tiles(qapp, make_window, prefs_file):
+    tiles = [(48, -6), (49, -6), (48, -4)]
+    window, _ = _shown_after_launch(
+        qapp, make_window, prefs_file, [QTMAP.tile_key(*t) for t in tiles])
+    _assert_framed(window, tiles)
+
+
+def test_launch_with_nothing_restored_keeps_the_view(qapp, make_window,
+                                                     prefs_file):
+    window, before = _shown_after_launch(qapp, make_window, prefs_file, [])
+    assert window.map.transform().m11() == pytest.approx(before)
+
+
+def test_launch_framing_happens_once(qapp, make_window, prefs_file):
+    """Later selection changes (and later shows) leave the camera."""
+    window, _ = _shown_after_launch(qapp, make_window, prefs_file,
+                                    ["+48-006"])
+    framed = window.map.transform().m11()
+    window.map.set_selection({TILE, OTHER, (40, 10)})
+    window.hide()
+    window.show()
+    for _ in range(5):
+        qapp.processEvents()
+    assert window.map.transform().m11() == pytest.approx(framed)
+
+
 # ---------------------------------------------------------------------------
 # Q2 — the rules, with no widgets in the way
 # ---------------------------------------------------------------------------

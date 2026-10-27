@@ -862,6 +862,27 @@ def is_library_index_artifact(relpath) -> bool:
     return bool(LIB_INDEX_ARTIFACT_RE.fullmatch(str(relpath)))
 
 
+#: THE GUARDED-PYTHON-ONLY ARTIFACTS (issue #1544).  Files the engine
+#: writes ONLY through an in-process Python ``open`` that first asks the
+#: armed guard and stands down when it refuses — never from C or a child.
+#: So a delta on one, in a run whose guard blocked nothing, has no author
+#: in this process: it is named EXTERNAL (reason ``guarded_python_only``)
+#: instead of contaminating the run.  The measured case: the provider
+#: URL-list index (``elevation_access.strategies.
+#: coordinate_named_url_list.index_path``, twinned) was rewritten at
+#: 07:16:46 on 2026-10-27 by the owner's app batch building +49-124
+#: ("Indexing the CUDEMCONUS elevation URL list") inside lane l805r's
+#: KCLT window, and the lane's run was flagged on it.
+GUARDED_PYTHON_ONLY_RE = re.compile(
+    r"Elevation_data/[a-z0-9_]+_url_list_index\.json")
+
+
+def is_guarded_python_only_artifact(relpath) -> bool:
+    """True for a file only a guarded in-process Python write makes
+    (:data:`GUARDED_PYTHON_ONLY_RE`, matched against the whole path)."""
+    return bool(GUARDED_PYTHON_ONLY_RE.fullmatch(str(relpath)))
+
+
 #: THE OWN-TEMPORARY CLEANUP ALLOWANCE (#583).
 #:
 #: A write made in C (GDAL) or by a child process never passes the guard,
@@ -1712,6 +1733,15 @@ _REDIRECTABLE_SCOPES = (
 )
 
 
+#: THE PACK STAND-DOWN (RULINGS 2026-09-15av), QUOTED from the engine's
+#: ``auto_patch.object_stage`` (this module must not import the engine):
+#: ``redirect_engine_caches`` sets it on every lane build and the object
+#: stage's write half, its forest step and its unpatched-pack restore all
+#: stand down on it.  ``tests/test_harness.py`` twins the spelling.
+PACK_WRITES_ENV = "O4_PACK_WRITES"
+PACK_WRITES_STOOD_DOWN = "measure_only"
+
+
 def redirected_scopes(repo=None) -> set:
     """The scopes whose root THIS PROCESS has pointed OUTSIDE the shared
     repo — so no writer in it, Python or subprocess, can reach the shared
@@ -1742,6 +1772,18 @@ def redirected_scopes(repo=None) -> set:
     time in the process that did the building, so a redirect the engine
     considers INERT (an explicit data root outranks ``O4_*_DIR``) reads
     as NOT redirected and the contamination verdict stands.
+
+    ``pack_rebake`` IS IN THE SET WHEN THIS PROCESS STOOD THE PACK WRITES
+    DOWN (issue #1544, measured 2026-10-27).  Lane l805r's patch-only
+    KCLT build was flagged CONTAMINATED on 1,460 re-baked ``.obj`` bodies
+    in the KCLT pack, stamped 07:12:40 — while the owner's app batch
+    (``20261027T133503Z``) built tile +35-081 and its object stage
+    rewrote that pack at that second ("pack Nimbus Simulation - KCLT ...
+    was modified").  The install has no root to redirect; the lane's
+    defence is :data:`PACK_WRITES_ENV`, which every child inherits, plus
+    the guard's ``install_roots`` refusing a Python write at the call.
+    With it set and the guard having blocked nothing, no writer in this
+    process could have reached the pack.
     """
     repo = Path(repo or DATA_REPO).resolve()
     try:
@@ -1760,6 +1802,8 @@ def redirected_scopes(repo=None) -> set:
             out.add(scope)               # resolves OUTSIDE the repo
         except Exception:
             continue
+    if os.environ.get(PACK_WRITES_ENV) == PACK_WRITES_STOOD_DOWN:
+        out.add("pack_rebake")
     return out
 
 
@@ -1844,16 +1888,20 @@ def report_unauthorised_writes(changes: dict, requested: set,
             off_scope = (may_externalise and not stray
                          and not input_scope.covers(rel))
             off_redirect = scope in redirected and not stray
+            off_python = (not any_blocked and not stray
+                          and is_guarded_python_only_artifact(rel))
             offenders.append({"path": rel, "kind": kind, "scope": scope,
                               "stray_temporary": bool(stray),
                               "writer_pid": writer_pid,
                               "writer_is_this_process": (
                                   writer_pid == os.getpid()
                                   if writer_pid is not None else None),
-                              "external_candidate": bool(off_scope
-                                                         or off_redirect),
+                              "external_candidate": bool(
+                                  off_scope or off_redirect or off_python),
                               "external_reason": ("redirected"
                                                   if off_redirect else
+                                                  "guarded_python_only"
+                                                  if off_python else
                                                   "out_of_scope"
                                                   if off_scope else None)})
     for lc in lock_churn:
@@ -1887,6 +1935,25 @@ def report_unauthorised_writes(changes: dict, requested: set,
     # printed BEFORE the verdict, because a reader who sees "UNCHANGED"
     # under a list of paths must be able to see why the paths are there.
     for o in external:
+        if o.get("external_reason") == "guarded_python_only":
+            prog.note(
+                f"   external-candidate delta (NAMED, not attributed to "
+                f"this build): {o['kind']} {o['path']} — the engine writes "
+                f"it only through a guarded in-process Python call, and "
+                f"this build's guard blocked nothing.  Another process in "
+                f"this window is the author (issue #1544).")
+            continue
+        if o.get("external_reason") == "redirected" and \
+                o.get("scope") == "pack_rebake":
+            prog.note(
+                f"   external-candidate delta (NAMED, not attributed to "
+                f"this build): {o['kind']} {o['path']} — this run STOOD "
+                f"DOWN its pack writes ({PACK_WRITES_ENV}="
+                f"{PACK_WRITES_STOOD_DOWN}, inherited by every child) and "
+                f"its guard refuses an install write at the call and "
+                f"blocked nothing.  The app (or another process) in this "
+                f"window is the author (issue #1544).")
+            continue
         if o.get("external_reason") == "redirected":
             prog.note(
                 f"   external-candidate delta (NAMED, not attributed to "

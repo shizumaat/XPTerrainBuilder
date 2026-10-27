@@ -45,7 +45,8 @@ struct MapCanvasView: View {
     static let selection = Color.white
 
     // Build mode: our built tiles are green (their imagery shows in the
-    // bottom-left tile label); selection is yellow; done/error/stopped badges are
+    // bottom-left tile label); the selection ring is the system accent
+    // colour (TileSelectionRing); done/error/stopped badges are
     // green/red/orange; other installed ortho packages keep their gray
     // outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
@@ -122,10 +123,17 @@ struct MapCanvasView: View {
             .onAppear {
                 // First layout: fit the world so the map fills the viewport
                 // from the very first frame — no small-then-resize flash.
-                if canvasSize.value == .zero {
+                let firstLayout = canvasSize.value == .zero
+                if firstLayout {
                     camera.value = MapCamera.fitted(to: proxy.size)
                 }
                 canvasSize.value = proxy.size
+                if firstLayout {
+                    // #1554: the restored selection is framed once, at
+                    // launch — later selection changes leave the camera.
+                    controller.frameRestoredSelection(
+                        buildModel.selected.sorted().map { (lat: $0.lat, lon: $0.lon) })
+                }
                 controller.scheduleViewportUpdate()
                 buildModel.patchEdit.viewportChanged(camera: camera.value, size: proxy.size,
                                                      overlays: overlays)
@@ -461,22 +469,11 @@ struct MapCanvasView: View {
                            with: .color(Self.customPatchBand.opacity(0.85)), lineWidth: 4)
         }
 
-        // Selection: focus ring, not a fill — a fill tints the very
-        // imagery the user is judging. Active tile: solid ring with a soft
-        // outer glow (macOS focus-ring look); other selected tiles: dashed.
+        // Selection: the shared focus ring (TileSelectionRing, #1537) —
+        // solid with a glow on the active tile, dashed on the others.
         for coord in buildModel.selected where visible(coord) {
-            let r = rect(coord)
-            if coord == buildModel.activeTile {
-                context.stroke(Path(r.insetBy(dx: -1.5, dy: -1.5)),
-                               with: .color(Self.buildSelection.opacity(0.35)),
-                               lineWidth: 5)
-                context.stroke(Path(r.insetBy(dx: 1, dy: 1)),
-                               with: .color(Self.buildSelection), lineWidth: 2.5)
-            } else {
-                context.stroke(Path(r.insetBy(dx: 1, dy: 1)),
-                               with: .color(Self.buildSelection),
-                               style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
-            }
+            TileSelectionRing.draw(in: context, rect: rect(coord),
+                                   active: coord == buildModel.activeTile)
         }
 
         // Customized settings (#1350): a blue dot in the top-left corner
@@ -704,7 +701,12 @@ struct MapCanvasView: View {
     /// overzoom factor (#1315; `MapOverzoom.badgeText`, the Qt badge's text).
     private var zoomChip: some View {
         let viewZL = max(2, Int(ceil(log2(camera.value.scale * 360 / 256) - 1e-6)))
-        let sourceMax = imagery.hasActiveSource ? imagery.activeMaxZL : nil
+        // The ceiling actually drawn at the view centre: past tiles the
+        // server answered "no imagery here" it is lower than declared (#1540).
+        let cam = camera.value
+        let sourceMax = imagery.hasActiveSource
+            ? imagery.drawnMaxZL(lat: cam.centerLat, lon: cam.centerLon) ?? imagery.activeMaxZL
+            : nil
         let atLimit = sourceMax.map { viewZL > $0 } ?? false
         return HStack(spacing: 5) {
             if atLimit {

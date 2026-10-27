@@ -1483,6 +1483,74 @@ def taxi_family_roles() -> frozenset:
     return frozenset(Law.load().tables.precedence.taxi_family.members)
 
 
+#: ``Violation.reading`` of a taxi-ring row re-read along its published
+#: centreline route (RULINGS 2026-10-28f; :func:`read_taxi_ring_route`).
+TAXI_ROUTE_READING = "taxi_route"
+
+
+def route_budgets_ll(pub) -> dict:
+    """The published ``taxi_route_pairs`` keyed by the pair's identity
+    keys (``(lat, lon)`` at 7 dp, the join ``verify.within.
+    route_pair_budgets`` makes on vertices): ``(min, max) -> (budget,
+    dist)``, or ``None`` for a pair no route joins (05ab)."""
+    out: dict = {}
+    for a, b, budget, dist in pub or ():
+        ka = (round(float(a[0]), 7), round(float(a[1]), 7))
+        kb = (round(float(b[0]), 7), round(float(b[1]), 7))
+        if ka != kb:
+            out[(min(ka, kb), max(ka, kb))] = (
+                None if budget is None else (float(budget), float(dist)))
+    return out
+
+
+def read_taxi_ring_route(row, cg, taxi: frozenset, routed: dict) -> Optional[bool]:
+    """A TAXIWAY'S SLOPE IS JUDGED ALONG ITS ROUTE (owner RULINGS
+    2026-10-28f, Q210 (a)): the straight line across the paved shape is
+    not a taxiway-slope witness.
+
+    ``row`` is a ``within_shape`` chord walked on a taxi-family RING whose
+    endpoint faces are not both taxi-family (``row_roles`` names the
+    SENIOR face at each end, 12aj (c): a taxiway vertex welded to the
+    runway end reads ``cross_connector|runway``, so :func:`stamp_withdrawn_
+    taxi_chords`'s role test left the chord adjudicated — KCLT #805, 123
+    chords across taxiway T's approach connector at 1.9-2.0 %, each inside
+    a 900 m route budget).  It is read on the reading the v2 verify gives
+    the same pair (``verify.within``: every pair of a taxi ring, the
+    published route budget), joined by identity key:
+
+    * ``True``  — lawful along its route, or no route joins it (a
+      published null: no law edge): the chord is withdrawn law;
+    * ``False`` — over its route budget: the row stays, restated on the
+      route (``reading`` :data:`TAXI_ROUTE_READING`, distance the route's,
+      cap ``budget / route``);
+    * ``None``  — not this population, or the pair is not published (its
+      route IS its chord within the publication's tolerance): the chord
+      reading stands."""
+    ways = (getattr(row, "way_a", None), getattr(row, "way_b", None))
+    if not all(w is not None and cg.effective_role(w) in taxi for w in ways):
+        return None
+    la, lb = getattr(row, "ll_a", None), getattr(row, "ll_b", None)
+    if la is None or lb is None:
+        return None
+    ka = (round(float(la[0]), 7), round(float(la[1]), 7))
+    kb = (round(float(lb[0]), 7), round(float(lb[1]), 7))
+    key = (min(ka, kb), max(ka, kb))
+    if key not in routed:
+        return None
+    rec = routed[key]
+    if rec is None:
+        return True
+    budget, dist = rec
+    if float(row.de_m) <= budget + cg._pair_quant_noise_m(ways[0]):
+        return True
+    row.reading = TAXI_ROUTE_READING
+    row.distance_m = dist
+    row.cap_pct = 100.0 * budget / dist
+    row.grade_pct = 100.0 * float(row.de_m) / dist
+    row.excess_pct = row.grade_pct - row.cap_pct
+    return False
+
+
 def withdrawn_chord_min_m() -> float:
     """``emit.within_shape.withdrawn_chord_min_m`` (RULINGS 2026-09-06p
     (3)) from the v2 law tables — never a literal here."""
@@ -1501,7 +1569,9 @@ def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
     built under the route law, where a taxi-family within-shape pair is
     priced over its CENTRELINE ROUTE and the solve states the law by the
     chain — every ``within_shape`` row whose two ways are BOTH taxi-family
-    roles (the v2 law's ``precedence.taxi_family.members``) AND whose
+    roles (the v2 law's ``precedence.taxi_family.members``; a chord on a
+    taxi RING with another face at an end is read along its published
+    route instead, :func:`read_taxi_ring_route`, RULINGS 2026-10-28f) AND whose
     chord is at least ``emit.within_shape.withdrawn_chord_min_m`` long
     prices the chord reading the owner withdrew, and is stamped
     ``check_grade.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE``: counted in its
@@ -1530,7 +1600,9 @@ def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
         return {"stamped": 0, "by_roles": {}, "key_present": False}
     taxi = taxi_family_roles()
     min_m = withdrawn_chord_min_m()
+    routed = route_budgets_ll(side.get("taxi_route_pairs"))
     by_roles = Counter()
+    route_over = Counter()
     short = Counter()
     n = 0
     n_short = 0
@@ -1538,15 +1610,23 @@ def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
         if getattr(r, "out_of_scope", None) is not None:
             continue
         roles = cg.row_roles(r)
-        if all(role in taxi for role in roles):
-            dist = getattr(r, "distance_m", None)
-            if dist is not None and float(dist) < min_m:
+        both_taxi = all(role in taxi for role in roles)
+        dist = getattr(r, "distance_m", None)
+        if dist is not None and float(dist) < min_m:
+            if both_taxi:
                 short["|".join(sorted(roles))] += 1
                 n_short += 1
+            continue
+        if not both_taxi:
+            # 28f: a chord on a taxi RING with a non-taxi face at an end
+            lawful = read_taxi_ring_route(r, cg, taxi, routed)
+            if lawful is False:
+                route_over["|".join(sorted(roles))] += 1
+            if not lawful:
                 continue
-            r.out_of_scope = cg.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE
-            by_roles["|".join(sorted(roles))] += 1
-            n += 1
+        r.out_of_scope = cg.WITHDRAWN_TAXI_CHORD_OUT_OF_SCOPE
+        by_roles["|".join(sorted(roles))] += 1
+        n += 1
     # THE BOX ROWS ARE THEIR OWN FAMILY (RULINGS 2026-09-06s,
     # ``check_grade.TAXI_BOX_FAMILY``): counted here beside any short
     # taxi chord still filed under ``within_shape`` (a pair the box
@@ -1558,6 +1638,7 @@ def stamp_withdrawn_taxi_chords(osm: Path, cg, families: dict) -> dict:
         n_short += 1
     return {"stamped": n, "by_roles": dict(by_roles.most_common()),
             "key_present": True, "short_priced": n_short,
+            "route_over": dict(route_over.most_common()),
             "short_by_roles": dict(short.most_common()), "min_m": min_m,
             "box": dict(getattr(cg, "_TAXI_BOX_STATS", {}) or {})}
 

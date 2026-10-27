@@ -141,6 +141,7 @@ def group_level_rewrite(planar: PlanarMap, law: Law, cs: _t.Any,
             if v.get("kind") == "low_level" and v.get("air_xy")}
     if not recs or not cs.linears:
         return cs, {"levels": {}}
+    free = stage_two_vertices(planar, recs)
     index = witness_index(planar, law)
     tie = {f"{LANDING_INPUT}{r}": r for r in recs}
     out, rep, done = [], {}, set()
@@ -164,4 +165,28 @@ def group_level_rewrite(planar: PlanarMap, law: Law, cs: _t.Any,
         rep[ref] = (round(z0, 3), len(cands))
         out.append(Linear(((d, 1.0),), None, lv, row.source))
         out.append(Linear(((d, -1.0),), None, -lv, row.source))
-    return _dc.replace(cs, linears=tuple(out)), {"levels": rep}
+    return _dc.replace(cs, linears=tuple(out)), {"levels": rep, "free": free}
+
+
+def stage_two_vertices(planar: PlanarMap, recs: _t.Mapping[str, _t.Any]) -> frozenset[int]:
+    """THE LEVEL IS STAGE 2'S (#1302; 23f: "the level, its riser and the
+    pad's rim are stage 2's"): the vertices of the group levels ``recs``'
+    faces that no airside PAVEMENT face carries.  Stage 1 levelled the pad
+    whole at its datum, so where a level reaches its pad's own ring -- a
+    side the pad fronts no airside on, as at LFPG T2 once the corridor
+    between the trench pads is groundside -- the coordinate join carries
+    stage 1's levels and its pass-1b hold rows for that ring onto the
+    level and lifts it, rigid, to the datum (MEASURED LFPG replay: 461
+    carried hold rows; ``building34/p1`` at 104.17 m against its 97.99 m
+    pin, its pins relaxed).  These vertices are neither stage-1 constants
+    nor held (``solve/design``'s ``stage2_free``,
+    ``pipeline/stage_one_map.StageOne.apply_full``)."""
+    from ..model.planar import face_vertex_set
+    level: set[int] = set()
+    pave: set[int] = set()
+    for f in (getattr(planar, "faces", None) or {}).values():
+        if str(f.ref) in recs:
+            level |= face_vertex_set(planar, f)
+        elif f.side == "airside" and f.role != "building":
+            pave |= face_vertex_set(planar, f)
+    return frozenset(level - pave)

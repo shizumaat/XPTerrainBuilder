@@ -290,6 +290,19 @@ final class AnalysisController: ObservableObject {
         scheduleViewportUpdate()
     }
 
+    /// Frame the tile selection restored at launch (#1554), once, so the
+    /// user sees which tiles came back: one tile as an Activity-row click
+    /// frames it, several as their union. Nothing restored leaves the
+    /// camera as it was. The map keeps no saved camera, so this framing
+    /// is the launch view whenever a selection exists.
+    func frameRestoredSelection(_ tiles: [(lat: Int, lon: Int)]) {
+        switch tiles.count {
+        case 0: return
+        case 1: zoomToTile(lat: tiles[0].lat, lon: tiles[0].lon)
+        default: zoomToTiles(tiles)
+        }
+    }
+
     /// Frame a set of tiles (a pack's coverage, an airport-code list).
     func zoomToTiles(_ tiles: [(lat: Int, lon: Int)]) {
         guard !tiles.isEmpty else { return }

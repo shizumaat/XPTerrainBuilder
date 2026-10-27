@@ -81,6 +81,7 @@ from ..law.tables import (
 from ..model.airport import Airport
 from ..model.frame import rotated_rectangle
 from ..model.planar import PlanarMap
+from ..model.platform import fill_levels
 from .road_descent import STAND_M, descend
 
 __all__ = ["deck_refs", "contact_roles", "road_ramp_targets",
@@ -765,6 +766,13 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     owned = _owned(pm, roads, law)
     mouths = _contacts(pm, roads, law)
     mouths = {v: z for v, z in mouths.items() if v not in owned}
+    # RULINGS 2026-10-20d (round 3 D3): a mouth on a LANDING is at its highest
+    # predicted level, never its DEM — the road reaches the high side, and
+    # the ceiling may not hold it on the ground the fill covers; the road
+    # climbs to the fill by this alone (no second road profile)
+    for rec in fill_levels(pm).values():
+        for v in rec["vertices"] & mouths.keys():
+            mouths[v] = max(mouths[v], rec["z_hi"])
     walled = _on_retaining(pm, mouths, retaining)
     mouths = {v: z for v, z in mouths.items() if v not in walled}
     caps = [role_cap(law, r).longitudinal for r in roads if role_cap(law, r)]
@@ -1850,6 +1858,18 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     road_caps = [role_cap(law, r).longitudinal for r in _road_roles(law)
                  if role_cap(law, r)]
     terr, left = wall_keyed(terr, min(road_caps) if road_caps else None)
+    # owner RULINGS 2026-10-20d, 2026-10-27i (spec fill-step-at-road-kerb
+    # §2 (4)): THE FILL'S RISERS at its road's far kerb, minted with the fill
+    # (``planar/fill_riser``) and read here as one declared wall each
+    # (``airport/riser_wall``).  After the trim: they are no placed-wall
+    # witness for 10-03l
+    from .riser_wall import riser_walls
+    edge = riser_walls(pm, law, report)
+    if edge:
+        walls_ = dict(terr.get("wall") or {})
+        k0 = max(walls_, default=-1) + 1
+        walls_.update({k0 + i: rec for i, rec in enumerate(edge)})
+        terr = {**terr, "wall": walls_}
     # 15a (2): a road BELOW a retaining wall is between no two levels (29x
     # would hand it the lower of the two decks it stands between)
     below = terr.get("below_wall") or {}

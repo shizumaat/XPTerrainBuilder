@@ -105,8 +105,10 @@ def _three_tile_run_one_warned(window):
     linger()
 
 
-def _layout_order(window):
-    layout = window._rows_layout
+def _layout_order(window, layout=None):
+    """The tiles of one section's rows, top to bottom (Activity unless
+    ``layout`` names another)."""
+    layout = layout or window._rows_layout
     by_widget = {row[2]: tile for tile, row in window._tile_rows.items()}
     return [by_widget[layout.itemAt(i).widget()]
             for i in range(layout.count())
@@ -120,10 +122,15 @@ def _title(window, tile):
 def test_finished_rows_stay_dimmed_in_finish_order(window):
     _three_tile_run_one_warned(window)
     assert set(window._tile_rows) == {WARNED, PLAIN, LAST}
-    assert _layout_order(window) == [WARNED, PLAIN, LAST]
+    # Built tiles sit in Completed (#1556), in finish order.
+    assert _layout_order(
+        window, window.completed_section.rows_layout) == [WARNED, PLAIN, LAST]
     for tile in (WARNED, PLAIN, LAST):
-        assert "gray" in _title(window, tile).styleSheet()
-    assert not window.activity_group.isHidden()
+        # Built rows: the dimmed gray brightened toward white (#1542).
+        assert GUI.COMPLETED_TITLE_COLOR in _title(window, tile).styleSheet()
+    # Nothing is left in Activity once the run is over.
+    assert window.activity_group.isHidden()
+    assert not window.completed_section.isHidden()
     # The map's badges belonged to the run; the rows outlive it.
     assert window._map_progress() == {}
 
@@ -162,7 +169,7 @@ def test_a_newly_queued_tile_goes_on_top(window):
     # Building a finished tile again puts it back on top, live.
     window._queue_into_running_build_now(
         [PLAIN], "BI", 15, True, True, False)
-    assert _layout_order(window)[:2] == [PLAIN, NEW]
+    assert _layout_order(window) == [PLAIN, NEW]
     assert _title(window, PLAIN).styleSheet() == ""
     assert window._tile_rows[PLAIN][1].text() == "queued"
     # The run report and the retry list describe this run only.
@@ -170,3 +177,94 @@ def test_a_newly_queued_tile_goes_on_top(window):
         lat=NEW[0], lon=NEW[1], state="error", percent=0.0))
     retry = sorted(tile for tile, _settings in window._failed_and_unstarted())
     assert retry == sorted([NEW, PLAIN])
+
+
+def test_a_done_row_is_compact(window):
+    """#1542: a built tile's row is its title, brightened 50 % toward
+    white, then "done" and its clock -- no bar, no steps.  #1537: it is
+    filled when selected."""
+    from PySide6.QtGui import QColor
+    _three_tile_run_one_warned(window)
+    bar, status, row, _cancel, clock = window._tile_rows[PLAIN]
+    assert bar.isHidden()
+    assert row.findChild(QLabel, "tile_steps").isHidden()
+    assert status.text().startswith("done")
+    assert not clock.isHidden()
+    assert GUI.COMPLETED_TITLE_COLOR in _title(window, PLAIN).styleSheet()
+    gray, mid = QColor(GUI.FINISHED_TITLE_COLOR), QColor(
+        GUI.COMPLETED_TITLE_COLOR)
+    for a, b in ((gray.red(), mid.red()), (gray.green(), mid.green()),
+                 (gray.blue(), mid.blue())):
+        assert abs(b - (a + 255) / 2) <= 1
+    window.map.set_selection([PLAIN, WARNED])
+    assert row.filled()
+
+
+def test_a_requeued_done_row_grows_back(window):
+    _three_tile_run_one_warned(window)
+    window._start_run([PLAIN], dict(SETTINGS))
+    bar, _status, row, _cancel, _clock = window._tile_rows[PLAIN]
+    assert not bar.isHidden()
+    assert not row.findChild(QLabel, "tile_steps").isHidden()
+    assert "color" not in _title(window, PLAIN).styleSheet()
+
+
+# ─── #1556: the Completed section ──────────────────────────────────────────
+
+def _completed(window):
+    return _layout_order(window, window.completed_section.rows_layout)
+
+
+def test_done_tiles_move_to_a_collapsed_completed_section(window):
+    window._start_run([WARNED, PLAIN, LAST], dict(SETTINGS))
+    section = window.completed_section
+    assert section.isHidden()
+    _finish(window, WARNED, [FAIL.record(
+        "pack_dump_stale", "(build) [v2] stale", airport="AAAA")])
+    window._on_tile_state(EV.TileState(
+        lat=PLAIN[0], lon=PLAIN[1], state="error", percent=0.0))
+    # Built with warnings is still built: Completed.  Failed stays.
+    assert _completed(window) == [WARNED]
+    assert set(_layout_order(window)) == {PLAIN, LAST}
+    assert not section.isHidden()
+    assert not section.expanded()
+    assert section.rows_scroll.isHidden()
+    assert section.toggle.text() == "▸ Completed (1)"
+    _finish(window, LAST)
+    assert section.toggle.text() == "▸ Completed (2)"
+    assert _layout_order(window) == [PLAIN]
+
+
+def test_completed_expands_and_collapses_and_keeps_the_choice(window):
+    _three_tile_run_one_warned(window)
+    section = window.completed_section
+    section.toggle.click()
+    assert section.expanded()
+    assert not section.rows_scroll.isHidden()
+    assert section.toggle.text() == "▾ Completed (3)"
+    # A new run, its tile built: the section is still open.
+    window._start_run([NEW], dict(SETTINGS))
+    _finish(window, NEW)
+    assert section.expanded()
+    assert section.toggle.text() == "▾ Completed (4)"
+    section.toggle.click()
+    assert not section.expanded()
+    assert section.rows_scroll.isHidden()
+
+
+def test_a_requeued_done_tile_moves_back_to_activity(window):
+    _three_tile_run_one_warned(window)
+    window._start_run([PLAIN], dict(SETTINGS))
+    assert _layout_order(window) == [PLAIN]
+    assert _completed(window) == [WARNED, LAST]
+    assert window.completed_section.toggle.text() == "▸ Completed (2)"
+    assert not window.activity_group.isHidden()
+
+
+def test_a_stopped_tile_stays_in_activity(window):
+    window._start_run([PLAIN, LAST], dict(SETTINGS))
+    window._on_tile_state(EV.TileState(
+        lat=PLAIN[0], lon=PLAIN[1], state="stopped", percent=0.0))
+    _finish(window, LAST)
+    assert PLAIN in _layout_order(window)
+    assert _completed(window) == [LAST]

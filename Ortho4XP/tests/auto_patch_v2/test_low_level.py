@@ -147,7 +147,7 @@ def test_the_lower_level_is_held_rigid_at_the_objects_lower_floor(monkeypatch, l
     from auto_patch_v2.constraints import platform as CP
     from auto_patch_v2.model.registries import Registries
     monkeypatch.setattr(CP, "landing_vertices", lambda _p: {"b/p1": [1, 2, 3]})
-    monkeypatch.setattr(CP, "datum_vertices", lambda _p, _l: {"b": 0})
+    monkeypatch.setattr(CP, "datum_vertices", lambda _p, _l, **_k: {"b": 0})
     pm = types.SimpleNamespace(registries=Registries())
     pm.registries.landings["b/p1"] = {"kind": "low_level", "block": "b", "y_lo": -13.029,
                                       "y_hi": -3.0, "ground_z": 289.5}

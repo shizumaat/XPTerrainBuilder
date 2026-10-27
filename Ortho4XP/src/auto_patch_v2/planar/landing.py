@@ -32,6 +32,14 @@ The same band read upward (pads60, a deviation flagged for the spec
 author): a deck whose lowest surface stands more than ``BAND_M`` ABOVE the
 pad has no foot on it; counted ``landing_above_unit``, nothing minted.
 
+THE PAD FILLS (owner RULINGS 2026-10-19ap, #712; Q33 2026-10-20, #1003;
+``planar/pad_fill``): a level plate riding a block and a viaduct's ground
+prints stand off the block at its zero, so the ground under them is a
+landing too — minted after the deck landings (their refs unchanged), its
+record's ``deck`` reading ``plate:<member>#<comp>`` / ``piers:<deck>``
+and ``kind`` ``plate`` / ``piers`` (``deck`` for a ramp landing).  It
+needs no deck; it never runs out (no ramp foot).
+
 Called once, at the end of ``planar/platform.platform_split`` — after
 every block is minted and registered in the held record (``Registries.held``)
 and after the split's ref passes, so neither renames a landing.  The landing ref
@@ -44,7 +52,7 @@ import typing as _t
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from ..model.planar import COLLAR_SUFFIX, pad_base_ref
+from ..model.planar import COLLAR_SUFFIX, STRIP_SUFFIX, pad_base_ref
 from ..model.platform import LANDING_SEP
 from ..model.registries import Registries
 
@@ -77,13 +85,98 @@ def _prints(part) -> list:
     return _bf.deck_prints(part, _cutter)
 
 
+def _free_pieces(g, taken, grid: float) -> list[Polygon]:
+    """``g`` less what is ``taken``, simplified at half a cell, in pieces of
+    at least one cell (and 1 m2) — a landing's platform pieces."""
+    L = g.difference(taken)
+    if grid > 0.0:
+        s_ = L.simplify(0.5 * grid, preserve_topology=True)
+        L = s_ if not s_.is_empty else L
+    return [q for q in _parts(L) if q.area >= max(grid * grid, 1.0)]
+
+
+def _to_road(f, held, airport, law, targets, collar_m: float, counts: dict, taken=None):
+    """RULINGS 2026-10-20d R2 (``planar/fill_road``): the fill's extent, run
+    to the road strips — and the lots between it and its road (RULINGS
+    2026-10-27i) — within reach where its collar cannot bank down: the lens
+    between the fill and the road, less what is ``taken``.  Returns
+    ``(extent, level)``, ``level`` the fill's predicted level where it ran
+    to a road, else ``None``."""
+    reach = float(getattr(law.tables.structures.building_pad, "fill_road_reach_m", 0.0))
+    datum = (held.get(f.block) or {}).get("datum_pred")
+    if reach <= 0.0 or not targets or datum is None:
+        return f.extent, None
+    from .fill_road import cannot_bank, extend_to_roads
+    slope = float(law.tables.emit.design.bank_slope)
+    level = float(datum) + float(f.y)
+    if not cannot_bank(f.extent, level, getattr(airport, "dem", None), collar_m, slope):
+        return f.extent, None
+    E = extend_to_roads(f.extent, targets, reach, taken)
+    if E is None or E.area <= f.extent.area + 1.0:
+        counts["pad_fill_no_road"] = counts.get("pad_fill_no_road", 0) + 1
+        return f.extent, None
+    counts["pad_fill_to_road"] = counts.get("pad_fill_to_road", 0) + 1
+    counts["pad_fill_to_road_m2"] = round(
+        counts.get("pad_fill_to_road_m2", 0.0) + E.area - f.extent.area, 1)
+    return E, level
+
+
+def _risers(Lu, level, roads, keep_out, airport, law, grid: float, counts: dict) -> list:
+    """§2 (3) of spec ``fill-step-at-road-kerb-spec.md``: the fill's risers
+    at the far kerb of the ``roads`` (and lots) its lens ``Lu`` reached
+    (``planar/fill_riser``), less ``keep_out``."""
+    from .fill_riser import fill_risers
+    reach = float(law.tables.structures.building_pad.fill_road_reach_m)
+    got = fill_risers(Lu, level, roads, keep_out, getattr(airport, "dem", None),
+                      law, grid, reach)
+    counts["fill_risers"] = counts.get("fill_risers", 0) + len(got)
+    counts["fill_riser_m2"] = round(counts.get("fill_riser_m2", 0.0)
+                                    + sum(r["polygon"].area for r in got), 1)
+    return got
+
+
+def _cut_back(plats, f, law, blocks):
+    """Round 3 D2: the ground within ``[design] bank_min_width_m`` of every
+    EARLIER landing of ``f``'s block whose level differs from ``f``'s by
+    more than ``[materiality] elevation_m`` — and of the BLOCK itself (its
+    level is ``y = 0``) — so a fill never shares a vertex with a platform at
+    another level (two hard level rows on one vertex; MEASURED HECA l1088:
+    deck landings 2/3 shared vertices with the fill ``landing11``, the T3
+    block fell 0.30 m; lane l1088c: with the landings cut back, 159 of the
+    block's own rim vertices still stood at the fill's ``y = -0.30``)."""
+    keep = float(law.tables.emit.design.bank_min_width_m)
+    tol = float(law.tables.emit.materiality.elevation_m)
+    near = [Lu for _r, _Ls, Lu, y, _k, bref, *_ in plats
+            if bref == f.block and abs(float(y) - float(f.y)) > tol]
+    if abs(float(f.y)) > tol:
+        near += [q for ref, q in blocks if ref == f.block]
+    if not near or keep <= 0.0:
+        return Polygon()
+    return unary_union(near).buffer(keep, join_style=2)
+
+
+def _fills(part, to_xy, law, blocks, vias, collar_m: float) -> list:
+    """The pad fills of ``planar/pad_fill`` over this mint's blocks and
+    viaducts: prints within two bank widths are one fill."""
+    from ..airport.slab_faces import witness_faces
+    from ..law.tables import base_slab_law
+    from .pad_fill import pier_fills, plate_fills
+    lw = base_slab_law(law)
+    return (plate_fills(part, to_xy, lw, witness_faces(lw), blocks)
+            + pier_fills(vias, part, to_xy, blocks, BAND_M, 2.0 * collar_m))
+
+
 def landing_regions(out: list, split_units: _t.Mapping[str, list],
                     air_polys: _t.Sequence[Polygon], airport, law,
                     grid: float, collar_m: float,
-                    counts: dict, *, reg: Registries) -> list:
+                    counts: dict, *, reg: Registries, strips: _t.Sequence = (),
+                    lots: _t.Sequence = ()) -> list:
     """The landing + collar regions to add to the pad regions ``out``
     (module docstring), registering each in ``reg.landings`` (and its
-    run-outs in ``reg.landing_runouts``)."""
+    run-outs in ``reg.landing_runouts``).  ``strips``: the ROAD STRIPS a
+    fill that cannot bank down runs to (``planar/fill_road``); ``lots``:
+    the lots it runs to as well, which keep lot law (RULINGS 2026-10-27i).
+    Such a fill mints its RISERS at the far kerb (``planar/fill_riser``)."""
     held, landings, runouts = reg.held, reg.landings, reg.landing_runouts
     landings.clear()
     runouts.clear()
@@ -91,9 +184,8 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     frame = getattr(airport, "frame", None)
     if part is None or frame is None or not held or collar_m <= 0.0:
         return []
-    if not any(getattr(m, "deck_kind", "") in ("flag", "signature")
-               for u in part.units for m in u.members):
-        return []
+    has_deck = any(getattr(m, "deck_kind", "") in ("flag", "signature")
+                   for u in part.units for m in u.members)
     from shapely.geometry import Point
     from shapely.strtree import STRtree
 
@@ -124,12 +216,8 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
             return blocks[int(j)][0]
         return ""
 
-    prints = _prints(part)
-    if not prints:
-        return []
-    vias = _bf.viaduct_units(prints, part, _key, counts)
-    if not vias:
-        return []
+    prints = _prints(part) if has_deck else []
+    vias = _bf.viaduct_units(prints, part, _key, counts) if prints else {}
     added: list = []
     recs: list = []
     template = {str(r.ref): r for r in out}
@@ -199,11 +287,7 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
                 counts["landing_above_unit"] = \
                     counts.get("landing_above_unit", 0) + 1
                 continue
-            L = comp.difference(taken)
-            if grid > 0.0:
-                s_ = L.simplify(0.5 * grid, preserve_topology=True)
-                L = s_ if not s_.is_empty else L
-            Ls = [q for q in _parts(L) if q.area >= max(grid * grid, 1.0)]
+            Ls = _free_pieces(comp, taken, grid)
             if not Ls:
                 counts["landing_taken"] = counts.get("landing_taken", 0) + 1
                 continue
@@ -213,6 +297,47 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
             taken = unary_union([taken, Lu])
             plats.append((f"{unit}{LANDING_SEP}{k}", Ls, Lu, y_land, key,
                           bref, voters, unit, tmpl))
+    # PASS 1a (owner RULINGS 2026-10-19ap #712, Q33 #1003): THE PAD FILLS —
+    # a plate riding a block and a viaduct's ground prints, off the block,
+    # are landings at the block's datum + their y (``planar/pad_fill``)
+    n_deck = len(plats)
+    kinds: dict[str, str] = {}
+    risers: dict[str, list] = {}
+    strip_polys = [r.polygon for r in strips if getattr(r, "polygon", None) is not None]
+    targets = strip_polys + [r.polygon for r in lots if getattr(r, "polygon", None) is not None]
+    reached: list = []          # the roads and lots a fill ran to: no collar over them
+    for f in _fills(part, to_xy, law, blocks, vias, collar_m):
+        if not -BAND_M <= f.y <= BAND_M:
+            counts["pad_fill_out_of_band"] = counts.get("pad_fill_out_of_band", 0) + 1
+            continue
+        tmpl = template.get(f.block) or next(
+            (r for r in out if str(r.ref).startswith(f.block)), None)
+        held_f = unary_union([taken, _cut_back(plats, f, law, blocks)])
+        E, level = _to_road(f, held, airport, law, targets, collar_m, counts, held_f)
+        Ls = _free_pieces(E, held_f, grid)
+        if tmpl is None or not Ls:
+            counts["pad_fill_taken"] = counts.get("pad_fill_taken", 0) + 1
+            continue
+        unit = str(held[f.block].get("unit", f.block))
+        k = n_by_unit.get(unit, 0)
+        n_by_unit[unit] = k + 1
+        Lu = unary_union(Ls)
+        taken = unary_union([taken, Lu])
+        ref = f"{unit}{LANDING_SEP}{k}"
+        kinds[ref] = f.kind
+        if level is not None:
+            # the riser stands off every road strip and the roads and lots
+            # this fill reached; a lot beyond the far kerb is cut under it
+            # (``landing_cut``)
+            mine = [t for t in targets if t.distance(Lu) <= grid]
+            reached.extend(mine)
+            got = _risers(Lu, level, mine, unary_union([taken, *mine, *strip_polys]),
+                          airport, law, grid, counts)
+            if got:
+                risers[ref] = got
+                taken = unary_union([taken, *(r["polygon"] for r in got)])
+        plats.append((ref, Ls, Lu, f.y, f"{f.kind}:{f.source}", f.block,
+                      f.voters, unit, tmpl))
     if not plats:
         counts["landings"] = 0
         return []
@@ -220,12 +345,16 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
     # foot's RUN-OUT ahead of its landing, before any collar — the collar
     # banks the strip's sides, never its course (``planar/landing_runout``)
     from .landing_runout import landing_runouts
-    runouts.update(landing_runouts(plats, held, airport, law, taken,
+    runouts.update(landing_runouts(plats[:n_deck], held, airport, law, taken,
                                            reach + grid, grid, counts))
     for rec in runouts.values():
         taken = unary_union([taken, *rec["polys"]])
-    # PASS 2: the collars, over what no platform, pad or airside holds
-    held_c = taken
+    # PASS 2: the collars, over what no platform, pad or airside holds — nor
+    # a ROAD STRIP (round 3 D2): no collar goes over or along the road; the
+    # kerb is the fill's edge (MEASURED HECA l1088: collars minted over the
+    # strip, plane_gradient 5.76 m at ``building5/landing9#collar``)
+    held_c = unary_union([taken, *(r.polygon for r in strips
+                                   if getattr(r, "polygon", None) is not None), *reached])
     tmpls: dict[str, _t.Any] = {}
     for ref, Ls, Lu, y_land, key, bref, voters, _unit, tmpl in plats:
         C = Lu.buffer(collar_m, join_style=2).difference(held_c)
@@ -235,9 +364,20 @@ def landing_regions(out: list, split_units: _t.Mapping[str, list],
         added.extend(_dc.replace(tmpl, ref=ref, polygon=q) for q in Ls)
         added.extend(_dc.replace(tmpl, ref=ref + COLLAR_SUFFIX, polygon=q)
                      for q in cparts)
+        added.extend(_dc.replace(tmpl, ref=ref + STRIP_SUFFIX, polygon=r["polygon"])
+                     for r in risers.get(ref, ()))
         landings[ref] = {"block": bref, "y": round(y_land, 4), "deck": key,
                          "voters": voters, "area_m2": round(Lu.area, 1),
-                         "collar_m2": round(sum(q.area for q in cparts), 1)}
+                         "collar_m2": round(sum(q.area for q in cparts), 1),
+                         "kind": kinds.get(ref, "deck")}
+        if ref in risers:
+            # §2 (4): the declared step's geometry, read into one
+            # ``road_terrace['wall']`` record per riser (``airport/riser_wall``)
+            landings[ref]["risers"] = [
+                {"ring": [tuple(c) for c in r["polygon"].exterior.coords],
+                 "upper": [[tuple(c) for c in ln.coords] for ln in
+                           getattr(r["upper"], "geoms", [r["upper"]])],
+                 "height_m": r["height_m"]} for r in risers[ref]]
     # PASS 3 (#711): the RUN-OUT's own 1:3 bank along its SIDES (flat caps:
     # its end meets what lies ahead), ``runout:<landing>#collar`` — NOT the
     # landing's collar: the object stage seats a body over a landing's
@@ -289,6 +429,7 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
     if not landings:
         return base_regions
     from ..law.tables import role_side
+    from .fill_road import road_strips
     strips = unary_union([q for rec in runouts.values() for q in rec["polys"]])
     L = unary_union([r.polygon for r in pad_regions
                      if (pad_base_ref(r.ref) in landings
@@ -296,17 +437,30 @@ def landing_cut(base_regions: list, pad_regions: _t.Sequence, law,
                      and r.polygon is not None] + [strips])
     if L.is_empty:
         return base_regions
+    # RULINGS 2026-10-20d R1 (``planar/fill_road``, census row 5): a ROAD
+    # STRIP a viaduct lands on is cut under its DECK landings and their
+    # banks — the landing stands on the road, which meets it at its edge and
+    # carries the descent itself (§37 (6)); a run-out
+    # yields to it as to any road (``_runout_regions``), and a plate / piers
+    # fill runs TO it and stops at its kerb
+    deck = {ref for ref, rec in landings.items() if rec.get("kind", "deck") == "deck"}
+    L_road = unary_union([r.polygon for r in pad_regions
+                          if pad_base_ref(r.ref) in deck and r.polygon is not None])
+    air = [r.polygon for r in base_regions if r.polygon is not None
+           and role_side(law, r.role) == "airside"]
+    road_ids = {id(r) for r in road_strips(base_regions, air, law)}
     out: list = []
     n = 0
     for r in base_regions:
         P = r.polygon
-        if (P is None or P.is_empty or not P.intersects(L)
+        cut = L_road if id(r) in road_ids else L
+        if (P is None or P.is_empty or not P.intersects(cut)
                 or role_side(law, r.role) != "groundside"
-                or r.role not in LOT_ROLES):
+                or (r.role not in LOT_ROLES and id(r) not in road_ids)):
             out.append(r)
             continue
         n += 1
-        for q in _parts(P.difference(L)):
+        for q in _parts(P.difference(cut)):
             out.append(_dc.replace(r, polygon=q))
     if counts is not None:
         counts["landing_cut_regions"] = n

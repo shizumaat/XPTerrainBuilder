@@ -24,8 +24,10 @@ import O4_Glossary as GLOSSARY
 import O4_Qt_Settings_General as GENERAL
 import O4_Settings_Model as SM
 import O4_Settings_Presets as PRESETS
+import O4_Settings_Selection as SEL
 from O4_Qt_Detail_Combo import DetailCombo
 from O4_Qt_Preset_Cards import PresetCards
+from O4_Qt_Settings_Selection import SelectionEdits
 from O4_Qt_Widgets import (
     ElidedRowLabel,
     SqueezableLineEdit,
@@ -60,6 +62,7 @@ DETAIL_HELP = ("More detail means sharper imagery and much larger downloads: "
                "below ZL21 \u2014 the map's zoom badge shows each source's "
                "ceiling.")
 DOT_STYLE = "color: #C7861B; font-weight: bold;"
+CONFLICT_STYLE = "color: #C7861B; font-size: 11px; font-weight: bold;"
 INVALID_STYLE = "border: 1px solid #C03030;"
 PATH_SUFFIXES = ("_dir", "_src", "_path", "_src_alternate")
 TILE_SIDEBAR_TITLE = "★ This tile"
@@ -133,6 +136,15 @@ class _SettingRow(QWidget):
         never_widen(self.scope_tag)
         top.addWidget(self.scope_tag)
         top.addStretch(1)
+        # The selected tiles disagree on this setting (#1549).
+        self.conflict_tag = QLabel(SEL.CONFLICT_TEXT)
+        self.conflict_tag.setStyleSheet(CONFLICT_STYLE)
+        self.conflict_tag.setToolTip(
+            "The selected tiles use different values. A change applies "
+            "to all of them, after you confirm.")
+        self.conflict_tag.setVisible(False)
+        never_widen(self.conflict_tag)
+        top.addWidget(self.conflict_tag)
 
         # base_elevation_source's choices are files (Providers/Elevation/
         # *.elv), not registry values — enumerate them into a combo.
@@ -233,6 +245,7 @@ class _SettingRow(QWidget):
 
     def set_value(self, text):
         self._mixed = False
+        self.conflict_tag.setVisible(False)
         self.control.blockSignals(True)
         if isinstance(self.control, QCheckBox):
             self.control.setTristate(False)
@@ -272,16 +285,17 @@ class _SettingRow(QWidget):
         """
         self._mixed = True
         self._any_override = bool(any_override)
+        self.conflict_tag.setVisible(True)
         self.control.blockSignals(True)
         if isinstance(self.control, QCheckBox):
             self.control.setTristate(True)
             self.control.setCheckState(Qt.PartiallyChecked)
         elif isinstance(self.control, QComboBox):
-            self.control.setPlaceholderText("— Mixed —")
+            self.control.setPlaceholderText(SEL.CONFLICT_TEXT)
             self.control.setCurrentIndex(-1)
         else:
             self.control.setText("")
-            self.control.setPlaceholderText("Mixed")
+            self.control.setPlaceholderText(SEL.CONFLICT_TEXT)
         self.control.blockSignals(False)
         self.mark_valid()
         self.refresh_dot()
@@ -329,6 +343,7 @@ class _SettingRow(QWidget):
             # mixed display resolves (a tristate checkbox goes two-state
             # again so it can never be cycled back to partial).
             self._mixed = False
+            self.conflict_tag.setVisible(False)
             if isinstance(self.control, QCheckBox):
                 self.control.setTristate(False)
         self.refresh_dot()
@@ -840,13 +855,17 @@ class _ProviderSignInSection(QWidget):
         self._refresh_statuses()
 
 
-class SettingsWindow(QDialog):
+class SettingsWindow(SelectionEdits, QDialog):
     """The blended settings sheet (Option C), multi-tile aware.
 
-    ``tiles`` is the map selection: zero tiles edits global defaults;
-    one tile blends it over global; several tiles edit them TOGETHER —
-    settings the tiles disagree on display a MIXED state, and entering a
-    value applies it to every selected tile.
+    ``tiles`` is the map selection (#1549, RULINGS 2026-10-28i/j): zero
+    tiles edits the defaults for new tiles; one tile shows its own
+    settings; several tiles edit them TOGETHER — settings the tiles
+    disagree on show "Conflicting values", and while they disagree any
+    change asks before it applies to every selected tile.  The detail
+    level and the preset cards follow the selection too
+    (``tile_zooms``: each tile's recorded zoom; ``selection_zl``: one
+    already chosen for this selection).
     """
 
     #: Hard ceiling on the window's own minimum width, whatever the
@@ -854,16 +873,21 @@ class SettingsWindow(QDialog):
     #: Windows display at 125 % scaling) must be able to hold the sheet.
     MAX_MINIMUM_WIDTH = 720
 
-    def __init__(self, prefs, tiles, custom_build_dir, parent=None):
+    def __init__(self, prefs, tiles, custom_build_dir, parent=None,
+                 tile_zooms=None, selection_zl=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.resize(880, 620)
         self.prefs = dict(prefs)
+        # Whether the user chose a detail level here (Detail or a preset
+        # card): the main window then makes it the default (#1539).
+        self.zoom_chosen = False
         if tiles and isinstance(tiles, tuple) and isinstance(tiles[0], int):
             tiles = [tiles]  # a bare (lat, lon) is one tile
         self.tiles = sorted(tiles or [])
         self.custom_build_dir = custom_build_dir
         self.tile_written = False
+        self._init_selection(tile_zooms, selection_zl)
 
         # Global-effective values (registry default overlaid by the global
         # config file), plus preference values from the caller.
@@ -993,6 +1017,8 @@ class SettingsWindow(QDialog):
         # The preset cards (#822): one click sets a fixed set of keys.
         self.preset_cards = PresetCards()
         self.preset_cards.chosen.connect(self._apply_preset)
+        if self.blended:
+            self.preset_cards.set_note(SEL.TILES_NOTE)
         root.addWidget(self.preset_cards)
 
         # The build detail level (#1242): here, and no longer in the main
@@ -1001,8 +1027,6 @@ class SettingsWindow(QDialog):
         detail_row.addWidget(QLabel("%s:" % GLOSSARY.TERMS["detail"]))
         self.detail_combo = DetailCombo(range(12, 22))
         self.detail_combo.setToolTip(DETAIL_HELP)
-        self.detail_combo.setCurrentText(str(
-            self.prefs.get(PRESETS.ZOOM_PREF, PRESETS.default_zoom())))
         self.detail_combo.currentIndexChanged.connect(self._detail_changed)
         detail_row.addWidget(self.detail_combo)
         detail_row.addStretch(1)
@@ -1126,22 +1150,14 @@ class SettingsWindow(QDialog):
         footer.addWidget(done_btn)
         root.addLayout(footer)
 
+        self.context_label.setText(self._scope_text())
         if self.blended:
-            self.context_label.setText(
-                ("Tile %s" % FNAMES.short_latlon(*self.tiles[0])
-                 if len(self.tiles) == 1
-                 else "%d tiles" % len(self.tiles))
-                + " · blended with global"
-            )
             legend = (
                 '<span style="%s">●</span> overrides the global value'
                 " &nbsp;·&nbsp; ↺ reverts a setting" % DOT_STYLE
             )
-            if len(self.tiles) > 1:
-                legend += " &nbsp;·&nbsp; blank = mixed across tiles"
             self.legend.setText(legend)
         else:
-            self.context_label.setText("Editing global defaults")
             self.legend.setText(
                 '<span style="%s">●</span> changed from default'
                 " &nbsp;·&nbsp; ↺ reverts a setting" % DOT_STYLE
@@ -1179,22 +1195,14 @@ class SettingsWindow(QDialog):
             setting = row.setting
             if self.blended and setting.scope == "tile":
                 row.revert_button.setToolTip("Revert to the global value")
-                inherited = self._global_vals[name]
                 row.set_baseline(
-                    inherited,
+                    self._global_vals[name],
                     "Overrides the global value"
                     if len(self.tiles) == 1
                     else "Overrides the global value on at least one"
                          " selected tile",
                 )
-                effective = {
-                    overrides.get(name, inherited)
-                    for overrides in self._overrides_by_tile.values()
-                }
-                if len(effective) > 1:
-                    row.set_mixed(name in self._override_union())
-                else:
-                    row.set_value(effective.pop())
+                self._show_tile_row(name)
             else:
                 row.revert_button.setToolTip(
                     "Revert to the built-in default")
@@ -1205,30 +1213,56 @@ class SettingsWindow(QDialog):
                 row.scope_tag.setVisible(
                     self.blended and setting.scope in ("app", "pref")
                 )
+        self._show_selection_zoom()
         self._refresh_customized_chip()
         self._refresh_presets()
 
+    def _show_tile_row(self, name):
+        """A tile row shows the selection's value, or the conflict."""
+        merged = self._tile_merged(name)
+        row = self.rows[name]
+        if merged is SEL.CONFLICT:
+            row.set_mixed(name in self._override_union())
+        else:
+            row.set_value(merged)
+
     def _preset_current(self):
-        """The preset keys' current GLOBAL values (presets set defaults)."""
-        return PRESETS.current_values(
-            self._global_vals,
-            self.prefs.get(PRESETS.ZOOM_PREF, PRESETS.default_zoom()),
-        )
+        """The preset keys' current values: the GLOBAL ones with no
+        selection (presets then set defaults), else the selection's."""
+        if self.blended:
+            return self._selection_preset_current()
+        return PRESETS.current_values(self._global_vals, self._default_zl())
 
     def _refresh_presets(self):
         self.preset_cards.set_current(self._preset_current())
+        self.context_label.setText(self._scope_text())
 
     def _detail_changed(self, _index):
         text = self.detail_combo.currentText()     # the zoom level
-        if text:
-            self.prefs[PRESETS.ZOOM_PREF] = int(text)
-            self._refresh_presets()
+        if not text:
+            return
+        if self.blended and not self._confirm_selection_change():
+            self._show_selection_zoom()
+            return
+        self._choose_zoom(int(text))
+        self._refresh_presets()
 
     def _apply_preset(self, key):
-        """Write the preset's config keys in one global write, its zoom to
-        the preferences, and show the new values in their rows."""
+        """Apply a preset: with tiles selected, to every selected tile
+        (its config keys as tile values, its zoom as the selection's);
+        else its config keys in one global write and its zoom to the
+        preferences.  The rows show the new values at once."""
         entry = PRESETS.preset(key)
         values = PRESETS.cfg_values(entry)
+        if self.blended:
+            if not self._confirm_selection_change():
+                return
+            for name, value in values.items():
+                self._write_tile_value(name, value)
+            self._choose_zoom(PRESETS.zoom_value(entry))
+            self._show_selection_zoom()
+            self._refresh_presets()
+            return
         try:
             SM.write_global(values)
         except OSError as exc:
@@ -1239,10 +1273,8 @@ class SettingsWindow(QDialog):
         SM.apply_runtime(values)
         for name, value in values.items():
             self._show_global_value(SM.get_setting(name), value)
-        self.prefs[PRESETS.ZOOM_PREF] = PRESETS.zoom_value(entry)
-        self.detail_combo.blockSignals(True)
-        self.detail_combo.setCurrentText(str(self.prefs[PRESETS.ZOOM_PREF]))
-        self.detail_combo.blockSignals(False)
+        self._choose_zoom(PRESETS.zoom_value(entry))
+        self._show_selection_zoom()
         self._refresh_presets()
 
     def show_customized_only(self):
@@ -1269,8 +1301,12 @@ class SettingsWindow(QDialog):
             row.mark_invalid("Not saved: %s" % error)
             return
         row.mark_valid()
-        if self.blended and setting.scope == "tile":
+        if SEL.edits_tiles(setting.scope, len(self.tiles)):
+            if not self._confirm_selection_change():
+                self._show_tile_row(setting.name)
+                return
             self._write_tile_value(setting.name, normalized)
+            self._refresh_presets()
         else:
             self._write_global_value(setting, normalized)
         if setting.name == "xplane_dir":

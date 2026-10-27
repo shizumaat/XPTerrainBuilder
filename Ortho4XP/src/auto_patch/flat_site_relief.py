@@ -1,61 +1,62 @@
-"""A HILL IS NOT THE SITE — the flat-site plateau's off-site relief rule.
+"""THE FLAT-SITE PLATEAU IS A FILL, NOT A CUT — the stamp's one after-pass.
 
-Issue #1137 (owner, app 1.0.409 in-sim): at VMMC and VHHH the terrain
-BEYOND the airport boundary sat at apron level.  VMMC 22.158794,
-113.571673 — the Taipa hillside west of the terminal — read 6.096 m in the
-tile's ``.alt`` and mesh against 86.4 m in the same raster composed with
-FLAT-SITE mode off; VHHH's Lantau hillside behind Tung Chung (22.2913,
-113.9630, 294 m) read 7.62 m.  The flat-site synthetic inset is a
-RECTANGLE (the bbox of the detector's region, and one box per claimed
-object cluster) minus water, so every patch of land inside the box took
-Z0 — the airport's own surfaces, and the hill beside them alike.
+Owner RULINGS 2026-10-26r (Q173, option a; #1208), refining 2026-10-20af
+and 2026-10-20ag: "flattening only raises ground; where the real ground
+stands more than 0.5 m above the flat level, keep the real ground, except
+where pavement grading itself needs a cut".  It replaces the #1137 rule
+("a hill is not the site": off the airport's whole gate, ground more than
+5 m above Z0 came back), which left the boundary's own grass — and every
+metre of ground up to 5 m above Z0 around it — cut down to Z0.  Seen as a
+coastal-flat airport's edge cut down (the CYVR report; at CYVR itself the
+stamp turned out not to fire, ``docs/findings/1208-l1208.md``).
 
-THE RULE (the R21 isthmus band, "a hill is not a causeway", applied to
-every flat-site footprint): the plateau keeps the airport's OWN surfaces
-(the decision record's ``gate`` — pavement ∪ runways ∪ boundary, water
-cut) at Z0 whatever the DEM says there, because that is what the detector
-measured flat.  Everywhere else the box reaches — its margin, its corners,
-a cluster box — ground the honest surface holds ABOVE Z0 keeps it: up to
-``band_m / 2`` above it is Z0, beyond ``band_m`` the pre-substitution
-surface comes back untouched, and in between the two blend linearly, so
-the plateau meets the hillside without a manufactured cliff.
+THE RULE.  The stamp (``O4_Airport_Elevation_Insets``: the core, each
+claimed-object cluster, the R21 isthmus) bakes a constant Z0.  After an
+airport's bakes, against a snapshot of the honest surface taken before
+them, a post the stamp LOWERED whose honest surface stands above Z0 by
+more than :data:`KEEP_ABOVE_M` gets that surface back — in full from
+:data:`REAL_FROM_M`, linearly in between, so the result is continuous in
+the honest surface and no post ends more than ``KEEP_ABOVE_M`` below it.
 
-ONLY ABOVE.  Land the honest surface holds BELOW Z0 is still lifted: that
-is the reclamation class R8-1 exists for (VHHH's HZMB port island and the
-ground east of Chek Lap Kok read the hongkong5m raster's 2.00 m sea fill,
-VMMC's reclaimed fringe 0.00 m — 2.7 and 0.46 km2 of land the 1.0.409
-plateau lifted, measured 2026-10-20), where the DEM predates the land and
-the CIFP datum is the truth.  A hill standing out of the plateau is the
-opposite case: real relief the source has no reason to invent.
+ONLY A CUT IS UNDONE.  A post the stamp raised (honest surface below Z0 —
+the reclamation class R8-1 and 20af exist for: VHHH's 2.00 m sea fill)
+keeps Z0.
 
-It runs AFTER an airport's core and cluster insets are baked, over the
-window they cover, against a snapshot taken BEFORE them — so every gate
-the bake already applies (the R11-2 cluster datum ring, the water cut,
-the feather) measures exactly what it measured before, and the honest
-surface it restores is the one the detector classified.  It reads no
-file and writes nothing but the working raster.
+PAVEMENT KEEPS ITS CUT.  The airport's own pavement — apt.dat pavements
+∪ runways at margin 0, the decision record's ``pavement_ll`` — stays at
+Z0 whatever the DEM says: that is the cut pavement grading needs.  The
+boundary's grass, the margin, the cluster hulls and the isthmus are not
+pavement; grading the pavement's edge down to the real ground beside it
+is the patch's own work (its adjacent-ground zones).
+
+It reads no file and writes nothing but the working raster.
 """
 from __future__ import annotations
 
 import math
 
 __all__ = [
-    "BAND_FULL_FRACTION",
+    "KEEP_ABOVE_M",
+    "REAL_FROM_M",
     "site_geometry_tile_degrees",
     "snapshot_window",
-    "restore_off_site_relief",
+    "restore_ground_above_flat_level",
 ]
 
-#: The inner part of the band, as a fraction of ``band_m``, over which the
-#: substitution stands in full.  Between it and ``band_m`` the restore
-#: weight ramps 0 -> 1, so the value is continuous in the honest surface.
-BAND_FULL_FRACTION = 0.5
+#: RULINGS 2026-10-26r: honest ground standing more than this above Z0 is
+#: real ground the plateau must not cut.  Up to it the plateau stands.
+KEEP_ABOVE_M = 0.5
+#: From this height above Z0 the honest surface comes back in full;
+#: between :data:`KEEP_ABOVE_M` and it the restore weight ramps 0 -> 1
+#: (a mechanism choice: no 0.5 m cliff along the contour, and the deepest
+#: remaining cut is ``KEEP_ABOVE_M``, at the contour itself).
+REAL_FROM_M = 2.0 * KEEP_ABOVE_M
 
 
 def site_geometry_tile_degrees(record, tile_lat: int, tile_lon: int,
-                               key: str = "gate_ll"):
-    """The record's ``gate_ll`` rings (or another ring list named by
-    ``key`` — ``region_ll``, the plateau's footprint, #1144) as ONE
+                               key: str = "pavement_ll"):
+    """The record's ``pavement_ll`` rings (or another ring list named by
+    ``key`` — ``footprint_ll``, the plateau's footprint, #1144) as ONE
     tile-relative geometry, or ``None`` when the record carries none."""
     from shapely.geometry import Polygon
     from shapely.ops import unary_union
@@ -107,49 +108,47 @@ def snapshot_window(base_dem, rects):
     return (row_min, row_max, col_min, col_max, before)
 
 
-def restore_off_site_relief(base_dem, snapshot, site, z0_m: float,
-                            band_m: float, metres_per_degree=None) -> dict:
-    """Put the honest surface back on off-site ground standing above Z0.
+def restore_ground_above_flat_level(base_dem, snapshot, pavement, z0_m: float,
+                                    metres_per_degree=None) -> dict:
+    """Undo the plateau's cut on ground standing above Z0 (module doc).
 
     ``snapshot`` is :func:`snapshot_window`'s answer taken before the
-    airport's insets baked; ``site`` the airport's own surfaces
-    (:func:`site_geometry_tile_degrees`), which are never touched.
-    ``metres_per_degree`` — ``(lon_m, lat_m)`` — only sizes the report.
+    airport's bakes; ``pavement`` the airport's own pavement
+    (:func:`site_geometry_tile_degrees`), which is never touched (``None``:
+    no post is exempt).  ``metres_per_degree`` — ``(lon_m, lat_m)`` —
+    only sizes the report.
 
     Returns ``{"restored_posts", "restored_km2", "max_offset_m"}``: the
-    posts the substitution had moved that now carry some of the honest
-    surface back, and the largest ``before - Z0`` among them.
+    posts the stamp had lowered that now carry some of the honest surface
+    back, and the largest ``before - Z0`` among them.
     """
     import numpy
-    from shapely import contains_xy
 
     report = {"restored_posts": 0, "restored_km2": 0.0, "max_offset_m": 0.0}
-    if snapshot is None or site is None or not band_m or band_m <= 0:
+    if snapshot is None:
         return report
     row_min, row_max, col_min, col_max, before = snapshot
     window = base_dem.alt_dem[row_min:row_max + 1, col_min:col_max + 1]
     after = numpy.asarray(window, dtype=numpy.float64)
-    moved = after != before
-    if not numpy.any(moved):
-        return report
-    full_m = float(band_m) * BAND_FULL_FRACTION
-    # Signed: only ground ABOVE Z0 comes back (module doc, ONLY ABOVE).
     offset = before - float(z0_m)
-    weight = numpy.clip((offset - full_m) / (float(band_m) - full_m),
+    weight = numpy.clip((offset - KEEP_ABOVE_M) / (REAL_FROM_M - KEEP_ABOVE_M),
                         0.0, 1.0)
     nodata = getattr(base_dem, "nodata", None)
     if nodata is not None:
         weight[before == nodata] = 0.0
-    weight[~moved] = 0.0
+    weight[~(after < before)] = 0.0          # ONLY A CUT IS UNDONE
     rows, cols = numpy.nonzero(weight > 0.0)
     if not len(rows):
         return report
     x_step = (base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
     y_step = (base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
-    xs = base_dem.x0 + (cols + col_min) * x_step
-    ys = base_dem.y1 - (rows + row_min) * y_step
-    on_site = contains_xy(site, xs, ys)
-    weight[rows[on_site], cols[on_site]] = 0.0
+    if pavement is not None:
+        from shapely import contains_xy
+
+        xs = base_dem.x0 + (cols + col_min) * x_step
+        ys = base_dem.y1 - (rows + row_min) * y_step
+        on_pavement = contains_xy(pavement, xs, ys)
+        weight[rows[on_pavement], cols[on_pavement]] = 0.0
     restored = weight > 0.0
     if not numpy.any(restored):
         return report

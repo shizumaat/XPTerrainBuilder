@@ -24,7 +24,7 @@ from ..model.planar import PlanarMap
 from .design_roles import bend_roles, pavement_roles
 
 __all__ = ["ground_roles", "ground_datum_vertices", "ground_rim_vertices",
-           "coverage_edge_collar_vertices", "riser_outer_vertices"]
+           "coverage_edge_collar_vertices"]
 
 
 def ground_roles(law: Law) -> frozenset[str]:

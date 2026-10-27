@@ -15,7 +15,7 @@ app's ``SelectionRing.rings``; both read
 
 from PySide6.QtGui import QColor, QPalette, QPen
 
-__all__ = ["ACTIVE", "OTHER", "ringed_rows", "ring_color", "draw",
+__all__ = ["ACTIVE", "OTHER", "ring_color", "draw",
            "apply_rings"]
 
 #: The two ring styles: solid with a glow, and dashed.

@@ -847,22 +847,27 @@ def _parallel(a: Mouth, b: Mouth, sep_max: float) -> bool:
     return abs(d1 - d0) <= 0.5 * d0 + 2.0
 
 
-def merge_duals(mouths: list[Mouth], law: Law, stats
+def merge_duals(mouths: list[Mouth], law: Law, stats, same=None
                  ) -> list[tuple[list[Mouth], XY, XY, float, list[XY]]]:
     """Cluster mouths of DIFFERENT bores that stand within the dual
     separation with parallel approaches (31h — transitively, so a 2+2
     with service lanes is ONE ramp): returns ``(members, mouth_xy,
     inward, full_width, axis_path)`` per ramp.  The mouth line stands at
     the OUTER of the mapped ends (a mapped bore is never cut open, 08-07
-    ruling 2); the width spans every carriageway."""
+    ruling 2); the width spans every carriageway.  ``same`` (a mouth ->
+    key or ``None``): mouths sharing a key are ONE ramp whatever their
+    separation — the carriageways one edge bridge's back stops are one cut
+    across both and the median (owner RULINGS 2026-10-28d Q214)."""
     sep_max = law.tables.structures.tunnel.dual_carriageway_max_separation_m
     n = len(mouths)
     parent = list(range(n))
 
 
+    keys = [None if same is None else same(m) for m in mouths]
     for i in range(n):
         for j in range(i + 1, n):
-            if _parallel(mouths[i], mouths[j], sep_max):
+            if (keys[i] is not None and keys[i] == keys[j]) or \
+                    _parallel(mouths[i], mouths[j], sep_max):
                 parent[find_root(parent, i)] = find_root(parent, j)
     groups: dict[int, list[Mouth]] = {}
     for i in range(n):

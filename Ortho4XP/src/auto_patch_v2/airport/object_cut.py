@@ -277,9 +277,20 @@ def _ring_ends(interior: Polygon, wall, probe_m: float) -> tuple[list[list[int]]
 
 
 def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component],
-                  law) -> "ShellReading | str":
+                  law, floor_y: "float | None" = None,
+                  walls_to_floor: bool = False,
+                  interior_from: "np.ndarray | None" = None) -> "ShellReading | str":
     """The SHELL reading of a resource in its own authored frame, or the
-    REASON it is not one (a string; every refusal names its numbers)."""
+    REASON it is not one (a string; every refusal names its numbers).
+    ``floor_y`` given: the object states NO floor and the depth is that
+    (its walls' bottom, owner RULINGS 2026-10-26p Q167); the trench outline
+    is then its non-vertical faces' plan as before.  ``walls_to_floor``: a
+    vertical face is a WALL only where it reaches below the trench's
+    mid-depth — the headwall a hanging cover carries over each portal
+    (EGLL ``3.obj``, ``8.obj``) stands on the ring but closes no end.
+    ``interior_from`` (a mask over the genuine triangles): the trench outline
+    is THOSE faces' plan — a split shell's FLOOR object, never its cover's
+    deck, which reaches over the walls (owner RULINGS 2026-10-26p Q166)."""
     ob = law.tables.structures.tunnel.object
     if not genuine:
         return "no genuine solid component"
@@ -293,40 +304,51 @@ def shell_reading(geom: _obj8.ObjGeometry, genuine: _t.Sequence[_obj8.Component]
     # horizontal plate lies >= 2 m below its zero" (§33 (6) B).
     ymax = np.maximum(np.maximum(v[tris[:, 0], 1], v[tris[:, 1], 1]), v[tris[:, 2], 1])
     deep = horiz & (ymax <= -ob.shell_floor_min_m)
-    if not deep.any():
+    if floor_y is not None:
+        floor_area, deep = 0.0, None
+    elif not deep.any():
         return (f"no floor plate: no near-horizontal solid face stands "
                 f"{ob.shell_floor_min_m} m (shell_floor_min_m) under the object's zero")
-    # THE FLOOR IS THE DEEPEST PLATE, not the largest-AREA bin: a shell's
-    # RAMPS are near-horizontal too (VHHH tunnel5's ramp faces read
-    # |n_y| = 0.998 over 100 m), so the largest bin of horizontal faces is
-    # a ramp's mid-height, not the floor — measured VHHH tunnel1 (a 1,514
-    # m2 ramp bin at -2.50 against the 733 m2 floor at -6.95) and tunnel4
-    # (2,672 m2 at -5.25 against 454 m2 at -9.01).  The floor is the
-    # LOWEST bin that carries a plate's worth, and its level is that
-    # plate's own lowest vertex.
-    binned = np.floor(ymax / ob.plate_bin_m).astype(int)
-    bins: dict[int, float] = {}
-    for k, a in zip(binned[deep].tolist(), area[deep].tolist()):
-        bins[k] = bins.get(k, 0.0) + a
-    floors = [k for k, a in bins.items() if a >= ob.plate_min_area_m2]
-    if not floors:
-        best = max(bins, key=lambda k: bins[k])
-        return (f"the deepest plate is {bins[best]:.0f} m2 at {best * ob.plate_bin_m:+.2f} m "
-                f"(< plate_min_area_m2 {ob.plate_min_area_m2:.0f}): not a tunnel floor")
-    best = min(floors)
-    floor_sel = deep & (binned == best)
-    ymin_t = np.minimum(np.minimum(v[tris[:, 0], 1], v[tris[:, 1], 1]), v[tris[:, 2], 1])
-    floor_y = float(ymin_t[floor_sel].min())
-    floor_area = float(bins[best])
+    if deep is not None:
+        # THE FLOOR IS THE DEEPEST PLATE, not the largest-AREA bin: a shell's
+        # RAMPS are near-horizontal too (VHHH tunnel5's ramp faces read
+        # |n_y| = 0.998 over 100 m), so the largest bin of horizontal faces is
+        # a ramp's mid-height, not the floor — measured VHHH tunnel1 (a 1,514
+        # m2 ramp bin at -2.50 against the 733 m2 floor at -6.95) and tunnel4
+        # (2,672 m2 at -5.25 against 454 m2 at -9.01).  The floor is the
+        # LOWEST bin that carries a plate's worth, and its level is that
+        # plate's own lowest vertex.
+        binned = np.floor(ymax / ob.plate_bin_m).astype(int)
+        bins: dict[int, float] = {}
+        for k, a in zip(binned[deep].tolist(), area[deep].tolist()):
+            bins[k] = bins.get(k, 0.0) + a
+        floors = [k for k, a in bins.items() if a >= ob.plate_min_area_m2]
+        if not floors:
+            best = max(bins, key=lambda k: bins[k])
+            return (f"the deepest plate is {bins[best]:.0f} m2 at {best * ob.plate_bin_m:+.2f} m "
+                    f"(< plate_min_area_m2 {ob.plate_min_area_m2:.0f}): not a tunnel floor")
+        best = min(floors)
+        floor_sel = deep & (binned == best)
+        ymin_t = np.minimum(np.minimum(v[tris[:, 0], 1], v[tris[:, 1], 1]), v[tris[:, 2], 1])
+        floor_y = float(ymin_t[floor_sel].min())
+        floor_area = float(bins[best])
     # THE TRENCH OUTLINE — every non-vertical face's plan (the floor
     # plates AND the ramps between them), never the hull.
     # the plan polygons as the ONE admission takes them (#581: a face
     # seen edge-on is no plan area), unioned under §51 Law B
-    interior = _largest_part(_fe.union(_bulk_polys(v, tris[horiz]),
+    interior = _largest_part(_fe.union(_bulk_polys(
+        v, tris[horiz if interior_from is None else (horiz & interior_from)]),
                                        "object_cut.shell_reading"))
     if interior is None or interior.area < ob.plate_min_area_m2:
         return "the shell's non-vertical faces have no plan area"
-    segs = _plan_segments(v, tris[~horiz])
+    # a split shell's walls are its COVER's: the floor object's own slab
+    # edges stand on its ring and close no end
+    wall_tris = tris[~horiz] if interior_from is None else tris[~horiz & ~interior_from]
+    if walls_to_floor and len(wall_tris):
+        lo = np.minimum(np.minimum(v[wall_tris[:, 0], 1], v[wall_tris[:, 1], 1]),
+                        v[wall_tris[:, 2], 1])
+        wall_tris = wall_tris[lo <= 0.5 * floor_y]
+    segs = _plan_segments(v, wall_tris)
     if not segs:
         return "the shell has no vertical wall face"
     wall = unary_union(segs)
@@ -524,53 +546,25 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
                 f"{r.floor_y:+.2f} m, trench {r.interior.area:.0f} m2) with no flush HARD_DECK "
                 f"cover at the same placement (§33 (6) B) — not a signature-B cut")
             continue
-        mat = _obj8.placement_affine(o.xy, o.heading_deg)
-        # §51 (4): the census table stops at row 19, but G1 ("no
-        # ``affine_transform`` in ``airport/`` or ``planar/`` outside
-        # ``frame_entry``, allow-list: none") reaches this site too, and
-        # it is row 13/14's class exactly — a LOCAL clip carried to the
-        # frame by a placement affine.  ENTRY.  Reported to the spec's
-        # author as a census omission.
-        outline = _fe.enter([r.interior], mat, _fe.quantum(law))[0]
-        if outline is None:
-            stats.refused.append(
-                f"{o.id} {_base(o.path)}: the placed trench outline repairs to nothing "
-                f"(§51 (2))")
-            continue
-        chain_a = tuple(_apply(mat, p) for p in r.inner_a)
-        chain_b = tuple(_apply(mat, p) for p in r.inner_b)
-        ends = (_apply(mat, r.ends[0]), _apply(mat, r.ends[1]))
-        zero = float(msl[o.id]) if o.kind == "OBJECT_MSL" else float(o.anchor_z + o.agl_m)
-        axis = LineString([((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0)
-                           for p, q in zip(_resample(chain_a, 32), _resample(chain_b, 32))])
-        gcov = cache.geometry(cov_obj.resolved)
-        sts = _cover_stations(gcov, axis, _obj8.placement_affine(cov_obj.xy, cov_obj.heading_deg),
-                              law) if gcov is not None else ()
         k = k_by_res.get(o.path, 0)
+        rec = shell_cut(o, r, cov_obj, cover, cov_area, k, cache, law, msl)
+        if isinstance(rec, str):
+            stats.refused.append(rec)
+            continue
         k_by_res[o.path] = k + 1
-        notes = [f"signature B (§33 (6)): shell {_base(o.path)} floor plate "
-                 f"{r.floor_area_m2:.0f} m2 at {r.floor_y:+.2f} m, trench {r.interior.area:.0f} "
-                 f"m2, walls {r.length_m:.0f} m x {r.width_m:.1f} m",
-                 f"cover {_base(cov_obj.path)}: flush HARD_DECK plate {cov_area:.0f} m2 at "
-                 f"|y| <= cover_flush_m {ob.cover_flush_m}",
-                 f"floor {zero + r.floor_y:.2f} = the object's zero {zero:.2f} "
-                 f"{r.floor_y:+.2f} (AUTHORED — it overrides mouth_depth_m)"]
-        if sts:
-            notes.append("ramp stations from the cover's profile: "
-                         + " -> ".join(f"{y:+.2f}" for _s, y in sts))
-        out.append(ObjectCut(f"object-cut:{_base(o.path)}@{k}", o.path, o.id,
-                             cov_obj.id, cov_obj.path, SHELL,
-                             outline,
-                             # the wall-line union is Polygon | MultiPolygon |
-                             # LineString (§51 row 19 for its line case), so it
-                             # takes the affine alone, spelled in frame_entry
-                             _fe.transform(r.wall_line, mat, 0.0),
-                             chain_a, chain_b, ends,
-                             (True, True), zero + r.floor_y, r.floor_y, zero,
-                             _fe.enter([cover], mat, _fe.quantum(law))[0],   # ENTRY
-                             sts, tuple(notes)))
+        out.append(rec)
         stats.shells += 1
         stats.covers_paired += 1
+    # owner RULINGS 2026-10-26p (Q165–Q167, #1298 / #1138): the HANGING covers —
+    # a flush hard deck with walls and no floor, alone or with a co-placed
+    # floor object — read by ``airport/hanging_objects``
+    from .hanging_objects import read_hanging_covers
+    hung, h_refused = read_hanging_covers(
+        [p for p in placed if p.path not in taken], cache, law,
+        {i for c in out for i in (c.object_id, c.cover_object_id)}, msl, k_by_res)
+    out.extend(hung)
+    stats.shells += len(hung)
+    stats.refused.extend(h_refused)
     for path, r in sorted(readings.items()):
         if isinstance(r, str):
             stats.refused.append(f"{_base(path)} x{counts.get(path, 1)}: {r}")
@@ -581,6 +575,58 @@ def read_shells(airport, objects: _t.Sequence[_obj8.PlacedObject],
     stats.claimed = len({c.object_id for c in out})
     stats.read_s = _time.perf_counter() - t0
     return out, stats
+
+
+
+def shell_cut(o: _obj8.PlacedObject, r: ShellReading, cov_obj: _obj8.PlacedObject, cover,
+              cov_area: float, k: int, cache: _obj8.ResourceCache, law,
+              msl: _t.Mapping[str, float], extra_notes: _t.Sequence[str] = ()
+              ) -> "ObjectCut | str":
+    """THE ONE RECORD of a shell reading placed in the airport frame — the
+    signature-B shell, a split floor/cover pair or a hanging cover
+    (``airport/hanging_objects``) alike — or the refusal (a string)."""
+    ob = law.tables.structures.tunnel.object
+    mat = _obj8.placement_affine(o.xy, o.heading_deg)
+    # §51 (4): the census table stops at row 19, but G1 ("no
+    # ``affine_transform`` in ``airport/`` or ``planar/`` outside
+    # ``frame_entry``, allow-list: none") reaches this site too, and
+    # it is row 13/14's class exactly — a LOCAL clip carried to the
+    # frame by a placement affine.  ENTRY.  Reported to the spec's
+    # author as a census omission.
+    outline = _fe.enter([r.interior], mat, _fe.quantum(law))[0]
+    if outline is None:
+        return (f"{o.id} {_base(o.path)}: the placed trench outline repairs to nothing "
+                f"(§51 (2))")
+    chain_a = tuple(_apply(mat, p) for p in r.inner_a)
+    chain_b = tuple(_apply(mat, p) for p in r.inner_b)
+    ends = (_apply(mat, r.ends[0]), _apply(mat, r.ends[1]))
+    zero = float(msl[o.id]) if o.kind == "OBJECT_MSL" else float(o.anchor_z + o.agl_m)
+    axis = LineString([((p[0] + q[0]) / 2.0, (p[1] + q[1]) / 2.0)
+                       for p, q in zip(_resample(chain_a, 32), _resample(chain_b, 32))])
+    gcov = cache.geometry(cov_obj.resolved)
+    sts = _cover_stations(gcov, axis, _obj8.placement_affine(cov_obj.xy, cov_obj.heading_deg),
+                          law) if gcov is not None else ()
+    notes = [f"signature B (§33 (6)): shell {_base(o.path)} floor plate "
+             f"{r.floor_area_m2:.0f} m2 at {r.floor_y:+.2f} m, trench {r.interior.area:.0f} "
+             f"m2, walls {r.length_m:.0f} m x {r.width_m:.1f} m", *extra_notes,
+             f"cover {_base(cov_obj.path)}: flush HARD_DECK plate {cov_area:.0f} m2 at "
+             f"|y| <= cover_flush_m {ob.cover_flush_m}",
+             f"floor {zero + r.floor_y:.2f} = the object's zero {zero:.2f} "
+             f"{r.floor_y:+.2f} (AUTHORED — it overrides mouth_depth_m)"]
+    if sts:
+        notes.append("ramp stations from the cover's profile: "
+                     + " -> ".join(f"{y:+.2f}" for _s, y in sts))
+    return ObjectCut(f"object-cut:{_base(o.path)}@{k}", o.path, o.id,
+                         cov_obj.id, cov_obj.path, SHELL,
+                         outline,
+                         # the wall-line union is Polygon | MultiPolygon |
+                         # LineString (§51 row 19 for its line case), so it
+                         # takes the affine alone, spelled in frame_entry
+                         _fe.transform(r.wall_line, mat, 0.0),
+                         chain_a, chain_b, ends,
+                         (True, True), zero + r.floor_y, r.floor_y, zero,
+                         _fe.enter([cover], mat, _fe.quantum(law))[0],   # ENTRY
+                         sts, tuple(notes))
 
 
 def _base(path: str) -> str:

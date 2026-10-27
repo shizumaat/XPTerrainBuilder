@@ -9412,6 +9412,33 @@ def test_a_declared_wall_terrace_is_exempt_in_both_readers(cg):
     assert vcut.FAMILY not in vc.DEFECT_KEYS
 
 
+def test_the_tie_reads_one_declared_wall_step_in_both_readers(cg):
+    """OWNER RULINGS 2026-10-28d (#1138) with 15b: the runway-edge tie
+    (``strip_transverse``) forgives a chord across a declared wall line up
+    to the LARGEST declared step it crosses — the census's
+    ``DeclaredWallSteps`` and the verify's ``steps.WallSteps`` read the
+    same records to the same allowance (a mouth its ``step_m``, a pack wall
+    its own height), and the census tie takes them (``declared_walls``)."""
+    import inspect
+
+    from auto_patch_v2.verify.steps import WallSteps
+    rows = [{"kind": "wall_terrace", "step_m": 23.7, "shapes": ["tunel_A.obj#mouth"],
+             "points": [[0.0, -1.0], [0.0, 1.0]]},
+            {"kind": "wall_terrace", "step_m": 1.6, "height_m": 3.1,
+             "shapes": ["metal_strip_2.obj#comp12"], "points": [[0.5, -1.0], [0.5, 1.0]]},
+            {"kind": "apron_terrace", "step_m": 9.0, "points": [[0.2, -1.0], [0.2, 1.0]]}]
+
+    def to_m(la, lo):
+        return (lo, la)
+    census, verify = cg.DeclaredWallSteps(rows, to_m), WallSteps(rows, to_m)
+    for chord in [(0.0, -0.5, 0.0, 0.8), (0.0, 0.7, 0.0, 0.3), (0.0, -0.5, 0.0, -0.2),
+                  (0.0, 0.1, 0.0, 0.3)]:
+        assert census.allowance(*chord) == verify.allowance(*chord)
+    assert verify.allowance(0.0, -0.5, 0.0, 0.8) == 23.7        # the largest, never the sum
+    assert verify.allowance(0.0, 0.7, 0.0, 0.3) == round(3.1 + 0.01, 4)
+    assert "declared_walls" in inspect.signature(cg._check_runway_edge_tie).parameters
+
+
 def test_a_step_over_the_motion_threshold_on_apron_is_critical_motion(cg):
     law = cg.cockpit_law(refresh=True)
     row = _CkStep("apron", "apron", 0.06)

@@ -387,7 +387,8 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     rows.append(Offset(gv, v, 0.0, src_wall))
             shared = (shared_with_ground if not on_deck
                       else (lambda v: v in on_deck or shared_with_ground(v)))
-            groups = _rim_rows(planar, airport, path, wall_vs, shared, pin, src_wall)
+            groups = _rim_rows(planar, airport, path, wall_vs, shared, pin, src_wall,
+                               own_ground=bool(getattr(tn, "edge_back", ())))
             if tn.cap_centre is not None and groups:
                 uc = path.project(Point(tn.cap_centre))
                 cap_reps.append(min(groups, key=lambda g: abs(g[0] - uc))[1][0])
@@ -544,7 +545,10 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             group = tuple(sorted(set(datum_vs)))
             if len(group) > 1:
                 rows.append(Flat(group, src_mouth))
-            if tn.source in ("object", "door", "sunken_road"):
+            if tn.source in ("object", "door", "sunken_road") or getattr(tn, "edge_back", ()):
+                # (an EDGE BRIDGE's floor is the object's: its deck level −
+                # its walls' bottom, owner RULINGS 2026-10-20am / 20ar; its
+                # cap stands in the bridge's cover, no rim reads it)
                 pin(group[0], tn.mouth_z, src_mouth, senior=True)
             elif len(cap_reps) == 1:
                 # §33 (5) THE MOUTH'S FLOOR IS THE BORE DATUM, HOWEVER ITS
@@ -666,7 +670,11 @@ def structures(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
                     ends_t.append(0.0 if span2 <= 1e-9 else
                                   min(1.0, max(0.0, ((vx - ax) * (bx - ax)
                                                      + (vy - ay) * (by - ay)) / span2)))
-            if ends_t and len(d.end_z) == 2 and not any(math.isnan(z) for z in d.end_z):
+            # (over an EDGE BRIDGE's trench the deck is the bridge's slab,
+            # level with the airside abeam — ``constraints/edge_deck``,
+            # owner RULINGS 2026-10-28d Q211 — not tied to the way's ends)
+            if ends_t and len(d.end_z) == 2 and not any(math.isnan(z) for z in d.end_z) \
+                    and not getattr(tn, "edge_back", ()):
                 t0, t1 = min(ends_t), max(ends_t)
                 # every deck vertex keeps its FLOOR; only the two end groups
                 # are tied, so the middle is the road cap's own profile
@@ -719,7 +727,7 @@ def _nearest_vertex(planar: PlanarMap, faces, near) -> int | None:
 
 def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: list[int],
               shared_with_ground: _t.Callable[[int], bool], pin: _t.Callable[..., None],
-              src_rim: Source) -> list[tuple[float, list[int]]]:
+              src_rim: Source, own_ground: bool = False) -> list[tuple[float, list[int]]]:
     """THE RIM BY STATION (2026-09-03b L1; 2026-09-06b (1); the ground
     rule): the rim's vertices grouped by station along ``path`` (the rim
     ring itself); a vertex the governed ground shares carries the
@@ -727,7 +735,11 @@ def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: lis
     by the shared vertex itself (one node per coordinate) — a bare one
     is pinned at the DEM at its own station on the rim (an object
     corridor's rim likewise: the ground, 2026-09-05n-4).  No ``Flat``
-    across a band: there is no band.  Returns the groups."""
+    across a band: there is no band.  ``own_ground`` (an EDGE BRIDGE's
+    trench, ``Tunnel.edge_back``): a bare rim vertex takes its OWN ground
+    (``Vertex.dem_z`` — the covered ground's lift along the back, owner
+    RULINGS 2026-10-27l), never the bare-earth road the DEM shows under the
+    bridge.  Returns the groups."""
     closed = len(path.coords) > 2 and path.coords[0] == path.coords[-1]
     groups = _cluster([(path.project(Point(planar.vertices[v].xy)), v) for v in rim_vs],
                       _STATION_CLUSTER_M)
@@ -740,8 +752,9 @@ def _rim_rows(planar: PlanarMap, airport: Airport, path: LineString, rim_vs: lis
         for v in vs:
             if shared_with_ground(v):
                 continue                  # the ground's value carries the rim
+            own = planar.vertices[v].dem_z if own_ground else None
             p = path.interpolate(path.project(Point(planar.vertices[v].xy)))
-            z = _dem_at(airport, p.x, p.y)
+            z = float(own) if own is not None else _dem_at(airport, p.x, p.y)
             if not math.isnan(z):
                 pin(v, z, src_rim, senior=True)
     return groups

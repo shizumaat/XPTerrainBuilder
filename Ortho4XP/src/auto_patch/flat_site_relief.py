@@ -3,11 +3,12 @@
 Owner RULINGS 2026-10-26r (Q173, option a; #1208), refining 2026-10-20af
 and 2026-10-20ag: "flattening only raises ground; where the real ground
 stands more than 0.5 m above the flat level, keep the real ground, except
-where pavement grading itself needs a cut".  It tightens the #1137 rule
-("a hill is not the site"), which let the plateau cut ground up to 5 m
-above Z0 all around the airport — the coastal-flat edge cut down (the
-CYVR report; at CYVR itself the stamp does not fire,
-``docs/findings/1208-l1208.md``).
+where pavement grading itself needs a cut".  It replaces the #1137 rule
+("a hill is not the site": off the airport's whole gate, ground more than
+5 m above Z0 came back), which left the boundary's own grass — and every
+metre of ground up to 5 m above Z0 around it — cut down to Z0.  Seen as a
+coastal-flat airport's edge cut down (the CYVR report; at CYVR itself the
+stamp turned out not to fire, ``docs/findings/1208-l1208.md``).
 
 THE RULE.  The stamp (``O4_Airport_Elevation_Insets``: the core, each
 claimed-object cluster, the R21 isthmus) bakes a constant Z0.  After an
@@ -21,14 +22,12 @@ ONLY A CUT IS UNDONE.  A post the stamp raised (honest surface below Z0 —
 the reclamation class R8-1 and 20af exist for: VHHH's 2.00 m sea fill)
 keeps Z0.
 
-THE AIRPORT'S OWN SURFACES KEEP THEIR CUT.  Pavement ∪ runways ∪ boundary
-(the decision record's ``gate_ll``, water-cut) stay at Z0 whatever the DEM
-says: DEM prep cannot know which of that ground the patch's pavement
-grading needs cut, and the census says it needs it — the pavement-only
-reading (only apt.dat pavements ∪ runways exempt) put VHHH's aprons and
-service roads on the hill inside its boundary and added 79 adjudicated
-violations (findings file, arm A).  Outside them — the margin, the
-cluster hulls, the isthmus — the plateau only fills.
+PAVEMENT KEEPS ITS CUT.  The airport's own pavement — apt.dat pavements
+∪ runways at margin 0, the decision record's ``pavement_ll`` — stays at
+Z0 whatever the DEM says: that is the cut pavement grading needs.  The
+boundary's grass, the margin, the cluster hulls and the isthmus are not
+pavement; grading the pavement's edge down to the real ground beside it
+is the patch's own work (its adjacent-ground zones).
 
 It reads no file and writes nothing but the working raster.
 """
@@ -55,8 +54,8 @@ REAL_FROM_M = 2.0 * KEEP_ABOVE_M
 
 
 def site_geometry_tile_degrees(record, tile_lat: int, tile_lon: int,
-                               key: str = "gate_ll"):
-    """The record's ``gate_ll`` rings (or another ring list named by
+                               key: str = "pavement_ll"):
+    """The record's ``pavement_ll`` rings (or another ring list named by
     ``key`` — ``footprint_ll``, the plateau's footprint, #1144) as ONE
     tile-relative geometry, or ``None`` when the record carries none."""
     from shapely.geometry import Polygon
@@ -109,14 +108,14 @@ def snapshot_window(base_dem, rects):
     return (row_min, row_max, col_min, col_max, before)
 
 
-def restore_ground_above_flat_level(base_dem, snapshot, site, z0_m: float,
+def restore_ground_above_flat_level(base_dem, snapshot, pavement, z0_m: float,
                                     metres_per_degree=None) -> dict:
     """Undo the plateau's cut on ground standing above Z0 (module doc).
 
     ``snapshot`` is :func:`snapshot_window`'s answer taken before the
-    airport's bakes; ``site`` the airport's own surfaces
-    (:func:`site_geometry_tile_degrees`), which are never touched
-    (``None``: no post is exempt).  ``metres_per_degree`` — ``(lon_m, lat_m)`` —
+    airport's bakes; ``pavement`` the airport's own pavement
+    (:func:`site_geometry_tile_degrees`), which is never touched (``None``:
+    no post is exempt).  ``metres_per_degree`` — ``(lon_m, lat_m)`` —
     only sizes the report.
 
     Returns ``{"restored_posts", "restored_km2", "max_offset_m"}``: the
@@ -143,13 +142,13 @@ def restore_ground_above_flat_level(base_dem, snapshot, site, z0_m: float,
         return report
     x_step = (base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
     y_step = (base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
-    if site is not None:
+    if pavement is not None:
         from shapely import contains_xy
 
         xs = base_dem.x0 + (cols + col_min) * x_step
         ys = base_dem.y1 - (rows + row_min) * y_step
-        on_site = contains_xy(site, xs, ys)
-        weight[rows[on_site], cols[on_site]] = 0.0
+        on_pavement = contains_xy(pavement, xs, ys)
+        weight[rows[on_pavement], cols[on_pavement]] = 0.0
     restored = weight > 0.0
     if not numpy.any(restored):
         return report

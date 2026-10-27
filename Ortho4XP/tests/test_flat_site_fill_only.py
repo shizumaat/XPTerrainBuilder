@@ -5,11 +5,11 @@ Q173 option a; #1208; refines 2026-10-20af/ag and replaces the #1137
 "Flattening only raises ground; where the real ground stands more than
 0.5 m above the flat level, keep the real ground, except where pavement
 grading itself needs a cut."  So after the stamp bakes Z0, every post it
-LOWERED off the airport's own surfaces (pavement ∪ runways ∪ boundary)
-whose honest surface stands more than 0.5 m above Z0 gets that surface
-back (in full from 1.0 m, linearly between), the airport's own surfaces
-keep Z0, and ground below Z0 stays lifted (the reclamation class, 20af).
-The #1137 case — a hill beside the airport — is one instance.
+LOWERED whose honest surface stands more than 0.5 m above Z0 gets that
+surface back (in full from 1.0 m, linearly between), the airport's own
+pavement keeps Z0, and ground below Z0 stays lifted (the reclamation
+class, 20af).  The #1137 case — a hill beside the airport — is one
+instance.
 
 Synthetic only: the fixtures of ``tests/test_flat_site_mode.py`` (no
 X-Plane install, no CIFP, no network, no write anywhere).
@@ -27,7 +27,6 @@ from auto_patch_v2.airport import flat_site_prep as PREP
 from shapely.geometry import box
 from tests.test_flat_site_mode import (
     ANCHOR,
-    BOUNDARY,
     LAND_BASE_M,
     FakeDEM,
     dico,
@@ -43,8 +42,8 @@ N = 3601
 #: inside the plateau's footprint: the hill the 1.0.409 plateau flattened.
 HILL_LON = ANCHOR[1] - 0.0112
 HILL_M = 80.0
-#: An apt.dat pavement about the anchor, well inside the boundary
-#: (half-widths 0.004 deg lon, 0.0015 deg lat).
+#: The airport's pavement: an apron about the anchor, well inside the
+#: boundary (half-widths 0.004 deg lon, 0.0015 deg lat).
 PAVEMENT = box(ANCHOR[1] - 0.004, ANCHOR[0] - 0.0015,
                ANCHOR[1] + 0.004, ANCHOR[0] + 0.0015)
 #: Boundary grass: inside the boundary (half-lat 0.006), off the pavement.
@@ -77,16 +76,15 @@ def _overlay(dem):
     return tile
 
 
-def test_the_margin_above_the_flat_level_keeps_its_real_surface(monkeypatch):
-    """The CYVR shape: a coastal flat standing 2 m above Z0.  The margin
-    around the airport keeps 2 m; the airport's own surfaces (its
-    pavement and the boundary's grass) keep the cut."""
+def test_boundary_grass_above_the_flat_level_keeps_its_real_surface(monkeypatch):
+    """The CYVR shape: a coastal flat standing 2 m above Z0.  Inside the
+    boundary and in the margin it keeps 2 m; only the pavement is cut."""
     _wire_paved(monkeypatch)
     dem = FakeDEM(constant=Z0 + 2.0, n=N)
     _overlay(dem)
+    assert _cell(dem, *GRASS) == pytest.approx(Z0 + 2.0, abs=1e-3)
     assert _cell(dem, ANCHOR[0], HILL_LON) == pytest.approx(Z0 + 2.0, abs=1e-3)
-    assert _cell(dem, *GRASS) == pytest.approx(Z0, abs=1e-3)
-    assert _cell(dem, *ANCHOR) == pytest.approx(Z0, abs=1e-3)
+    assert _cell(dem, *ANCHOR) == pytest.approx(Z0, abs=1e-3)   # pavement
     report = dem.synthetic_flat_site_provenance[0]["fill_only"]
     assert report["restored_posts"] > 0
     assert report["max_offset_m"] == pytest.approx(2.0, abs=0.01)
@@ -119,7 +117,7 @@ def test_ground_within_half_a_metre_of_the_flat_level_is_flattened(monkeypatch):
     _wire_paved(monkeypatch)
     dem = FakeDEM(constant=Z0 + 0.4, n=1201)
     _overlay(dem)
-    assert _cell(dem, ANCHOR[0], HILL_LON) == pytest.approx(Z0, abs=1e-3)
+    assert _cell(dem, *GRASS) == pytest.approx(Z0, abs=1e-3)
     assert dem.synthetic_flat_site_provenance[0]["fill_only"][
         "restored_posts"] == 0
 
@@ -163,23 +161,22 @@ def test_only_a_cut_is_undone():
     assert report["restored_posts"] == 0 and float(dem.alt_dem.min()) == 6.0
 
 
-def test_the_airports_own_surfaces_stay_at_z0_whatever_the_dem_says():
+def test_the_pavement_stays_at_z0_whatever_the_dem_says():
     dem = _unit_dem(np.full((3, 5), 50.0))
     snap = RELIEF.snapshot_window(dem, [(0.0, 0.0, 1.0, 1.0)])
     dem.alt_dem[...] = 0.0
-    site = box(-0.1, -0.1, 0.6, 1.1)            # the west three columns
-    RELIEF.restore_ground_above_flat_level(dem, snap, site, 0.0)
+    pavement = box(-0.1, -0.1, 0.6, 1.1)        # the west three columns
+    RELIEF.restore_ground_above_flat_level(dem, snap, pavement, 0.0)
     assert dem.alt_dem[1].tolist() == pytest.approx([0.0, 0.0, 0.0, 50.0,
                                                      50.0])
 
 
-def test_the_gate_reaches_the_bake_in_lon_lat(monkeypatch):
-    """The decision record publishes its gate in (lon, lat) — the rule's
-    exemption — and it is the airport's boundary, not the margin-grown
-    region."""
+def test_the_pavement_reaches_the_bake_in_lon_lat(monkeypatch):
+    """The decision record publishes its pavement in (lon, lat) — the
+    rule's exemption — and it is the pavement, not the boundary."""
     _wire_paved(monkeypatch)
     tile = make_tile(FakeDEM(constant=LAND_BASE_M, n=1201))
     got = substitutions(tile)
     site = RELIEF.site_geometry_tile_degrees(got[0]["record"], 0, 0)
     assert site is not None
-    assert site.symmetric_difference(BOUNDARY).area < 1e-3 * BOUNDARY.area
+    assert site.symmetric_difference(PAVEMENT).area < 1e-2 * PAVEMENT.area

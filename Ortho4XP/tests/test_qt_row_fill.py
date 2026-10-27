@@ -23,7 +23,7 @@ import O4_Qt_Click_Row as ROW  # noqa: E402
 import O4_Qt_GUI as GUI  # noqa: E402
 import O4_Qt_Selection_Ring as RING  # noqa: E402
 from PySide6.QtGui import QColor, QImage, QPalette  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QFrame  # noqa: E402
 
 A, B, C = (47, -123), (48, -6), (49, -6)
 SETTINGS = {"provider": "BI", "zoomlevel": 15, "do_vector": True,
@@ -49,15 +49,20 @@ def _palette(window, base):
 
 
 @pytest.mark.parametrize("window_color, base, fill", [
-    ("#353535", "#2a2a2a", "#151515"),   # dark: near-black
-    ("#2a2a2a", "#2a2a2a", "#151515"),   # dark, Base as the box
-    ("#efefef", "#ffffff", "#ffffff"),   # light: white
-    ("#efefef", "#efefef", "#f7f7f7"),   # light, Base as the box
+    ("#353535", "#2a2a2a", "#2d2d2d"),   # dark: a little darker
+    ("#2a2a2a", "#2a2a2a", "#252525"),   # dark, Base as the box
+    ("#efefef", "#ffffff", "#f3f3f3"),   # light: a little lighter
+    ("#efefef", "#efefef", "#f1f1f1"),   # light, Base as the box
 ])
-def test_the_fill_raises_contrast(qapp, window_color, base, fill):
+def test_the_fill_is_subtle_but_distinct(qapp, window_color, base, fill):
     color = ROW.fill_color(_palette(window_color, base))
     assert color == QColor(fill)
     box = QColor(window_color)
+    step = abs(color.lightness() - box.lightness())
+    first = abs((QColor(base).lightness()
+                 + (255 if QColor(base).lightness() >= 128 else 0)) // 2
+                - box.lightness())
+    assert 0 < step < first   # subtler than #1537's first fill, still seen
     if box.lightness() < 128:
         assert color.lightness() < box.lightness()
     else:
@@ -118,3 +123,30 @@ def test_a_filled_row_paints_the_fill(window):
     row.render(image)
     inside = image.pixelColor(100, 2)
     assert inside.rgb() == ROW.fill_color(row.palette()).rgb()
+
+
+def test_the_fill_spans_the_box_with_square_corners(window):
+    assert ROW.ClickableRow.FILL_RADIUS == 0
+    window._start_run([A, B], dict(SETTINGS))
+    window.map.set_active(*A)
+    window.activity_group.setVisible(True)
+    window.activity_group.resize(300, 400)
+    window.activity_group.layout().activate()
+    row = window._tile_rows[A][2]
+    assert window.activity_group.layout().contentsMargins().left() == 0
+    assert window.activity_group.layout().contentsMargins().right() == 0
+    row.resize(200, 60)
+    image = QImage(row.size(), QImage.Format_ARGB32)
+    image.fill(0)
+    row.render(image)
+    fill = ROW.fill_color(row.palette()).rgb()
+    assert image.pixelColor(0, 0).rgb() == fill        # square corner
+    assert image.pixelColor(199, 59).rgb() == fill
+
+
+def test_completed_rows_span_their_box(qapp):
+    import O4_Qt_Completed as QTDONE
+    section = QTDONE.CompletedSection()
+    margins = section.layout().contentsMargins()
+    assert (margins.left(), margins.right()) == (0, 0)
+    assert section.rows_scroll.frameShape() == QFrame.NoFrame

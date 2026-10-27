@@ -17,7 +17,7 @@ struct PaneBox<Content: View, Label: View>: View {
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(4)
+            .padding(PaneBoxMetrics.padding)
         } label: {
             label
         }
@@ -59,4 +59,14 @@ struct ActivitySections: View {
             }
         }
     }
+}
+
+/// PaneBox's content insets, shared so a row fill can reach the box edge.
+enum PaneBoxMetrics {
+    /// PaneBox's own padding inside the GroupBox.
+    static let padding: CGFloat = 4
+    /// The macOS GroupBox's own side inset (measured: 5 pt).
+    static let groupBoxInset: CGFloat = 5
+    /// Content edge to box edge.
+    static var edgeInset: CGFloat { padding + groupBoxInset }
 }

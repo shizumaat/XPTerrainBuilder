@@ -118,7 +118,7 @@ import O4_Step_Strip as STRIP
 # the settings sheet and the wizard all import it.  Top-level, so
 # PyInstaller sees it without a hidden-import entry.  The underscored
 # aliases keep this file's ~20 existing call sites unchanged.
-from O4_Qt_Click_Row import ClickableRow, ClickableStatus, apply_fills  # noqa: E402
+from O4_Qt_Click_Row import ClickableRow, ClickableStatus, apply_fills, span_box  # noqa: E402
 from O4_Qt_Map_Hint import MapHint  # noqa: E402
 from O4_Qt_Widgets import (  # noqa: E402
     ElidedRowLabel,
@@ -1454,6 +1454,7 @@ class MainWindow(QMainWindow):
         self.stop_btn = QPushButton("■ Stop")
         self.stop_btn.clicked.connect(self.request_stop)
         pg.addWidget(self.stop_btn)
+        span_box(pg, rows_scroll)
         self.activity_group.setVisible(False)
         # Completed (#1556): built tiles' rows, under Activity, collapsed
         # to their count until the user opens it.

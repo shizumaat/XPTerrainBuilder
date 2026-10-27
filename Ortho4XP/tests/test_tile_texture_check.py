@@ -113,3 +113,28 @@ def test_the_pane_words():
     detail = CHECK.detail_text({"missing_count": 5,
                                 "missing": ["a.dds", "b.dds", "c.dds", "d.dds"]})
     assert "(a.dds, b.dds, c.dds and 2 more)" in detail
+
+
+def _linked_tile(tmp_path, textures=()):
+    """A Custom Scenery folder whose tile is a symlink into a library
+    folder (#1563: +47-113 lives on a scenery-library drive)."""
+    library = tmp_path / "Library" / "zOrtho4XP_+47-113"
+    _tile(library, _TERRAIN, list(textures))
+    dsf = library / "Earth nav data" / "+40-120" / "+47-113.dsf"
+    dsf.parent.mkdir(parents=True)
+    dsf.write_bytes(b"XPLNEDSF")
+    scenery = tmp_path / "Custom Scenery"
+    scenery.mkdir()
+    link = scenery / "zOrtho4XP_+47-113"
+    os.symlink(library, link, target_is_directory=True)
+    return str(scenery), str(link)
+
+
+def test_a_symlinked_tile_is_scanned_and_checked_through_its_link(tmp_path):
+    import O4_Tile_Info as TINFO
+    scenery, link = _linked_tile(tmp_path)
+    found = {key: info for (_d, _t, key, info)
+             in TINFO.iter_scan_tiles(scenery) if key is not None}
+    assert found[(47, -113)].build_dir == link
+    reply = CHECK.tile_texture_check(build_dir=found[(47, -113)].build_dir)
+    assert reply["checked"] and reply["missing_count"] == 2

@@ -50,6 +50,7 @@ struct BuildPane: View {
     @State private var legacyPromptShown: Set<String> = []
     /// The active tile's customized settings (#1350), from the engine.
     @State private var customizations: [O4TileCustomization] = []
+    @State private var textureCheck: O4TileTextureCheck?
     @Environment(\.openSettings) private var openSettings
 
     /// The tile pane's customized-settings words; the Qt pane uses the
@@ -108,6 +109,13 @@ struct BuildPane: View {
         .task(id: "reseat|\(buildModel.activeTile?.key ?? "")|\(controller.installationPacks.count)|\(buildModel.isBuilding)|\(reseatRefresh)|\(buildModel.packForestsChanged)") {
             await refreshModifiedAirports()
         }
+        .modifier(TileTextureCheckTask(
+            key: buildModel.tileTextureCheckKey(for: buildModel.activeTile),
+            load: { [buildModel] in
+                guard let coord = buildModel.activeTile else { return nil }
+                return await buildModel.tileTextureCheck(for: coord)
+            },
+            check: $textureCheck))
         .task(id: customizationsKey) {
             guard let coord = buildModel.activeTile else {
                 customizations = []
@@ -215,7 +223,9 @@ struct BuildPane: View {
                 }
             }
             if info != nil {
-                TileMissingTexturesRow(coord: active)
+                TileMissingTexturesRow(check: textureCheck) {
+                    buildModel.rebuildWithItsImagery(active)
+                }
             }
             detailRow(O4Glossary.term("detail"), zlText(info))
             detailRow("Ground shaped", dateText(info?.meshDate))

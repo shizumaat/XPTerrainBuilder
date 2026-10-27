@@ -147,3 +147,13 @@ def test_the_portal_ground_is_the_ground_beside_the_cover():
                  {"highway": "motorway", "tunnel": "yes", "lanes": "5"})
     bore = chains([way])[0]
     assert abs(CG.beside_ground(_Dem(), bore, LAW, (0.0, 0.0)) - 300.0) < 1e-6
+
+
+def test_bridge_edge_walls_with_a_deck_plate_are_not_a_bare_face(tmp_path):
+    """KATL ``tunel_*`` (#1138): a top plate on walls hanging to −24 m, no
+    hard deck — not read as a portal this round (measured: the service road
+    on the bridge dropped 3.8 m; findings 1298-1138-lpackcut)."""
+    comps = [_box(-10.0, 0.0, 20.0, 80.0, 0.3, y0=-0.3),
+             _box(-10.0, 0.0, 0.5, 80.0, 24.0, y0=-24.0), _box(9.5, 0.0, 0.5, 80.0, 24.0, y0=-24.0)]
+    o = _placed(_write(tmp_path / "edge.obj", comps), "dsf:obj9")
+    assert P.hanging_reading(o, O.parse_obj8(o.resolved), LAW) is None

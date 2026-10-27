@@ -146,6 +146,16 @@ def hanging_reading(o: _obj8.PlacedObject, g: _obj8.ObjGeometry, law
     bottom = hanging_bottom(v, g.solid, law)
     if bottom is None:
         return None
+    # A BARE FACE (Q168): no plate of a plate's worth anywhere.  Bridge-edge
+    # walls carrying a deck plate (KATL ``tunel_*``, #1138) are not read
+    # here: measured on KATL, reading them so dropped the service road on
+    # the bridge 3.8 m and cut 23-26 m trenches along I-285 (findings
+    # ``docs/findings/1298-1138-lpackcut.md``)
+    t = g.solid
+    plates = _face_normals_y(v, t) >= law.tables.structures.tunnel.object.plate_normal_y_min
+    if plates.any() and float(_plan_area(v, t)[plates].sum()) >= \
+            law.tables.structures.tunnel.object.plate_min_area_m2:
+        return None
     a, b, d, e, xo, yo = _obj8.placement_affine(o.xy, o.heading_deg)
     pts = [(a * x + b * z + xo, d * x + e * z + yo) for x, _y, z in v[np.unique(g.solid)]]
     hull = MultiPoint(pts).convex_hull

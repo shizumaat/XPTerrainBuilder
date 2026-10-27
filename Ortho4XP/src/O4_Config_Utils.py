@@ -45,11 +45,8 @@ _LOGGER.setLevel(logging.INFO)
 handler = logging.StreamHandler()
 _LOGGER.addHandler(handler)
 
-# THIS APP'S OWN GLOBAL (owner RULINGS 2026-10-26c): XPTerrainBuilder.cfg,
-# after the data root's one-time hand-over; Ortho4XP.cfg is never read,
-# written or moved (O4_Config_Names).
-for _info in CONFIG_NAMES.adopt_global_cfg():
-    _LOGGER.info(_info)
+# THIS APP'S OWN GLOBAL (owner RULINGS 2026-10-26c): XPTerrainBuilder.cfg;
+# Ortho4XP.cfg is never read, written, moved or copied (O4_Config_Names).
 global_cfg_file = CONFIG_NAMES.global_cfg_path()
 global_cfg_bak_file = global_cfg_file + ".bak"
 

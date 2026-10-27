@@ -30,7 +30,6 @@ import time
 from pathlib import Path
 
 
-
 def _load_flock():
     import importlib.util as _ilu
     import sys as _sys
@@ -60,6 +59,10 @@ REFRESH_LEDGER = HARNESS_STATE / "refresh_ledger.jsonl"
 #: one lane's geometry into another lane's build.
 SHARED_DATA_DIRS = ("OSM_data", "Elevation_data", "Airport_mod_cache",
                     "Geotiffs", "Masks", "Default_DSF_cache", "Orthophotos")
+
+#: The runway-end cross-check cache directory, QUOTED from the engine's
+#: ``auto_patch_v2.airport.runway_ref_record.REFS_DIR`` (twinned).
+RUNWAY_REFS_DIR = "_runway_refs"
 
 #: The REGENERABLE artifact classes, most specific prefix first.  A build
 #: may regenerate any of these implicitly today; under the ruling it may
@@ -110,6 +113,17 @@ REFRESH_SCOPES = (
      "aerodromes (10 m to 10 km and 1 arc-second to 20 km from the "
      "aerodrome boundary, ~16 MB on disk per airport) — warmed only by "
      "--refresh-data rings, never by a build"),
+    # THE RUNWAY-END CROSS-CHECK SOURCES (owner RULINGS 2026-10-25a / 26a,
+    # #1342): open-data runway-end elevations (OurAirports ``runways.csv``)
+    # cached under the mod cache.  BEFORE ``airport_mod_cache``:
+    # ``scope_of`` takes the first matching prefix, and a 3 MB download is
+    # its own act, never a pack-dump derivation's.  The directory name is
+    # QUOTED from the engine's ``airport/runway_ref_record.REFS_DIR`` (this
+    # guard must not import the engine); ``test_runway_refs`` twins them.
+    ("runway_refs", "Airport_mod_cache/" + RUNWAY_REFS_DIR,
+     "the runway-end cross-check sources (OurAirports runways.csv, public "
+     "domain) the CIFP verification reads — downloaded only by "
+     "--refresh-data runway_refs, never by a build"),
     ("airport_mod_cache", "Airport_mod_cache",
      "third-party apt.dat pack indexes and sidecars"),
     ("dsf_cache", "Default_DSF_cache",

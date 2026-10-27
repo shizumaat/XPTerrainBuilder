@@ -48,7 +48,7 @@ or 2 -- the MESH REPLAY: step 2 alone, on the ``.node`` / ``.poly`` /
 That is the loop for a change in the mesh CONSUMER itself (round 15's
 degenerate-attribute containment), where re-running step 1 would rewrite
 the very inputs under test: copy a build's four input files into a
-lane-local build directory beside its ``Ortho4XP_+XX+YYY.cfg`` and the
+lane-local build directory beside its ``XPTerrainBuilder_+XX+YYY.cfg`` and the
 replay meshes exactly the geometry that build meshed.  Step 1 in a
 checkout that resolves no X-Plane root skips auto_patch entirely and
 still exits 0 (the same trap ``harness/build_airport.py --tile``

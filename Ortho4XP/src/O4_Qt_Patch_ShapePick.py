@@ -10,7 +10,9 @@ Pure functions of the document and screen points, tested headless:
   first (adjacent faces share vertices);
 * :func:`choose_shape` — the repeat-click cycle: the same spot again
   (within 4 px, no move) steps to the next shape on that edge;
-* :func:`shape_stats` — the shape inspector's numbers.
+* :func:`shape_stats` — the shape inspector's numbers;
+* :func:`pointer` — the map cursor (#1325): a pointing hand over what a
+  click acts on, an open hand over open map, a closed hand while panning.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ from O4_Qt_Pack_Outlines import METRES_PER_DEG_LAT
 from O4_Qt_Preview3D_Shapes import LocalFrame
 
 __all__ = ["REPEAT_RADIUS_PX", "ShapeClick", "ShapeStats", "click_target",
-           "shapes_on_edge", "choose_shape", "shape_stats"]
+           "shapes_on_edge", "choose_shape", "shape_stats", "POINTERS", "pointer"]
 
 #: A repeat click within this many px of the last one cycles.
 REPEAT_RADIUS_PX = 4.0
@@ -54,6 +56,19 @@ def click_target(node: int | None, on_handle: bool, on_edge: bool):
     if on_handle:
         return ("handle",)
     return ("edge",) if on_edge else ("empty",)
+
+
+#: The map cursors (#1325), named as the Mac's ``PatchShapePick.Pointer``.
+POINTERS = ("openHand", "closedHand", "pointingHand")
+
+
+def pointer(target, panning: bool = False) -> str:
+    """The cursor for a :func:`click_target` under the pointer (None: no
+    patch layer there): ``closedHand`` while panning, ``pointingHand`` over
+    a node, "+" handle or line, else ``openHand``."""
+    if panning:
+        return "closedHand"
+    return "openHand" if target is None or target[0] == "empty" else "pointingHand"
 
 
 def _plan_area(doc: PE.PatchDoc, way: PE.Way, frame: LocalFrame) -> float:

@@ -7,6 +7,8 @@
 # User-Agent names XPTerrainBuilder's engine and its version (O4_Version) instead of
 # OrthoStudio XP's ``__version__``; the certificate helper is O4_Imagery_Certs. E's NOTICE
 # (the section 7 terms above refer to it) is kept at Ortho4XP/THIRD_PARTY/orthostudio-xp/NOTICE.
+# Modified for XPTerrainBuilder, 2026-10-26 (#1236): an optional ``budget`` grants each
+# transfer (and each hedge) a slot of a budget shared with other processes.
 # Reached only through O4_Imagery_Async behind O4_IMAGERY_FETCHER=async
 # (imagery-fetch-spec section 5, RULINGS 2026-10-17c).
 """Bounded, self-adjusting HTTP fetcher on top of curl_cffi (libcurl multi, HTTP/2).
@@ -32,6 +34,10 @@ Rules and their justification: OrthoStudio XP's ``docs/specs/net-download.md`` (
 - sliding statistics delivered at most four times per second;
 - per-run overrides of the in-flight ceiling and of the attempts, so that a caller can run a
   spaced, low-concurrency retry round on the same session, AIMD and pause state (spec R4);
+- an optional ``budget``: a callable granting a request a slot of a budget wider than this
+  ``Fetcher`` (another process's requests to the same server count too), or ``None`` for no
+  slot now; a granted slot is ``release()``d when the transfer ends, a hedge needs one of its
+  own, and a group refused one tries again after ``BUDGET_POLL_S``;
 - the transport error of a request given up is kept as text (``FetchResult.detail``), so that
   a failure reported to the user says what happened on the wire.
 
@@ -138,6 +144,7 @@ RETRY_AFTER_MAX_S = 120.0
 MAX_PUSHBACKS = 12
 PUSHBACK_BUDGET_S = 120.0
 BACKOFF_BASE_S = 0.5
+BUDGET_POLL_S = 0.05
 BACKOFF_MAX_S = 4.0
 BACKOFF_JITTER = 0.25
 STATS_PERIOD_S = 0.25
@@ -392,6 +399,7 @@ class Fetcher:
         http2: bool = True,
         max_pushbacks: int = MAX_PUSHBACKS,
         pushback_budget_s: float = PUSHBACK_BUDGET_S,
+        budget: Callable[[FetchRequest], Any] | None = None,
     ) -> None:
         if max_in_flight < 1 or start_in_flight < 1:
             raise ValueError("in-flight limits must be >= 1")
@@ -412,6 +420,7 @@ class Fetcher:
         self.max_pushbacks = max_pushbacks
         self.pushback_budget_s = pushback_budget_s
         self.http2 = http2
+        self.budget = budget
         self._session: AsyncSession | None = None
         self._session_loop: asyncio.AbstractEventLoop | None = None
         self._groups: dict[str, _Group] = {}
@@ -641,6 +650,7 @@ class Fetcher:
                 and now >= group.paused_until
                 and now >= group.next_start
                 and group.in_flight < self._admission(group)
+                and (slot := self._take_budget(group.ready[0].request)) is not False
             ):
                 pending = group.ready.popleft()
                 group.in_flight += 1
@@ -653,10 +663,18 @@ class Fetcher:
                 self._workers.add(task)
                 # The slot is released in a done callback, not in the coroutine: a task
                 # cancelled before its first step never runs its own ``finally``.
-                task.add_done_callback(functools.partial(self._release_slot, group))
+                task.add_done_callback(functools.partial(self._release_slot, group, slot))
                 continue
             timeout: float | None = None
             if not self._cancelled:
+                if (
+                    self.budget is not None
+                    and group.ready
+                    and group.in_flight < self._admission(group)
+                    and now >= group.paused_until
+                    and now >= group.next_start
+                ):
+                    timeout = BUDGET_POLL_S  # refused by the shared budget: ask again soon
                 if group.ready and now < group.paused_until:
                     timeout = group.paused_until - now
                 if group.ready and now < group.next_start:
@@ -668,6 +686,14 @@ class Fetcher:
             group.wake.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(group.wake.wait(), timeout)
+
+    def _take_budget(self, req: FetchRequest) -> Any:
+        """A slot of the shared budget for ``req``: ``None`` without a budget, ``False`` when
+        the budget has none free now."""
+        if self.budget is None:
+            return None
+        slot = self.budget(req)
+        return False if slot is None else slot
 
     def _admission(self, group: _Group) -> int:
         """Requests the group may have in flight now: its window, capped for this run."""
@@ -728,7 +754,9 @@ class Fetcher:
         except asyncio.CancelledError:
             pass  # the run is being cancelled; fetch_many fills in SYS_CANCELLED
 
-    def _release_slot(self, group: _Group, task: asyncio.Task[None]) -> None:
+    def _release_slot(self, group: _Group, slot: Any, task: asyncio.Task[None]) -> None:
+        if slot is not None:
+            slot.release()
         self._workers.discard(task)
         group.in_flight -= 1
         group.wake.set()
@@ -781,6 +809,7 @@ class Fetcher:
         primary = asyncio.create_task(self._transfer(session, req, group))
         tasks: set[asyncio.Task[_Outcome]] = {primary}
         hedge_started = False
+        hedge_slot: Any = None
         try:
             done, _ = await asyncio.wait(tasks, timeout=self.hedge_after_s)
             if primary in done:
@@ -791,6 +820,7 @@ class Fetcher:
                 and group.hedges_in_flight < hedge_cap
                 and not self._cancelled
                 and _now() >= group.paused_until
+                and (hedge_slot := self._take_budget(req)) is not False
             ):
                 hedge_started = True
                 group.hedges_in_flight += 1
@@ -815,6 +845,8 @@ class Fetcher:
                 task.cancel()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
+            if hedge_slot:
+                hedge_slot.release()
 
     async def _transfer(self, session: AsyncSession, req: FetchRequest, group: _Group) -> _Outcome:
         """One HTTP transfer; never raises except ``CancelledError``.

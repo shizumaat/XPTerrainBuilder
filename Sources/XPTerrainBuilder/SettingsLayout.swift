@@ -18,7 +18,7 @@ import SceneryKit
 /// and grouping only: config KEYS and stored values never change with them.
 struct SettingItem: Identifiable, Equatable {
     enum Scope: Equatable {
-        /// App-wide engine setting — always edits the global Ortho4XP.cfg.
+        /// App-wide engine setting — always edits the global XPTerrainBuilder.cfg.
         case app
         /// Tile setting — edits the selected tiles' configs when tiles are
         /// selected on the map, else the global defaults (Qt semantics).
@@ -126,6 +126,7 @@ enum SettingsLayout {
             SettingItem("sea_smoothing_mode", "Sea surface smoothing", .tile, expert: true),
             SettingItem("water_smoothing", "Inland water smoothing passes", .tile, expert: true),
             SettingItem("mesh_zl", "Max imagery zoom the mesh allows", .tile, expert: true),
+            SettingItem("keep_edit_cache", "Keep edit data for fast rebuilds after patch edits", .tile, expert: true),
         ]),
         SettingCategory(key: "elevation", title: "Elevation & Airports", icon: "mountain.2", items: [
             SettingItem("elevation_level", "How detailed should the elevation be?", .tile, summary: "Auto uses 90 m data with high-resolution data at airports."),

@@ -276,7 +276,11 @@ class OffsetField:
             "origin": [int(self.origin[0]), int(self.origin[1])],
             "step": int(self.step),
             "shape": [ny, nx],
-            "values": numpy.round(self.values, 3).tolist(),
+            # Lossless: a float32 widened to a Python float has a repr that
+            # parses back to the same float32, so a reused field applies
+            # exactly the offsets the solved one did (#1223: rounding here
+            # changed the texture bytes and missed the DDS cache).
+            "values": self.values.astype(numpy.float32).tolist(),
             "present": keys,
         }
 

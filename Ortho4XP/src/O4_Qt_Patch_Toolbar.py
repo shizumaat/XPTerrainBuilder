@@ -1,14 +1,16 @@
 """The map's patch toolbar for the Qt app (mockup, top left; the Mac app's
 ``PatchModeToolbar`` and ``TerrainPreviewButton``): the View | Edit
-segmented control, Undo / Redo, the "Pack outlines" check box and "3D"
-(the 3D preview window).  Shown while the patch layer is drawn;
+segmented control, Undo / Redo, the "Pack outlines" check box, the
+"Terrain" check box with its opacity slider (#1320) and "3D" (the 3D
+preview window).  Shown while the patch layer is drawn;
 pinned to the viewport's top-left corner (viewport children are dragged
 along by scrolling, so the map re-pins it through :meth:`place`).
 """
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QFrame, QHBoxLayout,
-                               QToolButton)
+                               QSlider, QToolButton)
 
 from O4_Qt_Patch_Model import MODE_EDIT, MODE_VIEW
 
@@ -16,9 +18,9 @@ __all__ = ["PatchToolbar"]
 
 
 class PatchToolbar(QFrame):
-    """View | Edit, ↶ ↷, Pack outlines."""
+    """View | Edit, ↶ ↷, Pack outlines, Terrain + opacity, 3D."""
 
-    def __init__(self, viewport, controller, outlines=None, open_preview=None):
+    def __init__(self, viewport, controller, outlines=None, open_preview=None, terrain=None):
         super().__init__(viewport)
         self.controller = controller
         self.model = controller.model
@@ -61,6 +63,19 @@ class PatchToolbar(QFrame):
             self.outlines_box.toggled.connect(outlines.set_enabled)
             outlines.changed.connect(self.refresh)
             row.addWidget(self.outlines_box)
+        self.terrain = terrain
+        self.terrain_box = self.opacity_slider = None
+        if terrain is not None:
+            self.terrain_box = QCheckBox("Terrain", self)
+            self.terrain_box.toggled.connect(terrain.set_enabled)
+            self.opacity_slider = QSlider(Qt.Horizontal, self)
+            self.opacity_slider.setRange(10, 100)
+            self.opacity_slider.setFixedWidth(80)
+            self.opacity_slider.setToolTip("Terrain opacity")
+            self.opacity_slider.valueChanged.connect(lambda v: terrain.set_opacity(v / 100))
+            terrain.changed.connect(self.refresh)
+            row.addWidget(self.terrain_box)
+            row.addWidget(self.opacity_slider)
         self.preview_button = None
         if open_preview is not None:
             from O4_Qt_Preview3D_Window import BUTTON_HELP
@@ -89,6 +104,15 @@ class PatchToolbar(QFrame):
             self.outlines_box.setChecked(self.outlines.enabled)
             self.outlines_box.blockSignals(False)
             self.outlines_box.setToolTip(self.outlines.help_text)
+        if self.terrain_box is not None:
+            self.terrain_box.blockSignals(True)
+            self.terrain_box.setChecked(self.terrain.enabled)
+            self.terrain_box.blockSignals(False)
+            self.opacity_slider.blockSignals(True)
+            self.opacity_slider.setValue(round(self.terrain.opacity * 100))
+            self.opacity_slider.blockSignals(False)
+            self.terrain_box.setToolTip(self.terrain.help_text)
+            self.opacity_slider.setVisible(self.terrain.enabled)
         self.adjustSize()
         self.place()
 

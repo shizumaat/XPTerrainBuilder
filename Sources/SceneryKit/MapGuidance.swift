@@ -9,7 +9,7 @@ import Foundation
 /// the first selection dismisses it, so does its close button, and
 /// Help ▸ Show Tips brings it back (until the next selection or close).
 public enum MapGuidance {
-    public static let hintText = "Search your airport, or click its square on the map."
+    public static let hintText = "Search your airport, or click its square on the map. Drag to move the map."
     public static let showTipsTitle = "Show Tips"
     public static let emptySelectionText =
         "Nothing is selected yet. A tile is one 1° × 1° square of the map. "

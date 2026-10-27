@@ -404,7 +404,13 @@ def _ribbon_over(axes, hw: float, occupied: "_Occupied", core_hw: float, grid: f
     core = _rib(core_hw)
     if hw <= core_hw or core.is_empty:
         return core
-    reach = core.buffer(hw - core_hw, join_style="mitre", mitre_limit=2.0)
+    # buffered in FLOATING precision (#1335 #1349): ``core`` carries the
+    # ``grid`` precision model, and GEOS snap-rounds a buffer of it onto
+    # that grid — two mitred corners a grid step apart came back as
+    # nested shells (KOUN, KSEE) and the intersection raised "Ring edge
+    # missing".  The result is snapped to ``grid`` below, as before.
+    reach = shapely.set_precision(core, 0.0).buffer(
+        hw - core_hw, join_style="mitre", mitre_limit=2.0)
     return shapely.set_precision(areal_part(_rib(hw).intersection(reach)), grid)
 
 

@@ -183,7 +183,7 @@ def download_orthophoto(tile, texture):
     path = _orthophoto_path(tile, texture, IMG)
     if os.path.exists(path):
         return 1
-    return IMG.download_jpeg_ortho(
+    return IMG.download_orthophoto_once(
         os.path.dirname(path), os.path.basename(path), *texture,
         require_complete=True)
 

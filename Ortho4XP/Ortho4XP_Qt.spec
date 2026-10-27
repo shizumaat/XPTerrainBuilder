@@ -93,9 +93,9 @@ v2_law_datas = (
     + [(f, os.path.join("auto_patch_v2", "classify"))
        for f in sorted(_glob.glob(os.path.join("src", "auto_patch_v2", "classify", "*.toml")))]
 )
-if len(v2_law_datas) < 9:
+if len(v2_law_datas) < 10:
     raise SystemExit(
-        f"ERROR: expected the eight auto_patch_v2 law tables "
+        f"ERROR: expected the nine auto_patch_v2 law tables "
         f"+ classify/rules.toml under src/auto_patch_v2, "
         f"found {len(v2_law_datas)} — refusing to freeze "
         f"an application whose v2 cannot load its law.")
@@ -172,6 +172,17 @@ _patch_digest_file = _runpy.run_path(
 )["write_patch_freeze_digest"]("src", os.path.join("build", "o4_patch_code"))
 print(f"Patch code digest: {open(_patch_digest_file).read().strip()}")
 v2_law_datas = v2_law_datas + [(_patch_digest_file, "auto_patch")]
+# THE CONFIG GATE TABLE (#1321): the ``o4_cfg`` digest enumerates config.py's
+# ``O4_`` gates by parsing its source, which a frozen engine does not ship;
+# without this table its digest said ``introspect:unavailable`` and no patch
+# built by the source engine was ever reused.  Regenerated from source on
+# every freeze, bundled beside the module that reads it
+# (``_internal/auto_patch/config_gates.json``).  REFUSES like the rest.
+_config_gates_file = _runpy.run_path(
+    os.path.join("src", "auto_patch", "config_gates.py")
+)["write_freeze_gates"]("src", os.path.join("build", "o4_config_gates"))
+print(f"Config gate table: {_config_gates_file}")
+v2_law_datas = v2_law_datas + [(_config_gates_file, "auto_patch")]
 
 highspy_datas, highspy_binaries, highspy_hidden = collect_all('highspy')
 tifffile_datas, tifffile_binaries, tifffile_hidden = collect_all('tifffile')

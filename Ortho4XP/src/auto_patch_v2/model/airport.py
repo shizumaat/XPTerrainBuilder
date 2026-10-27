@@ -68,6 +68,28 @@ class RunwayEnd:
     #: Cat II/III: apt.dat ALSF-II / Calvert II lighting with touchdown-zone
     #: lights at a precision end (15m (2))
     cat_ii_iii: bool = False
+    #: THE PIN'S STATION (issue #1358, ``airport/end_pins``): how far along
+    #: the runway from THIS end the height pin sits — the joined CIFP
+    #: record's own landing threshold projected onto the axis; ``None`` =
+    #: the apt.dat landing threshold (``displaced_m``).  Read through
+    #: :meth:`pin_along`, never directly.
+    pin_along_m: float | None = None
+    #: THE PIN'S ORIGIN (owner RULINGS 2026-10-25a / 26a / 26e;
+    #: ``airport/end_pins``): ``cifp`` (verified), a cross-check source name
+    #: (``ourairports`` …: ``threshold_elev_m`` is ITS value), ``dem`` (a
+    #: flagged CIFP end the DEM decides, ``threshold_elev_m`` = None), or
+    #: ``""`` (no CIFP record: the apt.dat datum / 22a DEM end).
+    pin_source: str = ""
+    #: the CIFP elevation AS READ, kept when verification replaced it
+    cifp_elev_m: float | None = None
+    #: the verification flags that fired on this end's runway (``a``,
+    #: ``b``, ``c``), comma-joined; ``""`` = none
+    pin_flags: str = ""
+
+    def pin_along(self) -> float:
+        """Metres from this end to its pin's station (``pin_along_m``,
+        else the apt.dat displaced length)."""
+        return float(self.displaced_m if self.pin_along_m is None else self.pin_along_m)
 
 
 @_dc.dataclass(frozen=True)

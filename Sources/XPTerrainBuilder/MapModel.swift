@@ -52,9 +52,10 @@ struct MapCamera: Equatable {
                                Double(size.height) / (2 * Self.yLimit))
             scale = max(scale, minScale)
         }
-        // Deep-inspection zoom: far past imagery resolution (ZL22-native),
-        // so the user can always zoom in to judge what a source offers.
-        scale = min(scale, 3_000_000)
+        // Deep-inspection zoom, independent of the imagery source (#1315):
+        // past its ceiling the map overzooms its finest tiles, so nodes can
+        // be edited at fine scale.
+        scale = min(scale, MapOverzoom.scale(forZL: MapOverzoom.maxViewZL))
         if size.width > 0 {
             let halfW = Double(size.width) / 2 / scale
             centerLon = min(max(centerLon, -180 + halfW), 180 - halfW)

@@ -1840,6 +1840,7 @@ def _write_full_tile_fixture(root, repo_root, lat, lon, icao, apt_dat,
 
 def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
                   zoomlevel, deadline, keep, apt_dat=None, cifp_dat=None,
+                  boundary_policy="skip",
                   engine_python=None, steps=FULL_TILE_STEPS):
     """PASS 4 — a WHOLE tile built on Windows from an empty data root (#250).
 
@@ -1877,10 +1878,12 @@ def run_full_tile(binary, repo_root, log_dir, lat, lon, icao, provider,
             "custom_build_dir": "",
             "steps": list(steps),
             "slots": 1,
-            # An UNATTENDED run never grows its own tile list: the
-            # boundary policy is "skip", loudly, which is what
+            # An UNATTENDED run never grows its own tile list unless asked:
+            # the boundary policy is "skip", loudly, which is what
             # ``auto_patch_boundary`` says a headless build must do.
-            "boundary_policy": "skip",
+            # ``--boundary-policy neighbour`` builds the airport's other
+            # tiles too (an airport that crosses a tile edge, e.g. PANC).
+            "boundary_policy": boundary_policy,
             "do_overlays": False,
         }
         stream, elapsed, failures = _drive(
@@ -2437,6 +2440,12 @@ def main(argv):
                         help="with --pass full-tile: a CIFP .dat for the "
                              "airport.  Absent, the repository fixture is "
                              "used and RECORDED as a substitution.")
+    parser.add_argument("--boundary-policy", dest="boundary_policy",
+                        default="skip", choices=("skip", "neighbour"),
+                        help="with --pass full-tile: what the build does "
+                             "with an airport that crosses into a tile it "
+                             "is not building (default skip; neighbour "
+                             "builds that tile too)")
     parser.add_argument("--engine-python", dest="engine_python",
                         default=None,
                         help="the interpreter to run a SOURCE protocol "
@@ -2528,6 +2537,7 @@ def main(argv):
             binary, repo_root, log_dir, lat, lon, arguments.icao,
             arguments.provider, arguments.zoomlevel, arguments.deadline,
             arguments.keep, apt_dat=arguments.apt_dat,
+            boundary_policy=arguments.boundary_policy,
             cifp_dat=arguments.cifp_dat,
             engine_python=arguments.engine_python, steps=steps)
     if arguments.which == "lemd-elevation":

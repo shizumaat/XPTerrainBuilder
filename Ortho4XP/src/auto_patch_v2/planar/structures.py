@@ -94,6 +94,7 @@ from .channel_claims import add_channel_cells, channel_yields
 from .bore_continuation import walked_m
 from .object_corridor import Group, mouth_covered_by, object_groups, trench_outside_m
 from .door_ramps import door_note as _door_note, door_profile as _door_profile
+from .viaduct_road import viaduct_road_groups
 from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
                                   wall_corridor_note, wall_corridor_profile)
@@ -195,6 +196,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # module doc; the round-1 measurement that forced it is there too).
     up_ways, up_parents, stats.underpasses = _underpass_bores(airport, law, cells, polys)
     tunnel_ways += up_ways
+    # R6 (RULINGS 2026-10-28k Q228 a): a road under stacked viaducts inside
+    # the airport is an open level a mouth depth below the apron
+    via_groups, via_notes, via_refused = viaduct_road_groups(airport, law, cells, polys)
+    extra_groups += via_groups
+    stats.viaduct_roads = via_notes
+    stats.refused.extend(via_refused)
     tunnel_ways, corridors, extra_groups = channel_yields(  # §45 (1)/(6)/(7)
         channels, tunnel_ways, corridors, extra_groups, stats.refused)  # noqa: E501
     if (not tunnel_ways and not corridors and not extra_groups and not channels) or not classification.cells:

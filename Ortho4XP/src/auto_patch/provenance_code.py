@@ -793,6 +793,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.planar.structures",
     "auto_patch_v2.planar.terrain_edge",
     "auto_patch_v2.planar.unframed_ramp",
+    "auto_patch_v2.planar.viaduct_road",
     "auto_patch_v2.planar.wall_corridor_ramps",
     "auto_patch_v2.planar.weld",
     "auto_patch_v2.planar.zone_pass",

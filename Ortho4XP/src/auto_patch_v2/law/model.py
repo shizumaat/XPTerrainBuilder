@@ -384,6 +384,13 @@ class Tunnel:
     #: least ``underpass_min_span_m`` is bored.
     underpass_min_layer: int
     underpass_min_span_m: float
+    #: R6 (owner RULINGS 2026-10-28k, Q228 a): a road running at least
+    #: ``viaduct_min_run_m`` under bridge ways of ``layer >= viaduct_min_layer``
+    #: inside the aerodrome boundary sits ``mouth_depth_m`` below the apron
+    #: read within ``viaduct_apron_reach_m`` (``planar/viaduct_road``).
+    viaduct_min_layer: int
+    viaduct_min_run_m: float
+    viaduct_apron_reach_m: float
     #: §34 (12) (5) (owner RULINGS 2026-09-16d): A TERRAIN TUNNEL PASSES
     #: UNDER SOMETHING AT GRADE.  The four witnesses a bore with an
     #: on-field mouth is admitted by (``planar/structure_service.

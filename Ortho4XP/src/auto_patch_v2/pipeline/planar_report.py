@@ -123,7 +123,7 @@ def say_planar(icao: str, pm, pstats, airport, lrep, planar_s: float,
              f"{', '.join(ss.mouth_only_bores)}")
     for r in ss.plate_mouths:
         out(f"    {r}")
-    for r in ss.underpasses:
+    for r in list(ss.underpasses) + list(getattr(ss, "viaduct_roads", ())):
         out(f"    {r}")
     for r in ss.decked_excluded:
         out(f"    {r}")

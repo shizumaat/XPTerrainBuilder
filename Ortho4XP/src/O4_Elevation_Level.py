@@ -804,8 +804,17 @@ def ensure_coastline_band(tile, dico_airports):
     import O4_Airport_Elevation_Insets as INSETS
 
     if dico_airports:
+        # The SETTING's box, not the trimmed inset box (RULINGS
+        # 2026-10-26t trims the fetch; the band's tiers are not its
+        # subject).
         airport_boxes = list(
-            INSETS._airport_bounding_boxes(tile, dico_airports).values()
+            INSETS._airport_bounding_boxes(
+                tile,
+                dico_airports,
+                margin_m=getattr(
+                    tile, "airport_elevation_inset_margin_m", 2000.0
+                ),
+            ).values()
         )
     else:
         airport_boxes = []

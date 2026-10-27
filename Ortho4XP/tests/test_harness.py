@@ -3372,7 +3372,7 @@ def test_an_UNSET_install_path_is_not_a_frame_divergence(build_mod, tmp_path):
                      "apt_smoothing_pix=8\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane"
     lane.mkdir()
-    (lane / "Ortho4XP.cfg").write_text(
+    (lane / "XPTerrainBuilder.cfg").write_text(
         "cifp_data_path=\ncustom_scenery_dir=\napt_smoothing_pix=8\n", encoding="utf-8", newline="")
     assert build_mod.cfg_frame_diff(lane, owner_cfg=owner) == {}
     eff = build_mod.frame_surface_keys(lane, owner_cfg=owner)
@@ -3386,7 +3386,7 @@ def test_a_DIFFERENT_install_path_IS_a_frame_divergence(build_mod, tmp_path):
     owner.write_text("cifp_data_path=/X/CIFP\ncustom_scenery_dir=/X/CS\n", encoding="utf-8", newline="")
     lane = tmp_path / "lane"
     lane.mkdir()
-    (lane / "Ortho4XP.cfg").write_text(
+    (lane / "XPTerrainBuilder.cfg").write_text(
         "cifp_data_path=/OTHER/CIFP\ncustom_scenery_dir=/X/CS\n", encoding="utf-8", newline="")
     diff = build_mod.cfg_frame_diff(lane, owner_cfg=owner)
     assert set(diff) == {"cifp_data_path"}

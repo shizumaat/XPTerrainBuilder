@@ -156,7 +156,7 @@ def _ortho4xp_version() -> str:
 #: is given the command's ``id`` as ``request``.
 _TAKES_REQUEST_ID = frozenset({"pack_objects", "library_scan", "cache_sizes",
                                "free_cache", "library_delete",
-                               "plan_estimate"})
+                               "plan_estimate", "build_airports"})
 
 
 def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
@@ -168,10 +168,13 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     # Imported here, after the hello is written: the patch commands pull in
     # the emitter and the law tables (~0.25 s), which the handshake must
     # not wait for.
+    import O4_Imagery_Sources as SOURCES
     from O4_Tile_Customizations import tile_customizations
 
-    from . import patch_commands
+    from . import patch_commands, patch_insert
+    from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
+    from .imagery_commands import start_imagery_source_status
     from .mesh_commands import mesh_crop
     from .pack_objects import start_pack_objects
     from .pack_outlines import pack_outlines
@@ -218,6 +221,10 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # and completes through PackMissingArt — DSFTool may not run on
         # THIS thread.
         "omit_missing_art": session.omit_missing_art,
+        # 3D trees (protocol 1.17, #1360): replies {"status": "started"}
+        # and completes through PackOldForests — DSFTool may not run on
+        # THIS thread.
+        "pack_forests": session.pack_forests,
         # Failure report (#565, RULINGS 2026-10-12b): the REDACTED report
         # for one tile, its prefilled new-issue URL and, with
         # ``save_path``, the report file.  Synchronous — it reads the end
@@ -234,6 +241,12 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "patch_load": patch_commands.patch_load,
         "patch_save": patch_commands.patch_save,
         "patch_revert": patch_commands.patch_revert,
+        # "Insert shape" on the map (protocol 1.17, #1314): the square's
+        # corners at the elevation under them and the airport they go to;
+        # appending it to a patch the editor does not have open.
+        # Synchronous file work, like the commands above.
+        "patch_insert_shape": patch_insert.patch_insert_shape,
+        "patch_add_shape": patch_insert.patch_add_shape,
         # Custom patches (#1229, RULINGS 2026-10-26c): which tiles carry
         # one (the map band, the tile info) and setting a tile's aside so
         # the auto patch runs again.  Synchronous file work.
@@ -246,6 +259,11 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # replies {"status": "started"}; a worker thread completes it with
         # PackObjectsReady carrying this command's id (_TAKES_REQUEST_ID).
         "pack_objects": lambda **kw: start_pack_objects(session._emit, **kw),
+        # The Build pane's Airports card (protocol 1.15, #818): replies
+        # {"status": "started"} and completes through BuildAirportsReady —
+        # CIFP, apt.dat and the Custom Scenery walk stay off THIS thread.
+        "build_airports": lambda **kw: start_build_airports(
+            session._emit, **kw),
         # ... and the pack's own apt.dat pavement and boundary, as the
         # map's dashed reference outlines.  Synchronous, cache-only.
         "pack_outlines": pack_outlines,
@@ -271,6 +289,14 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         # for the tiles about to be built.  Replies {"status": "started"};
         # PlanEstimateReady carrying this command's id completes it.
         "plan_estimate": lambda **kw: start_plan_estimate(session._emit, **kw),
+        # Imagery sources (protocol 1.17, #1345): the one list every
+        # imagery menu reads, one preview tile's URL, and the launch-time
+        # liveness check, which replies {"started": true} and completes
+        # through one ImagerySourceStatus event per source.
+        "imagery_sources": SOURCES.imagery_sources,
+        "preview_tile_url": SOURCES.preview_tile_url,
+        "imagery_source_status": lambda codes=None: start_imagery_source_status(
+            session._emit, codes=codes),
     }
 
 
@@ -547,7 +573,7 @@ def serve(stdin: TextIO, stdout: TextIO, owns_process: bool = False) -> None:
             capabilities=("scan", "build", "enqueue_build", "cancel",
                           "tile_info", "config", "links", "siblings",
                           "secrets", "tile_settings_write",
-                          "missing_art", "library"))))
+                          "missing_art", "library", "pack_forests"))))
 
         handlers = _build_handlers(session)
         handlers["secret_response"] = broker.deliver

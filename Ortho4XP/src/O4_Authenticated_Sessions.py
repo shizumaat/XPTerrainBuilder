@@ -544,6 +544,7 @@ def sign_in_api_key(definition, api_key, remember=True):
     api_key = (api_key or "").strip()
     if not api_key:
         raise LoginError("Enter an API key.")
+    UI.register_secret(api_key)
     probe_template = definition.get("api_key_probe_url")
     if probe_template:
         try:
@@ -555,7 +556,8 @@ def sign_in_api_key(definition, api_key, remember=True):
             )
         except Exception as error:
             raise LoginError(
-                "Could not validate the API key: %s" % str(error)
+                "Could not validate the API key: %s"
+                % str(error).replace(api_key, "<api_key>")
             )
         if response.status_code in _SIGNED_OUT_STATUSES:
             raise LoginError(
@@ -658,6 +660,7 @@ def ensure_api_key(definition):
     if not session_name:
         raise LoginError("Provider definition lacks a session_name.")
     api_key = load_api_key(session_name)
+    UI.register_secret(api_key)
     if not api_key:
         raise LoginError(
             "Provider '%s' needs a '%s' API key and none is stored.  %s"

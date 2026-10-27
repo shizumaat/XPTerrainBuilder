@@ -21,6 +21,7 @@ from collections import deque
 import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
+import O4_Imagery_Sources as SOURCES
 import O4_Imagery_Utils as IMG
 import O4_Map_Labels as LABELS
 import O4_Map_Overzoom as OVERZOOM
@@ -295,15 +296,10 @@ def audit_textures(textures_dir, provider):
     return TextureAudit(provider, sources, sorted(foreign_files))
 
 
-def provider_is_mappable(provider_code):
-    """True if the provider can back the live map directly."""
-    provider = IMG.providers_dict.get(provider_code)
-    if not provider:
-        return False
-    return (
-        provider.get("grid_type") == "webmercator"
-        and provider.get("request_type") in ("tms", "wmts")
-    )
+def _provider_is_mappable(provider_code):
+    """True if the live map can draw the source (the engine's one list,
+    ``O4_Imagery_Sources``; a combined source paints layer by layer)."""
+    return SOURCES.is_previewable(provider_code)
 
 
 class _FetchBridge(QObject):
@@ -366,6 +362,9 @@ class MapView(QGraphicsView):
 
         # Overlay state
         self._built = {}             # (lat, lon) -> TileInfo
+        # Built tiles outside the Build History date filter (#1226),
+        # drawn faint (MapCanvasView.swift dims the same).
+        self._dimmed = set()
         self._installed = set()      # (lat, lon)
         self._conflicts = set()      # (lat, lon) with mixed imagery sources
         self._customized = set()     # (lat, lon) with tile settings (#1350)
@@ -465,14 +464,13 @@ class MapView(QGraphicsView):
     # Public API
     # ------------------------------------------------------------------
     def set_provider(self, code):
-        if provider_is_mappable(code):
+        if _provider_is_mappable(code):
             self._display_code = code
-            provider = IMG.providers_dict[code]
             # Absent max_zl means the source declares no ceiling (the
             # engine builds it at any ZL) - preview up to the fetch cap.
-            self._provider_max_zl = int(provider.get("max_zl", FETCH_MAX_ZL))
+            self._provider_max_zl = SOURCES.preview_max_zl(code) or FETCH_MAX_ZL
             note = ""
-        elif provider_is_mappable("OSM"):
+        elif _provider_is_mappable("OSM"):
             self._display_code = "OSM"
             self._provider_max_zl = 19
             note = " (no live preview for %s - showing OSM)" % code
@@ -506,6 +504,13 @@ class MapView(QGraphicsView):
         self._built = dict(built)
         self.built_changed.emit()
         self.viewport().update()
+
+    def set_dimmed(self, tiles):
+        """Built tiles the Build History date filter leaves out (#1226)."""
+        tiles = set(tiles)
+        if tiles != self._dimmed:
+            self._dimmed = tiles
+            self.viewport().update()
 
     def set_installed(self, installed):
         self._installed = set(installed)
@@ -930,7 +935,7 @@ class MapView(QGraphicsView):
         thread; does no I/O itself.
         """
         code = self._display_code
-        if not provider_is_mappable(code):
+        if not _provider_is_mappable(code):
             return
         wanted = set()
         order = []
@@ -1067,10 +1072,7 @@ class MapView(QGraphicsView):
                 image = self._orthophotos_crop(code, z, x, y)
                 from_build_cache = image is not None
                 if image is None:
-                    provider = IMG.providers_dict[code]
-                    success, image = IMG.get_wmts_image(
-                        z, x, y, provider, self._session
-                    )
+                    success, image = self._download_tile(code, z, x, y)
                     if not success or generation != self._generation:
                         return
                 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1089,6 +1091,24 @@ class MapView(QGraphicsView):
                 self._bridge.tile_ready.emit(code, z, x, y, path)
         except Exception:
             pass
+
+    def _download_tile(self, code, z, x, y):
+        """``(success, image)`` of one view tile from the network: a
+        web-mercator layer through the build's own fetcher (its 404
+        fallback and shared cache), any other previewable layer by the
+        engine's preview URL (``O4_Imagery_Sources.tile_source``)."""
+        layer = SOURCES.tile_source(code, z, x, y)
+        if layer is None:
+            return (0, None)
+        provider = IMG.providers_dict[layer["code"]]
+        if provider.get("grid_type") == "webmercator":
+            return IMG.get_wmts_image(z, x, y, provider, self._session)
+        headers = dict(IMG.request_headers_generic)
+        if layer["referer"]:
+            headers["Referer"] = layer["referer"]
+        return IMG.http_request_to_image(
+            256, 256, layer["url"], headers, self._session,
+            timeout=provider.get("timeout"))
 
     def _on_tile_ready(self, code, z, x, y, path):
         key = (code, z, x, y)
@@ -1240,8 +1260,9 @@ class MapView(QGraphicsView):
         if built is not None:
             # Built: a green border; installed adds the inset double border.
             base = QColor(BUILT_COLOR)
+            dim = 0.3 if tile in self._dimmed else 1.0
             border = QColor(base)
-            border.setAlphaF(0.85)
+            border.setAlphaF(0.85 * dim)
             pen = QPen(border)
             pen.setCosmetic(True)
             pen.setWidth(2)
@@ -1249,7 +1270,7 @@ class MapView(QGraphicsView):
             painter.drawRect(r)
             if tile in self._installed:
                 inner = QColor(base)
-                inner.setAlphaF(0.9)
+                inner.setAlphaF(0.9 * dim)
                 pen = QPen(inner)
                 pen.setCosmetic(True)
                 pen.setWidthF(1.5)

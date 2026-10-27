@@ -116,15 +116,16 @@ class StacCloudOptimizedGeoTiffStrategy:
         try:
             response = requests.post(url, json=body, timeout=30)
         except Exception as error:
-            raise TransientFetchError("STAC probe search failed: %s" % error)
+            raise TransientFetchError(
+                "STAC probe search failed: %s" % error) from error
         if response.status_code != 200:
             raise TransientFetchError(
                 "STAC probe search returned status %d" % response.status_code)
         try:
             items = self._parse_search_payload(response.json())
         except ValueError as error:
-            raise TransientFetchError("STAC probe answer unreadable: %s"
-                                      % error)
+            raise TransientFetchError(
+                "STAC probe answer unreadable: %s" % error) from error
         return items[0] if items else None
 
     def discover(self, definition, bounding_box_wgs84):

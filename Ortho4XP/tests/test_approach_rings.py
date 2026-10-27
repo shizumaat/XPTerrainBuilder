@@ -1989,7 +1989,7 @@ def _write_footprint(code, covered):
 
     path = ea_footprints.footprint_path(code, TILE_LAT, TILE_LON)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
         json.dump({"provider": code, "covered": covered}, handle)
 
 

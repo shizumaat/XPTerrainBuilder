@@ -167,7 +167,7 @@ def _probe_tile(strategy, definition, lat, lon):
     return {
         "provider": definition["code"],
         "cell_degrees": FOOTPRINT_CELL_DEGREES,
-        "covered": [list(key) for (key, hit) in zip(keys, answers) if hit],
+        "covered": [list(key) for (key, hit) in zip(keys, answers, strict=True) if hit],
         "probed_cells": len(keys),
         "probed": datetime.date.today().isoformat(),
     }

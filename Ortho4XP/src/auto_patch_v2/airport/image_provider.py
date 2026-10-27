@@ -47,6 +47,16 @@ class ImagePatch:
         lum = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
         return np.where(self.valid, lum, np.nan).astype(np.float32)
 
+    def saturation(self) -> np.ndarray:
+        """HSV saturation ``(max - min) / max`` of the RGB, float32 in 0..1,
+        NaN where not ``valid`` (0 on black): asphalt and concrete are grey,
+        dirt and grass are not."""
+        rgb = self.rgb.astype(np.float32)
+        hi, lo = rgb.max(axis=-1), rgb.min(axis=-1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            s = np.where(hi > 0.0, (hi - lo) / hi, 0.0)
+        return np.where(self.valid, s, np.nan).astype(np.float32)
+
     def rowcol(self, xy: np.ndarray) -> np.ndarray:
         """Fractional ``(row, col)`` of airport-frame points ``xy`` (N×2),
         in the pixel-centre convention of :func:`scipy.ndimage.map_coordinates`."""
@@ -74,6 +84,7 @@ class ImageEvidence:
     """One answer: where along the probe's normal (``offset_m``; ``None`` =
     nothing found), how strongly (calibrated 0..1), and what it is
     (``pavement_edge`` | ``graded_edge`` | ``threshold_marking`` |
+    ``paved_contact`` |
     ``portal_opening`` | ``shadow_line`` | ``none``)."""
 
     offset_m: float | None

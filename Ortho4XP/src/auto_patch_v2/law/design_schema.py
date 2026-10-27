@@ -97,6 +97,11 @@ class Design:
     #: the feasible set is one straight line, on the LP's own tolerance).
     #: Derived in ``constraints/runway_yield.py``; a value, not a switch.
     runway_yield_margin: float
+    #: RULINGS 2026-10-27n: the wavelength a steep runway's profile follows
+    #: the ground at (``constraints/runway_junctions``)
+    steep_runway_ground_wavelength_m: float
+    #: RULINGS 2026-10-28a: the same on a DEM that is not credible lidar
+    steep_runway_ground_wavelength_coarse_m: float
     law: float
     #: THE TAXI DESIGN PROFILE (owner RULINGS 2026-09-09b (2), "taxiways
     #: should follow terrain less and be more like runways"): the second
@@ -410,6 +415,12 @@ def check_design(d: Design, err: type[Exception],
         raise err(f"emit.design.runway_yield_margin {d.runway_yield_margin}: "
                   f"a grade in [0, 1) — the margin a YIELDED runway cap "
                   f"carries over its pin-to-pin grade (§50.1 (3))")
+    if not d.steep_runway_ground_wavelength_coarse_m > 0.0:
+        raise err(f"emit.design.steep_runway_ground_wavelength_coarse_m "
+                  f"{d.steep_runway_ground_wavelength_coarse_m}: metres, above 0 (RULINGS 2026-10-28a)")
+    if not d.steep_runway_ground_wavelength_m > 0.0:
+        raise err(f"emit.design.steep_runway_ground_wavelength_m "
+                  f"{d.steep_runway_ground_wavelength_m}: metres, above 0 (RULINGS 2026-10-27n)")
     if d.one_way_max_rounds < 1:
         raise err(f"emit.design.one_way_max_rounds {d.one_way_max_rounds}: at least 1")
     if not 0.0 < d.one_way_relax <= 1.0:

@@ -87,11 +87,11 @@ import math
 import typing as _t
 
 from ..law import Law, LawError
-from ..law.tables import airside_rate_per_m, is_rigid_role
+from ..law.tables import airside_rate_per_m, is_rigid_role, role_family
 from ..model.airport import Airport
 from ..model.constraints import REACH_GENERATOR, Band, ConstraintSet, Diff, Linear, Row, Source
 from ..model.planar import PlanarMap
-from .precedence import View, view
+from .precedence import View, curve_k_of, view
 from .routes import reach, reach_anchored, route_neighbours, route_roles, routes
 from .runway_profile import threshold_pins
 
@@ -1296,8 +1296,11 @@ def no_step_rate(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
     q = law.tables.emit.instrument.coarse_noise_m - law.tables.emit.materiality.elevation_m
     rows: list[Row] = []
     for f in vw.faces_of_role(route_roles(law)):
-        def rate(tc, _r=f.role, _l=f.code_letter):
-            return airside_rate_per_m(law, _r, _l, tc)
+        # RULINGS 2026-10-26n: a steep runway's ring reads its yielded curve
+        yk = curve_k_of(planar, f.ref) if role_family(law, f.role) == "runway" else None
+
+        def rate(tc, _r=f.role, _l=f.code_letter, _k=yk):
+            return airside_rate_per_m(law, _r, _l, tc, yield_k_m=_k)
         src = Source(GEN, "airside_no_step §1.2 rate (2026-08-27)",
                      (f"face:{f.id}", f.ref))
         for ring in [vw.rings[f.id], *vw.holes[f.id]]:

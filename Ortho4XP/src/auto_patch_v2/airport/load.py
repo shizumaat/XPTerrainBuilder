@@ -30,6 +30,7 @@ from . import borrow as _borrow
 from . import cifp as _cifp
 from . import end_pins as _end_pins
 from . import imagery_read as _imagery
+from . import junction_witness as _junction_witness
 from . import runway_end_witness as _end_witness
 from . import runway_refs as _refs
 from . import dem as _dem
@@ -159,6 +160,9 @@ class LoadReport:
     imagery: dict = _dc.field(default_factory=dict)
     witness_votes: list = _dc.field(default_factory=list)
     witness_lines: tuple[str, ...] = ()
+    #: RULINGS 2026-10-27n: one record per pavement joining a runway — the
+    #: share of its contact the imagery reads as pavement (``junction_witness``)
+    paved_joins: list = _dc.field(default_factory=list)
     buildings_by_source: dict[str, int] = _dc.field(default_factory=dict)
     dsf_dump_path: str | None = None
     #: the pack's tile DSF is newer than every cached text dump (refused)
@@ -735,6 +739,16 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
     rep.end_pin_lines = tuple(end_lines)
     rep.end_pin_crosscheck = tuple(src for src, _e in refs)
     for _line in end_lines:
+        _log.warning(_line)
+    # THE JUNCTION WITNESS (owner RULINGS 2026-10-27n / 28b): which pavements
+    # the imagery shows PAVED where they meet a STEEP runway — it flattens
+    # only there, and a refuted one is not joined to it.  After the end pins,
+    # which say how steep each runway is (``junction_witness``; no imagery =
+    # it abstains)
+    airport, rep.paved_joins, j_lines = _junction_witness.witness_paved_joins(
+        airport, textures, law)
+    rep.witness_lines = rep.witness_lines + tuple(j_lines)
+    for _line in j_lines:
         _log.warning(_line)
     return airport, rep
 

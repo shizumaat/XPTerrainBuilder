@@ -430,6 +430,16 @@ runway_profile_window_m = 500.0
 # reader prices.  A VALUE, never a switch: a runway whose pins fit under
 # the table never sees it.
 runway_yield_margin = 0.0002
+# RULINGS 2026-10-27n (Q205, under 26q): a STEEP runway's designed profile
+# (constraints/runway_junctions) is the smoothing spline of the ground along
+# its ridge, through its pins and its paved junction flats: relief LONGER
+# than this is followed, shorter relief (a surface model's buildings, its
+# noise) is smoothed out.  OWNER RULINGS 2026-10-28a (Q207): "Unless we
+# have lidar data, I think option b is probably the more logical choice" —
+# 200 m on a CREDIBLE LIDAR inset (law/inset_class.lidar_credible), 250 m
+# on a 30 m or coarser DEM.  Values, never switches.
+steep_runway_ground_wavelength_m = 200.0
+steep_runway_ground_wavelength_coarse_m = 250.0
 law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
 # THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): the
 # `dem_zone` weight, its rows and the beyond-the-outer-ring DEM fixing are
@@ -880,6 +890,9 @@ hard_rulings = [
   "rulesets.common.pavement_max_grade ceiling, last stage",          # spec §55 (5): the ceiling between two LAST-STAGE unknowns, widened by the terrace floor over its chord by `pipeline/stage_one_map.late_constraints` (§55 (14) Q-F: `cap + pad_terrace_floor_m / d`, the cut's own pair test; the law is the head above)
   "rulesets.common.road_max_grade pavement fallback, last stage",    # the same
   "door line keeps the apron cap",                       # #798 round 3 (owner 2026-10-20 01:15Z): a sloping building's door line keeps the apron's (yielded) cap to the nearest taxi point — ONE row (constraints/door_pad).  MEASURED soft (KASE round 7): priced at the target weight the QP traded it, Hangar1's door line 2.81 % against 2.02
+  # RULINGS 2026-10-26n (Q162): an apron a steep runway joins is ONE plane
+  # (constraints/steep_apron.py), its level the junction mouth's
+  "rulesets.apron terrace plane at a steep runway",
   "door airside give",                                   # #798 round 3 (owner RULINGS 2026-10-19ac): an airside vertex a door pad's hard rows reach is solved in stage 2 within door_airside_give_m of its stage-1 level (constraints/door_pad.blend_release)
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
@@ -919,7 +932,8 @@ hard_conflict_ranks = [
   ["common.roles.apron ring edge", "common.roles.apron frontage chord",
    "common.roles.apron on the shared edge portion",
    "apron body chord, stationed across the face", "plane_gradient", "apron body chord, strict",
-   "door line keeps the apron cap"],                                  # #798: the door line is an apron law
+   "door line keeps the apron cap",
+   "rulesets.apron terrace plane at a steep runway"],                                  # #798: the door line is an apron law
   ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
    "structures.building_pad frontage_hold"],
   ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.mouth_depth_m",

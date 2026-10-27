@@ -6,8 +6,9 @@ The synthetic M1 airport (``test_classify._synthetic``) gains a 16 x 300 m
 page meeting the apron END-ON at its north edge, no taxi centreline, no
 startup, no mapped apron.  With no rail on it the page is AIRSIDE
 pavement (LGAV's page reached ``apron`` through the §110 ribbon and §27's
-end-on flip; here the touch-chain keeps it airside directly); with two at-grade tracks along it the rail rung
-(``classify/sources.py``) reads it a ``strip`` and it stays a groundside
+end-on flip; here the touch-chain keeps it airside directly); with two
+at-grade tracks along it the rail rung (``classify/sources.py``) reads it
+a ``strip`` and it stays a groundside
 ``service_road``.  A railway in a tunnel or on a bridge is not what the
 page carries and leaves the verdict alone.
 """

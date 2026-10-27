@@ -13,13 +13,17 @@ import O4_UI_Utils as UI
 from elevation_access.base import TransientFetchError
 from elevation_access.failures import _warn_sign_in_needed_once
 from elevation_access.gdal_support import has_gdal
+from elevation_access.layered_warp import (
+    hidden_sources_record,
+    warp_sources_skipping_hidden,
+)
 from elevation_access.registry import register_access_strategy
 from elevation_access.stac_assets import (
+    _item_footprints_by_href,
     _select_stac_dtm_assets,
     _stac_asset_href_to_vsicurl,
 )
 from elevation_access.vertical_units import _raster_vertical_unit
-from elevation_access.warp import warp_vsicurl_sources_to_geotiff
 
 __all__ = [
     "StacCloudOptimizedGeoTiffStrategy",
@@ -301,8 +305,12 @@ class StacCloudOptimizedGeoTiffStrategy:
         vsicurl_inputs = [
             _stac_asset_href_to_vsicurl(href) for (href, _resolution) in selected
         ]
-        if not warp_vsicurl_sources_to_geotiff(
+        # An item a later item hides (an older vintage of the same tile)
+        # is never read (#1327).
+        footprints = _item_footprints_by_href(items)
+        (warped, read) = warp_sources_skipping_hidden(
             vsicurl_inputs,
+            [footprints.get(href) for (href, _resolution) in selected],
             bounding_box_wgs84,
             target_resolution_m,
             destination_path,
@@ -310,7 +318,8 @@ class StacCloudOptimizedGeoTiffStrategy:
             vertical_unit=_raster_vertical_unit(definition),
             provider_code=definition.get("code"),
             gdal_configuration_options=gdal_configuration_options,
-        ):
+        )
+        if not warped:
             return None
         native_resolutions = [
             resolution for (_href, resolution) in selected if resolution
@@ -342,4 +351,5 @@ class StacCloudOptimizedGeoTiffStrategy:
             "fetch_date": datetime.date.today().isoformat(),
             "bounding_box_wgs84": list(bounding_box_wgs84),
             "resolution_m": target_resolution_m,
+            **hidden_sources_record(len(selected), read),
         }

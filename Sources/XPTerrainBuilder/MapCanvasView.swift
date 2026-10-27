@@ -45,7 +45,8 @@ struct MapCanvasView: View {
     static let selection = Color.white
 
     // Build mode: our built tiles are green (their imagery shows in the
-    // bottom-left tile label); selection is yellow; done/error/stopped badges are
+    // bottom-left tile label); the selection ring is the system accent
+    // colour (TileSelectionRing); done/error/stopped badges are
     // green/red/orange; other installed ortho packages keep their gray
     // outline.
     static let buildSelection = Color(red: 1.0, green: 0.84, blue: 0.04) // #FFD60A
@@ -461,22 +462,11 @@ struct MapCanvasView: View {
                            with: .color(Self.customPatchBand.opacity(0.85)), lineWidth: 4)
         }
 
-        // Selection: focus ring, not a fill — a fill tints the very
-        // imagery the user is judging. Active tile: solid ring with a soft
-        // outer glow (macOS focus-ring look); other selected tiles: dashed.
+        // Selection: the shared focus ring (TileSelectionRing, #1537) —
+        // solid with a glow on the active tile, dashed on the others.
         for coord in buildModel.selected where visible(coord) {
-            let r = rect(coord)
-            if coord == buildModel.activeTile {
-                context.stroke(Path(r.insetBy(dx: -1.5, dy: -1.5)),
-                               with: .color(Self.buildSelection.opacity(0.35)),
-                               lineWidth: 5)
-                context.stroke(Path(r.insetBy(dx: 1, dy: 1)),
-                               with: .color(Self.buildSelection), lineWidth: 2.5)
-            } else {
-                context.stroke(Path(r.insetBy(dx: 1, dy: 1)),
-                               with: .color(Self.buildSelection),
-                               style: StrokeStyle(lineWidth: 2, dash: [5, 4]))
-            }
+            TileSelectionRing.draw(in: context, rect: rect(coord),
+                                   active: coord == buildModel.activeTile)
         }
 
         // Customized settings (#1350): a blue dot in the top-left corner

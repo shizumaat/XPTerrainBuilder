@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SceneryKit
 
@@ -8,13 +9,17 @@ import SceneryKit
 /// truncates before it reaches the time, which never truncates. Between
 /// the bar and line two, the tile's step strip (#825) when it has one.
 /// A finished row's title is dimmed (#1341); its status keeps its colour
-/// and, when the tile left messages, is a button that reopens them.
+/// and, when the tile left messages, is a button that reopens them. A
+/// built tile's row is compact (#1542): the title, brightened halfway from
+/// the dimmed colour to white, then the status line — no bar, no steps.
 /// Kept out of `ActivityBox`'s body so the type-checker sees small,
 /// explicitly typed expressions.
 struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     let text: ProgressRowText
     let statusColor: Color
     var titleDimmed = false
+    /// A built tile (#1542, `ActivityOrder.isCompact`): no bar, no steps.
+    var compact = false
     /// Non-nil: the status reopens the tile's end-of-build messages.
     var onStatusTap: (() -> Void)?
     /// The row's steps (#825); nil shows none (a legacy-driver build).
@@ -27,9 +32,11 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             titleLine
-            bar()
-            if let strip {
-                TileStepStrip(strip: strip)
+            if !compact {
+                bar()
+                if let strip {
+                    TileStepStrip(strip: strip)
+                }
             }
             statusLine
         }
@@ -40,8 +47,35 @@ struct TileProgressRowLines<Bar: View, Trailing: View>: View {
             .scaledFont(.caption, design: .monospaced)
             .lineLimit(1)
             .truncationMode(.tail)
-            .foregroundStyle(titleDimmed ? Color.secondary : Color.primary)
+            .foregroundStyle(titleColor)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var titleColor: Color {
+        if compact { return Self.completedTitle }
+        return titleDimmed ? Color.secondary : Color.primary
+    }
+
+    /// A built tile's title (#1542): the dimmed (secondary label) colour
+    /// taken 50 % of the way to white, in the current appearance (Qt:
+    /// `COMPLETED_TITLE_COLOR`).
+    static var completedTitle: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            var out = NSColor.secondaryLabelColor
+            appearance.performAsCurrentDrawingAppearance {
+                out = Self.halfwayToWhite(NSColor.secondaryLabelColor)
+            }
+            return out
+        })
+    }
+
+    /// `color` 50 % of the way to white (alpha kept).
+    static func halfwayToWhite(_ color: NSColor) -> NSColor {
+        let rgb = color.usingColorSpace(.sRGB) ?? color
+        return NSColor(srgbRed: (rgb.redComponent + 1) / 2,
+                       green: (rgb.greenComponent + 1) / 2,
+                       blue: (rgb.blueComponent + 1) / 2,
+                       alpha: rgb.alphaComponent)
     }
 
     private var statusLine: some View {

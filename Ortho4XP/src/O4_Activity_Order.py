@@ -17,7 +17,7 @@ Pure, no Qt.  Twin: ``Sources/SceneryKit/ActivityOrder.swift``; both read
 """
 
 __all__ = ["FINISHED_STATES", "is_finished", "status_tone", "restamp",
-           "display_order"]
+           "display_order", "is_compact"]
 
 #: Engine / app states a row does not leave without being queued again.
 FINISHED_STATES = ("done", "error", "stopped")
@@ -27,6 +27,13 @@ def is_finished(state, label=""):
     """True for a row whose tile has left the run: done, failed, stopped
     here, or drained by the engine (state ``queued``, label ``stopped``)."""
     return state in FINISHED_STATES or label == "stopped"
+
+
+def is_compact(state):
+    """True for a row drawn compact (#1542): a tile built (``done``, with
+    or without warnings) shows only its title, brightened, and under it
+    its status and elapsed time -- no progress bar, no steps."""
+    return state == "done"
 
 
 def status_tone(state, label="", has_issues=False):

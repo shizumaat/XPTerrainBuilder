@@ -2433,13 +2433,6 @@ final class BuildModel: ObservableObject {
     // MARK: - Global config
 
     func reloadGlobalConfig() {
-        // The one-time hand-over from Ortho4XP.cfg BEFORE the first read
-        // or write: the engine does the same at import, but the app reads
-        // (and seeds paths into) the global before the engine has started.
-        if let engine {
-            OrthoConfigNames.adoptGlobalConfig(
-                in: engine.globalConfigURL(dataRoot: dataRootURL).deletingLastPathComponent())
-        }
         guard let engine,
               let file = try? OrthoConfigFile(contentsOf: engine.globalConfigURL(dataRoot: dataRootURL)) else {
             globalConfigValues = [:]
@@ -2663,7 +2656,6 @@ final class BuildModel: ObservableObject {
     func setConfigValue(_ name: String, to value: O4Value) {
         guard let engine else { return }
         let configURL = engine.globalConfigURL(dataRoot: dataRootURL)
-        OrthoConfigNames.adoptGlobalConfig(in: configURL.deletingLastPathComponent())
         var file = (try? OrthoConfigFile(contentsOf: configURL)) ?? OrthoConfigFile()
         file.set(name, to: value)
         do {

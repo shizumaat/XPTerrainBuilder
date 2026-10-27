@@ -37,6 +37,7 @@ from .basin_schema import Basin  # noqa: F401
 # the [base_profile] schema (the building base profile; base-profile spec
 # §1) likewise lives beside the other per-table schemas
 from .base_profile_schema import BaseProfileLaw  # noqa: F401
+from .walled_plate_schema import WalledPlateLaw  # noqa: F401
 # the [tunnel.object] schema (05k-1/05n/06c/06f/09w; the THIN-PLATE wall
 # class of spec §33 (2)) likewise — the 1,000-line file law
 from .tunnel_object_schema import TunnelObject  # noqa: F401
@@ -627,6 +628,10 @@ class Structures:
     #: without the table still loads and the read falls back to its
     #: measured defaults.
     base_profile: BaseProfileLaw = _dc.field(default_factory=BaseProfileLaw)
+    #: A WALLED PLATE CAPS A RUNWAY'S SAFETY AREA (``[walled_plate]``, owner
+    #: RULINGS 2026-10-27t/u, #1201): the recognition's numbers.  Defaulted
+    #: like ``base_profile``.
+    walled_plate: WalledPlateLaw = _dc.field(default_factory=WalledPlateLaw)
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────

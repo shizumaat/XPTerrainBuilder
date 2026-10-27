@@ -455,6 +455,13 @@ class Airport:
     #: its CENSUS (``constraints``, which may not import ``airport``) both
     #: read THIS.  ``None`` = not derived (a capture written before it).
     sunken_ramps: _t.Any = None
+    #: owner RULINGS 2026-10-27t/u (#1201): THE RUNWAY-END WALLED PLATES
+    #: (``model.walled_plate.WalledPlate``, recognised on the pack reading by
+    #: ``airport/walled_plate``): the end area stops at each one's inner edge
+    #: (``model/end_area``), the ground under it stays below it
+    #: (``constraints/walled_plate``).  Empty = none (or a capture written
+    #: before them).
+    walled_plates: tuple = ()
     #: THE FEET OF THE PACK'S OBJECT RAMPS (issue #669; owner RULINGS
     #: 2026-10-14c (5); ``airport/ramp_feet``): derived at load beside the
     #: sunken ramps on the build's ``ResourceCache``; the run-out mint

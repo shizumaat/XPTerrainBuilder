@@ -677,6 +677,11 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
     from auto_patch_v2.airport import flat_pack as _flat_pack     # flat-pack spec §1
     airport = _dc.replace(airport, flat_pack=_flat_pack.detect(airport, law))
     print(f"[{icao}] " + _flat_pack.log_line(icao, airport.flat_pack))
+    # owner RULINGS 2026-10-27t/u (#1201): the walled plates, as
+    # ``pipeline/build.pack_stage`` carries them
+    from auto_patch_v2.airport import walled_plate as _walled_plate
+    airport = _dc.replace(airport, walled_plates=_walled_plate.plates_of(pack_objects))
+    print(f"[{icao}] " + _walled_plate.log_line(icao, airport.walled_plates))
     print(f"[{icao}] clusters {len(airport.clusters)} "
           f"({time.perf_counter() - _cl_t:.0f} s)")
     print(f"[{icao}] pack partition {time.perf_counter() - t:.0f} s  "

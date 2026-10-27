@@ -6846,7 +6846,11 @@ def _terrace_joint_strip_exempt(terrace_joints_ll) -> list:
     is a stand-off plus retaining wall") stands in the strip by law, so
     ``terrace_joint_strip`` (2026-08-01, walls at a runway's edge) does not
     read it."""
-    return [_is_band_road_wall_joint(r) for r in (terrace_joints_ll or [])
+    # owner RULINGS 2026-10-27t (#1201): and the wall at a runway-end walled
+    # plate (the emitter's ``walled_plate`` flag) is lawful at the safety
+    # area's end
+    return [_is_band_road_wall_joint(r) or bool(r.get("walled_plate"))
+            for r in (terrace_joints_ll or [])
             if len(r.get("points") or []) >= 2]
 
 

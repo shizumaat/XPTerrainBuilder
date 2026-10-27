@@ -200,8 +200,10 @@ def screen_of(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
     for o in objs:
         if o.resolved is None or o.id in excluded:
             continue
+        # 27u (#1201): a walled plate's wall stands below the ground by design
         exempt = ((o.id in deck_family and rb.deck_family_seats_rigid)
-                  or o.id in plate_ids or o.id in basin_members)
+                  or o.id in plate_ids or o.id in basin_members
+                  or getattr(o, "walled_plate", None) is not None)
         deep = frozenset() if exempt else frozenset(o.below_grade_comps)
         if not deep:
             continue
@@ -214,7 +216,8 @@ def screen_of(objects: _t.Sequence[_obj8.PlacedObject], cache: _obj8.ResourceCac
     #: never a line object (10bb rule 2)
     structure_seated = {o.id for o in objs
                         if o.id in deck_family or o.id in plate_ids
-                        or o.id in basin_members or o.hard_deck is not None}
+                        or o.id in basin_members or o.hard_deck is not None
+                        or getattr(o, "walled_plate", None) is not None}
     plate_paths = plate_ids | {o.path for o in objs if o.id in plate_ids}
     return Screen(frozenset(excluded), frozenset(basin_members), frozenset(plate_paths),
                   frozenset(deck_family), below_comps, frozenset(facility),
@@ -361,6 +364,18 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
         plate_clearance = float(rest[0]) if rest else 0.0
         plate_stations = tuple(to_ll(x, y) for x, y in st_xy)
         counts["plate_members"] += 1
+    plate_kind = ""
+    wp = getattr(o, "walled_plate", None)
+    if wp is not None:
+        # owner RULINGS 2026-10-27u (#1201): A WALLED PLATE AT A RUNWAY END
+        # SITS FLUSH WITH THE SAFETY AREA — its plate is the datum at the
+        # stations inside its inner edge, every body of its origin set rides
+        # it, and its feet go where that puts them (§16e's datum anchor)
+        plate_kind = "walled"
+        plate_y = float(wp.plate_y)
+        plate_clearance = 0.0
+        plate_stations = tuple(to_ll(x, y) for x, y in wp.stations)
+        counts["walled_plate_members"] = counts.get("walled_plate_members", 0) + 1
     return _dc.replace(m, deck_ring=deck_ring, deck_top_y=deck_top_y,
                        deck_datum_z=deck_datum_z, deck_kind=o.deck_kind,
                        deck_ends=deck_ends, deck_profile=deck_profile,
@@ -368,7 +383,7 @@ def _with_deck(m: Member, o: _obj8.PlacedObject, to_ll, deck_datum, plates,
                        deck_stations=deck_stations,
                        deck_end_stations=deck_end_stations, plate_y=plate_y,
                        plate_stations=plate_stations,
-                       plate_clearance_m=plate_clearance)
+                       plate_clearance_m=plate_clearance, plate_kind=plate_kind)
 
 
 def _flat_datum(airport: Airport, to_ll) -> FlatDatum | None:

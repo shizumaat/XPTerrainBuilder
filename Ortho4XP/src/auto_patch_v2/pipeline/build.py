@@ -335,6 +335,11 @@ def pack_stage(icao: str, airport, law: Law, inputs: Inputs, lrep,
         _wpool.close()
     airport = _dc.replace(airport, partition=_part, groups=_groups,
                           clusters=_clusters)
+    # owner RULINGS 2026-10-27t/u (#1201): the walled plates the pack reading
+    # recognised travel on the airport to the end area, the ground and the seat
+    from ..airport import walled_plate as _walled_plate
+    airport = _dc.replace(airport, walled_plates=_walled_plate.plates_of(pack_objects))
+    _say("  " + _walled_plate.log_line(icao, airport.walled_plates), out)
     # issue #516: the sunken ramps' ground, beside the clusters it trims
     from ..airport.sunken_ramp import attach_sunken_ramps
     airport = attach_sunken_ramps(airport, law, ocache)

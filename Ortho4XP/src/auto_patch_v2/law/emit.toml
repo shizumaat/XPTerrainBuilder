@@ -906,6 +906,7 @@ hard_rulings = [
   # (constraints/steep_apron.py), its level the junction mouth's
   "rulesets.apron terrace plane at a steep runway",
   "door airside give",                                   # #798 round 3 (owner RULINGS 2026-10-19ac): an airside vertex a door pad's hard rows reach is solved in stage 2 within door_airside_give_m of its stage-1 level (constraints/door_pad.blend_release)
+  "structures.walled_plate under-plate cap",            # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end walled plate never rises through its top (constraints/walled_plate)
 ]
 # THE APRON'S PLANE ROW IS HARD ON THE APRON ONLY (flat-pad spec v2 §5, owner
 # RULINGS 2026-09-30be/30bf): ``plane_gradient`` is minted on EVERY governed
@@ -947,7 +948,8 @@ hard_conflict_ranks = [
    "door line keeps the apron cap",
    "rulesets.apron terrace plane at a steep runway"],                                  # #798: the door line is an apron law
   ["structures.building_pad pad_slope_max ceiling", "structures.building_pad platform plane",
-   "structures.building_pad frontage_hold"],
+   "structures.building_pad frontage_hold",
+   "structures.walled_plate under-plate cap"],                        # #1201 (27t/u): the plate's ground outranks the groundside rows under it
   ["road_cross_section", "roads.groundside_road ramp ceiling", "tunnel.mouth_depth_m",
    "roads.ramp_runout landing run-out at road grade",                 # #711: groundside, with the road ramp ceiling
    "gap_piece follows its standing neighbour across the stand-off",    # §53 (13): groundside, the last stage's own

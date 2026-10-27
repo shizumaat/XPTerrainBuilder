@@ -692,6 +692,10 @@ class PlacedObject:
     #: (``terrain_feature``) — kept as authored and never read: no
     #: witness, no feet, nothing the patch grades to.
     terrain_feature: bool = False
+    #: owner RULINGS 2026-10-27t/u (#1201): the runway-end WALLED PLATE this
+    #: placement belongs to (``model.walled_plate.WalledPlate``; set by
+    #: ``airport/walled_plate.mark``), else ``None``
+    walled_plate: object | None = None
 
     @property
     def base_z(self) -> float:

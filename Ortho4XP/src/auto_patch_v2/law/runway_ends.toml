@@ -2,7 +2,8 @@
 # "add more intelligent verification of CIFP data, and look for an
 # alternate data source we might use to cross check questionable values";
 # 2026-10-26a openAIP acceptable, source order; 2026-10-26e an apt.dat-only
-# end gives way to the lidar; issues #1342, #1358, #1394).  Spec and census:
+# end gives way to the lidar, 2026-10-28m to any DEM class beyond its noise;
+# issues #1342, #1358, #1394, #1348).  Spec and census:
 # docs/findings/lrwypin-runway-end-pins.md.  A CIFP threshold that passes
 # verification stays truth (09-18d (3)).  Metres unless named in feet.
 # None names an airport (RULINGS 2026-10-05e).
@@ -14,7 +15,7 @@ zero_placeholder_ft   = 0.5    # (d) RULINGS 2026-10-26j: every CIFP end within 
 dem_window_m          = 60.0   # the DEM at a pin: the median of centreline samples within half this of the pin's station
 crosscheck_order      = ["nasr", "openaip", "ourairports"]   # 26a's order; a source with no provider module or no cache is skipped. RULINGS 2026-10-26m: a source flagged by (c) ALONE overrides CIFP only where its grade fits the DEM better than CIFP's
 
-[dem_noise_m]                  # (a) and case E: the DEM tier's noise (fine / coarse = flat_site.detector.relief_floor_m)
+[dem_noise_m]                  # (a) and cases E / E' (28m): the DEM tier's noise (fine / coarse = flat_site.detector.relief_floor_m)
 lidar  = 0.5
 fine   = 2.0
 coarse = 8.0

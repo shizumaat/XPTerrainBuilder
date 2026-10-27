@@ -66,6 +66,7 @@ import typing as _t
 
 from ..law import Law, inset_class
 from ..law.tables import (
+    FLAT_CLASS_LIDAR,
     role_cap,
     runway_end_zone_cap,
     runway_end_zone_grade_change,
@@ -159,6 +160,7 @@ CASE_DATUM = "datum"            # F: the apt.dat datum line (30z (2))
 CASE_UNMATCHED = "unmatched"    # D / D': no CIFP here, the other end pinned (22a)
 CASE_FLAGGED = "flagged"        # C: a flagged CIFP end the DEM decides (25a)
 CASE_LIDAR = "lidar"            # E: an apt.dat-only end the lidar outvotes (26e)
+CASE_GROUND = "ground"          # E': an apt.dat-only end a fine / coarse DEM outvotes (28m)
 
 
 @_dc.dataclass(frozen=True)
@@ -219,14 +221,17 @@ def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, En
       (09-18d (3)).  VNLK, CBR2: placeholder thresholds at the field
       elevation on runways the DEM shows climbing.  On a DEGRADED frame
       the CIFP value as read stands (a degraded DEM is no witness).
-    * ``lidar`` (owner RULINGS 2026-10-26e, issue #1394): on a runway with
-      no CIFP record at all, over a CREDIBLE lidar inset
-      (``law/inset_class.lidar_credible``), an end whose datum line stands
-      off the DEM by more than the lidar tier's noise
-      (``runway_ends.dem_noise_m.lidar``) follows the DEM (PAAQ 16S/34S:
-      0.9 to 1.7 m under the lidar).  An end whose CIFP record the terrain
-      witness outvoted (owner RULINGS 2026-10-26v, ``PIN_OUTVOTED``)
-      follows the lidar with no noise floor.
+    * ``lidar`` / ``ground`` (owner RULINGS 2026-10-26e, issue #1394;
+      2026-10-28m, issue #1348): on a runway with no CIFP record at all,
+      an end whose datum line stands off the DEM by more than its source
+      class's noise (``runway_ends.dem_noise_m``, the class
+      ``law/inset_class.ground_class`` reads — the same class rule
+      ``airport/end_pins`` judges CIFP by) follows the DEM: ``lidar`` over
+      a credible lidar inset, ``ground`` over a fine or coarse one (PAAQ
+      16S/34S: 0.9 to 1.7 m under the lidar).  A sampler stating no class
+      is no witness of known quality: the datum stands.  An end whose CIFP
+      record the terrain witness outvoted (owner RULINGS 2026-10-26v,
+      ``PIN_OUTVOTED``) follows the lidar with no noise floor.
     * ``datum``: otherwise the datum line (30z (2), unchanged).
 
     These are HARD pins, exactly a CIFP threshold's (``threshold_pins``
@@ -247,9 +252,11 @@ def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, En
                 if chains.get(rw.id) for e in rw.ends)
     trends = ({} if degraded or not needs
               else _ridge_trends(planar, vw, airport, chains, window))
-    lidar = (not degraded and needs
-             and bool(inset_class.lidar_credible(airport, law)))
-    lidar_noise = float(law.tables.runway_ends.dem_noise_m.lidar)
+    klass = (inset_class.ground_class(airport, law) if not degraded and needs
+             else None)
+    noise = (None if klass is None
+             else float(law.tables.runway_ends.dem_noise_m.of(klass)))
+    ground_case = CASE_LIDAR if klass == FLAT_CLASS_LIDAR else CASE_GROUND
     for rw in airport.runways:
         chs = chains.get(rw.id)
         L = rw.length_m
@@ -297,9 +304,10 @@ def end_pin_cases(planar: PlanarMap, law: Law, airport: Airport) -> dict[int, En
             # 26v (#1359): an end whose CIFP record the layout and the imagery
             # outvoted "follows the lidar" — the datum line is no survey,
             # so no noise floor keeps it (KDIJ 22: 0.41 m under the lidar)
-            outvoted = getattr(end, "pin_flags", "") == PIN_OUTVOTED
-            if lidar and dem is not None and (outvoted or abs(zd - dem) > lidar_noise):
-                out[v] = EndPin(dem, rw.id, end.name, CASE_LIDAR, zd, dem)
+            outvoted = (klass == FLAT_CLASS_LIDAR
+                        and getattr(end, "pin_flags", "") == PIN_OUTVOTED)
+            if noise is not None and dem is not None and (outvoted or abs(zd - dem) > noise):
+                out[v] = EndPin(dem, rw.id, end.name, ground_case, zd, dem)
             else:
                 out[v] = EndPin(zd, rw.id, end.name, CASE_DATUM, zd, dem)
     return out
@@ -524,6 +532,7 @@ _CASE_RULING = {
     CASE_UNMATCHED: "RULINGS 2026-10-22a unmatched end follows the DEM",
     CASE_FLAGGED: "RULINGS 2026-10-25a flagged CIFP end follows the DEM",
     CASE_LIDAR: "RULINGS 2026-10-26e apt.dat end gives way to the lidar",
+    CASE_GROUND: "RULINGS 2026-10-28m apt.dat end yields to the survey ground",
     "crosscheck": "RULINGS 2026-10-25a / 26a cross-check source",
 }
 

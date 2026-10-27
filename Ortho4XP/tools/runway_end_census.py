@@ -15,12 +15,23 @@ cache is read unless ``--mod-cache`` names one (rule (c)).
 
 Counts per rule, per DEM class, plus the moved pins (#1358: a CIFP pin
 more than ``cifp_threshold_join_m`` from the apt.dat threshold) and the
-shifted runways.  ``--json OUT`` writes every flagged runway.  Read-only:
+shifted runways.
+
+THE apt.dat-ONLY RUNWAYS (owner RULINGS 2026-10-26e lidar, 2026-10-28m any
+DEM class; #1394, #1348): a runway with no CIFP end follows the DEM where
+its datum line stands off it by more than the class's
+``runway_ends.dem_noise_m``.  The census ESTIMATES the datum line off the
+DEM end reads (``constraints/runway_profile._datum_line`` needs the planar
+ridge trends): the higher end at the field elevation less the fall from
+the airport's highest DEM end, tilted with the DEM — so a runway yields
+where ``|field - highest DEM end| > noise``.  Counted per class, ``lidar``
+being 26e's and the rest 28m's.  ``--all-apt`` judges every airport of
+the apt.dat (with or without CIFP) the corpus holds a DEM tile for.  ``--json OUT`` writes every flagged runway.  Read-only:
 writes nothing but ``--json``.
 
     venv/bin/python tools/runway_end_census.py [--cifp DIR] [--apt PATH]
         [--elevation-root DIR] [--mod-cache DIR] [--icao ICAO ...]
-        [--limit N] [--json OUT]
+        [--limit N] [--json OUT] [--all-apt]
 """
 from __future__ import annotations
 
@@ -120,6 +131,25 @@ def _airport(icao, apt, cifp, law, elev_root, tiles):
     return ap, klass, shift_lines
 
 
+def _apt_only(icao, airport, klass, rows, law, by_class, out) -> None:
+    """THE apt.dat-ONLY RUNWAYS of one airport (module docstring): one
+    ``out`` row per runway with no CIFP end and both ends read."""
+    dems = [e["dem_m"] for ends in rows.values() for e in ends if e["dem_m"] is not None]
+    if not dems:
+        return
+    off = float(airport.elevation_m) - max(dems)
+    noise = float(law.tables.runway_ends.dem_noise_m.of(klass))
+    for rid, ends in rows.items():
+        if any(e["cifp_m"] is not None for e in ends) or any(e["dem_m"] is None for e in ends):
+            continue
+        yields = abs(off) > noise
+        by_class[klass]["apt_only_runways"] += 1
+        by_class[klass]["apt_only_yield"] += int(yields)
+        out.append({"icao": icao, "runway": rid, "class": klass, "field_m":
+                    round(float(airport.elevation_m), 2), "datum_off_m": round(off, 2),
+                    "dem_m": [e["dem_m"] for e in ends], "yields": yields})
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--cifp", default=DEFAULT_CIFP)
@@ -129,28 +159,30 @@ def main(argv=None) -> int:
     ap.add_argument("--icao", nargs="*", default=None)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--json", default="")
+    ap.add_argument("--all-apt", action="store_true",
+                    help="every apt.dat airport, not only the CIFP ones")
     a = ap.parse_args(argv)
     law = load_default()
     order = law.tables.runway_ends.crosscheck_order
     files = C.discover_cifp_airports(a.cifp)
-    icaos = sorted(a.icao or files)
+    icaos = sorted(a.icao or (A._block_index(a.apt) or {} if a.all_apt else files))
     if a.limit:
         icaos = icaos[: a.limit]
     t0 = time.time()
     n = collections.Counter()
     by_rule = collections.Counter()
     by_class = collections.defaultdict(collections.Counter)
-    flagged, shifted_all, moved_all, judged = [], [], [], []
+    flagged, shifted_all, moved_all, judged, apt_only = [], [], [], [], []
     tiles: dict = {}
     last_tile = None
     for icao in icaos:
         path = files.get(icao)
-        if not path:
+        if not path and not a.all_apt:
             continue
-        n["cifp_airports"] += 1
-        cifp = C.read_cifp_runways(path)
+        n["cifp_airports" if path else "apt_only_airports"] += 1
+        cifp = C.read_cifp_runways(path) if path else {}
         block = A.read_airport_block(a.apt, icao)
-        if not block or not cifp:
+        if not block or (path and not cifp):
             n["no_apt_dat_block"] += 1
             continue
         apt = A.parse_airport_block(block)
@@ -177,6 +209,7 @@ def main(argv=None) -> int:
         rows = collections.defaultdict(list)
         for r in recs:
             rows[r["runway"]].append(r)
+        _apt_only(icao, airport, klass, rows, law, by_class, apt_only)
         for rid, ends in rows.items():
             cifp_n = sum(1 for e in ends if e["cifp_m"] is not None)
             if not cifp_n:
@@ -212,9 +245,10 @@ def main(argv=None) -> int:
                             "cifp_m": [e["cifp_m"] for e in ends],
                             "dem_m": [e["dem_m"] for e in ends],
                             "source": [e["source"] for e in ends]})
-        if n["cifp_airports"] % 1000 == 0:
+        if (n["cifp_airports"] + n["apt_only_airports"]) % 1000 == 0:
             print(f"  ... {n['cifp_airports']} airports, {time.time() - t0:.0f} s", flush=True)
     print(f"RUNWAY-END PIN CENSUS over {n['cifp_airports']} CIFP airports "
+          f"(+{n['apt_only_airports']} apt.dat-only) "
           f"({time.time() - t0:.0f} s)")
     for k, v in n.items():
         print(f"  {k}: {v}")
@@ -223,12 +257,15 @@ def main(argv=None) -> int:
         print(f"  class {k}: {dict(c)}")
     print(f"  pins moved > tolerance (#1358): {len(moved_all)} ends; shifted runways: "
           f"{len(shifted_all)}")
+    yields = collections.Counter(r["class"] for r in apt_only if r["yields"])
+    print(f"  apt.dat-only runways judged: {len(apt_only)}; yield to the DEM (estimate): "
+          f"{dict(yields)} — lidar is 26e's, the rest 28m's")
     if a.json:
         with open(a.json, "w", encoding="utf-8") as fh:
             json.dump({"counts": dict(n), "by_rule": dict(by_rule),
                        "by_class": {k: dict(v) for k, v in by_class.items()},
                        "flagged": flagged, "moved": moved_all, "shifted": shifted_all,
-                       "judged": judged},
+                       "judged": judged, "apt_only": apt_only},
                       fh, indent=1)
     return 0
 

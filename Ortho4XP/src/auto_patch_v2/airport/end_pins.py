@@ -31,7 +31,8 @@ ONE derivation, at load, on the Airport every reader takes:
   valued by ``constraints/runway_profile.datum_pins`` (the 22a DEM rule's
   one site, which needs the planar ridge trend).
 * Ends with no CIFP record are untouched here: the 30z (2) apt.dat datum,
-  22a's DEM end and 26e's lidar yield are ``datum_pins``' cases.
+  22a's DEM end and 26e / 28m's yield to the survey ground (by the same
+  DEM class rule) are ``datum_pins``' cases.
 
 Every flag says one loud line with all the values and publishes a record
 (``LoadReport.end_pins``; the sidecar's ``runway_end_pins``).  The DEM read

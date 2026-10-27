@@ -28,6 +28,7 @@ from auto_patch_v2.constraints.precedence import view
 from auto_patch_v2.constraints.runway_profile import (
     CASE_DATUM,
     CASE_FLAGGED,
+    CASE_GROUND,
     CASE_LIDAR,
     CASE_UNMATCHED,
     _datum_slope_cap,
@@ -64,6 +65,18 @@ class _Lidar:
 
     def source_pixel_m(self):
         return 1.0, "inset"
+
+
+class _Classed(_Lidar):
+    """The same plane stating a fine (``pixel``) or coarse (``None``: the
+    base tier) source class — no lidar."""
+
+    def __init__(self, slope: float, pixel: float | None):
+        super().__init__(slope)
+        self.pixel = pixel
+
+    def source_pixel_m(self):
+        return (self.pixel, "inset") if self.pixel else (None, "base_tier")
 
 
 def _site(law, dem, thresholds, elev=None):
@@ -225,13 +238,47 @@ def test_an_apt_dat_only_end_gives_way_to_the_lidar(law):
 
 
 def test_an_apt_dat_only_end_keeps_its_datum_off_lidar_or_within_noise(law):
-    """No lidar (the plain sampler), or a datum within the lidar's noise:
-    30z (2)'s datum line stands."""
+    """A sampler stating no class (no witness of known quality), or a datum
+    within the lidar's noise: 30z (2)'s datum line stands."""
     airport, pm = _site(law, _PlaneDem(), (None, None), elev=712.5)
     assert {p.case for p in end_pin_cases(pm, law, airport).values()} == {CASE_DATUM}
     top = 700.0 + 0.004 * RUN_LEN / 2
     airport, pm = _site(law, _Lidar(0.004), (None, None), elev=top + 0.2)
     assert {p.case for p in end_pin_cases(pm, law, airport).values()} == {CASE_DATUM}
+
+
+@pytest.mark.parametrize("pixel", [10.0, None], ids=["fine", "coarse"])
+def test_an_apt_dat_only_end_yields_to_a_fine_or_coarse_dem(law, pixel):
+    """RULINGS 2026-10-28m (#1348): no CIFP, the datum 10 m over a DEM that
+    is not lidar — beyond the class's noise (2 m fine, 8 m coarse), so
+    both ends sit on the DEM, and say so."""
+    dem = _Classed(0.004, pixel)
+    airport, pm = _site(law, dem, (None, None), elev=712.5)
+    cases = end_pin_cases(pm, law, airport)
+    assert {p.case for p in cases.values()} == {CASE_GROUND}
+    vw = view(pm, law)
+    for v, p in cases.items():
+        assert p.z == pytest.approx(dem.z(*vw.xy[v]), abs=0.05)
+    lines = runway_end_report.lines("ZZZZ", runway_end_report.records(pm, law, airport))
+    assert len(lines) == 2 and all("YIELDS TO THE SURVEY GROUND" in ln for ln in lines)
+
+
+def test_a_coarse_dem_within_its_noise_keeps_the_datum(law):
+    """A coarse DEM 5 m off the datum is inside its 8 m noise: no witness
+    against the apt.dat record, the datum stands."""
+    top = 700.0 + 0.004 * RUN_LEN / 2
+    airport, pm = _site(law, _Classed(0.004, None), (None, None), elev=top + 5.0)
+    assert {p.case for p in end_pin_cases(pm, law, airport).values()} == {CASE_DATUM}
+
+
+def test_a_cifp_runway_keeps_its_pin_over_any_dem_class(law):
+    """28m leaves CIFP alone: two CIFP ends (the DEM's own grade, 4 m off
+    it) stay the pins, and no end is the DEM's to value."""
+    dem = _Classed(0.004, None)
+    airport, pm = _site(law, dem, (695.2, 700.0))
+    airport = _cifp_airport(airport)
+    assert end_pin_cases(pm, law, airport) == {}
+    assert sorted(set(threshold_pins(pm, law, airport).values())) == [695.2, 700.0]
 
 
 def test_the_unmatched_end_beside_a_survey_is_unchanged(law):
@@ -292,3 +339,27 @@ def test_the_harness_scope_names_the_engine_cache_directory():
     assert G.RUNWAY_REFS_DIR == REFS_DIR
     assert G.scope_of(f"Airport_mod_cache/{REFS_DIR}/ourairports/runways.csv") == "runway_refs"
     assert G.scope_of("Airport_mod_cache/some_pack/index.json") == "airport_mod_cache"
+
+
+def test_the_census_counts_an_apt_dat_only_runway_that_yields(law):
+    """``tools/runway_end_census._apt_only``: the field 10 m over the highest
+    DEM end yields on a fine DEM (2 m noise), not inside a coarse one's 8 m
+    when the offset is 5 m; a runway with a CIFP end is not counted."""
+    import collections
+    import importlib.util
+    path = Path(__file__).resolve().parents[2] / "tools" / "runway_end_census.py"
+    spec = importlib.util.spec_from_file_location("runway_end_census", path)
+    census = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(census)
+
+    class _Ap:
+        elevation_m = 712.5
+    rows = {"09/27": [{"cifp_m": None, "dem_m": 702.5}, {"cifp_m": None, "dem_m": 700.0}],
+            "04/22": [{"cifp_m": 701.0, "dem_m": 701.0}, {"cifp_m": None, "dem_m": 699.0}]}
+    out, by = [], collections.defaultdict(collections.Counter)
+    census._apt_only("ZZZZ", _Ap(), "fine", rows, law, by, out)
+    assert [(r["runway"], r["yields"]) for r in out] == [("09/27", True)]
+    _Ap.elevation_m = 707.5
+    out = []
+    census._apt_only("ZZZZ", _Ap(), "coarse", rows, law, by, out)
+    assert [(r["runway"], r["yields"]) for r in out] == [("09/27", False)]

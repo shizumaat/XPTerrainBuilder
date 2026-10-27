@@ -45,8 +45,8 @@ from .obj8 import resolve_resource
 from .pack_art import FIRST_PATHS, count_uses, declared_definitions
 from .pack_forests_map import FOREST_MAP
 
-__all__ = ["OldForest", "for_kind", "forest_key", "old_forests",
-           "renames_of", "rename_definitions", "decision_key", "record",
+__all__ = ["old_forests",
+           "renames_of", "rename_definitions", "record",
            "recorded", "summary", "log_line", "RECORD_KEY"]
 
 #: the key of the record row (``o4_placement_provenance.json``)

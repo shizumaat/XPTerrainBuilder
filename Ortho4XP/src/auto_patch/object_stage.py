@@ -216,7 +216,7 @@ class _PackArt(_t.NamedTuple):
     current: bool = False  # the live DSF already carries THIS omission
 
 
-class PackDump(_t.NamedTuple):
+class _PackDump(_t.NamedTuple):
     """One writable pack's tile DSF and the dump of its PRISTINE file —
     what the pack checks (missing art, old forests) read."""
 
@@ -228,7 +228,7 @@ class PackDump(_t.NamedTuple):
 
 
 def pack_dump(pack_root: str, lat: int, lon: int, *,
-              read_only: bool) -> PackDump | None:
+              read_only: bool) -> _PackDump | None:
     """The pack's tile DSF and its pristine dump, or ``None`` when there
     is nothing to judge (no DSF, no dump, a pack X-Plane does not load or
     this engine does not write).  ``read_only`` never runs DSFTool: the
@@ -256,7 +256,7 @@ def pack_dump(pack_root: str, lat: int, lon: int, *,
     if not dump_path:
         return None
     xroot = os.path.dirname(os.path.dirname(os.path.abspath(pack_root)))
-    return PackDump(pack_name, dsf_path, pristine, dump_path, xroot)
+    return _PackDump(pack_name, dsf_path, pristine, dump_path, xroot)
 
 
 def _pack_art(pack_root: str, lat: int, lon: int, *, read_only: bool,

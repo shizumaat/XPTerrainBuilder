@@ -35,6 +35,8 @@ import traceback
 import typing as _t
 
 #: the per-pack answers, beside the remembered data-root choice
+__all__ = ["ACTIONS", "CHOICES_NAME", "REMEMBERED", "forest_choice", "forest_stage"]
+
 CHOICES_NAME = "pack_forest_choices.json"
 #: the answers :func:`set_pack_choice` remembers ("" forgets)
 REMEMBERED = ("update", "never")

@@ -39,7 +39,7 @@ from . import patch_edit as PE
 from . import patch_file as PF
 from .elevation_commands import cursor_elevation
 
-__all__ = ["SQUARE_SIDE_M", "square_ring", "insert_target", "patch_insert_shape",
+__all__ = ["SQUARE_SIDE_M", "patch_insert_shape",
            "patch_add_shape"]
 
 #: The inserted square's side, metres (#1314).

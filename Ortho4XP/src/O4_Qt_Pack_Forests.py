@@ -24,6 +24,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox
 
 # --- copy (verbatim; identical to the Swift alert) ----------------------
+__all__ = ["BODY", "DETAIL", "NEVER_BUTTON", "NOT_NOW_BUTTON", "TITLE", "UNDO_HELP",
+           "UNMAPPED", "UPDATE_BUTTON", "pack_forests_box", "question_key"]
+
 TITLE = "3D trees for “{pack}”"
 BODY = ("This airport’s scenery uses {n} old flat (X-Plane 11) tree "
         "resources. Switch them to the X-Plane 12 3D trees?")

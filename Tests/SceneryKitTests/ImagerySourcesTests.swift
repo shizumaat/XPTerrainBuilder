@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import SceneryKit
 
-/// The engine's imagery source list (protocol 1.15, #1345). The fixture is
+/// The engine's imagery source list (protocol 1.17, #1345). The fixture is
 /// shared with `Ortho4XP/tests/test_imagery_menu_parity.py`: the Qt window
 /// builds its menus and preview URLs from it by the same rule, so a
 /// difference between the two apps fails one side or the other.

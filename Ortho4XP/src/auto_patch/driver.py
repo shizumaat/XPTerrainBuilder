@@ -344,6 +344,7 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
     """
     from . import provenance as _prov
     from . import provenance_code as _prov_code
+    from . import provenance_tools as _prov_tools
     return {
         "o4_fresh_v": _prov.FRESHNESS_SCHEMA_VERSION,
         "o4_cfg": _prov.config_digest(),
@@ -354,7 +355,10 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
         "o4_cifp": _prov.identity_list(
             _cifp_files_for(cifp_file, xp_root, icao)),
         "o4_pack": _scenery_pack_state(apt_dat_path),
-        "o4_engine": _prov.engine_version(),
+        "o4_engine": _prov.engine_version(),      # written, not compared
+        # The toolchain the code runs on (owner Q158): the native tools,
+        # the third-party library versions, Python.
+        "o4_tools": _prov_tools.toolchain_fingerprint(),
         # ... and the CODE the patch is built by (#346): the version moves
         # only when the engine is frozen, an edited checkout keeps it.  The
         # patch build's import closure (#880); the whole tree with
@@ -504,7 +508,12 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
        (``o4_cifp``).
     6. **scenery-pack enablement** — the pack that supplied the apt.dat being
        switched off (or back on) in ``scenery_packs.ini`` (``o4_pack``).
-    7. **engine version** — the running ``O4_Version.version`` (``o4_engine``).
+    7. **toolchain** — the bundled native tools by content, the version of
+       every third-party library the patch build imports, and Python
+       (``o4_tools``, ``provenance_tools``; owner Q158, 2026-10-26).  The
+       engine VERSION (``o4_engine``) is still stamped but not compared:
+       a release that leaves the patch code and the toolchain alone keeps
+       every patch.
     7b. **engine code** — one digest of the code the patch build imports
        (its static import closure from ``auto_patch.driver`` and every
        ``.toml`` table, #880), taken from the files in a checkout and
@@ -1712,6 +1721,10 @@ def generate_auto_patches(tile, cifp_path: str,
                 "no enabled scenery pack defines it) — skipped, not built.")
             skipped_no_apt_dat.append(icao)
             continue
+        if candidate.disposition == "apt_dat_elsewhere":
+            UI.lvprint(0, "   Auto-patch:", icao, candidate.reason)
+            skipped_no_apt_dat.append(icao)
+            continue
         if candidate.disposition == "boundary_skipped":
             # Spec §C.3 "skip": the same place the no-apt.dat skip lives,
             # so H1's fatal path is not armed for it either.
@@ -1947,8 +1960,8 @@ def generate_auto_patches(tile, cifp_path: str,
     if skipped_no_apt_dat:
         UI.vprint(
             0,
-            "   Auto-patch: Skipped {} CIFP airport(s) with no apt.dat in "
-            "this install: {}.".format(len(skipped_no_apt_dat),
+            "   Auto-patch: Skipped {} CIFP airport(s) with no apt.dat for "
+            "them in this install: {}.".format(len(skipped_no_apt_dat),
                                        ", ".join(skipped_no_apt_dat)))
     if skipped_boundary:
         UI.vprint(

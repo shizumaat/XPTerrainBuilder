@@ -66,6 +66,10 @@ BUILD_BOX = (
     ("auto_install", "Install finished tiles automatically", "chk_auto_install"),
 )
 
+#: The build-cost panel (#820): last in the Build box, just above Build —
+#: (Swift marker, Qt window attribute).
+PLAN_PANEL = ("PlanEstimatePanel(", "plan_panel")
+
 #: Settings ▸ General's app-level sections, top to bottom (#1267), and the
 #: Application section's rows (#1266: the Data Folder chooser).  The Mac's
 #: Appearance picker is a recorded exception: Qt follows the system theme.
@@ -107,6 +111,15 @@ def test_mac_toolbar_is_the_manifest():
 
 def test_mac_build_box_is_the_manifest():
     assert _swift_build_box() == [label for _key, label, _attr in BUILD_BOX]
+
+
+def test_mac_plan_panel_closes_the_build_box():
+    block = _block(SWIFT / "BuildPane.swift",
+                   "private var buildBox: some View",
+                   "// MARK: - Imagery-source conflict")
+    marker = block.find(PLAN_PANEL[0])
+    assert marker != -1, "the Mac Build box lost its cost panel"
+    assert marker > block.rfind("Toggle("), "the cost panel must follow the toggles"
 
 
 def _swift_general() -> str:
@@ -199,6 +212,14 @@ def _qt_build_box(window) -> list:
 def test_qt_build_box_is_the_manifest(window):
     expected = [getattr(window, attr) for _key, _label, attr in BUILD_BOX]
     assert _qt_build_box(window) == expected
+
+
+def test_qt_plan_panel_sits_just_above_build(window):
+    layout = window.build_btn.parentWidget().layout()
+    widgets = [layout.itemAt(i).widget() for i in range(layout.count())]
+    panel = getattr(window, PLAN_PANEL[1])
+    assert widgets.index(panel) == widgets.index(window.build_btn) - 1
+    assert widgets.index(panel) > widgets.index(window.chk_auto_install)
 
 
 def test_qt_settings_holds_the_detail_level(window):

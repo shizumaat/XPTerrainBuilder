@@ -89,14 +89,15 @@ def _default_orthophoto_root() -> Path | None:
 
 
 TILE_PRODUCT_RE = re.compile(
-    r"^(?:Data|Ortho4XP_)([+-]\d{2})([+-]\d{3})(?:\.mesh|\.cfg|_imagery\.json)$")
+    r"^(?:Data|Ortho4XP_|XPTerrainBuilder_)([+-]\d{2})([+-]\d{3})"
+    r"(?:\.mesh|\.cfg|_imagery\.json)$")
 
 
 def _tile_names(tile_dir: Path) -> tuple[str, str] | None:
     """(short, block) for the tile a build dir holds.
 
     The directory NAME (``zOrtho4XP_+25+051``) first; else the build dir's
-    own products (``Data+25+051.mesh``, ``Ortho4XP_+25+051.cfg``,
+    own products (``Data+25+051.mesh``, ``XPTerrainBuilder_+25+051.cfg``,
     ``Ortho4XP_+25+051_imagery.json``).  A harness lane build dir is named
     ``tile_<tag>``: without the second lookup every source JPEG and mask
     square read as absent and the census judged nothing, silently

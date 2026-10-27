@@ -39,23 +39,24 @@ MAX_SAMPLES = 4_000_000
 #: (``emit/osm_adapter._local_metres``), which the client draws in.
 _M_PER_DEG_LAT = 111320.0
 
-def _tile_of(key: Any) -> tuple[int, int]:
-    """``(lat, lon)`` of a ``+45-123`` tile key, or a refusal sentence."""
+def _tile_of(key: Any, command: str = "terrain_sample") -> tuple[int, int]:
+    """``(lat, lon)`` of a ``+45-123`` tile key, or a refusal sentence
+    naming ``command`` (``terrain_relief`` shares it)."""
     tile = FNAMES.parse_tile_key(key)
     if tile is None:
-        raise ValueError(f"terrain_sample: {key!r} is not a tile key like +45-123.")
+        raise ValueError(f"{command}: {key!r} is not a tile key like +45-123.")
     return tile
 
 
-def _box(bbox: Any) -> tuple[float, float, float, float]:
+def _box(bbox: Any, command: str = "terrain_sample") -> tuple[float, float, float, float]:
     try:
         s, w, n, e = (float(v) for v in bbox)
     except (TypeError, ValueError):
-        raise ValueError("terrain_sample: bbox must be [min_lat, min_lon, max_lat, "
+        raise ValueError(f"{command}: bbox must be [min_lat, min_lon, max_lat, "
                          "max_lon] in degrees.") from None
     if not (all(math.isfinite(v) for v in (s, w, n, e)) and s < n and w < e
             and -90 <= s and n <= 90 and -180 <= w and e <= 180):
-        raise ValueError(f"terrain_sample: bbox {[s, w, n, e]} is empty or off the globe.")
+        raise ValueError(f"{command}: bbox {[s, w, n, e]} is empty or off the globe.")
     return s, w, n, e
 
 

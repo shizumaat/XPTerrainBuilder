@@ -1,20 +1,20 @@
 import array
 import hashlib
 import io
-import numpy
 import os
 import pickle
 import shutil
 import struct
+import subprocess
 from collections import Counter, defaultdict
 from math import ceil, floor
-from PIL import Image, ImageDraw
-import subprocess
+
+import numpy
 import O4_Airport_Fade_Masks as FADE
 import O4_Bathymetry as BATHY
 import O4_DDS_File as DDS
-import O4_DEM_Utils as DEM
 import O4_Default_Terrain_Map as DEFTER
+import O4_DEM_Utils as DEM
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Mask_Utils as MASK
@@ -22,6 +22,7 @@ import O4_Mesh_Utils as MESH
 import O4_Overlay_Utils as OVL
 import O4_Tile_Staging as STAGING
 import O4_UI_Utils as UI
+from PIL import Image, ImageDraw
 
 quad_init_level = 3
 quad_capacity_high = 50000
@@ -711,6 +712,35 @@ def splice_measured_bathymetry(tile, bDEMN, bDEMS):
     if measured is None:
         return (bDEMN, bDEMS)
 
+    def measured_over_the_sea(elevation, sea_level):
+        valid_water = (measured > -32000.0) & (measured <= 0.0)
+        sea_level[valid_water] = numpy.clip(
+            numpy.round(
+                numpy.minimum(
+                    measured[valid_water],
+                    (elevation[valid_water] - 2).astype(numpy.float32),
+                )
+            ),
+            -32768,
+            32767,
+        ).astype(numpy.int16)
+        UI.vprint(
+            1,
+            "     Splicing measured bathymetry into the donor"
+            " sea_level raster.",
+        )
+        return sea_level
+
+    return (bDEMN, edit_sea_level(bDEMS, measured_over_the_sea))
+
+
+def edit_sea_level(bDEMS, edit):
+    """``bDEMS`` with its ``sea_level`` raster replaced by
+    ``edit(elevation, sea_level)`` (both ``1201 x 1201`` int16, row 0
+    south; ``sea_level`` a writable copy).  The other sub-atoms are kept
+    byte for byte; a blob whose rasters are not that shape is returned
+    unedited.
+    """
     # Walk the sub-atom concatenation exactly like the extraction loop:
     # the first two large DMED payloads are elevation then sea_level.
     expected_bytes = 2 * DSF_RASTER_POSTS * DSF_RASTER_POSTS
@@ -740,32 +770,39 @@ def splice_measured_bathymetry(tile, bDEMN, bDEMS):
                     .reshape(DSF_RASTER_POSTS, DSF_RASTER_POSTS)
                     .copy()
                 )
-                valid_water = (measured > -32000.0) & (measured <= 0.0)
-                sea_level[valid_water] = numpy.clip(
-                    numpy.round(
-                        numpy.minimum(
-                            measured[valid_water],
-                            (elevation[valid_water] - 2).astype(
-                                numpy.float32
-                            ),
-                        )
-                    ),
-                    -32768,
-                    32767,
-                ).astype(numpy.int16)
-                payload = sea_level.tobytes()
-                UI.vprint(
-                    1,
-                    "     Splicing measured bathymetry into the donor"
-                    " sea_level raster.",
-                )
+                payload = edit(elevation, sea_level).tobytes()
         rebuilt += (
             sub_atom_header
             + struct.pack("<I", 8 + len(payload))
             + payload
         )
         position += sub_atom_length
-    return (bDEMN, rebuilt)
+    return rebuilt
+
+
+def inland_bed(bDEMS, node_coords, tri_idx, tri_types, tile):
+    """Inland water's own shallow bed (#1395, RULINGS 2026-10-26f):
+    ``(bDEMS, node_scale)`` with the ``sea_level`` raster set to the
+    surface less ``BATHY.INLAND_BED_DEPTH_M`` under inland water, and the
+    per-vertex ratio factor that caps what the raster cannot follow
+    (``node_scale`` is ``None`` when the blob has no such raster).
+    """
+    result = {}
+
+    def own_bed(_elevation, sea_level):
+        posts = BATHY.set_inland_bed(
+            sea_level, node_coords, tri_idx, tri_types, tile.lat, tile.lon)
+        result["scale"] = BATHY.inland_depth_scale(
+            sea_level, node_coords, tri_idx, tri_types, tile.lat, tile.lon)
+        UI.vprint(
+            1,
+            "     Inland water bed: " + str(posts) + " sea_level posts set "
+            + str(BATHY.INLAND_BED_DEPTH_M) + " m under the surface.",
+        )
+        return sea_level
+
+    bDEMS = edit_sea_level(bDEMS, own_bed)
+    return (bDEMS, result.get("scale"))
 
 
 def _global_scenery_donor_exists(lat, lon) -> bool:
@@ -888,6 +925,18 @@ def _build_dsf_body(tile, download_queue):
     UI.vprint(1, "-> Computing bathymetry depth ratio bounds based on distance masks")
     node_bathy = BATHY.compute_depth_ratio_bounds_from_masks(
                             nbr_nodes, node_coords, node_types, tile)
+    # Inland water has no distance mask: ramp its depth from its own
+    # shoreline the same way, or a pond is drawn as a pit (#1336).
+    BATHY.inland_depth_from_shore(
+        node_bathy, node_coords, tri_idx, tri_types, tile.lat)
+
+    # Transfer DEM and bathymetry raster from Global Scenery tiles, or
+    # synthesize / splice them from measured coastal bathymetry
+    # (docs/specs/coastal-bathymetry-spec.md section 5); then inland water
+    # gets its own shallow bed, never the sea's depth (#1395).
+    (bDEMN, bDEMS) = elevation_and_bathymetry_data(tile)
+    (bDEMS, node_scale) = inland_bed(
+        bDEMS, node_coords, tri_idx, tri_types, tile)
     
     UI.vprint(1, "-> Computing point pools and texture requirements")
 
@@ -1052,9 +1101,9 @@ def _build_dsf_body(tile, download_queue):
     bOBJT = b""
     bPOLY = b""
     bNETW = b""
-    bDEMN = b""
+    # bDEMN / bDEMS (the rasters) were read before the depth ratios, for
+    # the inland bed (#1395).
     bGEOD = b""
-    bDEMS = b""
     bCMDS = b""
 
     nbr_dsfpools_yet_in = 0
@@ -1196,7 +1245,7 @@ def _build_dsf_body(tile, download_queue):
                 dsf_pools[idx_dsfpool].extend(node_icoords[5 * n : 5 * n + 3])
                 dsf_pools[idx_dsfpool].extend((32768, 32768))
                 ratio_bathy = BATHY.set_depth_ratio(
-                    n, node_is_coast, node_bathy, tile
+                    n, node_is_coast, node_bathy, tile, node_scale
                 )
                 ratio_fetch = 1
                 dsf_pools[idx_dsfpool].extend(
@@ -1518,7 +1567,7 @@ def _build_dsf_body(tile, download_queue):
                         )
                         # TODO (improve fetch values)
                         ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
-                                                            node_bathy, tile)
+                                                            node_bathy, tile, node_scale)
                         ratio_fetch = 1
                         dsf_pools[idx_dsfpool].extend(
                             (int(65535 * ratio_fetch), int(65535 * ratio_bathy), 
@@ -1565,7 +1614,7 @@ def _build_dsf_body(tile, download_queue):
                     )
                     dsf_pools[idx_dsfpool].extend((32768, 32768))
                     ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
-                                                        node_bathy, tile)
+                                                        node_bathy, tile, node_scale)
                     # TODO improve bathy and fetch ratio variety
                     ratio_fetch = 1
                     dsf_pools[idx_dsfpool].extend((int(65535 * ratio_fetch),
@@ -1801,7 +1850,7 @@ def _build_dsf_body(tile, download_queue):
                     )
                     dsf_pools[idx_dsfpool].extend((32768, 32768))
                     ratio_bathy = BATHY.set_depth_ratio(n, node_is_coast,
-                                                        node_bathy, tile)
+                                                        node_bathy, tile, node_scale)
                     ratio_fetch = 1
                     dsf_pools[idx_dsfpool].extend((int(65535 * ratio_fetch),
                                                    int(65535 * ratio_bathy))) 
@@ -1868,11 +1917,6 @@ def _build_dsf_body(tile, download_queue):
         )
     else:
         bPROP += b"sim/creation_agent\0Patched by Ortho4XP\0"
-
-    # Transfer DEM and bathymetry raster from Global Scenery tiles, or
-    # synthesize / splice them from measured coastal bathymetry
-    # (docs/specs/coastal-bathymetry-spec.md section 5).
-    (bDEMN, bDEMS) = elevation_and_bathymetry_data(tile)
 
     # Computation of intermediate and of total length
     size_of_head_atom = 16 + len(bPROP)

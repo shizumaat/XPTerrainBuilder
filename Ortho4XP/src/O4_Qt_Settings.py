@@ -1245,6 +1245,15 @@ class SettingsWindow(QDialog):
         self.detail_combo.blockSignals(False)
         self._refresh_presets()
 
+    def show_customized_only(self):
+        """Open on the This-tile view with the Customized filter on: the
+        tile pane's "Edit settings…" (#1350; the Mac app opens its
+        Selected Overrides pane)."""
+        if not self.blended:
+            return
+        self.category_list.setCurrentRow(0)
+        self.customized_chip.setChecked(True)
+
     def _refresh_customized_chip(self):
         self.customized_chip.setText(
             "Customized (%d)" % len(self._override_union())

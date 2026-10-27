@@ -14,7 +14,7 @@ import os
 import O4_File_Names as FNAMES
 import O4_UI_Utils as UI
 
-from elevation_access.base import ProviderUnavailable
+from elevation_access.base import ProviderQueryError, ProviderUnavailable
 from elevation_access.capabilities import (
     lerc_decode_available,
     lerc_worker_argv,
@@ -103,6 +103,20 @@ class StaticStacCatalogStrategy:
             response, "static catalog request %s" % url
         )
 
+    def _fetch_child_json(self, session, url):
+        """A collection or item document, or ``None`` when it is refused.
+
+        One broken link inside an intact catalog (a 403 from a bucket
+        that hides a missing key) is skipped as it always was; the
+        refusal is still printed loudly by the discovery classifier.
+        Only the ROOT catalog's refusal is a provider query error
+        (#1328).
+        """
+        try:
+            return self._fetch_json(session, url)
+        except ProviderQueryError:
+            return None
+
     def _prefer_asset_keys(self, definition):
         return [
             token.strip()
@@ -185,7 +199,7 @@ class StaticStacCatalogStrategy:
         collections = {}
         for link in children:
             collection_url = urllib.parse.urljoin(catalog_url, link["href"])
-            collection = self._fetch_json(session, collection_url)
+            collection = self._fetch_child_json(session, collection_url)
             if not collection:
                 continue
             boxes = (
@@ -224,7 +238,7 @@ class StaticStacCatalogStrategy:
         entries = []
         for href in item_hrefs:
             item_url = urllib.parse.urljoin(collection_url, href)
-            item = self._fetch_json(session, item_url)
+            item = self._fetch_child_json(session, item_url)
             if not item or not item.get("bbox"):
                 continue
             selected = _select_stac_dtm_assets([item], prefer)

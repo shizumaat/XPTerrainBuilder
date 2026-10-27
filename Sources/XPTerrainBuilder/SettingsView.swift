@@ -55,6 +55,17 @@ struct SettingsView: View {
             detail(overrides: overrides)
         }
         .frame(minWidth: 840, idealWidth: 880, minHeight: 560, idealHeight: 620)
+        // "Edit settings…" in the tile pane (#1350) asks for a pane: the
+        // tile's Selected Overrides, whether the window is new or open.
+        .onAppear { takePaneRequest() }
+        .onChange(of: buildModel.settingsPaneRequest) { takePaneRequest() }
+    }
+
+    private func takePaneRequest() {
+        guard let pane = buildModel.settingsPaneRequest else { return }
+        query.value = ""
+        selection.value = pane
+        buildModel.settingsPaneRequest = nil
     }
 
     private var searchField: some View {

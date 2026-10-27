@@ -280,7 +280,7 @@ def main():
         sys.exit(0)
 
     # Imported only after the data root is settled: these capture paths
-    # (and O4_Config_Utils creates a default Ortho4XP.cfg) at import time.
+    # (and O4_Config_Utils creates a default XPTerrainBuilder.cfg) at import time.
     import O4_File_Names as FNAMES
 
     # macOS takes the icon from the .app bundle; this covers the window /

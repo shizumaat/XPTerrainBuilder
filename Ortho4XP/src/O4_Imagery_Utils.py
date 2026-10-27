@@ -22,10 +22,12 @@ import O4_Color_Harmonization as HARMONIZE
 import O4_DDS_Cache as DDSCACHE
 import O4_DDS_Encode as DDSENC
 import O4_DDS_File as DDS
+import O4_File_Lock as FILE_LOCK
 import O4_File_Names as FNAMES
 import O4_Geo_Utils as GEO
 import O4_Http_Pushback as PUSHBACK
 import O4_Imagery_Async as FETCH_ASYNC
+import O4_Machine_Slots as MACHINE_SLOTS
 import O4_Mask_Utils as MASK
 import O4_Triangle_Run as TRIANGLE_RUN
 import O4_OSM_Utils as OSM
@@ -33,15 +35,17 @@ import O4_Sea_Nodata_Fill as SEA_FILL
 import O4_Text_Files as TEXT
 import O4_UI_Utils as UI
 import O4_Vector_Utils as VECT
-from O4_Parallel_Utils import parallel_execute
+from O4_Parallel_Utils import effective_download_slots, parallel_execute
 
 Image.MAX_IMAGE_PIXELS = 1000000000  # Not a decompression bomb attack!
 
 # The solved colour-correction field is persisted beside the textures so a
 # rerun that converts a SUBSET of them reproduces what was built before
 # (colour-harmonization spec §3); the imagery manifest records its name.
+# Version 3 stores the values losslessly (#1223); a version-2 sidecar was
+# rounded to 3 decimals, so it fails the settings hash and is re-solved.
 COLOR_FIELD_FILE = "color_field.json"
-COLOR_FIELD_VERSION = 2
+COLOR_FIELD_VERSION = 3
 
 has_URL = False
 try:
@@ -1222,10 +1226,52 @@ def provider_timeout(value):
     return seconds if 0 < seconds < float("inf") else None
 
 
+#: orthophotos this process builds at once (``O4_Tile_Utils`` sets it from
+#: ``max_download_slots``): with the provider's ``max_threads`` it is the
+#: per-process request count that sizes a server's session budget (the
+#: Auto value until a tile's download queue opens)
+textures_in_parallel = effective_download_slots(0)
+
+
+def provider_max_threads(provider):
+    """The provider's ``max_threads`` (request threads per orthophoto)."""
+    try:
+        return max(1, int(provider.get("max_threads", 16)))
+    except (TypeError, ValueError):
+        return 16
+
+
+def host_request_limit(provider):
+    """Requests the whole build session may have in flight on this
+    provider's server (#1236): what ONE tile process sends today —
+    ``max_threads`` per orthophoto times the orthophotos it builds at
+    once — so a lone tile downloads as before and ten tiles share it."""
+    return provider_max_threads(provider) * max(1, int(textures_in_parallel or 1))
+
+
+@contextlib.contextmanager
+def _server_request_slot(url, http_session, host_limit):
+    """Hold one slot of the server's session-wide request budget (#1236)
+    for one GET: every tile process of the session draws on the same
+    ``host_limit`` slots of ``net:<host>``.  No limit, or a part whose
+    answer was prefetched (it makes no request), holds nothing; the wait
+    is bounded and ends on Stop (``O4_Machine_Slots.take_class``)."""
+    if not host_limit or getattr(http_session, "next_is_prefetched", False):
+        yield
+        return
+    with MACHINE_SLOTS.hold_class(MACHINE_SLOTS.net_class(url), host_limit,
+                                  give_up=lambda: UI.red_flag):
+        yield
+
+
 def http_request_to_image(
-    width, height, url, request_headers, http_session, timeout=None
+    width, height, url, request_headers, http_session, timeout=None,
+    host_limit=None,
 ):
-    """GET one image; ``timeout`` is the provider's own (s), else http_timeout."""
+    """GET one image; ``timeout`` is the provider's own (s), else http_timeout.
+
+    ``host_limit`` (:func:`host_request_limit`) shares the server between
+    every tile of the build session: each GET holds one of its slots."""
     UI.vprint(
         3, "HTTP request issued :", url, "\nRequest headers :", request_headers
     )
@@ -1240,13 +1286,16 @@ def http_request_to_image(
         if not PUSHBACK.wait_for_host(url):
             return (0, "Stopped")
         try:
-            fetch_t0 = time.time()
-            if request_headers:
-                r = http_session.get(
-                    url, timeout=timeout, headers=request_headers
-                )
-            else:
-                r = http_session.get(url, timeout=timeout)
+            with _server_request_slot(url, http_session, host_limit):
+                if UI.red_flag:
+                    return (0, "Stopped")
+                fetch_t0 = time.time()
+                if request_headers:
+                    r = http_session.get(
+                        url, timeout=timeout, headers=request_headers
+                    )
+                else:
+                    r = http_session.get(url, timeout=timeout)
             # Feed the download meter: current network throughput for the
             # build-time estimate (content is already fully read here —
             # non-streaming get).
@@ -1397,7 +1446,7 @@ def get_wms_image(bbox, width, height, provider, http_session):
     (url, request_headers) = wms_request(bbox, width, height, provider)
     (success, data) = http_request_to_image(
         width, height, url, request_headers, http_session,
-        timeout=provider.get("timeout"),
+        timeout=provider.get("timeout"), host_limit=host_request_limit(provider),
     )
     if success:
         return (1, data)
@@ -1568,6 +1617,7 @@ def get_wmts_image(tilematrix, til_x, til_y, provider, http_session):
         (success, data) = http_request_to_image(
             width, height, url, request_headers, http_session,
             timeout=provider.get("timeout"),
+            host_limit=host_request_limit(provider),
         )
         if success and not down_sample:
             return (success, data)
@@ -1654,10 +1704,7 @@ def build_texture_from_tilbox(tilbox, zoomlevel, provider, progress=None):
     width = height = provider["tile_size"]
     big_image = Image.new("RGB", (width * parts_x, height * parts_y))
     # the number of workers (and the async fetcher's in-flight cap)
-    if "max_threads" in provider:
-        max_threads = int(provider["max_threads"])
-    else:
-        max_threads = 16
+    max_threads = provider_max_threads(provider)
     # we set-up the queue of downloads
     http_session = requests.Session()
     sessions = {}
@@ -1725,6 +1772,7 @@ def _prefetch_tilbox_parts(tilbox, zoomlevel, provider, max_threads, fallback):
     results = FETCH_ASYNC.fetch_parts(
         parts, code, max_threads, should_stop=lambda: UI.red_flag,
         on_result=meter, timeout_s=provider.get("timeout"),
+        host_limit=host_request_limit(provider),
     )
     return {
         key: FETCH_ASYNC.PartSession(FETCH_ASYNC.answer_of(result), fallback)
@@ -1857,10 +1905,7 @@ def build_texture_from_bbox_and_size(t_bbox, t_epsg, t_size, provider):
                 ]
             download_queue.put(fargs)
     # We execute the downloads and subimage pastes
-    if "max_threads" in provider:
-        max_threads = int(provider["max_threads"])
-    else:
-        max_threads = 16
+    max_threads = provider_max_threads(provider)
     if provider["request_type"] == "wms":
         success = parallel_execute(
             get_and_paste_wms_part, download_queue, max_threads
@@ -2007,6 +2052,32 @@ def download_jpeg_ortho(
     return 1
 
 
+def download_orthophoto_once(file_dir, file_name, *texture_attributes,
+                             on_download=None, **options):
+    """:func:`download_jpeg_ortho` behind a lock on the orthophoto file that
+    every process and thread of the machine shares (#1236, ``O4_File_Lock``).
+
+    Two tiles whose texture sets meet (a ``grouped`` or ``code`` imagery
+    folder, a texture across the tile edge) or a tile's background prefetch
+    and its imagery step would otherwise download the same orthophoto at
+    once.  The second waits on the lock, then finds the file and reuses
+    it (1, no request).  ``on_download()`` runs only when THIS call
+    downloads.  The wait is bounded (``hold_file_lock``): past it the
+    download goes ahead, the pre-lock behaviour."""
+    with contextlib.suppress(OSError):    # a denied folder: the download says so
+        os.makedirs(file_dir, exist_ok=True)
+    path = os.path.join(file_dir, file_name)
+    with FILE_LOCK.hold_file_lock(path):
+        if artifact_state(path) == "present":
+            UI.vprint(2, "   The orthophoto " + file_name
+                      + " was downloaded by another build meanwhile.")
+            return 1
+        if on_download is not None:
+            on_download()
+        return download_jpeg_ortho(
+            file_dir, file_name, *texture_attributes, **options)
+
+
 ################################################################################
 
 ################################################################################
@@ -2097,9 +2168,9 @@ def build_jpeg_ortho(
                         + provider_code
                         + ")",
                     )
-                    note_orthophoto_download(tile)
-                    if not download_jpeg_ortho(
-                        true_file_dir, true_file_name, *true_texture_attributes
+                    if not download_orthophoto_once(
+                        true_file_dir, true_file_name, *true_texture_attributes,
+                        on_download=lambda: note_orthophoto_download(tile),
                     ):
                         return 0
                 else:
@@ -2169,9 +2240,9 @@ def build_jpeg_ortho(
             return 0
         if state == "absent":
             UI.vprint(1, "   Downloading missing orthophoto " + file_name)
-            note_orthophoto_download(tile)
-            if not download_jpeg_ortho(
-                file_dir, file_name, *texture_attributes
+            if not download_orthophoto_once(
+                file_dir, file_name, *texture_attributes,
+                on_download=lambda: note_orthophoto_download(tile),
             ):
                 return 0
         else:

@@ -7,7 +7,9 @@ map overlays and tile-info pane, but has no knowledge of any UI toolkit.
 
 A "build directory" is the folder that holds a tile's ``Earth nav data``
 tree (the ``.dsf``), its mesh/data files, its ``textures`` folder and the
-per-tile ``Ortho4XP_<short_latlon>.cfg``.  Two on-disk layouts exist:
+per-tile ``XPTerrainBuilder_<short_latlon>.cfg`` (an Ortho4XP tile config
+beside it is ignored — owner RULINGS 2026-10-26c).  Two on-disk layouts
+exist:
 
 * *per-tile* (``grouped=False``) — ``working_dir`` is the parent of many
   ``*XP_<short_latlon>`` sub-directories, one build dir per tile.
@@ -26,6 +28,7 @@ import sys
 from dataclasses import dataclass
 from typing import Iterator, Optional, Tuple
 
+import O4_Config_Names as CN
 import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
@@ -62,17 +65,14 @@ class TileInfo:
 # Internal helpers
 ##############################################################################
 def _cfg_candidates(build_dir: str, lat: int, lon: int) -> list[str]:
-    """Return the config paths to try, in priority order.
+    """Return the config paths to try: this app's own tile config only.
 
-    The short-latlon named config is preferred over the legacy generic
-    ``Ortho4XP.cfg`` name, matching the legacy detection code.
+    Ortho4XP's ``Ortho4XP_+XX+YYY.cfg`` and its older generic
+    ``Ortho4XP.cfg`` are ignored (owner RULINGS 2026-10-26c): a tile an
+    old Ortho4XP built shows no provider from its config, and the library
+    reads the imagery from the texture names instead.
     """
-    return [
-        os.path.join(
-            build_dir, "Ortho4XP_" + FNAMES.short_latlon(lat, lon) + ".cfg"
-        ),
-        os.path.join(build_dir, "Ortho4XP.cfg"),
-    ]
+    return [CN.tile_cfg_path(build_dir, lat, lon)]
 
 
 def _parse_cfg(
@@ -91,7 +91,8 @@ def _parse_cfg(
     zoom-level row.
 
     Only these keys are inspected; the file is never executed.  Legacy
-    configs (old generic ``Ortho4XP.cfg``) quote string values
+    configs (old Ortho4XP ones, read here only for a scenery pack's
+    imagery — ``O4_Custom_Scenery``) quote string values
     (``default_website='Arc'``) — quotes are stripped, matching
     ``O4_Settings_Model._strip_legacy_quotes``.
     """
@@ -236,20 +237,10 @@ def _build_tile_info(
     )
     dsf_present = os.path.isfile(dsf_path)
 
-    # FIRST TOUCH MOVES A PRE-1.0.352 CFG (owner RULINGS 2026-09-18c (2)).
-    # The info pane is a first touch like any other: scanning a tile must
-    # not show a legacy file's frozen provider/ZL when the build itself
-    # will retire that file and inherit from the global.  Scoped to the
-    # CANONICAL Ortho4XP_+XX+YYY.cfg name — a generic legacy-named
-    # Ortho4XP.cfg in a build dir is not read by the build at all and
-    # stays for the existing legacy-modernise flow
-    # (O4_Settings_Model.legacy_tile_settings).
-    try:
-        import O4_Settings_Model as SM               # noqa: PLC0415 — lazy
-        SM.retire_unstamped_tile_cfg(
-            _cfg_candidates(build_dir, lat, lon)[0])
-    except Exception:
-        pass
+    # THE TILE'S ONE-TIME HAND-OVER (owner RULINGS 2026-10-26c): a scan is
+    # a first touch like any other, so the info pane reads the same file
+    # the build will — and every scanned tile gets its earlier backup back.
+    CN.adopt_tile_cfg(build_dir, lat, lon)
 
     cfg_path = next(
         (p for p in _cfg_candidates(build_dir, lat, lon) if os.path.isfile(p)),
@@ -419,19 +410,27 @@ def tile_info(
     return scan_tiles(working_dir, grouped=False).get((lat, lon))
 
 
+def tree_size(path: str) -> int:
+    """Sum the byte size of every file under ``path`` (0 when absent).
+
+    Symlinks are not followed: a linked folder is somebody else's bytes.
+    """
+    total = 0
+    for root, _dirs, files in os.walk(path, followlinks=False):
+        for name in files:
+            try:
+                total += os.stat(os.path.join(root, name),
+                                 follow_symlinks=False).st_size
+            except OSError:
+                pass
+    return total
+
+
 def compute_size(info: TileInfo) -> int:
     """Sum the byte size of every file under ``info.build_dir``.
 
     Symlinks are not followed.  The result is stored on ``info.size_bytes``
     and also returned.
     """
-    total = 0
-    for root, _dirs, files in os.walk(info.build_dir, followlinks=False):
-        for name in files:
-            path = os.path.join(root, name)
-            try:
-                total += os.stat(path, follow_symlinks=False).st_size
-            except OSError:
-                pass
-    info.size_bytes = total
-    return total
+    info.size_bytes = tree_size(info.build_dir)
+    return info.size_bytes

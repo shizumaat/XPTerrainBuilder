@@ -27,7 +27,8 @@ from O4_Tile_Failures import SEVERITY_LABELS
 __all__ = ["AIRPORT_FAILED_LINE", "REPORT_BUTTON", "SAVE_REPORT_BUTTON",
            "console_lines", "report_phrase", "box_texts", "tile_report",
            "REMOVE_LINK_BUTTON", "REQUEUED_LINE", "BUILD_AGAIN_BUTTON",
-           "removable_links", "issues_box", "severity_label"]
+           "removable_links", "issues_box", "severity_label",
+           "BUILT_WITH_WARNINGS", "REOPEN_TOOLTIP"]
 
 # --- copy (identical to the mac app's O4TileFailureCopy) ----------------
 REPORT_BUTTON = "Report this problem"
@@ -48,6 +49,11 @@ REMOVE_LINK_BUTTON = ("Remove the link and build on this %s drive"
 REQUEUED_LINE = "Fixed and re-queued."
 # #821: re-queue the run's failed and not-started tiles, same options.
 BUILD_AGAIN_BUTTON = "Build failed tiles again"
+# #1341: a finished Activity row's status (the mac app's
+# O4TileFailureCopy.builtWithWarnings / reopenHelp); clicking it reopens
+# the tile's messages.
+BUILT_WITH_WARNINGS = "built with warnings"
+REOPEN_TOOLTIP = "Show this tile's messages again"
 
 # The live line for one airport, while its tile is still building.
 AIRPORT_FAILED_LINE = ("*** Tile {tile}: airport {airport} could not be "

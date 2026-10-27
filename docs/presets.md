@@ -88,8 +88,8 @@ twice the size, but that is not the default (`imprint_masks_to_dds` is False).
 
 **Cited: whole-tile disk.** `docs/TESTING-GUIDE.md` says "3–8 GB per tile at
 the default zoom". That covers the whole build folder, not just the textures.
-The Qt Build pane's existing rough estimate is 3.0 GB × 4^(zl − 16) per tile
-(`O4_Qt_GUI._update_build_summary`).
+Both apps now show the engine's per-tile ranges above Build instead of a
+rule of thumb (`o4_engine/plan_estimate.py`, #820).
 
 **Derived: relative imagery work.** Downloading and converting imagery scales
 with the texture count. Light on disk's imagery work is therefore a quarter of

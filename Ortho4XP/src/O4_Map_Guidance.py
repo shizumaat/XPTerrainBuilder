@@ -27,7 +27,7 @@ __all__ = [
     "visibility",
 ]
 
-HINT_TEXT = "Search your airport, or click its square on the map."
+HINT_TEXT = "Search your airport, or click its square on the map. Drag to move the map."
 SHOW_TIPS_TITLE = "Show Tips"
 EMPTY_SELECTION_TEXT = (
     "Nothing is selected yet. A tile is one 1° × 1° square of the map. "

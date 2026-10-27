@@ -1,5 +1,5 @@
 """``imagery_source_status`` — the launch-time imagery liveness check
-(protocol 1.15, #1345).
+(protocol 1.17, #1345).
 
 Replies ``{"started": true, "count": N}`` at once; one
 ``ImagerySourceStatus`` event per source follows from worker threads

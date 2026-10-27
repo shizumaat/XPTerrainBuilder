@@ -110,12 +110,14 @@ public struct OrthoEngine: Sendable, Equatable {
         FileManager.default.fileExists(atPath: root.appendingPathComponent("venv/bin/python3").path)
     }
 
-    /// Global config file (created by the engine on first import if absent).
-    /// With a data root set, the engine reads and writes it there
-    /// (ORTHO4XP_DATA_ROOT); otherwise it lives in the engine folder — the
-    /// engine's own source-checkout behavior.
+    /// Global config file, this app's own `XPTerrainBuilder.cfg` (created
+    /// by the engine on first import if absent; Ortho4XP's `Ortho4XP.cfg`
+    /// is never read or written — `OrthoConfigNames`). With a data root
+    /// set, the engine reads and writes it there (ORTHO4XP_DATA_ROOT);
+    /// otherwise it lives in the engine folder — the engine's own
+    /// source-checkout behavior.
     public func globalConfigURL(dataRoot: URL?) -> URL {
-        (dataRoot ?? root).appendingPathComponent("Ortho4XP.cfg")
+        (dataRoot ?? root).appendingPathComponent(OrthoConfigNames.globalFileName)
     }
 
     public var globalConfigURL: URL {
@@ -158,7 +160,7 @@ public struct OrthoEngine: Sendable, Equatable {
                   let tile = TileMath.parse(String(name.dropFirst("zOrtho4XP_".count)))
             else { continue }
             let cfg = entry.appendingPathComponent(
-                "Ortho4XP_" + TileMath.key(lat: tile.lat, lon: tile.lon) + ".cfg")
+                OrthoConfigNames.tileFileName(lat: tile.lat, lon: tile.lon))
             states.append(TileState(
                 lat: tile.lat, lon: tile.lon, buildDir: entry,
                 hasConfig: fm.fileExists(atPath: cfg.path),

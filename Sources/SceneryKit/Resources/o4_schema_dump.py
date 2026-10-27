@@ -78,7 +78,8 @@ def encode(name, spec):
 groups = {}
 for key, attr in (("app", "list_app_vars"), ("vector", "list_vector_vars"),
                   ("mesh", "list_mesh_vars"), ("mask", "list_mask_vars"),
-                  ("dsf", "list_dsf_vars"), ("other", "list_other_vars")):
+                  ("dsf", "list_dsf_vars"), ("other", "list_other_vars"),
+                  ("cache", "list_cache_vars")):
     groups[key] = list(getattr(CV, attr, []))
 
 json.dump(

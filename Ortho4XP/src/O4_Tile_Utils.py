@@ -53,6 +53,9 @@ def download_textures(
         1, workers or effective_download_slots(max_download_slots)
     )
     UI.vprint(1, f"-> Opening download queue with {worker_count} worker(s).")
+    # the per-process request count that sizes each server's session-wide
+    # budget (#1236, IMG.host_request_limit)
+    IMG.textures_in_parallel = worker_count
 
     progress_lock = threading.Lock()
     progress_state = {"done": 0, "pending": 0, "failed": 0}

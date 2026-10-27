@@ -6,9 +6,11 @@ The pack is found exactly as ``pack_objects`` finds it
 (``pack_objects.xplane_root_for`` + ``airport/pack.select_pack``), and its
 apt.dat block is read and flattened by ``auto_patch_v2/airport/apt_dat.py``
 — the one apt.dat reader, its bezier flattening included.  Rows 110
-(pavement) and 130 (boundary) become ``{kind, rings}``: the first ring is
-the exterior, later rings are the holes.  Building footprints are NOT
-here: the map draws them from the ``pack_objects`` result.
+(pavement) and 130 (boundary) become ``{kind, label, rings}``: the first
+ring is the exterior, later rings are the holes; ``label`` is the row's
+own description, or the kind when it has none (the map's labels, #1316).
+Building footprints are NOT here: the map draws them from the
+``pack_objects`` result.
 
 Synchronous and read-only: nothing is downloaded or regenerated; a
 problem is a sentence in ``missing``.
@@ -26,7 +28,7 @@ def _rings(rings: _t.Iterable[_t.Iterable[tuple[float, float]]]) -> list[list[li
 
 
 def pack_outlines(tile: str, icao: str) -> dict:
-    """``{pavement: [{kind, rings}], missing: [reason]}`` for ``icao``'s
+    """``{pavement: [{kind, label, rings}], missing: [reason]}`` for ``icao``'s
     pack, ``tile`` naming the build whose X-Plane folder is read."""
     from auto_patch_v2.airport import apt_dat as _apt
     from auto_patch_v2.airport import pack as _pack
@@ -55,9 +57,11 @@ def pack_outlines(tile: str, icao: str) -> dict:
         missing.append(f"The apt.dat of {sel.name} has an unreadable {icao} entry ({error}).")
         return out
     for pv in airport.pavements:
-        out["pavement"].append({"kind": "pavement", "rings": _rings(pv.rings)})
+        out["pavement"].append({"kind": "pavement", "label": pv.description or "pavement",
+                                "rings": _rings(pv.rings)})
     for bd in airport.boundaries:
-        out["pavement"].append({"kind": "boundary", "rings": _rings(bd.rings)})
+        out["pavement"].append({"kind": "boundary", "label": bd.description or "boundary",
+                                "rings": _rings(bd.rings)})
     if not airport.pavements:
         missing.append(f"The pack {sel.name} draws no pavement of its own for {icao}.")
     return out

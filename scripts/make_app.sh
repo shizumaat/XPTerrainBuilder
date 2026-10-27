@@ -107,6 +107,7 @@ else
     --exclude 'tests/' --exclude 'docs/' --exclude 'prototypes/' \
     --exclude 'tools/' --exclude 'Previews/' --exclude '.pytest_cache/' \
     --exclude 'Ortho4XP.cfg' --exclude 'Ortho4XP.cfg.bak' \
+    --exclude 'XPTerrainBuilder.cfg' --exclude 'XPTerrainBuilder.cfg.bak' \
     --exclude 'Tiles/' --exclude 'tmp/' --exclude 'OSM_data/' \
     --exclude 'Orthophotos/' --exclude 'Elevation_data/' --exclude 'Masks/' \
     --exclude 'Geotiffs/' --exclude '.DS_Store' \
@@ -196,6 +197,21 @@ case "$SIGN_IDENTITY" in
         fi
         ;;
 esac
+
+# THE SIGNED-ENGINE GDAL GATE (2026-10-26, apps 1.0.429–1.0.431): the
+# freeze-time checks passed while the SIGNED engine could not import osgeo,
+# so every lidar airport refused to patch in the owner's app.  The engine
+# that ships is the signed one, so it is the one asked.
+SIGNED_ENGINE="$STAGE/Contents/Resources/Engine/Ortho4XP"
+if [[ -x "$SIGNED_ENGINE" ]]; then
+    GDAL_SELFCHECK="$("$SIGNED_ENGINE" --import-selfcheck osgeo.gdal 2>&1 | head -1)"
+    case "$GDAL_SELFCHECK" in
+        "osgeo.gdal: ok"*) echo "Signed engine loads GDAL ($GDAL_SELFCHECK)" ;;
+        *) echo "ERROR: the signed engine cannot load GDAL: $GDAL_SELFCHECK" >&2
+           echo "       (lidar insets would be disabled in this app; see scripts/XPTerrainBuilder.entitlements)" >&2
+           exit 1 ;;
+    esac
+fi
 
 rm -rf "$APP"
 mkdir -p "$ROOT/dist.nosync"

@@ -52,7 +52,9 @@ import subprocess
 import sys
 import urllib.parse
 
-from .selection import DEFAULT_MODE as _MODE_VALUED_KEYS, normalize_mode
+from . import config_gates as _config_gates
+from .selection import DEFAULT_MODE as _MODE_VALUED_KEYS
+from .selection import normalize_mode
 
 
 # Master gate for the whole feature.  ON by default (provenance should be on
@@ -129,15 +131,8 @@ def git_provenance(cwd: str | None = None) -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 # Facet 2 — gate configuration (config.py introspection)
 # ──────────────────────────────────────────────────────────────────────────────
-# Matches ``environ.get("O4_NAME", "default")`` regardless of the os alias
-# (``_os`` / ``_os_early``) or an enclosing ``int(...)`` / ``float(...)`` cast.
-# Only two-argument calls with a STRING default are captured; a bare
-# ``environ.get("O4_X")`` (default None) is intentionally skipped.
-_ENV_GATE_RE = re.compile(
-    r"""environ\.get\(\s*["'](O4_[A-Za-z0-9_]+)["']\s*,\s*["']([^"']*)["']"""
-)
-
-
+# The gate parse itself lives in ``config_gates`` so the ``.spec`` files can
+# run it at freeze time and ship the result as data (#1321).
 def _config_source_path() -> str | None:
     """Absolute path to the ``auto_patch.config`` source file, or None."""
     try:
@@ -166,16 +161,7 @@ def _gate_defaults(source_path: str) -> dict:
     cached = _GATE_DEFAULTS_CACHE.get(key)
     if cached is not None:
         return cached
-    try:
-        with open(source_path, "r", encoding="utf-8") as handle:
-            text = handle.read()
-    except OSError:
-        return {}
-    defaults: dict = {}
-    for match in _ENV_GATE_RE.finditer(text):
-        # A gate can be referenced more than once; keep the first default seen
-        # (they agree in practice) but never overwrite with a later duplicate.
-        defaults.setdefault(match.group(1), match.group(2))
+    defaults = _config_gates.source_gate_defaults(source_path)
     _GATE_DEFAULTS_CACHE.clear()          # one source per process in practice
     _GATE_DEFAULTS_CACHE[key] = defaults
     return defaults
@@ -185,18 +171,26 @@ def introspect_config_gates(source_path: str | None = None) -> dict:
     """Enumerate every ``O4_`` env gate declared in ``config.py``.
 
     Reads the config module's SOURCE (not a hand-maintained list) so the gate
-    inventory tracks the code automatically.  Returns
+    inventory tracks the code automatically.  A frozen engine has no source:
+    with no ``source_path`` given it reads the same parse that the freeze
+    wrote as data (``config_gates.json``, #1321), so the frozen and source
+    engines enumerate the same gates.  Returns
     ``{name: {"default": str, "value": str, "is_boolean": bool}}`` where
     ``value`` is the live ``os.environ`` value falling back to the in-source
     default, and ``is_boolean`` marks gates whose default is ``"0"`` / ``"1"``.
-    Returns an empty dict when the source cannot be read.
+    Returns an empty dict when neither the source nor the table can be read.
     """
-    if source_path is None:
+    explicit = source_path is not None
+    if not explicit:
         source_path = _config_source_path()
-    if not source_path or not os.path.isfile(source_path):
+    if source_path and os.path.isfile(source_path):
+        defaults = _gate_defaults(source_path)
+    elif explicit:
         return {}
+    else:
+        defaults = _config_gates.frozen_gate_defaults() or {}
     gates: dict = {}
-    for name, default in _gate_defaults(source_path).items():
+    for name, default in defaults.items():
         gates[name] = {
             "default": default,
             "value": os.environ.get(name, default),
@@ -611,7 +605,14 @@ def parse_patch_provenance(path: str) -> dict | None:
 # gate reads ``o4_osm`` (the OSM feeds' witness, written by v2's emitter
 # beside ``o4_apt_dat_borrowed``).  Every "4" patch rebuilds exactly once —
 # through the v2 stage cache (#843).
-FRESHNESS_SCHEMA_VERSION = "5"
+# "6" (2026-10-26, owner Q158): ``o4_engine`` is no longer compared — a new
+# engine version whose patch-build code is unchanged (``o4_code``) keeps the
+# patch.  ``o4_tools`` (``provenance_tools``: the native tools, the
+# third-party library versions, Python) joined, so a new toolchain still
+# rebuilds every airport.  ``o4_engine`` is still WRITTEN (it names the
+# engine that built the patch), never compared.  Every "5" patch rebuilds
+# exactly once.
+FRESHNESS_SCHEMA_VERSION = "6"
 
 # Stamp keys the gate compares one-for-one.  ``o4_dsf_tiles`` is deliberately
 # NOT here: it is an INPUT to the recomputation of ``o4_dsf`` (which 1°×1°
@@ -627,14 +628,16 @@ FRESHNESS_COMPARED_KEYS = (
     "o4_solve_cfg",
     "o4_cifp",
     "o4_pack",
-    "o4_engine",
+    "o4_tools",
     "o4_code",
     "o4_ap_engine",
     "o4_dsf",
 )
 
 # Every stamp key written, in the order they appear on the root element.
-FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles",)
+#: ``o4_engine`` is written for the reader (which engine built it), never
+#: compared (owner Q158, 2026-10-26).
+FRESHNESS_KEYS = FRESHNESS_COMPARED_KEYS + ("o4_dsf_tiles", "o4_engine")
 
 # ──────────────────────────────────────────────────────────────────────
 # THE TILE CFG VARS THE AIRPORT BUILD READS — and which stamp carries each
@@ -708,13 +711,14 @@ def identity_list(paths) -> str:
 #   o4_code         driver._freshness_stamps_now (the engine's source digest)
 #   o4_engine       driver._freshness_stamps_now (the engine version; the v2
 #                   emitter's own default, emit/osm_adapter.render_patch)
+#   o4_tools        driver._freshness_stamps_now (the toolchain's digest)
 #   o4_fresh_v      engine_v2._stamp_header (this module's schema version)
 #   o4_apt_dat_mtime           engine_v2._stamp_header (the input's mtime)
 #   o4_apt_dat_borrowed_mtime  pipeline/build.borrowed_apt_dat_stamp
 #
 # Every other stamp (the inputs' fingerprints, the pack, the ICAO, the
 # ruleset) and every byte below the root line IS hashed.
-PER_RUN_STAMP_KEYS = ("o4_code", "o4_engine", "o4_fresh_v",
+PER_RUN_STAMP_KEYS = ("o4_code", "o4_engine", "o4_tools", "o4_fresh_v",
                       "o4_apt_dat_mtime", "o4_apt_dat_borrowed_mtime")
 
 _PER_RUN_STAMP_RE = re.compile(
@@ -1105,9 +1109,11 @@ def engine_version() -> str:
     """The running engine's version string, or ``absent``.
 
     Imported the way the rest of the engine does it (``import O4_Version``).
-    The version carries a build number that increments on every engine build,
-    so this stamp invalidates every patch whenever a new engine is built —
-    intended (owner 2026-07-24): a rebuilt engine may emit different geometry.
+    Stamped on every patch as ``o4_engine`` to name the engine that built
+    it; NOT compared by the freshness gate since owner Q158 (2026-10-26),
+    which superseded the 2026-07-24 ruling that every engine build
+    invalidates every patch: ``o4_code`` and ``o4_tools`` carry what a
+    rebuilt engine can change.
     """
     try:
         import O4_Version

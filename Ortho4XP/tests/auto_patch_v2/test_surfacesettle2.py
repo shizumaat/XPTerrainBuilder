@@ -158,7 +158,10 @@ def test_stage_2_cannot_release_a_join_stage_1_read():
 
 def test_the_law_names_the_join_as_the_pin_that_yields():
     d = Law.load().tables.emit.design
-    assert tuple(d.yielding_pin_rulings) == ("roads.coverage_edge join",)
+    # the join, and (owner RULINGS 2026-10-26b, issue #1346) the CIFP
+    # threshold the tile seam outranks — ``constraints/threshold_seam``
+    assert tuple(d.yielding_pin_rulings) == ("roads.coverage_edge join",
+                                             "runway.threshold yields to the tile seam")
     assert ruling_head(Pin(0, 0.0, Source(GEN, JOIN_RULING))) in d.yielding_pin_rulings
     # the pin that yields is not a hard row: it is a Pin, reduced away
     assert "roads.coverage_edge join" not in d.hard_rulings

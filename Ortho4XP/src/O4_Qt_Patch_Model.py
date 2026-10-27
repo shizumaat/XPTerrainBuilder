@@ -19,6 +19,7 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QUndoCommand, QUndoStack
 
 import O4_File_Names as FNAMES
+import O4_Qt_Patch_Elevation as ELEV
 import O4_Qt_Patch_ShapePick as PICK
 from o4_engine import patch_edit as PE
 
@@ -321,6 +322,34 @@ class PatchEditModel(QObject):
             self.select_node(new_id)
         return done
 
+    def slice_args(self) -> dict:
+        """``slice_shape``'s arguments for the selection (#1318): exactly two
+        nodes, not neighbours, on one shape — the selected shape when it
+        holds both.  Raises ``ValueError`` saying why Slice is not offered."""
+        if self.doc is None or len(self.selection) != 2:
+            raise ValueError("Select two nodes of one shape that are not neighbours.")
+        a, b = sorted(self.selection)
+        chosen = [w for w in self.shape_selection
+                  if any(x.id == w and a in x.refs and b in x.refs for x in self.doc.ways)]
+        way = chosen[0] if len(chosen) == 1 else None
+        PE.slice_way(self.doc, a, b, way)
+        return {"a": a, "b": b, "way": way}
+
+    def slice_selection(self) -> bool:
+        """"Slice": cut the shape between the two selected nodes (one
+        step); the selection is cleared, the two halves are selected."""
+        try:
+            args = self.slice_args()
+        except (KeyError, ValueError) as error:
+            self.set_error(str(error).strip("'\""))
+            return False
+        way = PE.slice_way(self.doc, **args).id
+        before = {w.id for w in self.doc.ways}
+        done = self.perform("Slice", lambda doc: PE.slice_shape(doc, **args))
+        if done:
+            self.select_shapes({way, *({w.id for w in self.doc.ways} - before)})
+        return done
+
     def set_selection_alt(self, alt: float) -> bool:
         ids = sorted(self.selection)
         return bool(ids) and self.perform("Set Elevation", lambda doc: PE.set_alt(doc, ids, alt))
@@ -328,6 +357,16 @@ class PatchEditModel(QObject):
     def offset_selection_alt(self, d: float) -> bool:
         ids = sorted(self.selection)
         return bool(ids) and self.perform("Offset Elevation", lambda doc: PE.offset_alt(doc, ids, d))
+
+    def set_shapes_alt(self, alt: float, include_shared: bool = True) -> bool:
+        """"Set elevation…" on the selected shapes (#1357): every node of
+        theirs, holes too, and the nodes they share unless told not to."""
+        ways = sorted(self.shape_selection)
+        if not ways or self.doc is None:
+            return False
+        p = ELEV.plan(self.doc, ways)
+        name = "Set Shape Elevation" if len(ways) == 1 else "Set Shapes Elevation"
+        return self.perform(name, lambda doc: ELEV.apply(doc, p, alt, include_shared))
 
     # ─── save ──────────────────────────────────────────────────────────
     def save_payload(self) -> dict:

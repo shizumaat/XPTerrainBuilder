@@ -123,4 +123,58 @@ else
 fi
 "$ROOT/scripts/check_frozen_lerc.sh" "$ENGINE/$LERC_BIN" "$PY"
 
+# THE GDAL BUNDLE CHECK (2026-10-26, app 1.0.429): a Homebrew GDAL upgrade
+# left the freeze venv's bindings linked to a libgdal that no longer
+# existed; PyInstaller only WARNED "Library not found" and the frozen engine
+# shipped with no GDAL at all, so every lidar airport refused to patch
+# ("the GDAL python bindings (osgeo) are unavailable").  The bindings are
+# bundled, so the libgdal they link must be bundled too, or the freeze fails.
+BUNDLE_DIR="$(dirname "$ENGINE/$LERC_BIN")/_internal"
+if [[ -d "$BUNDLE_DIR/osgeo" ]]; then
+  GDAL_LINK="$(otool -L "$BUNDLE_DIR"/osgeo/_gdal*.so 2>/dev/null | awk '/libgdal/ {print $1; exit}')"
+  GDAL_LIB="$(basename "${GDAL_LINK:-missing}")"
+  if [[ ! -f "$BUNDLE_DIR/$GDAL_LIB" ]]; then
+    echo "ERROR: the frozen engine's GDAL bindings link $GDAL_LINK, which is not in the bundle." >&2
+    echo "       Match requirements.txt's Darwin gdal pin to Homebrew's GDAL (gdal-config --version)." >&2
+    exit 1
+  fi
+  # ONE COPY OF EACH SHARED LIBRARY (2026-10-26, app 1.0.430): Pillow ships
+  # its own libharfbuzz.0.dylib under PIL/.dylibs (harfbuzz 13 at Pillow
+  # 12.2) while Homebrew's GDAL 3.13 pulls harfbuzz 15 (libharfbuzz-subset).
+  # dyld resolves both to ONE image by install name, the older one won, and
+  # libgdal failed to load ("Symbol not found:
+  # _hb_draw_funcs_set_get_budget_remaining_func") — so the frozen engine
+  # had no GDAL although every file was bundled.  The newer copy replaces
+  # the older (harfbuzz keeps ABI backward-compatible), and the check
+  # below proves libgdal actually LOADS, not just that it is present.
+  # PyInstaller dedupes by name: the bundle-root libharfbuzz.0.dylib is a
+  # SYMLINK to Pillow's copy, so Homebrew's newer one is never collected.
+  # Put Homebrew's harfbuzz in Pillow's slot, made relocatable: its own id
+  # and its Homebrew deps rewritten to @rpath, plus an rpath to the bundle
+  # root where PyInstaller collected those deps (freetype, glib, graphite2).
+  HB_PIL="$BUNDLE_DIR/PIL/.dylibs/libharfbuzz.0.dylib"
+  HB_BREW="$(brew --prefix harfbuzz 2>/dev/null)/lib/libharfbuzz.0.dylib"
+  if [[ -f "$BUNDLE_DIR/libharfbuzz-subset.0.dylib" && -f "$HB_PIL" && -f "$HB_BREW" ]]; then
+    rm -f "$HB_PIL"
+    cp "$HB_BREW" "$HB_PIL"
+    chmod u+w "$HB_PIL"
+    install_name_tool -id "@rpath/libharfbuzz.0.dylib" "$HB_PIL"
+    for DEP in $(otool -L "$HB_PIL" | awk 'NR>2 && /\/opt\/homebrew\// {print $1}'); do
+      install_name_tool -change "$DEP" "@rpath/$(basename "$DEP")" "$HB_PIL"
+    done
+    install_name_tool -add_rpath "@loader_path/../.." "$HB_PIL" 2>/dev/null || true
+    codesign --force --sign - "$HB_PIL" >/dev/null 2>&1 || true
+    echo "   unified libharfbuzz.0.dylib (Homebrew's, relocatable, in PIL/.dylibs)"
+  fi
+  # The signed app's hardened runtime refuses a library whose install-name
+  # leaf differs from the requested one (liblz4.1.dylib -> 1.10.0); this
+  # unsigned check cannot see that, make_app's signed-engine gate does.
+  "$ROOT/scripts/fix_bundle_install_names.sh" "$BUNDLE_DIR"
+  "$PY" -I -c "import ctypes, sys; ctypes.CDLL(sys.argv[1])" "$BUNDLE_DIR/$GDAL_LIB" || {
+    echo "ERROR: the bundled $GDAL_LIB does not load (see the dyld error above)." >&2
+    exit 1
+  }
+  echo "   frozen GDAL OK ($GDAL_LIB bundled and loads)"
+fi
+
 echo "Frozen engine: $ENGINE/$OUT (version ${VERSION:-unknown})"

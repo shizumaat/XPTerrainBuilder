@@ -232,3 +232,43 @@ def test_start_build_uses_the_user_picked_values(window, monkeypatch):
     kwargs = calls[0][1]
     assert kwargs["provider"] == second
     assert kwargs["zoomlevel"] == 16
+
+
+def _fake_built_tile(window, lat, lon, texture_names):
+    """A built tile with NO cfg: a DSF and textures named by the imagery
+    writer, scanned the way the engine scans it."""
+    import O4_File_Names as FNAMES
+    import O4_Tile_Info as TINFO
+
+    build_dir = os.path.join(window.output_dir(), "zOrtho4XP_" + FNAMES.short_latlon(lat, lon))
+    dsf = os.path.join(build_dir, "Earth nav data", FNAMES.round_latlon(lat, lon),
+                       FNAMES.short_latlon(lat, lon) + ".dsf")
+    os.makedirs(os.path.dirname(dsf), exist_ok=True)
+    open(dsf, "wb").close()
+    os.makedirs(os.path.join(build_dir, "textures"), exist_ok=True)
+    for name in texture_names:
+        open(os.path.join(build_dir, "textures", name), "wb").close()
+    info = TINFO._build_tile_info(build_dir, lat, lon, os.path.basename(build_dir))
+    window._built[(lat, lon)] = info
+    return info
+
+
+def test_built_tile_without_cfg_adopts_its_detected_imagery(window):
+    """#1334: a built tile with only _BI16.dds textures selects BI / 16."""
+    window.imagery_combo.addItems(["BI"])
+    info = _fake_built_tile(window, 47, 11, ["%d_8720_BI16.dds" % (5424 + 16 * i)
+                                            for i in range(3)])
+    assert (info.provider, info.detected_provider, info.detected_zl) == ("", "BI", 16)
+    window.build_zl = 18
+    window.map.set_selection({(47, 11)})
+    assert window.imagery_combo.currentText() == "BI"
+    assert window.build_zl == 16
+
+
+def test_offline_detected_imagery_is_not_adopted(window):
+    window.imagery_combo.addItems(["BI"])
+    _fake_built_tile(window, 47, 12, ["5424_8720_BI16.dds"])
+    window._imagery_status["BI"] = ("offline", "No answer within 5 seconds.")
+    before = window.imagery_combo.currentText()
+    window.map.set_selection({(47, 12)})
+    assert window.imagery_combo.currentText() == before

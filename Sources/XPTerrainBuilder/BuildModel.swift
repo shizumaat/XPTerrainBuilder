@@ -29,6 +29,8 @@ struct TileProgress: Equatable {
 struct TileRunSettings: Equatable {
     var provider: String
     var zl: Int
+    /// The batch's per-build switches (#818), so a resume keeps them.
+    var overrides: [String: Bool] = [:]
 }
 
 /// High-frequency build activity (per-tile progress, run clock), isolated
@@ -157,46 +159,6 @@ final class BuildActivityModel: ObservableObject {
     }
 }
 
-/// The build console: engine output (stderr under the protocol transport),
-/// append-heavy; a ~10 Hz generation bump tells the NSTextView to pull.
-@MainActor
-final class BuildConsoleModel: ObservableObject {
-    @Published private(set) var generation = 0
-    private(set) var totalAppended = 0
-    private(set) var clearCount = 0
-    private(set) var lines: [String] = []
-    private var flushScheduled = false
-
-    static let maxLines = 5000
-    static let trimTo = 4000
-
-    func append(_ line: String) {
-        lines.append(line)
-        totalAppended += 1
-        if lines.count > Self.maxLines {
-            lines.removeFirst(lines.count - Self.trimTo)
-        }
-        scheduleFlush()
-    }
-
-    func clear() {
-        lines = []
-        clearCount += 1
-        generation += 1
-    }
-
-    private func scheduleFlush() {
-        guard !flushScheduled else { return }
-        flushScheduled = true
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(100))
-            guard let self else { return }
-            self.flushScheduled = false
-            self.generation += 1
-        }
-    }
-}
-
 /// Build-mode state, mirroring the engine's Qt front end: an engine session
 /// over the JSON-lines protocol (scan / enqueue_build / cancel / links),
 /// map selection with an active tile, per-tile progress, and the engine's
@@ -257,7 +219,12 @@ final class BuildModel: ObservableObject {
     /// The active engine is the copy shipped with the app (no custom path).
     @Published private(set) var usingBundledEngine = false
     @Published private(set) var schema: OrthoConfigSchema
-    @Published private(set) var providers: [OrthoEngine.Provider] = []
+    /// The engine's one imagery source list (`imagery_sources`, #1345):
+    /// the Build box and the map's preview picker both read it.
+    @Published private(set) var imagerySources: [O4ImagerySource] = []
+    /// Launch-time liveness per source code; absent = unknown (enabled).
+    @Published private(set) var imageryStatus: [String: O4ImageryStatus] = [:]
+    private var imageryStatusChecked = false
     @Published private(set) var missingPackages: [String]?
     @Published private(set) var globalConfigValues: [String: O4Value] = [:]
     @Published var engineError: String?
@@ -296,6 +263,7 @@ final class BuildModel: ObservableObject {
             persistSelection()
             refreshCustomizedTiles(only: selected.subtracting(oldValue))
             searchTags.keep(only: Set(selected.map { AirportTile(lat: $0.lat, lon: $0.lon) }))
+            if selected != oldValue { selectionChangedForConsole() }
         }
     }
     /// The search codes that picked each selected tile (#667); a search
@@ -305,17 +273,22 @@ final class BuildModel: ObservableObject {
         didSet {
             adoptActiveTileConfig()
             persistSelection()
+            refreshBuiltByIfMissing()
         }
     }
 
-    /// Selecting a built tile adopts its recorded imagery source and zoom
-    /// level, so a rebuild doesn't silently use a different source. The
-    /// user can still change either afterwards — startBuild then warns on
-    /// the mismatch.
+    /// Selecting a built tile adopts its imagery source and zoom level —
+    /// the cfg's, else what its textures carry (#1334) — so a rebuild
+    /// doesn't silently use a different source. A detected source that
+    /// did not answer the launch check is not adopted (#1345). The user
+    /// can still change either afterwards — startBuild then warns on the
+    /// mismatch.
     private func adoptActiveTileConfig() {
-        guard let coord = activeTile, let info = built[coord] else { return }
-        if !info.provider.isEmpty { buildProvider = info.provider }
-        if let zl = info.zl { buildZL = zl }
+        guard let coord = activeTile, let info = built[coord],
+              let choice = TileImageryChoice.resolve(info) else { return }
+        if choice.source == .detected, imageryStatus[choice.provider]?.status == "offline" { return }
+        buildProvider = choice.provider
+        if let zl = choice.zl { buildZL = zl }
     }
 
     /// Both selection keys, rewritten whole on every change. A selection is
@@ -349,10 +322,17 @@ final class BuildModel: ObservableObject {
 
     @Published private(set) var isBuilding = false
     @Published private(set) var isStopping = false
+    /// The Build pane's per-build switches (#818): nil follows Settings;
+    /// a value changes the NEXT press only, sent as its batch's
+    /// `overrides` and cleared once sent — never written to a cfg.
+    @Published var gradeAirportsThisBuild: Bool?
+    @Published var fitBuildingsThisBuild: Bool?
     @Published private(set) var lastRunSummary: String?
 
     let activity = BuildActivityModel()
     let console = BuildConsoleModel()
+    /// The one date filter of the Build History list and the map (#1226).
+    @Published var historyRange: BuildDateRange = .all
     /// Live map imagery for the selected provider (Qt-map parity).
     let imagery = ImageryModel()
 
@@ -597,19 +577,16 @@ final class BuildModel: ObservableObject {
         }
         guard let located = resolved else {
             engine = nil
-            providers = []
+            imagerySources = []
             missingPackages = nil
             usesProtocol = false
-            imagery.configure(providersDir: nil, extentsDir: nil, dataRoot: dataRootURL)
+            imagery.configure(sources: [], dataRoot: dataRootURL)
             return
         }
-        imagery.configure(
-            providersDir: located.resourcesRoot.appendingPathComponent("Providers", isDirectory: true),
-            extentsDir: located.resourcesRoot.appendingPathComponent("Extents", isDirectory: true),
-            dataRoot: dataRootURL)
-        imagery.setProvider(mapPreviewProvider)
+        // Sources arrive from the engine session (loadImagerySources);
+        // until then the map keeps what it has, at the current data root.
+        imagery.configure(sources: imagerySources, dataRoot: dataRootURL)
         engine = located
-        providers = located.providers()
         usesProtocol = OrthoEngineClient.engineSupportsProtocol(located)
         reloadGlobalConfig()
         seedPathsFromXPlane()
@@ -638,7 +615,7 @@ final class BuildModel: ObservableObject {
     /// engine uses the path verbatim as one tile's build dir and dumps the
     /// tile's contents straight into it (legacy convention — the Qt GUI
     /// appends the separator the same way).
-    private var engineCustomBuildDir: String {
+    var engineCustomBuildDir: String {
         guard !customBuildDir.isEmpty else { return "" }
         return customBuildDir.hasSuffix("/") ? customBuildDir : customBuildDir + "/"
     }
@@ -680,9 +657,27 @@ final class BuildModel: ObservableObject {
             console.append("Engine session started (engine \(engine.version)).")
             rescan()
             refreshAirportIndex()
+            loadImagerySources()
         } catch {
             engineError = "Could not start the engine session: \(error.localizedDescription)"
             console.append("ERROR: \(engineError!)")
+        }
+    }
+
+    /// Fill both imagery menus and the map's sources from the engine's
+    /// list, then start the background liveness check (once per launch).
+    private func loadImagerySources() {
+        guard let client else { return }
+        Task { @MainActor [weak self] in
+            let sources = await client.imagerySources()
+            guard let self, self.client === client else { return }
+            self.imagerySources = sources
+            self.imagery.configure(sources: sources, dataRoot: self.dataRootURL)
+            self.imagery.setProvider(self.mapPreviewProvider)
+            if !self.imageryStatusChecked, !sources.isEmpty {
+                self.imageryStatusChecked = true
+                client.startImagerySourceStatus()
+            }
         }
     }
 
@@ -870,8 +865,10 @@ final class BuildModel: ObservableObject {
         case .hello(let version, let protocolVersion, _):
             protocolHello = (version, protocolVersion)
             buildLog.notice("engine hello: \(version) protocol \(protocolVersion)")
-        case .stderr(let line), .log(_, let line):
+        case .stderr(let line):
             console.append(line)
+        case .log(_, let line, let tile):
+            console.append(line, tile: tile)
         case .scanProgress(let phase, _, _):
             scanPhase = phase
         case .scanBatch(let builtTriples, let installedPairs):
@@ -891,6 +888,7 @@ final class BuildModel: ObservableObject {
             installed = scanAccumInstalled
             isScanning = false
             scanPhase = ""
+            syncConsoleView()
             if let base = tileBaseFolder {
                 TileScanCache.save(
                     built: Array(built.values),
@@ -935,20 +933,23 @@ final class BuildModel: ObservableObject {
             console.append(code.isEmpty
                 ? "*** Tile \(coord.key): airport \(airport) failed at the "
                     + "\(stage) stage — \(error)"
-                : O4TileFailureCopy.airportFailedLine(tile: coord.key, airport: airport))
+                : O4TileFailureCopy.airportFailedLine(tile: coord.key, airport: airport),
+                tile: coord.key)
         case .buildDone(let lat, let lon, let ok, let error, let failures, let warnings,
                         let unpatched, let notes):
             let coord = TileCoord(lat: lat, lon: lon)
             // #562 / #564: the engine's own words — what, why, what to do —
             // on the console now and in the run's one report at the end.
             for failure in failures {
-                failure.consoleLines(isWarning: false).forEach { console.append($0) }
+                failure.consoleLines(isWarning: false).forEach { console.append($0, tile: coord.key) }
             }
             for warning in warnings {
-                warning.consoleLines(isWarning: true).forEach { console.append($0) }
+                warning.consoleLines(isWarning: true).forEach { console.append($0, tile: coord.key) }
             }
             for note in notes {
-                note.consoleLines(isWarning: false, isNote: true).forEach { console.append($0) }
+                note.consoleLines(isWarning: false, isNote: true).forEach {
+                    console.append($0, tile: coord.key)
+                }
             }
             let issues = O4TileIssues(
                 tileKey: coord.key, lat: lat, lon: lon, built: ok,
@@ -965,7 +966,8 @@ final class BuildModel: ObservableObject {
                     ? "Tile \(coord.key) finished."
                     : "Tile \(coord.key) finished with warnings"
                         + (airports.isEmpty ? "."
-                           : " — no airport patch for \(airports.joined(separator: ", "))."))
+                           : " — no airport patch for \(airports.joined(separator: ", "))."),
+                    tile: coord.key)
                 if !(warnings.isEmpty && notes.isEmpty), var row = activity.tiles[coord] {
                     row.label = O4TileFailureCopy.builtWithWarnings
                     activity.tiles[coord] = row
@@ -973,8 +975,13 @@ final class BuildModel: ObservableObject {
                 selected.remove(coord)
                 refreshTileInfo(coord)
                 if linkTiles { installLink(coord, quiet: true) }
-            } else if failures.isEmpty, !error.isEmpty {
-                console.append("*** Tile \(coord.key) failed: \(error)")
+            } else {
+                if failures.isEmpty, !error.isEmpty {
+                    console.append("*** Tile \(coord.key) failed: \(error)", tile: coord.key)
+                }
+                // Its build record changed too (#1226: the history lists
+                // failed builds).
+                refreshTileInfo(coord)
             }
         case .runEta(let elapsed, let remaining, let done, let total):
             activity.elapsedSeconds = elapsed
@@ -1065,11 +1072,15 @@ final class BuildModel: ObservableObject {
             boundaryAirportsReady(ready)
         case .packMissingArt(let art):
             packMissingArt(art)
+        case .packOldForests(let forests):
+            packOldForests(forests)
         case .engineError(let fatal, let text):
             console.append((fatal ? "FATAL: " : "Engine: ") + text)
             if fatal { engineError = text }
         case .imageryDownloadsDone:
             break // the engine's scheduling signal; the tile's row moves on its own
+        case .imagerySourceStatus(let code, let status):
+            imageryStatus[code] = status
         case .unknown:
             break // additive protocol: ignore unknown event types
         }
@@ -1179,6 +1190,14 @@ final class BuildModel: ObservableObject {
         return client
     }
 
+    /// The engine session for the Build pane's Airports card, or nil when
+    /// the engine is not running or predates it (protocol < 1.18).
+    func buildAirportsClient() -> OrthoEngineClient? {
+        connectIfNeeded()
+        guard O4ProtocolVersion.supportsBuildAirports(protocolHello?.protocolVersion ?? "") else { return nil }
+        return client
+    }
+
     // MARK: - Library (#824)
 
     /// The engine session and the folders the Library window reads, or
@@ -1205,6 +1224,9 @@ final class BuildModel: ObservableObject {
         let packName: String
         let packPath: String
         let objectCount: Int
+        /// Forest definitions upgraded to X-Plane 12 3D trees (#1360); 0
+        /// from an engine older than protocol 1.21.
+        var forestCount: Int = 0
     }
 
     /// Packs whose objects the auto-patch reseater modified for `coord`,
@@ -1231,7 +1253,8 @@ final class BuildModel: ObservableObject {
                     else { return nil }
                     return ReanchorPack(
                         packName: name, packPath: path,
-                        objectCount: entry["objects"]?.intValue ?? 0)
+                        objectCount: entry["objects"]?.intValue ?? 0,
+                        forestCount: entry["forests"]?.intValue ?? 0)
                 })
             }
         }
@@ -1257,7 +1280,7 @@ final class BuildModel: ObservableObject {
         }
     }
 
-    private func refreshTileInfo(_ coord: TileCoord) {
+    func refreshTileInfo(_ coord: TileCoord) {
         guard let client, let base = tileBaseFolder else { return }
         client.send(command: "tile_info", arguments: [
             "lat": coord.lat, "lon": coord.lon, "working_dir": base.path,
@@ -1544,7 +1567,7 @@ final class BuildModel: ObservableObject {
 
     struct ProviderMismatch: Identifiable {
         let coord: TileCoord
-        /// The tile's recorded imagery source (from its cfg).
+        /// The tile's imagery source (its cfg's, else its textures').
         let provider: String
         let zl: Int?
         var id: String { coord.key }
@@ -1557,10 +1580,10 @@ final class BuildModel: ObservableObject {
     var providerMismatches: [ProviderMismatch] {
         guard !buildProvider.isEmpty else { return [] }
         return buildableSelection.compactMap { coord in
-            guard let info = built[coord], !info.provider.isEmpty,
-                  info.provider.lowercased() != buildProvider.lowercased()
+            guard let info = built[coord], let choice = TileImageryChoice.resolve(info),
+                  choice.provider.lowercased() != buildProvider.lowercased()
             else { return nil }
-            return ProviderMismatch(coord: coord, provider: info.provider, zl: info.zl)
+            return ProviderMismatch(coord: coord, provider: choice.provider, zl: choice.zl)
         }
     }
 
@@ -1577,8 +1600,10 @@ final class BuildModel: ObservableObject {
         if usesProtocol {
             // EVERY protocol enqueue goes through the boundary preflight
             // (protocol 1.8, spec §C.7): one ask for the whole press.
+            let overrides = takeBuildOverrides()
             startProtocolBuild(batches.map {
-                BuildBatch(tiles: $0.tiles, provider: $0.provider, zl: $0.zl)
+                BuildBatch(tiles: $0.tiles, provider: $0.provider, zl: $0.zl,
+                           overrides: overrides)
             })
         } else {
             startLegacyBuild(batches.flatMap(\.tiles))
@@ -1638,15 +1663,18 @@ final class BuildModel: ObservableObject {
         var tiles: [TileCoord]
         let provider: String
         let zl: Int
+        /// `enqueue_build`'s `overrides` (#818); empty sends none.
+        var overrides: [String: Bool] = [:]
     }
 
     private func sendProtocolBuild(_ batch: BuildBatch, boundaryPolicy: String?) {
         sendProtocolBuild(batch.tiles, provider: batch.provider, zl: batch.zl,
-                          boundaryPolicy: boundaryPolicy)
+                          boundaryPolicy: boundaryPolicy, overrides: batch.overrides)
     }
 
     private func sendProtocolBuild(_ tiles: [TileCoord], provider: String, zl: Int,
-                                   boundaryPolicy: String?) {
+                                   boundaryPolicy: String?,
+                                   overrides: [String: Bool] = [:]) {
         connectIfNeeded()
         guard let client else { return }
         // #1326: a tile whose Stop the engine has not confirmed yet is HELD
@@ -1654,7 +1682,7 @@ final class BuildModel: ObservableObject {
         // a second copy of a tile it is still stopping.
         let split = Self.splitHeld(tiles, stopPending: isBuilding ? stopPending : [])
         let todo = split.send
-        let settings = TileRunSettings(provider: provider, zl: zl)
+        let settings = TileRunSettings(provider: provider, zl: zl, overrides: overrides)
         for coord in split.hold {
             heldForStop[coord] = HeldRequeue(settings: settings, boundaryPolicy: boundaryPolicy)
         }
@@ -1709,6 +1737,12 @@ final class BuildModel: ObservableObject {
         // Omitted entirely when nil: an engine older than 1.8 rejects
         // unknown keywords, and nil IS "resolve from cfg" there anyway.
         if let boundaryPolicy { arguments["boundary_policy"] = boundaryPolicy }
+        // Likewise (protocol 1.15): only when a switch was changed, and only
+        // to an engine that knows the keyword.
+        if !overrides.isEmpty,
+           O4ProtocolVersion.supportsBuildAirports(protocolHello?.protocolVersion ?? "") {
+            arguments["overrides"] = overrides
+        }
         client.send(command: "enqueue_build", arguments: arguments) { [weak self] reply in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -1858,6 +1892,52 @@ final class BuildModel: ObservableObject {
             client?.omitMissingArt(packRoot: art.packRoot, lat: art.lat, lon: art.lon)
         }
         packArtPrompt = packArtQueue.isEmpty ? nil : packArtQueue.removeFirst()
+    }
+
+    /// The "3D trees" question to present, or nil (#1360).
+    @Published var packForestsPrompt: O4PackOldForests?
+    /// Questions waiting behind the one on screen, in arrival order.
+    private var packForestsQueue: [O4PackOldForests] = []
+    /// Every question already asked this session (one per pack, tile and
+    /// set — each airport of a pack runs the check).
+    private var packForestsSeen: Set<String> = []
+
+    /// Parity with the Qt window (`O4_Qt_GUI._on_pack_old_forests`): a
+    /// "found" event asks once; the other states are already on the
+    /// console through the engine's log line, and an upgrade or undo
+    /// refreshes the tile's Modified airports rows.
+    private func packOldForests(_ forests: O4PackOldForests) {
+        if forests.state == "upgraded" || forests.state == "undone" {
+            packForestsChanged += 1
+        }
+        guard forests.state == "found", forests.canUpdate,
+              !packForestsSeen.contains(forests.id) else { return }
+        packForestsSeen.insert(forests.id)
+        if packForestsPrompt == nil {
+            packForestsPrompt = forests
+        } else {
+            packForestsQueue.append(forests)
+        }
+    }
+
+    /// Bumped when a pack's forests were upgraded or undone, so the
+    /// Modified airports rows re-read the engine.
+    @Published var packForestsChanged = 0
+
+    /// The user's answer to the question on screen: "update" or "never"
+    /// sends `pack_forests`; nil (Not now) sends nothing.
+    func answerPackForestsPrompt(action: String?) {
+        if let forests = packForestsPrompt, let action {
+            client?.packForests(packRoot: forests.packRoot, action: action,
+                                lat: forests.lat, lon: forests.lon)
+        }
+        packForestsPrompt = packForestsQueue.isEmpty ? nil : packForestsQueue.removeFirst()
+    }
+
+    /// The pack row's Undo 3D trees: every upgraded DSF of the pack.
+    func undoPackForests(packPath: String) {
+        connectIfNeeded()
+        client?.packForests(packRoot: packPath, action: "undo")
     }
 
     // MARK: - Boundary airports (protocol 1.8)
@@ -2204,7 +2284,8 @@ final class BuildModel: ObservableObject {
         guard let held = heldForStop.removeValue(forKey: coord), !done else { return }
         if isBuilding {
             sendProtocolBuild([coord], provider: held.settings.provider, zl: held.settings.zl,
-                              boundaryPolicy: held.boundaryPolicy)
+                              boundaryPolicy: held.boundaryPolicy,
+                              overrides: held.settings.overrides)
         } else {
             startResumeRun([(tiles: [coord], settings: held.settings)])
         }
@@ -2273,7 +2354,7 @@ final class BuildModel: ObservableObject {
         // (spec §C.7: every entry point that enqueues).
         startProtocolBuild(batches.map {
             BuildBatch(tiles: $0.tiles, provider: $0.settings.provider,
-                       zl: $0.settings.zl)
+                       zl: $0.settings.zl, overrides: $0.settings.overrides)
         })
     }
 
@@ -2433,13 +2514,6 @@ final class BuildModel: ObservableObject {
     // MARK: - Global config
 
     func reloadGlobalConfig() {
-        // The one-time hand-over from Ortho4XP.cfg BEFORE the first read
-        // or write: the engine does the same at import, but the app reads
-        // (and seeds paths into) the global before the engine has started.
-        if let engine {
-            OrthoConfigNames.adoptGlobalConfig(
-                in: engine.globalConfigURL(dataRoot: dataRootURL).deletingLastPathComponent())
-        }
         guard let engine,
               let file = try? OrthoConfigFile(contentsOf: engine.globalConfigURL(dataRoot: dataRootURL)) else {
             globalConfigValues = [:]
@@ -2606,25 +2680,13 @@ final class BuildModel: ObservableObject {
         revertTileOverrides(for: [name])
     }
 
-    /// Engine gate for auto-patch object reseating inside installed custom
-    /// airport packs. A global XPTerrainBuilder.cfg var (modify_custom_airports),
-    /// NOT a per-run argument: config reaches parallel worker children,
-    /// and the Qt front end reads the same switch. Default matches the
-    /// engine's (on).
+    /// Settings' default for auto-patch object reseating inside installed
+    /// custom airport packs (cfg var modify_custom_airports, tile scope,
+    /// edited in Settings). The Build pane's switch changes one build
+    /// only (`fitBuildingsThisBuild`, #818). Default matches the engine's
+    /// (on).
     var modifyCustomAirports: Bool {
         globalConfigValues["modify_custom_airports"]?.boolValue ?? true
-    }
-
-    func setModifyCustomAirports(_ enabled: Bool) {
-        setConfigValue("modify_custom_airports", to: .bool(enabled))
-        // WRITE-THROUGH (owner ruling RULINGS 2026-09-18a (2)): this is a
-        // TILE-scope var (SettingsLayout.swift), and a tile cfg carrying
-        // it BEATS the global the line above writes — which is BETA2
-        // GEN-1 itself: all 23 of the owner's tile cfgs said True while
-        // this box was unchecked, so the engine reseated packs anyway.
-        // Same rule as every other tile-scope edit: set the override when
-        // it now differs from the global, REMOVE it when it matches.
-        writeThroughToSelectedTiles("modify_custom_airports", .bool(enabled))
     }
 
     /// Set-or-remove one tile-scope override on every selected tile, against
@@ -2663,7 +2725,6 @@ final class BuildModel: ObservableObject {
     func setConfigValue(_ name: String, to value: O4Value) {
         guard let engine else { return }
         let configURL = engine.globalConfigURL(dataRoot: dataRootURL)
-        OrthoConfigNames.adoptGlobalConfig(in: configURL.deletingLastPathComponent())
         var file = (try? OrthoConfigFile(contentsOf: configURL)) ?? OrthoConfigFile()
         file.set(name, to: value)
         do {

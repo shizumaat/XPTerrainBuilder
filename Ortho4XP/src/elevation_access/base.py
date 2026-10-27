@@ -114,9 +114,18 @@ class ProviderUnavailable(Exception):
     provider's definition alone, so the resolution ladder records the
     listing beside it and the build-time re-check does not re-run the
     whole ladder for the same listing on every build (#583).
+
+    ``declined_by_product`` (class default ``False``) marks THE PRODUCT
+    CLASS (#1210): the engine read a listed tile and REFUSES ITS BYTES
+    for a reason the tile itself carries -- no CRS, an unreadable or
+    unprojected one, or not the one the provider declares.  Downloading
+    it again returns the same bytes, so the ladder records it exactly as
+    the cap class: the listing, under the signature it was refused under.
+    A short or damaged download is NOT this class.
     """
 
     declined_by_cap = False
+    declined_by_product = False
 
     def __init__(self, reason):
         super().__init__(str(reason))

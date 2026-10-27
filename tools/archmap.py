@@ -237,13 +237,15 @@ def _scan_swift(text):
             "reexports": {}}
 
 
-def scan(repo=REPO, roots=ROOTS):
-    """``{rel: entry}`` for every source file under ``roots``.  An entry
-    carries ``doc`` (first docstring line), ``all`` (``__all__`` or None),
-    ``defs`` ([name, kind, signature, line, doc]), ``imports`` ([target
-    rel, line, lazy]) and ``used`` ({its name: how many other modules use
-    it})."""
-    paths = _walk(repo, roots)
+def scan(repo=REPO, roots=ROOTS, paths=None, users=False):
+    """``{rel: entry}`` for every source file under ``roots`` (or exactly
+    ``paths``, repo-relative, when given).  An entry carries ``doc`` (first
+    docstring line), ``all`` (``__all__`` or None), ``defs`` ([name, kind,
+    signature, line, doc]), ``imports`` ([target rel, line, lazy]) and
+    ``used`` ({its name: how many other modules use it}); with ``users``
+    also ``users`` ({its name: the sorted modules using it}), which
+    ``tools/ratchets.py unused`` splits into production and tests."""
+    paths = _walk(repo, roots) if paths is None else sorted(set(paths))
     resolve = make_resolver(paths)
     files = {}
     for rel in paths:
@@ -277,6 +279,8 @@ def scan(repo=REPO, roots=ROOTS):
     for rel, e in files.items():
         e.pop("reexports")
         e["used"] = {n: len(u) for n, u in sorted(used[rel].items())}
+        if users:
+            e["users"] = {n: sorted(u) for n, u in sorted(used[rel].items())}
     return files
 
 

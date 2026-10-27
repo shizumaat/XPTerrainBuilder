@@ -53,17 +53,25 @@ TOOLBAR = (
 #: A Swift label is a ``Toggle``/``Picker`` title literal or its glossary
 #: term.  The Detail level (#1242) and the per-tile texture and elevation
 #: levels (#1243) are NOT here: both apps set them in Settings only.
+#: #818: the Airports card leads (its two per-build switches), then the
+#: imagery source, "When it's done", and the build steps under Advanced
+#: (collapsed by default in both apps).
 BUILD_BOX = (
+    ("grade_airports", "grade_airports", "chk_grade_airports"),
+    ("fit_buildings", "fit_buildings", "chk_modify_airports"),
     ("imagery", "Imagery", "imagery_combo"),
+    ("auto_install", "Install in X-Plane automatically", "chk_auto_install"),
+    ("skip_built", "Skip tiles already built", "chk_skip_built"),
     ("terrain_steps", "terrain_steps", "chk_vector"),
     ("imagery_and_scenery_file", "imagery_and_scenery_file", "chk_imagery"),
     ("xplane_objects", "xplane_objects", "chk_overlays"),
-    ("fit_buildings", "fit_buildings", "chk_modify_airports"),
-    ("skip_built", "Skip already-built tiles", "chk_skip_built"),
-    # Label differs on purpose: Qt's fixed 280 px panel cannot fit the
-    # Mac's "Install finished tiles automatically" (a checkbox cannot
-    # elide), so Qt says "Auto-install finished tiles".
-    ("auto_install", "Install finished tiles automatically", "chk_auto_install"),
+)
+
+#: The Airports card's sentences: (Swift ``static let``, Qt constant).
+AIRPORTS_CARD_TEXT = (
+    ("gradeSentence", "GRADE_SENTENCE"),
+    ("fitSentence", "FIT_SENTENCE"),
+    ("backupNote", "BACKUP_NOTE"),
 )
 
 #: The build-cost panel (#820): last in the Build box, just above Build —
@@ -74,6 +82,18 @@ PLAN_PANEL = ("PlanEstimatePanel(", "plan_panel")
 #: Application section's rows (#1266: the Data Folder chooser).  The Mac's
 #: Appearance picker is a recorded exception: Qt follows the system theme.
 GENERAL_SECTIONS = ("Application", "Build Engine", "Provider Accounts")
+
+#: The console header after its title, left to right (#1226, owner Q139):
+#: (key, Swift marker in BuildConsoleView.swift, Qt ConsoleDrawer
+#: attribute).  The Build History list beside the console carries the one
+#: date filter: (Swift marker in BuildHistoryView.swift, Qt attribute).
+CONSOLE_HEADER = (
+    ("filter_chip", "filterChip", "chip"),
+    ("saved_logs", "savedLogsMenu", "saved_logs_btn"),
+    ("history", 'Image(systemName: "clock.arrow.circlepath")', "history_btn"),
+    ("clear", 'Image(systemName: "xmark.circle")', "console_clear_btn"),
+)
+HISTORY_DATE_FILTER = ('Picker("Built"', "range_combo")
 APPLICATION_ROWS = ("Version", "X-Plane Folder", "Data Folder")
 
 
@@ -94,6 +114,10 @@ def _swift_build_box() -> list:
     block = _block(SWIFT / "BuildPane.swift",
                    "private var buildBox: some View",
                    "// MARK: - Imagery-source conflict")
+    # The Airports card is its own view: its controls stand where it does.
+    card = _block(SWIFT / "BuildAirportsCard.swift",
+                  "var body: some View", "private func caption")
+    block = block.replace("BuildAirportsCard(", card, 1)
     found = re.findall(
         r'\b(?:Toggle|Picker)\((?:O4Glossary\.term\("(\w+)"\)|"([^"]+)")', block)
     return [term or literal for term, literal in found]
@@ -111,6 +135,16 @@ def test_mac_toolbar_is_the_manifest():
 
 def test_mac_build_box_is_the_manifest():
     assert _swift_build_box() == [label for _key, label, _attr in BUILD_BOX]
+
+
+def test_the_airports_cards_say_the_same_words():
+    import O4_Qt_Build_Airports as QTAIRPORTS
+
+    swift = (SWIFT / "BuildAirportsCard.swift").read_text(encoding="utf-8")
+    for name, constant in AIRPORTS_CARD_TEXT:
+        said = re.search(r'static let %s = "([^"]+)"' % name, swift)
+        assert said, name
+        assert said.group(1) == getattr(QTAIRPORTS, constant), name
 
 
 def test_mac_plan_panel_closes_the_build_box():
@@ -141,6 +175,17 @@ def test_mac_application_rows_are_the_manifest():
     application = general[start:general.index("Section {", start)]
     rows = re.findall(r'LabeledContent\("([^"]+)"\)', application)
     assert [row for row in rows if row != "Status"] == list(APPLICATION_ROWS)
+
+
+def test_mac_console_header_is_the_manifest():
+    header = _block(SWIFT / "BuildConsoleView.swift",
+                    "private var header: some View", "@ViewBuilder")
+    positions = [header.find(marker) for _key, marker, _attr in CONSOLE_HEADER]
+    assert -1 not in positions, dict(zip((k for k, _m, _a in CONSOLE_HEADER),
+                                         positions, strict=True))
+    assert positions == sorted(positions), "Mac console header order differs"
+    history = (SWIFT / "BuildHistoryView.swift").read_text(encoding="utf-8")
+    assert HISTORY_DATE_FILTER[0] in history
 
 
 def test_mac_settings_holds_the_detail_level():
@@ -214,6 +259,61 @@ def test_qt_build_box_is_the_manifest(window):
     assert _qt_build_box(window) == expected
 
 
+def test_qt_build_box_labels_are_the_macs(window):
+    import O4_Glossary as GLOSSARY
+
+    for key, label, attr in BUILD_BOX:
+        widget = getattr(window, attr)
+        if isinstance(widget, QCheckBox):
+            assert widget.text() == GLOSSARY.TERMS.get(label, label), key
+
+
+def test_qt_plumbing_is_collapsed_by_default(window):
+    window.show()
+    assert window.airports_card.isVisible()
+    assert not window.chk_vector.isVisible()
+    window.advanced_toggle.setChecked(True)
+    assert window.chk_vector.isVisible()
+
+
+def test_qt_grading_off_is_this_builds_only(window, tmp_path, monkeypatch):
+    """#818: unticking grading sends ``auto_patch`` False in the batch,
+    puts the switch back for the next press, and writes no cfg."""
+    import O4_Settings_Model as SM
+
+    sent = []
+    writes = []
+    monkeypatch.setattr(window, "xplane_block_reason", lambda: None)
+    monkeypatch.setattr(window.map, "selection", lambda: {(47, -123)})
+    monkeypatch.setattr(window._session, "boundary_airports",
+                        lambda **_kw: None)
+    monkeypatch.setattr(window._session, "enqueue_build",
+                        lambda tiles, **kw: sent.append(kw) or False)
+    monkeypatch.setattr(SM, "write_tile",
+                        lambda *a, **kw: writes.append(a))
+    monkeypatch.setattr(SM, "write_global",
+                        lambda *a, **kw: writes.append(a))
+    if window.imagery_combo.count() == 0:
+        window.imagery_combo.addItem("BI")    # no provider list offscreen
+    window.imagery_combo.setCurrentIndex(0)
+    import O4_Qt_Build_Airports as QTAIRPORTS
+
+    statuses = []
+    monkeypatch.setattr(window, "_status", statuses.append)
+    monkeypatch.setattr(QTAIRPORTS, "grade_by_default", lambda: True)
+    window.chk_skip_built.setChecked(False)
+    window.airports_card.refresh_switches()        # Settings: grading on
+    assert window.chk_grade_airports.isChecked()
+    window.chk_grade_airports.setChecked(False)
+    window.start_build()
+    assert sent, statuses
+    assert sent[-1]["overrides"] == {"auto_patch": False}
+    assert window.chk_grade_airports.isChecked()   # back to Settings
+    assert not writes
+    window.start_build()
+    assert "overrides" not in sent[-1]
+
+
 def test_qt_plan_panel_sits_just_above_build(window):
     layout = window.build_btn.parentWidget().layout()
     widgets = [layout.itemAt(i).widget() for i in range(layout.count())]
@@ -270,3 +370,12 @@ def test_qt_application_rows_are_the_manifest(window):
         assert [row for row in rows if row != "Status"] == list(APPLICATION_ROWS)
     finally:
         section.deleteLater()
+
+
+def test_qt_console_header_is_the_manifest(window):
+    drawer = window.console_drawer
+    header = drawer.layout().itemAt(0).layout()
+    expected = [getattr(drawer, attr) for _key, _marker, attr in CONSOLE_HEADER]
+    widgets = [header.itemAt(i).widget() for i in range(header.count())]
+    assert [w for w in widgets if w in expected] == expected
+    assert getattr(drawer.history, HISTORY_DATE_FILTER[1]).currentData() == "all"

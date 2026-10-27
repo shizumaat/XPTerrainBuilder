@@ -15,7 +15,8 @@
   "insert_on_edge": "{a, b}: new node at the midpoint, alt = mean of the ends (null if either is null), id = min(0, min node id) - 1, appended after the existing nodes, inserted into every way where a and b are consecutive in either direction. Never merges.",
   "merge_nodes": "{source, target}: target keeps its position and alt; every ref to source becomes target; source leaves the document. No distance check (the UI decided).",
   "delete_ways": "{way_ids}: remove the ways (whole shapes, issue #759) and every node of theirs that no remaining way uses; nodes shared with a remaining way stay; nodes the removed ways never used are untouched.",
-  "slice_shape": "{a, b, way?}: cut the shape (closed way, no o4_feature) holding a and b (way picks it when several do) along a->b, a 0.5 m gap (o4_engine/patch_slice.py, issue #1318). a and b each become two nodes 0.25 m either side of the cut line (perpendicular, in the plane of origin = midpoint of a and b), keeping their alt; each crossing of a gap_interior_ring hole of the shape becomes two new nodes (alt interpolated along the hole edge, null if either end is null) and the hole way is removed. The half with the larger plan area (ties: the half left of a->b) keeps the way id, its place and a's and b's ids; the other half is a new way (id = min(0, min way id) - 1) right after it, same tags. Rings keep the original direction and start at a's copy. New node ids count down from min(0, min node id) - 1 along the cut: a's copy, each crossing's left then right copy, b's copy; appended in that order. Refused (no case here; tests/test_patch_slice.py and PatchSliceTests.swift): neighbours, a cut leaving or touching the outline, a cut through a hole's corner, more than two pieces."
+  "slice_shape": "{a, b, way?}: cut the shape (closed way, no o4_feature) holding a and b (way picks it when several do) along a->b, a 0.5 m gap (o4_engine/patch_slice.py, issue #1318). a and b each become two nodes 0.25 m either side of the cut line (perpendicular, in the plane of origin = midpoint of a and b), keeping their alt; each crossing of a gap_interior_ring hole of the shape becomes two new nodes (alt interpolated along the hole edge, null if either end is null) and the hole way is removed. The half with the larger plan area (ties: the half left of a->b) keeps the way id, its place and a's and b's ids; the other half is a new way (id = min(0, min way id) - 1) right after it, same tags. Rings keep the original direction and start at a's copy. New node ids count down from min(0, min node id) - 1 along the cut: a's copy, each crossing's left then right copy, b's copy; appended in that order. Refused (no case here; tests/test_patch_slice.py and PatchSliceTests.swift): neighbours, a cut leaving or touching the outline, a cut through a hole's corner, more than two pieces.",
+  "add_shape": "{corners, tags?}: a new closed way through corners ([lat, lon, alt|null] each, in ring order, the first not repeated), issue #1314 \"Insert shape\". New node ids count down from min(0, min node id) - 1, appended in corner order; the way (id = min(0, min way id) - 1, tags as given, else none) is appended after the others and repeats its first ref last. Never merges with an existing node, even one at the same place."
  },
  "topology": "after every op: consecutive duplicate refs collapse (cyclically on a closed way); a closed way with < 3 distinct nodes or an open way with < 2 is removed; nodes a removed way leaves behind are kept.",
  "ui_snap_reference": "NOT exercised here (UI-only, L3): the drag snap radius is 8 pt ON SCREEN from the pointer to the node, inclusive (owner ruling 2026-10-15, spec 3.3); nearest on screen wins; ties go to the lowest survivor_key = (round(lat, identity_dp), round(lon, identity_dp)), then the lowest id. The document origin (for metric work) is the centre of the loaded nodes' bbox ((min lat + max lat) / 2, (min lon + max lon) / 2), fixed for the document's life; metres per degree lat = 111320.0, per degree lon = 111320.0 * max(cos(origin lat), 1e-6) (osm_adapter._local_metres).",
@@ -3973,6 +3974,193 @@
        "o4_feature": "gap_interior_ring",
        "shapeID": "3"
       }
+     }
+    ]
+   }
+  },
+  {
+   "name": "add_shape_appends_a_closed_way_and_never_merges",
+   "doc": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      30.001953125,
+      31.0,
+      null
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -4,
+       -5
+      ],
+      "tags": {
+       "o4_feature": "crown_spine"
+      }
+     }
+    ]
+   },
+   "ops": [
+    {
+     "op": "add_shape",
+     "args": {
+      "corners": [
+       [
+        30.0,
+        31.0,
+        100.0
+       ],
+       [
+        30.0,
+        31.000244140625,
+        null
+       ],
+       [
+        30.000244140625,
+        31.000244140625,
+        101.5
+       ],
+       [
+        30.000244140625,
+        31.0,
+        99.25
+       ]
+      ]
+     }
+    }
+   ],
+   "expect": {
+    "nodes": [
+     [
+      -1,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -2,
+      30.0,
+      31.0009765625,
+      102.0
+     ],
+     [
+      -3,
+      30.0009765625,
+      31.0009765625,
+      104.0
+     ],
+     [
+      -4,
+      30.0009765625,
+      31.0,
+      106.0
+     ],
+     [
+      -5,
+      30.001953125,
+      31.0,
+      null
+     ],
+     [
+      -6,
+      30.0,
+      31.0,
+      100.0
+     ],
+     [
+      -7,
+      30.0,
+      31.000244140625,
+      null
+     ],
+     [
+      -8,
+      30.000244140625,
+      31.000244140625,
+      101.5
+     ],
+     [
+      -9,
+      30.000244140625,
+      31.0,
+      99.25
+     ]
+    ],
+    "ways": [
+     {
+      "id": -101,
+      "refs": [
+       -1,
+       -2,
+       -3,
+       -4,
+       -1
+      ],
+      "tags": {
+       "aeroway": "apron",
+       "role": "apron"
+      }
+     },
+     {
+      "id": -102,
+      "refs": [
+       -4,
+       -5
+      ],
+      "tags": {
+       "o4_feature": "crown_spine"
+      }
+     },
+     {
+      "id": -103,
+      "refs": [
+       -6,
+       -7,
+       -8,
+       -9,
+       -6
+      ],
+      "tags": {}
      }
     ]
    }

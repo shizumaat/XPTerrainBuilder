@@ -17,9 +17,10 @@ enum TileScanCache {
         let installed: [[Int]]
     }
 
+    // v4: O4TileInfo gained detectedProvider/detectedZL (#1334);
     // v3: providers cached with legacy cfg quotes ('Arc') poisoned the
     // imagery-source audit; v2: O4TileInfo gained highZLAirports/coverZL.
-    private static let version = 3
+    private static let version = 4
 
     private static var fileURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!

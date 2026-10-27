@@ -24,7 +24,8 @@ _AUTO = """<?xml version="1.0" encoding="UTF-8"?>
   <node id="-1" lat="30.1" lon="31.4"><tag k="alt_abs" v="100.125"/></node>
   <node id="-2" lat="30.1" lon="31.41"><tag k="alt_abs" v="101"/></node>
   <node id="-3" lat="30.11" lon="31.41"><tag k="alt_abs" v="102"/></node>
-  <way id="-10"><nd ref="-1"/><nd ref="-2"/><nd ref="-3"/><nd ref="-1"/><tag k="aeroway" v="apron"/></way>
+  <way id="-10"><nd ref="-1"/><nd ref="-2"/><nd ref="-3"/><nd ref="-1"/>
+    <tag k="aeroway" v="apron"/></way>
 </osm>
 """
 
@@ -61,9 +62,9 @@ def test_the_square_is_four_ccw_corners_20_m_apart(lat):
     geod = pyproj.Geod(ellps="WGS84")
     ring = PI.square_ring(lat, -122.6)
     assert len(ring) == 4 and len(set(ring)) == 4
-    area2 = sum(a[1] * b[0] - b[1] * a[0] for a, b in zip(ring, ring[1:] + ring[:1]))
+    area2 = sum(a[1] * b[0] - b[1] * a[0] for a, b in zip(ring, ring[1:] + ring[:1], strict=True))
     assert area2 > 0                                     # CCW with x = lon, y = lat
-    for a, b in zip(ring, ring[1:] + ring[:1]):
+    for a, b in zip(ring, ring[1:] + ring[:1], strict=True):
         _f, _b, d = geod.inv(a[1], a[0], b[1], b[0])
         assert d == pytest.approx(PI.SQUARE_SIDE_M, abs=0.01)
     assert sum(p[0] for p in ring) / 4 == pytest.approx(lat, abs=1e-12)

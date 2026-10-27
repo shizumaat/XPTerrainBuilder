@@ -67,7 +67,8 @@ class ShapeInserter(QObject):
     def _place(self, plan: dict) -> None:
         model = self._controller.model
         p = model.patch
-        if model.doc is not None and p is not None and (p.tile, p.icao) == (plan["tile"], plan["icao"]):
+        is_open = p is not None and (p.tile, p.icao) == (plan["tile"], plan["icao"])
+        if model.doc is not None and is_open:
             model.add_shape(plan["corners"])
             return
 

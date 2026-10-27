@@ -131,7 +131,8 @@ class PatchEditor:
         """The map's right-click items: "Set elevation…" on the Edit-mode
         selected shapes (#1357), then "Insert shape" at ``at`` (#1314)."""
         items = []
-        if self.model.mode == MODE_EDIT and self.model.shape_selection and self.model.doc is not None:
+        m = self.model
+        if m.mode == MODE_EDIT and m.shape_selection and m.doc is not None:
             items.append((ELEVDIALOG.TITLE, self.panel.open_set_elevation))
         if at is not None and self.inserter.available():
             items.append((INSERT_SHAPE_TITLE, lambda: self.inserter.insert(*at)))

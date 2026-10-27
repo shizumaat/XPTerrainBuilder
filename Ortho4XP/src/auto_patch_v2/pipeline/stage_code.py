@@ -278,6 +278,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.runway_ends_schema",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
+        "auto_patch_v2.law.terrain_witness_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
         "auto_patch_v2.model",
@@ -456,6 +457,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.runway_ends_schema",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
+        "auto_patch_v2.law.terrain_witness_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
         "auto_patch_v2.model",
@@ -561,6 +563,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.runway_ends_schema",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
+        "auto_patch_v2.law.terrain_witness_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
         "auto_patch_v2.model",
@@ -594,6 +597,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.runway_ends_schema",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
+        "auto_patch_v2.law.terrain_witness_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
         "auto_patch_v2.model",
@@ -670,6 +674,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.runway_ends_schema",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
+        "auto_patch_v2.law.terrain_witness_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
         "auto_patch_v2.model",
@@ -880,6 +885,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.runway_ends_schema",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
+        "auto_patch_v2.law.terrain_witness_schema",
         "auto_patch_v2.law.tunnel_object_schema",
         "auto_patch_v2.law.units",
         "auto_patch_v2.model",
@@ -991,7 +997,8 @@ _GENERATOR_CORE = """
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
     law.eat_schema law.flat_pack_schema
     law.flat_site_schema law.model law.model_types law.rebake_schema
-    law.reference_code law.role_cap_schema law.runway_ends_schema law.tables
+    law.reference_code law.role_cap_schema law.runway_ends_schema
+    law.terrain_witness_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model model.constraints
     model.frame model.planar model.registries model.structures
 """
@@ -1226,7 +1233,7 @@ _GENERATOR_CLOSURES: dict[str, tuple[str, ...]] = {
     """),
 }
 CODE_MODULES["constraints.assembly"] = _mods("""
-        law.runway_ends_schema
+        law.runway_ends_schema law.terrain_witness_schema
     airport classify model pipeline planar airport.anchor_rule airport.apt_dat
     airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
@@ -1299,7 +1306,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     model.stage_one
 """)
 CODE_MODULES["jetway_strip"] = _mods("""
-        law.inset_class law.runway_ends_schema
+        law.inset_class law.runway_ends_schema law.terrain_witness_schema
     airport constraints model airport.anchor_rule airport.apt_dat
     airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
@@ -1356,7 +1363,7 @@ CODE_MODULES["jetway_strip"] = _mods("""
 #: codec and certificate).  The late cut and the late solve share one
 #: closure: ``pipeline.late_stage`` reaches the whole of both halves.
 CODE_MODULES["solve"] = _mods("""
-        law.runway_ends_schema
+        law.runway_ends_schema law.terrain_witness_schema
     airport classify constraints model pipeline planar solve airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
@@ -1449,7 +1456,7 @@ CODE_MODULES["solve"] = _mods("""
     model.stage_one
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
-        law.runway_ends_schema
+        law.runway_ends_schema law.terrain_witness_schema
     airport classify emit model pipeline planar solve airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.below_zero airport.borrow
@@ -1553,7 +1560,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.stage_one
 """)
 CODE_MODULES["emit"] = _mods("""
-        constraints.runway_end_report law.runway_ends_schema
+        constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema
     airport constraints emit model pipeline planar verify airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family
@@ -1628,7 +1635,7 @@ CODE_MODULES["emit"] = _mods("""
     geom.foot_planes constraints.group_level constraints.face_index
 """)
 CODE_MODULES["verify"] = _mods("""
-        constraints.runway_end_report law.runway_ends_schema
+        constraints.runway_end_report law.runway_ends_schema law.terrain_witness_schema
     airport classify constraints emit model pipeline planar solve airport.anchor_rule
     airport.apt_dat airport.authored_landing airport.authored_seat airport.backup_state
     airport.basin_ring airport.basin_witness airport.borrow airport.bridge_family

@@ -26,7 +26,8 @@ DROPPED for that end — position and height.  The end is then an apt.dat
 end like any runway without CIFP: ``end_pins.verify`` has nothing to judge
 there and ``constraints/runway_profile.end_pin_cases`` values it — on
 credible lidar it FOLLOWS THE LIDAR (26v's words), with no noise floor: the
-datum line it would otherwise keep is the apt.dat header, no survey.  One loud line per drop, one record per end.
+datum line it would otherwise keep is the apt.dat header, no survey.  One
+loud line per drop, one record per end.
 """
 from __future__ import annotations
 

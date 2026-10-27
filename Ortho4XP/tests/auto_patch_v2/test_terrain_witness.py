@@ -223,8 +223,9 @@ def test_a_cut_reads_deep_and_flat_ground_does_not():
 # ── Q5: only mapped mouths (RULINGS 2026-10-26x) ──────────────────────────
 
 def test_a_mouth_is_an_open_end_of_a_mapped_bore():
-    a = OsmWay(1, "roads", ((0.0, 0.0), (50.0, 0.0)), False, {"tunnel": "yes", "highway": "service"})
-    b = OsmWay(2, "roads", ((50.0, 0.0), (90.0, 0.0)), False, {"tunnel": "yes", "highway": "service"})
+    bore = {"tunnel": "yes", "highway": "service"}
+    a = OsmWay(1, "roads", ((0.0, 0.0), (50.0, 0.0)), False, bore)
+    b = OsmWay(2, "roads", ((50.0, 0.0), (90.0, 0.0)), False, bore)
     passage = OsmWay(3, "roads", ((0.0, 50.0), (9.0, 50.0)), False,
                      {"tunnel": "building_passage", "highway": "service"})
     ap = _dc.replace(_airport(_Plane()), osm_ways=(a, b, passage))

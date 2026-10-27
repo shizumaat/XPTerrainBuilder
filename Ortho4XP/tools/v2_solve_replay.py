@@ -13,8 +13,8 @@ promoted on its second use by lane ``v2chord``).
     venv/bin/python tools/v2_solve_replay.py --why-from SOLVED.pkl --why-hard [N]
     venv/bin/python tools/v2_solve_replay.py --capture ICAO --out DIR/ICAO.pkl --stage-cache
     venv/bin/python tools/v2_solve_replay.py --replay-cache ICAO [--why-miss] [replay flags]
-    venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl --witness [--witness-labels L.json]
-        [--imagery-dir TILE_DIR ...] [--json OUT.json]
+    venv/bin/python tools/v2_solve_replay.py --replay DIR/ICAO.pkl --witness
+        [--witness-labels L.json] [--imagery-dir TILE_DIR ...] [--json OUT.json]
 
 ``--witness`` (#1359): the terrain witness's dry read on a capture — every
 runway end's threshold vote (Q1), every runway band edge's lidar break and
@@ -461,7 +461,7 @@ def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = N
                      rule: dict[str, object] | None = None,
                      cifp_dir: str | None = None,
                      data_overlay: str | None = None, stage_cache: str = "off",
-                     why_miss: bool = False) -> dict:
+                     why_miss: bool = False, no_imagery: bool = False) -> dict:
     """:func:`capture` with the shared-repo guard and the lane-local cache
     redirects armed around it (``harness/build_airport.
     arm_shared_repo_protection``, the ONE arming composition).  The
@@ -480,7 +480,7 @@ def _capture_guarded(icao: str, out: Path | None, mod_cache_root: str | None = N
     _guard.__enter__()
     try:
         return capture(icao, out, mod_cache_root, placement, rule, cifp_dir,
-                       data_overlay, stage_cache, why_miss)
+                       data_overlay, stage_cache, why_miss, no_imagery)
     finally:
         _guard.__exit__(None, None, None)
         _churn(_guard)
@@ -534,7 +534,7 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
             rule: dict[str, object] | None = None,
             cifp_dir: str | None = None,
             data_overlay: str | None = None, stage_cache: str = "off",
-            why_miss: bool = False) -> dict:
+            why_miss: bool = False, no_imagery: bool = False) -> dict:
     """THE CAPTURE IS ``pipeline/build.py``'s OWN PRE-SOLVE HALF, WHOLE
     (owner RULINGS 2026-09-12u, spec §30 (3a)).  Until 12u it ran
     load → classify → planar and SKIPPED the pack partition and the group
@@ -584,6 +584,10 @@ def capture(icao: str, out: Path | None, mod_cache_root: str | None = None,
         law, _kw = _placement_override(law, placement)
         print(f"[{icao}] CAPTURE ARM [placement] {_kw}")
     inputs = default_inputs()
+    if no_imagery:
+        # #1359 the witness's OFF arm: no airport photos, every imagery vote
+        # abstains (today's law at every question the imagery decides)
+        inputs = _dc.replace(inputs, imagery_paths=(), imagery_scenery_dir="")
     # THE LANE-LOCAL DATA OVERLAY (issue #156), BEFORE any other input
     # override: the corpus dirs the overlay provides are read from it,
     # every other input stays on the shared corpus, and the frame is
@@ -3020,6 +3024,9 @@ def main() -> int:
     ap.add_argument("--bank-from", type=Path, metavar="PKL",
                     help="replay the EMIT HALF (terrain edges + patch) off a "
                          "--solved-out pickle, without re-paying the solve")
+    ap.add_argument("--no-imagery", action="store_true",
+                    help="--capture: the #1359 witness's OFF arm — no airport photos "
+                         "(every imagery vote abstains)")
     ap.add_argument("--witness", action="store_true",
                     help="#1359: the terrain witness on a --replay capture (dry read): every "
                          "Q1/Q4/Q5 vote, scored with --witness-labels (tools/v2_witness.py)")
@@ -3130,7 +3137,8 @@ def main() -> int:
         rl = dict(it.split("=", 1) for it in a.rule)
         _capture_guarded(a.capture.upper(), a.out, a.mod_cache_root, pl, rl,
                          a.cifp_dir, a.data_overlay,
-                         "write" if a.stage_cache else "off", a.why_miss)
+                         "write" if a.stage_cache else "off", a.why_miss,
+                         a.no_imagery)
         return 0
     if a.reclassify:
         rl = dict(it.split("=", 1) for it in a.rule)

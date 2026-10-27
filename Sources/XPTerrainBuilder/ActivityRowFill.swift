@@ -3,23 +3,42 @@ import SwiftUI
 
 /// The fill behind an Activity or Completed row whose tile is selected
 /// (#1537; which rows: `ActivityOrder.filledRows`). It raises contrast
-/// against the group box: the system text background taken halfway on
-/// away from the label colour — near-black in Dark Mode against the
-/// dark-gray box, white in light mode against the light-gray one — so it
-/// follows the appearance (Qt: `O4_Qt_Click_Row.fill_color`, from the
-/// palette).
+/// against the group box, subtly (owner on 1.0.438): the pane colour
+/// (`underPageBackgroundColor`, the system gray nearest the group box's
+/// tint — the window background is plain white in light mode) moved a quarter of the way to the system text background
+/// taken halfway on away from the label colour — darker in Dark Mode,
+/// lighter in light mode — so it follows the appearance. It spans the
+/// box edge to edge with square corners (Qt: `O4_Qt_Click_Row.fill_color`,
+/// from the palette).
 enum ActivityRowFill {
     static let system = NSColor(name: nil) { appearance in
         var out = NSColor.textBackgroundColor
         appearance.performAsCurrentDrawingAppearance {
-            out = awayFromText(NSColor.textBackgroundColor)
+            out = subtle(pane: NSColor.underPageBackgroundColor,
+                         text: NSColor.textBackgroundColor)
         }
         return out
     }
     static var color: Color { Color(nsColor: system) }
-    /// How far the fill reaches outside the row's content.
+    /// How far the fill reaches above and below the row's content.
     static let margin: CGFloat = 3
-    static let cornerRadius: CGFloat = 5
+    /// Square corners: the fill is a band across the box.
+    static let cornerRadius: CGFloat = 0
+    /// How far the fill reaches sideways: out to the box's edges.
+    static var sideReach: CGFloat { PaneBoxMetrics.edgeInset }
+    /// The share of the old (#1537) contrast step kept.
+    static let step: CGFloat = 0.25
+
+    /// `pane` moved `step` of the way to `awayFromText(text)`.
+    static func subtle(pane: NSColor, text: NSColor) -> NSColor {
+        let a = pane.usingColorSpace(.sRGB) ?? pane
+        let b = awayFromText(text)
+        func mix(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x + (y - x) * step }
+        return NSColor(srgbRed: mix(a.redComponent, b.redComponent),
+                       green: mix(a.greenComponent, b.greenComponent),
+                       blue: mix(a.blueComponent, b.blueComponent),
+                       alpha: a.alphaComponent)
+    }
 
     /// `background` halfway to black when it is dark, to white when light.
     static func awayFromText(_ background: NSColor) -> NSColor {
@@ -44,11 +63,12 @@ extension NSColor {
 extension View {
     /// Fill behind the row when `selected` (`ActivityRowFill`).
     func activityRowFill(_ selected: Bool) -> some View {
-        background {
+        frame(maxWidth: .infinity, alignment: .leading).background {
             if selected {
-                RoundedRectangle(cornerRadius: ActivityRowFill.cornerRadius)
+                Rectangle()
                     .fill(ActivityRowFill.color)
-                    .padding(-ActivityRowFill.margin)
+                    .padding(.vertical, -ActivityRowFill.margin)
+                    .padding(.horizontal, -ActivityRowFill.sideReach)
             }
         }
     }

@@ -63,12 +63,31 @@ final class ActivitySectionsTests: XCTestCase {
         return out
     }
 
-    func testTheFillRaisesContrastInBothAppearances() {
+    func testTheFillIsSubtleButDistinctInBothAppearances() {
         let fill = ActivityRowFill.system
-        let pane = NSColor.windowBackgroundColor
+        let pane = NSColor.underPageBackgroundColor
+        let first = ActivityRowFill.awayFromText(.textBackgroundColor)
+        for name in [NSAppearance.Name.darkAqua, .aqua] {
+            let step = abs(luminance(fill, name) - luminance(pane, name))
+            let firstStep = abs(luminance(first, name) - luminance(pane, name))
+            XCTAssertGreaterThan(step, 0.005, "\(name)")
+            XCTAssertLessThan(step, firstStep / 2, "\(name)")
+        }
         XCTAssertLessThan(luminance(fill, .darkAqua), luminance(pane, .darkAqua))
-        XCTAssertLessThan(luminance(fill, .darkAqua), 0.07)   // near-black
-        XCTAssertEqual(luminance(fill, .aqua), 1, accuracy: 1e-3)   // white
+        XCTAssertGreaterThan(luminance(fill, .aqua), luminance(pane, .aqua))
+    }
+
+    func testSubtleIsAQuarterStep() {
+        let pane = NSColor(srgbRed: 0.2, green: 0.2, blue: 0.2, alpha: 1)
+        let out = ActivityRowFill.subtle(pane: pane, text: pane)   // away = 0.1
+        XCTAssertEqual(out.redComponent, 0.175, accuracy: 1e-6)
+    }
+
+    func testTheFillSpansTheBoxWithSquareCorners() {
+        XCTAssertEqual(ActivityRowFill.cornerRadius, 0)
+        XCTAssertEqual(ActivityRowFill.sideReach, PaneBoxMetrics.edgeInset)
+        XCTAssertEqual(PaneBoxMetrics.edgeInset,
+                       PaneBoxMetrics.padding + PaneBoxMetrics.groupBoxInset)
     }
 
     func testAwayFromText() {

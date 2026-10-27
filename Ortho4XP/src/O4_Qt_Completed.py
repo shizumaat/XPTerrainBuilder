@@ -7,6 +7,7 @@ It starts collapsed and keeps the user's choice for the session.  The Mac
 app's twin is ``ActivitySections`` (``ActivitySections.swift``).
 """
 
+import O4_Qt_Click_Row as ROW
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QGroupBox, QScrollArea, QToolButton, QVBoxLayout, QWidget
 
@@ -44,6 +45,7 @@ class CompletedSection(QGroupBox):
         self.rows_layout.addStretch(1)
         self.rows_scroll.setWidget(host)
         layout.addWidget(self.rows_scroll, 1)
+        ROW.span_box(layout, self.rows_scroll)
         self._count = 0
         self.toggle.toggled.connect(self._toggled)
         self._toggled(False)

@@ -107,3 +107,48 @@ def test_a_service_road_releases_nothing(law):
     ring = list(pm.ring_vertices(road.ring))
     row = Diff(ring[0], ring[1], 0.10, 1.0, Source("roads", "x", ()))
     assert terrain_release([row], pm, law) == ([row], 0)
+
+
+# ── RULINGS 2026-10-27f / 27s: the junction joint ────────────────────────
+
+def test_a_junction_mouth_between_two_public_roads_is_the_streets_grade(law):
+    """27f: two routes within one ribbon's width of two DIFFERENT public
+    roads (a sized joint's frames carry the road as a fourth field) are the
+    side street's longitudinal grade; one carriageway keeps 2 %."""
+    from auto_patch_v2.constraints.roads import road_pair_reading
+    fa, fb = (1, 10.0, 0.0, "osm:-1"), (2, 50.0, 0.0, "osm:-2")
+    assert road_pair_reading(0.10, 0.02, 45.0, fa, fb, 4.0, 6.0) == (pytest.approx(0.40), False)
+    same = (2, 50.0, 0.0, "osm:-1")
+    assert road_pair_reading(0.10, 0.02, 45.0, fa, same, 4.0, 6.0) == (pytest.approx(0.08), True)
+    bare = (2, 50.0, 0.0)
+    assert road_pair_reading(0.10, 0.02, 45.0, fa, bare, 4.0, 6.0) == (pytest.approx(0.08), True)
+
+
+@pytest.mark.parametrize("z0,g0,line0,g1", [
+    (153.0, 0.11, 155.3, 0.15),       # LGAV -1276 into -1190
+    (153.0, 0.0, 155.3, 0.18),        # a side street climbing off a level kerb
+    (155.3, 0.0, 153.0, -0.18),       # ... and descending
+    (100.0, 0.0, 100.5, 0.02),        # within the free change: an offset only
+])
+def test_the_joint_transition_keeps_the_town_street_law(law, z0, g0, line0, g1):
+    """27s: the street leaves the kerb within the free change, then changes
+    grade at no more than 1 % per 3 m, and lands on its own line in value
+    and grade, never steeper than the ceiling."""
+    import numpy as np
+    from auto_patch_v2.airport.road_joint import transition
+    c = law.tables.common
+    free = c.road_joint_free_grade_change
+    rate = c.vertical_curve_k_grade_unit / c.road_joint_k_m_per_pct
+    assert (free, c.road_joint_k_m_per_pct) == (0.08, 3.0)
+    ceiling = law.tables.emit.road_profile.cap_ceiling
+    u_end, prof = transition(z0, g0, line0, g1, free, rate, ceiling)
+    h = 0.05
+    u = np.arange(0.0, u_end + h / 2, h)
+    z = np.array([prof(x) for x in u])
+    g = np.diff(z) / h
+    assert z[0] == pytest.approx(z0)
+    assert prof(u_end) == pytest.approx(line0 + g1 * u_end, abs=1e-6)
+    assert abs(g[0] - g0) <= free + rate * h + 1e-9
+    assert np.abs(np.diff(g)).max() / h <= rate * (1 + 1e-6)
+    assert abs(g[-1] - g1) <= rate * h + 1e-9
+    assert np.abs(g).max() <= ceiling + 1e-9

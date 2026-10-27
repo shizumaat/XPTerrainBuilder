@@ -185,7 +185,8 @@ def road_pair_reading(cap_l: float, cap_t: float, min_deg: float,
             # -1276 into -1190: the 2 % pair dragged the side street's last
             # 60 m 2.9 m under its DEM).  A frame's fourth field names the
             # public road its route belongs to (``PlanarMap.
-            # road_public_routes``); one carriageway keeps the cross-section.
+            # road_junction_road``, a sized joint's vertices only); one
+            # carriageway — and an unsized crossing — keeps the cross-section.
             if junction_mouth(fa, fb):
                 return cap_l * float(chord), False
             return cap_t * float(chord), True
@@ -213,13 +214,13 @@ def junction_mouth(fa, fb) -> bool:
     return bool(wa) and bool(wb) and wa != wb
 
 
-def with_public_road(frame: _t.Mapping[int, tuple], routes: _t.Mapping[int, str]
+def with_public_road(frame: _t.Mapping[int, tuple], roads: _t.Mapping[int, str]
                      ) -> dict[int, tuple]:
-    """27f: ``frame`` with each record's public road appended as its fourth
-    field (``routes``: ``PlanarMap.road_public_routes``)."""
-    if not routes:
+    """27f: ``frame`` with each vertex's junction road appended as its
+    fourth field (``roads``: ``PlanarMap.road_junction_road``)."""
+    if not roads:
         return dict(frame)
-    return {v: (*f[:3], routes.get(int(f[0]))) for v, f in frame.items()}
+    return {v: (*f[:3], roads.get(v)) for v, f in frame.items()}
 
 
 def _airside(planar: PlanarMap, law: Law, v: int) -> bool:
@@ -287,7 +288,7 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     # map, a probe that skipped the publisher) the chord law stands.
     frame = getattr(planar, "road_route_frame", None) or {}
     # 27f: each frame carries the public road its route belongs to
-    frame = with_public_road(frame, getattr(planar, "road_public_routes", None) or {})
+    frame = with_public_road(frame, getattr(planar, "road_junction_road", None) or {})
     # §37 (10) (2): the routes a MERGE fused.  A pair on one of them may
     # be one the merge NEWLY prices (before it, the two frames were two
     # routes and the verdict was NOT_A_PAIR) — and 8 of HECA's 24 newly

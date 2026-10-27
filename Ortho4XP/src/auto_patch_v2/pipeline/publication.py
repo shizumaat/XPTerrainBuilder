@@ -658,8 +658,8 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # belongs to ("" for none) — the junction-mouth reading
             "road_route_frame": [[ll[v][0], ll[v][1], int(r),
                                   round(float(st), 4), round(float(t), 4),
-                                  str((getattr(planar, "road_public_routes", None)
-                                       or {}).get(int(r), ""))]
+                                  str((getattr(planar, "road_junction_road", None)
+                                       or {}).get(v, ""))]
                                  for v, (r, st, t)
                                  in sorted(planar.road_route_frame.items())],
             # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be):

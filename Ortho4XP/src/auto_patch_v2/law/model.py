@@ -229,6 +229,13 @@ class CommonLaw:
     #: letter caps stay targets under it (``constraints/ceiling.py``)
     pavement_max_grade: float
     road_max_grade: float
+    #: OWNER RULINGS 2026-10-27s (Q197): A PUBLIC ROAD'S JOINT AT A JUNCTION
+    #: (town-street values, ~30 km/h): a grade change up to this needs no
+    #: curve (``airport/road_joint``)
+    road_joint_free_grade_change: float
+    #: ... and a bigger change is spread over at least this many metres of
+    #: road per 1 % (``vertical_curve_k_grade_unit``) of change: K
+    road_joint_k_m_per_pct: float
     apron_fan_ramp_max: float
     road_transverse_axis_min_deg: float
     runway_crown_transverse: float

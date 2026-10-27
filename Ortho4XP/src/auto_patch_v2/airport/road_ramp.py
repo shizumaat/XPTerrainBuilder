@@ -1867,10 +1867,17 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # target runs over the road cap — the rows yield there
     # (``constraints/public_road_release``) and the census lifts them
     from .public_road import public_road_faces, public_road_lifts, public_routes
-    lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), targets)
+    from .road_joint import junction_joints
     # 27f (Q186): the public road each route belongs to — the junction mouth
-    # between two of them is the minor road's longitudinal grade
+    # between two of them is the minor road's longitudinal grade — and 27s
+    # (Q197): the side street leaves the main road's kerb over a car-smooth
+    # transition
     pub_routes = public_routes(route_ways, law, airport)
+    targets, frame, junction_road, joint_rep = junction_joints(
+        pm, law, frame, targets, route_ways, pub_routes)
+    if report is not None:
+        report["junction_joints"] = joint_rep
+    lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), targets)
     if report is not None:
         report["public_road_lifted"] = len(lifted)
         report["public_road_steepest"] = max(lifted.values(), default=0.0)
@@ -1878,4 +1885,4 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,
                        road_between_levels=bl, road_terrace=terr,
-                       public_road_lifted=lifted, road_public_routes=pub_routes)
+                       public_road_lifted=lifted, road_junction_road=junction_road)

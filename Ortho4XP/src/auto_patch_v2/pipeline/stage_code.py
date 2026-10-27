@@ -609,6 +609,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.dem",
         "auto_patch_v2.airport.public_road",
         "auto_patch_v2.airport.road_descent",
+        "auto_patch_v2.airport.road_joint",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_ramp",
         "auto_patch_v2.airport.road_stations",
@@ -1582,7 +1583,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.rebake_plan airport.rebake_screen airport.riders
     airport.public_road
-    airport.road_descent airport.road_profile airport.road_ramp airport.road_stations
+    airport.road_descent airport.road_joint airport.road_profile airport.road_ramp airport.road_stations
     airport.road_ways airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
     airport.ring_contact_batch
     airport.slab_plates airport.topology_cache airport.wall_class classify

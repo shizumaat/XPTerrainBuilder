@@ -10453,3 +10453,11 @@ Applies to the Activity and Completed rows in both apps: the selection is the pl
 
 **2026-10-28o — 28m applies on lidar and fine ground only (#1348, PR #1574; owner Q239, 2026-10-27T17:41:29Z: "239. a").**
 Asked: applied worldwide, 28m moves 1,909 of 11,192 no-CIFP runways from their apt.dat elevation onto the coarse 30 m DEM, each by more than 8 m, and only 5 onto fine data. On coarse data the DEM is often the less reliable side. Ruled (a): an apt.dat-only runway yields to the survey ground only where that ground is lidar or fine DEM (`inset_class.ground_class`). On coarse DEM the apt.dat elevation is kept.
+
+**2026-10-28p — five site rules (owner Q240–Q245, 2026-10-27T17:58:26Z: "240. b 241. a 242. a 243. a 244. a 245. Yes").**
+(1) Q240 b (#1201 KSEA): inside a runway safety area, airport service roads (`highway=service`) sit at grade on the graded surface. Public roads keep RULINGS 2026-10-20c (39) and follow their own ground (#951 KLAX).
+(2) Q241 a (#1572/#1288 KMCI): within one shared frame, a unit seated on the same flat pad as the pad's largest unit, but drawn higher, sinks to that group's level at any depth. Units never float off the pad.
+(3) Q242 a (#1338 NZWN): under §27 (RULINGS 2026-09-12c), a lot's contact with airside pavement that runs under a building or along the pack's own fence does not count as a connection to airside, so such lots stay groundside.
+(4) Q243 a (#1338 NZWN): inside the airport fence, pavement painted over a tagged tunnel is not by itself a witness that the tunnel exists; it needs one of RULINGS 2026-10-27z's witnesses.
+(5) Q244 a (#1301/#1279 LFPG): an objects-only companion pack (no apt.dat, objects inside the airport boundary) is re-seated together with the main pack. Overlay packs (AEP Overlays, simHeaven and the like) are left alone.
+(6) Q245 Yes (#1559 LFPG cuts, 28k): a taxiway's adjacent-ground zones 1–2 give way to a trench the survey shows inside them. The reduced tunnel counts the 28k rules give elsewhere (LFPG 55→25, EGGW 17→2, KCLT 8→2, NZWN 10→5) land only after the owner's sim read.

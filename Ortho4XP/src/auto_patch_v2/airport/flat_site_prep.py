@@ -25,7 +25,7 @@ from shapely.ops import unary_union
 
 from ..law import Law
 from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
-from ..law.runway_strip import strip_band
+from .runway_strip import strip_band
 from ..model.frame import XY
 from . import approach as _approach
 from . import cifp as _cifp
@@ -135,7 +135,7 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     plateau's footprint, #1144) and ``held`` / ``held_ll``
     (apt.dat pavements ∪ runways ∪, at a substituting site, the pack's
     draped pavement pages read from ``mod_cache_root`` and each runway's
-    graded strip, ``law.runway_strip.strip_band``; margin 0:
+    graded strip, ``airport.runway_strip.strip_band``; margin 0:
     the ground the plateau keeps at Z0 whatever the DEM says — elsewhere it
     only fills, ``auto_patch/flat_site_relief.py``, RULINGS 2026-10-26r).
     The bake adds ``plateau``."""

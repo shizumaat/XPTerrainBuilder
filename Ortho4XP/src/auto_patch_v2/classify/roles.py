@@ -97,7 +97,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.runway_strip import strip_band
+from ..airport.runway_strip import strip_band
 from ..law.tables import is_value_role, role_side, snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY
@@ -1472,7 +1472,7 @@ def shoulder_band(rw, law: Law, *, end_cap: bool = True):
     """§40 (5) (1) THE RUNWAY'S GRADED STRIP AS A BAND — the region a
     pavement cell must lie inside to be the runway's, or ``None`` where
     the law states no strip for the class.  ONE derivation,
-    :func:`law.runway_strip.strip_band` (DEM prep's flat-site decision
+    :func:`airport.runway_strip.strip_band` (DEM prep's flat-site decision
     reads the same band, #1208).
 
     §40 (5) bounds §40 (1), it does not reverse it: a cell that shares

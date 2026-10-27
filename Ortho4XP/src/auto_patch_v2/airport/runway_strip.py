@@ -4,7 +4,9 @@ classification (``classify/roles.py``: the region a pavement cell must lie
 inside to be the runway's) and by DEM prep's flat-site decision
 (``airport/flat_site_prep.py``: the strip the plateau keeps graded, owner
 RULINGS 2026-10-27v (2), #1208).  Moved here from ``classify/roles`` so a
-reader below ``classify`` in the layer order can take the same band.
+reader below ``classify`` in the layer order can take the same band; it
+builds a shapely polygon, so it lives in ``airport`` (``law`` holds no
+geometry, ``test_model``).
 
 The axis is the apt.dat ends (the same two points ``constraints/strips``
 and ``law/approach_corridor`` read, never the emitted rings), and the half
@@ -25,9 +27,9 @@ from __future__ import annotations
 
 import math
 
-from . import Law
-from .reference_code import runway_status
-from .tables import runway_safety_area_length_m, zone2_half_width_m
+from ..law import Law
+from ..law.reference_code import runway_status
+from ..law.tables import runway_safety_area_length_m, zone2_half_width_m
 
 __all__ = ["strip_band"]
 

@@ -27,7 +27,7 @@ inside the boundary only runways and pavement stay flat; 2026-10-27v (2):
 the runway strips stay graded as the strip law requires).  The decision
 record's ``held_ll`` — apt.dat pavements ∪ runways ∪ the pack's draped
 pavement pages (``auto_patch_v2/airport/pack_pavement.py``) ∪ each
-runway's graded strip (``auto_patch_v2/law/runway_strip.py``), margin 0 —
+runway's graded strip (``auto_patch_v2/airport/runway_strip.py``), margin 0 —
 stays at Z0 whatever the DEM says.  The rest of the boundary's grass, the
 margin, the cluster hulls and the isthmus keep their real ground; the
 groundside roads and pads on it grade by their own rules (2026-10-27v

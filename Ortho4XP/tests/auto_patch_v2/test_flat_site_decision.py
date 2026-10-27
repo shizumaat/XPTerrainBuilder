@@ -205,7 +205,7 @@ class _PavedOnlyDem(_ComposedDem):
     ground 3 m above off it."""
 
     def z(self, x, y):
-        from auto_patch_v2.law.runway_strip import strip_band
+        from auto_patch_v2.airport.runway_strip import strip_band
         from shapely.geometry import Point
 
         band = strip_band(_site().runways[0], Law.for_airport("ZZZZ"))
@@ -247,9 +247,9 @@ def test_the_packs_draped_pavement_joins_the_pavement(monkeypatch):
 def test_the_runway_strip_is_held_with_the_pavement():
     """RULINGS 2026-10-27v (2): the runway strips stay graded as the strip
     law requires — the record holds each runway's graded strip
-    (``law.runway_strip.strip_band``, with its end extension) at Z0, not
+    (``airport.runway_strip.strip_band``, with its end extension) at Z0, not
     the real ground."""
-    from auto_patch_v2.law.runway_strip import strip_band
+    from auto_patch_v2.airport.runway_strip import strip_band
 
     law = Law.for_airport("ZZZZ")
     site = _site(runway_len_m=2400.0)

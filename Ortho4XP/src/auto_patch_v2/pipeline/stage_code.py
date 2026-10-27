@@ -218,6 +218,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
         "auto_patch_v2.airport.road_ways",
+        "auto_patch_v2.airport.runway_strip",
         "auto_patch_v2.airport.scatter",
         "auto_patch_v2.airport.sheet_chain",
         "auto_patch_v2.airport.skirt",
@@ -277,7 +278,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.reference_code",
         "auto_patch_v2.law.role_cap_schema",
         "auto_patch_v2.law.runway_ends_schema",
-        "auto_patch_v2.law.runway_strip",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.terrain_witness_schema",
@@ -380,6 +380,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_stations",
         "auto_patch_v2.airport.road_ways",
+        "auto_patch_v2.airport.runway_strip",
         "auto_patch_v2.airport.scatter",
         "auto_patch_v2.airport.sheet_chain",
         "auto_patch_v2.airport.skirt",
@@ -460,7 +461,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.reference_code",
         "auto_patch_v2.law.role_cap_schema",
         "auto_patch_v2.law.runway_ends_schema",
-        "auto_patch_v2.law.runway_strip",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.terrain_witness_schema",
@@ -779,6 +779,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.airport.riders",
         "auto_patch_v2.airport.ring_contact_batch",
         "auto_patch_v2.airport.road_ways",
+        "auto_patch_v2.airport.runway_strip",
         "auto_patch_v2.airport.scatter",
         "auto_patch_v2.airport.sheet_chain",
         "auto_patch_v2.airport.skirt",
@@ -905,7 +906,6 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.law.reference_code",
         "auto_patch_v2.law.role_cap_schema",
         "auto_patch_v2.law.runway_ends_schema",
-        "auto_patch_v2.law.runway_strip",
         "auto_patch_v2.law.tables",
         "auto_patch_v2.law.terrace_schema",
         "auto_patch_v2.law.terrain_witness_schema",
@@ -1022,15 +1022,11 @@ GENERATOR_MODULES: dict[str, str] = {
 _GENERATOR_CORE = """
     constraints geom geom.rotated_rect law law.airports_schema law.base_profile_schema
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
-    law.eat_schema law.flat_pack_schema
-    law.flat_site_schema law.model law.model_types law.rebake_schema
-    law.reference_code law.role_cap_schema law.runway_ends_schema
-    law.reference_code law.role_cap_schema law.runway_ends_schema law.tables
-    law.terrace_schema law.tunnel_object_schema law.units law.walled_plate_schema
-    law.terrace_schema law.tunnel_object_schema law.units model model.constraints
-    law.terrain_witness_schema law.tables
-    model model.constraints
-    model.frame model.planar model.registries model.structures
+    law.eat_schema law.flat_pack_schema law.flat_site_schema law.model law.model_types
+    law.rebake_schema law.reference_code law.role_cap_schema law.runway_ends_schema
+    law.tables law.terrace_schema law.terrain_witness_schema law.tunnel_object_schema
+    law.units law.walled_plate_schema model model.constraints model.frame model.planar
+    model.registries model.structures
 """
 
 #: The rest of each generator module's import closure, keyed by module.
@@ -1338,7 +1334,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_pack_schema
     law.flat_site_schema law.inset_class law.model
-    law.model_types law.rebake_schema law.reference_code law.runway_strip
+    law.model_types law.rebake_schema law.reference_code airport.runway_strip
     law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.ground_fit model.hard_plane
@@ -1469,7 +1465,7 @@ CODE_MODULES["solve"] = _mods("""
     law.basin_schema law.cockpit_schema law.cutout_schema law.design_schema
     law.eat_schema law.flat_pack_schema
     law.flat_site_schema law.inset_class law.model law.model_types
-    law.rebake_schema law.reference_code law.runway_strip law.role_cap_schema law.tables
+    law.rebake_schema law.reference_code airport.runway_strip law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.hard_plane model.islands
     model.jetway model.map_memo model.pad_terrace model.placement model.planar
@@ -1578,7 +1574,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     geom.triangulate geom.union_find geom.vector law law.airports_schema
     law.approach_corridor law.base_profile_schema law.basin_schema law.cockpit_schema
     law.cutout_schema law.design_schema law.eat_schema law.flat_pack_schema law.flat_site_schema
-    law.inset_class law.model law.model_types law.rebake_schema law.reference_code law.runway_strip
+    law.inset_class law.model law.model_types law.rebake_schema law.reference_code airport.runway_strip
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
     model.airport model.constraint_codec model.constraints model.end_area model.frame
     model.ground_fit model.hard_plane model.islands model.jetway model.map_memo
@@ -1678,7 +1674,7 @@ CODE_MODULES["emit"] = _mods("""
     geom.proportions geom.ramp_grade geom.rotated_rect geom.triangulate geom.union_find
     law law.airports_schema law.base_profile_schema law.basin_schema law.cockpit_schema
     law.cutout_schema law.design_schema law.eat_schema law.flat_pack_schema law.flat_site_schema
-    law.inset_class law.model law.model_types law.rebake_schema law.reference_code law.runway_strip
+    law.inset_class law.model law.model_types law.rebake_schema law.reference_code airport.runway_strip
     law.role_cap_schema law.tables law.terrace_schema law.tunnel_object_schema law.units
     model.airport model.constraints model.end_area model.frame model.hard_plane
     model.islands model.jetway model.map_memo model.placement model.planar
@@ -1751,7 +1747,7 @@ CODE_MODULES["verify"] = _mods("""
     law.base_profile_schema law.basin_schema law.cockpit_schema law.cutout_schema
     law.design_schema law.eat_schema law.flat_pack_schema
     law.flat_site_schema law.inset_class law.model
-    law.model_types law.rebake_schema law.reference_code law.runway_strip
+    law.model_types law.rebake_schema law.reference_code airport.runway_strip
     law.role_cap_schema law.tables
     law.terrace_schema law.tunnel_object_schema law.units model.airport
     model.constraints model.end_area model.frame model.islands model.map_memo

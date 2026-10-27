@@ -147,3 +147,42 @@ Releasing that pair instead tilts the junction section in the census
 (the +42 rows above). The question: is the pair across a junction mouth
 between two DIFFERENT public roads a cross-section (2 %), or the minor
 road's own longitudinal grade into the major road's kerb?
+
+## Round 2 — RULINGS 2026-10-27f (Q186, "A, so long as the side road connection to the main road is smooth enough for cars"): STOPPED, a law number is missing
+
+**Implemented as an arm, not shipped** (local branch `claude/lroads-junction-local`,
+04da6176f). At the §37 (10) (2) pairing site (`constraints/roads.road_pair_reading`),
+two routes within `pair_lateral_m` whose frames name two DIFFERENT public OSM roads
+(`PlanarMap.road_public_routes`, published as a sixth `road_route_frame` field and read
+by the generator, v2 verify and the census) are priced as the minor road's longitudinal
+grade (`cap_l x chord`), so the public-road release widens them. A same-carriageway
+cross-section stays at 2 %.
+
+Measured on the LGAV capture, junction -1276 into -1190 (37.95121, 23.98649):
+
+| | PR round 1 (2 % mouth pair) | 27f arm (a4) |
+|---|---|---|
+| -1276, worst gap to the DEM over its last 60 m (s 770–830) | 2.0 m (2.9 m at v22041, s ~ 700) | 0.52 m |
+| public faces released, worst gap to the DEM | 2.86 m | 1.96 m (elsewhere: -2874/-2317, base value) |
+| break-over at the joint | none (section held at 2 %) | **0.60 m `mid_edge_step`** at 37.95122, 23.98650; the side street runs 18 % (s 796–812), then 36 % over 4 m (s 812–816), then 16 % into the kerb |
+| census adjudicated (airside) | 1694 (1437) | 1697 (1437) |
+| new rows vs base | +1 `transverse` (solve noise) | +2 `mid_edge_step` (0.60 m here; 0.52 m at -38 / -2892, 37.92152, 23.93086), +3 `cross_shape` (0.39 / 0.13 / 0.13 m, -766 / -2309, -1444 / -2894) |
+
+Attribution of the step: at a junction each road's target is its own centreline value
+across the whole section (lateral levelling), and on a 16–21 % hillside the two levelled
+sections disagree at the mouth: side-street kerb corner v22050 at 155.28 m, the main
+road's kerb vertex v22053 at 153.51 m, 3.0 m apart; the DEM there is 154.75 / 154.22.
+No row prices that pair (the step was identical with the release restricted to
+same-face pairs, arm a5; that change is refuted and deleted). A car-smooth joint needs
+the side street's last stretch to leave the main road's kerb level and reach its own
+profile over a vertical transition.
+
+**No road vertical-curve or break-over law exists.** Searched: `blast.py --find`
+(break_over / breakover / vertical_curve road: none), every law table (`rulesets`,
+`emit`, `structures`, `families`), `airport/road_descent`, `constraints/roads`,
+`O4_Vector_Utils`, the specs. The vertical-curve and grade-change laws are runway, taxi
+and RAOA only (`vertical_curve_k_m`, `max_grade_change`). The only road smoothing is the
+objective's bending weight `[design] road = 3.0`, which is a weight, not a bound. The
+brief said not to invent a number, so the joint law needs the owner: a road vertical
+transition (a K value, or a maximum grade change per metre) for the side street's last
+stretch into the main road's kerb.

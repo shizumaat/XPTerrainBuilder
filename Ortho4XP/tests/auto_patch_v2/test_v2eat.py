@@ -9,10 +9,13 @@ What these pin:
   point, never clamped);
 * RECOGNITION asks the TAXI ROUTE to cross the extended centreline at
   ``min_crossing_m`` = 1,500 ft or beyond (AC 150/5300-13B §4.12 std 1,
-  owner RULINGS 2026-10-15e (1)); nearer it is an ordinary crossing;
+  owner RULINGS 2026-10-15e (1)); nearer it is an ordinary crossing —
+  unless the route WRAPS around the end, joining both sides beyond the
+  runway's safety area (16d (1));
 * on a CREDIBLE LIDAR inset a recognised EAT is REPORT-ONLY (15e (2)):
   never pinned, published for the census, which reports the ground where
-  it stands above the ceiling;
+  it stands above the ceiling — unless the lidar reads the pavement in a
+  cut (16d (2));
 * the FAR BOUND is the stricter of the regulation's own ``D_clear`` and
   the recognition cap;
 * the ROUTED WRAP is required — an apron lying under a projected
@@ -64,7 +67,7 @@ DEM_Z = 100.0
 
 
 def _airport(law, *, width=45.0, code=4, letter="E", routes=True,
-             cross_x=0.0, cross_s=480.0) -> Airport:
+             cross_x=0.0, cross_s=480.0, flanks=0) -> Airport:
     frame = Frame("KCLT", origin=(35.2, -80.95), identity_dp=11)
     ends = (RunwayEnd("36", RWY_A, (35.2, -80.95), 0.0, 0.0, None, "fixture"),
             RunwayEnd("18", RWY_B, (35.2, -80.95), 0.0, 0.0, None, "fixture"))
@@ -79,6 +82,13 @@ def _airport(law, *, width=45.0, code=4, letter="E", routes=True,
         nodes = {1: TaxiNode(1, (cross_x - 50.0, 2000.0 + cross_s), "taxi"),
                  2: TaxiNode(2, (cross_x + 50.0, 2000.0 + cross_s), "taxi")}
         edges = (TaxiEdge(1, 2, "EAT", False, False, "E"),)
+        # ``flanks``: how many of the crossing's two ends run on, on their
+        # OWN side of the extended centreline, to a node abeam the runway
+        # (s < 0) — the WRAP, owner RULINGS 2026-10-16d (1)
+        for k, (nid, x) in enumerate(((1, cross_x - 50.0),
+                                      (2, cross_x + 50.0))[:flanks]):
+            nodes[10 + nid] = TaxiNode(10 + nid, (x, 1500.0), "taxi")
+            edges += (TaxiEdge(nid, 10 + nid, f"P{k}", False, False, "E"),)
     return Airport("KCLT", "Synthetic", frame, DEM_Z, (rw,), (), (),
                    nodes, edges, (), (), (), (), (), (), pack, _FlatDem(),
                    law.ruleset_key)
@@ -188,6 +198,36 @@ def test_a_route_crossing_inside_1500_ft_is_not_an_eat(law):
     assert eat.STATS["eat_pins"]["rects_accepted"] == 1
 
 
+def test_a_near_crossing_that_wraps_around_the_end_is_an_eat(law):
+    """RECOGNITION BY SHAPE (owner RULINGS 2026-10-16d (1)): the same 450 m
+    crossing the 1,500 ft clause refuses is an end-around taxiway once its
+    route joins BOTH sides of the runway — and it takes the same law."""
+    pm = _map([_crossing(440.0, 470.0)])
+    assert eat.eat_pins(pm, law, _airport(law, cross_s=450.0, flanks=1)) == []
+    assert eat.STATS["eat_pins"]["refused_near_crossing"] == 1
+    assert "does not wrap" in [r for r in eat.RECTS
+                               if not r["accepted"]][0]["reason"]
+    rows = eat.eat_pins(pm, law, _airport(law, cross_s=450.0, flanks=2))
+    assert len(rows) == 4
+    st = eat.STATS["eat_pins"]
+    assert st["rects_accepted"] == 1 and st["recognised_by_shape"] == 1
+    (rec,) = [r for r in eat.RECTS if r["accepted"]]
+    assert rec["wraps"] and rec["recognised_by"] == "shape"
+    assert rec["value_m"] == pytest.approx(
+        DEM_Z + eat.eat_ceiling_offset(455.0, 0.025, 0.0, 20.1))
+
+
+def test_a_wrap_inside_the_safety_area_is_not_an_eat(law):
+    """A route wrapping the end INSIDE the runway's safety area is the end's
+    own ground (the end profile governs there, owner 15c (2)) — never an
+    EAT pinned a whole tail under the end."""
+    pm = _map([_crossing(140.0, 170.0)])
+    assert eat.eat_pins(pm, law, _airport(law, cross_s=150.0, flanks=2)) == []
+    assert eat.STATS["eat_pins"]["refused_near_crossing"] == 1
+    (rec,) = [r for r in eat.RECTS if not r["accepted"]]
+    assert rec["wraps"] and rec["recognised_by"] is None
+
+
 def test_pavement_near_the_end_is_its_own_cluster_and_never_an_eat(law):
     """A runway-end connector in the corridor clusters apart from the EAT
     (``segment_gap_m``) and is refused; the EAT beyond it still pins."""
@@ -242,6 +282,30 @@ def test_on_credible_lidar_the_report_row_appears_when_the_ground_violates(
             z={v: z_of for v in gov})
     assert len(eat_ceiling(patch(DEM_Z))) == 4
     assert eat_ceiling(patch(value - 1.0)) == []
+
+
+def test_on_credible_lidar_a_wrap_stays_report_only_on_open_ground(
+        law, lidar):
+    ap = _airport(law, cross_s=450.0, flanks=2)
+    assert eat.eat_pins(_map([_crossing(440.0, 470.0)]), law, ap) == []
+    st = eat.STATS["eat_pins"]
+    assert st["report_only"] == 1 and st["recognised_by_shape"] == 1
+
+
+def test_lidar_reading_the_pavement_in_a_cut_is_no_witness(law, lidar):
+    """16d (2): where the lidar reads the pavement IN A CUT — the ground on
+    the extended centreline before and past the rect both above the
+    pavement by more than the visible depth — the rect is judged as on a
+    coarse DEM and pinned; a shallower cut stays report-only."""
+    ap = _airport(law, cross_s=450.0, flanks=2)
+    rows = eat.eat_pins(_map([_crossing(440.0, 470.0)], dem_z=DEM_Z - 5.0),
+                        law, ap)
+    assert len(rows) == 4
+    st = eat.STATS["eat_pins"]
+    assert st["lidar_cut_witness"] == 1 and st["report_only"] == 0
+    assert eat.eat_pins(_map([_crossing(440.0, 470.0)], dem_z=DEM_Z - 0.3),
+                        law, ap) == []
+    assert eat.STATS["eat_pins"]["report_only"] == 1
 
 
 def test_off_lidar_there_are_no_report_rects(law):

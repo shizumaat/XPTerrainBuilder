@@ -1,0 +1,118 @@
+# #805 — an end-around taxiway recognised by its shape (lane ltaxi, 2026-10-26)
+
+Law: owner RULINGS 2026-10-16d (amends 2026-10-15e). Code: `src/auto_patch_v2/constraints/eat.py`.
+
+## Attribution (dry recognition reads off captures, current main a6258a190)
+
+`eat._recognise` read straight off the captures (no solve). KCLT is
+`/Users/noah/XPTerrainBuilderData/.harness/frames/ltaxi/KCLT.pkl` (fresh). KDEN and
+KATL are the registered `m5/KDEN.pkl` and `l1140/KATL.pkl`.
+
+| airport / end | taxiway | route crossing | rect D | value | verdict today |
+|---|---|---|---|---|---|
+| KCLT 18C | T | 448.4 m | 426.7–469.8 m | 217.31 (end 226.20) | refused_near_crossing (< 457.2) |
+| KDEN 34R | WB | 418.8 m | 392.0–418.9 m | 1621.94 (end 1631.91) | refused_near_crossing |
+| KDEN 17R | ED | 414.8 m | 392.6–436.7 m | 1629.49 (end 1639.22) | refused_near_crossing |
+| KATL 09L | M | 454.0 m | 454.4–479.4 m | 302.16 (end 310.59) | refused_near_crossing |
+| KATL 08R | V (Victor) | 461.7 m | 430.5–482.5 m | 303.43 (end 312.12) | report-only (lidar) |
+
+On all four airports, both endpoints of every one of these crossings reach the runway's
+flank on their own side of the extended centreline (s ≤ 0) by taxi routes alone. In
+other words, every one of these crossings wraps the end (scratch walk, same rule as below).
+
+### Clause (2), the lidar witness, at KCLT
+
+The KCLT inset is USGS 3DEP 1 m, project `NC_Phase_4_CentralWestNC_GEIGER_A16`,
+publication date 2024-06-10. The metadata (`KCLT_usgs3dep.json`) carries **no acquisition
+date**. The apt.dat carries no survey date either.
+
+Along the 18C extended centreline the lidar reads:
+
+| s from the 18C end | 0 | 320 | 400–500 (T) | 560 | 620 |
+|---|---|---|---|---|---|
+| lidar | 226.2 | 222.1 | 228.3–229.5 | 223.2 | 216.4 |
+
+So T sits on a **ridge** in the lidar. It is not in a cut. The lidar along T's own route
+falls 230.92 → 225.00 m over 245 m (node 8 → node 4), which is 2.4 %, above the 1.5 %
+taxiway cap. The lidar does not show the excavation in the owner's photos, so it
+predates it. Neither machine witness that 16d (2) names exists in the data for KCLT, so
+(2b) is an owner question (`taxiways-ltaxi.md` Q805-1).
+
+The same read at the other three sites (flanks at s = d_lo − 75 m and d_hi + 75 m):
+- KDEN 34R: ridge (1631.3 vs 1628 / 1623).
+- KDEN 17R: no cut (1639.5 vs 1638.2 / 1639.6).
+- KATL 09L: flat (301.4 vs 301.4 / 300.8).
+- KATL 08R Victor: 302.6–303.4 between 301 (runway side) and 306 (far side). That is one
+  side lower, so it is not a cut.
+
+## The rule as implemented
+
+1. **THE WRAP (16d (1)).** A route crossing joins both sides when the following holds.
+   From each endpoint of the crossing row-1202 edge, a walk over non-runway taxi routes
+   that never leaves that endpoint's side of the extended centreline (strict sign of q)
+   reaches a node with s ≤ 0, which is a node abeam the runway. Such a crossing is an
+   end-around taxiway whatever its distance past the `min_crossing_m` gate, with two
+   bounds:
+   - it must lie beyond the runway's own safety area,
+     `tables.runway_safety_area_length_m` (owner 15c (2); FAA 304.8 m at C–F). Inside the
+     RSA the end-profile law governs the ground, and recognition must under-claim. A
+     taxiway crossing at the end itself, like KCLT 18L D9 at 0.1 m, is not a wrap. This
+     bound is not in the ruling's text; see Q805-2;
+   - the existing far bound, `min(D_clear, max_crossing_m)`, still applies.
+
+   A crossing at 1,500 ft or beyond stays an EAT as before (15e (1)). The value is the
+   same law: `end_z + max(0, D − setback)·slope − tail`. For D < `D_clear` that gives the
+   required depth max(0, tail − 0.025·D) under the 40:1 surface.
+2. **THE CUT WITNESS (16d (2a)).** On a credible lidar inset, a recognised rect stays
+   report-only (15e (2)) unless the lidar reads the rect's pavement **in a cut**.
+   - **Pavement level:** the median production DEM over the rect's governed vertices.
+   - **Flanks:** the DEM on the extended centreline at `d_lo − segment_gap_m` (toward
+     the runway) and `d_hi + segment_gap_m` (past it).
+   - **Cut:** both flanks stand above the pavement by more than `[cockpit] visual_m`
+     (0.5 m, the depth a pilot can see).
+
+   Where it reads a cut, the lidar is not a witness against the law, and the rect is
+   judged as on a coarse DEM (clause 3, cut-only, then pinned).
+3. **(2b) "the survey predates the airport data"** is NOT implemented. No date is
+   readable (above).
+
+Every verdict stays named in `RECTS`:
+- new row keys `wraps` and `recognised_by` (`"distance"` / `"shape"`);
+- new STATS `recognised_by_shape` and `lidar_cut_witness`;
+- the near-crossing refusal reason now says whether the route wraps.
+
+## Acceptance bar
+
+- **Twins** (`tests/auto_patch_v2/test_v2eat.py`):
+  - a 450 m crossing whose route joins both flanks is pinned on a coarse DEM;
+  - the same crossing without the flank routes is refused (the existing twin stands);
+  - a wrap inside the RSA is refused;
+  - on lidar, a recognised wrap is report-only on flat ground and pinned where the
+    lidar reads a cut.
+- **Dry reads at KCLT / KDEN / KATL:** the four near crossings above become recognised.
+  All four are on credible lidar with no cut, so they are report-only. There is no
+  geometry change at any of the four, and KCLT T keeps the lidar level until Q805-1 is
+  answered.
+- **Closing build KCLT:** the patch body is unchanged against the control, and the
+  census gains the report-only `eat_ceiling` rows at T.
+
+## Measured (claude/ltaxi-805 on main bfca74e15)
+
+- **Dry reads after the change:**
+  - KCLT 18C T: recognised_by `shape`, report-only (lidar).
+  - KDEN 34R WB and 17R ED: `shape`, report-only.
+  - KATL 09L M: `shape`, report-only.
+  - KATL 08R Victor: `distance`, report-only (unchanged).
+  - LEMD 36L wraps at 70.8 m inside the safety area and stays refused. Without the
+    safety-area bound it would be accepted and pinned at 581.63 against an end of 605.03
+    (7 pins, coarse DEM).
+  - HECA, OTHH, CYXY, SPLP, SPJC, KBOI, KMCI, KASE, LFPG, EGLL: no rect changes verdict.
+  - Pins are unchanged at every airport read: 0 new.
+- **Closing build:** `ltaxi805_KCLT`, harness, patch-only, 1172 s on a loaded machine,
+  body_sha 8f662d4a31c4, solve optimal.
+  - Census: law-true 12,681; adjudicated 4,929 (airside 3,149, groundside 1,762, mixed 18).
+  - The `eat_ceiling` family carries 4 airside rows, 9.15–9.59 m, at taxiway T beyond the
+    18C end (35.2315, -80.9533). These are the report-only rect: T stands about 9.6 m
+    above its tail-clearance ceiling 217.31.
+  - No pin is minted, so the surface is the one main builds. Body identity follows by
+    construction (the constraint set is unchanged); no control build was paid.

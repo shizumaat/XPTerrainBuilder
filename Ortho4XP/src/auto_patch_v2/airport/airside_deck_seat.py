@@ -21,7 +21,9 @@ only where neither axis has two airside end lines.
 THE WITNESS IS THE SOLVE, never a name: the deck's ring stands on an
 emitted ``bridge_deck`` face (``planar/structure_deck``), or the design
 surface under its ring is airside and the plan carries the solved value
-(``Member.deck_datum_z``).  Moved out of ``placement_plan`` (round 2's
+(``Member.deck_datum_z``) — and (owner RULINGS 2026-10-27c, #1471) the
+airport's own taxiway or apron pavement runs ACROSS the deck, not just
+touching it at one end (:func:`pavement_runs_across`).  Moved out of ``placement_plan`` (round 2's
 ``_airside_*``) with the reading R3 changes.
 """
 from __future__ import annotations
@@ -36,7 +38,7 @@ from .bridge_approach import _median
 
 __all__ = ["deck_owns_its_datum", "airside_zero", "airside_frame",
            "airside_deck", "airside_role", "airside_end_ground", "slab_points",
-           "end_tops"]
+           "end_tops", "pavement_runs_across"]
 
 
 def deck_owns_its_datum(m: _t.Any) -> bool:
@@ -167,6 +169,86 @@ def airside_end_ground(ring: _t.Sequence[tuple[float, float]],
     return (_median([q[2] for q in ends[0]]), _median([q[2] for q in ends[1]])), ends
 
 
+def _contacts(flags: _t.Sequence[bool]) -> list[list[int]]:
+    """The maximal runs of ``True`` along a CLOSED ring of stations (a run
+    may wrap past the first station).  A ring all ``True`` has no
+    separate runs and gives ``[]``, as one all ``False`` does."""
+    n = len(flags)
+    if n == 0 or all(flags) or not any(flags):
+        return []
+    s0 = next(i for i in range(n) if not flags[i])
+    runs: list[list[int]] = []
+    cur: list[int] = []
+    for k in range(1, n + 1):
+        i = (s0 + k) % n
+        if flags[i]:
+            cur.append(i)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    return runs
+
+
+def pavement_runs_across(ring: _t.Sequence[tuple[float, float]],
+                         surface: _ar.Surface, step_m: float) -> bool:
+    """Owner RULINGS 2026-10-27c (Q183, #1471; narrows 10-22n class A): A
+    STRUCTURE IS A TAXIWAY BRIDGE ONLY IF THE AIRPORT'S OWN TAXIWAY OR
+    APRON PAVEMENT RUNS ACROSS ITS DECK, not just touching it at one end.
+
+    Read on the stations :func:`airside_end_ground` reads — every
+    ``step_m`` along the ring's edge, the role one step OUTSIDE it.  A
+    PAVEMENT station's role is the airport's own pavement (the rolled-on
+    roles, ``airside_group_seat.airside_pavement``: apron, taxiways,
+    runway — never the graded strip, a pad or a road).  A CONTACT is a
+    maximal run of them along the edge.  The deck's own interior is no
+    witness: the pack's deck is the pavement there, and apt.dat and the
+    solve leave it a hole.  The pavement runs across when two SEPARATE
+    contacts face each other across the deck: their mean outward normals
+    oppose, each lies on the inward side of the other, and the midpoint of
+    the chord between them stands inside the ring.  One contact (KLAX's
+    people-mover rail meets the apron at one end), two on one side, and a
+    ring wholly surrounded by pavement (nothing passes under it) are not.
+    No number is chosen: the step is the law's, the tests are signs."""
+    roles = getattr(surface, "roles", None)
+    if roles is None or step_m <= 0.0 or len(ring) < 3:
+        return False
+    per = _perimeter(ring, step_m)
+    if not per:
+        return False
+    from shapely.geometry import Point, Polygon
+
+    from .airside_group_seat import airside_pavement
+    from .rebake_plan import _mpd
+    pave = airside_pavement(surface)
+    got = roles.roles_many([q[2] for q in per], [q[3] for q in per])
+    runs = _contacts([pave(r) for r in got])
+    if len(runs) < 2:
+        return False
+    ml, mo = _mpd(sum(float(q[0]) for q in ring) / len(ring))
+    xy = [(q[1] * mo, q[0] * ml, (q[3] - q[1]) * mo, (q[2] - q[0]) * ml) for q in per]
+    deck = Polygon([(float(q[1]) * mo, float(q[0]) * ml) for q in ring])
+    if not deck.is_valid:
+        deck = deck.buffer(0)
+    ends = []
+    for r in runs:
+        cx = sum(xy[i][0] for i in r) / len(r)
+        cy = sum(xy[i][1] for i in r) / len(r)
+        nx = sum(xy[i][2] for i in r)
+        ny = sum(xy[i][3] for i in r)
+        ends.append((cx, cy, nx, ny))
+    for i, a in enumerate(ends):
+        for b in ends[i + 1:]:
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            if (a[2] * b[2] + a[3] * b[3] < 0.0
+                    and dx * a[2] + dy * a[3] < 0.0
+                    and -dx * b[2] - dy * b[3] < 0.0
+                    and deck.contains(Point(a[0] + 0.5 * dx, a[1] + 0.5 * dy))):
+                return True
+    return False
+
+
 def slab_points(m: _t.Any, origin: "tuple[float, float] | None"
                 ) -> list[tuple[float, float, float]]:
     """The AUTHORED hard-deck slab of a member as ``(lat, lon, y)``: its
@@ -225,11 +307,14 @@ def end_tops(m: _t.Any, ends: tuple[list, list], origin, step_m: float
 
 
 def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
-                 step_m: float = 0.0, origin: "tuple[float, float] | None" = None
-                 ) -> "tuple[float, str] | None":
+                 step_m: float = 0.0, origin: "tuple[float, float] | None" = None,
+                 counts: "dict | None" = None) -> "tuple[float, str] | None":
     """``(zero, where)`` of an AIRSIDE hard-deck member — the world height
     of its authored ``y = 0`` that puts its deck top on the solved airside
-    surface at its end lines — or ``None`` (not class A)."""
+    surface at its end lines — or ``None`` (not class A).  A deck over
+    airside that the airport's pavement does not run across (RULINGS
+    2026-10-27c, :func:`pavement_runs_across`) is not class A: counted
+    ``airside_deck_touch_only``."""
     top = getattr(m, "deck_top_y", None)
     ring = tuple(getattr(m, "deck_ring", None) or ())
     if (top is None or len(ring) < 3
@@ -247,6 +332,10 @@ def airside_zero(m: _t.Any, decks: _t.Sequence, surface: _ar.Surface,
         got = roles.roles_many([float(q[0]) for q in ring], [float(q[1]) for q in ring])
         if not any(airside_role(r) for r in got if r):
             return None
+    if not pavement_runs_across(ring, surface, step_m):
+        if counts is not None:
+            counts["airside_deck_touch_only"] = counts.get("airside_deck_touch_only", 0) + 1
+        return None
     ends = airside_end_ground(ring, surface, step_m)
     if ends is not None:
         (z1, z2), lines = ends
@@ -273,7 +362,7 @@ def airside_frame(staged: _t.Sequence[_t.Any], decks: _t.Sequence,
     is not a bridge: nothing moves, and the census names it."""
     deck = None
     for st in staged:
-        a = airside_zero(st.m, decks, surface, step_m, origin)
+        a = airside_zero(st.m, decks, surface, step_m, origin, counts)
         if a is not None:
             deck = (st, a)
             break

@@ -46,7 +46,7 @@ from ..law.reference_code import runway_status
 from ..law.tables import runway_safety_area_length_m, zone2_half_width_m
 from ..model.walled_plate import WalledPlate
 
-__all__ = ["recognise", "mark", "plates_of", "log_line"]
+__all__ = ["recognise", "mark", "plates_of", "log_line", "JOINT_KEY", "declare_joints"]
 
 
 class _End(_t.NamedTuple):
@@ -178,7 +178,7 @@ def _read(o, g, e: _End, dem, law: Law) -> "WalledPlate | None":
         m = (t_lo <= t + half) & (t_hi >= t - half) & \
             (s_hi >= s_out - 3.0) & (s_lo <= s_out + 15.0)
         depth.append(plate_y - float(y_lo[m].min()) if m.any() else 0.0)
-    walled = [(r, d) for r, d in zip(across, depth) if d >= wl.wall_min_height_m]
+    walled = [(r, d) for r, d in zip(across, depth, strict=True) if d >= wl.wall_min_height_m]
     if len(walled) < wl.min_cover * len(across):
         return None
     h = float(np.median([d for _r, d in walled]))
@@ -285,3 +285,42 @@ def log_line(icao: str, plates: _t.Sequence[WalledPlate]) -> str:
             + "; ".join(f"{p.end_name or p.runway} inner {p.inner_s:.1f} m, plate y "
                         f"{p.plate_y:+.2f}, wall {p.height_m:.1f} m, step {p.step_m:.1f} m, "
                         f"{len(p.ids)} row(s)" for p in plates))
+
+
+#: the sidecar ``terrace_joints`` flag the census reads (``check_grade.
+#: _terrace_joint_strip_exempt``): the joint is a walled plate's step
+JOINT_KEY = "walled_plate"
+
+#: how far outside a plate's footprint a joint point still stands AT it (m):
+#: the safety area's end vertices lie on the inner edge
+_JOINT_REACH_M = 3.0
+
+
+def declare_joints(rows: list, plates: _t.Sequence[WalledPlate], to_xy,
+                   paths: _t.Collection[str] = ()) -> list:
+    """Owner RULINGS 2026-10-27t (#1201): THE WALL AT A WALLED PLATE IS
+    LAWFUL.  Every sidecar terrace-joint record (``points`` in lat/lon) is
+    flagged :data:`JOINT_KEY` when it is the plate's — its points stand, half
+    or more, at a plate's footprint (the step from the safety area's end to
+    the foot, under the plate), or it is a declared wall of a plate's own
+    object (``shapes`` naming ``<resource>#comp``, ``paths`` the plates'
+    resources: KSEA 16C's wing wall meets its plate at the safety area's
+    edge) — and 2026-08-01's runway-strip wall ban does not read it.
+    ``to_xy(lon, lat)`` is the airport frame."""
+    if not plates or not rows:
+        return rows
+    own = tuple(f"{p}#" for p in paths)
+    from shapely.geometry import Point, Polygon
+    from shapely.prepared import prep
+    near = [prep(Polygon(p.footprint).buffer(_JOINT_REACH_M)) for p in plates]
+    for r in rows:
+        pts = r.get("points") or []
+        if len(pts) < 2:
+            continue
+        if own and any(str(sh).startswith(own) for sh in (r.get("shapes") or ())):
+            r[JOINT_KEY] = True
+            continue
+        at = sum(1 for la, lo in pts if any(n.contains(Point(*to_xy(lo, la))) for n in near))
+        if 2 * at >= len(pts):
+            r[JOINT_KEY] = True
+    return rows

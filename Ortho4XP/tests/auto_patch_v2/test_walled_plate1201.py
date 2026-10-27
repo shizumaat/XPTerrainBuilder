@@ -14,7 +14,7 @@ from auto_patch_v2.airport.anchor_rule import datum_of
 from auto_patch_v2.airport.obj8 import ObjGeometry, PlacedObject
 from auto_patch_v2.constraints.walled_plate import RULING, under_plate_rows
 from auto_patch_v2.law import Law
-from auto_patch_v2.model.constraints import Band, Linear
+from auto_patch_v2.model.constraints import Band
 from auto_patch_v2.model.end_area import end_area_lengths
 from auto_patch_v2.model.walled_plate import WalledPlate
 from shapely.geometry import Polygon
@@ -42,7 +42,7 @@ class _Dem:
         return 100.0 - 0.03 * max(y, 0.0) - (self.step if y > 314.0 else 0.0)
 
     def z_many(self, xs, ys):
-        return np.array([self.z(x, y) for x, y in zip(xs, ys)])
+        return np.array([self.z(x, y) for x, y in zip(xs, ys, strict=True)])
 
 
 def _plate_geometry(wall=True, half=100.0, s0=290.0, s1=310.0, h=20.0) -> ObjGeometry:
@@ -148,18 +148,30 @@ def _planar(points):
     return types.SimpleNamespace(vertices=verts, faces=faces)
 
 
-def test_the_ground_under_the_plate_follows_the_safety_area(law):
-    pm = _planar({1: ((0.0, 290.0), ["graded_strip"]), 2: ((5.0, 300.0), ["service_road"]),
-                  3: ((5.0, 330.0), ["service_road"])})
+def test_the_ground_under_the_plate_stays_below_it(law):
+    pm = _planar({1: ((0.0, 300.0), ["graded_strip"]), 2: ((5.0, 300.0), ["service_road"]),
+                  3: ((5.0, 330.0), ["service_road"]), 4: ((0.0, 290.5), ["service_road"])})
     rows = under_plate_rows(pm, law, _airport(plates=(_record(),)))
-    assert len(rows) == 1
+    # the road under the plate only: never the safety area's own vertex, never
+    # a vertex on the inner edge or past the outer one
+    assert [r.v for r in rows] == [2]
     r = rows[0]
-    assert isinstance(r, Linear) and r.follows == 2 and r.source.ruling == RULING
-    assert dict(r.terms) == {1: 1.0, 2: -1.0} and r.lo == pytest.approx(0.05)
+    assert isinstance(r, Band) and r.lo is None and r.source.ruling == RULING
+    assert r.hi == pytest.approx(_Dem().z(0.0, 288.0) - 0.05)
 
 
-def test_no_graded_edge_caps_at_the_stations_ground(law):
-    pm = _planar({2: ((5.0, 300.0), ["service_road"])})
-    rows = under_plate_rows(pm, law, _airport(plates=(_record(),)))
-    assert len(rows) == 1 and isinstance(rows[0], Band)
-    assert rows[0].hi == pytest.approx(_Dem().z(0.0, 288.0) - 0.05)
+def test_the_wall_at_the_plate_is_declared_lawful_to_the_census():
+    """27t: a terrace joint at the plate carries the emitter's flag, and the
+    census's runway-strip wall ban (2026-08-01) exempts exactly it."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
+    import check_grade
+    at = {"points": [[290.0, -50.0], [290.0, 50.0]]}         # (lat, lon) = (y, x) here
+    away = {"points": [[100.0, -50.0], [100.0, 50.0]]}
+    wing = {"points": [[200.0, 90.0], [280.0, 90.0]], "shapes": ["objects/p.obj#comp1"]}
+    rows = W.declare_joints([at, away, wing], (_record(),), lambda lon, lat: (lon, lat),
+                            ("objects/p.obj",))
+    assert rows[0].get(W.JOINT_KEY) is True and W.JOINT_KEY not in rows[1]
+    assert rows[2].get(W.JOINT_KEY) is True          # the plate object's own wall
+    assert check_grade._terrace_joint_strip_exempt(rows) == [True, False, True]

@@ -8,17 +8,16 @@ its inner edge (27u), and the safety area ends there (27t, ``model/end_area``).
 Under the plate the ground is hidden — the step from the safety area down to
 the road at the wall's foot happens there, in the heightfield — and it must
 never stand above the plate: every map vertex inside the plate's footprint, off
-its inner edge, takes a one-sided row
+its inner edge and off the safety area's own faces, takes a HARD ceiling
+(``[design] hard_rulings``, ranked in the pad tier over the groundside rows)
 
-    z(inner) - z(v) >= under_clearance_m
+    z(v) <= lowest DEM at the seat's stations - under_clearance_m
 
-against the safety-area vertex nearest it on the inner edge (the plate's level
-is that vertex's, by the seat), or, where no graded vertex stands on the inner
-edge, ``z(v) <= median DEM at the seat's stations - under_clearance_m`` (the
-mesh there is the DEM, which is what the seat then reads).  ONE-WAY and HARD
-(``[design] one_way_rulings`` / ``hard_rulings``): the vertex under the plate
-follows, the safety area leads — a road mapped on top of the plate never lifts
-the safety area (airside is king).
+— a CONSTANT, so the vertex under the plate follows and the safety area is
+never lifted by it (airside is king).  MEASURED, refuted on the KSEA replay: a
+two-way row against the inner-edge vertex lifted the safety area 4.0 m to the
+road mapped on the plate; a one-way hard row read its leader at the solve's
+initial 0 m and sank the road to it.
 
 Geometry only: no airport is named here (RULINGS 2026-10-05e).  KSEA: the
 service road mapped on 16R's plate stood +14.1 m over its DEM.
@@ -29,7 +28,7 @@ import numpy as np
 
 from ..law import Law
 from ..model.airport import Airport
-from ..model.constraints import Band, Linear, Row, Source
+from ..model.constraints import Band, Row, Source
 from ..model.planar import PlanarMap
 
 __all__ = ["RULING", "under_plate_rows"]
@@ -58,39 +57,30 @@ def under_plate_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]
             foot = foot.buffer(0.0)
         if foot.is_empty or len(p.inner) < 2:
             continue
-        edge = LineString(p.inner)
-        inside = prep(foot.buffer(-0.25))
-        refs, under = [], []
-        for v in planar.vertices.values():
-            pt = Point(v.xy)
-            d = edge.distance(pt)
-            if d <= _ON_EDGE_M and any(f in band for f in v.incident_faces):
-                refs.append(v)
-            elif d > _ON_EDGE_M and inside.contains(pt):
-                under.append(v)
-        if not under:
-            continue
-        src = Source("walled_plate_under", RULING, tuple(p.ids))
-        if refs:
-            rxy = np.array([r.xy for r in refs])
-            for v in under:
-                r = refs[int(np.argmin(np.hypot(rxy[:, 0] - v.xy[0], rxy[:, 1] - v.xy[1])))]
-                out.append(Linear(((int(r.id), 1.0), (int(v.id), -1.0)), clear, None, src,
-                                  follows=int(v.id)))
-            continue
         top = _station_ground(airport, p)
         if top is None:
             continue
-        out.extend(Band(int(v.id), None, top - clear, src) for v in under)
+        edge = LineString(p.inner)
+        inside = prep(foot.buffer(-0.25))
+        src = Source("walled_plate_under", RULING, tuple(p.ids))
+        for v in planar.vertices.values():
+            pt = Point(v.xy)
+            if edge.distance(pt) <= _ON_EDGE_M or not inside.contains(pt):
+                continue
+            if any(f in band for f in v.incident_faces):
+                continue            # the safety area's own ground is its law's
+            out.append(Band(int(v.id), None, top - clear, src))
     return out
 
 
 def _station_ground(airport: Airport, p) -> "float | None":
-    """The median DEM at the plate's seat stations (the ground its top meets
-    where no graded vertex stands on its inner edge)."""
+    """The LOWEST DEM sample at the plate's seat stations: a constant the
+    plate's top (the safety area's solved ground at those stations, the seat)
+    stands at or above wherever the safety area is graded in fill — KSEA's
+    three plates stand 0–2 m over their DEM."""
     dem = getattr(airport, "dem", None)
     if dem is None or not p.stations:
         return None
     z = np.array([float(dem.z(float(x), float(y))) for x, y in p.stations])
     z = z[np.isfinite(z)]
-    return float(np.median(z)) if z.size else None
+    return float(np.min(z)) if z.size else None

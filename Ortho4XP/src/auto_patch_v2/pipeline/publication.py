@@ -391,6 +391,20 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
     return out
 
 
+def _declare_plate_joints(rows: list, plates: tuple, to_xy, paths) -> list:
+    """``airport/walled_plate.declare_joints`` (RULINGS 2026-10-27t, #1201)."""
+    from ..airport import walled_plate as _walled_plate
+    return _walled_plate.declare_joints(rows, plates, to_xy, paths)
+
+
+def _walled_plate_paths(airport: Airport) -> frozenset[str]:
+    """The pack resources of the airport's walled plates (RULINGS
+    2026-10-27t, #1201): the declared walls the census reads as lawful."""
+    ids = {i for p in (getattr(airport, "walled_plates", ()) or ()) for i in p.ids}
+    return frozenset(o.path for o in (getattr(airport, "dsf_objects", ()) or ())
+                     if o.id in ids)
+
+
 def publication(planar: PlanarMap, law: Law, airport: Airport,
                 z: _t.Sequence[float] | None = None,
                 cs: _t.Any = None, strips: _t.Any = None,
@@ -593,7 +607,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "pad_cluster_mismatch": _pad_cluster_mismatch(planar, law,
                                                           airport),
             "apron_tier": apron_tier(law),
-            "terrace_joints": terrace_joints_ll(planar, law, z),
+            # owner RULINGS 2026-10-27t (#1201): a walled plate's step is lawful
+            "terrace_joints": _declare_plate_joints(
+                terrace_joints_ll(planar, law, z),
+                tuple(getattr(airport, "walled_plates", ()) or ()),
+                airport.frame.entry(), _walled_plate_paths(airport)),
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh,
             "airside_no_step_edges": edges,

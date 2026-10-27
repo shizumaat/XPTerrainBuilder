@@ -1,6 +1,6 @@
 # A WALLED PLATE CAPS A RUNWAY'S SAFETY AREA — recognition, seat, grade (#1201)
 
-Status: **SPEC, awaiting owner rulings Q1 and Q2 (§8)**. Lane `l1201`, base
+Status: **RULED (Q1 (a) = RULINGS 2026-10-27t, Q2 (a) = RULINGS 2026-10-27u) and IMPLEMENTED — see §12**. Lane `l1201`, base
 `origin/main` 7430f543b. Scoping: lane `lwalls`, `docs/findings/1201-lwalls.md`
 (PR #1481). Measured on a FRESH capture (`v2_solve_replay --capture KSEA`, this
 base, 15,379 V / 1,034 F, registered as frames `l1201` capture) and its replay
@@ -306,3 +306,58 @@ along its foot. Today the 16C and 16L structures should stand roughly 8 m ABOVE 
 grass of the safety area and the 16R one roughly 20 m above it, their bases floating
 over the road; after the fix their
 tops are flush with the grass and the road runs at their foot.
+
+## §12 IMPLEMENTED AND MEASURED (lane `l1201`, 2026-10-27; rulings 27t / 27u)
+
+**What landed** (one responsibility per module):
+
+* `law/walled_plate_schema.py` + `structures.toml [walled_plate]` — the recognition's numbers.
+* `model/walled_plate.py` — the record; `airport/walled_plate.py` — the four witnesses (§3),
+  `mark` (called from `airport/basin_witness.read_objects`: the origin set leaves the MSL
+  guard, the deck verdict and the below-grade / basin readings) and the census declaration
+  `declare_joints`. `Airport.walled_plates` is carried by `pipeline/build.pack_stage` (and the
+  capture tool's mirror).
+* 27t: `model/end_area.end_area_lengths` caps the end area at the inner edge — the ONE site
+  the band (`planar/zones._runway_band`) and the sidecar's `runway_axes` read.
+* 27u: `rebake_plan._with_deck` stamps `plate_kind = "walled"`, `plate_y`, `plate_stations`;
+  `anchor_rule.datum_of` reads the walled plate at any authored height (§16e's datum anchor);
+  `screen_of` exempts it from the below-grade demotion.
+* §5 (2): `constraints/walled_plate.under_plate_rows` — a HARD constant ceiling (pad tier):
+  every non-safety-area vertex under a plate stays below the lowest DEM sample at the seat's
+  stations − 0.05 m. Two readings were REFUTED on the replay and are not shipped: a two-way
+  hard row against the inner-edge vertex lifted 16R's safety-area end to 116.96 m (DEM 112.92)
+  under the road mapped on the plate; a one-way hard row read its leader at the solve's initial
+  0 m and sank the road to it.
+* Census (row 15): the emitter flags a terrace joint at a plate, or a declared wall of the
+  plate's own object (`<resource>#comp`), `walled_plate`; `check_grade._terrace_joint_strip_exempt`
+  does not read it under 2026-08-01.
+
+**Not built (deliberately):** §5 (3)/(4) (the plate as a `wall_class` record, and the
+`wall_zone` BEFORE exclusion). Measured unneeded at the closing test: with the end area ending at
+the inner edge no zone row crosses the wall, and the foot roads already keep their own ground
+(`-803`, `-12798#1`, `-1163`, `-6016` moved 0.000–0.001 m). The existing wall classifier now
+also admits the PODs' own components as retaining walls (they entered the partition), which
+the census declaration covers.
+
+**Measured** (closing build `KSEA_l1201_close`, rc 0, 430.8 s; its rebake plan through
+`v2_rebake_replay.py plan --sampler graded`; replay figures off capture `KSEA_wp.pkl`):
+
+| End | Plate top (was) | Top − ground at the seat stations: median / p10..p90 | Wall foot − ground at its foot | Under-plate vertices above the top |
+|---|---|---|---|---|
+| 16R | 114.41 (138.8) | +0.00 / −0.70..+1.85 (31 graded) | −2.2 … −4.7 m (buried) | 0 of 27 (road `-6086#3` was 117.7) |
+| 16C | 120.26 (130.67) | +0.72 / −1.49..+2.78 (15 graded, 15 DEM) | −8.4 … −9.8 m (buried) | 0 of 8 |
+| 16L | 123.80 (132.07) | +0.12 / −0.21..+0.81 (2 graded, 29 DEM) | −3.3 … −5.3 m (buried) | 0 of 4 |
+
+The seat is flush at the median station by construction (§16e's median); the graded sampler
+drops off-sheet stations, so 16C's +0.72 is the 15 graded stations' view — the app's mesh sampler
+reads the other 15 on the DEM. ACROSS THE WIDTH the plate is flat and the ground is not: the
+safety area's own transverse fall and the roads at its corners leave −2.0 … +3.0 m between the
+flat top and the ground at the stations. That part of §9's first bar is NOT met; the follow-up is
+a flat inner edge (a `Flat` over the safety area's end vertices across the plate), which needs a
+second closing build. Band past the inner edge: +0.2 m (re-noding) at 16R / 16C; 16L's band still
+ends at 275 m (the terrain-edge road clip, unchanged). Airside movers (replay vs base): runway,
+taxiway, apron, junction 0; graded_strip 16 vertices ≤ 0.083 m. Census (law-true): closing build
+5,029 → 4,991 rows, adjudicated 1,786 → 1,791 (+5: +2 `terrace_joint_strip` at the 16C/16L
+walls, exempted by the census declaration above — 0 on the replay emit with it — and, on the replay
+emit, in-scope `within_shape` +8 / −4 — seven of the new rows on road `small_roads:-6086#3`, now
+under 16R's plate, ≤ 0.3 pp over its cap and hidden by the plate). Dry census of the recognition over the 40 other registered captures: 0 admits.

@@ -2921,12 +2921,13 @@ class MainWindow(QMainWindow):
 
     def _tile_menu(self, lat, lon, global_pos):
         """Right-click on a tile (#938): its menu at the pointer, after
-        the patch layer's copy items (#1281); in patch Edit mode it starts
-        with "Slice" (#1318)."""
+        the copy items (#1281, #1314) and "Insert shape" (#1314); in patch
+        Edit mode it starts with "Slice" (#1318)."""
+        pos = self.map.viewport().mapFromGlobal(global_pos)
+        at = self.patch_editor.lat_lon_at(pos.x(), pos.y())
         menu = QTTILEMENU.tile_menu(
             self, lat, lon, self._tile_folder((lat, lon)),
-            self.patch_editor.context_actions())
-        pos = self.map.viewport().mapFromGlobal(global_pos)
+            self.patch_editor.context_actions(at))
         self.patch_editor.add_copy_actions(menu, pos.x(), pos.y())
         self.patch_editor.add_to_menu(menu)
         menu.exec(global_pos)

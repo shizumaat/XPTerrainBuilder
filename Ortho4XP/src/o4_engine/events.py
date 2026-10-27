@@ -111,7 +111,12 @@ from typing import Any, Optional
 # list for every imagery menu), ``preview_tile_url``, and
 # ``imagery_source_status``, which completes through one
 # ImagerySourceStatus event per source.
-PROTOCOL_VERSION = "1.19"
+# 1.20 (2026-10-27, additive, #1314): ``patch_insert_shape`` (the map's
+# "Insert shape": a 20 m square's corners at the elevation under them, and
+# the airport whose extent holds the point; ``pending`` while a source
+# loads) and ``patch_add_shape`` (append it to an airport's patch that is
+# not open in the editor, or start that airport's edited patch).
+PROTOCOL_VERSION = "1.20"
 
 
 @dataclass(frozen=True)

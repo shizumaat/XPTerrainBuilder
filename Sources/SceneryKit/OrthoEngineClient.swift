@@ -1014,6 +1014,20 @@ extension OrthoEngineClient {
         return try await request("cursor_elevation", arguments)
     }
 
+    /// "Insert shape" planned at a point (protocol 1.17, #1314); ask again
+    /// while the reply is `pending`.
+    public func patchInsertShape(lat: Double, lon: Double, buildDir: String? = nil) async throws -> O4PatchInsertShape {
+        var arguments: [String: Any] = ["lat": lat, "lon": lon]
+        if let buildDir, !buildDir.isEmpty { arguments["build_dir"] = buildDir }
+        return try await request("patch_insert_shape", arguments)
+    }
+
+    /// Append the planned corners to `icao`'s patch on disk (protocol 1.17,
+    /// #1314) — for an airport whose patch is not the open document.
+    public func patchAddShape(tile: String, icao: String, corners: [[Double]]) async throws -> O4PatchAddShape {
+        try await request("patch_add_shape", ["tile": tile, "icao": icao, "corners": corners])
+    }
+
     /// The terrain view's picture over `bbox` (protocol 1.15, #1320):
     /// hillshade plus contours, `pixelWidth` × `pixelHeight` (at most 1024
     /// each); `contourM` nil = the engine's default for the pixel size.

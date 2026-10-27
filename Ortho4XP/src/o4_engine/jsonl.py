@@ -171,7 +171,7 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
     import O4_Imagery_Sources as SOURCES
     from O4_Tile_Customizations import tile_customizations
 
-    from . import patch_commands
+    from . import patch_commands, patch_insert
     from .build_airports import start_build_airports
     from .elevation_commands import cursor_elevation
     from .imagery_commands import start_imagery_source_status
@@ -237,6 +237,12 @@ def _build_handlers(session: EngineSession) -> Dict[str, Callable]:
         "patch_load": patch_commands.patch_load,
         "patch_save": patch_commands.patch_save,
         "patch_revert": patch_commands.patch_revert,
+        # "Insert shape" on the map (protocol 1.17, #1314): the square's
+        # corners at the elevation under them and the airport they go to;
+        # appending it to a patch the editor does not have open.
+        # Synchronous file work, like the commands above.
+        "patch_insert_shape": patch_insert.patch_insert_shape,
+        "patch_add_shape": patch_insert.patch_add_shape,
         # Custom patches (#1229, RULINGS 2026-10-26c): which tiles carry
         # one (the map band, the tile info) and setting a tile's aside so
         # the auto patch runs again.  Synchronous file work.

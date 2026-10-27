@@ -83,7 +83,8 @@ struct MapCanvasView: View {
                                            copies: buildModel.patchEdit.copyItems(at: location, camera: camera.value,
                                                                                   size: proxy.size),
                                            patch: buildModel.patchEdit,
-                                           extra: buildModel.patchEdit.contextActions)
+                                           extra: buildModel.patchEdit.contextActions(lat: point.lat,
+                                                                                      lon: point.lon))
                 }
             ))
             .overlay(alignment: .topTrailing) { zoomControls }

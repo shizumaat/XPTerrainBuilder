@@ -86,6 +86,17 @@ def on_base_grid(values, valid, frame, shape):
     return (heights, inside & (holes < 1e-6))
 
 
+def _inside_cell(frame, shape):
+    """Posts of a raster of ``shape`` over ``frame`` inside the cell."""
+    (x0, y0, x1, y1) = frame
+    (rows, cols) = shape
+    x = x0 + (x1 - x0) * numpy.arange(cols) / (cols - 1)
+    y = y1 - (y1 - y0) * numpy.arange(rows) / (rows - 1)
+    tol = 1e-9
+    return numpy.outer((y >= -tol) & (y <= 1 + tol),
+                       (x >= -tol) & (x <= 1 + tol))
+
+
 def _fallback_cell(definition, lat, lon, frame, shape):
     """The fallback's heights and valid mask on the base grid, or None."""
     strategy = base_fallback._strategy(definition)
@@ -135,8 +146,11 @@ def fill_base_voids(alt_dem, nodata, lat, lon, providers,
     records = []
     donor = numpy.zeros(alt_dem.shape, dtype=numpy.float64)
     donated = numpy.zeros(alt_dem.shape, dtype=bool)
+    # Only posts inside the cell can be donated: a void beyond it (the
+    # combined raster's margin) asks no further source.
+    in_cell = _inside_cell(frame, alt_dem.shape)
     for definition in base_fallback.fallback_definitions(providers or {}):
-        if donated[void].all() or UI.red_flag:
+        if not (void & in_cell & ~donated).any() or UI.red_flag:
             break
         fallback = _fallback_cell(definition, lat, lon, frame,
                                   alt_dem.shape)

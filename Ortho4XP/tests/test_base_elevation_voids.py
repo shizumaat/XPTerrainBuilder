@@ -71,7 +71,9 @@ def providers(tmp_path, monkeypatch):
     monkeypatch.setattr(UI, "red_flag", False)
     _Donor.calls, _Donor.failing = [], False
     return {"SPARE1": {"code": "SPARE1", "role": "base",
-                       "fallback_rank": "1", "access_strategy": "_donor"}}
+                       "fallback_rank": "1", "access_strategy": "_donor"},
+            "SPARE2": {"code": "SPARE2", "role": "base",
+                       "fallback_rank": "2", "access_strategy": "_donor"}}
 
 
 def test_voids_the_neighbour_fill_closes_are_filled_as_before(providers):
@@ -194,6 +196,7 @@ def test_a_combined_raster_maps_the_fallback_onto_its_wider_frame(
         frame=(-margin, -margin, 1 + margin, 1 + margin))
     assert filled and [r["code"] for r in records] == ["SPARE1"]
     assert records[0]["voids"] == 70 * 70
+    assert _Donor.calls == ["SPARE1"]     # the margin asks no second source
     assert not (holed == NODATA).any()
     cell = numpy.zeros_like(void)
     cell[beyond:-beyond, beyond:-beyond] = True

@@ -91,7 +91,7 @@ from ..model.frame import rotated_rectangle
 
 __all__ = ["mouth_stops", "clear_mouth", "mouth_at_pavement", "road_profile",
            "road_end_after_slide", "portal_note", "PORTAL_YIELDS", "strip_keepout",
-           "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth"]
+           "STRIP_REFUSED", "STRIP_PORTAL", "portal_mouth", "edge_wall_mouth", "face_top_z"]
 
 #: Passes of the slide (each re-reads the stops from the new mouth).
 _SLIDE_PASSES = 4
@@ -591,3 +591,20 @@ def _moved_in(axis: LineString, inward, d: float) -> "tuple[LineString, float]":
     m = axis.coords[0]
     new = (m[0] + inward[0] * d, m[1] + inward[1] * d)
     return LineString([new] + list(axis.coords)), float(d)
+
+
+def face_top_z(airport, law: Law, members, mouth, mouth_dem: float) -> float:
+    """The ground a BARE pack portal face's top is flush with (owner RULINGS
+    2026-10-26p Q168): the ground beside the cover at its mouth
+    (``planar/covered_ground.ground_beside``, #714 — a bare-earth DEM
+    carries the road under the lid), else the DEM there."""
+    from .covered_ground import _sections, ground_beside
+    zs = []
+    for m in members:
+        bore = getattr(m, "bore", None)
+        secs = _sections(airport.dem, bore, law) if bore is not None and airport.dem is not None \
+            else []
+        z = ground_beside(mouth, bore.line, secs) if secs else None
+        if z is not None:
+            zs.append(z)
+    return max([mouth_dem, *zs])

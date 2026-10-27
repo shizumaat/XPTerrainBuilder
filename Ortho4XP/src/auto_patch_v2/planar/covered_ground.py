@@ -258,23 +258,25 @@ def ground_beside(at, ln: LineString, secs: list[_Section]) -> float | None:
 _EDGE_HALF_M = _PAVEMENT_TOL_M
 
 
-def _bridge_piece(br, cuts, covers):
+def _bridge_piece(br, ribs, covers):
     """An EDGE BRIDGE's walled mouth (owner RULINGS 2026-10-27r, 2026-10-28d
     Q213 / Q214; ``planar/bridge_span``): its BACK (a strip the identity
-    tolerance wide) and the open cut beyond it — the ground the object
-    stands over, the whole back long, across every carriageway it stops
-    (as deep as the cuts' rims, or the object's own plan where that is
-    deeper), off the cover.  One piece per back."""
+    tolerance wide) and the open cut beyond it — the object's whole plan
+    (the back long, where no highway runs beneath too) and the cut its
+    bores' ribbons read past the back (both carriageways and the median) —
+    off the cover.  One piece per back.  Never further: a road bridge over
+    the trench beyond the object is a deck, not the ground below the
+    wall."""
     back = br.back_line
     ux, uy = br.toward
-    reach = max([max(c.dl, c.dr) for b, secs, _r, _p in cuts
-                 if "+".join(str(w.id) for w in b.ways) in br.bores for c in secs] or [0.0])
-    plan = Polygon(br.plan)
-    reach = max(reach, max((-(x - back.coords[0][0]) * ux - (y - back.coords[0][1]) * uy
-                            for x, y in br.plan), default=0.0))
-    ext = Polygon(list(back.coords) + [(x - ux * reach, y - uy * reach)
+    reach = max((-(x - back.coords[0][0]) * ux - (y - back.coords[0][1]) * uy
+                 for x, y in br.plan), default=0.0) + 1.0
+    far = max([g.length for g in ribs.values()] or [0.0]) + reach
+    ext = Polygon(list(back.coords) + [(x - ux * far, y - uy * far)
                                        for x, y in reversed(back.coords)]).buffer(0)
-    beyond = unary_union([ext, plan]).difference(covers)
+    cut = unary_union([rib for bid, rib in ribs.items() if bid in br.bores]
+                      or [Polygon()]).intersection(ext)
+    beyond = unary_union([Polygon(br.plan), cut]).difference(covers)
     piece = unary_union([back.buffer(_EDGE_HALF_M), beyond])
     parts = [g for g in getattr(piece, "geoms", [piece])
              if g.geom_type == "Polygon" and g.area > 0.0 and g.intersects(back)]
@@ -282,7 +284,7 @@ def _bridge_piece(br, cuts, covers):
              round(br.depth_m, 2), br.resource) for g in parts]
 
 
-def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None):
+def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None, ribs=None):
     """The walled mouths: per mouth (the deck's edge where the pavement and
     the edge bridges' cover end) where a pack object reaching ``depth_min``
     under its own zero (a portal) stands within the cut, ONE piece — that
@@ -297,7 +299,7 @@ def _mouth_walls(cuts, pav, objects, depth_min: float, bridges=(), covers=None):
     out = []
     backs = []
     for br in bridges:
-        out.extend(_bridge_piece(br, cuts, covered))
+        out.extend(_bridge_piece(br, ribs or {}, covered))
         backs.append(br.back_line.buffer(1.0))
     backs_u = unary_union(backs) if backs else None
     deep = []
@@ -385,6 +387,7 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
     # 2026-10-28d Q212) is covered ground over every bore it edges, inside
     # the ribbon or not
     covers = unary_union([br.cover for br in bridges]) if bridges else None
+    ribs = {"+".join(str(w.id) for w in b.ways): rib for b, _secs, rib in cuts}
     region = []
     paved = []
     for b, secs, rib in cuts:
@@ -403,7 +406,7 @@ def covered_ground(airport, classification, law: Law, xs: np.ndarray, ys: np.nda
                  for g in getattr(fp, "geoms", [fp]) if g.geom_type == "Polygon"]
     rep.bores = ["+".join(str(w.id) for w in b.ways) for b, *_r in cuts]
     rep.mouth_walls = _mouth_walls(paved, pav, objects, float(tn.mouth_depth_m), bridges,
-                                   covers)
+                                   covers, ribs)
     out = np.array(zs, dtype=float, copy=True)
     minx, miny, maxx, maxy = fp.bounds
     box = (xs >= minx) & (xs <= maxx) & (ys >= miny) & (ys <= maxy)

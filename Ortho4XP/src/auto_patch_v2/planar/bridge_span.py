@@ -103,8 +103,19 @@ def back_line(walls, toward: tuple[float, float], step: float = _BACK_STEP_M
             a = max(a0, a1) if abs(l1 - l0) <= 1e-12 else a0 + (a1 - a0) * (lat - l0) / (l1 - l0)
             reach = a if reach is None else max(reach, a)
         if reach is not None:
-            out.append((reach * ux + lat * nx, reach * uy + lat * ny))
-    return out
+            out.append((reach, lat))
+    # an END WALL's corner is no back: a lateral end that falls away from
+    # its neighbour steeper than _END_JUMP per step (KATL ``tunel_A``: the
+    # end wall's 14.5 m tick at its last sample) is trimmed
+    while len(out) > 2 and abs(out[0][0] - out[1][0]) > _END_JUMP * step:
+        out.pop(0)
+    while len(out) > 2 and abs(out[-1][0] - out[-2][0]) > _END_JUMP * step:
+        out.pop()
+    return [(a * ux + lat * nx, a * uy + lat * ny) for a, lat in out]
+
+
+#: the steepest a back may turn between two lateral samples (per step)
+_END_JUMP = 5.0
 
 
 def _toward(hull: Polygon, pav) -> tuple[float, float] | None:

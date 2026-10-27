@@ -109,7 +109,7 @@ from .unframed_ramp import (MAX_OVERLAP_PASSES, cap_note as _cap_note,
                             unframed_climb as _unframed_climb)
 from .structure_overlap import resolve_overlaps
 from ..airport.portal_objects import portal_of
-from .structure_mouth import mouth_at_pavement as _mouth_at_pavement, road_end_after_slide
+from .structure_mouth import face_top_z, mouth_at_pavement as _mouth_at_pavement, road_end_after_slide
 from .structure_mouth import (PORTAL_YIELDS, STRIP_PORTAL, STRIP_REFUSED, edge_wall_mouth,
                               portal_mouth, portal_note, strip_keepout)
 from .bridge_span import bridge_crossed, bridge_pin, edge_cut, edge_flat_s, far_back_s
@@ -415,8 +415,12 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                                                if len(getattr(m, "approach", ()) or ()) >= 2],
             own_area=None if edge is None else Polygon(edge.plan).buffer(rim_off))
         if pin is not None and clear is not None and clear[4].startswith(PORTAL_YIELDS):
-            stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}")
-            pin = None
+            stats.portals_unpinned.append(f"{tid}: {pin.object_id} — {clear[4]}"
+                                          + (" (a hanging face keeps its depth: 20am / 20ar)"
+                                             if pin.hanging else ""))
+            if not pin.hanging:
+                pin = None
+        face = pin is not None and pin.hanging and edge is None   # a bare face (Q168)
         if clear is not None and clear[0] is None:
             stats.refused.append(f"{tid}: {clear[4]}")
             continue
@@ -462,7 +466,7 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         if math.isnan(mouth_dem):
             stats.refused.append(f"{tid}: no DEM at the mouth")
             continue
-        if c is None and edge is None:
+        if c is None and edge is None and not face:
             # THE MOUTH CREST IS THE ROAD'S GROUND, NOT THE OVERBRIDGE'S
             # (spec §33 (3); owner RULINGS 2026-09-13d item 6).  `crest =
             # "dem"` samples the DEM at the mouth node; a portal's cover may
@@ -486,7 +490,14 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
         mouth_z = c.floor_z if c is not None else mouth_dem - (
             tn.mouth_depth_m if pin is None else pin.depth_m)
         slid_depth = None if pin is None else pin.depth_m   # #1028: a slid mouth's road profile
-        if clear is not None and clear[5] is not None and clear[5] > mouth_z:
+        if face:
+            # a bare face's top is flush with the ground beside the cover
+            # (RULINGS 2026-10-26p Q168, 20am / 20ar), never over the cap's
+            # own ground; the object wins over the slid road profile
+            mouth_z = min(face_top_z(airport, law, members, mouth, mouth_dem) - pin.depth_m,
+                          mouth_dem - grid)
+            slid_depth = mouth_dem - mouth_z
+        elif clear is not None and clear[5] is not None and clear[5] > mouth_z:
             mouth_z, slid_depth = clear[5], mouth_dem - clear[5]
         # decks across the corridor.  TWO orthogonal readings at one
         # call: §34 (12) (4) decides WHETHER a deck severs (15ap, the

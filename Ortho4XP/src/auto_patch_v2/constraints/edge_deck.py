@@ -8,9 +8,14 @@ over the trench, a terrain deck (spec §33 (4), ``Tunnel.decks``) — is the
 bridge's own slab: it stands at the level of the airside pavement edge
 abeam it and follows whatever that pavement does over the bridge.  It is
 RELATIONAL, never a pre-solve deck height: each deck vertex takes an
-EQUALITY to the nearest airside pavement vertex, ONE-WAY (the road
-follows, the airside leads: ``[design] one_way_rulings``) — the family
-the groundside road's airside contact belongs to (airside is king).
+EQUALITY to the nearest airside pavement vertex — stated as a two-sided
+PAIR of one-sided rows under a head ``[design] hard_rulings`` names, so it
+is a CONSTRAINT of the active set (the ``tunnel.mouth_depth_m`` idiom,
+``constraints/structures``): MEASURED on the KATL capture, the one-way
+equality at the law weight left the deck 1.8-7.8 m under the taxiway, the
+road's DEM fit over the bare-earth trench winning the contest.  The road
+deck has no other hard row there (its end ties stand down over an edge
+trench, ``constraints/structures``), so the taxiway is never pulled.
 """
 from __future__ import annotations
 
@@ -24,14 +29,14 @@ from ..model.planar import PlanarMap
 __all__ = ["edge_deck_rows", "GEN", "RULING"]
 
 GEN = "edge_deck"
-#: the ruling head (``[design] one_way_rulings``)
+#: the ruling head (``[design] hard_rulings``)
 RULING = "roads.edge bridge deck level with the airside abeam"
 
 
 def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
-    """Every terrain-deck vertex over an edge bridge's trench, one-way equal
-    to its nearest airside pavement vertex (module doc)."""
-    tunnels = [t for t in getattr(planar, "tunnels", ()) or ()
+    """Every terrain-deck vertex over an edge bridge's trench, held equal to
+    its nearest airside pavement vertex (module doc)."""
+    tunnels = [t for t in getattr(planar, "structures", ()) or ()
                if getattr(t, "edge_back", ()) and any(d.datum != "deck_top" for d in t.decks)]
     if not tunnels:
         return []
@@ -54,5 +59,6 @@ def edge_deck_rows(planar: PlanarMap, law: Law, airport: Airport) -> list[Row]:
             for v in vs:
                 x, y = planar.vertices[v].xy
                 k = int(np.argmin((axy[:, 0] - x) ** 2 + (axy[:, 1] - y) ** 2))
-                rows.append(Linear(((v, 1.0), (air[k], -1.0)), 0.0, 0.0, src, follows=(v,)))
+                rows.append(Linear(((v, 1.0), (air[k], -1.0)), None, 0.0, src))
+                rows.append(Linear(((v, -1.0), (air[k], 1.0)), None, 0.0, src))
     return rows

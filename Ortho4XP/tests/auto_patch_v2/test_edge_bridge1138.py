@@ -157,10 +157,10 @@ def test_the_tie_reads_the_excess_over_a_declared_wall_it_crosses():
 
 
 def test_a_road_deck_over_an_edge_bridge_trench_follows_the_airside_abeam(monkeypatch):
-    """28d Q211: each deck vertex is one-way equal to its nearest airside
-    pavement vertex (the road follows, the airside leads), under a head
-    ``[design] one_way_rulings`` names; a trench no edge bridge pinned
-    mints nothing."""
+    """28d Q211: each deck vertex is held equal to its nearest airside
+    pavement vertex — a two-sided pair of one-sided rows under a head
+    ``[design] hard_rulings`` names (a constraint, never a target); a trench
+    no edge bridge pinned mints nothing."""
     import auto_patch_v2.constraints.roads as R
     from auto_patch_v2.constraints import edge_deck as ED
     from auto_patch_v2.model.constraints import Linear
@@ -173,14 +173,15 @@ def test_a_road_deck_over_an_edge_bridge_trench_follows_the_airside_abeam(monkey
     tn = types.SimpleNamespace(id="tunnel:-1@0", portal="dsf:obj7", decks=(deck,),
                                edge_back=((0.0, 10.0), (10.0, 10.0)))
     pm = types.SimpleNamespace(
-        tunnels=(tn,), faces=faces,
+        structures=(tn,), faces=faces,
         vertices={k: types.SimpleNamespace(xy=p) for k, p in v.items()},
         ring_vertices=lambda ring: ring)
     monkeypatch.setattr(R, "stage_one_vertices", lambda _pm, _law: frozenset({0, 1}))
     rows = ED.edge_deck_rows(pm, LAW, None)
-    assert sorted((r.terms[0][0], r.terms[1][0]) for r in rows) == [(2, 0), (3, 1)]
-    assert all(isinstance(r, Linear) and r.lo == r.hi == 0.0 and r.follows == (r.terms[0][0],)
-               for r in rows)
-    assert ED.RULING in LAW.tables.emit.design.one_way_rulings
+    from auto_patch_v2.solve.design_roles import hard_rulings, is_hard
+    pairs = sorted({tuple(sorted((r.terms[0][0], r.terms[1][0]))) for r in rows})
+    assert pairs == [(0, 2), (1, 3)] and len(rows) == 4
+    assert all(isinstance(r, Linear) and r.lo is None and r.hi == 0.0 for r in rows)
+    assert all(is_hard(hard_rulings(LAW), r) for r in rows)
     tn.edge_back = ()
     assert ED.edge_deck_rows(pm, LAW, None) == []

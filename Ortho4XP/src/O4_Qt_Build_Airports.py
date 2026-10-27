@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+__all__ = ["AirportsCard", "summary_suffix"]
+
 GRADE_SENTENCE = (
     "Runways, taxiways and aprons are reshaped to meet FAA (USA) or ICAO "
     "slope and smoothness rules, so you don't get bumpy runways or cliffs "

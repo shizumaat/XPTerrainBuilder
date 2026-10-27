@@ -56,8 +56,6 @@ __all__ = [
     "RECORD_NAME",
     "TileBuildLogs",
     "TileStreamTag",
-    "build_logs_dir",
-    "builder",
     "built_by_text",
     "creation_agent",
     "dsf_creation_agent",

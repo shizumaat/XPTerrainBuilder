@@ -233,7 +233,7 @@ def imagery_downloads_done(lat, lon, downloaded=0, failed=0):
 
 ################################################################################
 # Secrets this process holds (provider API keys, #1339): every console and
-# log line passes through scrub(), so a URL that carries one prints with
+# log line passes through _scrub(), so a URL that carries one prints with
 # <api_key> in its place.
 _secrets = set()
 
@@ -244,7 +244,7 @@ def register_secret(value):
         _secrets.add(str(value))
 
 
-def scrub(args):
+def _scrub(args):
     """``args`` with every registered secret replaced (unchanged, as the
     same objects, when there is none to hide)."""
     if not _secrets:
@@ -263,7 +263,7 @@ def scrub(args):
 ################################################################################
 def vprint(min_verbosity, *args):
     if verbosity >= min_verbosity:
-        print(*scrub(args))
+        print(*_scrub(args))
 
 
 ################################################################################
@@ -274,7 +274,7 @@ def logprint(*args):
         f.write(
             time.strftime("%c")
             + " | "
-            + " ".join([str(x) for x in scrub(args)])
+            + " ".join([str(x) for x in _scrub(args)])
             + "\n"
         )
         f.close()
@@ -285,7 +285,7 @@ def logprint(*args):
 ################################################################################
 def lvprint(min_verbosity, *args):
     if verbosity >= min_verbosity:
-        print(*scrub(args))
+        print(*_scrub(args))
     if log:
         logprint(*args)
 

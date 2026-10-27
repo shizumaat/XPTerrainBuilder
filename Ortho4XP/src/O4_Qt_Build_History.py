@@ -35,14 +35,8 @@ from PySide6.QtWidgets import (
 )
 
 __all__ = [
-    "BuildHistoryPanel",
     "ConsoleDrawer",
-    "ConsoleLines",
     "NOT_SAVED",
-    "dimmed_tiles",
-    "history_rows",
-    "outcome_text",
-    "saved_log_header",
 ]
 
 NOT_SAVED = "Log not saved (built before logging)"

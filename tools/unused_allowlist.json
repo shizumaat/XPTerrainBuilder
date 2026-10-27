@@ -118,5 +118,10 @@
   "path": "Ortho4XP/src/elevation_access/strategies/xyz_text_tiles.py",
   "name": "XyzTextTileStrategy",
   "reason": "access strategy: registered by @register_access_strategy and reached by key through elevation_access.registry (named in EXPECTED_STRATEGIES), never imported by name"
+ },
+ {
+  "path": "Ortho4XP/src/O4_Vector_Map.py",
+  "name": "OsmLayerUnavailable",
+  "reason": "tile failure class: mapped by its class NAME in O4_Tile_Failures.EXCEPTION_CODES (a string key, #1445) and raised inside this module; never imported by name"
  }
 ]

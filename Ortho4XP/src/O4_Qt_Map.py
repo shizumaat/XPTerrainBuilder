@@ -296,7 +296,7 @@ def audit_textures(textures_dir, provider):
     return TextureAudit(provider, sources, sorted(foreign_files))
 
 
-def provider_is_mappable(provider_code):
+def _provider_is_mappable(provider_code):
     """True if the live map can draw the source (the engine's one list,
     ``O4_Imagery_Sources``; a combined source paints layer by layer)."""
     return SOURCES.is_previewable(provider_code)
@@ -464,13 +464,13 @@ class MapView(QGraphicsView):
     # Public API
     # ------------------------------------------------------------------
     def set_provider(self, code):
-        if provider_is_mappable(code):
+        if _provider_is_mappable(code):
             self._display_code = code
             # Absent max_zl means the source declares no ceiling (the
             # engine builds it at any ZL) - preview up to the fetch cap.
             self._provider_max_zl = SOURCES.preview_max_zl(code) or FETCH_MAX_ZL
             note = ""
-        elif provider_is_mappable("OSM"):
+        elif _provider_is_mappable("OSM"):
             self._display_code = "OSM"
             self._provider_max_zl = 19
             note = " (no live preview for %s - showing OSM)" % code
@@ -935,7 +935,7 @@ class MapView(QGraphicsView):
         thread; does no I/O itself.
         """
         code = self._display_code
-        if not provider_is_mappable(code):
+        if not _provider_is_mappable(code):
             return
         wanted = set()
         order = []

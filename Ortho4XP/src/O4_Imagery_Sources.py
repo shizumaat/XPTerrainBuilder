@@ -35,10 +35,9 @@ import O4_Geo_Utils as GEO
 import O4_Imagery_Utils as IMG
 
 __all__ = [
-    "STATUS_TIMEOUT_S", "STATUS_WORKERS", "check_status", "covers_tile", "expand_preview",
+    "STATUS_TIMEOUT_S", "STATUS_WORKERS", "check_status",
     "imagery_sources", "is_previewable", "preview_max_zl", "preview_tile_url",
-    "probe",
-    "sample_request", "tile_source",
+    "tile_source",
 ]
 
 #: Internal layers no picker offers (the sea overlay's low-resolution layer).

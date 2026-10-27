@@ -28,6 +28,8 @@ import typing as _t
 #: An object probe stops after this many directory entries per pack (the
 #: Mac app's ``PackObjectProbe`` cap): payware airports run to ~10k
 #: files, and a mis-tagged multi-gigabyte pack must not stall the card.
+__all__ = ["OBJECT_SCAN_CAP", "build_airports", "start_build_airports"]
+
 OBJECT_SCAN_CAP = 40000
 
 _NAMES: dict = {}

@@ -1,8 +1,9 @@
 # Road cuts and tunnels from the owner's LFPG hand patch: the rules that generalise it
 
-Status: DRAFT for the owner's ruling (questions Q226–Q233 in §8). Lane
-`llfpgspec`, branch `claude/llfpgspec-cuts-tunnels`, base `origin/main`
-f8e877b7d. Spec only: no engine code changes here.
+Status: RULED — owner Q226–Q233, 2026-10-27T15:56:40Z (RULINGS 2026-10-28k);
+§5 and §7 revised to the rulings (lane `llfpgcut`, 2026-10-27). Drafted by
+lane `llfpgspec`, branch `claude/llfpgspec-cuts-tunnels`, base `origin/main`
+f8e877b7d.
 
 Asked by the owner (2026-10-27T15:04Z): LFPG built with 1.0.436 "does not look
 much better in regards to road cuts and tunnels. Please review my hand made
@@ -181,130 +182,168 @@ owner lowers the road 7 m. 15 + 8 + 3 survey cuts the owner flattened
 (e.g. the RER B trench west of T2, 49.0065, 2.5477, survey 6.4 m) are the
 opposite case.
 
-## 5. Evidence per class, and the proposed rules
+## 5. Evidence per class, and the rules as RULED (RULINGS 2026-10-28k)
+
+The owner answered Q226–Q233 on 2026-10-27T15:56:40Z (RULINGS 2026-10-28k,
+verbatim there). Where the answers depart from the draft's recommendations
+they change the rules: Q228 a (R6 is IN), Q229 b (landside zones are led by
+the objects and the road grading, not the survey), Q231 b (roads under the
+movement area go to the 7.5 m mouth depth unless an object states another
+value — this REPLACES the draft's "keep the surveyed floor if ≥ 5 m" under a
+runway or taxiway), Q233 a with the owner's note (rail follows the survey and
+never takes a road ramp, but at a tunnel mouth rail takes a LONGER, shallower
+ramp than a road: at most 3.5 % on coarse elevation).
 
 | class | what separates it in the inputs | rule |
 |---|---|---|
-| too deep / extra-on-survey-cut | the survey's both-sides cut at the portal (§45 `_lidar_cut`) and the cover's level over the bore | R1 |
+| too deep / extra-on-survey-cut | the cover's level over the bore against the survey's road at the portal | R1 |
+| too shallow under a runway / taxiway | the cover over the bore is movement-area pavement | R1 (231 b) |
+| extra with no sign | credible survey: the cover stands less than `[channel] object_min_depth_m` over the road | R1 (232 a) |
 | missing (filled survey cut) | the survey's both-sides cut along the approach, a ribbon solved > 0.5 m above it | R2 (after attribution) |
-| missing under a hard deck (F1) | pack `ATTR_hard_deck` object over the road, survey notch under it | R3 (needs Q227) |
+| missing under a hard deck (F1) | pack `ATTR_hard_deck` object over the road, survey notch under it | R3 (227 a) |
 | ramp missing / position / reversed | the survey's own descent along the mapped road | R4 |
-| too shallow (rail) | `railway=*` on the bore | R5 (needs Q233) |
-| extra with no sign | crest − surveyed road ≥ clearance already (forecourt basin); no survey cut, no rise, covered by apron/terminal only | R1 (basin part) + Q232 |
-| forecourt under stacked viaducts (B1) | OSM ways `bridge=yes`, `layer ≥ 2` running over a `layer ≤ 0` road for ≥ 100 m inside the aerodrome boundary | R6 (needs Q228) |
-| owner flattened a survey cut; owner deeper than survey; B2 | **no witness separates them** from the cases the survey gets right | Q229, Q230, Q231 |
+| too shallow (rail) | `railway=*` on the bore | R5 (233 a) |
+| forecourt under stacked viaducts (B1) | OSM ways `bridge=yes`, `layer ≥ 2` running over a `layer ≤ 0` road for ≥ 100 m inside the aerodrome boundary | R6 (228 a) |
+| owner's landside zone level (B2) | the pack's tunnel-mouth objects, buildings and the road grading law | R7 (229 b) |
+| owner flattened a survey cut | no witness separates it; RULED keep the survey's cut | (230 a) |
 
-**R1 — The mouth is measured from the cover, never from a ground already inside
-the cut.** At every unauthored bore mouth: `crest` = the higher of (a) the
-survey over the bore's first 10–40 m inside the portal (the cover) and (b) the
-both-sides ground of the §45 reading at the mouth station; then capped by the
-existing §33 (3) embankment cap. `road` = the survey at the portal. If the survey
-reads the road in a both-sides cut at the portal (§45 witness, credible inset):
-floor = `road` where `crest − road ≥ tunnel.clearance_m` (5.0), else
-`crest − clearance_m`, blended at the ramp law (27g, now at EVERY such mouth,
-not only bores notched end to end). Otherwise (survey reads the cover, or coarse
-DEM): floor = `crest − mouth_depth_m` (14f). A mouth whose crest already stands
-≥ clearance_m over the surveyed road (a forecourt basin under the aprons) is
-refused by name like 27g's. Predicted on LFPG (survey depth, floored at 5 m):
-of the 121 portals the owner cuts, 85 within 1.5 m of the owner's depth
-(today 37); of the 31 too deep, 20; the 21 extra-on-survey-cut portals go to
-survey depth.
+**R1 — THE MOUTH IS MEASURED FROM THE COVER, never from ground already inside
+the cut (226 a, 231 b, 232 a; amends 14f and 27g).** ONE derivation
+(`planar/mouth_datum.py`) states every unauthored OSM bore mouth's floor; the
+mouth planner, the constraint generator (`Tunnel.depth_m`), the published
+mouth depths and the census's `tunnel_mouth_canonical` read that one value.
+- `cover` — on a CREDIBLE inset (`inset_class.lidar_credible`), the median
+  over the bore's first 40 m inside the portal of the higher of the survey on
+  the bore's axis and the lower of the two sides' highest ground within
+  `4 × mouth_depth_m` (§45's `_lidar_cut` reading, ratified 09-16g). On a
+  coarse DEM the cover is the DEM at the mouth's cap, as today (14f), with
+  §33 (3)'s embankment cap.
+- `road` — the survey's road at the portal: the least of §45's
+  `_lidar_floor` (minimum across the carriageway) over the portal and the
+  approach's first 12 m.
+- `clearance = cover − road`.
+- **No sign (232 a).** On a credible inset, `clearance <
+  [channel] object_min_depth_m` (3.0): neither the survey nor a ground rise
+  shows a cut, and the mouth is refused by name. On a coarse DEM a missing
+  rise is no evidence (a 7 m trench is below a 30 m grid) and 14f stands.
+- **The depth owed.** Under the MOVEMENT AREA (a runway- or taxi-family cell
+  over the bore's first 40 m) the road goes to `cover − mouth_depth_m` (7.5 m,
+  231 b). Elsewhere (aprons, roads, ground) a road that already clears
+  `[tunnel] clearance_m` (5.0) under its cover is kept, else cut to
+  `cover − clearance_m` (232 a, 27g's blend). A RAIL bore is never deepened
+  (R5): its floor is the survey's.
+- `floor = min(road, cover − depth owed)`. Where the floor is the surveyed
+  road (`road − floor ≤ split_tol_m`), the survey already carries the road and
+  the mouth is refused by name — nothing is cut a second time (the double cut
+  of §4.1). Otherwise the mouth is built at `floor`, and its depth under the
+  cap's ground (`DEM(cap) − floor`) is the tunnel's `depth_m`, the value the
+  constraint generator ties the mouth to its cap by.
+- **An object states the value (231 b exception).** A pack portal (`pin`), a
+  tunnel wall object, a door well or a wall corridor keeps its own depth; an
+  object deck over the ramp keeps its `bridge.clearance_m` band (20am).
 
-**R2 — A surveyed open cut is carried into the surface.** Where the credible
-survey shows a road in a both-sides cut and no structure law cuts it (27g kept
-it, or no bore is mapped), the road's ribbon takes the surveyed floor as its
-datum and the cut's walls are declared terrace steps (the `tunnel_wall` rim
-family); no road grade cap, airside strip, zone blend or reach ribbon (22g) may
-raise the floor more than `split_tol_m` above the survey. Where the survey's
-ramp is steeper than the road's ramp cap, the cap is lifted to the surveyed
-grade up to `tunnel.ramp_max_grade` and the residual reported. Lands only after
-4.2's attribution names the lifting pass.
+**R2 — A surveyed open cut is carried into the surface (230 a).** Where the
+credible survey shows a road in a both-sides cut and R1 builds no mouth there
+(the survey carries it), the road's ribbon may not be lifted out of the
+survey's trench by more than `split_tol_m`. LANDS ONLY AFTER ATTRIBUTION: one
+`v2_solve_replay --probe-site` at each §4.2 site names the pass that lifts it
+(the groundside road grade cap, or the 22n airside face across a hard deck).
 
-**R3 — Under an airside hard-deck bridge over a surveyed road, the trench is
-opened.** A pack object with `ATTR_hard_deck` whose deck stands flush on airside
-pavement (22n class A) and under which the survey notches a mapped road (§45
-witness under the deck footprint): the terrain under the deck footprint is cut
-to the R1 floor and the deck seated flush at the solved airside (22n (2)), the
-cut stopping at the deck's outline (20as / 20am). This lifts the 22n hold for
-this witness only (Q227).
+**R3 — Under an airside hard-deck bridge over a surveyed road the trench is
+opened (227 a; lifts the 22n hold for this witness, with 26p).** A pack object
+with `ATTR_hard_deck` whose deck stands flush on airside pavement (22n class A)
+and under which the survey notches a mapped road: the terrain under the deck
+footprint is cut to the surveyed road, the deck seated flush at the solved
+airside (22n (2)), the cut stopping at the deck's outline (20as / 20am). This
+is #1138's trench at LFPG's witness and is built through #1138's spec.
 
-**R4 — The approach ramp lies where the survey descends.** On a credible inset,
-the ramp's profile from the mouth outward is the survey's own profile along the
-mapped road (smoothed to the ramp law's grade and curvature caps), not a design
-5 % ramp from the portal; the mouth slide of 19n/19s still applies. On a coarse
-DEM the design ramp stands. Owner ramps reach 22 %; road ramps keep the law's cap
-(`tunnel.ramp_max_grade`), the residual reported.
+**R4 — The approach ramp lies where the survey descends.** On a credible inset
+a ramp built at an R1 floor climbs at the design grade only where the
+survey's road stands above it; where the survey's own road descends steeper
+than the design grade toward the mouth, the ramp takes the survey's descent up
+to `tunnel.ramp_max_grade` (the residual reported), so the ramp tops out where
+the survey's road meets it and is never cut below the surveyed road along
+the approach. On a coarse DEM the design ramp stands.
 
-**R5 — Rail follows the survey (Q233).** A `railway=*` bore or trench takes no
-road-design ramp: its floor is the survey's along its whole length, its ramps
-the survey's (rail grades ≤ 3.5 %); on a coarse DEM it takes the 14f depth with
-a ramp at `rail_ramp_max_grade` (new law key, 0.035).
+**R5 — Rail (233 a).** A `railway=*` bore takes no road ramp. On a credible
+inset its floor is the survey's (R1, never deepened). At a tunnel mouth rail
+takes a LONGER ramp than a road: design grade `[tunnel] rail_ramp_grade`,
+ceiling `[tunnel] rail_ramp_max_grade` (new law keys; see the source note
+below).
 
-**R6 — A road under stacked viaducts inside the boundary sits a mouth depth
-below the apron (Q228).** Where a mapped road (`layer ≤ 0`) runs ≥ 100 m under
-bridge ways of `layer ≥ 2` inside the aerodrome boundary and the survey reads it
-within `mouth_depth_m` of the adjacent apron, the road is lowered to
-`apron − mouth_depth_m` along the covered run with R4 ramps at both ends. Only
-if Q228 = A.
+*Rail grade law (233 a's "at most 3.5 %").* `law/*.toml` held one rail grade,
+`emit.toml [road_cross_section] "railway:rail" = 0.04` — a LOW-CONFIDENCE ribbon
+cap from one adhesion-practice source, not a tunnel-ramp law. Proposed, with
+their source: `rail_ramp_max_grade = 0.035` — the EU Technical Specification
+for Interoperability, Infrastructure (TSI INF, Regulation (EU) 1299/2014,
+§4.2.3.6): main tracks of passenger-dedicated lines up to 35 mm/m (the LGV
+lines are built to it), the owner's figure; `rail_ramp_grade = 0.0125` — the
+same TSI's 12.5 mm/m design limit for mixed-traffic lines (the owner's LGV
+south ramp at F6 runs 1.3 %).
+
+**R6 — A road under stacked viaducts inside the airport sits a mouth depth
+below the apron (228 a).** A mapped road (`layer ≤ 0`) running at least
+100 m under bridge ways of `layer ≥ 2` inside the aerodrome boundary is lowered
+to `apron − mouth_depth_m` along the covered run, with R4 ramps at both ends;
+emittable only as an open road level under the viaduct objects (§7).
+
+**R7 — A landside zone takes the level its objects and its roads set, not
+the survey's (229 b).** Inside the aerodrome boundary a landside zone (B2) is
+levelled to the tunnel-mouth objects' floors, the building pads' seats and
+the road grading law (a road leaving a lowered mouth climbs at its grade cap),
+the survey only where none of these states a level.
 
 ## 6. Consumer census (RULINGS 2026-08-30l)
 
-| pass (module) | reads | R1 | R2 | R3 | R4 | R5 | R6 |
-|---|---|---|---|---|---|---|---|
-| `planar/structures.py` mouth datum (`mouth_dem`, `mouth_z`, crest cap) | DEM at the cap | **changes** (crest from the cover; floor from R1) | – | reads R1 floor | – | rail branch | – |
-| `planar/lidar_road.py` (27g) | §45 cut along the bore | **generalised** to the portal station; keeps its refusal | – | under-deck witness reuses it | – | – | – |
-| `planar/channel_geometry.py` `_lidar_cut` / `_lidar_floor` | survey both sides | read only | read only | read only | read only | read only | – |
-| `planar/structure_mouth.py` `road_profile`, `mouth_at_pavement`, slide | mouth floor, road | reads new floor | – | – | **changes** (profile from survey) | rail grade | ramps at both ends |
-| `planar/structure_approach.py` (approach walk, `standing_cover`) | approach ground | reads | – | – | reads | – | – |
-| `planar/bore_continuation.py` (#1028 "no portal") | bore chains | – | – | – | – | rail chains | – |
-| `planar/covered_ground.py`, `planar/structure_deck`, `planar/structure_underpass` | decks over roads | – | – | **changes** (cut under hard deck) | – | – | – |
-| `airport/tunnel_objects.py`, `portal_objects.py`, `object_cut.py` | pack portals, floors | pinned mouths unchanged (R1 skips `pin`) | – | reads deck outline | – | – | – |
-| `classify/ribbon_mint.py`, road grade law (`roads.groundside_road`) | road ribbons | – | **changes** (survey datum, cap lift) | – | reads | – | reads |
-| `planar/zones.py` adjacent-ground blend | DEM | – | must not fill a declared cut | – | – | – | – |
-| `constraints/structures.py` (mouth/wall rows) | mouth floor, walls | rows at new floor | terrace rows for surveyed walls | rows under deck | – | – | – |
-| `emit` tunnel canonical (`law/emit.toml` §33 (5)) | `rim − mouth_depth_m` | **changes** to R1's floor | – | – | – | – | – |
-| object stage deck seating (`auto_patch/object_stage.py`, `emit/rebake.deck_datum_from_surface`) | solved airside at the deck | – | – | deck stays flush (22n (2)) | – | – | – |
-| census (`tools/harness/law_support`, families `tunnel_mouth_canonical`, `ramp_in_strip`, 19c/19l exemptions) | mouth floor law | price at R1 floor | surveyed walls = declared terraces | object-decked trench (19c) | ramp grade | rail cap | – |
-| `verify/structures.py`, `verify/keepout.py` | mouth depth | R1 | – | – | – | – | – |
+| pass (module) | reads | R1 | R2 | R3 | R4 | R5 | R6 | R7 |
+|---|---|---|---|---|---|---|---|---|
+| `planar/structures.py` mouth datum (`mouth_dem`, `mouth_z`, crest cap) | DEM at the cap | **changes** (crest from the cover; floor from R1) | – | reads R1 floor | – | rail branch | – | – |
+| `planar/lidar_road.py` (27g) → `planar/mouth_datum.py` | §45 cut along the bore | **replaced** by the one R1 reading (cover, road, clearance, the depth owed, the refusals) | – | under-deck witness reuses it | – | rail never deepened | – | – |
+| `planar/channel_geometry.py` `_lidar_cut` / `_lidar_floor` | survey both sides | read only | read only | read only | read only | read only | – | – |
+| `planar/structure_mouth.py` `road_profile`, `mouth_at_pavement`, slide | mouth floor, road | reads new floor | – | – | **changes** (profile from survey) | rail grade | ramps at both ends | – |
+| `planar/structure_approach.py` (approach walk, `standing_cover`) | approach ground | reads | – | – | reads | – | – | – |
+| `planar/bore_continuation.py` (#1028 "no portal") | bore chains | – | – | – | – | rail chains | – | – |
+| `planar/covered_ground.py`, `planar/structure_deck`, `planar/structure_underpass` | decks over roads | – | – | **changes** (cut under hard deck) | – | – | – | – |
+| `airport/tunnel_objects.py`, `portal_objects.py`, `object_cut.py` | pack portals, floors | pinned mouths unchanged (R1 skips `pin`) | – | reads deck outline | – | – | – | – |
+| `classify/ribbon_mint.py`, road grade law (`roads.groundside_road`) | road ribbons | – | **changes** (survey datum, cap lift) | – | reads | – | reads | reads (grade cap) |
+| `planar/zones.py` adjacent-ground blend | DEM | – | must not fill a declared cut | – | – | – | – | **changes** (zone level from objects / roads) |
+| `constraints/structures.py` (mouth/wall rows) | mouth floor, walls | rows at new floor | terrace rows for surveyed walls | rows under deck | – | – | – | – |
+| `emit` tunnel canonical (`law/emit.toml` §33 (5)) | `rim − mouth_depth_m` | **changes** to R1's floor | – | – | – | – | – | – |
+| object stage deck seating (`auto_patch/object_stage.py`, `emit/rebake.deck_datum_from_surface`) | solved airside at the deck | – | – | deck stays flush (22n (2)) | – | – | – | reads (pad seats) |
+| census (`tools/harness/law_support`, families `tunnel_mouth_canonical`, `ramp_in_strip`, 19c/19l exemptions) | mouth floor law | price at R1 floor | surveyed walls = declared terraces | object-decked trench (19c) | ramp grade | rail cap | – | – |
+| `verify/structures.py`, `verify/keepout.py` | mouth depth | R1 | – | – | – | – | – | – |
 
-Prefer one derivation site: R1 is ONE function (the crest/floor of a mouth)
-called by the mouth planner, the emit canonical and the census, not three
-readings.
+Prefer one derivation site: R1 is ONE function (`planar/mouth_datum.mouth_datum`,
+the cover/floor of a mouth) whose floor the mouth planner builds and whose
+depth (`Tunnel.depth_m`) the constraint generator, `pipeline/publication.
+tunnel_mouth_depths` and the census's `tunnel_mouth_canonical` read — never
+three readings.
 
 ## 7. Acceptance against the hand patch, and emittability
 
 Measured relative to the crest in each surface (§2), on LFPG tile +49+002,
-one build:
+one build against its matched control (the lane's instrument rasterises the
+emitted patches; the counts in §4 read the owner's built mesh, so the lane
+reports its own before/after on one instrument):
 
-1. Too deep → 0: no unauthored mouth floor more than 9.0 m under its crest
-   (today 17 of the 30 auto ramps deeper than 3 m are 9–14.4 m under the
-   survey crest 25–60 m around their floor, and portal depths reach 17 m).
-2. At the 121 owner-cut portals of classes match, too deep and too shallow,
-   auto depth within 1.5 m of the owner's, or within 0.5 m of the survey where
-   the survey is deeper than the owner; the residual listed for the
-   owner-deeper-than-survey portals (Q231).
-3. Missing (filled): mesh floor ≤ survey floor + 0.5 m at the 11 portals; F1
-   (A1 under 09L/27R) floor within 1.5 m of the survey's 111 m (after Q227 = A).
-4. Extra with no sign (15): refused by name, or listed under Q232's ruling.
-5. The 70 match portals: depth within 1.0 m of today's.
-6. Ramps: of the 17 missing, those whose survey shows ≥ 50 % of the owner's drop
-   (6) present within 40 m of the owner's ramp end and the same direction; the 4
-   reversed resolved.
-7. No regression: the census of the closing build has no new `ramp_in_strip` or
-   `tunnel_mouth_canonical` rows outside the declared exemptions.
+1. Too deep: no unauthored mouth floor more than `mouth_depth_m + 1.5 m`
+   (9.0 m) under its cover; the too-deep count falls.
+2. At the owner-cut portals under the movement area, auto depth within 1.5 m
+   of the owner's or of `mouth_depth_m` (231 b), whichever is deeper than the
+   survey; elsewhere within 1.5 m of the owner's or within 0.5 m of the survey
+   (230 a).
+3. Extra with no sign (232 a): refused by name on a credible inset.
+4. Missing (filled): mesh floor ≤ survey floor + 0.5 m at the §4.2 portals
+   once R2's lifting pass is attributed and ruled; F1 within 1.5 m of the
+   survey's 111 m under R3.
+5. The match portals: depth within 1.0 m of the control's.
+6. Ramps: no ramp cut below the surveyed road along its approach (R4).
+7. No regression: the census of the closing build has no new
+   `ramp_in_strip` or `tunnel_mouth_canonical` rows outside the declared
+   exemptions; a dry structure A/B on the registered captures (KATL, KCLT,
+   EGGW, EGLL, KBUF, NZWN) lists every mouth that changes.
 
-**Emittability.** Every rule emits a single-valued heightfield: floors are a
-function of plan position along the ribbon; walls are near-vertical terrace
-steps, the form the owner's own patch uses (nested rings 103 around 97 at
-≤ 2 m, F9), already emitted as `tunnel_wall` rims. Nothing is emitted under a
-cover: a covered bore stays the solved cover surface; only open cuts and the
-trench under a pack deck object are lowered. One catch for R3: X-Plane drapes
-apt.dat runway/taxiway pavement on the mesh, so the draped pavement over the
-trench follows it down under the pack's hard-deck object — the owner's patch
-does exactly this at F1–F4 (the deck object carries the aircraft). R6 is
-emittable only as an open road level under the viaduct objects.
-
-## 8. Owner questions
+## 8. Owner questions (answered 2026-10-27T15:56:40Z: RULINGS 2026-10-28k)
 
 **Q226 — How should the auto patch be judged against your LFPG patch?** Your
 patch's levels sit 0–7 m (≈ 3 m typical) below the 2026 survey, which matches the
@@ -360,7 +399,7 @@ the TGV station between 2C/2D and 2E/2F):**
   rail ramp at 3.5 % (recommended)
 - B. Rail gets the road tunnel law
 
-## 9. Not done here
+## 9. Not done here (draft round)
 
 - No engine code changed; no capture taken and none registered
   (`frames.py list LFPG` was not needed: the measurement read the owner's built

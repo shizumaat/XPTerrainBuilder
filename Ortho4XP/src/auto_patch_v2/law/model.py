@@ -25,6 +25,9 @@ from .flat_pack_schema import (FlatPack, FlatPackDetector,  # noqa: F401
 # runway_ends.toml's schema likewise (owner RULINGS 2026-10-25a / 26a / 26e)
 from .runway_ends_schema import (ByDemClass, RunwayEnds,  # noqa: F401
                                  check_runway_ends as _check_runway_ends)
+# terrain_witness.toml's schema likewise (#1359, RULINGS 2026-10-26q/v/w/x/y/z, 27a)
+from .terrain_witness_schema import (TerrainWitness,  # noqa: F401
+                                     check_terrain_witness as _check_terrain_witness)
 # the [rebake] schema (06g: the contact-cluster law's keys) likewise
 from .rebake_schema import Deck, Placement, Rebake, Scatter  # noqa: F401
 # the [cutout] schema (06b (1), 09-08a; the door / sunken-road ramp laws 09-08b/c)
@@ -34,6 +37,7 @@ from .basin_schema import Basin  # noqa: F401
 # the [base_profile] schema (the building base profile; base-profile spec
 # §1) likewise lives beside the other per-table schemas
 from .base_profile_schema import BaseProfileLaw  # noqa: F401
+from .walled_plate_schema import WalledPlateLaw  # noqa: F401
 # the [tunnel.object] schema (05k-1/05n/06c/06f/09w; the THIN-PLATE wall
 # class of spec §33 (2)) likewise — the 1,000-line file law
 from .tunnel_object_schema import TunnelObject  # noqa: F401
@@ -66,11 +70,12 @@ __all__ = ["LawError", "CodeTable", "Rate", "RoleCap", "RunwayLaw", "TaxiLaw", "
 #: The eight files a law directory must contain (owner amendment
 #: 2026-09-03; ``flat_site.toml`` per RULINGS 2026-09-05k-2;
 #: ``flat_pack.toml`` per the owner's 2026-10-20 flat-pack direction;
-#: ``runway_ends.toml`` per RULINGS 2026-10-25a / 26a / 26e).  None names
+#: ``runway_ends.toml`` per RULINGS 2026-10-25a / 26a / 26e; ``terrain_witness.toml``
+#: per RULINGS 2026-10-26q, #1359).  None names
 #: an airport (RULINGS 2026-10-05e; ``tests/test_no_airport_specific_code``).
 TABLE_FILES: tuple[str, ...] = ("rulesets.toml", "zones.toml", "structures.toml", "emit.toml",
                                 "precedence.toml", "families.toml", "flat_site.toml",
-                                "flat_pack.toml", "runway_ends.toml")
+                                "flat_pack.toml", "runway_ends.toml", "terrain_witness.toml")
 
 
 class LawError(ValueError):
@@ -229,6 +234,13 @@ class CommonLaw:
     #: letter caps stay targets under it (``constraints/ceiling.py``)
     pavement_max_grade: float
     road_max_grade: float
+    #: OWNER RULINGS 2026-10-27s (Q197): A PUBLIC ROAD'S JOINT AT A JUNCTION
+    #: (town-street values, ~30 km/h): a grade change up to this needs no
+    #: curve (``airport/road_joint``)
+    road_joint_free_grade_change: float
+    #: ... and a bigger change is spread over at least this many metres of
+    #: road per 1 % (``vertical_curve_k_grade_unit``) of change: K
+    road_joint_k_m_per_pct: float
     apron_fan_ramp_max: float
     road_transverse_axis_min_deg: float
     runway_crown_transverse: float
@@ -616,6 +628,10 @@ class Structures:
     #: without the table still loads and the read falls back to its
     #: measured defaults.
     base_profile: BaseProfileLaw = _dc.field(default_factory=BaseProfileLaw)
+    #: A WALLED PLATE CAPS A RUNWAY'S SAFETY AREA (``[walled_plate]``, owner
+    #: RULINGS 2026-10-27t/u, #1201): the recognition's numbers.  Defaulted
+    #: like ``base_profile``.
+    walled_plate: WalledPlateLaw = _dc.field(default_factory=WalledPlateLaw)
 
 
 # ── emit.toml ────────────────────────────────────────────────────────────
@@ -770,6 +786,11 @@ class RoadProfile:
     #: ``railway:<value>``).  A class absent here takes the core's
     #: ``road_grade_limit``.
     class_caps: _t.Mapping[str, float]
+    #: OWNER RULINGS 2026-10-22h: the PUBLIC classes (``highway`` values)
+    #: whose in-band segments follow the terrain up to ``cap_ceiling``
+    #: (``O4_Vector_Utils.road_inside_cap``); every other class keeps the
+    #: patch's ``road_grade_limit``
+    public_classes: tuple[str, ...] = ()
 
 
 @_dc.dataclass(frozen=True)
@@ -945,6 +966,8 @@ class LawTables:
     flat_pack: FlatPack
     #: THE RUNWAY-END PIN RULE (RULINGS 2026-10-25a / 26a / 26e)
     runway_ends: RunwayEnds
+    #: THE TERRAIN WITNESS (#1359, RULINGS 2026-10-26q)
+    terrain_witness: TerrainWitness
 
 
 # ── the loader ───────────────────────────────────────────────────────────
@@ -1207,6 +1230,7 @@ def _check_cross_refs(t: LawTables) -> None:
     _check_flat_site(t.flat_site, LawError)
     _check_flat_pack(t.flat_pack, LawError)
     _check_runway_ends(t.runway_ends, LawError)
+    _check_terrain_witness(t.terrain_witness, LawError)
     role_words = roles | {"all", "airside", "groundside", "taxi_family",
                           "runway_family"}
     for key, fam in t.families.items():
@@ -1281,7 +1305,9 @@ def load_tables(law_dir: str | Path) -> LawTables:
         families=families,
         flat_site=_build(FlatSite, _read(d, "flat_site.toml"), "flat_site"),
         flat_pack=_build(FlatPack, _read(d, "flat_pack.toml"), "flat_pack"),
-        runway_ends=_build(RunwayEnds, _read(d, "runway_ends.toml"), "runway_ends"))
+        runway_ends=_build(RunwayEnds, _read(d, "runway_ends.toml"), "runway_ends"),
+        terrain_witness=_build(TerrainWitness, _read(d, "terrain_witness.toml"),
+                               "terrain_witness"))
     _check_cross_refs(tables)
     return tables
 

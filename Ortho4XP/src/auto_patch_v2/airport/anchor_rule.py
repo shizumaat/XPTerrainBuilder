@@ -603,6 +603,13 @@ def datum_of(m: _t.Any, *, abutment_step_m: float = 0.0,
     — the one derivation).  KMCI's perimeter highway bridges seated on
     their low-side pier, their deck ends metres off the road."""
     plate_y = getattr(m, "plate_y", None)
+    # owner RULINGS 2026-10-27u (#1201): A RUNWAY-END WALLED PLATE sits flush
+    # with the safety area at its stations, at any authored height (KSEA
+    # 16R's plate is authored at y -9.90), its feet going where that puts them
+    if (plate_y is not None and getattr(m, "plate_kind", "") == "walled"
+            and getattr(m, "plate_stations", ())):
+        return Datum(float(plate_y), tuple(m.plate_stations),
+                     "walled plate (RULINGS 2026-10-27u)")
     if plate_y is not None and float(plate_y) > 0.0:
         st = tuple(getattr(m, "plate_stations", ()) or ())
         if st:

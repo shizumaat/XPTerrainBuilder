@@ -1,0 +1,195 @@
+[
+ {
+  "icao": "CYCG",
+  "textures": 249,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "CYXY",
+  "textures": 308,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "EDDF",
+  "textures": 742,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "EGLL",
+  "textures": 440,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "HECA",
+  "textures": 246,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KATL",
+  "textures": 257,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KBJC",
+  "textures": 224,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KBUF",
+  "textures": 228,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KBUR",
+  "textures": 408,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KCLT",
+  "textures": 255,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KDEN",
+  "textures": 317,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KEDW",
+  "textures": 508,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KLAX",
+  "textures": 124,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KLGB",
+  "textures": 124,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KMCI",
+  "textures": 263,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KPDX",
+  "textures": 271,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KSUN",
+  "textures": 296,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "LEMD",
+  "textures": 296,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "LPHR",
+  "textures": 62,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "PAAQ",
+  "textures": 463,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "TFFJ",
+  "textures": 20,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "VHHH",
+  "textures": 240,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "VNLK",
+  "textures": 216,
+  "joins": 3,
+  "refuted": 1,
+  "detached": 1,
+  "refuted_list": [
+   [
+    "06/24",
+    "pav2",
+    "Helo Apron",
+    0.158,
+    19,
+    1
+   ]
+  ]
+ }
+]

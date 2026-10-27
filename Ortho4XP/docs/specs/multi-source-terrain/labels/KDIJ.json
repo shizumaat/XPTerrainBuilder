@@ -1,0 +1,36 @@
+{
+ "airport": "KDIJ",
+ "spec": "docs/specs/multi-source-terrain-spec.md \u00a78",
+ "labelled_by": "lane ltriang2, 2026-10-26, from the owner's built tile textures and the airport inset",
+ "q1": [
+  {
+   "runway": "4/22",
+   "end": "4",
+   "truth": "layout",
+   "whence": "piano keys and the 4 at the apt.dat end; the CIFP point is mid-runway centreline dashes (spec \u00a70.1)"
+  },
+  {
+   "runway": "4/22",
+   "end": "22",
+   "truth": "layout",
+   "whence": "piano keys at the apt.dat end; the CIFP point lies in a crop field 594 m beyond (spec \u00a70.1)"
+  }
+ ],
+ "q5_sites": [],
+ "q5": [
+  {
+   "lat": 43.735640704,
+   "lon": -111.116073506,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  },
+  {
+   "lat": 43.735686498,
+   "lon": -111.116442804,
+   "truth": true,
+   "whence": "built texture + lidar depth, read by lane ltriang2 (contact sheet)",
+   "name": "service"
+  }
+ ]
+}

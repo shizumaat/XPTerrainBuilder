@@ -21,10 +21,10 @@ from . import (apron, cluster_pad, eat, flat_site, foot_rows,
                platform,
                proximity, ramp_runout, road_ramp, roads, routes, runway_chord, runway_mean_slope,
                runway_profile, runway_step,
-               seams, strips,
+               seams, steep_apron, strips,
                channel,
                structures,
-               taxi, transverse, water, zones)
+               taxi, transverse, walled_plate, water, zones)
 from .assembly import assemble, seam_exempt, water_exempt
 
 __all__ = ["GENERATORS", "generate", "run_generator", "post_passes", "stack", "seam_exempt",
@@ -58,6 +58,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     # §42 (1b) (owner RULINGS 2026-09-27a (5)): a hard ground plane is ONE
     # level (a Flat), its level the runway-edge frontage's
     ("hard_plane_level", hard_plane.hard_plane_level),
+    # RULINGS 2026-10-26n (Q162): an apron a steep runway joins is ONE
+    # terrace plane at its junction mouth's level
+    ("steep_apron_plane", steep_apron.steep_apron_plane),
     # owner 2026-10-20 (#798): a sloping building's pad welded into the
     # apron is ONE level; the door line keeps the apron cap
     ("door_pad_level", door_pad.door_pad_level),
@@ -97,6 +100,9 @@ GENERATORS: tuple[tuple[str, Generator], ...] = (
     ("reach_bands", no_step.reach_bands),
     ("zone_bands", zones.zone_bands),
     ("strip_transverse", zones.strip_transverse),
+    # owner RULINGS 2026-10-27t/u (#1201): the ground under a runway-end
+    # walled plate never rises through its top (a hard constant ceiling)
+    ("walled_plate_under", walled_plate.under_plate_rows),
     ("strip_longitudinal", strips.strip_longitudinal),
     ("strip_arc", strips.strip_arc),
     ("resa_transverse", strips.resa_transverse),

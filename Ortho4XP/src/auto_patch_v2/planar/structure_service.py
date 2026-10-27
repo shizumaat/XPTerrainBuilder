@@ -75,8 +75,12 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     or the bore's own ``layer`` at or under ``terrain_layer_max``, which
     is OSM's statement that it runs below what it crosses.
     (d) An OSM ``tunnel`` bore lying INSIDE THE AIRPORT BOUNDARY is a
-    terrain tunnel on its own (owner RULINGS 2026-09-27a (4), issue #5:
-    SPJC's -5724 builds its two mouths).
+    terrain tunnel where it carries ONE of the five witnesses of
+    :func:`planar.structure_fence.fence_witness` — a rise, a road-level
+    sign at a mouth, a pack portal, anything crossing over it, a lidar cut
+    on a credible inset (owner RULINGS 2026-10-27z, issue #535, narrowing
+    2026-09-27a (4)); with none it is NOT built (SPJC -5724, the road at
+    ground level under a raised walkway; KDEN -6306, no tunnel there).
     (e) THE PACK'S OPEN PASSAGE OUTRANKS COVER, A CROSSING, A RISE, A
     NEGATIVE LAYER AND THE FENCE (owner RULINGS 2026-10-10q, issue #548;
     extends 10i (1) / 10k, issue #522; the layer since #710): where an ELEVATED pack part stands over a mapped
@@ -160,13 +164,16 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
         grade.append((LineString(w.points), w))
     grade_tree = STRtree([ln for ln, _w in grade]) if grade else None
 
-    # (d) THE FENCE (owner RULINGS 2026-09-27a (4), issue #5): an OSM
-    # ``tunnel`` bore lying INSIDE the airport boundary (apt.dat row 130)
-    # is a terrain tunnel on its own — "the sim shows the pack's ground
-    # over it".  Outside the fence the four witnesses of (c) apply as
-    # before.  (a)'s refusal runs FIRST: a bore entering a building is
-    # that building's ramp inside the fence too; (e)'s runs second.
+    # (d) THE FENCE (owner RULINGS 2026-09-27a (4), issue #5; NARROWED by
+    # 2026-10-27z, issue #535): an OSM ``tunnel`` bore lying INSIDE the
+    # airport boundary (apt.dat row 130) is a terrain tunnel where one of
+    # the five witnesses shows it.  Outside the fence the four witnesses
+    # of (c) apply as before.  (a)'s refusal runs FIRST: a bore entering a
+    # building is that building's ramp inside the fence too; (e)'s runs
+    # second.
+    from .structure_fence import fence_witness
     fence = _fence_of(airport)
+    fenced = fence_witness(airport, law, on_field, osm_ways, pack_bldg)
 
     def witness(bore) -> tuple[bool, str]:
         ln = bore.line
@@ -224,8 +231,19 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
             return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
         if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
                 and fence.covers(ln):
-            return True, ("an OSM tunnel inside the airport boundary "
-                          "(§34 (12) (5) (d), owner RULINGS 2026-09-27a (4))")
+            seen = fenced(bore)
+            if seen:
+                return True, (f"an OSM tunnel inside the airport boundary, "
+                              f"witnessed by {seen} (§34 (12) (5) (d), owner "
+                              f"RULINGS 2026-10-27z)")
+            return False, (f"bore {ids} IS TAGGED A TUNNEL INSIDE THE AIRPORT "
+                           f"BOUNDARY WITH NO WITNESS ({ln.length:.0f} m; cover "
+                           f"{cover:.1f} m, ground "
+                           f"{'unreadable' if rise is None else f'{rise:+.2f} m'} "
+                           f"over its mouth chord, no level sign on a road joined "
+                           f"at a mouth, no pack portal, nothing crossing over "
+                           f"it, no lidar cut) — the road stays at grade (§34 "
+                           f"(12) (5) (d), owner RULINGS 2026-10-27z, #535)")
         return False, (f"bore {ids} PASSES UNDER NOTHING AT GRADE "
                        f"({ln.length:.0f} m; cover {cover:.1f} m, no road or railway "
                        f"across it, ground "
@@ -364,30 +382,47 @@ class _PackBuildings:
         part within 60 m and stays (d)'s.  A part AT GRADE over the line
         is cover, and the witnesses of (c) / (d) are asked (the building a
         bore ENDS in is (a)'s)."""
-        from shapely.geometry import box
-        if self._tree is None:
-            return None
         corridor = line.buffer(width_m / 2.0, cap_style="flat")
         if corridor.is_empty:
             return None
-        # The query box is read from the corridor's BOUNDS, never its
-        # ``exterior``: a bore line that folds back on itself buffers to a
-        # MultiPolygon, which has none (#1361, measured at CYYC).
-        x0, y0, x1, y1 = corridor.bounds
-        ll = [self._to_ll(x, y) for x, y in ((x0, y0), (x0, y1), (x1, y0), (x1, y1))]
-        la, lo = [c[0] for c in ll], [c[1] for c in ll]
         best = None
-        for j in self._tree.query(box(min(la), min(lo), max(la), max(lo))):
-            r, res, uid, _top, base = self._items[int(j)]
-            poly = self._footprint(r)
-            if poly is None or not poly.intersects(corridor):
-                continue
+        for poly, res, uid, base in self._touching(corridor):
             if base <= self._elevated:
                 if line.intersection(poly).length >= cover_min_m:
                     return None                   # a pack part at grade: cover
             elif best is None or base < best[2]:
                 best = (res, uid, base)
         return best
+
+    def at_grade_over(self, line, cover_min_m: float):
+        """``(resource, unit id)`` of a pack building part AT GRADE (its
+        lowest ``y`` at or under ``[rebake] elevated_base_m``) whose
+        footprint holds ``cover_min_m`` of the bore's ``line`` — the
+        pack's form of (d)'s "anything crossing over the bore" (owner
+        RULINGS 2026-10-27z; the cover 10i (1) let (d) stand on) — or
+        ``None``."""
+        for poly, res, uid, base in self._touching(line):
+            if base <= self._elevated and line.intersection(poly).length >= cover_min_m:
+                return res, uid
+        return None
+
+    def _touching(self, geom):
+        """``(footprint, resource, unit id, base)`` of every indexed part
+        whose footprint meets the frame geometry ``geom``.  The query box
+        is read from its BOUNDS, never an ``exterior``: a bore line that
+        folds back on itself buffers to a MultiPolygon, which has none
+        (#1361, measured at CYYC)."""
+        from shapely.geometry import box
+        if self._tree is None or geom.is_empty:
+            return
+        x0, y0, x1, y1 = geom.bounds
+        ll = [self._to_ll(x, y) for x, y in ((x0, y0), (x0, y1), (x1, y0), (x1, y1))]
+        la, lo = [c[0] for c in ll], [c[1] for c in ll]
+        for j in self._tree.query(box(min(la), min(lo), max(la), max(lo))):
+            r, res, uid, _top, base = self._items[int(j)]
+            poly = self._footprint(r)
+            if poly is not None and poly.intersects(geom):
+                yield poly, res, uid, base
 
 
 def _fence_of(airport):

@@ -1,0 +1,33 @@
+{
+ "airport": "LFLL",
+ "spec": "docs/specs/multi-source-terrain-spec.md \u00a78",
+ "labelled_by": "lane ltriang2, 2026-10-26, from the owner's built tile textures",
+ "q1": [
+  {
+   "runway": "17L/35R",
+   "end": "17L",
+   "truth": "cifp",
+   "whence": "piano keys at the CIFP point; the apt.dat end lies in the grass beyond the pavement"
+  },
+  {
+   "runway": "17L/35R",
+   "end": "35R",
+   "truth": "cifp",
+   "whence": "apt.dat, CIFP and the markings agree"
+  },
+  {
+   "runway": "17R/35L",
+   "end": "17R",
+   "truth": "cifp",
+   "whence": "piano keys at the CIFP point; the apt.dat end lies in the grass beyond the pavement"
+  },
+  {
+   "runway": "17R/35L",
+   "end": "35L",
+   "truth": "cifp",
+   "whence": "threshold markings 45 m in, at the CIFP point"
+  }
+ ],
+ "q5_sites": [],
+ "q5": []
+}

@@ -62,6 +62,9 @@ EFFECT: dict[str, tuple[tuple[str, ...], str]] = {
                                      "which only --capture runs; a replay "
                                      "re-announces the overlay its capture "
                                      "recorded"),
+    "--no-imagery": (("capture",), "the airport photos are read by the LOAD "
+                                   "stage (the #1359 witness), which only "
+                                   "--capture runs"),
     "--mod-cache-root": (("capture",), "the airport mod cache is read by "
                                        "the LOAD stage, which only --capture "
                                        "runs"),
@@ -126,6 +129,8 @@ def given_arms(a) -> dict[str, str]:
     raw = {"--rule": a.rule, "--placement": a.placement,
            "--cifp-dir": a.cifp_dir, "--data-overlay": a.data_overlay,
            "--mod-cache-root": a.mod_cache_root,
+           "--no-imagery": "the witness's photos off" if getattr(a, "no_imagery", False)
+           else None,
            "--design-weight": a.design_weight,
            "--drop-generator": a.drop_generator,
            "--chord-fill": a.chord_fill,

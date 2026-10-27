@@ -178,6 +178,16 @@ def road_pair_reading(cap_l: float, cap_t: float, min_deg: float,
         # its plan distance`` — the reading it would have had on one route
         # with ``Δs = 0``.
         if chord is not None and one_ribbon > 0.0 and chord <= one_ribbon:
+            # OWNER RULINGS 2026-10-27f (Q186): across a JUNCTION MOUTH
+            # between two DIFFERENT public roads the pair is the minor
+            # road's LONGITUDINAL grade into the major road's kerb (LGAV
+            # -1276 into -1190: the 2 % pair dragged the side street's last
+            # 60 m 2.9 m under its DEM).  A frame's fourth field names the
+            # public road its route belongs to (``PlanarMap.
+            # road_junction_road``, a sized joint's vertices only); one
+            # carriageway — and an unsized crossing — keeps the cross-section.
+            if junction_mouth(fa, fb):
+                return cap_l * float(chord), False
             return cap_t * float(chord), True
         return NOT_A_PAIR
     ds, dt = abs(fa[1] - fb[1]), abs(fa[2] - fb[2])
@@ -193,6 +203,23 @@ def road_pair_reading(cap_l: float, cap_t: float, min_deg: float,
     if chord is not None:
         bound = max(bound, cap_t * float(chord))
     return bound, transverse
+
+
+def junction_mouth(fa, fb) -> bool:
+    """27f: two route frames whose fourth field names two DIFFERENT public
+    roads (a frame of three fields names none: one carriageway's reading)."""
+    wa = fa[3] if len(fa) > 3 else None
+    wb = fb[3] if len(fb) > 3 else None
+    return bool(wa) and bool(wb) and wa != wb
+
+
+def with_public_road(frame: _t.Mapping[int, tuple], roads: _t.Mapping[int, str]
+                     ) -> dict[int, tuple]:
+    """27f: ``frame`` with each vertex's junction road appended as its
+    fourth field (``roads``: ``PlanarMap.road_junction_road``)."""
+    if not roads:
+        return dict(frame)
+    return {v: (*f[:3], roads.get(v)) for v, f in frame.items()}
 
 
 def _airside(planar: PlanarMap, law: Law, v: int) -> bool:
@@ -259,6 +286,8 @@ def road_within_shape(planar: PlanarMap, law: Law, airport: Airport
     # published by ``airport/road_ramp.road_route_frame``.  Absent (a v1
     # map, a probe that skipped the publisher) the chord law stands.
     frame = getattr(planar, "road_route_frame", None) or {}
+    # 27f: each frame carries the public road its route belongs to
+    frame = with_public_road(frame, getattr(planar, "road_junction_road", None) or {})
     # §37 (10) (2): the routes a MERGE fused.  A pair on one of them may
     # be one the merge NEWLY prices (before it, the two frames were two
     # routes and the verdict was NOT_A_PAIR) — and 8 of HECA's 24 newly

@@ -1,0 +1,1777 @@
+[
+ {
+  "icao": "CBR2",
+  "textures": 265,
+  "joins": 1,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "CYCG",
+  "textures": 249,
+  "joins": 8,
+  "refuted": 2,
+  "detached": 2,
+  "refuted_list": [
+   [
+    "15/33",
+    "pav5",
+    "New Taxiway 9",
+    0.25,
+    16,
+    1
+   ],
+   [
+    "15/33",
+    "pav8",
+    "New Taxiway 6",
+    0.421,
+    19,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "CYXY",
+  "textures": 308,
+  "joins": 10,
+  "refuted": 4,
+  "detached": 4,
+  "refuted_list": [
+   [
+    "14R/32L",
+    "pav25",
+    "No entry to 32R",
+    0.0,
+    54,
+    1
+   ],
+   [
+    "14L/32R",
+    "pav24",
+    "To 14L",
+    0.313,
+    418,
+    1
+   ],
+   [
+    "14L/32R",
+    "pav26",
+    "Taxi to east roadway",
+    0.0,
+    48,
+    1
+   ],
+   [
+    "14L/32R",
+    "pav28",
+    "New Taxiway 1",
+    0.481,
+    104,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "EDDF",
+  "textures": 742,
+  "joins": 31,
+  "refuted": 3,
+  "detached": 3,
+  "refuted_list": [
+   [
+    "07C/25C",
+    "dsf:pol59",
+    "lib/airport/ground/pavement/asphalt_D/plain.pol",
+    0.25,
+    4,
+    1
+   ],
+   [
+    "07R/25L",
+    "pav66",
+    "Southern new asphalt underlay",
+    0.341,
+    182,
+    1
+   ],
+   [
+    "18/36",
+    "pav13",
+    "Concrete overlay",
+    0.443,
+    149,
+    2
+   ]
+  ]
+ },
+ {
+  "icao": "EGGW",
+  "textures": 440,
+  "joins": 3,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "EGLL",
+  "textures": 440,
+  "joins": 54,
+  "refuted": 8,
+  "detached": 8,
+  "refuted_list": [
+   [
+    "09L/27R",
+    "dsf:pol33",
+    "Lib_Making/ground_polygon/Concrete/Asphast_EGLL_Road.pol",
+    0.05,
+    101,
+    2
+   ],
+   [
+    "09L/27R",
+    "dsf:pol614",
+    "Lib_Making/ground_polygon/Concrete/Asphast_EGLL_Road.pol",
+    0.29,
+    69,
+    2
+   ],
+   [
+    "09L/27R",
+    "dsf:pol656",
+    "Lib_Making/ground_polygon/Concrete/Asphast_EGLL_Road.pol",
+    0.121,
+    107,
+    2
+   ],
+   [
+    "09L/27R",
+    "dsf:pol657",
+    "Lib_Making/ground_polygon/Concrete/Asphast_EGLL_Road.pol",
+    0.298,
+    131,
+    2
+   ],
+   [
+    "09L/27R",
+    "dsf:pol658",
+    "Lib_Making/ground_polygon/Concrete/Asphast_EGLL_Road.pol",
+    0.393,
+    84,
+    2
+   ],
+   [
+    "09L/27R",
+    "dsf:pol665",
+    "Lib_Making/ground_polygon/Concrete/Asphast_EGLL_Road.pol",
+    0.167,
+    48,
+    2
+   ],
+   [
+    "09R/27L",
+    "dsf:pol221",
+    "Lib_Making/ground_polygon/Concrete/Asphast_EGLL_Road_bright.pol",
+    0.275,
+    40,
+    2
+   ],
+   [
+    "09R/27L",
+    "dsf:pol588",
+    "Lib_Making/ground_polygon/Concrete/Asphast_EGLL_Road.pol",
+    0.488,
+    84,
+    2
+   ]
+  ]
+ },
+ {
+  "icao": "HECA",
+  "textures": 246,
+  "joins": 50,
+  "refuted": 8,
+  "detached": 8,
+  "refuted_list": [
+   [
+    "05R/23L",
+    "pav106",
+    "asphalt_D3/strips.pol",
+    0.36,
+    50,
+    1
+   ],
+   [
+    "05R/23L",
+    "pav120",
+    "asphalt_D3/strips.pol",
+    0.216,
+    51,
+    1
+   ],
+   [
+    "05C/23C",
+    "pav109",
+    "asphalt_D3/strips.pol",
+    0.283,
+    53,
+    1
+   ],
+   [
+    "05C/23C",
+    "dsf:objpav429",
+    "Airport/ground/Asphalt_Polygon_2.obj",
+    0.368,
+    481,
+    1
+   ],
+   [
+    "05C/23C",
+    "dsf:objpav464",
+    "Airport/ground/Asphalt_Polygon_2.obj",
+    0.28,
+    100,
+    1
+   ],
+   [
+    "05L/23R",
+    "pav86",
+    "asphalt_D3/strips.pol",
+    0.0,
+    34,
+    1
+   ],
+   [
+    "05L/23R",
+    "pav89",
+    "asphalt_D3/strips.pol",
+    0.423,
+    52,
+    1
+   ],
+   [
+    "05L/23R",
+    "pav90",
+    "asphalt_D3/strips.pol",
+    0.222,
+    54,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "KASE",
+  "textures": 218,
+  "joins": 3,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KATL",
+  "textures": 257,
+  "joins": 67,
+  "refuted": 9,
+  "detached": 9,
+  "refuted_list": [
+   [
+    "09R/27L",
+    "pav11",
+    "",
+    0.451,
+    421,
+    2
+   ],
+   [
+    "09R/27L",
+    "dsf:pol32",
+    "pols/concrete.pol",
+    0.0,
+    32,
+    2
+   ],
+   [
+    "09R/27L",
+    "dsf:pol113",
+    "pols/concrete_dirty.pol",
+    0.325,
+    114,
+    2
+   ],
+   [
+    "09R/27L",
+    "dsf:pol167",
+    "pols/concrete_dirty.pol",
+    0.174,
+    92,
+    2
+   ],
+   [
+    "09R/27L",
+    "dsf:pol169",
+    "pols/concrete_dirty.pol",
+    0.121,
+    58,
+    2
+   ],
+   [
+    "10/28",
+    "pav15",
+    "",
+    0.402,
+    5488,
+    1
+   ],
+   [
+    "10/28",
+    "pav17",
+    "",
+    0.195,
+    523,
+    2
+   ],
+   [
+    "10/28",
+    "dsf:pol94",
+    "pols/concrete_groove.pol",
+    0.419,
+    4437,
+    2
+   ],
+   [
+    "08R/26L",
+    "dsf:pol202",
+    "pols/concrete_dirty.pol",
+    0.356,
+    59,
+    2
+   ]
+  ]
+ },
+ {
+  "icao": "KBFI",
+  "textures": 334,
+  "joins": 12,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KBJC",
+  "textures": 224,
+  "joins": 34,
+  "refuted": 8,
+  "detached": 8,
+  "refuted_list": [
+   [
+    "12L/30R",
+    "pav56",
+    "New Taxiway 42",
+    0.371,
+    35,
+    1
+   ],
+   [
+    "12L/30R",
+    "pav57",
+    "A7",
+    0.146,
+    48,
+    1
+   ],
+   [
+    "12L/30R",
+    "pav103",
+    "A1",
+    0.08,
+    50,
+    1
+   ],
+   [
+    "12R/30L",
+    "pav50",
+    "New Taxiway 44",
+    0.188,
+    32,
+    1
+   ],
+   [
+    "12R/30L",
+    "pav63",
+    "New Taxiway 16",
+    0.125,
+    32,
+    1
+   ],
+   [
+    "12R/30L",
+    "pav69",
+    "New Taxiway 45",
+    0.161,
+    31,
+    1
+   ],
+   [
+    "03/21",
+    "pav32",
+    "NE Taxiway",
+    0.0,
+    42,
+    1
+   ],
+   [
+    "03/21",
+    "pav80",
+    "New Taxiway 59",
+    0.108,
+    37,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "KBUF",
+  "textures": 228,
+  "joins": 109,
+  "refuted": 36,
+  "detached": 36,
+  "refuted_list": [
+   [
+    "05/23",
+    "pav1",
+    "New Taxiway 26",
+    0.267,
+    90,
+    1
+   ],
+   [
+    "05/23",
+    "pav2",
+    "New Taxiway 25",
+    0.41,
+    78,
+    1
+   ],
+   [
+    "05/23",
+    "pav33",
+    "",
+    0.381,
+    84,
+    1
+   ],
+   [
+    "05/23",
+    "pav57",
+    "",
+    0.233,
+    103,
+    1
+   ],
+   [
+    "05/23",
+    "pav60",
+    "",
+    0.1,
+    70,
+    1
+   ],
+   [
+    "05/23",
+    "pav61",
+    "",
+    0.159,
+    69,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol53",
+    "ground/asphalt/asphalt_3L.pol",
+    0.0,
+    65,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol55",
+    "ground/asphalt/asphalt_3L.pol",
+    0.0,
+    83,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol58",
+    "ground/asphalt/asphalt_3L.pol",
+    0.36,
+    203,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol62",
+    "ground/asphalt/asphalt_3L.pol",
+    0.317,
+    218,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol173",
+    "ground/asphalt/asphalt_3L.pol",
+    0.0,
+    195,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol176",
+    "ground/asphalt/asphalt_3L.pol",
+    0.237,
+    224,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol177",
+    "ground/asphalt/asphalt_3L.pol",
+    0.154,
+    214,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol180",
+    "ground/asphalt/asphalt_3L.pol",
+    0.167,
+    228,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol182",
+    "ground/asphalt/asphalt_3L.pol",
+    0.248,
+    363,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol185",
+    "ground/asphalt/asphalt_3L.pol",
+    0.278,
+    144,
+    1
+   ],
+   [
+    "05/23",
+    "dsf:pol196",
+    "ground/asphalt/asphalt_3L.pol",
+    0.008,
+    380,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol8",
+    "ground/asphalt/asphalt_11L.pol",
+    0.0,
+    51,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol24",
+    "ground/asphalt/asphalt_12.pol",
+    0.056,
+    251,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol25",
+    "ground/asphalt/asphalt_12.pol",
+    0.077,
+    194,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol59",
+    "ground/asphalt/asphalt_3L.pol",
+    0.286,
+    14,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol60",
+    "ground/asphalt/asphalt_3L.pol",
+    0.379,
+    29,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol102",
+    "ground/asphalt/asphalt_5L.pol",
+    0.0,
+    10,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol104",
+    "ground/asphalt/asphalt_5L.pol",
+    0.0,
+    10,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol105",
+    "ground/asphalt/asphalt_5L.pol",
+    0.154,
+    26,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol106",
+    "ground/asphalt/asphalt_5L.pol",
+    0.0,
+    9,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol107",
+    "ground/asphalt/asphalt_5L.pol",
+    0.273,
+    11,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol108",
+    "ground/asphalt/asphalt_5L.pol",
+    0.0,
+    7,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol113",
+    "ground/asphalt/asphalt_5L.pol",
+    0.0,
+    7,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol115",
+    "ground/asphalt/asphalt_5L.pol",
+    0.0,
+    7,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol116",
+    "ground/asphalt/asphalt_5L.pol",
+    0.0,
+    7,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol178",
+    "ground/asphalt/asphalt_3L.pol",
+    0.415,
+    41,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol180",
+    "ground/asphalt/asphalt_3L.pol",
+    0.091,
+    22,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol181",
+    "ground/asphalt/asphalt_3L.pol",
+    0.212,
+    33,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol183",
+    "ground/asphalt/asphalt_3L.pol",
+    0.0,
+    5,
+    1
+   ],
+   [
+    "14/32",
+    "dsf:pol191",
+    "ground/asphalt/asphalt_5L.pol",
+    0.482,
+    56,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "KBUR",
+  "textures": 408,
+  "joins": 11,
+  "refuted": 2,
+  "detached": 2,
+  "refuted_list": [
+   [
+    "08/26",
+    "pav8",
+    "West Concrete",
+    0.073,
+    55,
+    2
+   ],
+   [
+    "15/33",
+    "pav5",
+    "NE Ramp Mid",
+    0.163,
+    967,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "KCLT",
+  "textures": 255,
+  "joins": 57,
+  "refuted": 7,
+  "detached": 7,
+  "refuted_list": [
+   [
+    "18L/36R",
+    "pav60",
+    "New Taxiway 27",
+    0.339,
+    59,
+    1
+   ],
+   [
+    "18L/36R",
+    "pav62",
+    "New Taxiway 25",
+    0.242,
+    62,
+    2
+   ],
+   [
+    "18L/36R",
+    "pav106",
+    "New Taxiway 179",
+    0.0,
+    12,
+    1
+   ],
+   [
+    "18R/36L",
+    "pav155",
+    "New Taxiway 276",
+    0.333,
+    87,
+    1
+   ],
+   [
+    "18C/36C",
+    "pav79",
+    "New Taxiway 115",
+    0.0,
+    19,
+    1
+   ],
+   [
+    "18C/36C",
+    "pav103",
+    "New Taxiway 154",
+    0.053,
+    19,
+    1
+   ],
+   [
+    "18C/36C",
+    "pav138",
+    "New Taxiway 234",
+    0.45,
+    20,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "KDEN",
+  "textures": 317,
+  "joins": 147,
+  "refuted": 19,
+  "detached": 19,
+  "refuted_list": [
+   [
+    "16R/34L",
+    "pav207",
+    "Concrete_1_New.pol",
+    0.279,
+    68,
+    2
+   ],
+   [
+    "16R/34L",
+    "dsf:pol476",
+    "XCDL/Polygons/Pavement/Concrete_Clean_Top.pol",
+    0.077,
+    39,
+    2
+   ],
+   [
+    "16R/34L",
+    "dsf:pol550",
+    "XCDL/Polygons/Pavement/Concrete_Clean_Top.pol",
+    0.0,
+    40,
+    2
+   ],
+   [
+    "16R/34L",
+    "dsf:pol635",
+    "XCDL/Polygons/Pavement/Concrete_Clean_Top.pol",
+    0.079,
+    38,
+    2
+   ],
+   [
+    "16R/34L",
+    "dsf:pol650",
+    "XCDL/Polygons/Pavement/Concrete_Clean_Top.pol",
+    0.0,
+    40,
+    2
+   ],
+   [
+    "16R/34L",
+    "dsf:pol757",
+    "XCDL/Polygons/Pavement/Concrete_Grooved_Overlay_90.pol",
+    0.077,
+    39,
+    2
+   ],
+   [
+    "16R/34L",
+    "dsf:pol770",
+    "XCDL/Polygons/Pavement/Concrete_Grooved_Overlay_90.pol",
+    0.0,
+    39,
+    2
+   ],
+   [
+    "16L/34R",
+    "pav231",
+    "Concrete_1_New.pol",
+    0.439,
+    66,
+    2
+   ],
+   [
+    "16L/34R",
+    "pav259",
+    "Concrete_1_New.pol",
+    0.207,
+    58,
+    2
+   ],
+   [
+    "16L/34R",
+    "dsf:pol694",
+    "XCDL/Polygons/Pavement/Concrete_Clean_Top.pol",
+    0.304,
+    69,
+    2
+   ],
+   [
+    "16L/34R",
+    "dsf:pol833",
+    "XCDL/Polygons/Pavement/Concrete_Worn_Top.pol",
+    0.462,
+    78,
+    2
+   ],
+   [
+    "17R/35L",
+    "dsf:pol629",
+    "XCDL/Polygons/Pavement/Concrete_Clean_Top.pol",
+    0.32,
+    25,
+    2
+   ],
+   [
+    "17L/35R",
+    "pav147",
+    "Concrete_1_New.pol",
+    0.1,
+    30,
+    2
+   ],
+   [
+    "17L/35R",
+    "dsf:pol191",
+    "XCDL/Polygons/Pavement/Asphalt_Patched_3_D1_Top.pol",
+    0.0,
+    1,
+    1
+   ],
+   [
+    "08/26",
+    "pav276",
+    "Concrete_1_New.pol",
+    0.356,
+    45,
+    2
+   ],
+   [
+    "08/26",
+    "pav277",
+    "Concrete_1_New.pol",
+    0.0,
+    9,
+    2
+   ],
+   [
+    "08/26",
+    "dsf:pol189",
+    "XCDL/Polygons/Pavement/Asphalt_Patched_3_D1_Top.pol",
+    0.0,
+    1,
+    1
+   ],
+   [
+    "08/26",
+    "dsf:pol846",
+    "XCDL/Polygons/Pavement/Concrete_Worn_Top.pol",
+    0.0,
+    6,
+    2
+   ],
+   [
+    "08/26",
+    "dsf:pol862",
+    "XCDL/Polygons/Pavement/Concrete_Worn_Top.pol",
+    0.34,
+    50,
+    2
+   ]
+  ]
+ },
+ {
+  "icao": "KDIJ",
+  "textures": 242,
+  "joins": 11,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KEDW",
+  "textures": 508,
+  "joins": 148,
+  "refuted": 8,
+  "detached": 8,
+  "refuted_list": [
+   [
+    "04R/22L",
+    "pav57",
+    "Taxiway 04",
+    0.0,
+    3,
+    1
+   ],
+   [
+    "04R/22L",
+    "pav62",
+    "Taxiway 09",
+    0.0,
+    16,
+    1
+   ],
+   [
+    "04R/22L",
+    "pav74",
+    "Taxiway 019",
+    0.167,
+    12,
+    1
+   ],
+   [
+    "04R/22L",
+    "pav75",
+    "Taxiway 020",
+    0.069,
+    29,
+    1
+   ],
+   [
+    "15/33",
+    "dsf:pol37",
+    "lib/airport/pavement/asphalt_1D.pol",
+    0.333,
+    3,
+    1
+   ],
+   [
+    "15/33",
+    "dsf:pol229",
+    "lib/airport/pavement/asphalt_1D.pol",
+    0.0,
+    6,
+    1
+   ],
+   [
+    "18C/36C",
+    "dsf:pol42",
+    "lib/airport/pavement/asphalt_1D.pol",
+    0.0,
+    1,
+    1
+   ],
+   [
+    "18R/36L",
+    "dsf:pol58",
+    "lib/airport/pavement/asphalt_1D.pol",
+    0.25,
+    4,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "KGRK",
+  "textures": 0,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KHDN",
+  "textures": 192,
+  "joins": 12,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KLAX",
+  "textures": 124,
+  "joins": 126,
+  "refuted": 14,
+  "detached": 14,
+  "refuted_list": [
+   [
+    "06L/24R",
+    "pav2",
+    "Dummy",
+    0.391,
+    46,
+    1
+   ],
+   [
+    "06L/24R",
+    "dsf:pol231",
+    "Ground_Textures/Concrete_Overlay.pol",
+    0.391,
+    46,
+    2
+   ],
+   [
+    "06L/24R",
+    "dsf:pol255",
+    "Ground_Textures/Concrete_Base.pol",
+    0.391,
+    46,
+    2
+   ],
+   [
+    "06R/24L",
+    "pav3",
+    "Dummy",
+    0.333,
+    45,
+    1
+   ],
+   [
+    "06R/24L",
+    "dsf:pol8",
+    "Ground_Textures/Asphalt_Green.pol",
+    0.159,
+    126,
+    1
+   ],
+   [
+    "06R/24L",
+    "dsf:pol9",
+    "Ground_Textures/Asphalt_Green.pol",
+    0.425,
+    80,
+    1
+   ],
+   [
+    "06R/24L",
+    "dsf:pol10",
+    "Ground_Textures/Asphalt_Green.pol",
+    0.164,
+    73,
+    1
+   ],
+   [
+    "06R/24L",
+    "dsf:pol224",
+    "Ground_Textures/Concrete_Overlay.pol",
+    0.333,
+    45,
+    2
+   ],
+   [
+    "06R/24L",
+    "dsf:pol247",
+    "Ground_Textures/Concrete_Base.pol",
+    0.333,
+    45,
+    2
+   ],
+   [
+    "07L/25R",
+    "dsf:pol178",
+    "Ground_Textures/Asphalt_Dark_Low.pol",
+    0.191,
+    482,
+    1
+   ],
+   [
+    "07R/25L",
+    "pav9",
+    "Dummy",
+    0.393,
+    56,
+    1
+   ],
+   [
+    "07R/25L",
+    "pav13",
+    "Dummy",
+    0.288,
+    66,
+    1
+   ],
+   [
+    "07R/25L",
+    "dsf:pol223",
+    "Ground_Textures/Concrete_Overlay.pol",
+    0.453,
+    53,
+    2
+   ],
+   [
+    "07R/25L",
+    "dsf:pol248",
+    "Ground_Textures/Concrete_Base.pol",
+    0.453,
+    53,
+    2
+   ]
+  ]
+ },
+ {
+  "icao": "KLGB",
+  "textures": 124,
+  "joins": 59,
+  "refuted": 12,
+  "detached": 12,
+  "refuted_list": [
+   [
+    "12/30",
+    "dsf:pol46",
+    "Ground/conc_MDL.pol",
+    0.134,
+    67,
+    1
+   ],
+   [
+    "12/30",
+    "dsf:pol198",
+    "Ground/Asphaltrwynoise.pol",
+    0.167,
+    6,
+    1
+   ],
+   [
+    "12/30",
+    "dsf:pol199",
+    "Ground/Asphaltrwynoise.pol",
+    0.091,
+    11,
+    1
+   ],
+   [
+    "12/30",
+    "dsf:pol202",
+    "Ground/Asphaltrwynoise.pol",
+    0.167,
+    6,
+    1
+   ],
+   [
+    "12/30",
+    "dsf:pol203",
+    "Ground/Asphaltrwynoise.pol",
+    0.111,
+    9,
+    1
+   ],
+   [
+    "12/30",
+    "dsf:pol225",
+    "Ground/Asphaltrwynoise.pol",
+    0.134,
+    67,
+    1
+   ],
+   [
+    "08R/26L",
+    "pav106",
+    "",
+    0.195,
+    41,
+    1
+   ],
+   [
+    "08R/26L",
+    "pav107",
+    "",
+    0.049,
+    41,
+    1
+   ],
+   [
+    "08R/26L",
+    "pav108",
+    "",
+    0.158,
+    19,
+    1
+   ],
+   [
+    "08R/26L",
+    "pav109",
+    "",
+    0.152,
+    33,
+    1
+   ],
+   [
+    "08R/26L",
+    "pav110",
+    "",
+    0.25,
+    20,
+    1
+   ],
+   [
+    "08R/26L",
+    "pav136",
+    "",
+    0.0,
+    2,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "KMCI",
+  "textures": 263,
+  "joins": 72,
+  "refuted": 3,
+  "detached": 3,
+  "refuted_list": [
+   [
+    "01L/19R",
+    "dsf:objpav2",
+    "Airport/Ground/concrete-new.obj",
+    0.155,
+    58,
+    2
+   ],
+   [
+    "01L/19R",
+    "dsf:objpav837",
+    "Airport/Ground/Barrier-2.obj",
+    0.0,
+    6,
+    1
+   ],
+   [
+    "09/27",
+    "dsf:objpav830",
+    "Airport/Ground/Barrier-2.obj",
+    0.333,
+    3,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "KOTH",
+  "textures": 92,
+  "joins": 4,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KPDX",
+  "textures": 271,
+  "joins": 34,
+  "refuted": 2,
+  "detached": 2,
+  "refuted_list": [
+   [
+    "3/21",
+    "pav8",
+    "Taxi E",
+    0.0,
+    1,
+    1
+   ],
+   [
+    "3/21",
+    "dsf:pol15",
+    "lib/airport/ground/pavement/concrete_L/new.pol",
+    0.441,
+    68,
+    2
+   ]
+  ]
+ },
+ {
+  "icao": "KRDU",
+  "textures": 0,
+  "joins": 0,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KSEA",
+  "textures": 334,
+  "joins": 18,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KSEZ",
+  "textures": 231,
+  "joins": 6,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "KSUN",
+  "textures": 296,
+  "joins": 12,
+  "refuted": 1,
+  "detached": 1,
+  "refuted_list": [
+   [
+    "13/31",
+    "pav14",
+    "",
+    0.302,
+    43,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "LEMD",
+  "textures": 296,
+  "joins": 56,
+  "refuted": 19,
+  "detached": 19,
+  "refuted_list": [
+   [
+    "14R/32L",
+    "pav19",
+    "new.pol",
+    0.087,
+    206,
+    2
+   ],
+   [
+    "14R/32L",
+    "pav71",
+    "plain.pol",
+    0.053,
+    1786,
+    1
+   ],
+   [
+    "14R/32L",
+    "pav94",
+    "plain.pol",
+    0.006,
+    882,
+    1
+   ],
+   [
+    "14R/32L",
+    "pav97",
+    "plain.pol",
+    0.0,
+    814,
+    1
+   ],
+   [
+    "14R/32L",
+    "pav159",
+    "plain.pol",
+    0.189,
+    4365,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol28",
+    "Scenery_SDK/Ground/PavementFX/Ground_Concrete_Grid_01.pol",
+    0.087,
+    206,
+    2
+   ],
+   [
+    "14R/32L",
+    "dsf:pol171",
+    "Scenery_SDK/Ground/PavementFX/Ground_Asphalt_Detail_01.pol",
+    0.006,
+    882,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol178",
+    "Scenery_SDK/Ground/PavementFX/Ground_Asphalt_Detail_01.pol",
+    0.053,
+    1787,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol259",
+    "Scenery_SDK/Ground/PavementFX/Ground_Asphalt_Detail_01.pol",
+    0.189,
+    4364,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol260",
+    "Scenery_SDK/Ground/PavementFX/Ground_Asphalt_Detail_01.pol",
+    0.0,
+    814,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol353",
+    "Scenery_SDK/Ground/PavementFX/Ground_Asphalt_Detail_02.pol",
+    0.053,
+    1787,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol355",
+    "Scenery_SDK/Ground/PavementFX/Ground_Asphalt_Detail_02.pol",
+    0.006,
+    882,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol460",
+    "Scenery_SDK/Ground/PavementFX/Ground_Asphalt_Detail_02.pol",
+    0.0,
+    814,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol461",
+    "Scenery_SDK/Ground/PavementFX/Ground_Asphalt_Detail_02.pol",
+    0.189,
+    4364,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol507",
+    "Scenery_SDK/Ground/Pavement/Ground_Concrete_01a.pol",
+    0.087,
+    206,
+    2
+   ],
+   [
+    "14R/32L",
+    "dsf:pol535",
+    "Scenery_SDK/Ground/Pavement/Ground_Asphalt_01h.pol",
+    0.006,
+    882,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol579",
+    "Scenery_SDK/Ground/Pavement/Ground_Asphalt_01h.pol",
+    0.053,
+    1787,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol636",
+    "Scenery_SDK/Ground/Pavement/Ground_Asphalt_01h.pol",
+    0.0,
+    814,
+    1
+   ],
+   [
+    "14R/32L",
+    "dsf:pol642",
+    "Scenery_SDK/Ground/Pavement/Ground_Asphalt_01h.pol",
+    0.189,
+    4364,
+    1
+   ]
+  ]
+ },
+ {
+  "icao": "LFPG",
+  "textures": 842,
+  "joins": 31,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "LPHR",
+  "textures": 62,
+  "joins": 4,
+  "refuted": 1,
+  "detached": 0,
+  "refuted_list": [
+   [
+    "10/28",
+    "pav4",
+    "New Taxiway 3",
+    0.376,
+    343,
+    15
+   ]
+  ]
+ },
+ {
+  "icao": "NLWF",
+  "textures": 11,
+  "joins": 4,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "OTHH",
+  "textures": 190,
+  "joins": 2,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "PAAQ",
+  "textures": 463,
+  "joins": 28,
+  "refuted": 5,
+  "detached": 1,
+  "refuted_list": [
+   [
+    "10/28",
+    "pav2",
+    "",
+    0.0,
+    2,
+    5
+   ],
+   [
+    "10/28",
+    "pav25",
+    "",
+    0.41,
+    39,
+    1
+   ],
+   [
+    "10/28",
+    "pav29",
+    "",
+    0.145,
+    2101,
+    5
+   ],
+   [
+    "10/28",
+    "pav33",
+    "",
+    0.412,
+    34,
+    5
+   ],
+   [
+    "10/28",
+    "pav34",
+    "",
+    0.273,
+    33,
+    5
+   ]
+  ]
+ },
+ {
+  "icao": "PANC",
+  "textures": 771,
+  "joins": 24,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "SPJC",
+  "textures": 107,
+  "joins": 3,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "SPLP",
+  "textures": 173,
+  "joins": 2,
+  "refuted": 0,
+  "detached": 0,
+  "refuted_list": []
+ },
+ {
+  "icao": "TFFJ",
+  "textures": 20,
+  "joins": 4,
+  "refuted": 1,
+  "detached": 1,
+  "refuted_list": [
+   [
+    "10/28",
+    "pav2",
+    "",
+    0.182,
+    11,
+    2
+   ]
+  ]
+ },
+ {
+  "icao": "VHHH",
+  "textures": 240,
+  "joins": 133,
+  "refuted": 6,
+  "detached": 6,
+  "refuted_list": [
+   [
+    "07R/25L",
+    "pav23",
+    "New Taxiway 2",
+    0.353,
+    85,
+    2
+   ],
+   [
+    "07R/25L",
+    "pav30",
+    "New Taxiway 2",
+    0.258,
+    182,
+    2
+   ],
+   [
+    "07R/25L",
+    "dsf:pol1",
+    "Lib_Making/ground_polygon/Concrete/HKG/Asphalt_base_4.pol",
+    0.0,
+    4,
+    2
+   ],
+   [
+    "07R/25L",
+    "dsf:pol98",
+    "Lib_Making/ground_polygon/Concrete/HKG/Asphast_EGLL_Road_more_bri2_noise.pol",
+    0.2,
+    225,
+    2
+   ],
+   [
+    "07R/25L",
+    "dsf:pol115",
+    "Lib_Making/ground_polygon/Concrete/HKG/crack.pol",
+    0.0,
+    4,
+    2
+   ],
+   [
+    "07R/25L",
+    "dsf:pol271",
+    "Lib_Making/ground_polygon/Concrete/HKG/Asphalt_base_3.pol",
+    0.186,
+    43,
+    2
+   ]
+  ]
+ },
+ {
+  "icao": "VNLK",
+  "textures": 216,
+  "joins": 3,
+  "refuted": 1,
+  "detached": 1,
+  "refuted_list": [
+   [
+    "06/24",
+    "pav2",
+    "Helo Apron",
+    0.158,
+    19,
+    1
+   ]
+  ]
+ }
+]

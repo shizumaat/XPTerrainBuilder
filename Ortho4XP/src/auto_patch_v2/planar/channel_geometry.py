@@ -272,7 +272,8 @@ def _lidar_floor(airport: Airport, axis_fn, s: float, window_m: float) -> float:
     return best
 
 
-def _lidar_cut(airport: Airport, law: Law, axis_fn, ss, cap: float) -> bool:
+def _lidar_cut(airport: Airport, law: Law, axis_fn, ss, cap: float,
+               readings: list | None = None) -> bool:
     """§45 (3) (ii)/(7): whether a CREDIBLE lidar inset actually READS THE
     CUT along this corridor — the ground rising ``[channel]
     object_min_depth_m`` above the DTM floor on BOTH SIDES of the axis
@@ -291,7 +292,12 @@ def _lidar_cut(airport: Airport, law: Law, axis_fn, ss, cap: float) -> bool:
 
     BOTH SIDES is what separates a cut from a hillside: on a slope the
     uphill side rises and the downhill side falls, and only a channel has
-    ground standing above its floor to left AND right."""
+    ground standing above its floor to left AND right.
+
+    ``readings``, when given, receives ``(s, floor, lower_top)`` for every
+    station read — ``lower_top`` the lower of the two sides' highest ground
+    (``planar/lidar_road``'s deck over a surveyed road, #1280 / RULINGS
+    2026-10-27g)."""
     ch = law.tables.structures.channel
     depth = float(ch.object_min_depth_m)
     window = float(ch.lidar_floor_window_m)
@@ -315,6 +321,8 @@ def _lidar_cut(airport: Airport, law: Law, axis_fn, ss, cap: float) -> bool:
                     top = z if math.isnan(top) else max(top, z)
                 t += step
             rises.append(-1.0 if math.isnan(top) else top - flr)
+        if readings is not None:
+            readings.append((s, flr, flr + min(rises)))
         seen += 1
         if min(rises) >= depth:
             cut += 1

@@ -112,13 +112,18 @@ def _host_run_m(axis: LineString, poly: Polygon, grid: float) -> float:
 
 def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: LineString,
                 mouth: tuple[float, float], half: float, rim_off: float,
-                decked: _t.Sequence[Polygon], grid: float) -> list[tuple[Polygon, str]]:
+                decked: _t.Sequence[Polygon], grid: float,
+                routes: _t.Sequence[LineString] = ()) -> list[tuple[Polygon, str]]:
     """The pavement faces ONE mapped bore's corridor stops short of, as
     ``[(polygon, ref)]`` for ``structure_geometry.pad_hit`` (the module
     doc's four clauses; since clause 4 a road over the bore (clause 2) is
     a stop as every road but the ramp's own is).  ``cut_roles`` is §34
     (12) (3)'s airside set (``structure_service.airside_cut_roles``),
-    ``decked`` the corridor's own deck polygons."""
+    ``decked`` the corridor's own deck polygons.  ``routes`` are the
+    members' own approaches: a DUAL's axis runs between its carriageways,
+    along neither, and each carriageway is still the ramp's own road
+    (clause 4; #807 — ``structure_approach.crossing_roads`` reads its roads
+    the same way)."""
     tn = law.tables.structures.tunnel
     keep = unary_union(list(decked)).buffer(grid) if decked else None
     min_run = tn.mouth_depth_m / tn.ramp_max_grade
@@ -155,10 +160,19 @@ def mouth_stops(cells, polys, law: Law, cut_roles: _t.Collection[str], axis: Lin
             if edge is not None and not edge.is_empty:   # (the ramp's own road IS it)
                 out.append((edge, f"{c.ref}#edge"))
             continue
-        if not airside and _own_road(axis, p, half + rim_off, grid):
+        if not airside and any(_own_road(r, p, half + rim_off, grid) for r in (axis, *routes)):
             continue                                  # clause 4: the ramp's own road
         out.append((p, c.ref))                        # clauses 2 and 4
     return out
+
+
+def _routes(group) -> list[LineString]:
+    """A DUAL group's member approaches (clause 4's own roads); none for one."""
+    members = list(getattr(group, "members", ()) or ())
+    if len(members) < 2:
+        return []
+    return [LineString(m.approach) for m in members
+            if len(getattr(m, "approach", ()) or ()) >= 2]
 
 
 def _own_road(axis: LineString, poly: Polygon, reach: float, grid: float) -> bool:
@@ -246,7 +260,8 @@ def _extend_back(seg: LineString, by: float) -> LineString:
 
 def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float],
                  inward: tuple[float, float], rim_off: float, spacing: float,
-                 cover: _t.Sequence[Polygon] = ()):
+                 cover: _t.Sequence[Polygon] = (), floor: float | None = None,
+                 extra: float = 0.0):
     """THE ROAD'S OWN PROFILE out of a MAPPED portal (#1028; module doc):
     ``(z_p, s_g, floor_at)`` or ``None`` where the DEM carries no portal.
 
@@ -262,7 +277,10 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
     a road passing under a taxiway.  ``floor_at(s)`` is that profile;
     ``s_g`` the first station, out from under the pavement, where the
     ground has come down to it (``None`` within the slide cap plus the
-    longest ramp)."""
+    longest ramp).  ``floor`` is a SURVEYED road's blended floor at the
+    portal (``lidar_road``, RULINGS 2026-10-27g): the profile starts there,
+    and under the pavement it holds ``extra`` (the depth owed) under the DEM
+    — which reads that road — instead of ``mouth_depth_m``."""
     from .structure_approach import approach_ground
     tn = law.tables.structures.tunnel
     z = dem_z_at(airport, (portal[0] + inward[0] * rim_off, portal[1] + inward[1] * rim_off))
@@ -275,7 +293,8 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
     ground = approach_ground(airport, fn, tn.mouth_depth_m, spacing)
     if not math.isnan(ground):
         z = min(z, ground + tn.mouth_depth_m)          # §33 (3): an overbridge is no cover
-    z_p = z - tn.mouth_depth_m
+    z_p = z - tn.mouth_depth_m if floor is None else floor
+    under_depth = tn.mouth_depth_m if floor is None else extra
     # a ribbon the road runs ALONG is the road's own paving, never its cover
     cover = [p for p in cover if not _runs_along(axis, p, _narrow_width(p), _PROFILE_STEP_M)]
     tree = STRtree(cover) if cover else None
@@ -288,7 +307,7 @@ def road_profile(airport, law: Law, axis: LineString, portal: tuple[float, float
         f += tn.ramp_grade * step
         under = tree is not None and len(tree.query(q, predicate="within")) > 0
         if under and not math.isnan(d):
-            f = min(f, d - tn.mouth_depth_m)
+            f = min(f, d - under_depth)
         floors.append(f)
         if s_g is None and not under and not math.isnan(d) and d <= f:
             s_g = s
@@ -304,7 +323,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
                       cut_roles: _t.Collection[str], half: float, rim_off: float, gap: float,
                       spacing: float, grid: float, decked: _t.Sequence[Polygon],
                       airport=None, crossing: _t.Sequence[tuple[Polygon, str]] = (),
-                      pinned: bool = False):
+                      pinned: bool = False, road_floor: float | None = None,
+                      road_extra: float = 0.0):
     """THE ONE CALL ``structures.build_structures`` makes for a MAPPED
     bore's group: ``(axis, mouth, stops, tree, note, floor_z)`` with the
     axis starting at the mouth that stands clear of the pavement (the
@@ -372,7 +392,7 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         here = substring(axis, total, axis.length)
         mouth = here.coords[0] if total > 0.0 else group.mouth
         stops = mouth_stops(cells, polys, law, cut_roles, here, mouth, half, rim_off, decked,
-                            grid) + list(crossing)
+                            grid, _routes(group)) + list(crossing)
         s0, ref = clear_mouth(here, stops, half, rim_off, gap, spacing, grid,
                               lambda s, _t=total: ring_of(_t + s),
                               law.tables.structures.tunnel.mouth_slide_max_m - total)
@@ -392,7 +412,8 @@ def mouth_at_pavement(group, axis: LineString, cells, polys, pads, law: Law,
         return axis, group.mouth, stops, tree, "", None
     at = ", ".join(dict.fromkeys(refs))
     prof = None if airport is None else road_profile(airport, law, axis, group.mouth,
-                                                     group.inward, rim_off, spacing, cover)
+                                                     group.inward, rim_off, spacing, cover,
+                                                     road_floor, road_extra)
     floor = None
     if prof is not None:
         z_p, s_g, floor_at = prof
@@ -456,7 +477,7 @@ def _pinned(group, axis: LineString, cells, polys, pads, law: Law, cut_roles, ha
     returned instead (a string), and the caller slides the mouth."""
     mouth = tuple(axis.coords[0])            # the portal's own mouth (``portal_mouth``)
     stops = mouth_stops(cells, polys, law, cut_roles, axis, mouth, half, rim_off,
-                        decked, grid) + list(crossing)
+                        decked, grid, _routes(group)) + list(crossing)
     if mouth_ring is not None:
         taxi = {c.ref for c in cells if role_family(law, c.role) == "taxi"}
         hit = [r for p, r in stops if r in taxi and p.intersects(mouth_ring)]

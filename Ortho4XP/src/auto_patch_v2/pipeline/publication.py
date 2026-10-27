@@ -193,6 +193,12 @@ def lifted_caps(planar: PlanarMap) -> dict[int, float]:
         int(fid): float(rec[2])
         for fid, rec in (getattr(planar, "pad_road_released", None) or {}).items()
         if fid in planar.faces}
+    # 22h (#1254): a public road on terrain steeper than the road cap is the
+    # same thing again — its rows yielded to its target
+    # (``constraints/public_road_release``), on its own faces only
+    for fid, g in (getattr(planar, "public_road_lifted", None) or {}).items():
+        if fid in planar.faces:
+            out[int(fid)] = max(out.get(int(fid), 0.0), float(g))
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
         return out
@@ -230,6 +236,12 @@ def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
         [int(fid), f"pad:{rec[0]}", str(planar.faces[fid].ref),
          round(float(rec[1]), 3), round(float(rec[2]), 6)]
         for fid, rec in sorted(released.items()) if fid in planar.faces]
+    # 22h: a public road's record names the TERRAIN it follows
+    public = getattr(planar, "public_road_lifted", None) or {}
+    out += [[int(fid), "terrain", str(planar.faces[fid].ref), 0.0,
+             round(float(g), 6)]
+            for fid, g in sorted(public.items())
+            if fid in planar.faces and fid not in released]
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
         return out
@@ -237,7 +249,7 @@ def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
     from shapely.geometry import LineString, Point
     axes = {tn.id: LineString(tn.axis) for tn in planar.structures
             if len(tn.axis) >= 2}
-    for fid in sorted(set(caps) - set(released)):
+    for fid in sorted(set(caps) - set(released) - set(public)):
         vs = planar.ring_vertices(planar.faces[fid].ring)
         cx = sum(planar.vertices[v].xy[0] for v in vs) / len(vs)
         cy = sum(planar.vertices[v].xy[1] for v in vs) / len(vs)
@@ -389,6 +401,20 @@ def cluster_pads(planar: PlanarMap, law: Law, airport: Airport,
                         {cid: OFFSET_SPREAD[cid]} if cid in OFFSET_SPREAD
                         else {})})
     return out
+
+
+def _declare_plate_joints(rows: list, plates: tuple, to_xy, paths) -> list:
+    """``airport/walled_plate.declare_joints`` (RULINGS 2026-10-27t, #1201)."""
+    from ..airport import walled_plate as _walled_plate
+    return _walled_plate.declare_joints(rows, plates, to_xy, paths)
+
+
+def _walled_plate_paths(airport: Airport) -> frozenset[str]:
+    """The pack resources of the airport's walled plates (RULINGS
+    2026-10-27t, #1201): the declared walls the census reads as lawful."""
+    ids = {i for p in (getattr(airport, "walled_plates", ()) or ()) for i in p.ids}
+    return frozenset(o.path for o in (getattr(airport, "dsf_objects", ()) or ())
+                     if o.id in ids)
 
 
 def publication(planar: PlanarMap, law: Law, airport: Airport,
@@ -593,7 +619,11 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             "pad_cluster_mismatch": _pad_cluster_mismatch(planar, law,
                                                           airport),
             "apron_tier": apron_tier(law),
-            "terrace_joints": terrace_joints_ll(planar, law, z),
+            # owner RULINGS 2026-10-27t (#1201): a walled plate's step is lawful
+            "terrace_joints": _declare_plate_joints(
+                terrace_joints_ll(planar, law, z),
+                tuple(getattr(airport, "walled_plates", ()) or ()),
+                airport.frame.entry(), _walled_plate_paths(airport)),
             "taxi_route_pairs": taxi_pairs,
             "mesh_edges": mesh,
             "airside_no_step_edges": edges,
@@ -642,8 +672,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # they read this and apply ``constraints.roads
             # .road_pair_reading``, the one rule.  Empty on a map whose
             # publisher never ran: every reader keeps the chord law.
+            # 27f (Q186): a SIXTH field names the public road the route
+            # belongs to ("" for none) — the junction-mouth reading
             "road_route_frame": [[ll[v][0], ll[v][1], int(r),
-                                  round(float(st), 4), round(float(t), 4)]
+                                  round(float(st), 4), round(float(t), 4),
+                                  str((getattr(planar, "road_junction_road", None)
+                                       or {}).get(v, ""))]
                                  for v, (r, st, t)
                                  in sorted(planar.road_route_frame.items())],
             # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be):

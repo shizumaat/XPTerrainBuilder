@@ -63,8 +63,11 @@ def test_expand_box_reproduces_the_engines_required_box():
     # absolute degrees, so the boundary below is the same polygon.
     dico = {"KTST": {"boundary": shapely_geometry.box(0.05, 0.45,
                                                       0.06, 0.46)}}
+    # The engine's own margin (#1330 trims the 2000 m setting to the graded
+    # reach); the conversion is what this twin pins.
+    margin = INSETS.inset_fetch_margin_m(tile)
     engine = INSETS._airport_bounding_boxes(tile, dico)["KTST"]
-    mine = CENSUS.expand_box((-86.95, 35.45, -86.94, 35.46), 2000.0, 35.5)
+    mine = CENSUS.expand_box((-86.95, 35.45, -86.94, 35.46), margin, 35.5)
     for (theirs, ours) in zip(engine, mine):
         assert theirs == pytest.approx(ours, abs=1e-12)
 

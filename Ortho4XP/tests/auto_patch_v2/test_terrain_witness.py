@@ -268,3 +268,22 @@ def test_the_witness_table_refuses_a_bad_value(law):
     with pytest.raises(LawError):
         check_terrain_witness(_dc.replace(t, q5=_dc.replace(t.q5, ring_m=(60.0, 40.0))),
                               LawError)
+
+
+def test_an_outvoted_end_follows_the_lidar_inside_the_noise_floor(law):
+    """26v: "the end follows the lidar" — an end whose CIFP record the
+    witness dropped takes the lidar even where the datum line stands within
+    the lidar tier's noise of it (an apt.dat-only end keeps its datum
+    there, 26e)."""
+    from auto_patch_v2.constraints import runway_profile as RP
+    from auto_patch_v2.model.airport import PIN_OUTVOTED
+    from tests.auto_patch_v2.test_runway_end_pins import _Lidar, _site
+    airport, pm = _site(law, _Lidar(0.0), (None, None), elev=700.3)
+    plain = RP.end_pin_cases(pm, law, airport)
+    assert {p.case for p in plain.values()} == {RP.CASE_DATUM}
+    rw = airport.runways[0]
+    ends = tuple(_dc.replace(e, pin_flags=PIN_OUTVOTED) for e in rw.ends)
+    voted = _dc.replace(airport, runways=(_dc.replace(rw, ends=ends),))
+    got = RP.end_pin_cases(pm, law, voted)
+    assert {p.case for p in got.values()} == {RP.CASE_LIDAR}
+    assert all(abs(p.z - 700.0) < 1e-6 for p in got.values())

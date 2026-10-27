@@ -24,8 +24,9 @@ than ``q1.min_disagree_m`` from the layout's threshold (inside that the
 join already accepts it as this end's, RULINGS 2026-10-22a), the record is
 DROPPED for that end — position and height.  The end is then an apt.dat
 end like any runway without CIFP: ``end_pins.verify`` has nothing to judge
-there and ``constraints/runway_profile.datum_pins`` values it (26e: the
-lidar where it is credible).  One loud line per drop, one record per end.
+there and ``constraints/runway_profile.end_pin_cases`` values it — on
+credible lidar it FOLLOWS THE LIDAR (26v's words), with no noise floor: the
+datum line it would otherwise keep is the apt.dat header, no survey.  One loud line per drop, one record per end.
 """
 from __future__ import annotations
 
@@ -36,7 +37,7 @@ import typing as _t
 import numpy as np
 
 from ..law import Law
-from ..model.airport import Airport, Runway
+from ..model.airport import PIN_OUTVOTED, Airport, Runway
 from . import image_edges_classic  # noqa: F401  (registers the classic method)
 from .cifp import CifpRunway, match_designator
 from .image_provider import Probes, provider
@@ -48,7 +49,7 @@ __all__ = ["end_station", "threshold_votes", "witness_runway_ends", "SENIORITY"]
 #: pilot sees, the DEM, then CIFP — a tie-break only
 SENIORITY = ("layout", "imagery", "dem", "cifp")
 #: ``RunwayEnd.pin_flags`` of an end whose CIFP record was outvoted
-OUTVOTED = "q1"
+OUTVOTED = PIN_OUTVOTED
 
 
 def end_station(end_xy, other_xy, p) -> float:

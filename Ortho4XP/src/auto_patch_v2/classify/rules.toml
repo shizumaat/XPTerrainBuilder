@@ -87,6 +87,8 @@ enabled   = true
 highways  = ["service"]        # the tag values admitted (v1 osm_load: highway=service is the airport road feed)
 dedup_m   = 8.0                # a way part within this of a 1206 route duplicates it and is dropped
 min_len_m = 10.0               # a surviving part shorter than this is noise
+# #1548 A PAGE THE RAILWAY RUNS ALONG IS THE RAILWAY'S, NOT AN APRON: the `railway=*` values whose AT-GRADE mapped line (no `bridge`, no `tunnel`) is ground-transport evidence for a source page (`classify/sources.py`, the rail rung). NOT abandoned / disused / razed (a lifted line is often paved over) and NOT platform. Measured at LGAV: a Global Airports page (`dsf:pol171`, asphalt plain, 15 m x 400 m) carries 975 m of four mapped `railway=rail` tracks and no taxi centreline, startup or mapped apron; it read `open`, the §110 default made it a road, and §27 flipped it to `apron` on 16 m of END-ON contact with a taxiway page.
+railways  = ["rail", "light_rail", "narrow_gauge", "subway", "tram", "monorail", "funicular"]
 # THE ROAD-FACE MINT, WIDENED (owner RULINGS 2026-09-30b Q-100b, spec-author 30e (1)-(2), issue #100):
 # every MAPPED at-grade road inside the patch gets its ribbon face (`classify/roles.py` "service roads
 # outside pavement", beside the 1206 corridors). The classes admitted: the at-grade road classes

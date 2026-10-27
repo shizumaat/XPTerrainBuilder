@@ -24,12 +24,15 @@ from __future__ import annotations
 
 import glob
 import os
+import sys
 from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Tuple
 
 import O4_Config_Names as CN
+import O4_Custom_Scenery as PACKS
 import O4_File_Names as FNAMES
 import O4_Text_Files as TEXT
+import O4_Tile_Build_Log as TILELOG
 
 
 @dataclass
@@ -49,9 +52,20 @@ class TileInfo:
     high_zl_airports: str = ""
     cover_zl: Optional[int] = None  # airport-cover zoomlevel from cfg
     custom_dem: str = ""      # pinned elevation source from cfg, "" if unset
+    # The imagery the tile's textures carry (#1334): the dominant provider
+    # among ``textures/`` file names and its most common ZL, "" / None
+    # when no name parses.  :func:`effective_imagery` picks cfg or this.
+    detected_provider: str = ""
+    detected_zl: Optional[int] = None
     mesh_date: Optional[float] = None     # unix mtime of newest dsf/mesh
     imagery_date: Optional[float] = None  # unix mtime of newest texture
     size_bytes: Optional[int] = None      # None until compute_size()
+    # The newest row of build_logs/build_record.json (#1226), None for a
+    # tile built before logging; ``built_by`` is its "Built by" line —
+    # for a tile without a record, filled from the DSF only when the
+    # tile is asked for alone (:func:`with_built_by`), never by a scan.
+    last_build: Optional[dict] = None
+    built_by: str = ""
 
 
 ##############################################################################
@@ -159,6 +173,63 @@ def _imagery_date(build_dir: str) -> Optional[float]:
     return max(mtimes) if mtimes else None
 
 
+def _detected_imagery(build_dir: str) -> Tuple[str, Optional[int]]:
+    """``(provider, zl)`` read from the names under ``<build_dir>/textures/``
+    (``O4_Custom_Scenery.imagery_from_file_names``), or ``("", None)``."""
+    try:
+        names = os.listdir(os.path.join(build_dir, "textures"))
+    except OSError:
+        return "", None
+    found = PACKS.imagery_from_file_names(names)
+    if found is None:
+        return "", None
+    return _current_provider(found[0]), found[1]
+
+
+def _current_provider(code: str) -> str:
+    """A retired provider's replacement (its ``.lay``'s ``replaced_by``,
+    e.g. NZ -> LINZ, #1339), read from the imagery registry when this
+    process has loaded it; else ``code``."""
+    imagery = sys.modules.get("O4_Imagery_Utils")
+    provider = getattr(imagery, "providers_dict", {}).get(code) if imagery else None
+    replacement = str((provider or {}).get("replaced_by") or "").strip()
+    return replacement or code
+
+
+#: Where a tile's imagery came from: its cfg, or its texture names.
+SOURCE_CONFIG = "config"
+SOURCE_DETECTED = "detected"
+
+
+def effective_imagery(info) -> Optional[Tuple[str, Optional[int], str]]:
+    """``(provider, zl, source)`` a built tile was made with, or None (#1334).
+
+    The cfg wins when it names a provider (its ZL, else the detected ZL of
+    that same provider); otherwise the textures' detected provider and ZL.
+    ``source`` is :data:`SOURCE_CONFIG` or :data:`SOURCE_DETECTED`.  Read
+    by adoption, the mismatch warning and "Rebuild tile" in both apps; the
+    Mac's ``TileImageryChoice.resolve`` is this rule, pinned to the same
+    fixture (``Fixtures/Imagery/tile_imagery.json``).  ``info`` is a
+    :class:`TileInfo` or its JSON dict.
+    """
+    def field(name, default):
+        if isinstance(info, dict):
+            return info.get(name, default)
+        return getattr(info, name, default)
+
+    provider = str(field("provider", "") or "")
+    zl = field("zl", None)
+    detected = str(field("detected_provider", "") or "")
+    detected_zl = field("detected_zl", None)
+    if provider:
+        if zl is None and detected == provider:
+            zl = detected_zl
+        return provider, zl, SOURCE_CONFIG
+    if detected:
+        return detected, detected_zl, SOURCE_DETECTED
+    return None
+
+
 def _build_tile_info(
     build_dir: str, lat: int, lon: int, dir_name: str
 ) -> Optional[TileInfo]:
@@ -191,7 +262,9 @@ def _build_tile_info(
     if cfg_path is not None:
         (provider, zl, has_zones, custom_dem,
          high_zl_airports, cover_zl) = _parse_cfg(cfg_path)
+    last_build = TILELOG.last_build(build_dir, lat, lon)
 
+    detected_provider, detected_zl = _detected_imagery(build_dir)
     return TileInfo(
         lat=lat,
         lon=lon,
@@ -204,10 +277,24 @@ def _build_tile_info(
         high_zl_airports=high_zl_airports,
         cover_zl=cover_zl,
         custom_dem=custom_dem,
+        detected_provider=detected_provider,
+        detected_zl=detected_zl,
         mesh_date=_mesh_date(build_dir),
         imagery_date=_imagery_date(build_dir),
         size_bytes=None,
+        last_build=last_build,
+        built_by=TILELOG.built_by_text(last_build),
     )
+
+
+def with_built_by(info: Optional[TileInfo]) -> Optional[TileInfo]:
+    """``info`` with its "Built by" line, read from the tile's DSF when it
+    has no build record (one selected tile: never call it in a scan)."""
+    if info is not None and not info.built_by and info.dsf_present:
+        info.built_by = TILELOG.built_by_text(
+            agent=TILELOG.dsf_creation_agent(
+                FNAMES.dsf_file(info.build_dir, info.lat, info.lon)))
+    return info
 
 
 def iter_scan_tiles(

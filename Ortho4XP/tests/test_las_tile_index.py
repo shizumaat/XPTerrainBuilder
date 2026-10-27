@@ -188,8 +188,25 @@ def test_valid_tile_passes_validation(tmp_path):
 
 def test_crs_mismatch_refuses(tmp_path):
     las = _write_las(tmp_path / "t.las", epsg=2232)   # CO Central ftUS NAD83
-    with pytest.raises(ea_base.ProviderUnavailable, match="EPSG:2232"):
+    with pytest.raises(ea_base.ProviderUnavailable, match="EPSG:2232") as caught:
         ea_las_tile_index.validate_las_tile(las, _definition())
+    assert caught.value.declined_by_product is True      # #1210
+
+
+def test_tile_with_no_crs_is_a_product_refusal():
+    """#1210 (KFHR, the 2009 San Juan County flight): a LAS 1.1 tile whose
+    only VLR is the LASzip one declares no CRS.  The refusal is the
+    PRODUCT class -- the tile's own bytes, not the download -- so the
+    ladder records the listing beside it and the re-check settles."""
+    class _Header:
+        def parse_crs(self):
+            return None
+
+    with pytest.raises(ea_base.ProviderUnavailable,
+                       match="tile declares no CRS") as caught:
+        ea_las_tile_index.las_header_units(_Header(), {"code": "LPC"})
+    assert caught.value.declined_by_product is True
+    assert caught.value.declined_by_cap is False
 
 
 def test_short_file_refuses(tmp_path):

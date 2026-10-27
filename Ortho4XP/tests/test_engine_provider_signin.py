@@ -86,6 +86,11 @@ def fake_registry(monkeypatch):
 
     module.initialize_elevation_providers_dict = _initialize
     monkeypatch.setitem(sys.modules, "O4_Airport_Elevation_Insets", module)
+    # Imagery providers declare accounts too (#1339); none in this registry,
+    # whatever an earlier test on this worker loaded.
+    imagery = types.ModuleType("O4_Imagery_Utils")
+    imagery.providers_dict = {}
+    monkeypatch.setitem(sys.modules, "O4_Imagery_Utils", imagery)
     return module
 
 

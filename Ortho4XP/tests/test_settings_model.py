@@ -243,7 +243,7 @@ def test_write_tile_sparse_overrides_and_preservation(tmp_path, monkeypatch):
     plus the preserved build-provenance trio."""
     # chdir so the default global cfg (FNAMES.resource_path) lives in tmp.
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Ortho4XP.cfg").write_text("road_level=4\n", encoding="utf-8", newline="")
+    (tmp_path / "XPTerrainBuilder.cfg").write_text("road_level=4\n", encoding="utf-8", newline="")
 
     build = _tile_dir(tmp_path)
     path = os.path.join(build, "XPTerrainBuilder_+45+005.cfg")
@@ -287,7 +287,7 @@ def test_write_tile_sparse_overrides_and_preservation(tmp_path, monkeypatch):
 def test_write_tile_equal_value_removes_the_override(tmp_path, monkeypatch):
     """Setting a var to exactly its inherited value removes the override."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "Ortho4XP.cfg").write_text("road_level=4\n", encoding="utf-8", newline="")
+    (tmp_path / "XPTerrainBuilder.cfg").write_text("road_level=4\n", encoding="utf-8", newline="")
     build = _tile_dir(tmp_path)
 
     SM.write_tile(45, 5, build, {"road_level": "5"})

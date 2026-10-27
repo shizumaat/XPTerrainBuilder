@@ -161,7 +161,14 @@ def _band_environment(monkeypatch, tmp_path):
                         lambda tile: (FOUR_CELL_COASTLINE, None))
     # No airport index in a headless test: the auto gate disengages and
     # the fine gating walks the same four cells (a subset case is built
-    # explicitly below).
+    # explicitly below).  PINNED, never inherited (#1421): the index is
+    # read from the data root, which another test in the same xdist
+    # worker may have pointed at the owner's real corpus — whose index
+    # engages the gate and drops every cell of this tile.
+    monkeypatch.setattr(FNAMES, "airport_index_cache",
+                        lambda: str(tmp_path / "no_airport_index.tsv"))
+    monkeypatch.setattr(BATHYBAND, "_airport_index_state",
+                        {"cache_key": None, "positions": None})
     monkeypatch.setattr(BATHYBAND, "BAND_LOCK_POLL_SECONDS", 0.05)
     monkeypatch.setattr(UI, "red_flag", False)
     BATHYBAND._prefetch_futures.clear()

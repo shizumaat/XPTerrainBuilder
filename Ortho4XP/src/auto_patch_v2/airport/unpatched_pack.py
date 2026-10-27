@@ -25,6 +25,10 @@ did to a pack DSF is one row of the record beside it
   their seating is kept whether or not they are written later; a
   recorded omission is passed through the same write.
 
+A recorded 3D forest upgrade (#1360) is the user's choice, not the
+airport's seating: like an omission it keeps the DSF from the bare copy,
+and the write re-applies it.
+
 A restore that cannot be proven writes nothing and says why.
 """
 from __future__ import annotations
@@ -37,6 +41,7 @@ from ..model.placement import BACKUP_SUFFIX, PlacementPlan, Provenance
 from . import backup_state as _bs
 from . import dsf_write as _dw
 from . import pack_art as _pa
+from . import pack_forests as _pf
 from . import pack_journal as _pj
 from .file_hash import sha256_file
 
@@ -115,10 +120,13 @@ def restore_airport(pack_root: str, dsf_path: str, icao: str, tool: str, *,
     # ruling on 12d): "as authored" is the placements and their seating,
     # never definitions that are not installed — X-Plane refuses to load
     # a DSF that declares them.
-    omit = _pa.recorded(
-        _bs.dsf_entry(_bs.read_record(dsf_path), name),
-        sha256_file(verdict.backup)) if verdict.backup else ()
-    if not kept and not omit:
+    entry = _bs.dsf_entry(_bs.read_record(dsf_path), name)
+    pristine_sha = sha256_file(verdict.backup) if verdict.backup else ""
+    omit = _pa.recorded(entry, pristine_sha) if verdict.backup else ()
+    # ... and so does the 3D forest upgrade the user accepted (#1360): the
+    # write below re-applies it from the record
+    forests = _pf.recorded(entry, pristine_sha) if verdict.backup else {}
+    if not kept and not omit and not forests:
         if verdict.state is State.OURS:
             shutil.copy2(verdict.backup, dsf_path)
             _bs.invalidate_memo()

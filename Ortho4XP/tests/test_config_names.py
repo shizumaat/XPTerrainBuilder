@@ -8,7 +8,6 @@ never over a file.
 """
 
 import os
-import pathlib
 
 import O4_Config_Names as CN
 import O4_Settings_Model as SM
@@ -124,37 +123,22 @@ def test_a_missing_build_dir_is_not_an_error(tmp_path):
     assert CN.adopt_tile_cfg(str(tmp_path / "nope"), 30, 31) == []
 
 
-def test_the_global_of_this_apps_data_folder_is_copied(tmp_path):
+def test_an_ortho4xp_global_is_never_copied_or_read(tmp_path, monkeypatch):
+    """No global hand-over (owner Q176 "B"): a data root with only
+    Ortho4XP.cfg starts from defaults, and that file stays byte-identical."""
+    import O4_File_Names as FNAMES
+    import O4_Settings_Model as SM
+
     theirs = tmp_path / "Ortho4XP.cfg"
     theirs.write_bytes(b"mesh_zl=19\n")
     stat = theirs.stat()
+    monkeypatch.setattr(FNAMES, "data_path",
+                        lambda rel: os.path.join(str(tmp_path), rel))
 
-    assert CN.adopt_global_cfg(str(tmp_path))
-
-    assert (tmp_path / "XPTerrainBuilder.cfg").read_bytes() == b"mesh_zl=19\n"
+    assert "mesh_zl" not in SM.read_global_raw()
+    assert not (tmp_path / "XPTerrainBuilder.cfg").exists()
     assert theirs.read_bytes() == b"mesh_zl=19\n"
     assert theirs.stat().st_mtime_ns == stat.st_mtime_ns
-    # once: an existing own global is never replaced
-    theirs.write_bytes(b"mesh_zl=17\n")
-    assert CN.adopt_global_cfg(str(tmp_path)) == []
-    assert (tmp_path / "XPTerrainBuilder.cfg").read_bytes() == b"mesh_zl=19\n"
-
-
-def test_an_ortho4xp_installations_global_is_ignored(tmp_path):
-    """The data folder IS an Ortho4XP folder (its launcher beside it):
-    owner Q97, "Ignore" -- the app starts from its defaults."""
-    (tmp_path / "Ortho4XP_v130.py").write_text("", encoding="utf-8", newline="")
-    (tmp_path / "Ortho4XP.cfg").write_text("mesh_zl=19\n", encoding="utf-8", newline="")
-
-    assert CN.is_ortho4xp_install(str(tmp_path))
-    assert CN.adopt_global_cfg(str(tmp_path)) == []
-    assert not (tmp_path / "XPTerrainBuilder.cfg").exists()
-
-
-def test_this_engines_checkout_is_not_an_ortho4xp_install():
-    engine = pathlib.Path(CN.__file__).resolve().parents[1]
-    assert (engine / "Ortho4XP.py").is_file()
-    assert not CN.is_ortho4xp_install(str(engine))
 
 
 def test_the_global_write_never_touches_ortho4xps(tmp_path, monkeypatch):
@@ -162,7 +146,6 @@ def test_the_global_write_never_touches_ortho4xps(tmp_path, monkeypatch):
     byte-identical (and grows no .bak)."""
     import O4_File_Names as FNAMES
 
-    (tmp_path / "Ortho4XP_v130.py").write_text("", encoding="utf-8", newline="")
     theirs = tmp_path / "Ortho4XP.cfg"
     theirs.write_bytes(b"mesh_zl=19\n")
     monkeypatch.setattr(FNAMES, "data_path",

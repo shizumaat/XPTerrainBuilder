@@ -72,6 +72,13 @@ def test_size_report_names_growth_and_new_files_without_refusing():
         "tools/new.py", "tools/old.py", "tools/shrunk.py"]
 
 
+def _no_live_scans(monkeypatch, near=(), unused=()):
+    """Synthetic default runs: no tree-wide near-duplicate or unused scan."""
+    monkeypatch.setattr(ratchets, "near_duplicate_groups", lambda: list(near))
+    monkeypatch.setattr(ratchets, "unused_definitions", lambda: list(unused))
+    monkeypatch.setattr(ratchets, "load_allowlist", lambda: ({}, []))
+
+
 def test_default_run_exits_zero_on_size_and_one_on_duplicates(
         tmp_path, monkeypatch, capsys):
     """04c: growth past 1,000 with NO justification passes and is
@@ -86,6 +93,7 @@ def test_default_run_exits_zero_on_size_and_one_on_duplicates(
     monkeypatch.setattr(ratchets, "long_functions", lambda: [])
     monkeypatch.setattr(ratchets, "duplicate_groups", lambda: g2)
     monkeypatch.setattr(ratchets, "lint_counts", lambda: ({}, None))
+    _no_live_scans(monkeypatch)
     assert ratchets.main(["--baseline", path]) == 0
     out = capsys.readouterr().out
     assert "WARN tools/big.py: 1500 -> 1600 (+100)" in out
@@ -352,6 +360,7 @@ def test_default_run_gates_lint(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(ratchets, "duplicate_groups", lambda: [])
     monkeypatch.setattr(ratchets, "layer_edges", lambda: [])
     monkeypatch.setattr(ratchets, "lint_counts", lambda: ({"E501": 1}, None))
+    _no_live_scans(monkeypatch)
     assert ratchets.main(["--baseline", path]) == 0
     assert "LINT RATCHET PASS" in capsys.readouterr().out
     monkeypatch.setattr(ratchets, "lint_counts", lambda: ({"E501": 3}, None))
@@ -397,3 +406,185 @@ def test_ruff_pin_config_and_ci_step_agree():
         cfg = fh.read()
     assert 'select = ["E", "F", "W", "I", "B"]' in cfg
     assert "line-length = 100" in cfg and "[tool.ruff.format]" not in cfg
+
+
+# ------------------------------------- near-duplicates and unused (#740)
+def test_near_duplicate_ratchet_holds_on_this_tree():
+    groups = ratchets.near_duplicate_groups()
+    bad = ratchets.check_near(groups, ratchets.load_baseline()["near_duplicates"])
+    assert not bad, bad[0]
+
+
+def test_unused_ratchet_holds_on_this_tree():
+    allow, problems = ratchets.load_allowlist()
+    rows = ratchets.unused_definitions()
+    out = io.StringIO()
+    bad = ratchets.print_unused(rows, ratchets.load_baseline()["unused"],
+                                allow, problems, top=0, out=out)
+    assert not bad, "\n".join(bad) + "\n" + out.getvalue()
+
+
+def test_near_duplicate_rise_fails_the_gate(tmp_path, monkeypatch, capsys):
+    g = [[("a.py", "f", 1), ("b.py", "g", 1)]]
+    assert ratchets.check_near(g, 2) == [] and ratchets.check_near(g, None) == []
+    assert ratchets.check_near(g, 1)
+    out = io.StringIO()
+    assert ratchets.print_dupes(g, 1, out=out, near=True)
+    assert "FAIL" in out.getvalue()
+    path = str(tmp_path / "baseline.json")
+    assert ratchets.regenerate(path, init=True, groups=[], current={},
+                               layers=[], near=g) == []
+    assert json.load(open(path, encoding="utf-8"))["near_duplicates"] == 2
+    _no_live_scans(monkeypatch, near=g)
+    assert ratchets.main(["--baseline", path, "dupes", "--near"]) == 0
+    assert "NEAR-DUPLICATE RATCHET PASS" in capsys.readouterr().out
+    _no_live_scans(monkeypatch, near=g + [[("c.py", "h", 1), ("d.py", "h", 1)]])
+    assert ratchets.main(["--baseline", path, "dupes", "--near"]) == 1
+    assert "NEAR-DUPLICATE RATCHET FAIL" in capsys.readouterr().out
+    monkeypatch.setattr(ratchets, "sizes", lambda roots=None: {})
+    monkeypatch.setattr(ratchets, "long_functions", lambda: [])
+    monkeypatch.setattr(ratchets, "duplicate_groups", lambda: [])
+    monkeypatch.setattr(ratchets, "layer_edges", lambda: [])
+    monkeypatch.setattr(ratchets, "lint_counts", lambda: ({}, None))
+    assert ratchets.main(["--baseline", path]) == 1        # the default run gates it
+    # a risen count refuses --regenerate and writes nothing
+    before = open(path, encoding="utf-8").read()
+    assert ratchets.regenerate(path, groups=[], current={}, layers=[],
+                               near=g * 2)
+    assert open(path, encoding="utf-8").read() == before
+
+
+SRC_A = """\
+import os
+
+__all__ = ["used", "unused", "tested", "local_only", "dynamic", "K"]
+
+
+def used():
+    return 1
+
+
+def unused():
+    return 2
+
+
+def tested():
+    return 3
+
+
+def local_only():
+    return 4
+
+
+def dynamic():
+    return 5
+
+
+class K:
+    pass
+
+
+def not_exported():
+    return local_only()
+
+
+def _private():
+    return 6
+"""
+
+
+def _unused_tree(tmp_path):
+    """A synthetic two-module engine, one tool and one test."""
+    files = [_write(tmp_path, "Ortho4XP/src/pa.py", SRC_A),
+             _write(tmp_path, "Ortho4XP/src/pb.py",
+                    "from pa import used\n\n__all__ = ['run']\n\n\n"
+                    "def run():\n    return used()\n"),
+             _write(tmp_path, "tools/t.py",
+                    "import pa\n\n\ndef go():\n    return pa.K()\n"),
+             _write(tmp_path, "Ortho4XP/tests/test_pa.py",
+                    "import pa\n\n\ndef test_t():\n"
+                    "    assert pa.tested() == 3\n")]
+    import archmap
+    scan = archmap.scan(str(tmp_path), paths=files, users=True)
+    return ratchets.unused_definitions(scan, repo=str(tmp_path))
+
+
+def test_unused_counts_definitions_no_other_module_uses(tmp_path):
+    rows = _unused_tree(tmp_path)
+    got = {name: ev for _rel, name, _line, _n, ev in rows}
+    # `used` (an engine module), `K` (a tool) and `run`'s module are not
+    # counted; `not_exported` and `_private` are not public (__all__)
+    assert got == {"unused": "none", "tested": "tests",
+                   "local_only": "local", "dynamic": "none",
+                   "run": "none"}
+    assert all(n == 2 for _r, _name, _l, n, _e in rows)
+
+
+def test_allow_list_takes_out_a_definition_with_a_reason(tmp_path):
+    rows = _unused_tree(tmp_path)
+    allow_path = tmp_path / "allow.json"
+    allow_path.write_text(json.dumps([
+        {"path": "Ortho4XP/src/pa.py", "name": "dynamic",
+         "reason": "reached by getattr from a command table"},
+        {"path": "Ortho4XP/src/pa.py", "name": "used", "reason": "stale"},
+        {"path": "Ortho4XP/src/pb.py", "name": "run", "reason": "  "}]),
+        encoding="utf-8", newline="\n")
+    allow, problems = ratchets.load_allowlist(str(allow_path))
+    assert len(problems) == 1 and "no reason" in problems[0]
+    counted, allowed, stale = ratchets.unused_report(rows, allow)
+    assert [r[1] for r in allowed] == ["dynamic"]
+    assert stale == [("Ortho4XP/src/pa.py", "used")]
+    assert "dynamic" not in {r[1] for r in counted}
+    out = io.StringIO()
+    bad = ratchets.print_unused(rows, None, allow, problems, out=out)
+    assert len(bad) == 2 and any("names no unused definition" in b for b in bad)
+    assert ratchets.load_allowlist(str(tmp_path / "absent.json")) == ({}, [])
+
+
+def test_unused_rise_fails_and_fall_passes(tmp_path, monkeypatch, capsys):
+    rows = _unused_tree(tmp_path)
+    rec = ratchets._unused_record(rows)
+    assert rec == {"count": 5, "none": 3, "local": 1, "tests_only": 1,
+                   "lines": 10}
+    assert ratchets.check_unused(rows, rec) == []
+    assert ratchets.check_unused(rows[1:], rec) == []          # a fall passes
+    assert ratchets.check_unused(rows, dict(rec, count=4))      # a rise fails
+    assert ratchets.check_unused(rows, None) == []
+    out = io.StringIO()
+    assert ratchets.print_unused(rows[1:], rec, {}, out=out) == []
+    assert "fell" in out.getvalue()
+    path = str(tmp_path / "baseline.json")
+    assert ratchets.regenerate(path, init=True, groups=[], current={},
+                               layers=[], unused=rows[1:]) == []
+    before = open(path, encoding="utf-8").read()
+    assert ratchets.regenerate(path, groups=[], current={}, layers=[],
+                               unused=rows)                # refused
+    assert open(path, encoding="utf-8").read() == before
+    assert ratchets.regenerate(path, groups=[], current={}, layers=[]) == []
+    assert json.load(open(path, encoding="utf-8"))["unused"]["count"] == 4  # kept
+    monkeypatch.setattr(ratchets, "sizes", lambda roots=None: {})
+    monkeypatch.setattr(ratchets, "long_functions", lambda: [])
+    monkeypatch.setattr(ratchets, "duplicate_groups", lambda: [])
+    monkeypatch.setattr(ratchets, "layer_edges", lambda: [])
+    monkeypatch.setattr(ratchets, "lint_counts", lambda: ({}, None))
+    _no_live_scans(monkeypatch, unused=rows[1:])
+    assert ratchets.main(["--baseline", path, "unused"]) == 0
+    assert "UNUSED RATCHET PASS" in capsys.readouterr().out
+    _no_live_scans(monkeypatch, unused=rows)
+    assert ratchets.main(["--baseline", path]) == 1
+    assert "UNUSED RATCHET FAIL" in capsys.readouterr().out
+
+
+def test_unused_scan_reads_users_and_tests_but_not_the_attic():
+    paths = ratchets.unused_scan_paths()
+    assert "Ortho4XP/Ortho4XP_Qt.py" in paths
+    assert any(p.startswith("Ortho4XP/tests/") for p in paths)
+    assert any(p.startswith("scripts/") for p in paths)
+    assert not any("/attic/" in p or "/Unused/" in p for p in paths)
+
+
+def test_unused_allow_list_is_indexed_and_reasoned():
+    index = open(os.path.join(TOOLS, "INDEX.md"), encoding="utf-8").read()
+    assert "| `tools/unused_allowlist.json` |" in index
+    allow, problems = ratchets.load_allowlist()
+    assert not problems and all(r.strip() for r in allow.values())

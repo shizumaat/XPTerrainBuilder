@@ -122,10 +122,17 @@ struct MapCanvasView: View {
             .onAppear {
                 // First layout: fit the world so the map fills the viewport
                 // from the very first frame — no small-then-resize flash.
-                if canvasSize.value == .zero {
+                let firstLayout = canvasSize.value == .zero
+                if firstLayout {
                     camera.value = MapCamera.fitted(to: proxy.size)
                 }
                 canvasSize.value = proxy.size
+                if firstLayout {
+                    // #1554: the restored selection is framed once, at
+                    // launch — later selection changes leave the camera.
+                    controller.frameRestoredSelection(
+                        buildModel.selected.sorted().map { (lat: $0.lat, lon: $0.lon) })
+                }
                 controller.scheduleViewportUpdate()
                 buildModel.patchEdit.viewportChanged(camera: camera.value, size: proxy.size,
                                                      overlays: overlays)

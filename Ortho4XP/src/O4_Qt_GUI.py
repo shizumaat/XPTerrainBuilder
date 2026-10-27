@@ -951,6 +951,9 @@ class MainWindow(QMainWindow):
         # built-tile overlay.  Restored LAST, so the map, the info panel
         # and the build controls see it exactly the way they see a click.
         selection, active = self._restore_selection()
+        # Framed once, on the first show (#1554): the viewport has no
+        # size before it, and later selection changes leave the camera.
+        self._launch_selection = list(selection)
         lat = int(self.prefs.get("last_lat", 48))
         lon = int(self.prefs.get("last_lon", -6))
         if active is not None:
@@ -4919,11 +4922,22 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if getattr(self, "_launch_selection", None) is not None:
+            QTimer.singleShot(0, self._frame_launch_selection)
         if not self._console_defaulted:
             self._console_defaulted = True
             self._sync_console_button()
             if not self._layout_restored and self.console_drawer.isVisible():
                 self._apply_console_height(self._console_default_height())
+
+    def _frame_launch_selection(self):
+        """Frame the selection restored at launch, once (#1554), so the
+        user sees which tiles came back: one tile with the Activity-row
+        margin, several as their union.  It wins over the remembered
+        last tile's centring; nothing restored leaves that view."""
+        tiles, self._launch_selection = self._launch_selection, None
+        if tiles:
+            self.map.zoom_to_tiles(tiles, margin=TILE_FRAME_MARGIN)
 
     def toggle_console(self):
         self.set_console_visible(not self.console_drawer.isVisible())

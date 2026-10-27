@@ -26,7 +26,7 @@ from ..model.constraints import Row, Source
 from ..model.planar import PlanarMap
 from .platform import coplanar_rows
 
-__all__ = ["steep_apron_plane", "terrace_refs", "GEN", "RULING"]
+__all__ = ["steep_apron_plane", "GEN", "RULING"]
 
 GEN = "steep_apron_plane"
 #: the row head (``[design] hard_rulings``, the apron tier)

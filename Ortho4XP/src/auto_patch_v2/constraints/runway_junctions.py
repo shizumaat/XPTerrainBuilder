@@ -61,8 +61,9 @@ from ..law.tables import apron_roles, role_cap, role_family
 from ..model.planar import PlanarMap
 from .geometry import project_to_chain
 
-__all__ = ["Junction", "JunctionProfile", "design", "junctions", "smoothest_grades",
-           "RULING"]
+#: the module's interface is the design; the record types, the junction
+#: reader and the solver are read through it (and by the tests)
+__all__ = ["design", "RULING"]
 
 #: the ``Source.ruling`` text a junction row cites beside its hard head
 RULING = "RULINGS 2026-10-26n a steep runway flattens where taxiways join it"

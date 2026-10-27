@@ -53,7 +53,7 @@ from ..model.airport import Airport, Surface
 from . import image_edges_classic  # noqa: F401  (registers the classic method)
 from .image_provider import Probes, provider
 
-__all__ = ["witness_paved_joins", "detach_refuted", "PAVED_SHARE"]
+__all__ = ["witness_paved_joins", "PAVED_SHARE"]
 
 #: a pavement joins paved when at least this share of its contact stations
 #: read as pavement

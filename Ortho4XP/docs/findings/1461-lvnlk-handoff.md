@@ -1,4 +1,4 @@
-# #1461 lane lvnlk — handoff (paused 2026-10-27 by the owner's order)
+# #1461 lane lvnlk — handoff (paused 2026-10-27; RESUMED and the next step DONE, see the end)
 
 Branch `claude/lvnlk-steep-junctions` (PR #1460). It is stacked on `claude/ltriang2` (#1493),
 which must land first. Spec and every measurement: `Ortho4XP/docs/findings/vnlk-junctions-lvnlk.md`
@@ -94,3 +94,12 @@ which must land first. Spec and every measurement: `Ortho4XP/docs/findings/vnlk-
   - the reading of "steep";
   - retaining walls;
   - the 29ac ceiling on the runway's own ring.
+
+## Resumed 2026-10-27: the next step is done
+
+1. **Gated dry run:** the rule fires at VNLK only (`pav2`). Record: `vnlk-junctions-lvnlk-dryrun-r5-gated.json`.
+2. **Full suite at `-n 4`:** 4866 passed, 0 failed.
+3. **Closing build `lvnlk6`:** body `b76e19a30974`, identical to `lvnlk5b`. Registered as `lvnlk/lvnlk6.osm`.
+4. **PR #1460 updated:** Refs #1461.
+
+The open questions above stand.

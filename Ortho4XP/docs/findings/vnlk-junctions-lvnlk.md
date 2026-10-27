@@ -480,3 +480,25 @@ bands. This is the trade the owner took in Q207.
   that step: 9 → 12 rows, and **CRITICAL motion 0 → 1** (1.67 m over 2.79 m, the lip at
   the pad's top corner).
 - A wall or cut edge there is the retaining-wall rule, which stays out of this round.
+
+**The witness reads only steep runways** (added in round 5 after the dry run below). It runs
+only on runways whose verified end pins (else the DEM at the ends) stand more than the 29ac
+10 % ceiling apart over their length. It runs after `end_pins.verify` in `load.py`.
+
+**Dry run over the registered captures** (latest capture per ICAO, 40 airports; textures are
+each airport's installed ortho tiles; records in `vnlk-junctions-lvnlk-dryrun-r5.json` and
+`-r5-gated.json`):
+
+*Ungated* (no steepness test), the saturation test refutes real pavement at most large
+airports: KBUF 36 of 109 joins, KDEN 19 of 147 (e.g. `Concrete_1_New.pol`), LEMD 19 of 56,
+KLAX 14 of 126, KLGB 12 of 59, KATL 9, EGLL 8, HECA 8, KBJC 8, KEDW 8, KCLT 7, VHHH 6,
+PAAQ 5, CYXY 4, EDDF 3, KMCI 3, CYCG 2, KBUR 2, KPDX 2, KSUN 1, LPHR 1, TFFJ 1, VNLK 1.
+KGRK and KRDU have no imagery. The 0.05 tolerance, calibrated on VNLK's texture, does not
+carry to flat concrete airports.
+
+*Gated* (as shipped), the rule fires at **VNLK only** (`pav2` Helo Apron). It reads nothing at
+the other 22 airports with ungated refutations, because none has a runway over the ceiling.
+
+**Closing build** `lvnlk6`, after the steep gate and a merge of origin/main: body
+`b76e19a30974`, byte-identical to `lvnlk5b`. Census ADJUDICATED 217, CRITICAL motion 1, the
+same rows. The §11 tables stand.

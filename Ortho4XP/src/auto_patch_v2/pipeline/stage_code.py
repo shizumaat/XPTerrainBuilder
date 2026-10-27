@@ -499,6 +499,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.group_low",
         "auto_patch_v2.planar.landing",
         "auto_patch_v2.planar.landing_runout",
+        "auto_patch_v2.planar.low_extent",
         "auto_patch_v2.planar.low_level",
         "auto_patch_v2.planar.object_corridor",
         "auto_patch_v2.planar.overlay",
@@ -509,6 +510,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.planar.pad_sliver",
         "auto_patch_v2.planar.pad_terrace",
         "auto_patch_v2.planar.platform",
+        "auto_patch_v2.planar.reach_after_pads",
         "auto_patch_v2.planar.ribbon_weld",
         "auto_patch_v2.planar.ribbons",
         "auto_patch_v2.planar.ridge_reach",
@@ -1454,7 +1456,7 @@ CODE_MODULES["solve"] = _mods("""
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.group_level constraints.face_index planar.group_low
-    model.stage_one
+    model.stage_one planar.low_extent planar.reach_after_pads
 """)
 CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
         law.runway_ends_schema
@@ -1559,7 +1561,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     model.road_yield planar.road_shadow
     constraints.wall_zone
     geom.foot_planes constraints.face_index constraints.group_level planar.group_low
-    model.stage_one
+    model.stage_one planar.low_extent planar.reach_after_pads
 """)
 CODE_MODULES["emit"] = _mods("""
         constraints.runway_end_report law.runway_ends_schema

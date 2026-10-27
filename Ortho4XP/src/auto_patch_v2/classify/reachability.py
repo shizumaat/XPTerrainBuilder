@@ -93,11 +93,14 @@ class _Room:
 
 
 def unreachable_aprons(final: list[list], runways, law: Law, rules: Rules,
-                       startups: _t.Sequence[tuple[float, float]] = ()
-                       ) -> dict[str, float]:
+                       startups: _t.Sequence[tuple[float, float]] = (),
+                       bridge=None) -> dict[str, float]:
     """Demote every apron face of ``final`` aircraft cannot reach (module
     docstring), in place.  ``runways`` are the runway polygons, ``startups``
-    the apt.dat 1300 positions in the frame.  Returns the report counters."""
+    the apt.dat 1300 positions in the frame.  ``bridge`` -- the building
+    pads cut out of the pavement (``planar/reach_after_pads``) -- joins
+    the pavement for the "joined to the taxi network" read only: the room
+    never crosses it.  Returns the report counters."""
     from .open_default import unclassified_groundside_role
     out = {"reach_demoted": 0, "reach_demoted_m2": 0.0, "reach_kept_passage": 0}
     aprons = [f for f in final if f[0] == "apron"]
@@ -112,7 +115,8 @@ def unreachable_aprons(final: list[list], runways, law: Law, rules: Rules,
     stree = STRtree(stands) if stands else None
     # only pavement JOINED to the taxi network can lie beyond a passage: a
     # detached island is the touch-chain ladder's (``roles.classify``)
-    closed = air.buffer(weld)
+    closed = (air if bridge is None or bridge.is_empty
+              else unary_union([air, bridge])).buffer(weld)
     joined = unary_union([g for g in getattr(closed, "geoms", [closed])
                           if g.intersects(taxi)])
     rooms: dict[float, _Room] = {}

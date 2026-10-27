@@ -318,6 +318,12 @@ def build_arrangement(airport: Airport, classification: Classification,
         if keeps:
             base_regions, pad_regions, _pad_clip = apron_cut_to_pads(
                 base_regions, pad_regions, law, float(grid))
+            # 19ag read again once the pads stand (#1302): an apron piece the
+            # buildings leave beyond any aircraft is groundside
+            from .reach_after_pads import unreachable_after_pads
+            base_regions, _reach = unreachable_after_pads(base_regions, pad_regions,
+                                                          law, airport)
+            _pad_clip.update(_reach)
             # RULINGS 2026-09-28a (6) / 28b (#11): a pad welds to the apron it
             # FRONTS; a touching apron at another level is split off as a
             # declared terrace — at the one site the weld is made

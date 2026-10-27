@@ -192,24 +192,30 @@ def test_the_record_publishes_its_pavement_not_its_boundary():
     """``pavement`` is the apt.dat pavements ∪ runways at margin 0 — the
     one ground the bake keeps at Z0 — never the boundary's grass."""
     rec = _decide(_site(runway_len_m=2400.0))
-    pav = F.from_record({"verdict": "x", "region": rec["pavement"]}).region
+    pav = F.from_record({"verdict": "x", "region": rec["held"]}).region
     pavement = Polygon(pav[0][0], list(pav[0][1]))
     assert pavement.covers(box(-1150.0, -20.0, 1150.0, 20.0))
     assert not pavement.contains(Polygon([(-300, 200), (300, 200), (300, 300),
                                           (-300, 300)]))   # boundary grass
-    assert rec["pavement_ll"] and len(rec["pavement_ll"]) == len(rec["pavement"])
+    assert rec["held_ll"] and len(rec["held_ll"]) == len(rec["held"])
 
 
 class _PavedOnlyDem(_ComposedDem):
-    """Z0 on the runway strip of pavement, real ground 3 m above off it."""
+    """Z0 on the held ground (the runway and its graded strip), real
+    ground 3 m above off it."""
 
     def z(self, x, y):
-        return Z0 if abs(y) <= 22.5 else Z0 + 3.0
+        from auto_patch_v2.law.runway_strip import strip_band
+        from shapely.geometry import Point
+
+        band = strip_band(_site().runways[0], Law.for_airport("ZZZZ"))
+        return Z0 if band.buffer(1.0).contains(Point(x, y)) else Z0 + 3.0
 
 
-def test_the_plateau_check_reads_the_pavement_not_the_boundary():
-    """Off the pavement the composed DEM keeps ground above Z0 (the fill-
-    only rule); the mismatch rule reads the pavement, so it is not cold."""
+def test_the_plateau_check_reads_the_held_ground_not_the_boundary():
+    """Off the held ground the composed DEM keeps ground above Z0 (the
+    fill-only rule); the mismatch rule reads the held ground, so it is not
+    cold."""
     rec = _decide()
     rec["plateau"] = True
     dem = _PavedOnlyDem(rec, Z0)
@@ -232,6 +238,23 @@ def test_the_packs_draped_pavement_joins_the_pavement(monkeypatch):
     rec = PREP.decide(_site(), _TileDem(1.0), 0, 0, TileWater(0, 0, None, None),
                       law, out=lambda line: None, mod_cache_root="/cache")
     assert seen["mod_cache_root"] == "/cache"
-    pav = F.from_record({"verdict": "x", "region": rec["pavement"]}).region
+    pav = F.from_record({"verdict": "x", "region": rec["held"]}).region
     got = unary_union([Polygon(o, list(h)) for o, h in pav])
     assert got.covers(apron.buffer(-1.0))
+
+
+def test_the_runway_strip_is_held_with_the_pavement():
+    """RULINGS 2026-10-27v (2): the runway strips stay graded as the strip
+    law requires — the record holds each runway's graded strip
+    (``law.runway_strip.strip_band``, with its end extension) at Z0, not
+    the real ground."""
+    from auto_patch_v2.law.runway_strip import strip_band
+
+    law = Law.for_airport("ZZZZ")
+    site = _site(runway_len_m=2400.0)
+    rec = _decide(site)
+    held = F.from_record({"verdict": "x", "region": rec["held"]}).region
+    got = unary_union([Polygon(o, list(h)) for o, h in held])
+    band = strip_band(site.runways[0], law)
+    assert band is not None and band.area > 2400.0 * 45.0 * 2
+    assert got.covers(band.buffer(-0.5))

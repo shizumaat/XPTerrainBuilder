@@ -7548,23 +7548,23 @@ def _keep_ground_above_flat_level(tile, before, record, z0_m, icao,
     """RULINGS 2026-10-26r (#1208) — the plateau is a fill, not a cut: hand
     one airport's baked window to ``auto_patch.flat_site_relief`` (ground
     the stamp cut that stands more than 0.5 m above Z0 keeps its real
-    surface; the airport's own pavement keeps Z0) and say what came back.
+    surface; its pavement and runway strips keep Z0) and say what came back.
     ``what`` names the stamp in the log line."""
     from auto_patch import flat_site_relief as FLAT_SITE_RELIEF
 
-    pavement = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
+    held = FLAT_SITE_RELIEF.site_geometry_tile_degrees(
         record, int(math.floor(tile.lat)), int(math.floor(tile.lon)))
-    if pavement is None:
-        UI.vprint(1, "   [flat-site] %s: the decision carries no pavement — "
+    if held is None:
+        UI.vprint(1, "   [flat-site] %s: the decision carries no held ground — "
                      "no post of the %s keeps a cut." % (icao, what))
     centre_latitude = tile.lat + 0.5
     report = FLAT_SITE_RELIEF.restore_ground_above_flat_level(
-        tile.dem, before, pavement, z0_m,
+        tile.dem, before, held, z0_m,
         (GEO.lon_to_m(centre_latitude), GEO.lat_to_m))
     if report["restored_posts"]:
         UI.vprint(
             0,
-            "   [flat-site] %s: %.4f km2 of the %s's ground off the pavement "
+            "   [flat-site] %s: %.4f km2 of the %s's ground off the pavement and strips "
             "stood more than %g m above Z0 %.2f m (up to %.1f m) — the "
             "plateau fills, it does not cut; it keeps the real surface."
             % (icao, report["restored_km2"], what,
@@ -7827,7 +7827,7 @@ def overlay_flat_site_insets(tile, dico_airports=None):
                    cluster.get("extent_area_km2") or 0.0, feather_m),
             )
         # #1208 (RULINGS 2026-10-26r) THE PLATEAU IS A FILL, NOT A CUT:
-        # off the airport's pavement, ground more than 0.5 m above Z0
+        # off the airport's pavement and runway strips, ground more than 0.5 m above Z0
         # keeps the real surface.
         airport_entry["fill_only"] = _keep_ground_above_flat_level(
             tile, relief_before, record, substitution["z0_m"], icao)

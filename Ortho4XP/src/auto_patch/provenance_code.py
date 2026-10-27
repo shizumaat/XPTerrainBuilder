@@ -653,6 +653,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.law.reference_code",
     "auto_patch_v2.law.role_cap_schema",
     "auto_patch_v2.law.runway_ends_schema",
+    "auto_patch_v2.law.runway_strip",
     "auto_patch_v2.law.tables",
     "auto_patch_v2.law.terrace_schema",
     "auto_patch_v2.law.tunnel_object_schema",

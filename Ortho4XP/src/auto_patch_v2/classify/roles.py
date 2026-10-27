@@ -97,9 +97,8 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from ..law import Law
-from ..law.reference_code import runway_status
-from ..law.tables import (is_value_role, role_side, snap_margin_m,
-                          runway_safety_area_length_m, zone2_half_width_m)
+from ..law.runway_strip import strip_band
+from ..law.tables import is_value_role, role_side, snap_margin_m
 from ..model.airport import Airport
 from ..model.frame import XY
 from ..model.planar import is_late_ref, is_osm_ribbon_ref   # 30e (6): the ribbon ref; §52, §53
@@ -1470,49 +1469,16 @@ def _runway_shoulder(face: Polygon, rw_edges, rules: Rules):
 
 
 def shoulder_band(rw, law: Law, *, end_cap: bool = True):
-    """§40 (5) (1) THE RUNWAY'S GRADED STRIP AS A BAND about its
-    CENTRELINE (Fable 2026-09-15; owner RULINGS 2026-09-15az) — the
-    region a pavement cell must lie inside to be the runway's, or
-    ``None`` where the law states no strip for the class.
-
-    ONE derivation, ONE number: the axis is the apt.dat ends (the same
-    two points ``constraints/strips`` and ``law/approach_corridor`` read,
-    never the emitted rings), and the half width is
-    ``law.tables.zone2_half_width_m("runway", code)`` — ICAO Annex 14's
-    graded strip by code number, the FAA RSA table under an FAA ruleset,
-    read through the same function ``planar/zones``, ``planar/structures``
-    and ``tools/check_grade`` read.
-
-    THE END CAP (§40 (5) as ruled 2026-09-15bl, r2): the graded strip does
-    not stop at the threshold — ``constraints/strips.runway_groups`` and
-    ``planar/shapes.strip_keepout`` both run it
-    ``ruleset.end_skirt.corridor_length_m`` beyond each end (ICAO Annex 14
-    §3.5.3 by code number), and the shoulder band IS that strip, so the
-    axis is extended by the same law number at both ends before the flat
-    cap.  One derivation, one number: ``CodeTable.value`` on the runway's
-    own code, never a literal here.  ``end_cap=False``
-    (``corridor.runway_shoulder_band_end_cap``) restores the flat cap at
-    the apt.dat ends — r2's matched-pair variable.
+    """§40 (5) (1) THE RUNWAY'S GRADED STRIP AS A BAND — the region a
+    pavement cell must lie inside to be the runway's, or ``None`` where
+    the law states no strip for the class.  ONE derivation,
+    :func:`law.runway_strip.strip_band` (DEM prep's flat-site decision
+    reads the same band, #1208).
 
     §40 (5) bounds §40 (1), it does not reverse it: a cell that shares
     ``runway_shoulder_shared_m`` with the runway ring is STILL the
     runway's — but only the part of it in here."""
-    status = runway_status(rw)
-    hw = zone2_half_width_m(law, "runway", rw.code_number, rw.code_letter, status)
-    if not hw or hw <= 0.0:
-        return None
-    a, b = rw.ends[0].xy, rw.ends[1].xy
-    if a == b:
-        return None
-    if end_cap:
-        # the RSA length from the runway END (owner RULINGS 2026-10-15c (2))
-        ext = runway_safety_area_length_m(law, rw.code_number, rw.code_letter, status)
-        if ext > 0.0:
-            length = math.hypot(b[0] - a[0], b[1] - a[1])
-            ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
-            a = (a[0] - ux * ext, a[1] - uy * ext)
-            b = (b[0] + ux * ext, b[1] + uy * ext)
-    return LineString([a, b]).buffer(hw, cap_style="flat")
+    return strip_band(rw, law, end_cap=end_cap)
 
 
 def _kind(face: Polygon, taxi: list[Chain], rules: Rules

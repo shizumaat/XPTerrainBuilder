@@ -17,13 +17,17 @@ build measures it as a report.
 from __future__ import annotations
 
 import dataclasses as _dc
+import math
 import os
 import typing as _t
 
 from shapely.ops import unary_union
 
 from ..law import Law
+from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
+from ..law.runway_strip import strip_band
 from ..model.frame import XY
+from . import approach as _approach
 from . import cifp as _cifp
 from . import flat_site as _flat
 from . import pack_pavement as _pack_pavement
@@ -37,12 +41,18 @@ __all__ = ["FlatSiteInputs", "site_inputs", "decide"]
 class _End:
     xy: XY
     threshold_elev_m: float | None
+    #: the end's approach class (``approach.end_approach``), which the
+    #: strip's width reads through the runway's status
+    approach: str | None = None
 
 
 @_dc.dataclass(frozen=True)
 class _Runway:
     ends: tuple[_End, _End]
     width_m: float
+    instrument: bool = False
+    code_number: int | None = None
+    code_letter: str | None = None
 
 
 @_dc.dataclass(frozen=True)
@@ -68,6 +78,26 @@ class FlatSiteInputs:
     pack_name: str = ""
 
 
+def _runway(law: Law, rw: _t.Any, i: int, recs: _t.Mapping, approaches: _t.Mapping,
+            to_xy: _t.Callable[[float, float], XY]) -> _Runway:
+    """One apt.dat runway as the detector and the strip band read it: the
+    ends' CIFP threshold elevations and approach classes (the loader's own
+    ``approach.end_approach`` reading) and the reference code."""
+    ends = []
+    for k, (_d, lat, lon, _disp, _over) in enumerate(rw.ends):
+        rec = recs[(i, k)]
+        cls, _cat = _approach.end_approach(
+            approaches.get(rec.designator) if rec is not None else None,
+            *(getattr(rw, f, (0, 0))[k]
+              for f in ("markings", "approach_lights", "tdz_lights")))
+        ends.append(_End(to_xy(lon, lat), rec.elevation_m if rec else None, cls))
+    (ax, ay), (bx, by) = ends[0].xy, ends[1].xy
+    return _Runway(tuple(ends), rw.width_m,
+                   any(is_instrument(e.approach) for e in ends),
+                   runway_code_number(law, math.hypot(bx - ax, by - ay)),
+                   runway_code_letter(law, rw.width_m))
+
+
 def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
                 apt_dat_path: str | None = None) -> FlatSiteInputs:
     """The airport as the detector reads it, from v2's own readers (module
@@ -79,12 +109,9 @@ def site_inputs(icao: str, xplane_root: str, cifp_path: str | None, law: Law,
             if cifp_path and os.path.isfile(cifp_path) else {})
     tol = float(law.tables.emit.identity.cifp_threshold_join_m)
     recs, _missing, _joins = join_cifp(icao, apt.runways, cifp, to_xy, tol)
-    runways = tuple(
-        _Runway(tuple(_End(to_xy(lon, lat),
-                           recs[(i, k)].elevation_m if recs[(i, k)] else None)
-                      for k, (_d, lat, lon, _disp, _over) in enumerate(rw.ends)),
-                rw.width_m)
-        for i, rw in enumerate(apt.runways))
+    approaches = (_cifp.read_cifp_approach_runways(cifp_path) if cifp else {})
+    runways = tuple(_runway(law, rw, i, recs, approaches, to_xy)
+                    for i, rw in enumerate(apt.runways))
     pavements = tuple(_Poly(_ring(p.rings[0], to_xy),
                             tuple(_ring(h, to_xy) for h in p.rings[1:]))
                       for p in apt.pavements)
@@ -105,9 +132,10 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
     dilated, water-cut rings the datum covers), ``gate`` (the margin-0 gate
     extent, water-cut), ``region_ll`` (the region's rings in ``(lon,
     lat)``), ``footprint_ll`` (the region before its water cut — the
-    plateau's footprint, #1144) and ``pavement`` / ``pavement_ll``
+    plateau's footprint, #1144) and ``held`` / ``held_ll``
     (apt.dat pavements ∪ runways ∪, at a substituting site, the pack's
-    draped pavement pages read from ``mod_cache_root``; margin 0:
+    draped pavement pages read from ``mod_cache_root`` and each runway's
+    graded strip, ``law.runway_strip.strip_band``; margin 0:
     the ground the plateau keeps at Z0 whatever the DEM says — elsewhere it
     only fills, ``auto_patch/flat_site_relief.py``, RULINGS 2026-10-26r).
     The bake adds ``plateau``."""
@@ -132,7 +160,7 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
 
     gate_rings = (_flat._rings(gate) if gate is not None
                   and not gate.is_empty else ())
-    pavement = land
+    held = land
     if fv.substitutes:
         # RULINGS 2026-10-27d: pavement stays flat — ALL of it the build
         # grades as pavement, the pack's draped ``.pol`` pages included.
@@ -141,12 +169,28 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
             _own_extent(site.runways, site.pavements, site.boundaries,
                         law.tables.emit.identity.dsf_pavement_admission_m),
             mod_cache_root, xplane_root)
-        if pages:
-            pavement = unary_union(([land] if land is not None else []) + pages)
+        # RULINGS 2026-10-27v (2): the runway strips stay graded, as the
+        # strip law requires — held with the pavement, not kept on the
+        # real ground.
+        strips = [b for b in (strip_band(rw, law) for rw in site.runways)
+                  if b is not None]
+        if pages or strips:
+            held = unary_union(([land] if land is not None else [])
+                               + pages + strips)
             out(f"[flat-site] {site.icao}: {len(pages)} draped pavement "
-                f"page(s) of the pack join apt.dat's pavement at Z0")
-    pavement_rings = (_flat._rings(pavement) if pavement is not None
-                      and not pavement.is_empty else ())
+                f"page(s) of the pack and {len(strips)} runway strip(s) "
+                f"join apt.dat's pavement at Z0")
+        # THE SAMPLING STENCIL: the build reads the raster bilinearly, so a
+        # held edge vertex reads the four posts around it — hold one post
+        # diagonal beyond the edge, or the strip's own outer vertices read
+        # the restored ground beside them (VHHH 07R: a strip vertex 0.6 m
+        # outside the band read 2.7 m of kept terrace).
+        post = getattr(dem, "posting_m", None)
+        step = post() if callable(post) else None
+        if held is not None and step:
+            held = held.buffer(float(step) * math.sqrt(2.0))
+    held_rings = (_flat._rings(held) if held is not None
+                  and not held.is_empty else ())
     # #1144: the plateau's FOOTPRINT — the same (pavement ∪ runways ∪
     # boundary) ⊕ margin as ``region``, but NOT water-cut: the bake cuts
     # its own water (``flat_site_mode.water_beside_site``), and the
@@ -161,9 +205,10 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
                      for o, hs in gate_rings],
                region_ll=_ll(fv.region),
                footprint_ll=_ll(footprint_rings),
-               # RULINGS 2026-10-26r: the pavement-grading cut — the only
-               # ground the plateau keeps at Z0 whatever the DEM says.
-               pavement=[[list(map(list, o)), [list(map(list, h)) for h in hs]]
-                         for o, hs in pavement_rings],
-               pavement_ll=_ll(pavement_rings))
+               # RULINGS 2026-10-27d / 27v: pavement and the runway strips
+               # — the only ground the plateau keeps at Z0 whatever the DEM
+               # says.
+               held=[[list(map(list, o)), [list(map(list, h)) for h in hs]]
+                     for o, hs in held_rings],
+               held_ll=_ll(held_rings))
     return rec

@@ -12,7 +12,8 @@ still does:
   objects, as a REPORT on ``signals["s4"]``; it never gated;
 * THE MISMATCH RULE — a record that substituted a plateau requires the
   composed DEM to carry it: the median ``|DEM − Z0|`` over the record's
-  PAVEMENT (the one ground the plateau holds at Z0 whatever the DEM says;
+  HELD ground (pavement and the runway strips — the one ground the plateau
+  holds at Z0 whatever the DEM says;
   elsewhere it only fills, RULINGS 2026-10-26r) at most
   :data:`PLATEAU_TOL_M`, and the record's frame the build's frame;
   otherwise :class:`~.dem_production.ColdDemFrame` (the frame is not the
@@ -53,13 +54,14 @@ def _region_geom(fv: FlatVerdict):
 
 
 def check_plateau(icao: str, dem: _t.Any, fv: FlatVerdict, rec: _t.Mapping) -> float | None:
-    """The median ``|DEM − Z0|`` over the record's PAVEMENT (apt.dat
-    pavements ∪ runways, margin 0 — the ground the plateau covers whole;
+    """The median ``|DEM − Z0|`` over the record's HELD ground (apt.dat
+    pavements ∪ runways ∪ the pack's pavement pages ∪ the runway strips,
+    margin 0 — the record's ``held``, the ground the plateau covers whole;
     a record without it, the GATE), or raise :class:`ColdDemFrame`.
     ``None`` when the composed DEM has no sample there to judge (nothing
     to contradict)."""
     geom = _region_geom(fv)
-    core = rec.get("pavement") or rec.get("gate")
+    core = rec.get("held") or rec.get("gate")
     if core:
         g = _region_geom(_flat.from_record({"verdict": fv.verdict, "region": core}))
         geom = g if g is not None else geom
@@ -73,7 +75,7 @@ def check_plateau(icao: str, dem: _t.Any, fv: FlatVerdict, rec: _t.Mapping) -> f
         raise ColdDemFrame(
             f"{icao}: DEM prep decided a flat site ({fv.verdict}, Z0 {fv.z0_m:.2f} m) "
             f"and baked its plateau, but the composed DEM reads a median "
-            f"{off:.2f} m off Z0 over its pavement (tolerance {PLATEAU_TOL_M} m) "
+            f"{off:.2f} m off Z0 over its held ground (tolerance {PLATEAU_TOL_M} m) "
             f"— the frame is not the one DEM prep decided on (issue #932)")
     return round(off, 4)
 

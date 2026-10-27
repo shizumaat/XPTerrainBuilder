@@ -22,15 +22,17 @@ ONLY A CUT IS UNDONE.  A post the stamp raised (honest surface below Z0 —
 the reclamation class R8-1 and 20af exist for: VHHH's 2.00 m sea fill)
 keeps Z0.
 
-PAVEMENT KEEPS ITS CUT (RULINGS 2026-10-27d: inside the boundary only
-runways and pavement stay flat).  The airport's own pavement — apt.dat
-pavements ∪ runways ∪ the pack's draped pavement pages
-(``auto_patch_v2/airport/pack_pavement.py``), margin 0, the decision
-record's ``pavement_ll`` — stays at Z0 whatever the DEM says: that is the
-cut pavement grading needs.  The boundary's grass, the margin, the
-cluster hulls and the isthmus are not pavement; grading the pavement's
-edge down to the real ground beside it is the patch's own work (its
-adjacent-ground zones).
+PAVEMENT AND THE RUNWAY STRIPS KEEP THEIR CUT (RULINGS 2026-10-27d:
+inside the boundary only runways and pavement stay flat; 2026-10-27v (2):
+the runway strips stay graded as the strip law requires).  The decision
+record's ``held_ll`` — apt.dat pavements ∪ runways ∪ the pack's draped
+pavement pages (``auto_patch_v2/airport/pack_pavement.py``) ∪ each
+runway's graded strip (``auto_patch_v2/law/runway_strip.py``), margin 0 —
+stays at Z0 whatever the DEM says.  The rest of the boundary's grass, the
+margin, the cluster hulls and the isthmus keep their real ground; the
+groundside roads and pads on it grade by their own rules (2026-10-27v
+(1)), and grading the pavement's edge to the real ground beside it is the
+patch's own work (its adjacent-ground zones).
 
 It reads no file and writes nothing but the working raster.
 """
@@ -57,8 +59,8 @@ REAL_FROM_M = 2.0 * KEEP_ABOVE_M
 
 
 def site_geometry_tile_degrees(record, tile_lat: int, tile_lon: int,
-                               key: str = "pavement_ll"):
-    """The record's ``pavement_ll`` rings (or another ring list named by
+                               key: str = "held_ll"):
+    """The record's ``held_ll`` rings (or another ring list named by
     ``key`` — ``footprint_ll``, the plateau's footprint, #1144) as ONE
     tile-relative geometry, or ``None`` when the record carries none."""
     from shapely.geometry import Polygon
@@ -111,12 +113,12 @@ def snapshot_window(base_dem, rects):
     return (row_min, row_max, col_min, col_max, before)
 
 
-def restore_ground_above_flat_level(base_dem, snapshot, pavement, z0_m: float,
+def restore_ground_above_flat_level(base_dem, snapshot, held, z0_m: float,
                                     metres_per_degree=None) -> dict:
     """Undo the plateau's cut on ground standing above Z0 (module doc).
 
     ``snapshot`` is :func:`snapshot_window`'s answer taken before the
-    airport's bakes; ``pavement`` the airport's own pavement
+    airport's bakes; ``held`` the ground held at Z0
     (:func:`site_geometry_tile_degrees`), which is never touched (``None``:
     no post is exempt).  ``metres_per_degree`` — ``(lon_m, lat_m)`` —
     only sizes the report.
@@ -145,13 +147,13 @@ def restore_ground_above_flat_level(base_dem, snapshot, pavement, z0_m: float,
         return report
     x_step = (base_dem.x1 - base_dem.x0) / (base_dem.nxdem - 1)
     y_step = (base_dem.y1 - base_dem.y0) / (base_dem.nydem - 1)
-    if pavement is not None:
+    if held is not None:
         from shapely import contains_xy
 
         xs = base_dem.x0 + (cols + col_min) * x_step
         ys = base_dem.y1 - (rows + row_min) * y_step
-        on_pavement = contains_xy(pavement, xs, ys)
-        weight[rows[on_pavement], cols[on_pavement]] = 0.0
+        on_held = contains_xy(held, xs, ys)
+        weight[rows[on_held], cols[on_held]] = 0.0
     restored = weight > 0.0
     if not numpy.any(restored):
         return report

@@ -96,6 +96,7 @@ import O4_Qt_Settings as QTSET
 import O4_Qt_Wizard as QTWIZ
 import O4_Qt_Boundary_Dialog as QTBOUND
 import O4_Qt_Build_History as QTHIST
+import O4_Qt_Build_Airports as QTAIRPORTS
 import O4_Qt_Pack_Art as QTART
 import O4_Qt_Tile_Failures as QTFAIL
 import O4_Qt_Link_Fix as QTLINK
@@ -1259,6 +1260,12 @@ class MainWindow(QMainWindow):
         # its width — the scroll-area oscillation the class avoids.
         self.build_summary = TwoLineElidedLabel("No tiles selected")
         bg.addWidget(self.build_summary)
+        # The headline (#818): grading and object fitting, per build.
+        self.airports_card = QTAIRPORTS.AirportsCard()
+        self.airports_card.on_card_changed = self._update_build_summary
+        self.chk_grade_airports = self.airports_card.chk_grade
+        self.chk_modify_airports = self.airports_card.chk_fit
+        bg.addWidget(self.airports_card)
         # The BUILD imagery source, first in the box as in the Mac app's
         # BuildPane (#1243); the detail level lives in Settings (#1242).
         # Label + combo row: the label PREFERS its full text but yields
@@ -1292,23 +1299,16 @@ class MainWindow(QMainWindow):
         self.selection_conflict_btn.setVisible(False)
         _never_widen(self.selection_conflict_btn)
         bg.addWidget(self.selection_conflict_btn)
-        self.chk_vector = QCheckBox(GLOSSARY.TERMS["terrain_steps"])
-        self.chk_vector.setChecked(True)
-        self.chk_imagery = QCheckBox(GLOSSARY.TERMS["imagery_and_scenery_file"])
-        self.chk_imagery.setChecked(True)
-        self.chk_overlays = QCheckBox(GLOSSARY.TERMS["xplane_objects"])
-        self.chk_skip_built = QCheckBox("Skip already-built tiles")
-        self.chk_skip_built.setChecked(True)
-        # Auto-install (mac-app parity: BuildPane's "Install finished
-        # tiles automatically", BuildModel.linkTiles): every tile that
-        # finishes OK is linked into Custom Scenery as it lands, so a
+        # "When it's done", then the plumbing collapsed under Advanced
+        # (#818) — the Mac app's BuildPane order
+        # (tests/test_qt_layout_parity.py).
+        done_label = QLabel("When it's done")
+        done_label.setStyleSheet("color: gray; font-weight: bold;")
+        bg.addWidget(done_label)
+        # Auto-install (mac-app parity: BuildModel.linkTiles): every tile
+        # that finishes OK is linked into Custom Scenery as it lands, so a
         # batch is flyable the moment it ends.  Default ON, as there.
-        # Short label by necessity: the panel is a fixed 280 px with its
-        # horizontal scrollbar off, and a checkbox cannot elide — the mac
-        # app's "Install finished tiles automatically" would clip.  Every
-        # checkbox here is _never_widen'd below, so a wide platform font
-        # clips ONE label instead of clipping the whole panel.
-        self.chk_auto_install = QCheckBox("Auto-install finished tiles")
+        self.chk_auto_install = QCheckBox("Install in X-Plane automatically")
         self.chk_auto_install.setChecked(
             bool(self.prefs.get(AUTO_INSTALL_KEY, True))
         )
@@ -1318,42 +1318,38 @@ class MainWindow(QMainWindow):
             "with the 'Installed in X-Plane' switch above."
         )
         self.chk_auto_install.toggled.connect(self._auto_install_changed)
-        # Global engine gate (cfg var modify_custom_airports): whether the
-        # auto-patch pass may reseat 3-D objects of installed custom
-        # airport packs onto the rebuilt ground.
-        import O4_Config_Utils as CFG
-
-        self.chk_modify_airports = QCheckBox(GLOSSARY.TERMS["fit_buildings"])
-        self.chk_modify_airports.setChecked(
-            bool(getattr(CFG, "modify_custom_airports", True))
-        )
-        self.chk_modify_airports.setToolTip(
-            "Reseats the 3-D objects of custom airport packages in Custom "
-            "Scenery at the new ground elevation this build produces "
-            "(edited in place, originals kept as .anchor_bak backups).\n"
-            "Unchecked, installed packages are left byte-identical — "
-            "objects at reprofiled airports may float or sink."
-        )
-        self.chk_modify_airports.toggled.connect(
-            self._modify_custom_airports_changed
-        )
-        # The Mac app's BuildPane order (tests/test_qt_layout_parity.py).
-        for c in (
-            self.chk_vector,
-            self.chk_imagery,
-            self.chk_overlays,
-            self.chk_modify_airports,
-            self.chk_skip_built,
-            self.chk_auto_install,
-        ):
+        self.chk_skip_built = QCheckBox("Skip tiles already built")
+        self.chk_skip_built.setChecked(True)
+        self.advanced_toggle = QToolButton()
+        self.advanced_toggle.setText("▸ Advanced")
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.setAutoRaise(True)
+        self.advanced_box = QWidget()
+        advanced = QVBoxLayout(self.advanced_box)
+        advanced.setContentsMargins(12, 0, 0, 0)
+        self.chk_vector = QCheckBox(GLOSSARY.TERMS["terrain_steps"])
+        self.chk_vector.setChecked(True)
+        self.chk_imagery = QCheckBox(GLOSSARY.TERMS["imagery_and_scenery_file"])
+        self.chk_imagery.setChecked(True)
+        self.chk_overlays = QCheckBox(GLOSSARY.TERMS["xplane_objects"])
+        for c in (self.chk_vector, self.chk_imagery, self.chk_overlays):
+            _never_widen(c)
+            advanced.addWidget(c)
+        self.advanced_box.setVisible(False)
+        self.advanced_toggle.toggled.connect(self._advanced_toggled)
+        for c in (self.chk_auto_install, self.chk_skip_built):
             # A QCheckBox neither wraps nor elides, so its label width is
             # a hard floor under the panel — and the floor grows with the
-            # platform font (the Windows runner measures 1.5x the mac's,
-            # where "Auto-install finished tiles" alone wants 348 px of a
-            # 266 px viewport).  Ignored policy keeps the box at whatever
-            # width the panel has, clipping its own tail at worst.
+            # platform font (the Windows runner measures 1.5x the mac's).
+            # Ignored policy keeps the box at whatever width the panel
+            # has, clipping its own tail at worst.
             _never_widen(c)
             bg.addWidget(c)
+        bg.addWidget(self.advanced_toggle)
+        bg.addWidget(self.advanced_box)
+        for c in (self.chk_grade_airports, self.chk_modify_airports,
+                  self.chk_auto_install, self.chk_skip_built,
+                  self.chk_vector, self.chk_imagery, self.chk_overlays):
             c.toggled.connect(self._schedule_plan_estimate)
         self.imagery_combo.currentTextChanged.connect(
             self._schedule_plan_estimate)
@@ -1860,6 +1856,8 @@ class MainWindow(QMainWindow):
             self._seed_paths_from_xplane()
             self._load_airports_async()
         self.refresh_tiles()
+        # Settings hold the Airports card's defaults (#818).
+        self.airports_card.refresh_switches()
         self._refresh_customized_tiles()
         if dialog.tile_written:
             self._active_changed(self.map.active_tile())
@@ -2731,7 +2729,9 @@ class MainWindow(QMainWindow):
         if not n:
             self.build_summary.setText("No tiles selected")
         else:
-            summary_text = "%d tile%s selected" % (n, "s" if n > 1 else "")
+            summary_text = "%d tile%s%s" % (
+                n, "s" if n > 1 else "",
+                QTAIRPORTS.summary_suffix(self.airports_card.card))
             try:
                 import O4_Airport_Elevation_Insets as ELEVATION_PROVIDERS
 
@@ -2749,6 +2749,11 @@ class MainWindow(QMainWindow):
                 summary_text += " · %d in current run" % in_run
             self.build_summary.setText(summary_text)
         self._refresh_selection_conflict_offer(sel)
+        cells = sorted(tuple(t) for t in sel)
+        if cells != getattr(self, "_airports_card_cells", None):
+            # The Airports card follows the selection (#818).
+            self._airports_card_cells = cells
+            self.airports_card.request(cells, self.output_dir())
         self.selection_label.setText("%d selected" % n if n else "")
         if self._building and n:
             # A run is in progress: the button appends to it — counting
@@ -3048,37 +3053,10 @@ class MainWindow(QMainWindow):
         else:
             self.install_check.setToolTip("")
 
-    def _modify_custom_airports_changed(self, checked):
-        """Persist the global modify-custom-airports switch.
-
-        Gates auto_patch Phase 2 (object reseating inside installed
-        packages): the in-session CFG value covers tiles built by this
-        process; the cfg write covers parallel worker children, which
-        re-read XPTerrainBuilder.cfg from disk.
-        """
-        import O4_Config_Utils as CFG
-        import O4_Settings_Model as SM
-
-        CFG.modify_custom_airports = bool(checked)
-        try:
-            SM.write_global({"modify_custom_airports": str(bool(checked))})
-        except OSError as exc:
-            print("Could not save modify_custom_airports:", exc)
-        # WRITE-THROUGH (owner ruling RULINGS 2026-09-18a (2)): a tile cfg
-        # that still carries this key BEATS the global, so the box would
-        # go on lying about what the engine does (BETA2 GEN-1).  The
-        # active tile's override is set when it now differs and REMOVED
-        # when it equals the global — one rule, ``write_tile``'s.
-        tile = self.map.active_tile()
-        if tile is None:
-            return
-        try:
-            SM.write_tile(
-                tile[0], tile[1], self.output_dir(),
-                {"modify_custom_airports": str(bool(checked))},
-            )
-        except OSError as exc:
-            print("Could not update the tile's modify_custom_airports:", exc)
+    def _advanced_toggled(self, shown):
+        """The Build box's plumbing, collapsed by default (#818)."""
+        self.advanced_box.setVisible(bool(shown))
+        self.advanced_toggle.setText(("▾ " if shown else "▸ ") + "Advanced")
 
     def _compute_size_async(self, info):
         try:
@@ -3642,20 +3620,26 @@ class MainWindow(QMainWindow):
         if not (do_vector or do_imagery or do_overlays):
             self._status("Choose at least one build step.")
             return
+        # This press's per-build switches (#818); the card goes back to
+        # the Settings values for the next one.
+        overrides = self.airports_card.take_overrides()
 
         if self._building:
             self._queue_into_running_build(
                 todo, provider, zoomlevel,
-                do_vector, do_imagery, do_overlays)
+                do_vector, do_imagery, do_overlays, overrides)
             return
 
-        self._start_run(todo, {
+        settings = {
             "provider": provider,
             "zoomlevel": zoomlevel,
             "do_vector": do_vector,
             "do_imagery": do_imagery,
             "do_overlays": do_overlays,
-        })
+        }
+        if overrides:
+            settings["overrides"] = overrides
+        self._start_run(todo, settings)
 
     # ------------------------------------------------------------------
     # Boundary airports (spec insets-follow-patch-set-spec.md §C.7)
@@ -3870,7 +3854,9 @@ class MainWindow(QMainWindow):
             self._queue_into_running_build(
                 [tile], settings["provider"], settings["zoomlevel"],
                 settings["do_vector"], settings["do_imagery"],
-                settings["do_overlays"])
+                settings["do_overlays"],
+                **({"overrides": settings["overrides"]}
+                   if settings.get("overrides") else {}))
         else:
             self._start_run([tile], settings)
 
@@ -3923,7 +3909,8 @@ class MainWindow(QMainWindow):
             issues.show()
 
     def _queue_into_running_build(self, todo, provider, zoomlevel,
-                                  do_vector, do_imagery, do_overlays):
+                                  do_vector, do_imagery, do_overlays,
+                                  overrides=None):
         """Append a batch to the run in progress; it starts as soon as
         the orchestrator has capacity for it.
 
@@ -3934,23 +3921,26 @@ class MainWindow(QMainWindow):
             todo,
             lambda tiles, policy: self._queue_into_running_build_now(
                 tiles, provider, zoomlevel, do_vector, do_imagery,
-                do_overlays, policy))
+                do_overlays, policy, overrides))
 
     def _queue_into_running_build_now(self, todo, provider, zoomlevel,
                                       do_vector, do_imagery, do_overlays,
-                                      boundary_policy=None):
+                                      boundary_policy=None, overrides=None):
         fresh = [t for t in todo if not self._tile_in_active_run(t)]
         if not fresh:
             self._status(
                 "The selected tiles are already building or queued.")
             return
-        self._requeue_into_run(fresh, {
+        settings = {
             "provider": provider,
             "zoomlevel": zoomlevel,
             "do_vector": do_vector,
             "do_imagery": do_imagery,
             "do_overlays": do_overlays,
-        }, boundary_policy)
+        }
+        if overrides:
+            settings["overrides"] = dict(overrides)     # #818
+        self._requeue_into_run(fresh, settings, boundary_policy)
 
     def _requeue_into_run(self, tiles, settings, boundary_policy=None):
         """Queue ``tiles`` into the running build: Build, Queue, Resume and
@@ -4467,7 +4457,9 @@ class MainWindow(QMainWindow):
             self._queue_into_running_build(
                 [tile], settings["provider"], settings["zoomlevel"],
                 settings["do_vector"], settings["do_imagery"],
-                settings["do_overlays"])
+                settings["do_overlays"],
+                **({"overrides": settings["overrides"]}
+                   if settings.get("overrides") else {}))
             return
         self._start_run([tile], settings)
 
@@ -4534,7 +4526,8 @@ class MainWindow(QMainWindow):
                 self._queue_into_running_build_now(
                     todo, settings["provider"], settings["zoomlevel"],
                     settings["do_vector"], settings["do_imagery"],
-                    settings["do_overlays"], policy)
+                    settings["do_overlays"], policy,
+                    settings.get("overrides"))
                 self._start_resume_batches(rest)
         else:
             def proceed(todo, policy, settings=settings, rest=rest):

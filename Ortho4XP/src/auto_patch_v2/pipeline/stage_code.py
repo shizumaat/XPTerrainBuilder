@@ -607,6 +607,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2",
         "auto_patch_v2.airport",
         "auto_patch_v2.airport.dem",
+        "auto_patch_v2.airport.public_road",
         "auto_patch_v2.airport.road_descent",
         "auto_patch_v2.airport.road_profile",
         "auto_patch_v2.airport.road_ramp",
@@ -816,6 +817,7 @@ CODE_MODULES: dict[str, tuple[str, ...]] = {
         "auto_patch_v2.constraints.platform",
         "auto_patch_v2.constraints.precedence",
         "auto_patch_v2.constraints.proximity",
+        "auto_patch_v2.constraints.public_road_release",
         "auto_patch_v2.constraints.ramp_runout",
         "auto_patch_v2.constraints.riser",
         "auto_patch_v2.constraints.road_ramp",
@@ -1266,6 +1268,7 @@ CODE_MODULES["constraints.assembly"] = _mods("""
     constraints.pad_frontage_gs constraints.pad_fronting constraints.pad_ramp
     constraints.pad_relief constraints.pad_warning constraints.pads
     constraints.pavement_cap constraints.platform constraints.precedence
+    constraints.public_road_release
     constraints.proximity constraints.ramp_runout
     constraints.riser constraints.road_ramp
     constraints.roads constraints.routes constraints.runway_chord
@@ -1496,6 +1499,7 @@ CODE_MODULES["late_cut"] = CODE_MODULES["late_solve"] = _mods("""
     constraints.no_step constraints.pad_frontage_gs constraints.pad_fronting
     constraints.pad_ramp constraints.pad_relief constraints.pad_road_reach
     constraints.pad_warning constraints.pads constraints.pavement_cap
+    constraints.public_road_release
     constraints.platform constraints.precedence constraints.proximity
     constraints.ramp_runout
     constraints.riser constraints.road_ramp constraints.roads constraints.routes
@@ -1577,6 +1581,7 @@ CODE_MODULES["emit"] = _mods("""
     airport.placement_read airport.placement_record
     airport.placement_seams airport.placement_seat_tilt airport.placement_targets
     airport.pool airport.rebake_plan airport.rebake_screen airport.riders
+    airport.public_road
     airport.road_descent airport.road_profile airport.road_ramp airport.road_stations
     airport.road_ways airport.scatter airport.sheet_chain airport.skirt airport.slab_faces
     airport.ring_contact_batch

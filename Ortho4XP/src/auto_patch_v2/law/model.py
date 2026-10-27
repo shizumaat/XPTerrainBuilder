@@ -770,6 +770,11 @@ class RoadProfile:
     #: ``railway:<value>``).  A class absent here takes the core's
     #: ``road_grade_limit``.
     class_caps: _t.Mapping[str, float]
+    #: OWNER RULINGS 2026-10-22h: the PUBLIC classes (``highway`` values)
+    #: whose in-band segments follow the terrain up to ``cap_ceiling``
+    #: (``O4_Vector_Utils.road_inside_cap``); every other class keeps the
+    #: patch's ``road_grade_limit``
+    public_classes: tuple[str, ...] = ()
 
 
 @_dc.dataclass(frozen=True)

@@ -1861,7 +1861,16 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
         report["terrace_walled"] = len(terr.get("walled", {}))
         report["wall_terraces"] = len(terr.get("wall", {}))
         report["terrace_below_wall"] = len(below)
+    # OWNER RULINGS 2026-10-22h (#1254): the public-road faces whose own
+    # target runs over the road cap — the rows yield there
+    # (``constraints/public_road_release``) and the census lifts them
+    from .public_road import public_road_faces, public_road_lifts
+    lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), targets)
+    if report is not None:
+        report["public_road_lifted"] = len(lifted)
+        report["public_road_steepest"] = max(lifted.values(), default=0.0)
     return _dc.replace(pm, road_ramp_z=targets, road_route_frame=frame,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,
-                       road_between_levels=bl, road_terrace=terr)
+                       road_between_levels=bl, road_terrace=terr,
+                       public_road_lifted=lifted)

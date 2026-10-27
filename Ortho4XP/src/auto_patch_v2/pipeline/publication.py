@@ -193,6 +193,12 @@ def lifted_caps(planar: PlanarMap) -> dict[int, float]:
         int(fid): float(rec[2])
         for fid, rec in (getattr(planar, "pad_road_released", None) or {}).items()
         if fid in planar.faces}
+    # 22h (#1254): a public road on terrain steeper than the road cap is the
+    # same thing again — its rows yielded to its target
+    # (``constraints/public_road_release``), on its own faces only
+    for fid, g in (getattr(planar, "public_road_lifted", None) or {}).items():
+        if fid in planar.faces:
+            out[int(fid)] = max(out.get(int(fid), 0.0), float(g))
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
         return out
@@ -230,6 +236,12 @@ def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
         [int(fid), f"pad:{rec[0]}", str(planar.faces[fid].ref),
          round(float(rec[1]), 3), round(float(rec[2]), 6)]
         for fid, rec in sorted(released.items()) if fid in planar.faces]
+    # 22h: a public road's record names the TERRAIN it follows
+    public = getattr(planar, "public_road_lifted", None) or {}
+    out += [[int(fid), "terrain", str(planar.faces[fid].ref), 0.0,
+             round(float(g), 6)]
+            for fid, g in sorted(public.items())
+            if fid in planar.faces and fid not in released]
     pin = {tn.id: tn.pinched for tn in planar.structures if tn.pinched}
     if not pin:
         return out
@@ -237,7 +249,7 @@ def _lifted_records(planar: PlanarMap) -> list[list[_t.Any]]:
     from shapely.geometry import LineString, Point
     axes = {tn.id: LineString(tn.axis) for tn in planar.structures
             if len(tn.axis) >= 2}
-    for fid in sorted(set(caps) - set(released)):
+    for fid in sorted(set(caps) - set(released) - set(public)):
         vs = planar.ring_vertices(planar.faces[fid].ring)
         cx = sum(planar.vertices[v].xy[0] for v in vs) / len(vs)
         cy = sum(planar.vertices[v].xy[1] for v in vs) / len(vs)

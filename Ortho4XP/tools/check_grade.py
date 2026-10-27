@@ -7916,6 +7916,13 @@ def _check_pavement_over_road_cap(ways, nodes, ll_to_m,
                 (getattr(wa, "tags", None) or {}).get("ref"),
                 (getattr(wb, "tags", None) or {}).get("ref")):
             return
+        # §34 (9) / 13e / 22h THE LIFT: a pair whose ways both carry
+        # ``o4_grade_law_cap_lifted`` (a released pad road, a public road on
+        # terrain steeper than the road cap) is priced at "whatever grade the
+        # span requires" — the engine widened this very pair
+        # (``constraints/public_road_release``, ``pad_road_reach``)
+        if _lifted_cap_tag(wa) is not None and _lifted_cap_tag(wb) is not None:
+            return
         noise = max(_pair_quant_noise_m(wa), _pair_quant_noise_m(wb))
         de = abs(za - zb)
         # spec §55 (15) rule B: two last-stage unknowns answer to the

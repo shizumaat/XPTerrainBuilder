@@ -28,7 +28,7 @@ from ..law.tables import role_cap
 from ..model.airport import Airport
 from ..model.planar import OSM_RIBBON_FEEDS, PlanarMap, is_osm_ribbon_ref
 
-__all__ = ["public_road_faces", "public_road_lifts"]
+__all__ = ["public_road_faces", "public_road_lifts", "public_routes"]
 
 
 def _way_key(ref: str) -> str:
@@ -83,4 +83,28 @@ def public_road_lifts(pm: PlanarMap, law: Law, faces: _t.Iterable[int],
                     worst = max(worst, abs(targets[a] - targets[b]) / d)
         if worst > cap:
             out[int(fid)] = round(worst, 6)
+    return out
+
+
+def public_routes(route_ways: _t.Mapping[int, _t.Any], law: Law,
+                  airport: Airport) -> dict[int, str]:
+    """Route id -> its OSM way's ref (``osm:<id>``), for every route of
+    §37 (7)'s frame whose way is a mapped road of a public class.
+
+    OWNER RULINGS 2026-10-27f (Q186): a pair across a JUNCTION MOUTH
+    between two DIFFERENT public roads is the minor road's longitudinal
+    grade into the major road's kerb, never a 2 % cross-section.  The frame
+    names the route; this names the road the route belongs to, so the one
+    pair reading (``constraints/roads.road_pair_reading``) can tell two
+    roads from one carriageway (two route parts of ONE way share a ref)."""
+    public = frozenset(law.tables.emit.road_profile.public_classes)
+    if not public:
+        return {}
+    cls = {str(w.id) for w in getattr(airport, "osm_ways", ()) or ()
+           if (getattr(w, "tags", None) or {}).get("highway") in public}
+    out: dict[int, str] = {}
+    for r, w in route_ways.items():
+        ref = str(getattr(w, "ref", ""))
+        if getattr(w, "kind", "") == "osm" and ref.split(":", 1)[-1] in cls:
+            out[int(r)] = ref
     return out

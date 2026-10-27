@@ -703,6 +703,13 @@ class PlanarMap:
     #: by ``constraints/public_road_release`` (the rows yield) and
     #: ``pipeline/publication.lifted_caps`` (the census lift)
     public_road_lifted: _t.Mapping[int, float] = _dc.field(default_factory=dict)
+    #: OWNER RULINGS 2026-10-27f (Q186): route id (``road_route_frame``) ->
+    #: the ref of the PUBLIC OSM road it belongs to
+    #: (``airport/public_road.public_routes``); a route of no public road is
+    #: absent.  Published as the sixth field of each ``road_route_frame``
+    #: record, so every reader of ``constraints/roads.road_pair_reading``
+    #: tells a junction mouth from one carriageway the same way
+    road_public_routes: _t.Mapping[int, str] = _dc.field(default_factory=dict)
     #: THE TILE-SEAM BANDS (§38 (3); owner RULINGS 2026-09-13ah/13am), as
     #: frame polygon rings — the SINGLE derivation is
     #: ``planar/overlay.seam_bands``, recorded here so every downstream

@@ -955,7 +955,10 @@ def _road_frame_by_nid(nodes: Dict[str, Tuple[float, float]],
             continue
         nid = idx.get((round(float(la), 7), round(float(lo), 7)))
         if nid is not None:
-            out[nid] = (int(route), float(st), float(t))
+            # 27f (Q186): the sixth field names the public road — the
+            # engine's junction-mouth reading (``road_pair_reading``)
+            way = (str(rec[5]) or None) if len(rec) > 5 else None
+            out[nid] = (int(route), float(st), float(t), way)
     return out
 
 

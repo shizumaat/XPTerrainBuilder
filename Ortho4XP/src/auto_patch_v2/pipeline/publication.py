@@ -654,8 +654,12 @@ def publication(planar: PlanarMap, law: Law, airport: Airport,
             # they read this and apply ``constraints.roads
             # .road_pair_reading``, the one rule.  Empty on a map whose
             # publisher never ran: every reader keeps the chord law.
+            # 27f (Q186): a SIXTH field names the public road the route
+            # belongs to ("" for none) — the junction-mouth reading
             "road_route_frame": [[ll[v][0], ll[v][1], int(r),
-                                  round(float(st), 4), round(float(t), 4)]
+                                  round(float(st), 4), round(float(t), 4),
+                                  str((getattr(planar, "road_public_routes", None)
+                                       or {}).get(int(r), ""))]
                                  for v, (r, st, t)
                                  in sorted(planar.road_route_frame.items())],
             # §37 (9) THE COVERAGE-EDGE JOIN (owner RULINGS 2026-09-13be):

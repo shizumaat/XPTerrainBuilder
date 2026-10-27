@@ -784,6 +784,7 @@ def road_ramp_targets(pm: PlanarMap, law: Law, airport: Airport,
     dem_prof, per_face_dem = _dem_twin(prof_f, per_face_f)
     frame, frep = road_route_frame(pm, law, airport, (prof_f, per_face_f))
     ways = frep.pop("_ways")
+    rep["_route_ways"] = ways          # 27f: the road each route belongs to
     rep["no_route"] = frep["no_route"]
     rep["merged_routes"] = frep.get("merged_routes", 0)
     rep["merged_pairs"] = frep.get("merged_pairs", [])
@@ -1793,6 +1794,7 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     contact = tg.report.pop("_contact_edge", {})
     gaps = tg.report.pop("_contact_gap", {})
     merged = tg.report.pop("_merged", frozenset())
+    route_ways = tg.report.pop("_route_ways", {})
     # §37 (10) (1) AT THE MOUTH THE LEVEL IS THE AIRSIDE'S, AND ONLY THE
     # AIRSIDE'S.  A road END that takes a reach contact carries the §37 (6)
     # ramp target too — the clamp of its own terrain, which at HECA
@@ -1864,8 +1866,11 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
     # OWNER RULINGS 2026-10-22h (#1254): the public-road faces whose own
     # target runs over the road cap — the rows yield there
     # (``constraints/public_road_release``) and the census lifts them
-    from .public_road import public_road_faces, public_road_lifts
+    from .public_road import public_road_faces, public_road_lifts, public_routes
     lifted = public_road_lifts(pm, law, public_road_faces(pm, law, airport), targets)
+    # 27f (Q186): the public road each route belongs to — the junction mouth
+    # between two of them is the minor road's longitudinal grade
+    pub_routes = public_routes(route_ways, law, airport)
     if report is not None:
         report["public_road_lifted"] = len(lifted)
         report["public_road_steepest"] = max(lifted.values(), default=0.0)
@@ -1873,4 +1878,4 @@ def with_road_ramp(pm: PlanarMap, law: Law, airport: Airport,
                        road_contact_edge=contact, road_route_merged=merged,
                        road_reach_seed=seed, preferred_z=keep,
                        road_between_levels=bl, road_terrace=terr,
-                       public_road_lifted=lifted)
+                       public_road_lifted=lifted, road_public_routes=pub_routes)

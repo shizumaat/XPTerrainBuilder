@@ -81,6 +81,12 @@ retaining_wall_thick_width_per_height = 0.5
 retaining_wall_step_min_fraction = 0.75
 retaining_wall_step_max_fraction = 1.25
 retaining_wall_step_ring_m    = 3.0
+# RULINGS 2026-10-20ak / 20ax / 20ba (#1158): PAVEMENT NEVER CROSSES A PACK
+# RETAINING WALL.  A wall that retains its own height and stands taller
+# than this — the owner's clear elevation step, "more than 2 m of elevation
+# change in less than 3 m" — cuts every pavement polygon it crosses at its
+# outline, each side its own shape (classify/wall_clip).
+retaining_wall_clear_step_m   = 2.0
 
 [osm_roads]                    # OSM highway=* ways as ground-vehicle centrelines beside the 1206 routes (RULINGS 2026-08-15: the mapped road IS the spine where nothing better exists; owner 2026-09-04j evidence)
 enabled   = true

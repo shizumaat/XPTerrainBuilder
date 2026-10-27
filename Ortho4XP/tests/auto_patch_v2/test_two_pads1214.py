@@ -23,7 +23,7 @@ def _wall(x0, y0, x1, y1, y, n=8):
     ring = ((y0, x0), (y0, x1), (y1, x1), (y1, x0))
     feet = tuple((y0 + 0.1, x0 + (x1 - x0) * (i + 0.5) / n, y) for i in range(n))
     return types.SimpleNamespace(lon=0.5 * (x0 + x1), lat=0.5 * (y0 + y1), base_y=y,
-                                 rings=(ring,), feet=feet, line=False, height_m=6.0)
+                                 rings=(ring,), feet=feet, line=False, height_m=6.0, comp=0)
 
 
 def _airport(parts, tmp_path, ground=lambda x, y: 300.0):
@@ -31,7 +31,8 @@ def _airport(parts, tmp_path, ground=lambda x, y: 300.0):
     nav.write_text("I\n1100 Version\n\n1 1000 0 0 ZZZZ Test\n"
                    "1300 101.0 100.0 90.0 gate jets A1\n\n99\n", encoding="utf-8",
                    newline="")
-    unit = types.SimpleNamespace(members=[types.SimpleNamespace(parts=parts)])
+    unit = types.SimpleNamespace(
+        members=[types.SimpleNamespace(parts=parts, resource="stub.obj", id="m0")])
     return types.SimpleNamespace(
         icao="ZZZZ", pack=types.SimpleNamespace(apt_dat_path=str(nav)),
         partition=types.SimpleNamespace(units=[unit]),

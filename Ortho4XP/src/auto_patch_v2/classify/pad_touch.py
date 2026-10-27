@@ -44,6 +44,7 @@ from shapely.strtree import STRtree
 from ..law import Law
 
 __all__ = ["EVIDENCE_KEY", "HELD_KEY", "WELD_KEY", "STRIP_KEY", "is_rim_strip", "dem_step_m", "gridded",
+           "source_weld_partners",
            "is_held_step", "is_touching", "part_evidence", "touch_distances",
            "touch_limit_m", "touch_records", "weld_partners"]
 
@@ -206,6 +207,31 @@ def weld_partners(cell: _t.Any, law: Law) -> list[str]:
     held = set(ev.get(HELD_KEY, ()))
     return [ref for ref, d in (ev.get(EVIDENCE_KEY) or {}).items()
             if is_touching(law, d) and ref not in held]
+
+
+def source_weld_partners(poly: Polygon, pads: _t.Sequence[tuple[str, Polygon]],
+                         airside, dem, law: Law) -> list[str]:
+    """The pads a SOURCE polygon would be WELDED to (Rule W), read before
+    there are cells: Rule T's touching pads (``pads``: ``(ref, polygon)``
+    as drawn, both put on the identity grid here) less the ones §28 (6)
+    holds off as a hillside terrace — the verdict
+    ``roles._cut_back_groundside`` takes on the cell, on the source.
+    ``airside``: the airside pavement already widened by the frontage
+    radius, or ``None``."""
+    from ..law.tables import snap_margin_m
+    grid = float(law.tables.emit.identity.min_distinct_spacing_m)
+    gp = [(ref, gridded(q, grid)) for ref, q in pads]
+    g = gridded(poly, grid)
+    knife_m = float(law.tables.structures.building_pad.groundside_cutback_m) + snap_margin_m(law)
+    of = dict(gp)
+    out = []
+    for ref, d in touch_distances([g], gp, law)[0].items():
+        if not is_touching(law, d):
+            continue
+        knife = of[ref].buffer(knife_m, join_style="mitre", mitre_limit=2.0)
+        if not is_held_step(law, dem_step_m(g, of[ref], knife, airside, dem, law)):
+            out.append(ref)
+    return out
 
 
 def touch_records(cells: _t.Iterable[_t.Any], law: Law

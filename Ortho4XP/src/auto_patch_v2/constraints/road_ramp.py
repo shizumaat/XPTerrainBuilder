@@ -446,6 +446,9 @@ def reach_seed_rewrite(planar: PlanarMap, law: Law, cs: ConstraintSet,
     # read on stage 1's airside (``constraints/group_level``)
     from .group_level import group_level_rewrite
     cs, rep["group_level"] = group_level_rewrite(planar, law, cs, levels)
+    free = rep["group_level"].pop("free", None)
+    if free:
+        rep["stage2_free"] = free
     return cs, rep
 
 

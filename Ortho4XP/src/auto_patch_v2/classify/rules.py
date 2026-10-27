@@ -91,6 +91,9 @@ class Service:
     retaining_wall_step_min_fraction: float = 0.75
     retaining_wall_step_max_fraction: float = 1.25
     retaining_wall_step_ring_m: float = 3.0
+    #: RULINGS 2026-10-20ba (#1158): a retaining wall taller than this cuts
+    #: the pavement it crosses (``classify/wall_clip``)
+    retaining_wall_clear_step_m: float = 2.0
 
 
 @_dc.dataclass(frozen=True)

@@ -2714,7 +2714,10 @@ def replay(pkl: Path, resume: str, drop: list[str], json_out: Path | None,
             # the materiality floor is a census violation, never an abort
             _defects, _under = defect_gate(law, vrows)
             result["verify"] = {"by_family": summary, "defects": _defects,
-                                "defects_under_floor": _under}
+                                "defects_under_floor": _under,
+                                # every row, for ``--json`` (an A/B reads WHERE
+                                # a family moved, not only how many)
+                                "rows": {k: list(v) for k, v in vrows.items() if v}}
             print(f"    verify {time.perf_counter() - t:.1f} s: {sum(summary.values())} rows  "
                   + ", ".join(f"{k} {n}" for k, n in sorted(summary.items())))
             print(f"    verify DEFECT families ({', '.join(DEFECT_KEYS)}): "

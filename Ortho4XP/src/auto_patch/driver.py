@@ -332,7 +332,8 @@ def _cifp_files_for(cifp_file: str | None, xp_root: str | None,
 
 def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
                           apt_dat_path: str | None,
-                          cifp_file: str | None) -> dict:
+                          cifp_file: str | None, *,
+                          imagery_paths: tuple = ()) -> dict:
     """Today's value for every freshness stamp the DRIVER can compute.
 
     The DSF stamps are NOT here: on the emit side they come from what the
@@ -368,13 +369,24 @@ def _freshness_stamps_now(tile, xp_root: str | None, icao: str,
         # v1 is retired (2026-09-13au) so this is now the constant "v2",
         # and a patch a v1 build left behind never reads as current.
         "o4_ap_engine": _engine_v2.resolved_auto_patch_engine(tile),
+        # THE AIRPORT'S OWN PHOTOS the terrain witness read (#1359, owner
+        # RULINGS 2026-10-26y): a provider, zoom or texture change rebuilds
+        "o4_imagery": _prov.imagery_identity(imagery_paths),
     }
+
+
+def _imagery_of(airport_imagery: dict | None, icao: str) -> tuple:
+    """The airport's photo paths in ``airport_imagery`` (its key is the
+    airports dictionary's: the ICAO in either case)."""
+    got = (airport_imagery or {}).get(icao) or (airport_imagery or {}).get(icao.lower())
+    return tuple(sorted(got or ()))
 
 
 def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
                             icao: str, *, tile=None,
                             cifp_file: str | None = None,
-                            apt_dat_now: str | None = None
+                            apt_dat_now: str | None = None,
+                            imagery_paths: tuple = ()
                             ) -> list[tuple[str, object, object]]:
     """Every recorded build input (inputs 1-7 of
     :func:`_auto_patch_is_current`) whose value TODAY differs from the one
@@ -452,7 +464,8 @@ def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
 
     # ── Inputs 2-7 ────────────────────────────────────────────────────────
     stamped = meta.get("freshness") or {}
-    live = _freshness_stamps_now(tile, xp_root, icao, apt_now, cifp_file)
+    live = _freshness_stamps_now(tile, xp_root, icao, apt_now, cifp_file,
+                                 imagery_paths=imagery_paths)
     live["o4_dsf"] = _dsf_identities_now(
         apt_now, stamped.get("o4_dsf_tiles", "?"))
     from . import provenance as _prov
@@ -464,7 +477,8 @@ def auto_patch_stale_inputs(meta: dict, patch_file: str, xp_root: str,
 def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
                            icao: str, *, tile=None,
                            cifp_file: str | None = None,
-                           apt_dat_now: str | None = None) -> bool:
+                           apt_dat_now: str | None = None,
+                           imagery_paths: tuple = ()) -> bool:
     """True when an existing auto-patch can be reused as-is.
 
     Reuse requires that EVERY input which can change the emitted patch is
@@ -551,7 +565,8 @@ def _auto_patch_is_current(auto_patch_file: str, xp_root: str,
         return False
     stale = auto_patch_stale_inputs(meta, auto_patch_file, xp_root, icao,
                                     tile=tile, cifp_file=cifp_file,
-                                    apt_dat_now=apt_dat_now)
+                                    apt_dat_now=apt_dat_now,
+                                    imagery_paths=imagery_paths)
     if stale:
         key, was, now = stale[0]
         _rebuild_reason(icao, key)
@@ -1509,7 +1524,8 @@ def generate_auto_patches(tile, cifp_path: str,
                           dico_airports: dict | None = None,
                           road_data=None,
                           mode: str = "ICAO",
-                          stale_road_feeds=()) -> list[str]:
+                          stale_road_feeds=(),
+                          airport_imagery: dict | None = None) -> list[str]:
     """Generate auto-patch files for all CIFP airports within a tile.
 
     Scans the CIFP directory for airport data files, parses runway threshold
@@ -1554,6 +1570,11 @@ def generate_auto_patches(tile, cifp_path: str,
               would refuse each of them inside every airport's worker,
               so the tile says it ONCE and fails the airports that
               needed a rebuild against that one notice (issue #24).
+        airport_imagery: ``{airport: (orthophoto path, ...)}`` — the
+              airport's own photos the vector step fetched FIRST
+              (``O4_Imagery_Prefetch.fetch_airport_imagery``; #1359, owner
+              RULINGS 2026-10-26y), read by the terrain witness and stamped
+              ``o4_imagery``.
 
     Returns:
         list: ICAO codes of airports for which auto-patches were generated.
@@ -1742,9 +1763,11 @@ def generate_auto_patches(tile, cifp_path: str,
         auto_patch_file = os.path.join(
             patch_dir, "{}_auto.patch.osm".format(icao)
         )
+        imagery_paths = _imagery_of(airport_imagery, icao)
         if _auto_patch_is_current(auto_patch_file, xp_root, icao,
                                   tile=tile, cifp_file=filepath,
-                                  apt_dat_now=apt_dat_selected):
+                                  apt_dat_now=apt_dat_selected,
+                                  imagery_paths=imagery_paths):
             UI.lvprint(
                 0, "   Auto-patch:", icao,
                 "up to date (build inputs unchanged), reusing existing patch.")
@@ -1763,7 +1786,8 @@ def generate_auto_patches(tile, cifp_path: str,
         # actually read) and merged at emit time.  Only rebuilt airports pay
         # for it, including the one extra apt.dat selection.
         freshness_stamps = _freshness_stamps_now(
-            tile, xp_root, icao, apt_dat_selected, filepath)
+            tile, xp_root, icao, apt_dat_selected, filepath,
+            imagery_paths=imagery_paths)
 
         # Build runway pair data for elevation interpolation (shared by
         # taxiway and building patch generation)
@@ -1855,6 +1879,8 @@ def generate_auto_patches(tile, cifp_path: str,
             # the tile's road clamp knobs (v2 road_profile, RULINGS 04t-4)
             "road_grade_limit": getattr(tile, "road_grade_limit", None),
             "lane_width": getattr(tile, "lane_width", None),
+            # the airport's own photos (#1359, 26y), read by the witness
+            "imagery_paths": imagery_paths,
         })
 
     # ── STALE ROAD DATA IS SAID ONCE FOR THE TILE, NOT ONCE PER AIRPORT ─

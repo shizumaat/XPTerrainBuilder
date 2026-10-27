@@ -144,6 +144,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.law.runway_ends_schema",
     "auto_patch_v2.law.tables",
     "auto_patch_v2.law.terrace_schema",
+    "auto_patch_v2.law.terrain_witness_schema",
     "auto_patch_v2.law.tunnel_object_schema",
     "auto_patch_v2.law.units",
     "auto_patch_v2.model",

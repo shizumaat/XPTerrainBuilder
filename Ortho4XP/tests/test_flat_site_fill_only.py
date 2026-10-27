@@ -172,8 +172,9 @@ def test_the_pavement_stays_at_z0_whatever_the_dem_says():
 
 
 def test_the_pavement_reaches_the_bake_in_lon_lat(monkeypatch):
-    """The decision record publishes its pavement in (lon, lat) — the
-    rule's exemption — and it is the pavement, not the boundary."""
+    """The decision record publishes its held ground in (lon, lat) — the
+    rule's exemption — and it is the pavement, not the boundary (the
+    fixture's runway is a point, so it has no strip)."""
     _wire_paved(monkeypatch)
     tile = make_tile(FakeDEM(constant=LAND_BASE_M, n=1201))
     got = substitutions(tile)

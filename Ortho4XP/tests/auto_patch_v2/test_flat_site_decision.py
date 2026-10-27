@@ -209,7 +209,8 @@ class _PavedOnlyDem(_ComposedDem):
         from shapely.geometry import Point
 
         band = strip_band(_site().runways[0], Law.for_airport("ZZZZ"))
-        return Z0 if band.buffer(1.0).contains(Point(x, y)) else Z0 + 3.0
+        # the held ground is grown by one post diagonal (posting 30 m)
+        return Z0 if band.buffer(30.0 * 2 ** 0.5 + 1.0).contains(Point(x, y)) else Z0 + 3.0
 
 
 def test_the_plateau_check_reads_the_held_ground_not_the_boundary():

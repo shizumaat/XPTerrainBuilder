@@ -171,8 +171,19 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
             mod_cache_root, xplane_root)
         # RULINGS 2026-10-27v (2): the runway strips stay graded, as the
         # strip law requires — held with the pavement, not kept on the
-        # real ground.
-        strips = [b for b in (strip_band(rw, law) for rw in site.runways)
+        # real ground.  THE SAMPLING STENCIL: the build reads the raster
+        # bilinearly and emits the strip's outer edge from the pavement
+        # ring, so a strip-edge vertex can sit just outside the band and
+        # read the restored ground beside it (VHHH 07R: a zone-2 vertex
+        # 0.6 m outside the 75 m band read 2.7 m of kept terrace).  The
+        # strip is held one DEM post diagonal wider.  Pavement is NOT
+        # grown: a road beside an apron grades by its own rules on the
+        # real ground (27v (1)), and one post would hold it flat.
+        post = getattr(dem, "posting_m", None)
+        step = post() if callable(post) else None
+        grow = float(step) * math.sqrt(2.0) if step else 0.0
+        strips = [b.buffer(grow) if grow else b
+                  for b in (strip_band(rw, law) for rw in site.runways)
                   if b is not None]
         if pages or strips:
             held = unary_union(([land] if land is not None else [])
@@ -180,15 +191,6 @@ def decide(site: FlatSiteInputs, tile_dem: _t.Any, tile_lat: int, tile_lon: int,
             out(f"[flat-site] {site.icao}: {len(pages)} draped pavement "
                 f"page(s) of the pack and {len(strips)} runway strip(s) "
                 f"join apt.dat's pavement at Z0")
-        # THE SAMPLING STENCIL: the build reads the raster bilinearly, so a
-        # held edge vertex reads the four posts around it — hold one post
-        # diagonal beyond the edge, or the strip's own outer vertices read
-        # the restored ground beside them (VHHH 07R: a strip vertex 0.6 m
-        # outside the band read 2.7 m of kept terrace).
-        post = getattr(dem, "posting_m", None)
-        step = post() if callable(post) else None
-        if held is not None and step:
-            held = held.buffer(float(step) * math.sqrt(2.0))
     held_rings = (_flat._rings(held) if held is not None
                   and not held.is_empty else ())
     # #1144: the plateau's FOOTPRINT — the same (pavement ∪ runways ∪

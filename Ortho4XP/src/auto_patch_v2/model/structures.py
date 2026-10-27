@@ -317,6 +317,11 @@ class Tunnel:
     #: mapped bore's mouth (``airport/portal_objects``), or ``""``; its cut
     #: may stand inside the runway strip keep-out
     portal: str = ""
+    #: A Law C corridor's two walls, ``(plan ring, lowest rendered z)``
+    #: each (``airport/wall_corridors.WallCorridorRecord.wall_bands``): the
+    #: wall two neighbouring bays share declares the step under it (owner
+    #: RULINGS 2026-10-28l (2), ``pipeline/shared_wall_steps``)
+    wall_bands: tuple[tuple[tuple[XY, ...], float], ...] = ()
 
 
 @_dc.dataclass(frozen=True)

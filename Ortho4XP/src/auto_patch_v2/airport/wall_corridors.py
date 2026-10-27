@@ -198,6 +198,10 @@ class WallCorridorRecord:
     max_authored_grade: float
     sibling: str = ""
     notes: tuple[str, ...] = ()
+    #: the two walls framing it, ``(plan polygon, lowest rendered z)`` each
+    #: (Law C rule 1's bands) — the shared-wall step reads them (owner
+    #: RULINGS 2026-10-28l (2), ``pipeline/shared_wall_steps``)
+    wall_bands: tuple[tuple[Polygon, float], ...] = ()
 
     @property
     def floor_z(self) -> float:

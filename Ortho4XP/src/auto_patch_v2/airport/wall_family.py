@@ -556,6 +556,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
             anchor = (o0.xy, float(o0.anchor_z), float(o0.agl_m))
             overlap = co.floor_overlap_m
             recs: list[WallCorridorRecord] = []
+            bands_ab = ((A.poly, float(A.bottom_z)), (B.poly, float(B.bottom_z)))
             if descending:
                 # the deep end is closed by the garage; the shallow end is
                 # the mouth, and it met the ground above (before ``admit``)
@@ -570,7 +571,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                     *anchor, headroom, max_grade, "",
                     notes_common + (f"garage ramp (2026-09-08n): the wall bottom descends "
                                     f"{zmax - zmin:.2f} m from the grade end to the garage, cut as "
-                                    f"authored; the deep end closed by the garage",)))
+                                    f"authored; the deep end closed by the garage",), wall_bands=bands_ab))
             elif closed[0] or closed[1]:
                 m = 0 if closed[0] else 1
                 s_a, s_b = (orig_s[0], orig_s[-1]) if m == 0 else (orig_s[-1], orig_s[0])
@@ -587,7 +588,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                     thick, 0.0, plate, _trench(ax2, st2), unary_union([plate, trench0]),
                     *anchor, headroom, max_grade, "",
                     notes_common + (f"closed bay: end {m} closed by {by}, a ramp beyond "
-                                    f"the open end",)))
+                                    f"the open end",), wall_bands=bands_ab))
             else:
                 # two capless halves meeting at the midpoint, each
                 # climbing beyond its own end
@@ -604,7 +605,7 @@ def read_family(rd: WallReader, fk: tuple, members: _t.Sequence[_obj8.PlacedObje
                         False, False, 0.0, 0.0, plate, _trench(ax2, st2),
                         unary_union([plate, trench0]), *anchor, headroom, max_grade, other,
                         notes_common + (f"level corridor open at both ends: half {tag} from the "
-                                        f"midpoint, a ramp beyond its end",)))
+                                        f"midpoint, a ramp beyond its end",), wall_bands=bands_ab))
             if nc_row is not None:
                 nc_row["admitted"] = True
             stats.admission.append(f"{clauses} -> ADMITTED {recs[0].cls if recs else 'none'}")

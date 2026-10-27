@@ -937,7 +937,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                          trench_outside_max_m=outside,
                          footprint=tuple((float(x), float(y)) for x, y in
                                          c.footprint.exterior.coords[:-1])
-                         if c.footprint.geom_type == "Polygon" else ())
+                         if c.footprint.geom_type == "Polygon" else (),
+                         wall_bands=_wall_bands(c) if g.kind == WALL_KIND else ())
         tunnels.append(Tunnel(tid, tuple(i for m in members for i in m.ways),
                               tuple(axis), half, mouth_dem, mouth_z, s_top, climb_from,
                               tuple(ramp_refs), wall_ref, tuple(wall_path), tuple(decks),
@@ -1081,4 +1082,11 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
                             "bores_replaced_by_object": stats.bores_replaced_by_object,
                             "mouths_replaced_by_object": stats.mouths_replaced_by_object})
     return cl, tuple(tunnels), stats
+
+
+def _wall_bands(c) -> tuple:
+    """A Law C record's two walls as the Tunnel carries them: ``(plan ring,
+    lowest rendered z)`` each (2026-10-28l (2))."""
+    return tuple((tuple((float(x), float(y)) for x, y in poly.exterior.coords[:-1]), float(z))
+                 for poly, z in getattr(c, "wall_bands", ()) if poly.geom_type == "Polygon")
 

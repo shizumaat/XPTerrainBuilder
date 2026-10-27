@@ -206,3 +206,58 @@ def test_bays_sharing_a_wall_are_all_built(monkeypatch):
     structure_overlap.resolve_overlaps(mixed, [a, b], keep, {}, {}, {}, {}, None, 0.1, 0.5,
                                        False, refused)
     assert keep.count(True) == 1 and refused
+
+
+# ── 2026-10-28l (2): the shared wall hides the step between two bays ─────
+
+def _bay_tunnel(tid, x0, x1, floor, ground=700.0):
+    """A Law C bay's Tunnel as the publication reads it: the lane between
+    x0 and x1 (y 0..18), its two walls 0.3 m thick outside it."""
+    from auto_patch_v2.model.structures import Tunnel
+    return Tunnel(tid, (), (((x0 + x1) / 2.0, 0.0), ((x0 + x1) / 2.0, LANE_M)), (x1 - x0) / 2.0,
+                  ground, floor, LANE_M, 0.0, (), "", (), source=WALL_KIND,
+                  profile=((0.0, floor), (LANE_M, ground)),
+                  footprint=tuple(_rect(x0 - WALL_T, 0.0, x1 + WALL_T, LANE_M)))
+
+
+def _pair(shared_bottom):
+    """Two bays, floors 1.2 m and 0.8 m down, sharing the wall at
+    x 0..0.3 whose bottom stands at ``shared_bottom``."""
+    import dataclasses as dc
+    a = _bay_tunnel("bayA", -LANE_W, 0.0, 698.8)
+    b = _bay_tunnel("bayB", WALL_T, WALL_T + LANE_W, 699.2)
+    ring = lambda xa: ((xa, 0.0), (xa + WALL_T, 0.0), (xa + WALL_T, LANE_M), (xa, LANE_M))  # noqa: E731
+    a = dc.replace(a, wall_bands=((ring(-LANE_W - WALL_T), 698.6), (ring(0.0), shared_bottom)))
+    b = dc.replace(b, wall_bands=((ring(0.0), shared_bottom), (ring(WALL_T + LANE_W), 698.6)))
+    return a, b
+
+
+def _planar(tunnels):
+    """The planar map's two things the publication reads: the structures
+    and vertex keys for the plan -> lat/lon fit."""
+    vs = {i: types.SimpleNamespace(xy=(x, y), key=(60.5 + y / 111320.0, -135.5 + x / 55000.0))
+          for i, (x, y) in enumerate([(-50.0, -50.0), (50.0, -50.0), (0.0, 60.0), (40.0, 40.0)])}
+    return types.SimpleNamespace(structures=tuple(tunnels), vertices=vs)
+
+
+def test_a_deep_shared_wall_declares_the_step_between_two_bays(law):
+    """(2) of 28l: a shared wall reaching under BOTH floors is declared
+    along its own axis; a chord crossing it is forgiven up to its reach,
+    a chord beside it is not."""
+    import tools.check_grade as cg
+    from auto_patch_v2.pipeline.shared_wall_steps import LABEL, shared_wall_joints
+    joints = shared_wall_joints(_planar(_pair(698.5)), law)
+    assert len(joints) == 1 and joints[0]["kind"] == cg.WALL_TERRACE_JOINT_KIND
+    assert joints[0]["shapes"][0] == LABEL
+    assert joints[0]["declared_step_m"] == pytest.approx(700.0 - 698.5 + 0.01)
+    ll_to_m = lambda la, lo: ((lo + 135.5) * 55000.0, (la - 60.5) * 111320.0)  # noqa: E731
+    walls = cg.DeclaredWallSteps(joints, ll_to_m)
+    assert walls.allowance(-0.2, 9.0, 0.5, 9.0) == pytest.approx(1.51)    # across the wall
+    assert walls.allowance(-3.0, 9.0, -1.0, 9.0) == 0.0                   # beside it, in bay A
+    assert walls.allowance(0.15, -3.0, 0.15, -1.0) == 0.0                 # beyond the bays
+
+
+def test_a_shallow_shared_wall_declares_nothing(law):
+    """A shared wall standing ABOVE a floor hides nothing: the step reports."""
+    from auto_patch_v2.pipeline.shared_wall_steps import shared_wall_joints
+    assert shared_wall_joints(_planar(_pair(699.0)), law) == []

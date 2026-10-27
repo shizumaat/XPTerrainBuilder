@@ -1053,6 +1053,9 @@ def terrace_joints_ll(planar: PlanarMap, law: Law,
     # 19i (#951): the band's riser against a road below it
     from .band_road_wall import band_road_wall_joints
     out.extend(band_road_wall_joints(planar, law, z))
+    # 2026-10-28l (2) (#414): the wall two bays share hides their step
+    from .shared_wall_steps import shared_wall_joints
+    out.extend(shared_wall_joints(planar, law, z))
     return out
 
 

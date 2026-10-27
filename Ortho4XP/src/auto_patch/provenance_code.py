@@ -723,6 +723,7 @@ PATCH_CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.pipeline.runway_report",
     "auto_patch_v2.pipeline.seam_report",
     "auto_patch_v2.pipeline.shapes",
+    "auto_patch_v2.pipeline.shared_wall_steps",
     "auto_patch_v2.pipeline.solve_record",
     "auto_patch_v2.pipeline.stage_code",
     "auto_patch_v2.pipeline.stage_one_map",

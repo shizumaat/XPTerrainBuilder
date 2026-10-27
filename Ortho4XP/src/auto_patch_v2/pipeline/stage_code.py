@@ -1698,7 +1698,8 @@ CODE_MODULES["emit"] = _mods("""
     model.platform model.pulse model.rebake model.registries model.structures
     model.threshold_datum pipeline.authored_seats pipeline.emit_stage
     pipeline.publication pipeline.rebake_inputs pipeline.ribbon_steps
-    pipeline.runway_report pipeline.seam_report pipeline.terrace_witness planar.cluster
+    pipeline.runway_report pipeline.seam_report pipeline.shared_wall_steps
+    pipeline.terrace_witness planar.cluster
     planar.shape_airside planar.shape_mouths planar.shape_parts planar.shapes
     planar.strip_keepout solve solve.api solve.design solve.design_assemble
     solve.design_edge solve.design_ground solve.design_junction solve.design_qp
@@ -1772,7 +1773,8 @@ CODE_MODULES["verify"] = _mods("""
     model.constraints model.end_area model.frame model.islands model.map_memo
     model.placement model.planar model.platform model.pulse model.rebake
     model.registries model.structures model.threshold_datum pipeline.publication
-    pipeline.ribbon_steps pipeline.verify_stage planar.cluster planar.shape_airside
+    pipeline.ribbon_steps pipeline.shared_wall_steps
+    pipeline.verify_stage planar.cluster planar.shape_airside
     planar.shape_mouths planar.shape_parts planar.shapes planar.strip_keepout
     solve.design_roles solve.ground_band verify verify.census verify.channel
     verify.chord_work verify.contiguity verify.cutback verify.eat verify.frame

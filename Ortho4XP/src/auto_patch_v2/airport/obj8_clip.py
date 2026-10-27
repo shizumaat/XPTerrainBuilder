@@ -6,14 +6,15 @@ horizontal plane (split from ``obj8.py`` by the 1,000-line file law,
 """
 from __future__ import annotations
 
+import typing as _t
+
 import numpy as np
 import shapely
 from shapely.errors import GEOSException
 from shapely.geometry import Polygon
 
+from ..geom.parts import areal_part
 from . import frame_entry as _fe
-
-import typing as _t
 
 if _t.TYPE_CHECKING:  # annotations only — obj8 imports this module
     from .obj8 import Component
@@ -82,7 +83,9 @@ def _union_rings(rings: list[list[tuple[float, float]]]):
     if arr.size:
         bad = ~shapely.is_valid(arr)
         if bad.any():
-            arr[bad] = shapely.make_valid(arr[bad])
+            # the AREA of each repair (``geom/parts.areal_part``): the lines
+            # a collapsed sliver leaves would ride into the union (#1472)
+            arr[bad] = [areal_part(r) for r in shapely.make_valid(arr[bad])]
         arr = arr[~shapely.is_empty(arr) & (shapely.area(arr) > 1e-9)]
     if not arr.size:
         return None

@@ -206,6 +206,7 @@ CODE_MODULES: tuple[str, ...] = (
     "auto_patch_v2.geom.foot_planes",
     "auto_patch_v2.geom.grid_pickle",
     "auto_patch_v2.geom.pad_evidence",
+    "auto_patch_v2.geom.parts",
     "auto_patch_v2.geom.rotated_rect",
     "auto_patch_v2.geom.union_find",
     "auto_patch_v2.law",

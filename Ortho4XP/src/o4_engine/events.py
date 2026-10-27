@@ -101,7 +101,12 @@ from typing import Any, Optional
 # 1.16 (2026-10-26, additive, #1320): ``terrain_relief`` answers a
 # hillshade-and-contours PNG over a box from the same sources, with its
 # legend; ``pending`` while it is drawn off the read loop.
-PROTOCOL_VERSION = "1.16"
+# 1.17 (2026-10-27, additive, #1314): ``patch_insert_shape`` (the map's
+# "Insert shape": a 20 m square's corners at the elevation under them, and
+# the airport whose extent holds the point; ``pending`` while a source
+# loads) and ``patch_add_shape`` (append it to an airport's patch that is
+# not open in the editor, or start that airport's edited patch).
+PROTOCOL_VERSION = "1.17"
 
 
 @dataclass(frozen=True)

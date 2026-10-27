@@ -111,11 +111,17 @@ extension PatchEditModel {
         }
     }
 
-    /// The map's right-click items for the Edit-mode selection (#1357:
-    /// "Set elevation…" on selected shapes).
-    var contextActions: [(title: String, run: () -> Void)] {
-        guard mode == .edit, document != nil, !shapeSelection.isEmpty else { return [] }
-        return [(PatchSetElevationSheet.title, { [weak self] in self?.showsSetElevation = true })]
+    /// The map's right-click items: "Set elevation…" on the Edit-mode
+    /// selected shapes (#1357), then "Insert shape" at the click (#1314).
+    func contextActions(lat: Double, lon: Double) -> [(title: String, run: () -> Void)] {
+        var items: [(title: String, run: () -> Void)] = []
+        if mode == .edit, document != nil, !shapeSelection.isEmpty {
+            items.append((PatchSetElevationSheet.title, { [weak self] in self?.showsSetElevation = true }))
+        }
+        if canInsertShape {
+            items.append((TileContextMenu.insertShapeTitle, { [weak self] in self?.insertShape(lat: lat, lon: lon) }))
+        }
+        return items
     }
 
     // MARK: - Undo / redo

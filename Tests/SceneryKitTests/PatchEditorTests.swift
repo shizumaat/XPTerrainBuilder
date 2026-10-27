@@ -38,6 +38,28 @@ struct PatchEditorTests {
         #expect(none.readout == nil)
     }
 
+    /// #1314 (protocol 1.17): the replies the Python twin
+    /// `tests/test_patch_insert.py` asserts on the engine side.
+    @Test func insertShapeRepliesDecode() throws {
+        func reply<T: Decodable>(_ json: String, _ command: String, as: T.Type) throws -> T {
+            let object = try JSONSerialization.jsonObject(with: Data(json.utf8))
+            let r = O4Reply(ok: true, result: O4JSON.from(object), error: nil)
+            let result: Result<T, Error> = OrthoEngineClient.decodeReply(r, command: command)
+            return try result.get()
+        }
+        let pending = try reply(#"{"pending": true}"#, "patch_insert_shape", as: O4PatchInsertShape.self)
+        #expect(pending.pending && pending.corners == nil && pending.icao == nil)
+        let plan = try reply(#"{"pending": false, "tile": "+30+031", "icao": "ZZZY", "path": null, "source": null, "side_m": 20.0, "corners": [[30.2, 31.35, 70.0], [30.2, 31.36, 71.0], [30.21, 31.36, 72.0], [30.21, 31.35, 73.0]]}"#,
+                             "patch_insert_shape", as: O4PatchInsertShape.self)
+        #expect(!plan.pending && plan.tile == "+30+031" && plan.icao == "ZZZY" && plan.path == nil)
+        #expect(plan.sideM == 20 && plan.corners?.count == 4 && plan.corners?[2] == [30.21, 31.36, 72.0])
+        let added = try reply(#"{"path": "/p/ZZZY_edited.patch.osm", "way_id": -1, "created": true, "message": "Started ZZZY's custom patch"}"#,
+                              "patch_add_shape", as: O4PatchAddShape.self)
+        #expect(added.wayID == -1 && added.created && added.message.hasPrefix("Started"))
+        #expect(O4ProtocolVersion.supportsInsertShape("1.17"))
+        #expect(!O4ProtocolVersion.supportsInsertShape("1.16"))
+    }
+
     @Test func terrainReliefDecodes() throws {
         func reply(_ json: String) throws -> O4TerrainRelief {
             let object = try JSONSerialization.jsonObject(with: Data(json.utf8))

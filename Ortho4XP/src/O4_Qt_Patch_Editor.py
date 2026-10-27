@@ -5,14 +5,17 @@ gestures, the map toolbar, the side-panel box and the 3D preview window
 (opened on demand) onto the main window's map and session.  The window keeps a handful of wiring lines: the box
 below Activity, the ``PackObjectsReady`` route, the Edit / File menu
 actions, the quit check, its build path for "Rebuild tile" and the copy
-items of the map's right-click menu (#1281).
+items of the map's right-click menu (#1281), and "Insert shape" there
+(#1314, ``O4_Qt_Patch_Insert``).
 """
 from __future__ import annotations
 
 import typing as _t
 
+from PySide6.QtCore import QPoint
 from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 
+import O4_Geo_Utils as GEO
 import O4_Glossary as GLOSSARY
 import O4_Qt_Map as QTMAP
 import O4_Qt_Patch_Elevation_Dialog as ELEVDIALOG
@@ -21,6 +24,7 @@ from O4_Qt_Pack_Outlines import PackOutlines
 from O4_Qt_Patch_Controller import PatchController
 from O4_Qt_Patch_Engine import PatchEngine
 from O4_Qt_Patch_Gestures import PatchGestures
+from O4_Qt_Patch_Insert import INSERT_SHAPE_TITLE, ShapeInserter
 from O4_Qt_Patch_Model import MODE_EDIT, PatchEditModel
 from O4_Qt_Patch_Overlay import PatchOverlay
 from O4_Qt_Patch_Panel import PatchPanel, node_lat_lon
@@ -52,6 +56,7 @@ class PatchEditor:
         self.engine = PatchEngine(session, window, run_async=run_async)
         self.model = PatchEditModel(window)
         self.controller = PatchController(self.engine, self.model, map_view, built, window)
+        self.inserter = ShapeInserter(self.engine, self.controller, built, window)
 
         def remember(on: bool) -> None:
             prefs[PACK_OUTLINES_PREF] = on
@@ -121,12 +126,21 @@ class PatchEditor:
             menu.insertSeparator(first)
         menu.setToolTipsVisible(True)
 
-    def context_actions(self) -> list[tuple[str, _t.Callable[[], _t.Any]]]:
-        """The map's right-click items for the Edit-mode selection
-        (#1357: "Set elevation…" on selected shapes)."""
-        if self.model.mode != MODE_EDIT or not self.model.shape_selection or self.model.doc is None:
-            return []
-        return [(ELEVDIALOG.TITLE, self.panel.open_set_elevation)]
+    def context_actions(self, at: tuple[float, float] | None = None
+                        ) -> list[tuple[str, _t.Callable[[], _t.Any]]]:
+        """The map's right-click items: "Set elevation…" on the Edit-mode
+        selected shapes (#1357), then "Insert shape" at ``at`` (#1314)."""
+        items = []
+        if self.model.mode == MODE_EDIT and self.model.shape_selection and self.model.doc is not None:
+            items.append((ELEVDIALOG.TITLE, self.panel.open_set_elevation))
+        if at is not None and self.inserter.available():
+            items.append((INSERT_SHAPE_TITLE, lambda: self.inserter.insert(*at)))
+        return items
+
+    def lat_lon_at(self, x: float, y: float) -> tuple[float, float]:
+        """The map's ``(lat, lon)`` at viewport ``(x, y)``."""
+        scene = self._map.mapToScene(QPoint(round(x), round(y)))
+        return GEO.pix_to_wgs84(scene.x(), scene.y(), QTMAP.SCENE_ZL)
 
     def open_preview(self) -> None:
         """Ctrl/⌘3 or the map's "3D" button: show (or raise) the window."""
@@ -148,17 +162,16 @@ class PatchEditor:
 
     def copy_items(self, x: float, y: float) -> list[tuple[str, str]]:
         """``(title, text)`` for a right-click at viewport ``(x, y)``:
-        "Copy coordinates" on a node (8 px), "Copy shape reference" while
-        one shape is selected; none while the patch layer is hidden."""
+        "Copy coordinates" of a node (8 px), else of the click (#1314);
+        "Copy shape reference" while one shape is selected and the patch
+        layer shows."""
         m, index = self.model, self.overlay.index
         if not self.overlay.showing or m.doc is None or index is None:
-            return []
-        items = []
+            return [(REFERENCE.COPY_COORDINATES, node_lat_lon(*self.lat_lon_at(x, y)))]
         index.project(self.overlay.transform())
         node = index.node_at(x, y)
-        if node is not None:
-            _nid, lat, lon, _alt = m.doc.nodes[node]
-            items.append((REFERENCE.COPY_COORDINATES, node_lat_lon(lat, lon)))
+        lat, lon = m.doc.nodes[node][1:3] if node is not None else self.lat_lon_at(x, y)
+        items = [(REFERENCE.COPY_COORDINATES, node_lat_lon(lat, lon))]
         if len(m.shape_selection) == 1:
             (way_id,) = m.shape_selection
             if any(w.id == way_id for w in m.doc.ways):

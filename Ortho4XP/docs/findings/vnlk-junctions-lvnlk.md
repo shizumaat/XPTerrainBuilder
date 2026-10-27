@@ -258,3 +258,68 @@ nearly level past the apron joint and the right-side spot (the middle taxiway, a
 down); below it the runway tips over and steepens to about 22 % in the middle of its lower
 half (about 200 m above the 06 threshold), then eases out to almost level across the last
 50 m before the 06 threshold — the lip of the ski jump over the drop.
+
+## 9. Cross-check against the owner's video (lane lvnlkvid, 2026-10-27; no engine change)
+
+Source: the 9 contact sheets of the owner's video (74 frames, every 5 s, 640x360 per frame),
+the tile's ZL18 orthophoto (`110064_194224_Arc18.dds`), the Copernicus GLO-30 inset
+(`VNLK_copernicusglo30.tif`) and the pack's `apt.dat`. `s` = metres from the 24 end along
+the pack's runway line (540.4 m); 06 end = 540.4 − s.
+
+**Method.** Two frames from the camera beside the Main Apron (sheet 9 frame 1, sheet 4
+frame 2, same zoom: their dash half-widths agree within 1 %) carry 10 and 12 centreline
+dashes. The ortho gives the dash period, 28.5 m (autocorrelation 0.75). In both frames
+1/(half-width) is linear in dash index within 0.07 %, so the dashes are evenly spaced and
+each one is ranged: depth Z_k = (2.95 + k) · 28.5 m, focal length 1,097 px (half-width
+10.15 m). Drop below the camera H = (row − horizon row) · Z / f; grade = ΔH / ΔZ. The
+horizon row is the one free number: it shifts every grade by 0.09 pp per pixel and nothing
+else. It is fixed by the two pins plus the camera height: the top pin bounds the camera at
+≤ 2,863 m, and the DSM at the camera spot (beside the apron's NE corner, about 19 m left of
+the centreline, ~10 m down-runway of the 24 end) puts it at ~2,860 m. The helipad connector
+lands on dash 7.5 (Z ≈ 298 m) and the ortho has it at s ≈ 298–317 m, which ties Z to s
+(s ≈ Z + 10 m).
+
+**The video's profile** (horizon at the DSM camera height; ± is the horizon band plus
+row noise):
+
+| s from 24 (m) | 0–50 | 50–100 | 100–150 | 150–200 | 200–250 | 250–300 | 300–350 | 350–400 | 400–500 | 500–540 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| grade | ≈ 2 (1.5–6) | 12 (break near 55–65 m) | 15.0 ± 1 | 13.2 ± 1 | 12.2 ± 1 | 11.9 ± 1 | 11.8 ± 1 | 11.2 ± 1.2 | 12 ± 2 (mean only) | not resolved |
+| confidence | low (not in frame) | medium | high | high | high | high | high | medium | low | none |
+
+- The shape does not depend on the horizon row: steepest just below the top joint
+  (s ≈ 65–160 m), easing ~3 pp to a near-uniform ~12 % from s ≈ 190 m on (dashes 4–9 agree
+  within ±0.5 pp). The two frames agree (rms 0.3 pp on the shared dashes).
+- **No tip-over.** Every dash sits higher in the image than the one before, out to the 06
+  threshold bars (row 213.5 in sheet 9 frame 1). The far ~140 m (s ≈ 380–520) fits in 16 px,
+  so only its mean grade is measured (12 ± 2 %). A 1.5 % lip over the last 40–50 m can be
+  neither seen nor ruled out at this resolution.
+- The DSM agrees on its own: 14.8 % over s 50–150, 11.8 % over 150–300, 11.9 % over 300–525,
+  and 2844.0 m at s = 50 against the 2845.0 m top pin.
+
+**Against round 3.** Round 3 keeps s 0–150 at 1.5–2.4 % and peaks at 21.8 % at s ≈ 335. In
+height, round 3 sits **+5.6 m at s = 100, +12.1 m at 150, +15.0 m at 200, +13.9 m at 250,
++10.3 m at 300, +5.6 m at 350** above the video profile (within 2 m elsewhere). From the
+video's camera, round 3 would hide the runway from s ≈ 200 m to the 06 end behind a crest.
+Round 3 is visible end to end only from 45 m above the 24 pin, and the pins rule that out.
+So the video refutes round 3's shape.
+
+**Attribution: the pack's J2 is not the video's second spot.** Round 3's flat top is J2, the
+pack's `Helo Apron` polygon. It touches the runway edge at s = 132.5–151.8 (lateral −10.1 m).
+In the ortho, that polygon covers a bare dirt plot behind a grass verge, and nothing paved
+joins the runway there. The video's "flat open area on the right" is the helipad: a
+light-grey pad with yellow H circles, joined by a concrete connector at s ≈ 298–317 m
+(ortho), on dash 7.5 in the video. The pack does not draw it, and the runway shows no flat
+there either (11.7–12.0 % across it). Rulings 27b and 27e (Q182, Q185) were asked with J2
+taken to be that spot. Under 27b/27e and the pack's pavement, round 3 is already the unique
+smoothest profile, so no reshaping within those rulings can follow the video. Following it
+needs the 1.5 % flat at the pack's J2 to go. No geometric witness tells that face apart from
+a real taxiway mouth (the pack has no taxi network), so this goes to the owner for a ruling
+and is not built.
+
+**Sim read (by landmark).** From the RWY 24 threshold beside the Main Apron: level across
+the apron joint (about the first 60 m), then the runway breaks steeply at the bottom of the
+joint. The steepest stretch (~15 %) runs over the next ~100 m. From about 200 m down (just past
+the dirt plot on the right where the pack draws its Helo Apron) the runway is a steady ~12 %
+to the RWY 06 threshold, and it passes
+the helipad connector on the right (~300 m down) without flattening.

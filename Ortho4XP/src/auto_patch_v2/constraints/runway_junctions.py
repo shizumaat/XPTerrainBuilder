@@ -26,19 +26,23 @@ and the sidecar all read one thing.
   ``t`` is the face's own transverse maximum.  Overlapping spans merge at
   the tighter ``t``.  A junction applies only where the pin grade exceeds
   its ``t``.
-* THE DESIGNED PROFILE IS THE SMOOTHEST ONE THE PINS AND THE CAPS ALLOW
-  (Q182): over the station chords' grades ``g_k``, minimise the change of
-  grade ``sum_k (g_{k+1} - g_k)^2 / s_k`` (``s_k`` the mean spacing: the
-  discrete ``integral of g'^2``) subject to ``sum_k g_k d_k = dz`` (both
-  pins exact) and ``|g_k| <= t - margin`` on every junction chord — a
-  bounded least squares.  Its continuous optimum is a parabolic grade
-  between the caps (a cubic profile): no crest or sag beyond what the
-  junctions force, and no straight-line kinks.
-* THE SKI JUMP (owner RULINGS 2026-10-27e, Q185: "least slope at the two
-  ends, most in the middle ... we definitely don't want the steepest part to
-  be at the low end"): each runway END's chord (a threshold pin ends the
-  span) is capped like the runway's gentlest junction, so the smoothest
-  profile rises from both ends to its steepest grade between them.
+* THE DESIGNED PROFILE FOLLOWS THE GROUND, SMOOTHLY (Q182 smoothness;
+  Q205 / 27n "VNLK follows the video profile", under 26q): over the station
+  chords' grades ``g_k``, the SMOOTHING SPLINE of the DEM along the ridge —
+  minimise ``sum w_k (z_k - DEM_k)^2 + lam * sum_k (g_{k+1} - g_k)^2 / s_k``
+  with ``lam = (L / 2 pi)^4``, ``L = [design]
+  steep_runway_ground_wavelength_m`` (relief longer than ``L`` is followed,
+  shorter relief — a surface model's buildings, its noise — is smoothed out)
+  — subject to ``sum_k g_k d_k = dz`` (both pins exact) and
+  ``|g_k| <= t - margin`` on every junction chord: a bounded least squares.
+  With no DEM it is the pure least-change-of-grade profile (27b).  Measured
+  (round 4): the pure smoothest profile puts the steepest grade at the low
+  end (17.8 %), against both the owner's video and the DEM.
+* ONLY WHERE PAVEMENT REALLY JOINS (owner RULINGS 2026-10-27n, Q205,
+  superseding 27e's ski-jump ends): a pavement the build's imagery shows
+  unpaved where it meets the runway (``airport/junction_witness``,
+  ``Airport.paved_joins``) mints no junction; with no imagery the witness
+  abstains and every junction stands.
 * THE CURVE the vertical-curve rows hold is the one the design needs: the
   law's ``vertical_curve_k_m`` where the design's largest change of grade
   fits it, else the K that design reads, published (``curve_k_m``) a little
@@ -112,10 +116,13 @@ def _runway_vertices(pm: PlanarMap, ref: str) -> set[int]:
 
 def junctions(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
               cum: _t.Sequence[float], rw, i: int, j: int,
-              grade: float) -> tuple[Junction, ...]:
+              grade: float, paved: _t.Mapping[str, bool] | None = None
+              ) -> tuple[Junction, ...]:
     """Every junction MOUTH on runway ``rw`` between stations ``i`` and
     ``j`` whose cap is under ``grade`` (module docstring), in ``u`` from
-    ``st[i]``."""
+    ``st[i]``.  ``paved``: ``Airport.paved_joins`` — a face of a pavement
+    the imagery shows UNPAVED where it meets the runway mints none (owner
+    RULINGS 2026-10-27n); ``None`` or an absent id abstains."""
     rwv = _runway_vertices(pm, rw.id)
     if not rwv or j - i < 1:
         return ()
@@ -127,6 +134,8 @@ def junctions(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
             continue
         if role_family(law, f.role) != "taxi" and f.role not in aprons:
             continue
+        if paved is not None and paved.get(f.ref) is False:
+            continue                     # 27n: the photo shows no pavement here
         shared = {v for cyc in (f.ring, *f.holes) for v in pm.ring_vertices(cyc)
                   if v in rwv}
         if len(shared) < 2:
@@ -158,29 +167,47 @@ def junctions(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
 
 
 def smoothest_grades(d: _t.Sequence[float], dz: float,
-                     caps: _t.Sequence[float | None]) -> list[float] | None:
+                     caps: _t.Sequence[float | None],
+                     ground: _t.Sequence[float] | None = None,
+                     wavelength_m: float | None = None) -> list[float] | None:
     """THE SMOOTHEST CHORD GRADES (module docstring): ``g_k`` over chords of
     lengths ``d`` rising ``dz`` in all, ``|g_k| <= caps[k]`` where a cap is
-    given, minimising ``sum (g_{k+1} - g_k)^2 / s_k``.  ``None`` where the
-    capped chords alone cannot be met (no free chord to carry the rest)."""
+    given, minimising ``sum (g_{k+1} - g_k)^2 / s_k``.
+
+    With ``ground`` (the ground's height at every station, relative to the
+    first; ``len(d) + 1`` values) the profile is the SMOOTHING SPLINE of the
+    ground instead: ``sum w_k (z_k - ground_k)^2 + lam * sum (dg)^2 / s_k``,
+    ``lam = (wavelength_m / 2 pi)^4`` — relief longer than ``wavelength_m``
+    is followed, shorter relief is smoothed out.  ``None`` where the capped
+    chords alone cannot be met (no free chord to carry the rest)."""
     import numpy as np
     from scipy.optimize import lsq_linear
     n = len(d)
     free = [k for k in range(n) if caps[k] is None]
     if n == 0 or not free:
         return None
-    rows = []
+    dd = np.asarray(d, float)
+    lam = 1.0
+    blocks, rhs = [], []
+    if ground is not None and wavelength_m:
+        lam = (float(wavelength_m) / (2.0 * math.pi)) ** 4
+        C = np.zeros((n + 1, n))
+        for k in range(1, n + 1):
+            C[k, :k] = dd[:k]
+        w = np.sqrt(np.concatenate(([dd[0] / 2], 0.5 * (dd[1:] + dd[:-1]), [dd[-1] / 2])))
+        blocks.append(w[:, None] * C)
+        rhs.append(w * np.asarray(ground, float))
+    R = np.zeros((max(0, n - 1), n))
     for k in range(n - 1):
-        r = np.zeros(n)
-        w = 1.0 / math.sqrt(0.5 * (d[k] + d[k + 1]))
-        r[k], r[k + 1] = -w, w
-        rows.append(r)
-    span = float(sum(d))
-    big = 1e3 / math.sqrt(span)            # the pins, far above any curvature term
-    rows.append(big * np.asarray(d, float) / span)
-    A = np.vstack(rows)
-    b = np.zeros(len(rows))
-    b[-1] = big * dz / span
+        wk = math.sqrt(lam) / math.sqrt(0.5 * (d[k] + d[k + 1]))
+        R[k, k], R[k, k + 1] = -wk, wk
+    blocks.append(R)
+    rhs.append(np.zeros(n - 1))
+    span = float(dd.sum())
+    big = 1e6 / math.sqrt(span)            # the pins, far above every other term
+    blocks.append((big * dd / span)[None, :])
+    rhs.append(np.array([big * dz / span]))
+    A, b = np.vstack(blocks), np.concatenate(rhs)
     lo = np.array([-c if c is not None else -np.inf for c in caps])
     hi = np.array([c if c is not None else np.inf for c in caps])
     res = lsq_linear(A, b, bounds=(lo, hi), method="bvls", tol=1e-12)
@@ -196,16 +223,15 @@ def smoothest_grades(d: _t.Sequence[float], dz: float,
 def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
            cum: _t.Sequence[float], rw, i: int, j: int,
            za: float, zb: float, k_law: float | None,
-           ends: tuple[bool, bool] = (True, True)) -> JunctionProfile | None:
+           paved: _t.Mapping[str, bool] | None = None) -> JunctionProfile | None:
     """THE DESIGNED PROFILE of the span ``st[i]``..``st[j]`` (module
     docstring), or ``None`` where no junction applies (the uniform §50
-    yield stands).  ``ends``: whether each end of the span is a runway END
-    (a threshold pin), which takes the ski-jump end cap."""
+    yield stands).  ``paved``: the junction witness (:func:`junctions`)."""
     span = cum[j] - cum[i]
     dz = zb - za
     if span <= 0.0 or dz == 0.0:
         return None
-    js = junctions(pm, law, xy, st, cum, rw, i, j, abs(dz) / span)
+    js = junctions(pm, law, xy, st, cum, rw, i, j, abs(dz) / span, paved)
     if not js:
         return None
     margin = float(law.tables.emit.design.runway_yield_margin)
@@ -216,15 +242,13 @@ def design(pm: PlanarMap, law: Law, xy, st: _t.Sequence[int],
         a0, a1 = cum[k] - cum[i], cum[k + 1] - cum[i]
         t = [jn.t for jn in js if a0 >= jn.u0 - 1e-6 and a1 <= jn.u1 + 1e-6]
         caps.append(max(0.0, min(t) - margin) if t else None)
-    # RULINGS 2026-10-27e THE SKI JUMP: "least slope at the two ends, most in
-    # the middle" — each runway END's chord is as gentle as the runway's
-    # gentlest junction (a junction there already is); the smoothest profile
-    # then rises from both ends to its steepest grade between them
-    end_cap = max(0.0, min(jn.t for jn in js) - margin)
-    for k, is_end in ((0, ends[0]), (len(caps) - 1, ends[1])):
-        if is_end and caps[k] is None:
-            caps[k] = end_cap
-    g = smoothest_grades(d, dz, caps)
+    # RULINGS 2026-10-27n (under 26q): the profile FOLLOWS THE GROUND — the
+    # smoothing spline of the DEM along the ridge — where every station has a
+    # DEM value; else the pure smoothest profile
+    dem = [pm.vertices[st[k]].dem_z for k in range(i, j + 1)]
+    ground = None if any(x is None for x in dem) else [float(x) - za for x in dem]
+    wl = float(law.tables.emit.design.steep_runway_ground_wavelength_m)
+    g = smoothest_grades(d, dz, caps, ground, wl)
     if g is None:
         return None
     z = {st[i]: za}

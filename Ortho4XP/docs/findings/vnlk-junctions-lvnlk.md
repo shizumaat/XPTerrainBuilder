@@ -323,3 +323,98 @@ joint. The steepest stretch (~15 %) runs over the next ~100 m. From about 200 m 
 the dirt plot on the right where the pack draws its Helo Apron) the runway is a steady ~12 %
 to the RWY 06 threshold, and it passes
 the helipad connector on the right (~300 m down) without flattening.
+
+## 10. Round 4 (RULINGS 2026-10-27n, Q205: flatten only where the imagery shows real pavement; #1461)
+
+**The junction witness** (`airport/junction_witness.py`, at load beside the threshold
+witness, on lane ltriang2's imagery reader — `imagery_read.TextureSet`, the classic method
+of `image_edges_classic`): for every apt.dat pavement touching a runway edge, probes every
+1 m along the contact, each from the runway body out 6 m past the edge. The classic method's
+new kind `edges(..., "paved_contact")` reads the ground beyond the edge as pavement when its
+median HSV saturation exceeds the runway body's by no more than `_PAVE_SAT_TOL = 0.05`. A
+pavement joins paved when ≥ 50 % of its stations do. `Airport.paved_joins` carries the
+verdicts. `runway_junctions.junctions` drops a face whose pavement the imagery refutes. No
+imagery means `None`: every junction stands (the vote abstains).
+
+**Calibration** (Arc ZL18 texture, the tile's own; strips 5.5 m deep beyond the edge):
+
+| surface | luminance median | saturation median | Δsat vs the runway |
+|---|---|---|---|
+| runway body (asphalt) | 122.6 | 0.113 | — |
+| Main Apron contact (asphalt) | 124.5 | 0.099 | −0.014 |
+| helipad connector, video s ≈ 300 (concrete) | 223.0 | 0.039 | −0.074 |
+| `pav0` "Taxiway 6" contact | 141.5 | 0.149 | +0.036 |
+| `pav2` "Helo Apron" contact (dirt) | 124.1 | 0.191 | +0.078 |
+| grass verges | 118.6 / 122.6 | 0.303 / 0.250 | +0.19 / +0.14 |
+
+Luminance cannot separate these: the dirt plot reads within 1.5 levels of the asphalt runway,
+and the concrete connector reads 100 above it. The classic `pavement_start` test (luminance
+within 25 levels) would call the dirt paved and the concrete not. Saturation separates them,
+with the cut at +0.05. The calibration rests on one texture and one airport. Witness at
+VNLK: `pav0` paved (54 % of 56 stations), `pav3` paved (64 % of 53), `pav2` Helo Apron
+**not paved (16 % of 19)**. `pav4` reads no contact of its own (`pav3` overlies the apron's
+edge), so it abstains and keeps its junction.
+
+**The profile follows the ground** (§3 item 2, round 4): with J2 gone, round 3's pure
+smoothest profile put the steepest grade at the low end (17.8 %), against the video and the
+DEM, which agree with each other. The design is now the smoothing spline of the DEM along the
+ridge, through the pins and the paved junction caps:
+`[design] steep_runway_ground_wavelength_m = 200` (relief longer than 200 m is followed).
+**That value comes from one witness, the VNLK video:**
+
+| wavelength (m) | 175 | 200 | 225 | 250 |
+|---|---|---|---|---|
+| peak grade | 19.2 % | 18.1 % | 17.3 % | 16.8 % |
+
+Any wavelength from 175 to 250 m gives the same shape; only the peak moves, as above. The
+round-3 ski-jump end cap is deleted (27n supersedes 27e).
+
+**Closing build** `lvnlk4` (body `939b32004ea4`; census identical to the replay of capture
+`lvnlk/VNLK.r4.pkl`). Against the video (§9), `s` in metres from the RWY 24 end:
+
+| s from 24 (m) | built grade | video | video confidence | within? |
+|---|---|---|---|---|
+| 0–50 | 1.3 % | ≈ 2 (1.5–6) | low | no (flat cap) |
+| 50–100 | 11.6 % | 12 | medium | yes |
+| 100–150 | 16.5 % | 15.0 ± 1 | high | **no, +0.5 pp** |
+| 150–200 | 13.0 % | 13.2 ± 1 | high | yes |
+| 200–250 | 12.9 % | 12.2 ± 1 | high | yes |
+| 250–300 | 12.0 % | 11.9 ± 1 | high | yes |
+| 300–350 | 11.4 % | 11.8 ± 1 | high | yes |
+| 350–400 | 11.1 % | 11.2 ± 1.2 | medium | yes |
+| 400–500 | 11.5 % | 12 ± 2 | low | yes |
+| 500–540 | 11.1 % | not resolved | none | — |
+
+Height, built minus the video profile (integrated from the top pin), at 50 m stations from
+the 24 end:
+
+| s (m) | 0 | 50 | 100 | 150 | 200 | 250 | 300 | 350 | 400 | 450 | 500 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Δ (m) | 0.0 | +0.3 | +0.6 | −0.2 | −0.1 | −0.4 | −0.5 | −0.3 | −0.3 | +0.1 | +0.2 |
+
+Largest gap 1.6 m. Peak 17.65 % at 100 m below the 24 end. End grades: RWY 24 0.7 % (flat),
+RWY 06 10.8 %. At most 3.3 m above the Copernicus surface model (round 3: 14.8 m). Both pins
+exact. Largest change of grade: the break at the foot of the apron joint, published K
+1.49 m per 1 %.
+
+**Census** ADJUDICATED **223** (round 3: 130; base 822), CRITICAL motion 0. The rise:
+
+- `pav2` (the Helo Apron, unpaved per the imagery) now meets the 12–15 % runway, so it takes
+  9 of the 11 `taxi_box` rows (up to 2.7 m).
+- `pavement_over_road_cap` 34 → 63 and `hard_conflict` 34 → 69: more of the runway is over
+  29ac's 10 %.
+- 3 `transverse` rows (0.37–0.39 m) and 1 `taxi_box` row (0.42 m) on the Main Apron's west
+  faces beside the break. These are the pad cross-slope rows 27b accepted.
+
+Pricing a pavement the imagery refutes as ground rather than taxiway would remove the `pav2`
+rows. That is not built: it needs a ruling.
+
+**No-imagery arm** (the round-2 capture, which carries no witness): both junctions stand
+(abstain), and the same ground spline peaks at 21.2 % between them.
+
+**Sim read, by landmark.** From the RWY 24 threshold beside the Main Apron, roll toward 06:
+level across the apron joint (about 60 m). The runway breaks over at the foot of the joint
+into its steepest stretch, about 16–17 % over the next 100 m. It passes the dirt plot on the
+right (the pack's Helo Apron, about 140 m down) without flattening. From about 200 m down
+it is a steady 11–12 % to the RWY 06 threshold, passing the helipad connector on the right
+(about 300 m down).

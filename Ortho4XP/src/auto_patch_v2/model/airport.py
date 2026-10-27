@@ -466,3 +466,8 @@ class Airport:
     #: NEVER a pavement source — they are not in ``pavements`` — only their
     #: remainder after every pavement the engine already knows is ground.
     gap_sheets: tuple[Pavement, ...] = ()
+    #: RULINGS 2026-10-27n THE JUNCTION WITNESS (``airport/junction_witness``):
+    #: pavement id -> whether the build's imagery shows it PAVED where it
+    #: meets a runway; ``None`` = no imagery (every junction stands, the vote
+    #: abstains), an absent id = no contact read (its junction stands)
+    paved_joins: _t.Mapping[str, bool] | None = None

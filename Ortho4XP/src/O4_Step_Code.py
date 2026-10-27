@@ -283,6 +283,7 @@ _SHARED: tuple[str, ...] = (
     "auto_patch_v2.airport.image_provider",
     "auto_patch_v2.airport.imagery_read",
     "auto_patch_v2.airport.jetways",
+    "auto_patch_v2.airport.junction_witness",
     "auto_patch_v2.airport.line_object",
     "auto_patch_v2.airport.load",
     "auto_patch_v2.airport.msl_feet",

@@ -46,6 +46,16 @@ def law():
     return Law.for_airport("ZZZZ")
 
 
+_CELLS = (
+    Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
+         "airside", "runway", {}),
+    Cell(1, "stub", "stubE", _rect(488.5, 22.5, 511.5, 190), (), None, "D",
+         "airside", "taxi", {}),
+    Cell(2, "apron", "apronW", _rect(-300, 22.5, -200, 100), (), None, None,
+         "airside", "apron", {}),
+)
+
+
 def _airport(law, drop_m: float):
     frame = Frame("ZZZZ", origin=(60.5, -135.5), identity_dp=11)
     ends = (RunwayEnd("09", (-600.0, 0.0), (60.5, -135.5), 0.0, 0.0, 700.0, "fixture"),
@@ -55,15 +65,7 @@ def _airport(law, drop_m: float):
     pack = SceneryPack("fixture", "apt.dat", "0", (), ())
     airport = Airport("ZZZZ", "Synthetic", frame, 700.0, (rw,), (), (), {}, (),
                       (), (), (), (), (), (), pack, _RampDem(), law.ruleset_key)
-    cells = (
-        Cell(0, "runway", "09/27", _rect(-600, -22.5, 600, 22.5), (), 3, "D",
-             "airside", "runway", {}),
-        Cell(1, "stub", "stubE", _rect(488.5, 22.5, 511.5, 190), (), None, "D",
-             "airside", "taxi", {}),
-        Cell(2, "apron", "apronW", _rect(-300, 22.5, -200, 100), (), None, None,
-             "airside", "apron", {}),
-    )
-    pm, _stats = build(airport, Classification(cells, (), {}, ()), law)
+    pm, _stats = build(airport, Classification(_CELLS, (), {}, ()), law)
     return airport, with_runway_chord(pm, law, airport)
 
 
@@ -100,7 +102,7 @@ def test_a_steep_runway_is_flat_across_each_junction_and_meets_its_pins(steep, l
         for k in range(len(st) - 1):
             if cum[k] >= jn.u0 - 1e-6 and cum[k + 1] <= jn.u1 + 1e-6:
                 g = (z[st[k + 1]] - z[st[k]]) / (cum[k + 1] - cum[k])
-                assert 0.0 < g <= jn.t
+                assert abs(g) <= jn.t + 1e-9
     # the rest takes the remaining grade: steeper than the pins' average
     assert rc.cap > rc.g_pin and rc.curve_k_m is not None
 
@@ -196,17 +198,61 @@ def test_the_smoothest_grades_meet_the_pins_and_the_caps_with_least_change():
     assert smoothest_grades(d[:2], 1.0, [0.01, 0.01]) is None
 
 
-def test_the_ski_jump_is_gentlest_at_both_ends_and_steepest_between(steep, law):
-    """RULINGS 2026-10-27e (Q185): "least slope at the two ends, most in the
-    middle ... we definitely don't want the steepest part to be at the low
-    end" — each runway end's chord is as gentle as the gentlest junction,
-    and the steepest chord is interior."""
-    _ap, pm = steep
-    rc = pm.runway_caps["09/27"]
-    vw, st = _stations(pm, law)
-    z = rc.profile_z
-    g = [(z[q] - z[p]) / vw.dist(p, q) for p, q in zip(st, st[1:], strict=False)]
-    t = min(jn.t for jn in rc.junctions)
-    assert abs(g[0]) <= t + 1e-9 and abs(g[-1]) <= t + 1e-9
-    k = max(range(len(g)), key=lambda q: g[q])
-    assert 0 < k < len(g) - 1 and g[k] > 5.0 * t
+def test_a_pavement_the_imagery_shows_unpaved_mints_no_junction(law):
+    """RULINGS 2026-10-27n (Q205): "a runway flattens only where the photo
+    shows real pavement joining it" — ``Airport.paved_joins`` (the junction
+    witness) refuting the apron drops its flat; ``None`` (no imagery)
+    abstains and both stand."""
+    import dataclasses as _dc
+    airport, _pm = _airport(law, 150.0)
+    for joins, n in ((None, 2), ({"apronW": False, "stubE": True}, 1), ({}, 2)):
+        ap = _dc.replace(airport, paved_joins=joins)
+        pm = with_runway_chord(build(ap, _cells_of(ap), law)[0], law, ap)
+        assert len(pm.runway_caps["09/27"].junctions) == n, joins
+
+
+def _cells_of(_ap):
+    return Classification(_CELLS, (), {}, ())
+
+
+def _fake_imagery(beyond_rgb):
+    """A north-up texture over the fixture: grey asphalt everywhere, the
+    ground north of the runway's north edge coloured ``beyond_rgb``."""
+    import numpy as np
+    from auto_patch_v2.airport.image_provider import ImagePatch
+
+    class _T:
+        def __len__(self):
+            return 1
+
+        def patch(self, crs, x0, y0, x1, y1, m_per_px, corridor=None):
+            w, h = int((x1 - x0) / m_per_px), int((y1 - y0) / m_per_px)
+            rgb = np.full((h, w, 3), (110, 112, 108), np.uint8)
+            ys = y1 - (np.arange(h) + 0.5) * m_per_px
+            rgb[ys > 22.5] = beyond_rgb
+            return ImagePatch(rgb, m_per_px, (x0, y1), "fake@18", np.ones((h, w), bool))
+    return _T()
+
+
+@pytest.mark.parametrize("beyond, paved", [((120, 121, 118), True),     # concrete
+                                           ((150, 125, 85), False),    # dirt
+                                           ((95, 130, 60), False)])    # grass
+def test_the_junction_witness_reads_pavement_by_its_grey(law, beyond, paved):
+    """RULINGS 2026-10-27n: the classic method's ``paved_contact`` (the
+    saturation of the ground beyond the edge against the runway body)."""
+    import dataclasses as _dc
+
+    from auto_patch_v2.airport.junction_witness import witness_paved_joins
+    airport, _pm = _airport(law, 150.0)
+    pavs = tuple(_Pav(c.ref, c.ring) for c in _CELLS[1:])
+    ap = _dc.replace(airport, pavements=pavs)
+    got, recs, lines = witness_paved_joins(ap, _fake_imagery(beyond), law)
+    assert got.paved_joins == {"stubE": paved, "apronW": paved}
+    assert bool(lines) is (not paved)
+    none, _r, _l = witness_paved_joins(ap, None, law)
+    assert none.paved_joins is None                    # no imagery: abstain
+
+
+class _Pav:
+    def __init__(self, ref, ring):
+        self.id, self.outer, self.holes, self.description = ref, ring, (), ref

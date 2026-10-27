@@ -430,6 +430,14 @@ runway_profile_window_m = 500.0
 # reader prices.  A VALUE, never a switch: a runway whose pins fit under
 # the table never sees it.
 runway_yield_margin = 0.0002
+# RULINGS 2026-10-27n (Q205, under 26q): a STEEP runway's designed profile
+# (constraints/runway_junctions) is the smoothing spline of the ground along
+# its ridge, through its pins and its paved junction flats: relief LONGER
+# than this is followed, shorter relief (a surface model's buildings, its
+# noise) is smoothed out.  VALUE FROM ONE WITNESS: VNLK's video profile
+# (findings §10), matched within its confidences over 175-250 m.  A value,
+# never a switch.
+steep_runway_ground_wavelength_m = 200.0
 law           = 300.0  # every law row of every generator as a ONE-SIDED quadratic penalty (grade caps, transverse, K, rate, no_step, crown, portions, bands, offsets): strong, so a law is met wherever the geometry allows, and a design target where it cannot
 # THE DEM HAS LEFT THE PATCH (owner RULINGS 2026-09-09b (3)): the
 # `dem_zone` weight, its rows and the beyond-the-outer-ring DEM fixing are

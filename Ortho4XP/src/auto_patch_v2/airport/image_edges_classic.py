@@ -15,6 +15,17 @@ along line probes, no learned weights.  Registered as ``classic_edges``.
 * ``edges(..., "pavement_start")`` — along a runway's axis, the first
   station from which the rows read as the runway's own pavement (their
   median within ``_PAVE_TOL`` of the runway body's) for ``_PAVE_RUN_M``.
+* ``edges(..., "paved_contact")`` — across a runway EDGE (the normal points
+  out of the runway; negative offsets are the runway's own body, positive
+  ones the ground beyond the edge), whether the ground beyond reads as
+  pavement: its median HSV SATURATION no more than ``_PAVE_SAT_TOL`` above
+  the runway body's (owner RULINGS 2026-10-27n, "a runway flattens only
+  where the imagery shows real pavement joining it").  Saturation, not
+  luminance: asphalt and concrete are grey, dirt and grass are coloured —
+  and a luminance match was refuted (dry grass reads as old asphalt, the
+  threshold witness's finding; at VNLK the dirt helicopter plot and the
+  asphalt runway differ by 1.5 levels, the concrete helipad connector and
+  the runway by 100).
 * ``presence(..., "portal_opening")`` — how much darker the window's
   darkest quarter is than the window's surround (an opening and its
   shadow), strength over a 2× floor.
@@ -52,17 +63,26 @@ _GAP_M = 3.0
 #: pavement row: its median within this of the runway body's
 _PAVE_TOL = 25.0
 _PAVE_RUN_M = 40.0
+#: paved contact: the ground beyond a runway edge is pavement when its median
+#: saturation exceeds the runway body's by no more than this (calibrated on
+#: the Arc ZL18 texture at VNLK, ``docs/findings/vnlk-junctions-lvnlk.md``
+#: §10: runway 0.113; asphalt apron -0.014, concrete connector -0.074,
+#: weathered taxiway +0.036 against dirt plot +0.078, grass verges +0.14 and
+#: +0.19 — the cut between the paved and the unpaved)
+_PAVE_SAT_TOL = 0.05
 #: portal opening: darker by at least this many levels than the surround
 _DARK_MIN = 25.0
 #: the surround a window is compared with, metres beyond its edge
 _SURROUND_M = 15.0
 
 
-def strip_profiles(patch: ImagePatch, probes: Probes, step_m: float | None = None
-                   ) -> np.ndarray:
+def strip_profiles(patch: ImagePatch, probes: Probes, step_m: float | None = None,
+                   channel: np.ndarray | None = None) -> np.ndarray:
     """Luminance N×M×K: per station, per normal offset, the K along-track
-    samples across ``±half_width_m`` (K = 1 when the half width is 0)."""
-    lum = patch.luminance()
+    samples across ``±half_width_m`` (K = 1 when the half width is 0).
+    ``channel``: another per-pixel image of the patch (e.g. its saturation)
+    sampled the same way."""
+    lum = patch.luminance() if channel is None else channel
     filled = np.where(np.isfinite(lum), lum, 0.0)
     valid = np.isfinite(lum).astype(np.float32)
     step = step_m or patch.m_per_px
@@ -219,6 +239,27 @@ def _first_run(flags: np.ndarray, offsets: np.ndarray, run_m: float) -> float | 
     return None
 
 
+def _paved_contact(patch: ImagePatch, probes: Probes) -> list[ImageEvidence]:
+    """``edges(..., "paved_contact")`` (module docstring): per probe, the
+    ground beyond the edge against the runway body, by saturation."""
+    sat = strip_profiles(patch, probes, channel=patch.saturation())
+    offs = np.asarray(probes.offsets_m, dtype=float)
+    out: list[ImageEvidence] = []
+    with np.errstate(all="ignore"):
+        for i in range(sat.shape[0]):
+            body = np.nanmedian(sat[i][offs < 0.0])
+            beyond = np.nanmedian(sat[i][offs > 0.0])
+            if not (np.isfinite(body) and np.isfinite(beyond)):
+                out.append(ImageEvidence(None, 0.0, NONE))
+                continue
+            over = float(beyond - body)
+            paved = over <= _PAVE_SAT_TOL
+            strength = max(0.0, min(1.0, abs(over - _PAVE_SAT_TOL) / _PAVE_SAT_TOL))
+            out.append(ImageEvidence(0.0 if paved else None, strength,
+                                     "paved_contact" if paved else NONE))
+    return out
+
+
 class ClassicEdges:
     """The classic method (module docstring)."""
 
@@ -226,6 +267,8 @@ class ClassicEdges:
     version = "1"
 
     def edges(self, patch: ImagePatch, probes: Probes, kind: str) -> list[ImageEvidence]:
+        if kind == "paved_contact":
+            return _paved_contact(patch, probes)
         prof = strip_profiles(patch, probes)
         offs = np.asarray(probes.offsets_m, dtype=float)
         out: list[ImageEvidence] = []

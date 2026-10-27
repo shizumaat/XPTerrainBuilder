@@ -320,7 +320,7 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
             # the 29ac pavement ceiling — pavement can no longer follow it)
             # flattens where taxiways join it; the cap names the steepest
             # DESIGNED grade
-            prof = _junction_design(pm, law, vw, st, best_ij, best, rw)
+            prof = _junction_design(pm, law, vw, st, best_ij, best, rw, airport)
             if prof is not None:
                 cap = max(rc.longitudinal, prof.grade + margin)
         out[rw.id] = RunwayCap(
@@ -337,7 +337,7 @@ def derive(pm: PlanarMap, law: Law, airport: Airport) -> dict[str, RunwayCap]:
 
 
 def _junction_design(pm: PlanarMap, law: Law, vw, st: list[int],
-                     ij: tuple[int, int], best: tuple, rw):
+                     ij: tuple[int, int], best: tuple, rw, airport: Airport):
     """RULINGS 2026-10-26n over the governing span (stations ``ij``):
     ``runway_junctions.design``, or ``None``."""
     from .runway_junctions import design
@@ -349,7 +349,7 @@ def _junction_design(pm: PlanarMap, law: Law, vw, st: list[int],
                                                         rw.code_letter)
     return design(pm, law, vw.xy, st, cum, rw, i, j, float(best[2].z),
                   float(best[3].z), k_law,
-                  ends=(best[2].kind == KIND_THRESHOLD, best[3].kind == KIND_THRESHOLD))
+                  paved=getattr(airport, "paved_joins", None))
 
 
 def report_line(icao: str, rc: RunwayCap, authority: str = "") -> str:

@@ -75,12 +75,17 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
     or the bore's own ``layer`` at or under ``terrain_layer_max``, which
     is OSM's statement that it runs below what it crosses.
     (d) An OSM ``tunnel`` bore lying INSIDE THE AIRPORT BOUNDARY is a
-    terrain tunnel where it carries ONE of the five witnesses of
+    terrain tunnel ONLY where it carries ONE of the five witnesses of
     :func:`planar.structure_fence.fence_witness` — a rise, a road-level
     sign at a mouth, a pack portal, anything crossing over it, a lidar cut
     on a credible inset (owner RULINGS 2026-10-27z, issue #535, narrowing
     2026-09-27a (4)); with none it is NOT built (SPJC -5724, the road at
     ground level under a raised walkway; KDEN -6306, no tunnel there).
+    Pavement painted over it (the classified cover less the building
+    pads, ``FieldRegion.roofed_run_m``) and the bore's own
+    ``layer`` are the tag's, not witnesses (owner RULINGS 2026-10-28p (4),
+    #1338: NZWN's multi-storey car park maps its ground level as
+    ``layer=-1`` tunnels under its own pavement; they were cut to -3.1 m).
     (e) THE PACK'S OPEN PASSAGE OUTRANKS COVER, A CROSSING, A RISE, A
     NEGATIVE LAYER AND THE FENCE (owner RULINGS 2026-10-10q, issue #548;
     extends 10i (1) / 10k, issue #522; the layer since #710): where an ELEVATED pack part stands over a mapped
@@ -220,17 +225,27 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                                f"tag is the road's passage under it, not a terrain "
                                f"tunnel (§34 (12) (5), owner RULINGS 2026-10-10q, "
                                f"#710)")
-        if cover >= tn.terrain_cover_min_m:
-            return True, f"under the classified cover for {cover:.1f} m"
-        if below:
+        # (d) INSIDE THE FENCE THE TAG IS NOT ITS OWN WITNESS (owner RULINGS
+        # 2026-10-28p (4), Q243 "a", #1338): pavement painted over a tagged
+        # tunnel — the classified cover less its ROOFED half (a pad) — and
+        # the tag's own ``layer`` do not show it; it needs one of 27z's
+        # witnesses (``fence_witness``)
+        tagged_in_fence = fence is not None and _osm_tunnel(bore, tn.admitted_values) \
+            and fence.covers(ln)
+        roofed = on_field.roofed_run_m(ln) if tagged_in_fence and \
+            hasattr(on_field, "roofed_run_m") else 0.0
+        if cover >= tn.terrain_cover_min_m and (
+                not tagged_in_fence or roofed >= tn.terrain_cover_min_m):
+            return True, (f"under the classified cover for {cover:.1f} m"
+                          + (f" ({roofed:.1f} m roofed)" if tagged_in_fence else ""))
+        if below and not tagged_in_fence:
             return True, f"the bore carries layer {lay}"
         crossed = _crossings(ln, grade, grade_tree, bore, tn.terrain_crossing_min_m)
         if crossed:
             return True, ("under " + ", ".join(crossed[:3]) + " at grade")
         if rise is not None and rise >= tn.terrain_rise_m:
             return True, f"the ground over it stands {rise:+.2f} m above its mouth chord"
-        if fence is not None and _osm_tunnel(bore, tn.admitted_values) \
-                and fence.covers(ln):
+        if tagged_in_fence:
             seen = fenced(bore)
             if seen:
                 return True, (f"an OSM tunnel inside the airport boundary, "
@@ -238,7 +253,9 @@ def terrain_tunnel_witness(airport, law: Law, on_field, osm_ways):
                               f"RULINGS 2026-10-27z)")
             return False, (f"bore {ids} IS TAGGED A TUNNEL INSIDE THE AIRPORT "
                            f"BOUNDARY WITH NO WITNESS ({ln.length:.0f} m; cover "
-                           f"{cover:.1f} m, ground "
+                           f"{cover:.1f} m and layer "
+                           f"{'none' if lay is None else lay} are the tag's own, "
+                           f"28p (4); ground "
                            f"{'unreadable' if rise is None else f'{rise:+.2f} m'} "
                            f"over its mouth chord, no level sign on a road joined "
                            f"at a mouth, no pack portal, nothing crossing over "

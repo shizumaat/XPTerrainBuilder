@@ -20,7 +20,7 @@ from ..law import Law
 from ..law.reference_code import is_instrument, runway_code_letter, runway_code_number
 from ..law.tables import identity_dp, input_quantum_m
 from ..model.airport import (GAP_SHEET_PREFIX, Airport, Boundary, Building,
-                             DsfObject, FacadeRead, GroundRoute, LinearFeature, OsmWay, Pavement,
+                             DsfObject, FacadeRead, FenceLine, GroundRoute, LinearFeature, OsmWay, Pavement,
                              Runway, RunwayEnd, Startup, Surface, TaxiEdge,
                              TaxiNode)
 from ..model.frame import XY, Frame
@@ -494,6 +494,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
             "each build and re-makes an empty one; with the harness, run "
             "build_airport.py --refresh-data airport_mod_cache.")
     n_fac = n_obj = n_pol = n_agp = n_lot = 0
+    fences: list[FenceLine] = []
     dsf_pavements: list[Pavement] = []
     pol_sheets: list[Pavement] = []
     # THE ADMISSION GATE (RULINGS 2026-09-06a): the tile DSF carries EVERY
@@ -523,13 +524,29 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         # §52 (RULINGS 2026-10-04d (3) (c)): an OPEN-LOT facade is read by
         # what its FILE says, never by name — the only class the name gate
         # does not already carry that this stage admits
+        def _line(p: str) -> bool:
+            return not _named(p) and _facade.is_line_def(p, sel.root, index)
+
         dump = _dsf.read_dump(
-            dump_path, lambda p: _named(p) or _facade.is_lot_def(p, sel.root, index))
+            dump_path, lambda p: _named(p) or _facade.is_lot_def(p, sel.root, index)
+            or _line(p), line_def=_line)
         i = -1          # the id index counts the NAME-GATED polygons, as before
         # §60: a page admitted by its own SURFACE is a GAP SHEET.  It is
         # consumed BEFORE the index advances, so no ``dsf:pol<i>`` /
         # ``dsf:fac<i>`` id moves; it is numbered after the object sheets.
         for poly in dump.polygons:
+            if _line(poly.def_path):
+                # the pack's FENCES (owner RULINGS 2026-10-28p (3), #1338):
+                # a line facade is no footprint; §27 reads it as a barrier
+                closed = _facade.def_closed(poly.def_path, sel.root, index)
+                for w in poly.windings:
+                    pts = tuple(to_xy(lon, lat) for lon, lat in w)
+                    if closed and len(pts) >= 3 and pts[0] != pts[-1]:
+                        pts = pts + pts[:1]
+                    if own_extent is None or own_extent.intersects(_line_of(pts)):
+                        fences.append(FenceLine(f"dsf:fence{len(fences)}", pts,
+                                                poly.def_path))
+                continue
             if not _named(poly.def_path):
                 ring = _ring(poly.windings[0], to_xy)
                 if own_extent is None or own_extent.intersects(_shape_of(ring)):
@@ -719,7 +736,7 @@ def load_with_report(icao: str, inputs: Inputs, law: Law | None = None
         tuple(runways), pavements, lines, taxi_nodes, taxi_edges, routes,
         boundaries, startups, tuple(osm_ways), tuple(buildings),
         tuple(dsf_objects), pack, dem, law.ruleset_key,
-        gap_sheets=tuple(gap_sheets))
+        gap_sheets=tuple(gap_sheets), fences=tuple(fences))
     # THE THRESHOLD WITNESS (#1359; owner RULINGS 2026-10-26q / 26v): a CIFP
     # record the installed layout and the imagery both outvote is DROPPED
     # for its end before the pin rule judges it — ONE site
@@ -1053,6 +1070,11 @@ def _sheet_area(sheet: Pavement) -> float:
     from shapely.geometry import Polygon
     return float(Polygon(sheet.outer, [h for h in sheet.holes
                                        if len(h) >= 3]).buffer(0).area)
+
+
+def _line_of(pts):
+    from shapely.geometry import LineString
+    return LineString(pts)
 
 
 def _shape_of(ring):

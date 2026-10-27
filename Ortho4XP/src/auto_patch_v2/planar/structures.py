@@ -98,7 +98,8 @@ from .wall_corridor_ramps import (KIND as WALL_KIND, ROAD_ROLES, OBJECT_FRAMED,
                                   full_wall_ramp, road_true_edge,
                                   wall_corridor_note, wall_corridor_profile)
 from ..airport.dem import dem_z_at
-from .structure_approach import (FieldRegion, apply_plates, cover_polygons, standing_cover,
+from .structure_approach import (FieldRegion, apply_plates, cover_polygons, roofed_cover,
+                                 standing_cover,
                                  approach_ground as _approach_ground,
                                  carriageway_width_m, cut_gap_cells,
                                  chains, field_region_for, mouth_reports, under_cover,
@@ -221,7 +222,8 @@ def build_structures(airport: Airport, classification: Classification, law: Law,
     # the road reach stands (stops a mouth, clips a ramp) but admits none (22g)
     on_field = field_region_for(airport, law, cover_polygons(classification)
                                 + [c.footprint for c in corridors],
-                                corridors)  # 27a (3): never a pack building
+                                corridors,  # 27a (3): never a pack building
+                                roofed_cover(classification))  # 28p (4)
     stats.approach_corridors = len(on_field.corridor or ())
     stats.runway_bands = len(on_field.band or ())
     mouth_list, dropped = (mouths(bores, list(airport.osm_ways), law, reach, on_field)

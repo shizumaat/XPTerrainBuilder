@@ -311,21 +311,26 @@ def test_a_NEGATIVE_LAYER_does_not_outrank_the_passage(law):
 
 
 def test_a_NEGATIVE_LAYER_with_NO_passage_still_builds_the_bore(law):
-    """The layer witness is untouched where the pack shows no passage: no
-    pack at all, and a pack part at grade over the line (cover)."""
+    """The layer witness is untouched where the pack shows no passage:
+    outside the fence with no pack at all, and a pack part at grade over
+    the line (cover) inside it.  Inside the fence the bore's own layer is
+    the tag's, not a witness (owner RULINGS 2026-10-28p (4), #1338;
+    ``test_fence_tag_not_witness``)."""
     over = _part(0.0, 6.0, _ll_ring(310, -110, 325, -90))      # holds neither end
     tags = dict(SPJC_TAGS, layer="-1")
-    for part in (None, _link(over)):
-        _cl, _t, st = _spjc(law, partition=part, tags=tags)
+    for part, fence in ((None, None), (_link(over), _rect(-800, -800, 800, 800))):
+        _cl, _t, st = _spjc(law, partition=part, tags=tags, fence=fence)
         assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
 
 
 def test_COVER_or_a_RISE_with_NO_passage_still_builds_the_bore(law):
     """(c)'s witnesses are untouched where the pack shows no passage: no
-    pack at all, and a pack part at grade over the line (cover)."""
+    pack at all, and a pack part at grade over the line (cover).  Inside
+    the fence, pavement cover alone is the tag's, not a witness (owner
+    RULINGS 2026-10-28p (4), #1338), so the cover arm reads outside it."""
     over = _part(0.0, 6.0, _ll_ring(310, -110, 325, -90))      # holds neither end
     for part in (None, _link(over)):
-        _cl, _t, st = _spjc(law, partition=part, extra_cells=(APRON,))
+        _cl, _t, st = _spjc(law, partition=part, extra_cells=(APRON,), fence=None)
         assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest
         _cl, _t, st = _spjc(law, partition=part, dem=_hill(2.0))
         assert st.tunnels == 2 and not _refusals(st), st.mouths_off_field_nearest

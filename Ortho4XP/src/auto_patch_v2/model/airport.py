@@ -22,7 +22,7 @@ Ring = tuple[XY, ...]
 __all__ = [
     "Ring", "Surface", "RunwayEnd", "Runway", "Pavement", "LinearFeature",
     "TaxiNode", "TaxiEdge", "GroundRoute", "Boundary", "Startup",
-    "OsmWay", "Building", "FacadeEdge", "FacadeRead", "DemSample", "DsfObject", "SceneryPack",
+    "OsmWay", "Building", "FenceLine", "FacadeEdge", "FacadeRead", "DemSample", "DsfObject", "SceneryPack",
     "FlatVerdict", "FlatPackVerdict", "Airport", "GAP_SHEET_PREFIX",
 ]
 
@@ -289,6 +289,18 @@ class Building:
     facade: "FacadeRead | None" = None
 
 
+@_dc.dataclass(frozen=True)
+class FenceLine:
+    """A pack LINE facade (``airport.facade.is_line_def``: a ``.fac`` whose
+    file draws only walls — a fence, a wall on the ground) as placed, in
+    the frame.  Read for §27's barrier (owner RULINGS 2026-10-28p (3),
+    #1338; ``classify.barrier_edge``)."""
+
+    id: str
+    points: tuple[XY, ...]
+    def_path: str
+
+
 class DemSample(_t.Protocol):
     """The DEM + insets sampler interface.  ``z(x, y)`` is the terrain
     elevation at a frame point (bilinear over the effective raster —
@@ -478,3 +490,6 @@ class Airport:
     #: meets a runway; ``None`` = no imagery (every junction stands, the vote
     #: abstains), an absent id = no contact read (its junction stands)
     paved_joins: _t.Mapping[str, bool] | None = None
+    #: THE PACK'S FENCES (``FenceLine``; owner RULINGS 2026-10-28p (3)): its
+    #: line facades as placed.  Empty = none (or a capture written before).
+    fences: tuple[FenceLine, ...] = ()
